@@ -74,22 +74,22 @@ enum TimeFormatter {
         return formatRelativeTime(until: resetDate)
     }
 
-    /// 리셋 시각을 "HH:mm" 형태로 포맷
-    nonisolated static func formatResetTime(from resetAt: String) -> String? {
+    /// 리셋 시각을 시간 포맷에 맞게 반환
+    nonisolated static func formatResetTime(from resetAt: String, style: TimeFormatStyle = .h24) -> String? {
         guard let resetDate = parseISO8601(resetAt) else { return nil }
 
         let df = DateFormatter()
-        df.locale = Locale(identifier: "ko_KR")
+        df.locale = Locale(identifier: style == .h12 ? "en_US" : "ko_KR")
         df.timeZone = .current
-        df.dateFormat = "HH:mm"
+        df.dateFormat = style == .h12 ? "h:mm a" : "HH:mm"
         return df.string(from: resetDate)
     }
 
     /// 남은 시간 + 리셋 시각을 결합한 포맷
-    /// 예: "2시간 34분 후 리셋 (12:34)"
-    nonisolated static func formatRelativeTimeWithClock(from resetAt: String) -> String {
+    /// 예: "2시간 34분 후 리셋 (18:34)" 또는 "2시간 34분 후 리셋 (6:34 PM)"
+    nonisolated static func formatRelativeTimeWithClock(from resetAt: String, style: TimeFormatStyle = .h24) -> String {
         let relative = formatRelativeTime(from: resetAt)
-        if let clock = formatResetTime(from: resetAt) {
+        if let clock = formatResetTime(from: resetAt, style: style) {
             return "\(relative) (\(clock))"
         }
         return relative

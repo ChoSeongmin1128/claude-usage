@@ -15,13 +15,13 @@ enum MenuBarIconRenderer {
     ///   - percentage: 사용률 (0~100)
     ///   - color: 채움 색상
     /// - Returns: 메뉴바용 NSImage
-    nonisolated static func batteryIcon(percentage: Double, color: NSColor) -> NSImage {
-        let height: CGFloat = 12
-        let bodyWidth: CGFloat = 24
-        let capWidth: CGFloat = 2.5
+    nonisolated static func batteryIcon(percentage: Double, color: NSColor, showPercent: Bool = true) -> NSImage {
+        let height: CGFloat = 14
+        let bodyWidth: CGFloat = 36
+        let capWidth: CGFloat = 3
         let totalWidth = bodyWidth + capWidth + 1
-        let cornerRadius: CGFloat = 2.5
-        let capCornerRadius: CGFloat = 1.0
+        let cornerRadius: CGFloat = 3.0
+        let capCornerRadius: CGFloat = 1.5
         let inset: CGFloat = 1.5
 
         let image = NSImage(size: NSSize(width: totalWidth, height: height), flipped: false) { rect in
@@ -54,6 +54,20 @@ enum MenuBarIconRenderer {
             let fillPath = NSBezierPath(roundedRect: innerRect, xRadius: innerCorner, yRadius: innerCorner)
             color.setFill()
             fillPath.fill()
+
+            // 퍼센트 텍스트 (배터리 내부 중앙)
+            if showPercent {
+                let textColor: NSColor = isDark ? .white : .black
+                let text = String(format: "%.0f%%", remaining)
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.monospacedDigitSystemFont(ofSize: 8.5, weight: .semibold),
+                    .foregroundColor: textColor.withAlphaComponent(0.85)
+                ]
+                let textSize = (text as NSString).size(withAttributes: attrs)
+                let textX = (bodyWidth - textSize.width) / 2
+                let textY = (height - textSize.height) / 2
+                (text as NSString).draw(at: NSPoint(x: textX, y: textY), withAttributes: attrs)
+            }
 
             return true
         }

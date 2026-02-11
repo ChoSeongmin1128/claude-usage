@@ -32,7 +32,7 @@ struct UsageSectionView: View {
             ProgressBarView(percentage: percentage)
 
             // 리셋 시간 (남은 시간 + 시각)
-            Text(TimeFormatter.formatRelativeTimeWithClock(from: resetAt))
+            Text(TimeFormatter.formatRelativeTimeWithClock(from: resetAt, style: AppSettings.shared.timeFormat))
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

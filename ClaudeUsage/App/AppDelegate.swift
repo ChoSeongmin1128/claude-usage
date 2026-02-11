@@ -227,17 +227,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
-        // 표시 스타일 변경
-        AppSettings.shared.$menuBarStyle
-            .dropFirst()
-            .sink { [weak self] _ in self?.updateMenuBar() }
-            .store(in: &cancellables)
+        // 디스플레이 관련 설정 변경 → 메뉴바 즉시 갱신
+        // receive(on: RunLoop.main)으로 값 반영 후 업데이트
+        let displayPublishers = [
+            AppSettings.shared.$menuBarStyle.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$showPercentage.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$showResetTime.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$timeFormat.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
+        ]
 
-        // 퍼센트 표시 변경
-        AppSettings.shared.$showPercentage
-            .dropFirst()
-            .sink { [weak self] _ in self?.updateMenuBar() }
-            .store(in: &cancellables)
+        for publisher in displayPublishers {
+            publisher
+                .dropFirst()
+                .receive(on: RunLoop.main)
+                .sink { [weak self] in self?.updateMenuBar() }
+                .store(in: &cancellables)
+        }
     }
 
     private func observePowerState() {
@@ -323,42 +329,78 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let color = ColorProvider.nsStatusColor(for: percentage)
         let settings = AppSettings.shared
 
-        // Claude 아이콘 (항상 표시)
+        // 모든 요소를 하나의 이미지로 통합 렌더링 (세로 정렬 보장)
+        let menuBarHeight: CGFloat = 22
+        let spacing: CGFloat = 4
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+        let smallFont = NSFont.systemFont(ofSize: 11)
+        var elements: [(image: NSImage?, text: String?, attrs: [NSAttributedString.Key: Any]?)] = []
+
+        // 1. Claude 아이콘 (항상)
         let claudeIcon = NSImage(named: "ClaudeMenuBarIcon")
-        claudeIcon?.size = NSSize(width: 16, height: 16)
-        button.image = claudeIcon
-        button.imagePosition = .imageLeft
+        let iconSize: CGFloat = 18
+        claudeIcon?.size = NSSize(width: iconSize, height: iconSize)
+        elements.append((image: claudeIcon, text: nil, attrs: nil))
 
-        // 텍스트 + 추가 아이콘 조합
-        let text = NSMutableAttributedString()
-
-        // 퍼센트 (설정에 따라)
+        // 2. 퍼센트 (설정)
         if settings.showPercentage {
-            text.append(NSAttributedString(
-                string: String(format: "%.0f%%", percentage),
-                attributes: [.foregroundColor: color]
-            ))
+            let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+            elements.append((image: nil, text: String(format: "%.0f%%", percentage), attrs: attrs))
         }
 
-        // 추가 아이콘 (선택)
+        // 3. 추가 아이콘 (설정)
         let extraIcon: NSImage? = switch settings.menuBarStyle {
-        case .none:
-            nil
-        case .batteryBar:
-            MenuBarIconRenderer.batteryIcon(percentage: percentage, color: color)
-        case .circular:
-            MenuBarIconRenderer.circularRingIcon(percentage: percentage, color: color)
+        case .none: nil
+        case .batteryBar: MenuBarIconRenderer.batteryIcon(percentage: percentage, color: color, showPercent: settings.showBatteryPercent)
+        case .circular: MenuBarIconRenderer.circularRingIcon(percentage: percentage, color: color)
         }
-
         if let extra = extraIcon {
-            if text.length > 0 { text.append(NSAttributedString(string: " ")) }
-            let attachment = NSTextAttachment()
-            attachment.image = extra
-            attachment.bounds = NSRect(x: 0, y: -2, width: extra.size.width, height: extra.size.height)
-            text.append(NSAttributedString(attachment: attachment))
+            elements.append((image: extra, text: nil, attrs: nil))
         }
 
-        button.attributedTitle = text
+        // 4. 리셋 시간 (설정)
+        if settings.showResetTime {
+            let resetAt = showingWeekly ? usage.sevenDay.resetsAt : usage.fiveHour.resetsAt
+            if let clock = TimeFormatter.formatResetTime(from: resetAt, style: settings.timeFormat) {
+                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
+                elements.append((image: nil, text: clock, attrs: attrs))
+            }
+        }
+
+        // 총 너비 계산
+        var totalWidth: CGFloat = 0
+        for (i, el) in elements.enumerated() {
+            if i > 0 { totalWidth += spacing }
+            if let img = el.image {
+                totalWidth += img.size.width
+            } else if let txt = el.text, let attrs = el.attrs {
+                totalWidth += (txt as NSString).size(withAttributes: attrs).width
+            }
+        }
+
+        // 통합 이미지 생성
+        let compositeImage = NSImage(size: NSSize(width: totalWidth, height: menuBarHeight), flipped: false) { _ in
+            var x: CGFloat = 0
+            for (i, el) in elements.enumerated() {
+                if i > 0 { x += spacing }
+                if let img = el.image {
+                    let y = (menuBarHeight - img.size.height) / 2
+                    img.draw(in: NSRect(x: x, y: y, width: img.size.width, height: img.size.height))
+                    x += img.size.width
+                } else if let txt = el.text, let attrs = el.attrs {
+                    let size = (txt as NSString).size(withAttributes: attrs)
+                    let y = (menuBarHeight - size.height) / 2
+                    (txt as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
+                    x += size.width
+                }
+            }
+            return true
+        }
+        compositeImage.isTemplate = false
+
+        button.image = compositeImage
+        button.imagePosition = .imageOnly
+        button.attributedTitle = NSAttributedString(string: "")
         button.toolTip = "\(sessionLabel) 세션: \(Int(percentage))%\n(Option+클릭: 5시간/주간 전환)"
     }
 

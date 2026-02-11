@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var testResult: TestResult?
     @State private var isTesting: Bool = false
     @State private var refreshIntervalText: String = ""
+    @State private var showKeyHelp: Bool = false
 
     var onSave: (() -> Void)?
     var onCancel: (() -> Void)?
@@ -80,8 +81,29 @@ struct SettingsView: View {
                 .font(.headline)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("세션 키")
-                    .font(.subheadline)
+                HStack(spacing: 4) {
+                    Text("세션 키")
+                        .font(.subheadline)
+                    Button(action: { showKeyHelp.toggle() }) {
+                        Image(systemName: "questionmark.circle")
+                            .foregroundStyle(.secondary)
+                            .font(.system(size: 14))
+                    }
+                    .buttonStyle(.borderless)
+                    .popover(isPresented: $showKeyHelp) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("세션 키 가져오는 방법")
+                                .font(.headline)
+                            Text("1. claude.ai에 로그인")
+                            Text("2. ⌘⌥I (Cmd+Opt+I)로 개발자 도구 열기")
+                            Text("3. Application 탭 → Cookies → https://claude.ai")
+                            Text("4. sessionKey의 값을 복사")
+                        }
+                        .font(.callout)
+                        .padding(16)
+                        .frame(width: 320)
+                    }
+                }
 
                 TextField("sk-ant-sid01-...", text: $sessionKey)
                     .textFieldStyle(.roundedBorder)
@@ -132,7 +154,22 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.radioGroup)
 
+                if settings.menuBarStyle == .batteryBar {
+                    Toggle("배터리 내부 퍼센트", isOn: $settings.showBatteryPercent)
+                        .padding(.leading, 20)
+                }
+
                 Toggle("퍼센트 표시", isOn: $settings.showPercentage)
+                Toggle("리셋 시간 표시", isOn: $settings.showResetTime)
+
+                if settings.showResetTime {
+                    Picker("시간 형식:", selection: $settings.timeFormat) {
+                        ForEach(TimeFormatStyle.allCases, id: \.self) { style in
+                            Text(style.displayName).tag(style)
+                        }
+                    }
+                    .pickerStyle(.radioGroup)
+                }
 
                 Text("Claude 아이콘은 항상 표시됩니다")
                     .font(.caption)

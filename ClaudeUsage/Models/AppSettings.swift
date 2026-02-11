@@ -22,6 +22,18 @@ enum MenuBarStyle: String, Codable, CaseIterable, Sendable {
     }
 }
 
+enum TimeFormatStyle: String, Codable, CaseIterable, Sendable {
+    case h24 = "24h"
+    case h12 = "12h"
+
+    var displayName: String {
+        switch self {
+        case .h24: return "24시간 (18:34)"
+        case .h12: return "12시간 (6:34 PM)"
+        }
+    }
+}
+
 class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
@@ -34,6 +46,15 @@ class AppSettings: ObservableObject {
     }
     @Published var showPercentage: Bool {
         didSet { defaults.set(showPercentage, forKey: "showPercentage") }
+    }
+    @Published var showBatteryPercent: Bool {
+        didSet { defaults.set(showBatteryPercent, forKey: "showBatteryPercent") }
+    }
+    @Published var showResetTime: Bool {
+        didSet { defaults.set(showResetTime, forKey: "showResetTime") }
+    }
+    @Published var timeFormat: TimeFormatStyle {
+        didSet { defaults.set(timeFormat.rawValue, forKey: "timeFormat") }
     }
     @Published var refreshInterval: TimeInterval {
         didSet { defaults.set(refreshInterval, forKey: "refreshInterval") }
@@ -60,6 +81,10 @@ class AppSettings: ObservableObject {
         let style = defaults.string(forKey: "menuBarStyle") ?? MenuBarStyle.none.rawValue
         self.menuBarStyle = MenuBarStyle(rawValue: style) ?? .none
         self.showPercentage = defaults.object(forKey: "showPercentage") as? Bool ?? true
+        self.showBatteryPercent = defaults.object(forKey: "showBatteryPercent") as? Bool ?? true
+        self.showResetTime = defaults.object(forKey: "showResetTime") as? Bool ?? false
+        let tf = defaults.string(forKey: "timeFormat") ?? TimeFormatStyle.h24.rawValue
+        self.timeFormat = TimeFormatStyle(rawValue: tf) ?? .h24
         self.refreshInterval = defaults.object(forKey: "refreshInterval") as? TimeInterval ?? 5.0
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
         self.alertAt75 = defaults.object(forKey: "alertAt75") as? Bool ?? true
