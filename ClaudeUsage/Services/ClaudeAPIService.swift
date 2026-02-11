@@ -85,6 +85,11 @@ actor ClaudeAPIService {
             }
         }
 
+        // 디버그: raw JSON 출력
+        if let jsonString = String(data: data, encoding: .utf8) {
+            Logger.debug("Raw JSON 응답: \(jsonString)")
+        }
+
         do {
             let decoder = JSONDecoder()
             let usageResponse = try decoder.decode(ClaudeUsageResponse.self, from: data)
