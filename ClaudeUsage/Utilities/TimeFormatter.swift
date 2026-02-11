@@ -95,14 +95,17 @@ enum TimeFormatter {
         return relative
     }
 
-    /// Date 기반 상대 시간 포맷
+    /// Date 기반 상대 시간 포맷 (30초 기준 반올림)
     nonisolated static func formatRelativeTime(until date: Date) -> String {
         let now = Date()
-        let interval = date.timeIntervalSince(now)
+        let rawInterval = date.timeIntervalSince(now)
 
-        if interval <= 0 {
+        if rawInterval <= 0 {
             return "곧 리셋"
         }
+
+        // 30초 기준 반올림: 30초 이상이면 1분으로 올림
+        let interval = (rawInterval + 30).rounded(.down)
 
         let totalMinutes = Int(interval / 60)
         let totalHours = totalMinutes / 60

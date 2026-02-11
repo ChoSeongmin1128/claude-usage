@@ -122,7 +122,7 @@ struct SettingsView: View {
                 .font(.headline)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("메뉴바 스타일:")
+                Text("추가 아이콘:")
                     .font(.subheadline)
 
                 Picker("", selection: $settings.menuBarStyle) {
@@ -132,7 +132,11 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.radioGroup)
 
-                Toggle("아이콘 표시", isOn: $settings.showIcon)
+                Toggle("퍼센트 표시", isOn: $settings.showPercentage)
+
+                Text("Claude 아이콘은 항상 표시됩니다")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }

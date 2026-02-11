@@ -112,8 +112,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // 우클릭: 컨텍스트 메뉴
             showContextMenu()
         } else if event.modifierFlags.contains(.option) {
-            // Option+클릭: 표시 모드 전환
-            toggleDisplayMode()
+            // Option+클릭: 5시간/주간 세션 전환
+            toggleSessionView()
         } else {
             // 일반 클릭: Popover 토글
             togglePopover()
@@ -145,7 +145,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             item.state = AppSettings.shared.menuBarStyle == style ? .on : .off
             styleMenu.addItem(item)
         }
-        let styleItem = NSMenuItem(title: "표시 스타일", action: nil, keyEquivalent: "")
+        let styleItem = NSMenuItem(title: "추가 아이콘", action: nil, keyEquivalent: "")
         styleItem.submenu = styleMenu
         menu.addItem(styleItem)
 
@@ -160,15 +160,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = nil  // 다음 클릭을 위해 메뉴 해제
     }
 
-    // MARK: - Display Modes
+    // MARK: - Session Toggle
 
-    private func toggleDisplayMode() {
-        let allStyles = MenuBarStyle.allCases
-        guard let currentIndex = allStyles.firstIndex(of: AppSettings.shared.menuBarStyle) else { return }
-        let nextIndex = (currentIndex + 1) % allStyles.count
-        AppSettings.shared.menuBarStyle = allStyles[nextIndex]
+    private var showingWeekly = false
+
+    private func toggleSessionView() {
+        showingWeekly.toggle()
         updateMenuBar()
-        Logger.info("표시 모드 전환: \(allStyles[nextIndex].displayName)")
+        Logger.info("세션 전환: \(showingWeekly ? "주간" : "5시간")")
     }
 
     @objc private func changeStyle(_ sender: NSMenuItem) {
@@ -230,6 +229,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 표시 스타일 변경
         AppSettings.shared.$menuBarStyle
+            .dropFirst()
+            .sink { [weak self] _ in self?.updateMenuBar() }
+            .store(in: &cancellables)
+
+        // 퍼센트 표시 변경
+        AppSettings.shared.$showPercentage
             .dropFirst()
             .sink { [weak self] _ in self?.updateMenuBar() }
             .store(in: &cancellables)
@@ -313,41 +318,48 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let percentage = usage.fiveHourPercentage
+        let percentage = showingWeekly ? usage.sevenDay.utilization : usage.fiveHourPercentage
+        let sessionLabel = showingWeekly ? "주간" : "5시간"
         let color = ColorProvider.nsStatusColor(for: percentage)
         let settings = AppSettings.shared
 
-        switch settings.menuBarStyle {
-        case .percentage:
-            let displayText = String(format: "%.0f%%", percentage)
-            if settings.showIcon, let claudeIcon = NSImage(named: "ClaudeMenuBarIcon") {
-                let size: CGFloat = 16
-                claudeIcon.size = NSSize(width: size, height: size)
-                button.image = claudeIcon
-                button.imagePosition = .imageLeft
-            } else {
-                button.image = nil
-                button.imagePosition = .noImage
-            }
-            button.attributedTitle = NSAttributedString(
-                string: displayText,
+        // Claude 아이콘 (항상 표시)
+        let claudeIcon = NSImage(named: "ClaudeMenuBarIcon")
+        claudeIcon?.size = NSSize(width: 16, height: 16)
+        button.image = claudeIcon
+        button.imagePosition = .imageLeft
+
+        // 텍스트 + 추가 아이콘 조합
+        let text = NSMutableAttributedString()
+
+        // 퍼센트 (설정에 따라)
+        if settings.showPercentage {
+            text.append(NSAttributedString(
+                string: String(format: "%.0f%%", percentage),
                 attributes: [.foregroundColor: color]
-            )
-
-        case .batteryBar:
-            let icon = MenuBarIconRenderer.batteryIcon(percentage: percentage, color: color)
-            button.image = icon
-            button.imagePosition = .imageOnly
-            button.attributedTitle = NSAttributedString(string: "")
-
-        case .circular:
-            let icon = MenuBarIconRenderer.circularRingIcon(percentage: percentage, color: color)
-            button.image = icon
-            button.imagePosition = .imageOnly
-            button.attributedTitle = NSAttributedString(string: "")
+            ))
         }
 
-        button.toolTip = "5시간 세션: \(Int(percentage))%\n(Option+클릭: 표시 모드 전환)"
+        // 추가 아이콘 (선택)
+        let extraIcon: NSImage? = switch settings.menuBarStyle {
+        case .none:
+            nil
+        case .batteryBar:
+            MenuBarIconRenderer.batteryIcon(percentage: percentage, color: color)
+        case .circular:
+            MenuBarIconRenderer.circularRingIcon(percentage: percentage, color: color)
+        }
+
+        if let extra = extraIcon {
+            if text.length > 0 { text.append(NSAttributedString(string: " ")) }
+            let attachment = NSTextAttachment()
+            attachment.image = extra
+            attachment.bounds = NSRect(x: 0, y: -2, width: extra.size.width, height: extra.size.height)
+            text.append(NSAttributedString(attachment: attachment))
+        }
+
+        button.attributedTitle = text
+        button.toolTip = "\(sessionLabel) 세션: \(Int(percentage))%\n(Option+클릭: 5시간/주간 전환)"
     }
 
     // MARK: - Keyboard Shortcuts

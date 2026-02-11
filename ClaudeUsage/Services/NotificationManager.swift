@@ -33,44 +33,48 @@ class NotificationManager {
 
     // MARK: - Threshold Check
 
-    /// resets_at 문자열을 시간 단위까지만 잘라서 비교용 키 생성
-    /// "2026-02-11T09:59:59.818398+00:00" → "2026-02-11T09"
-    /// 정각 기준 ±1분 차이(10:00 vs 09:59)를 무시하기 위해 시간 단위 비교
-    private func normalizeResetTime(_ resetAt: String) -> String {
-        guard let tIndex = resetAt.firstIndex(of: "T") else { return resetAt }
-        let timeStart = resetAt.index(after: tIndex)
-        let afterT = resetAt[timeStart...]
-        // "HH" = 2글자
-        if afterT.count >= 2 {
-            let hourEnd = resetAt.index(timeStart, offsetBy: 2)
-            return String(resetAt[resetAt.startIndex..<hourEnd])
+    /// 두 resets_at 문자열이 실제 리셋인지 판별 (30분 이상 차이나야 리셋)
+    /// API가 정각 기준 ±1분 오차를 반환하므로 단순 문자열 비교 불가
+    private func isActualReset(from oldResetAt: String, to newResetAt: String) -> Bool {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        let parse: (String) -> Date? = { str in
+            if let d = iso.date(from: str) { return d }
+            iso.formatOptions = [.withInternetDateTime]
+            return iso.date(from: str)
         }
-        return resetAt
+
+        guard let oldDate = parse(oldResetAt), let newDate = parse(newResetAt) else {
+            return oldResetAt != newResetAt
+        }
+
+        let diff = abs(newDate.timeIntervalSince(oldDate))
+        return diff > 300  // 5분(300초) 이상 차이나면 실제 리셋
     }
 
     func checkThreshold(percentage: Double, resetAt: String) {
         let settings = AppSettings.shared
-        let normalizedReset = normalizeResetTime(resetAt)
 
         // 첫 번째 호출: 현재 상태만 기록, 알림 보내지 않음
         if isFirstCheck {
             isFirstCheck = false
-            lastResetAt = normalizedReset
+            lastResetAt = resetAt
 
             // 이미 넘은 임계값은 alerted 처리 (앱 시작 시 알림 방지)
             if percentage >= 75 { alerted75 = true }
             if percentage >= 90 { alerted90 = true }
             if percentage >= 95 { alerted95 = true }
 
-            Logger.info("첫 실행 기록: \(Int(percentage))%, 리셋: \(normalizedReset)")
+            Logger.info("첫 실행 기록: \(Int(percentage))%, 리셋: \(resetAt)")
             return
         }
 
-        // 리셋 감지: 분 단위까지 비교하여 실제 리셋만 감지
-        if let lastReset = lastResetAt, lastReset != normalizedReset {
-            Logger.info("세션 리셋 감지: \(lastReset) → \(normalizedReset)")
+        // 리셋 감지: 30분 이상 차이나야 실제 리셋으로 판단
+        if let lastReset = lastResetAt, isActualReset(from: lastReset, to: resetAt) {
+            Logger.info("세션 리셋 감지: \(lastReset) → \(resetAt)")
             resetFlags()
-            lastResetAt = normalizedReset
+            lastResetAt = resetAt
 
             sendNotification(
                 title: "Claude 세션 리셋",
@@ -79,7 +83,7 @@ class NotificationManager {
             return  // 리셋 직후에는 임계값 알림 생략
         }
 
-        lastResetAt = normalizedReset
+        lastResetAt = resetAt
 
         // 임계값 알림 (높은 순서대로)
         if percentage >= 95 && !alerted95 && settings.alertAt95 {

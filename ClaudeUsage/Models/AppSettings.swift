@@ -9,13 +9,13 @@ import Foundation
 import Combine
 
 enum MenuBarStyle: String, Codable, CaseIterable, Sendable {
-    case percentage = "percentage"
+    case none = "none"
     case batteryBar = "battery_bar"
     case circular = "circular"
 
     var displayName: String {
         switch self {
-        case .percentage: return "퍼센트"
+        case .none: return "없음"
         case .batteryBar: return "배터리바"
         case .circular: return "원형"
         }
@@ -32,8 +32,8 @@ class AppSettings: ObservableObject {
     @Published var menuBarStyle: MenuBarStyle {
         didSet { defaults.set(menuBarStyle.rawValue, forKey: "menuBarStyle") }
     }
-    @Published var showIcon: Bool {
-        didSet { defaults.set(showIcon, forKey: "showIcon") }
+    @Published var showPercentage: Bool {
+        didSet { defaults.set(showPercentage, forKey: "showPercentage") }
     }
     @Published var refreshInterval: TimeInterval {
         didSet { defaults.set(refreshInterval, forKey: "refreshInterval") }
@@ -57,9 +57,9 @@ class AppSettings: ObservableObject {
     // MARK: - Init
 
     private init() {
-        let style = defaults.string(forKey: "menuBarStyle") ?? MenuBarStyle.percentage.rawValue
-        self.menuBarStyle = MenuBarStyle(rawValue: style) ?? .percentage
-        self.showIcon = defaults.object(forKey: "showIcon") as? Bool ?? true
+        let style = defaults.string(forKey: "menuBarStyle") ?? MenuBarStyle.none.rawValue
+        self.menuBarStyle = MenuBarStyle(rawValue: style) ?? .none
+        self.showPercentage = defaults.object(forKey: "showPercentage") as? Bool ?? true
         self.refreshInterval = defaults.object(forKey: "refreshInterval") as? TimeInterval ?? 5.0
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
         self.alertAt75 = defaults.object(forKey: "alertAt75") as? Bool ?? true

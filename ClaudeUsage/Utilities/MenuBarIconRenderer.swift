@@ -41,8 +41,9 @@ enum MenuBarIconRenderer {
             strokeColor.withAlphaComponent(0.5).setFill()
             capPath.fill()
 
-            // 내부 채움
-            let fillPercent = min(max(percentage, 0), 100) / 100.0
+            // 내부 채움 (남은 양 = 100 - 사용량)
+            let remaining = 100.0 - min(max(percentage, 0), 100)
+            let fillPercent = remaining / 100.0
             let innerRect = NSRect(
                 x: inset,
                 y: inset,

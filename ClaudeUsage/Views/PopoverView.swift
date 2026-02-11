@@ -15,12 +15,8 @@ struct PopoverView: View {
         VStack(alignment: .leading, spacing: 0) {
             // 상단 바
             HStack {
-                Picker("", selection: $viewModel.selectedTab) {
-                    Text("5시간").tag(0)
-                    Text("주간").tag(1)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 160)
+                Text("Claude 사용량")
+                    .font(.headline)
 
                 Spacer()
 
@@ -38,7 +34,6 @@ struct PopoverView: View {
             Divider()
 
             if viewModel.isLoading && viewModel.usage == nil {
-                // 최초 로딩
                 VStack(spacing: 12) {
                     ProgressView()
                     Text("데이터 로딩 중...")
@@ -48,59 +43,52 @@ struct PopoverView: View {
                 .frame(maxWidth: .infinity, minHeight: 150)
 
             } else if let error = viewModel.error, viewModel.usage == nil {
-                // 에러 (데이터 없음)
                 ErrorSectionView(error: error) {
                     viewModel.refresh()
                 }
                 .padding(16)
 
             } else if let usage = viewModel.usage {
-                // 데이터 표시
-                ScrollView {
-                    VStack(spacing: 12) {
-                        if viewModel.selectedTab == 0 {
-                            // 5시간 세션
-                            UsageSectionView(
-                                icon: "📊",
-                                title: "5시간 세션",
-                                percentage: usage.fiveHour.utilization,
-                                resetAt: usage.fiveHour.resetsAt
-                            )
-                        } else {
-                            // 주간 한도
-                            UsageSectionView(
-                                icon: "📅",
-                                title: "주간 한도 (전체 모델)",
-                                percentage: usage.sevenDay.utilization,
-                                resetAt: usage.sevenDay.resetsAt
-                            )
+                VStack(spacing: 12) {
+                    UsageSectionView(
+                        systemIcon: "gauge.medium",
+                        title: "5시간 세션",
+                        percentage: usage.fiveHour.utilization,
+                        resetAt: usage.fiveHour.resetsAt
+                    )
 
-                            if let sonnet = usage.sevenDaySonnet {
-                                Divider()
-                                UsageSectionView(
-                                    icon: "✨",
-                                    title: "Sonnet (주간)",
-                                    percentage: sonnet.utilization,
-                                    resetAt: sonnet.resetsAt
-                                )
-                            }
+                    Divider()
 
-                            if let opus = usage.sevenDayOpus {
-                                Divider()
-                                UsageSectionView(
-                                    icon: "🎯",
-                                    title: "Opus (주간)",
-                                    percentage: opus.utilization,
-                                    resetAt: opus.resetsAt
-                                )
-                            }
-                        }
+                    UsageSectionView(
+                        systemIcon: "calendar",
+                        title: "주간 한도",
+                        percentage: usage.sevenDay.utilization,
+                        resetAt: usage.sevenDay.resetsAt
+                    )
+
+                    if let sonnet = usage.sevenDaySonnet {
+                        Divider()
+                        UsageSectionView(
+                            systemIcon: "bolt.fill",
+                            title: "Sonnet (주간)",
+                            percentage: sonnet.utilization,
+                            resetAt: sonnet.resetsAt
+                        )
                     }
-                    .padding(16)
+
+                    if let opus = usage.sevenDayOpus {
+                        Divider()
+                        UsageSectionView(
+                            systemIcon: "diamond.fill",
+                            title: "Opus (주간)",
+                            percentage: opus.utilization,
+                            resetAt: opus.resetsAt
+                        )
+                    }
                 }
+                .padding(16)
 
             } else {
-                // 데이터 없음
                 VStack {
                     Text("데이터 없음")
                         .foregroundStyle(.secondary)
@@ -176,7 +164,6 @@ class PopoverViewModel: ObservableObject {
     @Published var usage: ClaudeUsageResponse?
     @Published var error: APIError?
     @Published var isLoading: Bool = false
-    @Published var selectedTab: Int = 0
 
     var onRefresh: (() -> Void)?
     var onOpenSettings: (() -> Void)?
