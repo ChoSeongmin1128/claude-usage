@@ -33,28 +33,44 @@ class NotificationManager {
 
     // MARK: - Threshold Check
 
+    /// resets_at 문자열을 시간 단위까지만 잘라서 비교용 키 생성
+    /// "2026-02-11T09:59:59.818398+00:00" → "2026-02-11T09"
+    /// 정각 기준 ±1분 차이(10:00 vs 09:59)를 무시하기 위해 시간 단위 비교
+    private func normalizeResetTime(_ resetAt: String) -> String {
+        guard let tIndex = resetAt.firstIndex(of: "T") else { return resetAt }
+        let timeStart = resetAt.index(after: tIndex)
+        let afterT = resetAt[timeStart...]
+        // "HH" = 2글자
+        if afterT.count >= 2 {
+            let hourEnd = resetAt.index(timeStart, offsetBy: 2)
+            return String(resetAt[resetAt.startIndex..<hourEnd])
+        }
+        return resetAt
+    }
+
     func checkThreshold(percentage: Double, resetAt: String) {
         let settings = AppSettings.shared
+        let normalizedReset = normalizeResetTime(resetAt)
 
         // 첫 번째 호출: 현재 상태만 기록, 알림 보내지 않음
         if isFirstCheck {
             isFirstCheck = false
-            lastResetAt = resetAt
+            lastResetAt = normalizedReset
 
             // 이미 넘은 임계값은 alerted 처리 (앱 시작 시 알림 방지)
             if percentage >= 75 { alerted75 = true }
             if percentage >= 90 { alerted90 = true }
             if percentage >= 95 { alerted95 = true }
 
-            Logger.info("첫 실행 기록: \(Int(percentage))%, 리셋: \(resetAt)")
+            Logger.info("첫 실행 기록: \(Int(percentage))%, 리셋: \(normalizedReset)")
             return
         }
 
-        // 리셋 감지: resets_at 값이 실제로 변경된 경우만
-        if let lastReset = lastResetAt, lastReset != resetAt {
-            Logger.info("세션 리셋 감지: \(lastReset) → \(resetAt)")
+        // 리셋 감지: 분 단위까지 비교하여 실제 리셋만 감지
+        if let lastReset = lastResetAt, lastReset != normalizedReset {
+            Logger.info("세션 리셋 감지: \(lastReset) → \(normalizedReset)")
             resetFlags()
-            lastResetAt = resetAt
+            lastResetAt = normalizedReset
 
             sendNotification(
                 title: "Claude 세션 리셋",
@@ -63,7 +79,7 @@ class NotificationManager {
             return  // 리셋 직후에는 임계값 알림 생략
         }
 
-        lastResetAt = resetAt
+        lastResetAt = normalizedReset
 
         // 임계값 알림 (높은 순서대로)
         if percentage >= 95 && !alerted95 && settings.alertAt95 {

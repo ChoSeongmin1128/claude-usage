@@ -297,6 +297,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let error = currentError, currentUsage == nil {
             // 에러 (데이터 없음)
+            button.image = nil
+            button.imagePosition = .noImage
             button.attributedTitle = NSAttributedString(string: "⚠️")
             button.toolTip = error.errorDescription ?? "알 수 없는 에러"
             return
@@ -304,6 +306,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         guard let usage = currentUsage else {
             // 로딩 또는 키 미설정
+            button.image = nil
+            button.imagePosition = .noImage
             button.attributedTitle = NSAttributedString(string: "...")
             button.toolTip = KeychainManager.shared.hasSessionKey ? "데이터 로딩 중" : "세션 키를 설정해주세요"
             return
@@ -313,50 +317,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let color = ColorProvider.nsStatusColor(for: percentage)
         let settings = AppSettings.shared
 
-        let displayText: String
         switch settings.menuBarStyle {
         case .percentage:
-            displayText = String(format: "%.0f%%", percentage)
+            let displayText = String(format: "%.0f%%", percentage)
+            if settings.showIcon, let claudeIcon = NSImage(named: "ClaudeMenuBarIcon") {
+                let size: CGFloat = 16
+                claudeIcon.size = NSSize(width: size, height: size)
+                button.image = claudeIcon
+                button.imagePosition = .imageLeft
+            } else {
+                button.image = nil
+                button.imagePosition = .noImage
+            }
+            button.attributedTitle = NSAttributedString(
+                string: displayText,
+                attributes: [.foregroundColor: color]
+            )
 
         case .batteryBar:
-            displayText = generateBatteryBar(percentage: percentage)
+            let icon = MenuBarIconRenderer.batteryIcon(percentage: percentage, color: color)
+            button.image = icon
+            button.imagePosition = .imageOnly
+            button.attributedTitle = NSAttributedString(string: "")
 
         case .circular:
-            displayText = generateCircularIcon(percentage: percentage)
+            let icon = MenuBarIconRenderer.circularRingIcon(percentage: percentage, color: color)
+            button.image = icon
+            button.imagePosition = .imageOnly
+            button.attributedTitle = NSAttributedString(string: "")
         }
 
-        let prefix = settings.showIcon ? "☁️ " : ""
-        let fullText = prefix + displayText
-
-        button.attributedTitle = NSAttributedString(
-            string: fullText,
-            attributes: [.foregroundColor: color]
-        )
-
         button.toolTip = "5시간 세션: \(Int(percentage))%\n(Option+클릭: 표시 모드 전환)"
-    }
-
-    /// 배터리바 생성 (█▒ 스타일)
-    private func generateBatteryBar(percentage: Double) -> String {
-        let totalBlocks = 10
-        let filledBlocks = Int(percentage / 10.0)
-        let emptyBlocks = totalBlocks - filledBlocks
-
-        let filled = String(repeating: "█", count: min(filledBlocks, totalBlocks))
-        let empty = String(repeating: "▒", count: max(emptyBlocks, 0))
-
-        return "[\(filled)\(empty)]"
-    }
-
-    /// 원형 아이콘 생성
-    private func generateCircularIcon(percentage: Double) -> String {
-        if percentage >= 100 { return "●" }
-        if percentage >= 87.5 { return "◉" }
-        if percentage >= 75 { return "◕" }
-        if percentage >= 50 { return "◑" }
-        if percentage >= 25 { return "◔" }
-        if percentage > 0 { return "○" }
-        return "○"
     }
 
     // MARK: - Keyboard Shortcuts
