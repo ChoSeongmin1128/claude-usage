@@ -254,8 +254,8 @@ struct SettingsView: View {
                     Toggle("배터리 내부 퍼센트", isOn: $settings.showBatteryPercent)
                 }
 
-                // 원형 하위 옵션
-                if settings.menuBarStyle == .circular {
+                // 원형/동심원 하위 옵션
+                if settings.menuBarStyle == .circular || settings.menuBarStyle == .concentricRings {
                     Picker("표시 기준:", selection: $settings.circularDisplayMode) {
                         ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
                             Text(mode.displayName).tag(mode)

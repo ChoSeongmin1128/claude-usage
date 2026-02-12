@@ -391,13 +391,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // 3. 추가 아이콘 (설정)
-        let circularValue = settings.circularDisplayMode == .remaining ? (100.0 - primaryPct) : primaryPct
+        let isRemaining = settings.circularDisplayMode == .remaining
+        let circularValue = isRemaining ? (100.0 - primaryPct) : primaryPct
+        let concentricOuter = isRemaining ? (100.0 - fiveHourPct) : fiveHourPct
+        let concentricInner = isRemaining ? (100.0 - weeklyPct) : weeklyPct
         let extraIcon: NSImage? = switch settings.menuBarStyle {
         case .none: nil
         case .batteryBar: MenuBarIconRenderer.batteryIcon(percentage: primaryPct, color: primaryColor, showPercent: settings.showBatteryPercent)
         case .circular: MenuBarIconRenderer.circularRingIcon(percentage: circularValue, color: primaryColor)
         case .concentricRings: MenuBarIconRenderer.concentricRingsIcon(
-            outerPercent: fiveHourPct, innerPercent: weeklyPct,
+            outerPercent: concentricOuter, innerPercent: concentricInner,
             outerColor: fiveHourColor, innerColor: weeklyColor)
         case .dualBattery: MenuBarIconRenderer.dualBatteryIcon(
             topPercent: fiveHourPct, bottomPercent: weeklyPct,
