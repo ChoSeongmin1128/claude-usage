@@ -10,9 +10,22 @@
 		3E5CA45E2F3C72330029D266 /* ClaudeUsage.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeUsage.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		3E5CA4FF2F3C72330029D266 /* Exceptions for "ClaudeUsage" folder in "ClaudeUsage" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 3E5CA45D2F3C72330029D266 /* ClaudeUsage */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		3E5CA4602F3C72330029D266 /* ClaudeUsage */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				3E5CA4FF2F3C72330029D266 /* Exceptions for "ClaudeUsage" folder in "ClaudeUsage" target */,
+			);
 			path = ClaudeUsage;
 			sourceTree = "<group>";
 		};

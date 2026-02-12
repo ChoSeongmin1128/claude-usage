@@ -33,7 +33,7 @@ struct ClaudeUsageResponse: Codable, Sendable {
 /// 개별 사용량 윈도우 (5시간, 주간, Sonnet, Opus)
 struct UsageWindow: Codable, Sendable {
     let utilization: Double   // 0.0 ~ 100.0+
-    let resetsAt: String      // ISO 8601 형식
+    let resetsAt: String?     // ISO 8601 형식 (Pro 플랜은 null)
 
     enum CodingKeys: String, CodingKey {
         case utilization
@@ -43,7 +43,7 @@ struct UsageWindow: Codable, Sendable {
     /// utilization이 Int 또는 Double로 올 수 있어서 방어적 디코딩
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        resetsAt = try container.decode(String.self, forKey: .resetsAt)
+        resetsAt = try container.decodeIfPresent(String.self, forKey: .resetsAt)
 
         // utilization: Int, Double, String 모두 처리
         if let doubleVal = try? container.decode(Double.self, forKey: .utilization) {
@@ -69,12 +69,12 @@ extension UsageWindow {
 
     /// 리셋 시간을 Date로 변환
     nonisolated var resetDate: Date? {
+        guard let resetsAt = resetsAt else { return nil }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let date = formatter.date(from: resetsAt) {
             return date
         }
-        // fractionalSeconds 없는 형식도 시도
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.date(from: resetsAt)
     }

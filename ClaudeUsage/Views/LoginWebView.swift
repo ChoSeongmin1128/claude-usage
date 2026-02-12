@@ -28,7 +28,8 @@ struct LoginWebView: NSViewRepresentable {
         webView.uiDelegate = context.coordinator
         webView.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
 
-        config.websiteDataStore.httpCookieStore.add(context.coordinator)
+        let cookieStore = config.websiteDataStore.httpCookieStore
+        context.coordinator.registerCookieStore(cookieStore)
 
         if let url = URL(string: "https://claude.ai/login") {
             webView.load(URLRequest(url: url))
@@ -67,9 +68,20 @@ struct LoginWebView: NSViewRepresentable {
         var lastClearTrigger = 0
         private var popupWindow: NSWindow?
         private var popupWebView: WKWebView?
+        private weak var registeredCookieStore: WKHTTPCookieStore?
 
         init(parent: LoginWebView) {
             self.parent = parent
+        }
+
+        deinit {
+            registeredCookieStore?.remove(self)
+            popupWebView?.stopLoading()
+        }
+
+        func registerCookieStore(_ store: WKHTTPCookieStore) {
+            registeredCookieStore = store
+            store.add(self)
         }
 
         func resetState() {
@@ -79,9 +91,12 @@ struct LoginWebView: NSViewRepresentable {
         }
 
         private func closePopup() {
-            popupWindow?.close()
-            popupWindow = nil
+            let wv = popupWebView
+            let win = popupWindow
             popupWebView = nil
+            popupWindow = nil
+            wv?.stopLoading()
+            win?.close()
         }
 
         // MARK: - WKNavigationDelegate
@@ -133,10 +148,17 @@ struct LoginWebView: NSViewRepresentable {
         // MARK: - WKUIDelegate
 
         func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-            // Google OAuth 등 팝업이 필요한 경우 실제 윈도우 생성
+            // 팝업 안에서 또 팝업 요청 시 → 같은 팝업에서 로드
+            if webView == popupWebView {
+                if let url = navigationAction.request.url {
+                    webView.load(URLRequest(url: url))
+                }
+                return nil
+            }
+
+            // 팝업 윈도우 생성 (Google OAuth 등)
+            // delegate 없이 자유롭게 동작 — 세션 키는 cookiesDidChange observer가 감지
             let popup = WKWebView(frame: .zero, configuration: configuration)
-            popup.navigationDelegate = self
-            popup.uiDelegate = self
             popup.customUserAgent = webView.customUserAgent
 
             let window = NSWindow(
@@ -145,6 +167,7 @@ struct LoginWebView: NSViewRepresentable {
                 backing: .buffered,
                 defer: false
             )
+            window.isReleasedWhenClosed = false
             window.title = "로그인"
             window.contentView = popup
             window.center()
@@ -163,27 +186,11 @@ struct LoginWebView: NSViewRepresentable {
             }
         }
 
-        func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
-            let alert = NSAlert()
-            alert.messageText = message
-            alert.addButton(withTitle: "확인")
-            alert.runModal()
-            completionHandler()
-        }
-
-        func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
-            let alert = NSAlert()
-            alert.messageText = message
-            alert.addButton(withTitle: "확인")
-            alert.addButton(withTitle: "취소")
-            completionHandler(alert.runModal() == .alertFirstButtonReturn)
-        }
-
         // MARK: - WKHTTPCookieStoreObserver
 
         nonisolated func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
-            Task { @MainActor in
-                self.extractFromCookieStore(cookieStore)
+            Task { @MainActor [weak self] in
+                self?.extractFromCookieStore(cookieStore)
             }
         }
 
@@ -299,9 +306,19 @@ struct LoginWebView: NSViewRepresentable {
         private func foundSessionKey(_ value: String, source: String) {
             guard !sessionKeyExtracted else { return }
             sessionKeyExtracted = true
-            closePopup()
-            Logger.info("세션 키 자동 추출 성공 (\(source))")
-            parent.onSessionKeyFound(value)
+
+            // 팝업 WebView 즉시 중단 — 추가 콜백 방지
+            popupWebView?.stopLoading()
+
+            // 항상 async로 디스패치 — WebKit 콜백 중 UI 조작 시 데드락 방지
+            DispatchQueue.main.async { [weak self] in
+                Logger.info("세션 키 자동 추출 성공 (\(source))")
+                self?.parent.onSessionKeyFound(value)
+                // 팝업은 지연 후 닫기 (WebKit 프로세스 정리 시간 확보)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    self?.closePopup()
+                }
+            }
         }
     }
 }

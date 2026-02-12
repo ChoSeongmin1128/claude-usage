@@ -37,7 +37,7 @@ class NotificationManager {
 
     // MARK: - Threshold Check
 
-    func checkThreshold(session: SessionType, percentage: Double, resetAt: String) {
+    func checkThreshold(session: SessionType, percentage: Double, resetAt: String?) {
         let settings = AppSettings.shared
 
         // 해당 세션 알림이 꺼져 있으면 무시
@@ -65,7 +65,7 @@ class NotificationManager {
         }
 
         // 리셋 감지: 5분 이상 차이나야 실제 리셋으로 판단
-        if let lastReset = tracker.lastResetAt, isActualReset(from: lastReset, to: resetAt) {
+        if let resetAt = resetAt, let lastReset = tracker.lastResetAt, isActualReset(from: lastReset, to: resetAt) {
             Logger.info("\(session.rawValue) 세션 리셋 감지")
             tracker.alertedThresholds.removeAll()
             tracker.lastResetAt = resetAt

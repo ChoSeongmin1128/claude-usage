@@ -29,6 +29,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var loginWindow: NSWindow?
     private var cancellables = Set<AnyCancellable>()
     private var eventMonitor: Any?
+    private var globalClickMonitor: Any?
 
     // MARK: - Lifecycle
 
@@ -68,6 +69,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
+        stopGlobalClickMonitor()
     }
 
     // MARK: - Status Item
@@ -96,7 +98,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.refreshUsage()
         }
         popoverViewModel.onOpenSettings = { [weak self] in
-            self?.popover?.close()
+            self?.closePopover()
             self?.showSettingsWindow()
         }
 
@@ -125,10 +127,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let popover = popover, let button = statusItem?.button else { return }
 
         if popover.isShown {
-            popover.close()
+            closePopover()
         } else {
             popoverViewModel.update(usage: currentUsage, error: currentError, isLoading: isLoading, lastUpdated: lastUpdated)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            NSApp.activate()
+            startGlobalClickMonitor()
+        }
+    }
+
+    private func closePopover() {
+        popover?.close()
+        stopGlobalClickMonitor()
+    }
+
+    private func startGlobalClickMonitor() {
+        stopGlobalClickMonitor()
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            self?.closePopover()
+        }
+    }
+
+    private func stopGlobalClickMonitor() {
+        if let monitor = globalClickMonitor {
+            NSEvent.removeMonitor(monitor)
+            globalClickMonitor = nil
         }
     }
 
@@ -464,18 +487,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .none:
             break
         case .fiveHour:
-            if let clock = TimeFormatter.formatResetTime(from: usage.fiveHour.resetsAt, style: settings.timeFormat) {
+            if let resetAt = usage.fiveHour.resetsAt,
+               let clock = TimeFormatter.formatResetTime(from: resetAt, style: settings.timeFormat) {
                 let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
                 elements.append((image: nil, text: clock, attrs: attrs))
             }
         case .weekly:
-            if let clock = TimeFormatter.formatResetTimeWeekly(from: usage.sevenDay.resetsAt, style: settings.timeFormat) {
+            if let resetAt = usage.sevenDay.resetsAt,
+               let clock = TimeFormatter.formatResetTimeWeekly(from: resetAt, style: settings.timeFormat) {
                 let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
                 elements.append((image: nil, text: clock, attrs: attrs))
             }
         case .dual:
-            let r1 = TimeFormatter.formatResetTime(from: usage.fiveHour.resetsAt, style: settings.timeFormat)
-            let r2 = TimeFormatter.formatResetTimeWeekly(from: usage.sevenDay.resetsAt, style: settings.timeFormat)
+            let r1 = usage.fiveHour.resetsAt.flatMap { TimeFormatter.formatResetTime(from: $0, style: settings.timeFormat) }
+            let r2 = usage.sevenDay.resetsAt.flatMap { TimeFormatter.formatResetTimeWeekly(from: $0, style: settings.timeFormat) }
             if let t1 = r1, let t2 = r2 {
                 let dualText = "\(t1) · \(t2)"
                 let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
