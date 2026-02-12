@@ -463,9 +463,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 5. 리셋 시간 (설정)
         if settings.showResetTime {
             if settings.showDualResetTime {
-                // 듀얼: "18:34 · 2/14" 형식
+                // 듀얼: "18:34 · 2/14(금)" 형식 (주간은 1일 이상이면 분 생략)
                 let r1 = TimeFormatter.formatResetTime(from: usage.fiveHour.resetsAt, style: settings.timeFormat)
-                let r2 = TimeFormatter.formatResetTime(from: usage.sevenDay.resetsAt, style: settings.timeFormat)
+                let r2 = TimeFormatter.formatResetTimeWeekly(from: usage.sevenDay.resetsAt, style: settings.timeFormat)
                 if let t1 = r1, let t2 = r2 {
                     let dualText = "\(t1) · \(t2)"
                     let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]

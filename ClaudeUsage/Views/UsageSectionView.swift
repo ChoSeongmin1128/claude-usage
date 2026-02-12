@@ -12,6 +12,7 @@ struct UsageSectionView: View {
     let title: String
     let percentage: Double
     let resetAt: String
+    var isWeekly: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -32,10 +33,17 @@ struct UsageSectionView: View {
             ProgressBarView(percentage: percentage)
 
             // 리셋 시간 (남은 시간 + 시각)
-            Text(TimeFormatter.formatRelativeTimeWithClock(from: resetAt, style: AppSettings.shared.timeFormat))
+            Text(resetTimeText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
+    }
+
+    private var resetTimeText: String {
+        if isWeekly {
+            return TimeFormatter.formatRelativeTimeWithClockWeekly(from: resetAt, style: AppSettings.shared.timeFormat)
+        }
+        return TimeFormatter.formatRelativeTimeWithClock(from: resetAt, style: AppSettings.shared.timeFormat)
     }
 }

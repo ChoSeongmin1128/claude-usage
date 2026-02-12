@@ -71,7 +71,8 @@ struct PopoverView: View {
                         systemIcon: "calendar",
                         title: "주간 한도",
                         percentage: usage.sevenDay.utilization,
-                        resetAt: usage.sevenDay.resetsAt
+                        resetAt: usage.sevenDay.resetsAt,
+                        isWeekly: true
                     )
 
                     if let sonnet = usage.sevenDaySonnet {
@@ -80,7 +81,8 @@ struct PopoverView: View {
                             systemIcon: "bolt.fill",
                             title: "Sonnet (주간)",
                             percentage: sonnet.utilization,
-                            resetAt: sonnet.resetsAt
+                            resetAt: sonnet.resetsAt,
+                            isWeekly: true
                         )
                     }
 
@@ -90,7 +92,8 @@ struct PopoverView: View {
                             systemIcon: "diamond.fill",
                             title: "Opus (주간)",
                             percentage: opus.utilization,
-                            resetAt: opus.resetsAt
+                            resetAt: opus.resetsAt,
+                            isWeekly: true
                         )
                     }
                 }

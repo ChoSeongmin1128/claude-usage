@@ -264,6 +264,8 @@ struct SettingsView: View {
                 Toggle("리셋 시간", isOn: $settings.showResetTime)
 
                 if settings.showResetTime {
+                    Toggle("5시간 + 주간 동시 표시", isOn: $settings.showDualResetTime)
+                        .padding(.leading, 20)
                     Picker("시간 형식:", selection: $settings.timeFormat) {
                         ForEach(TimeFormatStyle.allCases, id: \.self) { style in
                             Text(style.displayName).tag(style)
@@ -290,9 +292,8 @@ struct SettingsView: View {
                     }
                 }
                 .onChange(of: settings.menuBarStyle) { _, newValue in
-                    // 동시 표시 → 자동 듀얼
+                    // 동시 표시 → 퍼센트 자동 듀얼
                     settings.showDualPercentage = newValue.isDualStyle
-                    settings.showDualResetTime = newValue.isDualStyle
                     // 배터리 계열 → 남은 사용량
                     if newValue == .batteryBar || newValue == .dualBattery || newValue == .sideBySideBattery {
                         settings.circularDisplayMode = .remaining

@@ -112,6 +112,37 @@ enum TimeFormatter {
         return String(format: "%dh %02dm", hours, minutes)
     }
 
+    /// 주간 리셋 시간 포맷 (1일 이상이면 분 단위 생략)
+    nonisolated static func formatResetTimeWeekly(from resetAt: String, style: TimeFormatStyle = .h24) -> String? {
+        guard let resetDate = parseISO8601(resetAt) else { return nil }
+
+        let interval = resetDate.timeIntervalSince(Date())
+        let isOverOneDay = interval > 86400  // 24시간 초과
+
+        if !isOverOneDay {
+            // 1일 이내: 기본 포맷과 동일
+            return formatResetTime(from: resetAt, style: style)
+        }
+
+        // 1일 이상
+        switch style {
+        case .remaining:
+            let totalHours = Int(max(0, interval)) / 3600
+            let days = totalHours / 24
+            let hours = totalHours % 24
+            if hours > 0 {
+                return "\(days)d \(hours)h"
+            }
+            return "\(days)d"
+        case .h12, .h24:
+            let df = DateFormatter()
+            df.locale = Locale(identifier: "ko_KR")
+            df.timeZone = .current
+            df.dateFormat = "M/d(E)"
+            return df.string(from: resetDate)
+        }
+    }
+
     /// 남은 시간 + 리셋 시각을 결합한 포맷
     /// 예: "2시간 34분 후 리셋 (18:34)" 또는 "2시간 34분 후 리셋 (6:34 PM)"
     nonisolated static func formatRelativeTimeWithClock(from resetAt: String, style: TimeFormatStyle = .h24) -> String {
@@ -119,6 +150,38 @@ enum TimeFormatter {
         // remaining 스타일이면 괄호 안에 24시간 시각 표시 (중복 방지)
         let clockStyle: TimeFormatStyle = style == .remaining ? .h24 : style
         if let clock = formatResetTime(from: resetAt, style: clockStyle) {
+            return "\(relative) (\(clock))"
+        }
+        return relative
+    }
+
+    /// 주간 세션용: 1일 이상이면 분 단위 생략한 결합 포맷
+    /// 예: "2일 3시간 후 리셋 (2/14(금))" — 1일 이내면 기본과 동일
+    nonisolated static func formatRelativeTimeWithClockWeekly(from resetAt: String, style: TimeFormatStyle = .h24) -> String {
+        guard let resetDate = parseISO8601(resetAt) else {
+            return formatRelativeTime(from: resetAt)
+        }
+
+        let interval = resetDate.timeIntervalSince(Date())
+        if interval <= 86400 {
+            // 1일 이내: 기본과 동일
+            return formatRelativeTimeWithClock(from: resetAt, style: style)
+        }
+
+        // 1일 이상: 분 단위 생략
+        let totalHours = Int(max(0, interval)) / 3600
+        let days = totalHours / 24
+        let hours = totalHours % 24
+
+        let relative: String
+        if hours > 0 {
+            relative = "\(days)일 \(hours)시간 후 리셋"
+        } else {
+            relative = "\(days)일 후 리셋"
+        }
+
+        let clockStyle: TimeFormatStyle = style == .remaining ? .h24 : style
+        if let clock = formatResetTimeWeekly(from: resetAt, style: clockStyle) {
             return "\(relative) (\(clock))"
         }
         return relative
