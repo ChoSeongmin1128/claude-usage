@@ -160,7 +160,7 @@ struct PopoverView: View {
                 .padding(.bottom, 6)
             }
         }
-        .frame(width: settings.popoverCompact ? 260 : 340)
+        .frame(width: settings.popoverCompact ? 300 : 340)
         .background(Color(NSColor.windowBackgroundColor))
     }
 
@@ -216,14 +216,14 @@ struct PopoverView: View {
     @ViewBuilder
     private func compactContent(usage: ClaudeUsageResponse) -> some View {
         VStack(spacing: 5) {
-            CompactUsageRow(label: "5시간", percentage: usage.fiveHour.utilization)
-            CompactUsageRow(label: "주간", percentage: usage.sevenDay.utilization)
+            CompactUsageRow(label: "5시간", percentage: usage.fiveHour.utilization, resetAt: usage.fiveHour.resetsAt)
+            CompactUsageRow(label: "주간", percentage: usage.sevenDay.utilization, resetAt: usage.sevenDay.resetsAt, isWeekly: true)
 
             if let sonnet = usage.sevenDaySonnet {
-                CompactUsageRow(label: "Sonnet", percentage: sonnet.utilization)
+                CompactUsageRow(label: "Sonnet", percentage: sonnet.utilization, resetAt: sonnet.resetsAt, isWeekly: true)
             }
             if let opus = usage.sevenDayOpus {
-                CompactUsageRow(label: "Opus", percentage: opus.utilization)
+                CompactUsageRow(label: "Opus", percentage: opus.utilization, resetAt: opus.resetsAt, isWeekly: true)
             }
         }
         .padding(.horizontal, 16)
@@ -236,6 +236,8 @@ struct PopoverView: View {
 struct CompactUsageRow: View {
     let label: String
     let percentage: Double
+    var resetAt: String? = nil
+    var isWeekly: Bool = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -260,7 +262,23 @@ struct CompactUsageRow: View {
                 .fontWeight(.medium)
                 .foregroundStyle(ColorProvider.statusColor(for: percentage))
                 .frame(width: 36, alignment: .trailing)
+
+            if let resetText = compactResetText {
+                Text(resetText)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 46, alignment: .trailing)
+            }
         }
+    }
+
+    private var compactResetText: String? {
+        guard let resetAt = resetAt else { return nil }
+        let style = AppSettings.shared.timeFormat
+        if isWeekly {
+            return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: style)
+        }
+        return TimeFormatter.formatResetTime(from: resetAt, style: style)
     }
 }
 
