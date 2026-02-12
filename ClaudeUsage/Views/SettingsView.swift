@@ -296,6 +296,11 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                                 .padding(.leading, 24)
                         }
+
+                        if settings.menuBarStyle == .dualBattery || settings.menuBarStyle == .sideBySideBattery {
+                            Toggle("배터리 내부 퍼센트", isOn: $settings.showBatteryPercent)
+                                .padding(.leading, 24)
+                        }
                     }
                     .padding(.leading, 24)
                 }
