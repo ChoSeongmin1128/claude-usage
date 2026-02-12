@@ -63,16 +63,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             showSettingsWindow()
         }
 
-        // 업데이트 확인 (시작 시 + 24시간 주기)
-        if AppSettings.shared.autoCheckUpdates {
+        // 업데이트 확인
+        let interval = AppSettings.shared.updateCheckInterval
+        if interval != .off {
             checkForUpdates()
-            startUpdateCheckTimer()
+        }
+        if let seconds = interval.timerInterval {
+            startUpdateCheckTimer(interval: seconds)
         }
     }
 
-    private func startUpdateCheckTimer() {
+    private func startUpdateCheckTimer(interval: TimeInterval) {
         updateCheckTimer?.invalidate()
-        updateCheckTimer = Timer.scheduledTimer(withTimeInterval: 86400, repeats: true) { [weak self] _ in
+        updateCheckTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             self?.checkForUpdates()
         }
     }

@@ -93,6 +93,28 @@ enum CircularDisplayMode: String, Codable, CaseIterable, Sendable {
     }
 }
 
+enum UpdateCheckInterval: String, Codable, CaseIterable, Sendable {
+    case off = "off"
+    case onLaunch = "on_launch"
+    case hourly = "hourly"
+
+    var displayName: String {
+        switch self {
+        case .off: return "끄기"
+        case .onLaunch: return "앱 시작 시"
+        case .hourly: return "1시간마다"
+        }
+    }
+
+    var timerInterval: TimeInterval? {
+        switch self {
+        case .off: return nil
+        case .onLaunch: return nil
+        case .hourly: return 3600
+        }
+    }
+}
+
 class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
@@ -142,8 +164,8 @@ class AppSettings: ObservableObject {
     @Published var alertWeeklyEnabled: Bool {
         didSet { defaults.set(alertWeeklyEnabled, forKey: "alertWeeklyEnabled") }
     }
-    @Published var autoCheckUpdates: Bool {
-        didSet { defaults.set(autoCheckUpdates, forKey: "autoCheckUpdates") }
+    @Published var updateCheckInterval: UpdateCheckInterval {
+        didSet { defaults.set(updateCheckInterval.rawValue, forKey: "updateCheckInterval") }
     }
     @Published var popoverPinned: Bool {
         didSet { defaults.set(popoverPinned, forKey: "popoverPinned") }
@@ -167,7 +189,7 @@ class AppSettings: ObservableObject {
         let alertRemainingMode: Bool
         let reducedRefreshOnBattery: Bool
         let showClaudeIcon: Bool
-        let autoCheckUpdates: Bool
+        let updateCheckInterval: UpdateCheckInterval
         let alertFiveHourEnabled: Bool
         let alertWeeklyEnabled: Bool
     }
@@ -186,7 +208,7 @@ class AppSettings: ObservableObject {
             alertRemainingMode: alertRemainingMode,
             reducedRefreshOnBattery: reducedRefreshOnBattery,
             showClaudeIcon: showClaudeIcon,
-            autoCheckUpdates: autoCheckUpdates,
+            updateCheckInterval: updateCheckInterval,
             alertFiveHourEnabled: alertFiveHourEnabled,
             alertWeeklyEnabled: alertWeeklyEnabled
         )
@@ -205,7 +227,7 @@ class AppSettings: ObservableObject {
         alertRemainingMode = snapshot.alertRemainingMode
         reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
         showClaudeIcon = snapshot.showClaudeIcon
-        autoCheckUpdates = snapshot.autoCheckUpdates
+        updateCheckInterval = snapshot.updateCheckInterval
         alertFiveHourEnabled = snapshot.alertFiveHourEnabled
         alertWeeklyEnabled = snapshot.alertWeeklyEnabled
     }
@@ -235,7 +257,7 @@ class AppSettings: ObservableObject {
         alertRemainingMode = false
         reducedRefreshOnBattery = true
         showClaudeIcon = true
-        autoCheckUpdates = true
+        updateCheckInterval = .hourly
         alertFiveHourEnabled = true
         alertWeeklyEnabled = false
     }
@@ -286,7 +308,8 @@ class AppSettings: ObservableObject {
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
         self.circularDisplayMode = CircularDisplayMode(rawValue: cdm) ?? .usage
         self.showClaudeIcon = defaults.object(forKey: "showClaudeIcon") as? Bool ?? true
-        self.autoCheckUpdates = defaults.object(forKey: "autoCheckUpdates") as? Bool ?? true
+        let uci = defaults.string(forKey: "updateCheckInterval") ?? UpdateCheckInterval.hourly.rawValue
+        self.updateCheckInterval = UpdateCheckInterval(rawValue: uci) ?? .hourly
         self.alertFiveHourEnabled = defaults.object(forKey: "alertFiveHourEnabled") as? Bool ?? true
         self.alertWeeklyEnabled = defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false
         self.popoverPinned = defaults.object(forKey: "popoverPinned") as? Bool ?? false

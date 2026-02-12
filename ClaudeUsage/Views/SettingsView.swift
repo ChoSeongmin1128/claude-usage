@@ -485,7 +485,12 @@ struct SettingsView: View {
             Label("업데이트", systemImage: "arrow.triangle.2.circlepath")
                 .font(.headline)
 
-            Toggle("앱 시작 시 자동 확인", isOn: $settings.autoCheckUpdates)
+            Picker("자동 확인", selection: $settings.updateCheckInterval) {
+                ForEach(UpdateCheckInterval.allCases, id: \.self) { interval in
+                    Text(interval.displayName).tag(interval)
+                }
+            }
+            .pickerStyle(.segmented)
 
             HStack {
                 let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
