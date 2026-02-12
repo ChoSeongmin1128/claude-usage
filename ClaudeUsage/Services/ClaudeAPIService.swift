@@ -103,6 +103,56 @@ actor ClaudeAPIService {
         }
     }
 
+    /// 추가 사용량(Extra Usage) 정보 가져오기
+    func fetchOverageSpendLimit() async throws -> OverageSpendLimitResponse {
+        guard let sessionKey = sessionKey, !sessionKey.isEmpty else {
+            throw APIError.invalidSessionKey
+        }
+
+        let orgID = try await getOrganizationID()
+
+        let url = URL(string: "\(baseURL)/organizations/\(orgID)/overage_spend_limit")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("sessionKey=\(sessionKey)", forHTTPHeaderField: "Cookie")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        Logger.debug("Overage API 요청: \(url.absoluteString)")
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw APIError.networkError(error.localizedDescription)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.unknownError("Invalid HTTP response")
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
+                throw APIError.invalidSessionKey
+            } else {
+                throw APIError.serverError(httpResponse.statusCode)
+            }
+        }
+
+        if let jsonString = String(data: data, encoding: .utf8) {
+            Logger.debug("Overage Raw JSON: \(jsonString)")
+        }
+
+        do {
+            let decoder = JSONDecoder()
+            let overage = try decoder.decode(OverageSpendLimitResponse.self, from: data)
+            Logger.info("추가 사용량 수신: \(overage.formattedUsedCredits) / \(overage.formattedCreditLimit)")
+            return overage
+        } catch {
+            Logger.error("Overage JSON 파싱 실패: \(error)")
+            throw APIError.parseError
+        }
+    }
+
     // MARK: - Private Methods
 
     /// Organization ID 가져오기 (첫 호출 시 자동 추출 및 캐싱)

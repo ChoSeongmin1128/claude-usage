@@ -66,6 +66,32 @@ struct PopoverView: View {
             .padding(.top, 12)
             .padding(.bottom, 8)
 
+            // 시스템 상태 배너 (장애 시에만 표시)
+            if let status = viewModel.systemStatus, status.hasIssue {
+                Divider()
+                Button {
+                    if let url = URL(string: "https://status.claude.com") {
+                        NSWorkspace.shared.open(url)
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(statusColor(for: status.indicator))
+                        Text(status.indicator.displayText)
+                            .font(.caption)
+                            .foregroundColor(.primary)
+                        Spacer()
+                        Text("상세보기")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+                    .background(statusColor(for: status.indicator).opacity(0.08))
+                }
+                .buttonStyle(.plain)
+            }
+
             // 업데이트 배너
             if let update = settings.availableUpdate {
                 Divider()
@@ -185,6 +211,17 @@ struct PopoverView: View {
         .background(Color(NSColor.windowBackgroundColor))
     }
 
+    // MARK: - Helpers
+
+    private func statusColor(for indicator: StatusIndicator) -> Color {
+        switch indicator {
+        case .none: return .green
+        case .minor: return .yellow
+        case .major: return .orange
+        case .critical: return .red
+        }
+    }
+
     // MARK: - Standard Content
 
     @ViewBuilder
@@ -207,7 +244,7 @@ struct PopoverView: View {
                 isWeekly: true
             )
 
-            if let sonnet = usage.sevenDaySonnet {
+            if settings.showModelUsage, let sonnet = usage.sevenDaySonnet {
                 Divider()
                 UsageSectionView(
                     systemIcon: "bolt.fill",
@@ -218,7 +255,7 @@ struct PopoverView: View {
                 )
             }
 
-            if let opus = usage.sevenDayOpus {
+            if settings.showModelUsage, let opus = usage.sevenDayOpus {
                 Divider()
                 UsageSectionView(
                     systemIcon: "diamond.fill",
@@ -227,6 +264,11 @@ struct PopoverView: View {
                     resetAt: opus.resetsAt,
                     isWeekly: true
                 )
+            }
+
+            if settings.showOverageUsage, let overage = viewModel.overage, overage.isEnabled {
+                Divider()
+                OverageUsageView(overage: overage)
             }
         }
         .padding(16)
@@ -240,11 +282,15 @@ struct PopoverView: View {
             CompactUsageRow(label: "현재", percentage: usage.fiveHour.utilization, resetAt: usage.fiveHour.resetsAt)
             CompactUsageRow(label: "주간", percentage: usage.sevenDay.utilization, resetAt: usage.sevenDay.resetsAt, isWeekly: true)
 
-            if let sonnet = usage.sevenDaySonnet {
+            if settings.showModelUsage, let sonnet = usage.sevenDaySonnet {
                 CompactUsageRow(label: "Sonnet", percentage: sonnet.utilization, resetAt: sonnet.resetsAt, isWeekly: true)
             }
-            if let opus = usage.sevenDayOpus {
+            if settings.showModelUsage, let opus = usage.sevenDayOpus {
                 CompactUsageRow(label: "Opus", percentage: opus.utilization, resetAt: opus.resetsAt, isWeekly: true)
+            }
+
+            if settings.showOverageUsage, let overage = viewModel.overage, overage.isEnabled {
+                CompactOverageRow(overage: overage)
             }
         }
         .padding(.horizontal, 16)
@@ -299,7 +345,8 @@ struct CompactUsageRow: View {
         if isWeekly {
             return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: style)
         }
-        return TimeFormatter.formatResetTime(from: resetAt, style: style)
+        // 현재 세션(5시간)은 날짜 없이 시간만 표시
+        return TimeFormatter.formatResetTime(from: resetAt, style: style, includeDateIfNotToday: false)
     }
 }
 
@@ -341,6 +388,8 @@ class PopoverViewModel: ObservableObject {
     @Published var error: APIError?
     @Published var isLoading: Bool = false
     @Published var lastUpdated: Date?
+    @Published var overage: OverageSpendLimitResponse?
+    @Published var systemStatus: ClaudeSystemStatus?
     var onRefresh: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onPinChanged: ((Bool) -> Void)?
@@ -366,10 +415,77 @@ class PopoverViewModel: ObservableObject {
         }
     }
 
-    func update(usage: ClaudeUsageResponse?, error: APIError?, isLoading: Bool, lastUpdated: Date? = nil) {
+    func update(usage: ClaudeUsageResponse?, error: APIError?, isLoading: Bool, lastUpdated: Date? = nil, overage: OverageSpendLimitResponse? = nil) {
         self.usage = usage
         self.error = error
         self.isLoading = isLoading
         if let lastUpdated { self.lastUpdated = lastUpdated }
+        if let overage { self.overage = overage }
+    }
+}
+
+// MARK: - Overage Usage View (Standard)
+
+struct OverageUsageView: View {
+    let overage: OverageSpendLimitResponse
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "creditcard")
+                    .foregroundStyle(.secondary)
+                Text("추가 사용량")
+                    .font(.headline)
+                Spacer()
+                Text(String(format: "%.0f%%", overage.usagePercentage))
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundStyle(.purple)
+            }
+
+            ProgressBarView(percentage: overage.usagePercentage, color: .purple)
+
+            Text("\(overage.formattedUsedCredits) 사용 / \(overage.formattedCreditLimit) 한도 (잔액 \(overage.formattedRemainingCredits))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Compact Overage Row
+
+struct CompactOverageRow: View {
+    let overage: OverageSpendLimitResponse
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("추가")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 40, alignment: .leading)
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2.5)
+                        .fill(Color.secondary.opacity(0.15))
+                    RoundedRectangle(cornerRadius: 2.5)
+                        .fill(Color.purple)
+                        .frame(width: geo.size.width * min(overage.usagePercentage, 100) / 100)
+                }
+            }
+            .frame(height: 6)
+
+            Text(String(format: "%.0f%%", overage.usagePercentage))
+                .font(.system(.caption, design: .monospaced))
+                .fontWeight(.medium)
+                .foregroundStyle(.purple)
+                .frame(width: 36, alignment: .trailing)
+
+            Text("잔액 \(overage.formattedRemainingCredits)")
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+                .frame(width: 46, alignment: .trailing)
+        }
     }
 }

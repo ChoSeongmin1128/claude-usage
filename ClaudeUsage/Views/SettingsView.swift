@@ -73,6 +73,11 @@ struct SettingsView: View {
 
                     // 업데이트 섹션
                     updateSection
+
+                    Divider()
+
+                    // 일반 섹션
+                    generalSection
                 }
                 .padding(24)
             }
@@ -333,6 +338,14 @@ struct SettingsView: View {
                     .pickerStyle(.radioGroup)
                     .padding(.leading, 20)
                 }
+
+                Divider()
+
+                Text("Popover 표시 항목")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Toggle("모델별 주간 한도", isOn: $settings.showModelUsage)
+                Toggle("추가 사용량", isOn: $settings.showOverageUsage)
             }
         }
     }
@@ -552,6 +565,21 @@ struct SettingsView: View {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - 일반 섹션
+
+    private var generalSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("일반", systemImage: "gearshape.2")
+                .font(.headline)
+
+            Toggle("로그인 시 자동 시작", isOn: $settings.launchAtLogin)
+
+            Text("시스템 설정 → 일반 → 로그인 항목에서도 관리할 수 있습니다")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

@@ -143,13 +143,14 @@ enum TimeFormatter {
         }
     }
 
-    /// 남은 시간 + 리셋 시각을 결합한 포맷
+    /// 남은 시간 + 리셋 시각을 결합한 포맷 (현재 세션용: 항상 시각만)
     /// 예: "2시간 34분 후 리셋 (18:34)" 또는 "2시간 34분 후 리셋 (6:34 PM)"
     nonisolated static func formatRelativeTimeWithClock(from resetAt: String, style: TimeFormatStyle = .h24) -> String {
         let relative = formatRelativeTime(from: resetAt)
         // remaining 스타일이면 괄호 안에 24시간 시각 표시 (중복 방지)
         let clockStyle: TimeFormatStyle = style == .remaining ? .h24 : style
-        if let clock = formatResetTime(from: resetAt, style: clockStyle) {
+        // 현재 세션은 5시간 윈도우이므로 날짜 없이 시각만 표시
+        if let clock = formatResetTime(from: resetAt, style: clockStyle, includeDateIfNotToday: false) {
             return "\(relative) (\(clock))"
         }
         return relative

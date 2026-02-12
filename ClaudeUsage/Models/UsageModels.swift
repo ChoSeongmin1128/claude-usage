@@ -101,3 +101,84 @@ extension ClaudeUsageResponse {
         sevenDayOpus?.utilization
     }
 }
+
+// MARK: - 추가 사용량 (Extra Usage / Overage)
+
+/// 추가 사용량 API 응답 (금액은 센트 단위로 수신)
+struct OverageSpendLimitResponse: Codable, Sendable {
+    let monthlyCreditLimitCents: Double  // 월별 한도 (센트)
+    let usedCreditsCents: Double         // 사용한 금액 (센트)
+    let isEnabled: Bool                  // Extra Usage 활성 여부
+    let outOfCredits: Bool               // 크레딧 소진 여부
+    let currency: String                 // 통화 (USD)
+
+    enum CodingKeys: String, CodingKey {
+        case monthlyCreditLimitCents = "monthly_credit_limit"
+        case usedCreditsCents = "used_credits"
+        case isEnabled = "is_enabled"
+        case outOfCredits = "out_of_credits"
+        case currency
+    }
+
+    nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        if let doubleVal = try? container.decode(Double.self, forKey: .monthlyCreditLimitCents) {
+            monthlyCreditLimitCents = doubleVal
+        } else if let intVal = try? container.decode(Int.self, forKey: .monthlyCreditLimitCents) {
+            monthlyCreditLimitCents = Double(intVal)
+        } else {
+            monthlyCreditLimitCents = 0
+        }
+
+        if let doubleVal = try? container.decode(Double.self, forKey: .usedCreditsCents) {
+            usedCreditsCents = doubleVal
+        } else if let intVal = try? container.decode(Int.self, forKey: .usedCreditsCents) {
+            usedCreditsCents = Double(intVal)
+        } else {
+            usedCreditsCents = 0
+        }
+
+        isEnabled = (try? container.decode(Bool.self, forKey: .isEnabled)) ?? false
+        outOfCredits = (try? container.decode(Bool.self, forKey: .outOfCredits)) ?? false
+        currency = (try? container.decode(String.self, forKey: .currency)) ?? "USD"
+    }
+}
+
+extension OverageSpendLimitResponse {
+    /// 달러 단위 한도
+    nonisolated var monthlyCreditLimit: Double {
+        monthlyCreditLimitCents / 100.0
+    }
+
+    /// 달러 단위 사용 금액
+    nonisolated var usedCredits: Double {
+        usedCreditsCents / 100.0
+    }
+
+    /// 사용률 퍼센트 (0~100)
+    nonisolated var usagePercentage: Double {
+        guard monthlyCreditLimitCents > 0 else { return 0 }
+        return (usedCreditsCents / monthlyCreditLimitCents) * 100
+    }
+
+    /// 통화 포맷된 사용 금액
+    nonisolated var formattedUsedCredits: String {
+        String(format: "$%.2f", usedCredits)
+    }
+
+    /// 통화 포맷된 한도
+    nonisolated var formattedCreditLimit: String {
+        String(format: "$%.2f", monthlyCreditLimit)
+    }
+
+    /// 잔액
+    nonisolated var remainingCredits: Double {
+        max(0, monthlyCreditLimit - usedCredits)
+    }
+
+    /// 통화 포맷된 잔액
+    nonisolated var formattedRemainingCredits: String {
+        String(format: "$%.2f", remainingCredits)
+    }
+}

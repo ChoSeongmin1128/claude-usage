@@ -21,11 +21,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let popoverViewModel = PopoverViewModel()
 
     private var currentUsage: ClaudeUsageResponse?
+    private var currentOverage: OverageSpendLimitResponse?
+    private var systemStatus: ClaudeSystemStatus?
     private var currentError: APIError?
     private var isLoading = false
     private var lastUpdated: Date?
     private var hasAuthError = false
     private var consecutiveErrorCount = 0
+    private var statusTimer: Timer?
 
     private var settingsWindow: NSWindow?
     private var settingsSnapshot: AppSettings.Snapshot?
@@ -73,6 +76,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let seconds = interval.timerInterval {
             startUpdateCheckTimer(interval: seconds)
         }
+
+        // Claude 시스템 상태 체크 시작 (5분 간격)
+        refreshSystemStatus()
+        startStatusTimer()
     }
 
     private func startUpdateCheckTimer(interval: TimeInterval) {
@@ -103,6 +110,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Logger.info("ClaudeUsage 앱 종료")
         timer?.invalidate()
         updateCheckTimer?.invalidate()
+        statusTimer?.invalidate()
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
@@ -179,7 +187,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             closePopover()
         } else {
-            popoverViewModel.update(usage: currentUsage, error: currentError, isLoading: isLoading, lastUpdated: lastUpdated)
+            popoverViewModel.update(usage: currentUsage, error: currentError, isLoading: isLoading, lastUpdated: lastUpdated, overage: currentOverage)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate()
             if !AppSettings.shared.popoverPinned {
@@ -321,25 +329,49 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
     }
 
+    // MARK: - System Status
+
+    private func startStatusTimer() {
+        statusTimer?.invalidate()
+        statusTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            self?.refreshSystemStatus()
+        }
+    }
+
+    private func refreshSystemStatus() {
+        Task {
+            let status = await ClaudeStatusService.shared.fetchStatus()
+            await MainActor.run {
+                self.systemStatus = status
+                self.popoverViewModel.systemStatus = status
+            }
+        }
+    }
+
     // MARK: - API
 
     private func refreshUsage() {
         Task {
             do {
                 isLoading = true
+                popoverViewModel.update(usage: currentUsage, error: nil, isLoading: true, lastUpdated: lastUpdated, overage: currentOverage)
                 Logger.debug("사용량 갱신 시작")
 
                 let usage = try await apiService.fetchUsageWithRetry()
 
+                // 추가 사용량은 독립적으로 호출 (실패해도 무시)
+                let overage = try? await apiService.fetchOverageSpendLimit()
+
                 await MainActor.run {
                     self.currentUsage = usage
+                    self.currentOverage = overage
                     self.currentError = nil
                     self.isLoading = false
                     self.hasAuthError = false
                     self.consecutiveErrorCount = 0
                     self.lastUpdated = Date()
                     self.updateMenuBar()
-                    self.popoverViewModel.update(usage: usage, error: nil, isLoading: false, lastUpdated: self.lastUpdated)
+                    self.popoverViewModel.update(usage: usage, error: nil, isLoading: false, lastUpdated: self.lastUpdated, overage: overage)
 
                     // 알림 체크
                     NotificationManager.shared.checkThreshold(
@@ -690,12 +722,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.timer?.invalidate()
                 self.timer = nil
                 self.currentUsage = nil
+                self.currentOverage = nil
                 self.currentError = nil
                 self.hasAuthError = false
                 self.consecutiveErrorCount = 0
                 self.isLoading = false
                 self.updateMenuBar()
-                self.popoverViewModel.update(usage: nil, error: nil, isLoading: false)
+                self.popoverViewModel.update(usage: nil, error: nil, isLoading: false, overage: nil)
                 self.settingsSnapshot = nil
                 self.settingsWindow?.close()
 

@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import ServiceManagement
 
 enum MenuBarStyle: String, Codable, CaseIterable, Sendable {
     case none = "none"
@@ -176,6 +177,18 @@ class AppSettings: ObservableObject {
     @Published var popoverCompact: Bool {
         didSet { defaults.set(popoverCompact, forKey: "popoverCompact") }
     }
+    @Published var launchAtLogin: Bool {
+        didSet {
+            defaults.set(launchAtLogin, forKey: "launchAtLogin")
+            updateLaunchAtLogin(launchAtLogin)
+        }
+    }
+    @Published var showModelUsage: Bool {
+        didSet { defaults.set(showModelUsage, forKey: "showModelUsage") }
+    }
+    @Published var showOverageUsage: Bool {
+        didSet { defaults.set(showOverageUsage, forKey: "showOverageUsage") }
+    }
 
     // MARK: - Snapshot
 
@@ -197,6 +210,9 @@ class AppSettings: ObservableObject {
         let alertWeeklyEnabled: Bool
         let popoverPinned: Bool
         let popoverCompact: Bool
+        let launchAtLogin: Bool
+        let showModelUsage: Bool
+        let showOverageUsage: Bool
     }
 
     func createSnapshot() -> Snapshot {
@@ -217,7 +233,10 @@ class AppSettings: ObservableObject {
             alertFiveHourEnabled: alertFiveHourEnabled,
             alertWeeklyEnabled: alertWeeklyEnabled,
             popoverPinned: popoverPinned,
-            popoverCompact: popoverCompact
+            popoverCompact: popoverCompact,
+            launchAtLogin: launchAtLogin,
+            showModelUsage: showModelUsage,
+            showOverageUsage: showOverageUsage
         )
     }
 
@@ -239,6 +258,9 @@ class AppSettings: ObservableObject {
         alertWeeklyEnabled = snapshot.alertWeeklyEnabled
         popoverPinned = snapshot.popoverPinned
         popoverCompact = snapshot.popoverCompact
+        launchAtLogin = snapshot.launchAtLogin
+        showModelUsage = snapshot.showModelUsage
+        showOverageUsage = snapshot.showOverageUsage
     }
 
     // MARK: - Computed
@@ -271,6 +293,23 @@ class AppSettings: ObservableObject {
         alertWeeklyEnabled = false
         popoverPinned = false
         popoverCompact = false
+        launchAtLogin = false
+        showModelUsage = true
+        showOverageUsage = true
+    }
+
+    // MARK: - Launch at Login
+
+    private func updateLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            Logger.error("로그인 시 자동 시작 설정 실패: \(error)")
+        }
     }
 
     // MARK: - Init
@@ -325,5 +364,10 @@ class AppSettings: ObservableObject {
         self.alertWeeklyEnabled = defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false
         self.popoverPinned = defaults.object(forKey: "popoverPinned") as? Bool ?? false
         self.popoverCompact = defaults.object(forKey: "popoverCompact") as? Bool ?? false
+        // 시스템 상태에서 실제 등록 여부 확인
+        let savedLaunchAtLogin = defaults.object(forKey: "launchAtLogin") as? Bool ?? false
+        self.launchAtLogin = savedLaunchAtLogin
+        self.showModelUsage = defaults.object(forKey: "showModelUsage") as? Bool ?? true
+        self.showOverageUsage = defaults.object(forKey: "showOverageUsage") as? Bool ?? true
     }
 }
