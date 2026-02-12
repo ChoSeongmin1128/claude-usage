@@ -58,10 +58,15 @@ enum MenuBarIconRenderer {
             // 퍼센트 텍스트 (배터리 내부 중앙)
             if showPercent {
                 let textColor: NSColor = isDark ? .white : .black
-                let text = String(format: "%.0f%%", remaining)
+                let text = String(format: "%.0f", remaining)
+                let shadow = NSShadow()
+                shadow.shadowColor = (isDark ? NSColor.black : NSColor.white).withAlphaComponent(0.9)
+                shadow.shadowBlurRadius = 2.0
+                shadow.shadowOffset = .zero
                 let attrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.monospacedDigitSystemFont(ofSize: 8.5, weight: .semibold),
-                    .foregroundColor: textColor.withAlphaComponent(0.85)
+                    .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold),
+                    .foregroundColor: textColor,
+                    .shadow: shadow,
                 ]
                 let textSize = (text as NSString).size(withAttributes: attrs)
                 let textX = (bodyWidth - textSize.width) / 2
@@ -235,10 +240,15 @@ enum MenuBarIconRenderer {
         // 퍼센트 텍스트
         if showPercent {
             let textColor: NSColor = isDark ? .white : .black
-            let text = String(format: "%.0f%%", remaining)
+            let text = String(format: "%.0f", remaining)
+            let shadow = NSShadow()
+            shadow.shadowColor = (isDark ? NSColor.black : NSColor.white).withAlphaComponent(0.9)
+            shadow.shadowBlurRadius = 2.0
+            shadow.shadowOffset = .zero
             let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 8.5, weight: .semibold),
-                .foregroundColor: textColor.withAlphaComponent(0.85)
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold),
+                .foregroundColor: textColor,
+                .shadow: shadow,
             ]
             let textSize = (text as NSString).size(withAttributes: attrs)
             let textX = xOffset + (bodyWidth - textSize.width) / 2

@@ -149,9 +149,11 @@ struct PopoverView: View {
             }
             .font(.system(size: 10))
             .foregroundStyle(.quaternary)
+            .frame(maxWidth: .infinity)
             .padding(.bottom, 6)
         }
         .frame(width: 340)
+        .background(Color(NSColor.windowBackgroundColor))
     }
 }
 

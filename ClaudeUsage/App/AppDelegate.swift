@@ -25,6 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var hasAuthError = false
 
     private var settingsWindow: NSWindow?
+    private var settingsSnapshot: AppSettings.Snapshot?
     private var loginWindow: NSWindow?
     private var cancellables = Set<AnyCancellable>()
     private var eventMonitor: Any?
@@ -228,6 +229,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AppSettings.shared.$circularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$showDualPercentage.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$showDualResetTime.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$showClaudeIcon.map { _ in () }.eraseToAnyPublisher(),
         ]
 
         for publisher in displayPublishers {
@@ -267,8 +269,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                     // 알림 체크
                     NotificationManager.shared.checkThreshold(
+                        session: .fiveHour,
                         percentage: usage.fiveHourPercentage,
                         resetAt: usage.fiveHour.resetsAt
+                    )
+                    NotificationManager.shared.checkThreshold(
+                        session: .weekly,
+                        percentage: usage.weeklyPercentage,
+                        resetAt: usage.sevenDay.resetsAt
                     )
                 }
 
@@ -382,11 +390,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let smallFont = NSFont.systemFont(ofSize: 11)
         var elements: [(image: NSImage?, text: String?, attrs: [NSAttributedString.Key: Any]?)] = []
 
-        // 1. Claude 아이콘 (항상)
-        let claudeIcon = NSImage(named: "ClaudeMenuBarIcon")
-        let iconSize: CGFloat = 18
-        claudeIcon?.size = NSSize(width: iconSize, height: iconSize)
-        elements.append((image: claudeIcon, text: nil, attrs: nil))
+        // 1. Claude 아이콘 (설정)
+        if settings.showClaudeIcon {
+            let claudeIcon = NSImage(named: "ClaudeMenuBarIcon")
+            let iconSize: CGFloat = 18
+            claudeIcon?.size = NSSize(width: iconSize, height: iconSize)
+            elements.append((image: claudeIcon, text: nil, attrs: nil))
+        }
 
         // 2. 퍼센트 (설정)
         let isRemainingMode = settings.circularDisplayMode == .remaining
@@ -543,9 +553,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        settingsSnapshot = AppSettings.shared.createSnapshot()
+
         let settingsView = SettingsView(
             onSave: { [weak self] in
                 guard let self = self else { return }
+                self.settingsSnapshot = nil  // 저장 시 스냅샷 클리어 → 복원 방지
                 self.settingsWindow?.close()
 
                 // 세션 키 업데이트 후 모니터링 시작 (순차 실행)
@@ -579,7 +592,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.styleMask = [.titled, .closable]
         window.center()
         window.isReleasedWhenClosed = false
-        window.level = .floating
+        window.delegate = self
 
         self.settingsWindow = window
 
@@ -664,5 +677,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quitClicked() {
         NSApplication.shared.terminate(nil)
+    }
+}
+
+// MARK: - NSWindowDelegate
+
+extension AppDelegate: NSWindowDelegate {
+    func windowDidResignKey(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        if window == settingsWindow {
+            window.close()
+        }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        if window == settingsWindow, let snapshot = settingsSnapshot {
+            AppSettings.shared.restore(from: snapshot)
+            settingsSnapshot = nil
+        }
     }
 }

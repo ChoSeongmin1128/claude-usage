@@ -119,6 +119,15 @@ class AppSettings: ObservableObject {
     @Published var showDualResetTime: Bool {
         didSet { defaults.set(showDualResetTime, forKey: "showDualResetTime") }
     }
+    @Published var showClaudeIcon: Bool {
+        didSet { defaults.set(showClaudeIcon, forKey: "showClaudeIcon") }
+    }
+    @Published var alertFiveHourEnabled: Bool {
+        didSet { defaults.set(alertFiveHourEnabled, forKey: "alertFiveHourEnabled") }
+    }
+    @Published var alertWeeklyEnabled: Bool {
+        didSet { defaults.set(alertWeeklyEnabled, forKey: "alertWeeklyEnabled") }
+    }
 
     // MARK: - Snapshot
 
@@ -140,6 +149,9 @@ class AppSettings: ObservableObject {
         let reducedRefreshOnBattery: Bool
         let showDualPercentage: Bool
         let showDualResetTime: Bool
+        let showClaudeIcon: Bool
+        let alertFiveHourEnabled: Bool
+        let alertWeeklyEnabled: Bool
     }
 
     func createSnapshot() -> Snapshot {
@@ -160,7 +172,10 @@ class AppSettings: ObservableObject {
             alert3Threshold: alert3Threshold,
             reducedRefreshOnBattery: reducedRefreshOnBattery,
             showDualPercentage: showDualPercentage,
-            showDualResetTime: showDualResetTime
+            showDualResetTime: showDualResetTime,
+            showClaudeIcon: showClaudeIcon,
+            alertFiveHourEnabled: alertFiveHourEnabled,
+            alertWeeklyEnabled: alertWeeklyEnabled
         )
     }
 
@@ -182,6 +197,9 @@ class AppSettings: ObservableObject {
         reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
         showDualPercentage = snapshot.showDualPercentage
         showDualResetTime = snapshot.showDualResetTime
+        showClaudeIcon = snapshot.showClaudeIcon
+        alertFiveHourEnabled = snapshot.alertFiveHourEnabled
+        alertWeeklyEnabled = snapshot.alertWeeklyEnabled
     }
 
     // MARK: - Computed
@@ -214,6 +232,9 @@ class AppSettings: ObservableObject {
         reducedRefreshOnBattery = true
         showDualPercentage = false
         showDualResetTime = false
+        showClaudeIcon = true
+        alertFiveHourEnabled = true
+        alertWeeklyEnabled = false
     }
 
     // MARK: - Init
@@ -239,5 +260,8 @@ class AppSettings: ObservableObject {
         self.circularDisplayMode = CircularDisplayMode(rawValue: cdm) ?? .usage
         self.showDualPercentage = defaults.object(forKey: "showDualPercentage") as? Bool ?? false
         self.showDualResetTime = defaults.object(forKey: "showDualResetTime") as? Bool ?? false
+        self.showClaudeIcon = defaults.object(forKey: "showClaudeIcon") as? Bool ?? true
+        self.alertFiveHourEnabled = defaults.object(forKey: "alertFiveHourEnabled") as? Bool ?? true
+        self.alertWeeklyEnabled = defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false
     }
 }

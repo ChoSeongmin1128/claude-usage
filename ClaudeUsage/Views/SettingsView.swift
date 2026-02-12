@@ -243,6 +243,10 @@ struct SettingsView: View {
         }
     }
 
+    private var isCircularStyle: Bool {
+        settings.menuBarStyle == .circular || settings.menuBarStyle == .concentricRings
+    }
+
     private var displaySection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -255,7 +259,23 @@ struct SettingsView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Picker("추가 아이콘:", selection: $settings.menuBarStyle) {
+                Toggle("Claude 아이콘", isOn: $settings.showClaudeIcon)
+                Toggle("퍼센트", isOn: $settings.showPercentage)
+                Toggle("리셋 시간", isOn: $settings.showResetTime)
+
+                if settings.showResetTime {
+                    Picker("시간 형식:", selection: $settings.timeFormat) {
+                        ForEach(TimeFormatStyle.allCases, id: \.self) { style in
+                            Text(style.displayName).tag(style)
+                        }
+                    }
+                    .pickerStyle(.radioGroup)
+                    .padding(.leading, 20)
+                }
+
+                Divider()
+
+                Picker("아이콘:", selection: $settings.menuBarStyle) {
                     Text("없음").tag(MenuBarStyle.none)
 
                     Section("개별 세션") {
@@ -270,10 +290,10 @@ struct SettingsView: View {
                     }
                 }
                 .onChange(of: settings.menuBarStyle) { _, newValue in
-                    if newValue.isDualStyle {
-                        settings.showDualPercentage = true
-                    }
-                    // 배터리 계열은 자연스럽게 "남은 사용량" 표시
+                    // 동시 표시 → 자동 듀얼
+                    settings.showDualPercentage = newValue.isDualStyle
+                    settings.showDualResetTime = newValue.isDualStyle
+                    // 배터리 계열 → 남은 사용량
                     if newValue == .batteryBar || newValue == .dualBattery || newValue == .sideBySideBattery {
                         settings.circularDisplayMode = .remaining
                     }
@@ -283,58 +303,28 @@ struct SettingsView: View {
                     Text(desc)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .padding(.leading, 20)
                 }
 
-                // 배터리 계열 하위 옵션
+                // 배터리 하위: 내부 숫자
                 if isBatteryWithPercent {
-                    Toggle("배터리 내부 퍼센트", isOn: $settings.showBatteryPercent)
+                    Toggle("배터리 내부 숫자", isOn: $settings.showBatteryPercent)
+                        .padding(.leading, 20)
                         .onChange(of: settings.showBatteryPercent) { _, newValue in
-                            if newValue {
-                                settings.showPercentage = false
-                            }
+                            if newValue { settings.showPercentage = false }
                         }
                 }
 
-                Divider()
-
-                // 표시 기준
-                Picker("표시 기준:", selection: $settings.circularDisplayMode) {
-                    ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                Text("퍼센트 및 원형 아이콘에 적용됩니다")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Divider()
-
-                // 퍼센트
-                Toggle("퍼센트 표시", isOn: $settings.showPercentage)
-                if settings.showPercentage {
-                    Toggle("동시 퍼센트 표시 (67% · 45%)", isOn: $settings.showDualPercentage)
-                        .padding(.leading, 20)
-                }
-
-                Divider()
-
-                // 리셋 시간
-                Toggle("리셋 시간 표시", isOn: $settings.showResetTime)
-                if settings.showResetTime {
-                    Toggle("동시 리셋 시간 표시", isOn: $settings.showDualResetTime)
-                        .padding(.leading, 20)
-                    Picker("시간 형식:", selection: $settings.timeFormat) {
-                        ForEach(TimeFormatStyle.allCases, id: \.self) { style in
-                            Text(style.displayName).tag(style)
+                // 원형 하위: 표시 기준
+                if isCircularStyle {
+                    Picker("표시 기준:", selection: $settings.circularDisplayMode) {
+                        ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
                         }
                     }
                     .pickerStyle(.radioGroup)
+                    .padding(.leading, 20)
                 }
-
-                Text("Claude 아이콘은 항상 표시됩니다")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -393,9 +383,13 @@ struct SettingsView: View {
                 alertThresholdRow(enabled: $settings.alert2Enabled, threshold: $settings.alert2Threshold, text: $alert2Text)
                 alertThresholdRow(enabled: $settings.alert3Enabled, threshold: $settings.alert3Threshold, text: $alert3Text)
 
-                Text("설정한 사용량에 도달하면 알림을 보냅니다")
-                    .font(.caption)
+                Divider()
+
+                Text("알림 대상")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
+                Toggle("5시간 세션", isOn: $settings.alertFiveHourEnabled)
+                Toggle("주간 세션", isOn: $settings.alertWeeklyEnabled)
             }
         }
     }
