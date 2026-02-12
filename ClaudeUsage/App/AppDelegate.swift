@@ -369,7 +369,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let t2 = " · "
                 let t3 = String(format: "%.0f%%", weeklyPct)
                 let a1: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: fiveHourColor]
-                let a2: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.tertiaryLabelColor]
+                let a2: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
                 let a3: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: weeklyColor]
                 let w1 = (t1 as NSString).size(withAttributes: a1).width
                 let w2 = (t2 as NSString).size(withAttributes: a2).width
