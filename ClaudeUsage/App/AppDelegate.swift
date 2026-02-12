@@ -15,6 +15,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var timer: Timer?
+    private var updateCheckTimer: Timer?
     private let apiService = ClaudeAPIService()
     private let popoverViewModel = PopoverViewModel()
 
@@ -62,16 +63,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             showSettingsWindow()
         }
 
-        // 업데이트 확인
+        // 업데이트 확인 (시작 시 + 24시간 주기)
         if AppSettings.shared.autoCheckUpdates {
             checkForUpdates()
+            startUpdateCheckTimer()
+        }
+    }
+
+    private func startUpdateCheckTimer() {
+        updateCheckTimer?.invalidate()
+        updateCheckTimer = Timer.scheduledTimer(withTimeInterval: 86400, repeats: true) { [weak self] _ in
+            self?.checkForUpdates()
         }
     }
 
     private func checkForUpdates() {
         Task {
-            if let update = await UpdateService.shared.checkForUpdates() {
-                await MainActor.run {
+            let result = await UpdateService.shared.checkForUpdates()
+            await MainActor.run {
+                if case .available(let update) = result {
                     popoverViewModel.availableUpdate = update
                 }
             }
@@ -96,6 +106,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         Logger.info("ClaudeUsage 앱 종료")
         timer?.invalidate()
+        updateCheckTimer?.invalidate()
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }

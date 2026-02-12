@@ -503,13 +503,16 @@ struct SettingsView: View {
                         isCheckingUpdate = true
                         updateCheckResult = nil
                         Task {
-                            let update = await UpdateService.shared.checkForUpdates()
+                            let result = await UpdateService.shared.checkForUpdates()
                             await MainActor.run {
                                 isCheckingUpdate = false
-                                if let update {
-                                    updateCheckResult = "v\(update.version) 업데이트 가능"
-                                } else {
+                                switch result {
+                                case .available(let info):
+                                    updateCheckResult = "v\(info.version) 업데이트 가능"
+                                case .upToDate:
                                     updateCheckResult = "최신 버전입니다"
+                                case .error(let msg):
+                                    updateCheckResult = "확인 실패: \(msg)"
                                 }
                             }
                         }
@@ -522,7 +525,7 @@ struct SettingsView: View {
             if let result = updateCheckResult {
                 Text(result)
                     .font(.caption)
-                    .foregroundStyle(result.contains("가능") ? .orange : .green)
+                    .foregroundStyle(result.contains("가능") ? .orange : result.contains("실패") ? .red : .green)
             }
         }
     }
