@@ -68,6 +68,11 @@ struct SettingsView: View {
 
                     // 절전 섹션
                     powerSection
+
+                    Divider()
+
+                    // 업데이트 섹션
+                    updateSection
                 }
                 .padding(24)
             }
@@ -391,7 +396,7 @@ struct SettingsView: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 50)
 
-                        Text("% 도달 시 알림")
+                        Text(settings.alertRemainingMode ? "% 남았을 때 알림" : "% 사용 시 알림")
                             .font(.subheadline)
 
                         Spacer()
@@ -416,6 +421,17 @@ struct SettingsView: View {
                         .font(.subheadline)
                 }
                 .buttonStyle(.borderless)
+
+                Picker("기준:", selection: $settings.alertRemainingMode) {
+                    Text("사용량").tag(false)
+                    Text("남은 사용량").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 200)
+                .onChange(of: settings.alertRemainingMode) { _, _ in
+                    settings.alertThresholds = settings.alertThresholds.map { max(1, min(100 - $0, 99)) }
+                    alertTexts = settings.alertThresholds.map { String($0) }
+                }
 
                 Divider()
 
@@ -456,6 +472,58 @@ struct SettingsView: View {
             Text("배터리 모드에서 새로고침 간격이 30초로 변경됩니다")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - 업데이트 섹션
+
+    @State private var isCheckingUpdate = false
+    @State private var updateCheckResult: String?
+
+    private var updateSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("업데이트", systemImage: "arrow.triangle.2.circlepath")
+                .font(.headline)
+
+            Toggle("앱 시작 시 자동 확인", isOn: $settings.autoCheckUpdates)
+
+            HStack {
+                let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
+                Text("현재 버전: v\(version)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                if isCheckingUpdate {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Button("지금 확인") {
+                        isCheckingUpdate = true
+                        updateCheckResult = nil
+                        Task {
+                            let update = await UpdateService.shared.checkForUpdates()
+                            await MainActor.run {
+                                isCheckingUpdate = false
+                                if let update {
+                                    updateCheckResult = "v\(update.version) 업데이트 가능"
+                                } else {
+                                    updateCheckResult = "최신 버전입니다"
+                                }
+                            }
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+
+            if let result = updateCheckResult {
+                Text(result)
+                    .font(.caption)
+                    .foregroundStyle(result.contains("가능") ? .orange : .green)
+            }
         }
     }
 

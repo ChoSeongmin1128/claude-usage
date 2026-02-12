@@ -124,6 +124,9 @@ class AppSettings: ObservableObject {
     @Published var alertThresholds: [Int] {
         didSet { defaults.set(alertThresholds, forKey: "alertThresholds") }
     }
+    @Published var alertRemainingMode: Bool {
+        didSet { defaults.set(alertRemainingMode, forKey: "alertRemainingMode") }
+    }
     @Published var reducedRefreshOnBattery: Bool {
         didSet { defaults.set(reducedRefreshOnBattery, forKey: "reducedRefreshOnBattery") }
     }
@@ -138,6 +141,9 @@ class AppSettings: ObservableObject {
     }
     @Published var alertWeeklyEnabled: Bool {
         didSet { defaults.set(alertWeeklyEnabled, forKey: "alertWeeklyEnabled") }
+    }
+    @Published var autoCheckUpdates: Bool {
+        didSet { defaults.set(autoCheckUpdates, forKey: "autoCheckUpdates") }
     }
     @Published var popoverPinned: Bool {
         didSet { defaults.set(popoverPinned, forKey: "popoverPinned") }
@@ -158,8 +164,10 @@ class AppSettings: ObservableObject {
         let refreshInterval: TimeInterval
         let autoRefresh: Bool
         let alertThresholds: [Int]
+        let alertRemainingMode: Bool
         let reducedRefreshOnBattery: Bool
         let showClaudeIcon: Bool
+        let autoCheckUpdates: Bool
         let alertFiveHourEnabled: Bool
         let alertWeeklyEnabled: Bool
     }
@@ -175,8 +183,10 @@ class AppSettings: ObservableObject {
             refreshInterval: refreshInterval,
             autoRefresh: autoRefresh,
             alertThresholds: alertThresholds,
+            alertRemainingMode: alertRemainingMode,
             reducedRefreshOnBattery: reducedRefreshOnBattery,
             showClaudeIcon: showClaudeIcon,
+            autoCheckUpdates: autoCheckUpdates,
             alertFiveHourEnabled: alertFiveHourEnabled,
             alertWeeklyEnabled: alertWeeklyEnabled
         )
@@ -192,16 +202,22 @@ class AppSettings: ObservableObject {
         refreshInterval = snapshot.refreshInterval
         autoRefresh = snapshot.autoRefresh
         alertThresholds = snapshot.alertThresholds
+        alertRemainingMode = snapshot.alertRemainingMode
         reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
         showClaudeIcon = snapshot.showClaudeIcon
+        autoCheckUpdates = snapshot.autoCheckUpdates
         alertFiveHourEnabled = snapshot.alertFiveHourEnabled
         alertWeeklyEnabled = snapshot.alertWeeklyEnabled
     }
 
     // MARK: - Computed
 
+    /// 실제 사용량 기준 임계값 (NotificationManager에서 사용)
     var enabledAlertThresholds: [Int] {
-        alertThresholds.sorted()
+        if alertRemainingMode {
+            return alertThresholds.map { 100 - $0 }.sorted()
+        }
+        return alertThresholds.sorted()
     }
 
     // MARK: - Actions
@@ -216,8 +232,10 @@ class AppSettings: ObservableObject {
         refreshInterval = 5.0
         autoRefresh = true
         alertThresholds = [75, 90, 95]
+        alertRemainingMode = false
         reducedRefreshOnBattery = true
         showClaudeIcon = true
+        autoCheckUpdates = true
         alertFiveHourEnabled = true
         alertWeeklyEnabled = false
     }
@@ -263,10 +281,12 @@ class AppSettings: ObservableObject {
             if e3 { migrated.append(defaults.object(forKey: "alert3Threshold") as? Int ?? 95) }
             self.alertThresholds = migrated.isEmpty ? [75, 90, 95] : migrated
         }
+        self.alertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
         self.reducedRefreshOnBattery = defaults.object(forKey: "reducedRefreshOnBattery") as? Bool ?? true
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
         self.circularDisplayMode = CircularDisplayMode(rawValue: cdm) ?? .usage
         self.showClaudeIcon = defaults.object(forKey: "showClaudeIcon") as? Bool ?? true
+        self.autoCheckUpdates = defaults.object(forKey: "autoCheckUpdates") as? Bool ?? true
         self.alertFiveHourEnabled = defaults.object(forKey: "alertFiveHourEnabled") as? Bool ?? true
         self.alertWeeklyEnabled = defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false
         self.popoverPinned = defaults.object(forKey: "popoverPinned") as? Bool ?? false

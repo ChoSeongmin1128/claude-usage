@@ -61,6 +61,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             updateMenuBar()
             showSettingsWindow()
         }
+
+        // 업데이트 확인
+        if AppSettings.shared.autoCheckUpdates {
+            checkForUpdates()
+        }
+    }
+
+    private func checkForUpdates() {
+        Task {
+            if let update = await UpdateService.shared.checkForUpdates() {
+                await MainActor.run {
+                    popoverViewModel.availableUpdate = update
+                }
+            }
+        }
+    }
+
+    private func performUpdate(from url: URL) {
+        Task {
+            await MainActor.run { popoverViewModel.isUpdating = true }
+            do {
+                try await UpdateService.shared.downloadAndInstall(from: url)
+            } catch {
+                Logger.error("업데이트 실패: \(error.localizedDescription)")
+                await MainActor.run {
+                    popoverViewModel.isUpdating = false
+                    popoverViewModel.updateError = error.localizedDescription
+                }
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -100,6 +130,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popoverViewModel.onOpenSettings = { [weak self] in
             self?.closePopover()
             self?.showSettingsWindow()
+        }
+        popoverViewModel.onUpdate = { [weak self] url in
+            self?.performUpdate(from: url)
+        }
+        popoverViewModel.onCheckUpdate = { [weak self] in
+            self?.checkForUpdates()
         }
         popoverViewModel.onPinChanged = { [weak self] isPinned in
             guard let self = self else { return }

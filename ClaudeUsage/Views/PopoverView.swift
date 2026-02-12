@@ -66,6 +66,47 @@ struct PopoverView: View {
             .padding(.top, 12)
             .padding(.bottom, 8)
 
+            // 업데이트 배너
+            if let update = viewModel.availableUpdate {
+                Divider()
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .foregroundColor(.accentColor)
+                    Text("v\(update.version) 업데이트 가능")
+                        .font(.caption)
+                    Spacer()
+                    if viewModel.isUpdating {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("설치 중...")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Button("업데이트") {
+                            viewModel.performUpdate()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+                .background(Color.accentColor.opacity(0.08))
+            }
+
+            if let updateErr = viewModel.updateError {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                        .font(.caption)
+                    Text(updateErr)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
+            }
+
             Divider()
 
             if viewModel.isLoading && viewModel.usage == nil {
@@ -321,10 +362,15 @@ class PopoverViewModel: ObservableObject {
     @Published var error: APIError?
     @Published var isLoading: Bool = false
     @Published var lastUpdated: Date?
+    @Published var availableUpdate: UpdateInfo?
+    @Published var isUpdating: Bool = false
+    @Published var updateError: String?
 
     var onRefresh: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onPinChanged: ((Bool) -> Void)?
+    var onUpdate: ((URL) -> Void)?
+    var onCheckUpdate: (() -> Void)?
 
     func refresh() {
         onRefresh?()
@@ -338,6 +384,12 @@ class PopoverViewModel: ObservableObject {
         if let url = URL(string: "https://claude.ai/settings/usage") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    func performUpdate() {
+        guard let url = availableUpdate?.downloadURL else { return }
+        updateError = nil
+        onUpdate?(url)
     }
 
     func update(usage: ClaudeUsageResponse?, error: APIError?, isLoading: Bool, lastUpdated: Date? = nil) {
