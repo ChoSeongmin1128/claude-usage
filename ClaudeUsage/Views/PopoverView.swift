@@ -86,21 +86,6 @@ struct PopoverView: View {
                 .background(Color.accentColor.opacity(0.08))
             }
 
-            if let updateErr = viewModel.updateError {
-                HStack(alignment: .top, spacing: 4) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
-                        .font(.caption)
-                    Text(updateErr)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 4)
-            }
-
             Divider()
 
             if viewModel.isLoading && viewModel.usage == nil {
@@ -356,12 +341,9 @@ class PopoverViewModel: ObservableObject {
     @Published var error: APIError?
     @Published var isLoading: Bool = false
     @Published var lastUpdated: Date?
-    @Published var updateError: String?
-
     var onRefresh: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onPinChanged: ((Bool) -> Void)?
-    var onCheckUpdate: (() -> Void)?
 
     func refresh() {
         onRefresh?()

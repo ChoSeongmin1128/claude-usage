@@ -157,8 +157,8 @@ actor ClaudeAPIService {
                 throw APIError.parseError
             }
 
-        } catch is APIError {
-            throw APIError.parseError
+        } catch let apiError as APIError {
+            throw apiError
         } catch {
             Logger.error("JSON 파싱 실패: \(error)")
             throw APIError.parseError
@@ -174,6 +174,11 @@ actor ClaudeAPIService {
                 return try await fetchUsage()
 
             } catch {
+                // 인증 에러는 재시도 없이 즉시 throw
+                if let apiError = error as? APIError, case .invalidSessionKey = apiError {
+                    throw error
+                }
+
                 lastError = error
                 Logger.warning("시도 \(attempt)/\(maxAttempts) 실패: \(error.localizedDescription)")
 

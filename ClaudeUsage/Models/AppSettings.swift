@@ -195,6 +195,8 @@ class AppSettings: ObservableObject {
         let updateCheckInterval: UpdateCheckInterval
         let alertFiveHourEnabled: Bool
         let alertWeeklyEnabled: Bool
+        let popoverPinned: Bool
+        let popoverCompact: Bool
     }
 
     func createSnapshot() -> Snapshot {
@@ -213,7 +215,9 @@ class AppSettings: ObservableObject {
             showClaudeIcon: showClaudeIcon,
             updateCheckInterval: updateCheckInterval,
             alertFiveHourEnabled: alertFiveHourEnabled,
-            alertWeeklyEnabled: alertWeeklyEnabled
+            alertWeeklyEnabled: alertWeeklyEnabled,
+            popoverPinned: popoverPinned,
+            popoverCompact: popoverCompact
         )
     }
 
@@ -233,6 +237,8 @@ class AppSettings: ObservableObject {
         updateCheckInterval = snapshot.updateCheckInterval
         alertFiveHourEnabled = snapshot.alertFiveHourEnabled
         alertWeeklyEnabled = snapshot.alertWeeklyEnabled
+        popoverPinned = snapshot.popoverPinned
+        popoverCompact = snapshot.popoverCompact
     }
 
     // MARK: - Computed
@@ -263,6 +269,8 @@ class AppSettings: ObservableObject {
         updateCheckInterval = .hourly
         alertFiveHourEnabled = true
         alertWeeklyEnabled = false
+        popoverPinned = false
+        popoverCompact = false
     }
 
     // MARK: - Init

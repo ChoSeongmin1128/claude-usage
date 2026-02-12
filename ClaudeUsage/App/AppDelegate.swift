@@ -8,6 +8,7 @@
 import AppKit
 import SwiftUI
 import Combine
+import WebKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Properties
@@ -24,6 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var isLoading = false
     private var lastUpdated: Date?
     private var hasAuthError = false
+    private var consecutiveErrorCount = 0
 
     private var settingsWindow: NSWindow?
     private var settingsSnapshot: AppSettings.Snapshot?
@@ -84,8 +86,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             let result = await UpdateService.shared.checkForUpdates()
             await MainActor.run {
-                if case .available(let update) = result {
+                switch result {
+                case .available(let update):
                     AppSettings.shared.availableUpdate = update
+                case .upToDate:
+                    AppSettings.shared.availableUpdate = nil
+                case .error:
+                    break
                 }
             }
         }
@@ -130,9 +137,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popoverViewModel.onOpenSettings = { [weak self] in
             self?.closePopover()
             self?.showSettingsWindow()
-        }
-        popoverViewModel.onCheckUpdate = { [weak self] in
-            self?.checkForUpdates()
         }
         popoverViewModel.onPinChanged = { [weak self] isPinned in
             guard let self = self else { return }
@@ -332,6 +336,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.currentError = nil
                     self.isLoading = false
                     self.hasAuthError = false
+                    self.consecutiveErrorCount = 0
                     self.lastUpdated = Date()
                     self.updateMenuBar()
                     self.popoverViewModel.update(usage: usage, error: nil, isLoading: false, lastUpdated: self.lastUpdated)
@@ -355,8 +360,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 await MainActor.run {
                     self.currentError = error
                     self.isLoading = false
+                    self.consecutiveErrorCount += 1
                     if case .invalidSessionKey = error {
                         self.hasAuthError = true
+                    }
+                    if self.consecutiveErrorCount >= 3 {
+                        self.currentUsage = nil
                     }
                     self.updateMenuBar()
                     self.popoverViewModel.update(usage: self.currentUsage, error: error, isLoading: false)
@@ -369,6 +378,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 await MainActor.run {
                     self.currentError = apiError
                     self.isLoading = false
+                    self.consecutiveErrorCount += 1
+                    if self.consecutiveErrorCount >= 3 {
+                        self.currentUsage = nil
+                    }
                     self.updateMenuBar()
                     self.popoverViewModel.update(usage: self.currentUsage, error: apiError, isLoading: false)
                 }
@@ -547,23 +560,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             break
         case .fiveHour:
             if let resetAt = usage.fiveHour.resetsAt,
-               let clock = TimeFormatter.formatResetTime(from: resetAt, style: settings.timeFormat) {
+               let clock = TimeFormatter.formatResetTime(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false) {
                 let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
                 elements.append((image: nil, text: clock, attrs: attrs))
             }
         case .weekly:
             if let resetAt = usage.sevenDay.resetsAt,
-               let clock = TimeFormatter.formatResetTimeWeekly(from: resetAt, style: settings.timeFormat) {
+               let clock = TimeFormatter.formatResetTimeWeekly(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false) {
                 let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
                 elements.append((image: nil, text: clock, attrs: attrs))
             }
         case .dual:
-            let r1 = usage.fiveHour.resetsAt.flatMap { TimeFormatter.formatResetTime(from: $0, style: settings.timeFormat) }
-            let r2 = usage.sevenDay.resetsAt.flatMap { TimeFormatter.formatResetTimeWeekly(from: $0, style: settings.timeFormat) }
+            let r1 = usage.fiveHour.resetsAt.flatMap { TimeFormatter.formatResetTime(from: $0, style: settings.timeFormat, includeDateIfNotToday: false) }
+            let r2 = usage.sevenDay.resetsAt.flatMap { TimeFormatter.formatResetTimeWeekly(from: $0, style: settings.timeFormat, includeDateIfNotToday: false) }
+            let dualText: String?
             if let t1 = r1, let t2 = r2 {
-                let dualText = "\(t1) · \(t2)"
+                dualText = "\(t1) · \(t2)"
+            } else {
+                dualText = r1 ?? r2
+            }
+            if let text = dualText {
                 let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
-                elements.append((image: nil, text: dualText, attrs: attrs))
+                elements.append((image: nil, text: text, attrs: attrs))
             }
         }
 
@@ -666,9 +684,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.settingsWindow?.close()
                 self?.showLoginWindow()
             },
-            onOpenLoginNewAccount: { [weak self] in
-                self?.settingsWindow?.close()
-                self?.showLoginWindow(clearCookies: true)
+            onLogout: { [weak self] in
+                guard let self = self else { return }
+                try? KeychainManager.shared.delete()
+                self.timer?.invalidate()
+                self.timer = nil
+                self.currentUsage = nil
+                self.currentError = nil
+                self.hasAuthError = false
+                self.consecutiveErrorCount = 0
+                self.isLoading = false
+                self.updateMenuBar()
+                self.popoverViewModel.update(usage: nil, error: nil, isLoading: false)
+                self.settingsSnapshot = nil
+                self.settingsWindow?.close()
+
+                // 내장 브라우저 쿠키/캐시 삭제
+                let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+                WKWebsiteDataStore.default().removeData(ofTypes: dataTypes, modifiedSince: .distantPast) {
+                    Logger.info("웹 데이터 삭제 완료")
+                }
+                Logger.info("로그아웃 완료")
             }
         )
 

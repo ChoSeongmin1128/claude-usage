@@ -76,7 +76,7 @@ enum TimeFormatter {
 
     /// 리셋 시각을 시간 포맷에 맞게 반환
     /// 오늘이 아닌 경우 날짜+요일 포함 (예: "2/14(금) 18:34")
-    nonisolated static func formatResetTime(from resetAt: String, style: TimeFormatStyle = .h24) -> String? {
+    nonisolated static func formatResetTime(from resetAt: String, style: TimeFormatStyle = .h24, includeDateIfNotToday: Bool = true) -> String? {
         guard let resetDate = parseISO8601(resetAt) else { return nil }
 
         switch style {
@@ -88,7 +88,7 @@ enum TimeFormatter {
             df.timeZone = .current
 
             let isToday = Calendar.current.isDateInToday(resetDate)
-            if isToday {
+            if isToday || !includeDateIfNotToday {
                 df.dateFormat = style == .h12 ? "a h:mm" : "HH:mm"
             } else {
                 df.dateFormat = style == .h12 ? "M/d(E) a h:mm" : "M/d(E) HH:mm"
@@ -113,7 +113,7 @@ enum TimeFormatter {
     }
 
     /// 주간 리셋 시간 포맷 (1일 이상이면 분 단위 생략)
-    nonisolated static func formatResetTimeWeekly(from resetAt: String, style: TimeFormatStyle = .h24) -> String? {
+    nonisolated static func formatResetTimeWeekly(from resetAt: String, style: TimeFormatStyle = .h24, includeDateIfNotToday: Bool = true) -> String? {
         guard let resetDate = parseISO8601(resetAt) else { return nil }
 
         let interval = resetDate.timeIntervalSince(Date())
@@ -121,7 +121,7 @@ enum TimeFormatter {
 
         if !isOverOneDay {
             // 1일 이내: 기본 포맷과 동일
-            return formatResetTime(from: resetAt, style: style)
+            return formatResetTime(from: resetAt, style: style, includeDateIfNotToday: includeDateIfNotToday)
         }
 
         // 1일 이상

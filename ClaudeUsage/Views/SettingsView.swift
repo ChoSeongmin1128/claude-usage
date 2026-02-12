@@ -22,7 +22,7 @@ struct SettingsView: View {
     var onSave: (() -> Void)?
     var onCancel: (() -> Void)?
     var onOpenLogin: (() -> Void)?
-    var onOpenLoginNewAccount: (() -> Void)?
+    var onLogout: (() -> Void)?
 
     enum TestResult {
         case success
@@ -140,12 +140,18 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("다시 로그인") { onOpenLogin?() }
-                    Button("계정 변경") { onOpenLoginNewAccount?() }
                 }
-                Text("세션 키: \(String(sessionKey.prefix(20)))...")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Text("세션 키: \(String(sessionKey.prefix(20)))...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if case .success = testResult {} else {
+                        Button("다시 로그인") { onOpenLogin?() }
+                    }
+                    Button("로그아웃") { onLogout?() }
+                        .foregroundStyle(.red)
+                }
             } else {
                 // 미로그인 상태
                 Button(action: { onOpenLogin?() }) {
@@ -469,7 +475,7 @@ struct SettingsView: View {
 
             Toggle("배터리 사용 시 새로고침 감소", isOn: $settings.reducedRefreshOnBattery)
 
-            Text("배터리 모드에서 새로고침 간격이 30초로 변경됩니다")
+            Text("배터리 모드에서 새로고침 간격이 최소 30초로 제한됩니다")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

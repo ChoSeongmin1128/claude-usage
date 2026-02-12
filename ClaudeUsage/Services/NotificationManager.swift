@@ -104,13 +104,12 @@ class NotificationManager {
     }
 
     private func isActualReset(from oldResetAt: String, to newResetAt: String) -> Bool {
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
         let parse: (String) -> Date? = { str in
-            if let d = iso.date(from: str) { return d }
-            iso.formatOptions = [.withInternetDateTime]
-            return iso.date(from: str)
+            let fmt = ISO8601DateFormatter()
+            fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let d = fmt.date(from: str) { return d }
+            fmt.formatOptions = [.withInternetDateTime]
+            return fmt.date(from: str)
         }
 
         guard let oldDate = parse(oldResetAt), let newDate = parse(newResetAt) else {
