@@ -196,8 +196,8 @@ struct SettingsView: View {
 
     // MARK: - 디스플레이 섹션
 
-    private var isBatteryStyle: Bool {
-        [MenuBarStyle.batteryBar, .dualBattery, .sideBySideBattery].contains(settings.menuBarStyle)
+    private var isBatteryWithPercent: Bool {
+        settings.menuBarStyle == .batteryBar || settings.menuBarStyle == .sideBySideBattery
     }
 
     private var styleDescription: String? {
@@ -234,7 +234,7 @@ struct SettingsView: View {
                     Section("동시 표시 (5시간 + 주간)") {
                         Text("동심원").tag(MenuBarStyle.concentricRings)
                         Text("이중 배터리").tag(MenuBarStyle.dualBattery)
-                        Text("양옆 배터리").tag(MenuBarStyle.sideBySideBattery)
+                        Text("좌우 배터리").tag(MenuBarStyle.sideBySideBattery)
                     }
                 }
                 .onChange(of: settings.menuBarStyle) { _, newValue in
@@ -250,7 +250,7 @@ struct SettingsView: View {
                 }
 
                 // 배터리 계열 하위 옵션
-                if isBatteryStyle {
+                if isBatteryWithPercent {
                     Toggle("배터리 내부 퍼센트", isOn: $settings.showBatteryPercent)
                 }
 

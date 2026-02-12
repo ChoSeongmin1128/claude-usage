@@ -23,7 +23,7 @@ enum MenuBarStyle: String, Codable, CaseIterable, Sendable {
         case .circular: return "원형"
         case .concentricRings: return "동심원"
         case .dualBattery: return "이중 배터리"
-        case .sideBySideBattery: return "양옆 배터리"
+        case .sideBySideBattery: return "좌우 배터리"
         }
     }
 

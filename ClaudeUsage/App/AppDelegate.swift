@@ -400,8 +400,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             outerColor: fiveHourColor, innerColor: weeklyColor)
         case .dualBattery: MenuBarIconRenderer.dualBatteryIcon(
             topPercent: fiveHourPct, bottomPercent: weeklyPct,
-            topColor: fiveHourColor, bottomColor: weeklyColor,
-            showPercent: settings.showBatteryPercent)
+            topColor: fiveHourColor, bottomColor: weeklyColor)
         case .sideBySideBattery: MenuBarIconRenderer.sideBySideBatteryIcon(
             leftPercent: fiveHourPct, rightPercent: weeklyPct,
             leftColor: fiveHourColor, rightColor: weeklyColor,

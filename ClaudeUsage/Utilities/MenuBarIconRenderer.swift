@@ -249,27 +249,54 @@ enum MenuBarIconRenderer {
 
     // MARK: - Dual Battery Icon (이중 배터리)
 
-    /// 이중 배터리 아이콘: 위=5시간, 아래=주간 (각각 단일과 동일 크기)
+    /// 이중 배터리 아이콘: 위=5시간, 아래=주간 (소형, 퍼센트 없음)
     nonisolated static func dualBatteryIcon(
         topPercent: Double,
         bottomPercent: Double,
         topColor: NSColor,
-        bottomColor: NSColor,
-        showPercent: Bool = true
+        bottomColor: NSColor
     ) -> NSImage {
-        let batteryHeight: CGFloat = 14
+        let totalHeight: CGFloat = 14
         let bodyWidth: CGFloat = 36
         let capWidth: CGFloat = 3
-        let gap: CGFloat = 2
         let totalWidth = bodyWidth + capWidth + 1
-        let totalHeight = batteryHeight * 2 + gap
+        let batteryHeight: CGFloat = 6.0
+        let gap: CGFloat = 2.0
+        let cornerRadius: CGFloat = 2.0
+        let capCornerRadius: CGFloat = 1.0
+        let inset: CGFloat = 1.0
 
         let image = NSImage(size: NSSize(width: totalWidth, height: totalHeight), flipped: false) { _ in
             let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             let strokeColor: NSColor = isDark ? .white.withAlphaComponent(0.7) : .black.withAlphaComponent(0.5)
 
-            drawFullBattery(xOffset: 0, yOffset: 0, percentage: bottomPercent, color: bottomColor, showPercent: showPercent, strokeColor: strokeColor, isDark: isDark)
-            drawFullBattery(xOffset: 0, yOffset: batteryHeight + gap, percentage: topPercent, color: topColor, showPercent: showPercent, strokeColor: strokeColor, isDark: isDark)
+            func drawSmallBattery(yOffset: CGFloat, percentage: Double, color: NSColor) {
+                let bodyRect = NSRect(x: 0.5, y: yOffset + 0.5, width: bodyWidth - 1, height: batteryHeight - 1)
+                let bodyPath = NSBezierPath(roundedRect: bodyRect, xRadius: cornerRadius, yRadius: cornerRadius)
+                bodyPath.lineWidth = 0.8
+                strokeColor.setStroke()
+                bodyPath.stroke()
+
+                let capRect = NSRect(x: bodyWidth, y: yOffset + batteryHeight * 0.2, width: capWidth * 0.7, height: batteryHeight * 0.6)
+                let capPath = NSBezierPath(roundedRect: capRect, xRadius: capCornerRadius, yRadius: capCornerRadius)
+                strokeColor.withAlphaComponent(0.4).setFill()
+                capPath.fill()
+
+                let remaining = (100.0 - min(max(percentage, 0), 100)) / 100.0
+                let innerRect = NSRect(
+                    x: inset,
+                    y: yOffset + inset,
+                    width: (bodyWidth - inset * 2) * remaining,
+                    height: batteryHeight - inset * 2
+                )
+                let innerCorner = max(cornerRadius - inset, 0.5)
+                let fillPath = NSBezierPath(roundedRect: innerRect, xRadius: innerCorner, yRadius: innerCorner)
+                color.setFill()
+                fillPath.fill()
+            }
+
+            drawSmallBattery(yOffset: 0, percentage: bottomPercent, color: bottomColor)
+            drawSmallBattery(yOffset: batteryHeight + gap, percentage: topPercent, color: topColor)
 
             return true
         }
@@ -278,9 +305,9 @@ enum MenuBarIconRenderer {
         return image
     }
 
-    // MARK: - Side-by-Side Battery Icon (양옆 배터리)
+    // MARK: - Side-by-Side Battery Icon (좌우 배터리)
 
-    /// 양옆 배터리 아이콘: 왼쪽=5시간, 오른쪽=주간 (각각 단일과 동일 크기)
+    /// 좌우 배터리 아이콘: 왼쪽=5시간, 오른쪽=주간 (각각 단일과 동일 크기)
     nonisolated static func sideBySideBatteryIcon(
         leftPercent: Double,
         rightPercent: Double,
