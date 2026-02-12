@@ -10,11 +10,12 @@ import Combine
 
 struct PopoverView: View {
     @ObservedObject var viewModel: PopoverViewModel
+    @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // 상단 바
-            HStack {
+            HStack(spacing: 6) {
                 Text("Claude 사용량")
                     .font(.headline)
 
@@ -26,14 +27,39 @@ struct PopoverView: View {
                         .foregroundStyle(.tertiary)
                 }
 
+                // 간소화 토글
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        settings.popoverCompact.toggle()
+                    }
+                } label: {
+                    Image(systemName: settings.popoverCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
+                        .font(.system(size: 12))
+                }
+                .buttonStyle(.borderless)
+                .help(settings.popoverCompact ? "기본 보기" : "간소화")
+
+                // 새로고침
                 Button(action: { viewModel.refresh() }) {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 14))
+                        .font(.system(size: 12))
                         .rotationEffect(.degrees(viewModel.isLoading ? 360 : 0))
                         .animation(viewModel.isLoading ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: viewModel.isLoading)
                 }
                 .buttonStyle(.borderless)
                 .disabled(viewModel.isLoading)
+
+                // 고정 핀
+                Button {
+                    settings.popoverPinned.toggle()
+                    viewModel.onPinChanged?(settings.popoverPinned)
+                } label: {
+                    Image(systemName: settings.popoverPinned ? "pin.fill" : "pin")
+                        .font(.system(size: 12))
+                        .foregroundColor(settings.popoverPinned ? .accentColor : .secondary)
+                }
+                .buttonStyle(.borderless)
+                .help(settings.popoverPinned ? "고정 해제" : "고정")
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
@@ -48,7 +74,7 @@ struct PopoverView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: .infinity, minHeight: 150)
+                .frame(maxWidth: .infinity, minHeight: settings.popoverCompact ? 60 : 150)
 
             } else if let error = viewModel.error, viewModel.usage == nil {
                 ErrorSectionView(error: error) {
@@ -57,54 +83,18 @@ struct PopoverView: View {
                 .padding(16)
 
             } else if let usage = viewModel.usage {
-                VStack(spacing: 12) {
-                    UsageSectionView(
-                        systemIcon: "gauge.medium",
-                        title: "5시간 세션",
-                        percentage: usage.fiveHour.utilization,
-                        resetAt: usage.fiveHour.resetsAt
-                    )
-
-                    Divider()
-
-                    UsageSectionView(
-                        systemIcon: "calendar",
-                        title: "주간 한도",
-                        percentage: usage.sevenDay.utilization,
-                        resetAt: usage.sevenDay.resetsAt,
-                        isWeekly: true
-                    )
-
-                    if let sonnet = usage.sevenDaySonnet {
-                        Divider()
-                        UsageSectionView(
-                            systemIcon: "bolt.fill",
-                            title: "Sonnet (주간)",
-                            percentage: sonnet.utilization,
-                            resetAt: sonnet.resetsAt,
-                            isWeekly: true
-                        )
-                    }
-
-                    if let opus = usage.sevenDayOpus {
-                        Divider()
-                        UsageSectionView(
-                            systemIcon: "diamond.fill",
-                            title: "Opus (주간)",
-                            percentage: opus.utilization,
-                            resetAt: opus.resetsAt,
-                            isWeekly: true
-                        )
-                    }
+                if settings.popoverCompact {
+                    compactContent(usage: usage)
+                } else {
+                    standardContent(usage: usage)
                 }
-                .padding(16)
 
             } else {
                 VStack {
                     Text("데이터 없음")
                         .foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: .infinity, minHeight: 100)
+                .frame(maxWidth: .infinity, minHeight: settings.popoverCompact ? 40 : 100)
             }
 
             Divider()
@@ -114,14 +104,23 @@ struct PopoverView: View {
                 Button {
                     viewModel.openUsagePage()
                 } label: {
-                    HStack(spacing: 2) {
-                        Image(systemName: "safari")
-                        Text("claude.ai/settings/usage")
-                    }
-                    .foregroundColor(.accentColor)
+                    Image(systemName: "safari")
+                        .foregroundColor(.accentColor)
                 }
                 .buttonStyle(.borderless)
                 .font(.caption)
+                .help("claude.ai/settings/usage")
+
+                if !settings.popoverCompact {
+                    Button {
+                        viewModel.openUsagePage()
+                    } label: {
+                        Text("claude.ai/settings/usage")
+                            .foregroundColor(.accentColor)
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                }
 
                 Spacer()
 
@@ -130,33 +129,138 @@ struct PopoverView: View {
                 } label: {
                     HStack(spacing: 2) {
                         Image(systemName: "gearshape")
-                        Text("설정")
+                        if !settings.popoverCompact { Text("설정") }
                     }
                 }
                 .buttonStyle(.borderless)
                 .font(.caption)
 
-                Button("종료") {
+                Button {
                     NSApplication.shared.terminate(nil)
+                } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "power")
+                        if !settings.popoverCompact { Text("종료") }
+                    }
                 }
                 .buttonStyle(.borderless)
                 .font(.caption)
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.vertical, settings.popoverCompact ? 6 : 8)
 
-            // 단축키 안내
-            HStack(spacing: 8) {
-                Text("⌘R 새로고침")
-                Text("⌘, 설정")
+            if !settings.popoverCompact {
+                HStack(spacing: 8) {
+                    Text("⌘R 새로고침")
+                    Text("⌘, 설정")
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(.quaternary)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 6)
             }
-            .font(.system(size: 10))
-            .foregroundStyle(.quaternary)
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 6)
         }
-        .frame(width: 340)
+        .frame(width: settings.popoverCompact ? 260 : 340)
         .background(Color(NSColor.windowBackgroundColor))
+    }
+
+    // MARK: - Standard Content
+
+    @ViewBuilder
+    private func standardContent(usage: ClaudeUsageResponse) -> some View {
+        VStack(spacing: 12) {
+            UsageSectionView(
+                systemIcon: "gauge.medium",
+                title: "5시간 세션",
+                percentage: usage.fiveHour.utilization,
+                resetAt: usage.fiveHour.resetsAt
+            )
+
+            Divider()
+
+            UsageSectionView(
+                systemIcon: "calendar",
+                title: "주간 한도",
+                percentage: usage.sevenDay.utilization,
+                resetAt: usage.sevenDay.resetsAt,
+                isWeekly: true
+            )
+
+            if let sonnet = usage.sevenDaySonnet {
+                Divider()
+                UsageSectionView(
+                    systemIcon: "bolt.fill",
+                    title: "Sonnet (주간)",
+                    percentage: sonnet.utilization,
+                    resetAt: sonnet.resetsAt,
+                    isWeekly: true
+                )
+            }
+
+            if let opus = usage.sevenDayOpus {
+                Divider()
+                UsageSectionView(
+                    systemIcon: "diamond.fill",
+                    title: "Opus (주간)",
+                    percentage: opus.utilization,
+                    resetAt: opus.resetsAt,
+                    isWeekly: true
+                )
+            }
+        }
+        .padding(16)
+    }
+
+    // MARK: - Compact Content
+
+    @ViewBuilder
+    private func compactContent(usage: ClaudeUsageResponse) -> some View {
+        VStack(spacing: 5) {
+            CompactUsageRow(label: "5시간", percentage: usage.fiveHour.utilization)
+            CompactUsageRow(label: "주간", percentage: usage.sevenDay.utilization)
+
+            if let sonnet = usage.sevenDaySonnet {
+                CompactUsageRow(label: "Sonnet", percentage: sonnet.utilization)
+            }
+            if let opus = usage.sevenDayOpus {
+                CompactUsageRow(label: "Opus", percentage: opus.utilization)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+}
+
+// MARK: - Compact Usage Row
+
+struct CompactUsageRow: View {
+    let label: String
+    let percentage: Double
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 40, alignment: .leading)
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2.5)
+                        .fill(Color.secondary.opacity(0.15))
+                    RoundedRectangle(cornerRadius: 2.5)
+                        .fill(ColorProvider.statusColor(for: percentage))
+                        .frame(width: geo.size.width * min(percentage, 100) / 100)
+                }
+            }
+            .frame(height: 6)
+
+            Text(String(format: "%.0f%%", percentage))
+                .font(.system(.caption, design: .monospaced))
+                .fontWeight(.medium)
+                .foregroundStyle(ColorProvider.statusColor(for: percentage))
+                .frame(width: 36, alignment: .trailing)
+        }
     }
 }
 
@@ -201,6 +305,7 @@ class PopoverViewModel: ObservableObject {
 
     var onRefresh: (() -> Void)?
     var onOpenSettings: (() -> Void)?
+    var onPinChanged: ((Bool) -> Void)?
 
     func refresh() {
         onRefresh?()

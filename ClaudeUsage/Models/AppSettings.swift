@@ -141,6 +141,12 @@ class AppSettings: ObservableObject {
     @Published var alertWeeklyEnabled: Bool {
         didSet { defaults.set(alertWeeklyEnabled, forKey: "alertWeeklyEnabled") }
     }
+    @Published var popoverPinned: Bool {
+        didSet { defaults.set(popoverPinned, forKey: "popoverPinned") }
+    }
+    @Published var popoverCompact: Bool {
+        didSet { defaults.set(popoverCompact, forKey: "popoverCompact") }
+    }
 
     // MARK: - Snapshot
 
@@ -272,5 +278,7 @@ class AppSettings: ObservableObject {
         self.showClaudeIcon = defaults.object(forKey: "showClaudeIcon") as? Bool ?? true
         self.alertFiveHourEnabled = defaults.object(forKey: "alertFiveHourEnabled") as? Bool ?? true
         self.alertWeeklyEnabled = defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false
+        self.popoverPinned = defaults.object(forKey: "popoverPinned") as? Bool ?? false
+        self.popoverCompact = defaults.object(forKey: "popoverCompact") as? Bool ?? false
     }
 }

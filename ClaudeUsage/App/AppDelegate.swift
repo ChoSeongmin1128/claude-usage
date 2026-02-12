@@ -101,13 +101,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.closePopover()
             self?.showSettingsWindow()
         }
+        popoverViewModel.onPinChanged = { [weak self] isPinned in
+            guard let self = self else { return }
+            if isPinned {
+                self.popover?.behavior = .applicationDefined
+                self.stopGlobalClickMonitor()
+            } else {
+                self.popover?.behavior = .transient
+                if self.popover?.isShown == true {
+                    self.startGlobalClickMonitor()
+                }
+            }
+        }
 
         let popoverView = PopoverView(viewModel: popoverViewModel)
         let hostingController = NSHostingController(rootView: popoverView)
 
+        let isPinned = AppSettings.shared.popoverPinned
         popover = NSPopover()
         popover?.contentViewController = hostingController
-        popover?.behavior = .transient
+        popover?.behavior = isPinned ? .applicationDefined : .transient
         popover?.animates = true
     }
 
@@ -132,7 +145,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             popoverViewModel.update(usage: currentUsage, error: currentError, isLoading: isLoading, lastUpdated: lastUpdated)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate()
-            startGlobalClickMonitor()
+            if !AppSettings.shared.popoverPinned {
+                startGlobalClickMonitor()
+            }
         }
     }
 
