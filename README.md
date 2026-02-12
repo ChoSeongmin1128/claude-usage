@@ -2,74 +2,62 @@
 
 macOS 메뉴바에서 Claude.ai 사용량을 실시간으로 모니터링하는 네이티브 앱
 
-## 🚀 빠른 시작
+## 주요 기능
 
-**Phase 1 설정을 시작하려면 [SETUP-GUIDE.md](docs/SETUP-GUIDE.md)를 참고하세요.**
+- **메뉴바 실시간 표시** — 퍼센트, 리셋 시간, 아이콘을 조합하여 상단바에 표시
+- **다양한 아이콘 스타일** — 배터리바, 원형, 동심원, 이중 배터리, 좌우 배터리
+- **5시간 / 주간 세션** — 개별 또는 동시 모니터링
+- **Popover 대시보드** — 클릭 시 전체 세션 상태 한눈에 확인
+- **알림 시스템** — 사용량 임계치별 macOS 알림 (5시간/주간 개별 설정)
+- **자동 로그인** — claude.ai 로그인으로 세션 키 자동 추출
+- **절전 모드** — 배터리 사용 시 새로고침 간격 자동 조절
 
-## 📋 프로젝트 상태
+## 설치
 
-### ✅ 완료된 작업
-- [x] 프로젝트 기획 및 스펙 작성
-- [x] Phase 1 소스 코드 생성
-  - [x] Models (UsageModels.swift, APIError.swift)
-  - [x] Services (ClaudeAPIService.swift)
-  - [x] Utilities (Logger.swift)
-  - [x] App (ClaudeUsageApp.swift, AppDelegate.swift)
+### 빌드된 앱 사용
 
-### 📝 다음 단계
-1. ⏳ Xcode 프로젝트 생성 (사용자 작업)
-2. ⏳ Session Key 설정
-3. ⏳ 빌드 및 실행 확인
+1. `ClaudeUsage.zip` 압축 해제
+2. `ClaudeUsage.app`을 `/Applications`로 이동
+3. 처음 실행 시 차단되면: 시스템 설정 → 개인정보 보호 및 보안 → "그래도 열기"
 
-## 📁 프로젝트 구조
+자세한 설치 방법은 [scripts/README.txt](scripts/README.txt) 참고
 
-```
-claude-usage/
-├── App/                          # 앱 진입점 및 메뉴바 관리
-├── Models/                       # 데이터 모델
-├── Services/                     # API 호출 서비스
-├── Utilities/                    # 유틸리티 함수
-├── docs/                         # 📚 문서
-│   ├── SETUP-GUIDE.md           # 🔥 설정 가이드 (시작하기)
-│   ├── claude-usage-menubar-spec.md      # 상세 스펙
-│   └── implementation-plan.md            # 구현 계획서
-└── README.md                     # 👈 지금 보고 있는 파일
+### 소스에서 빌드
+
+```bash
+git clone https://github.com/ChoSeongmin1128/claude-usage.git
+cd claude-usage
+xcodebuild -scheme ClaudeUsage -configuration Release
 ```
 
-## 📚 문서
+## 설정
 
-- **[설정 가이드](docs/SETUP-GUIDE.md)** - Xcode 프로젝트 생성 및 실행 방법
-- **[상세 스펙](docs/claude-usage-menubar-spec.md)** - 전체 기능 명세
-- **[구현 계획](docs/implementation-plan.md)** - Phase 1-7 개발 계획
+앱 실행 후 메뉴바 아이콘 클릭 → 설정에서 구성:
 
-## 🎯 주요 기능 (Phase 1)
+- **인증** — Claude 로그인 또는 세션 키 직접 입력
+- **디스플레이** — Claude 아이콘, 퍼센트, 리셋 시간(없음/5시간/주간/동시), 아이콘 스타일
+- **새로고침** — 간격 (5~120초), 자동 새로고침
+- **알림** — 사용량 임계치 (최대 3단계), 5시간/주간 개별 설정
+- **절전** — 배터리 모드 시 새로고침 감소
 
-- ✅ 메뉴바에 실시간 사용량 표시
-- ✅ Claude.ai API 연동
-- ✅ 5초마다 자동 갱신
-- ✅ 에러 처리 및 재시도
+## 프로젝트 구조
 
-## 🔜 향후 계획
+```
+ClaudeUsage/
+├── App/                    # AppDelegate, 메뉴바 관리
+├── Models/                 # AppSettings, UsageModels, APIError
+├── Services/               # ClaudeAPIService, KeychainManager, NotificationManager
+├── Utilities/              # MenuBarIconRenderer, ColorProvider, TimeFormatter, Logger
+└── Views/                  # PopoverView, SettingsView, LoginWindowView 등
+```
 
-- [ ] Phase 2: Popover UI + 3가지 표시 모드
-- [ ] Phase 3: 설정 창 + Keychain
-- [ ] Phase 4: 알림 시스템
-- [ ] Phase 5: 키보드 단축키
-- [ ] Phase 6: 에러 처리 강화
-- [ ] Phase 7: 테스트 및 배포
+## 기술 스택
 
-## 🛠 기술 스택
-
-- **언어**: Swift 5.0+
+- **언어**: Swift 6 (Strict Concurrency)
 - **플랫폼**: macOS 14.0+ (Sonoma)
 - **UI**: SwiftUI + AppKit
-- **아키텍처**: Actor-based concurrency
+- **아키텍처**: MainActor 기반
 
-## 📝 라이선스
+## 라이선스
 
-MIT License - 자유롭게 사용, 수정, 배포 가능
-
----
-
-**현재 Phase**: 1 of 7
-**상태**: 소스 코드 생성 완료 ✅ → Xcode 설정 대기 중 ⏳
+MIT License
