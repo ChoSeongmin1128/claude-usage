@@ -17,7 +17,7 @@ macOS 메뉴바에서 Claude.ai 사용량을 실시간으로 모니터링하는 
 
 ### 릴리즈 다운로드
 
-1. [최신 릴리즈](https://github.com/ChoSeongmin1128/claude-usage/releases/latest)에서 `ClaudeUsage.zip` 다운로드
+1. [ClaudeUsage.zip 다운로드](https://github.com/ChoSeongmin1128/claude-usage/releases/latest/download/ClaudeUsage.zip)
 2. 압축 해제 후 `ClaudeUsage.app`을 원하는 위치로 이동
 3. 처음 실행 시 우클릭 → 열기, 또는 시스템 설정 → 개인정보 보호 및 보안 → "그래도 열기"
 

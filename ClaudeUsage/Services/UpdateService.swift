@@ -83,9 +83,9 @@ actor UpdateService {
         }
     }
 
-    // MARK: - Open Release Page
+    // MARK: - Download Latest Release
 
-    func releasePageURL() -> URL {
-        URL(string: "https://github.com/\(repoOwner)/\(repoName)/releases/latest")!
+    func latestDownloadURL() -> URL {
+        URL(string: "https://github.com/\(repoOwner)/\(repoName)/releases/latest/download/ClaudeUsage.zip")!
     }
 }

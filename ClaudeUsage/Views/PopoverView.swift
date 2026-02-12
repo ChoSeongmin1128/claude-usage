@@ -76,7 +76,7 @@ struct PopoverView: View {
                         .font(.caption)
                     Spacer()
                     Button("다운로드") {
-                        viewModel.openReleasePage()
+                        viewModel.downloadLatestRelease()
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
@@ -378,9 +378,9 @@ class PopoverViewModel: ObservableObject {
         }
     }
 
-    func openReleasePage() {
+    func downloadLatestRelease() {
         Task {
-            let url = await UpdateService.shared.releasePageURL()
+            let url = await UpdateService.shared.latestDownloadURL()
             NSWorkspace.shared.open(url)
         }
     }
