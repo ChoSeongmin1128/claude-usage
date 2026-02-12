@@ -35,4 +35,22 @@ enum ColorProvider {
 
         return NSColor(hue: CGFloat(max(0, hue)), saturation: saturation, brightness: brightness, alpha: 1.0)
     }
+
+    /// 주간 세션용 색상 (파랑 → 보라)
+    nonisolated static func weeklyStatusColor(for percentage: Double) -> Color {
+        if percentage >= 100 { return .gray }
+        let hue = (240.0 + (percentage * 0.6)) / 360.0
+        let saturation = 0.7
+        let brightness = percentage > 50 ? 0.85 : 0.75
+        return Color(hue: min(hue, 300.0 / 360.0), saturation: saturation, brightness: brightness)
+    }
+
+    /// 주간 세션용 NSColor (메뉴바용)
+    nonisolated static func nsWeeklyStatusColor(for percentage: Double) -> NSColor {
+        if percentage >= 100 { return .gray }
+        let hue = (240.0 + (percentage * 0.6)) / 360.0
+        let saturation: CGFloat = 0.7
+        let brightness: CGFloat = percentage > 50 ? 0.85 : 0.75
+        return NSColor(hue: CGFloat(min(hue, 300.0 / 360.0)), saturation: saturation, brightness: brightness, alpha: 1.0)
+    }
 }

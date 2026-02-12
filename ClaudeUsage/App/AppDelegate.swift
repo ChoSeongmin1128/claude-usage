@@ -25,6 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var hasAuthError = false
 
     private var settingsWindow: NSWindow?
+    private var loginWindow: NSWindow?
     private var cancellables = Set<AnyCancellable>()
     private var eventMonitor: Any?
 
@@ -242,6 +243,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AppSettings.shared.$timeFormat.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$circularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$showDualPercentage.map { _ in () }.eraseToAnyPublisher(),
         ]
 
         for publisher in displayPublishers {
@@ -336,10 +338,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let percentage = showingWeekly ? usage.sevenDay.utilization : usage.fiveHourPercentage
-        let sessionLabel = showingWeekly ? "주간" : "5시간"
-        let color = ColorProvider.nsStatusColor(for: percentage)
         let settings = AppSettings.shared
+        let fiveHourPct = usage.fiveHourPercentage
+        let weeklyPct = usage.sevenDay.utilization
+        let primaryPct = showingWeekly ? weeklyPct : fiveHourPct
+        let sessionLabel = showingWeekly ? "주간" : "5시간"
+
+        let fiveHourColor = ColorProvider.nsStatusColor(for: fiveHourPct)
+        let weeklyColor = ColorProvider.nsWeeklyStatusColor(for: weeklyPct)
+        let primaryColor = showingWeekly ? weeklyColor : fiveHourColor
 
         // 모든 요소를 하나의 이미지로 통합 렌더링 (세로 정렬 보장)
         let menuBarHeight: CGFloat = 22
@@ -356,16 +363,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 2. 퍼센트 (설정)
         if settings.showPercentage {
-            let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
-            elements.append((image: nil, text: String(format: "%.0f%%", percentage), attrs: attrs))
+            if settings.showDualPercentage {
+                // 듀얼: "67/45%" (두 색상)
+                let t1 = String(format: "%.0f", fiveHourPct)
+                let t2 = "/"
+                let t3 = String(format: "%.0f%%", weeklyPct)
+                let a1: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: fiveHourColor]
+                let a2: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
+                let a3: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: weeklyColor]
+                let w1 = (t1 as NSString).size(withAttributes: a1).width
+                let w2 = (t2 as NSString).size(withAttributes: a2).width
+                let w3 = (t3 as NSString).size(withAttributes: a3).width
+                let textHeight = (t1 as NSString).size(withAttributes: a1).height
+                let textImage = NSImage(size: NSSize(width: w1 + w2 + w3, height: textHeight), flipped: false) { _ in
+                    var x: CGFloat = 0
+                    (t1 as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: a1); x += w1
+                    (t2 as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: a2); x += w2
+                    (t3 as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: a3)
+                    return true
+                }
+                elements.append((image: textImage, text: nil, attrs: nil))
+            } else {
+                let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: primaryColor]
+                elements.append((image: nil, text: String(format: "%.0f%%", primaryPct), attrs: attrs))
+            }
         }
 
         // 3. 추가 아이콘 (설정)
-        let circularValue = settings.circularDisplayMode == .remaining ? (100.0 - percentage) : percentage
+        let circularValue = settings.circularDisplayMode == .remaining ? (100.0 - primaryPct) : primaryPct
         let extraIcon: NSImage? = switch settings.menuBarStyle {
         case .none: nil
-        case .batteryBar: MenuBarIconRenderer.batteryIcon(percentage: percentage, color: color, showPercent: settings.showBatteryPercent)
-        case .circular: MenuBarIconRenderer.circularRingIcon(percentage: circularValue, color: color)
+        case .batteryBar: MenuBarIconRenderer.batteryIcon(percentage: primaryPct, color: primaryColor, showPercent: settings.showBatteryPercent)
+        case .circular: MenuBarIconRenderer.circularRingIcon(percentage: circularValue, color: primaryColor)
+        case .concentricRings: MenuBarIconRenderer.concentricRingsIcon(
+            outerPercent: fiveHourPct, innerPercent: weeklyPct,
+            outerColor: fiveHourColor, innerColor: weeklyColor)
+        case .dualBattery: MenuBarIconRenderer.dualBatteryIcon(
+            topPercent: fiveHourPct, bottomPercent: weeklyPct,
+            topColor: fiveHourColor, bottomColor: weeklyColor)
         }
         if let extra = extraIcon {
             elements.append((image: extra, text: nil, attrs: nil))
@@ -422,7 +457,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         button.imagePosition = .imageOnly
         button.attributedTitle = NSAttributedString(string: "")
         let authWarning = hasAuthError ? "\n⚠️ 세션 키 만료 - 설정에서 갱신하세요" : ""
-        button.toolTip = "\(sessionLabel) 세션: \(Int(percentage))%\n(Option+클릭: 5시간/주간 전환)\(authWarning)"
+        if settings.showDualPercentage || settings.menuBarStyle.isDualStyle {
+            button.toolTip = "5시간: \(Int(fiveHourPct))% / 주간: \(Int(weeklyPct))%\(authWarning)"
+        } else {
+            button.toolTip = "\(sessionLabel) 세션: \(Int(primaryPct))%\n(Option+클릭: 5시간/주간 전환)\(authWarning)"
+        }
     }
 
     // MARK: - Keyboard Shortcuts
@@ -478,6 +517,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onCancel: { [weak self] in
                 self?.settingsWindow?.close()
+            },
+            onOpenLogin: { [weak self] in
+                self?.settingsWindow?.close()
+                self?.showLoginWindow()
             }
         )
 
@@ -491,6 +534,60 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.level = .floating
 
         self.settingsWindow = window
+
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // MARK: - Login Window
+
+    func showLoginWindow() {
+        if let window = loginWindow, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let loginView = LoginWindowView(
+            onSessionKeyFound: { [weak self] key in
+                guard let self = self else { return }
+
+                // 세션 키 저장
+                do {
+                    try KeychainManager.shared.save(key)
+                } catch {
+                    Logger.error("세션 키 저장 실패: \(error)")
+                }
+
+                // 1.5초 후 창 닫기 및 모니터링 시작
+                Task {
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    await MainActor.run {
+                        self.loginWindow?.close()
+                    }
+                    await self.apiService.updateSessionKey(key)
+                    await MainActor.run {
+                        self.hasAuthError = false
+                        self.startMonitoring()
+                    }
+                    Logger.info("로그인 완료, 모니터링 시작")
+                }
+            },
+            onCancel: { [weak self] in
+                self?.loginWindow?.close()
+            }
+        )
+
+        let hostingController = NSHostingController(rootView: loginView)
+
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Claude 로그인"
+        window.styleMask = [.titled, .closable]
+        window.center()
+        window.isReleasedWhenClosed = false
+        window.level = .floating
+
+        self.loginWindow = window
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)

@@ -120,4 +120,127 @@ enum MenuBarIconRenderer {
         image.isTemplate = false
         return image
     }
+
+    // MARK: - Concentric Rings Icon (동심원)
+
+    /// 동심원 아이콘: 바깥=5시간, 안쪽=주간
+    nonisolated static func concentricRingsIcon(
+        outerPercent: Double,
+        innerPercent: Double,
+        outerColor: NSColor,
+        innerColor: NSColor
+    ) -> NSImage {
+        let size: CGFloat = 18
+        let center = NSPoint(x: size / 2, y: size / 2)
+        let outerLineWidth: CGFloat = 2.5
+        let outerRadius: CGFloat = (size - outerLineWidth) / 2
+        let innerLineWidth: CGFloat = 2.0
+        let innerRadius: CGFloat = 4.5
+
+        let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { _ in
+            let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let trackColor: NSColor = isDark ? .white.withAlphaComponent(0.15) : .black.withAlphaComponent(0.08)
+
+            // 바깥 링 트랙
+            let outerTrack = NSBezierPath()
+            outerTrack.appendArc(withCenter: center, radius: outerRadius, startAngle: 0, endAngle: 360)
+            outerTrack.lineWidth = outerLineWidth
+            trackColor.setStroke()
+            outerTrack.stroke()
+
+            // 바깥 링 채움 (5시간)
+            let outerFill = min(max(outerPercent, 0), 100) / 100.0
+            if outerFill > 0 {
+                let endAngle = 90 - (360 * outerFill)
+                let outerArc = NSBezierPath()
+                outerArc.appendArc(withCenter: center, radius: outerRadius, startAngle: 90, endAngle: endAngle, clockwise: true)
+                outerArc.lineWidth = outerLineWidth
+                outerArc.lineCapStyle = .round
+                outerColor.setStroke()
+                outerArc.stroke()
+            }
+
+            // 안쪽 링 트랙
+            let innerTrack = NSBezierPath()
+            innerTrack.appendArc(withCenter: center, radius: innerRadius, startAngle: 0, endAngle: 360)
+            innerTrack.lineWidth = innerLineWidth
+            trackColor.setStroke()
+            innerTrack.stroke()
+
+            // 안쪽 링 채움 (주간)
+            let innerFill = min(max(innerPercent, 0), 100) / 100.0
+            if innerFill > 0 {
+                let endAngle = 90 - (360 * innerFill)
+                let innerArc = NSBezierPath()
+                innerArc.appendArc(withCenter: center, radius: innerRadius, startAngle: 90, endAngle: endAngle, clockwise: true)
+                innerArc.lineWidth = innerLineWidth
+                innerArc.lineCapStyle = .round
+                innerColor.setStroke()
+                innerArc.stroke()
+            }
+
+            return true
+        }
+
+        image.isTemplate = false
+        return image
+    }
+
+    // MARK: - Dual Battery Icon (이중 배터리)
+
+    /// 이중 배터리 아이콘: 위=5시간, 아래=주간
+    nonisolated static func dualBatteryIcon(
+        topPercent: Double,
+        bottomPercent: Double,
+        topColor: NSColor,
+        bottomColor: NSColor
+    ) -> NSImage {
+        let totalHeight: CGFloat = 14
+        let bodyWidth: CGFloat = 36
+        let capWidth: CGFloat = 3
+        let totalWidth = bodyWidth + capWidth + 1
+        let batteryHeight: CGFloat = 6.0
+        let gap: CGFloat = 2.0
+        let cornerRadius: CGFloat = 2.0
+        let capCornerRadius: CGFloat = 1.0
+        let inset: CGFloat = 1.0
+
+        let image = NSImage(size: NSSize(width: totalWidth, height: totalHeight), flipped: false) { _ in
+            let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let strokeColor: NSColor = isDark ? .white.withAlphaComponent(0.7) : .black.withAlphaComponent(0.5)
+
+            func drawBattery(yOffset: CGFloat, percentage: Double, color: NSColor) {
+                let bodyRect = NSRect(x: 0.5, y: yOffset + 0.5, width: bodyWidth - 1, height: batteryHeight - 1)
+                let bodyPath = NSBezierPath(roundedRect: bodyRect, xRadius: cornerRadius, yRadius: cornerRadius)
+                bodyPath.lineWidth = 0.8
+                strokeColor.setStroke()
+                bodyPath.stroke()
+
+                let capRect = NSRect(x: bodyWidth, y: yOffset + batteryHeight * 0.2, width: capWidth * 0.7, height: batteryHeight * 0.6)
+                let capPath = NSBezierPath(roundedRect: capRect, xRadius: capCornerRadius, yRadius: capCornerRadius)
+                strokeColor.withAlphaComponent(0.4).setFill()
+                capPath.fill()
+
+                let remaining = (100.0 - min(max(percentage, 0), 100)) / 100.0
+                let innerRect = NSRect(
+                    x: inset,
+                    y: yOffset + inset,
+                    width: (bodyWidth - inset * 2) * remaining,
+                    height: batteryHeight - inset * 2
+                )
+                let innerCorner = max(cornerRadius - inset, 0.5)
+                let fillPath = NSBezierPath(roundedRect: innerRect, xRadius: innerCorner, yRadius: innerCorner)
+                color.setFill()
+                fillPath.fill()
+            }
+
+            drawBattery(yOffset: 0, percentage: bottomPercent, color: bottomColor)
+            drawBattery(yOffset: batteryHeight + gap, percentage: topPercent, color: topColor)
+
+            return true
+        }
+
+        image.isTemplate = false
+        return image
+    }
 }

@@ -21,6 +21,7 @@ struct SettingsView: View {
 
     var onSave: (() -> Void)?
     var onCancel: (() -> Void)?
+    var onOpenLogin: (() -> Void)?
 
     enum TestResult {
         case success
@@ -101,65 +102,95 @@ struct SettingsView: View {
             Label("인증", systemImage: "key")
                 .font(.headline)
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 4) {
-                    Text("세션 키")
-                        .font(.subheadline)
-                    Button(action: { showKeyHelp.toggle() }) {
-                        Image(systemName: "questionmark.circle")
-                            .foregroundStyle(.secondary)
-                            .font(.system(size: 14))
-                    }
-                    .buttonStyle(.borderless)
-                    .popover(isPresented: $showKeyHelp) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("세션 키 가져오는 방법")
-                                .font(.headline)
-                            Text("1. claude.ai에 로그인")
-                            Text("2. ⌘⌥I (Cmd+Opt+I)로 개발자 도구 열기")
-                            Text("3. Application 탭 → Cookies → https://claude.ai")
-                            Text("4. sessionKey의 값을 복사")
-                        }
-                        .font(.callout)
-                        .padding(16)
-                        .frame(width: 320)
-                    }
+            if !sessionKey.isEmpty {
+                // 로그인 상태
+                HStack(spacing: 8) {
+                    Label("로그인됨", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Spacer()
+                    Button("다시 로그인") { onOpenLogin?() }
                 }
-
-                TextField("sk-ant-sid01-...", text: $sessionKey)
-                    .textFieldStyle(.roundedBorder)
-                    .font(.system(.caption, design: .monospaced))
-
-                if let warning = sessionKeyFormatWarning {
-                    Label(warning, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                Text("세션 키: \(String(sessionKey.prefix(20)))...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                // 미로그인 상태
+                Button(action: { onOpenLogin?() }) {
+                    Label("Claude 로그인", systemImage: "person.crop.circle")
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
 
-                HStack {
-                    Button("연결 테스트") { testConnection() }
-                        .disabled(sessionKey.isEmpty || isTesting)
-
-                    if isTesting {
-                        ProgressView()
-                            .controlSize(.small)
-                    }
-
-                    if let result = testResult {
-                        switch result {
-                        case .success:
-                            Label("연결 성공", systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                                .font(.caption)
-                        case .failure(let msg):
-                            Label(msg, systemImage: "xmark.circle.fill")
-                                .foregroundStyle(.red)
-                                .font(.caption)
-                                .lineLimit(1)
-                        }
-                    }
-                }
+                Text("claude.ai에 로그인하여 세션 키를 자동으로 가져옵니다")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
+
+            // 고급 옵션: 수동 세션 키 입력
+            DisclosureGroup("고급 옵션") {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 4) {
+                        Text("세션 키 직접 입력")
+                            .font(.subheadline)
+                        Button(action: { showKeyHelp.toggle() }) {
+                            Image(systemName: "questionmark.circle")
+                                .foregroundStyle(.secondary)
+                                .font(.system(size: 14))
+                        }
+                        .buttonStyle(.borderless)
+                        .popover(isPresented: $showKeyHelp) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("세션 키 가져오는 방법")
+                                    .font(.headline)
+                                Text("1. claude.ai에 로그인")
+                                Text("2. ⌘⌥I (Cmd+Opt+I)로 개발자 도구 열기")
+                                Text("3. Application 탭 → Cookies → https://claude.ai")
+                                Text("4. sessionKey의 값을 복사")
+                            }
+                            .font(.callout)
+                            .padding(16)
+                            .frame(width: 320)
+                        }
+                    }
+
+                    TextField("sk-ant-sid01-...", text: $sessionKey)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.system(.caption, design: .monospaced))
+
+                    if let warning = sessionKeyFormatWarning {
+                        Label(warning, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+
+                    HStack {
+                        Button("연결 테스트") { testConnection() }
+                            .disabled(sessionKey.isEmpty || isTesting)
+
+                        if isTesting {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+
+                        if let result = testResult {
+                            switch result {
+                            case .success:
+                                Label("연결 성공", systemImage: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                    .font(.caption)
+                            case .failure(let msg):
+                                Label(msg, systemImage: "xmark.circle.fill")
+                                    .foregroundStyle(.red)
+                                    .font(.caption)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                }
+                .padding(.top, 4)
+            }
+            .font(.subheadline)
         }
     }
 
@@ -212,7 +243,29 @@ struct SettingsView: View {
                     .padding(.leading, 24)
                 }
 
+                // 동심원 (듀얼)
+                styleRadioButton(.concentricRings)
+                if settings.menuBarStyle == .concentricRings {
+                    Text("바깥 링: 5시간 세션 · 안쪽 링: 주간 한도")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 24)
+                }
+
+                // 이중 배터리 (듀얼)
+                styleRadioButton(.dualBattery)
+                if settings.menuBarStyle == .dualBattery {
+                    Text("위: 5시간 세션 · 아래: 주간 한도")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 24)
+                }
+
                 Toggle("퍼센트 표시", isOn: $settings.showPercentage)
+                if settings.showPercentage {
+                    Toggle("동시 퍼센트 표시 (67/45%)", isOn: $settings.showDualPercentage)
+                        .padding(.leading, 24)
+                }
                 Toggle("리셋 시간 표시", isOn: $settings.showResetTime)
 
                 if settings.showResetTime {

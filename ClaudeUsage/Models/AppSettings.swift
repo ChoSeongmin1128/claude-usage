@@ -12,12 +12,23 @@ enum MenuBarStyle: String, Codable, CaseIterable, Sendable {
     case none = "none"
     case batteryBar = "battery_bar"
     case circular = "circular"
+    case concentricRings = "concentric_rings"
+    case dualBattery = "dual_battery"
 
     var displayName: String {
         switch self {
         case .none: return "없음"
         case .batteryBar: return "배터리바"
         case .circular: return "원형"
+        case .concentricRings: return "동심원"
+        case .dualBattery: return "이중 배터리"
+        }
+    }
+
+    var isDualStyle: Bool {
+        switch self {
+        case .concentricRings, .dualBattery: return true
+        default: return false
         }
     }
 }
@@ -100,6 +111,9 @@ class AppSettings: ObservableObject {
     @Published var circularDisplayMode: CircularDisplayMode {
         didSet { defaults.set(circularDisplayMode.rawValue, forKey: "circularDisplayMode") }
     }
+    @Published var showDualPercentage: Bool {
+        didSet { defaults.set(showDualPercentage, forKey: "showDualPercentage") }
+    }
 
     // MARK: - Computed
 
@@ -129,6 +143,7 @@ class AppSettings: ObservableObject {
         alert3Enabled = true
         alert3Threshold = 95
         reducedRefreshOnBattery = true
+        showDualPercentage = false
     }
 
     // MARK: - Init
@@ -152,5 +167,6 @@ class AppSettings: ObservableObject {
         self.reducedRefreshOnBattery = defaults.object(forKey: "reducedRefreshOnBattery") as? Bool ?? true
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
         self.circularDisplayMode = CircularDisplayMode(rawValue: cdm) ?? .usage
+        self.showDualPercentage = defaults.object(forKey: "showDualPercentage") as? Bool ?? false
     }
 }
