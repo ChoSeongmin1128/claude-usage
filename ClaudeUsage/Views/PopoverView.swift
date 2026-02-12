@@ -307,11 +307,11 @@ struct CompactUsageRow: View {
     var isWeekly: Bool = false
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .frame(width: 40, alignment: .leading)
+                .frame(width: 36, alignment: .leading)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -328,14 +328,12 @@ struct CompactUsageRow: View {
                 .font(.system(.caption, design: .monospaced))
                 .fontWeight(.medium)
                 .foregroundStyle(ColorProvider.statusColor(for: percentage))
-                .frame(width: 36, alignment: .trailing)
+                .frame(width: 34, alignment: .trailing)
 
-            if let resetText = compactResetText {
-                Text(resetText)
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 46, alignment: .trailing)
-            }
+            Text(compactResetText ?? "")
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+                .frame(width: 72, alignment: .trailing)
         }
     }
 
@@ -459,11 +457,11 @@ struct CompactOverageRow: View {
     let overage: OverageSpendLimitResponse
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             Text("추가")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .frame(width: 40, alignment: .leading)
+                .frame(width: 36, alignment: .leading)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -480,12 +478,12 @@ struct CompactOverageRow: View {
                 .font(.system(.caption, design: .monospaced))
                 .fontWeight(.medium)
                 .foregroundStyle(.purple)
-                .frame(width: 36, alignment: .trailing)
+                .frame(width: 34, alignment: .trailing)
 
             Text("잔액 \(overage.formattedRemainingCredits)")
                 .font(.system(size: 9))
                 .foregroundStyle(.tertiary)
-                .frame(width: 46, alignment: .trailing)
+                .frame(width: 72, alignment: .trailing)
         }
     }
 }
