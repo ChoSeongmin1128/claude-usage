@@ -116,6 +116,9 @@ class AppSettings: ObservableObject {
     @Published var showDualPercentage: Bool {
         didSet { defaults.set(showDualPercentage, forKey: "showDualPercentage") }
     }
+    @Published var showDualResetTime: Bool {
+        didSet { defaults.set(showDualResetTime, forKey: "showDualResetTime") }
+    }
 
     // MARK: - Computed
 
@@ -146,6 +149,7 @@ class AppSettings: ObservableObject {
         alert3Threshold = 95
         reducedRefreshOnBattery = true
         showDualPercentage = false
+        showDualResetTime = false
     }
 
     // MARK: - Init
@@ -170,5 +174,6 @@ class AppSettings: ObservableObject {
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
         self.circularDisplayMode = CircularDisplayMode(rawValue: cdm) ?? .usage
         self.showDualPercentage = defaults.object(forKey: "showDualPercentage") as? Bool ?? false
+        self.showDualResetTime = defaults.object(forKey: "showDualResetTime") as? Bool ?? false
     }
 }

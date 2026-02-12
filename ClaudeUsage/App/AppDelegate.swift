@@ -244,6 +244,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AppSettings.shared.$showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$circularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$showDualPercentage.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$showDualResetTime.map { _ in () }.eraseToAnyPublisher(),
         ]
 
         for publisher in displayPublishers {
@@ -419,10 +420,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 5. 리셋 시간 (설정)
         if settings.showResetTime {
-            let resetAt = showingWeekly ? usage.sevenDay.resetsAt : usage.fiveHour.resetsAt
-            if let clock = TimeFormatter.formatResetTime(from: resetAt, style: settings.timeFormat) {
-                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
-                elements.append((image: nil, text: clock, attrs: attrs))
+            if settings.showDualResetTime {
+                // 듀얼: "18:34 · 2/14" 형식
+                let r1 = TimeFormatter.formatResetTime(from: usage.fiveHour.resetsAt, style: settings.timeFormat)
+                let r2 = TimeFormatter.formatResetTime(from: usage.sevenDay.resetsAt, style: settings.timeFormat)
+                if let t1 = r1, let t2 = r2 {
+                    let dualText = "\(t1) · \(t2)"
+                    let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
+                    elements.append((image: nil, text: dualText, attrs: attrs))
+                }
+            } else {
+                let resetAt = showingWeekly ? usage.sevenDay.resetsAt : usage.fiveHour.resetsAt
+                if let clock = TimeFormatter.formatResetTime(from: resetAt, style: settings.timeFormat) {
+                    let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
+                    elements.append((image: nil, text: clock, attrs: attrs))
+                }
             }
         }
 

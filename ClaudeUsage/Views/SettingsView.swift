@@ -274,6 +274,8 @@ struct SettingsView: View {
                 Toggle("리셋 시간 표시", isOn: $settings.showResetTime)
 
                 if settings.showResetTime {
+                    Toggle("동시 리셋 시간 표시", isOn: $settings.showDualResetTime)
+                        .padding(.leading, 20)
                     Picker("시간 형식:", selection: $settings.timeFormat) {
                         ForEach(TimeFormatStyle.allCases, id: \.self) { style in
                             Text(style.displayName).tag(style)
