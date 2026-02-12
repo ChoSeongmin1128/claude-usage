@@ -78,18 +78,34 @@ enum TimeFormatter {
     nonisolated static func formatResetTime(from resetAt: String, style: TimeFormatStyle = .h24) -> String? {
         guard let resetDate = parseISO8601(resetAt) else { return nil }
 
-        let df = DateFormatter()
-        df.locale = Locale(identifier: style == .h12 ? "en_US" : "ko_KR")
-        df.timeZone = .current
-        df.dateFormat = style == .h12 ? "h:mm a" : "HH:mm"
-        return df.string(from: resetDate)
+        switch style {
+        case .remaining:
+            return formatRemainingCompact(until: resetDate)
+        case .h12, .h24:
+            let df = DateFormatter()
+            df.locale = Locale(identifier: style == .h12 ? "en_US" : "ko_KR")
+            df.timeZone = .current
+            df.dateFormat = style == .h12 ? "h:mm a" : "HH:mm"
+            return df.string(from: resetDate)
+        }
+    }
+
+    /// 남은 시간을 "0h 00m" 형태로 포맷 (메뉴바용)
+    nonisolated static func formatRemainingCompact(until date: Date) -> String {
+        let interval = max(0, date.timeIntervalSince(Date()))
+        let totalMinutes = Int((interval + 30).rounded(.down)) / 60
+        let hours = totalMinutes / 60
+        let minutes = totalMinutes % 60
+        return String(format: "%dh %02dm", hours, minutes)
     }
 
     /// 남은 시간 + 리셋 시각을 결합한 포맷
     /// 예: "2시간 34분 후 리셋 (18:34)" 또는 "2시간 34분 후 리셋 (6:34 PM)"
     nonisolated static func formatRelativeTimeWithClock(from resetAt: String, style: TimeFormatStyle = .h24) -> String {
         let relative = formatRelativeTime(from: resetAt)
-        if let clock = formatResetTime(from: resetAt, style: style) {
+        // remaining 스타일이면 괄호 안에 24시간 시각 표시 (중복 방지)
+        let clockStyle: TimeFormatStyle = style == .remaining ? .h24 : style
+        if let clock = formatResetTime(from: resetAt, style: clockStyle) {
             return "\(relative) (\(clock))"
         }
         return relative

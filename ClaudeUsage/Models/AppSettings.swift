@@ -25,11 +25,13 @@ enum MenuBarStyle: String, Codable, CaseIterable, Sendable {
 enum TimeFormatStyle: String, Codable, CaseIterable, Sendable {
     case h24 = "24h"
     case h12 = "12h"
+    case remaining = "remaining"
 
     var displayName: String {
         switch self {
         case .h24: return "24시간 (18:34)"
         case .h12: return "12시간 (6:34 PM)"
+        case .remaining: return "남은 시간 (2h 34m)"
         }
     }
 }
