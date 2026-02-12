@@ -15,9 +15,7 @@ struct SettingsView: View {
     @State private var isTesting: Bool = false
     @State private var refreshIntervalText: String = ""
     @State private var showKeyHelp: Bool = false
-    @State private var alert1Text: String = ""
-    @State private var alert2Text: String = ""
-    @State private var alert3Text: String = ""
+    @State private var alertTexts: [String] = []
     @State private var snapshot: AppSettings.Snapshot?
     @State private var didSave = false
 
@@ -97,9 +95,7 @@ struct SettingsView: View {
                 testConnection()
             }
             refreshIntervalText = String(Int(settings.refreshInterval))
-            alert1Text = String(settings.alert1Threshold)
-            alert2Text = String(settings.alert2Threshold)
-            alert3Text = String(settings.alert3Threshold)
+            alertTexts = settings.alertThresholds.map { String($0) }
         }
         .onDisappear {
             if !didSave, let snapshot = snapshot {
@@ -237,9 +233,9 @@ struct SettingsView: View {
         case .none: return nil
         case .batteryBar: return "남은 사용량을 배터리 형태로 표시"
         case .circular: return "원형 링이 채워진 만큼이 사용량"
-        case .concentricRings: return "바깥 링: 5시간 · 안쪽 링: 주간"
-        case .dualBattery: return "위: 5시간 · 아래: 주간"
-        case .sideBySideBattery: return "왼쪽: 5시간 · 오른쪽: 주간"
+        case .concentricRings: return "바깥 링: 현재 세션 · 안쪽 링: 주간"
+        case .dualBattery: return "위: 현재 세션 · 아래: 주간"
+        case .sideBySideBattery: return "왼쪽: 현재 세션 · 오른쪽: 주간"
         }
     }
 
@@ -260,7 +256,11 @@ struct SettingsView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Toggle("Claude 아이콘", isOn: $settings.showClaudeIcon)
-                Toggle("퍼센트", isOn: $settings.showPercentage)
+                Picker("퍼센트:", selection: $settings.percentageDisplay) {
+                    ForEach(PercentageDisplay.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
                 Picker("리셋 시간:", selection: $settings.resetTimeDisplay) {
                     ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
@@ -285,18 +285,17 @@ struct SettingsView: View {
                         Text("원형").tag(MenuBarStyle.circular)
                     }
 
-                    Section("동시 표시 (5시간 + 주간)") {
+                    Section("동시 표시 (현재 세션 + 주간)") {
                         Text("동심원").tag(MenuBarStyle.concentricRings)
                         Text("이중 배터리").tag(MenuBarStyle.dualBattery)
                         Text("좌우 배터리").tag(MenuBarStyle.sideBySideBattery)
                     }
                 }
                 .onChange(of: settings.menuBarStyle) { _, newValue in
-                    // 동시 표시 → 퍼센트 자동 듀얼
-                    settings.showDualPercentage = newValue.isDualStyle
-                    // 배터리 계열 → 남은 사용량
                     if newValue == .batteryBar || newValue == .dualBattery || newValue == .sideBySideBattery {
                         settings.circularDisplayMode = .remaining
+                    } else if newValue == .none {
+                        settings.circularDisplayMode = .usage
                     }
                 }
 
@@ -311,9 +310,6 @@ struct SettingsView: View {
                 if isBatteryWithPercent {
                     Toggle("배터리 내부 숫자", isOn: $settings.showBatteryPercent)
                         .padding(.leading, 20)
-                        .onChange(of: settings.showBatteryPercent) { _, newValue in
-                            if newValue { settings.showPercentage = false }
-                        }
                 }
 
                 // 원형 하위: 표시 기준
@@ -380,39 +376,72 @@ struct SettingsView: View {
                 .font(.headline)
 
             VStack(alignment: .leading, spacing: 8) {
-                alertThresholdRow(enabled: $settings.alert1Enabled, threshold: $settings.alert1Threshold, text: $alert1Text)
-                alertThresholdRow(enabled: $settings.alert2Enabled, threshold: $settings.alert2Threshold, text: $alert2Text)
-                alertThresholdRow(enabled: $settings.alert3Enabled, threshold: $settings.alert3Threshold, text: $alert3Text)
+                ForEach(Array(settings.alertThresholds.indices), id: \.self) { index in
+                    HStack(spacing: 8) {
+                        TextField("", text: Binding(
+                            get: { index < alertTexts.count ? alertTexts[index] : "" },
+                            set: { newValue in
+                                guard index < alertTexts.count else { return }
+                                alertTexts[index] = newValue
+                                if let val = Int(newValue), val >= 1, val <= 100 {
+                                    settings.alertThresholds[index] = val
+                                }
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 50)
+
+                        Text("% 도달 시 알림")
+                            .font(.subheadline)
+
+                        Spacer()
+
+                        Button {
+                            settings.alertThresholds.remove(at: index)
+                            alertTexts.remove(at: index)
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .foregroundColor(.red.opacity(0.7))
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+
+                Button {
+                    let next = suggestNextThreshold()
+                    settings.alertThresholds.append(next)
+                    alertTexts.append(String(next))
+                } label: {
+                    Label("임계값 추가", systemImage: "plus.circle.fill")
+                        .font(.subheadline)
+                }
+                .buttonStyle(.borderless)
 
                 Divider()
 
                 Text("알림 대상")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                Toggle("5시간 세션", isOn: $settings.alertFiveHourEnabled)
+                Toggle("현재 세션", isOn: $settings.alertFiveHourEnabled)
                 Toggle("주간 세션", isOn: $settings.alertWeeklyEnabled)
+
+                Divider()
+
+                Text("시스템 설정 → 알림 → ClaudeUsage에서 알림을 허용해야 합니다.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
             }
         }
     }
 
-    private func alertThresholdRow(enabled: Binding<Bool>, threshold: Binding<Int>, text: Binding<String>) -> some View {
-        HStack(spacing: 8) {
-            Toggle("", isOn: enabled)
-                .labelsHidden()
-                .toggleStyle(.checkbox)
-            TextField("", text: text)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 50)
-                .onChange(of: text.wrappedValue) { _, newValue in
-                    if let val = Int(newValue), val >= 1, val <= 100 {
-                        threshold.wrappedValue = val
-                    }
-                }
-                .disabled(!enabled.wrappedValue)
-            Text("% 도달 시 알림")
-                .font(.subheadline)
-                .foregroundStyle(enabled.wrappedValue ? .primary : .secondary)
+    private func suggestNextThreshold() -> Int {
+        let existing = settings.alertThresholds.sorted()
+        if existing.isEmpty { return 75 }
+        let candidates = [50, 60, 70, 75, 80, 85, 90, 95, 100]
+        for c in candidates where !existing.contains(c) {
+            return c
         }
+        return min((existing.last ?? 90) + 5, 100)
     }
 
     // MARK: - 절전 섹션
@@ -482,8 +511,6 @@ struct SettingsView: View {
     private func resetToDefaults() {
         settings.resetToDefaults()
         refreshIntervalText = String(Int(settings.refreshInterval))
-        alert1Text = String(settings.alert1Threshold)
-        alert2Text = String(settings.alert2Threshold)
-        alert3Text = String(settings.alert3Threshold)
+        alertTexts = settings.alertThresholds.map { String($0) }
     }
 }

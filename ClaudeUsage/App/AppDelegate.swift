@@ -260,12 +260,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // receive(on: RunLoop.main)으로 값 반영 후 업데이트
         let displayPublishers = [
             AppSettings.shared.$menuBarStyle.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$showPercentage.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$percentageDisplay.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$resetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$timeFormat.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$circularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$showDualPercentage.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$showClaudeIcon.map { _ in () }.eraseToAnyPublisher(),
         ]
 
@@ -435,39 +434,51 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             elements.append((image: claudeIcon, text: nil, attrs: nil))
         }
 
-        // 2. 퍼센트 (설정)
-        let isRemainingMode = settings.circularDisplayMode == .remaining
-        if settings.showPercentage {
-            if settings.showDualPercentage {
-                // 듀얼: "67% · 45%" (두 색상)
-                let displayFiveHour = isRemainingMode ? (100.0 - fiveHourPct) : fiveHourPct
-                let displayWeekly = isRemainingMode ? (100.0 - weeklyPct) : weeklyPct
-                let t1 = String(format: "%.0f%%", displayFiveHour)
-                let t2 = " · "
-                let t3 = String(format: "%.0f%%", displayWeekly)
-                let a1: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: fiveHourColor]
-                let a2: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
-                let a3: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: weeklyColor]
-                let w1 = (t1 as NSString).size(withAttributes: a1).width
-                let w2 = (t2 as NSString).size(withAttributes: a2).width
-                let w3 = (t3 as NSString).size(withAttributes: a3).width
-                let textHeight = (t1 as NSString).size(withAttributes: a1).height
-                let textImage = NSImage(size: NSSize(width: w1 + w2 + w3, height: textHeight), flipped: false) { _ in
-                    var x: CGFloat = 0
-                    (t1 as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: a1); x += w1
-                    (t2 as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: a2); x += w2
-                    (t3 as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: a3)
-                    return true
-                }
-                elements.append((image: textImage, text: nil, attrs: nil))
-            } else {
-                let displayPct = isRemainingMode ? (100.0 - primaryPct) : primaryPct
-                let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: primaryColor]
-                elements.append((image: nil, text: String(format: "%.0f%%", displayPct), attrs: attrs))
+        // 2. 퍼센트 (설정) — 배터리 계열: 남은 사용량, 원형/동심원: 표시 기준 설정, 그 외: 사용량
+        let showRemaining: Bool = {
+            switch settings.menuBarStyle {
+            case .batteryBar, .dualBattery, .sideBySideBattery:
+                return true
+            case .circular, .concentricRings:
+                return settings.circularDisplayMode == .remaining
+            case .none:
+                return false
             }
+        }()
+        let displayFiveHour = showRemaining ? (100.0 - fiveHourPct) : fiveHourPct
+        let displayWeekly = showRemaining ? (100.0 - weeklyPct) : weeklyPct
+        switch settings.percentageDisplay {
+        case .none:
+            break
+        case .fiveHour:
+            let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: fiveHourColor]
+            elements.append((image: nil, text: String(format: "%.0f%%", displayFiveHour), attrs: attrs))
+        case .weekly:
+            let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: weeklyColor]
+            elements.append((image: nil, text: String(format: "%.0f%%", displayWeekly), attrs: attrs))
+        case .dual:
+            let t1 = String(format: "%.0f%%", displayFiveHour)
+            let t2 = " · "
+            let t3 = String(format: "%.0f%%", displayWeekly)
+            let a1: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: fiveHourColor]
+            let a2: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
+            let a3: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: weeklyColor]
+            let w1 = (t1 as NSString).size(withAttributes: a1).width
+            let w2 = (t2 as NSString).size(withAttributes: a2).width
+            let w3 = (t3 as NSString).size(withAttributes: a3).width
+            let textHeight = (t1 as NSString).size(withAttributes: a1).height
+            let textImage = NSImage(size: NSSize(width: w1 + w2 + w3, height: textHeight), flipped: false) { _ in
+                var x: CGFloat = 0
+                (t1 as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: a1); x += w1
+                (t2 as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: a2); x += w2
+                (t3 as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: a3)
+                return true
+            }
+            elements.append((image: textImage, text: nil, attrs: nil))
         }
 
         // 3. 추가 아이콘 (설정)
+        let isRemainingMode = settings.circularDisplayMode == .remaining
         let circularValue = isRemainingMode ? (100.0 - primaryPct) : primaryPct
         let concentricOuter = isRemainingMode ? (100.0 - fiveHourPct) : fiveHourPct
         let concentricInner = isRemainingMode ? (100.0 - weeklyPct) : weeklyPct
@@ -558,7 +569,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         button.imagePosition = .imageOnly
         button.attributedTitle = NSAttributedString(string: "")
         let authWarning = hasAuthError ? "\n⚠️ 세션 키가 유효하지 않습니다" : ""
-        button.toolTip = "5시간: \(Int(fiveHourPct))% / 주간: \(Int(weeklyPct))%\(authWarning)"
+        button.toolTip = "현재 세션: \(Int(fiveHourPct))% / 주간: \(Int(weeklyPct))%\(authWarning)"
     }
 
     // MARK: - Keyboard Shortcuts

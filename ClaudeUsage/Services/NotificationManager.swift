@@ -9,7 +9,7 @@ import Foundation
 import UserNotifications
 
 enum SessionType: String {
-    case fiveHour = "5시간"
+    case fiveHour = "현재 세션"
     case weekly = "주간"
 }
 

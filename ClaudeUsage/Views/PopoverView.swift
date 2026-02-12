@@ -19,6 +19,17 @@ struct PopoverView: View {
                 Text("Claude 사용량")
                     .font(.headline)
 
+                // 새로고침 (제목 옆)
+                Button(action: { viewModel.refresh() }) {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 12))
+                        .frame(width: 14, height: 14)
+                        .rotationEffect(.degrees(viewModel.isLoading ? 360 : 0))
+                        .animation(viewModel.isLoading ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: viewModel.isLoading)
+                }
+                .buttonStyle(.borderless)
+                .disabled(viewModel.isLoading)
+
                 Spacer()
 
                 if let lastUpdated = viewModel.lastUpdated {
@@ -38,16 +49,6 @@ struct PopoverView: View {
                 }
                 .buttonStyle(.borderless)
                 .help(settings.popoverCompact ? "기본 보기" : "간소화")
-
-                // 새로고침
-                Button(action: { viewModel.refresh() }) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 12))
-                        .rotationEffect(.degrees(viewModel.isLoading ? 360 : 0))
-                        .animation(viewModel.isLoading ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: viewModel.isLoading)
-                }
-                .buttonStyle(.borderless)
-                .disabled(viewModel.isLoading)
 
                 // 고정 핀
                 Button {
@@ -171,7 +172,7 @@ struct PopoverView: View {
         VStack(spacing: 12) {
             UsageSectionView(
                 systemIcon: "gauge.medium",
-                title: "5시간 세션",
+                title: "현재 세션",
                 percentage: usage.fiveHour.utilization,
                 resetAt: usage.fiveHour.resetsAt
             )
@@ -216,7 +217,7 @@ struct PopoverView: View {
     @ViewBuilder
     private func compactContent(usage: ClaudeUsageResponse) -> some View {
         VStack(spacing: 5) {
-            CompactUsageRow(label: "5시간", percentage: usage.fiveHour.utilization, resetAt: usage.fiveHour.resetsAt)
+            CompactUsageRow(label: "현재", percentage: usage.fiveHour.utilization, resetAt: usage.fiveHour.resetsAt)
             CompactUsageRow(label: "주간", percentage: usage.sevenDay.utilization, resetAt: usage.sevenDay.resetsAt, isWeekly: true)
 
             if let sonnet = usage.sevenDaySonnet {

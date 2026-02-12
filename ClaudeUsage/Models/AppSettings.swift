@@ -58,7 +58,23 @@ enum ResetTimeDisplay: String, Codable, CaseIterable, Sendable {
     var displayName: String {
         switch self {
         case .none: return "없음"
-        case .fiveHour: return "5시간"
+        case .fiveHour: return "현재 세션"
+        case .weekly: return "주간"
+        case .dual: return "동시 표시"
+        }
+    }
+}
+
+enum PercentageDisplay: String, Codable, CaseIterable, Sendable {
+    case none = "pct_none"
+    case fiveHour = "pct_five_hour"
+    case weekly = "pct_weekly"
+    case dual = "pct_dual"
+
+    var displayName: String {
+        switch self {
+        case .none: return "없음"
+        case .fiveHour: return "현재 세션"
         case .weekly: return "주간"
         case .dual: return "동시 표시"
         }
@@ -87,8 +103,8 @@ class AppSettings: ObservableObject {
     @Published var menuBarStyle: MenuBarStyle {
         didSet { defaults.set(menuBarStyle.rawValue, forKey: "menuBarStyle") }
     }
-    @Published var showPercentage: Bool {
-        didSet { defaults.set(showPercentage, forKey: "showPercentage") }
+    @Published var percentageDisplay: PercentageDisplay {
+        didSet { defaults.set(percentageDisplay.rawValue, forKey: "percentageDisplay") }
     }
     @Published var showBatteryPercent: Bool {
         didSet { defaults.set(showBatteryPercent, forKey: "showBatteryPercent") }
@@ -105,32 +121,14 @@ class AppSettings: ObservableObject {
     @Published var autoRefresh: Bool {
         didSet { defaults.set(autoRefresh, forKey: "autoRefresh") }
     }
-    @Published var alert1Enabled: Bool {
-        didSet { defaults.set(alert1Enabled, forKey: "alert1Enabled") }
-    }
-    @Published var alert1Threshold: Int {
-        didSet { defaults.set(alert1Threshold, forKey: "alert1Threshold") }
-    }
-    @Published var alert2Enabled: Bool {
-        didSet { defaults.set(alert2Enabled, forKey: "alert2Enabled") }
-    }
-    @Published var alert2Threshold: Int {
-        didSet { defaults.set(alert2Threshold, forKey: "alert2Threshold") }
-    }
-    @Published var alert3Enabled: Bool {
-        didSet { defaults.set(alert3Enabled, forKey: "alert3Enabled") }
-    }
-    @Published var alert3Threshold: Int {
-        didSet { defaults.set(alert3Threshold, forKey: "alert3Threshold") }
+    @Published var alertThresholds: [Int] {
+        didSet { defaults.set(alertThresholds, forKey: "alertThresholds") }
     }
     @Published var reducedRefreshOnBattery: Bool {
         didSet { defaults.set(reducedRefreshOnBattery, forKey: "reducedRefreshOnBattery") }
     }
     @Published var circularDisplayMode: CircularDisplayMode {
         didSet { defaults.set(circularDisplayMode.rawValue, forKey: "circularDisplayMode") }
-    }
-    @Published var showDualPercentage: Bool {
-        didSet { defaults.set(showDualPercentage, forKey: "showDualPercentage") }
     }
     @Published var showClaudeIcon: Bool {
         didSet { defaults.set(showClaudeIcon, forKey: "showClaudeIcon") }
@@ -152,21 +150,15 @@ class AppSettings: ObservableObject {
 
     struct Snapshot {
         let menuBarStyle: MenuBarStyle
-        let showPercentage: Bool
+        let percentageDisplay: PercentageDisplay
         let showBatteryPercent: Bool
         let resetTimeDisplay: ResetTimeDisplay
         let timeFormat: TimeFormatStyle
         let circularDisplayMode: CircularDisplayMode
         let refreshInterval: TimeInterval
         let autoRefresh: Bool
-        let alert1Enabled: Bool
-        let alert1Threshold: Int
-        let alert2Enabled: Bool
-        let alert2Threshold: Int
-        let alert3Enabled: Bool
-        let alert3Threshold: Int
+        let alertThresholds: [Int]
         let reducedRefreshOnBattery: Bool
-        let showDualPercentage: Bool
         let showClaudeIcon: Bool
         let alertFiveHourEnabled: Bool
         let alertWeeklyEnabled: Bool
@@ -175,21 +167,15 @@ class AppSettings: ObservableObject {
     func createSnapshot() -> Snapshot {
         Snapshot(
             menuBarStyle: menuBarStyle,
-            showPercentage: showPercentage,
+            percentageDisplay: percentageDisplay,
             showBatteryPercent: showBatteryPercent,
             resetTimeDisplay: resetTimeDisplay,
             timeFormat: timeFormat,
             circularDisplayMode: circularDisplayMode,
             refreshInterval: refreshInterval,
             autoRefresh: autoRefresh,
-            alert1Enabled: alert1Enabled,
-            alert1Threshold: alert1Threshold,
-            alert2Enabled: alert2Enabled,
-            alert2Threshold: alert2Threshold,
-            alert3Enabled: alert3Enabled,
-            alert3Threshold: alert3Threshold,
+            alertThresholds: alertThresholds,
             reducedRefreshOnBattery: reducedRefreshOnBattery,
-            showDualPercentage: showDualPercentage,
             showClaudeIcon: showClaudeIcon,
             alertFiveHourEnabled: alertFiveHourEnabled,
             alertWeeklyEnabled: alertWeeklyEnabled
@@ -198,21 +184,15 @@ class AppSettings: ObservableObject {
 
     func restore(from snapshot: Snapshot) {
         menuBarStyle = snapshot.menuBarStyle
-        showPercentage = snapshot.showPercentage
+        percentageDisplay = snapshot.percentageDisplay
         showBatteryPercent = snapshot.showBatteryPercent
         resetTimeDisplay = snapshot.resetTimeDisplay
         timeFormat = snapshot.timeFormat
         circularDisplayMode = snapshot.circularDisplayMode
         refreshInterval = snapshot.refreshInterval
         autoRefresh = snapshot.autoRefresh
-        alert1Enabled = snapshot.alert1Enabled
-        alert1Threshold = snapshot.alert1Threshold
-        alert2Enabled = snapshot.alert2Enabled
-        alert2Threshold = snapshot.alert2Threshold
-        alert3Enabled = snapshot.alert3Enabled
-        alert3Threshold = snapshot.alert3Threshold
+        alertThresholds = snapshot.alertThresholds
         reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
-        showDualPercentage = snapshot.showDualPercentage
         showClaudeIcon = snapshot.showClaudeIcon
         alertFiveHourEnabled = snapshot.alertFiveHourEnabled
         alertWeeklyEnabled = snapshot.alertWeeklyEnabled
@@ -221,32 +201,22 @@ class AppSettings: ObservableObject {
     // MARK: - Computed
 
     var enabledAlertThresholds: [Int] {
-        var result: [Int] = []
-        if alert1Enabled { result.append(alert1Threshold) }
-        if alert2Enabled { result.append(alert2Threshold) }
-        if alert3Enabled { result.append(alert3Threshold) }
-        return result.sorted()
+        alertThresholds.sorted()
     }
 
     // MARK: - Actions
 
     func resetToDefaults() {
         menuBarStyle = .none
-        showPercentage = true
+        percentageDisplay = .fiveHour
         showBatteryPercent = true
         resetTimeDisplay = .none
         timeFormat = .h24
         circularDisplayMode = .usage
         refreshInterval = 5.0
         autoRefresh = true
-        alert1Enabled = true
-        alert1Threshold = 75
-        alert2Enabled = true
-        alert2Threshold = 90
-        alert3Enabled = true
-        alert3Threshold = 95
+        alertThresholds = [75, 90, 95]
         reducedRefreshOnBattery = true
-        showDualPercentage = false
         showClaudeIcon = true
         alertFiveHourEnabled = true
         alertWeeklyEnabled = false
@@ -257,7 +227,22 @@ class AppSettings: ObservableObject {
     private init() {
         let style = defaults.string(forKey: "menuBarStyle") ?? MenuBarStyle.none.rawValue
         self.menuBarStyle = MenuBarStyle(rawValue: style) ?? .none
-        self.showPercentage = defaults.object(forKey: "showPercentage") as? Bool ?? true
+
+        // 마이그레이션: showPercentage/showDualPercentage → percentageDisplay
+        if let pd = defaults.string(forKey: "percentageDisplay") {
+            self.percentageDisplay = PercentageDisplay(rawValue: pd) ?? .fiveHour
+        } else {
+            let showPct = defaults.object(forKey: "showPercentage") as? Bool ?? true
+            let showDual = defaults.object(forKey: "showDualPercentage") as? Bool ?? false
+            if !showPct {
+                self.percentageDisplay = .none
+            } else if showDual {
+                self.percentageDisplay = .dual
+            } else {
+                self.percentageDisplay = .fiveHour
+            }
+        }
+
         self.showBatteryPercent = defaults.object(forKey: "showBatteryPercent") as? Bool ?? true
         let rtd = defaults.string(forKey: "resetTimeDisplay") ?? ResetTimeDisplay.none.rawValue
         self.resetTimeDisplay = ResetTimeDisplay(rawValue: rtd) ?? .none
@@ -265,16 +250,22 @@ class AppSettings: ObservableObject {
         self.timeFormat = TimeFormatStyle(rawValue: tf) ?? .h24
         self.refreshInterval = defaults.object(forKey: "refreshInterval") as? TimeInterval ?? 5.0
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
-        self.alert1Enabled = defaults.object(forKey: "alert1Enabled") as? Bool ?? true
-        self.alert1Threshold = defaults.object(forKey: "alert1Threshold") as? Int ?? 75
-        self.alert2Enabled = defaults.object(forKey: "alert2Enabled") as? Bool ?? true
-        self.alert2Threshold = defaults.object(forKey: "alert2Threshold") as? Int ?? 90
-        self.alert3Enabled = defaults.object(forKey: "alert3Enabled") as? Bool ?? true
-        self.alert3Threshold = defaults.object(forKey: "alert3Threshold") as? Int ?? 95
+        // 마이그레이션: alert1/2/3 → alertThresholds 배열
+        if let saved = defaults.array(forKey: "alertThresholds") as? [Int] {
+            self.alertThresholds = saved
+        } else {
+            var migrated: [Int] = []
+            let e1 = defaults.object(forKey: "alert1Enabled") as? Bool ?? true
+            let e2 = defaults.object(forKey: "alert2Enabled") as? Bool ?? true
+            let e3 = defaults.object(forKey: "alert3Enabled") as? Bool ?? true
+            if e1 { migrated.append(defaults.object(forKey: "alert1Threshold") as? Int ?? 75) }
+            if e2 { migrated.append(defaults.object(forKey: "alert2Threshold") as? Int ?? 90) }
+            if e3 { migrated.append(defaults.object(forKey: "alert3Threshold") as? Int ?? 95) }
+            self.alertThresholds = migrated.isEmpty ? [75, 90, 95] : migrated
+        }
         self.reducedRefreshOnBattery = defaults.object(forKey: "reducedRefreshOnBattery") as? Bool ?? true
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
         self.circularDisplayMode = CircularDisplayMode(rawValue: cdm) ?? .usage
-        self.showDualPercentage = defaults.object(forKey: "showDualPercentage") as? Bool ?? false
         self.showClaudeIcon = defaults.object(forKey: "showClaudeIcon") as? Bool ?? true
         self.alertFiveHourEnabled = defaults.object(forKey: "alertFiveHourEnabled") as? Bool ?? true
         self.alertWeeklyEnabled = defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false
