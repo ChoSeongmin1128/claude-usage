@@ -167,6 +167,9 @@ class AppSettings: ObservableObject {
     @Published var updateCheckInterval: UpdateCheckInterval {
         didSet { defaults.set(updateCheckInterval.rawValue, forKey: "updateCheckInterval") }
     }
+    // 런타임 전용 (UserDefaults 저장 안함)
+    @Published var availableUpdate: UpdateInfo?
+
     @Published var popoverPinned: Bool {
         didSet { defaults.set(popoverPinned, forKey: "popoverPinned") }
     }

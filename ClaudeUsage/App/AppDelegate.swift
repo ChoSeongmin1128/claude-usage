@@ -85,7 +85,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let result = await UpdateService.shared.checkForUpdates()
             await MainActor.run {
                 if case .available(let update) = result {
-                    popoverViewModel.availableUpdate = update
+                    AppSettings.shared.availableUpdate = update
                 }
             }
         }

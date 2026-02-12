@@ -514,8 +514,10 @@ struct SettingsView: View {
                                 switch result {
                                 case .available(let info):
                                     updateCheckResult = "v\(info.version) 업데이트 가능"
+                                    AppSettings.shared.availableUpdate = info
                                 case .upToDate:
                                     updateCheckResult = "최신 버전입니다"
+                                    AppSettings.shared.availableUpdate = nil
                                 case .error(let msg):
                                     updateCheckResult = "확인 실패: \(msg)"
                                 }

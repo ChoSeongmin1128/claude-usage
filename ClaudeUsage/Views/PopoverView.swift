@@ -67,7 +67,7 @@ struct PopoverView: View {
             .padding(.bottom, 8)
 
             // 업데이트 배너
-            if let update = viewModel.availableUpdate {
+            if let update = settings.availableUpdate {
                 Divider()
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.down.circle.fill")
@@ -356,7 +356,6 @@ class PopoverViewModel: ObservableObject {
     @Published var error: APIError?
     @Published var isLoading: Bool = false
     @Published var lastUpdated: Date?
-    @Published var availableUpdate: UpdateInfo?
     @Published var updateError: String?
 
     var onRefresh: (() -> Void)?
