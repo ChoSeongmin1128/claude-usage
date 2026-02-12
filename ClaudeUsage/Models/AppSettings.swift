@@ -14,6 +14,7 @@ enum MenuBarStyle: String, Codable, CaseIterable, Sendable {
     case circular = "circular"
     case concentricRings = "concentric_rings"
     case dualBattery = "dual_battery"
+    case sideBySideBattery = "side_by_side_battery"
 
     var displayName: String {
         switch self {
@@ -22,12 +23,13 @@ enum MenuBarStyle: String, Codable, CaseIterable, Sendable {
         case .circular: return "원형"
         case .concentricRings: return "동심원"
         case .dualBattery: return "이중 배터리"
+        case .sideBySideBattery: return "양옆 배터리"
         }
     }
 
     var isDualStyle: Bool {
         switch self {
-        case .concentricRings, .dualBattery: return true
+        case .concentricRings, .dualBattery, .sideBySideBattery: return true
         default: return false
         }
     }

@@ -196,6 +196,14 @@ struct SettingsView: View {
 
     // MARK: - 디스플레이 섹션
 
+    private var isIndividualStyle: Bool {
+        settings.menuBarStyle == .batteryBar || settings.menuBarStyle == .circular
+    }
+
+    private var isDualStyle: Bool {
+        settings.menuBarStyle.isDualStyle
+    }
+
     private var displaySection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -214,51 +222,82 @@ struct SettingsView: View {
                 // 없음
                 styleRadioButton(.none)
 
-                // 배터리바
-                styleRadioButton(.batteryBar)
-                if settings.menuBarStyle == .batteryBar {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Toggle("배터리 내부 퍼센트", isOn: $settings.showBatteryPercent)
-                        Text("남은 사용량을 배터리 형태로 표시합니다")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.leading, 24)
-                }
-
-                // 원형
-                styleRadioButton(.circular)
-                if settings.menuBarStyle == .circular {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Picker("표시 기준:", selection: $settings.circularDisplayMode) {
-                            ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
-                                Text(mode.displayName).tag(mode)
+                // 개별 세션
+                categoryRadioButton(
+                    label: "개별 세션",
+                    isSelected: isIndividualStyle,
+                    action: { settings.menuBarStyle = .batteryBar }
+                )
+                if isIndividualStyle {
+                    VStack(alignment: .leading, spacing: 6) {
+                        // 배터리바
+                        styleRadioButton(.batteryBar)
+                        if settings.menuBarStyle == .batteryBar {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Toggle("배터리 내부 퍼센트", isOn: $settings.showBatteryPercent)
+                                Text("남은 사용량을 배터리 형태로 표시합니다")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
+                            .padding(.leading, 24)
                         }
-                        .pickerStyle(.radioGroup)
-                        Text("원형 링이 채워진 만큼이 선택한 기준값입니다")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+
+                        // 원형
+                        styleRadioButton(.circular)
+                        if settings.menuBarStyle == .circular {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Picker("표시 기준:", selection: $settings.circularDisplayMode) {
+                                    ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
+                                        Text(mode.displayName).tag(mode)
+                                    }
+                                }
+                                .pickerStyle(.radioGroup)
+                                Text("원형 링이 채워진 만큼이 선택한 기준값입니다")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.leading, 24)
+                        }
                     }
                     .padding(.leading, 24)
                 }
 
-                // 동심원 (듀얼)
-                styleRadioButton(.concentricRings)
-                if settings.menuBarStyle == .concentricRings {
-                    Text("바깥 링: 5시간 세션 · 안쪽 링: 주간 한도")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, 24)
-                }
+                // 동시 표시
+                categoryRadioButton(
+                    label: "동시 표시",
+                    isSelected: isDualStyle,
+                    action: {
+                        settings.menuBarStyle = .concentricRings
+                        settings.showDualPercentage = true
+                    }
+                )
+                if isDualStyle {
+                    VStack(alignment: .leading, spacing: 6) {
+                        styleRadioButton(.concentricRings)
+                        if settings.menuBarStyle == .concentricRings {
+                            Text("바깥 링: 5시간 세션 · 안쪽 링: 주간 한도")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.leading, 24)
+                        }
 
-                // 이중 배터리 (듀얼)
-                styleRadioButton(.dualBattery)
-                if settings.menuBarStyle == .dualBattery {
-                    Text("위: 5시간 세션 · 아래: 주간 한도")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, 24)
+                        styleRadioButton(.dualBattery)
+                        if settings.menuBarStyle == .dualBattery {
+                            Text("위: 5시간 세션 · 아래: 주간 한도")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.leading, 24)
+                        }
+
+                        styleRadioButton(.sideBySideBattery)
+                        if settings.menuBarStyle == .sideBySideBattery {
+                            Text("왼쪽: 5시간 세션 · 오른쪽: 주간 한도")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.leading, 24)
+                        }
+                    }
+                    .padding(.leading, 24)
                 }
 
                 Toggle("퍼센트 표시", isOn: $settings.showPercentage)
@@ -374,6 +413,18 @@ struct SettingsView: View {
                     .foregroundColor(settings.menuBarStyle == style ? .accentColor : .secondary)
                     .font(.system(size: 14))
                 Text(style.displayName)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func categoryRadioButton(label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: isSelected ? "circle.inset.filled" : "circle")
+                    .foregroundColor(isSelected ? .accentColor : .secondary)
+                    .font(.system(size: 14))
+                Text(label)
             }
         }
         .buttonStyle(.plain)

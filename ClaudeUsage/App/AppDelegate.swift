@@ -401,6 +401,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .dualBattery: MenuBarIconRenderer.dualBatteryIcon(
             topPercent: fiveHourPct, bottomPercent: weeklyPct,
             topColor: fiveHourColor, bottomColor: weeklyColor)
+        case .sideBySideBattery: MenuBarIconRenderer.sideBySideBatteryIcon(
+            leftPercent: fiveHourPct, rightPercent: weeklyPct,
+            leftColor: fiveHourColor, rightColor: weeklyColor)
         }
         if let extra = extraIcon {
             elements.append((image: extra, text: nil, attrs: nil))

@@ -243,4 +243,62 @@ enum MenuBarIconRenderer {
         image.isTemplate = false
         return image
     }
+
+    // MARK: - Side-by-Side Battery Icon (양옆 배터리)
+
+    /// 양옆 배터리 아이콘: 왼쪽=5시간, 오른쪽=주간
+    nonisolated static func sideBySideBatteryIcon(
+        leftPercent: Double,
+        rightPercent: Double,
+        leftColor: NSColor,
+        rightColor: NSColor
+    ) -> NSImage {
+        let batteryHeight: CGFloat = 14
+        let bodyWidth: CGFloat = 17
+        let capWidth: CGFloat = 2
+        let gap: CGFloat = 3
+        let cornerRadius: CGFloat = 2.5
+        let capCornerRadius: CGFloat = 1.0
+        let inset: CGFloat = 1.5
+        let singleWidth = bodyWidth + capWidth + 1
+        let totalWidth = singleWidth * 2 + gap
+
+        let image = NSImage(size: NSSize(width: totalWidth, height: batteryHeight), flipped: false) { _ in
+            let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let strokeColor: NSColor = isDark ? .white.withAlphaComponent(0.7) : .black.withAlphaComponent(0.5)
+
+            func drawBattery(xOffset: CGFloat, percentage: Double, color: NSColor) {
+                let bodyRect = NSRect(x: xOffset + 0.5, y: 0.5, width: bodyWidth - 1, height: batteryHeight - 1)
+                let bodyPath = NSBezierPath(roundedRect: bodyRect, xRadius: cornerRadius, yRadius: cornerRadius)
+                bodyPath.lineWidth = 1.0
+                strokeColor.setStroke()
+                bodyPath.stroke()
+
+                let capRect = NSRect(x: xOffset + bodyWidth, y: batteryHeight * 0.25, width: capWidth, height: batteryHeight * 0.5)
+                let capPath = NSBezierPath(roundedRect: capRect, xRadius: capCornerRadius, yRadius: capCornerRadius)
+                strokeColor.withAlphaComponent(0.5).setFill()
+                capPath.fill()
+
+                let remaining = (100.0 - min(max(percentage, 0), 100)) / 100.0
+                let innerRect = NSRect(
+                    x: xOffset + inset,
+                    y: inset,
+                    width: (bodyWidth - inset * 2) * remaining,
+                    height: batteryHeight - inset * 2
+                )
+                let innerCorner = max(cornerRadius - inset, 1.0)
+                let fillPath = NSBezierPath(roundedRect: innerRect, xRadius: innerCorner, yRadius: innerCorner)
+                color.setFill()
+                fillPath.fill()
+            }
+
+            drawBattery(xOffset: 0, percentage: leftPercent, color: leftColor)
+            drawBattery(xOffset: singleWidth + gap, percentage: rightPercent, color: rightColor)
+
+            return true
+        }
+
+        image.isTemplate = false
+        return image
+    }
 }
