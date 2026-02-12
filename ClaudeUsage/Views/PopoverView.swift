@@ -75,19 +75,11 @@ struct PopoverView: View {
                     Text("v\(update.version) 업데이트 가능")
                         .font(.caption)
                     Spacer()
-                    if viewModel.isUpdating {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("설치 중...")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Button("업데이트") {
-                            viewModel.performUpdate()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
+                    Button("다운로드") {
+                        viewModel.openReleasePage()
                     }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
@@ -95,13 +87,15 @@ struct PopoverView: View {
             }
 
             if let updateErr = viewModel.updateError {
-                HStack(spacing: 4) {
+                HStack(alignment: .top, spacing: 4) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundColor(.orange)
                         .font(.caption)
                     Text(updateErr)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 4)
@@ -363,13 +357,11 @@ class PopoverViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var lastUpdated: Date?
     @Published var availableUpdate: UpdateInfo?
-    @Published var isUpdating: Bool = false
     @Published var updateError: String?
 
     var onRefresh: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onPinChanged: ((Bool) -> Void)?
-    var onUpdate: ((URL) -> Void)?
     var onCheckUpdate: (() -> Void)?
 
     func refresh() {
@@ -386,10 +378,11 @@ class PopoverViewModel: ObservableObject {
         }
     }
 
-    func performUpdate() {
-        guard let url = availableUpdate?.downloadURL else { return }
-        updateError = nil
-        onUpdate?(url)
+    func openReleasePage() {
+        Task {
+            let url = await UpdateService.shared.releasePageURL()
+            NSWorkspace.shared.open(url)
+        }
     }
 
     func update(usage: ClaudeUsageResponse?, error: APIError?, isLoading: Bool, lastUpdated: Date? = nil) {

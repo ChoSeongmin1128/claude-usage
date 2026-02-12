@@ -88,20 +88,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func performUpdate(from url: URL) {
-        Task {
-            await MainActor.run { popoverViewModel.isUpdating = true }
-            do {
-                try await UpdateService.shared.downloadAndInstall(from: url)
-            } catch {
-                Logger.error("업데이트 실패: \(error.localizedDescription)")
-                await MainActor.run {
-                    popoverViewModel.isUpdating = false
-                    popoverViewModel.updateError = error.localizedDescription
-                }
-            }
-        }
-    }
 
     func applicationWillTerminate(_ notification: Notification) {
         Logger.info("ClaudeUsage 앱 종료")
@@ -141,9 +127,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popoverViewModel.onOpenSettings = { [weak self] in
             self?.closePopover()
             self?.showSettingsWindow()
-        }
-        popoverViewModel.onUpdate = { [weak self] url in
-            self?.performUpdate(from: url)
         }
         popoverViewModel.onCheckUpdate = { [weak self] in
             self?.checkForUpdates()
