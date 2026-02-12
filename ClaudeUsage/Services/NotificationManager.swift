@@ -11,9 +11,7 @@ import UserNotifications
 class NotificationManager {
     static let shared = NotificationManager()
 
-    private var alerted75 = false
-    private var alerted90 = false
-    private var alerted95 = false
+    private var alertedThresholds: Set<Int> = []
     private var lastResetAt: String?
     private var isFirstCheck = true
 
@@ -55,6 +53,7 @@ class NotificationManager {
 
     func checkThreshold(percentage: Double, resetAt: String) {
         let settings = AppSettings.shared
+        let thresholds = settings.enabledAlertThresholds
 
         // 첫 번째 호출: 현재 상태만 기록, 알림 보내지 않음
         if isFirstCheck {
@@ -62,56 +61,48 @@ class NotificationManager {
             lastResetAt = resetAt
 
             // 이미 넘은 임계값은 alerted 처리 (앱 시작 시 알림 방지)
-            if percentage >= 75 { alerted75 = true }
-            if percentage >= 90 { alerted90 = true }
-            if percentage >= 95 { alerted95 = true }
+            for threshold in thresholds where percentage >= Double(threshold) {
+                alertedThresholds.insert(threshold)
+            }
 
             Logger.info("첫 실행 기록: \(Int(percentage))%, 리셋: \(resetAt)")
             return
         }
 
-        // 리셋 감지: 30분 이상 차이나야 실제 리셋으로 판단
+        // 리셋 감지: 5분 이상 차이나야 실제 리셋으로 판단
         if let lastReset = lastResetAt, isActualReset(from: lastReset, to: resetAt) {
             Logger.info("세션 리셋 감지: \(lastReset) → \(resetAt)")
-            resetFlags()
+            alertedThresholds.removeAll()
             lastResetAt = resetAt
 
             sendNotification(
                 title: "Claude 세션 리셋",
                 body: "5시간 세션이 리셋되었습니다"
             )
-            return  // 리셋 직후에는 임계값 알림 생략
+            return
         }
 
         lastResetAt = resetAt
 
-        // 임계값 알림 (높은 순서대로)
-        if percentage >= 95 && !alerted95 && settings.alertAt95 {
-            sendNotification(
-                title: "Claude 사용량 경고",
-                body: "5시간 세션의 95%를 사용했습니다"
-            )
-            alerted95 = true
-        } else if percentage >= 90 && !alerted90 && settings.alertAt90 {
-            sendNotification(
-                title: "Claude 사용량 주의",
-                body: "5시간 세션의 90%를 사용했습니다"
-            )
-            alerted90 = true
-        } else if percentage >= 75 && !alerted75 && settings.alertAt75 {
-            sendNotification(
-                title: "Claude 사용량 안내",
-                body: "5시간 세션의 75%를 사용했습니다"
-            )
-            alerted75 = true
+        // 임계값 알림 (높은 순서대로, 한 번에 하나만)
+        for threshold in thresholds.reversed() {
+            if percentage >= Double(threshold) && !alertedThresholds.contains(threshold) {
+                let title = threshold >= 95 ? "Claude 사용량 경고"
+                    : threshold >= 90 ? "Claude 사용량 주의"
+                    : "Claude 사용량 안내"
+                sendNotification(
+                    title: title,
+                    body: "5시간 세션의 \(threshold)%를 사용했습니다"
+                )
+                alertedThresholds.insert(threshold)
+                break
+            }
         }
     }
 
     /// 알림 플래그 초기화 (세션 리셋 시)
     private func resetFlags() {
-        alerted75 = false
-        alerted90 = false
-        alerted95 = false
+        alertedThresholds.removeAll()
         Logger.info("알림 플래그 초기화")
     }
 

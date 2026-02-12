@@ -15,6 +15,9 @@ struct SettingsView: View {
     @State private var isTesting: Bool = false
     @State private var refreshIntervalText: String = ""
     @State private var showKeyHelp: Bool = false
+    @State private var alert1Text: String = ""
+    @State private var alert2Text: String = ""
+    @State private var alert3Text: String = ""
 
     var onSave: (() -> Void)?
     var onCancel: (() -> Void)?
@@ -22,6 +25,19 @@ struct SettingsView: View {
     enum TestResult {
         case success
         case failure(String)
+    }
+
+    private var isRefreshIntervalValid: Bool {
+        guard let val = Int(refreshIntervalText) else { return false }
+        return val >= 5 && val <= 120
+    }
+
+    private var sessionKeyFormatWarning: String? {
+        guard !sessionKey.isEmpty else { return nil }
+        if !sessionKey.hasPrefix("sk-ant-sid01-") {
+            return "세션 키는 보통 sk-ant-sid01-로 시작합니다"
+        }
+        return nil
     }
 
     var body: some View {
@@ -58,10 +74,15 @@ struct SettingsView: View {
                 sessionKey = key
             }
             refreshIntervalText = String(Int(settings.refreshInterval))
+            alert1Text = String(settings.alert1Threshold)
+            alert2Text = String(settings.alert2Threshold)
+            alert3Text = String(settings.alert3Threshold)
         }
 
         // 하단 버튼
         HStack {
+            Button("기본값 복원") { resetToDefaults() }
+                .foregroundStyle(.secondary)
             Spacer()
             Button("취소") { onCancel?() }
                 .keyboardShortcut(.cancelAction)
@@ -109,6 +130,12 @@ struct SettingsView: View {
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.caption, design: .monospaced))
 
+                if let warning = sessionKeyFormatWarning {
+                    Label(warning, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
                 HStack {
                     Button("연결 테스트") { testConnection() }
                         .disabled(sessionKey.isEmpty || isTesting)
@@ -140,23 +167,49 @@ struct SettingsView: View {
 
     private var displaySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("디스플레이", systemImage: "paintbrush")
-                .font(.headline)
+            HStack {
+                Label("디스플레이", systemImage: "paintbrush")
+                    .font(.headline)
+                Spacer()
+                Text("변경 즉시 반영")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("추가 아이콘:")
                     .font(.subheadline)
 
-                Picker("", selection: $settings.menuBarStyle) {
-                    ForEach(MenuBarStyle.allCases, id: \.self) { style in
-                        Text(style.displayName).tag(style)
-                    }
-                }
-                .pickerStyle(.radioGroup)
+                // 없음
+                styleRadioButton(.none)
 
+                // 배터리바
+                styleRadioButton(.batteryBar)
                 if settings.menuBarStyle == .batteryBar {
-                    Toggle("배터리 내부 퍼센트", isOn: $settings.showBatteryPercent)
-                        .padding(.leading, 20)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Toggle("배터리 내부 퍼센트", isOn: $settings.showBatteryPercent)
+                        Text("남은 사용량을 배터리 형태로 표시합니다")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.leading, 24)
+                }
+
+                // 원형
+                styleRadioButton(.circular)
+                if settings.menuBarStyle == .circular {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker("표시 기준:", selection: $settings.circularDisplayMode) {
+                            ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
+                                Text(mode.displayName).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.radioGroup)
+                        Text("원형 링이 채워진 만큼이 선택한 기준값입니다")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.leading, 24)
                 }
 
                 Toggle("퍼센트 표시", isOn: $settings.showPercentage)
@@ -192,14 +245,27 @@ struct SettingsView: View {
                     TextField("5", text: $refreshIntervalText)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 60)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(
+                                    !refreshIntervalText.isEmpty && !isRefreshIntervalValid ? Color.red : Color.clear,
+                                    lineWidth: 1
+                                )
+                        )
                         .onChange(of: refreshIntervalText) { _, newValue in
                             if let val = TimeInterval(newValue), val >= 5, val <= 120 {
                                 settings.refreshInterval = val
                             }
                         }
-                    Text("초 (5~120)")
+                    Text("초")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+
+                if !refreshIntervalText.isEmpty && !isRefreshIntervalValid {
+                    Label("5~120 사이의 값을 입력하세요", systemImage: "exclamationmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
 
                 Toggle("자동 새로고침", isOn: $settings.autoRefresh)
@@ -214,12 +280,50 @@ struct SettingsView: View {
             Label("알림", systemImage: "bell")
                 .font(.headline)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Toggle("75% 알림", isOn: $settings.alertAt75)
-                Toggle("90% 알림", isOn: $settings.alertAt90)
-                Toggle("95% 알림", isOn: $settings.alertAt95)
+            VStack(alignment: .leading, spacing: 8) {
+                alertThresholdRow(enabled: $settings.alert1Enabled, threshold: $settings.alert1Threshold, text: $alert1Text)
+                alertThresholdRow(enabled: $settings.alert2Enabled, threshold: $settings.alert2Threshold, text: $alert2Text)
+                alertThresholdRow(enabled: $settings.alert3Enabled, threshold: $settings.alert3Threshold, text: $alert3Text)
+
+                Text("설정한 사용량에 도달하면 알림을 보냅니다")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
+    }
+
+    private func alertThresholdRow(enabled: Binding<Bool>, threshold: Binding<Int>, text: Binding<String>) -> some View {
+        HStack(spacing: 8) {
+            Toggle("", isOn: enabled)
+                .labelsHidden()
+                .toggleStyle(.checkbox)
+            TextField("", text: text)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 50)
+                .onChange(of: text.wrappedValue) { _, newValue in
+                    if let val = Int(newValue), val >= 1, val <= 100 {
+                        threshold.wrappedValue = val
+                    }
+                }
+                .disabled(!enabled.wrappedValue)
+            Text("% 도달 시 알림")
+                .font(.subheadline)
+                .foregroundStyle(enabled.wrappedValue ? .primary : .secondary)
+        }
+    }
+
+    // MARK: - 스타일 라디오 버튼
+
+    private func styleRadioButton(_ style: MenuBarStyle) -> some View {
+        Button(action: { settings.menuBarStyle = style }) {
+            HStack(spacing: 6) {
+                Image(systemName: settings.menuBarStyle == style ? "circle.inset.filled" : "circle")
+                    .foregroundColor(settings.menuBarStyle == style ? .accentColor : .secondary)
+                    .font(.system(size: 14))
+                Text(style.displayName)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - 절전 섹션
@@ -277,5 +381,13 @@ struct SettingsView: View {
         }
 
         onSave?()
+    }
+
+    private func resetToDefaults() {
+        settings.resetToDefaults()
+        refreshIntervalText = String(Int(settings.refreshInterval))
+        alert1Text = String(settings.alert1Threshold)
+        alert2Text = String(settings.alert2Threshold)
+        alert3Text = String(settings.alert3Threshold)
     }
 }

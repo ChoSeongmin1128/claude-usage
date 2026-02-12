@@ -75,6 +75,7 @@ enum TimeFormatter {
     }
 
     /// 리셋 시각을 시간 포맷에 맞게 반환
+    /// 오늘이 아닌 경우 날짜+요일 포함 (예: "2/14(금) 18:34")
     nonisolated static func formatResetTime(from resetAt: String, style: TimeFormatStyle = .h24) -> String? {
         guard let resetDate = parseISO8601(resetAt) else { return nil }
 
@@ -83,19 +84,31 @@ enum TimeFormatter {
             return formatRemainingCompact(until: resetDate)
         case .h12, .h24:
             let df = DateFormatter()
-            df.locale = Locale(identifier: style == .h12 ? "en_US" : "ko_KR")
+            df.locale = Locale(identifier: "ko_KR")
             df.timeZone = .current
-            df.dateFormat = style == .h12 ? "h:mm a" : "HH:mm"
+
+            let isToday = Calendar.current.isDateInToday(resetDate)
+            if isToday {
+                df.dateFormat = style == .h12 ? "a h:mm" : "HH:mm"
+            } else {
+                df.dateFormat = style == .h12 ? "M/d(E) a h:mm" : "M/d(E) HH:mm"
+            }
             return df.string(from: resetDate)
         }
     }
 
-    /// 남은 시간을 "0h 00m" 형태로 포맷 (메뉴바용)
+    /// 남은 시간을 "0h 00m" 또는 "0d 0h 00m" 형태로 포맷 (메뉴바용)
     nonisolated static func formatRemainingCompact(until date: Date) -> String {
         let interval = max(0, date.timeIntervalSince(Date()))
         let totalMinutes = Int((interval + 30).rounded(.down)) / 60
-        let hours = totalMinutes / 60
+        let totalHours = totalMinutes / 60
+        let days = totalHours / 24
+        let hours = totalHours % 24
         let minutes = totalMinutes % 60
+
+        if days > 0 {
+            return String(format: "%dd %dh %02dm", days, hours, minutes)
+        }
         return String(format: "%dh %02dm", hours, minutes)
     }
 

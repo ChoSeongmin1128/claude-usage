@@ -21,6 +21,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var currentUsage: ClaudeUsageResponse?
     private var currentError: APIError?
     private var isLoading = false
+    private var lastUpdated: Date?
+    private var hasAuthError = false
 
     private var settingsWindow: NSWindow?
     private var cancellables = Set<AnyCancellable>()
@@ -95,6 +97,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.popover?.close()
             self?.showSettingsWindow()
         }
+        popoverViewModel.onToggleSession = { [weak self] in
+            self?.toggleSessionView()
+        }
 
         let popoverView = PopoverView(viewModel: popoverViewModel)
         let hostingController = NSHostingController(rootView: popoverView)
@@ -126,7 +131,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             popover.close()
         } else {
-            popoverViewModel.update(usage: currentUsage, error: currentError, isLoading: isLoading)
+            popoverViewModel.update(usage: currentUsage, error: currentError, isLoading: isLoading, showingWeekly: showingWeekly, lastUpdated: lastUpdated)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         }
     }
@@ -167,6 +172,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func toggleSessionView() {
         showingWeekly.toggle()
         updateMenuBar()
+        popoverViewModel.update(usage: currentUsage, error: currentError, isLoading: isLoading, showingWeekly: showingWeekly)
         Logger.info("세션 전환: \(showingWeekly ? "주간" : "5시간")")
     }
 
@@ -235,6 +241,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AppSettings.shared.$showResetTime.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$timeFormat.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$circularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
         ]
 
         for publisher in displayPublishers {
@@ -267,8 +274,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.currentUsage = usage
                     self.currentError = nil
                     self.isLoading = false
+                    self.hasAuthError = false
+                    self.lastUpdated = Date()
                     self.updateMenuBar()
-                    self.popoverViewModel.update(usage: usage, error: nil, isLoading: false)
+                    self.popoverViewModel.update(usage: usage, error: nil, isLoading: false, lastUpdated: self.lastUpdated)
 
                     // 알림 체크
                     NotificationManager.shared.checkThreshold(
@@ -283,6 +292,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 await MainActor.run {
                     self.currentError = error
                     self.isLoading = false
+                    if case .invalidSessionKey = error {
+                        self.hasAuthError = true
+                    }
                     self.updateMenuBar()
                     self.popoverViewModel.update(usage: self.currentUsage, error: error, isLoading: false)
                 }
@@ -349,16 +361,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // 3. 추가 아이콘 (설정)
+        let circularValue = settings.circularDisplayMode == .remaining ? (100.0 - percentage) : percentage
         let extraIcon: NSImage? = switch settings.menuBarStyle {
         case .none: nil
         case .batteryBar: MenuBarIconRenderer.batteryIcon(percentage: percentage, color: color, showPercent: settings.showBatteryPercent)
-        case .circular: MenuBarIconRenderer.circularRingIcon(percentage: percentage, color: color)
+        case .circular: MenuBarIconRenderer.circularRingIcon(percentage: circularValue, color: color)
         }
         if let extra = extraIcon {
             elements.append((image: extra, text: nil, attrs: nil))
         }
 
-        // 4. 리셋 시간 (설정)
+        // 4. 인증 에러 경고
+        if hasAuthError {
+            let warnFont = NSFont.systemFont(ofSize: 12)
+            let warnAttrs: [NSAttributedString.Key: Any] = [.font: warnFont, .foregroundColor: NSColor.systemOrange]
+            elements.append((image: nil, text: "⚠", attrs: warnAttrs))
+        }
+
+        // 5. 리셋 시간 (설정)
         if settings.showResetTime {
             let resetAt = showingWeekly ? usage.sevenDay.resetsAt : usage.fiveHour.resetsAt
             if let clock = TimeFormatter.formatResetTime(from: resetAt, style: settings.timeFormat) {
@@ -401,7 +421,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         button.image = compositeImage
         button.imagePosition = .imageOnly
         button.attributedTitle = NSAttributedString(string: "")
-        button.toolTip = "\(sessionLabel) 세션: \(Int(percentage))%\n(Option+클릭: 5시간/주간 전환)"
+        let authWarning = hasAuthError ? "\n⚠️ 세션 키 만료 - 설정에서 갱신하세요" : ""
+        button.toolTip = "\(sessionLabel) 세션: \(Int(percentage))%\n(Option+클릭: 5시간/주간 전환)\(authWarning)"
     }
 
     // MARK: - Keyboard Shortcuts

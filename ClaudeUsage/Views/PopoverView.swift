@@ -18,11 +18,43 @@ struct PopoverView: View {
                 Text("Claude 사용량")
                     .font(.headline)
 
+                HStack(spacing: 0) {
+                    Button(action: { if viewModel.showingWeekly { viewModel.toggleSession() } }) {
+                        Text("5시간")
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(viewModel.showingWeekly ? Color.clear : Color.accentColor)
+                            .foregroundColor(viewModel.showingWeekly ? .secondary : .white)
+                    }
+                    .buttonStyle(.borderless)
+
+                    Button(action: { if !viewModel.showingWeekly { viewModel.toggleSession() } }) {
+                        Text("주간")
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(viewModel.showingWeekly ? Color.accentColor : Color.clear)
+                            .foregroundColor(viewModel.showingWeekly ? .white : .secondary)
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .background(.quaternary)
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+
                 Spacer()
+
+                if let lastUpdated = viewModel.lastUpdated {
+                    Text(lastUpdated, style: .time)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
 
                 Button(action: { viewModel.refresh() }) {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 14))
+                        .rotationEffect(.degrees(viewModel.isLoading ? 360 : 0))
+                        .animation(viewModel.isLoading ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: viewModel.isLoading)
                 }
                 .buttonStyle(.borderless)
                 .disabled(viewModel.isLoading)
@@ -100,16 +132,27 @@ struct PopoverView: View {
 
             // 하단 버튼
             HStack {
-                Button("사용량 상세 보기 →") {
+                Button {
                     viewModel.openUsagePage()
+                } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "safari")
+                        Text("claude.ai/settings/usage")
+                    }
+                    .foregroundColor(.accentColor)
                 }
                 .buttonStyle(.borderless)
                 .font(.caption)
 
                 Spacer()
 
-                Button("⚙️ 설정") {
+                Button {
                     viewModel.openSettings()
+                } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "gearshape")
+                        Text("설정")
+                    }
                 }
                 .buttonStyle(.borderless)
                 .font(.caption)
@@ -122,6 +165,16 @@ struct PopoverView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
+
+            // 단축키 안내
+            HStack(spacing: 8) {
+                Text("⌘R 새로고침")
+                Text("⌘, 설정")
+                Text("⌥클릭 세션전환")
+            }
+            .font(.system(size: 10))
+            .foregroundStyle(.quaternary)
+            .padding(.bottom, 6)
         }
         .frame(width: 340)
     }
@@ -164,9 +217,12 @@ class PopoverViewModel: ObservableObject {
     @Published var usage: ClaudeUsageResponse?
     @Published var error: APIError?
     @Published var isLoading: Bool = false
+    @Published var showingWeekly: Bool = false
+    @Published var lastUpdated: Date?
 
     var onRefresh: (() -> Void)?
     var onOpenSettings: (() -> Void)?
+    var onToggleSession: (() -> Void)?
 
     func refresh() {
         onRefresh?()
@@ -176,15 +232,21 @@ class PopoverViewModel: ObservableObject {
         onOpenSettings?()
     }
 
+    func toggleSession() {
+        onToggleSession?()
+    }
+
     func openUsagePage() {
         if let url = URL(string: "https://claude.ai/settings/usage") {
             NSWorkspace.shared.open(url)
         }
     }
 
-    func update(usage: ClaudeUsageResponse?, error: APIError?, isLoading: Bool) {
+    func update(usage: ClaudeUsageResponse?, error: APIError?, isLoading: Bool, showingWeekly: Bool? = nil, lastUpdated: Date? = nil) {
         self.usage = usage
         self.error = error
         self.isLoading = isLoading
+        if let showingWeekly { self.showingWeekly = showingWeekly }
+        if let lastUpdated { self.lastUpdated = lastUpdated }
     }
 }

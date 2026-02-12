@@ -36,6 +36,18 @@ enum TimeFormatStyle: String, Codable, CaseIterable, Sendable {
     }
 }
 
+enum CircularDisplayMode: String, Codable, CaseIterable, Sendable {
+    case usage = "usage"
+    case remaining = "remaining"
+
+    var displayName: String {
+        switch self {
+        case .usage: return "사용량"
+        case .remaining: return "남은 사용량"
+        }
+    }
+}
+
 class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
@@ -64,17 +76,59 @@ class AppSettings: ObservableObject {
     @Published var autoRefresh: Bool {
         didSet { defaults.set(autoRefresh, forKey: "autoRefresh") }
     }
-    @Published var alertAt75: Bool {
-        didSet { defaults.set(alertAt75, forKey: "alertAt75") }
+    @Published var alert1Enabled: Bool {
+        didSet { defaults.set(alert1Enabled, forKey: "alert1Enabled") }
     }
-    @Published var alertAt90: Bool {
-        didSet { defaults.set(alertAt90, forKey: "alertAt90") }
+    @Published var alert1Threshold: Int {
+        didSet { defaults.set(alert1Threshold, forKey: "alert1Threshold") }
     }
-    @Published var alertAt95: Bool {
-        didSet { defaults.set(alertAt95, forKey: "alertAt95") }
+    @Published var alert2Enabled: Bool {
+        didSet { defaults.set(alert2Enabled, forKey: "alert2Enabled") }
+    }
+    @Published var alert2Threshold: Int {
+        didSet { defaults.set(alert2Threshold, forKey: "alert2Threshold") }
+    }
+    @Published var alert3Enabled: Bool {
+        didSet { defaults.set(alert3Enabled, forKey: "alert3Enabled") }
+    }
+    @Published var alert3Threshold: Int {
+        didSet { defaults.set(alert3Threshold, forKey: "alert3Threshold") }
     }
     @Published var reducedRefreshOnBattery: Bool {
         didSet { defaults.set(reducedRefreshOnBattery, forKey: "reducedRefreshOnBattery") }
+    }
+    @Published var circularDisplayMode: CircularDisplayMode {
+        didSet { defaults.set(circularDisplayMode.rawValue, forKey: "circularDisplayMode") }
+    }
+
+    // MARK: - Computed
+
+    var enabledAlertThresholds: [Int] {
+        var result: [Int] = []
+        if alert1Enabled { result.append(alert1Threshold) }
+        if alert2Enabled { result.append(alert2Threshold) }
+        if alert3Enabled { result.append(alert3Threshold) }
+        return result.sorted()
+    }
+
+    // MARK: - Actions
+
+    func resetToDefaults() {
+        menuBarStyle = .none
+        showPercentage = true
+        showBatteryPercent = true
+        showResetTime = false
+        timeFormat = .h24
+        circularDisplayMode = .usage
+        refreshInterval = 5.0
+        autoRefresh = true
+        alert1Enabled = true
+        alert1Threshold = 75
+        alert2Enabled = true
+        alert2Threshold = 90
+        alert3Enabled = true
+        alert3Threshold = 95
+        reducedRefreshOnBattery = true
     }
 
     // MARK: - Init
@@ -89,9 +143,14 @@ class AppSettings: ObservableObject {
         self.timeFormat = TimeFormatStyle(rawValue: tf) ?? .h24
         self.refreshInterval = defaults.object(forKey: "refreshInterval") as? TimeInterval ?? 5.0
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
-        self.alertAt75 = defaults.object(forKey: "alertAt75") as? Bool ?? true
-        self.alertAt90 = defaults.object(forKey: "alertAt90") as? Bool ?? true
-        self.alertAt95 = defaults.object(forKey: "alertAt95") as? Bool ?? true
+        self.alert1Enabled = defaults.object(forKey: "alert1Enabled") as? Bool ?? true
+        self.alert1Threshold = defaults.object(forKey: "alert1Threshold") as? Int ?? 75
+        self.alert2Enabled = defaults.object(forKey: "alert2Enabled") as? Bool ?? true
+        self.alert2Threshold = defaults.object(forKey: "alert2Threshold") as? Int ?? 90
+        self.alert3Enabled = defaults.object(forKey: "alert3Enabled") as? Bool ?? true
+        self.alert3Threshold = defaults.object(forKey: "alert3Threshold") as? Int ?? 95
         self.reducedRefreshOnBattery = defaults.object(forKey: "reducedRefreshOnBattery") as? Bool ?? true
+        let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
+        self.circularDisplayMode = CircularDisplayMode(rawValue: cdm) ?? .usage
     }
 }
