@@ -20,8 +20,6 @@ macOS 메뉴바에서 Claude.ai 사용량을 실시간으로 모니터링하는 
 2. `ClaudeUsage.app`을 `/Applications`로 이동
 3. 처음 실행 시 차단되면: 시스템 설정 → 개인정보 보호 및 보안 → "그래도 열기"
 
-자세한 설치 방법은 [scripts/README.txt](scripts/README.txt) 참고
-
 ### 소스에서 빌드
 
 ```bash

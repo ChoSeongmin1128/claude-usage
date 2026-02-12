@@ -65,8 +65,3 @@ iOSInjectionProject/
 # macOS
 .DS_Store
 
-# ⚠️ Session Key 보안
-# Phase 1에서는 하드코딩되므로 주의!
-# (Phase 3에서 Keychain으로 이동 예정)
-# 만약 Session Key를 커밋하고 싶지 않다면 아래 주석 해제:
-# Services/ClaudeAPIService.swift

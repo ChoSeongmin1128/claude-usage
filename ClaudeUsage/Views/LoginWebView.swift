@@ -65,6 +65,8 @@ struct LoginWebView: NSViewRepresentable {
         private var sessionKeyExtracted = false
         private var loginDetected = false
         var lastClearTrigger = 0
+        private var popupWindow: NSWindow?
+        private var popupWebView: WKWebView?
 
         init(parent: LoginWebView) {
             self.parent = parent
@@ -73,6 +75,13 @@ struct LoginWebView: NSViewRepresentable {
         func resetState() {
             sessionKeyExtracted = false
             loginDetected = false
+            closePopup()
+        }
+
+        private func closePopup() {
+            popupWindow?.close()
+            popupWindow = nil
+            popupWebView = nil
         }
 
         // MARK: - WKNavigationDelegate
@@ -124,10 +133,34 @@ struct LoginWebView: NSViewRepresentable {
         // MARK: - WKUIDelegate
 
         func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-            if navigationAction.targetFrame == nil || !(navigationAction.targetFrame?.isMainFrame ?? false) {
-                webView.load(navigationAction.request)
+            // Google OAuth 등 팝업이 필요한 경우 실제 윈도우 생성
+            let popup = WKWebView(frame: .zero, configuration: configuration)
+            popup.navigationDelegate = self
+            popup.uiDelegate = self
+            popup.customUserAgent = webView.customUserAgent
+
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 500, height: 650),
+                styleMask: [.titled, .closable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "로그인"
+            window.contentView = popup
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+
+            closePopup()
+            popupWindow = window
+            popupWebView = popup
+
+            return popup
+        }
+
+        func webViewDidClose(_ webView: WKWebView) {
+            if webView == popupWebView {
+                closePopup()
             }
-            return nil
         }
 
         func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
@@ -266,6 +299,7 @@ struct LoginWebView: NSViewRepresentable {
         private func foundSessionKey(_ value: String, source: String) {
             guard !sessionKeyExtracted else { return }
             sessionKeyExtracted = true
+            closePopup()
             Logger.info("세션 키 자동 추출 성공 (\(source))")
             parent.onSessionKeyFound(value)
         }
