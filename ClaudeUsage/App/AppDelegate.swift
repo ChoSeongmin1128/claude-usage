@@ -364,12 +364,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 2. 퍼센트 (설정)
         if settings.showPercentage {
             if settings.showDualPercentage {
-                // 듀얼: "67/45%" (두 색상)
-                let t1 = String(format: "%.0f", fiveHourPct)
-                let t2 = "/"
+                // 듀얼: "67% · 45%" (두 색상)
+                let t1 = String(format: "%.0f%%", fiveHourPct)
+                let t2 = " · "
                 let t3 = String(format: "%.0f%%", weeklyPct)
                 let a1: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: fiveHourColor]
-                let a2: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
+                let a2: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.tertiaryLabelColor]
                 let a3: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: weeklyColor]
                 let w1 = (t1 as NSString).size(withAttributes: a1).width
                 let w2 = (t2 as NSString).size(withAttributes: a2).width

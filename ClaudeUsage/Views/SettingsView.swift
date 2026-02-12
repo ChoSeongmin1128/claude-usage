@@ -268,7 +268,7 @@ struct SettingsView: View {
 
                 Toggle("퍼센트 표시", isOn: $settings.showPercentage)
                 if settings.showPercentage {
-                    Toggle("동시 퍼센트 표시 (67/45%)", isOn: $settings.showDualPercentage)
+                    Toggle("동시 퍼센트 표시 (67% · 45%)", isOn: $settings.showDualPercentage)
                         .padding(.leading, 20)
                 }
                 Toggle("리셋 시간 표시", isOn: $settings.showResetTime)
