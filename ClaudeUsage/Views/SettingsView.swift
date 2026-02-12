@@ -523,9 +523,21 @@ struct SettingsView: View {
             }
 
             if let result = updateCheckResult {
-                Text(result)
-                    .font(.caption)
-                    .foregroundStyle(result.contains("가능") ? .orange : result.contains("실패") ? .red : .green)
+                HStack {
+                    Text(result)
+                        .font(.caption)
+                        .foregroundStyle(result.contains("가능") ? .orange : result.contains("실패") ? .red : .green)
+                    if result.contains("가능") {
+                        Button("다운로드") {
+                            Task {
+                                let url = await UpdateService.shared.latestDownloadURL()
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                    }
+                }
             }
         }
     }
