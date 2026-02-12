@@ -20,6 +20,14 @@ struct ClaudeUsageResponse: Codable, Sendable {
         case sevenDaySonnet = "seven_day_sonnet"
         case sevenDayOpus = "seven_day_opus"
     }
+
+    nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        fiveHour = try container.decode(UsageWindow.self, forKey: .fiveHour)
+        sevenDay = try container.decode(UsageWindow.self, forKey: .sevenDay)
+        sevenDaySonnet = try container.decodeIfPresent(UsageWindow.self, forKey: .sevenDaySonnet)
+        sevenDayOpus = try container.decodeIfPresent(UsageWindow.self, forKey: .sevenDayOpus)
+    }
 }
 
 /// 개별 사용량 윈도우 (5시간, 주간, Sonnet, Opus)
@@ -33,7 +41,7 @@ struct UsageWindow: Codable, Sendable {
     }
 
     /// utilization이 Int 또는 Double로 올 수 있어서 방어적 디코딩
-    init(from decoder: Decoder) throws {
+    nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         resetsAt = try container.decode(String.self, forKey: .resetsAt)
 
@@ -55,12 +63,12 @@ struct UsageWindow: Codable, Sendable {
 
 extension UsageWindow {
     /// 퍼센트를 정수로 반환 (67.5% → 67)
-    var percentageInt: Int {
+    nonisolated var percentageInt: Int {
         Int(utilization)
     }
 
     /// 리셋 시간을 Date로 변환
-    var resetDate: Date? {
+    nonisolated var resetDate: Date? {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let date = formatter.date(from: resetsAt) {
@@ -74,22 +82,22 @@ extension UsageWindow {
 
 extension ClaudeUsageResponse {
     /// 5시간 세션 퍼센트 (메인 표시용)
-    var fiveHourPercentage: Double {
+    nonisolated var fiveHourPercentage: Double {
         fiveHour.utilization
     }
 
     /// 주간 한도 퍼센트
-    var weeklyPercentage: Double {
+    nonisolated var weeklyPercentage: Double {
         sevenDay.utilization
     }
 
     /// Sonnet 주간 퍼센트 (없으면 nil)
-    var sonnetPercentage: Double? {
+    nonisolated var sonnetPercentage: Double? {
         sevenDaySonnet?.utilization
     }
 
     /// Opus 주간 퍼센트 (없으면 nil)
-    var opusPercentage: Double? {
+    nonisolated var opusPercentage: Double? {
         sevenDayOpus?.utilization
     }
 }

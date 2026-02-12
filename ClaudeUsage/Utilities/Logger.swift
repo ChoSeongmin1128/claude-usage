@@ -14,7 +14,7 @@ enum LogLevel: Sendable {
     case warning
     case error
 
-    var emoji: String {
+    nonisolated var emoji: String {
         switch self {
         case .debug:   return "🔍"
         case .info:    return "ℹ️"
@@ -23,7 +23,7 @@ enum LogLevel: Sendable {
         }
     }
 
-    var label: String {
+    nonisolated var label: String {
         switch self {
         case .debug:   return "DEBUG"
         case .info:    return "INFO"

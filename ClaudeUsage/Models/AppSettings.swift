@@ -120,6 +120,70 @@ class AppSettings: ObservableObject {
         didSet { defaults.set(showDualResetTime, forKey: "showDualResetTime") }
     }
 
+    // MARK: - Snapshot
+
+    struct Snapshot {
+        let menuBarStyle: MenuBarStyle
+        let showPercentage: Bool
+        let showBatteryPercent: Bool
+        let showResetTime: Bool
+        let timeFormat: TimeFormatStyle
+        let circularDisplayMode: CircularDisplayMode
+        let refreshInterval: TimeInterval
+        let autoRefresh: Bool
+        let alert1Enabled: Bool
+        let alert1Threshold: Int
+        let alert2Enabled: Bool
+        let alert2Threshold: Int
+        let alert3Enabled: Bool
+        let alert3Threshold: Int
+        let reducedRefreshOnBattery: Bool
+        let showDualPercentage: Bool
+        let showDualResetTime: Bool
+    }
+
+    func createSnapshot() -> Snapshot {
+        Snapshot(
+            menuBarStyle: menuBarStyle,
+            showPercentage: showPercentage,
+            showBatteryPercent: showBatteryPercent,
+            showResetTime: showResetTime,
+            timeFormat: timeFormat,
+            circularDisplayMode: circularDisplayMode,
+            refreshInterval: refreshInterval,
+            autoRefresh: autoRefresh,
+            alert1Enabled: alert1Enabled,
+            alert1Threshold: alert1Threshold,
+            alert2Enabled: alert2Enabled,
+            alert2Threshold: alert2Threshold,
+            alert3Enabled: alert3Enabled,
+            alert3Threshold: alert3Threshold,
+            reducedRefreshOnBattery: reducedRefreshOnBattery,
+            showDualPercentage: showDualPercentage,
+            showDualResetTime: showDualResetTime
+        )
+    }
+
+    func restore(from snapshot: Snapshot) {
+        menuBarStyle = snapshot.menuBarStyle
+        showPercentage = snapshot.showPercentage
+        showBatteryPercent = snapshot.showBatteryPercent
+        showResetTime = snapshot.showResetTime
+        timeFormat = snapshot.timeFormat
+        circularDisplayMode = snapshot.circularDisplayMode
+        refreshInterval = snapshot.refreshInterval
+        autoRefresh = snapshot.autoRefresh
+        alert1Enabled = snapshot.alert1Enabled
+        alert1Threshold = snapshot.alert1Threshold
+        alert2Enabled = snapshot.alert2Enabled
+        alert2Threshold = snapshot.alert2Threshold
+        alert3Enabled = snapshot.alert3Enabled
+        alert3Threshold = snapshot.alert3Threshold
+        reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
+        showDualPercentage = snapshot.showDualPercentage
+        showDualResetTime = snapshot.showDualResetTime
+    }
+
     // MARK: - Computed
 
     var enabledAlertThresholds: [Int] {

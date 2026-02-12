@@ -10,10 +10,20 @@ import SwiftUI
 struct LoginWindowView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var statusMessage: String?
     @State private var loginSuccess = false
+    @State private var clearTrigger: Int
 
+    var clearOnOpen: Bool
     var onSessionKeyFound: (String) -> Void
     var onCancel: () -> Void
+
+    init(clearOnOpen: Bool = false, onSessionKeyFound: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+        self.clearOnOpen = clearOnOpen
+        self._clearTrigger = State(initialValue: clearOnOpen ? 1 : 0)
+        self.onSessionKeyFound = onSessionKeyFound
+        self.onCancel = onCancel
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,12 +35,29 @@ struct LoginWindowView: View {
                     Text("로딩 중...")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                } else if let status = statusMessage, !loginSuccess {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    Text(status)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 Spacer()
                 if loginSuccess {
-                    Label("로그인 성공!", systemImage: "checkmark.circle.fill")
+                    Label("세션 키 추출 완료!", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
-                        .font(.callout)
+                        .font(.callout.bold())
+                } else {
+                    Button(action: {
+                        clearTrigger += 1
+                        loginSuccess = false
+                        statusMessage = "쿠키 초기화됨"
+                    }) {
+                        Label("초기화", systemImage: "arrow.counterclockwise")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("로그인 정보를 초기화하고 다른 계정으로 로그인")
                 }
             }
             .padding(.horizontal, 12)
@@ -57,6 +84,7 @@ struct LoginWindowView: View {
                 LoginWebView(
                     onSessionKeyFound: { key in
                         loginSuccess = true
+                        statusMessage = nil
                         onSessionKeyFound(key)
                     },
                     onLoadingChanged: { loading in
@@ -64,7 +92,11 @@ struct LoginWindowView: View {
                     },
                     onError: { error in
                         errorMessage = error
-                    }
+                    },
+                    onStatusChanged: { status in
+                        statusMessage = status
+                    },
+                    clearTrigger: clearTrigger
                 )
 
                 if loginSuccess {
@@ -97,6 +129,6 @@ struct LoginWindowView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
-        .frame(width: 480, height: 640)
+        .frame(width: 800, height: 700)
     }
 }

@@ -18,30 +18,6 @@ struct PopoverView: View {
                 Text("Claude 사용량")
                     .font(.headline)
 
-                HStack(spacing: 0) {
-                    Button(action: { if viewModel.showingWeekly { viewModel.toggleSession() } }) {
-                        Text("5시간")
-                            .font(.caption)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(viewModel.showingWeekly ? Color.clear : Color.accentColor)
-                            .foregroundColor(viewModel.showingWeekly ? .secondary : .white)
-                    }
-                    .buttonStyle(.borderless)
-
-                    Button(action: { if !viewModel.showingWeekly { viewModel.toggleSession() } }) {
-                        Text("주간")
-                            .font(.caption)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(viewModel.showingWeekly ? Color.accentColor : Color.clear)
-                            .foregroundColor(viewModel.showingWeekly ? .white : .secondary)
-                    }
-                    .buttonStyle(.borderless)
-                }
-                .background(.quaternary)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
-
                 Spacer()
 
                 if let lastUpdated = viewModel.lastUpdated {
@@ -170,7 +146,6 @@ struct PopoverView: View {
             HStack(spacing: 8) {
                 Text("⌘R 새로고침")
                 Text("⌘, 설정")
-                Text("⌥클릭 세션전환")
             }
             .font(.system(size: 10))
             .foregroundStyle(.quaternary)
@@ -217,12 +192,10 @@ class PopoverViewModel: ObservableObject {
     @Published var usage: ClaudeUsageResponse?
     @Published var error: APIError?
     @Published var isLoading: Bool = false
-    @Published var showingWeekly: Bool = false
     @Published var lastUpdated: Date?
 
     var onRefresh: (() -> Void)?
     var onOpenSettings: (() -> Void)?
-    var onToggleSession: (() -> Void)?
 
     func refresh() {
         onRefresh?()
@@ -232,21 +205,16 @@ class PopoverViewModel: ObservableObject {
         onOpenSettings?()
     }
 
-    func toggleSession() {
-        onToggleSession?()
-    }
-
     func openUsagePage() {
         if let url = URL(string: "https://claude.ai/settings/usage") {
             NSWorkspace.shared.open(url)
         }
     }
 
-    func update(usage: ClaudeUsageResponse?, error: APIError?, isLoading: Bool, showingWeekly: Bool? = nil, lastUpdated: Date? = nil) {
+    func update(usage: ClaudeUsageResponse?, error: APIError?, isLoading: Bool, lastUpdated: Date? = nil) {
         self.usage = usage
         self.error = error
         self.isLoading = isLoading
-        if let showingWeekly { self.showingWeekly = showingWeekly }
         if let lastUpdated { self.lastUpdated = lastUpdated }
     }
 }

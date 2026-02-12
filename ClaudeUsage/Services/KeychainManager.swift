@@ -11,7 +11,7 @@ import Foundation
 enum KeychainError: Error, LocalizedError {
     case invalidData
 
-    var errorDescription: String? {
+    nonisolated var errorDescription: String? {
         switch self {
         case .invalidData:
             return "유효하지 않은 데이터"
@@ -19,31 +19,30 @@ enum KeychainError: Error, LocalizedError {
     }
 }
 
-class KeychainManager {
-    static let shared = KeychainManager()
+final class KeychainManager: @unchecked Sendable {
+    nonisolated static let shared = KeychainManager()
 
-    private let key = "claude-session-key"
-    private let defaults = UserDefaults.standard
+    private nonisolated let storageKey = "claude-session-key"
 
     private init() {}
 
-    func save(_ sessionKey: String) throws {
+    nonisolated func save(_ sessionKey: String) throws {
         guard !sessionKey.isEmpty else {
             throw KeychainError.invalidData
         }
-        defaults.set(sessionKey, forKey: key)
+        UserDefaults.standard.set(sessionKey, forKey: storageKey)
         Logger.info("세션 키 저장 완료")
     }
 
-    func load() -> String? {
-        defaults.string(forKey: key)
+    nonisolated func load() -> String? {
+        UserDefaults.standard.string(forKey: storageKey)
     }
 
-    func delete() throws {
-        defaults.removeObject(forKey: key)
+    nonisolated func delete() throws {
+        UserDefaults.standard.removeObject(forKey: storageKey)
     }
 
-    var hasSessionKey: Bool {
+    nonisolated var hasSessionKey: Bool {
         guard let key = load(), !key.isEmpty else { return false }
         return true
     }

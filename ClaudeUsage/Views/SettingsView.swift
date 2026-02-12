@@ -18,10 +18,13 @@ struct SettingsView: View {
     @State private var alert1Text: String = ""
     @State private var alert2Text: String = ""
     @State private var alert3Text: String = ""
+    @State private var snapshot: AppSettings.Snapshot?
+    @State private var didSave = false
 
     var onSave: (() -> Void)?
     var onCancel: (() -> Void)?
     var onOpenLogin: (() -> Void)?
+    var onOpenLoginNewAccount: (() -> Void)?
 
     enum TestResult {
         case success
@@ -42,57 +45,67 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                // 인증 섹션
-                authSection
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    // 인증 섹션
+                    authSection
 
-                Divider()
+                    Divider()
 
-                // 디스플레이 섹션
-                displaySection
+                    // 디스플레이 섹션
+                    displaySection
 
-                Divider()
+                    Divider()
 
-                // 새로고침 섹션
-                refreshSection
+                    // 새로고침 섹션
+                    refreshSection
 
-                Divider()
+                    Divider()
 
-                // 알림 섹션
-                alertSection
+                    // 알림 섹션
+                    alertSection
 
-                Divider()
+                    Divider()
 
-                // 절전 섹션
-                powerSection
+                    // 절전 섹션
+                    powerSection
+                }
+                .padding(24)
             }
-            .padding(24)
+
+            // 하단 버튼
+            HStack {
+                Button("기본값 복원") { resetToDefaults() }
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("취소") { onCancel?() }
+                    .keyboardShortcut(.cancelAction)
+                Button("저장") { didSave = true; save() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
         }
-        .frame(width: 420, height: 560)
+        .frame(width: 420, height: 580)
         .onAppear {
+            snapshot = settings.createSnapshot()
             if let key = KeychainManager.shared.load() {
                 sessionKey = key
+                // 세션 키 유효성 자동 확인
+                testConnection()
             }
             refreshIntervalText = String(Int(settings.refreshInterval))
             alert1Text = String(settings.alert1Threshold)
             alert2Text = String(settings.alert2Threshold)
             alert3Text = String(settings.alert3Threshold)
         }
-
-        // 하단 버튼
-        HStack {
-            Button("기본값 복원") { resetToDefaults() }
-                .foregroundStyle(.secondary)
-            Spacer()
-            Button("취소") { onCancel?() }
-                .keyboardShortcut(.cancelAction)
-            Button("저장") { save() }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
+        .onDisappear {
+            if !didSave, let snapshot = snapshot {
+                settings.restore(from: snapshot)
+            }
         }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 16)
     }
 
     // MARK: - 인증 섹션
@@ -103,12 +116,31 @@ struct SettingsView: View {
                 .font(.headline)
 
             if !sessionKey.isEmpty {
-                // 로그인 상태
+                // 세션 키 존재
                 HStack(spacing: 8) {
-                    Label("로그인됨", systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
+                    if isTesting {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("확인 중...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if let result = testResult {
+                        switch result {
+                        case .success:
+                            Label("연결 확인됨", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        case .failure(let msg):
+                            Label(msg, systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                                .lineLimit(1)
+                        }
+                    } else {
+                        Label("세션 키 설정됨", systemImage: "key.fill")
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
                     Button("다시 로그인") { onOpenLogin?() }
+                    Button("계정 변경") { onOpenLoginNewAccount?() }
                 }
                 Text("세션 키: \(String(sessionKey.prefix(20)))...")
                     .font(.caption)
@@ -217,7 +249,7 @@ struct SettingsView: View {
                 Label("디스플레이", systemImage: "paintbrush")
                     .font(.headline)
                 Spacer()
-                Text("변경 즉시 반영")
+                Text("실시간 미리보기")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
@@ -241,6 +273,10 @@ struct SettingsView: View {
                     if newValue.isDualStyle {
                         settings.showDualPercentage = true
                     }
+                    // 배터리 계열은 자연스럽게 "남은 사용량" 표시
+                    if newValue == .batteryBar || newValue == .dualBattery || newValue == .sideBySideBattery {
+                        settings.circularDisplayMode = .remaining
+                    }
                 }
 
                 if let desc = styleDescription {
@@ -252,27 +288,39 @@ struct SettingsView: View {
                 // 배터리 계열 하위 옵션
                 if isBatteryWithPercent {
                     Toggle("배터리 내부 퍼센트", isOn: $settings.showBatteryPercent)
-                }
-
-                // 원형/동심원 하위 옵션
-                if settings.menuBarStyle == .circular || settings.menuBarStyle == .concentricRings {
-                    Picker("표시 기준:", selection: $settings.circularDisplayMode) {
-                        ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
-                            Text(mode.displayName).tag(mode)
+                        .onChange(of: settings.showBatteryPercent) { _, newValue in
+                            if newValue {
+                                settings.showPercentage = false
+                            }
                         }
-                    }
-                    .pickerStyle(.radioGroup)
                 }
 
                 Divider()
 
+                // 표시 기준
+                Picker("표시 기준:", selection: $settings.circularDisplayMode) {
+                    ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                Text("퍼센트 및 원형 아이콘에 적용됩니다")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Divider()
+
+                // 퍼센트
                 Toggle("퍼센트 표시", isOn: $settings.showPercentage)
                 if settings.showPercentage {
                     Toggle("동시 퍼센트 표시 (67% · 45%)", isOn: $settings.showDualPercentage)
                         .padding(.leading, 20)
                 }
-                Toggle("리셋 시간 표시", isOn: $settings.showResetTime)
 
+                Divider()
+
+                // 리셋 시간
+                Toggle("리셋 시간 표시", isOn: $settings.showResetTime)
                 if settings.showResetTime {
                     Toggle("동시 리셋 시간 표시", isOn: $settings.showDualResetTime)
                         .padding(.leading, 20)
@@ -401,6 +449,13 @@ struct SettingsView: View {
                 await MainActor.run {
                     testResult = .success
                     isTesting = false
+                    // 연결 성공 시 자동 저장
+                    do {
+                        try KeychainManager.shared.save(sessionKey)
+                        Logger.info("연결 테스트 성공, 세션 키 자동 저장됨")
+                    } catch {
+                        Logger.error("세션 키 저장 실패: \(error)")
+                    }
                 }
             } catch {
                 await MainActor.run {
