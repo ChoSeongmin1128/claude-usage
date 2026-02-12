@@ -261,18 +261,18 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Toggle("Claude 아이콘", isOn: $settings.showClaudeIcon)
                 Toggle("퍼센트", isOn: $settings.showPercentage)
-                Toggle("리셋 시간", isOn: $settings.showResetTime)
+                Picker("리셋 시간:", selection: $settings.resetTimeDisplay) {
+                    ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
 
-                if settings.showResetTime {
-                    Toggle("5시간 + 주간 동시 표시", isOn: $settings.showDualResetTime)
-                        .padding(.leading, 20)
+                if settings.resetTimeDisplay != .none {
                     Picker("시간 형식:", selection: $settings.timeFormat) {
                         ForEach(TimeFormatStyle.allCases, id: \.self) { style in
                             Text(style.displayName).tag(style)
                         }
                     }
-                    .pickerStyle(.radioGroup)
-                    .padding(.leading, 20)
                 }
 
                 Divider()

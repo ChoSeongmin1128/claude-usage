@@ -223,12 +223,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let displayPublishers = [
             AppSettings.shared.$menuBarStyle.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$showPercentage.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$showResetTime.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$resetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$timeFormat.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$circularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$showDualPercentage.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$showDualResetTime.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$showClaudeIcon.map { _ in () }.eraseToAnyPublisher(),
         ]
 
@@ -461,22 +460,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // 5. 리셋 시간 (설정)
-        if settings.showResetTime {
-            if settings.showDualResetTime {
-                // 듀얼: "18:34 · 2/14(금)" 형식 (주간은 1일 이상이면 분 생략)
-                let r1 = TimeFormatter.formatResetTime(from: usage.fiveHour.resetsAt, style: settings.timeFormat)
-                let r2 = TimeFormatter.formatResetTimeWeekly(from: usage.sevenDay.resetsAt, style: settings.timeFormat)
-                if let t1 = r1, let t2 = r2 {
-                    let dualText = "\(t1) · \(t2)"
-                    let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
-                    elements.append((image: nil, text: dualText, attrs: attrs))
-                }
-            } else {
-                let resetAt = usage.fiveHour.resetsAt
-                if let clock = TimeFormatter.formatResetTime(from: resetAt, style: settings.timeFormat) {
-                    let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
-                    elements.append((image: nil, text: clock, attrs: attrs))
-                }
+        switch settings.resetTimeDisplay {
+        case .none:
+            break
+        case .fiveHour:
+            if let clock = TimeFormatter.formatResetTime(from: usage.fiveHour.resetsAt, style: settings.timeFormat) {
+                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
+                elements.append((image: nil, text: clock, attrs: attrs))
+            }
+        case .weekly:
+            if let clock = TimeFormatter.formatResetTimeWeekly(from: usage.sevenDay.resetsAt, style: settings.timeFormat) {
+                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
+                elements.append((image: nil, text: clock, attrs: attrs))
+            }
+        case .dual:
+            let r1 = TimeFormatter.formatResetTime(from: usage.fiveHour.resetsAt, style: settings.timeFormat)
+            let r2 = TimeFormatter.formatResetTimeWeekly(from: usage.sevenDay.resetsAt, style: settings.timeFormat)
+            if let t1 = r1, let t2 = r2 {
+                let dualText = "\(t1) · \(t2)"
+                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
+                elements.append((image: nil, text: dualText, attrs: attrs))
             }
         }
 

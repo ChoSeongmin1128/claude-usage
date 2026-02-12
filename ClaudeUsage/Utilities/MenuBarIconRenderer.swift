@@ -55,23 +55,33 @@ enum MenuBarIconRenderer {
             color.setFill()
             fillPath.fill()
 
-            // 퍼센트 텍스트 (배터리 내부 중앙)
+            // 퍼센트 텍스트 (배터리 내부 중앙, stroke 외곽선)
             if showPercent {
                 let textColor: NSColor = isDark ? .white : .black
+                let strokeColor: NSColor = (isDark ? NSColor.black : NSColor.white).withAlphaComponent(0.85)
                 let text = String(format: "%.0f", remaining)
-                let shadow = NSShadow()
-                shadow.shadowColor = (isDark ? NSColor.black : NSColor.white).withAlphaComponent(0.9)
-                shadow.shadowBlurRadius = 2.0
-                shadow.shadowOffset = .zero
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold),
-                    .foregroundColor: textColor,
-                    .shadow: shadow,
+                let font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold)
+                let baseAttrs: [NSAttributedString.Key: Any] = [
+                    .font: font,
+                    .foregroundColor: strokeColor,
                 ]
-                let textSize = (text as NSString).size(withAttributes: attrs)
+                let textSize = (text as NSString).size(withAttributes: baseAttrs)
                 let textX = (bodyWidth - textSize.width) / 2
                 let textY = (height - textSize.height) / 2
-                (text as NSString).draw(at: NSPoint(x: textX, y: textY), withAttributes: attrs)
+                let origin = NSPoint(x: textX, y: textY)
+                // 외곽선: 4방향 1px 오프셋으로 배경색 텍스트
+                let offsets: [CGFloat] = [-0.8, 0.8]
+                for dx in offsets {
+                    for dy in offsets {
+                        (text as NSString).draw(at: NSPoint(x: origin.x + dx, y: origin.y + dy), withAttributes: baseAttrs)
+                    }
+                }
+                // 본 텍스트
+                let mainAttrs: [NSAttributedString.Key: Any] = [
+                    .font: font,
+                    .foregroundColor: textColor,
+                ]
+                (text as NSString).draw(at: origin, withAttributes: mainAttrs)
             }
 
             return true
@@ -237,23 +247,33 @@ enum MenuBarIconRenderer {
         color.setFill()
         fillPath.fill()
 
-        // 퍼센트 텍스트
+        // 퍼센트 텍스트 (stroke 외곽선)
         if showPercent {
             let textColor: NSColor = isDark ? .white : .black
+            let outlineColor: NSColor = (isDark ? NSColor.black : NSColor.white).withAlphaComponent(0.85)
             let text = String(format: "%.0f", remaining)
-            let shadow = NSShadow()
-            shadow.shadowColor = (isDark ? NSColor.black : NSColor.white).withAlphaComponent(0.9)
-            shadow.shadowBlurRadius = 2.0
-            shadow.shadowOffset = .zero
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold),
-                .foregroundColor: textColor,
-                .shadow: shadow,
+            let font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold)
+            let baseAttrs: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: outlineColor,
             ]
-            let textSize = (text as NSString).size(withAttributes: attrs)
+            let textSize = (text as NSString).size(withAttributes: baseAttrs)
             let textX = xOffset + (bodyWidth - textSize.width) / 2
             let textY = yOffset + (height - textSize.height) / 2
-            (text as NSString).draw(at: NSPoint(x: textX, y: textY), withAttributes: attrs)
+            let origin = NSPoint(x: textX, y: textY)
+            // 외곽선: 4방향 오프셋으로 배경색 텍스트
+            let offsets: [CGFloat] = [-0.8, 0.8]
+            for dx in offsets {
+                for dy in offsets {
+                    (text as NSString).draw(at: NSPoint(x: origin.x + dx, y: origin.y + dy), withAttributes: baseAttrs)
+                }
+            }
+            // 본 텍스트
+            let mainAttrs: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: textColor,
+            ]
+            (text as NSString).draw(at: origin, withAttributes: mainAttrs)
         }
     }
 
