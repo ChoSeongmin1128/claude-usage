@@ -426,6 +426,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateMenuBar() {
         guard let button = statusItem?.button else { return }
 
+        let buttonAppearance = button.effectiveAppearance
+
         if !KeychainManager.shared.hasSessionKey {
             // 세션 키 미설정
             let claudeIcon = NSImage(named: "ClaudeMenuBarIcon")
@@ -439,6 +441,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let totalW = iconW + gap + textSize.width
             let h: CGFloat = 22
             let img = NSImage(size: NSSize(width: totalW, height: h), flipped: false) { _ in
+                NSAppearance.current = buttonAppearance
                 claudeIcon?.draw(in: NSRect(x: 0, y: (h - iconW) / 2, width: iconW, height: iconW))
                 (statusText as NSString).draw(at: NSPoint(x: iconW + gap, y: (h - textSize.height) / 2), withAttributes: statusAttrs)
                 return true
@@ -465,6 +468,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let totalW = iconW + gap + textSize.width
             let h: CGFloat = 22
             let img = NSImage(size: NSSize(width: totalW, height: h), flipped: false) { _ in
+                NSAppearance.current = buttonAppearance
                 claudeIcon?.draw(in: NSRect(x: 0, y: (h - iconW) / 2, width: iconW, height: iconW))
                 (label as NSString).draw(at: NSPoint(x: iconW + gap, y: (h - textSize.height) / 2), withAttributes: statusAttrs)
                 return true
@@ -630,6 +634,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 통합 이미지 생성
         let compositeImage = NSImage(size: NSSize(width: totalWidth, height: menuBarHeight), flipped: false) { _ in
+            NSAppearance.current = buttonAppearance
             var x: CGFloat = 0
             for (i, el) in elements.enumerated() {
                 if i > 0 { x += spacing }
