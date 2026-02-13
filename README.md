@@ -53,7 +53,7 @@ ClaudeUsage/
 
 ## 기술 스택
 
-- **언어**: Swift 6 (Strict Concurrency)
+- **언어**: Swift 5.0
 - **플랫폼**: macOS 14.0+ (Sonoma)
 - **UI**: SwiftUI + AppKit
 - **아키텍처**: MainActor 기반

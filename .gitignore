@@ -65,3 +65,5 @@ iOSInjectionProject/
 # macOS
 .DS_Store
 
+# Local release artifact
+ClaudeUsage.zip
