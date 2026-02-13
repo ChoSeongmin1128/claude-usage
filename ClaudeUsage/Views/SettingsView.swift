@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Combine
+import UniformTypeIdentifiers
 
 
 struct SettingsView: View {
@@ -19,6 +20,8 @@ struct SettingsView: View {
     @State private var alertTexts: [String] = []
     @State private var snapshot: AppSettings.Snapshot?
     @State private var didSave = false
+    @State private var draggingItemID: String?
+    @State private var compactConfigTab: Int = 0
 
     var onSave: (() -> Void)?
     var onCancel: (() -> Void)?
@@ -351,6 +354,10 @@ struct SettingsView: View {
 
     // MARK: - 표시 항목 섹션
 
+    private var isEditingCompact: Bool {
+        settings.separateCompactConfig && compactConfigTab == 1
+    }
+
     private var popoverItemsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("표시 항목", systemImage: "list.bullet")
@@ -360,94 +367,78 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            VStack(spacing: 0) {
-                // 헤더
-                HStack(spacing: 8) {
-                    Text("기본")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 20)
-                    Text("간소화")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 32)
-                    Spacer()
-                }
-                .padding(.horizontal, 8)
-                .padding(.top, 4)
-                .padding(.bottom, 2)
+            Toggle("기본/간소화 개별 설정", isOn: $settings.separateCompactConfig)
 
-                ForEach(Array(settings.popoverItems.enumerated()), id: \.element.id) { index, item in
+            if settings.separateCompactConfig {
+                Picker("", selection: $compactConfigTab) {
+                    Text("기본").tag(0)
+                    Text("간소화").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 160)
+            }
+
+            itemsList(isCompact: isEditingCompact)
+        }
+    }
+
+    private func itemsList(isCompact: Bool) -> some View {
+        let items = isCompact ? settings.compactPopoverItems : settings.popoverItems
+
+        return VStack(spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                VStack(spacing: 0) {
                     HStack(spacing: 8) {
-                        // 기본 모드 가시성
+                        Image(systemName: "line.3.horizontal")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 14)
+
                         Button {
-                            settings.popoverItems[index].visible.toggle()
+                            if isCompact {
+                                settings.compactPopoverItems[index].visible.toggle()
+                            } else {
+                                settings.popoverItems[index].visible.toggle()
+                            }
                         } label: {
                             Image(systemName: item.visible ? "eye" : "eye.slash")
                                 .foregroundStyle(item.visible ? .primary : .tertiary)
                                 .font(.system(size: 12))
+                                .frame(width: 16, height: 16)
                         }
                         .buttonStyle(.borderless)
-                        .frame(width: 20)
 
-                        // 간소화 모드 가시성
-                        Button {
-                            settings.popoverItems[index].compactVisible.toggle()
-                        } label: {
-                            Image(systemName: item.compactVisible ? "eye" : "eye.slash")
-                                .foregroundStyle(item.compactVisible ? .primary : .tertiary)
-                                .font(.system(size: 12))
-                        }
-                        .buttonStyle(.borderless)
-                        .frame(width: 32)
-
-                        let bothHidden = !item.visible && !item.compactVisible
                         Text(item.displayName)
                             .font(.subheadline)
-                            .foregroundStyle(bothHidden ? .tertiary : .primary)
+                            .foregroundStyle(item.visible ? .primary : .tertiary)
 
                         Spacer()
-
-                        HStack(spacing: 2) {
-                            Button {
-                                guard index > 0 else { return }
-                                withAnimation(.easeInOut(duration: 0.15)) {
-                                    settings.popoverItems.swapAt(index, index - 1)
-                                }
-                            } label: {
-                                Image(systemName: "chevron.up")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(index > 0 ? .secondary : .quaternary)
-                            }
-                            .buttonStyle(.borderless)
-                            .disabled(index == 0)
-
-                            Button {
-                                guard index < settings.popoverItems.count - 1 else { return }
-                                withAnimation(.easeInOut(duration: 0.15)) {
-                                    settings.popoverItems.swapAt(index, index + 1)
-                                }
-                            } label: {
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(index < settings.popoverItems.count - 1 ? .secondary : .quaternary)
-                            }
-                            .buttonStyle(.borderless)
-                            .disabled(index == settings.popoverItems.count - 1)
-                        }
                     }
-                    .padding(.vertical, 5)
+                    .frame(height: 26)
                     .padding(.horizontal, 8)
+                    .contentShape(Rectangle())
 
-                    if index < settings.popoverItems.count - 1 {
+                    if index < items.count - 1 {
                         Divider().padding(.horizontal, 8)
                     }
                 }
+                .background(draggingItemID == item.id ? Color.accentColor.opacity(0.1) : Color.clear)
+                .cornerRadius(4)
+                .onDrag {
+                    draggingItemID = item.id
+                    return NSItemProvider(object: item.id as NSString)
+                }
+                .onDrop(of: [.text], delegate: PopoverItemDropDelegate(
+                    targetID: item.id,
+                    settings: settings,
+                    isCompact: isCompact,
+                    draggingItemID: $draggingItemID
+                ))
             }
-            .padding(.vertical, 4)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-            .cornerRadius(6)
         }
+        .padding(.vertical, 4)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .cornerRadius(6)
     }
 
     // MARK: - 새로고침 섹션
@@ -736,6 +727,42 @@ struct SettingsView: View {
         settings.resetToDefaults()
         refreshIntervalText = String(Int(settings.refreshInterval))
         alertTexts = settings.alertThresholds.map { String($0) }
+    }
+}
+
+// MARK: - Drag & Drop Delegate
+
+struct PopoverItemDropDelegate: DropDelegate {
+    let targetID: String
+    let settings: AppSettings
+    let isCompact: Bool
+    @Binding var draggingItemID: String?
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggingItemID = nil
+        return true
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let draggingID = draggingItemID, draggingID != targetID else { return }
+
+        let items = isCompact ? settings.compactPopoverItems : settings.popoverItems
+        guard let fromIndex = items.firstIndex(where: { $0.id == draggingID }),
+              let toIndex = items.firstIndex(where: { $0.id == targetID })
+        else { return }
+
+        withAnimation(.easeInOut(duration: 0.15)) {
+            let offset = toIndex > fromIndex ? toIndex + 1 : toIndex
+            if isCompact {
+                settings.compactPopoverItems.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: offset)
+            } else {
+                settings.popoverItems.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: offset)
+            }
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
     }
 }
 

@@ -58,6 +58,11 @@ ClaudeUsage/
 - **UI**: SwiftUI + AppKit
 - **아키텍처**: MainActor 기반
 
+## 참고 사항
+
+이 앱은 claude.ai의 세션 키(쿠키)를 사용하여 사용량 정보를 조회합니다.
+Anthropic이 인증 방식을 변경할 경우 앱이 정상적으로 작동하지 않을 수 있으며, 이 경우 업데이트를 통해 대응할 예정입니다.
+
 ## 라이선스
 
 MIT License

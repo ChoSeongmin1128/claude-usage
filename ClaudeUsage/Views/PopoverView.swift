@@ -283,7 +283,7 @@ struct PopoverView: View {
     @ViewBuilder
     private func compactContent(usage: ClaudeUsageResponse) -> some View {
         VStack(spacing: 5) {
-            ForEach(settings.popoverItems.filter { $0.compactVisible }, id: \.id) { item in
+            ForEach(settings.effectiveCompactItems.filter { $0.visible }, id: \.id) { item in
                 switch item.id {
                 case "currentSession":
                     CompactUsageRow(label: "현재", percentage: usage.fiveHour.utilization, resetAt: usage.fiveHour.resetsAt)
