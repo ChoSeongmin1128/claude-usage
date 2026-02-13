@@ -226,49 +226,53 @@ struct PopoverView: View {
 
     @ViewBuilder
     private func standardContent(usage: ClaudeUsageResponse) -> some View {
+        let visibleItems = settings.popoverItems.filter { $0.visible }
         VStack(spacing: 12) {
-            UsageSectionView(
-                systemIcon: "gauge.medium",
-                title: "현재 세션",
-                percentage: usage.fiveHour.utilization,
-                resetAt: usage.fiveHour.resetsAt
-            )
-
-            Divider()
-
-            UsageSectionView(
-                systemIcon: "calendar",
-                title: "주간 한도",
-                percentage: usage.sevenDay.utilization,
-                resetAt: usage.sevenDay.resetsAt,
-                isWeekly: true
-            )
-
-            if settings.showModelUsage, let sonnet = usage.sevenDaySonnet {
-                Divider()
-                UsageSectionView(
-                    systemIcon: "bolt.fill",
-                    title: "Sonnet (주간)",
-                    percentage: sonnet.utilization,
-                    resetAt: sonnet.resetsAt,
-                    isWeekly: true
-                )
-            }
-
-            if settings.showModelUsage, let opus = usage.sevenDayOpus {
-                Divider()
-                UsageSectionView(
-                    systemIcon: "diamond.fill",
-                    title: "Opus (주간)",
-                    percentage: opus.utilization,
-                    resetAt: opus.resetsAt,
-                    isWeekly: true
-                )
-            }
-
-            if settings.showOverageUsage, let overage = viewModel.overage, overage.isEnabled {
-                Divider()
-                OverageUsageView(overage: overage)
+            ForEach(Array(visibleItems.enumerated()), id: \.element.id) { index, item in
+                if index > 0 { Divider() }
+                switch item.id {
+                case "currentSession":
+                    UsageSectionView(
+                        systemIcon: "gauge.medium",
+                        title: "현재 세션",
+                        percentage: usage.fiveHour.utilization,
+                        resetAt: usage.fiveHour.resetsAt
+                    )
+                case "weeklyLimit":
+                    UsageSectionView(
+                        systemIcon: "calendar",
+                        title: "주간 한도",
+                        percentage: usage.sevenDay.utilization,
+                        resetAt: usage.sevenDay.resetsAt,
+                        isWeekly: true
+                    )
+                case "modelUsage":
+                    if let sonnet = usage.sevenDaySonnet {
+                        UsageSectionView(
+                            systemIcon: "bolt.fill",
+                            title: "Sonnet (주간)",
+                            percentage: sonnet.utilization,
+                            resetAt: sonnet.resetsAt,
+                            isWeekly: true
+                        )
+                    }
+                    if let opus = usage.sevenDayOpus {
+                        if usage.sevenDaySonnet != nil { Divider() }
+                        UsageSectionView(
+                            systemIcon: "diamond.fill",
+                            title: "Opus (주간)",
+                            percentage: opus.utilization,
+                            resetAt: opus.resetsAt,
+                            isWeekly: true
+                        )
+                    }
+                case "overageUsage":
+                    if let overage = viewModel.overage, overage.isEnabled {
+                        OverageUsageView(overage: overage)
+                    }
+                default:
+                    EmptyView()
+                }
             }
         }
         .padding(16)
@@ -279,18 +283,26 @@ struct PopoverView: View {
     @ViewBuilder
     private func compactContent(usage: ClaudeUsageResponse) -> some View {
         VStack(spacing: 5) {
-            CompactUsageRow(label: "현재", percentage: usage.fiveHour.utilization, resetAt: usage.fiveHour.resetsAt)
-            CompactUsageRow(label: "주간", percentage: usage.sevenDay.utilization, resetAt: usage.sevenDay.resetsAt, isWeekly: true)
-
-            if settings.showModelUsage, let sonnet = usage.sevenDaySonnet {
-                CompactUsageRow(label: "Sonnet", percentage: sonnet.utilization, resetAt: sonnet.resetsAt, isWeekly: true)
-            }
-            if settings.showModelUsage, let opus = usage.sevenDayOpus {
-                CompactUsageRow(label: "Opus", percentage: opus.utilization, resetAt: opus.resetsAt, isWeekly: true)
-            }
-
-            if settings.showOverageUsage, let overage = viewModel.overage, overage.isEnabled {
-                CompactOverageRow(overage: overage)
+            ForEach(settings.popoverItems.filter { $0.compactVisible }, id: \.id) { item in
+                switch item.id {
+                case "currentSession":
+                    CompactUsageRow(label: "현재", percentage: usage.fiveHour.utilization, resetAt: usage.fiveHour.resetsAt)
+                case "weeklyLimit":
+                    CompactUsageRow(label: "주간", percentage: usage.sevenDay.utilization, resetAt: usage.sevenDay.resetsAt, isWeekly: true)
+                case "modelUsage":
+                    if let sonnet = usage.sevenDaySonnet {
+                        CompactUsageRow(label: "Sonnet", percentage: sonnet.utilization, resetAt: sonnet.resetsAt, isWeekly: true)
+                    }
+                    if let opus = usage.sevenDayOpus {
+                        CompactUsageRow(label: "Opus", percentage: opus.utilization, resetAt: opus.resetsAt, isWeekly: true)
+                    }
+                case "overageUsage":
+                    if let overage = viewModel.overage, overage.isEnabled {
+                        CompactOverageRow(overage: overage)
+                    }
+                default:
+                    EmptyView()
+                }
             }
         }
         .padding(.horizontal, 16)

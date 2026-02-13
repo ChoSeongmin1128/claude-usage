@@ -8,6 +8,7 @@
 import SwiftUI
 import Combine
 
+
 struct SettingsView: View {
     @ObservedObject var settings = AppSettings.shared
     @State private var sessionKey: String = ""
@@ -53,6 +54,11 @@ struct SettingsView: View {
 
                     // 디스플레이 섹션
                     displaySection
+
+                    Divider()
+
+                    // 표시 항목 섹션
+                    popoverItemsSection
 
                     Divider()
 
@@ -339,14 +345,108 @@ struct SettingsView: View {
                     .padding(.leading, 20)
                 }
 
-                Divider()
-
-                Text("Popover 표시 항목")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Toggle("모델별 주간 한도", isOn: $settings.showModelUsage)
-                Toggle("추가 사용량", isOn: $settings.showOverageUsage)
             }
+        }
+    }
+
+    // MARK: - 표시 항목 섹션
+
+    private var popoverItemsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("표시 항목", systemImage: "list.bullet")
+                .font(.headline)
+
+            Text("항목의 표시 여부와 순서를 설정합니다")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            VStack(spacing: 0) {
+                // 헤더
+                HStack(spacing: 8) {
+                    Text("기본")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20)
+                    Text("간소화")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32)
+                    Spacer()
+                }
+                .padding(.horizontal, 8)
+                .padding(.top, 4)
+                .padding(.bottom, 2)
+
+                ForEach(Array(settings.popoverItems.enumerated()), id: \.element.id) { index, item in
+                    HStack(spacing: 8) {
+                        // 기본 모드 가시성
+                        Button {
+                            settings.popoverItems[index].visible.toggle()
+                        } label: {
+                            Image(systemName: item.visible ? "eye" : "eye.slash")
+                                .foregroundStyle(item.visible ? .primary : .tertiary)
+                                .font(.system(size: 12))
+                        }
+                        .buttonStyle(.borderless)
+                        .frame(width: 20)
+
+                        // 간소화 모드 가시성
+                        Button {
+                            settings.popoverItems[index].compactVisible.toggle()
+                        } label: {
+                            Image(systemName: item.compactVisible ? "eye" : "eye.slash")
+                                .foregroundStyle(item.compactVisible ? .primary : .tertiary)
+                                .font(.system(size: 12))
+                        }
+                        .buttonStyle(.borderless)
+                        .frame(width: 32)
+
+                        let bothHidden = !item.visible && !item.compactVisible
+                        Text(item.displayName)
+                            .font(.subheadline)
+                            .foregroundStyle(bothHidden ? .tertiary : .primary)
+
+                        Spacer()
+
+                        HStack(spacing: 2) {
+                            Button {
+                                guard index > 0 else { return }
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    settings.popoverItems.swapAt(index, index - 1)
+                                }
+                            } label: {
+                                Image(systemName: "chevron.up")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(index > 0 ? .secondary : .quaternary)
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(index == 0)
+
+                            Button {
+                                guard index < settings.popoverItems.count - 1 else { return }
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    settings.popoverItems.swapAt(index, index + 1)
+                                }
+                            } label: {
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(index < settings.popoverItems.count - 1 ? .secondary : .quaternary)
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(index == settings.popoverItems.count - 1)
+                        }
+                    }
+                    .padding(.vertical, 5)
+                    .padding(.horizontal, 8)
+
+                    if index < settings.popoverItems.count - 1 {
+                        Divider().padding(.horizontal, 8)
+                    }
+                }
+            }
+            .padding(.vertical, 4)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+            .cornerRadius(6)
         }
     }
 
@@ -638,3 +738,4 @@ struct SettingsView: View {
         alertTexts = settings.alertThresholds.map { String($0) }
     }
 }
+

@@ -94,6 +94,42 @@ enum CircularDisplayMode: String, Codable, CaseIterable, Sendable {
     }
 }
 
+struct PopoverItemConfig: Codable, Sendable, Equatable {
+    let id: String
+    var visible: Bool
+    var compactVisible: Bool
+
+    static let defaultItems: [PopoverItemConfig] = [
+        .init(id: "currentSession", visible: true, compactVisible: true),
+        .init(id: "weeklyLimit", visible: true, compactVisible: true),
+        .init(id: "modelUsage", visible: true, compactVisible: true),
+        .init(id: "overageUsage", visible: true, compactVisible: true),
+    ]
+
+    init(id: String, visible: Bool, compactVisible: Bool) {
+        self.id = id
+        self.visible = visible
+        self.compactVisible = compactVisible
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        visible = try container.decode(Bool.self, forKey: .visible)
+        compactVisible = try container.decodeIfPresent(Bool.self, forKey: .compactVisible) ?? visible
+    }
+
+    var displayName: String {
+        switch id {
+        case "currentSession": return "현재 세션"
+        case "weeklyLimit": return "주간 한도"
+        case "modelUsage": return "모델별 주간 한도"
+        case "overageUsage": return "추가 사용량"
+        default: return id
+        }
+    }
+}
+
 enum UpdateCheckInterval: String, Codable, CaseIterable, Sendable {
     case off = "off"
     case onLaunch = "on_launch"
@@ -183,11 +219,12 @@ class AppSettings: ObservableObject {
             updateLaunchAtLogin(launchAtLogin)
         }
     }
-    @Published var showModelUsage: Bool {
-        didSet { defaults.set(showModelUsage, forKey: "showModelUsage") }
-    }
-    @Published var showOverageUsage: Bool {
-        didSet { defaults.set(showOverageUsage, forKey: "showOverageUsage") }
+    @Published var popoverItems: [PopoverItemConfig] {
+        didSet {
+            if let data = try? JSONEncoder().encode(popoverItems) {
+                defaults.set(data, forKey: "popoverItems")
+            }
+        }
     }
 
     // MARK: - Snapshot
@@ -211,8 +248,7 @@ class AppSettings: ObservableObject {
         let popoverPinned: Bool
         let popoverCompact: Bool
         let launchAtLogin: Bool
-        let showModelUsage: Bool
-        let showOverageUsage: Bool
+        let popoverItems: [PopoverItemConfig]
     }
 
     func createSnapshot() -> Snapshot {
@@ -235,8 +271,7 @@ class AppSettings: ObservableObject {
             popoverPinned: popoverPinned,
             popoverCompact: popoverCompact,
             launchAtLogin: launchAtLogin,
-            showModelUsage: showModelUsage,
-            showOverageUsage: showOverageUsage
+            popoverItems: popoverItems
         )
     }
 
@@ -259,8 +294,7 @@ class AppSettings: ObservableObject {
         popoverPinned = snapshot.popoverPinned
         popoverCompact = snapshot.popoverCompact
         launchAtLogin = snapshot.launchAtLogin
-        showModelUsage = snapshot.showModelUsage
-        showOverageUsage = snapshot.showOverageUsage
+        popoverItems = snapshot.popoverItems
     }
 
     // MARK: - Computed
@@ -271,6 +305,11 @@ class AppSettings: ObservableObject {
             return alertThresholds.map { 100 - $0 }.sorted()
         }
         return alertThresholds.sorted()
+    }
+
+    func isItemVisible(_ id: String, compact: Bool = false) -> Bool {
+        guard let item = popoverItems.first(where: { $0.id == id }) else { return false }
+        return compact ? item.compactVisible : item.visible
     }
 
     // MARK: - Actions
@@ -294,8 +333,7 @@ class AppSettings: ObservableObject {
         popoverPinned = false
         popoverCompact = false
         launchAtLogin = false
-        showModelUsage = true
-        showOverageUsage = true
+        popoverItems = PopoverItemConfig.defaultItems
     }
 
     // MARK: - Launch at Login
@@ -367,7 +405,20 @@ class AppSettings: ObservableObject {
         // 시스템 상태에서 실제 등록 여부 확인
         let savedLaunchAtLogin = defaults.object(forKey: "launchAtLogin") as? Bool ?? false
         self.launchAtLogin = savedLaunchAtLogin
-        self.showModelUsage = defaults.object(forKey: "showModelUsage") as? Bool ?? true
-        self.showOverageUsage = defaults.object(forKey: "showOverageUsage") as? Bool ?? true
+        // popoverItems: JSON 로드 또는 마이그레이션
+        if let data = defaults.data(forKey: "popoverItems"),
+           let items = try? JSONDecoder().decode([PopoverItemConfig].self, from: data) {
+            self.popoverItems = items
+        } else {
+            // 기존 showModelUsage/showOverageUsage에서 마이그레이션
+            let showModel = defaults.object(forKey: "showModelUsage") as? Bool ?? true
+            let showOverage = defaults.object(forKey: "showOverageUsage") as? Bool ?? true
+            self.popoverItems = [
+                .init(id: "currentSession", visible: true, compactVisible: true),
+                .init(id: "weeklyLimit", visible: true, compactVisible: true),
+                .init(id: "modelUsage", visible: showModel, compactVisible: showModel),
+                .init(id: "overageUsage", visible: showOverage, compactVisible: showOverage),
+            ]
+        }
     }
 }

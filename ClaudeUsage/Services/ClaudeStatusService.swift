@@ -28,23 +28,25 @@ actor ClaudeStatusService {
                 return nil
             }
 
-            let decoder = JSONDecoder()
-            let statusResponse = try decoder.decode(StatusPageResponse.self, from: data)
-
-            let indicator = StatusIndicator(rawValue: statusResponse.status.indicator) ?? .none
-            let activeIncidents = statusResponse.incidents.count
-
-            Logger.debug("시스템 상태: \(indicator.rawValue) (\(activeIncidents)건 장애)")
-
-            return ClaudeSystemStatus(
-                indicator: indicator,
-                description: statusResponse.status.description,
-                activeIncidentCount: activeIncidents
-            )
+            return Self.parseStatus(data: data)
 
         } catch {
             Logger.warning("상태 확인 실패: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    /// JSON 파싱 (nonisolated로 MainActor 제약 회피)
+    nonisolated private static func parseStatus(data: Data) -> ClaudeSystemStatus? {
+        guard let statusResponse = StatusPageResponse.decode(from: data) else {
+            return nil
+        }
+
+        let indicator = StatusIndicator(rawValue: statusResponse.status.indicator) ?? .none
+        return ClaudeSystemStatus(
+            indicator: indicator,
+            description: statusResponse.status.description,
+            activeIncidentCount: statusResponse.incidents.count
+        )
     }
 }
