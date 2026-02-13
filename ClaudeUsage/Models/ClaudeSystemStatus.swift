@@ -35,18 +35,32 @@ struct ClaudeSystemStatus: Sendable {
 
 // MARK: - API 응답 모델
 
-struct StatusPageResponse: Codable, Sendable {
+struct StatusPageResponse: Sendable {
     let status: StatusInfo
     let incidents: [StatusIncident]
 
-    struct StatusInfo: Codable, Sendable {
+    struct StatusInfo: Sendable {
         let indicator: String
         let description: String
     }
 
-    struct StatusIncident: Codable, Sendable {
+    struct StatusIncident: Sendable {
         let name: String
         let status: String
         let impact: String
+    }
+
+    nonisolated static func decode(from data: Data) -> StatusPageResponse? {
+        struct _Response: Codable {
+            let status: _Status
+            let incidents: [_Incident]
+            struct _Status: Codable { let indicator: String; let description: String }
+            struct _Incident: Codable { let name: String; let status: String; let impact: String }
+        }
+        guard let r = try? JSONDecoder().decode(_Response.self, from: data) else { return nil }
+        return StatusPageResponse(
+            status: StatusInfo(indicator: r.status.indicator, description: r.status.description),
+            incidents: r.incidents.map { StatusIncident(name: $0.name, status: $0.status, impact: $0.impact) }
+        )
     }
 }
