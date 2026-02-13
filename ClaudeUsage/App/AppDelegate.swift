@@ -29,6 +29,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var hasAuthError = false
     private var consecutiveErrorCount = 0
     private var statusTimer: Timer?
+    private var appearanceObservation: NSKeyValueObservation?
 
     private var settingsWindow: NSWindow?
     private var settingsSnapshot: AppSettings.Snapshot?
@@ -132,6 +133,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         button.action = #selector(statusItemClicked(_:))
         button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         button.target = self
+
+        // 메뉴바 외관 변경(배경화면/다크모드 전환) 감지 → 보조 텍스트 색상 자동 갱신
+        appearanceObservation = button.observe(\.effectiveAppearance) { [weak self] _, _ in
+            DispatchQueue.main.async { self?.updateMenuBar() }
+        }
 
         Logger.info("메뉴바 아이템 생성 완료")
     }
@@ -311,6 +317,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AppSettings.shared.$showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$circularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$showClaudeIcon.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$menuBarTextHighContrast.map { _ in () }.eraseToAnyPublisher(),
         ]
 
         for publisher in displayPublishers {
@@ -426,12 +433,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateMenuBar() {
         guard let button = statusItem?.button else { return }
 
+        // 메뉴바 외관 감지 (배경화면 밝기 반영)
+        let isDarkMenuBar: Bool = {
+            let appearance = button.effectiveAppearance
+            let match = appearance.bestMatch(from: [.aqua, .darkAqua, .vibrantLight, .vibrantDark])
+            return match == .darkAqua || match == .vibrantDark
+        }()
+        // 보조 텍스트 색상: 강조 모드면 기본 텍스트와 동일, 아니면 반투명 보조 색상
+        let secondaryColor: NSColor
+        if AppSettings.shared.menuBarTextHighContrast {
+            secondaryColor = isDarkMenuBar ? .white : .black
+        } else {
+            secondaryColor = isDarkMenuBar
+                ? NSColor.white.withAlphaComponent(0.55)
+                : NSColor.black.withAlphaComponent(0.4)
+        }
+
         if !KeychainManager.shared.hasSessionKey {
             // 세션 키 미설정
             let claudeIcon = NSImage(named: "ClaudeMenuBarIcon")
             claudeIcon?.size = NSSize(width: 18, height: 18)
             let statusFont = NSFont.systemFont(ofSize: 12)
-            let statusAttrs: [NSAttributedString.Key: Any] = [.font: statusFont, .foregroundColor: NSColor.secondaryLabelColor]
+            let statusAttrs: [NSAttributedString.Key: Any] = [.font: statusFont, .foregroundColor: secondaryColor]
             let statusText = "로그인 필요"
             let textSize = (statusText as NSString).size(withAttributes: statusAttrs)
             let iconW: CGFloat = 18
@@ -457,7 +480,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             claudeIcon?.size = NSSize(width: 18, height: 18)
             let statusFont = NSFont.systemFont(ofSize: 12)
             let label = hasAuthError ? "인증 필요" : "⚠"
-            let color: NSColor = hasAuthError ? .systemOrange : .secondaryLabelColor
+            let color: NSColor = hasAuthError ? .systemOrange : secondaryColor
             let statusAttrs: [NSAttributedString.Key: Any] = [.font: statusFont, .foregroundColor: color]
             let textSize = (label as NSString).size(withAttributes: statusAttrs)
             let iconW: CGFloat = 18
@@ -539,7 +562,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let t2 = " · "
             let t3 = String(format: "%.0f%%", displayWeekly)
             let a1: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: fiveHourColor]
-            let a2: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
+            let a2: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: secondaryColor]
             let a3: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: weeklyColor]
             let w1 = (t1 as NSString).size(withAttributes: a1).width
             let w2 = (t2 as NSString).size(withAttributes: a2).width
@@ -593,13 +616,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .fiveHour:
             if let resetAt = usage.fiveHour.resetsAt,
                let clock = TimeFormatter.formatResetTime(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false) {
-                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
+                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
                 elements.append((image: nil, text: clock, attrs: attrs))
             }
         case .weekly:
             if let resetAt = usage.sevenDay.resetsAt,
                let clock = TimeFormatter.formatResetTimeWeekly(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false) {
-                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
+                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
                 elements.append((image: nil, text: clock, attrs: attrs))
             }
         case .dual:
@@ -612,7 +635,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 dualText = r1 ?? r2
             }
             if let text = dualText {
-                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
+                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
                 elements.append((image: nil, text: text, attrs: attrs))
             }
         }

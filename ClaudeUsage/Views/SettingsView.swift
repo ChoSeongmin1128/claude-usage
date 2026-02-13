@@ -300,6 +300,11 @@ struct SettingsView: View {
                     }
                 }
 
+                Toggle("메뉴바 보조 텍스트 강조", isOn: $settings.menuBarTextHighContrast)
+                Text("메뉴바의 리셋 시간, 구분자 등을 기본 텍스트와 동일한 색상으로 표시")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 Divider()
 
                 Picker("아이콘:", selection: $settings.menuBarStyle) {

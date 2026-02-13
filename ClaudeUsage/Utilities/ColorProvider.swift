@@ -12,7 +12,7 @@ enum ColorProvider {
     /// 사용률에 따른 Apple 시스템 색상
     /// 0-50%: 초록, 50-75%: 노랑, 75-90%: 주황, 90%+: 빨강, 100%+: 회색
     nonisolated static func statusColor(for percentage: Double) -> Color {
-        if percentage >= 100 { return .gray }
+        if percentage >= 100 { return Color(.systemGray) }
         if percentage >= 90 { return Color(.systemRed) }
         if percentage >= 75 { return Color(.systemOrange) }
         if percentage >= 50 { return Color(.systemYellow) }
@@ -21,7 +21,7 @@ enum ColorProvider {
 
     /// NSColor 버전 (메뉴바용)
     nonisolated static func nsStatusColor(for percentage: Double) -> NSColor {
-        if percentage >= 100 { return .gray }
+        if percentage >= 100 { return .systemGray }
         if percentage >= 90 { return .systemRed }
         if percentage >= 75 { return .systemOrange }
         if percentage >= 50 { return .systemYellow }
