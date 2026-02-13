@@ -426,14 +426,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateMenuBar() {
         guard let button = statusItem?.button else { return }
 
-        let buttonAppearance = button.effectiveAppearance
+        let isDarkMenuBar: Bool = {
+            let appearance = button.effectiveAppearance
+            let match = appearance.bestMatch(from: [.aqua, .darkAqua, .vibrantLight, .vibrantDark])
+            return match == .darkAqua || match == .vibrantDark
+        }()
+        let menuBarSecondaryColor: NSColor = isDarkMenuBar
+            ? NSColor.white.withAlphaComponent(0.55)
+            : NSColor.black.withAlphaComponent(0.4)
 
         if !KeychainManager.shared.hasSessionKey {
             // 세션 키 미설정
             let claudeIcon = NSImage(named: "ClaudeMenuBarIcon")
             claudeIcon?.size = NSSize(width: 18, height: 18)
             let statusFont = NSFont.systemFont(ofSize: 12)
-            let statusAttrs: [NSAttributedString.Key: Any] = [.font: statusFont, .foregroundColor: NSColor.secondaryLabelColor]
+            let statusAttrs: [NSAttributedString.Key: Any] = [.font: statusFont, .foregroundColor: menuBarSecondaryColor]
             let statusText = "로그인 필요"
             let textSize = (statusText as NSString).size(withAttributes: statusAttrs)
             let iconW: CGFloat = 18
@@ -441,7 +448,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let totalW = iconW + gap + textSize.width
             let h: CGFloat = 22
             let img = NSImage(size: NSSize(width: totalW, height: h), flipped: false) { _ in
-                NSAppearance.current = buttonAppearance
                 claudeIcon?.draw(in: NSRect(x: 0, y: (h - iconW) / 2, width: iconW, height: iconW))
                 (statusText as NSString).draw(at: NSPoint(x: iconW + gap, y: (h - textSize.height) / 2), withAttributes: statusAttrs)
                 return true
@@ -460,7 +466,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             claudeIcon?.size = NSSize(width: 18, height: 18)
             let statusFont = NSFont.systemFont(ofSize: 12)
             let label = hasAuthError ? "인증 필요" : "⚠"
-            let color: NSColor = hasAuthError ? .systemOrange : .secondaryLabelColor
+            let color: NSColor = hasAuthError ? .systemOrange : menuBarSecondaryColor
             let statusAttrs: [NSAttributedString.Key: Any] = [.font: statusFont, .foregroundColor: color]
             let textSize = (label as NSString).size(withAttributes: statusAttrs)
             let iconW: CGFloat = 18
@@ -468,7 +474,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let totalW = iconW + gap + textSize.width
             let h: CGFloat = 22
             let img = NSImage(size: NSSize(width: totalW, height: h), flipped: false) { _ in
-                NSAppearance.current = buttonAppearance
                 claudeIcon?.draw(in: NSRect(x: 0, y: (h - iconW) / 2, width: iconW, height: iconW))
                 (label as NSString).draw(at: NSPoint(x: iconW + gap, y: (h - textSize.height) / 2), withAttributes: statusAttrs)
                 return true
@@ -543,7 +548,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let t2 = " · "
             let t3 = String(format: "%.0f%%", displayWeekly)
             let a1: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: fiveHourColor]
-            let a2: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
+            let a2: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: menuBarSecondaryColor]
             let a3: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: weeklyColor]
             let w1 = (t1 as NSString).size(withAttributes: a1).width
             let w2 = (t2 as NSString).size(withAttributes: a2).width
@@ -597,13 +602,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .fiveHour:
             if let resetAt = usage.fiveHour.resetsAt,
                let clock = TimeFormatter.formatResetTime(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false) {
-                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
+                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: menuBarSecondaryColor]
                 elements.append((image: nil, text: clock, attrs: attrs))
             }
         case .weekly:
             if let resetAt = usage.sevenDay.resetsAt,
                let clock = TimeFormatter.formatResetTimeWeekly(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false) {
-                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
+                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: menuBarSecondaryColor]
                 elements.append((image: nil, text: clock, attrs: attrs))
             }
         case .dual:
@@ -616,7 +621,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 dualText = r1 ?? r2
             }
             if let text = dualText {
-                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.secondaryLabelColor]
+                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: menuBarSecondaryColor]
                 elements.append((image: nil, text: text, attrs: attrs))
             }
         }
@@ -634,7 +639,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 통합 이미지 생성
         let compositeImage = NSImage(size: NSSize(width: totalWidth, height: menuBarHeight), flipped: false) { _ in
-            NSAppearance.current = buttonAppearance
             var x: CGFloat = 0
             for (i, el) in elements.enumerated() {
                 if i > 0 { x += spacing }
