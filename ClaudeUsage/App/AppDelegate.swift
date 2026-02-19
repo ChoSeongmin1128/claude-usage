@@ -728,12 +728,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let sepAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: secondaryColor]
             elements.append((image: nil, text: "│", attrs: sepAttrs))
 
-            // Codex 아이콘
+            // Codex 아이콘 (template → 메뉴바 색상으로 틴팅)
             if settings.showCodexIcon {
-                let codexIcon = NSImage(named: "CodexMenuBarIcon")
-                let iconSize: CGFloat = 18
-                codexIcon?.size = NSSize(width: iconSize, height: iconSize)
-                elements.append((image: codexIcon, text: nil, attrs: nil))
+                if let codexIcon = NSImage(named: "CodexMenuBarIcon") {
+                    let iconSize: CGFloat = 18
+                    codexIcon.size = NSSize(width: iconSize, height: iconSize)
+                    let tintColor: NSColor = isDarkMenuBar ? .white : .black
+                    let tinted = NSImage(size: codexIcon.size, flipped: false) { rect in
+                        codexIcon.draw(in: rect)
+                        tintColor.set()
+                        rect.fill(using: .sourceAtop)
+                        return true
+                    }
+                    elements.append((image: tinted, text: nil, attrs: nil))
+                }
             }
 
             if let codexUsage = currentCodexUsage {
