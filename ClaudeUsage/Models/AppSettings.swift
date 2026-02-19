@@ -261,6 +261,15 @@ class AppSettings: ObservableObject {
     @Published var codexAlertEnabled: Bool {
         didSet { defaults.set(codexAlertEnabled, forKey: "codexAlertEnabled") }
     }
+    @Published var codexMenuBarStyle: MenuBarStyle {
+        didSet { defaults.set(codexMenuBarStyle.rawValue, forKey: "codexMenuBarStyle") }
+    }
+    @Published var codexCircularDisplayMode: CircularDisplayMode {
+        didSet { defaults.set(codexCircularDisplayMode.rawValue, forKey: "codexCircularDisplayMode") }
+    }
+    @Published var codexShowBatteryPercent: Bool {
+        didSet { defaults.set(codexShowBatteryPercent, forKey: "codexShowBatteryPercent") }
+    }
 
     // MARK: - Snapshot
 
@@ -292,6 +301,9 @@ class AppSettings: ObservableObject {
         let codexPercentageDisplay: PercentageDisplay
         let codexResetTimeDisplay: ResetTimeDisplay
         let codexAlertEnabled: Bool
+        let codexMenuBarStyle: MenuBarStyle
+        let codexCircularDisplayMode: CircularDisplayMode
+        let codexShowBatteryPercent: Bool
     }
 
     func createSnapshot() -> Snapshot {
@@ -322,7 +334,10 @@ class AppSettings: ObservableObject {
             showCodexIcon: showCodexIcon,
             codexPercentageDisplay: codexPercentageDisplay,
             codexResetTimeDisplay: codexResetTimeDisplay,
-            codexAlertEnabled: codexAlertEnabled
+            codexAlertEnabled: codexAlertEnabled,
+            codexMenuBarStyle: codexMenuBarStyle,
+            codexCircularDisplayMode: codexCircularDisplayMode,
+            codexShowBatteryPercent: codexShowBatteryPercent
         )
     }
 
@@ -354,6 +369,9 @@ class AppSettings: ObservableObject {
         codexPercentageDisplay = snapshot.codexPercentageDisplay
         codexResetTimeDisplay = snapshot.codexResetTimeDisplay
         codexAlertEnabled = snapshot.codexAlertEnabled
+        codexMenuBarStyle = snapshot.codexMenuBarStyle
+        codexCircularDisplayMode = snapshot.codexCircularDisplayMode
+        codexShowBatteryPercent = snapshot.codexShowBatteryPercent
     }
 
     // MARK: - Computed
@@ -424,6 +442,9 @@ class AppSettings: ObservableObject {
         codexPercentageDisplay = .fiveHour
         codexResetTimeDisplay = .none
         codexAlertEnabled = false
+        codexMenuBarStyle = .none
+        codexCircularDisplayMode = .usage
+        codexShowBatteryPercent = true
     }
 
     // MARK: - Launch at Login
@@ -545,5 +566,10 @@ class AppSettings: ObservableObject {
         let crd = defaults.string(forKey: "codexResetTimeDisplay") ?? ResetTimeDisplay.none.rawValue
         self.codexResetTimeDisplay = ResetTimeDisplay(rawValue: crd) ?? .none
         self.codexAlertEnabled = defaults.object(forKey: "codexAlertEnabled") as? Bool ?? false
+        let cms = defaults.string(forKey: "codexMenuBarStyle") ?? MenuBarStyle.none.rawValue
+        self.codexMenuBarStyle = MenuBarStyle(rawValue: cms) ?? .none
+        let ccdm = defaults.string(forKey: "codexCircularDisplayMode") ?? CircularDisplayMode.usage.rawValue
+        self.codexCircularDisplayMode = CircularDisplayMode(rawValue: ccdm) ?? .usage
+        self.codexShowBatteryPercent = defaults.object(forKey: "codexShowBatteryPercent") as? Bool ?? true
     }
 }
