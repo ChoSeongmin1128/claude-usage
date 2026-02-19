@@ -27,6 +27,7 @@ struct SettingsView: View {
     var onCancel: (() -> Void)?
     var onOpenLogin: (() -> Void)?
     var onLogout: (() -> Void)?
+    var onCodexLogout: (() -> Void)?
 
     enum TestResult {
         case success
@@ -52,6 +53,11 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     // 인증 섹션
                     authSection
+
+                    Divider()
+
+                    // Codex 인증 섹션
+                    codexAuthSection
 
                     Divider()
 
@@ -245,6 +251,178 @@ struct SettingsView: View {
             }
             .font(.subheadline)
         }
+    }
+
+    // MARK: - Codex 인증 섹션
+
+    @State private var codexAuthStatus: CodexAuthStatus = .checking
+
+    private enum CodexAuthStatus {
+        case checking
+        case authenticated
+        case notInstalled   // codex CLI 미설치
+        case notLoggedIn    // CLI 있지만 auth.json 없음
+        case expired
+    }
+
+    private var codexAuthSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Codex (ChatGPT)", systemImage: "bubble.left.and.bubble.right")
+                .font(.headline)
+
+            Toggle("Codex 모니터링 활성화", isOn: $settings.codexEnabled)
+
+            if settings.codexEnabled {
+                // 인증 상태
+                HStack(spacing: 8) {
+                    switch codexAuthStatus {
+                    case .checking:
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("확인 중...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    case .authenticated:
+                        Label("연결됨 (auth.json)", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    case .expired:
+                        Label("토큰 만료됨", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    case .notInstalled:
+                        Label("Codex CLI 미설치", systemImage: "xmark.circle.fill")
+                            .foregroundStyle(.red)
+                    case .notLoggedIn:
+                        Label("로그인 필요", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                    Spacer()
+                }
+
+                // 설치 안내
+                if codexAuthStatus == .notInstalled {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Codex CLI를 먼저 설치하세요:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        codexCommandRow("brew install --cask codex", label: "Homebrew")
+                        codexCommandRow("npm i -g @openai/codex", label: "npm")
+
+                        Text("설치 후 아래 로그인 명령을 실행하세요")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                // 로그인 안내
+                if codexAuthStatus == .notInstalled || codexAuthStatus == .notLoggedIn {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if codexAuthStatus == .notLoggedIn {
+                            Text("터미널에서 로그인하세요:")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        codexCommandRow("codex login", label: "로그인")
+                    }
+                }
+
+                // 만료 안내
+                if codexAuthStatus == .expired {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("토큰이 만료되었습니다. 다시 로그인하세요:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        codexCommandRow("codex login", label: "재로그인")
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    Button("인증 상태 새로고침") {
+                        checkCodexAuth()
+                    }
+
+                    if codexAuthStatus == .authenticated {
+                        Button("캐시 초기화") {
+                            onCodexLogout?()
+                            checkCodexAuth()
+                        }
+                        .foregroundStyle(.red)
+                    }
+                }
+
+                // Codex 디스플레이 설정
+                if codexAuthStatus == .authenticated {
+                    Divider()
+
+                    Toggle("메뉴바 Codex 아이콘", isOn: $settings.showCodexIcon)
+
+                    Picker("Codex 퍼센트:", selection: $settings.codexPercentageDisplay) {
+                        ForEach(PercentageDisplay.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+
+                    Picker("Codex 리셋 시간:", selection: $settings.codexResetTimeDisplay) {
+                        ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                }
+            }
+        }
+        .onAppear { checkCodexAuth() }
+    }
+
+    /// 터미널 명령어 + 복사 버튼 행
+    private func codexCommandRow(_ command: String, label: String) -> some View {
+        HStack(spacing: 4) {
+            Text(command)
+                .font(.system(.caption, design: .monospaced))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color(NSColor.controlBackgroundColor))
+                .cornerRadius(4)
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(command, forType: .string)
+            } label: {
+                Image(systemName: "doc.on.doc")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .help("\(label) 명령어 복사")
+        }
+    }
+
+    private func checkCodexAuth() {
+        // 1. auth.json 존재 확인
+        if CodexAuthManager.shared.authJsonExists {
+            if let token = CodexAuthManager.shared.getToken() {
+                codexAuthStatus = token.isExpired ? .expired : .authenticated
+            } else {
+                codexAuthStatus = .notLoggedIn
+            }
+            return
+        }
+
+        // 2. codex CLI 설치 여부 확인
+        let codexInstalled = FileManager.default.isExecutableFile(atPath: "/usr/local/bin/codex")
+            || FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/codex")
+            || FileManager.default.isExecutableFile(atPath: "\(NSHomeDirectory())/.npm-global/bin/codex")
+            || {
+                // PATH에서 찾기
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+                process.arguments = ["codex"]
+                let pipe = Pipe()
+                process.standardOutput = pipe
+                process.standardError = Pipe()
+                try? process.run()
+                process.waitUntilExit()
+                return process.terminationStatus == 0
+            }()
+
+        codexAuthStatus = codexInstalled ? .notLoggedIn : .notInstalled
     }
 
     // MARK: - 디스플레이 섹션
@@ -555,6 +733,9 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                 Toggle("현재 세션", isOn: $settings.alertFiveHourEnabled)
                 Toggle("주간 세션", isOn: $settings.alertWeeklyEnabled)
+                if settings.codexEnabled {
+                    Toggle("Codex", isOn: $settings.codexAlertEnabled)
+                }
 
                 Divider()
 
