@@ -339,6 +339,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AppSettings.shared.$codexPercentageDisplay.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$codexResetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$codexEnabled.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$codexMenuBarStyle.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$codexCircularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$codexShowBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
         ]
 
         for publisher in displayPublishers {
@@ -728,16 +731,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let sepAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: secondaryColor]
             elements.append((image: nil, text: "│", attrs: sepAttrs))
 
-            // Codex 아이콘 (template → 메뉴바 색상으로 틴팅)
+            // Codex 아이콘 (template → 메뉴바 색상으로 틴팅, Claude와 시각적 크기 맞춤)
             if settings.showCodexIcon {
                 if let codexIcon = NSImage(named: "CodexMenuBarIcon") {
-                    let iconSize: CGFloat = 18
-                    codexIcon.size = NSSize(width: iconSize, height: iconSize)
+                    let canvasSize: CGFloat = 18
+                    let iconSize: CGFloat = 14  // 여백 포함하여 Claude 아이콘과 시각적 크기 맞춤
                     let tintColor: NSColor = isDarkMenuBar ? .white : .black
-                    let tinted = NSImage(size: codexIcon.size, flipped: false) { rect in
-                        codexIcon.draw(in: rect)
+                    let tinted = NSImage(size: NSSize(width: canvasSize, height: canvasSize), flipped: false) { canvasRect in
+                        let offset = (canvasSize - iconSize) / 2
+                        let drawRect = NSRect(x: offset, y: offset, width: iconSize, height: iconSize)
+                        codexIcon.draw(in: drawRect)
                         tintColor.set()
-                        rect.fill(using: .sourceAtop)
+                        canvasRect.fill(using: .sourceAtop)
                         return true
                     }
                     elements.append((image: tinted, text: nil, attrs: nil))
@@ -750,20 +755,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let codexPrimaryColor = ColorProvider.nsStatusColor(for: codexPrimaryPct)
                 let codexSecondaryColor = ColorProvider.nsWeeklyStatusColor(for: codexSecondaryPct)
 
-                // Codex 퍼센트
+                // Codex 퍼센트 (배터리 계열: 남은 사용량 표시)
+                let codexShowRemaining: Bool = {
+                    switch settings.codexMenuBarStyle {
+                    case .batteryBar, .dualBattery, .sideBySideBattery:
+                        return true
+                    case .circular, .concentricRings:
+                        return settings.codexCircularDisplayMode == .remaining
+                    case .none:
+                        return false
+                    }
+                }()
+                let codexDisplayPrimary = codexShowRemaining ? (100.0 - codexPrimaryPct) : codexPrimaryPct
+                let codexDisplaySecondary = codexShowRemaining ? (100.0 - codexSecondaryPct) : codexSecondaryPct
+
                 switch settings.codexPercentageDisplay {
                 case .none:
                     break
                 case .fiveHour:
                     let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: codexPrimaryColor]
-                    elements.append((image: nil, text: String(format: "%.0f%%", codexPrimaryPct), attrs: attrs))
+                    elements.append((image: nil, text: String(format: "%.0f%%", codexDisplayPrimary), attrs: attrs))
                 case .weekly:
                     let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: codexSecondaryColor]
-                    elements.append((image: nil, text: String(format: "%.0f%%", codexSecondaryPct), attrs: attrs))
+                    elements.append((image: nil, text: String(format: "%.0f%%", codexDisplaySecondary), attrs: attrs))
                 case .dual:
-                    let ct1 = String(format: "%.0f%%", codexPrimaryPct)
+                    let ct1 = String(format: "%.0f%%", codexDisplayPrimary)
                     let ct2 = " · "
-                    let ct3 = String(format: "%.0f%%", codexSecondaryPct)
+                    let ct3 = String(format: "%.0f%%", codexDisplaySecondary)
                     let ca1: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: codexPrimaryColor]
                     let ca2: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: secondaryColor]
                     let ca3: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: codexSecondaryColor]
@@ -779,6 +797,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         return true
                     }
                     elements.append((image: cTextImage, text: nil, attrs: nil))
+                }
+
+                // Codex 아이콘 스타일 (배터리바, 원형 등)
+                let codexIsRemaining = settings.codexCircularDisplayMode == .remaining
+                let codexCircularVal = codexIsRemaining ? (100.0 - codexPrimaryPct) : codexPrimaryPct
+                let codexConcentricOuter = codexIsRemaining ? (100.0 - codexPrimaryPct) : codexPrimaryPct
+                let codexConcentricInner = codexIsRemaining ? (100.0 - codexSecondaryPct) : codexSecondaryPct
+                let codexExtraIcon: NSImage? = switch settings.codexMenuBarStyle {
+                case .none: nil
+                case .batteryBar: MenuBarIconRenderer.batteryIcon(percentage: codexPrimaryPct, color: codexPrimaryColor, showPercent: settings.codexShowBatteryPercent)
+                case .circular: MenuBarIconRenderer.circularRingIcon(percentage: codexCircularVal, color: codexPrimaryColor)
+                case .concentricRings: MenuBarIconRenderer.concentricRingsIcon(
+                    outerPercent: codexConcentricOuter, innerPercent: codexConcentricInner,
+                    outerColor: codexPrimaryColor, innerColor: codexSecondaryColor)
+                case .dualBattery: MenuBarIconRenderer.dualBatteryIcon(
+                    topPercent: codexPrimaryPct, bottomPercent: codexSecondaryPct,
+                    topColor: codexPrimaryColor, bottomColor: codexSecondaryColor)
+                case .sideBySideBattery: MenuBarIconRenderer.sideBySideBatteryIcon(
+                    leftPercent: codexPrimaryPct, rightPercent: codexSecondaryPct,
+                    leftColor: codexPrimaryColor, rightColor: codexSecondaryColor,
+                    showPercent: settings.codexShowBatteryPercent)
+                }
+                if let extra = codexExtraIcon {
+                    elements.append((image: extra, text: nil, attrs: nil))
                 }
 
                 // Codex 리셋 시간

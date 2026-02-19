@@ -350,24 +350,6 @@ struct SettingsView: View {
                     }
                 }
 
-                // Codex 디스플레이 설정
-                if codexAuthStatus == .authenticated {
-                    Divider()
-
-                    Toggle("메뉴바 Codex 아이콘", isOn: $settings.showCodexIcon)
-
-                    Picker("Codex 퍼센트:", selection: $settings.codexPercentageDisplay) {
-                        ForEach(PercentageDisplay.allCases, id: \.self) { mode in
-                            Text(mode.displayName).tag(mode)
-                        }
-                    }
-
-                    Picker("Codex 리셋 시간:", selection: $settings.codexResetTimeDisplay) {
-                        ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
-                            Text(mode.displayName).tag(mode)
-                        }
-                    }
-                }
             }
         }
         .onAppear { checkCodexAuth() }
@@ -532,6 +514,103 @@ struct SettingsView: View {
                 }
 
             }
+
+            // MARK: Codex 디스플레이 설정
+            if settings.codexEnabled {
+                Divider()
+
+                Text("Codex")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("Codex 아이콘", isOn: $settings.showCodexIcon)
+
+                    Picker("퍼센트:", selection: $settings.codexPercentageDisplay) {
+                        ForEach(PercentageDisplay.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    Picker("리셋 시간:", selection: $settings.codexResetTimeDisplay) {
+                        ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+
+                    Divider()
+
+                    Picker("아이콘:", selection: $settings.codexMenuBarStyle) {
+                        Text("없음").tag(MenuBarStyle.none)
+
+                        Section("개별 세션") {
+                            Text("배터리바").tag(MenuBarStyle.batteryBar)
+                            Text("원형").tag(MenuBarStyle.circular)
+                        }
+
+                        Section("동시 표시 (현재 세션 + 주간)") {
+                            Text("동심원").tag(MenuBarStyle.concentricRings)
+                            Text("이중 배터리").tag(MenuBarStyle.dualBattery)
+                            Text("좌우 배터리").tag(MenuBarStyle.sideBySideBattery)
+                        }
+                    }
+                    .onChange(of: settings.codexMenuBarStyle) { _, newValue in
+                        if newValue == .batteryBar || newValue == .dualBattery || newValue == .sideBySideBattery {
+                            settings.codexCircularDisplayMode = .remaining
+                        } else if newValue == .none {
+                            settings.codexCircularDisplayMode = .usage
+                        }
+                    }
+
+                    if let desc = codexStyleDescription {
+                        Text(desc)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 20)
+                    }
+
+                    // 배터리 하위: 내부 숫자
+                    if isCodexBatteryWithPercent {
+                        Toggle("배터리 내부 숫자", isOn: $settings.codexShowBatteryPercent)
+                            .padding(.leading, 20)
+                    }
+
+                    // 원형 하위: 표시 기준
+                    if isCodexCircularStyle {
+                        Picker("표시 기준:", selection: $settings.codexCircularDisplayMode) {
+                            ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
+                                Text(mode.displayName).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.radioGroup)
+                        .padding(.leading, 20)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Codex 디스플레이 헬퍼
+
+    private var isCodexBatteryWithPercent: Bool {
+        switch settings.codexMenuBarStyle {
+        case .batteryBar, .dualBattery, .sideBySideBattery: return true
+        default: return false
+        }
+    }
+
+    private var isCodexCircularStyle: Bool {
+        settings.codexMenuBarStyle == .circular || settings.codexMenuBarStyle == .concentricRings
+    }
+
+    private var codexStyleDescription: String? {
+        switch settings.codexMenuBarStyle {
+        case .none: return nil
+        case .batteryBar: return "현재 세션만 표시"
+        case .circular: return "현재 세션만 표시"
+        case .concentricRings: return "바깥: 현재 세션 · 안쪽: 주간"
+        case .dualBattery: return "위: 현재 세션 · 아래: 주간"
+        case .sideBySideBattery: return "왼쪽: 현재 세션 · 오른쪽: 주간"
         }
     }
 
