@@ -272,6 +272,29 @@ struct PopoverView: View {
                     if let overage = viewModel.overage, overage.isEnabled {
                         OverageUsageView(overage: overage)
                     }
+                case "codexPrimary":
+                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.primaryWindow {
+                        UsageSectionView(
+                            systemIcon: "bubble.left.and.bubble.right",
+                            title: "Codex 현재",
+                            percentage: window.utilization,
+                            resetAt: window.resetAtISO
+                        )
+                    }
+                case "codexSecondary":
+                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.secondaryWindow {
+                        UsageSectionView(
+                            systemIcon: "calendar.badge.clock",
+                            title: "Codex 주간",
+                            percentage: window.utilization,
+                            resetAt: window.resetAtISO,
+                            isWeekly: true
+                        )
+                    }
+                case "codexCredits":
+                    if let codex = viewModel.codexUsage, let credits = codex.credits {
+                        CodexCreditsView(credits: credits)
+                    }
                 default:
                     EmptyView()
                 }
@@ -303,6 +326,18 @@ struct PopoverView: View {
                 case "overageUsage":
                     if let overage = viewModel.overage, overage.isEnabled {
                         CompactOverageRow(overage: overage)
+                    }
+                case "codexPrimary":
+                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.primaryWindow {
+                        CompactUsageRow(label: "CX현재", percentage: window.utilization, resetAt: window.resetAtISO)
+                    }
+                case "codexSecondary":
+                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.secondaryWindow {
+                        CompactUsageRow(label: "CX주간", percentage: window.utilization, resetAt: window.resetAtISO, isWeekly: true)
+                    }
+                case "codexCredits":
+                    if let codex = viewModel.codexUsage, let credits = codex.credits {
+                        CompactCodexCreditsRow(credits: credits)
                     }
                 default:
                     EmptyView()
@@ -404,6 +439,8 @@ class PopoverViewModel: ObservableObject {
     @Published var lastUpdated: Date?
     @Published var overage: OverageSpendLimitResponse?
     @Published var systemStatus: ClaudeSystemStatus?
+    @Published var codexUsage: CodexUsageResponse?
+    @Published var codexError: APIError?
     var onRefresh: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onPinChanged: ((Bool) -> Void)?
@@ -464,6 +501,51 @@ struct OverageUsageView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Codex Credits View (Standard)
+
+struct CodexCreditsView: View {
+    let credits: CodexCredits
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "creditcard")
+                    .foregroundStyle(.secondary)
+                Text("Codex 크레딧")
+                    .font(.headline)
+                Spacer()
+                Text(credits.formattedBalance)
+                    .font(.title2)
+                    .fontWeight(.bold)
+                    .foregroundStyle(.teal)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+// MARK: - Compact Codex Credits Row
+
+struct CompactCodexCreditsRow: View {
+    let credits: CodexCredits
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text("CX잔액")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 36, alignment: .leading)
+
+            Spacer()
+
+            Text(credits.formattedBalance)
+                .font(.system(.caption, design: .monospaced))
+                .fontWeight(.medium)
+                .foregroundStyle(.teal)
+        }
     }
 }
 

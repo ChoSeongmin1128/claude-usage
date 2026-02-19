@@ -103,6 +103,9 @@ struct PopoverItemConfig: Codable, Sendable, Equatable {
         .init(id: "weeklyLimit", visible: true),
         .init(id: "modelUsage", visible: true),
         .init(id: "overageUsage", visible: true),
+        .init(id: "codexPrimary", visible: false),
+        .init(id: "codexSecondary", visible: false),
+        .init(id: "codexCredits", visible: false),
     ]
 
     var displayName: String {
@@ -111,6 +114,9 @@ struct PopoverItemConfig: Codable, Sendable, Equatable {
         case "weeklyLimit": return "주간 한도"
         case "modelUsage": return "모델별 주간 한도"
         case "overageUsage": return "추가 사용량"
+        case "codexPrimary": return "Codex 현재"
+        case "codexSecondary": return "Codex 주간"
+        case "codexCredits": return "Codex 크레딧"
         default: return id
         }
     }
@@ -232,6 +238,30 @@ class AppSettings: ObservableObject {
         }
     }
 
+    // MARK: - Codex Properties
+
+    @Published var codexEnabled: Bool {
+        didSet {
+            defaults.set(codexEnabled, forKey: "codexEnabled")
+            // 활성화 시 Codex popover 항목도 자동으로 보이게 설정
+            if codexEnabled {
+                enableCodexPopoverItems()
+            }
+        }
+    }
+    @Published var showCodexIcon: Bool {
+        didSet { defaults.set(showCodexIcon, forKey: "showCodexIcon") }
+    }
+    @Published var codexPercentageDisplay: PercentageDisplay {
+        didSet { defaults.set(codexPercentageDisplay.rawValue, forKey: "codexPercentageDisplay") }
+    }
+    @Published var codexResetTimeDisplay: ResetTimeDisplay {
+        didSet { defaults.set(codexResetTimeDisplay.rawValue, forKey: "codexResetTimeDisplay") }
+    }
+    @Published var codexAlertEnabled: Bool {
+        didSet { defaults.set(codexAlertEnabled, forKey: "codexAlertEnabled") }
+    }
+
     // MARK: - Snapshot
 
     struct Snapshot {
@@ -257,6 +287,11 @@ class AppSettings: ObservableObject {
         let popoverItems: [PopoverItemConfig]
         let separateCompactConfig: Bool
         let compactPopoverItems: [PopoverItemConfig]
+        let codexEnabled: Bool
+        let showCodexIcon: Bool
+        let codexPercentageDisplay: PercentageDisplay
+        let codexResetTimeDisplay: ResetTimeDisplay
+        let codexAlertEnabled: Bool
     }
 
     func createSnapshot() -> Snapshot {
@@ -282,7 +317,12 @@ class AppSettings: ObservableObject {
             launchAtLogin: launchAtLogin,
             popoverItems: popoverItems,
             separateCompactConfig: separateCompactConfig,
-            compactPopoverItems: compactPopoverItems
+            compactPopoverItems: compactPopoverItems,
+            codexEnabled: codexEnabled,
+            showCodexIcon: showCodexIcon,
+            codexPercentageDisplay: codexPercentageDisplay,
+            codexResetTimeDisplay: codexResetTimeDisplay,
+            codexAlertEnabled: codexAlertEnabled
         )
     }
 
@@ -309,6 +349,11 @@ class AppSettings: ObservableObject {
         popoverItems = snapshot.popoverItems
         separateCompactConfig = snapshot.separateCompactConfig
         compactPopoverItems = snapshot.compactPopoverItems
+        codexEnabled = snapshot.codexEnabled
+        showCodexIcon = snapshot.showCodexIcon
+        codexPercentageDisplay = snapshot.codexPercentageDisplay
+        codexResetTimeDisplay = snapshot.codexResetTimeDisplay
+        codexAlertEnabled = snapshot.codexAlertEnabled
     }
 
     // MARK: - Computed
@@ -324,6 +369,29 @@ class AppSettings: ObservableObject {
     /// 간소화 모드에서 사용할 항목 배열
     var effectiveCompactItems: [PopoverItemConfig] {
         separateCompactConfig ? compactPopoverItems : popoverItems
+    }
+
+    // MARK: - Codex Helpers
+
+    /// Codex popover 항목을 visible로 설정 (최초 활성화 시)
+    private func enableCodexPopoverItems() {
+        let codexIDs: Set<String> = ["codexPrimary", "codexSecondary"]
+        // 이미 하나라도 visible이면 사용자가 설정한 것이므로 건드리지 않음
+        let alreadyVisible = popoverItems.contains { codexIDs.contains($0.id) && $0.visible }
+        guard !alreadyVisible else { return }
+
+        for i in popoverItems.indices {
+            if codexIDs.contains(popoverItems[i].id) {
+                popoverItems[i].visible = true
+            }
+        }
+        if separateCompactConfig {
+            for i in compactPopoverItems.indices {
+                if codexIDs.contains(compactPopoverItems[i].id) {
+                    compactPopoverItems[i].visible = true
+                }
+            }
+        }
     }
 
     // MARK: - Actions
@@ -351,6 +419,11 @@ class AppSettings: ObservableObject {
         popoverItems = PopoverItemConfig.defaultItems
         separateCompactConfig = false
         compactPopoverItems = PopoverItemConfig.defaultItems
+        codexEnabled = false
+        showCodexIcon = true
+        codexPercentageDisplay = .fiveHour
+        codexResetTimeDisplay = .none
+        codexAlertEnabled = false
     }
 
     // MARK: - Launch at Login
@@ -439,13 +512,38 @@ class AppSettings: ObservableObject {
                 .init(id: "overageUsage", visible: showOverage),
             ]
         }
-        self.popoverItems = loadedItems
+        // Codex 항목 마이그레이션: 기존 popoverItems에 Codex 항목이 없으면 추가
+        var migratedItems = loadedItems
+        let existingIDs = Set(migratedItems.map { $0.id })
+        for codexID in ["codexPrimary", "codexSecondary", "codexCredits"] {
+            if !existingIDs.contains(codexID) {
+                migratedItems.append(.init(id: codexID, visible: false))
+            }
+        }
+        self.popoverItems = migratedItems
+
         self.separateCompactConfig = defaults.object(forKey: "separateCompactConfig") as? Bool ?? false
         if let cData = defaults.data(forKey: "compactPopoverItems"),
            let cItems = try? JSONDecoder().decode([PopoverItemConfig].self, from: cData) {
-            self.compactPopoverItems = cItems
+            var migratedCompact = cItems
+            let compactIDs = Set(migratedCompact.map { $0.id })
+            for codexID in ["codexPrimary", "codexSecondary", "codexCredits"] {
+                if !compactIDs.contains(codexID) {
+                    migratedCompact.append(.init(id: codexID, visible: false))
+                }
+            }
+            self.compactPopoverItems = migratedCompact
         } else {
-            self.compactPopoverItems = loadedItems
+            self.compactPopoverItems = migratedItems
         }
+
+        // Codex 설정 로드
+        self.codexEnabled = defaults.object(forKey: "codexEnabled") as? Bool ?? false
+        self.showCodexIcon = defaults.object(forKey: "showCodexIcon") as? Bool ?? true
+        let cpd = defaults.string(forKey: "codexPercentageDisplay") ?? PercentageDisplay.fiveHour.rawValue
+        self.codexPercentageDisplay = PercentageDisplay(rawValue: cpd) ?? .fiveHour
+        let crd = defaults.string(forKey: "codexResetTimeDisplay") ?? ResetTimeDisplay.none.rawValue
+        self.codexResetTimeDisplay = ResetTimeDisplay(rawValue: crd) ?? .none
+        self.codexAlertEnabled = defaults.object(forKey: "codexAlertEnabled") as? Bool ?? false
     }
 }

@@ -38,6 +38,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var eventMonitor: Any?
     private var globalClickMonitor: Any?
 
+    // Codex
+    private let codexAPIService = CodexAPIService()
+    private var currentCodexUsage: CodexUsageResponse?
+    private var codexError: APIError?
+    private var hasCodexAuthError = false
+    private var codexConsecutiveErrorCount = 0
+
     // MARK: - Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -81,6 +88,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Claude 시스템 상태 체크 시작 (5분 간격)
         refreshSystemStatus()
         startStatusTimer()
+
+        // Codex 모니터링 (활성화 + 인증 있으면)
+        if AppSettings.shared.codexEnabled && CodexAuthManager.shared.isAuthenticated {
+            refreshCodexUsage()
+        }
     }
 
     private func startUpdateCheckTimer(interval: TimeInterval) {
@@ -194,6 +206,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             closePopover()
         } else {
             popoverViewModel.update(usage: currentUsage, error: currentError, isLoading: isLoading, lastUpdated: lastUpdated, overage: currentOverage)
+            popoverViewModel.codexUsage = currentCodexUsage
+            popoverViewModel.codexError = codexError
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate()
             if !AppSettings.shared.popoverPinned {
@@ -281,6 +295,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             repeats: true
         ) { [weak self] _ in
             self?.refreshUsage()
+            if AppSettings.shared.codexEnabled && CodexAuthManager.shared.isAuthenticated {
+                self?.refreshCodexUsage()
+            }
         }
 
         Logger.info("자동 갱신 타이머 시작 (\(Int(interval))초)")
@@ -318,6 +335,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AppSettings.shared.$circularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$showClaudeIcon.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$menuBarTextHighContrast.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$showCodexIcon.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$codexPercentageDisplay.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$codexResetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$codexEnabled.map { _ in () }.eraseToAnyPublisher(),
         ]
 
         for publisher in displayPublishers {
@@ -423,6 +444,67 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                     self.updateMenuBar()
                     self.popoverViewModel.update(usage: self.currentUsage, error: apiError, isLoading: false)
+                }
+            }
+        }
+    }
+
+    // MARK: - Codex API
+
+    private func refreshCodexUsage() {
+        Logger.info("Codex 사용량 갱신 시작 (enabled: \(AppSettings.shared.codexEnabled), authenticated: \(CodexAuthManager.shared.isAuthenticated))")
+        Task {
+            do {
+                let usage = try await codexAPIService.fetchUsageWithRetry()
+
+                await MainActor.run {
+                    self.currentCodexUsage = usage
+                    self.codexError = nil
+                    self.hasCodexAuthError = false
+                    self.codexConsecutiveErrorCount = 0
+                    self.updateMenuBar()
+                    self.popoverViewModel.codexUsage = usage
+                    self.popoverViewModel.codexError = nil
+
+                    // Codex 알림 체크
+                    NotificationManager.shared.checkThreshold(
+                        session: .codexPrimary,
+                        percentage: usage.primaryPercentage,
+                        resetAt: usage.rateLimit?.primaryWindow?.resetAtISO
+                    )
+                    NotificationManager.shared.checkThreshold(
+                        session: .codexSecondary,
+                        percentage: usage.secondaryPercentage,
+                        resetAt: usage.rateLimit?.secondaryWindow?.resetAtISO
+                    )
+                }
+
+            } catch let error as APIError {
+                Logger.error("Codex API 에러: \(error.errorDescription ?? "")")
+
+                await MainActor.run {
+                    self.codexError = error
+                    self.codexConsecutiveErrorCount += 1
+                    if case .invalidSessionKey = error {
+                        self.hasCodexAuthError = true
+                    }
+                    if self.codexConsecutiveErrorCount >= 3 {
+                        self.currentCodexUsage = nil
+                    }
+                    self.updateMenuBar()
+                    self.popoverViewModel.codexError = error
+                }
+
+            } catch {
+                Logger.error("Codex 예상치 못한 에러: \(error)")
+
+                await MainActor.run {
+                    self.codexError = APIError.unknownError(error.localizedDescription)
+                    self.codexConsecutiveErrorCount += 1
+                    if self.codexConsecutiveErrorCount >= 3 {
+                        self.currentCodexUsage = nil
+                    }
+                    self.updateMenuBar()
                 }
             }
         }
@@ -640,6 +722,98 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // 6. Codex 요소
+        if settings.codexEnabled {
+            // 구분자
+            let sepAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: secondaryColor]
+            elements.append((image: nil, text: "│", attrs: sepAttrs))
+
+            // Codex 아이콘
+            if settings.showCodexIcon {
+                let codexIcon = NSImage(named: "CodexMenuBarIcon")
+                let iconSize: CGFloat = 18
+                codexIcon?.size = NSSize(width: iconSize, height: iconSize)
+                elements.append((image: codexIcon, text: nil, attrs: nil))
+            }
+
+            if let codexUsage = currentCodexUsage {
+                let codexPrimaryPct = codexUsage.primaryPercentage
+                let codexSecondaryPct = codexUsage.secondaryPercentage
+                let codexPrimaryColor = ColorProvider.nsStatusColor(for: codexPrimaryPct)
+                let codexSecondaryColor = ColorProvider.nsWeeklyStatusColor(for: codexSecondaryPct)
+
+                // Codex 퍼센트
+                switch settings.codexPercentageDisplay {
+                case .none:
+                    break
+                case .fiveHour:
+                    let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: codexPrimaryColor]
+                    elements.append((image: nil, text: String(format: "%.0f%%", codexPrimaryPct), attrs: attrs))
+                case .weekly:
+                    let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: codexSecondaryColor]
+                    elements.append((image: nil, text: String(format: "%.0f%%", codexSecondaryPct), attrs: attrs))
+                case .dual:
+                    let ct1 = String(format: "%.0f%%", codexPrimaryPct)
+                    let ct2 = " · "
+                    let ct3 = String(format: "%.0f%%", codexSecondaryPct)
+                    let ca1: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: codexPrimaryColor]
+                    let ca2: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: secondaryColor]
+                    let ca3: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: codexSecondaryColor]
+                    let cw1 = (ct1 as NSString).size(withAttributes: ca1).width
+                    let cw2 = (ct2 as NSString).size(withAttributes: ca2).width
+                    let cw3 = (ct3 as NSString).size(withAttributes: ca3).width
+                    let cTextHeight = (ct1 as NSString).size(withAttributes: ca1).height
+                    let cTextImage = NSImage(size: NSSize(width: cw1 + cw2 + cw3, height: cTextHeight), flipped: false) { _ in
+                        var cx: CGFloat = 0
+                        (ct1 as NSString).draw(at: NSPoint(x: cx, y: 0), withAttributes: ca1); cx += cw1
+                        (ct2 as NSString).draw(at: NSPoint(x: cx, y: 0), withAttributes: ca2); cx += cw2
+                        (ct3 as NSString).draw(at: NSPoint(x: cx, y: 0), withAttributes: ca3)
+                        return true
+                    }
+                    elements.append((image: cTextImage, text: nil, attrs: nil))
+                }
+
+                // Codex 리셋 시간
+                switch settings.codexResetTimeDisplay {
+                case .none:
+                    break
+                case .fiveHour:
+                    if let resetAt = codexUsage.rateLimit?.primaryWindow?.resetAtISO,
+                       let clock = TimeFormatter.formatResetTime(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false) {
+                        let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
+                        elements.append((image: nil, text: clock, attrs: attrs))
+                    }
+                case .weekly:
+                    if let resetAt = codexUsage.rateLimit?.secondaryWindow?.resetAtISO,
+                       let clock = TimeFormatter.formatResetTimeWeekly(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false) {
+                        let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
+                        elements.append((image: nil, text: clock, attrs: attrs))
+                    }
+                case .dual:
+                    let cr1 = codexUsage.rateLimit?.primaryWindow?.resetAtISO.flatMap { TimeFormatter.formatResetTime(from: $0, style: settings.timeFormat, includeDateIfNotToday: false) }
+                    let cr2 = codexUsage.rateLimit?.secondaryWindow?.resetAtISO.flatMap { TimeFormatter.formatResetTimeWeekly(from: $0, style: settings.timeFormat, includeDateIfNotToday: false) }
+                    let cdualText: String?
+                    if let ct1 = cr1, let ct2 = cr2 {
+                        cdualText = "\(ct1) · \(ct2)"
+                    } else {
+                        cdualText = cr1 ?? cr2
+                    }
+                    if let text = cdualText {
+                        let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
+                        elements.append((image: nil, text: text, attrs: attrs))
+                    }
+                }
+            } else if hasCodexAuthError || !CodexAuthManager.shared.isAuthenticated {
+                // 인증 에러 또는 미인증 — 아이콘만 표시 (CLI 로그인 필요)
+                let warnAttrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.systemOrange]
+                elements.append((image: nil, text: "–", attrs: warnAttrs))
+            } else if codexError != nil {
+                // API 에러
+                let warnAttrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.systemOrange]
+                elements.append((image: nil, text: "⚠", attrs: warnAttrs))
+            }
+        }
+
         // 총 너비 계산
         var totalWidth: CGFloat = 0
         for (i, el) in elements.enumerated() {
@@ -674,8 +848,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         button.image = compositeImage
         button.imagePosition = .imageOnly
         button.attributedTitle = NSAttributedString(string: "")
-        let authWarning = hasAuthError ? "\n⚠️ 세션 키가 유효하지 않습니다" : ""
-        button.toolTip = "현재 세션: \(Int(fiveHourPct))% / 주간: \(Int(weeklyPct))%\(authWarning)"
+        var tooltipText = "현재 세션: \(Int(fiveHourPct))% / 주간: \(Int(weeklyPct))%"
+        if hasAuthError {
+            tooltipText += "\n⚠️ 세션 키가 유효하지 않습니다"
+        }
+        if settings.codexEnabled {
+            if let codexUsage = currentCodexUsage {
+                tooltipText += "\nCodex: \(Int(codexUsage.primaryPercentage))% / \(Int(codexUsage.secondaryPercentage))%"
+            } else if hasCodexAuthError || !CodexAuthManager.shared.isAuthenticated {
+                tooltipText += "\nCodex: codex login 필요"
+            } else if codexError != nil {
+                tooltipText += "\n⚠️ Codex API 에러"
+            }
+        }
+        button.toolTip = tooltipText
     }
 
     // MARK: - Keyboard Shortcuts
@@ -729,6 +915,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     await MainActor.run {
                         self.startMonitoring()
                     }
+                    // Codex 모니터링 시작
+                    if AppSettings.shared.codexEnabled && CodexAuthManager.shared.isAuthenticated {
+                        if let token = CodexAuthManager.shared.getToken() {
+                            await self.codexAPIService.updateToken(token.accessToken)
+                        }
+                        await MainActor.run {
+                            self.refreshCodexUsage()
+                        }
+                    }
                     Logger.info("설정 저장 완료")
                 }
             },
@@ -761,6 +956,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     Logger.info("웹 데이터 삭제 완료")
                 }
                 Logger.info("로그아웃 완료")
+            },
+            onCodexLogout: { [weak self] in
+                guard let self = self else { return }
+                CodexAuthManager.shared.clearCache()
+                self.currentCodexUsage = nil
+                self.codexError = nil
+                self.hasCodexAuthError = false
+                self.codexConsecutiveErrorCount = 0
+                self.popoverViewModel.codexUsage = nil
+                self.popoverViewModel.codexError = nil
+                self.updateMenuBar()
+                Logger.info("Codex 로그아웃 완료")
             }
         )
 

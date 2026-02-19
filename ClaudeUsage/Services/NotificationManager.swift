@@ -11,6 +11,8 @@ import UserNotifications
 enum SessionType: String {
     case fiveHour = "현재 세션"
     case weekly = "주간"
+    case codexPrimary = "Codex 현재"
+    case codexSecondary = "Codex 주간"
 }
 
 class NotificationManager {
@@ -19,6 +21,8 @@ class NotificationManager {
     private var trackers: [SessionType: SessionTracker] = [
         .fiveHour: SessionTracker(),
         .weekly: SessionTracker(),
+        .codexPrimary: SessionTracker(),
+        .codexSecondary: SessionTracker(),
     ]
 
     private init() {}
@@ -46,6 +50,8 @@ class NotificationManager {
             guard settings.alertFiveHourEnabled else { return }
         case .weekly:
             guard settings.alertWeeklyEnabled else { return }
+        case .codexPrimary, .codexSecondary:
+            guard settings.codexAlertEnabled else { return }
         }
 
         guard let tracker = trackers[session] else { return }
@@ -64,6 +70,9 @@ class NotificationManager {
             return
         }
 
+        let isCodex = session == .codexPrimary || session == .codexSecondary
+        let serviceName = isCodex ? "Codex" : "Claude"
+
         // 리셋 감지: 5분 이상 차이나야 실제 리셋으로 판단
         if let resetAt = resetAt, let lastReset = tracker.lastResetAt, isActualReset(from: lastReset, to: resetAt) {
             Logger.info("\(session.rawValue) 세션 리셋 감지")
@@ -71,7 +80,7 @@ class NotificationManager {
             tracker.lastResetAt = resetAt
 
             sendNotification(
-                title: "Claude 세션 리셋",
+                title: "\(serviceName) 세션 리셋",
                 body: "\(session.rawValue) 세션이 리셋되었습니다"
             )
             return
@@ -82,9 +91,9 @@ class NotificationManager {
         // 임계값 알림 (높은 순서대로, 한 번에 하나만)
         for threshold in thresholds.reversed() {
             if percentage >= Double(threshold) && !tracker.alertedThresholds.contains(threshold) {
-                let title = threshold >= 95 ? "Claude 사용량 경고"
-                    : threshold >= 90 ? "Claude 사용량 주의"
-                    : "Claude 사용량 안내"
+                let title = threshold >= 95 ? "\(serviceName) 사용량 경고"
+                    : threshold >= 90 ? "\(serviceName) 사용량 주의"
+                    : "\(serviceName) 사용량 안내"
                 sendNotification(
                     title: title,
                     body: "\(session.rawValue) 세션의 \(threshold)%를 사용했습니다"
