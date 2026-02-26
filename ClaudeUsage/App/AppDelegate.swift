@@ -389,7 +389,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     NotificationManager.shared.checkThreshold(
                         session: .weekly,
                         percentage: usage.weeklyPercentage,
-                        resetAt: usage.sevenDay.resetsAt
+                        resetAt: usage.sevenDay?.resetsAt
                     )
                 }
 
@@ -513,7 +513,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let settings = AppSettings.shared
         let fiveHourPct = usage.fiveHourPercentage
-        let weeklyPct = usage.sevenDay.utilization
+        let weeklyPct = usage.sevenDay?.utilization ?? 0
         let primaryPct = fiveHourPct
 
         let fiveHourColor = ColorProvider.nsStatusColor(for: fiveHourPct)
@@ -620,14 +620,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 elements.append((image: nil, text: clock, attrs: attrs))
             }
         case .weekly:
-            if let resetAt = usage.sevenDay.resetsAt,
+            if let resetAt = usage.sevenDay?.resetsAt,
                let clock = TimeFormatter.formatResetTimeWeekly(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false) {
                 let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
                 elements.append((image: nil, text: clock, attrs: attrs))
             }
         case .dual:
             let r1 = usage.fiveHour.resetsAt.flatMap { TimeFormatter.formatResetTime(from: $0, style: settings.timeFormat, includeDateIfNotToday: false) }
-            let r2 = usage.sevenDay.resetsAt.flatMap { TimeFormatter.formatResetTimeWeekly(from: $0, style: settings.timeFormat, includeDateIfNotToday: false) }
+            let r2 = usage.sevenDay?.resetsAt.flatMap { TimeFormatter.formatResetTimeWeekly(from: $0, style: settings.timeFormat, includeDateIfNotToday: false) }
             let dualText: String?
             if let t1 = r1, let t2 = r2 {
                 dualText = "\(t1) · \(t2)"
