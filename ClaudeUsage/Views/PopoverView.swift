@@ -239,13 +239,15 @@ struct PopoverView: View {
                         resetAt: usage.fiveHour.resetsAt
                     )
                 case "weeklyLimit":
-                    UsageSectionView(
-                        systemIcon: "calendar",
-                        title: "주간 한도",
-                        percentage: usage.sevenDay.utilization,
-                        resetAt: usage.sevenDay.resetsAt,
-                        isWeekly: true
-                    )
+                    if let sevenDay = usage.sevenDay {
+                        UsageSectionView(
+                            systemIcon: "calendar",
+                            title: "주간 한도",
+                            percentage: sevenDay.utilization,
+                            resetAt: sevenDay.resetsAt,
+                            isWeekly: true
+                        )
+                    }
                 case "modelUsage":
                     if let sonnet = usage.sevenDaySonnet {
                         UsageSectionView(
@@ -288,7 +290,9 @@ struct PopoverView: View {
                 case "currentSession":
                     CompactUsageRow(label: "현재", percentage: usage.fiveHour.utilization, resetAt: usage.fiveHour.resetsAt)
                 case "weeklyLimit":
-                    CompactUsageRow(label: "주간", percentage: usage.sevenDay.utilization, resetAt: usage.sevenDay.resetsAt, isWeekly: true)
+                    if let sevenDay = usage.sevenDay {
+                        CompactUsageRow(label: "주간", percentage: sevenDay.utilization, resetAt: sevenDay.resetsAt, isWeekly: true)
+                    }
                 case "modelUsage":
                     if let sonnet = usage.sevenDaySonnet {
                         CompactUsageRow(label: "Sonnet", percentage: sonnet.utilization, resetAt: sonnet.resetsAt, isWeekly: true)

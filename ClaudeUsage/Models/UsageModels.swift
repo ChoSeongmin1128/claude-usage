@@ -10,7 +10,7 @@ import Foundation
 /// Claude.ai API 전체 응답 구조
 struct ClaudeUsageResponse: Codable, Sendable {
     let fiveHour: UsageWindow
-    let sevenDay: UsageWindow
+    let sevenDay: UsageWindow?
     let sevenDaySonnet: UsageWindow?  // Max 플랜 전용
     let sevenDayOpus: UsageWindow?    // Max 플랜 전용
 
@@ -24,7 +24,7 @@ struct ClaudeUsageResponse: Codable, Sendable {
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         fiveHour = try container.decode(UsageWindow.self, forKey: .fiveHour)
-        sevenDay = try container.decode(UsageWindow.self, forKey: .sevenDay)
+        sevenDay = try container.decodeIfPresent(UsageWindow.self, forKey: .sevenDay)
         sevenDaySonnet = try container.decodeIfPresent(UsageWindow.self, forKey: .sevenDaySonnet)
         sevenDayOpus = try container.decodeIfPresent(UsageWindow.self, forKey: .sevenDayOpus)
     }
@@ -88,7 +88,7 @@ extension ClaudeUsageResponse {
 
     /// 주간 한도 퍼센트
     nonisolated var weeklyPercentage: Double {
-        sevenDay.utilization
+        sevenDay?.utilization ?? 0
     }
 
     /// Sonnet 주간 퍼센트 (없으면 nil)
