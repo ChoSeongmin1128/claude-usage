@@ -14,6 +14,8 @@ actor ClaudeAPIService {
     private var sessionKey: String?
     private let baseURL = "https://claude.ai/api"
     private var cachedOrganizationID: String?
+    private var preferOAuthUntil: Date?
+    private let oauthPreferDuration: TimeInterval = 10 * 60
 
     // MARK: - Init
 
@@ -33,12 +35,14 @@ actor ClaudeAPIService {
     func updateSessionKey(_ key: String) {
         self.sessionKey = key
         self.cachedOrganizationID = nil  // 캐시 초기화
+        self.preferOAuthUntil = nil
     }
 
     /// 런타임 세션 키 초기화 (로그아웃 시 호출)
     func clearSession() {
         self.sessionKey = nil
         self.cachedOrganizationID = nil
+        self.preferOAuthUntil = nil
     }
 
     /// 세션 키가 설정되어 있는지 확인
@@ -57,8 +61,22 @@ actor ClaudeAPIService {
 
         Logger.info("사용량 데이터 요청 시작")
 
+        if shouldPreferOAuthNow() {
+            do {
+                let usage = try await fetchUsageViaOAuth()
+                Logger.debug("OAuth 우선 경로 사용 중")
+                return usage
+            } catch {
+                // 우선 경로가 실패하면 즉시 해제하고 세션 키 경로로 복귀
+                preferOAuthUntil = nil
+                Logger.warning("OAuth 우선 경로 실패 → 세션키 경로로 복귀: \(error.localizedDescription)")
+            }
+        }
+
         do {
-            return try await fetchUsageWithSessionKey(sessionKey)
+            let usage = try await fetchUsageWithSessionKey(sessionKey)
+            preferOAuthUntil = nil
+            return usage
         } catch let apiError as APIError {
             guard shouldUseOAuthFallback(for: apiError) else {
                 throw apiError
@@ -66,6 +84,9 @@ actor ClaudeAPIService {
 
             do {
                 let usage = try await fetchUsageViaOAuth()
+                if shouldPreferOAuthAfter(error: apiError) {
+                    preferOAuthUntil = Date().addingTimeInterval(oauthPreferDuration)
+                }
                 Logger.warning("세션키 경로 실패(\(apiError.localizedDescription)) → OAuth fallback 성공")
                 return usage
             } catch {
@@ -241,6 +262,16 @@ actor ClaudeAPIService {
                     throw apiError
                 }
 
+                // 제한/차단류는 같은 사이클 재시도로 더 악화될 수 있어 즉시 종료
+                if let apiError = error as? APIError {
+                    switch apiError {
+                    case .rateLimited, .cloudflareBlocked:
+                        throw apiError
+                    case .invalidSessionKey, .networkError, .parseError, .serverError, .unknownError:
+                        break
+                    }
+                }
+
                 lastError = error
                 Logger.warning("시도 \(attempt)/\(maxAttempts) 실패: \(error.localizedDescription)")
 
@@ -311,6 +342,20 @@ actor ClaudeAPIService {
         case .serverError(let code):
             return code >= 500
         case .invalidSessionKey, .parseError, .unknownError:
+            return false
+        }
+    }
+
+    private func shouldPreferOAuthNow() -> Bool {
+        guard let until = preferOAuthUntil else { return false }
+        return until > Date()
+    }
+
+    private func shouldPreferOAuthAfter(error: APIError) -> Bool {
+        switch error {
+        case .rateLimited, .cloudflareBlocked:
+            return true
+        case .networkError, .serverError, .invalidSessionKey, .parseError, .unknownError:
             return false
         }
     }

@@ -359,10 +359,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - API
 
     private func refreshUsage() {
+        // 이미 갱신 중이면 중복 요청을 막아 로딩/회전 애니메이션 과도 지속을 방지
+        if isLoading {
+            Logger.debug("사용량 갱신 스킵: 이미 요청 진행 중")
+            return
+        }
+
+        isLoading = true
+        popoverViewModel.update(usage: currentUsage, error: nil, isLoading: true, lastUpdated: lastUpdated, overage: currentOverage)
+
         Task {
             do {
-                isLoading = true
-                popoverViewModel.update(usage: currentUsage, error: nil, isLoading: true, lastUpdated: lastUpdated, overage: currentOverage)
                 Logger.debug("사용량 갱신 시작")
 
                 let usage = try await apiService.fetchUsageWithRetry()
