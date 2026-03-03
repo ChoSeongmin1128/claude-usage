@@ -229,39 +229,7 @@ struct PopoverView: View {
             if settings.popoverCompact {
                 compactMainSection
             } else {
-                ScrollView {
-                    Group {
-                        if viewModel.isLoading && viewModel.usage == nil {
-                            VStack(spacing: 12) {
-                                ProgressView()
-                                Text("데이터 로딩 중...")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 150)
-
-                        } else if let error = viewModel.error, viewModel.usage == nil {
-                            ErrorSectionView(error: error) {
-                                viewModel.refresh()
-                            }
-                            .padding(16)
-
-                        } else if let usage = viewModel.usage {
-                            standardContent(usage: usage)
-
-                        } else {
-                            VStack {
-                                Text("데이터 없음")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 100)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 180, alignment: .top)
-                    .padding(.bottom, 4)
-                }
-                .scrollIndicators(.hidden)
-                .frame(maxWidth: .infinity, maxHeight: 280, alignment: .top)
+                standardMainSection
             }
 
             Divider()
@@ -463,6 +431,39 @@ struct PopoverView: View {
         }
         .frame(maxWidth: .infinity, alignment: .top)
         .padding(.bottom, 2)
+    }
+
+    @ViewBuilder
+    private var standardMainSection: some View {
+        Group {
+            if viewModel.isLoading && viewModel.usage == nil {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("데이터 로딩 중...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 150)
+
+            } else if let error = viewModel.error, viewModel.usage == nil {
+                ErrorSectionView(error: error) {
+                    viewModel.refresh()
+                }
+                .padding(16)
+
+            } else if let usage = viewModel.usage {
+                standardContent(usage: usage)
+
+            } else {
+                VStack {
+                    Text("데이터 없음")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 100)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 180, alignment: .top)
+        .padding(.bottom, 4)
     }
 
     // MARK: - Compact Content
