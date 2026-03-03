@@ -105,6 +105,29 @@ struct PopoverItemConfig: Codable, Sendable, Equatable {
         .init(id: "overageUsage", visible: true),
     ]
 
+    static let supportedIDs: [String] = defaultItems.map(\.id)
+
+    static func normalized(_ items: [PopoverItemConfig]) -> [PopoverItemConfig] {
+        let supported = Set(supportedIDs)
+        let defaultVisible = Dictionary(uniqueKeysWithValues: defaultItems.map { ($0.id, $0.visible) })
+
+        var seen = Set<String>()
+        var result: [PopoverItemConfig] = []
+        result.reserveCapacity(defaultItems.count)
+
+        for item in items {
+            guard supported.contains(item.id), !seen.contains(item.id) else { continue }
+            seen.insert(item.id)
+            result.append(item)
+        }
+
+        for id in supportedIDs where !seen.contains(id) {
+            result.append(.init(id: id, visible: defaultVisible[id] ?? true))
+        }
+
+        return result.isEmpty ? defaultItems : result
+    }
+
     var displayName: String {
         switch id {
         case "currentSession": return "현재 세션"
@@ -306,9 +329,9 @@ class AppSettings: ObservableObject {
         popoverPinned = snapshot.popoverPinned
         popoverCompact = snapshot.popoverCompact
         launchAtLogin = snapshot.launchAtLogin
-        popoverItems = snapshot.popoverItems
+        popoverItems = PopoverItemConfig.normalized(snapshot.popoverItems)
         separateCompactConfig = snapshot.separateCompactConfig
-        compactPopoverItems = snapshot.compactPopoverItems
+        compactPopoverItems = PopoverItemConfig.normalized(snapshot.compactPopoverItems)
     }
 
     // MARK: - Computed
@@ -439,13 +462,26 @@ class AppSettings: ObservableObject {
                 .init(id: "overageUsage", visible: showOverage),
             ]
         }
-        self.popoverItems = loadedItems
+        let normalizedLoadedItems = PopoverItemConfig.normalized(loadedItems)
+        self.popoverItems = normalizedLoadedItems
         self.separateCompactConfig = defaults.object(forKey: "separateCompactConfig") as? Bool ?? false
         if let cData = defaults.data(forKey: "compactPopoverItems"),
            let cItems = try? JSONDecoder().decode([PopoverItemConfig].self, from: cData) {
-            self.compactPopoverItems = cItems
+            self.compactPopoverItems = PopoverItemConfig.normalized(cItems)
         } else {
-            self.compactPopoverItems = loadedItems
+            self.compactPopoverItems = normalizedLoadedItems
+        }
+
+        // 과거/외부 데이터에 남은 미지원 항목(codex 등)을 즉시 정리해 재등장 방지
+        if normalizedLoadedItems != loadedItems,
+           let data = try? JSONEncoder().encode(normalizedLoadedItems) {
+            defaults.set(data, forKey: "popoverItems")
+        }
+        if let cData = defaults.data(forKey: "compactPopoverItems"),
+           let cItems = try? JSONDecoder().decode([PopoverItemConfig].self, from: cData),
+           PopoverItemConfig.normalized(cItems) != cItems,
+           let normalizedData = try? JSONEncoder().encode(PopoverItemConfig.normalized(cItems)) {
+            defaults.set(normalizedData, forKey: "compactPopoverItems")
         }
     }
 }
