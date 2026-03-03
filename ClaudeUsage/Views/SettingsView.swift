@@ -27,6 +27,7 @@ struct SettingsView: View {
     @State private var organizations: [ClaudeAPIService.OrganizationSummary] = []
     @State private var organizationPreviews: [ClaudeAPIService.OrganizationPreview] = []
     @State private var isLoadingOrganizations = false
+    @State private var isLoadingOrganizationPreviews = false
     @State private var organizationMessage: String?
     @State private var organizationOAuthFallbackSummary: String?
 
@@ -278,8 +279,8 @@ struct SettingsView: View {
 
             HStack(spacing: 8) {
                 Button("목록 불러오기") { loadOrganizations() }
-                    .disabled(isLoadingOrganizations)
-                if isLoadingOrganizations {
+                    .disabled(isLoadingOrganizations || isLoadingOrganizationPreviews)
+                if isLoadingOrganizations || isLoadingOrganizationPreviews {
                     ProgressView()
                         .controlSize(.small)
                 }
@@ -909,41 +910,37 @@ struct SettingsView: View {
         }
 
         isLoadingOrganizations = true
+        isLoadingOrganizationPreviews = false
         organizationMessage = nil
         organizationOAuthFallbackSummary = nil
 
         Task {
             let service = ClaudeAPIService(sessionKey: normalizedKey)
             await service.updatePreferredOrganizationID(normalizeOrganizationID(selectedOrganizationID))
+            var resolvedOrganizations: [ClaudeAPIService.OrganizationSummary] = []
+
             do {
-                let previews = try await service.fetchOrganizationPreviews()
+                resolvedOrganizations = try await service.fetchOrganizations()
+            } catch {
+                resolvedOrganizations = await service.cachedOrganizationsForDisplay()
                 await MainActor.run {
-                    organizationPreviews = previews
-                    organizations = previews.map(\.organization)
-                    isLoadingOrganizations = false
-                    organizationOAuthFallbackSummary = nil
-                    if previews.isEmpty {
-                        organizationMessage = "organization 목록이 비어 있습니다."
-                        return
-                    }
-                    let exists = selectedOrganizationID.isEmpty || previews.contains { $0.id == selectedOrganizationID }
-                    if !exists {
-                        organizationMessage = "현재 선택한 organization이 목록에 없어 자동 선택으로 동작합니다."
-                    } else {
-                        let failedCount = previews.filter { $0.usageErrorMessage != nil }.count
-                        if failedCount > 0 {
-                            organizationMessage = "organization \(previews.count)개 중 \(failedCount)개는 상세 조회에 실패했습니다."
-                        } else {
-                            organizationMessage = "organization \(previews.count)개의 상세를 불러왔습니다."
-                        }
+                    if !resolvedOrganizations.isEmpty {
+                        organizationMessage = "organization 목록 조회 실패로 캐시 목록을 표시합니다."
                     }
                 }
-            } catch {
+            }
+
+            await MainActor.run {
+                organizations = resolvedOrganizations
+                isLoadingOrganizations = false
+                organizationPreviews = []
+                organizationOAuthFallbackSummary = nil
+            }
+
+            guard !resolvedOrganizations.isEmpty else {
                 do {
                     let fallbackUsage = try await service.fetchUsage()
                     await MainActor.run {
-                        isLoadingOrganizations = false
-                        organizationPreviews = []
                         organizationMessage = "organization 목록 조회 실패로 OAuth 기준 사용량만 표시합니다."
                         let fiveHour = String(format: "%.0f%%", fallbackUsage.fiveHour.utilization)
                         let weekly = String(format: "%.0f%%", fallbackUsage.sevenDay?.utilization ?? 0)
@@ -951,11 +948,34 @@ struct SettingsView: View {
                     }
                 } catch {
                     await MainActor.run {
-                        isLoadingOrganizations = false
-                        organizationPreviews = []
                         organizationOAuthFallbackSummary = nil
                         organizationMessage = "organization 목록 조회 실패: \(error.localizedDescription)"
                     }
+                }
+                return
+            }
+
+            await MainActor.run {
+                isLoadingOrganizationPreviews = true
+                organizationMessage = "organization \(resolvedOrganizations.count)개 목록을 불러왔습니다. 상세 조회 중..."
+            }
+
+            let previews = await service.fetchOrganizationPreviews(for: resolvedOrganizations)
+            await MainActor.run {
+                organizationPreviews = previews
+                isLoadingOrganizationPreviews = false
+
+                let exists = selectedOrganizationID.isEmpty || previews.contains { $0.id == selectedOrganizationID }
+                if !exists {
+                    organizationMessage = "현재 선택한 organization이 목록에 없어 자동 선택으로 동작합니다."
+                    return
+                }
+
+                let failedCount = previews.filter { $0.usageErrorMessage != nil }.count
+                if failedCount > 0 {
+                    organizationMessage = "organization \(previews.count)개 중 \(failedCount)개는 상세 조회에 실패했습니다."
+                } else {
+                    organizationMessage = "organization \(previews.count)개의 상세를 불러왔습니다."
                 }
             }
         }
@@ -967,6 +987,7 @@ struct SettingsView: View {
         alertTexts = settings.alertThresholds.map { String($0) }
         selectedOrganizationID = settings.preferredOrganizationID
         organizationPreviews = []
+        isLoadingOrganizationPreviews = false
         organizationMessage = nil
         organizationOAuthFallbackSummary = nil
     }

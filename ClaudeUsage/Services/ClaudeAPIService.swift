@@ -197,6 +197,23 @@ actor ClaudeAPIService {
         }
 
         let organizations = try await fetchOrganizations()
+        return await fetchOrganizationPreviews(for: organizations, maxOrganizations: maxOrganizations, sessionKey: sessionKey)
+    }
+
+    /// 전달된 organization 목록 기준으로 미리보기 조회 (목록/상세 분리 로딩용)
+    func fetchOrganizationPreviews(for organizations: [OrganizationSummary], maxOrganizations: Int = 8) async -> [OrganizationPreview] {
+        guard let sessionKey, !sessionKey.isEmpty else {
+            return []
+        }
+        return await fetchOrganizationPreviews(for: organizations, maxOrganizations: maxOrganizations, sessionKey: sessionKey)
+    }
+
+    /// 최근 캐시된 organization 목록 반환 (네트워크 실패 시 UI fallback)
+    func cachedOrganizationsForDisplay() -> [OrganizationSummary] {
+        loadCachedOrganizations() ?? []
+    }
+
+    private func fetchOrganizationPreviews(for organizations: [OrganizationSummary], maxOrganizations: Int, sessionKey: String) async -> [OrganizationPreview] {
         let targets = Array(organizations.prefix(max(1, maxOrganizations)))
         var previews: [OrganizationPreview] = []
         previews.reserveCapacity(targets.count)
