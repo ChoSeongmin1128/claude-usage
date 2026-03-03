@@ -1486,9 +1486,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let spacing: CGFloat = 4
         var elements: [(image: NSImage?, text: String?, attrs: [NSAttributedString.Key: Any]?)] = []
 
-        if settings.showCodexIcon, let codexIcon = NSImage(named: "CodexMenuBarIcon") {
-            codexIcon.size = NSSize(width: 15, height: 15)
-            elements.append((image: codexIcon, text: nil, attrs: nil))
+        if settings.showCodexIcon {
+            if let codexIcon = NSImage(named: "CodexMenuBarIcon") {
+                codexIcon.size = NSSize(width: 15, height: 15)
+                elements.append((image: codexIcon, text: nil, attrs: nil))
+            } else if let fallback = NSImage(systemSymbolName: "terminal.fill", accessibilityDescription: "Codex") {
+                fallback.size = NSSize(width: 13, height: 13)
+                fallback.isTemplate = true
+                elements.append((image: fallback, text: nil, attrs: nil))
+            }
         }
 
         if let codex = currentCodexUsage {
@@ -1496,24 +1502,112 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let w = codex.secondaryPercentage
             let primaryColor = ColorProvider.nsStatusColor(for: p)
             let weeklyColor = ColorProvider.nsWeeklyStatusColor(for: w)
+            let showRemaining: Bool = {
+                switch settings.codexMenuBarStyle {
+                case .batteryBar, .dualBattery, .sideBySideBattery:
+                    return true
+                case .circular, .concentricRings:
+                    return settings.codexCircularDisplayMode == .remaining
+                case .none:
+                    return false
+                }
+            }()
+            let displayPrimary = max(0, min(100, showRemaining ? (100.0 - p) : p))
+            let displayWeekly = max(0, min(100, showRemaining ? (100.0 - w) : w))
 
             switch settings.codexPercentageDisplay {
             case .none:
-                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
-                elements.append((image: nil, text: "Codex", attrs: attrs))
+                break
             case .fiveHour:
                 let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: primaryColor]
-                elements.append((image: nil, text: String(format: "%.0f%%", p), attrs: attrs))
+                elements.append((image: nil, text: String(format: "%.0f%%", displayPrimary), attrs: attrs))
             case .weekly:
                 let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: weeklyColor]
-                elements.append((image: nil, text: String(format: "%.0f%%", w), attrs: attrs))
+                elements.append((image: nil, text: String(format: "%.0f%%", displayWeekly), attrs: attrs))
             case .dual:
                 let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: primaryColor]
-                elements.append((image: nil, text: String(format: "%.0f%%", p), attrs: attrs))
+                elements.append((image: nil, text: String(format: "%.0f%%", displayPrimary), attrs: attrs))
                 let dotAttrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
                 elements.append((image: nil, text: "·", attrs: dotAttrs))
                 let secondAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: weeklyColor]
-                elements.append((image: nil, text: String(format: "%.0f%%", w), attrs: secondAttrs))
+                elements.append((image: nil, text: String(format: "%.0f%%", displayWeekly), attrs: secondAttrs))
+            }
+
+            let isRemainingMode = settings.codexCircularDisplayMode == .remaining
+            let circularValue = isRemainingMode ? (100.0 - p) : p
+            let concentricOuter = isRemainingMode ? (100.0 - p) : p
+            let concentricInner = isRemainingMode ? (100.0 - w) : w
+            let styleIcon: NSImage? = switch settings.codexMenuBarStyle {
+            case .none:
+                nil
+            case .batteryBar:
+                MenuBarIconRenderer.batteryIcon(percentage: p, color: primaryColor, showPercent: settings.codexShowBatteryPercent)
+            case .circular:
+                MenuBarIconRenderer.circularRingIcon(percentage: circularValue, color: primaryColor)
+            case .concentricRings:
+                MenuBarIconRenderer.concentricRingsIcon(
+                    outerPercent: concentricOuter,
+                    innerPercent: concentricInner,
+                    outerColor: primaryColor,
+                    innerColor: weeklyColor
+                )
+            case .dualBattery:
+                MenuBarIconRenderer.dualBatteryIcon(
+                    topPercent: p,
+                    bottomPercent: w,
+                    topColor: primaryColor,
+                    bottomColor: weeklyColor
+                )
+            case .sideBySideBattery:
+                MenuBarIconRenderer.sideBySideBatteryIcon(
+                    leftPercent: p,
+                    rightPercent: w,
+                    leftColor: primaryColor,
+                    rightColor: weeklyColor,
+                    showPercent: settings.codexShowBatteryPercent
+                )
+            }
+            if let styleIcon {
+                elements.append((image: styleIcon, text: nil, attrs: nil))
+            }
+
+            switch settings.codexResetTimeDisplay {
+            case .none:
+                break
+            case .fiveHour:
+                if let resetAt = codex.rateLimit?.primaryWindow?.resetAtISO,
+                   let clock = TimeFormatter.formatResetTime(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false) {
+                    let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
+                    elements.append((image: nil, text: clock, attrs: attrs))
+                }
+            case .weekly:
+                if let resetAt = codex.rateLimit?.secondaryWindow?.resetAtISO,
+                   let clock = TimeFormatter.formatResetTimeWeekly(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false) {
+                    let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
+                    elements.append((image: nil, text: clock, attrs: attrs))
+                }
+            case .dual:
+                let r1 = codex.rateLimit?.primaryWindow?.resetAtISO.flatMap {
+                    TimeFormatter.formatResetTime(from: $0, style: settings.timeFormat, includeDateIfNotToday: false)
+                }
+                let r2 = codex.rateLimit?.secondaryWindow?.resetAtISO.flatMap {
+                    TimeFormatter.formatResetTimeWeekly(from: $0, style: settings.timeFormat, includeDateIfNotToday: false)
+                }
+                let dualText: String?
+                if let t1 = r1, let t2 = r2 {
+                    dualText = "\(t1) · \(t2)"
+                } else {
+                    dualText = r1 ?? r2
+                }
+                if let dualText {
+                    let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
+                    elements.append((image: nil, text: dualText, attrs: attrs))
+                }
+            }
+
+            if settings.codexPercentageDisplay == .none, settings.codexMenuBarStyle == .none {
+                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
+                elements.append((image: nil, text: "Codex", attrs: attrs))
             }
         } else if hasCodexAuthError {
             let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.systemOrange]
@@ -1604,15 +1698,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if AppSettings.shared.claudeEnabled, let key = KeychainManager.shared.load(), !key.isEmpty {
                 await self.apiService.updateSessionKey(key)
                 await MainActor.run {
-                    self.rebuildStatusItems()
-                    self.setupPopovers()
                     self.startMonitoring()
                 }
             } else {
                 await self.apiService.clearSession()
                 await MainActor.run {
-                    self.rebuildStatusItems()
-                    self.setupPopovers()
                     self.currentUsage = nil
                     self.currentOverage = nil
                     self.lastOverageFetchAt = nil
