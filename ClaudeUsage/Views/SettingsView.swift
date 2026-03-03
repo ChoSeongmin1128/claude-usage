@@ -19,10 +19,13 @@ struct SettingsView: View {
     @State private var refreshIntervalText: String = ""
     @State private var showKeyHelp: Bool = false
     @State private var alertTexts: [String] = []
+    @State private var codexAlertTexts: [String] = []
     @State private var snapshot: AppSettings.Snapshot?
     @State private var didSave = false
     @State private var draggingItemID: String?
+    @State private var codexDraggingItemID: String?
     @State private var compactConfigTab: Int = 0
+    @State private var codexCompactConfigTab: Int = 0
     @State private var selectedOrganizationID: String = ""
     @State private var organizations: [ClaudeAPIService.OrganizationSummary] = []
     @State private var organizationPreviews: [ClaudeAPIService.OrganizationPreview] = []
@@ -31,16 +34,18 @@ struct SettingsView: View {
     @State private var organizationMessage: String?
     @State private var organizationOAuthFallbackSummary: String?
     @State private var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
-    @State private var selectedPanel: SettingsPanel = .status
+    @State private var selectedPanel: SettingsPanel = .common
     @State private var isAdvancedAuthExpanded = false
     @State private var isOAuthGuideExpanded = false
     @State private var isAuthFAQExpanded = false
+    @State private var codexAuthStatus: CodexAuthStatus = .checking
 
     var onSave: (() -> Void)?
     var onApply: (() -> Void)?
     var onCancel: (() -> Void)?
     var onOpenLogin: (() -> Void)?
     var onLogout: (() -> Void)?
+    var onCodexLogout: (() -> Void)?
 
     enum TestResult {
         case success
@@ -48,12 +53,27 @@ struct SettingsView: View {
     }
 
     enum SettingsPanel: String, CaseIterable, Identifiable {
-        case status = "상태"
-        case auth = "인증"
-        case display = "표시"
-        case advanced = "고급"
+        case common = "common"
+        case claude = "claude"
+        case codex = "codex"
 
         var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .common: return "공통"
+            case .claude: return "Claude"
+            case .codex: return "Codex"
+            }
+        }
+    }
+
+    private enum CodexAuthStatus {
+        case checking
+        case authenticated
+        case notInstalled
+        case notLoggedIn
+        case expired
     }
 
     private var isRefreshIntervalValid: Bool {
@@ -77,7 +97,7 @@ struct SettingsView: View {
                     Button {
                         selectedPanel = panel
                     } label: {
-                        Text(panel.rawValue)
+                        Text(panel.title)
                             .font(.subheadline)
                             .fontWeight(selectedPanel == panel ? .semibold : .regular)
                             .padding(.horizontal, 10)
@@ -131,37 +151,54 @@ struct SettingsView: View {
             testResult = nil
             refreshIntervalText = String(Int(settings.refreshInterval))
             alertTexts = settings.alertThresholds.map { String($0) }
+            codexAlertTexts = settings.codexAlertThresholds.map { String($0) }
             selectedOrganizationID = settings.preferredOrganizationID
+            selectedPanel = SettingsPanel(rawValue: settings.settingsLastTab) ?? .common
             loadUsageHealthSnapshot()
+            checkCodexAuth()
         }
         .onDisappear {
             if !didSave, let snapshot = snapshot {
                 settings.restore(from: snapshot)
             }
         }
+        .onChange(of: selectedPanel) { _, panel in
+            settings.settingsLastTab = panel.rawValue
+        }
+        .onChange(of: settings.codexEnabled) { _, _ in
+            checkCodexAuth()
+        }
     }
 
     @ViewBuilder
     private var panelContent: some View {
         switch selectedPanel {
-        case .status:
-            statusSection
-        case .auth:
-            authSection
-        case .display:
+        case .common:
             displaySection
             Divider()
-            popoverItemsSection
-            Divider()
             refreshSection
-        case .advanced:
-            alertSection
             Divider()
             powerSection
             Divider()
             updateSection
             Divider()
             generalSection
+        case .claude:
+            statusSection
+            Divider()
+            authSection
+            Divider()
+            popoverItemsSection
+            Divider()
+            alertSection
+        case .codex:
+            codexAuthSection
+            Divider()
+            codexDisplaySection
+            Divider()
+            codexPopoverItemsSection
+            Divider()
+            codexAlertSection
         }
     }
 
@@ -826,6 +863,363 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Codex 섹션
+
+    private var codexAuthSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Codex 인증", systemImage: "bubble.left.and.bubble.right")
+                .font(.headline)
+
+            Toggle("Codex 모니터링 활성화", isOn: $settings.codexEnabled)
+
+            if settings.codexEnabled {
+                HStack(spacing: 8) {
+                    switch codexAuthStatus {
+                    case .checking:
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("확인 중...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    case .authenticated:
+                        Label("연결됨 (auth.json)", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    case .expired:
+                        Label("토큰 만료됨", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    case .notInstalled:
+                        Label("Codex CLI 미설치", systemImage: "xmark.circle.fill")
+                            .foregroundStyle(.red)
+                    case .notLoggedIn:
+                        Label("로그인 필요", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                    Spacer()
+                }
+
+                if codexAuthStatus == .notInstalled {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Codex CLI를 먼저 설치하세요:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        codexCommandRow("brew install --cask codex", label: "Homebrew")
+                        codexCommandRow("npm i -g @openai/codex", label: "npm")
+                    }
+                }
+
+                if codexAuthStatus == .notInstalled || codexAuthStatus == .notLoggedIn {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("터미널에서 로그인하세요:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        codexCommandRow("codex login", label: "로그인")
+                    }
+                }
+
+                if codexAuthStatus == .expired {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("토큰이 만료되었습니다. 다시 로그인하세요:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        codexCommandRow("codex login", label: "재로그인")
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    Button("인증 상태 새로고침") {
+                        checkCodexAuth()
+                    }
+
+                    if codexAuthStatus == .authenticated {
+                        Button("Codex 로그아웃") {
+                            onCodexLogout?()
+                            checkCodexAuth()
+                        }
+                        .foregroundStyle(.red)
+                    }
+                }
+            }
+        }
+    }
+
+    private func codexCommandRow(_ command: String, label: String) -> some View {
+        HStack(spacing: 4) {
+            Text(command)
+                .font(.system(.caption, design: .monospaced))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color(NSColor.controlBackgroundColor))
+                .cornerRadius(4)
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(command, forType: .string)
+            } label: {
+                Image(systemName: "doc.on.doc")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .help("\(label) 명령어 복사")
+        }
+    }
+
+    private func checkCodexAuth() {
+        if !settings.codexEnabled {
+            codexAuthStatus = .notLoggedIn
+            return
+        }
+
+        if CodexAuthManager.shared.authJsonExists {
+            if let token = CodexAuthManager.shared.getToken() {
+                codexAuthStatus = token.isExpired ? .expired : .authenticated
+            } else {
+                codexAuthStatus = .notLoggedIn
+            }
+            return
+        }
+
+        let codexInstalled = FileManager.default.isExecutableFile(atPath: "/usr/local/bin/codex")
+            || FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/codex")
+            || FileManager.default.isExecutableFile(atPath: "\(NSHomeDirectory())/.npm-global/bin/codex")
+            || {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+                process.arguments = ["codex"]
+                let pipe = Pipe()
+                process.standardOutput = pipe
+                process.standardError = Pipe()
+                try? process.run()
+                process.waitUntilExit()
+                return process.terminationStatus == 0
+            }()
+
+        codexAuthStatus = codexInstalled ? .notLoggedIn : .notInstalled
+    }
+
+    private var codexDisplaySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Codex 표시", systemImage: "slider.horizontal.3")
+                .font(.headline)
+
+            Toggle("Codex 아이콘", isOn: $settings.showCodexIcon)
+            Picker("퍼센트:", selection: $settings.codexPercentageDisplay) {
+                ForEach(PercentageDisplay.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            Picker("리셋 시간:", selection: $settings.codexResetTimeDisplay) {
+                ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+
+            Divider()
+
+            Picker("아이콘:", selection: $settings.codexMenuBarStyle) {
+                Text("없음").tag(MenuBarStyle.none)
+                Section("개별 세션") {
+                    Text("배터리바").tag(MenuBarStyle.batteryBar)
+                    Text("원형").tag(MenuBarStyle.circular)
+                }
+                Section("동시 표시 (현재 세션 + 주간)") {
+                    Text("동심원").tag(MenuBarStyle.concentricRings)
+                    Text("이중 배터리").tag(MenuBarStyle.dualBattery)
+                    Text("좌우 배터리").tag(MenuBarStyle.sideBySideBattery)
+                }
+            }
+            .onChange(of: settings.codexMenuBarStyle) { _, newValue in
+                if newValue == .batteryBar || newValue == .dualBattery || newValue == .sideBySideBattery {
+                    settings.codexCircularDisplayMode = .remaining
+                } else if newValue == .none {
+                    settings.codexCircularDisplayMode = .usage
+                }
+            }
+
+            if isCodexBatteryWithPercent {
+                Toggle("배터리 내부 숫자", isOn: $settings.codexShowBatteryPercent)
+                    .padding(.leading, 20)
+            }
+            if isCodexCircularStyle {
+                Picker("표시 기준:", selection: $settings.codexCircularDisplayMode) {
+                    ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                .padding(.leading, 20)
+            }
+        }
+    }
+
+    private var isCodexBatteryWithPercent: Bool {
+        switch settings.codexMenuBarStyle {
+        case .batteryBar, .dualBattery, .sideBySideBattery: return true
+        default: return false
+        }
+    }
+
+    private var isCodexCircularStyle: Bool {
+        settings.codexMenuBarStyle == .circular || settings.codexMenuBarStyle == .concentricRings
+    }
+
+    private var isEditingCodexCompact: Bool {
+        settings.separateCompactConfig && codexCompactConfigTab == 1
+    }
+
+    private var codexPopoverItemsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Codex 표시 항목", systemImage: "list.bullet.indent")
+                .font(.headline)
+
+            Text("Codex 항목의 표시 여부와 순서를 설정합니다")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Toggle("기본/간소화 개별 설정", isOn: $settings.separateCompactConfig)
+
+            if settings.separateCompactConfig {
+                Picker("", selection: $codexCompactConfigTab) {
+                    Text("기본").tag(0)
+                    Text("간소화").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 160)
+            }
+
+            codexItemsList(isCompact: isEditingCodexCompact)
+        }
+    }
+
+    private func codexItemsList(isCompact: Bool) -> some View {
+        let items = isCompact ? settings.codexCompactPopoverItems : settings.codexPopoverItems
+        return VStack(spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                VStack(spacing: 0) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 14)
+
+                        Button {
+                            if isCompact {
+                                settings.codexCompactPopoverItems[index].visible.toggle()
+                            } else {
+                                settings.codexPopoverItems[index].visible.toggle()
+                            }
+                        } label: {
+                            Image(systemName: item.visible ? "eye" : "eye.slash")
+                                .foregroundStyle(item.visible ? .primary : .tertiary)
+                                .font(.system(size: 12))
+                                .frame(width: 16, height: 16)
+                        }
+                        .buttonStyle(.borderless)
+
+                        Text(item.displayName)
+                            .font(.subheadline)
+                            .foregroundStyle(item.visible ? .primary : .tertiary)
+                        Spacer()
+                    }
+                    .frame(height: 26)
+                    .padding(.horizontal, 8)
+                    .contentShape(Rectangle())
+
+                    if index < items.count - 1 {
+                        Divider().padding(.horizontal, 8)
+                    }
+                }
+                .background(codexDraggingItemID == item.id ? Color.accentColor.opacity(0.1) : Color.clear)
+                .cornerRadius(4)
+                .onDrag {
+                    codexDraggingItemID = item.id
+                    return NSItemProvider(object: item.id as NSString)
+                }
+                .onDrop(of: [.text], delegate: PopoverItemDropDelegate(
+                    targetID: item.id,
+                    settings: settings,
+                    isCompact: isCompact,
+                    provider: .codex,
+                    draggingItemID: $codexDraggingItemID
+                ))
+            }
+        }
+        .padding(.vertical, 4)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .cornerRadius(6)
+    }
+
+    private var codexAlertSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Codex 알림", systemImage: "bell.badge")
+                .font(.headline)
+
+            Toggle("Codex 알림 사용", isOn: $settings.codexAlertEnabled)
+
+            if settings.codexAlertEnabled {
+                ForEach(Array(settings.codexAlertThresholds.indices), id: \.self) { index in
+                    HStack(spacing: 8) {
+                        TextField("", text: Binding(
+                            get: { index < codexAlertTexts.count ? codexAlertTexts[index] : "" },
+                            set: { newValue in
+                                guard index < codexAlertTexts.count else { return }
+                                codexAlertTexts[index] = newValue
+                                if let val = Int(newValue), val >= 1, val <= 100 {
+                                    settings.codexAlertThresholds[index] = val
+                                }
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 50)
+
+                        Text(settings.codexAlertRemainingMode ? "% 남았을 때 알림" : "% 사용 시 알림")
+                            .font(.subheadline)
+
+                        Spacer()
+
+                        Button {
+                            settings.codexAlertThresholds.remove(at: index)
+                            codexAlertTexts.remove(at: index)
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .foregroundColor(.red.opacity(0.7))
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+
+                Button {
+                    let next = suggestNextCodexThreshold()
+                    settings.codexAlertThresholds.append(next)
+                    codexAlertTexts.append(String(next))
+                } label: {
+                    Label("임계값 추가", systemImage: "plus.circle.fill")
+                        .font(.subheadline)
+                }
+                .buttonStyle(.borderless)
+
+                Picker("기준:", selection: $settings.codexAlertRemainingMode) {
+                    Text("사용량").tag(false)
+                    Text("남은 사용량").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 200)
+                .onChange(of: settings.codexAlertRemainingMode) { _, _ in
+                    settings.codexAlertThresholds = settings.codexAlertThresholds.map { max(1, min(100 - $0, 99)) }
+                    codexAlertTexts = settings.codexAlertThresholds.map { String($0) }
+                }
+            }
+        }
+    }
+
+    private func suggestNextCodexThreshold() -> Int {
+        let existing = settings.codexAlertThresholds.sorted()
+        if existing.isEmpty { return 75 }
+        let candidates = [50, 60, 70, 75, 80, 85, 90, 95, 100]
+        for c in candidates where !existing.contains(c) {
+            return c
+        }
+        return min((existing.last ?? 90) + 5, 100)
+    }
+
     // MARK: - 디스플레이 섹션
 
     private var isBatteryWithPercent: Bool {
@@ -1016,6 +1410,7 @@ struct SettingsView: View {
                     targetID: item.id,
                     settings: settings,
                     isCompact: isCompact,
+                    provider: .claude,
                     draggingItemID: $draggingItemID
                 ))
             }
@@ -1537,20 +1932,30 @@ struct SettingsView: View {
         settings.resetToDefaults()
         refreshIntervalText = String(Int(settings.refreshInterval))
         alertTexts = settings.alertThresholds.map { String($0) }
+        codexAlertTexts = settings.codexAlertThresholds.map { String($0) }
         selectedOrganizationID = settings.preferredOrganizationID
         organizationPreviews = []
         isLoadingOrganizationPreviews = false
         organizationMessage = nil
         organizationOAuthFallbackSummary = nil
+        codexCompactConfigTab = 0
+        compactConfigTab = 0
+        checkCodexAuth()
     }
 }
 
 // MARK: - Drag & Drop Delegate
 
 struct PopoverItemDropDelegate: DropDelegate {
+    enum Provider {
+        case claude
+        case codex
+    }
+
     let targetID: String
     let settings: AppSettings
     let isCompact: Bool
+    let provider: Provider
     @Binding var draggingItemID: String?
 
     func performDrop(info: DropInfo) -> Bool {
@@ -1561,17 +1966,28 @@ struct PopoverItemDropDelegate: DropDelegate {
     func dropEntered(info: DropInfo) {
         guard let draggingID = draggingItemID, draggingID != targetID else { return }
 
-        let items = isCompact ? settings.compactPopoverItems : settings.popoverItems
+        let items: [PopoverItemConfig]
+        switch (provider, isCompact) {
+        case (.claude, false): items = settings.popoverItems
+        case (.claude, true): items = settings.compactPopoverItems
+        case (.codex, false): items = settings.codexPopoverItems
+        case (.codex, true): items = settings.codexCompactPopoverItems
+        }
         guard let fromIndex = items.firstIndex(where: { $0.id == draggingID }),
               let toIndex = items.firstIndex(where: { $0.id == targetID })
         else { return }
 
         withAnimation(.easeInOut(duration: 0.15)) {
             let offset = toIndex > fromIndex ? toIndex + 1 : toIndex
-            if isCompact {
-                settings.compactPopoverItems.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: offset)
-            } else {
+            switch (provider, isCompact) {
+            case (.claude, false):
                 settings.popoverItems.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: offset)
+            case (.claude, true):
+                settings.compactPopoverItems.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: offset)
+            case (.codex, false):
+                settings.codexPopoverItems.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: offset)
+            case (.codex, true):
+                settings.codexCompactPopoverItems.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: offset)
             }
         }
     }

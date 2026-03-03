@@ -19,19 +19,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var activeTimerInterval: TimeInterval?
     private var updateCheckTimer: Timer?
     private let apiService = ClaudeAPIService()
+    private let codexAPIService = CodexAPIService()
     private let popoverViewModel = PopoverViewModel()
 
     private var currentUsage: ClaudeUsageResponse?
+    private var currentCodexUsage: CodexUsageResponse?
     private var currentOverage: OverageSpendLimitResponse?
     private var lastOverageFetchAt: Date?
     private var systemStatus: ClaudeSystemStatus?
     private var currentError: APIError?
+    private var codexError: APIError?
     private var isLoading = false
+    private var isCodexLoading = false
     private var loadingStartedAt: Date?
+    private var codexLoadingStartedAt: Date?
     private var nextUsageRefreshAllowedAt: Date?
+    private var nextCodexRefreshAllowedAt: Date?
     private var lastUpdated: Date?
+    private var codexLastUpdated: Date?
     private var hasAuthError = false
+    private var hasCodexAuthError = false
     private var consecutiveErrorCount = 0
+    private var codexConsecutiveErrorCount = 0
     private var statusTimer: Timer?
     private var appearanceObservation: NSKeyValueObservation?
 
@@ -73,6 +82,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.startMonitoring()
                 }
             }
+        } else if AppSettings.shared.codexEnabled && CodexAuthManager.shared.isAuthenticated {
+            updateMenuBar()
+            startTimer()
+            refreshCodexUsage(force: true)
         } else {
             updateMenuBar()
             showSettingsWindow()
@@ -156,7 +169,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupPopover() {
         popoverViewModel.onRefresh = { [weak self] in
-            self?.refreshUsage(force: true)
+            self?.refreshAll(force: true)
         }
         popoverViewModel.onOpenSettings = { [weak self] in
             self?.closePopover()
@@ -211,7 +224,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             updatePopoverViewModel(
                 usage: currentUsage,
+                codexUsage: currentCodexUsage,
                 error: currentError,
+                codexError: codexError,
                 isLoading: isLoading,
                 lastUpdated: lastUpdated,
                 overage: currentOverage
@@ -232,14 +247,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updatePopoverViewModel(
         usage: ClaudeUsageResponse?,
+        codexUsage: CodexUsageResponse?,
         error: APIError?,
+        codexError: APIError?,
         isLoading: Bool,
         lastUpdated: Date? = nil,
         overage: OverageSpendLimitResponse? = nil
     ) {
         popoverViewModel.update(
             usage: usage,
+            codexUsage: codexUsage,
             error: error,
+            codexError: codexError,
             isLoading: isLoading,
             lastUpdated: lastUpdated,
             overage: overage
@@ -331,7 +350,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         isLoading = false
         loadingStartedAt = nil
         updateMenuBar()
-        refreshUsage()
+        refreshAll()
         startTimer()
     }
 
@@ -357,7 +376,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             withTimeInterval: interval,
             repeats: true
         ) { [weak self] _ in
-            self?.refreshUsage(force: false)
+            self?.refreshAll(force: false)
         }
         activeTimerInterval = interval
 
@@ -398,6 +417,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AppSettings.shared.$circularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$showClaudeIcon.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$menuBarTextHighContrast.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$codexEnabled.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$showCodexIcon.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$codexPercentageDisplay.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$codexResetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$codexMenuBarStyle.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$codexCircularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
+            AppSettings.shared.$codexShowBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
         ]
 
         for publisher in displayPublishers {
@@ -407,6 +433,33 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak self] in self?.updateMenuBar() }
                 .store(in: &cancellables)
         }
+
+        AppSettings.shared.$codexEnabled
+            .dropFirst()
+            .sink { [weak self] enabled in
+                guard let self else { return }
+                if enabled {
+                    self.refreshCodexUsage(force: true)
+                } else {
+                    self.nextCodexRefreshAllowedAt = nil
+                    self.currentCodexUsage = nil
+                    self.codexError = nil
+                    self.hasCodexAuthError = false
+                    self.codexConsecutiveErrorCount = 0
+                    self.popoverViewModel.codexUsage = nil
+                    self.popoverViewModel.codexError = nil
+                    self.updatePopoverViewModel(
+                        usage: self.currentUsage,
+                        codexUsage: nil,
+                        error: self.currentError,
+                        codexError: nil,
+                        isLoading: self.isLoading,
+                        lastUpdated: self.lastUpdated,
+                        overage: self.currentOverage
+                    )
+                }
+            }
+            .store(in: &cancellables)
     }
 
     private func observePowerState() {
@@ -448,6 +501,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - API
 
+    private func refreshAll(force: Bool = false) {
+        if KeychainManager.shared.hasSessionKey {
+            refreshUsage(force: force)
+        } else {
+            currentUsage = nil
+            currentError = nil
+            hasAuthError = false
+        }
+        refreshCodexUsage(force: force)
+    }
+
     private func refreshUsage(force: Bool = false) {
         if !force, let allowedAt = nextUsageRefreshAllowedAt {
             let remaining = Int(ceil(allowedAt.timeIntervalSinceNow))
@@ -486,7 +550,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             loadingStartedAt = Date()
             updatePopoverViewModel(
                 usage: currentUsage,
+                codexUsage: currentCodexUsage,
                 error: nil,
+                codexError: codexError,
                 isLoading: true,
                 lastUpdated: lastUpdated,
                 overage: currentOverage
@@ -527,7 +593,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.updateMenuBar()
                     self.updatePopoverViewModel(
                         usage: usage,
+                        codexUsage: self.currentCodexUsage,
                         error: nil,
+                        codexError: self.codexError,
                         isLoading: false,
                         lastUpdated: self.lastUpdated,
                         overage: self.currentOverage
@@ -566,7 +634,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     }
 
                     self.updateMenuBar()
-                    self.updatePopoverViewModel(usage: self.currentUsage, error: error, isLoading: false)
+                    self.updatePopoverViewModel(
+                        usage: self.currentUsage,
+                        codexUsage: self.currentCodexUsage,
+                        error: error,
+                        codexError: self.codexError,
+                        isLoading: false
+                    )
                     self.popoverViewModel.nextUsageRetryAt = self.nextUsageRefreshAllowedAt
                     self.refreshPopoverSizeIfShown()
                     self.syncUsageHealthSnapshotToUI()
@@ -584,7 +658,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.hasAuthError = false
                     self.currentError = (self.currentUsage == nil) ? apiError : nil
                     self.updateMenuBar()
-                    self.updatePopoverViewModel(usage: self.currentUsage, error: apiError, isLoading: false)
+                    self.updatePopoverViewModel(
+                        usage: self.currentUsage,
+                        codexUsage: self.currentCodexUsage,
+                        error: apiError,
+                        codexError: self.codexError,
+                        isLoading: false
+                    )
                     self.popoverViewModel.nextUsageRetryAt = self.nextUsageRefreshAllowedAt
                     self.refreshPopoverSizeIfShown()
                     self.syncUsageHealthSnapshotToUI()
@@ -626,6 +706,168 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Logger.info("임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
     }
 
+    private func refreshCodexUsage(force: Bool = false) {
+        guard AppSettings.shared.codexEnabled else { return }
+
+        if !force, let allowedAt = nextCodexRefreshAllowedAt {
+            let remaining = Int(ceil(allowedAt.timeIntervalSinceNow))
+            if remaining > 0 {
+                Logger.debug("Codex 갱신 스킵: 임시 오류 백오프 \(remaining)초 남음")
+                return
+            }
+            nextCodexRefreshAllowedAt = nil
+        }
+
+        if isCodexLoading {
+            if let startedAt = codexLoadingStartedAt {
+                let elapsed = Date().timeIntervalSince(startedAt)
+                if elapsed >= 90 {
+                    Logger.warning("Codex 갱신 고착 감지(\(Int(elapsed))초) → 상태 복구")
+                    isCodexLoading = false
+                    codexLoadingStartedAt = nil
+                } else {
+                    return
+                }
+            } else {
+                return
+            }
+        }
+
+        if !CodexAuthManager.shared.isAuthenticated {
+            hasCodexAuthError = true
+            codexError = .invalidSessionKey
+            currentCodexUsage = nil
+            updateMenuBar()
+            updatePopoverViewModel(
+                usage: currentUsage,
+                codexUsage: nil,
+                error: currentError,
+                codexError: codexError,
+                isLoading: isLoading,
+                lastUpdated: lastUpdated,
+                overage: currentOverage
+            )
+            return
+        }
+
+        isCodexLoading = true
+        codexLoadingStartedAt = Date()
+
+        Task {
+            do {
+                _ = await codexAPIService.refreshTokenIfNeeded()
+                let usage = try await codexAPIService.fetchUsageWithRetry()
+
+                await MainActor.run {
+                    self.currentCodexUsage = usage
+                    self.codexError = nil
+                    self.hasCodexAuthError = false
+                    self.codexConsecutiveErrorCount = 0
+                    self.nextCodexRefreshAllowedAt = nil
+                    self.codexLastUpdated = Date()
+                    self.isCodexLoading = false
+                    self.codexLoadingStartedAt = nil
+                    self.updateMenuBar()
+                    self.updatePopoverViewModel(
+                        usage: self.currentUsage,
+                        codexUsage: usage,
+                        error: self.currentError,
+                        codexError: nil,
+                        isLoading: self.isLoading,
+                        lastUpdated: self.lastUpdated,
+                        overage: self.currentOverage
+                    )
+
+                    NotificationManager.shared.checkThreshold(
+                        session: .codexPrimary,
+                        percentage: usage.primaryPercentage,
+                        resetAt: usage.rateLimit?.primaryWindow?.resetAtISO
+                    )
+                    NotificationManager.shared.checkThreshold(
+                        session: .codexSecondary,
+                        percentage: usage.secondaryPercentage,
+                        resetAt: usage.rateLimit?.secondaryWindow?.resetAtISO
+                    )
+                }
+            } catch let error as APIError {
+                await MainActor.run {
+                    self.isCodexLoading = false
+                    self.codexLoadingStartedAt = nil
+                    self.codexConsecutiveErrorCount += 1
+                    self.applyCodexRefreshBackoff(for: error)
+                    self.hasCodexAuthError = error.isDefinitiveAuthFailure
+                    self.codexError = error
+                    if self.codexConsecutiveErrorCount >= 3 && error.isTemporaryFailure {
+                        self.currentCodexUsage = nil
+                    }
+                    self.updateMenuBar()
+                    self.updatePopoverViewModel(
+                        usage: self.currentUsage,
+                        codexUsage: self.currentCodexUsage,
+                        error: self.currentError,
+                        codexError: error,
+                        isLoading: self.isLoading,
+                        lastUpdated: self.lastUpdated,
+                        overage: self.currentOverage
+                    )
+                }
+            } catch {
+                let wrapped = APIError.unknownError(error.localizedDescription)
+                await MainActor.run {
+                    self.isCodexLoading = false
+                    self.codexLoadingStartedAt = nil
+                    self.codexConsecutiveErrorCount += 1
+                    self.applyCodexRefreshBackoff(for: wrapped)
+                    self.hasCodexAuthError = false
+                    self.codexError = wrapped
+                    if self.codexConsecutiveErrorCount >= 3 {
+                        self.currentCodexUsage = nil
+                    }
+                    self.updateMenuBar()
+                    self.updatePopoverViewModel(
+                        usage: self.currentUsage,
+                        codexUsage: self.currentCodexUsage,
+                        error: self.currentError,
+                        codexError: wrapped,
+                        isLoading: self.isLoading,
+                        lastUpdated: self.lastUpdated,
+                        overage: self.currentOverage
+                    )
+                }
+            }
+        }
+    }
+
+    private func applyCodexRefreshBackoff(for error: APIError) {
+        guard error.isTemporaryFailure else {
+            nextCodexRefreshAllowedAt = nil
+            return
+        }
+
+        let retryAfterSeconds: Int = {
+            switch error {
+            case .rateLimited(let retryAfter), .cloudflareBlocked(let retryAfter):
+                return retryAfter ?? 0
+            case .networkError:
+                return 10
+            case .serverError(let statusCode):
+                return statusCode >= 500 ? 20 : 10
+            case .invalidSessionKey, .parseError, .unknownError:
+                return 0
+            }
+        }()
+
+        let floor = Int(max(15, PowerMonitor.shared.effectiveRefreshInterval))
+        let backoffSeconds = max(floor, retryAfterSeconds)
+        let candidate = Date().addingTimeInterval(TimeInterval(backoffSeconds))
+
+        if let current = nextCodexRefreshAllowedAt, current > candidate {
+            return
+        }
+        nextCodexRefreshAllowedAt = candidate
+        Logger.info("Codex 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
+    }
+
     // MARK: - Menu Bar Update
 
     private func updateMenuBar() {
@@ -645,6 +887,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             secondaryColor = isDarkMenuBar
                 ? NSColor.white.withAlphaComponent(0.55)
                 : NSColor.black.withAlphaComponent(0.4)
+        }
+        let settings = AppSettings.shared
+        let hasCodexRenderableState = settings.codexEnabled && (currentCodexUsage != nil || codexError != nil || hasCodexAuthError)
+
+        if currentUsage == nil, hasCodexRenderableState {
+            renderCodexOnlyMenuBar(button: button, secondaryColor: secondaryColor)
+            return
         }
 
         if !KeychainManager.shared.hasSessionKey {
@@ -709,7 +958,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let settings = AppSettings.shared
         let fiveHourPct = usage.fiveHourPercentage
         let weeklyPct = usage.sevenDay?.utilization ?? 0
         let primaryPct = fiveHourPct
@@ -838,6 +1086,122 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        // 6. Codex 요소 (Claude 뒤에 연결)
+        if settings.codexEnabled {
+            let dividerAttrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
+            elements.append((image: nil, text: "·", attrs: dividerAttrs))
+
+            if settings.showCodexIcon, let codexIcon = NSImage(named: "CodexMenuBarIcon") {
+                codexIcon.size = NSSize(width: 15, height: 15)
+                elements.append((image: codexIcon, text: nil, attrs: nil))
+            }
+
+            if let codexUsage = currentCodexUsage {
+                let codexPrimaryPct = codexUsage.primaryPercentage
+                let codexSecondaryPct = codexUsage.secondaryPercentage
+                let codexPrimaryColor = ColorProvider.nsStatusColor(for: codexPrimaryPct)
+                let codexSecondaryColor = ColorProvider.nsWeeklyStatusColor(for: codexSecondaryPct)
+
+                let codexShowRemaining: Bool = {
+                    switch settings.codexMenuBarStyle {
+                    case .batteryBar, .dualBattery, .sideBySideBattery:
+                        return true
+                    case .circular, .concentricRings:
+                        return settings.codexCircularDisplayMode == .remaining
+                    case .none:
+                        return false
+                    }
+                }()
+
+                let codexDisplayPrimary = codexShowRemaining ? (100.0 - codexPrimaryPct) : codexPrimaryPct
+                let codexDisplaySecondary = codexShowRemaining ? (100.0 - codexSecondaryPct) : codexSecondaryPct
+
+                switch settings.codexPercentageDisplay {
+                case .none:
+                    break
+                case .fiveHour:
+                    let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: codexPrimaryColor]
+                    elements.append((image: nil, text: String(format: "%.0f%%", codexDisplayPrimary), attrs: attrs))
+                case .weekly:
+                    let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: codexSecondaryColor]
+                    elements.append((image: nil, text: String(format: "%.0f%%", codexDisplaySecondary), attrs: attrs))
+                case .dual:
+                    let t1 = String(format: "%.0f%%", codexDisplayPrimary)
+                    let t2 = " · "
+                    let t3 = String(format: "%.0f%%", codexDisplaySecondary)
+                    let a1: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: codexPrimaryColor]
+                    let a2: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: secondaryColor]
+                    let a3: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: codexSecondaryColor]
+                    let w1 = (t1 as NSString).size(withAttributes: a1).width
+                    let w2 = (t2 as NSString).size(withAttributes: a2).width
+                    let w3 = (t3 as NSString).size(withAttributes: a3).width
+                    let textHeight = (t1 as NSString).size(withAttributes: a1).height
+                    let textImage = NSImage(size: NSSize(width: w1 + w2 + w3, height: textHeight), flipped: false) { _ in
+                        var x: CGFloat = 0
+                        (t1 as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: a1); x += w1
+                        (t2 as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: a2); x += w2
+                        (t3 as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: a3)
+                        return true
+                    }
+                    elements.append((image: textImage, text: nil, attrs: nil))
+                }
+
+                let codexIsRemaining = settings.codexCircularDisplayMode == .remaining
+                let codexCircularVal = codexIsRemaining ? (100.0 - codexPrimaryPct) : codexPrimaryPct
+                let codexConcentricOuter = codexIsRemaining ? (100.0 - codexPrimaryPct) : codexPrimaryPct
+                let codexConcentricInner = codexIsRemaining ? (100.0 - codexSecondaryPct) : codexSecondaryPct
+                let codexExtraIcon: NSImage? = switch settings.codexMenuBarStyle {
+                case .none: nil
+                case .batteryBar: MenuBarIconRenderer.batteryIcon(percentage: codexPrimaryPct, color: codexPrimaryColor, showPercent: settings.codexShowBatteryPercent)
+                case .circular: MenuBarIconRenderer.circularRingIcon(percentage: codexCircularVal, color: codexPrimaryColor)
+                case .concentricRings: MenuBarIconRenderer.concentricRingsIcon(
+                    outerPercent: codexConcentricOuter, innerPercent: codexConcentricInner,
+                    outerColor: codexPrimaryColor, innerColor: codexSecondaryColor)
+                case .dualBattery: MenuBarIconRenderer.dualBatteryIcon(
+                    topPercent: codexPrimaryPct, bottomPercent: codexSecondaryPct,
+                    topColor: codexPrimaryColor, bottomColor: codexSecondaryColor)
+                case .sideBySideBattery: MenuBarIconRenderer.sideBySideBatteryIcon(
+                    leftPercent: codexPrimaryPct, rightPercent: codexSecondaryPct,
+                    leftColor: codexPrimaryColor, rightColor: codexSecondaryColor,
+                    showPercent: settings.codexShowBatteryPercent)
+                }
+                if let extra = codexExtraIcon {
+                    elements.append((image: extra, text: nil, attrs: nil))
+                }
+
+                switch settings.codexResetTimeDisplay {
+                case .none:
+                    break
+                case .fiveHour:
+                    if let resetAt = codexUsage.rateLimit?.primaryWindow?.resetAtISO,
+                       let clock = TimeFormatter.formatResetTime(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false) {
+                        let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
+                        elements.append((image: nil, text: clock, attrs: attrs))
+                    }
+                case .weekly:
+                    if let resetAt = codexUsage.rateLimit?.secondaryWindow?.resetAtISO,
+                       let clock = TimeFormatter.formatResetTimeWeekly(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false) {
+                        let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
+                        elements.append((image: nil, text: clock, attrs: attrs))
+                    }
+                case .dual:
+                    let r1 = codexUsage.rateLimit?.primaryWindow?.resetAtISO.flatMap { TimeFormatter.formatResetTime(from: $0, style: settings.timeFormat, includeDateIfNotToday: false) }
+                    let r2 = codexUsage.rateLimit?.secondaryWindow?.resetAtISO.flatMap { TimeFormatter.formatResetTimeWeekly(from: $0, style: settings.timeFormat, includeDateIfNotToday: false) }
+                    let text = (r1 != nil && r2 != nil) ? "\(r1!) · \(r2!)" : (r1 ?? r2)
+                    if let text {
+                        let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
+                        elements.append((image: nil, text: text, attrs: attrs))
+                    }
+                }
+            } else if hasCodexAuthError {
+                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.systemOrange]
+                elements.append((image: nil, text: "Codex 인증 필요", attrs: attrs))
+            } else if codexError != nil {
+                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.systemOrange]
+                elements.append((image: nil, text: "Codex ⚠", attrs: attrs))
+            }
+        }
+
         // 총 너비 계산
         var totalWidth: CGFloat = 0
         for (i, el) in elements.enumerated() {
@@ -873,7 +1237,103 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         button.imagePosition = .imageOnly
         button.attributedTitle = NSAttributedString(string: "")
         let authWarning = hasAuthError ? "\n⚠️ 세션 키가 유효하지 않습니다" : ""
-        button.toolTip = "현재 세션: \(Int(fiveHourPct))% / 주간: \(Int(weeklyPct))%\(authWarning)"
+        var tooltip = "현재 세션: \(Int(fiveHourPct))% / 주간: \(Int(weeklyPct))%\(authWarning)"
+        if AppSettings.shared.codexEnabled {
+            if let codex = currentCodexUsage {
+                tooltip += "\nCodex 현재: \(Int(codex.primaryPercentage))% / 주간: \(Int(codex.secondaryPercentage))%"
+            } else if hasCodexAuthError {
+                tooltip += "\nCodex: 인증 필요"
+            } else if codexError != nil {
+                tooltip += "\nCodex: 조회 오류"
+            }
+        }
+        button.toolTip = tooltip
+    }
+
+    private func renderCodexOnlyMenuBar(button: NSStatusBarButton, secondaryColor: NSColor) {
+        let settings = AppSettings.shared
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+        let smallFont = NSFont.systemFont(ofSize: 11)
+        let spacing: CGFloat = 4
+        var elements: [(image: NSImage?, text: String?, attrs: [NSAttributedString.Key: Any]?)] = []
+
+        if settings.showCodexIcon, let codexIcon = NSImage(named: "CodexMenuBarIcon") {
+            codexIcon.size = NSSize(width: 15, height: 15)
+            elements.append((image: codexIcon, text: nil, attrs: nil))
+        }
+
+        if let codex = currentCodexUsage {
+            let p = codex.primaryPercentage
+            let w = codex.secondaryPercentage
+            let primaryColor = ColorProvider.nsStatusColor(for: p)
+            let weeklyColor = ColorProvider.nsWeeklyStatusColor(for: w)
+
+            switch settings.codexPercentageDisplay {
+            case .none:
+                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
+                elements.append((image: nil, text: "Codex", attrs: attrs))
+            case .fiveHour:
+                let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: primaryColor]
+                elements.append((image: nil, text: String(format: "%.0f%%", p), attrs: attrs))
+            case .weekly:
+                let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: weeklyColor]
+                elements.append((image: nil, text: String(format: "%.0f%%", w), attrs: attrs))
+            case .dual:
+                let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: primaryColor]
+                elements.append((image: nil, text: String(format: "%.0f%%", p), attrs: attrs))
+                let dotAttrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
+                elements.append((image: nil, text: "·", attrs: dotAttrs))
+                let secondAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: weeklyColor]
+                elements.append((image: nil, text: String(format: "%.0f%%", w), attrs: secondAttrs))
+            }
+        } else if hasCodexAuthError {
+            let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.systemOrange]
+            elements.append((image: nil, text: "Codex 인증 필요", attrs: attrs))
+        } else {
+            let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.systemOrange]
+            elements.append((image: nil, text: "Codex 오류", attrs: attrs))
+        }
+
+        let menuBarHeight: CGFloat = 22
+        var totalWidth: CGFloat = 0
+        for (i, el) in elements.enumerated() {
+            if i > 0 { totalWidth += spacing }
+            if let image = el.image {
+                totalWidth += image.size.width
+            } else if let text = el.text, let attrs = el.attrs {
+                totalWidth += (text as NSString).size(withAttributes: attrs).width
+            }
+        }
+
+        let image = NSImage(size: NSSize(width: totalWidth, height: menuBarHeight), flipped: false) { _ in
+            var x: CGFloat = 0
+            for (i, el) in elements.enumerated() {
+                if i > 0 { x += spacing }
+                if let image = el.image {
+                    let y = (menuBarHeight - image.size.height) / 2
+                    image.draw(in: NSRect(x: x, y: y, width: image.size.width, height: image.size.height))
+                    x += image.size.width
+                } else if let text = el.text, let attrs = el.attrs {
+                    let size = (text as NSString).size(withAttributes: attrs)
+                    let y = (menuBarHeight - size.height) / 2
+                    (text as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
+                    x += size.width
+                }
+            }
+            return true
+        }
+        image.isTemplate = false
+
+        button.image = image
+        button.imagePosition = .imageOnly
+        button.attributedTitle = NSAttributedString(string: "")
+        if let codex = currentCodexUsage {
+            button.toolTip = "Codex 현재: \(Int(codex.primaryPercentage))% / 주간: \(Int(codex.secondaryPercentage))%"
+        } else if hasCodexAuthError {
+            button.toolTip = "Codex 인증 필요"
+        } else {
+            button.toolTip = "Codex 조회 오류"
+        }
     }
 
     // MARK: - Keyboard Shortcuts
@@ -884,7 +1344,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             switch event.charactersIgnoringModifiers {
             case "r":
-                self?.refreshUsage(force: true)
+                self?.refreshAll(force: true)
                 return nil
             case ",":
                 self?.showSettingsWindow()
@@ -915,8 +1375,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 await self.apiService.clearSession()
                 await MainActor.run {
-                    self.timer?.invalidate()
-                    self.timer = nil
                     self.currentUsage = nil
                     self.currentOverage = nil
                     self.lastOverageFetchAt = nil
@@ -924,8 +1382,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.hasAuthError = false
                     self.consecutiveErrorCount = 0
                     self.isLoading = false
+                    self.nextUsageRefreshAllowedAt = nil
                     self.updateMenuBar()
-                    self.updatePopoverViewModel(usage: nil, error: nil, isLoading: false, overage: nil)
+                    self.updatePopoverViewModel(
+                        usage: nil,
+                        codexUsage: self.currentCodexUsage,
+                        error: nil,
+                        codexError: self.codexError,
+                        isLoading: false,
+                        lastUpdated: self.lastUpdated,
+                        overage: nil
+                    )
+                    if AppSettings.shared.codexEnabled {
+                        self.startTimer()
+                        self.refreshCodexUsage(force: true)
+                    } else {
+                        self.timer?.invalidate()
+                        self.timer = nil
+                        self.activeTimerInterval = nil
+                    }
                 }
             }
             Logger.info("설정 적용 완료")
@@ -969,8 +1444,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         self.syncUsageHealthSnapshotToUI()
                     }
                 }
-                self.timer?.invalidate()
-                self.timer = nil
                 self.currentUsage = nil
                 self.currentOverage = nil
                 self.lastOverageFetchAt = nil
@@ -978,12 +1451,47 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.hasAuthError = false
                 self.consecutiveErrorCount = 0
                 self.isLoading = false
+                self.nextUsageRefreshAllowedAt = nil
                 self.updateMenuBar()
-                self.updatePopoverViewModel(usage: nil, error: nil, isLoading: false, overage: nil)
+                self.updatePopoverViewModel(
+                    usage: nil,
+                    codexUsage: self.currentCodexUsage,
+                    error: nil,
+                    codexError: self.codexError,
+                    isLoading: false,
+                    lastUpdated: self.lastUpdated,
+                    overage: nil
+                )
                 self.settingsSnapshot = AppSettings.shared.createSnapshot()
-
+                if AppSettings.shared.codexEnabled {
+                    self.startTimer()
+                    self.refreshCodexUsage(force: true)
+                } else {
+                    self.timer?.invalidate()
+                    self.timer = nil
+                    self.activeTimerInterval = nil
+                }
                 self.clearWebSessionData()
                 Logger.info("로그아웃 완료")
+            },
+            onCodexLogout: { [weak self] in
+                guard let self else { return }
+                CodexAuthManager.shared.clearCache()
+                self.currentCodexUsage = nil
+                self.codexError = nil
+                self.hasCodexAuthError = false
+                self.codexConsecutiveErrorCount = 0
+                self.nextCodexRefreshAllowedAt = nil
+                self.updateMenuBar()
+                self.updatePopoverViewModel(
+                    usage: self.currentUsage,
+                    codexUsage: nil,
+                    error: self.currentError,
+                    codexError: nil,
+                    isLoading: self.isLoading,
+                    lastUpdated: self.lastUpdated,
+                    overage: self.currentOverage
+                )
             }
         )
 
@@ -1086,8 +1594,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Actions
 
     @objc private func refreshClicked() {
-        if KeychainManager.shared.hasSessionKey {
-            refreshUsage(force: true)
+        if KeychainManager.shared.hasSessionKey || AppSettings.shared.codexEnabled {
+            refreshAll(force: true)
         } else {
             showSettingsWindow()
         }

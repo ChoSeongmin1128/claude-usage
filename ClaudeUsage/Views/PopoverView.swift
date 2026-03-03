@@ -365,21 +365,25 @@ struct PopoverView: View {
     // MARK: - Standard Content
 
     @ViewBuilder
-    private func standardContent(usage: ClaudeUsageResponse) -> some View {
-        let visibleItems = settings.popoverItems.filter { $0.visible }
+    private func standardContent(usage: ClaudeUsageResponse?) -> some View {
+        let visibleClaudeItems = settings.popoverItems.filter { $0.visible }
+        let visibleCodexItems = settings.codexEnabled ? settings.codexPopoverItems.filter { $0.visible } : []
+        let orderedIDs = visibleClaudeItems.map(\.id) + visibleCodexItems.map(\.id)
         VStack(spacing: 12) {
-            ForEach(Array(visibleItems.enumerated()), id: \.element.id) { index, item in
+            ForEach(Array(orderedIDs.enumerated()), id: \.offset) { index, itemID in
                 if index > 0 { Divider() }
-                switch item.id {
+                switch itemID {
                 case "currentSession":
-                    UsageSectionView(
-                        systemIcon: "gauge.medium",
-                        title: "현재 세션",
-                        percentage: usage.fiveHour.utilization,
-                        resetAt: usage.fiveHour.resetsAt
-                    )
+                    if let usage {
+                        UsageSectionView(
+                            systemIcon: "gauge.medium",
+                            title: "현재 세션",
+                            percentage: usage.fiveHour.utilization,
+                            resetAt: usage.fiveHour.resetsAt
+                        )
+                    }
                 case "weeklyLimit":
-                    if let sevenDay = usage.sevenDay {
+                    if let sevenDay = usage?.sevenDay {
                         UsageSectionView(
                             systemIcon: "calendar",
                             title: "주간 한도",
@@ -389,7 +393,7 @@ struct PopoverView: View {
                         )
                     }
                 case "modelUsage":
-                    if let sonnet = usage.sevenDaySonnet {
+                    if let sonnet = usage?.sevenDaySonnet {
                         UsageSectionView(
                             systemIcon: "bolt.fill",
                             title: "Sonnet (주간)",
@@ -398,8 +402,8 @@ struct PopoverView: View {
                             isWeekly: true
                         )
                     }
-                    if let opus = usage.sevenDayOpus {
-                        if usage.sevenDaySonnet != nil { Divider() }
+                    if let opus = usage?.sevenDayOpus {
+                        if usage?.sevenDaySonnet != nil { Divider() }
                         UsageSectionView(
                             systemIcon: "diamond.fill",
                             title: "Opus (주간)",
@@ -411,6 +415,35 @@ struct PopoverView: View {
                 case "overageUsage":
                     if let overage = viewModel.overage, overage.isEnabled {
                         OverageUsageView(overage: overage)
+                    }
+                case "codexPrimary":
+                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.primaryWindow {
+                        UsageSectionView(
+                            systemIcon: "bubble.left.and.bubble.right",
+                            title: "Codex 현재",
+                            percentage: window.utilization,
+                            resetAt: window.resetAtISO
+                        )
+                    } else {
+                        ProviderStatusRow(title: "Codex 현재", error: viewModel.codexError)
+                    }
+                case "codexSecondary":
+                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.secondaryWindow {
+                        UsageSectionView(
+                            systemIcon: "calendar.badge.clock",
+                            title: "Codex 주간",
+                            percentage: window.utilization,
+                            resetAt: window.resetAtISO,
+                            isWeekly: true
+                        )
+                    } else {
+                        ProviderStatusRow(title: "Codex 주간", error: viewModel.codexError)
+                    }
+                case "codexCredits":
+                    if let codex = viewModel.codexUsage, let credits = codex.credits {
+                        CodexCreditsView(credits: credits)
+                    } else {
+                        ProviderStatusRow(title: "Codex 크레딧", error: viewModel.codexError)
                     }
                 default:
                     EmptyView()
@@ -432,14 +465,14 @@ struct PopoverView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 56)
 
-            } else if let error = viewModel.error, viewModel.usage == nil {
+            } else if let error = viewModel.error, viewModel.usage == nil, viewModel.codexUsage == nil {
                 ErrorSectionView(error: error) {
                     viewModel.refresh()
                 }
                 .padding(12)
 
-            } else if let usage = viewModel.usage {
-                compactContent(usage: usage)
+            } else if viewModel.usage != nil || viewModel.codexUsage != nil {
+                compactContent(usage: viewModel.usage)
 
             } else {
                 Text("데이터 없음")
@@ -464,14 +497,14 @@ struct PopoverView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 150)
 
-            } else if let error = viewModel.error, viewModel.usage == nil {
+            } else if let error = viewModel.error, viewModel.usage == nil, viewModel.codexUsage == nil {
                 ErrorSectionView(error: error) {
                     viewModel.refresh()
                 }
                 .padding(16)
 
-            } else if let usage = viewModel.usage {
-                standardContent(usage: usage)
+            } else if viewModel.usage != nil || viewModel.codexUsage != nil {
+                standardContent(usage: viewModel.usage)
 
             } else {
                 VStack {
@@ -488,26 +521,43 @@ struct PopoverView: View {
     // MARK: - Compact Content
 
     @ViewBuilder
-    private func compactContent(usage: ClaudeUsageResponse) -> some View {
+    private func compactContent(usage: ClaudeUsageResponse?) -> some View {
+        let visibleClaudeItems = settings.effectiveCompactItems.filter { $0.visible }
+        let visibleCodexItems = settings.codexEnabled ? settings.effectiveCompactCodexItems.filter { $0.visible } : []
+        let orderedIDs = visibleClaudeItems.map(\.id) + visibleCodexItems.map(\.id)
         VStack(spacing: 5) {
-            ForEach(settings.effectiveCompactItems.filter { $0.visible }, id: \.id) { item in
-                switch item.id {
+            ForEach(orderedIDs, id: \.self) { itemID in
+                switch itemID {
                 case "currentSession":
-                    CompactUsageRow(label: "현재", percentage: usage.fiveHour.utilization, resetAt: usage.fiveHour.resetsAt)
+                    if let usage {
+                        CompactUsageRow(label: "현재", percentage: usage.fiveHour.utilization, resetAt: usage.fiveHour.resetsAt)
+                    }
                 case "weeklyLimit":
-                    if let sevenDay = usage.sevenDay {
+                    if let sevenDay = usage?.sevenDay {
                         CompactUsageRow(label: "주간", percentage: sevenDay.utilization, resetAt: sevenDay.resetsAt, isWeekly: true)
                     }
                 case "modelUsage":
-                    if let sonnet = usage.sevenDaySonnet {
+                    if let sonnet = usage?.sevenDaySonnet {
                         CompactUsageRow(label: "Sonnet", percentage: sonnet.utilization, resetAt: sonnet.resetsAt, isWeekly: true)
                     }
-                    if let opus = usage.sevenDayOpus {
+                    if let opus = usage?.sevenDayOpus {
                         CompactUsageRow(label: "Opus", percentage: opus.utilization, resetAt: opus.resetsAt, isWeekly: true)
                     }
                 case "overageUsage":
                     if let overage = viewModel.overage, overage.isEnabled {
                         CompactOverageRow(overage: overage)
+                    }
+                case "codexPrimary":
+                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.primaryWindow {
+                        CompactUsageRow(label: "Codex", percentage: window.utilization, resetAt: window.resetAtISO)
+                    }
+                case "codexSecondary":
+                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.secondaryWindow {
+                        CompactUsageRow(label: "C-주간", percentage: window.utilization, resetAt: window.resetAtISO, isWeekly: true)
+                    }
+                case "codexCredits":
+                    if let codex = viewModel.codexUsage, let credits = codex.credits {
+                        CompactCodexCreditsRow(credits: credits)
                     }
                 default:
                     EmptyView()
@@ -615,7 +665,9 @@ struct ErrorSectionView: View {
 
 class PopoverViewModel: ObservableObject {
     @Published var usage: ClaudeUsageResponse?
+    @Published var codexUsage: CodexUsageResponse?
     @Published var error: APIError?
+    @Published var codexError: APIError?
     @Published var isLoading: Bool = false
     @Published var lastUpdated: Date?
     @Published var overage: OverageSpendLimitResponse?
@@ -652,12 +704,102 @@ class PopoverViewModel: ObservableObject {
         }
     }
 
-    func update(usage: ClaudeUsageResponse?, error: APIError?, isLoading: Bool, lastUpdated: Date? = nil, overage: OverageSpendLimitResponse? = nil) {
+    func update(
+        usage: ClaudeUsageResponse?,
+        codexUsage: CodexUsageResponse?,
+        error: APIError?,
+        codexError: APIError?,
+        isLoading: Bool,
+        lastUpdated: Date? = nil,
+        overage: OverageSpendLimitResponse? = nil
+    ) {
         self.usage = usage
+        self.codexUsage = codexUsage
         self.error = error
+        self.codexError = codexError
         self.isLoading = isLoading
         if let lastUpdated { self.lastUpdated = lastUpdated }
         if let overage { self.overage = overage }
+    }
+}
+
+struct ProviderStatusRow: View {
+    let title: String
+    let error: APIError?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "info.circle")
+                .foregroundStyle(.secondary)
+            Text(title)
+                .font(.subheadline)
+            Spacer()
+            Text(statusText)
+                .font(.caption)
+                .foregroundStyle(statusColor)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var statusText: String {
+        if let error {
+            return error.isDefinitiveAuthFailure ? "인증 필요" : "조회 실패"
+        }
+        return "데이터 없음"
+    }
+
+    private var statusColor: Color {
+        if let error {
+            return error.isDefinitiveAuthFailure ? .orange : .secondary
+        }
+        return .secondary
+    }
+}
+
+// MARK: - Codex Credits
+
+struct CodexCreditsView: View {
+    let credits: CodexCredits
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "creditcard")
+                    .foregroundStyle(.secondary)
+                Text("Codex 크레딧")
+                    .font(.headline)
+                Spacer()
+                Text(credits.formattedBalance)
+                    .font(.title3)
+                    .fontWeight(.semibold)
+            }
+            HStack {
+                Text(credits.unlimited ? "무제한 플랜" : "사용 가능한 크레딧")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct CompactCodexCreditsRow: View {
+    let credits: CodexCredits
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text("크레딧")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 36, alignment: .leading)
+
+            Text(credits.formattedBalance)
+                .font(.system(.caption, design: .monospaced))
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
     }
 }
 
