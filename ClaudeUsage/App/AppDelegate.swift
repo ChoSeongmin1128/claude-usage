@@ -173,6 +173,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+        popoverViewModel.onCompactModeChanged = { [weak self] isCompact in
+            self?.applyPopoverSize(forCompactMode: isCompact)
+        }
 
         let popoverView = PopoverView(viewModel: popoverViewModel)
         let hostingController = NSHostingController(rootView: popoverView)
@@ -182,6 +185,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popover?.contentViewController = hostingController
         popover?.behavior = isPinned ? .applicationDefined : .transient
         popover?.animates = true
+        applyPopoverSize(forCompactMode: AppSettings.shared.popoverCompact)
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -203,11 +207,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             closePopover()
         } else {
             popoverViewModel.update(usage: currentUsage, error: currentError, isLoading: isLoading, lastUpdated: lastUpdated, overage: currentOverage)
+            applyPopoverSize(forCompactMode: AppSettings.shared.popoverCompact)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate()
             if !AppSettings.shared.popoverPinned {
                 startGlobalClickMonitor()
             }
+        }
+    }
+
+    private func applyPopoverSize(forCompactMode isCompact: Bool) {
+        guard let popover else { return }
+        let targetSize = NSSize(
+            width: isCompact ? 300 : 340,
+            height: isCompact ? 220 : 430
+        )
+        if popover.contentSize != targetSize {
+            popover.contentSize = targetSize
         }
     }
 

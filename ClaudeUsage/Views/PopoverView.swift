@@ -177,11 +177,6 @@ struct PopoverView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
                 .background(statusColor(for: status.indicator).opacity(0.08))
-                .onChange(of: settings.popoverCompact) { _, isCompact in
-                    if isCompact {
-                        isStatusExpanded = false
-                    }
-                }
             }
 
             // 업데이트 배너
@@ -329,6 +324,12 @@ struct PopoverView: View {
         }
         .frame(width: settings.popoverCompact ? 300 : 340)
         .background(Color(NSColor.windowBackgroundColor))
+        .onChange(of: settings.popoverCompact) { _, isCompact in
+            if isCompact {
+                isStatusExpanded = false
+            }
+            viewModel.onCompactModeChanged?(isCompact)
+        }
     }
 
     // MARK: - Helpers
@@ -603,6 +604,7 @@ class PopoverViewModel: ObservableObject {
     var onRefresh: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onPinChanged: ((Bool) -> Void)?
+    var onCompactModeChanged: ((Bool) -> Void)?
 
     func refresh() {
         onRefresh?()
