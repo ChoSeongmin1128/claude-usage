@@ -23,6 +23,17 @@ actor ClaudeAPIService {
         }
     }
 
+    struct OrganizationPreview: Sendable, Equatable, Identifiable {
+        let organization: OrganizationSummary
+        let fiveHourPercentage: Double?
+        let weeklyPercentage: Double?
+        let overageUsed: Double?
+        let overageLimit: Double?
+        let usageErrorMessage: String?
+
+        var id: String { organization.id }
+    }
+
     private var sessionKey: String?
     private let baseURL = "https://claude.ai/api"
     private var cachedOrganizationID: String?
@@ -179,9 +190,54 @@ actor ClaudeAPIService {
         }
     }
 
+    /// 현재 세션 키 기준 organization별 사용량 미리보기 조회 (설정 UI 용도)
+    func fetchOrganizationPreviews(maxOrganizations: Int = 8) async throws -> [OrganizationPreview] {
+        guard let sessionKey, !sessionKey.isEmpty else {
+            throw APIError.invalidSessionKey
+        }
+
+        let organizations = try await fetchOrganizations()
+        let targets = Array(organizations.prefix(max(1, maxOrganizations)))
+        var previews: [OrganizationPreview] = []
+        previews.reserveCapacity(targets.count)
+
+        for organization in targets {
+            var usage: ClaudeUsageResponse?
+            var usageErrorMessage: String?
+            do {
+                usage = try await fetchUsageWithSessionKey(sessionKey, organizationID: organization.id)
+            } catch {
+                usageErrorMessage = error.localizedDescription
+            }
+
+            var overage: OverageSpendLimitResponse?
+            do {
+                overage = try await fetchOverageSpendLimitWithSessionKey(sessionKey, organizationID: organization.id)
+            } catch {
+                // overage는 보조 정보이므로 실패해도 미리보기는 유지
+            }
+
+            previews.append(
+                OrganizationPreview(
+                    organization: organization,
+                    fiveHourPercentage: usage?.fiveHour.utilization,
+                    weeklyPercentage: usage?.sevenDay?.utilization,
+                    overageUsed: overage?.usedCredits,
+                    overageLimit: overage?.monthlyCreditLimit,
+                    usageErrorMessage: usageErrorMessage
+                )
+            )
+        }
+
+        return previews
+    }
+
     private func fetchUsageWithSessionKey(_ sessionKey: String) async throws -> ClaudeUsageResponse {
         let orgID = try await getOrganizationID()
+        return try await fetchUsageWithSessionKey(sessionKey, organizationID: orgID)
+    }
 
+    private func fetchUsageWithSessionKey(_ sessionKey: String, organizationID orgID: String) async throws -> ClaudeUsageResponse {
         let url = URL(string: "\(baseURL)/organizations/\(orgID)/usage")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -231,7 +287,10 @@ actor ClaudeAPIService {
         }
 
         let orgID = try await getOrganizationID()
+        return try await fetchOverageSpendLimitWithSessionKey(sessionKey, organizationID: orgID)
+    }
 
+    private func fetchOverageSpendLimitWithSessionKey(_ sessionKey: String, organizationID orgID: String) async throws -> OverageSpendLimitResponse {
         let url = URL(string: "\(baseURL)/organizations/\(orgID)/overage_spend_limit")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"

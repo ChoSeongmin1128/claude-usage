@@ -25,6 +25,7 @@ struct SettingsView: View {
     @State private var compactConfigTab: Int = 0
     @State private var selectedOrganizationID: String = ""
     @State private var organizations: [ClaudeAPIService.OrganizationSummary] = []
+    @State private var organizationPreviews: [ClaudeAPIService.OrganizationPreview] = []
     @State private var isLoadingOrganizations = false
     @State private var organizationMessage: String?
 
@@ -305,6 +306,48 @@ struct SettingsView: View {
             TextField("Organization UUID 직접 입력 (선택)", text: $selectedOrganizationID)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.caption, design: .monospaced))
+
+            if !organizationPreviews.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("조회 미리보기")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    ForEach(organizationPreviews, id: \.id) { preview in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(preview.organization.displayName)
+                                .font(.caption)
+                                .lineLimit(1)
+
+                            if let err = preview.usageErrorMessage {
+                                Text("조회 실패: \(err)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.orange)
+                            } else {
+                                let fiveHour = preview.fiveHourPercentage.map { String(format: "%.0f%%", $0) } ?? "-"
+                                let weekly = preview.weeklyPercentage.map { String(format: "%.0f%%", $0) } ?? "-"
+                                let overage: String = {
+                                    guard let used = preview.overageUsed, let limit = preview.overageLimit else { return "추가사용량 -/-" }
+                                    return String(format: "추가사용량 $%.2f/$%.2f", used, limit)
+                                }()
+                                Text("현재 \(fiveHour) · 주간 \(weekly) · \(overage)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(selectedOrganizationID == preview.id ? Color.accentColor.opacity(0.10) : Color(NSColor.controlBackgroundColor).opacity(0.45))
+                        .cornerRadius(6)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            selectedOrganizationID = preview.id
+                        }
+                    }
+                }
+                .padding(.top, 4)
+            }
 
             if let message = organizationMessage {
                 Text(message)
@@ -864,24 +907,32 @@ struct SettingsView: View {
         Task {
             do {
                 let service = ClaudeAPIService(sessionKey: normalizedKey)
-                let fetched = try await service.fetchOrganizations()
+                await service.updatePreferredOrganizationID(normalizeOrganizationID(selectedOrganizationID))
+                let previews = try await service.fetchOrganizationPreviews()
                 await MainActor.run {
-                    organizations = fetched
+                    organizationPreviews = previews
+                    organizations = previews.map(\.organization)
                     isLoadingOrganizations = false
-                    if fetched.isEmpty {
+                    if previews.isEmpty {
                         organizationMessage = "organization 목록이 비어 있습니다."
                         return
                     }
-                    let exists = selectedOrganizationID.isEmpty || fetched.contains { $0.id == selectedOrganizationID }
+                    let exists = selectedOrganizationID.isEmpty || previews.contains { $0.id == selectedOrganizationID }
                     if !exists {
                         organizationMessage = "현재 선택한 organization이 목록에 없어 자동 선택으로 동작합니다."
                     } else {
-                        organizationMessage = "organization \(fetched.count)개를 불러왔습니다."
+                        let failedCount = previews.filter { $0.usageErrorMessage != nil }.count
+                        if failedCount > 0 {
+                            organizationMessage = "organization \(previews.count)개 중 \(failedCount)개는 상세 조회에 실패했습니다."
+                        } else {
+                            organizationMessage = "organization \(previews.count)개의 상세를 불러왔습니다."
+                        }
                     }
                 }
             } catch {
                 await MainActor.run {
                     isLoadingOrganizations = false
+                    organizationPreviews = []
                     organizationMessage = "organization 목록 조회 실패: \(error.localizedDescription)"
                 }
             }
@@ -893,6 +944,7 @@ struct SettingsView: View {
         refreshIntervalText = String(Int(settings.refreshInterval))
         alertTexts = settings.alertThresholds.map { String($0) }
         selectedOrganizationID = settings.preferredOrganizationID
+        organizationPreviews = []
         organizationMessage = nil
     }
 }
