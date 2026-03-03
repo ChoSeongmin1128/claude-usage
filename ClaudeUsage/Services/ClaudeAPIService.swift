@@ -89,6 +89,7 @@ actor ClaudeAPIService {
         }
 
         do {
+            Logger.info("OAuth 경로 시도 시작")
             let usage = try await fetchUsageViaOAuth()
             if let sessionPathError, shouldPreferOAuthAfter(error: sessionPathError) {
                 preferOAuthUntil = Date().addingTimeInterval(oauthPreferDuration)
@@ -399,15 +400,18 @@ actor ClaudeAPIService {
         var serviceNames: [String] = ["Claude Code-credentials"]
         serviceNames.append(contentsOf: discoverClaudeCredentialServiceNames())
         serviceNames = Array(NSOrderedSet(array: serviceNames).compactMap { $0 as? String })
+        Logger.debug("OAuth 토큰 조회: 키체인 서비스 \(serviceNames.count)개 후보")
 
         for service in serviceNames {
             guard let credentials = try readKeychainCredentialPayload(serviceName: service) else { continue }
             if let token = parseOAuthAccessToken(from: credentials) {
+                Logger.info("OAuth 토큰 조회 성공 (키체인 서비스: \(service))")
                 return token
             }
         }
 
         // 2) 키체인이 잘리거나 누락된 경우 파일 fallback
+        Logger.warning("키체인 OAuth 토큰 조회 실패 → 파일 fallback 시도")
         return readOAuthAccessTokenFromCredentialFiles()
     }
 
@@ -502,10 +506,12 @@ actor ClaudeAPIService {
                   !text.isEmpty else { continue }
 
             if let token = parseOAuthAccessToken(from: text) {
+                Logger.info("OAuth 토큰 조회 성공 (파일: \(fileURL.lastPathComponent))")
                 return token
             }
         }
 
+        Logger.warning("OAuth 토큰 조회 실패 (키체인/파일 모두 실패)")
         return nil
     }
 
