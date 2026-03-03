@@ -200,21 +200,30 @@ actor ClaudeAPIService {
         let targets = Array(organizations.prefix(max(1, maxOrganizations)))
         var previews: [OrganizationPreview] = []
         previews.reserveCapacity(targets.count)
+        var oauthFallbackUsage: ClaudeUsageResponse?
 
         for organization in targets {
             var usage: ClaudeUsageResponse?
             var usageErrorMessage: String?
             do {
                 usage = try await fetchUsageWithSessionKey(sessionKey, organizationID: organization.id)
+            } catch let apiError as APIError {
+                // 임시 장애 시 OAuth usage를 1회 조회해 최소 비교 정보는 유지
+                if apiError.isTemporaryFailure {
+                    if oauthFallbackUsage == nil {
+                        oauthFallbackUsage = try? await fetchUsageViaOAuth()
+                    }
+                    if let oauthFallbackUsage {
+                        usage = oauthFallbackUsage
+                        usageErrorMessage = "세션 제한으로 OAuth 기준 값을 표시 중"
+                    } else {
+                        usageErrorMessage = apiError.localizedDescription
+                    }
+                } else {
+                    usageErrorMessage = apiError.localizedDescription
+                }
             } catch {
                 usageErrorMessage = error.localizedDescription
-            }
-
-            var overage: OverageSpendLimitResponse?
-            do {
-                overage = try await fetchOverageSpendLimitWithSessionKey(sessionKey, organizationID: organization.id)
-            } catch {
-                // overage는 보조 정보이므로 실패해도 미리보기는 유지
             }
 
             previews.append(
@@ -222,8 +231,8 @@ actor ClaudeAPIService {
                     organization: organization,
                     fiveHourPercentage: usage?.fiveHour.utilization,
                     weeklyPercentage: usage?.sevenDay?.utilization,
-                    overageUsed: overage?.usedCredits,
-                    overageLimit: overage?.monthlyCreditLimit,
+                    overageUsed: nil,
+                    overageLimit: nil,
                     usageErrorMessage: usageErrorMessage
                 )
             )

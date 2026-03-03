@@ -28,6 +28,7 @@ struct SettingsView: View {
     @State private var organizationPreviews: [ClaudeAPIService.OrganizationPreview] = []
     @State private var isLoadingOrganizations = false
     @State private var organizationMessage: String?
+    @State private var organizationOAuthFallbackSummary: String?
 
     var onSave: (() -> Void)?
     var onCancel: (() -> Void)?
@@ -326,11 +327,7 @@ struct SettingsView: View {
                             } else {
                                 let fiveHour = preview.fiveHourPercentage.map { String(format: "%.0f%%", $0) } ?? "-"
                                 let weekly = preview.weeklyPercentage.map { String(format: "%.0f%%", $0) } ?? "-"
-                                let overage: String = {
-                                    guard let used = preview.overageUsed, let limit = preview.overageLimit else { return "추가사용량 -/-" }
-                                    return String(format: "추가사용량 $%.2f/$%.2f", used, limit)
-                                }()
-                                Text("현재 \(fiveHour) · 주간 \(weekly) · \(overage)")
+                                Text("현재 \(fiveHour) · 주간 \(weekly)")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -353,6 +350,16 @@ struct SettingsView: View {
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(message.contains("실패") || message.contains("없음") ? .orange : .secondary)
+            }
+
+            if let oauthSummary = organizationOAuthFallbackSummary {
+                Text(oauthSummary)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+                    .cornerRadius(6)
             }
         }
     }
@@ -903,16 +910,18 @@ struct SettingsView: View {
 
         isLoadingOrganizations = true
         organizationMessage = nil
+        organizationOAuthFallbackSummary = nil
 
         Task {
+            let service = ClaudeAPIService(sessionKey: normalizedKey)
+            await service.updatePreferredOrganizationID(normalizeOrganizationID(selectedOrganizationID))
             do {
-                let service = ClaudeAPIService(sessionKey: normalizedKey)
-                await service.updatePreferredOrganizationID(normalizeOrganizationID(selectedOrganizationID))
                 let previews = try await service.fetchOrganizationPreviews()
                 await MainActor.run {
                     organizationPreviews = previews
                     organizations = previews.map(\.organization)
                     isLoadingOrganizations = false
+                    organizationOAuthFallbackSummary = nil
                     if previews.isEmpty {
                         organizationMessage = "organization 목록이 비어 있습니다."
                         return
@@ -930,10 +939,23 @@ struct SettingsView: View {
                     }
                 }
             } catch {
-                await MainActor.run {
-                    isLoadingOrganizations = false
-                    organizationPreviews = []
-                    organizationMessage = "organization 목록 조회 실패: \(error.localizedDescription)"
+                do {
+                    let fallbackUsage = try await service.fetchUsage()
+                    await MainActor.run {
+                        isLoadingOrganizations = false
+                        organizationPreviews = []
+                        organizationMessage = "organization 목록 조회 실패로 OAuth 기준 사용량만 표시합니다."
+                        let fiveHour = String(format: "%.0f%%", fallbackUsage.fiveHour.utilization)
+                        let weekly = String(format: "%.0f%%", fallbackUsage.sevenDay?.utilization ?? 0)
+                        organizationOAuthFallbackSummary = "OAuth 기준: 현재 \(fiveHour) · 주간 \(weekly)"
+                    }
+                } catch {
+                    await MainActor.run {
+                        isLoadingOrganizations = false
+                        organizationPreviews = []
+                        organizationOAuthFallbackSummary = nil
+                        organizationMessage = "organization 목록 조회 실패: \(error.localizedDescription)"
+                    }
                 }
             }
         }
@@ -946,6 +968,7 @@ struct SettingsView: View {
         selectedOrganizationID = settings.preferredOrganizationID
         organizationPreviews = []
         organizationMessage = nil
+        organizationOAuthFallbackSummary = nil
     }
 }
 
