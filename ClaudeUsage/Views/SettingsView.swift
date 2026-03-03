@@ -35,6 +35,9 @@ struct SettingsView: View {
     @State private var organizationOAuthFallbackSummary: String?
     @State private var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
     @State private var selectedPanel: SettingsPanel = .common
+    @State private var selectedCommonTab: CommonTab = .display
+    @State private var selectedClaudeTab: ClaudeTab = .auth
+    @State private var selectedCodexTab: CodexTab = .auth
     @State private var isAdvancedAuthExpanded = false
     @State private var isOAuthGuideExpanded = false
     @State private var isAuthFAQExpanded = false
@@ -66,6 +69,68 @@ struct SettingsView: View {
             case .codex: return "Codex"
             }
         }
+
+        var icon: String {
+            switch self {
+            case .common: return "slider.horizontal.3"
+            case .claude: return "brain"
+            case .codex: return "bubble.left.and.bubble.right"
+            }
+        }
+    }
+
+    enum CommonTab: String, CaseIterable, Identifiable {
+        case display
+        case refreshPower
+        case app
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .display: return "표시"
+            case .refreshPower: return "갱신/전원"
+            case .app: return "앱"
+            }
+        }
+    }
+
+    enum ClaudeTab: String, CaseIterable, Identifiable {
+        case auth
+        case status
+        case organizations
+        case popover
+        case alerts
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .auth: return "인증"
+            case .status: return "상태"
+            case .organizations: return "Organization"
+            case .popover: return "표시 항목"
+            case .alerts: return "알림"
+            }
+        }
+    }
+
+    enum CodexTab: String, CaseIterable, Identifiable {
+        case auth
+        case display
+        case popover
+        case alerts
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .auth: return "인증"
+            case .display: return "표시"
+            case .popover: return "표시 항목"
+            case .alerts: return "알림"
+            }
+        }
     }
 
     private enum CodexAuthStatus {
@@ -92,35 +157,23 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                ForEach(SettingsPanel.allCases) { panel in
-                    Button {
-                        selectedPanel = panel
-                    } label: {
-                        Text(panel.title)
-                            .font(.subheadline)
-                            .fontWeight(selectedPanel == panel ? .semibold : .regular)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(selectedPanel == panel ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
-                            .foregroundStyle(selectedPanel == panel ? Color.accentColor : .primary)
-                            .cornerRadius(8)
+            HStack(spacing: 0) {
+                sidebar
+
+                Divider()
+
+                VStack(spacing: 0) {
+                    panelTabBar
+
+                    Divider()
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            panelContent
+                        }
+                        .padding(20)
                     }
-                    .buttonStyle(.plain)
                 }
-                Spacer()
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
-
-            Divider()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    panelContent
-                }
-                .padding(24)
             }
 
             // 하단 버튼
@@ -138,7 +191,7 @@ struct SettingsView: View {
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
         }
-        .frame(width: 420, height: 580)
+        .frame(width: 760, height: 600)
         .onAppear {
             snapshot = settings.createSnapshot()
             if let key = KeychainManager.shared.load() {
@@ -164,9 +217,17 @@ struct SettingsView: View {
         }
         .onChange(of: selectedPanel) { _, panel in
             settings.settingsLastTab = panel.rawValue
+            if panel == .codex {
+                checkCodexAuth()
+            }
         }
         .onChange(of: settings.codexEnabled) { _, _ in
             checkCodexAuth()
+        }
+        .onChange(of: selectedClaudeTab) { _, tab in
+            if tab == .organizations, organizations.isEmpty, !isLoadingOrganizations {
+                loadOrganizations(forceRefresh: false)
+            }
         }
     }
 
@@ -174,32 +235,122 @@ struct SettingsView: View {
     private var panelContent: some View {
         switch selectedPanel {
         case .common:
-            displaySection
-            Divider()
-            refreshSection
-            Divider()
-            powerSection
-            Divider()
-            updateSection
-            Divider()
-            generalSection
+            switch selectedCommonTab {
+            case .display:
+                displaySection
+            case .refreshPower:
+                refreshSection
+                Divider()
+                powerSection
+            case .app:
+                updateSection
+                Divider()
+                generalSection
+            }
         case .claude:
-            statusSection
-            Divider()
-            authSection
-            Divider()
-            popoverItemsSection
-            Divider()
-            alertSection
+            switch selectedClaudeTab {
+            case .auth:
+                authSection
+            case .status:
+                statusSection
+            case .organizations:
+                organizationSection
+            case .popover:
+                popoverItemsSection
+            case .alerts:
+                alertSection
+            }
         case .codex:
-            codexAuthSection
-            Divider()
-            codexDisplaySection
-            Divider()
-            codexPopoverItemsSection
-            Divider()
-            codexAlertSection
+            switch selectedCodexTab {
+            case .auth:
+                codexAuthSection
+            case .display:
+                codexDisplaySection
+            case .popover:
+                codexPopoverItemsSection
+            case .alerts:
+                codexAlertSection
+            }
         }
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("설정")
+                .font(.headline)
+                .padding(.horizontal, 8)
+                .padding(.top, 4)
+
+            ForEach(SettingsPanel.allCases) { panel in
+                Button {
+                    selectedPanel = panel
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: panel.icon)
+                            .frame(width: 16)
+                        Text(panel.title)
+                            .font(.subheadline)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(selectedPanel == panel ? Color.accentColor.opacity(0.16) : Color.clear)
+                    .foregroundStyle(selectedPanel == panel ? Color.accentColor : .primary)
+                    .cornerRadius(8)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer()
+        }
+        .padding(12)
+        .frame(width: 156)
+        .background(Color(NSColor.windowBackgroundColor))
+    }
+
+    @ViewBuilder
+    private var panelTabBar: some View {
+        HStack(spacing: 8) {
+            switch selectedPanel {
+            case .common:
+                ForEach(CommonTab.allCases) { tab in
+                    segmentedTabButton(title: tab.title, isSelected: selectedCommonTab == tab) {
+                        selectedCommonTab = tab
+                    }
+                }
+            case .claude:
+                ForEach(ClaudeTab.allCases) { tab in
+                    segmentedTabButton(title: tab.title, isSelected: selectedClaudeTab == tab) {
+                        selectedClaudeTab = tab
+                    }
+                }
+            case .codex:
+                ForEach(CodexTab.allCases) { tab in
+                    segmentedTabButton(title: tab.title, isSelected: selectedCodexTab == tab) {
+                        selectedCodexTab = tab
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
+    }
+
+    private func segmentedTabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption)
+                .fontWeight(isSelected ? .semibold : .regular)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(isSelected ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
+                .foregroundStyle(isSelected ? Color.accentColor : .primary)
+                .cornerRadius(8)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - 인증 섹션
@@ -358,10 +509,6 @@ struct SettingsView: View {
 
             runtimeStatusSummaryCard
             usageHealthSection
-
-            Divider()
-
-            organizationSection
         }
     }
 
@@ -710,7 +857,6 @@ struct SettingsView: View {
 
     private var organizationSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Divider()
             organizationHeader
             organizationLoadActions
             organizationTargetPicker
