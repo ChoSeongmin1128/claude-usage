@@ -13,6 +13,7 @@ import UniformTypeIdentifiers
 struct SettingsView: View {
     @ObservedObject var settings = AppSettings.shared
     @State private var sessionKey: String = ""
+    @State private var storedSessionKey: String?
     @State private var testResult: TestResult?
     @State private var isTesting: Bool = false
     @State private var refreshIntervalText: String = ""
@@ -40,8 +41,9 @@ struct SettingsView: View {
 
     private var sessionKeyFormatWarning: String? {
         guard !sessionKey.isEmpty else { return nil }
-        if !sessionKey.hasPrefix("sk-ant-sid01-") {
-            return "세션 키는 보통 sk-ant-sid01-로 시작합니다"
+        let normalized = normalizeSessionKey(sessionKey)
+        if !normalized.hasPrefix("sk-ant-") {
+            return "세션 키는 보통 sk-ant-로 시작합니다"
         }
         return nil
     }
@@ -109,10 +111,13 @@ struct SettingsView: View {
         .onAppear {
             snapshot = settings.createSnapshot()
             if let key = KeychainManager.shared.load() {
+                storedSessionKey = key
                 sessionKey = key
-                // 세션 키 유효성 자동 확인
-                testConnection()
+            } else {
+                storedSessionKey = nil
+                sessionKey = ""
             }
+            testResult = nil
             refreshIntervalText = String(Int(settings.refreshInterval))
             alertTexts = settings.alertThresholds.map { String($0) }
         }
@@ -130,8 +135,8 @@ struct SettingsView: View {
             Label("인증", systemImage: "key")
                 .font(.headline)
 
-            if !sessionKey.isEmpty {
-                // 세션 키 존재
+            if let storedSessionKey, !storedSessionKey.isEmpty {
+                // 저장된 세션 키 존재
                 HStack(spacing: 8) {
                     if isTesting {
                         ProgressView()
@@ -150,13 +155,13 @@ struct SettingsView: View {
                                 .lineLimit(1)
                         }
                     } else {
-                        Label("세션 키 입력됨 (미검증)", systemImage: "key.fill")
-                            .foregroundStyle(.orange)
+                        Label("세션 키 저장됨", systemImage: "key.fill")
+                            .foregroundStyle(.secondary)
                     }
                     Spacer()
                 }
                 HStack(spacing: 8) {
-                    Text("세션 키: \(String(sessionKey.prefix(20)))...")
+                    Text("세션 키: \(String(storedSessionKey.prefix(20)))...")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -207,9 +212,13 @@ struct SettingsView: View {
                         }
                     }
 
-                    TextField("sk-ant-sid01-...", text: $sessionKey)
+                    TextField("sk-ant-... 또는 sessionKey=sk-ant-...", text: $sessionKey)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(.caption, design: .monospaced))
+
+                    Text("입력만으로 로그인 상태가 되지는 않으며, 저장 후 적용됩니다.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
 
                     if let warning = sessionKeyFormatWarning {
                         Label(warning, systemImage: "exclamationmark.triangle")
@@ -682,7 +691,7 @@ struct SettingsView: View {
     // MARK: - Actions
 
     private func testConnection() {
-        let normalizedKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedKey = normalizeSessionKey(sessionKey)
         guard !normalizedKey.isEmpty else { return }
         if normalizedKey != sessionKey {
             sessionKey = normalizedKey
@@ -700,6 +709,7 @@ struct SettingsView: View {
                     // 연결 성공 시 자동 저장
                     do {
                         try KeychainManager.shared.save(normalizedKey)
+                        storedSessionKey = normalizedKey
                         Logger.info("연결 테스트 성공, 세션 키 자동 저장됨")
                     } catch {
                         Logger.error("세션 키 저장 실패: \(error)")
@@ -715,7 +725,7 @@ struct SettingsView: View {
     }
 
     private func save() {
-        let normalizedKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedKey = normalizeSessionKey(sessionKey)
         if normalizedKey != sessionKey {
             sessionKey = normalizedKey
         }
@@ -724,11 +734,14 @@ struct SettingsView: View {
         if !normalizedKey.isEmpty {
             do {
                 try KeychainManager.shared.save(normalizedKey)
+                storedSessionKey = normalizedKey
             } catch {
                 Logger.error("세션 키 저장 실패: \(error)")
             }
         } else {
             try? KeychainManager.shared.delete()
+            storedSessionKey = nil
+            testResult = nil
         }
 
         // 새로고침 간격 유효성
@@ -737,6 +750,27 @@ struct SettingsView: View {
         }
 
         onSave?()
+    }
+
+    private func normalizeSessionKey(_ raw: String) -> String {
+        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let prefixRange = value.range(of: "sessionKey=", options: [.anchored, .caseInsensitive]) {
+            value = String(value[prefixRange.upperBound...])
+        }
+
+        if let semiIndex = value.firstIndex(of: ";") {
+            value = String(value[..<semiIndex])
+        }
+
+        value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 {
+            value.removeFirst()
+            value.removeLast()
+        }
+
+        return value
     }
 
     private func resetToDefaults() {

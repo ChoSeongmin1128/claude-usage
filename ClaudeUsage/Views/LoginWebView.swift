@@ -17,7 +17,8 @@ struct LoginWebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
-        config.websiteDataStore = .default()
+        // 로그인 창은 비영구 스토어를 사용해 이전 로그인 쿠키 잔존 영향을 최소화
+        config.websiteDataStore = .nonPersistent()
 
         let prefs = WKWebpagePreferences()
         prefs.allowsContentJavaScript = true
@@ -238,18 +239,6 @@ struct LoginWebView: NSViewRepresentable {
                             }
                         }
                     }
-
-                    // sessionKey 이름이 아니더라도 sk-ant- 패턴 검색
-                    for pair in pairs {
-                        let trimmed = pair.trimmingCharacters(in: .whitespaces)
-                        if let eqIdx = trimmed.firstIndex(of: "=") {
-                            let value = String(trimmed[trimmed.index(after: eqIdx)...])
-                            if value.hasPrefix("sk-ant-") {
-                                self.foundSessionKey(value, source: "JavaScript (패턴 매칭)")
-                                return
-                            }
-                        }
-                    }
                 }
 
                 if let error = error {
@@ -269,7 +258,7 @@ struct LoginWebView: NSViewRepresentable {
             }
         }
 
-        /// 쿠키 배열에서 세션 키 검색 (유연한 매칭)
+        /// 쿠키 배열에서 세션 키 검색 (sessionKey 쿠키만 신뢰)
         private func scanCookies(_ cookies: [HTTPCookie], source: String) {
             guard !sessionKeyExtracted else { return }
 
@@ -279,22 +268,6 @@ struct LoginWebView: NSViewRepresentable {
             for cookie in claudeCookies {
                 if cookie.name == "sessionKey" && cookie.value.hasPrefix("sk-ant-") {
                     foundSessionKey(cookie.value, source: "\(source) (sessionKey)")
-                    return
-                }
-            }
-
-            // 2순위: 아무 쿠키든 값이 sk-ant-sid01- 시작
-            for cookie in claudeCookies {
-                if cookie.value.hasPrefix("sk-ant-sid01-") {
-                    foundSessionKey(cookie.value, source: "\(source) (\(cookie.name))")
-                    return
-                }
-            }
-
-            // 3순위: 아무 쿠키든 값이 sk-ant- 시작
-            for cookie in claudeCookies {
-                if cookie.value.hasPrefix("sk-ant-") {
-                    foundSessionKey(cookie.value, source: "\(source) (\(cookie.name))")
                     return
                 }
             }
