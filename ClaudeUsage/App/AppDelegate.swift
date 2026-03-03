@@ -162,6 +162,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.closePopover()
             self?.showSettingsWindow()
         }
+        popoverViewModel.onLayoutChanged = { [weak self] in
+            self?.refreshPopoverSizeIfShown()
+        }
         popoverViewModel.onPinChanged = { [weak self] isPinned in
             guard let self = self else { return }
             if isPinned {
@@ -177,6 +180,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let popoverView = PopoverView(viewModel: popoverViewModel)
         let hostingController = NSHostingController(rootView: popoverView)
+        if #available(macOS 13.0, *) {
+            hostingController.sizingOptions = [.preferredContentSize]
+        }
 
         let isPinned = AppSettings.shared.popoverPinned
         popover = NSPopover()
@@ -203,8 +209,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             closePopover()
         } else {
-            popoverViewModel.update(usage: currentUsage, error: currentError, isLoading: isLoading, lastUpdated: lastUpdated, overage: currentOverage)
+            updatePopoverViewModel(
+                usage: currentUsage,
+                error: currentError,
+                isLoading: isLoading,
+                lastUpdated: lastUpdated,
+                overage: currentOverage
+            )
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            refreshPopoverSizeIfShown()
             NSApp.activate()
             if !AppSettings.shared.popoverPinned {
                 startGlobalClickMonitor()
@@ -215,6 +228,51 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func closePopover() {
         popover?.close()
         stopGlobalClickMonitor()
+    }
+
+    private func updatePopoverViewModel(
+        usage: ClaudeUsageResponse?,
+        error: APIError?,
+        isLoading: Bool,
+        lastUpdated: Date? = nil,
+        overage: OverageSpendLimitResponse? = nil
+    ) {
+        popoverViewModel.update(
+            usage: usage,
+            error: error,
+            isLoading: isLoading,
+            lastUpdated: lastUpdated,
+            overage: overage
+        )
+        refreshPopoverSizeIfShown()
+    }
+
+    private func refreshPopoverSizeIfShown() {
+        guard let popover, popover.isShown else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  let popover = self.popover,
+                  popover.isShown,
+                  let hosting = popover.contentViewController as? NSHostingController<PopoverView> else {
+                return
+            }
+
+            let fitting = hosting.view.fittingSize
+            guard fitting.width > 0, fitting.height > 0 else { return }
+
+            let width: CGFloat = AppSettings.shared.popoverCompact ? 300 : 340
+            let minHeight: CGFloat = AppSettings.shared.popoverCompact ? 170 : 280
+            let maxHeight = max(minHeight, (NSScreen.main?.visibleFrame.height ?? 900) - 100)
+            let height = min(max(fitting.height, minHeight), maxHeight)
+            let targetSize = NSSize(width: width, height: height)
+
+            let changed = abs(popover.contentSize.width - targetSize.width) > 0.5 ||
+                          abs(popover.contentSize.height - targetSize.height) > 0.5
+            if changed {
+                popover.contentSize = targetSize
+            }
+        }
     }
 
     private func startGlobalClickMonitor() {
@@ -383,6 +441,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             await MainActor.run {
                 self.popoverViewModel.usageHealthSnapshot = snapshot
                 self.popoverViewModel.nextUsageRetryAt = self.nextUsageRefreshAllowedAt
+                self.refreshPopoverSizeIfShown()
             }
         }
     }
@@ -395,10 +454,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if remaining > 0 {
                 Logger.debug("사용량 갱신 스킵: 임시 오류 백오프 \(remaining)초 남음")
                 popoverViewModel.nextUsageRetryAt = allowedAt
+                refreshPopoverSizeIfShown()
                 return
             }
             nextUsageRefreshAllowedAt = nil
             popoverViewModel.nextUsageRetryAt = nil
+            refreshPopoverSizeIfShown()
         }
 
         // 이미 갱신 중이면 중복 요청을 막아 로딩/회전 애니메이션 과도 지속을 방지
@@ -423,7 +484,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if !isLoading {
             isLoading = true
             loadingStartedAt = Date()
-            popoverViewModel.update(usage: currentUsage, error: nil, isLoading: true, lastUpdated: lastUpdated, overage: currentOverage)
+            updatePopoverViewModel(
+                usage: currentUsage,
+                error: nil,
+                isLoading: true,
+                lastUpdated: lastUpdated,
+                overage: currentOverage
+            )
         } else {
             Logger.debug("사용량 갱신 스킵: 이미 요청 진행 중")
             return
@@ -453,11 +520,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.loadingStartedAt = nil
                     self.nextUsageRefreshAllowedAt = nil
                     self.popoverViewModel.nextUsageRetryAt = nil
+                    self.refreshPopoverSizeIfShown()
                     self.hasAuthError = false
                     self.consecutiveErrorCount = 0
                     self.lastUpdated = Date()
                     self.updateMenuBar()
-                    self.popoverViewModel.update(
+                    self.updatePopoverViewModel(
                         usage: usage,
                         error: nil,
                         isLoading: false,
@@ -498,8 +566,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     }
 
                     self.updateMenuBar()
-                    self.popoverViewModel.update(usage: self.currentUsage, error: error, isLoading: false)
+                    self.updatePopoverViewModel(usage: self.currentUsage, error: error, isLoading: false)
                     self.popoverViewModel.nextUsageRetryAt = self.nextUsageRefreshAllowedAt
+                    self.refreshPopoverSizeIfShown()
                     self.syncUsageHealthSnapshotToUI()
                 }
 
@@ -515,8 +584,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.hasAuthError = false
                     self.currentError = (self.currentUsage == nil) ? apiError : nil
                     self.updateMenuBar()
-                    self.popoverViewModel.update(usage: self.currentUsage, error: apiError, isLoading: false)
+                    self.updatePopoverViewModel(usage: self.currentUsage, error: apiError, isLoading: false)
                     self.popoverViewModel.nextUsageRetryAt = self.nextUsageRefreshAllowedAt
+                    self.refreshPopoverSizeIfShown()
                     self.syncUsageHealthSnapshotToUI()
                 }
             }
@@ -552,6 +622,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         nextUsageRefreshAllowedAt = candidate
         popoverViewModel.nextUsageRetryAt = candidate
+        refreshPopoverSizeIfShown()
         Logger.info("임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
     }
 
@@ -854,7 +925,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.consecutiveErrorCount = 0
                     self.isLoading = false
                     self.updateMenuBar()
-                    self.popoverViewModel.update(usage: nil, error: nil, isLoading: false, overage: nil)
+                    self.updatePopoverViewModel(usage: nil, error: nil, isLoading: false, overage: nil)
                 }
             }
             Logger.info("설정 적용 완료")
@@ -892,7 +963,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             onLogout: { [weak self] in
                 guard let self = self else { return }
                 try? KeychainManager.shared.delete()
-                Task { await self.apiService.clearSession() }
+                Task {
+                    await self.apiService.clearSession()
+                    await MainActor.run {
+                        self.syncUsageHealthSnapshotToUI()
+                    }
+                }
                 self.timer?.invalidate()
                 self.timer = nil
                 self.currentUsage = nil
@@ -903,9 +979,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.consecutiveErrorCount = 0
                 self.isLoading = false
                 self.updateMenuBar()
-                self.popoverViewModel.update(usage: nil, error: nil, isLoading: false, overage: nil)
-                self.settingsSnapshot = nil
-                self.settingsWindow?.close()
+                self.updatePopoverViewModel(usage: nil, error: nil, isLoading: false, overage: nil)
+                self.settingsSnapshot = AppSettings.shared.createSnapshot()
 
                 self.clearWebSessionData()
                 Logger.info("로그아웃 완료")

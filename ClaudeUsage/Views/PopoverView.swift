@@ -49,6 +49,9 @@ struct PopoverView: View {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         settings.popoverCompact.toggle()
                     }
+                    DispatchQueue.main.async {
+                        viewModel.requestLayoutRefresh()
+                    }
                 } label: {
                     Image(systemName: settings.popoverCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
                         .font(.system(size: 12))
@@ -71,37 +74,6 @@ struct PopoverView: View {
             .padding(.horizontal, 16)
             .padding(.top, 12)
             .padding(.bottom, 8)
-
-            if let health = viewModel.usageHealthSnapshot {
-                Divider()
-                HStack(spacing: 6) {
-                    popoverChip(
-                        title: settings.popoverCompact ? nil : "경로",
-                        value: runtimePathLabel(health.runtime.activePath),
-                        color: runtimePathColor(health.runtime.activePath)
-                    )
-
-                    if !settings.popoverCompact, let lastSuccess = health.lastOverallSuccessAt {
-                        popoverChip(
-                            title: "최근 성공",
-                            value: shortRelativeText(for: lastSuccess),
-                            color: .secondary
-                        )
-                    }
-
-                    if let retryAt = viewModel.nextUsageRetryAt, retryAt > Date() {
-                        popoverChip(
-                            title: settings.popoverCompact ? nil : "재시도",
-                            value: shortRelativeText(for: retryAt),
-                            color: .orange
-                        )
-                    }
-
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
-            }
 
             // 시스템 상태 배너 (장애 시에만 표시)
             if let status = viewModel.systemStatus, status.hasIssue {
@@ -131,6 +103,9 @@ struct PopoverView: View {
                             Button {
                                 withAnimation(.easeInOut(duration: 0.15)) {
                                     isStatusExpanded.toggle()
+                                }
+                                DispatchQueue.main.async {
+                                    viewModel.requestLayoutRefresh()
                                 }
                             } label: {
                                 HStack(spacing: 4) {
@@ -218,17 +193,30 @@ struct PopoverView: View {
             // 업데이트 배너
             if let update = settings.availableUpdate {
                 Divider()
-                HStack(spacing: 8) {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .foregroundColor(.accentColor)
-                    Text("v\(update.version) 업데이트 가능")
-                        .font(.caption)
-                    Spacer()
-                    Button("다운로드") {
-                        viewModel.downloadLatestRelease()
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .foregroundColor(.accentColor)
+                        Text("v\(update.version) 업데이트 가능")
+                            .font(.caption)
+                        Spacer()
+                        Button("다운로드") {
+                            viewModel.downloadLatestRelease()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+
+                    if settings.popoverCompact {
+                        Text("다운로드 후 앱 교체 필요")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("다운로드 후 기존 앱을 종료하고 새 앱으로 덮어쓴 뒤 다시 실행해 주세요. 첫 실행에서 차단되면 시스템 설정 > 개인정보 보호 및 보안 > 그래도 열기를 진행해 주세요.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
@@ -339,50 +327,6 @@ struct PopoverView: View {
         case .major: return .orange
         case .critical: return .red
         }
-    }
-
-    private func runtimePathLabel(_ path: ClaudeAPIService.RuntimeAuthSnapshot.ActivePath) -> String {
-        switch path {
-        case .sessionPrimary:
-            return "세션키"
-        case .oauthPreferred:
-            return "OAuth 우선"
-        case .oauthFallback:
-            return "OAuth 폴백"
-        }
-    }
-
-    private func runtimePathColor(_ path: ClaudeAPIService.RuntimeAuthSnapshot.ActivePath) -> Color {
-        switch path {
-        case .sessionPrimary:
-            return .green
-        case .oauthPreferred:
-            return .blue
-        case .oauthFallback:
-            return .orange
-        }
-    }
-
-    private func shortRelativeText(for date: Date) -> String {
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: date, relativeTo: Date())
-    }
-
-    private func popoverChip(title: String?, value: String, color: Color) -> some View {
-        HStack(spacing: 4) {
-            if let title {
-                Text(title)
-            }
-            Text(value)
-                .fontWeight(.semibold)
-        }
-        .font(.caption2)
-        .padding(.horizontal, 7)
-        .padding(.vertical, 3)
-        .background(color.opacity(0.16))
-        .foregroundStyle(color)
-        .cornerRadius(6)
     }
 
     private func affectedComponentsSummary(_ components: [String], maxShown: Int = 3) -> String {
@@ -646,7 +590,7 @@ struct ErrorSectionView: View {
                 .foregroundStyle(.secondary)
 
             if error.isTemporaryFailure {
-                Text("세션키 경로가 일시적으로 불안정합니다. 설정 > 인증에서 Claude CLI OAuth 인증을 권장합니다.")
+                Text("현재 세션키 경로가 일시적으로 불안정합니다. 설정 > 인증에서 Claude CLI OAuth 인증을 권장합니다.")
                     .font(.caption2)
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.orange)
@@ -681,6 +625,7 @@ class PopoverViewModel: ObservableObject {
     var onRefresh: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onPinChanged: ((Bool) -> Void)?
+    var onLayoutChanged: (() -> Void)?
 
     func refresh() {
         onRefresh?()
@@ -688,6 +633,10 @@ class PopoverViewModel: ObservableObject {
 
     func openSettings() {
         onOpenSettings?()
+    }
+
+    func requestLayoutRefresh() {
+        onLayoutChanged?()
     }
 
     func openUsagePage() {
