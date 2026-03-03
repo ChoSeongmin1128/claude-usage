@@ -17,6 +17,8 @@ actor ClaudeAPIService {
     private var preferOAuthUntil: Date?
     private let oauthPreferDuration: TimeInterval = 10 * 60
     private let requestTimeout: TimeInterval = 20
+    private var discoveredCLIServiceNames: [String] = []
+    private var didDiscoverCLIServiceNames = false
 
     // MARK: - Init
 
@@ -396,9 +398,14 @@ actor ClaudeAPIService {
     }
 
     private func readSystemOAuthAccessToken() throws -> String? {
-        // 1) 키체인: legacy + hashed service 이름 모두 시도
+        // 1) 파일 우선: 키체인 블로킹 이슈를 피하고 최신 CLI 자격증명을 빠르게 반영
+        if let token = readOAuthAccessTokenFromCredentialFiles() {
+            return token
+        }
+
+        // 2) 키체인: legacy + hashed service 이름 모두 시도
         var serviceNames: [String] = ["Claude Code-credentials"]
-        serviceNames.append(contentsOf: discoverClaudeCredentialServiceNames())
+        serviceNames.append(contentsOf: getDiscoveredCLIServiceNames())
         serviceNames = Array(NSOrderedSet(array: serviceNames).compactMap { $0 as? String })
         Logger.debug("OAuth 토큰 조회: 키체인 서비스 \(serviceNames.count)개 후보")
 
@@ -410,74 +417,62 @@ actor ClaudeAPIService {
             }
         }
 
-        // 2) 키체인이 잘리거나 누락된 경우 파일 fallback
-        Logger.warning("키체인 OAuth 토큰 조회 실패 → 파일 fallback 시도")
-        return readOAuthAccessTokenFromCredentialFiles()
+        Logger.warning("OAuth 토큰 조회 실패 (파일/키체인 모두 실패)")
+        return nil
     }
 
     private func readKeychainCredentialPayload(serviceName: String) throws -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-        process.arguments = [
+        guard let result = try runSecurityCommand(
+            arguments: [
             "find-generic-password",
             "-s", serviceName,
             "-a", NSUserName(),
             "-w"
-        ]
-
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            throw APIError.unknownError("시스템 키체인에서 OAuth 토큰 조회 실패: \(error.localizedDescription)")
+            ],
+            timeout: 2.5
+        ) else {
+            Logger.warning("키체인 조회 타임아웃(service: \(serviceName))")
+            return nil
         }
 
-        let exitCode = process.terminationStatus
+        let exitCode = result.status
         if exitCode == 44 {
             return nil
         }
 
         guard exitCode == 0 else {
-            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let errorMessage = String(data: errorData, encoding: .utf8) ?? "unknown error"
+            let errorMessage = result.stderr.isEmpty ? "unknown error" : result.stderr
             throw APIError.unknownError("시스템 키체인 오류(code: \(exitCode), service: \(serviceName)): \(errorMessage)")
         }
 
-        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        guard let credentials = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !credentials.isEmpty else {
+        let credentials = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !credentials.isEmpty else {
             return nil
         }
 
         return credentials
     }
 
+    private func getDiscoveredCLIServiceNames() -> [String] {
+        if didDiscoverCLIServiceNames {
+            return discoveredCLIServiceNames
+        }
+        didDiscoverCLIServiceNames = true
+        discoveredCLIServiceNames = discoverClaudeCredentialServiceNames()
+        return discoveredCLIServiceNames
+    }
+
     private func discoverClaudeCredentialServiceNames() -> [String] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-        process.arguments = ["dump-keychain"]
-
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
+        guard let result = try? runSecurityCommand(arguments: ["dump-keychain"], timeout: 2.5) else {
+            Logger.warning("키체인 서비스 탐색 타임아웃")
             return []
         }
 
-        guard process.terminationStatus == 0,
-              let output = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8),
-              !output.isEmpty else {
+        guard result.status == 0, !result.stdout.isEmpty else {
             return []
         }
+
+        let output = result.stdout
 
         let pattern = #""svce"<blob>="(Claude Code-credentials[^"]*)""#
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
@@ -491,6 +486,39 @@ actor ClaudeAPIService {
                   let range = Range(match.range(at: 1), in: output) else { return nil }
             return String(output[range])
         }
+    }
+
+    private func runSecurityCommand(arguments: [String], timeout: TimeInterval) throws -> (status: Int32, stdout: String, stderr: String)? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        process.arguments = arguments
+
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        do {
+            try process.run()
+        } catch {
+            throw APIError.unknownError("security 실행 실패: \(error.localizedDescription)")
+        }
+
+        let startedAt = Date()
+        while process.isRunning {
+            if Date().timeIntervalSince(startedAt) >= timeout {
+                process.terminate()
+                process.waitUntilExit()
+                return nil
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+
+        let stdoutData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderrData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+        return (process.terminationStatus, stdout, stderr)
     }
 
     private func readOAuthAccessTokenFromCredentialFiles() -> String? {
@@ -511,7 +539,7 @@ actor ClaudeAPIService {
             }
         }
 
-        Logger.warning("OAuth 토큰 조회 실패 (키체인/파일 모두 실패)")
+        Logger.warning("OAuth 토큰 파일 조회 실패 (~/.claude)")
         return nil
     }
 
