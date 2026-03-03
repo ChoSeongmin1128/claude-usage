@@ -329,6 +329,19 @@ struct PopoverView: View {
                 isStatusExpanded = false
             }
             viewModel.onCompactModeChanged?(isCompact)
+            viewModel.onLayoutChanged?()
+        }
+        .onChange(of: isStatusExpanded) { _, _ in
+            viewModel.onLayoutChanged?()
+        }
+        .onChange(of: viewModel.isLoading) { _, _ in
+            viewModel.onLayoutChanged?()
+        }
+        .onChange(of: viewModel.error != nil) { _, _ in
+            viewModel.onLayoutChanged?()
+        }
+        .onChange(of: viewModel.usage != nil) { _, _ in
+            viewModel.onLayoutChanged?()
         }
     }
 
@@ -605,6 +618,7 @@ class PopoverViewModel: ObservableObject {
     var onOpenSettings: (() -> Void)?
     var onPinChanged: ((Bool) -> Void)?
     var onCompactModeChanged: ((Bool) -> Void)?
+    var onLayoutChanged: (() -> Void)?
 
     func refresh() {
         onRefresh?()

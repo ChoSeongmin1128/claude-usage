@@ -176,6 +176,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popoverViewModel.onCompactModeChanged = { [weak self] isCompact in
             self?.applyPopoverSize(forCompactMode: isCompact)
         }
+        popoverViewModel.onLayoutChanged = { [weak self] in
+            guard let self else { return }
+            self.applyPopoverSize(forCompactMode: AppSettings.shared.popoverCompact)
+        }
 
         let popoverView = PopoverView(viewModel: popoverViewModel)
         let hostingController = NSHostingController(rootView: popoverView)
@@ -220,11 +224,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let popover else { return }
         let targetSize = NSSize(
             width: isCompact ? 300 : 340,
-            height: isCompact ? 220 : 430
+            height: isCompact ? 230 : 520
         )
-        if popover.contentSize != targetSize {
+        let apply = {
+            popover.contentViewController?.preferredContentSize = targetSize
             popover.contentSize = targetSize
+            popover.contentViewController?.view.setFrameSize(targetSize)
+            popover.contentViewController?.view.needsLayout = true
         }
+        apply()
+        DispatchQueue.main.async(execute: apply)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: apply)
     }
 
     private func closePopover() {
@@ -364,6 +374,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak self] in self?.updateMenuBar() }
                 .store(in: &cancellables)
         }
+
+        AppSettings.shared.$popoverCompact
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isCompact in
+                self?.applyPopoverSize(forCompactMode: isCompact)
+            }
+            .store(in: &cancellables)
     }
 
     private func observePowerState() {
