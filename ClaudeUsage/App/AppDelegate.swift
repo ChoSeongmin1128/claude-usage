@@ -173,13 +173,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
-        popoverViewModel.onCompactModeChanged = { [weak self] isCompact in
-            self?.applyPopoverSize(forCompactMode: isCompact)
-        }
-        popoverViewModel.onLayoutChanged = { [weak self] in
-            guard let self else { return }
-            self.applyPopoverSize(forCompactMode: AppSettings.shared.popoverCompact)
-        }
 
         let popoverView = PopoverView(viewModel: popoverViewModel)
         let hostingController = NSHostingController(rootView: popoverView)
@@ -189,7 +182,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popover?.contentViewController = hostingController
         popover?.behavior = isPinned ? .applicationDefined : .transient
         popover?.animates = true
-        applyPopoverSize(forCompactMode: AppSettings.shared.popoverCompact)
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -211,30 +203,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             closePopover()
         } else {
             popoverViewModel.update(usage: currentUsage, error: currentError, isLoading: isLoading, lastUpdated: lastUpdated, overage: currentOverage)
-            applyPopoverSize(forCompactMode: AppSettings.shared.popoverCompact)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate()
             if !AppSettings.shared.popoverPinned {
                 startGlobalClickMonitor()
             }
         }
-    }
-
-    private func applyPopoverSize(forCompactMode isCompact: Bool) {
-        guard let popover else { return }
-        let targetSize = NSSize(
-            width: isCompact ? 300 : 340,
-            height: isCompact ? 230 : 520
-        )
-        let apply = {
-            popover.contentViewController?.preferredContentSize = targetSize
-            popover.contentSize = targetSize
-            popover.contentViewController?.view.setFrameSize(targetSize)
-            popover.contentViewController?.view.needsLayout = true
-        }
-        apply()
-        DispatchQueue.main.async(execute: apply)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: apply)
     }
 
     private func closePopover() {
@@ -374,14 +348,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 .sink { [weak self] in self?.updateMenuBar() }
                 .store(in: &cancellables)
         }
-
-        AppSettings.shared.$popoverCompact
-            .dropFirst()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] isCompact in
-                self?.applyPopoverSize(forCompactMode: isCompact)
-            }
-            .store(in: &cancellables)
     }
 
     private func observePowerState() {
