@@ -293,9 +293,11 @@ struct SettingsView: View {
         DisclosureGroup("Claude CLI OAuth 빠른 가이드") {
             VStack(alignment: .leading, spacing: 4) {
                 Text("1. 터미널 앱을 엽니다.")
-                Text("2. `claude login` 을 실행합니다.")
-                Text("3. 브라우저에서 로그인 후 허용(Authorize)을 누릅니다.")
-                Text("4. 이 앱에서 '상태 새로고침'을 눌러 OAuth 경로가 정상인지 확인합니다.")
+                Text("2. Claude CLI를 설치합니다 (macOS 권장): `brew install --cask claude-code`")
+                Text("3. Homebrew를 쓰지 않는 경우: `curl -fsSL https://claude.ai/install.sh | bash`")
+                Text("4. `claude login` 을 실행합니다.")
+                Text("5. 브라우저에서 로그인 후 허용(Authorize)을 누릅니다.")
+                Text("6. 이 앱에서 '상태 새로고침'을 눌러 OAuth 경로가 정상인지 확인합니다.")
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -307,6 +309,15 @@ struct SettingsView: View {
     private var authFAQSection: some View {
         DisclosureGroup("자주 묻는 질문 (FAQ)") {
             VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Q. Claude CLI는 어떻게 설치하나요?")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                    Text("A. macOS에서는 `brew install --cask claude-code`를 권장합니다. 대안으로 `curl -fsSL https://claude.ai/install.sh | bash`도 사용할 수 있습니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Q. `claude` 명령어가 없다고 나옵니다.")
                         .font(.caption)

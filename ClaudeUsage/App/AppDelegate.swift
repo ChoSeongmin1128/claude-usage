@@ -28,6 +28,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var currentError: APIError?
     private var isLoading = false
     private var loadingStartedAt: Date?
+    private var nextUsageRefreshAllowedAt: Date?
     private var lastUpdated: Date?
     private var hasAuthError = false
     private var consecutiveErrorCount = 0
@@ -154,7 +155,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupPopover() {
         popoverViewModel.onRefresh = { [weak self] in
-            self?.refreshUsage()
+            self?.refreshUsage(force: true)
         }
         popoverViewModel.onOpenSettings = { [weak self] in
             self?.closePopover()
@@ -297,7 +298,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             withTimeInterval: interval,
             repeats: true
         ) { [weak self] _ in
-            self?.refreshUsage()
+            self?.refreshUsage(force: false)
         }
         activeTimerInterval = interval
 
@@ -377,7 +378,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - API
 
-    private func refreshUsage() {
+    private func refreshUsage(force: Bool = false) {
+        if !force, let allowedAt = nextUsageRefreshAllowedAt {
+            let remaining = Int(ceil(allowedAt.timeIntervalSinceNow))
+            if remaining > 0 {
+                Logger.debug("사용량 갱신 스킵: 임시 오류 백오프 \(remaining)초 남음")
+                return
+            }
+            nextUsageRefreshAllowedAt = nil
+        }
+
         // 이미 갱신 중이면 중복 요청을 막아 로딩/회전 애니메이션 과도 지속을 방지
         if isLoading {
             if let startedAt = loadingStartedAt {
@@ -428,6 +438,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.currentError = nil
                     self.isLoading = false
                     self.loadingStartedAt = nil
+                    self.nextUsageRefreshAllowedAt = nil
                     self.hasAuthError = false
                     self.consecutiveErrorCount = 0
                     self.lastUpdated = Date()
@@ -460,6 +471,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.isLoading = false
                     self.loadingStartedAt = nil
                     self.consecutiveErrorCount += 1
+                    self.applyUsageRefreshBackoff(for: error)
 
                     if error.isTemporaryFailure {
                         // 임시 장애(Cloudflare/429/네트워크)는 마지막 성공 데이터를 유지
@@ -482,6 +494,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.isLoading = false
                     self.loadingStartedAt = nil
                     self.consecutiveErrorCount += 1
+                    self.applyUsageRefreshBackoff(for: apiError)
                     self.hasAuthError = false
                     self.currentError = (self.currentUsage == nil) ? apiError : nil
                     self.updateMenuBar()
@@ -489,6 +502,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+    }
+
+    private func applyUsageRefreshBackoff(for error: APIError) {
+        guard error.isTemporaryFailure else {
+            nextUsageRefreshAllowedAt = nil
+            return
+        }
+
+        let retryAfterSeconds: Int = {
+            switch error {
+            case .rateLimited(let retryAfter), .cloudflareBlocked(let retryAfter):
+                return retryAfter ?? 0
+            case .networkError:
+                return 10
+            case .serverError(let statusCode):
+                return statusCode >= 500 ? 20 : 10
+            case .invalidSessionKey, .parseError, .unknownError:
+                return 0
+            }
+        }()
+
+        let floor = Int(max(15, PowerMonitor.shared.effectiveRefreshInterval))
+        let backoffSeconds = max(floor, retryAfterSeconds)
+        let candidate = Date().addingTimeInterval(TimeInterval(backoffSeconds))
+
+        if let current = nextUsageRefreshAllowedAt, current > candidate {
+            return
+        }
+
+        nextUsageRefreshAllowedAt = candidate
+        Logger.info("임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
     }
 
     // MARK: - Menu Bar Update
@@ -749,7 +793,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             switch event.charactersIgnoringModifiers {
             case "r":
-                self?.refreshUsage()
+                self?.refreshUsage(force: true)
                 return nil
             case ",":
                 self?.showSettingsWindow()
@@ -941,7 +985,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func refreshClicked() {
         if KeychainManager.shared.hasSessionKey {
-            refreshUsage()
+            refreshUsage(force: true)
         } else {
             showSettingsWindow()
         }
