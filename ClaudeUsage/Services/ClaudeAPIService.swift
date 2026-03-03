@@ -16,6 +16,7 @@ actor ClaudeAPIService {
     private var cachedOrganizationID: String?
     private var preferOAuthUntil: Date?
     private let oauthPreferDuration: TimeInterval = 10 * 60
+    private let requestTimeout: TimeInterval = 20
 
     // MARK: - Init
 
@@ -107,12 +108,7 @@ actor ClaudeAPIService {
 
         Logger.debug("API 요청: \(url.absoluteString)")
 
-        let (data, response): (Data, URLResponse)
-        do {
-            (data, response) = try await URLSession.shared.data(for: request)
-        } catch {
-            throw APIError.networkError(error.localizedDescription)
-        }
+        let (data, response) = try await data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             Logger.error("유효하지 않은 응답")
@@ -160,12 +156,7 @@ actor ClaudeAPIService {
 
         Logger.debug("Overage API 요청: \(url.absoluteString)")
 
-        let (data, response): (Data, URLResponse)
-        do {
-            (data, response) = try await URLSession.shared.data(for: request)
-        } catch {
-            throw APIError.networkError(error.localizedDescription)
-        }
+        let (data, response) = try await data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.unknownError("Invalid HTTP response")
@@ -211,12 +202,7 @@ actor ClaudeAPIService {
         request.setValue("sessionKey=\(sessionKey)", forHTTPHeaderField: "Cookie")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let (data, response): (Data, URLResponse)
-        do {
-            (data, response) = try await URLSession.shared.data(for: request)
-        } catch {
-            throw APIError.networkError(error.localizedDescription)
-        }
+        let (data, response) = try await data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.unknownError("Invalid HTTP response")
@@ -360,6 +346,22 @@ actor ClaudeAPIService {
         }
     }
 
+    private func data(for originalRequest: URLRequest) async throws -> (Data, URLResponse) {
+        var request = originalRequest
+        request.timeoutInterval = requestTimeout
+
+        do {
+            return try await URLSession.shared.data(for: request)
+        } catch let urlError as URLError {
+            if urlError.code == .timedOut {
+                throw APIError.networkError("요청 시간 초과 (\(Int(requestTimeout))초)")
+            }
+            throw APIError.networkError(urlError.localizedDescription)
+        } catch {
+            throw APIError.networkError(error.localizedDescription)
+        }
+    }
+
     private func fetchUsageViaOAuth() async throws -> ClaudeUsageResponse {
         guard let accessToken = try readSystemOAuthAccessToken() else {
             throw APIError.unknownError("Claude Code OAuth 토큰을 찾을 수 없습니다")
@@ -376,12 +378,7 @@ actor ClaudeAPIService {
         request.setValue("claude-code/2.1.5", forHTTPHeaderField: "User-Agent")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
 
-        let (data, response): (Data, URLResponse)
-        do {
-            (data, response) = try await URLSession.shared.data(for: request)
-        } catch {
-            throw APIError.networkError(error.localizedDescription)
-        }
+        let (data, response) = try await data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.unknownError("Invalid OAuth HTTP response")
@@ -400,11 +397,28 @@ actor ClaudeAPIService {
     }
 
     private func readSystemOAuthAccessToken() throws -> String? {
+        // 1) 키체인: legacy + hashed service 이름 모두 시도
+        var serviceNames: [String] = ["Claude Code-credentials"]
+        serviceNames.append(contentsOf: discoverClaudeCredentialServiceNames())
+        serviceNames = Array(NSOrderedSet(array: serviceNames).compactMap { $0 as? String })
+
+        for service in serviceNames {
+            guard let credentials = try readKeychainCredentialPayload(serviceName: service) else { continue }
+            if let token = parseOAuthAccessToken(from: credentials) {
+                return token
+            }
+        }
+
+        // 2) 키체인이 잘리거나 누락된 경우 파일 fallback
+        return readOAuthAccessTokenFromCredentialFiles()
+    }
+
+    private func readKeychainCredentialPayload(serviceName: String) throws -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
         process.arguments = [
             "find-generic-password",
-            "-s", "Claude Code-credentials",
+            "-s", serviceName,
             "-a", NSUserName(),
             "-w"
         ]
@@ -429,7 +443,7 @@ actor ClaudeAPIService {
         guard exitCode == 0 else {
             let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
             let errorMessage = String(data: errorData, encoding: .utf8) ?? "unknown error"
-            throw APIError.unknownError("시스템 키체인 오류(code: \(exitCode)): \(errorMessage)")
+            throw APIError.unknownError("시스템 키체인 오류(code: \(exitCode), service: \(serviceName)): \(errorMessage)")
         }
 
         let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
@@ -438,18 +452,89 @@ actor ClaudeAPIService {
             return nil
         }
 
-        return parseOAuthAccessToken(from: credentials)
+        return credentials
     }
 
-    private func parseOAuthAccessToken(from credentialsJSON: String) -> String? {
-        guard let data = credentialsJSON.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let oauth = json["claudeAiOauth"] as? [String: Any],
-              let token = oauth["accessToken"] as? String,
-              !token.isEmpty else {
-            return nil
+    private func discoverClaudeCredentialServiceNames() -> [String] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        process.arguments = ["dump-keychain"]
+
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return []
         }
 
-        return token
+        guard process.terminationStatus == 0,
+              let output = String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8),
+              !output.isEmpty else {
+            return []
+        }
+
+        let pattern = #""svce"<blob>="(Claude Code-credentials[^"]*)""#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return []
+        }
+
+        let nsrange = NSRange(output.startIndex..<output.endIndex, in: output)
+        let matches = regex.matches(in: output, range: nsrange)
+        return matches.compactMap { match in
+            guard match.numberOfRanges >= 2,
+                  let range = Range(match.range(at: 1), in: output) else { return nil }
+            return String(output[range])
+        }
+    }
+
+    private func readOAuthAccessTokenFromCredentialFiles() -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let candidates = [
+            home.appendingPathComponent(".claude/.credentials.json"),
+            home.appendingPathComponent(".claude/credentials.json")
+        ]
+
+        for fileURL in candidates {
+            guard let data = try? Data(contentsOf: fileURL),
+                  let text = String(data: data, encoding: .utf8),
+                  !text.isEmpty else { continue }
+
+            if let token = parseOAuthAccessToken(from: text) {
+                return token
+            }
+        }
+
+        return nil
+    }
+
+    private func parseOAuthAccessToken(from credentialsText: String) -> String? {
+        if let data = credentialsText.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let oauth = json["claudeAiOauth"] as? [String: Any],
+           let token = oauth["accessToken"] as? String,
+           !token.isEmpty {
+            return token
+        }
+        // 키체인 JSON이 잘린 경우를 위해 accessToken 정규식 fallback
+        return extractAccessTokenByRegex(from: credentialsText)
+    }
+
+    private func extractAccessTokenByRegex(from text: String) -> String? {
+        let pattern = #""accessToken"\s*:\s*"([^"]+)""#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return nil
+        }
+        let nsrange = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let match = regex.firstMatch(in: text, range: nsrange),
+              match.numberOfRanges >= 2,
+              let tokenRange = Range(match.range(at: 1), in: text) else {
+            return nil
+        }
+        let token = String(text[tokenRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return token.isEmpty ? nil : token
     }
 }

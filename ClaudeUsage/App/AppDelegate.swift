@@ -26,6 +26,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var systemStatus: ClaudeSystemStatus?
     private var currentError: APIError?
     private var isLoading = false
+    private var loadingStartedAt: Date?
     private var lastUpdated: Date?
     private var hasAuthError = false
     private var consecutiveErrorCount = 0
@@ -361,12 +362,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshUsage() {
         // 이미 갱신 중이면 중복 요청을 막아 로딩/회전 애니메이션 과도 지속을 방지
         if isLoading {
+            if let startedAt = loadingStartedAt {
+                let elapsed = Date().timeIntervalSince(startedAt)
+                if elapsed >= 90 {
+                    Logger.warning("사용량 갱신 고착 감지(\(Int(elapsed))초) → 상태 복구 후 재시도")
+                    isLoading = false
+                    loadingStartedAt = nil
+                } else {
+                    Logger.debug("사용량 갱신 스킵: 이미 요청 진행 중")
+                    return
+                }
+            } else {
+                Logger.debug("사용량 갱신 스킵: 이미 요청 진행 중")
+                return
+            }
+        }
+
+        // 고착 복구 케이스에서는 즉시 로딩 상태를 반영해 UI 튐을 줄인다
+        if !isLoading {
+            isLoading = true
+            loadingStartedAt = Date()
+            popoverViewModel.update(usage: currentUsage, error: nil, isLoading: true, lastUpdated: lastUpdated, overage: currentOverage)
+        } else {
             Logger.debug("사용량 갱신 스킵: 이미 요청 진행 중")
             return
         }
-
-        isLoading = true
-        popoverViewModel.update(usage: currentUsage, error: nil, isLoading: true, lastUpdated: lastUpdated, overage: currentOverage)
 
         Task {
             do {
@@ -389,6 +409,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     }
                     self.currentError = nil
                     self.isLoading = false
+                    self.loadingStartedAt = nil
                     self.hasAuthError = false
                     self.consecutiveErrorCount = 0
                     self.lastUpdated = Date()
@@ -419,6 +440,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 await MainActor.run {
                     self.isLoading = false
+                    self.loadingStartedAt = nil
                     self.consecutiveErrorCount += 1
 
                     if error.isTemporaryFailure {
@@ -440,6 +462,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let apiError = APIError.unknownError(error.localizedDescription)
                 await MainActor.run {
                     self.isLoading = false
+                    self.loadingStartedAt = nil
                     self.consecutiveErrorCount += 1
                     self.hasAuthError = false
                     self.currentError = (self.currentUsage == nil) ? apiError : nil
