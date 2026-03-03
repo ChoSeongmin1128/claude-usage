@@ -11,6 +11,7 @@ import Combine
 struct PopoverView: View {
     @ObservedObject var viewModel: PopoverViewModel
     @ObservedObject private var settings = AppSettings.shared
+    @State private var isStatusExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -21,11 +22,16 @@ struct PopoverView: View {
 
                 // 새로고침 (제목 옆)
                 Button(action: { viewModel.refresh() }) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 12))
-                        .frame(width: 14, height: 14)
-                        .rotationEffect(.degrees(viewModel.isLoading ? 360 : 0))
-                        .animation(viewModel.isLoading ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: viewModel.isLoading)
+                    Group {
+                        if viewModel.isLoading {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 12))
+                        }
+                    }
+                    .frame(width: 14, height: 14)
                 }
                 .buttonStyle(.borderless)
                 .disabled(viewModel.isLoading)
@@ -42,6 +48,9 @@ struct PopoverView: View {
                 Button {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         settings.popoverCompact.toggle()
+                    }
+                    DispatchQueue.main.async {
+                        viewModel.requestLayoutRefresh()
                     }
                 } label: {
                     Image(systemName: settings.popoverCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
@@ -69,79 +78,177 @@ struct PopoverView: View {
             // 시스템 상태 배너 (장애 시에만 표시)
             if let status = viewModel.systemStatus, status.hasIssue {
                 Divider()
-                Button {
-                    if let url = URL(string: "https://status.claude.com") {
-                        NSWorkspace.shared.open(url)
-                    }
-                } label: {
+                VStack(alignment: .leading, spacing: settings.popoverCompact ? 4 : 5) {
                     HStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundColor(statusColor(for: status.indicator))
+
                         Text(status.indicator.displayText)
                             .font(.caption)
                             .foregroundColor(.primary)
+
+                        if status.activeIncidentCount > 0 {
+                            Text("활성 \(status.activeIncidentCount)건")
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1)
+                                .background(statusColor(for: status.indicator).opacity(0.16))
+                                .foregroundColor(statusColor(for: status.indicator))
+                                .cornerRadius(4)
+                        }
+
                         Spacer()
-                        Text("상세보기")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
+
+                        if !settings.popoverCompact {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    isStatusExpanded.toggle()
+                                }
+                                DispatchQueue.main.async {
+                                    viewModel.requestLayoutRefresh()
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(isStatusExpanded ? "접기" : "상세")
+                                        .font(.caption2)
+                                    Image(systemName: isStatusExpanded ? "chevron.up" : "chevron.down")
+                                        .font(.system(size: 10, weight: .semibold))
+                                }
+                                .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.borderless)
+                        }
+
+                        Button {
+                            if let url = URL(string: status.latestIncident?.shortlink ?? "https://status.claude.com") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        } label: {
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("status.claude.com 열기")
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
-                    .background(statusColor(for: status.indicator).opacity(0.08))
+
+                    if !settings.popoverCompact && isStatusExpanded {
+                        HStack(spacing: 8) {
+                            Text("상태")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                            Text(status.description)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                            Spacer()
+                        }
+
+                        if let incident = status.latestIncident {
+                            Text(incident.name)
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+
+                            if let body = incident.latestUpdateBody, !body.isEmpty {
+                                Text(body)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(settings.popoverCompact ? 1 : 2)
+                            }
+
+                            let affected = affectedComponentsSummary(incident.affectedComponents)
+                            if !affected.isEmpty {
+                                Text("영향: \(affected)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+
+                            if let updatedAt = incident.latestUpdateAt {
+                                Text("업데이트: \(updatedAt, style: .relative)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                        } else if !status.degradedComponents.isEmpty {
+                            Text("영향: \(affectedComponentsSummary(status.degradedComponents))")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+                .background(statusColor(for: status.indicator).opacity(0.08))
+                .onChange(of: settings.popoverCompact) { _, isCompact in
+                    if isCompact {
+                        isStatusExpanded = false
+                    }
+                }
             }
 
             // 업데이트 배너
             if let update = settings.availableUpdate {
                 Divider()
-                HStack(spacing: 8) {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .foregroundColor(.accentColor)
-                    Text("v\(update.version) 업데이트 가능")
-                        .font(.caption)
-                    Spacer()
-                    Button("다운로드") {
-                        viewModel.downloadLatestRelease()
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .foregroundColor(.accentColor)
+                        Text("v\(update.version) 업데이트 가능")
+                            .font(.caption)
+                        Spacer()
+                        Button("다운로드") {
+                            viewModel.downloadLatestRelease()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+
+                    if settings.popoverCompact {
+                        Text("다운로드 후 앱 교체 필요")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("다운로드 후 기존 앱을 종료하고 새 앱으로 덮어쓴 뒤 다시 실행해 주세요. 첫 실행에서 차단되면 시스템 설정 > 개인정보 보호 및 보안 > 그래도 열기를 진행해 주세요.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
                 .background(Color.accentColor.opacity(0.08))
             }
 
+            if let staleMessage = staleDataMessage {
+                Divider()
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text(staleMessage)
+                        .font(.caption)
+                        .foregroundColor(.primary)
+                    Spacer()
+                    if viewModel.error != nil {
+                        Text("자동 재시도 중")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+                .background(Color.orange.opacity(0.08))
+            }
+
             Divider()
 
-            if viewModel.isLoading && viewModel.usage == nil {
-                VStack(spacing: 12) {
-                    ProgressView()
-                    Text("데이터 로딩 중...")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: settings.popoverCompact ? 60 : 150)
-
-            } else if let error = viewModel.error, viewModel.usage == nil {
-                ErrorSectionView(error: error) {
-                    viewModel.refresh()
-                }
-                .padding(16)
-
-            } else if let usage = viewModel.usage {
-                if settings.popoverCompact {
-                    compactContent(usage: usage)
-                } else {
-                    standardContent(usage: usage)
-                }
-
+            if settings.popoverCompact {
+                compactMainSection
             } else {
-                VStack {
-                    Text("데이터 없음")
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: settings.popoverCompact ? 40 : 100)
+                standardMainSection
             }
 
             Divider()
@@ -222,6 +329,39 @@ struct PopoverView: View {
         }
     }
 
+    private func affectedComponentsSummary(_ components: [String], maxShown: Int = 3) -> String {
+        guard !components.isEmpty else { return "" }
+        let head = components.prefix(maxShown)
+        let tailCount = max(0, components.count - head.count)
+        let base = head.joined(separator: ", ")
+        if tailCount > 0 {
+            return "\(base) +\(tailCount)"
+        }
+        return base
+    }
+
+    private var staleDataMessage: String? {
+        guard let lastUpdated = viewModel.lastUpdated else { return nil }
+
+        let elapsed = Date().timeIntervalSince(lastUpdated)
+        let threshold = max(180.0, settings.refreshInterval * 4.0)
+        guard elapsed >= threshold else { return nil }
+
+        let minutes = Int(elapsed / 60)
+        if minutes < 1 {
+            return "데이터가 최신이 아닐 수 있습니다 (마지막 성공: 방금 전)"
+        } else if minutes < 60 {
+            return "데이터가 최신이 아닐 수 있습니다 (마지막 성공: \(minutes)분 전)"
+        } else {
+            let hours = minutes / 60
+            let remainMinutes = minutes % 60
+            if remainMinutes == 0 {
+                return "데이터가 최신이 아닐 수 있습니다 (마지막 성공: \(hours)시간 전)"
+            }
+            return "데이터가 최신이 아닐 수 있습니다 (마지막 성공: \(hours)시간 \(remainMinutes)분 전)"
+        }
+    }
+
     // MARK: - Standard Content
 
     @ViewBuilder
@@ -239,13 +379,15 @@ struct PopoverView: View {
                         resetAt: usage.fiveHour.resetsAt
                     )
                 case "weeklyLimit":
-                    UsageSectionView(
-                        systemIcon: "calendar",
-                        title: "주간 한도",
-                        percentage: usage.sevenDay.utilization,
-                        resetAt: usage.sevenDay.resetsAt,
-                        isWeekly: true
-                    )
+                    if let sevenDay = usage.sevenDay {
+                        UsageSectionView(
+                            systemIcon: "calendar",
+                            title: "주간 한도",
+                            percentage: sevenDay.utilization,
+                            resetAt: sevenDay.resetsAt,
+                            isWeekly: true
+                        )
+                    }
                 case "modelUsage":
                     if let sonnet = usage.sevenDaySonnet {
                         UsageSectionView(
@@ -278,6 +420,71 @@ struct PopoverView: View {
         .padding(16)
     }
 
+    @ViewBuilder
+    private var compactMainSection: some View {
+        Group {
+            if viewModel.isLoading && viewModel.usage == nil {
+                VStack(spacing: 10) {
+                    ProgressView()
+                    Text("데이터 로딩 중...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 56)
+
+            } else if let error = viewModel.error, viewModel.usage == nil {
+                ErrorSectionView(error: error) {
+                    viewModel.refresh()
+                }
+                .padding(12)
+
+            } else if let usage = viewModel.usage {
+                compactContent(usage: usage)
+
+            } else {
+                Text("데이터 없음")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 36)
+                    .padding(.vertical, 4)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+        .padding(.bottom, 2)
+    }
+
+    @ViewBuilder
+    private var standardMainSection: some View {
+        Group {
+            if viewModel.isLoading && viewModel.usage == nil {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("데이터 로딩 중...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 150)
+
+            } else if let error = viewModel.error, viewModel.usage == nil {
+                ErrorSectionView(error: error) {
+                    viewModel.refresh()
+                }
+                .padding(16)
+
+            } else if let usage = viewModel.usage {
+                standardContent(usage: usage)
+
+            } else {
+                VStack {
+                    Text("데이터 없음")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 100)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 180, alignment: .top)
+        .padding(.bottom, 4)
+    }
+
     // MARK: - Compact Content
 
     @ViewBuilder
@@ -288,7 +495,9 @@ struct PopoverView: View {
                 case "currentSession":
                     CompactUsageRow(label: "현재", percentage: usage.fiveHour.utilization, resetAt: usage.fiveHour.resetsAt)
                 case "weeklyLimit":
-                    CompactUsageRow(label: "주간", percentage: usage.sevenDay.utilization, resetAt: usage.sevenDay.resetsAt, isWeekly: true)
+                    if let sevenDay = usage.sevenDay {
+                        CompactUsageRow(label: "주간", percentage: sevenDay.utilization, resetAt: sevenDay.resetsAt, isWeekly: true)
+                    }
                 case "modelUsage":
                     if let sonnet = usage.sevenDaySonnet {
                         CompactUsageRow(label: "Sonnet", percentage: sonnet.utilization, resetAt: sonnet.resetsAt, isWeekly: true)
@@ -380,6 +589,17 @@ struct ErrorSectionView: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
 
+            if error.isTemporaryFailure {
+                Text("현재 세션키 경로가 일시적으로 불안정합니다. 설정 > 인증에서 Claude CLI OAuth 인증을 권장합니다.")
+                    .font(.caption2)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color.orange.opacity(0.1))
+                    .cornerRadius(6)
+            }
+
             HStack(spacing: 12) {
                 Button("다시 시도") {
                     retryAction()
@@ -400,9 +620,12 @@ class PopoverViewModel: ObservableObject {
     @Published var lastUpdated: Date?
     @Published var overage: OverageSpendLimitResponse?
     @Published var systemStatus: ClaudeSystemStatus?
+    @Published var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
+    @Published var nextUsageRetryAt: Date?
     var onRefresh: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onPinChanged: ((Bool) -> Void)?
+    var onLayoutChanged: (() -> Void)?
 
     func refresh() {
         onRefresh?()
@@ -410,6 +633,10 @@ class PopoverViewModel: ObservableObject {
 
     func openSettings() {
         onOpenSettings?()
+    }
+
+    func requestLayoutRefresh() {
+        onLayoutChanged?()
     }
 
     func openUsagePage() {

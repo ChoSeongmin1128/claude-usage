@@ -17,7 +17,8 @@ struct LoginWebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
-        config.websiteDataStore = .default()
+        // 로그인 창은 비영구 스토어를 사용해 이전 로그인 쿠키 잔존 영향을 최소화
+        config.websiteDataStore = .nonPersistent()
 
         let prefs = WKWebpagePreferences()
         prefs.allowsContentJavaScript = true
@@ -31,7 +32,8 @@ struct LoginWebView: NSViewRepresentable {
         let cookieStore = config.websiteDataStore.httpCookieStore
         context.coordinator.registerCookieStore(cookieStore)
 
-        if let url = URL(string: "https://claude.ai/login") {
+        // clearOnOpen일 때는 updateNSView에서 초기화 후 로드
+        if clearTrigger == 0, let url = URL(string: "https://claude.ai/login") {
             webView.load(URLRequest(url: url))
         }
 
@@ -46,8 +48,10 @@ struct LoginWebView: NSViewRepresentable {
         let dataStore = nsView.configuration.websiteDataStore
         let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
         dataStore.fetchDataRecords(ofTypes: dataTypes) { records in
-            let claudeRecords = records.filter { $0.displayName.contains("claude") }
-            dataStore.removeData(ofTypes: dataTypes, for: claudeRecords) {
+            dataStore.removeData(ofTypes: dataTypes, for: records) {
+                let cookieStorage = HTTPCookieStorage.shared
+                cookieStorage.cookies?.forEach { cookieStorage.deleteCookie($0) }
+                URLCache.shared.removeAllCachedResponses()
                 DispatchQueue.main.async {
                     if let url = URL(string: "https://claude.ai/login") {
                         nsView.load(URLRequest(url: url))
@@ -68,19 +72,25 @@ struct LoginWebView: NSViewRepresentable {
         var lastClearTrigger = 0
         private var popupWindow: NSWindow?
         private var popupWebView: WKWebView?
-        private weak var registeredCookieStore: WKHTTPCookieStore?
+        private var observedCookieStores: [WKHTTPCookieStore] = []
 
         init(parent: LoginWebView) {
             self.parent = parent
         }
 
         deinit {
-            registeredCookieStore?.remove(self)
+            for store in observedCookieStores {
+                store.remove(self)
+            }
             popupWebView?.stopLoading()
         }
 
         func registerCookieStore(_ store: WKHTTPCookieStore) {
-            registeredCookieStore = store
+            let identifier = ObjectIdentifier(store)
+            if observedCookieStores.contains(where: { ObjectIdentifier($0) == identifier }) {
+                return
+            }
+            observedCookieStores.append(store)
             store.add(self)
         }
 
@@ -157,9 +167,11 @@ struct LoginWebView: NSViewRepresentable {
             }
 
             // 팝업 윈도우 생성 (Google OAuth 등)
-            // delegate 없이 자유롭게 동작 — 세션 키는 cookiesDidChange observer가 감지
             let popup = WKWebView(frame: .zero, configuration: configuration)
             popup.customUserAgent = webView.customUserAgent
+            popup.navigationDelegate = self
+            popup.uiDelegate = self
+            registerCookieStore(configuration.websiteDataStore.httpCookieStore)
 
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 500, height: 650),
@@ -176,6 +188,7 @@ struct LoginWebView: NSViewRepresentable {
             closePopup()
             popupWindow = window
             popupWebView = popup
+            scheduleRetryChecks(webView: popup)
 
             return popup
         }
@@ -229,20 +242,8 @@ struct LoginWebView: NSViewRepresentable {
                         let trimmed = pair.trimmingCharacters(in: .whitespaces)
                         if trimmed.hasPrefix("sessionKey=") {
                             let value = String(trimmed.dropFirst("sessionKey=".count))
-                            if value.hasPrefix("sk-ant-") {
+                            if self.isLikelySessionKey(value) {
                                 self.foundSessionKey(value, source: "JavaScript")
-                                return
-                            }
-                        }
-                    }
-
-                    // sessionKey 이름이 아니더라도 sk-ant- 패턴 검색
-                    for pair in pairs {
-                        let trimmed = pair.trimmingCharacters(in: .whitespaces)
-                        if let eqIdx = trimmed.firstIndex(of: "=") {
-                            let value = String(trimmed[trimmed.index(after: eqIdx)...])
-                            if value.hasPrefix("sk-ant-") {
-                                self.foundSessionKey(value, source: "JavaScript (패턴 매칭)")
                                 return
                             }
                         }
@@ -266,7 +267,7 @@ struct LoginWebView: NSViewRepresentable {
             }
         }
 
-        /// 쿠키 배열에서 세션 키 검색 (유연한 매칭)
+        /// 쿠키 배열에서 세션 키 검색 (sessionKey 쿠키만 신뢰)
         private func scanCookies(_ cookies: [HTTPCookie], source: String) {
             guard !sessionKeyExtracted else { return }
 
@@ -274,24 +275,8 @@ struct LoginWebView: NSViewRepresentable {
 
             // 1순위: name이 sessionKey이고 sk-ant- 시작
             for cookie in claudeCookies {
-                if cookie.name == "sessionKey" && cookie.value.hasPrefix("sk-ant-") {
+                if cookie.name == "sessionKey" && isLikelySessionKey(cookie.value) {
                     foundSessionKey(cookie.value, source: "\(source) (sessionKey)")
-                    return
-                }
-            }
-
-            // 2순위: 아무 쿠키든 값이 sk-ant-sid01- 시작
-            for cookie in claudeCookies {
-                if cookie.value.hasPrefix("sk-ant-sid01-") {
-                    foundSessionKey(cookie.value, source: "\(source) (\(cookie.name))")
-                    return
-                }
-            }
-
-            // 3순위: 아무 쿠키든 값이 sk-ant- 시작
-            for cookie in claudeCookies {
-                if cookie.value.hasPrefix("sk-ant-") {
-                    foundSessionKey(cookie.value, source: "\(source) (\(cookie.name))")
                     return
                 }
             }
@@ -319,6 +304,15 @@ struct LoginWebView: NSViewRepresentable {
                     self?.closePopup()
                 }
             }
+        }
+
+        private func isLikelySessionKey(_ value: String) -> Bool {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.count >= 20 else { return false }
+            if trimmed.hasPrefix("sk-ant-") || trimmed.hasPrefix("sk-") {
+                return true
+            }
+            return true
         }
     }
 }

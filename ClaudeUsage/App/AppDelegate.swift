@@ -16,15 +16,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var timer: Timer?
+    private var activeTimerInterval: TimeInterval?
     private var updateCheckTimer: Timer?
     private let apiService = ClaudeAPIService()
     private let popoverViewModel = PopoverViewModel()
 
     private var currentUsage: ClaudeUsageResponse?
     private var currentOverage: OverageSpendLimitResponse?
+    private var lastOverageFetchAt: Date?
     private var systemStatus: ClaudeSystemStatus?
     private var currentError: APIError?
     private var isLoading = false
+    private var loadingStartedAt: Date?
+    private var nextUsageRefreshAllowedAt: Date?
     private var lastUpdated: Date?
     private var hasAuthError = false
     private var consecutiveErrorCount = 0
@@ -63,7 +67,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 세션 키 확인
         if KeychainManager.shared.hasSessionKey {
-            startMonitoring()
+            Task {
+                await self.apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
+                await MainActor.run {
+                    self.startMonitoring()
+                }
+            }
         } else {
             updateMenuBar()
             showSettingsWindow()
@@ -81,6 +90,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Claude 시스템 상태 체크 시작 (5분 간격)
         refreshSystemStatus()
         startStatusTimer()
+        syncUsageHealthSnapshotToUI()
     }
 
     private func startUpdateCheckTimer(interval: TimeInterval) {
@@ -146,11 +156,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupPopover() {
         popoverViewModel.onRefresh = { [weak self] in
-            self?.refreshUsage()
+            self?.refreshUsage(force: true)
         }
         popoverViewModel.onOpenSettings = { [weak self] in
             self?.closePopover()
             self?.showSettingsWindow()
+        }
+        popoverViewModel.onLayoutChanged = { [weak self] in
+            self?.refreshPopoverSizeIfShown()
         }
         popoverViewModel.onPinChanged = { [weak self] isPinned in
             guard let self = self else { return }
@@ -167,6 +180,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let popoverView = PopoverView(viewModel: popoverViewModel)
         let hostingController = NSHostingController(rootView: popoverView)
+        if #available(macOS 13.0, *) {
+            hostingController.sizingOptions = [.preferredContentSize]
+        }
 
         let isPinned = AppSettings.shared.popoverPinned
         popover = NSPopover()
@@ -193,8 +209,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if popover.isShown {
             closePopover()
         } else {
-            popoverViewModel.update(usage: currentUsage, error: currentError, isLoading: isLoading, lastUpdated: lastUpdated, overage: currentOverage)
+            updatePopoverViewModel(
+                usage: currentUsage,
+                error: currentError,
+                isLoading: isLoading,
+                lastUpdated: lastUpdated,
+                overage: currentOverage
+            )
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            refreshPopoverSizeIfShown()
             NSApp.activate()
             if !AppSettings.shared.popoverPinned {
                 startGlobalClickMonitor()
@@ -205,6 +228,51 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func closePopover() {
         popover?.close()
         stopGlobalClickMonitor()
+    }
+
+    private func updatePopoverViewModel(
+        usage: ClaudeUsageResponse?,
+        error: APIError?,
+        isLoading: Bool,
+        lastUpdated: Date? = nil,
+        overage: OverageSpendLimitResponse? = nil
+    ) {
+        popoverViewModel.update(
+            usage: usage,
+            error: error,
+            isLoading: isLoading,
+            lastUpdated: lastUpdated,
+            overage: overage
+        )
+        refreshPopoverSizeIfShown()
+    }
+
+    private func refreshPopoverSizeIfShown() {
+        guard let popover, popover.isShown else { return }
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  let popover = self.popover,
+                  popover.isShown,
+                  let hosting = popover.contentViewController as? NSHostingController<PopoverView> else {
+                return
+            }
+
+            let fitting = hosting.view.fittingSize
+            guard fitting.width > 0, fitting.height > 0 else { return }
+
+            let width: CGFloat = AppSettings.shared.popoverCompact ? 300 : 340
+            let minHeight: CGFloat = AppSettings.shared.popoverCompact ? 170 : 280
+            let maxHeight = max(minHeight, (NSScreen.main?.visibleFrame.height ?? 900) - 100)
+            let height = min(max(fitting.height, minHeight), maxHeight)
+            let targetSize = NSSize(width: width, height: height)
+
+            let changed = abs(popover.contentSize.width - targetSize.width) > 0.5 ||
+                          abs(popover.contentSize.height - targetSize.height) > 0.5
+            if changed {
+                popover.contentSize = targetSize
+            }
+        }
     }
 
     private func startGlobalClickMonitor() {
@@ -259,7 +327,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Monitoring
 
     private func startMonitoring() {
-        isLoading = true
+        // refreshUsage()가 로딩 상태를 직접 관리하므로 선행 로딩 플래그를 두지 않는다.
+        isLoading = false
+        loadingStartedAt = nil
         updateMenuBar()
         refreshUsage()
         startTimer()
@@ -268,20 +338,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Timer
 
     private func startTimer() {
-        timer?.invalidate()
-
         let interval = PowerMonitor.shared.effectiveRefreshInterval
         guard AppSettings.shared.autoRefresh else {
+            timer?.invalidate()
+            timer = nil
+            activeTimerInterval = nil
             Logger.info("자동 새로고침 비활성화")
             return
         }
+
+        if timer != nil, activeTimerInterval == interval {
+            return
+        }
+
+        timer?.invalidate()
 
         timer = Timer.scheduledTimer(
             withTimeInterval: interval,
             repeats: true
         ) { [weak self] _ in
-            self?.refreshUsage()
+            self?.refreshUsage(force: false)
         }
+        activeTimerInterval = interval
 
         Logger.info("자동 갱신 타이머 시작 (\(Int(interval))초)")
     }
@@ -303,6 +381,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.startTimer()
                 } else {
                     self?.timer?.invalidate()
+                    self?.timer = nil
+                    self?.activeTimerInterval = nil
                 }
             }
             .store(in: &cancellables)
@@ -355,30 +435,104 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func syncUsageHealthSnapshotToUI() {
+        Task {
+            let snapshot = await apiService.fetchUsageHealthSnapshot()
+            await MainActor.run {
+                self.popoverViewModel.usageHealthSnapshot = snapshot
+                self.popoverViewModel.nextUsageRetryAt = self.nextUsageRefreshAllowedAt
+                self.refreshPopoverSizeIfShown()
+            }
+        }
+    }
+
     // MARK: - API
 
-    private func refreshUsage() {
+    private func refreshUsage(force: Bool = false) {
+        if !force, let allowedAt = nextUsageRefreshAllowedAt {
+            let remaining = Int(ceil(allowedAt.timeIntervalSinceNow))
+            if remaining > 0 {
+                Logger.debug("사용량 갱신 스킵: 임시 오류 백오프 \(remaining)초 남음")
+                popoverViewModel.nextUsageRetryAt = allowedAt
+                refreshPopoverSizeIfShown()
+                return
+            }
+            nextUsageRefreshAllowedAt = nil
+            popoverViewModel.nextUsageRetryAt = nil
+            refreshPopoverSizeIfShown()
+        }
+
+        // 이미 갱신 중이면 중복 요청을 막아 로딩/회전 애니메이션 과도 지속을 방지
+        if isLoading {
+            if let startedAt = loadingStartedAt {
+                let elapsed = Date().timeIntervalSince(startedAt)
+                if elapsed >= 90 {
+                    Logger.warning("사용량 갱신 고착 감지(\(Int(elapsed))초) → 상태 복구 후 재시도")
+                    isLoading = false
+                    loadingStartedAt = nil
+                } else {
+                    Logger.debug("사용량 갱신 스킵: 이미 요청 진행 중")
+                    return
+                }
+            } else {
+                Logger.debug("사용량 갱신 스킵: 이미 요청 진행 중")
+                return
+            }
+        }
+
+        // 고착 복구 케이스에서는 즉시 로딩 상태를 반영해 UI 튐을 줄인다
+        if !isLoading {
+            isLoading = true
+            loadingStartedAt = Date()
+            updatePopoverViewModel(
+                usage: currentUsage,
+                error: nil,
+                isLoading: true,
+                lastUpdated: lastUpdated,
+                overage: currentOverage
+            )
+        } else {
+            Logger.debug("사용량 갱신 스킵: 이미 요청 진행 중")
+            return
+        }
+
         Task {
             do {
-                isLoading = true
-                popoverViewModel.update(usage: currentUsage, error: nil, isLoading: true, lastUpdated: lastUpdated, overage: currentOverage)
                 Logger.debug("사용량 갱신 시작")
 
                 let usage = try await apiService.fetchUsageWithRetry()
 
-                // 추가 사용량은 독립적으로 호출 (실패해도 무시)
-                let overage = try? await apiService.fetchOverageSpendLimit()
+                // overage는 5분 캐시로 요청량 절감
+                let shouldFetchOverage: Bool = {
+                    guard let last = self.lastOverageFetchAt else { return true }
+                    return Date().timeIntervalSince(last) >= 300
+                }()
+                let fetchedOverage = shouldFetchOverage ? (try? await apiService.fetchOverageSpendLimit()) : nil
 
                 await MainActor.run {
                     self.currentUsage = usage
-                    self.currentOverage = overage
+                    if let fetchedOverage {
+                        self.currentOverage = fetchedOverage
+                        self.lastOverageFetchAt = Date()
+                    }
                     self.currentError = nil
                     self.isLoading = false
+                    self.loadingStartedAt = nil
+                    self.nextUsageRefreshAllowedAt = nil
+                    self.popoverViewModel.nextUsageRetryAt = nil
+                    self.refreshPopoverSizeIfShown()
                     self.hasAuthError = false
                     self.consecutiveErrorCount = 0
                     self.lastUpdated = Date()
                     self.updateMenuBar()
-                    self.popoverViewModel.update(usage: usage, error: nil, isLoading: false, lastUpdated: self.lastUpdated, overage: overage)
+                    self.updatePopoverViewModel(
+                        usage: usage,
+                        error: nil,
+                        isLoading: false,
+                        lastUpdated: self.lastUpdated,
+                        overage: self.currentOverage
+                    )
+                    self.syncUsageHealthSnapshotToUI()
 
                     // 알림 체크
                     NotificationManager.shared.checkThreshold(
@@ -389,7 +543,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     NotificationManager.shared.checkThreshold(
                         session: .weekly,
                         percentage: usage.weeklyPercentage,
-                        resetAt: usage.sevenDay.resetsAt
+                        resetAt: usage.sevenDay?.resetsAt
                     )
                 }
 
@@ -397,17 +551,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 Logger.error("API 에러: \(error.errorDescription ?? "")")
 
                 await MainActor.run {
-                    self.currentError = error
                     self.isLoading = false
+                    self.loadingStartedAt = nil
                     self.consecutiveErrorCount += 1
-                    if case .invalidSessionKey = error {
-                        self.hasAuthError = true
+                    self.applyUsageRefreshBackoff(for: error)
+
+                    if error.isTemporaryFailure {
+                        // 임시 장애(Cloudflare/429/네트워크)는 마지막 성공 데이터를 유지
+                        self.hasAuthError = false
+                        self.currentError = (self.currentUsage == nil) ? error : nil
+                    } else {
+                        self.currentError = error
+                        self.hasAuthError = error.isDefinitiveAuthFailure
                     }
-                    if self.consecutiveErrorCount >= 3 {
-                        self.currentUsage = nil
-                    }
+
                     self.updateMenuBar()
-                    self.popoverViewModel.update(usage: self.currentUsage, error: error, isLoading: false)
+                    self.updatePopoverViewModel(usage: self.currentUsage, error: error, isLoading: false)
+                    self.popoverViewModel.nextUsageRetryAt = self.nextUsageRefreshAllowedAt
+                    self.refreshPopoverSizeIfShown()
+                    self.syncUsageHealthSnapshotToUI()
                 }
 
             } catch {
@@ -415,17 +577,53 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 let apiError = APIError.unknownError(error.localizedDescription)
                 await MainActor.run {
-                    self.currentError = apiError
                     self.isLoading = false
+                    self.loadingStartedAt = nil
                     self.consecutiveErrorCount += 1
-                    if self.consecutiveErrorCount >= 3 {
-                        self.currentUsage = nil
-                    }
+                    self.applyUsageRefreshBackoff(for: apiError)
+                    self.hasAuthError = false
+                    self.currentError = (self.currentUsage == nil) ? apiError : nil
                     self.updateMenuBar()
-                    self.popoverViewModel.update(usage: self.currentUsage, error: apiError, isLoading: false)
+                    self.updatePopoverViewModel(usage: self.currentUsage, error: apiError, isLoading: false)
+                    self.popoverViewModel.nextUsageRetryAt = self.nextUsageRefreshAllowedAt
+                    self.refreshPopoverSizeIfShown()
+                    self.syncUsageHealthSnapshotToUI()
                 }
             }
         }
+    }
+
+    private func applyUsageRefreshBackoff(for error: APIError) {
+        guard error.isTemporaryFailure else {
+            nextUsageRefreshAllowedAt = nil
+            return
+        }
+
+        let retryAfterSeconds: Int = {
+            switch error {
+            case .rateLimited(let retryAfter), .cloudflareBlocked(let retryAfter):
+                return retryAfter ?? 0
+            case .networkError:
+                return 10
+            case .serverError(let statusCode):
+                return statusCode >= 500 ? 20 : 10
+            case .invalidSessionKey, .parseError, .unknownError:
+                return 0
+            }
+        }()
+
+        let floor = Int(max(15, PowerMonitor.shared.effectiveRefreshInterval))
+        let backoffSeconds = max(floor, retryAfterSeconds)
+        let candidate = Date().addingTimeInterval(TimeInterval(backoffSeconds))
+
+        if let current = nextUsageRefreshAllowedAt, current > candidate {
+            return
+        }
+
+        nextUsageRefreshAllowedAt = candidate
+        popoverViewModel.nextUsageRetryAt = candidate
+        refreshPopoverSizeIfShown()
+        Logger.info("임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
     }
 
     // MARK: - Menu Bar Update
@@ -513,7 +711,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let settings = AppSettings.shared
         let fiveHourPct = usage.fiveHourPercentage
-        let weeklyPct = usage.sevenDay.utilization
+        let weeklyPct = usage.sevenDay?.utilization ?? 0
         let primaryPct = fiveHourPct
 
         let fiveHourColor = ColorProvider.nsStatusColor(for: fiveHourPct)
@@ -620,14 +818,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 elements.append((image: nil, text: clock, attrs: attrs))
             }
         case .weekly:
-            if let resetAt = usage.sevenDay.resetsAt,
+            if let resetAt = usage.sevenDay?.resetsAt,
                let clock = TimeFormatter.formatResetTimeWeekly(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false) {
                 let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
                 elements.append((image: nil, text: clock, attrs: attrs))
             }
         case .dual:
             let r1 = usage.fiveHour.resetsAt.flatMap { TimeFormatter.formatResetTime(from: $0, style: settings.timeFormat, includeDateIfNotToday: false) }
-            let r2 = usage.sevenDay.resetsAt.flatMap { TimeFormatter.formatResetTimeWeekly(from: $0, style: settings.timeFormat, includeDateIfNotToday: false) }
+            let r2 = usage.sevenDay?.resetsAt.flatMap { TimeFormatter.formatResetTimeWeekly(from: $0, style: settings.timeFormat, includeDateIfNotToday: false) }
             let dualText: String?
             if let t1 = r1, let t2 = r2 {
                 dualText = "\(t1) · \(t2)"
@@ -686,7 +884,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             switch event.charactersIgnoringModifiers {
             case "r":
-                self?.refreshUsage()
+                self?.refreshUsage(force: true)
                 return nil
             case ",":
                 self?.showSettingsWindow()
@@ -706,6 +904,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         showSettingsWindow()
     }
 
+    private func applySettingsFromWindow() {
+        Task {
+            await self.apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
+            if let key = KeychainManager.shared.load(), !key.isEmpty {
+                await self.apiService.updateSessionKey(key)
+                await MainActor.run {
+                    self.startMonitoring()
+                }
+            } else {
+                await self.apiService.clearSession()
+                await MainActor.run {
+                    self.timer?.invalidate()
+                    self.timer = nil
+                    self.currentUsage = nil
+                    self.currentOverage = nil
+                    self.lastOverageFetchAt = nil
+                    self.currentError = nil
+                    self.hasAuthError = false
+                    self.consecutiveErrorCount = 0
+                    self.isLoading = false
+                    self.updateMenuBar()
+                    self.updatePopoverViewModel(usage: nil, error: nil, isLoading: false, overage: nil)
+                }
+            }
+            Logger.info("설정 적용 완료")
+        }
+    }
+
     private func showSettingsWindow() {
         if let window = settingsWindow, window.isVisible {
             window.makeKeyAndOrderFront(nil)
@@ -720,46 +946,43 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self = self else { return }
                 self.settingsSnapshot = nil  // 저장 시 스냅샷 클리어 → 복원 방지
                 self.settingsWindow?.close()
-
-                // 세션 키 업데이트 후 모니터링 시작 (순차 실행)
-                Task {
-                    if let key = KeychainManager.shared.load() {
-                        await self.apiService.updateSessionKey(key)
-                    }
-                    await MainActor.run {
-                        self.startMonitoring()
-                    }
-                    Logger.info("설정 저장 완료")
-                }
+                self.applySettingsFromWindow()
+            },
+            onApply: { [weak self] in
+                guard let self = self else { return }
+                self.settingsSnapshot = AppSettings.shared.createSnapshot()
+                self.applySettingsFromWindow()
             },
             onCancel: { [weak self] in
                 self?.settingsWindow?.close()
             },
             onOpenLogin: { [weak self] in
                 self?.settingsWindow?.close()
-                self?.showLoginWindow()
+                self?.showLoginWindow(clearCookies: true)
             },
             onLogout: { [weak self] in
                 guard let self = self else { return }
                 try? KeychainManager.shared.delete()
+                Task {
+                    await self.apiService.clearSession()
+                    await MainActor.run {
+                        self.syncUsageHealthSnapshotToUI()
+                    }
+                }
                 self.timer?.invalidate()
                 self.timer = nil
                 self.currentUsage = nil
                 self.currentOverage = nil
+                self.lastOverageFetchAt = nil
                 self.currentError = nil
                 self.hasAuthError = false
                 self.consecutiveErrorCount = 0
                 self.isLoading = false
                 self.updateMenuBar()
-                self.popoverViewModel.update(usage: nil, error: nil, isLoading: false, overage: nil)
-                self.settingsSnapshot = nil
-                self.settingsWindow?.close()
+                self.updatePopoverViewModel(usage: nil, error: nil, isLoading: false, overage: nil)
+                self.settingsSnapshot = AppSettings.shared.createSnapshot()
 
-                // 내장 브라우저 쿠키/캐시 삭제
-                let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
-                WKWebsiteDataStore.default().removeData(ofTypes: dataTypes, modifiedSince: .distantPast) {
-                    Logger.info("웹 데이터 삭제 완료")
-                }
+                self.clearWebSessionData()
                 Logger.info("로그아웃 완료")
             }
         )
@@ -782,6 +1005,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Login Window
 
     func showLoginWindow(clearCookies: Bool = false) {
+        if let window = loginWindow, window.isVisible {
+            if clearCookies {
+                window.close()
+                loginWindow = nil
+            } else {
+                window.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+                return
+            }
+        }
+
+        if clearCookies {
+            clearWebSessionData()
+        }
+
         if let window = loginWindow, window.isVisible {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -806,6 +1044,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     await MainActor.run {
                         self.loginWindow?.close()
                     }
+                    await self.apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
                     await self.apiService.updateSessionKey(key)
                     await MainActor.run {
                         self.hasAuthError = false
@@ -834,11 +1073,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    private func clearWebSessionData() {
+        let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+        WKWebsiteDataStore.default().removeData(ofTypes: dataTypes, modifiedSince: .distantPast) {
+            let cookieStorage = HTTPCookieStorage.shared
+            cookieStorage.cookies?.forEach { cookieStorage.deleteCookie($0) }
+            URLCache.shared.removeAllCachedResponses()
+            Logger.info("웹 데이터 삭제 완료")
+        }
+    }
+
     // MARK: - Actions
 
     @objc private func refreshClicked() {
         if KeychainManager.shared.hasSessionKey {
-            refreshUsage()
+            refreshUsage(force: true)
         } else {
             showSettingsWindow()
         }

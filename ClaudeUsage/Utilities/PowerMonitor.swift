@@ -74,7 +74,7 @@ class PowerMonitor: ObservableObject {
     var effectiveRefreshInterval: TimeInterval {
         let settings = AppSettings.shared
         if isOnBattery && settings.reducedRefreshOnBattery {
-            return max(settings.refreshInterval, 30)  // 배터리 시 최소 30초
+            return max(settings.refreshInterval, 60)  // 배터리 시 최소 60초
         }
         return settings.refreshInterval
     }
