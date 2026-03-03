@@ -12,12 +12,29 @@ struct PopoverView: View {
     @ObservedObject var viewModel: PopoverViewModel
     @ObservedObject private var settings = AppSettings.shared
     @State private var isStatusExpanded = false
+    @State private var selectedProviderTab: ProviderTab = .claude
+
+    private enum ProviderTab: String, CaseIterable, Identifiable {
+        case claude
+        case codex
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .claude:
+                return "Claude"
+            case .codex:
+                return "Codex"
+            }
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // 상단 바
             HStack(spacing: 6) {
-                Text("Claude 사용량")
+                Text(popoverTitle)
                     .font(.headline)
 
                 // 새로고침 (제목 옆)
@@ -316,6 +333,18 @@ struct PopoverView: View {
         }
         .frame(width: settings.popoverCompact ? 300 : 340)
         .background(Color(NSColor.windowBackgroundColor))
+        .onChange(of: hasCodexContent) { _, _ in
+            normalizeProviderTabSelection()
+        }
+        .onChange(of: hasClaudeContent) { _, _ in
+            normalizeProviderTabSelection()
+        }
+        .onChange(of: settings.codexEnabled) { _, _ in
+            normalizeProviderTabSelection()
+        }
+        .onAppear {
+            normalizeProviderTabSelection()
+        }
     }
 
     // MARK: - Helpers
@@ -359,6 +388,42 @@ struct PopoverView: View {
                 return "데이터가 최신이 아닐 수 있습니다 (마지막 성공: \(hours)시간 전)"
             }
             return "데이터가 최신이 아닐 수 있습니다 (마지막 성공: \(hours)시간 \(remainMinutes)분 전)"
+        }
+    }
+
+    private var popoverTitle: String {
+        if settings.popoverCompact {
+            return "사용량"
+        }
+        if shouldShowProviderTabs {
+            return selectedProviderTab == .claude ? "Claude 사용량" : "Codex 사용량"
+        }
+        if hasCodexContent && !hasClaudeContent {
+            return "Codex 사용량"
+        }
+        return "Claude 사용량"
+    }
+
+    private var hasClaudeContent: Bool {
+        viewModel.usage != nil || viewModel.error != nil
+    }
+
+    private var hasCodexContent: Bool {
+        guard settings.codexEnabled else { return false }
+        return viewModel.codexUsage != nil || viewModel.codexError != nil
+    }
+
+    private var shouldShowProviderTabs: Bool {
+        !settings.popoverCompact && hasClaudeContent && hasCodexContent
+    }
+
+    private func normalizeProviderTabSelection() {
+        if !hasCodexContent {
+            selectedProviderTab = .claude
+            return
+        }
+        if !hasClaudeContent {
+            selectedProviderTab = .codex
         }
     }
 
@@ -454,6 +519,108 @@ struct PopoverView: View {
     }
 
     @ViewBuilder
+    private func standardClaudeContent(usage: ClaudeUsageResponse?) -> some View {
+        let visibleClaudeItems = settings.popoverItems.filter { $0.visible }
+        VStack(spacing: 12) {
+            ForEach(Array(visibleClaudeItems.enumerated()), id: \.offset) { index, item in
+                if index > 0 { Divider() }
+                switch item.id {
+                case "currentSession":
+                    if let usage {
+                        UsageSectionView(
+                            systemIcon: "gauge.medium",
+                            title: "현재 세션",
+                            percentage: usage.fiveHour.utilization,
+                            resetAt: usage.fiveHour.resetsAt
+                        )
+                    }
+                case "weeklyLimit":
+                    if let sevenDay = usage?.sevenDay {
+                        UsageSectionView(
+                            systemIcon: "calendar",
+                            title: "주간 한도",
+                            percentage: sevenDay.utilization,
+                            resetAt: sevenDay.resetsAt,
+                            isWeekly: true
+                        )
+                    }
+                case "modelUsage":
+                    if let sonnet = usage?.sevenDaySonnet {
+                        UsageSectionView(
+                            systemIcon: "bolt.fill",
+                            title: "Sonnet (주간)",
+                            percentage: sonnet.utilization,
+                            resetAt: sonnet.resetsAt,
+                            isWeekly: true
+                        )
+                    }
+                    if let opus = usage?.sevenDayOpus {
+                        if usage?.sevenDaySonnet != nil { Divider() }
+                        UsageSectionView(
+                            systemIcon: "diamond.fill",
+                            title: "Opus (주간)",
+                            percentage: opus.utilization,
+                            resetAt: opus.resetsAt,
+                            isWeekly: true
+                        )
+                    }
+                case "overageUsage":
+                    if let overage = viewModel.overage, overage.isEnabled {
+                        OverageUsageView(overage: overage)
+                    }
+                default:
+                    EmptyView()
+                }
+            }
+        }
+        .padding(16)
+    }
+
+    @ViewBuilder
+    private func standardCodexContent() -> some View {
+        let visibleCodexItems = settings.codexEnabled ? settings.codexPopoverItems.filter { $0.visible } : []
+        VStack(spacing: 12) {
+            ForEach(Array(visibleCodexItems.enumerated()), id: \.offset) { index, item in
+                if index > 0 { Divider() }
+                switch item.id {
+                case "codexPrimary":
+                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.primaryWindow {
+                        UsageSectionView(
+                            systemIcon: "bubble.left.and.bubble.right",
+                            title: "Codex 현재",
+                            percentage: window.utilization,
+                            resetAt: window.resetAtISO
+                        )
+                    } else {
+                        ProviderStatusRow(title: "Codex 현재", error: viewModel.codexError)
+                    }
+                case "codexSecondary":
+                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.secondaryWindow {
+                        UsageSectionView(
+                            systemIcon: "calendar.badge.clock",
+                            title: "Codex 주간",
+                            percentage: window.utilization,
+                            resetAt: window.resetAtISO,
+                            isWeekly: true
+                        )
+                    } else {
+                        ProviderStatusRow(title: "Codex 주간", error: viewModel.codexError)
+                    }
+                case "codexCredits":
+                    if let codex = viewModel.codexUsage, let credits = codex.credits {
+                        CodexCreditsView(credits: credits)
+                    } else {
+                        ProviderStatusRow(title: "Codex 크레딧", error: viewModel.codexError)
+                    }
+                default:
+                    EmptyView()
+                }
+            }
+        }
+        .padding(16)
+    }
+
+    @ViewBuilder
     private var compactMainSection: some View {
         Group {
             if viewModel.isLoading && viewModel.usage == nil {
@@ -504,7 +671,46 @@ struct PopoverView: View {
                 .padding(16)
 
             } else if viewModel.usage != nil || viewModel.codexUsage != nil {
-                standardContent(usage: viewModel.usage)
+                VStack(spacing: 0) {
+                    if shouldShowProviderTabs {
+                        HStack(spacing: 8) {
+                            ForEach(ProviderTab.allCases) { tab in
+                                Button {
+                                    selectedProviderTab = tab
+                                } label: {
+                                    Text(tab.title)
+                                        .font(.caption)
+                                        .fontWeight(selectedProviderTab == tab ? .semibold : .regular)
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 6)
+                                        .background(selectedProviderTab == tab ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
+                                        .foregroundStyle(selectedProviderTab == tab ? Color.accentColor : .primary)
+                                        .cornerRadius(8)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                        .padding(.bottom, 8)
+                        Divider()
+                    }
+
+                    if shouldShowProviderTabs {
+                        if selectedProviderTab == .claude {
+                            standardClaudeContent(usage: viewModel.usage)
+                        } else {
+                            standardCodexContent()
+                        }
+                    } else if hasCodexContent && !hasClaudeContent {
+                        standardCodexContent()
+                    } else if hasClaudeContent && !hasCodexContent {
+                        standardClaudeContent(usage: viewModel.usage)
+                    } else {
+                        standardContent(usage: viewModel.usage)
+                    }
+                }
 
             } else {
                 VStack {

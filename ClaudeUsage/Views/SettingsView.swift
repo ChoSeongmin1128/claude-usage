@@ -172,6 +172,7 @@ struct SettingsView: View {
                             panelContent
                         }
                         .padding(20)
+                        .id(contentIdentity)
                     }
                 }
             }
@@ -271,6 +272,17 @@ struct SettingsView: View {
             case .alerts:
                 codexAlertSection
             }
+        }
+    }
+
+    private var contentIdentity: String {
+        switch selectedPanel {
+        case .common:
+            return "common-\(selectedCommonTab.rawValue)"
+        case .claude:
+            return "claude-\(selectedClaudeTab.rawValue)"
+        case .codex:
+            return "codex-\(selectedCodexTab.rawValue)"
         }
     }
 
