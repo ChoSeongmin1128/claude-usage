@@ -527,12 +527,7 @@ actor ClaudeAPIService {
     }
 
     private func readSystemOAuthAccessToken() throws -> String? {
-        // 1) 파일 우선: 키체인 블로킹 이슈를 피하고 최신 CLI 자격증명을 빠르게 반영
-        if let token = readOAuthAccessTokenFromCredentialFiles() {
-            return token
-        }
-
-        // 2) 키체인 기본 서비스 먼저 시도 (대부분 케이스)
+        // 1) 키체인 기본 서비스 먼저 시도 (대부분 케이스)
         let primaryService = "Claude Code-credentials"
         if let credentials = try readKeychainCredentialPayload(serviceName: primaryService),
            let token = parseOAuthAccessToken(from: credentials) {
@@ -540,7 +535,12 @@ actor ClaudeAPIService {
             return token
         }
 
-        // 3) 기본 서비스 실패 시에만 hashed 서비스 탐색
+        // 2) 파일 fallback: 키체인 접근이 제한된 환경 대비
+        if let token = readOAuthAccessTokenFromCredentialFiles() {
+            return token
+        }
+
+        // 3) 기본 서비스/파일 실패 시에만 hashed 서비스 탐색
         let discoveredServices = getDiscoveredCLIServiceNames().filter { $0 != primaryService }
         if !discoveredServices.isEmpty {
             Logger.debug("OAuth 토큰 조회: 추가 키체인 서비스 \(discoveredServices.count)개 후보")
