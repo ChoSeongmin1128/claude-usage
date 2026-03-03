@@ -261,7 +261,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Monitoring
 
     private func startMonitoring() {
-        isLoading = true
+        // refreshUsage()가 로딩 상태를 직접 관리하므로 선행 로딩 플래그를 두지 않는다.
+        isLoading = false
+        loadingStartedAt = nil
         updateMenuBar()
         refreshUsage()
         startTimer()
