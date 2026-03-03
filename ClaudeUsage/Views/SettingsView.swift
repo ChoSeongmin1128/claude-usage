@@ -23,6 +23,10 @@ struct SettingsView: View {
     @State private var didSave = false
     @State private var draggingItemID: String?
     @State private var compactConfigTab: Int = 0
+    @State private var selectedOrganizationID: String = ""
+    @State private var organizations: [ClaudeAPIService.OrganizationSummary] = []
+    @State private var isLoadingOrganizations = false
+    @State private var organizationMessage: String?
 
     var onSave: (() -> Void)?
     var onCancel: (() -> Void)?
@@ -120,6 +124,7 @@ struct SettingsView: View {
             testResult = nil
             refreshIntervalText = String(Int(settings.refreshInterval))
             alertTexts = settings.alertThresholds.map { String($0) }
+            selectedOrganizationID = settings.preferredOrganizationID
         }
         .onDisappear {
             if !didSave, let snapshot = snapshot {
@@ -253,6 +258,59 @@ struct SettingsView: View {
                 .padding(.top, 4)
             }
             .font(.subheadline)
+
+            organizationSection
+        }
+    }
+
+    private var organizationSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+
+            Text("Organization 선택")
+                .font(.subheadline)
+
+            Text("여러 organization을 사용하는 경우 조회 대상을 선택할 수 있습니다. 비워두면 자동 선택됩니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 8) {
+                Button("목록 불러오기") { loadOrganizations() }
+                    .disabled(isLoadingOrganizations)
+                if isLoadingOrganizations {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+                if !organizations.isEmpty {
+                    Text("\(organizations.count)개")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("자동 선택") {
+                    selectedOrganizationID = ""
+                }
+                .disabled(selectedOrganizationID.isEmpty)
+            }
+
+            Picker("조회 대상", selection: $selectedOrganizationID) {
+                Text("자동 선택").tag("")
+                ForEach(organizations, id: \.id) { org in
+                    Text(org.displayName).tag(org.id)
+                }
+            }
+            .labelsHidden()
+            .disabled(organizations.isEmpty)
+
+            TextField("Organization UUID 직접 입력 (선택)", text: $selectedOrganizationID)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.caption, design: .monospaced))
+
+            if let message = organizationMessage {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(message.contains("실패") || message.contains("없음") ? .orange : .secondary)
+            }
         }
     }
 
@@ -702,6 +760,7 @@ struct SettingsView: View {
         Task {
             do {
                 let service = ClaudeAPIService(sessionKey: normalizedKey)
+                await service.updatePreferredOrganizationID(normalizeOrganizationID(selectedOrganizationID))
                 let _ = try await service.fetchUsage()
                 await MainActor.run {
                     testResult = .success
@@ -749,6 +808,12 @@ struct SettingsView: View {
             settings.refreshInterval = val
         }
 
+        let normalizedOrganizationID = normalizeOrganizationID(selectedOrganizationID)
+        if normalizedOrganizationID != selectedOrganizationID {
+            selectedOrganizationID = normalizedOrganizationID
+        }
+        settings.preferredOrganizationID = normalizedOrganizationID
+
         onSave?()
     }
 
@@ -773,10 +838,62 @@ struct SettingsView: View {
         return value
     }
 
+    private func normalizeOrganizationID(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func loadOrganizations() {
+        let normalizedKey: String = {
+            if !sessionKey.isEmpty {
+                return normalizeSessionKey(sessionKey)
+            }
+            if let storedSessionKey, !storedSessionKey.isEmpty {
+                return normalizeSessionKey(storedSessionKey)
+            }
+            return ""
+        }()
+
+        guard !normalizedKey.isEmpty else {
+            organizationMessage = "세션 키가 없어 organization 목록을 불러올 수 없습니다."
+            return
+        }
+
+        isLoadingOrganizations = true
+        organizationMessage = nil
+
+        Task {
+            do {
+                let service = ClaudeAPIService(sessionKey: normalizedKey)
+                let fetched = try await service.fetchOrganizations()
+                await MainActor.run {
+                    organizations = fetched
+                    isLoadingOrganizations = false
+                    if fetched.isEmpty {
+                        organizationMessage = "organization 목록이 비어 있습니다."
+                        return
+                    }
+                    let exists = selectedOrganizationID.isEmpty || fetched.contains { $0.id == selectedOrganizationID }
+                    if !exists {
+                        organizationMessage = "현재 선택한 organization이 목록에 없어 자동 선택으로 동작합니다."
+                    } else {
+                        organizationMessage = "organization \(fetched.count)개를 불러왔습니다."
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    isLoadingOrganizations = false
+                    organizationMessage = "organization 목록 조회 실패: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
     private func resetToDefaults() {
         settings.resetToDefaults()
         refreshIntervalText = String(Int(settings.refreshInterval))
         alertTexts = settings.alertThresholds.map { String($0) }
+        selectedOrganizationID = settings.preferredOrganizationID
+        organizationMessage = nil
     }
 }
 

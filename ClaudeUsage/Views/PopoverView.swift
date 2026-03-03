@@ -21,11 +21,16 @@ struct PopoverView: View {
 
                 // 새로고침 (제목 옆)
                 Button(action: { viewModel.refresh() }) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 12))
-                        .frame(width: 14, height: 14)
-                        .rotationEffect(.degrees(viewModel.isLoading ? 360 : 0))
-                        .animation(viewModel.isLoading ? .linear(duration: 1).repeatForever(autoreverses: false) : nil, value: viewModel.isLoading)
+                    Group {
+                        if viewModel.isLoading {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 12))
+                        }
+                    }
+                    .frame(width: 14, height: 14)
                 }
                 .buttonStyle(.borderless)
                 .disabled(viewModel.isLoading)

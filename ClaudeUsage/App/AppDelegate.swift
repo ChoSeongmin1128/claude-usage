@@ -65,7 +65,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 세션 키 확인
         if KeychainManager.shared.hasSessionKey {
-            startMonitoring()
+            Task {
+                await self.apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
+                await MainActor.run {
+                    self.startMonitoring()
+                }
+            }
         } else {
             updateMenuBar()
             showSettingsWindow()
@@ -770,6 +775,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 // 세션 키 업데이트 후 모니터링 시작 (순차 실행)
                 Task {
+                    await self.apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
                     if let key = KeychainManager.shared.load(), !key.isEmpty {
                         await self.apiService.updateSessionKey(key)
                         await MainActor.run {
@@ -881,6 +887,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     await MainActor.run {
                         self.loginWindow?.close()
                     }
+                    await self.apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
                     await self.apiService.updateSessionKey(key)
                     await MainActor.run {
                         self.hasAuthError = false

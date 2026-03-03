@@ -11,9 +11,22 @@ import Foundation
 actor ClaudeAPIService {
     // MARK: - Properties
 
+    struct OrganizationSummary: Sendable, Equatable, Identifiable {
+        let id: String
+        let name: String?
+
+        var displayName: String {
+            if let name, !name.isEmpty {
+                return "\(name) (\(id))"
+            }
+            return id
+        }
+    }
+
     private var sessionKey: String?
     private let baseURL = "https://claude.ai/api"
     private var cachedOrganizationID: String?
+    private var preferredOrganizationID: String?
     private var preferOAuthUntil: Date?
     private let oauthPreferDuration: TimeInterval = 10 * 60
     private var sessionPathCooldownUntil: Date?
@@ -55,6 +68,16 @@ actor ClaudeAPIService {
         self.sessionPathCooldownUntil = nil
         self.sessionPathCooldownReason = nil
         self.sessionPathLimitStrike = 0
+    }
+
+    func updatePreferredOrganizationID(_ id: String) {
+        let normalized = Self.normalizeOrganizationID(id)
+        if preferredOrganizationID == normalized {
+            return
+        }
+        preferredOrganizationID = normalized
+        cachedOrganizationID = nil
+        Logger.info("선호 Organization ID 업데이트: \(normalized ?? "자동 선택")")
     }
 
     /// 세션 키가 설정되어 있는지 확인
@@ -123,6 +146,14 @@ actor ClaudeAPIService {
             }
             throw APIError.invalidSessionKey
         }
+    }
+
+    /// 현재 세션 키 기준 organization 목록 조회 (설정 UI 용도)
+    func fetchOrganizations() async throws -> [OrganizationSummary] {
+        guard let sessionKey, !sessionKey.isEmpty else {
+            throw APIError.invalidSessionKey
+        }
+        return try await fetchOrganizationsWithSessionKey(sessionKey)
     }
 
     private func fetchUsageWithSessionKey(_ sessionKey: String) async throws -> ClaudeUsageResponse {
@@ -226,7 +257,30 @@ actor ClaudeAPIService {
         }
 
         Logger.info("Organization ID 가져오기 시작")
+        let organizations = try await fetchOrganizationsWithSessionKey(sessionKey)
+        guard !organizations.isEmpty else {
+            Logger.error("Organization 목록이 비어 있음")
+            throw APIError.parseError
+        }
 
+        if let preferredOrganizationID,
+           let preferred = organizations.first(where: { $0.id == preferredOrganizationID }) {
+            Logger.info("선호 Organization ID 사용: \(preferred.id)")
+            cachedOrganizationID = preferred.id
+            return preferred.id
+        }
+
+        if let preferredOrganizationID {
+            Logger.warning("선호 Organization ID 미발견(\(preferredOrganizationID)) → 첫 organization으로 대체")
+        }
+
+        let selected = organizations[0]
+        Logger.info("Organization ID 선택: \(selected.id) (총 \(organizations.count)개)")
+        cachedOrganizationID = selected.id
+        return selected.id
+    }
+
+    private func fetchOrganizationsWithSessionKey(_ sessionKey: String) async throws -> [OrganizationSummary] {
         let url = URL(string: "\(baseURL)/organizations")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -246,23 +300,26 @@ actor ClaudeAPIService {
         }
 
         do {
-            if let json = try JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-               let firstOrg = json.first,
-               let uuid = firstOrg["uuid"] as? String {
-
-                Logger.info("Organization ID 추출 성공: \(uuid)")
-                cachedOrganizationID = uuid
-                return uuid
-
-            } else {
-                Logger.error("Organization ID를 찾을 수 없음")
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
                 throw APIError.parseError
             }
 
+            let organizations = json.compactMap { org -> OrganizationSummary? in
+                guard let uuid = org["uuid"] as? String, !uuid.isEmpty else { return nil }
+                let name = (org["name"] as? String) ??
+                           (org["display_name"] as? String) ??
+                           (org["company_name"] as? String)
+                return OrganizationSummary(id: uuid, name: name)
+            }
+
+            if organizations.isEmpty {
+                Logger.error("Organization ID를 찾을 수 없음")
+            }
+            return organizations
         } catch let apiError as APIError {
             throw apiError
         } catch {
-            Logger.error("JSON 파싱 실패: \(error)")
+            Logger.error("Organization JSON 파싱 실패: \(error)")
             throw APIError.parseError
         }
     }
@@ -704,5 +761,11 @@ actor ClaudeAPIService {
         }
         let token = String(text[tokenRange]).trimmingCharacters(in: .whitespacesAndNewlines)
         return token.isEmpty ? nil : token
+    }
+
+    private static func normalizeOrganizationID(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

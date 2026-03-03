@@ -231,6 +231,9 @@ class AppSettings: ObservableObject {
             updateLaunchAtLogin(launchAtLogin)
         }
     }
+    @Published var preferredOrganizationID: String {
+        didSet { defaults.set(preferredOrganizationID, forKey: "preferredOrganizationID") }
+    }
     @Published var popoverItems: [PopoverItemConfig] {
         didSet {
             if let data = try? JSONEncoder().encode(popoverItems) {
@@ -277,6 +280,7 @@ class AppSettings: ObservableObject {
         let popoverPinned: Bool
         let popoverCompact: Bool
         let launchAtLogin: Bool
+        let preferredOrganizationID: String
         let popoverItems: [PopoverItemConfig]
         let separateCompactConfig: Bool
         let compactPopoverItems: [PopoverItemConfig]
@@ -303,6 +307,7 @@ class AppSettings: ObservableObject {
             popoverPinned: popoverPinned,
             popoverCompact: popoverCompact,
             launchAtLogin: launchAtLogin,
+            preferredOrganizationID: preferredOrganizationID,
             popoverItems: popoverItems,
             separateCompactConfig: separateCompactConfig,
             compactPopoverItems: compactPopoverItems
@@ -329,6 +334,7 @@ class AppSettings: ObservableObject {
         popoverPinned = snapshot.popoverPinned
         popoverCompact = snapshot.popoverCompact
         launchAtLogin = snapshot.launchAtLogin
+        preferredOrganizationID = snapshot.preferredOrganizationID
         popoverItems = PopoverItemConfig.normalized(snapshot.popoverItems)
         separateCompactConfig = snapshot.separateCompactConfig
         compactPopoverItems = PopoverItemConfig.normalized(snapshot.compactPopoverItems)
@@ -371,6 +377,7 @@ class AppSettings: ObservableObject {
         popoverPinned = false
         popoverCompact = false
         launchAtLogin = false
+        preferredOrganizationID = ""
         popoverItems = PopoverItemConfig.defaultItems
         separateCompactConfig = false
         compactPopoverItems = PopoverItemConfig.defaultItems
@@ -446,6 +453,7 @@ class AppSettings: ObservableObject {
         // 시스템 상태에서 실제 등록 여부 확인
         let savedLaunchAtLogin = defaults.object(forKey: "launchAtLogin") as? Bool ?? false
         self.launchAtLogin = savedLaunchAtLogin
+        self.preferredOrganizationID = defaults.string(forKey: "preferredOrganizationID")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         // popoverItems: JSON 로드 또는 마이그레이션
         let loadedItems: [PopoverItemConfig]
         if let data = defaults.data(forKey: "popoverItems"),
