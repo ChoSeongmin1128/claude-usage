@@ -172,6 +172,7 @@ struct SettingsView: View {
                             panelContent
                         }
                         .padding(20)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .id(contentIdentity)
                     }
                 }
