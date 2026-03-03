@@ -16,6 +16,9 @@ actor ClaudeAPIService {
     private var cachedOrganizationID: String?
     private var preferOAuthUntil: Date?
     private let oauthPreferDuration: TimeInterval = 10 * 60
+    private var sessionPathCooldownUntil: Date?
+    private var sessionPathCooldownReason: APIError?
+    private var sessionPathLimitStrike = 0
     private let requestTimeout: TimeInterval = 20
     private var discoveredCLIServiceNames: [String] = []
     private var didDiscoverCLIServiceNames = false
@@ -39,6 +42,9 @@ actor ClaudeAPIService {
         self.sessionKey = key
         self.cachedOrganizationID = nil  // 캐시 초기화
         self.preferOAuthUntil = nil
+        self.sessionPathCooldownUntil = nil
+        self.sessionPathCooldownReason = nil
+        self.sessionPathLimitStrike = 0
     }
 
     /// 런타임 세션 키 초기화 (로그아웃 시 호출)
@@ -46,6 +52,9 @@ actor ClaudeAPIService {
         self.sessionKey = nil
         self.cachedOrganizationID = nil
         self.preferOAuthUntil = nil
+        self.sessionPathCooldownUntil = nil
+        self.sessionPathCooldownReason = nil
+        self.sessionPathLimitStrike = 0
     }
 
     /// 세션 키가 설정되어 있는지 확인
@@ -74,16 +83,22 @@ actor ClaudeAPIService {
         }
 
         if let sessionKey, !sessionKey.isEmpty {
-            do {
-                let usage = try await fetchUsageWithSessionKey(sessionKey)
-                preferOAuthUntil = nil
-                return usage
-            } catch let apiError as APIError {
-                sessionPathError = apiError
-                Logger.warning("세션키 경로 실패: \(apiError.localizedDescription)")
-            } catch {
-                sessionPathError = .unknownError(error.localizedDescription)
-                Logger.warning("세션키 경로 실패: \(error.localizedDescription)")
+            if let cooldownError = currentSessionPathCooldownError() {
+                sessionPathError = cooldownError
+                Logger.warning("세션키 경로 쿨다운 중(\(cooldownError.localizedDescription)) → OAuth 경로 시도")
+            } else {
+                do {
+                    let usage = try await fetchUsageWithSessionKey(sessionKey)
+                    preferOAuthUntil = nil
+                    resetSessionPathCooldown()
+                    return usage
+                } catch let apiError as APIError {
+                    sessionPathError = apiError
+                    Logger.warning("세션키 경로 실패: \(apiError.localizedDescription)")
+                } catch {
+                    sessionPathError = .unknownError(error.localizedDescription)
+                    Logger.warning("세션키 경로 실패: \(error.localizedDescription)")
+                }
             }
         } else {
             sessionPathError = .invalidSessionKey
@@ -94,7 +109,8 @@ actor ClaudeAPIService {
             Logger.info("OAuth 경로 시도 시작")
             let usage = try await fetchUsageViaOAuth()
             if let sessionPathError, shouldPreferOAuthAfter(error: sessionPathError) {
-                preferOAuthUntil = Date().addingTimeInterval(oauthPreferDuration)
+                let duration = oauthPreferDuration(after: sessionPathError)
+                preferOAuthUntil = Date().addingTimeInterval(duration)
             }
             if let sessionPathError {
                 Logger.warning("세션키 경로 실패(\(sessionPathError.localizedDescription)) → OAuth 경로 성공")
@@ -131,7 +147,9 @@ actor ClaudeAPIService {
 
         guard (200...299).contains(httpResponse.statusCode) else {
             Logger.error("HTTP 에러: \(httpResponse.statusCode)")
-            throw classifyHTTPError(statusCode: httpResponse.statusCode, data: data)
+            let apiError = classifyHTTPError(statusCode: httpResponse.statusCode, data: data, response: httpResponse)
+            updateSessionPathCooldownIfNeeded(with: apiError)
+            throw apiError
         }
 
         // 디버그: raw JSON 출력
@@ -175,7 +193,8 @@ actor ClaudeAPIService {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            throw classifyHTTPError(statusCode: httpResponse.statusCode, data: data)
+            let apiError = classifyHTTPError(statusCode: httpResponse.statusCode, data: data, response: httpResponse)
+            throw apiError
         }
 
         if let jsonString = String(data: data, encoding: .utf8) {
@@ -221,7 +240,9 @@ actor ClaudeAPIService {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            throw classifyHTTPError(statusCode: httpResponse.statusCode, data: data)
+            let apiError = classifyHTTPError(statusCode: httpResponse.statusCode, data: data, response: httpResponse)
+            updateSessionPathCooldownIfNeeded(with: apiError)
+            throw apiError
         }
 
         do {
@@ -263,7 +284,7 @@ actor ClaudeAPIService {
                 // 제한/차단류는 같은 사이클 재시도로 더 악화될 수 있어 즉시 종료
                 if let apiError = error as? APIError {
                     switch apiError {
-                    case .rateLimited, .cloudflareBlocked:
+                    case .rateLimited(_), .cloudflareBlocked(_):
                         throw apiError
                     case .invalidSessionKey, .networkError, .parseError, .serverError, .unknownError:
                         break
@@ -289,10 +310,18 @@ actor ClaudeAPIService {
 
         if let apiError = error as? APIError {
             switch apiError {
-            case .rateLimited:
-                seconds = min(60, 6 * pow(1.8, Double(cappedAttempt - 1)))
-            case .cloudflareBlocked:
-                seconds = min(75, 8 * pow(1.8, Double(cappedAttempt - 1)))
+            case .rateLimited(let retryAfter):
+                if let retryAfter {
+                    seconds = Double(max(5, min(retryAfter, 300)))
+                } else {
+                    seconds = min(60, 6 * pow(1.8, Double(cappedAttempt - 1)))
+                }
+            case .cloudflareBlocked(let retryAfter):
+                if let retryAfter {
+                    seconds = Double(max(5, min(retryAfter, 300)))
+                } else {
+                    seconds = min(75, 8 * pow(1.8, Double(cappedAttempt - 1)))
+                }
             default:
                 seconds = pow(2.0, Double(cappedAttempt - 1))
             }
@@ -303,9 +332,10 @@ actor ClaudeAPIService {
         return UInt64(seconds * 1_000_000_000)
     }
 
-    private func classifyHTTPError(statusCode: Int, data: Data?) -> APIError {
+    private func classifyHTTPError(statusCode: Int, data: Data?, response: HTTPURLResponse?) -> APIError {
+        let retryAfter = retryAfterSeconds(from: response)
         if statusCode == 429 {
-            return .rateLimited
+            return .rateLimited(retryAfter: retryAfter)
         }
 
         if statusCode == 401 {
@@ -314,12 +344,100 @@ actor ClaudeAPIService {
 
         if statusCode == 403 {
             if isLikelyCloudflareChallenge(data) {
-                return .cloudflareBlocked
+                return .cloudflareBlocked(retryAfter: retryAfter)
             }
             return .invalidSessionKey
         }
 
         return .serverError(statusCode)
+    }
+
+    private func retryAfterSeconds(from response: HTTPURLResponse?) -> Int? {
+        guard let response, let header = response.value(forHTTPHeaderField: "Retry-After")?.trimmingCharacters(in: .whitespacesAndNewlines), !header.isEmpty else {
+            return nil
+        }
+
+        if let seconds = Int(header), seconds > 0 {
+            return seconds
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        guard let retryAt = formatter.date(from: header) else {
+            return nil
+        }
+
+        let remaining = Int(ceil(retryAt.timeIntervalSinceNow))
+        return remaining > 0 ? remaining : nil
+    }
+
+    private func updateSessionPathCooldownIfNeeded(with error: APIError) {
+        switch error {
+        case .rateLimited(let retryAfter):
+            applySessionPathCooldown(kind: .rateLimited, retryAfter: retryAfter)
+        case .cloudflareBlocked(let retryAfter):
+            applySessionPathCooldown(kind: .cloudflareBlocked, retryAfter: retryAfter)
+        default:
+            break
+        }
+    }
+
+    private enum SessionPathCooldownKind {
+        case rateLimited
+        case cloudflareBlocked
+    }
+
+    private func applySessionPathCooldown(kind: SessionPathCooldownKind, retryAfter: Int?) {
+        sessionPathLimitStrike += 1
+
+        let baseSeconds: Double
+        switch kind {
+        case .rateLimited:
+            baseSeconds = 30
+        case .cloudflareBlocked:
+            baseSeconds = 45
+        }
+
+        let calculated = min(300, baseSeconds * pow(1.7, Double(max(0, sessionPathLimitStrike - 1))))
+        let finalSeconds = Int(max(Double(retryAfter ?? 0), calculated))
+        sessionPathCooldownUntil = Date().addingTimeInterval(Double(finalSeconds))
+
+        switch kind {
+        case .rateLimited:
+            sessionPathCooldownReason = .rateLimited(retryAfter: finalSeconds)
+        case .cloudflareBlocked:
+            sessionPathCooldownReason = .cloudflareBlocked(retryAfter: finalSeconds)
+        }
+
+        Logger.warning("세션키 경로 백오프 적용: \(finalSeconds)초 (연속 제한 \(sessionPathLimitStrike)회)")
+    }
+
+    private func currentSessionPathCooldownError() -> APIError? {
+        guard let until = sessionPathCooldownUntil else { return nil }
+
+        let remaining = Int(ceil(until.timeIntervalSinceNow))
+        if remaining <= 0 {
+            sessionPathCooldownUntil = nil
+            sessionPathCooldownReason = nil
+            return nil
+        }
+
+        switch sessionPathCooldownReason {
+        case .cloudflareBlocked(_):
+            return .cloudflareBlocked(retryAfter: remaining)
+        case .rateLimited(_):
+            return .rateLimited(retryAfter: remaining)
+        default:
+            return .rateLimited(retryAfter: remaining)
+        }
+    }
+
+    private func resetSessionPathCooldown() {
+        sessionPathCooldownUntil = nil
+        sessionPathCooldownReason = nil
+        sessionPathLimitStrike = 0
     }
 
     private func isLikelyCloudflareChallenge(_ data: Data?) -> Bool {
@@ -340,10 +458,21 @@ actor ClaudeAPIService {
 
     private func shouldPreferOAuthAfter(error: APIError) -> Bool {
         switch error {
-        case .rateLimited, .cloudflareBlocked:
+        case .rateLimited(_), .cloudflareBlocked(_):
             return true
         case .networkError, .serverError, .invalidSessionKey, .parseError, .unknownError:
             return false
+        }
+    }
+
+    private func oauthPreferDuration(after error: APIError) -> TimeInterval {
+        switch error {
+        case .rateLimited(let retryAfter):
+            return max(oauthPreferDuration, TimeInterval(max(0, retryAfter ?? 0)))
+        case .cloudflareBlocked(let retryAfter):
+            return max(oauthPreferDuration, TimeInterval(max(0, retryAfter ?? 0)))
+        case .networkError, .serverError, .invalidSessionKey, .parseError, .unknownError:
+            return oauthPreferDuration
         }
     }
 
@@ -386,7 +515,7 @@ actor ClaudeAPIService {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            throw APIError.serverError(httpResponse.statusCode)
+            throw classifyHTTPError(statusCode: httpResponse.statusCode, data: data, response: httpResponse)
         }
 
         do {
@@ -403,13 +532,20 @@ actor ClaudeAPIService {
             return token
         }
 
-        // 2) 키체인: legacy + hashed service 이름 모두 시도
-        var serviceNames: [String] = ["Claude Code-credentials"]
-        serviceNames.append(contentsOf: getDiscoveredCLIServiceNames())
-        serviceNames = Array(NSOrderedSet(array: serviceNames).compactMap { $0 as? String })
-        Logger.debug("OAuth 토큰 조회: 키체인 서비스 \(serviceNames.count)개 후보")
+        // 2) 키체인 기본 서비스 먼저 시도 (대부분 케이스)
+        let primaryService = "Claude Code-credentials"
+        if let credentials = try readKeychainCredentialPayload(serviceName: primaryService),
+           let token = parseOAuthAccessToken(from: credentials) {
+            Logger.info("OAuth 토큰 조회 성공 (키체인 서비스: \(primaryService))")
+            return token
+        }
 
-        for service in serviceNames {
+        // 3) 기본 서비스 실패 시에만 hashed 서비스 탐색
+        let discoveredServices = getDiscoveredCLIServiceNames().filter { $0 != primaryService }
+        if !discoveredServices.isEmpty {
+            Logger.debug("OAuth 토큰 조회: 추가 키체인 서비스 \(discoveredServices.count)개 후보")
+        }
+        for service in discoveredServices {
             guard let credentials = try readKeychainCredentialPayload(serviceName: service) else { continue }
             if let token = parseOAuthAccessToken(from: credentials) {
                 Logger.info("OAuth 토큰 조회 성공 (키체인 서비스: \(service))")
@@ -463,8 +599,8 @@ actor ClaudeAPIService {
     }
 
     private func discoverClaudeCredentialServiceNames() -> [String] {
-        guard let result = try? runSecurityCommand(arguments: ["dump-keychain"], timeout: 2.5) else {
-            Logger.warning("키체인 서비스 탐색 타임아웃")
+        guard let result = try? runSecurityCommand(arguments: ["dump-keychain"], timeout: 1.0) else {
+            Logger.debug("키체인 서비스 탐색 타임아웃")
             return []
         }
 
@@ -539,7 +675,7 @@ actor ClaudeAPIService {
             }
         }
 
-        Logger.warning("OAuth 토큰 파일 조회 실패 (~/.claude)")
+        Logger.debug("OAuth 토큰 파일 조회 실패 (~/.claude)")
         return nil
     }
 
