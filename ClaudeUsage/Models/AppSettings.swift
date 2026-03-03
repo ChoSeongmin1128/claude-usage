@@ -335,7 +335,7 @@ class AppSettings: ObservableObject {
         resetTimeDisplay = .none
         timeFormat = .h24
         circularDisplayMode = .usage
-        refreshInterval = 5.0
+        refreshInterval = 30.0
         autoRefresh = true
         alertThresholds = [75, 90, 95]
         alertRemainingMode = false
@@ -393,7 +393,7 @@ class AppSettings: ObservableObject {
         self.resetTimeDisplay = ResetTimeDisplay(rawValue: rtd) ?? .none
         let tf = defaults.string(forKey: "timeFormat") ?? TimeFormatStyle.h24.rawValue
         self.timeFormat = TimeFormatStyle(rawValue: tf) ?? .h24
-        self.refreshInterval = defaults.object(forKey: "refreshInterval") as? TimeInterval ?? 5.0
+        self.refreshInterval = defaults.object(forKey: "refreshInterval") as? TimeInterval ?? 30.0
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
         // 마이그레이션: alert1/2/3 → alertThresholds 배열
         if let saved = defaults.array(forKey: "alertThresholds") as? [Int] {

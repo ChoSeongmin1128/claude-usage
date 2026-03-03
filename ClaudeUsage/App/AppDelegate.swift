@@ -22,6 +22,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var currentUsage: ClaudeUsageResponse?
     private var currentOverage: OverageSpendLimitResponse?
+    private var lastOverageFetchAt: Date?
     private var systemStatus: ClaudeSystemStatus?
     private var currentError: APIError?
     private var isLoading = false
@@ -366,19 +367,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 let usage = try await apiService.fetchUsageWithRetry()
 
-                // 추가 사용량은 독립적으로 호출 (실패해도 무시)
-                let overage = try? await apiService.fetchOverageSpendLimit()
+                // overage는 5분 캐시로 요청량 절감
+                let shouldFetchOverage: Bool = {
+                    guard let last = self.lastOverageFetchAt else { return true }
+                    return Date().timeIntervalSince(last) >= 300
+                }()
+                let fetchedOverage = shouldFetchOverage ? (try? await apiService.fetchOverageSpendLimit()) : nil
 
                 await MainActor.run {
                     self.currentUsage = usage
-                    self.currentOverage = overage
+                    if let fetchedOverage {
+                        self.currentOverage = fetchedOverage
+                        self.lastOverageFetchAt = Date()
+                    }
                     self.currentError = nil
                     self.isLoading = false
                     self.hasAuthError = false
                     self.consecutiveErrorCount = 0
                     self.lastUpdated = Date()
                     self.updateMenuBar()
-                    self.popoverViewModel.update(usage: usage, error: nil, isLoading: false, lastUpdated: self.lastUpdated, overage: overage)
+                    self.popoverViewModel.update(
+                        usage: usage,
+                        error: nil,
+                        isLoading: false,
+                        lastUpdated: self.lastUpdated,
+                        overage: self.currentOverage
+                    )
 
                     // 알림 체크
                     NotificationManager.shared.checkThreshold(
@@ -397,15 +411,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 Logger.error("API 에러: \(error.errorDescription ?? "")")
 
                 await MainActor.run {
-                    self.currentError = error
                     self.isLoading = false
                     self.consecutiveErrorCount += 1
-                    if case .invalidSessionKey = error {
-                        self.hasAuthError = true
+
+                    if error.isTemporaryFailure {
+                        // 임시 장애(Cloudflare/429/네트워크)는 마지막 성공 데이터를 유지
+                        self.hasAuthError = false
+                        self.currentError = (self.currentUsage == nil) ? error : nil
+                    } else {
+                        self.currentError = error
+                        self.hasAuthError = error.isDefinitiveAuthFailure
                     }
-                    if self.consecutiveErrorCount >= 3 {
-                        self.currentUsage = nil
-                    }
+
                     self.updateMenuBar()
                     self.popoverViewModel.update(usage: self.currentUsage, error: error, isLoading: false)
                 }
@@ -415,12 +432,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 let apiError = APIError.unknownError(error.localizedDescription)
                 await MainActor.run {
-                    self.currentError = apiError
                     self.isLoading = false
                     self.consecutiveErrorCount += 1
-                    if self.consecutiveErrorCount >= 3 {
-                        self.currentUsage = nil
-                    }
+                    self.hasAuthError = false
+                    self.currentError = (self.currentUsage == nil) ? apiError : nil
                     self.updateMenuBar()
                     self.popoverViewModel.update(usage: self.currentUsage, error: apiError, isLoading: false)
                 }
@@ -723,11 +738,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 // 세션 키 업데이트 후 모니터링 시작 (순차 실행)
                 Task {
-                    if let key = KeychainManager.shared.load() {
+                    if let key = KeychainManager.shared.load(), !key.isEmpty {
                         await self.apiService.updateSessionKey(key)
-                    }
-                    await MainActor.run {
-                        self.startMonitoring()
+                        await MainActor.run {
+                            self.startMonitoring()
+                        }
+                    } else {
+                        await self.apiService.clearSession()
+                        await MainActor.run {
+                            self.timer?.invalidate()
+                            self.timer = nil
+                            self.currentUsage = nil
+                            self.currentOverage = nil
+                            self.lastOverageFetchAt = nil
+                            self.currentError = nil
+                            self.hasAuthError = false
+                            self.consecutiveErrorCount = 0
+                            self.isLoading = false
+                            self.updateMenuBar()
+                            self.popoverViewModel.update(usage: nil, error: nil, isLoading: false, overage: nil)
+                        }
                     }
                     Logger.info("설정 저장 완료")
                 }
@@ -737,15 +767,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onOpenLogin: { [weak self] in
                 self?.settingsWindow?.close()
-                self?.showLoginWindow()
+                self?.showLoginWindow(clearCookies: true)
             },
             onLogout: { [weak self] in
                 guard let self = self else { return }
                 try? KeychainManager.shared.delete()
+                Task { await self.apiService.clearSession() }
                 self.timer?.invalidate()
                 self.timer = nil
                 self.currentUsage = nil
                 self.currentOverage = nil
+                self.lastOverageFetchAt = nil
                 self.currentError = nil
                 self.hasAuthError = false
                 self.consecutiveErrorCount = 0
@@ -755,11 +787,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.settingsSnapshot = nil
                 self.settingsWindow?.close()
 
-                // 내장 브라우저 쿠키/캐시 삭제
-                let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
-                WKWebsiteDataStore.default().removeData(ofTypes: dataTypes, modifiedSince: .distantPast) {
-                    Logger.info("웹 데이터 삭제 완료")
-                }
+                self.clearWebSessionData()
                 Logger.info("로그아웃 완료")
             }
         )
@@ -782,6 +810,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Login Window
 
     func showLoginWindow(clearCookies: Bool = false) {
+        if let window = loginWindow, window.isVisible {
+            if clearCookies {
+                window.close()
+                loginWindow = nil
+            } else {
+                window.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+                return
+            }
+        }
+
+        if clearCookies {
+            clearWebSessionData()
+        }
+
         if let window = loginWindow, window.isVisible {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -832,6 +875,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func clearWebSessionData() {
+        let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
+        WKWebsiteDataStore.default().removeData(ofTypes: dataTypes, modifiedSince: .distantPast) {
+            let cookieStorage = HTTPCookieStorage.shared
+            cookieStorage.cookies?.forEach { cookieStorage.deleteCookie($0) }
+            URLCache.shared.removeAllCachedResponses()
+            Logger.info("웹 데이터 삭제 완료")
+        }
     }
 
     // MARK: - Actions

@@ -35,6 +35,12 @@ actor ClaudeAPIService {
         self.cachedOrganizationID = nil  // 캐시 초기화
     }
 
+    /// 런타임 세션 키 초기화 (로그아웃 시 호출)
+    func clearSession() {
+        self.sessionKey = nil
+        self.cachedOrganizationID = nil
+    }
+
     /// 세션 키가 설정되어 있는지 확인
     func hasSessionKey() -> Bool {
         guard let key = sessionKey else { return false }
@@ -51,6 +57,25 @@ actor ClaudeAPIService {
 
         Logger.info("사용량 데이터 요청 시작")
 
+        do {
+            return try await fetchUsageWithSessionKey(sessionKey)
+        } catch let apiError as APIError {
+            guard shouldUseOAuthFallback(for: apiError) else {
+                throw apiError
+            }
+
+            do {
+                let usage = try await fetchUsageViaOAuth()
+                Logger.warning("세션키 경로 실패(\(apiError.localizedDescription)) → OAuth fallback 성공")
+                return usage
+            } catch {
+                Logger.warning("OAuth fallback 실패: \(error.localizedDescription)")
+                throw apiError
+            }
+        }
+    }
+
+    private func fetchUsageWithSessionKey(_ sessionKey: String) async throws -> ClaudeUsageResponse {
         let orgID = try await getOrganizationID()
 
         let url = URL(string: "\(baseURL)/organizations/\(orgID)/usage")!
@@ -77,12 +102,7 @@ actor ClaudeAPIService {
 
         guard (200...299).contains(httpResponse.statusCode) else {
             Logger.error("HTTP 에러: \(httpResponse.statusCode)")
-
-            if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
-                throw APIError.invalidSessionKey
-            } else {
-                throw APIError.serverError(httpResponse.statusCode)
-            }
+            throw classifyHTTPError(statusCode: httpResponse.statusCode, data: data)
         }
 
         // 디버그: raw JSON 출력
@@ -131,11 +151,7 @@ actor ClaudeAPIService {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
-                throw APIError.invalidSessionKey
-            } else {
-                throw APIError.serverError(httpResponse.statusCode)
-            }
+            throw classifyHTTPError(statusCode: httpResponse.statusCode, data: data)
         }
 
         if let jsonString = String(data: data, encoding: .utf8) {
@@ -186,11 +202,7 @@ actor ClaudeAPIService {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
-                throw APIError.invalidSessionKey
-            } else {
-                throw APIError.serverError(httpResponse.statusCode)
-            }
+            throw classifyHTTPError(statusCode: httpResponse.statusCode, data: data)
         }
 
         do {
@@ -225,20 +237,174 @@ actor ClaudeAPIService {
 
             } catch {
                 // 인증 에러는 재시도 없이 즉시 throw
-                if let apiError = error as? APIError, case .invalidSessionKey = apiError {
-                    throw error
+                if let apiError = error as? APIError, apiError.isDefinitiveAuthFailure {
+                    throw apiError
                 }
 
                 lastError = error
                 Logger.warning("시도 \(attempt)/\(maxAttempts) 실패: \(error.localizedDescription)")
 
                 if attempt < maxAttempts {
-                    let delay = UInt64(pow(2.0, Double(attempt - 1)) * 1_000_000_000)
+                    let delay = retryDelayNanoseconds(for: error, attempt: attempt)
                     try await Task.sleep(nanoseconds: delay)
                 }
             }
         }
 
         throw lastError ?? APIError.unknownError("모든 재시도 실패")
+    }
+
+    private func retryDelayNanoseconds(for error: Error, attempt: Int) -> UInt64 {
+        let cappedAttempt = max(1, attempt)
+        let seconds: Double
+
+        if let apiError = error as? APIError {
+            switch apiError {
+            case .rateLimited:
+                seconds = min(60, 6 * pow(1.8, Double(cappedAttempt - 1)))
+            case .cloudflareBlocked:
+                seconds = min(75, 8 * pow(1.8, Double(cappedAttempt - 1)))
+            default:
+                seconds = pow(2.0, Double(cappedAttempt - 1))
+            }
+        } else {
+            seconds = pow(2.0, Double(cappedAttempt - 1))
+        }
+
+        return UInt64(seconds * 1_000_000_000)
+    }
+
+    private func classifyHTTPError(statusCode: Int, data: Data?) -> APIError {
+        if statusCode == 429 {
+            return .rateLimited
+        }
+
+        if statusCode == 401 {
+            return .invalidSessionKey
+        }
+
+        if statusCode == 403 {
+            if isLikelyCloudflareChallenge(data) {
+                return .cloudflareBlocked
+            }
+            return .invalidSessionKey
+        }
+
+        return .serverError(statusCode)
+    }
+
+    private func isLikelyCloudflareChallenge(_ data: Data?) -> Bool {
+        guard let data, let body = String(data: data, encoding: .utf8)?.lowercased() else {
+            return false
+        }
+
+        return body.contains("just a moment") ||
+               body.contains("cloudflare") ||
+               body.contains("cf-ray") ||
+               body.contains("attention required")
+    }
+
+    private func shouldUseOAuthFallback(for error: APIError) -> Bool {
+        switch error {
+        case .rateLimited, .cloudflareBlocked, .networkError:
+            return true
+        case .serverError(let code):
+            return code >= 500
+        case .invalidSessionKey, .parseError, .unknownError:
+            return false
+        }
+    }
+
+    private func fetchUsageViaOAuth() async throws -> ClaudeUsageResponse {
+        guard let accessToken = try readSystemOAuthAccessToken() else {
+            throw APIError.unknownError("Claude Code OAuth 토큰을 찾을 수 없습니다")
+        }
+
+        guard let url = URL(string: "https://api.anthropic.com/api/oauth/usage") else {
+            throw APIError.unknownError("OAuth usage endpoint URL 생성 실패")
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("claude-code/2.1.5", forHTTPHeaderField: "User-Agent")
+        request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw APIError.networkError(error.localizedDescription)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.unknownError("Invalid OAuth HTTP response")
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw APIError.serverError(httpResponse.statusCode)
+        }
+
+        do {
+            let decoder = JSONDecoder()
+            return try decoder.decode(ClaudeUsageResponse.self, from: data)
+        } catch {
+            throw APIError.parseError
+        }
+    }
+
+    private func readSystemOAuthAccessToken() throws -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+        process.arguments = [
+            "find-generic-password",
+            "-s", "Claude Code-credentials",
+            "-a", NSUserName(),
+            "-w"
+        ]
+
+        let outputPipe = Pipe()
+        let errorPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = errorPipe
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            throw APIError.unknownError("시스템 키체인에서 OAuth 토큰 조회 실패: \(error.localizedDescription)")
+        }
+
+        let exitCode = process.terminationStatus
+        if exitCode == 44 {
+            return nil
+        }
+
+        guard exitCode == 0 else {
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let errorMessage = String(data: errorData, encoding: .utf8) ?? "unknown error"
+            throw APIError.unknownError("시스템 키체인 오류(code: \(exitCode)): \(errorMessage)")
+        }
+
+        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        guard let credentials = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !credentials.isEmpty else {
+            return nil
+        }
+
+        return parseOAuthAccessToken(from: credentials)
+    }
+
+    private func parseOAuthAccessToken(from credentialsJSON: String) -> String? {
+        guard let data = credentialsJSON.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let oauth = json["claudeAiOauth"] as? [String: Any],
+              let token = oauth["accessToken"] as? String,
+              !token.isEmpty else {
+            return nil
+        }
+
+        return token
     }
 }

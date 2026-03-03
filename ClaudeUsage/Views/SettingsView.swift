@@ -150,8 +150,8 @@ struct SettingsView: View {
                                 .lineLimit(1)
                         }
                     } else {
-                        Label("세션 키 설정됨", systemImage: "key.fill")
-                            .foregroundStyle(.secondary)
+                        Label("세션 키 입력됨 (미검증)", systemImage: "key.fill")
+                            .foregroundStyle(.orange)
                     }
                     Spacer()
                 }
@@ -457,7 +457,7 @@ struct SettingsView: View {
                 HStack {
                     Text("간격:")
                         .font(.subheadline)
-                    TextField("5", text: $refreshIntervalText)
+                    TextField("30", text: $refreshIntervalText)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 60)
                         .overlay(
@@ -584,7 +584,7 @@ struct SettingsView: View {
 
             Toggle("배터리 사용 시 새로고침 감소", isOn: $settings.reducedRefreshOnBattery)
 
-            Text("배터리 모드에서 새로고침 간격이 최소 30초로 제한됩니다")
+            Text("배터리 모드에서 새로고침 간격이 최소 60초로 제한됩니다")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -682,20 +682,24 @@ struct SettingsView: View {
     // MARK: - Actions
 
     private func testConnection() {
-        guard !sessionKey.isEmpty else { return }
+        let normalizedKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedKey.isEmpty else { return }
+        if normalizedKey != sessionKey {
+            sessionKey = normalizedKey
+        }
         isTesting = true
         testResult = nil
 
         Task {
             do {
-                let service = ClaudeAPIService(sessionKey: sessionKey)
+                let service = ClaudeAPIService(sessionKey: normalizedKey)
                 let _ = try await service.fetchUsage()
                 await MainActor.run {
                     testResult = .success
                     isTesting = false
                     // 연결 성공 시 자동 저장
                     do {
-                        try KeychainManager.shared.save(sessionKey)
+                        try KeychainManager.shared.save(normalizedKey)
                         Logger.info("연결 테스트 성공, 세션 키 자동 저장됨")
                     } catch {
                         Logger.error("세션 키 저장 실패: \(error)")
@@ -711,13 +715,20 @@ struct SettingsView: View {
     }
 
     private func save() {
+        let normalizedKey = sessionKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedKey != sessionKey {
+            sessionKey = normalizedKey
+        }
+
         // 세션 키 저장
-        if !sessionKey.isEmpty {
+        if !normalizedKey.isEmpty {
             do {
-                try KeychainManager.shared.save(sessionKey)
+                try KeychainManager.shared.save(normalizedKey)
             } catch {
                 Logger.error("세션 키 저장 실패: \(error)")
             }
+        } else {
+            try? KeychainManager.shared.delete()
         }
 
         // 새로고침 간격 유효성
@@ -770,4 +781,3 @@ struct PopoverItemDropDelegate: DropDelegate {
         DropProposal(operation: .move)
     }
 }
-

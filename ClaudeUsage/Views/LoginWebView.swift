@@ -31,7 +31,8 @@ struct LoginWebView: NSViewRepresentable {
         let cookieStore = config.websiteDataStore.httpCookieStore
         context.coordinator.registerCookieStore(cookieStore)
 
-        if let url = URL(string: "https://claude.ai/login") {
+        // clearOnOpen일 때는 updateNSView에서 초기화 후 로드
+        if clearTrigger == 0, let url = URL(string: "https://claude.ai/login") {
             webView.load(URLRequest(url: url))
         }
 
@@ -46,8 +47,10 @@ struct LoginWebView: NSViewRepresentable {
         let dataStore = nsView.configuration.websiteDataStore
         let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
         dataStore.fetchDataRecords(ofTypes: dataTypes) { records in
-            let claudeRecords = records.filter { $0.displayName.contains("claude") }
-            dataStore.removeData(ofTypes: dataTypes, for: claudeRecords) {
+            dataStore.removeData(ofTypes: dataTypes, for: records) {
+                let cookieStorage = HTTPCookieStorage.shared
+                cookieStorage.cookies?.forEach { cookieStorage.deleteCookie($0) }
+                URLCache.shared.removeAllCachedResponses()
                 DispatchQueue.main.async {
                     if let url = URL(string: "https://claude.ai/login") {
                         nsView.load(URLRequest(url: url))
