@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CryptoKit
 
 /// Claude.ai API 서비스 (Thread-Safe Actor)
 actor ClaudeAPIService {
@@ -100,6 +101,7 @@ actor ClaudeAPIService {
     private struct OrganizationCache: Codable {
         let savedAt: Date
         let organizations: [OrganizationSummary]
+        let sessionFingerprint: String?
     }
 
     // MARK: - Init
@@ -503,7 +505,11 @@ actor ClaudeAPIService {
 
     private func saveCachedOrganizations(_ organizations: [OrganizationSummary]) {
         guard !organizations.isEmpty else { return }
-        let cache = OrganizationCache(savedAt: Date(), organizations: organizations)
+        let cache = OrganizationCache(
+            savedAt: Date(),
+            organizations: organizations,
+            sessionFingerprint: currentSessionFingerprint()
+        )
         guard let data = try? JSONEncoder().encode(cache) else { return }
         UserDefaults.standard.set(data, forKey: organizationCacheDefaultsKey)
     }
@@ -516,6 +522,18 @@ actor ClaudeAPIService {
 
         let age = Date().timeIntervalSince(cache.savedAt)
         guard age <= organizationCacheTTL else { return nil }
+
+        guard let cachedFingerprint = cache.sessionFingerprint else {
+            // 과거 버전 캐시는 세션 식별자가 없어 계정 전환 시 오염 가능성이 있으므로 무시
+            return nil
+        }
+
+        guard let currentFingerprint = currentSessionFingerprint(),
+              currentFingerprint == cachedFingerprint else {
+            Logger.debug("캐시된 Organization 목록 무시: 세션 변경 감지")
+            return nil
+        }
+
         return cache.organizations
     }
 
@@ -970,6 +988,16 @@ actor ClaudeAPIService {
         }
         let token = String(text[tokenRange]).trimmingCharacters(in: .whitespacesAndNewlines)
         return token.isEmpty ? nil : token
+    }
+
+    private func currentSessionFingerprint() -> String? {
+        guard let sessionKey, !sessionKey.isEmpty else { return nil }
+        return Self.computeSessionFingerprint(sessionKey)
+    }
+
+    private static func computeSessionFingerprint(_ sessionKey: String) -> String {
+        let digest = SHA256.hash(data: Data(sessionKey.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     private func recordOverallUsageSuccess() {

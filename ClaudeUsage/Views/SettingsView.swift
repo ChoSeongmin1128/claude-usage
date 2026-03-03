@@ -369,7 +369,9 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 8) {
-                Button("목록 불러오기") { loadOrganizations() }
+                Button("목록 불러오기") { loadOrganizations(forceRefresh: false) }
+                    .disabled(isLoadingOrganizations || isLoadingOrganizationPreviews)
+                Button("강제 새로고침") { loadOrganizations(forceRefresh: true) }
                     .disabled(isLoadingOrganizations || isLoadingOrganizationPreviews)
                 if isLoadingOrganizations || isLoadingOrganizationPreviews {
                     ProgressView()
@@ -986,7 +988,7 @@ struct SettingsView: View {
         raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func loadOrganizations() {
+    private func loadOrganizations(forceRefresh: Bool = false) {
         let normalizedKey: String = {
             if !sessionKey.isEmpty {
                 return normalizeSessionKey(sessionKey)
@@ -1012,6 +1014,23 @@ struct SettingsView: View {
             let service = ClaudeAPIService(sessionKey: normalizedKey)
             await service.updatePreferredOrganizationID(normalizeOrganizationID(selectedOrganizationID))
             var resolvedOrganizations: [ClaudeAPIService.OrganizationSummary] = []
+
+            if !forceRefresh {
+                let cachedOrganizations = await service.cachedOrganizationsForDisplay()
+                if !cachedOrganizations.isEmpty {
+                    await MainActor.run {
+                        let cachedIDs = Set(cachedOrganizations.map(\.id))
+                        organizations = cachedOrganizations
+                        organizationPreviews = organizationPreviews.filter { cachedIDs.contains($0.id) }
+                        isLoadingOrganizations = false
+                        isLoadingOrganizationPreviews = false
+                        organizationOAuthFallbackSummary = nil
+                        organizationMessage = "캐시된 organization \(cachedOrganizations.count)개를 표시합니다. 변경 시 강제 새로고침을 눌러주세요."
+                        loadUsageHealthSnapshot()
+                    }
+                    return
+                }
+            }
 
             do {
                 resolvedOrganizations = try await service.fetchOrganizations()
