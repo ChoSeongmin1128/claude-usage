@@ -8,33 +8,22 @@
 import SwiftUI
 import Combine
 
+enum PopoverService: String, Sendable {
+    case claude
+    case codex
+}
+
 struct PopoverView: View {
     @ObservedObject var viewModel: PopoverViewModel
+    let service: PopoverService
     @ObservedObject private var settings = AppSettings.shared
     @State private var isStatusExpanded = false
-    @State private var selectedProviderTab: ProviderTab = .claude
-
-    private enum ProviderTab: String, CaseIterable, Identifiable {
-        case claude
-        case codex
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .claude:
-                return "Claude"
-            case .codex:
-                return "Codex"
-            }
-        }
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // 상단 바
             HStack(spacing: 6) {
-                Text(popoverTitle)
+                Text(service == .claude ? "Claude 사용량" : "Codex 사용량")
                     .font(.headline)
 
                 // 새로고침 (제목 옆)
@@ -64,38 +53,38 @@ struct PopoverView: View {
                 // 간소화 토글
                 Button {
                     withAnimation(.easeInOut(duration: 0.15)) {
-                        settings.popoverCompact.toggle()
+                        isCompact.toggle()
                     }
                     DispatchQueue.main.async {
                         viewModel.requestLayoutRefresh()
                     }
                 } label: {
-                    Image(systemName: settings.popoverCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
+                    Image(systemName: isCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
                         .font(.system(size: 12))
                 }
                 .buttonStyle(.borderless)
-                .help(settings.popoverCompact ? "기본 보기" : "간소화")
+                .help(isCompact ? "기본 보기" : "간소화")
 
                 // 고정 핀
                 Button {
-                    settings.popoverPinned.toggle()
-                    viewModel.onPinChanged?(settings.popoverPinned)
+                    isPinned.toggle()
+                    viewModel.onPinChanged?(isPinned)
                 } label: {
-                    Image(systemName: settings.popoverPinned ? "pin.fill" : "pin")
+                    Image(systemName: isPinned ? "pin.fill" : "pin")
                         .font(.system(size: 12))
-                        .foregroundColor(settings.popoverPinned ? .accentColor : .secondary)
+                        .foregroundColor(isPinned ? .accentColor : .secondary)
                 }
                 .buttonStyle(.borderless)
-                .help(settings.popoverPinned ? "고정 해제" : "고정")
+                .help(isPinned ? "고정 해제" : "고정")
             }
             .padding(.horizontal, 16)
             .padding(.top, 12)
             .padding(.bottom, 8)
 
             // 시스템 상태 배너 (장애 시에만 표시)
-            if let status = viewModel.systemStatus, status.hasIssue {
+            if service == .claude, let status = viewModel.systemStatus, status.hasIssue {
                 Divider()
-                VStack(alignment: .leading, spacing: settings.popoverCompact ? 4 : 5) {
+                VStack(alignment: .leading, spacing: isCompact ? 4 : 5) {
                     HStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundColor(statusColor(for: status.indicator))
@@ -116,7 +105,7 @@ struct PopoverView: View {
 
                         Spacer()
 
-                        if !settings.popoverCompact {
+                        if !isCompact {
                             Button {
                                 withAnimation(.easeInOut(duration: 0.15)) {
                                     isStatusExpanded.toggle()
@@ -149,7 +138,7 @@ struct PopoverView: View {
                         .help("status.claude.com 열기")
                     }
 
-                    if !settings.popoverCompact && isStatusExpanded {
+                    if !isCompact && isStatusExpanded {
                         HStack(spacing: 8) {
                             Text("상태")
                                 .font(.caption2)
@@ -172,7 +161,7 @@ struct PopoverView: View {
                                 Text(body)
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
-                                    .lineLimit(settings.popoverCompact ? 1 : 2)
+                                    .lineLimit(isCompact ? 1 : 2)
                             }
 
                             let affected = affectedComponentsSummary(incident.affectedComponents)
@@ -200,8 +189,8 @@ struct PopoverView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
                 .background(statusColor(for: status.indicator).opacity(0.08))
-                .onChange(of: settings.popoverCompact) { _, isCompact in
-                    if isCompact {
+                .onChange(of: isCompact) { _, compact in
+                    if compact {
                         isStatusExpanded = false
                     }
                 }
@@ -224,7 +213,7 @@ struct PopoverView: View {
                         .controlSize(.small)
                     }
 
-                    if settings.popoverCompact {
+                    if isCompact {
                         Text("다운로드 후 앱 교체 필요")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -249,7 +238,7 @@ struct PopoverView: View {
                         .font(.caption)
                         .foregroundColor(.primary)
                     Spacer()
-                    if viewModel.error != nil {
+                    if serviceError != nil {
                         Text("자동 재시도 중")
                             .font(.caption2)
                             .foregroundColor(.secondary)
@@ -262,7 +251,7 @@ struct PopoverView: View {
 
             Divider()
 
-            if settings.popoverCompact {
+            if isCompact {
                 compactMainSection
             } else {
                 standardMainSection
@@ -272,25 +261,27 @@ struct PopoverView: View {
 
             // 하단 버튼
             HStack {
-                Button {
-                    viewModel.openUsagePage()
-                } label: {
-                    Image(systemName: "safari")
-                        .foregroundColor(.accentColor)
-                }
-                .buttonStyle(.borderless)
-                .font(.caption)
-                .help("claude.ai/settings/usage")
-
-                if !settings.popoverCompact {
+                if service == .claude {
                     Button {
                         viewModel.openUsagePage()
                     } label: {
-                        Text("claude.ai/settings/usage")
+                        Image(systemName: "safari")
                             .foregroundColor(.accentColor)
                     }
                     .buttonStyle(.borderless)
                     .font(.caption)
+                    .help("claude.ai/settings/usage")
+
+                    if !isCompact {
+                        Button {
+                            viewModel.openUsagePage()
+                        } label: {
+                            Text("claude.ai/settings/usage")
+                                .foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                    }
                 }
 
                 Spacer()
@@ -300,7 +291,7 @@ struct PopoverView: View {
                 } label: {
                     HStack(spacing: 2) {
                         Image(systemName: "gearshape")
-                        if !settings.popoverCompact { Text("설정") }
+                        if !isCompact { Text("설정") }
                     }
                 }
                 .buttonStyle(.borderless)
@@ -311,16 +302,16 @@ struct PopoverView: View {
                 } label: {
                     HStack(spacing: 2) {
                         Image(systemName: "power")
-                        if !settings.popoverCompact { Text("종료") }
+                        if !isCompact { Text("종료") }
                     }
                 }
                 .buttonStyle(.borderless)
                 .font(.caption)
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, settings.popoverCompact ? 6 : 8)
+            .padding(.vertical, isCompact ? 6 : 8)
 
-            if !settings.popoverCompact {
+            if !isCompact {
                 HStack(spacing: 8) {
                     Text("⌘R 새로고침")
                     Text("⌘, 설정")
@@ -331,20 +322,8 @@ struct PopoverView: View {
                 .padding(.bottom, 6)
             }
         }
-        .frame(width: settings.popoverCompact ? 300 : 340)
+        .frame(width: isCompact ? 300 : 340)
         .background(Color(NSColor.windowBackgroundColor))
-        .onChange(of: hasCodexContent) { _, _ in
-            normalizeProviderTabSelection()
-        }
-        .onChange(of: hasClaudeContent) { _, _ in
-            normalizeProviderTabSelection()
-        }
-        .onChange(of: settings.codexEnabled) { _, _ in
-            normalizeProviderTabSelection()
-        }
-        .onAppear {
-            normalizeProviderTabSelection()
-        }
     }
 
     // MARK: - Helpers
@@ -391,39 +370,59 @@ struct PopoverView: View {
         }
     }
 
-    private var popoverTitle: String {
-        if settings.popoverCompact {
-            return "사용량"
+    private var serviceError: APIError? {
+        switch service {
+        case .claude:
+            return viewModel.error
+        case .codex:
+            return viewModel.codexError
         }
-        if shouldShowProviderTabs {
-            return selectedProviderTab == .claude ? "Claude 사용량" : "Codex 사용량"
-        }
-        if hasCodexContent && !hasClaudeContent {
-            return "Codex 사용량"
-        }
-        return "Claude 사용량"
     }
 
-    private var hasClaudeContent: Bool {
-        viewModel.usage != nil || viewModel.error != nil
-    }
-
-    private var hasCodexContent: Bool {
-        guard settings.codexEnabled else { return false }
-        return viewModel.codexUsage != nil || viewModel.codexError != nil
-    }
-
-    private var shouldShowProviderTabs: Bool {
-        !settings.popoverCompact && hasClaudeContent && hasCodexContent
-    }
-
-    private func normalizeProviderTabSelection() {
-        if !hasCodexContent {
-            selectedProviderTab = .claude
-            return
+    private var isCompact: Bool {
+        get {
+            switch service {
+            case .claude:
+                return settings.claudePopoverCompact
+            case .codex:
+                return settings.codexPopoverCompact
+            }
         }
-        if !hasClaudeContent {
-            selectedProviderTab = .codex
+        nonmutating set {
+            switch service {
+            case .claude:
+                settings.claudePopoverCompact = newValue
+            case .codex:
+                settings.codexPopoverCompact = newValue
+            }
+        }
+    }
+
+    private var isPinned: Bool {
+        get {
+            switch service {
+            case .claude:
+                return settings.claudePopoverPinned
+            case .codex:
+                return settings.codexPopoverPinned
+            }
+        }
+        nonmutating set {
+            switch service {
+            case .claude:
+                settings.claudePopoverPinned = newValue
+            case .codex:
+                settings.codexPopoverPinned = newValue
+            }
+        }
+    }
+
+    private var hasServiceData: Bool {
+        switch service {
+        case .claude:
+            return viewModel.usage != nil || viewModel.error != nil
+        case .codex:
+            return viewModel.codexUsage != nil || viewModel.codexError != nil
         }
     }
 
@@ -623,7 +622,7 @@ struct PopoverView: View {
     @ViewBuilder
     private var compactMainSection: some View {
         Group {
-            if viewModel.isLoading && viewModel.usage == nil {
+            if viewModel.isLoading && ((service == .claude && viewModel.usage == nil) || (service == .codex && viewModel.codexUsage == nil)) {
                 VStack(spacing: 10) {
                     ProgressView()
                     Text("데이터 로딩 중...")
@@ -632,14 +631,23 @@ struct PopoverView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 56)
 
-            } else if let error = viewModel.error, viewModel.usage == nil, viewModel.codexUsage == nil {
+            } else if service == .claude, let error = viewModel.error, viewModel.usage == nil {
                 ErrorSectionView(error: error) {
                     viewModel.refresh()
                 }
                 .padding(12)
 
-            } else if viewModel.usage != nil || viewModel.codexUsage != nil {
-                compactContent(usage: viewModel.usage)
+            } else if service == .codex, let error = viewModel.codexError, viewModel.codexUsage == nil {
+                ErrorSectionView(error: error) {
+                    viewModel.refresh()
+                }
+                .padding(12)
+
+            } else if service == .claude, viewModel.usage != nil {
+                compactClaudeContent(usage: viewModel.usage)
+
+            } else if service == .codex, viewModel.codexUsage != nil {
+                compactCodexContent()
 
             } else {
                 Text("데이터 없음")
@@ -655,7 +663,7 @@ struct PopoverView: View {
     @ViewBuilder
     private var standardMainSection: some View {
         Group {
-            if viewModel.isLoading && viewModel.usage == nil {
+            if viewModel.isLoading && ((service == .claude && viewModel.usage == nil) || (service == .codex && viewModel.codexUsage == nil)) {
                 VStack(spacing: 12) {
                     ProgressView()
                     Text("데이터 로딩 중...")
@@ -664,53 +672,23 @@ struct PopoverView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 150)
 
-            } else if let error = viewModel.error, viewModel.usage == nil, viewModel.codexUsage == nil {
+            } else if service == .claude, let error = viewModel.error, viewModel.usage == nil {
                 ErrorSectionView(error: error) {
                     viewModel.refresh()
                 }
                 .padding(16)
 
-            } else if viewModel.usage != nil || viewModel.codexUsage != nil {
-                VStack(spacing: 0) {
-                    if shouldShowProviderTabs {
-                        HStack(spacing: 8) {
-                            ForEach(ProviderTab.allCases) { tab in
-                                Button {
-                                    selectedProviderTab = tab
-                                } label: {
-                                    Text(tab.title)
-                                        .font(.caption)
-                                        .fontWeight(selectedProviderTab == tab ? .semibold : .regular)
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 6)
-                                        .background(selectedProviderTab == tab ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
-                                        .foregroundStyle(selectedProviderTab == tab ? Color.accentColor : .primary)
-                                        .cornerRadius(8)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-                        .padding(.bottom, 8)
-                        Divider()
-                    }
-
-                    if shouldShowProviderTabs {
-                        if selectedProviderTab == .claude {
-                            standardClaudeContent(usage: viewModel.usage)
-                        } else {
-                            standardCodexContent()
-                        }
-                    } else if hasCodexContent && !hasClaudeContent {
-                        standardCodexContent()
-                    } else if hasClaudeContent && !hasCodexContent {
-                        standardClaudeContent(usage: viewModel.usage)
-                    } else {
-                        standardContent(usage: viewModel.usage)
-                    }
+            } else if service == .codex, let error = viewModel.codexError, viewModel.codexUsage == nil {
+                ErrorSectionView(error: error) {
+                    viewModel.refresh()
                 }
+                .padding(16)
+
+            } else if service == .claude, viewModel.usage != nil {
+                standardClaudeContent(usage: viewModel.usage)
+
+            } else if service == .codex, viewModel.codexUsage != nil {
+                standardCodexContent()
 
             } else {
                 VStack {
@@ -727,12 +705,10 @@ struct PopoverView: View {
     // MARK: - Compact Content
 
     @ViewBuilder
-    private func compactContent(usage: ClaudeUsageResponse?) -> some View {
+    private func compactClaudeContent(usage: ClaudeUsageResponse?) -> some View {
         let visibleClaudeItems = settings.effectiveCompactItems.filter { $0.visible }
-        let visibleCodexItems = settings.codexEnabled ? settings.effectiveCompactCodexItems.filter { $0.visible } : []
-        let orderedIDs = visibleClaudeItems.map(\.id) + visibleCodexItems.map(\.id)
         VStack(spacing: 5) {
-            ForEach(orderedIDs, id: \.self) { itemID in
+            ForEach(visibleClaudeItems.map(\.id), id: \.self) { itemID in
                 switch itemID {
                 case "currentSession":
                     if let usage {
@@ -753,6 +729,21 @@ struct PopoverView: View {
                     if let overage = viewModel.overage, overage.isEnabled {
                         CompactOverageRow(overage: overage)
                     }
+                default:
+                    EmptyView()
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private func compactCodexContent() -> some View {
+        let visibleCodexItems = settings.effectiveCompactCodexItems.filter { $0.visible }
+        VStack(spacing: 5) {
+            ForEach(visibleCodexItems.map(\.id), id: \.self) { itemID in
+                switch itemID {
                 case "codexPrimary":
                     if let codex = viewModel.codexUsage, let window = codex.rateLimit?.primaryWindow {
                         CompactUsageRow(label: "Codex", percentage: window.utilization, resetAt: window.resetAtISO)

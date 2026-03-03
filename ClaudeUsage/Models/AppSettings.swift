@@ -234,6 +234,9 @@ class AppSettings: ObservableObject {
     @Published var showClaudeIcon: Bool {
         didSet { defaults.set(showClaudeIcon, forKey: "showClaudeIcon") }
     }
+    @Published var claudeEnabled: Bool {
+        didSet { defaults.set(claudeEnabled, forKey: "claudeEnabled") }
+    }
     @Published var menuBarTextHighContrast: Bool {
         didSet { defaults.set(menuBarTextHighContrast, forKey: "menuBarTextHighContrast") }
     }
@@ -254,6 +257,18 @@ class AppSettings: ObservableObject {
     }
     @Published var popoverCompact: Bool {
         didSet { defaults.set(popoverCompact, forKey: "popoverCompact") }
+    }
+    @Published var claudePopoverPinned: Bool {
+        didSet { defaults.set(claudePopoverPinned, forKey: "claudePopoverPinned") }
+    }
+    @Published var codexPopoverPinned: Bool {
+        didSet { defaults.set(codexPopoverPinned, forKey: "codexPopoverPinned") }
+    }
+    @Published var claudePopoverCompact: Bool {
+        didSet { defaults.set(claudePopoverCompact, forKey: "claudePopoverCompact") }
+    }
+    @Published var codexPopoverCompact: Bool {
+        didSet { defaults.set(codexPopoverCompact, forKey: "codexPopoverCompact") }
     }
     @Published var launchAtLogin: Bool {
         didSet {
@@ -335,6 +350,12 @@ class AppSettings: ObservableObject {
     @Published var settingsLastTab: String {
         didSet { defaults.set(settingsLastTab, forKey: "settingsLastTab") }
     }
+    @Published var claudeSettingsLastTab: String {
+        didSet { defaults.set(claudeSettingsLastTab, forKey: "claudeSettingsLastTab") }
+    }
+    @Published var codexSettingsLastTab: String {
+        didSet { defaults.set(codexSettingsLastTab, forKey: "codexSettingsLastTab") }
+    }
 
     // MARK: - Snapshot
 
@@ -351,12 +372,17 @@ class AppSettings: ObservableObject {
         let alertRemainingMode: Bool
         let reducedRefreshOnBattery: Bool
         let showClaudeIcon: Bool
+        let claudeEnabled: Bool
         let menuBarTextHighContrast: Bool
         let updateCheckInterval: UpdateCheckInterval
         let alertFiveHourEnabled: Bool
         let alertWeeklyEnabled: Bool
         let popoverPinned: Bool
         let popoverCompact: Bool
+        let claudePopoverPinned: Bool
+        let codexPopoverPinned: Bool
+        let claudePopoverCompact: Bool
+        let codexPopoverCompact: Bool
         let launchAtLogin: Bool
         let preferredOrganizationID: String
         let popoverItems: [PopoverItemConfig]
@@ -375,6 +401,8 @@ class AppSettings: ObservableObject {
         let codexPopoverItems: [PopoverItemConfig]
         let codexCompactPopoverItems: [PopoverItemConfig]
         let settingsLastTab: String
+        let claudeSettingsLastTab: String
+        let codexSettingsLastTab: String
     }
 
     func createSnapshot() -> Snapshot {
@@ -391,12 +419,17 @@ class AppSettings: ObservableObject {
             alertRemainingMode: alertRemainingMode,
             reducedRefreshOnBattery: reducedRefreshOnBattery,
             showClaudeIcon: showClaudeIcon,
+            claudeEnabled: claudeEnabled,
             menuBarTextHighContrast: menuBarTextHighContrast,
             updateCheckInterval: updateCheckInterval,
             alertFiveHourEnabled: alertFiveHourEnabled,
             alertWeeklyEnabled: alertWeeklyEnabled,
             popoverPinned: popoverPinned,
             popoverCompact: popoverCompact,
+            claudePopoverPinned: claudePopoverPinned,
+            codexPopoverPinned: codexPopoverPinned,
+            claudePopoverCompact: claudePopoverCompact,
+            codexPopoverCompact: codexPopoverCompact,
             launchAtLogin: launchAtLogin,
             preferredOrganizationID: preferredOrganizationID,
             popoverItems: popoverItems,
@@ -414,7 +447,9 @@ class AppSettings: ObservableObject {
             codexAlertRemainingMode: codexAlertRemainingMode,
             codexPopoverItems: codexPopoverItems,
             codexCompactPopoverItems: codexCompactPopoverItems,
-            settingsLastTab: settingsLastTab
+            settingsLastTab: settingsLastTab,
+            claudeSettingsLastTab: claudeSettingsLastTab,
+            codexSettingsLastTab: codexSettingsLastTab
         )
     }
 
@@ -431,12 +466,17 @@ class AppSettings: ObservableObject {
         alertRemainingMode = snapshot.alertRemainingMode
         reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
         showClaudeIcon = snapshot.showClaudeIcon
+        claudeEnabled = snapshot.claudeEnabled
         menuBarTextHighContrast = snapshot.menuBarTextHighContrast
         updateCheckInterval = snapshot.updateCheckInterval
         alertFiveHourEnabled = snapshot.alertFiveHourEnabled
         alertWeeklyEnabled = snapshot.alertWeeklyEnabled
         popoverPinned = snapshot.popoverPinned
         popoverCompact = snapshot.popoverCompact
+        claudePopoverPinned = snapshot.claudePopoverPinned
+        codexPopoverPinned = snapshot.codexPopoverPinned
+        claudePopoverCompact = snapshot.claudePopoverCompact
+        codexPopoverCompact = snapshot.codexPopoverCompact
         launchAtLogin = snapshot.launchAtLogin
         preferredOrganizationID = snapshot.preferredOrganizationID
         popoverItems = PopoverItemConfig.normalizedClaude(snapshot.popoverItems)
@@ -455,6 +495,8 @@ class AppSettings: ObservableObject {
         codexPopoverItems = PopoverItemConfig.normalizedCodex(snapshot.codexPopoverItems)
         codexCompactPopoverItems = PopoverItemConfig.normalizedCodex(snapshot.codexCompactPopoverItems)
         settingsLastTab = snapshot.settingsLastTab
+        claudeSettingsLastTab = snapshot.claudeSettingsLastTab
+        codexSettingsLastTab = snapshot.codexSettingsLastTab
     }
 
     // MARK: - Computed
@@ -498,12 +540,17 @@ class AppSettings: ObservableObject {
         alertRemainingMode = false
         reducedRefreshOnBattery = true
         showClaudeIcon = true
+        claudeEnabled = true
         menuBarTextHighContrast = false
         updateCheckInterval = .hourly
         alertFiveHourEnabled = true
         alertWeeklyEnabled = false
         popoverPinned = false
         popoverCompact = false
+        claudePopoverPinned = false
+        codexPopoverPinned = false
+        claudePopoverCompact = false
+        codexPopoverCompact = false
         launchAtLogin = false
         preferredOrganizationID = ""
         popoverItems = PopoverItemConfig.defaultClaudeItems
@@ -522,6 +569,8 @@ class AppSettings: ObservableObject {
         codexPopoverItems = PopoverItemConfig.defaultCodexItems
         codexCompactPopoverItems = PopoverItemConfig.defaultCodexItems
         settingsLastTab = "common"
+        claudeSettingsLastTab = "auth"
+        codexSettingsLastTab = "auth"
     }
 
     // MARK: - Launch at Login
@@ -584,13 +633,20 @@ class AppSettings: ObservableObject {
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
         self.circularDisplayMode = CircularDisplayMode(rawValue: cdm) ?? .usage
         self.showClaudeIcon = defaults.object(forKey: "showClaudeIcon") as? Bool ?? true
+        self.claudeEnabled = defaults.object(forKey: "claudeEnabled") as? Bool ?? true
         self.menuBarTextHighContrast = defaults.object(forKey: "menuBarTextHighContrast") as? Bool ?? false
         let uci = defaults.string(forKey: "updateCheckInterval") ?? UpdateCheckInterval.hourly.rawValue
         self.updateCheckInterval = UpdateCheckInterval(rawValue: uci) ?? .hourly
         self.alertFiveHourEnabled = defaults.object(forKey: "alertFiveHourEnabled") as? Bool ?? true
         self.alertWeeklyEnabled = defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false
-        self.popoverPinned = defaults.object(forKey: "popoverPinned") as? Bool ?? false
-        self.popoverCompact = defaults.object(forKey: "popoverCompact") as? Bool ?? false
+        let legacyPinned = defaults.object(forKey: "popoverPinned") as? Bool ?? false
+        let legacyCompact = defaults.object(forKey: "popoverCompact") as? Bool ?? false
+        self.popoverPinned = legacyPinned
+        self.popoverCompact = legacyCompact
+        self.claudePopoverPinned = defaults.object(forKey: "claudePopoverPinned") as? Bool ?? legacyPinned
+        self.codexPopoverPinned = defaults.object(forKey: "codexPopoverPinned") as? Bool ?? legacyPinned
+        self.claudePopoverCompact = defaults.object(forKey: "claudePopoverCompact") as? Bool ?? legacyCompact
+        self.codexPopoverCompact = defaults.object(forKey: "codexPopoverCompact") as? Bool ?? legacyCompact
         // 시스템 상태에서 실제 등록 여부 확인
         let savedLaunchAtLogin = defaults.object(forKey: "launchAtLogin") as? Bool ?? false
         self.launchAtLogin = savedLaunchAtLogin
@@ -609,7 +665,10 @@ class AppSettings: ObservableObject {
         self.codexAlertEnabled = defaults.object(forKey: "codexAlertEnabled") as? Bool ?? false
         self.codexAlertThresholds = defaults.array(forKey: "codexAlertThresholds") as? [Int] ?? [75, 90, 95]
         self.codexAlertRemainingMode = defaults.object(forKey: "codexAlertRemainingMode") as? Bool ?? false
-        self.settingsLastTab = defaults.string(forKey: "settingsLastTab") ?? "common"
+        let legacySettingsLastTab = defaults.string(forKey: "settingsLastTab") ?? "common"
+        self.settingsLastTab = legacySettingsLastTab
+        self.claudeSettingsLastTab = defaults.string(forKey: "claudeSettingsLastTab") ?? "auth"
+        self.codexSettingsLastTab = defaults.string(forKey: "codexSettingsLastTab") ?? "auth"
 
         // Claude popover items: JSON 로드 또는 마이그레이션
         let loadedClaudeItems: [PopoverItemConfig]
