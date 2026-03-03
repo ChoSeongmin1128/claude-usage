@@ -66,6 +66,7 @@ actor ClaudeAPIService {
 
     struct RuntimeAuthSnapshot: Sendable, Equatable {
         enum ActivePath: String, Sendable {
+            case unauthenticated
             case sessionPrimary
             case oauthPreferred
             case oauthFallback
@@ -226,8 +227,15 @@ actor ClaudeAPIService {
     func fetchUsage() async throws -> ClaudeUsageResponse {
         Logger.info("사용량 데이터 요청 시작")
         var sessionPathError: APIError?
+        let normalizedSessionKey: String? = {
+            guard let sessionKey, !sessionKey.isEmpty else { return nil }
+            return sessionKey
+        }()
+        let sessionCooldownError = normalizedSessionKey != nil ? currentSessionPathCooldownError() : nil
 
-        if shouldPreferOAuthNow() {
+        // 세션키가 없거나 쿨다운 중일 때만 OAuth 우선 모드를 강제한다.
+        // 세션키가 정상이라면 항상 세션키를 먼저 시도한다.
+        if shouldPreferOAuthNow(), normalizedSessionKey == nil || sessionCooldownError != nil {
             do {
                 let usage = try await fetchUsageViaOAuth()
                 recordOverallUsageSuccess()
@@ -240,8 +248,8 @@ actor ClaudeAPIService {
             }
         }
 
-        if let sessionKey, !sessionKey.isEmpty {
-            if let cooldownError = currentSessionPathCooldownError() {
+        if let sessionKey = normalizedSessionKey {
+            if let cooldownError = sessionCooldownError {
                 sessionPathError = cooldownError
                 Logger.warning("세션키 경로 쿨다운 중(\(cooldownError.localizedDescription)) → OAuth 경로 시도")
             } else {
@@ -1122,6 +1130,9 @@ actor ClaudeAPIService {
 
     private func makeRuntimeAuthSnapshot() -> RuntimeAuthSnapshot {
         let now = Date()
+        let hasSessionCredential = hasSessionKey()
+        let sessionState = authPathState(for: .session)
+        let oauthState = authPathState(for: .oauth)
         let sessionCooldownRemaining: Int? = {
             guard let until = sessionPathCooldownUntil else { return nil }
             let remaining = Int(ceil(until.timeIntervalSince(now)))
@@ -1134,10 +1145,23 @@ actor ClaudeAPIService {
         }()
 
         let activePath: RuntimeAuthSnapshot.ActivePath = {
+            if !hasSessionCredential {
+                // 세션 키가 없으면 OAuth 전용 경로가 실질 기본
+                if oauthState.lastSuccessAt != nil || oauthState.lastAttemptAt != nil {
+                    return .oauthFallback
+                }
+                return .unauthenticated
+            }
             if let oauthPreferredRemaining, oauthPreferredRemaining > 0 {
                 return .oauthPreferred
             }
             if let sessionCooldownRemaining, sessionCooldownRemaining > 0 {
+                return .oauthFallback
+            }
+            // 최근 실제 성공 경로가 OAuth면 표기를 OAuth로 유지해 표시와 체감 불일치를 줄인다.
+            if let sessionSuccess = sessionState.lastSuccessAt,
+               let oauthSuccess = oauthState.lastSuccessAt,
+               oauthSuccess > sessionSuccess {
                 return .oauthFallback
             }
             return .sessionPrimary
