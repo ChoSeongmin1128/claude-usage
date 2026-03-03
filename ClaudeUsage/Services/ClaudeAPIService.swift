@@ -381,6 +381,17 @@ actor ClaudeAPIService {
             throw APIError.invalidSessionKey
         }
 
+        if shouldPreferOAuthNow() {
+            let remaining = max(1, Int(ceil((preferOAuthUntil ?? Date()).timeIntervalSinceNow)))
+            Logger.debug("추가 사용량 조회 스킵: OAuth 우선 경로 유지 중(\(remaining)초)")
+            throw APIError.rateLimited(retryAfter: remaining)
+        }
+
+        if let cooldownError = currentSessionPathCooldownError() {
+            Logger.debug("추가 사용량 조회 스킵: 세션키 경로 쿨다운 중(\(cooldownError.localizedDescription))")
+            throw cooldownError
+        }
+
         let orgID = try await getOrganizationID()
         return try await fetchOverageSpendLimitWithSessionKey(sessionKey, organizationID: orgID)
     }
@@ -458,6 +469,11 @@ actor ClaudeAPIService {
     }
 
     private func fetchOrganizationsWithSessionKey(_ sessionKey: String) async throws -> [OrganizationSummary] {
+        if let cooldownError = currentSessionPathCooldownError() {
+            Logger.debug("Organization 목록 조회 스킵: 세션키 경로 쿨다운 중(\(cooldownError.localizedDescription))")
+            throw cooldownError
+        }
+
         let url = URL(string: "\(baseURL)/organizations")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"

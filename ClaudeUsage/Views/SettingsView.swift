@@ -391,6 +391,10 @@ struct SettingsView: View {
 
             Picker("조회 대상", selection: $selectedOrganizationID) {
                 Text("자동 선택").tag("")
+                if !selectedOrganizationID.isEmpty &&
+                    !organizations.contains(where: { $0.id == selectedOrganizationID }) {
+                    Text("직접 입력값 (\(selectedOrganizationID))").tag(selectedOrganizationID)
+                }
                 ForEach(organizations, id: \.id) { org in
                     Text(org.displayName).tag(org.id)
                 }
@@ -1012,7 +1016,6 @@ struct SettingsView: View {
 
         Task {
             let service = ClaudeAPIService(sessionKey: normalizedKey)
-            await service.updatePreferredOrganizationID(normalizeOrganizationID(selectedOrganizationID))
             var resolvedOrganizations: [ClaudeAPIService.OrganizationSummary] = []
 
             if !forceRefresh {
