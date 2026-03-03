@@ -208,7 +208,7 @@ struct SettingsView: View {
                     if case .success = testResult {} else {
                         Button("다시 로그인") { onOpenLogin?() }
                     }
-                    Button("로그아웃") { onLogout?() }
+                    Button("로그아웃") { handleLogoutAction() }
                         .foregroundStyle(.red)
                 }
             } else {
@@ -365,7 +365,7 @@ struct SettingsView: View {
             Text("안내")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("세션키 조회는 429/Cloudflare/서버 오류로 간헐적으로 실패할 수 있습니다. 안정적인 조회를 위해 Claude CLI OAuth 인증을 권장합니다.")
+            Text("현재 세션키 경로가 429/Cloudflare/서버 오류의 영향을 받아 불안정할 수 있습니다. 조회 안정성을 위해 Claude CLI OAuth 인증을 권장합니다.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -632,6 +632,8 @@ struct SettingsView: View {
 
     private func runtimePathLabel(_ path: ClaudeAPIService.RuntimeAuthSnapshot.ActivePath) -> String {
         switch path {
+        case .unauthenticated:
+            return "인증 없음"
         case .sessionPrimary:
             return "세션키"
         case .oauthPreferred:
@@ -643,6 +645,8 @@ struct SettingsView: View {
 
     private func runtimePathColor(_ path: ClaudeAPIService.RuntimeAuthSnapshot.ActivePath) -> Color {
         switch path {
+        case .unauthenticated:
+            return .secondary
         case .sessionPrimary:
             return .green
         case .oauthPreferred:
@@ -1236,6 +1240,27 @@ struct SettingsView: View {
                     }
                 }
             }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("업데이트 설치 가이드")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("1. '다운로드'를 눌러 최신 앱을 받습니다.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text("2. 실행 중인 ClaudeUsage를 완전히 종료합니다.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text("3. 기존 앱 파일을 새 앱으로 교체(덮어쓰기)합니다.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text("4. 다시 실행합니다. 최초 실행에서 차단되면 시스템 설정 > 개인정보 보호 및 보안 > 그래도 열기를 선택하세요.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(10)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+            .cornerRadius(8)
         }
     }
 
@@ -1255,6 +1280,17 @@ struct SettingsView: View {
     }
 
     // MARK: - Actions
+
+    private func handleLogoutAction() {
+        onLogout?()
+        storedSessionKey = nil
+        sessionKey = ""
+        testResult = nil
+        organizations = []
+        organizationPreviews = []
+        organizationOAuthFallbackSummary = nil
+        organizationMessage = "로그아웃되었습니다. 다시 로그인하거나 세션 키를 입력해 주세요."
+    }
 
     private func testConnection() {
         let normalizedKey = normalizeSessionKey(sessionKey)
