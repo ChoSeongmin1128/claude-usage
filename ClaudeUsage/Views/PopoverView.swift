@@ -75,20 +75,74 @@ struct PopoverView: View {
             if let status = viewModel.systemStatus, status.hasIssue {
                 Divider()
                 Button {
-                    if let url = URL(string: "https://status.claude.com") {
+                    if let url = URL(string: status.latestIncident?.shortlink ?? "https://status.claude.com") {
                         NSWorkspace.shared.open(url)
                     }
                 } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(statusColor(for: status.indicator))
-                        Text(status.indicator.displayText)
-                            .font(.caption)
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Text("상세보기")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: settings.popoverCompact ? 4 : 5) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundColor(statusColor(for: status.indicator))
+
+                            Text(status.indicator.displayText)
+                                .font(.caption)
+                                .foregroundColor(.primary)
+
+                            if status.activeIncidentCount > 0 {
+                                Text("활성 \(status.activeIncidentCount)건")
+                                    .font(.caption2)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 1)
+                                    .background(statusColor(for: status.indicator).opacity(0.16))
+                                    .foregroundColor(statusColor(for: status.indicator))
+                                    .cornerRadius(4)
+                            }
+
+                            Spacer()
+                            Text("상세보기")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+
+                        if let incident = status.latestIncident {
+                            Text(incident.name)
+                                .font(.caption)
+                                .fontWeight(.semibold)
+                                .foregroundColor(.primary)
+                                .lineLimit(1)
+
+                            if let body = incident.latestUpdateBody, !body.isEmpty {
+                                Text(body)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(settings.popoverCompact ? 1 : 2)
+                            }
+
+                            let affected = affectedComponentsSummary(incident.affectedComponents)
+                            if !affected.isEmpty {
+                                Text("영향: \(affected)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+
+                            if let updatedAt = incident.latestUpdateAt {
+                                Text("업데이트: \(updatedAt, style: .relative)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(1)
+                            }
+                        } else if !status.degradedComponents.isEmpty {
+                            Text("영향: \(affectedComponentsSummary(status.degradedComponents))")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        } else {
+                            Text(status.description)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 6)
@@ -139,43 +193,43 @@ struct PopoverView: View {
 
             Divider()
 
-            ScrollView {
-                Group {
-                    if viewModel.isLoading && viewModel.usage == nil {
-                        VStack(spacing: 12) {
-                            ProgressView()
-                            Text("데이터 로딩 중...")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, minHeight: settings.popoverCompact ? 60 : 150)
+            if settings.popoverCompact {
+                compactMainSection
+            } else {
+                ScrollView {
+                    Group {
+                        if viewModel.isLoading && viewModel.usage == nil {
+                            VStack(spacing: 12) {
+                                ProgressView()
+                                Text("데이터 로딩 중...")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 150)
 
-                    } else if let error = viewModel.error, viewModel.usage == nil {
-                        ErrorSectionView(error: error) {
-                            viewModel.refresh()
-                        }
-                        .padding(16)
+                        } else if let error = viewModel.error, viewModel.usage == nil {
+                            ErrorSectionView(error: error) {
+                                viewModel.refresh()
+                            }
+                            .padding(16)
 
-                    } else if let usage = viewModel.usage {
-                        if settings.popoverCompact {
-                            compactContent(usage: usage)
-                        } else {
+                        } else if let usage = viewModel.usage {
                             standardContent(usage: usage)
-                        }
 
-                    } else {
-                        VStack {
-                            Text("데이터 없음")
-                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack {
+                                Text("데이터 없음")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 100)
                         }
-                        .frame(maxWidth: .infinity, minHeight: settings.popoverCompact ? 40 : 100)
                     }
+                    .frame(maxWidth: .infinity, minHeight: 180, alignment: .top)
+                    .padding(.bottom, 4)
                 }
-                .frame(maxWidth: .infinity, minHeight: settings.popoverCompact ? 90 : 180, alignment: .top)
-                .padding(.bottom, 4)
+                .scrollIndicators(.hidden)
+                .frame(maxWidth: .infinity, maxHeight: 280, alignment: .top)
             }
-            .scrollIndicators(.hidden)
-            .frame(maxWidth: .infinity, maxHeight: settings.popoverCompact ? 160 : 280, alignment: .top)
 
             Divider()
 
@@ -253,6 +307,17 @@ struct PopoverView: View {
         case .major: return .orange
         case .critical: return .red
         }
+    }
+
+    private func affectedComponentsSummary(_ components: [String], maxShown: Int = 3) -> String {
+        guard !components.isEmpty else { return "" }
+        let head = components.prefix(maxShown)
+        let tailCount = max(0, components.count - head.count)
+        let base = head.joined(separator: ", ")
+        if tailCount > 0 {
+            return "\(base) +\(tailCount)"
+        }
+        return base
     }
 
     private var staleDataMessage: String? {
@@ -333,6 +398,38 @@ struct PopoverView: View {
             }
         }
         .padding(16)
+    }
+
+    @ViewBuilder
+    private var compactMainSection: some View {
+        Group {
+            if viewModel.isLoading && viewModel.usage == nil {
+                VStack(spacing: 10) {
+                    ProgressView()
+                    Text("데이터 로딩 중...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, minHeight: 56)
+
+            } else if let error = viewModel.error, viewModel.usage == nil {
+                ErrorSectionView(error: error) {
+                    viewModel.refresh()
+                }
+                .padding(12)
+
+            } else if let usage = viewModel.usage {
+                compactContent(usage: usage)
+
+            } else {
+                Text("데이터 없음")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 36)
+                    .padding(.vertical, 4)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+        .padding(.bottom, 2)
     }
 
     // MARK: - Compact Content
