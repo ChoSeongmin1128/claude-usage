@@ -439,6 +439,17 @@ struct ErrorSectionView: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
 
+            if error.isTemporaryFailure {
+                Text("세션키 경로가 일시적으로 불안정합니다. 설정 > 인증에서 Claude CLI OAuth 인증을 권장합니다.")
+                    .font(.caption2)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color.orange.opacity(0.1))
+                    .cornerRadius(6)
+            }
+
             HStack(spacing: 12) {
                 Button("다시 시도") {
                     retryAction()

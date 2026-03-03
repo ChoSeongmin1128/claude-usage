@@ -145,6 +145,8 @@ struct SettingsView: View {
             Label("인증", systemImage: "key")
                 .font(.headline)
 
+            authNoticeCard
+
             if let storedSessionKey, !storedSessionKey.isEmpty {
                 // 저장된 세션 키 존재
                 HStack(spacing: 8) {
@@ -264,10 +266,77 @@ struct SettingsView: View {
             }
             .font(.subheadline)
 
+            oauthQuickGuideSection
+            authFAQSection
+
             usageHealthSection
 
             organizationSection
         }
+    }
+
+    private var authNoticeCard: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("안내")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("세션키 조회는 429/Cloudflare/서버 오류로 간헐적으로 실패할 수 있습니다. 안정적인 조회를 위해 Claude CLI OAuth 인증을 권장합니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(8)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.55))
+        .cornerRadius(6)
+    }
+
+    private var oauthQuickGuideSection: some View {
+        DisclosureGroup("Claude CLI OAuth 빠른 가이드") {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("1. 터미널 앱을 엽니다.")
+                Text("2. `claude login` 을 실행합니다.")
+                Text("3. 브라우저에서 로그인 후 허용(Authorize)을 누릅니다.")
+                Text("4. 이 앱에서 '상태 새로고침'을 눌러 OAuth 경로가 정상인지 확인합니다.")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.top, 4)
+        }
+        .font(.subheadline)
+    }
+
+    private var authFAQSection: some View {
+        DisclosureGroup("자주 묻는 질문 (FAQ)") {
+            VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Q. `claude` 명령어가 없다고 나옵니다.")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                    Text("A. Claude CLI가 설치되지 않은 상태입니다. CLI 설치 후 `claude login`을 다시 실행해 주세요.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Q. 로그인했는데 앱에 반영되지 않습니다.")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                    Text("A. 앱을 완전히 종료 후 다시 실행하거나, 이 화면에서 '상태 새로고침'을 눌러주세요.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Q. 세션키는 왜 실패하나요?")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                    Text("A. 세션키 경로는 서비스 제한(429/Cloudflare/서버 오류)에 영향을 받을 수 있어 OAuth보다 불안정할 수 있습니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.top, 4)
+        }
+        .font(.subheadline)
     }
 
     private var usageHealthSection: some View {
