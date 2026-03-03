@@ -31,6 +31,7 @@ struct SettingsView: View {
     @State private var organizationMessage: String?
     @State private var organizationOAuthFallbackSummary: String?
     @State private var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
+    @State private var selectedPanel: SettingsPanel = .status
 
     var onSave: (() -> Void)?
     var onCancel: (() -> Void)?
@@ -40,6 +41,15 @@ struct SettingsView: View {
     enum TestResult {
         case success
         case failure(String)
+    }
+
+    enum SettingsPanel: String, CaseIterable, Identifiable {
+        case status = "상태"
+        case auth = "인증"
+        case display = "표시"
+        case advanced = "고급"
+
+        var id: String { rawValue }
     }
 
     private var isRefreshIntervalValid: Bool {
@@ -58,45 +68,33 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                ForEach(SettingsPanel.allCases) { panel in
+                    Button {
+                        selectedPanel = panel
+                    } label: {
+                        Text(panel.rawValue)
+                            .font(.subheadline)
+                            .fontWeight(selectedPanel == panel ? .semibold : .regular)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(selectedPanel == panel ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
+                            .foregroundStyle(selectedPanel == panel ? Color.accentColor : .primary)
+                            .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
+
+            Divider()
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
-                    // 인증 섹션
-                    authSection
-
-                    Divider()
-
-                    // 디스플레이 섹션
-                    displaySection
-
-                    Divider()
-
-                    // 표시 항목 섹션
-                    popoverItemsSection
-
-                    Divider()
-
-                    // 새로고침 섹션
-                    refreshSection
-
-                    Divider()
-
-                    // 알림 섹션
-                    alertSection
-
-                    Divider()
-
-                    // 절전 섹션
-                    powerSection
-
-                    Divider()
-
-                    // 업데이트 섹션
-                    updateSection
-
-                    Divider()
-
-                    // 일반 섹션
-                    generalSection
+                    panelContent
                 }
                 .padding(24)
             }
@@ -138,6 +136,30 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder
+    private var panelContent: some View {
+        switch selectedPanel {
+        case .status:
+            statusSection
+        case .auth:
+            authSection
+        case .display:
+            displaySection
+            Divider()
+            popoverItemsSection
+            Divider()
+            refreshSection
+        case .advanced:
+            alertSection
+            Divider()
+            powerSection
+            Divider()
+            updateSection
+            Divider()
+            generalSection
+        }
+    }
+
     // MARK: - 인증 섹션
 
     private var authSection: some View {
@@ -146,6 +168,7 @@ struct SettingsView: View {
                 .font(.headline)
 
             authNoticeCard
+            authChecklistCard
 
             if let storedSessionKey, !storedSessionKey.isEmpty {
                 // 저장된 세션 키 존재
@@ -268,11 +291,53 @@ struct SettingsView: View {
 
             oauthQuickGuideSection
             authFAQSection
+        }
+    }
 
+    private var statusSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("조회 상태", systemImage: "waveform.path.ecg")
+                .font(.headline)
+
+            runtimeStatusSummaryCard
             usageHealthSection
+
+            Divider()
 
             organizationSection
         }
+    }
+
+    private var authChecklistCard: some View {
+        let hasSessionCredential = !(storedSessionKey ?? "").isEmpty || !normalizeSessionKey(sessionKey).isEmpty
+        let hasOAuthSuccess = usageHealthSnapshot?.oauth.lastSuccessAt != nil
+        let hasAnySuccessfulFetch = usageHealthSnapshot?.lastOverallSuccessAt != nil
+        let organizationReady = selectedOrganizationID.isEmpty || organizations.contains(where: { $0.id == selectedOrganizationID }) || organizations.isEmpty
+
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("인증 체크리스트")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            checklistRow(
+                title: "자격 준비",
+                detail: hasSessionCredential ? "세션키 감지됨" : (hasOAuthSuccess ? "OAuth 성공 이력 감지됨" : "세션키 또는 OAuth 준비 필요"),
+                state: hasSessionCredential || hasOAuthSuccess ? .ok : .warning
+            )
+            checklistRow(
+                title: "조회 검증",
+                detail: hasAnySuccessfulFetch ? "최근 성공 조회 있음" : "연결 테스트 또는 상태 새로고침이 필요합니다",
+                state: hasAnySuccessfulFetch ? .ok : .warning
+            )
+            checklistRow(
+                title: "Organization 확인",
+                detail: selectedOrganizationID.isEmpty ? "자동 선택 모드" : (organizationReady ? "선택한 organization이 유효합니다" : "선택값이 목록에 없습니다"),
+                state: organizationReady ? .ok : .warning
+            )
+        }
+        .padding(10)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .cornerRadius(8)
     }
 
     private var authNoticeCard: some View {
@@ -352,10 +417,8 @@ struct SettingsView: View {
 
     private var usageHealthSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Divider()
-
             HStack {
-                Text("조회 상태")
+                Text("경로 상태")
                     .font(.subheadline)
                 Spacer()
                 Button("상태 새로고침") {
@@ -423,6 +486,11 @@ struct SettingsView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+            if let failureRate = snapshot.failureRatePercent {
+                Text("실패율: \(failureRate)% (\(snapshot.totalFailures)/\(snapshot.totalAttempts))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
             if let errorMessage = snapshot.lastErrorMessage, snapshot.isUnstable {
                 Text("오류: \(errorMessage)")
                     .font(.caption2)
@@ -437,42 +505,166 @@ struct SettingsView: View {
         .cornerRadius(6)
     }
 
-    private var organizationSection: some View {
+    private var runtimeStatusSummaryCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Divider()
-
-            Text("Organization 선택")
-                .font(.subheadline)
-
-            Text("여러 organization을 사용하는 경우 조회 대상을 선택할 수 있습니다. 비워두면 자동 선택됩니다.")
+            Text("런타임 상태")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 8) {
-                Button("목록 불러오기") { loadOrganizations(forceRefresh: false) }
-                    .disabled(isLoadingOrganizations || isLoadingOrganizationPreviews)
-                Button("강제 새로고침") { loadOrganizations(forceRefresh: true) }
-                    .disabled(isLoadingOrganizations || isLoadingOrganizationPreviews)
-                if isLoadingOrganizations || isLoadingOrganizationPreviews {
-                    ProgressView()
-                        .controlSize(.small)
+            if let snapshot = usageHealthSnapshot {
+                HStack(spacing: 6) {
+                    chip(
+                        title: "활성 경로",
+                        value: runtimePathLabel(snapshot.runtime.activePath),
+                        color: runtimePathColor(snapshot.runtime.activePath)
+                    )
+                    if let cooldown = snapshot.runtime.sessionCooldownRemaining {
+                        chip(title: "세션 재시도", value: formatDuration(seconds: cooldown), color: .orange)
+                    }
+                    if let preferred = snapshot.runtime.oauthPreferredRemaining {
+                        chip(title: "OAuth 우선", value: formatDuration(seconds: preferred), color: .blue)
+                    }
                 }
-                if !organizations.isEmpty {
-                    Text("\(organizations.count)개")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("자동 선택") {
-                    selectedOrganizationID = ""
-                }
-                .disabled(selectedOrganizationID.isEmpty)
-            }
 
+                let unstablePaths = unstablePathSummary(snapshot)
+                if !unstablePaths.isEmpty {
+                    Text("불안정 경로: \(unstablePaths)")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+            } else {
+                Text("상태를 불러오는 중입니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .cornerRadius(8)
+    }
+
+    private enum ChecklistState {
+        case ok
+        case warning
+    }
+
+    private func checklistRow(title: String, detail: String, state: ChecklistState) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: state == .ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(state == .ok ? .green : .orange)
+                .font(.caption)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(.caption)
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func chip(title: String, value: String, color: Color) -> some View {
+        HStack(spacing: 4) {
+            Text(title)
+            Text(value)
+                .fontWeight(.semibold)
+        }
+        .font(.caption2)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(color.opacity(0.16))
+        .foregroundStyle(color)
+        .cornerRadius(6)
+    }
+
+    private func runtimePathLabel(_ path: ClaudeAPIService.RuntimeAuthSnapshot.ActivePath) -> String {
+        switch path {
+        case .sessionPrimary:
+            return "세션키"
+        case .oauthPreferred:
+            return "OAuth(우선)"
+        case .oauthFallback:
+            return "OAuth(폴백)"
+        }
+    }
+
+    private func runtimePathColor(_ path: ClaudeAPIService.RuntimeAuthSnapshot.ActivePath) -> Color {
+        switch path {
+        case .sessionPrimary:
+            return .green
+        case .oauthPreferred:
+            return .blue
+        case .oauthFallback:
+            return .orange
+        }
+    }
+
+    private func unstablePathSummary(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> String {
+        var labels: [String] = []
+        if snapshot.session.isUnstable { labels.append("세션키") }
+        if snapshot.oauth.isUnstable { labels.append("OAuth") }
+        return labels.joined(separator: ", ")
+    }
+
+    private func formatDuration(seconds: Int) -> String {
+        if seconds < 60 { return "\(seconds)초" }
+        let minutes = seconds / 60
+        let remain = seconds % 60
+        if remain == 0 { return "\(minutes)분" }
+        return "\(minutes)분 \(remain)초"
+    }
+
+    private var organizationSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+            organizationHeader
+            organizationLoadActions
+            organizationTargetPicker
+            organizationHealthChips
+            organizationPreviewList
+            organizationMessages
+        }
+    }
+
+    private var organizationHeader: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Organization 선택")
+                .font(.subheadline)
+            Text("여러 organization을 사용하는 경우 조회 대상을 선택할 수 있습니다. 비워두면 자동 선택됩니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var organizationLoadActions: some View {
+        HStack(spacing: 8) {
+            Button("목록 불러오기") { loadOrganizations(forceRefresh: false) }
+                .disabled(isLoadingOrganizations || isLoadingOrganizationPreviews)
+            Button("강제 새로고침") { loadOrganizations(forceRefresh: true) }
+                .disabled(isLoadingOrganizations || isLoadingOrganizationPreviews)
+            if isLoadingOrganizations || isLoadingOrganizationPreviews {
+                ProgressView()
+                    .controlSize(.small)
+            }
+            if !organizations.isEmpty {
+                Text("\(organizations.count)개")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("자동 선택") { selectedOrganizationID = "" }
+                .disabled(selectedOrganizationID.isEmpty)
+        }
+    }
+
+    private var organizationTargetPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
             Picker("조회 대상", selection: $selectedOrganizationID) {
                 Text("자동 선택").tag("")
-                if !selectedOrganizationID.isEmpty &&
-                    !organizations.contains(where: { $0.id == selectedOrganizationID }) {
+                if !selectedOrganizationID.isEmpty && !organizations.contains(where: { $0.id == selectedOrganizationID }) {
                     Text("직접 입력값 (\(selectedOrganizationID))").tag(selectedOrganizationID)
                 }
                 ForEach(organizations, id: \.id) { org in
@@ -485,60 +677,98 @@ struct SettingsView: View {
             TextField("Organization UUID 직접 입력 (선택)", text: $selectedOrganizationID)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(.caption, design: .monospaced))
+        }
+    }
 
-            if !organizationPreviews.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("조회 미리보기")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    ForEach(organizationPreviews, id: \.id) { preview in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(preview.organization.displayName)
-                                .font(.caption)
-                                .lineLimit(1)
-
-                            if let err = preview.usageErrorMessage {
-                                Text("조회 실패: \(err)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.orange)
-                            } else {
-                                let fiveHour = preview.fiveHourPercentage.map { String(format: "%.0f%%", $0) } ?? "-"
-                                let weekly = preview.weeklyPercentage.map { String(format: "%.0f%%", $0) } ?? "-"
-                                Text("현재 \(fiveHour) · 주간 \(weekly)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 6)
-                        .background(selectedOrganizationID == preview.id ? Color.accentColor.opacity(0.10) : Color(NSColor.controlBackgroundColor).opacity(0.45))
-                        .cornerRadius(6)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            selectedOrganizationID = preview.id
-                        }
-                    }
+    @ViewBuilder
+    private var organizationHealthChips: some View {
+        if let snapshot = usageHealthSnapshot {
+            HStack(spacing: 6) {
+                chip(title: "최근 성공", value: shortRelativeTimestamp(snapshot.lastOverallSuccessAt), color: .secondary)
+                if let sessionRate = snapshot.session.failureRatePercent {
+                    chip(title: "세션 실패율", value: "\(sessionRate)%", color: snapshot.session.isUnstable ? .orange : .green)
                 }
-                .padding(.top, 4)
+                if let oauthRate = snapshot.oauth.failureRatePercent {
+                    chip(title: "OAuth 실패율", value: "\(oauthRate)%", color: snapshot.oauth.isUnstable ? .orange : .blue)
+                }
             }
+            .padding(.top, 2)
+        }
+    }
 
-            if let message = organizationMessage {
-                Text(message)
+    @ViewBuilder
+    private var organizationPreviewList: some View {
+        if !organizationPreviews.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("조회 미리보기")
                     .font(.caption)
-                    .foregroundStyle(message.contains("실패") || message.contains("없음") ? .orange : .secondary)
+                    .foregroundStyle(.secondary)
+
+                ForEach(Array(organizationPreviews), id: \.id) { preview in
+                    organizationPreviewRow(preview)
+                }
+            }
+            .padding(.top, 4)
+        }
+    }
+
+    private func organizationPreviewRow(_ preview: ClaudeAPIService.OrganizationPreview) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(preview.organization.displayName)
+                    .font(.caption)
+                    .lineLimit(1)
+                Spacer()
+                if selectedOrganizationID == preview.id {
+                    Text("선택됨")
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Color.accentColor.opacity(0.18))
+                        .foregroundStyle(Color.accentColor)
+                        .cornerRadius(4)
+                }
             }
 
-            if let oauthSummary = organizationOAuthFallbackSummary {
-                Text(oauthSummary)
+            if let err = preview.usageErrorMessage {
+                Text("조회 실패: \(err)")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            } else {
+                let fiveHour = preview.fiveHourPercentage.map { String(format: "%.0f%%", $0) } ?? "-"
+                let weekly = preview.weeklyPercentage.map { String(format: "%.0f%%", $0) } ?? "-"
+                Text("현재 \(fiveHour) · 주간 \(weekly) · 최근 성공 \(shortRelativeTimestamp(usageHealthSnapshot?.lastOverallSuccessAt))")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
-                    .cornerRadius(6)
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(selectedOrganizationID == preview.id ? Color.accentColor.opacity(0.10) : Color(NSColor.controlBackgroundColor).opacity(0.45))
+        .cornerRadius(6)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            selectedOrganizationID = preview.id
+        }
+    }
+
+    @ViewBuilder
+    private var organizationMessages: some View {
+        if let message = organizationMessage {
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(message.contains("실패") || message.contains("없음") ? .orange : .secondary)
+        }
+
+        if let oauthSummary = organizationOAuthFallbackSummary {
+            Text(oauthSummary)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+                .cornerRadius(6)
         }
     }
 
@@ -1197,6 +1427,13 @@ struct SettingsView: View {
         relativeFormatter.unitsStyle = .short
         let relative = relativeFormatter.localizedString(for: date, relativeTo: Date())
         return "\(absolute) (\(relative))"
+    }
+
+    private func shortRelativeTimestamp(_ date: Date?) -> String {
+        guard let date else { return "기록 없음" }
+        let relativeFormatter = RelativeDateTimeFormatter()
+        relativeFormatter.unitsStyle = .short
+        return relativeFormatter.localizedString(for: date, relativeTo: Date())
     }
 
     private func resetToDefaults() {

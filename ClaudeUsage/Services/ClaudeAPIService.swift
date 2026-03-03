@@ -41,6 +41,8 @@ actor ClaudeAPIService {
         let lastFailureAt: Date?
         let lastErrorMessage: String?
         let consecutiveFailures: Int
+        let totalAttempts: Int
+        let totalFailures: Int
 
         nonisolated var hasAttempt: Bool {
             lastAttemptAt != nil || lastSuccessAt != nil || lastFailureAt != nil
@@ -54,12 +56,31 @@ actor ClaudeAPIService {
             guard let lastSuccessAt else { return true }
             return lastFailureAt > lastSuccessAt
         }
+
+        nonisolated var failureRatePercent: Int? {
+            guard totalAttempts > 0 else { return nil }
+            let ratio = (Double(totalFailures) / Double(totalAttempts)) * 100
+            return Int(ratio.rounded())
+        }
+    }
+
+    struct RuntimeAuthSnapshot: Sendable, Equatable {
+        enum ActivePath: String, Sendable {
+            case sessionPrimary
+            case oauthPreferred
+            case oauthFallback
+        }
+
+        let activePath: ActivePath
+        let sessionCooldownRemaining: Int?
+        let oauthPreferredRemaining: Int?
     }
 
     struct UsageHealthSnapshot: Sendable, Equatable {
         let lastOverallSuccessAt: Date?
         let session: AuthPathHealthSnapshot
         let oauth: AuthPathHealthSnapshot
+        let runtime: RuntimeAuthSnapshot
     }
 
     private enum AuthFetchPath: String, Codable {
@@ -68,11 +89,47 @@ actor ClaudeAPIService {
     }
 
     private struct AuthPathHealthState: Codable {
+        enum CodingKeys: String, CodingKey {
+            case lastAttemptAt
+            case lastSuccessAt
+            case lastFailureAt
+            case lastErrorMessage
+            case consecutiveFailures
+            case totalAttempts
+            case totalFailures
+        }
+
         var lastAttemptAt: Date?
         var lastSuccessAt: Date?
         var lastFailureAt: Date?
         var lastErrorMessage: String?
         var consecutiveFailures: Int = 0
+        var totalAttempts: Int = 0
+        var totalFailures: Int = 0
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            lastAttemptAt = try container.decodeIfPresent(Date.self, forKey: .lastAttemptAt)
+            lastSuccessAt = try container.decodeIfPresent(Date.self, forKey: .lastSuccessAt)
+            lastFailureAt = try container.decodeIfPresent(Date.self, forKey: .lastFailureAt)
+            lastErrorMessage = try container.decodeIfPresent(String.self, forKey: .lastErrorMessage)
+            consecutiveFailures = try container.decodeIfPresent(Int.self, forKey: .consecutiveFailures) ?? 0
+            totalAttempts = try container.decodeIfPresent(Int.self, forKey: .totalAttempts) ?? 0
+            totalFailures = try container.decodeIfPresent(Int.self, forKey: .totalFailures) ?? 0
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encodeIfPresent(lastAttemptAt, forKey: .lastAttemptAt)
+            try container.encodeIfPresent(lastSuccessAt, forKey: .lastSuccessAt)
+            try container.encodeIfPresent(lastFailureAt, forKey: .lastFailureAt)
+            try container.encodeIfPresent(lastErrorMessage, forKey: .lastErrorMessage)
+            try container.encode(consecutiveFailures, forKey: .consecutiveFailures)
+            try container.encode(totalAttempts, forKey: .totalAttempts)
+            try container.encode(totalFailures, forKey: .totalFailures)
+        }
     }
 
     private struct AuthPathHealthStore: Codable {
@@ -158,7 +215,8 @@ actor ClaudeAPIService {
         UsageHealthSnapshot(
             lastOverallSuccessAt: authPathHealthStore.lastOverallSuccessAt,
             session: makeAuthPathSnapshot(for: .session),
-            oauth: makeAuthPathSnapshot(for: .oauth)
+            oauth: makeAuthPathSnapshot(for: .oauth),
+            runtime: makeRuntimeAuthSnapshot()
         )
     }
 
@@ -1024,6 +1082,7 @@ actor ClaudeAPIService {
     private func recordPathAttempt(_ path: AuthFetchPath) {
         updateAuthPathState(path) { state in
             state.lastAttemptAt = Date()
+            state.totalAttempts += 1
         }
     }
 
@@ -1044,6 +1103,7 @@ actor ClaudeAPIService {
             state.lastFailureAt = Date()
             state.lastErrorMessage = message
             state.consecutiveFailures += 1
+            state.totalFailures += 1
         }
     }
 
@@ -1054,7 +1114,39 @@ actor ClaudeAPIService {
             lastSuccessAt: state.lastSuccessAt,
             lastFailureAt: state.lastFailureAt,
             lastErrorMessage: state.lastErrorMessage,
-            consecutiveFailures: state.consecutiveFailures
+            consecutiveFailures: state.consecutiveFailures,
+            totalAttempts: state.totalAttempts,
+            totalFailures: state.totalFailures
+        )
+    }
+
+    private func makeRuntimeAuthSnapshot() -> RuntimeAuthSnapshot {
+        let now = Date()
+        let sessionCooldownRemaining: Int? = {
+            guard let until = sessionPathCooldownUntil else { return nil }
+            let remaining = Int(ceil(until.timeIntervalSince(now)))
+            return remaining > 0 ? remaining : nil
+        }()
+        let oauthPreferredRemaining: Int? = {
+            guard let until = preferOAuthUntil else { return nil }
+            let remaining = Int(ceil(until.timeIntervalSince(now)))
+            return remaining > 0 ? remaining : nil
+        }()
+
+        let activePath: RuntimeAuthSnapshot.ActivePath = {
+            if let oauthPreferredRemaining, oauthPreferredRemaining > 0 {
+                return .oauthPreferred
+            }
+            if let sessionCooldownRemaining, sessionCooldownRemaining > 0 {
+                return .oauthFallback
+            }
+            return .sessionPrimary
+        }()
+
+        return RuntimeAuthSnapshot(
+            activePath: activePath,
+            sessionCooldownRemaining: sessionCooldownRemaining,
+            oauthPreferredRemaining: oauthPreferredRemaining
         )
     }
 

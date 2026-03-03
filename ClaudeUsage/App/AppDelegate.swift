@@ -90,6 +90,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Claude 시스템 상태 체크 시작 (5분 간격)
         refreshSystemStatus()
         startStatusTimer()
+        syncUsageHealthSnapshotToUI()
     }
 
     private func startUpdateCheckTimer(interval: TimeInterval) {
@@ -376,6 +377,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func syncUsageHealthSnapshotToUI() {
+        Task {
+            let snapshot = await apiService.fetchUsageHealthSnapshot()
+            await MainActor.run {
+                self.popoverViewModel.usageHealthSnapshot = snapshot
+                self.popoverViewModel.nextUsageRetryAt = self.nextUsageRefreshAllowedAt
+            }
+        }
+    }
+
     // MARK: - API
 
     private func refreshUsage(force: Bool = false) {
@@ -383,9 +394,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let remaining = Int(ceil(allowedAt.timeIntervalSinceNow))
             if remaining > 0 {
                 Logger.debug("사용량 갱신 스킵: 임시 오류 백오프 \(remaining)초 남음")
+                popoverViewModel.nextUsageRetryAt = allowedAt
                 return
             }
             nextUsageRefreshAllowedAt = nil
+            popoverViewModel.nextUsageRetryAt = nil
         }
 
         // 이미 갱신 중이면 중복 요청을 막아 로딩/회전 애니메이션 과도 지속을 방지
@@ -439,6 +452,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.isLoading = false
                     self.loadingStartedAt = nil
                     self.nextUsageRefreshAllowedAt = nil
+                    self.popoverViewModel.nextUsageRetryAt = nil
                     self.hasAuthError = false
                     self.consecutiveErrorCount = 0
                     self.lastUpdated = Date()
@@ -450,6 +464,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         lastUpdated: self.lastUpdated,
                         overage: self.currentOverage
                     )
+                    self.syncUsageHealthSnapshotToUI()
 
                     // 알림 체크
                     NotificationManager.shared.checkThreshold(
@@ -484,6 +499,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                     self.updateMenuBar()
                     self.popoverViewModel.update(usage: self.currentUsage, error: error, isLoading: false)
+                    self.popoverViewModel.nextUsageRetryAt = self.nextUsageRefreshAllowedAt
+                    self.syncUsageHealthSnapshotToUI()
                 }
 
             } catch {
@@ -499,6 +516,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.currentError = (self.currentUsage == nil) ? apiError : nil
                     self.updateMenuBar()
                     self.popoverViewModel.update(usage: self.currentUsage, error: apiError, isLoading: false)
+                    self.popoverViewModel.nextUsageRetryAt = self.nextUsageRefreshAllowedAt
+                    self.syncUsageHealthSnapshotToUI()
                 }
             }
         }
@@ -532,6 +551,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         nextUsageRefreshAllowedAt = candidate
+        popoverViewModel.nextUsageRetryAt = candidate
         Logger.info("임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
     }
 

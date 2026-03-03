@@ -72,6 +72,37 @@ struct PopoverView: View {
             .padding(.top, 12)
             .padding(.bottom, 8)
 
+            if let health = viewModel.usageHealthSnapshot {
+                Divider()
+                HStack(spacing: 6) {
+                    popoverChip(
+                        title: settings.popoverCompact ? nil : "경로",
+                        value: runtimePathLabel(health.runtime.activePath),
+                        color: runtimePathColor(health.runtime.activePath)
+                    )
+
+                    if !settings.popoverCompact, let lastSuccess = health.lastOverallSuccessAt {
+                        popoverChip(
+                            title: "최근 성공",
+                            value: shortRelativeText(for: lastSuccess),
+                            color: .secondary
+                        )
+                    }
+
+                    if let retryAt = viewModel.nextUsageRetryAt, retryAt > Date() {
+                        popoverChip(
+                            title: settings.popoverCompact ? nil : "재시도",
+                            value: shortRelativeText(for: retryAt),
+                            color: .orange
+                        )
+                    }
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+            }
+
             // 시스템 상태 배너 (장애 시에만 표시)
             if let status = viewModel.systemStatus, status.hasIssue {
                 Divider()
@@ -308,6 +339,50 @@ struct PopoverView: View {
         case .major: return .orange
         case .critical: return .red
         }
+    }
+
+    private func runtimePathLabel(_ path: ClaudeAPIService.RuntimeAuthSnapshot.ActivePath) -> String {
+        switch path {
+        case .sessionPrimary:
+            return "세션키"
+        case .oauthPreferred:
+            return "OAuth 우선"
+        case .oauthFallback:
+            return "OAuth 폴백"
+        }
+    }
+
+    private func runtimePathColor(_ path: ClaudeAPIService.RuntimeAuthSnapshot.ActivePath) -> Color {
+        switch path {
+        case .sessionPrimary:
+            return .green
+        case .oauthPreferred:
+            return .blue
+        case .oauthFallback:
+            return .orange
+        }
+    }
+
+    private func shortRelativeText(for date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private func popoverChip(title: String?, value: String, color: Color) -> some View {
+        HStack(spacing: 4) {
+            if let title {
+                Text(title)
+            }
+            Text(value)
+                .fontWeight(.semibold)
+        }
+        .font(.caption2)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(color.opacity(0.16))
+        .foregroundStyle(color)
+        .cornerRadius(6)
     }
 
     private func affectedComponentsSummary(_ components: [String], maxShown: Int = 3) -> String {
@@ -601,6 +676,8 @@ class PopoverViewModel: ObservableObject {
     @Published var lastUpdated: Date?
     @Published var overage: OverageSpendLimitResponse?
     @Published var systemStatus: ClaudeSystemStatus?
+    @Published var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
+    @Published var nextUsageRetryAt: Date?
     var onRefresh: (() -> Void)?
     var onOpenSettings: (() -> Void)?
     var onPinChanged: ((Bool) -> Void)?
