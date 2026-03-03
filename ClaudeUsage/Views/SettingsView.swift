@@ -20,8 +20,6 @@ struct SettingsView: View {
     @State private var showKeyHelp: Bool = false
     @State private var alertTexts: [String] = []
     @State private var codexAlertTexts: [String] = []
-    @State private var snapshot: AppSettings.Snapshot?
-    @State private var didSave = false
     @State private var draggingItemID: String?
     @State private var codexDraggingItemID: String?
     @State private var compactConfigTab: Int = 0
@@ -97,6 +95,7 @@ struct SettingsView: View {
 
     enum ClaudeTab: String, CaseIterable, Identifiable {
         case auth
+        case display
         case status
         case organizations
         case popover
@@ -107,6 +106,7 @@ struct SettingsView: View {
         var title: String {
             switch self {
             case .auth: return "인증"
+            case .display: return "표시"
             case .status: return "상태"
             case .organizations: return "Organization"
             case .popover: return "표시 항목"
@@ -195,7 +195,6 @@ struct SettingsView: View {
         }
         .frame(width: 760, height: 600)
         .onAppear {
-            snapshot = settings.createSnapshot()
             if let key = KeychainManager.shared.load() {
                 storedSessionKey = key
                 sessionKey = key
@@ -213,11 +212,6 @@ struct SettingsView: View {
             selectedCodexTab = CodexTab(rawValue: settings.codexSettingsLastTab) ?? .auth
             loadUsageHealthSnapshot()
             checkCodexAuth()
-        }
-        .onDisappear {
-            if !didSave, let snapshot = snapshot {
-                settings.restore(from: snapshot)
-            }
         }
         .onChange(of: selectedPanel) { _, panel in
             settings.settingsLastTab = panel.rawValue
@@ -245,7 +239,7 @@ struct SettingsView: View {
         case .common:
             switch selectedCommonTab {
             case .display:
-                displaySection
+                commonDisplaySection
             case .refreshPower:
                 refreshSection
                 Divider()
@@ -259,6 +253,8 @@ struct SettingsView: View {
             switch selectedClaudeTab {
             case .auth:
                 authSection
+            case .display:
+                claudeDisplaySection
             case .status:
                 statusSection
             case .organizations:
@@ -1396,6 +1392,24 @@ struct SettingsView: View {
 
     // MARK: - 디스플레이 섹션
 
+    private var commonDisplaySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("공통 표시", systemImage: "paintbrush")
+                .font(.headline)
+
+            Picker("시간 형식:", selection: $settings.timeFormat) {
+                ForEach(TimeFormatStyle.allCases, id: \.self) { style in
+                    Text(style.displayName).tag(style)
+                }
+            }
+
+            Toggle("메뉴바 보조 텍스트 강조", isOn: $settings.menuBarTextHighContrast)
+            Text("메뉴바의 리셋 시간, 구분자 등을 기본 텍스트와 동일한 색상으로 표시")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     private var isBatteryWithPercent: Bool {
         settings.menuBarStyle == .batteryBar || settings.menuBarStyle == .sideBySideBattery
     }
@@ -1415,7 +1429,7 @@ struct SettingsView: View {
         settings.menuBarStyle == .circular || settings.menuBarStyle == .concentricRings
     }
 
-    private var displaySection: some View {
+    private var claudeDisplaySection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Label("디스플레이", systemImage: "paintbrush")
@@ -1446,11 +1460,6 @@ struct SettingsView: View {
                         }
                     }
                 }
-
-                Toggle("메뉴바 보조 텍스트 강조", isOn: $settings.menuBarTextHighContrast)
-                Text("메뉴바의 리셋 시간, 구분자 등을 기본 텍스트와 동일한 색상으로 표시")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
 
                 Divider()
 
@@ -1900,14 +1909,11 @@ struct SettingsView: View {
 
     private func applyChanges() {
         persistChanges()
-        snapshot = settings.createSnapshot()
-        didSave = false
         onApply?()
     }
 
     private func confirmChanges() {
         persistChanges()
-        didSave = true
         onSave?()
     }
 

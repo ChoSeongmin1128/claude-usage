@@ -682,6 +682,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         AppSettings.shared.$claudeEnabled
             .dropFirst()
+            .removeDuplicates()
             .sink { [weak self] enabled in
                 guard let self else { return }
                 self.rebuildStatusItems()
@@ -722,6 +723,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         AppSettings.shared.$codexEnabled
             .dropFirst()
+            .removeDuplicates()
             .sink { [weak self] enabled in
                 guard let self else { return }
                 self.rebuildStatusItems()
