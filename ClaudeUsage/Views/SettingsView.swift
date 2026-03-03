@@ -30,6 +30,7 @@ struct SettingsView: View {
     @State private var isLoadingOrganizationPreviews = false
     @State private var organizationMessage: String?
     @State private var organizationOAuthFallbackSummary: String?
+    @State private var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
 
     var onSave: (() -> Void)?
     var onCancel: (() -> Void)?
@@ -128,6 +129,7 @@ struct SettingsView: View {
             refreshIntervalText = String(Int(settings.refreshInterval))
             alertTexts = settings.alertThresholds.map { String($0) }
             selectedOrganizationID = settings.preferredOrganizationID
+            loadUsageHealthSnapshot()
         }
         .onDisappear {
             if !didSave, let snapshot = snapshot {
@@ -262,8 +264,97 @@ struct SettingsView: View {
             }
             .font(.subheadline)
 
+            usageHealthSection
+
             organizationSection
         }
+    }
+
+    private var usageHealthSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+
+            HStack {
+                Text("조회 상태")
+                    .font(.subheadline)
+                Spacer()
+                Button("상태 새로고침") {
+                    loadUsageHealthSnapshot()
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+            }
+
+            if let snapshot = usageHealthSnapshot {
+                Text("마지막 성공 조회: \(formattedTimestamp(snapshot.lastOverallSuccessAt))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    authPathHealthRow(title: "세션키 경로", snapshot: snapshot.session)
+                    authPathHealthRow(title: "OAuth 경로", snapshot: snapshot.oauth)
+                }
+                .padding(.top, 2)
+            } else {
+                Text("조회 상태 정보를 불러오는 중입니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func authPathHealthRow(title: String, snapshot: ClaudeAPIService.AuthPathHealthSnapshot) -> some View {
+        let statusText: String
+        let statusColor: Color
+        if !snapshot.hasAttempt {
+            statusText = "시도 기록 없음"
+            statusColor = .secondary
+        } else if snapshot.isUnstable {
+            statusText = "불안정"
+            statusColor = .orange
+        } else {
+            statusText = "정상"
+            statusColor = .green
+        }
+
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(title)
+                    .font(.caption)
+                Text(statusText)
+                    .font(.caption2)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(statusColor.opacity(0.16))
+                    .foregroundStyle(statusColor)
+                    .cornerRadius(4)
+                if snapshot.consecutiveFailures > 0 {
+                    Text("연속 실패 \(snapshot.consecutiveFailures)회")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+            }
+
+            Text("마지막 성공: \(formattedTimestamp(snapshot.lastSuccessAt))")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            if let lastFailureAt = snapshot.lastFailureAt {
+                Text("최근 실패: \(formattedTimestamp(lastFailureAt))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            if let errorMessage = snapshot.lastErrorMessage, snapshot.isUnstable {
+                Text("오류: \(errorMessage)")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+        .cornerRadius(6)
     }
 
     private var organizationSection: some View {
@@ -824,11 +915,13 @@ struct SettingsView: View {
                     } catch {
                         Logger.error("세션 키 저장 실패: \(error)")
                     }
+                    loadUsageHealthSnapshot()
                 }
             } catch {
                 await MainActor.run {
                     testResult = .failure(error.localizedDescription)
                     isTesting = false
+                    loadUsageHealthSnapshot()
                 }
             }
         }
@@ -906,6 +999,7 @@ struct SettingsView: View {
 
         guard !normalizedKey.isEmpty else {
             organizationMessage = "세션 키가 없어 organization 목록을 불러올 수 없습니다."
+            loadUsageHealthSnapshot()
             return
         }
 
@@ -952,6 +1046,9 @@ struct SettingsView: View {
                         organizationMessage = "organization 목록 조회 실패: \(error.localizedDescription)"
                     }
                 }
+                await MainActor.run {
+                    loadUsageHealthSnapshot()
+                }
                 return
             }
 
@@ -977,8 +1074,27 @@ struct SettingsView: View {
                 } else {
                     organizationMessage = "organization \(previews.count)개의 상세를 불러왔습니다."
                 }
+                loadUsageHealthSnapshot()
             }
         }
+    }
+
+    private func loadUsageHealthSnapshot() {
+        Task {
+            let snapshot = await ClaudeAPIService().fetchUsageHealthSnapshot()
+            await MainActor.run {
+                usageHealthSnapshot = snapshot
+            }
+        }
+    }
+
+    private func formattedTimestamp(_ date: Date?) -> String {
+        guard let date else { return "기록 없음" }
+        let absolute = date.formatted(date: .abbreviated, time: .shortened)
+        let relativeFormatter = RelativeDateTimeFormatter()
+        relativeFormatter.unitsStyle = .short
+        let relative = relativeFormatter.localizedString(for: date, relativeTo: Date())
+        return "\(absolute) (\(relative))"
     }
 
     private func resetToDefaults() {

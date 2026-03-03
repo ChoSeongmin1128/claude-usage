@@ -34,6 +34,52 @@ actor ClaudeAPIService {
         var id: String { organization.id }
     }
 
+    struct AuthPathHealthSnapshot: Sendable, Equatable {
+        let lastAttemptAt: Date?
+        let lastSuccessAt: Date?
+        let lastFailureAt: Date?
+        let lastErrorMessage: String?
+        let consecutiveFailures: Int
+
+        nonisolated var hasAttempt: Bool {
+            lastAttemptAt != nil || lastSuccessAt != nil || lastFailureAt != nil
+        }
+
+        nonisolated var isUnstable: Bool {
+            if consecutiveFailures >= 2 {
+                return true
+            }
+            guard let lastFailureAt else { return false }
+            guard let lastSuccessAt else { return true }
+            return lastFailureAt > lastSuccessAt
+        }
+    }
+
+    struct UsageHealthSnapshot: Sendable, Equatable {
+        let lastOverallSuccessAt: Date?
+        let session: AuthPathHealthSnapshot
+        let oauth: AuthPathHealthSnapshot
+    }
+
+    private enum AuthFetchPath: String, Codable {
+        case session
+        case oauth
+    }
+
+    private struct AuthPathHealthState: Codable {
+        var lastAttemptAt: Date?
+        var lastSuccessAt: Date?
+        var lastFailureAt: Date?
+        var lastErrorMessage: String?
+        var consecutiveFailures: Int = 0
+    }
+
+    private struct AuthPathHealthStore: Codable {
+        var session = AuthPathHealthState()
+        var oauth = AuthPathHealthState()
+        var lastOverallSuccessAt: Date?
+    }
+
     private var sessionKey: String?
     private let baseURL = "https://claude.ai/api"
     private var cachedOrganizationID: String?
@@ -48,6 +94,8 @@ actor ClaudeAPIService {
     private var didDiscoverCLIServiceNames = false
     private let organizationCacheDefaultsKey = "ClaudeUsage.cachedOrganizations.v1"
     private let organizationCacheTTL: TimeInterval = 7 * 24 * 60 * 60
+    private static let authPathHealthDefaultsKey = "ClaudeUsage.authPathHealth.v1"
+    private var authPathHealthStore = ClaudeAPIService.loadAuthPathHealthStore()
 
     private struct OrganizationCache: Codable {
         let savedAt: Date
@@ -104,6 +152,14 @@ actor ClaudeAPIService {
         return !key.isEmpty
     }
 
+    func fetchUsageHealthSnapshot() -> UsageHealthSnapshot {
+        UsageHealthSnapshot(
+            lastOverallSuccessAt: authPathHealthStore.lastOverallSuccessAt,
+            session: makeAuthPathSnapshot(for: .session),
+            oauth: makeAuthPathSnapshot(for: .oauth)
+        )
+    }
+
     // MARK: - Public API
 
     /// 사용량 데이터 가져오기
@@ -114,6 +170,7 @@ actor ClaudeAPIService {
         if shouldPreferOAuthNow() {
             do {
                 let usage = try await fetchUsageViaOAuth()
+                recordOverallUsageSuccess()
                 Logger.debug("OAuth 우선 경로 사용 중")
                 return usage
             } catch {
@@ -132,6 +189,7 @@ actor ClaudeAPIService {
                     let usage = try await fetchUsageWithSessionKey(sessionKey)
                     preferOAuthUntil = nil
                     resetSessionPathCooldown()
+                    recordOverallUsageSuccess()
                     return usage
                 } catch let apiError as APIError {
                     sessionPathError = apiError
@@ -156,6 +214,7 @@ actor ClaudeAPIService {
             if let sessionPathError {
                 Logger.warning("세션키 경로 실패(\(sessionPathError.localizedDescription)) → OAuth 경로 성공")
             }
+            recordOverallUsageSuccess()
             return usage
         } catch {
             Logger.warning("OAuth 경로 실패: \(error.localizedDescription)")
@@ -264,6 +323,8 @@ actor ClaudeAPIService {
     }
 
     private func fetchUsageWithSessionKey(_ sessionKey: String, organizationID orgID: String) async throws -> ClaudeUsageResponse {
+        recordPathAttempt(.session)
+
         let url = URL(string: "\(baseURL)/organizations/\(orgID)/usage")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
@@ -276,7 +337,9 @@ actor ClaudeAPIService {
 
         guard let httpResponse = response as? HTTPURLResponse else {
             Logger.error("유효하지 않은 응답")
-            throw APIError.unknownError("Invalid HTTP response")
+            let apiError = APIError.unknownError("Invalid HTTP response")
+            recordPathFailure(.session, error: apiError)
+            throw apiError
         }
 
         Logger.debug("HTTP 상태 코드: \(httpResponse.statusCode)")
@@ -285,6 +348,7 @@ actor ClaudeAPIService {
             Logger.error("HTTP 에러: \(httpResponse.statusCode)")
             let apiError = classifyHTTPError(statusCode: httpResponse.statusCode, data: data, response: httpResponse)
             updateSessionPathCooldownIfNeeded(with: apiError)
+            recordPathFailure(.session, error: apiError)
             throw apiError
         }
 
@@ -298,11 +362,14 @@ actor ClaudeAPIService {
             let usageResponse = try decoder.decode(ClaudeUsageResponse.self, from: data)
 
             Logger.info("사용량 데이터 수신 성공: \(usageResponse.fiveHourPercentage)%")
+            recordPathSuccess(.session)
             return usageResponse
 
         } catch {
             Logger.error("JSON 파싱 실패: \(error)")
-            throw APIError.parseError
+            let apiError = APIError.parseError
+            recordPathFailure(.session, error: apiError)
+            throw apiError
         }
     }
 
@@ -678,12 +745,18 @@ actor ClaudeAPIService {
     }
 
     private func fetchUsageViaOAuth() async throws -> ClaudeUsageResponse {
+        recordPathAttempt(.oauth)
+
         guard let accessToken = try readSystemOAuthAccessToken() else {
-            throw APIError.unknownError("Claude Code OAuth 토큰을 찾을 수 없습니다")
+            let apiError = APIError.unknownError("Claude Code OAuth 토큰을 찾을 수 없습니다")
+            recordPathFailure(.oauth, error: apiError)
+            throw apiError
         }
 
         guard let url = URL(string: "https://api.anthropic.com/api/oauth/usage") else {
-            throw APIError.unknownError("OAuth usage endpoint URL 생성 실패")
+            let apiError = APIError.unknownError("OAuth usage endpoint URL 생성 실패")
+            recordPathFailure(.oauth, error: apiError)
+            throw apiError
         }
 
         var request = URLRequest(url: url)
@@ -696,18 +769,26 @@ actor ClaudeAPIService {
         let (data, response) = try await data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
-            throw APIError.unknownError("Invalid OAuth HTTP response")
+            let apiError = APIError.unknownError("Invalid OAuth HTTP response")
+            recordPathFailure(.oauth, error: apiError)
+            throw apiError
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            throw classifyHTTPError(statusCode: httpResponse.statusCode, data: data, response: httpResponse)
+            let apiError = classifyHTTPError(statusCode: httpResponse.statusCode, data: data, response: httpResponse)
+            recordPathFailure(.oauth, error: apiError)
+            throw apiError
         }
 
         do {
             let decoder = JSONDecoder()
-            return try decoder.decode(ClaudeUsageResponse.self, from: data)
+            let usage = try decoder.decode(ClaudeUsageResponse.self, from: data)
+            recordPathSuccess(.oauth)
+            return usage
         } catch {
-            throw APIError.parseError
+            let apiError = APIError.parseError
+            recordPathFailure(.oauth, error: apiError)
+            throw apiError
         }
     }
 
@@ -889,6 +970,80 @@ actor ClaudeAPIService {
         }
         let token = String(text[tokenRange]).trimmingCharacters(in: .whitespacesAndNewlines)
         return token.isEmpty ? nil : token
+    }
+
+    private func recordOverallUsageSuccess() {
+        authPathHealthStore.lastOverallSuccessAt = Date()
+        persistAuthPathHealthStore()
+    }
+
+    private func recordPathAttempt(_ path: AuthFetchPath) {
+        updateAuthPathState(path) { state in
+            state.lastAttemptAt = Date()
+        }
+    }
+
+    private func recordPathSuccess(_ path: AuthFetchPath) {
+        updateAuthPathState(path) { state in
+            state.lastSuccessAt = Date()
+            state.lastErrorMessage = nil
+            state.consecutiveFailures = 0
+        }
+    }
+
+    private func recordPathFailure(_ path: AuthFetchPath, error: APIError) {
+        recordPathFailure(path, message: error.localizedDescription)
+    }
+
+    private func recordPathFailure(_ path: AuthFetchPath, message: String) {
+        updateAuthPathState(path) { state in
+            state.lastFailureAt = Date()
+            state.lastErrorMessage = message
+            state.consecutiveFailures += 1
+        }
+    }
+
+    private func makeAuthPathSnapshot(for path: AuthFetchPath) -> AuthPathHealthSnapshot {
+        let state = authPathState(for: path)
+        return AuthPathHealthSnapshot(
+            lastAttemptAt: state.lastAttemptAt,
+            lastSuccessAt: state.lastSuccessAt,
+            lastFailureAt: state.lastFailureAt,
+            lastErrorMessage: state.lastErrorMessage,
+            consecutiveFailures: state.consecutiveFailures
+        )
+    }
+
+    private func authPathState(for path: AuthFetchPath) -> AuthPathHealthState {
+        switch path {
+        case .session:
+            return authPathHealthStore.session
+        case .oauth:
+            return authPathHealthStore.oauth
+        }
+    }
+
+    private func updateAuthPathState(_ path: AuthFetchPath, update: (inout AuthPathHealthState) -> Void) {
+        switch path {
+        case .session:
+            update(&authPathHealthStore.session)
+        case .oauth:
+            update(&authPathHealthStore.oauth)
+        }
+        persistAuthPathHealthStore()
+    }
+
+    private func persistAuthPathHealthStore() {
+        guard let data = try? JSONEncoder().encode(authPathHealthStore) else { return }
+        UserDefaults.standard.set(data, forKey: Self.authPathHealthDefaultsKey)
+    }
+
+    private static func loadAuthPathHealthStore() -> AuthPathHealthStore {
+        guard let data = UserDefaults.standard.data(forKey: Self.authPathHealthDefaultsKey),
+              let decoded = try? JSONDecoder().decode(AuthPathHealthStore.self, from: data) else {
+            return AuthPathHealthStore()
+        }
+        return decoded
     }
 
     private static func normalizeOrganizationID(_ raw: String?) -> String? {
