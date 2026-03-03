@@ -112,6 +112,26 @@ struct PopoverView: View {
                 .background(Color.accentColor.opacity(0.08))
             }
 
+            if let staleMessage = staleDataMessage {
+                Divider()
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text(staleMessage)
+                        .font(.caption)
+                        .foregroundColor(.primary)
+                    Spacer()
+                    if viewModel.error != nil {
+                        Text("자동 재시도 중")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+                .background(Color.orange.opacity(0.08))
+            }
+
             Divider()
 
             Group {
@@ -222,6 +242,28 @@ struct PopoverView: View {
         case .minor: return .yellow
         case .major: return .orange
         case .critical: return .red
+        }
+    }
+
+    private var staleDataMessage: String? {
+        guard let lastUpdated = viewModel.lastUpdated else { return nil }
+
+        let elapsed = Date().timeIntervalSince(lastUpdated)
+        let threshold = max(180.0, settings.refreshInterval * 4.0)
+        guard elapsed >= threshold else { return nil }
+
+        let minutes = Int(elapsed / 60)
+        if minutes < 1 {
+            return "데이터가 최신이 아닐 수 있습니다 (마지막 성공: 방금 전)"
+        } else if minutes < 60 {
+            return "데이터가 최신이 아닐 수 있습니다 (마지막 성공: \(minutes)분 전)"
+        } else {
+            let hours = minutes / 60
+            let remainMinutes = minutes % 60
+            if remainMinutes == 0 {
+                return "데이터가 최신이 아닐 수 있습니다 (마지막 성공: \(hours)시간 전)"
+            }
+            return "데이터가 최신이 아닐 수 있습니다 (마지막 성공: \(hours)시간 \(remainMinutes)분 전)"
         }
     }
 
