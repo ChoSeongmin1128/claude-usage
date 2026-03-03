@@ -833,6 +833,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         showSettingsWindow()
     }
 
+    private func applySettingsFromWindow() {
+        Task {
+            await self.apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
+            if let key = KeychainManager.shared.load(), !key.isEmpty {
+                await self.apiService.updateSessionKey(key)
+                await MainActor.run {
+                    self.startMonitoring()
+                }
+            } else {
+                await self.apiService.clearSession()
+                await MainActor.run {
+                    self.timer?.invalidate()
+                    self.timer = nil
+                    self.currentUsage = nil
+                    self.currentOverage = nil
+                    self.lastOverageFetchAt = nil
+                    self.currentError = nil
+                    self.hasAuthError = false
+                    self.consecutiveErrorCount = 0
+                    self.isLoading = false
+                    self.updateMenuBar()
+                    self.popoverViewModel.update(usage: nil, error: nil, isLoading: false, overage: nil)
+                }
+            }
+            Logger.info("설정 적용 완료")
+        }
+    }
+
     private func showSettingsWindow() {
         if let window = settingsWindow, window.isVisible {
             window.makeKeyAndOrderFront(nil)
@@ -847,33 +875,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self = self else { return }
                 self.settingsSnapshot = nil  // 저장 시 스냅샷 클리어 → 복원 방지
                 self.settingsWindow?.close()
-
-                // 세션 키 업데이트 후 모니터링 시작 (순차 실행)
-                Task {
-                    await self.apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
-                    if let key = KeychainManager.shared.load(), !key.isEmpty {
-                        await self.apiService.updateSessionKey(key)
-                        await MainActor.run {
-                            self.startMonitoring()
-                        }
-                    } else {
-                        await self.apiService.clearSession()
-                        await MainActor.run {
-                            self.timer?.invalidate()
-                            self.timer = nil
-                            self.currentUsage = nil
-                            self.currentOverage = nil
-                            self.lastOverageFetchAt = nil
-                            self.currentError = nil
-                            self.hasAuthError = false
-                            self.consecutiveErrorCount = 0
-                            self.isLoading = false
-                            self.updateMenuBar()
-                            self.popoverViewModel.update(usage: nil, error: nil, isLoading: false, overage: nil)
-                        }
-                    }
-                    Logger.info("설정 저장 완료")
-                }
+                self.applySettingsFromWindow()
+            },
+            onApply: { [weak self] in
+                guard let self = self else { return }
+                self.settingsSnapshot = AppSettings.shared.createSnapshot()
+                self.applySettingsFromWindow()
             },
             onCancel: { [weak self] in
                 self?.settingsWindow?.close()

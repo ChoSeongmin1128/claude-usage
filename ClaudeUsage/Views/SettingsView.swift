@@ -32,8 +32,12 @@ struct SettingsView: View {
     @State private var organizationOAuthFallbackSummary: String?
     @State private var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
     @State private var selectedPanel: SettingsPanel = .status
+    @State private var isAdvancedAuthExpanded = false
+    @State private var isOAuthGuideExpanded = false
+    @State private var isAuthFAQExpanded = false
 
     var onSave: (() -> Void)?
+    var onApply: (() -> Void)?
     var onCancel: (() -> Void)?
     var onOpenLogin: (() -> Void)?
     var onLogout: (() -> Void)?
@@ -106,7 +110,8 @@ struct SettingsView: View {
                 Spacer()
                 Button("취소") { onCancel?() }
                     .keyboardShortcut(.cancelAction)
-                Button("저장") { didSave = true; save() }
+                Button("적용") { applyChanges() }
+                Button("확인") { confirmChanges() }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
             }
@@ -221,7 +226,7 @@ struct SettingsView: View {
             }
 
             // 고급 옵션: 수동 세션 키 입력
-            DisclosureGroup("고급 옵션") {
+            DisclosureGroup(isExpanded: $isAdvancedAuthExpanded) {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 4) {
                         Text("세션 키 직접 입력")
@@ -286,6 +291,21 @@ struct SettingsView: View {
                     }
                 }
                 .padding(.top, 4)
+            } label: {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isAdvancedAuthExpanded.toggle()
+                    }
+                } label: {
+                    HStack {
+                        Text("고급 옵션")
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .padding(.vertical, 4)
+                }
+                .buttonStyle(.plain)
             }
             .font(.subheadline)
 
@@ -355,7 +375,7 @@ struct SettingsView: View {
     }
 
     private var oauthQuickGuideSection: some View {
-        DisclosureGroup("Claude CLI OAuth 빠른 가이드") {
+        DisclosureGroup(isExpanded: $isOAuthGuideExpanded) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("1. 터미널 앱을 엽니다.")
                 Text("2. Claude CLI를 설치합니다 (macOS 권장): `brew install --cask claude-code`")
@@ -367,12 +387,27 @@ struct SettingsView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             .padding(.top, 4)
+        } label: {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isOAuthGuideExpanded.toggle()
+                }
+            } label: {
+                HStack {
+                    Text("Claude CLI OAuth 빠른 가이드")
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
         }
         .font(.subheadline)
     }
 
     private var authFAQSection: some View {
-        DisclosureGroup("자주 묻는 질문 (FAQ)") {
+        DisclosureGroup(isExpanded: $isAuthFAQExpanded) {
             VStack(alignment: .leading, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Q. Claude CLI는 어떻게 설치하나요?")
@@ -411,6 +446,21 @@ struct SettingsView: View {
                 }
             }
             .padding(.top, 4)
+        } label: {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isAuthFAQExpanded.toggle()
+                }
+            } label: {
+                HStack {
+                    Text("자주 묻는 질문 (FAQ)")
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
         }
         .font(.subheadline)
     }
@@ -1243,7 +1293,20 @@ struct SettingsView: View {
         }
     }
 
-    private func save() {
+    private func applyChanges() {
+        persistChanges()
+        snapshot = settings.createSnapshot()
+        didSave = false
+        onApply?()
+    }
+
+    private func confirmChanges() {
+        persistChanges()
+        didSave = true
+        onSave?()
+    }
+
+    private func persistChanges() {
         let normalizedKey = normalizeSessionKey(sessionKey)
         if normalizedKey != sessionKey {
             sessionKey = normalizedKey
@@ -1273,8 +1336,6 @@ struct SettingsView: View {
             selectedOrganizationID = normalizedOrganizationID
         }
         settings.preferredOrganizationID = normalizedOrganizationID
-
-        onSave?()
     }
 
     private func normalizeSessionKey(_ raw: String) -> String {
