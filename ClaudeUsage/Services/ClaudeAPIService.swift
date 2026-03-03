@@ -11,7 +11,7 @@ import Foundation
 actor ClaudeAPIService {
     // MARK: - Properties
 
-    struct OrganizationSummary: Sendable, Equatable, Identifiable {
+    struct OrganizationSummary: Sendable, Equatable, Identifiable, Codable {
         let id: String
         let name: String?
 
@@ -35,6 +35,13 @@ actor ClaudeAPIService {
     private let requestTimeout: TimeInterval = 20
     private var discoveredCLIServiceNames: [String] = []
     private var didDiscoverCLIServiceNames = false
+    private let organizationCacheDefaultsKey = "ClaudeUsage.cachedOrganizations.v1"
+    private let organizationCacheTTL: TimeInterval = 7 * 24 * 60 * 60
+
+    private struct OrganizationCache: Codable {
+        let savedAt: Date
+        let organizations: [OrganizationSummary]
+    }
 
     // MARK: - Init
 
@@ -153,7 +160,23 @@ actor ClaudeAPIService {
         guard let sessionKey, !sessionKey.isEmpty else {
             throw APIError.invalidSessionKey
         }
-        return try await fetchOrganizationsWithSessionKey(sessionKey)
+        do {
+            return try await fetchOrganizationsWithSessionKey(sessionKey)
+        } catch let apiError as APIError {
+            if apiError.isTemporaryFailure,
+               let cached = loadCachedOrganizations(),
+               !cached.isEmpty {
+                Logger.warning("Organization 목록 네트워크 조회 실패 → 캐시 fallback 사용(\(cached.count)개)")
+                return cached
+            }
+            throw apiError
+        } catch {
+            if let cached = loadCachedOrganizations(), !cached.isEmpty {
+                Logger.warning("Organization 목록 조회 실패(\(error.localizedDescription)) → 캐시 fallback 사용(\(cached.count)개)")
+                return cached
+            }
+            throw error
+        }
     }
 
     private func fetchUsageWithSessionKey(_ sessionKey: String) async throws -> ClaudeUsageResponse {
@@ -314,6 +337,8 @@ actor ClaudeAPIService {
 
             if organizations.isEmpty {
                 Logger.error("Organization ID를 찾을 수 없음")
+            } else {
+                saveCachedOrganizations(organizations)
             }
             return organizations
         } catch let apiError as APIError {
@@ -322,6 +347,24 @@ actor ClaudeAPIService {
             Logger.error("Organization JSON 파싱 실패: \(error)")
             throw APIError.parseError
         }
+    }
+
+    private func saveCachedOrganizations(_ organizations: [OrganizationSummary]) {
+        guard !organizations.isEmpty else { return }
+        let cache = OrganizationCache(savedAt: Date(), organizations: organizations)
+        guard let data = try? JSONEncoder().encode(cache) else { return }
+        UserDefaults.standard.set(data, forKey: organizationCacheDefaultsKey)
+    }
+
+    private func loadCachedOrganizations() -> [OrganizationSummary]? {
+        guard let data = UserDefaults.standard.data(forKey: organizationCacheDefaultsKey),
+              let cache = try? JSONDecoder().decode(OrganizationCache.self, from: data) else {
+            return nil
+        }
+
+        let age = Date().timeIntervalSince(cache.savedAt)
+        guard age <= organizationCacheTTL else { return nil }
+        return cache.organizations
     }
 
     /// 재시도 로직을 포함한 사용량 가져오기

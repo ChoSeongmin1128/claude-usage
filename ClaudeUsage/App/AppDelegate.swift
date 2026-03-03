@@ -16,6 +16,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var timer: Timer?
+    private var activeTimerInterval: TimeInterval?
     private var updateCheckTimer: Timer?
     private let apiService = ClaudeAPIService()
     private let popoverViewModel = PopoverViewModel()
@@ -277,13 +278,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Timer
 
     private func startTimer() {
-        timer?.invalidate()
-
         let interval = PowerMonitor.shared.effectiveRefreshInterval
         guard AppSettings.shared.autoRefresh else {
+            timer?.invalidate()
+            timer = nil
+            activeTimerInterval = nil
             Logger.info("자동 새로고침 비활성화")
             return
         }
+
+        if timer != nil, activeTimerInterval == interval {
+            return
+        }
+
+        timer?.invalidate()
 
         timer = Timer.scheduledTimer(
             withTimeInterval: interval,
@@ -291,6 +299,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] _ in
             self?.refreshUsage()
         }
+        activeTimerInterval = interval
 
         Logger.info("자동 갱신 타이머 시작 (\(Int(interval))초)")
     }
@@ -312,6 +321,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.startTimer()
                 } else {
                     self?.timer?.invalidate()
+                    self?.timer = nil
+                    self?.activeTimerInterval = nil
                 }
             }
             .store(in: &cancellables)
