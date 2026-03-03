@@ -134,38 +134,43 @@ struct PopoverView: View {
 
             Divider()
 
-            Group {
-                if viewModel.isLoading && viewModel.usage == nil {
-                    VStack(spacing: 12) {
-                        ProgressView()
-                        Text("데이터 로딩 중...")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: settings.popoverCompact ? 60 : 150)
+            ScrollView {
+                Group {
+                    if viewModel.isLoading && viewModel.usage == nil {
+                        VStack(spacing: 12) {
+                            ProgressView()
+                            Text("데이터 로딩 중...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: settings.popoverCompact ? 60 : 150)
 
-                } else if let error = viewModel.error, viewModel.usage == nil {
-                    ErrorSectionView(error: error) {
-                        viewModel.refresh()
-                    }
-                    .padding(16)
+                    } else if let error = viewModel.error, viewModel.usage == nil {
+                        ErrorSectionView(error: error) {
+                            viewModel.refresh()
+                        }
+                        .padding(16)
 
-                } else if let usage = viewModel.usage {
-                    if settings.popoverCompact {
-                        compactContent(usage: usage)
+                    } else if let usage = viewModel.usage {
+                        if settings.popoverCompact {
+                            compactContent(usage: usage)
+                        } else {
+                            standardContent(usage: usage)
+                        }
+
                     } else {
-                        standardContent(usage: usage)
+                        VStack {
+                            Text("데이터 없음")
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: settings.popoverCompact ? 40 : 100)
                     }
-
-                } else {
-                    VStack {
-                        Text("데이터 없음")
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: settings.popoverCompact ? 40 : 100)
                 }
+                .frame(maxWidth: .infinity, minHeight: settings.popoverCompact ? 90 : 180, alignment: .top)
+                .padding(.bottom, 4)
             }
-            .frame(maxWidth: .infinity, minHeight: settings.popoverCompact ? 90 : 180, alignment: .top)
+            .scrollIndicators(.hidden)
+            .frame(maxWidth: .infinity, maxHeight: settings.popoverCompact ? 160 : 280, alignment: .top)
 
             Divider()
 
