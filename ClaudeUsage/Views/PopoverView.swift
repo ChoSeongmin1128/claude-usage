@@ -11,6 +11,7 @@ import Combine
 struct PopoverView: View {
     @ObservedObject var viewModel: PopoverViewModel
     @ObservedObject private var settings = AppSettings.shared
+    @State private var isStatusExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -74,34 +75,67 @@ struct PopoverView: View {
             // 시스템 상태 배너 (장애 시에만 표시)
             if let status = viewModel.systemStatus, status.hasIssue {
                 Divider()
-                Button {
-                    if let url = URL(string: status.latestIncident?.shortlink ?? "https://status.claude.com") {
-                        NSWorkspace.shared.open(url)
-                    }
-                } label: {
-                    VStack(alignment: .leading, spacing: settings.popoverCompact ? 4 : 5) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill")
+                VStack(alignment: .leading, spacing: settings.popoverCompact ? 4 : 5) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(statusColor(for: status.indicator))
+
+                        Text(status.indicator.displayText)
+                            .font(.caption)
+                            .foregroundColor(.primary)
+
+                        if status.activeIncidentCount > 0 {
+                            Text("활성 \(status.activeIncidentCount)건")
+                                .font(.caption2)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 1)
+                                .background(statusColor(for: status.indicator).opacity(0.16))
                                 .foregroundColor(statusColor(for: status.indicator))
+                                .cornerRadius(4)
+                        }
 
-                            Text(status.indicator.displayText)
-                                .font(.caption)
-                                .foregroundColor(.primary)
+                        Spacer()
 
-                            if status.activeIncidentCount > 0 {
-                                Text("활성 \(status.activeIncidentCount)건")
-                                    .font(.caption2)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 1)
-                                    .background(statusColor(for: status.indicator).opacity(0.16))
-                                    .foregroundColor(statusColor(for: status.indicator))
-                                    .cornerRadius(4)
+                        if !settings.popoverCompact {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.15)) {
+                                    isStatusExpanded.toggle()
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(isStatusExpanded ? "접기" : "상세")
+                                        .font(.caption2)
+                                    Image(systemName: isStatusExpanded ? "chevron.up" : "chevron.down")
+                                        .font(.system(size: 10, weight: .semibold))
+                                }
+                                .foregroundColor(.secondary)
                             }
+                            .buttonStyle(.borderless)
+                        }
 
-                            Spacer()
-                            Text("상세보기")
+                        Button {
+                            if let url = URL(string: status.latestIncident?.shortlink ?? "https://status.claude.com") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        } label: {
+                            Image(systemName: "arrow.up.right.square")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("status.claude.com 열기")
+                    }
+
+                    if !settings.popoverCompact && isStatusExpanded {
+                        HStack(spacing: 8) {
+                            Text("상태")
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
+                            Text(status.description)
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                            Spacer()
                         }
 
                         if let incident = status.latestIncident {
@@ -137,18 +171,17 @@ struct PopoverView: View {
                                 .font(.caption2)
                                 .foregroundColor(.secondary)
                                 .lineLimit(1)
-                        } else {
-                            Text(status.description)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 6)
-                    .background(statusColor(for: status.indicator).opacity(0.08))
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+                .background(statusColor(for: status.indicator).opacity(0.08))
+                .onChange(of: settings.popoverCompact) { _, isCompact in
+                    if isCompact {
+                        isStatusExpanded = false
+                    }
+                }
             }
 
             // 업데이트 배너
