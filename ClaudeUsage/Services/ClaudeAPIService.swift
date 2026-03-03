@@ -56,11 +56,8 @@ actor ClaudeAPIService {
 
     /// 사용량 데이터 가져오기
     func fetchUsage() async throws -> ClaudeUsageResponse {
-        guard let sessionKey = sessionKey, !sessionKey.isEmpty else {
-            throw APIError.invalidSessionKey
-        }
-
         Logger.info("사용량 데이터 요청 시작")
+        var sessionPathError: APIError?
 
         if shouldPreferOAuthNow() {
             do {
@@ -74,26 +71,38 @@ actor ClaudeAPIService {
             }
         }
 
-        do {
-            let usage = try await fetchUsageWithSessionKey(sessionKey)
-            preferOAuthUntil = nil
-            return usage
-        } catch let apiError as APIError {
-            guard shouldUseOAuthFallback(for: apiError) else {
-                throw apiError
-            }
-
+        if let sessionKey, !sessionKey.isEmpty {
             do {
-                let usage = try await fetchUsageViaOAuth()
-                if shouldPreferOAuthAfter(error: apiError) {
-                    preferOAuthUntil = Date().addingTimeInterval(oauthPreferDuration)
-                }
-                Logger.warning("세션키 경로 실패(\(apiError.localizedDescription)) → OAuth fallback 성공")
+                let usage = try await fetchUsageWithSessionKey(sessionKey)
+                preferOAuthUntil = nil
                 return usage
+            } catch let apiError as APIError {
+                sessionPathError = apiError
+                Logger.warning("세션키 경로 실패: \(apiError.localizedDescription)")
             } catch {
-                Logger.warning("OAuth fallback 실패: \(error.localizedDescription)")
-                throw apiError
+                sessionPathError = .unknownError(error.localizedDescription)
+                Logger.warning("세션키 경로 실패: \(error.localizedDescription)")
             }
+        } else {
+            sessionPathError = .invalidSessionKey
+            Logger.warning("세션 키 없음 → OAuth 경로 시도")
+        }
+
+        do {
+            let usage = try await fetchUsageViaOAuth()
+            if let sessionPathError, shouldPreferOAuthAfter(error: sessionPathError) {
+                preferOAuthUntil = Date().addingTimeInterval(oauthPreferDuration)
+            }
+            if let sessionPathError {
+                Logger.warning("세션키 경로 실패(\(sessionPathError.localizedDescription)) → OAuth 경로 성공")
+            }
+            return usage
+        } catch {
+            Logger.warning("OAuth 경로 실패: \(error.localizedDescription)")
+            if let sessionPathError {
+                throw sessionPathError
+            }
+            throw APIError.invalidSessionKey
         }
     }
 
@@ -319,17 +328,6 @@ actor ClaudeAPIService {
                body.contains("cloudflare") ||
                body.contains("cf-ray") ||
                body.contains("attention required")
-    }
-
-    private func shouldUseOAuthFallback(for error: APIError) -> Bool {
-        switch error {
-        case .rateLimited, .cloudflareBlocked, .networkError:
-            return true
-        case .serverError(let code):
-            return code >= 500
-        case .invalidSessionKey, .parseError, .unknownError:
-            return false
-        }
     }
 
     private func shouldPreferOAuthNow() -> Bool {
