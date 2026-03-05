@@ -219,6 +219,9 @@ class AppSettings: ObservableObject {
     @Published var autoRefresh: Bool {
         didSet { defaults.set(autoRefresh, forKey: "autoRefresh") }
     }
+    @Published var notificationsEnabled: Bool {
+        didSet { defaults.set(notificationsEnabled, forKey: "notificationsEnabled") }
+    }
     @Published var alertThresholds: [Int] {
         didSet { defaults.set(alertThresholds, forKey: "alertThresholds") }
     }
@@ -239,6 +242,9 @@ class AppSettings: ObservableObject {
     }
     @Published var menuBarTextHighContrast: Bool {
         didSet { defaults.set(menuBarTextHighContrast, forKey: "menuBarTextHighContrast") }
+    }
+    @Published var claudeAlertEnabled: Bool {
+        didSet { defaults.set(claudeAlertEnabled, forKey: "claudeAlertEnabled") }
     }
     @Published var alertFiveHourEnabled: Bool {
         didSet { defaults.set(alertFiveHourEnabled, forKey: "alertFiveHourEnabled") }
@@ -315,6 +321,9 @@ class AppSettings: ObservableObject {
     @Published var codexResetTimeDisplay: ResetTimeDisplay {
         didSet { defaults.set(codexResetTimeDisplay.rawValue, forKey: "codexResetTimeDisplay") }
     }
+    @Published var codexTimeFormat: TimeFormatStyle {
+        didSet { defaults.set(codexTimeFormat.rawValue, forKey: "codexTimeFormat") }
+    }
     @Published var codexMenuBarStyle: MenuBarStyle {
         didSet { defaults.set(codexMenuBarStyle.rawValue, forKey: "codexMenuBarStyle") }
     }
@@ -350,6 +359,9 @@ class AppSettings: ObservableObject {
     @Published var settingsLastTab: String {
         didSet { defaults.set(settingsLastTab, forKey: "settingsLastTab") }
     }
+    @Published var menuBarActiveService: String {
+        didSet { defaults.set(menuBarActiveService, forKey: "menuBarActiveService") }
+    }
     @Published var claudeSettingsLastTab: String {
         didSet { defaults.set(claudeSettingsLastTab, forKey: "claudeSettingsLastTab") }
     }
@@ -368,6 +380,7 @@ class AppSettings: ObservableObject {
         let circularDisplayMode: CircularDisplayMode
         let refreshInterval: TimeInterval
         let autoRefresh: Bool
+        let notificationsEnabled: Bool
         let alertThresholds: [Int]
         let alertRemainingMode: Bool
         let reducedRefreshOnBattery: Bool
@@ -375,6 +388,7 @@ class AppSettings: ObservableObject {
         let claudeEnabled: Bool
         let menuBarTextHighContrast: Bool
         let updateCheckInterval: UpdateCheckInterval
+        let claudeAlertEnabled: Bool
         let alertFiveHourEnabled: Bool
         let alertWeeklyEnabled: Bool
         let popoverPinned: Bool
@@ -392,6 +406,7 @@ class AppSettings: ObservableObject {
         let showCodexIcon: Bool
         let codexPercentageDisplay: PercentageDisplay
         let codexResetTimeDisplay: ResetTimeDisplay
+        let codexTimeFormat: TimeFormatStyle
         let codexMenuBarStyle: MenuBarStyle
         let codexCircularDisplayMode: CircularDisplayMode
         let codexShowBatteryPercent: Bool
@@ -401,6 +416,7 @@ class AppSettings: ObservableObject {
         let codexPopoverItems: [PopoverItemConfig]
         let codexCompactPopoverItems: [PopoverItemConfig]
         let settingsLastTab: String
+        let menuBarActiveService: String
         let claudeSettingsLastTab: String
         let codexSettingsLastTab: String
     }
@@ -415,6 +431,7 @@ class AppSettings: ObservableObject {
             circularDisplayMode: circularDisplayMode,
             refreshInterval: refreshInterval,
             autoRefresh: autoRefresh,
+            notificationsEnabled: notificationsEnabled,
             alertThresholds: alertThresholds,
             alertRemainingMode: alertRemainingMode,
             reducedRefreshOnBattery: reducedRefreshOnBattery,
@@ -422,6 +439,7 @@ class AppSettings: ObservableObject {
             claudeEnabled: claudeEnabled,
             menuBarTextHighContrast: menuBarTextHighContrast,
             updateCheckInterval: updateCheckInterval,
+            claudeAlertEnabled: claudeAlertEnabled,
             alertFiveHourEnabled: alertFiveHourEnabled,
             alertWeeklyEnabled: alertWeeklyEnabled,
             popoverPinned: popoverPinned,
@@ -439,6 +457,7 @@ class AppSettings: ObservableObject {
             showCodexIcon: showCodexIcon,
             codexPercentageDisplay: codexPercentageDisplay,
             codexResetTimeDisplay: codexResetTimeDisplay,
+            codexTimeFormat: codexTimeFormat,
             codexMenuBarStyle: codexMenuBarStyle,
             codexCircularDisplayMode: codexCircularDisplayMode,
             codexShowBatteryPercent: codexShowBatteryPercent,
@@ -448,6 +467,7 @@ class AppSettings: ObservableObject {
             codexPopoverItems: codexPopoverItems,
             codexCompactPopoverItems: codexCompactPopoverItems,
             settingsLastTab: settingsLastTab,
+            menuBarActiveService: menuBarActiveService,
             claudeSettingsLastTab: claudeSettingsLastTab,
             codexSettingsLastTab: codexSettingsLastTab
         )
@@ -462,6 +482,7 @@ class AppSettings: ObservableObject {
         circularDisplayMode = snapshot.circularDisplayMode
         refreshInterval = snapshot.refreshInterval
         autoRefresh = snapshot.autoRefresh
+        notificationsEnabled = snapshot.notificationsEnabled
         alertThresholds = snapshot.alertThresholds
         alertRemainingMode = snapshot.alertRemainingMode
         reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
@@ -469,6 +490,7 @@ class AppSettings: ObservableObject {
         claudeEnabled = snapshot.claudeEnabled
         menuBarTextHighContrast = snapshot.menuBarTextHighContrast
         updateCheckInterval = snapshot.updateCheckInterval
+        claudeAlertEnabled = snapshot.claudeAlertEnabled
         alertFiveHourEnabled = snapshot.alertFiveHourEnabled
         alertWeeklyEnabled = snapshot.alertWeeklyEnabled
         popoverPinned = snapshot.popoverPinned
@@ -486,6 +508,7 @@ class AppSettings: ObservableObject {
         showCodexIcon = snapshot.showCodexIcon
         codexPercentageDisplay = snapshot.codexPercentageDisplay
         codexResetTimeDisplay = snapshot.codexResetTimeDisplay
+        codexTimeFormat = snapshot.codexTimeFormat
         codexMenuBarStyle = snapshot.codexMenuBarStyle
         codexCircularDisplayMode = snapshot.codexCircularDisplayMode
         codexShowBatteryPercent = snapshot.codexShowBatteryPercent
@@ -495,6 +518,7 @@ class AppSettings: ObservableObject {
         codexPopoverItems = PopoverItemConfig.normalizedCodex(snapshot.codexPopoverItems)
         codexCompactPopoverItems = PopoverItemConfig.normalizedCodex(snapshot.codexCompactPopoverItems)
         settingsLastTab = snapshot.settingsLastTab
+        menuBarActiveService = snapshot.menuBarActiveService == "codex" ? "codex" : "claude"
         claudeSettingsLastTab = snapshot.claudeSettingsLastTab
         codexSettingsLastTab = snapshot.codexSettingsLastTab
     }
@@ -536,6 +560,7 @@ class AppSettings: ObservableObject {
         circularDisplayMode = .usage
         refreshInterval = 30.0
         autoRefresh = true
+        notificationsEnabled = true
         alertThresholds = [75, 90, 95]
         alertRemainingMode = false
         reducedRefreshOnBattery = true
@@ -543,6 +568,7 @@ class AppSettings: ObservableObject {
         claudeEnabled = true
         menuBarTextHighContrast = false
         updateCheckInterval = .hourly
+        claudeAlertEnabled = true
         alertFiveHourEnabled = true
         alertWeeklyEnabled = false
         popoverPinned = false
@@ -560,6 +586,7 @@ class AppSettings: ObservableObject {
         showCodexIcon = false
         codexPercentageDisplay = .none
         codexResetTimeDisplay = .none
+        codexTimeFormat = .h24
         codexMenuBarStyle = .none
         codexCircularDisplayMode = .usage
         codexShowBatteryPercent = true
@@ -569,6 +596,7 @@ class AppSettings: ObservableObject {
         codexPopoverItems = PopoverItemConfig.defaultCodexItems
         codexCompactPopoverItems = PopoverItemConfig.defaultCodexItems
         settingsLastTab = "common"
+        menuBarActiveService = "claude"
         claudeSettingsLastTab = "auth"
         codexSettingsLastTab = "auth"
     }
@@ -612,9 +640,11 @@ class AppSettings: ObservableObject {
         let rtd = defaults.string(forKey: "resetTimeDisplay") ?? ResetTimeDisplay.none.rawValue
         self.resetTimeDisplay = ResetTimeDisplay(rawValue: rtd) ?? .none
         let tf = defaults.string(forKey: "timeFormat") ?? TimeFormatStyle.h24.rawValue
-        self.timeFormat = TimeFormatStyle(rawValue: tf) ?? .h24
+        let resolvedTimeFormat = TimeFormatStyle(rawValue: tf) ?? .h24
+        self.timeFormat = resolvedTimeFormat
         self.refreshInterval = defaults.object(forKey: "refreshInterval") as? TimeInterval ?? 30.0
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
+        self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
         // 마이그레이션: alert1/2/3 → alertThresholds 배열
         if let saved = defaults.array(forKey: "alertThresholds") as? [Int] {
             self.alertThresholds = saved
@@ -637,6 +667,12 @@ class AppSettings: ObservableObject {
         self.menuBarTextHighContrast = defaults.object(forKey: "menuBarTextHighContrast") as? Bool ?? false
         let uci = defaults.string(forKey: "updateCheckInterval") ?? UpdateCheckInterval.hourly.rawValue
         self.updateCheckInterval = UpdateCheckInterval(rawValue: uci) ?? .hourly
+        if let storedClaudeAlertEnabled = defaults.object(forKey: "claudeAlertEnabled") as? Bool {
+            self.claudeAlertEnabled = storedClaudeAlertEnabled
+        } else {
+            self.claudeAlertEnabled = (defaults.object(forKey: "alertFiveHourEnabled") as? Bool ?? true)
+                || (defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false)
+        }
         self.alertFiveHourEnabled = defaults.object(forKey: "alertFiveHourEnabled") as? Bool ?? true
         self.alertWeeklyEnabled = defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false
         let legacyPinned = defaults.object(forKey: "popoverPinned") as? Bool ?? false
@@ -657,6 +693,8 @@ class AppSettings: ObservableObject {
         self.codexPercentageDisplay = PercentageDisplay(rawValue: cpd) ?? .none
         let crd = defaults.string(forKey: "codexResetTimeDisplay") ?? ResetTimeDisplay.none.rawValue
         self.codexResetTimeDisplay = ResetTimeDisplay(rawValue: crd) ?? .none
+        let codexTF = defaults.string(forKey: "codexTimeFormat") ?? resolvedTimeFormat.rawValue
+        self.codexTimeFormat = TimeFormatStyle(rawValue: codexTF) ?? resolvedTimeFormat
         let cms = defaults.string(forKey: "codexMenuBarStyle") ?? MenuBarStyle.none.rawValue
         self.codexMenuBarStyle = MenuBarStyle(rawValue: cms) ?? .none
         let ccdm = defaults.string(forKey: "codexCircularDisplayMode") ?? CircularDisplayMode.usage.rawValue
@@ -667,6 +705,8 @@ class AppSettings: ObservableObject {
         self.codexAlertRemainingMode = defaults.object(forKey: "codexAlertRemainingMode") as? Bool ?? false
         let legacySettingsLastTab = defaults.string(forKey: "settingsLastTab") ?? "common"
         self.settingsLastTab = legacySettingsLastTab
+        let storedActiveService = defaults.string(forKey: "menuBarActiveService") ?? "claude"
+        self.menuBarActiveService = storedActiveService == "codex" ? "codex" : "claude"
         self.claudeSettingsLastTab = defaults.string(forKey: "claudeSettingsLastTab") ?? "auth"
         self.codexSettingsLastTab = defaults.string(forKey: "codexSettingsLastTab") ?? "auth"
 

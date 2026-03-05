@@ -17,8 +17,9 @@ struct LoginWebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
-        // 로그인 창은 비영구 스토어를 사용해 이전 로그인 쿠키 잔존 영향을 최소화
-        config.websiteDataStore = .nonPersistent()
+        // Google/Cloudflare 등 외부 인증 플로우 호환성을 위해 기본 스토어 사용
+        // (필요 시 clearTrigger로 명시 초기화)
+        config.websiteDataStore = .default()
 
         let prefs = WKWebpagePreferences()
         prefs.allowsContentJavaScript = true
@@ -69,10 +70,12 @@ struct LoginWebView: NSViewRepresentable {
         let parent: LoginWebView
         private var sessionKeyExtracted = false
         private var loginDetected = false
+        private var usageProbeTriggered = false
         var lastClearTrigger = 0
         private var popupWindow: NSWindow?
         private var popupWebView: WKWebView?
         private var observedCookieStores: [WKHTTPCookieStore] = []
+        private var didLogCookieInventory = false
 
         init(parent: LoginWebView) {
             self.parent = parent
@@ -97,6 +100,8 @@ struct LoginWebView: NSViewRepresentable {
         func resetState() {
             sessionKeyExtracted = false
             loginDetected = false
+            usageProbeTriggered = false
+            didLogCookieInventory = false
             closePopup()
         }
 
@@ -119,6 +124,7 @@ struct LoginWebView: NSViewRepresentable {
             parent.onLoadingChanged(false)
 
             guard !sessionKeyExtracted else { return }
+            let isPopupWebView = (webView == popupWebView)
 
             // 1차: 쿠키 스토어에서 추출
             checkCookiesFromStore(webView: webView)
@@ -131,12 +137,36 @@ struct LoginWebView: NSViewRepresentable {
                     parent.onStatusChanged("로그인 감지됨, 세션 키 확인 중...")
                 }
 
+                // 로그인 완료 후 usage 페이지 강제 이동은 메인 WebView에서만 수행
+                // (팝업 OAuth 진행 중에 실행되면 다시 로그인 화면으로 되돌아갈 수 있음)
+                if !isPopupWebView,
+                   !usageProbeTriggered, !url.contains("/settings/usage"),
+                   let usageURL = URL(string: "https://claude.ai/settings/usage") {
+                    usageProbeTriggered = true
+                    parent.onStatusChanged("세션 확인 페이지로 이동 중...")
+                    webView.load(URLRequest(url: usageURL))
+                }
+
                 // 2차: JavaScript로 추출 시도
                 extractViaJavaScript(webView: webView)
+                extractFromHTML(webView: webView)
+                extractFromWebStorage(webView: webView)
 
                 // 3차: 지연 재시도 (쿠키가 늦게 설정될 수 있음)
                 scheduleRetryChecks(webView: webView)
             }
+        }
+
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            defer { decisionHandler(.allow) }
+            guard !sessionKeyExtracted else { return }
+            inspectRequestForSessionKey(navigationAction.request, source: "navigationAction")
+        }
+
+        func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+            defer { decisionHandler(.allow) }
+            guard !sessionKeyExtracted else { return }
+            inspectResponseForSessionKey(navigationResponse.response, source: "navigationResponse")
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -158,15 +188,19 @@ struct LoginWebView: NSViewRepresentable {
         // MARK: - WKUIDelegate
 
         func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-            // 팝업 안에서 또 팝업 요청 시 → 같은 팝업에서 로드
-            if webView == popupWebView {
-                if let url = navigationAction.request.url {
-                    webView.load(URLRequest(url: url))
+            // 이미 팝업이 떠 있으면 새 창을 만들지 말고 기존 팝업을 재사용
+            if let existingPopup = popupWebView {
+                // 기존 팝업 내부에서 발생한 추가 팝업 요청만 같은 팝업에서 이어받고,
+                // 메인 WebView에서 들어온 추가 요청은 현재 팝업 흐름을 덮어쓰지 않는다.
+                if webView == existingPopup {
+                    existingPopup.load(navigationAction.request)
                 }
+                popupWindow?.makeKeyAndOrderFront(nil)
                 return nil
             }
 
             // 팝업 윈도우 생성 (Google OAuth 등)
+            // 중요: WebKit 계약상 반드시 전달된 configuration으로 생성해야 한다.
             let popup = WKWebView(frame: .zero, configuration: configuration)
             popup.customUserAgent = webView.customUserAgent
             popup.navigationDelegate = self
@@ -180,7 +214,11 @@ struct LoginWebView: NSViewRepresentable {
                 defer: false
             )
             window.isReleasedWhenClosed = false
-            window.title = "로그인"
+            if let host = navigationAction.request.url?.host, !host.isEmpty {
+                window.title = "로그인 - \(host)"
+            } else {
+                window.title = "로그인"
+            }
             window.contentView = popup
             window.center()
             window.makeKeyAndOrderFront(nil)
@@ -240,9 +278,10 @@ struct LoginWebView: NSViewRepresentable {
                     let pairs = cookieString.split(separator: ";")
                     for pair in pairs {
                         let trimmed = pair.trimmingCharacters(in: .whitespaces)
-                        if trimmed.hasPrefix("sessionKey=") {
+                        if trimmed.lowercased().hasPrefix("sessionkey=") {
                             let value = String(trimmed.dropFirst("sessionKey=".count))
-                            if self.isLikelySessionKey(value) {
+                            let normalized = self.normalizeTokenCandidate(value)
+                            if self.looksReasonableSessionCookieValue(normalized) {
                                 self.foundSessionKey(value, source: "JavaScript")
                                 return
                             }
@@ -256,6 +295,62 @@ struct LoginWebView: NSViewRepresentable {
             }
         }
 
+        /// 2차-C: local/sessionStorage 값에서 토큰 패턴 탐색
+        private func extractFromWebStorage(webView: WKWebView) {
+            guard !sessionKeyExtracted else { return }
+
+            let js = """
+            (() => {
+              const dump = [];
+              for (const store of [window.localStorage, window.sessionStorage]) {
+                if (!store) continue;
+                for (let i = 0; i < store.length; i++) {
+                  const k = store.key(i);
+                  if (!k) continue;
+                  const v = store.getItem(k);
+                  if (v) dump.push(`${k}=${v}`);
+                }
+              }
+              return dump.join('\\n');
+            })()
+            """
+            webView.evaluateJavaScript(js) { [weak self] result, _ in
+                guard let self, !self.sessionKeyExtracted else { return }
+                guard let storageDump = result as? String, !storageDump.isEmpty else { return }
+
+                if let key = self.extractLikelySessionKey(from: storageDump) {
+                    self.foundSessionKey(key, source: "WebStorage")
+                    return
+                }
+
+                for line in storageDump.split(separator: "\n") {
+                    let raw = String(line)
+                    if raw.lowercased().contains("sessionkey"),
+                       let maybe = raw.split(separator: "=", maxSplits: 1).last {
+                        let candidate = self.normalizeTokenCandidate(String(maybe))
+                        if self.looksReasonableSessionCookieValue(candidate) {
+                            self.foundSessionKey(candidate, source: "WebStorage sessionKey")
+                            return
+                        }
+                    }
+                }
+            }
+        }
+
+        /// 2차-B: 페이지 HTML에서 토큰 패턴 탐색
+        private func extractFromHTML(webView: WKWebView) {
+            guard !sessionKeyExtracted else { return }
+
+            let js = "document.documentElement ? document.documentElement.outerHTML : ''"
+            webView.evaluateJavaScript(js) { [weak self] result, _ in
+                guard let self, !self.sessionKeyExtracted else { return }
+                guard let html = result as? String else { return }
+                if let key = self.extractLikelySessionKey(from: html) {
+                    self.foundSessionKey(key, source: "HTML")
+                }
+            }
+        }
+
         /// 3차: 지연 재시도 (1초, 3초, 5초, 8초)
         private func scheduleRetryChecks(webView: WKWebView) {
             for delay in [1.0, 3.0, 5.0, 8.0] {
@@ -263,28 +358,50 @@ struct LoginWebView: NSViewRepresentable {
                     guard let self = self, !self.sessionKeyExtracted else { return }
                     self.checkCookiesFromStore(webView: webView)
                     self.extractViaJavaScript(webView: webView)
+                    self.extractFromHTML(webView: webView)
+                    self.extractFromWebStorage(webView: webView)
                 }
             }
         }
 
-        /// 쿠키 배열에서 세션 키 검색 (sessionKey 쿠키만 신뢰)
+        /// 쿠키 배열에서 세션 키 검색
         private func scanCookies(_ cookies: [HTTPCookie], source: String) {
             guard !sessionKeyExtracted else { return }
 
-            let claudeCookies = cookies.filter { $0.domain.contains("claude.ai") }
+            let authCookies = cookies.filter {
+                let domain = $0.domain.lowercased()
+                return domain.contains("claude.ai") || domain.contains("anthropic.com")
+            }
 
-            // 1순위: name이 sessionKey이고 sk-ant- 시작
-            for cookie in claudeCookies {
-                if cookie.name == "sessionKey" && isLikelySessionKey(cookie.value) {
-                    foundSessionKey(cookie.value, source: "\(source) (sessionKey)")
+            // 1순위: name이 sessionKey면 형식 가정을 완화해서 우선 채택
+            for cookie in authCookies {
+                if cookie.name.caseInsensitiveCompare("sessionKey") == .orderedSame {
+                    let normalized = normalizeTokenCandidate(cookie.value)
+                    if looksReasonableSessionCookieValue(normalized) {
+                        foundSessionKey(normalized, source: "\(source) (sessionKey@\(cookie.domain))")
+                        return
+                    }
+                }
+            }
+
+            // 2순위: 값 패턴 기반 탐색
+            for cookie in authCookies {
+                let normalized = normalizeTokenCandidate(cookie.value)
+                if isLikelySessionKey(normalized) {
+                    foundSessionKey(normalized, source: "\(source) (\(cookie.name)@\(cookie.domain))")
                     return
                 }
             }
 
             // 디버그: 로그인 감지 후에도 못 찾으면 쿠키 목록 출력
-            if loginDetected && !claudeCookies.isEmpty {
-                let names = claudeCookies.map { $0.name }
-                Logger.debug("Claude 쿠키 목록 (\(source)): \(names)")
+            if loginDetected && !authCookies.isEmpty {
+                let names = authCookies.map { "\($0.domain):\($0.name)" }.sorted()
+                if !didLogCookieInventory {
+                    didLogCookieInventory = true
+                    Logger.debug("인증 쿠키 목록 (\(source)): \(names)")
+                } else {
+                    Logger.debug("Claude 쿠키 목록 (\(source)): \(authCookies.map { $0.name })")
+                }
             }
         }
 
@@ -306,13 +423,89 @@ struct LoginWebView: NSViewRepresentable {
             }
         }
 
+        private func inspectRequestForSessionKey(_ request: URLRequest, source: String) {
+            if let cookieHeader = request.value(forHTTPHeaderField: "Cookie"),
+               let key = extractSessionKeyFromCookieHeader(cookieHeader) {
+                foundSessionKey(key, source: "\(source) header")
+                return
+            }
+
+            if let url = request.url {
+                if let key = extractLikelySessionKey(from: url.absoluteString) {
+                    foundSessionKey(key, source: "\(source) url")
+                    return
+                }
+            }
+        }
+
+        private func inspectResponseForSessionKey(_ response: URLResponse, source: String) {
+            guard let http = response as? HTTPURLResponse else { return }
+            for (key, value) in http.allHeaderFields {
+                let headerKey = String(describing: key).lowercased()
+                guard headerKey == "set-cookie" || headerKey == "set-cookie2" else { continue }
+                let raw = String(describing: value)
+                if let extracted = extractSessionKeyFromCookieHeader(raw) ?? extractLikelySessionKey(from: raw) {
+                    foundSessionKey(extracted, source: "\(source) set-cookie")
+                    return
+                }
+            }
+        }
+
+        private func extractSessionKeyFromCookieHeader(_ header: String) -> String? {
+            let parts = header.split(separator: ";")
+            for part in parts {
+                let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.lowercased().hasPrefix("sessionkey=") {
+                    let value = String(trimmed.dropFirst("sessionKey=".count))
+                    let normalized = normalizeTokenCandidate(value)
+                    if looksReasonableSessionCookieValue(normalized) {
+                        return normalized
+                    }
+                }
+            }
+            if let matched = extractLikelySessionKey(from: header) {
+                return matched
+            }
+            return nil
+        }
+
+        private func normalizeTokenCandidate(_ value: String) -> String {
+            let trimmed = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"' \n\r\t"))
+            if let decoded = trimmed.removingPercentEncoding, !decoded.isEmpty {
+                return decoded
+            }
+            return trimmed
+        }
+
+        private func extractLikelySessionKey(from text: String) -> String? {
+            // sk-ant-* 또는 sk-* 토큰 패턴을 우선 탐색
+            if let range = text.range(of: #"sk-ant-[A-Za-z0-9\-_]+"#, options: .regularExpression) {
+                return String(text[range])
+            }
+            if let range = text.range(of: #"sk-[A-Za-z0-9\-_]{20,}"#, options: .regularExpression) {
+                return String(text[range])
+            }
+            return nil
+        }
+
         private func isLikelySessionKey(_ value: String) -> Bool {
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = normalizeTokenCandidate(value)
             guard trimmed.count >= 20 else { return false }
-            if trimmed.hasPrefix("sk-ant-") || trimmed.hasPrefix("sk-") {
+            if trimmed.range(of: #"^sk-ant-[A-Za-z0-9\-_]+$"#, options: .regularExpression) != nil {
                 return true
             }
-            return true
+            if trimmed.range(of: #"^sk-[A-Za-z0-9\-_]{20,}$"#, options: .regularExpression) != nil {
+                return true
+            }
+            return false
+        }
+
+        private func looksReasonableSessionCookieValue(_ value: String) -> Bool {
+            let trimmed = normalizeTokenCandidate(value)
+            guard trimmed.count >= 16, trimmed.count <= 1024 else { return false }
+            guard !trimmed.contains(where: \.isWhitespace) else { return false }
+            let hasControl = trimmed.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
+            return !hasControl
         }
     }
 }

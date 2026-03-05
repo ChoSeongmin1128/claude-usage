@@ -13,6 +13,7 @@ struct UsageSectionView: View {
     let percentage: Double
     let resetAt: String?
     var isWeekly: Bool = false
+    var timeFormatStyle: TimeFormatStyle = .h24
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -45,8 +46,8 @@ struct UsageSectionView: View {
     private var resetTimeText: String? {
         guard let resetAt = resetAt else { return nil }
         if isWeekly {
-            return TimeFormatter.formatRelativeTimeWithClockWeekly(from: resetAt, style: AppSettings.shared.timeFormat)
+            return TimeFormatter.formatRelativeTimeWithClockWeekly(from: resetAt, style: timeFormatStyle)
         }
-        return TimeFormatter.formatRelativeTimeWithClock(from: resetAt, style: AppSettings.shared.timeFormat)
+        return TimeFormatter.formatRelativeTimeWithClock(from: resetAt, style: timeFormatStyle)
     }
 }

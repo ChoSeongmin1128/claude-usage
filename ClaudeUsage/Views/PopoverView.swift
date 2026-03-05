@@ -15,21 +15,19 @@ enum PopoverService: String, Sendable {
 
 struct PopoverView: View {
     @ObservedObject var viewModel: PopoverViewModel
-    let service: PopoverService
     @ObservedObject private var settings = AppSettings.shared
     @State private var isStatusExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // 상단 바
-            HStack(spacing: 6) {
-                Text(service == .claude ? "Claude 사용량" : "Codex 사용량")
-                    .font(.headline)
+            HStack(spacing: 8) {
+                headerServiceSelector
 
                 // 새로고침 (제목 옆)
                 Button(action: { viewModel.refresh() }) {
                     Group {
-                        if viewModel.isLoading {
+                        if currentServiceLoading {
                             ProgressView()
                                 .controlSize(.small)
                         } else {
@@ -40,11 +38,11 @@ struct PopoverView: View {
                     .frame(width: 14, height: 14)
                 }
                 .buttonStyle(.borderless)
-                .disabled(viewModel.isLoading)
+                .disabled(currentServiceLoading)
 
                 Spacer()
 
-                if let lastUpdated = viewModel.lastUpdated {
+                if let lastUpdated = currentServiceLastUpdated {
                     Text(lastUpdated, style: .time)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
@@ -68,7 +66,7 @@ struct PopoverView: View {
                 // 고정 핀
                 Button {
                     isPinned.toggle()
-                    viewModel.onPinChanged?(isPinned)
+                    viewModel.onPinChanged?(selectedService, isPinned)
                 } label: {
                     Image(systemName: isPinned ? "pin.fill" : "pin")
                         .font(.system(size: 12))
@@ -78,11 +76,11 @@ struct PopoverView: View {
                 .help(isPinned ? "고정 해제" : "고정")
             }
             .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
+            .padding(.top, isCompact ? 4 : 12)
+            .padding(.bottom, isCompact ? 4 : 8)
 
             // 시스템 상태 배너 (장애 시에만 표시)
-            if service == .claude, let status = viewModel.systemStatus, status.hasIssue {
+            if selectedService == .claude, let status = viewModel.systemStatus, status.hasIssue {
                 Divider()
                 VStack(alignment: .leading, spacing: isCompact ? 4 : 5) {
                     HStack(spacing: 8) {
@@ -261,7 +259,7 @@ struct PopoverView: View {
 
             // 하단 버튼
             HStack {
-                if service == .claude {
+                if selectedService == .claude {
                     Button {
                         viewModel.openUsagePage()
                     } label: {
@@ -324,9 +322,58 @@ struct PopoverView: View {
         }
         .frame(width: isCompact ? 300 : 340)
         .background(Color(NSColor.windowBackgroundColor))
+        .onAppear {
+            normalizeSelectedServiceIfNeeded()
+            syncCompactAcrossServicesIfNeeded()
+        }
+        .onChange(of: settings.claudeEnabled) { _, _ in
+            normalizeSelectedServiceIfNeeded()
+        }
+        .onChange(of: settings.codexEnabled) { _, _ in
+            normalizeSelectedServiceIfNeeded()
+        }
+        .onChange(of: viewModel.selectedService) { _, _ in
+            syncCompactAcrossServicesIfNeeded()
+        }
     }
 
     // MARK: - Helpers
+
+    @ViewBuilder
+    private var headerServiceSelector: some View {
+        if availableServices.count > 1 {
+            HStack(spacing: 6) {
+                ForEach(availableServices, id: \.rawValue) { service in
+                    Button {
+                        viewModel.selectService(service)
+                        syncCompactAcrossServicesIfNeeded()
+                        DispatchQueue.main.async {
+                            viewModel.requestLayoutRefresh()
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text(service == .claude ? "Claude" : "Codex")
+                                .font(.system(size: 12.5, weight: selectedService == service ? .semibold : .medium))
+                            if shouldShowWarningDot(for: service) {
+                                Circle()
+                                    .fill(Color.orange)
+                                    .frame(width: 6, height: 6)
+                            }
+                        }
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .background(selectedService == service ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
+                        .foregroundStyle(selectedService == service ? Color.accentColor : .primary)
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        } else {
+            Text(selectedService == .claude ? "Claude" : "Codex")
+                .font(.headline)
+        }
+    }
 
     private func statusColor(for indicator: StatusIndicator) -> Color {
         switch indicator {
@@ -349,7 +396,7 @@ struct PopoverView: View {
     }
 
     private var staleDataMessage: String? {
-        guard let lastUpdated = viewModel.lastUpdated else { return nil }
+        guard let lastUpdated = currentServiceLastUpdated else { return nil }
 
         let elapsed = Date().timeIntervalSince(lastUpdated)
         let threshold = max(180.0, settings.refreshInterval * 4.0)
@@ -370,8 +417,64 @@ struct PopoverView: View {
         }
     }
 
-    private var serviceError: APIError? {
+    private var selectedService: PopoverService {
+        viewModel.selectedService
+    }
+
+    private var currentServiceLastUpdated: Date? {
+        switch selectedService {
+        case .claude:
+            return viewModel.claudeLastUpdated
+        case .codex:
+            return viewModel.codexLastUpdated
+        }
+    }
+
+    private var currentServiceLoading: Bool {
+        switch selectedService {
+        case .claude:
+            return viewModel.isClaudeLoading
+        case .codex:
+            return viewModel.isCodexLoading
+        }
+    }
+
+    private var availableServices: [PopoverService] {
+        var result: [PopoverService] = []
+        if settings.claudeEnabled { result.append(.claude) }
+        if settings.codexEnabled { result.append(.codex) }
+        if result.isEmpty {
+            return [.claude]
+        }
+        return result
+    }
+
+    private func shouldShowWarningDot(for service: PopoverService) -> Bool {
         switch service {
+        case .claude:
+            return (settings.claudeEnabled && !KeychainManager.shared.hasSessionKey) || viewModel.error != nil
+        case .codex:
+            return (settings.codexEnabled && !CodexAuthManager.shared.isAuthenticated) || viewModel.codexError != nil
+        }
+    }
+
+    private func isAuthRequired(for service: PopoverService) -> Bool {
+        switch service {
+        case .claude:
+            return settings.claudeEnabled && !KeychainManager.shared.hasSessionKey
+        case .codex:
+            return settings.codexEnabled && !CodexAuthManager.shared.isAuthenticated
+        }
+    }
+
+    private func normalizeSelectedServiceIfNeeded() {
+        guard !availableServices.contains(selectedService),
+              let fallback = availableServices.first else { return }
+        viewModel.selectService(fallback)
+    }
+
+    private var serviceError: APIError? {
+        switch selectedService {
         case .claude:
             return viewModel.error
         case .codex:
@@ -381,26 +484,33 @@ struct PopoverView: View {
 
     private var isCompact: Bool {
         get {
-            switch service {
-            case .claude:
+            if settings.claudePopoverCompact == settings.codexPopoverCompact {
                 return settings.claudePopoverCompact
-            case .codex:
-                return settings.codexPopoverCompact
             }
+            return selectedService == .claude ? settings.claudePopoverCompact : settings.codexPopoverCompact
         }
         nonmutating set {
-            switch service {
-            case .claude:
-                settings.claudePopoverCompact = newValue
-            case .codex:
-                settings.codexPopoverCompact = newValue
-            }
+            setCompactForAllServices(newValue)
         }
+    }
+
+    private func setCompactForAllServices(_ compact: Bool) {
+        if settings.claudePopoverCompact != compact {
+            settings.claudePopoverCompact = compact
+        }
+        if settings.codexPopoverCompact != compact {
+            settings.codexPopoverCompact = compact
+        }
+    }
+
+    private func syncCompactAcrossServicesIfNeeded() {
+        let compact = isCompact
+        setCompactForAllServices(compact)
     }
 
     private var isPinned: Bool {
         get {
-            switch service {
+            switch selectedService {
             case .claude:
                 return settings.claudePopoverPinned
             case .codex:
@@ -408,7 +518,7 @@ struct PopoverView: View {
             }
         }
         nonmutating set {
-            switch service {
+            switch selectedService {
             case .claude:
                 settings.claudePopoverPinned = newValue
             case .codex:
@@ -418,7 +528,7 @@ struct PopoverView: View {
     }
 
     private var hasServiceData: Bool {
-        switch service {
+        switch selectedService {
         case .claude:
             return viewModel.usage != nil || viewModel.error != nil
         case .codex:
@@ -443,7 +553,8 @@ struct PopoverView: View {
                             systemIcon: "gauge.medium",
                             title: "현재 세션",
                             percentage: usage.fiveHour.utilization,
-                            resetAt: usage.fiveHour.resetsAt
+                            resetAt: usage.fiveHour.resetsAt,
+                            timeFormatStyle: settings.timeFormat
                         )
                     }
                 case "weeklyLimit":
@@ -453,7 +564,8 @@ struct PopoverView: View {
                             title: "주간 한도",
                             percentage: sevenDay.utilization,
                             resetAt: sevenDay.resetsAt,
-                            isWeekly: true
+                            isWeekly: true,
+                            timeFormatStyle: settings.timeFormat
                         )
                     }
                 case "modelUsage":
@@ -463,7 +575,8 @@ struct PopoverView: View {
                             title: "Sonnet (주간)",
                             percentage: sonnet.utilization,
                             resetAt: sonnet.resetsAt,
-                            isWeekly: true
+                            isWeekly: true,
+                            timeFormatStyle: settings.timeFormat
                         )
                     }
                     if let opus = usage?.sevenDayOpus {
@@ -473,7 +586,8 @@ struct PopoverView: View {
                             title: "Opus (주간)",
                             percentage: opus.utilization,
                             resetAt: opus.resetsAt,
-                            isWeekly: true
+                            isWeekly: true,
+                            timeFormatStyle: settings.timeFormat
                         )
                     }
                 case "overageUsage":
@@ -486,7 +600,8 @@ struct PopoverView: View {
                             systemIcon: "bubble.left.and.bubble.right",
                             title: "Codex 현재",
                             percentage: window.utilization,
-                            resetAt: window.resetAtISO
+                            resetAt: window.resetAtISO,
+                            timeFormatStyle: settings.codexTimeFormat
                         )
                     } else {
                         ProviderStatusRow(title: "Codex 현재", error: viewModel.codexError)
@@ -498,7 +613,8 @@ struct PopoverView: View {
                             title: "Codex 주간",
                             percentage: window.utilization,
                             resetAt: window.resetAtISO,
-                            isWeekly: true
+                            isWeekly: true,
+                            timeFormatStyle: settings.codexTimeFormat
                         )
                     } else {
                         ProviderStatusRow(title: "Codex 주간", error: viewModel.codexError)
@@ -530,7 +646,8 @@ struct PopoverView: View {
                             systemIcon: "gauge.medium",
                             title: "현재 세션",
                             percentage: usage.fiveHour.utilization,
-                            resetAt: usage.fiveHour.resetsAt
+                            resetAt: usage.fiveHour.resetsAt,
+                            timeFormatStyle: settings.timeFormat
                         )
                     }
                 case "weeklyLimit":
@@ -540,7 +657,8 @@ struct PopoverView: View {
                             title: "주간 한도",
                             percentage: sevenDay.utilization,
                             resetAt: sevenDay.resetsAt,
-                            isWeekly: true
+                            isWeekly: true,
+                            timeFormatStyle: settings.timeFormat
                         )
                     }
                 case "modelUsage":
@@ -550,7 +668,8 @@ struct PopoverView: View {
                             title: "Sonnet (주간)",
                             percentage: sonnet.utilization,
                             resetAt: sonnet.resetsAt,
-                            isWeekly: true
+                            isWeekly: true,
+                            timeFormatStyle: settings.timeFormat
                         )
                     }
                     if let opus = usage?.sevenDayOpus {
@@ -560,7 +679,8 @@ struct PopoverView: View {
                             title: "Opus (주간)",
                             percentage: opus.utilization,
                             resetAt: opus.resetsAt,
-                            isWeekly: true
+                            isWeekly: true,
+                            timeFormatStyle: settings.timeFormat
                         )
                     }
                 case "overageUsage":
@@ -588,7 +708,8 @@ struct PopoverView: View {
                             systemIcon: "bubble.left.and.bubble.right",
                             title: "Codex 현재",
                             percentage: window.utilization,
-                            resetAt: window.resetAtISO
+                            resetAt: window.resetAtISO,
+                            timeFormatStyle: settings.codexTimeFormat
                         )
                     } else {
                         ProviderStatusRow(title: "Codex 현재", error: viewModel.codexError)
@@ -600,7 +721,8 @@ struct PopoverView: View {
                             title: "Codex 주간",
                             percentage: window.utilization,
                             resetAt: window.resetAtISO,
-                            isWeekly: true
+                            isWeekly: true,
+                            timeFormatStyle: settings.codexTimeFormat
                         )
                     } else {
                         ProviderStatusRow(title: "Codex 주간", error: viewModel.codexError)
@@ -622,7 +744,13 @@ struct PopoverView: View {
     @ViewBuilder
     private var compactMainSection: some View {
         Group {
-            if viewModel.isLoading && ((service == .claude && viewModel.usage == nil) || (service == .codex && viewModel.codexUsage == nil)) {
+            if isAuthRequired(for: selectedService) {
+                AuthRequiredSectionView(service: selectedService) {
+                    viewModel.openSettings(for: selectedService)
+                }
+                .padding(12)
+
+            } else if currentServiceLoading && ((selectedService == .claude && viewModel.usage == nil) || (selectedService == .codex && viewModel.codexUsage == nil)) {
                 VStack(spacing: 10) {
                     ProgressView()
                     Text("데이터 로딩 중...")
@@ -631,22 +759,22 @@ struct PopoverView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 56)
 
-            } else if service == .claude, let error = viewModel.error, viewModel.usage == nil {
+            } else if selectedService == .claude, let error = viewModel.error, viewModel.usage == nil {
                 ErrorSectionView(error: error) {
                     viewModel.refresh()
                 }
                 .padding(12)
 
-            } else if service == .codex, let error = viewModel.codexError, viewModel.codexUsage == nil {
+            } else if selectedService == .codex, let error = viewModel.codexError, viewModel.codexUsage == nil {
                 ErrorSectionView(error: error) {
                     viewModel.refresh()
                 }
                 .padding(12)
 
-            } else if service == .claude, viewModel.usage != nil {
+            } else if selectedService == .claude, viewModel.usage != nil {
                 compactClaudeContent(usage: viewModel.usage)
 
-            } else if service == .codex, viewModel.codexUsage != nil {
+            } else if selectedService == .codex, viewModel.codexUsage != nil {
                 compactCodexContent()
 
             } else {
@@ -663,7 +791,13 @@ struct PopoverView: View {
     @ViewBuilder
     private var standardMainSection: some View {
         Group {
-            if viewModel.isLoading && ((service == .claude && viewModel.usage == nil) || (service == .codex && viewModel.codexUsage == nil)) {
+            if isAuthRequired(for: selectedService) {
+                AuthRequiredSectionView(service: selectedService) {
+                    viewModel.openSettings(for: selectedService)
+                }
+                .padding(16)
+
+            } else if currentServiceLoading && ((selectedService == .claude && viewModel.usage == nil) || (selectedService == .codex && viewModel.codexUsage == nil)) {
                 VStack(spacing: 12) {
                     ProgressView()
                     Text("데이터 로딩 중...")
@@ -672,22 +806,22 @@ struct PopoverView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 150)
 
-            } else if service == .claude, let error = viewModel.error, viewModel.usage == nil {
+            } else if selectedService == .claude, let error = viewModel.error, viewModel.usage == nil {
                 ErrorSectionView(error: error) {
                     viewModel.refresh()
                 }
                 .padding(16)
 
-            } else if service == .codex, let error = viewModel.codexError, viewModel.codexUsage == nil {
+            } else if selectedService == .codex, let error = viewModel.codexError, viewModel.codexUsage == nil {
                 ErrorSectionView(error: error) {
                     viewModel.refresh()
                 }
                 .padding(16)
 
-            } else if service == .claude, viewModel.usage != nil {
+            } else if selectedService == .claude, viewModel.usage != nil {
                 standardClaudeContent(usage: viewModel.usage)
 
-            } else if service == .codex, viewModel.codexUsage != nil {
+            } else if selectedService == .codex, viewModel.codexUsage != nil {
                 standardCodexContent()
 
             } else {
@@ -712,18 +846,18 @@ struct PopoverView: View {
                 switch itemID {
                 case "currentSession":
                     if let usage {
-                        CompactUsageRow(label: "현재", percentage: usage.fiveHour.utilization, resetAt: usage.fiveHour.resetsAt)
+                        CompactUsageRow(label: "현재", percentage: usage.fiveHour.utilization, resetAt: usage.fiveHour.resetsAt, timeFormatStyle: settings.timeFormat)
                     }
                 case "weeklyLimit":
                     if let sevenDay = usage?.sevenDay {
-                        CompactUsageRow(label: "주간", percentage: sevenDay.utilization, resetAt: sevenDay.resetsAt, isWeekly: true)
+                        CompactUsageRow(label: "주간", percentage: sevenDay.utilization, resetAt: sevenDay.resetsAt, isWeekly: true, timeFormatStyle: settings.timeFormat)
                     }
                 case "modelUsage":
                     if let sonnet = usage?.sevenDaySonnet {
-                        CompactUsageRow(label: "Sonnet", percentage: sonnet.utilization, resetAt: sonnet.resetsAt, isWeekly: true)
+                        CompactUsageRow(label: "Sonnet", percentage: sonnet.utilization, resetAt: sonnet.resetsAt, isWeekly: true, timeFormatStyle: settings.timeFormat)
                     }
                     if let opus = usage?.sevenDayOpus {
-                        CompactUsageRow(label: "Opus", percentage: opus.utilization, resetAt: opus.resetsAt, isWeekly: true)
+                        CompactUsageRow(label: "Opus", percentage: opus.utilization, resetAt: opus.resetsAt, isWeekly: true, timeFormatStyle: settings.timeFormat)
                     }
                 case "overageUsage":
                     if let overage = viewModel.overage, overage.isEnabled {
@@ -746,11 +880,11 @@ struct PopoverView: View {
                 switch itemID {
                 case "codexPrimary":
                     if let codex = viewModel.codexUsage, let window = codex.rateLimit?.primaryWindow {
-                        CompactUsageRow(label: "Codex", percentage: window.utilization, resetAt: window.resetAtISO)
+                        CompactUsageRow(label: "Codex", percentage: window.utilization, resetAt: window.resetAtISO, timeFormatStyle: settings.codexTimeFormat)
                     }
                 case "codexSecondary":
                     if let codex = viewModel.codexUsage, let window = codex.rateLimit?.secondaryWindow {
-                        CompactUsageRow(label: "C-주간", percentage: window.utilization, resetAt: window.resetAtISO, isWeekly: true)
+                        CompactUsageRow(label: "C-주간", percentage: window.utilization, resetAt: window.resetAtISO, isWeekly: true, timeFormatStyle: settings.codexTimeFormat)
                     }
                 case "codexCredits":
                     if let codex = viewModel.codexUsage, let credits = codex.credits {
@@ -773,6 +907,7 @@ struct CompactUsageRow: View {
     let percentage: Double
     var resetAt: String? = nil
     var isWeekly: Bool = false
+    var timeFormatStyle: TimeFormatStyle = .h24
 
     var body: some View {
         HStack(spacing: 4) {
@@ -799,24 +934,53 @@ struct CompactUsageRow: View {
                 .frame(width: 34, alignment: .trailing)
 
             Text(compactResetText ?? "")
-                .font(.system(size: 9))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
                 .frame(width: 72, alignment: .trailing)
+                .lineLimit(1)
         }
     }
 
     private var compactResetText: String? {
-        guard let resetAt = resetAt else { return nil }
-        let style = AppSettings.shared.timeFormat
+        guard let resetAt = resetAt else { return "--" }
         if isWeekly {
-            return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: style)
+            return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: timeFormatStyle) ?? "--"
         }
         // 현재 세션(5시간)은 날짜 없이 시간만 표시
-        return TimeFormatter.formatResetTime(from: resetAt, style: style, includeDateIfNotToday: false)
+        return TimeFormatter.formatResetTime(from: resetAt, style: timeFormatStyle, includeDateIfNotToday: false) ?? "--"
     }
 }
 
 // MARK: - Error Section
+
+struct AuthRequiredSectionView: View {
+    let service: PopoverService
+    let openSettingsAction: () -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "lock.shield")
+                .font(.system(size: 30))
+                .foregroundStyle(.orange)
+
+            Text(service == .claude ? "Claude 인증이 필요합니다" : "Codex 인증이 필요합니다")
+                .font(.headline)
+
+            Text(service == .claude
+                 ? "로그인 후 세션키를 저장하면 조회가 시작됩니다."
+                 : "Codex CLI 로그인 후 토큰이 준비되면 조회가 시작됩니다.")
+                .font(.caption)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+
+            Button("인증 설정 열기") {
+                openSettingsAction()
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
 
 struct ErrorSectionView: View {
     let error: APIError
@@ -865,27 +1029,48 @@ class PopoverViewModel: ObservableObject {
     @Published var codexUsage: CodexUsageResponse?
     @Published var error: APIError?
     @Published var codexError: APIError?
-    @Published var isLoading: Bool = false
-    @Published var lastUpdated: Date?
+    @Published var isClaudeLoading: Bool = false
+    @Published var isCodexLoading: Bool = false
+    @Published var claudeLastUpdated: Date?
+    @Published var codexLastUpdated: Date?
+    @Published var selectedService: PopoverService = .claude
     @Published var overage: OverageSpendLimitResponse?
     @Published var systemStatus: ClaudeSystemStatus?
     @Published var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
     @Published var nextUsageRetryAt: Date?
-    var onRefresh: (() -> Void)?
-    var onOpenSettings: (() -> Void)?
-    var onPinChanged: ((Bool) -> Void)?
-    var onLayoutChanged: (() -> Void)?
+    var onRefreshService: ((PopoverService) -> Void)?
+    var onOpenSettingsForService: ((PopoverService) -> Void)?
+    var onServiceSelected: ((PopoverService) -> Void)?
+    var onPinChanged: ((PopoverService, Bool) -> Void)?
+    var onLayoutChanged: ((PopoverService) -> Void)?
 
     func refresh() {
-        onRefresh?()
+        onRefreshService?(selectedService)
+    }
+
+    func refresh(service: PopoverService) {
+        onRefreshService?(service)
     }
 
     func openSettings() {
-        onOpenSettings?()
+        onOpenSettingsForService?(selectedService)
+    }
+
+    func openSettings(for service: PopoverService) {
+        onOpenSettingsForService?(service)
+    }
+
+    func selectService(_ service: PopoverService) {
+        selectedService = service
+        onServiceSelected?(service)
     }
 
     func requestLayoutRefresh() {
-        onLayoutChanged?()
+        onLayoutChanged?(selectedService)
+    }
+
+    func requestLayoutRefresh(for service: PopoverService) {
+        onLayoutChanged?(service)
     }
 
     func openUsagePage() {
@@ -906,16 +1091,20 @@ class PopoverViewModel: ObservableObject {
         codexUsage: CodexUsageResponse?,
         error: APIError?,
         codexError: APIError?,
-        isLoading: Bool,
-        lastUpdated: Date? = nil,
+        isClaudeLoading: Bool,
+        isCodexLoading: Bool,
+        claudeLastUpdated: Date? = nil,
+        codexLastUpdated: Date? = nil,
         overage: OverageSpendLimitResponse? = nil
     ) {
         self.usage = usage
         self.codexUsage = codexUsage
         self.error = error
         self.codexError = codexError
-        self.isLoading = isLoading
-        if let lastUpdated { self.lastUpdated = lastUpdated }
+        self.isClaudeLoading = isClaudeLoading
+        self.isCodexLoading = isCodexLoading
+        if let claudeLastUpdated { self.claudeLastUpdated = claudeLastUpdated }
+        if let codexLastUpdated { self.codexLastUpdated = codexLastUpdated }
         if let overage { self.overage = overage }
     }
 }

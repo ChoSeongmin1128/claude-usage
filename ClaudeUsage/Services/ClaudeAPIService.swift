@@ -484,6 +484,17 @@ actor ClaudeAPIService {
 
         if let jsonString = String(data: data, encoding: .utf8) {
             Logger.debug("Overage Raw JSON: \(jsonString)")
+            let trimmed = jsonString.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed == "null" || trimmed.isEmpty {
+                Logger.info("추가 사용량 응답이 null로 반환됨 → 비활성 상태로 처리")
+                return OverageSpendLimitResponse(
+                    monthlyCreditLimitCents: 0,
+                    usedCreditsCents: 0,
+                    isEnabled: false,
+                    outOfCredits: false,
+                    currency: "USD"
+                )
+            }
         }
 
         do {

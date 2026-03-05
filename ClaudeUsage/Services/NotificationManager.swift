@@ -44,12 +44,14 @@ class NotificationManager {
     func checkThreshold(session: SessionType, percentage: Double, resetAt: String?) {
         let settings = AppSettings.shared
 
+        guard settings.notificationsEnabled else { return }
+
         // 해당 세션 알림이 꺼져 있으면 무시
         switch session {
         case .fiveHour:
-            guard settings.alertFiveHourEnabled else { return }
+            guard settings.claudeAlertEnabled, settings.alertFiveHourEnabled else { return }
         case .weekly:
-            guard settings.alertWeeklyEnabled else { return }
+            guard settings.claudeAlertEnabled, settings.alertWeeklyEnabled else { return }
         case .codexPrimary, .codexSecondary:
             guard settings.codexAlertEnabled else { return }
         }

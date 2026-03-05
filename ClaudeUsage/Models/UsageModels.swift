@@ -43,7 +43,22 @@ struct UsageWindow: Codable, Sendable {
     /// utilization이 Int 또는 Double로 올 수 있어서 방어적 디코딩
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        resetsAt = try container.decodeIfPresent(String.self, forKey: .resetsAt)
+        // resets_at: 문자열(ISO) 외에 숫자(unix seconds)로 내려오는 변형도 방어
+        if let textVal = try? container.decode(String.self, forKey: .resetsAt),
+           !textVal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let trimmed = textVal.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let unix = Double(trimmed) {
+                resetsAt = Self.isoString(fromUnixSeconds: unix)
+            } else {
+                resetsAt = trimmed
+            }
+        } else if let intVal = try? container.decode(Int.self, forKey: .resetsAt) {
+            resetsAt = Self.isoString(fromUnixSeconds: Double(intVal))
+        } else if let doubleVal = try? container.decode(Double.self, forKey: .resetsAt) {
+            resetsAt = Self.isoString(fromUnixSeconds: doubleVal)
+        } else {
+            resetsAt = nil
+        }
 
         // utilization: Int, Double, String 모두 처리
         if let doubleVal = try? container.decode(Double.self, forKey: .utilization) {
@@ -56,6 +71,13 @@ struct UsageWindow: Codable, Sendable {
         } else {
             utilization = 0
         }
+    }
+
+    nonisolated private static func isoString(fromUnixSeconds seconds: Double) -> String {
+        let date = Date(timeIntervalSince1970: seconds)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
     }
 }
 
@@ -118,6 +140,20 @@ struct OverageSpendLimitResponse: Codable, Sendable {
         case isEnabled = "is_enabled"
         case outOfCredits = "out_of_credits"
         case currency
+    }
+
+    nonisolated init(
+        monthlyCreditLimitCents: Double,
+        usedCreditsCents: Double,
+        isEnabled: Bool,
+        outOfCredits: Bool,
+        currency: String
+    ) {
+        self.monthlyCreditLimitCents = monthlyCreditLimitCents
+        self.usedCreditsCents = usedCreditsCents
+        self.isEnabled = isEnabled
+        self.outOfCredits = outOfCredits
+        self.currency = currency
     }
 
     nonisolated init(from decoder: Decoder) throws {
