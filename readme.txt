@@ -1,4 +1,4 @@
-ClaudeUsage - macOS 메뉴바 Claude/Codex 사용량 모니터 (v1.1)
+ClaudeUsage - macOS 메뉴바 Claude/Codex 사용량 모니터 (v1.2)
 
 ────────────────────────────────────
  설치 방법
