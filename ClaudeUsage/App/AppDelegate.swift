@@ -1412,7 +1412,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if settings.showCodexIcon,
-           let icon = codexMenuBarIcon(size: NSSize(width: 12, height: 12), tint: codexIconTintColor) {
+           let icon = codexMenuBarIcon(size: NSSize(width: 14, height: 14), tint: codexIconTintColor) {
             rightElements.append((image: icon, text: nil, attrs: nil))
         }
         if !codex.text.isEmpty {
@@ -1776,7 +1776,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         var elements: [(image: NSImage?, text: String?, attrs: [NSAttributedString.Key: Any]?)] = []
 
         if settings.showCodexIcon {
-            if let codexIcon = codexMenuBarIcon(size: NSSize(width: 15, height: 15), tint: iconTintColor) {
+            if let codexIcon = codexMenuBarIcon(size: NSSize(width: 18, height: 18), tint: iconTintColor) {
                 elements.append((image: codexIcon, text: nil, attrs: nil))
             }
         }
@@ -1949,15 +1949,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func codexMenuBarIcon(size: NSSize, tint: NSColor) -> NSImage? {
+        _ = tint
         if let base = NSImage(named: "CodexMenuBarIcon") {
-            return tintedIcon(base, size: size, tint: tint)
+            return twoToneIcon(base, size: size)
         }
         if !didLogMissingCodexIconAsset {
             didLogMissingCodexIconAsset = true
             Logger.warning("CodexMenuBarIcon 에셋 로드 실패, SF Symbol 폴백 사용")
         }
         if let fallback = NSImage(systemSymbolName: "terminal.fill", accessibilityDescription: "Codex") {
-            return tintedIcon(fallback, size: size, tint: tint)
+            return twoToneIcon(fallback, size: size)
         }
         Logger.error("Codex 메뉴바 아이콘 생성 실패(에셋/SF Symbol 모두 실패)")
         return nil
@@ -1988,6 +1989,43 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         tint.setFill()
         // sourceIn: 원본 알파를 마스크로 사용해 단색 아이콘을 안정적으로 생성
         rect.fill(using: .sourceIn)
+        image.unlockFocus()
+        image.isTemplate = false
+        return image
+    }
+
+    private func twoToneIcon(_ source: NSImage, size: NSSize) -> NSImage {
+        let borderWidth: CGFloat = size.width >= 14 ? 0.7 : 0.55
+        let glyphSize = NSSize(
+            width: max(1, size.width - borderWidth * 2),
+            height: max(1, size.height - borderWidth * 2)
+        )
+        let baseRect = NSRect(
+            x: borderWidth,
+            y: borderWidth,
+            width: glyphSize.width,
+            height: glyphSize.height
+        )
+        let outline = tintedIcon(source, size: glyphSize, tint: NSColor(calibratedWhite: 0.96, alpha: 1.0))
+        let fill = tintedIcon(source, size: glyphSize, tint: NSColor(calibratedWhite: 0.06, alpha: 1.0))
+        let offsets: [NSPoint] = [
+            NSPoint(x: -borderWidth, y: 0),
+            NSPoint(x: borderWidth, y: 0),
+            NSPoint(x: 0, y: -borderWidth),
+            NSPoint(x: 0, y: borderWidth),
+            NSPoint(x: -borderWidth, y: -borderWidth),
+            NSPoint(x: borderWidth, y: -borderWidth),
+            NSPoint(x: -borderWidth, y: borderWidth),
+            NSPoint(x: borderWidth, y: borderWidth)
+        ]
+
+        let image = NSImage(size: size)
+        image.lockFocus()
+        for offset in offsets {
+            let rect = baseRect.offsetBy(dx: offset.x, dy: offset.y)
+            outline.draw(in: rect)
+        }
+        fill.draw(in: baseRect)
         image.unlockFocus()
         image.isTemplate = false
         return image
