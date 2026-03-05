@@ -8,6 +8,11 @@
 import SwiftUI
 import Combine
 
+enum PopoverService: String, Sendable {
+    case claude
+    case codex
+}
+
 struct PopoverView: View {
     @ObservedObject var viewModel: PopoverViewModel
     @ObservedObject private var settings = AppSettings.shared
@@ -16,14 +21,13 @@ struct PopoverView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // 상단 바
-            HStack(spacing: 6) {
-                Text("Claude 사용량")
-                    .font(.headline)
+            HStack(spacing: 8) {
+                headerServiceSelector
 
                 // 새로고침 (제목 옆)
                 Button(action: { viewModel.refresh() }) {
                     Group {
-                        if viewModel.isLoading {
+                        if currentServiceLoading {
                             ProgressView()
                                 .controlSize(.small)
                         } else {
@@ -34,11 +38,11 @@ struct PopoverView: View {
                     .frame(width: 14, height: 14)
                 }
                 .buttonStyle(.borderless)
-                .disabled(viewModel.isLoading)
+                .disabled(currentServiceLoading)
 
                 Spacer()
 
-                if let lastUpdated = viewModel.lastUpdated {
+                if let lastUpdated = currentServiceLastUpdated {
                     Text(lastUpdated, style: .time)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
@@ -47,38 +51,38 @@ struct PopoverView: View {
                 // 간소화 토글
                 Button {
                     withAnimation(.easeInOut(duration: 0.15)) {
-                        settings.popoverCompact.toggle()
+                        isCompact.toggle()
                     }
                     DispatchQueue.main.async {
                         viewModel.requestLayoutRefresh()
                     }
                 } label: {
-                    Image(systemName: settings.popoverCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
+                    Image(systemName: isCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
                         .font(.system(size: 12))
                 }
                 .buttonStyle(.borderless)
-                .help(settings.popoverCompact ? "기본 보기" : "간소화")
+                .help(isCompact ? "기본 보기" : "간소화")
 
                 // 고정 핀
                 Button {
-                    settings.popoverPinned.toggle()
-                    viewModel.onPinChanged?(settings.popoverPinned)
+                    isPinned.toggle()
+                    viewModel.onPinChanged?(selectedService, isPinned)
                 } label: {
-                    Image(systemName: settings.popoverPinned ? "pin.fill" : "pin")
+                    Image(systemName: isPinned ? "pin.fill" : "pin")
                         .font(.system(size: 12))
-                        .foregroundColor(settings.popoverPinned ? .accentColor : .secondary)
+                        .foregroundColor(isPinned ? .accentColor : .secondary)
                 }
                 .buttonStyle(.borderless)
-                .help(settings.popoverPinned ? "고정 해제" : "고정")
+                .help(isPinned ? "고정 해제" : "고정")
             }
             .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
+            .padding(.top, isCompact ? 4 : 12)
+            .padding(.bottom, isCompact ? 4 : 8)
 
             // 시스템 상태 배너 (장애 시에만 표시)
-            if let status = viewModel.systemStatus, status.hasIssue {
+            if selectedService == .claude, let status = viewModel.systemStatus, status.hasIssue {
                 Divider()
-                VStack(alignment: .leading, spacing: settings.popoverCompact ? 4 : 5) {
+                VStack(alignment: .leading, spacing: isCompact ? 4 : 5) {
                     HStack(spacing: 8) {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundColor(statusColor(for: status.indicator))
@@ -99,7 +103,7 @@ struct PopoverView: View {
 
                         Spacer()
 
-                        if !settings.popoverCompact {
+                        if !isCompact {
                             Button {
                                 withAnimation(.easeInOut(duration: 0.15)) {
                                     isStatusExpanded.toggle()
@@ -132,7 +136,7 @@ struct PopoverView: View {
                         .help("status.claude.com 열기")
                     }
 
-                    if !settings.popoverCompact && isStatusExpanded {
+                    if !isCompact && isStatusExpanded {
                         HStack(spacing: 8) {
                             Text("상태")
                                 .font(.caption2)
@@ -155,7 +159,7 @@ struct PopoverView: View {
                                 Text(body)
                                     .font(.caption2)
                                     .foregroundColor(.secondary)
-                                    .lineLimit(settings.popoverCompact ? 1 : 2)
+                                    .lineLimit(isCompact ? 1 : 2)
                             }
 
                             let affected = affectedComponentsSummary(incident.affectedComponents)
@@ -183,8 +187,8 @@ struct PopoverView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 6)
                 .background(statusColor(for: status.indicator).opacity(0.08))
-                .onChange(of: settings.popoverCompact) { _, isCompact in
-                    if isCompact {
+                .onChange(of: isCompact) { _, compact in
+                    if compact {
                         isStatusExpanded = false
                     }
                 }
@@ -207,7 +211,7 @@ struct PopoverView: View {
                         .controlSize(.small)
                     }
 
-                    if settings.popoverCompact {
+                    if isCompact {
                         Text("다운로드 후 앱 교체 필요")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -232,7 +236,7 @@ struct PopoverView: View {
                         .font(.caption)
                         .foregroundColor(.primary)
                     Spacer()
-                    if viewModel.error != nil {
+                    if serviceError != nil {
                         Text("자동 재시도 중")
                             .font(.caption2)
                             .foregroundColor(.secondary)
@@ -245,7 +249,7 @@ struct PopoverView: View {
 
             Divider()
 
-            if settings.popoverCompact {
+            if isCompact {
                 compactMainSection
             } else {
                 standardMainSection
@@ -255,25 +259,27 @@ struct PopoverView: View {
 
             // 하단 버튼
             HStack {
-                Button {
-                    viewModel.openUsagePage()
-                } label: {
-                    Image(systemName: "safari")
-                        .foregroundColor(.accentColor)
-                }
-                .buttonStyle(.borderless)
-                .font(.caption)
-                .help("claude.ai/settings/usage")
-
-                if !settings.popoverCompact {
+                if selectedService == .claude {
                     Button {
                         viewModel.openUsagePage()
                     } label: {
-                        Text("claude.ai/settings/usage")
+                        Image(systemName: "safari")
                             .foregroundColor(.accentColor)
                     }
                     .buttonStyle(.borderless)
                     .font(.caption)
+                    .help("claude.ai/settings/usage")
+
+                    if !isCompact {
+                        Button {
+                            viewModel.openUsagePage()
+                        } label: {
+                            Text("claude.ai/settings/usage")
+                                .foregroundColor(.accentColor)
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                    }
                 }
 
                 Spacer()
@@ -283,7 +289,7 @@ struct PopoverView: View {
                 } label: {
                     HStack(spacing: 2) {
                         Image(systemName: "gearshape")
-                        if !settings.popoverCompact { Text("설정") }
+                        if !isCompact { Text("설정") }
                     }
                 }
                 .buttonStyle(.borderless)
@@ -294,16 +300,16 @@ struct PopoverView: View {
                 } label: {
                     HStack(spacing: 2) {
                         Image(systemName: "power")
-                        if !settings.popoverCompact { Text("종료") }
+                        if !isCompact { Text("종료") }
                     }
                 }
                 .buttonStyle(.borderless)
                 .font(.caption)
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, settings.popoverCompact ? 6 : 8)
+            .padding(.vertical, isCompact ? 6 : 8)
 
-            if !settings.popoverCompact {
+            if !isCompact {
                 HStack(spacing: 8) {
                     Text("⌘R 새로고침")
                     Text("⌘, 설정")
@@ -314,11 +320,60 @@ struct PopoverView: View {
                 .padding(.bottom, 6)
             }
         }
-        .frame(width: settings.popoverCompact ? 300 : 340)
+        .frame(width: isCompact ? 300 : 340)
         .background(Color(NSColor.windowBackgroundColor))
+        .onAppear {
+            normalizeSelectedServiceIfNeeded()
+            syncCompactAcrossServicesIfNeeded()
+        }
+        .onChange(of: settings.claudeEnabled) { _, _ in
+            normalizeSelectedServiceIfNeeded()
+        }
+        .onChange(of: settings.codexEnabled) { _, _ in
+            normalizeSelectedServiceIfNeeded()
+        }
+        .onChange(of: viewModel.selectedService) { _, _ in
+            syncCompactAcrossServicesIfNeeded()
+        }
     }
 
     // MARK: - Helpers
+
+    @ViewBuilder
+    private var headerServiceSelector: some View {
+        if availableServices.count > 1 {
+            HStack(spacing: 6) {
+                ForEach(availableServices, id: \.rawValue) { service in
+                    Button {
+                        viewModel.selectService(service)
+                        syncCompactAcrossServicesIfNeeded()
+                        DispatchQueue.main.async {
+                            viewModel.requestLayoutRefresh()
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text(service == .claude ? "Claude" : "Codex")
+                                .font(.system(size: 12.5, weight: selectedService == service ? .semibold : .medium))
+                            if shouldShowWarningDot(for: service) {
+                                Circle()
+                                    .fill(Color.orange)
+                                    .frame(width: 6, height: 6)
+                            }
+                        }
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .background(selectedService == service ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
+                        .foregroundStyle(selectedService == service ? Color.accentColor : .primary)
+                        .cornerRadius(8)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        } else {
+            Text(selectedService == .claude ? "Claude" : "Codex")
+                .font(.headline)
+        }
+    }
 
     private func statusColor(for indicator: StatusIndicator) -> Color {
         switch indicator {
@@ -341,7 +396,7 @@ struct PopoverView: View {
     }
 
     private var staleDataMessage: String? {
-        guard let lastUpdated = viewModel.lastUpdated else { return nil }
+        guard let lastUpdated = currentServiceLastUpdated else { return nil }
 
         let elapsed = Date().timeIntervalSince(lastUpdated)
         let threshold = max(180.0, settings.refreshInterval * 4.0)
@@ -362,50 +417,270 @@ struct PopoverView: View {
         }
     }
 
+    private var selectedService: PopoverService {
+        viewModel.selectedService
+    }
+
+    private var currentServiceLastUpdated: Date? {
+        switch selectedService {
+        case .claude:
+            return viewModel.claudeLastUpdated
+        case .codex:
+            return viewModel.codexLastUpdated
+        }
+    }
+
+    private var currentServiceLoading: Bool {
+        switch selectedService {
+        case .claude:
+            return viewModel.isClaudeLoading
+        case .codex:
+            return viewModel.isCodexLoading
+        }
+    }
+
+    private var availableServices: [PopoverService] {
+        var result: [PopoverService] = []
+        if settings.claudeEnabled { result.append(.claude) }
+        if settings.codexEnabled { result.append(.codex) }
+        if result.isEmpty {
+            return [.claude]
+        }
+        return result
+    }
+
+    private func shouldShowWarningDot(for service: PopoverService) -> Bool {
+        switch service {
+        case .claude:
+            return (settings.claudeEnabled && !KeychainManager.shared.hasSessionKey) || viewModel.error != nil
+        case .codex:
+            return (settings.codexEnabled && !CodexAuthManager.shared.isAuthenticated) || viewModel.codexError != nil
+        }
+    }
+
+    private func isAuthRequired(for service: PopoverService) -> Bool {
+        switch service {
+        case .claude:
+            return settings.claudeEnabled && !KeychainManager.shared.hasSessionKey
+        case .codex:
+            return settings.codexEnabled && !CodexAuthManager.shared.isAuthenticated
+        }
+    }
+
+    private func normalizeSelectedServiceIfNeeded() {
+        guard !availableServices.contains(selectedService),
+              let fallback = availableServices.first else { return }
+        viewModel.selectService(fallback)
+    }
+
+    private var serviceError: APIError? {
+        switch selectedService {
+        case .claude:
+            return viewModel.error
+        case .codex:
+            return viewModel.codexError
+        }
+    }
+
+    private var isCompact: Bool {
+        get {
+            if settings.claudePopoverCompact == settings.codexPopoverCompact {
+                return settings.claudePopoverCompact
+            }
+            return selectedService == .claude ? settings.claudePopoverCompact : settings.codexPopoverCompact
+        }
+        nonmutating set {
+            setCompactForAllServices(newValue)
+        }
+    }
+
+    private func setCompactForAllServices(_ compact: Bool) {
+        if settings.claudePopoverCompact != compact {
+            settings.claudePopoverCompact = compact
+        }
+        if settings.codexPopoverCompact != compact {
+            settings.codexPopoverCompact = compact
+        }
+    }
+
+    private func syncCompactAcrossServicesIfNeeded() {
+        let compact = isCompact
+        setCompactForAllServices(compact)
+    }
+
+    private var isPinned: Bool {
+        get {
+            switch selectedService {
+            case .claude:
+                return settings.claudePopoverPinned
+            case .codex:
+                return settings.codexPopoverPinned
+            }
+        }
+        nonmutating set {
+            switch selectedService {
+            case .claude:
+                settings.claudePopoverPinned = newValue
+            case .codex:
+                settings.codexPopoverPinned = newValue
+            }
+        }
+    }
+
+    private var hasServiceData: Bool {
+        switch selectedService {
+        case .claude:
+            return viewModel.usage != nil || viewModel.error != nil
+        case .codex:
+            return viewModel.codexUsage != nil || viewModel.codexError != nil
+        }
+    }
+
     // MARK: - Standard Content
 
     @ViewBuilder
-    private func standardContent(usage: ClaudeUsageResponse) -> some View {
-        let visibleItems = settings.popoverItems.filter { $0.visible }
+    private func standardContent(usage: ClaudeUsageResponse?) -> some View {
+        let visibleClaudeItems = settings.popoverItems.filter { $0.visible }
+        let visibleCodexItems = settings.codexEnabled ? settings.codexPopoverItems.filter { $0.visible } : []
+        let orderedIDs = visibleClaudeItems.map(\.id) + visibleCodexItems.map(\.id)
         VStack(spacing: 12) {
-            ForEach(Array(visibleItems.enumerated()), id: \.element.id) { index, item in
+            ForEach(Array(orderedIDs.enumerated()), id: \.offset) { index, itemID in
                 if index > 0 { Divider() }
-                switch item.id {
+                switch itemID {
                 case "currentSession":
-                    UsageSectionView(
-                        systemIcon: "gauge.medium",
-                        title: "현재 세션",
-                        percentage: usage.fiveHour.utilization,
-                        resetAt: usage.fiveHour.resetsAt
-                    )
+                    if let usage {
+                        UsageSectionView(
+                            systemIcon: "gauge.medium",
+                            title: "현재 세션",
+                            percentage: usage.fiveHour.utilization,
+                            resetAt: usage.fiveHour.resetsAt,
+                            timeFormatStyle: settings.timeFormat
+                        )
+                    }
                 case "weeklyLimit":
-                    if let sevenDay = usage.sevenDay {
+                    if let sevenDay = usage?.sevenDay {
                         UsageSectionView(
                             systemIcon: "calendar",
                             title: "주간 한도",
                             percentage: sevenDay.utilization,
                             resetAt: sevenDay.resetsAt,
-                            isWeekly: true
+                            isWeekly: true,
+                            timeFormatStyle: settings.timeFormat
                         )
                     }
                 case "modelUsage":
-                    if let sonnet = usage.sevenDaySonnet {
+                    if let sonnet = usage?.sevenDaySonnet {
                         UsageSectionView(
                             systemIcon: "bolt.fill",
                             title: "Sonnet (주간)",
                             percentage: sonnet.utilization,
                             resetAt: sonnet.resetsAt,
-                            isWeekly: true
+                            isWeekly: true,
+                            timeFormatStyle: settings.timeFormat
                         )
                     }
-                    if let opus = usage.sevenDayOpus {
-                        if usage.sevenDaySonnet != nil { Divider() }
+                    if let opus = usage?.sevenDayOpus {
+                        if usage?.sevenDaySonnet != nil { Divider() }
                         UsageSectionView(
                             systemIcon: "diamond.fill",
                             title: "Opus (주간)",
                             percentage: opus.utilization,
                             resetAt: opus.resetsAt,
-                            isWeekly: true
+                            isWeekly: true,
+                            timeFormatStyle: settings.timeFormat
+                        )
+                    }
+                case "overageUsage":
+                    if let overage = viewModel.overage, overage.isEnabled {
+                        OverageUsageView(overage: overage)
+                    }
+                case "codexPrimary":
+                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.primaryWindow {
+                        UsageSectionView(
+                            systemIcon: "bubble.left.and.bubble.right",
+                            title: "Codex 현재",
+                            percentage: window.utilization,
+                            resetAt: window.resetAtISO,
+                            timeFormatStyle: settings.codexTimeFormat
+                        )
+                    } else {
+                        ProviderStatusRow(title: "Codex 현재", error: viewModel.codexError)
+                    }
+                case "codexSecondary":
+                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.secondaryWindow {
+                        UsageSectionView(
+                            systemIcon: "calendar.badge.clock",
+                            title: "Codex 주간",
+                            percentage: window.utilization,
+                            resetAt: window.resetAtISO,
+                            isWeekly: true,
+                            timeFormatStyle: settings.codexTimeFormat
+                        )
+                    } else {
+                        ProviderStatusRow(title: "Codex 주간", error: viewModel.codexError)
+                    }
+                case "codexCredits":
+                    if let codex = viewModel.codexUsage, let credits = codex.credits {
+                        CodexCreditsView(credits: credits)
+                    } else {
+                        ProviderStatusRow(title: "Codex 크레딧", error: viewModel.codexError)
+                    }
+                default:
+                    EmptyView()
+                }
+            }
+        }
+        .padding(16)
+    }
+
+    @ViewBuilder
+    private func standardClaudeContent(usage: ClaudeUsageResponse?) -> some View {
+        let visibleClaudeItems = settings.popoverItems.filter { $0.visible }
+        VStack(spacing: 12) {
+            ForEach(Array(visibleClaudeItems.enumerated()), id: \.offset) { index, item in
+                if index > 0 { Divider() }
+                switch item.id {
+                case "currentSession":
+                    if let usage {
+                        UsageSectionView(
+                            systemIcon: "gauge.medium",
+                            title: "현재 세션",
+                            percentage: usage.fiveHour.utilization,
+                            resetAt: usage.fiveHour.resetsAt,
+                            timeFormatStyle: settings.timeFormat
+                        )
+                    }
+                case "weeklyLimit":
+                    if let sevenDay = usage?.sevenDay {
+                        UsageSectionView(
+                            systemIcon: "calendar",
+                            title: "주간 한도",
+                            percentage: sevenDay.utilization,
+                            resetAt: sevenDay.resetsAt,
+                            isWeekly: true,
+                            timeFormatStyle: settings.timeFormat
+                        )
+                    }
+                case "modelUsage":
+                    if let sonnet = usage?.sevenDaySonnet {
+                        UsageSectionView(
+                            systemIcon: "bolt.fill",
+                            title: "Sonnet (주간)",
+                            percentage: sonnet.utilization,
+                            resetAt: sonnet.resetsAt,
+                            isWeekly: true,
+                            timeFormatStyle: settings.timeFormat
+                        )
+                    }
+                    if let opus = usage?.sevenDayOpus {
+                        if usage?.sevenDaySonnet != nil { Divider() }
+                        UsageSectionView(
+                            systemIcon: "diamond.fill",
+                            title: "Opus (주간)",
+                            percentage: opus.utilization,
+                            resetAt: opus.resetsAt,
+                            isWeekly: true,
+                            timeFormatStyle: settings.timeFormat
                         )
                     }
                 case "overageUsage":
@@ -421,9 +696,61 @@ struct PopoverView: View {
     }
 
     @ViewBuilder
+    private func standardCodexContent() -> some View {
+        let visibleCodexItems = settings.codexEnabled ? settings.codexPopoverItems.filter { $0.visible } : []
+        VStack(spacing: 12) {
+            ForEach(Array(visibleCodexItems.enumerated()), id: \.offset) { index, item in
+                if index > 0 { Divider() }
+                switch item.id {
+                case "codexPrimary":
+                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.primaryWindow {
+                        UsageSectionView(
+                            systemIcon: "bubble.left.and.bubble.right",
+                            title: "Codex 현재",
+                            percentage: window.utilization,
+                            resetAt: window.resetAtISO,
+                            timeFormatStyle: settings.codexTimeFormat
+                        )
+                    } else {
+                        ProviderStatusRow(title: "Codex 현재", error: viewModel.codexError)
+                    }
+                case "codexSecondary":
+                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.secondaryWindow {
+                        UsageSectionView(
+                            systemIcon: "calendar.badge.clock",
+                            title: "Codex 주간",
+                            percentage: window.utilization,
+                            resetAt: window.resetAtISO,
+                            isWeekly: true,
+                            timeFormatStyle: settings.codexTimeFormat
+                        )
+                    } else {
+                        ProviderStatusRow(title: "Codex 주간", error: viewModel.codexError)
+                    }
+                case "codexCredits":
+                    if let codex = viewModel.codexUsage, let credits = codex.credits {
+                        CodexCreditsView(credits: credits)
+                    } else {
+                        ProviderStatusRow(title: "Codex 크레딧", error: viewModel.codexError)
+                    }
+                default:
+                    EmptyView()
+                }
+            }
+        }
+        .padding(16)
+    }
+
+    @ViewBuilder
     private var compactMainSection: some View {
         Group {
-            if viewModel.isLoading && viewModel.usage == nil {
+            if isAuthRequired(for: selectedService) {
+                AuthRequiredSectionView(service: selectedService) {
+                    viewModel.openSettings(for: selectedService)
+                }
+                .padding(12)
+
+            } else if currentServiceLoading && ((selectedService == .claude && viewModel.usage == nil) || (selectedService == .codex && viewModel.codexUsage == nil)) {
                 VStack(spacing: 10) {
                     ProgressView()
                     Text("데이터 로딩 중...")
@@ -432,14 +759,23 @@ struct PopoverView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 56)
 
-            } else if let error = viewModel.error, viewModel.usage == nil {
+            } else if selectedService == .claude, let error = viewModel.error, viewModel.usage == nil {
                 ErrorSectionView(error: error) {
                     viewModel.refresh()
                 }
                 .padding(12)
 
-            } else if let usage = viewModel.usage {
-                compactContent(usage: usage)
+            } else if selectedService == .codex, let error = viewModel.codexError, viewModel.codexUsage == nil {
+                ErrorSectionView(error: error) {
+                    viewModel.refresh()
+                }
+                .padding(12)
+
+            } else if selectedService == .claude, viewModel.usage != nil {
+                compactClaudeContent(usage: viewModel.usage)
+
+            } else if selectedService == .codex, viewModel.codexUsage != nil {
+                compactCodexContent()
 
             } else {
                 Text("데이터 없음")
@@ -455,7 +791,13 @@ struct PopoverView: View {
     @ViewBuilder
     private var standardMainSection: some View {
         Group {
-            if viewModel.isLoading && viewModel.usage == nil {
+            if isAuthRequired(for: selectedService) {
+                AuthRequiredSectionView(service: selectedService) {
+                    viewModel.openSettings(for: selectedService)
+                }
+                .padding(16)
+
+            } else if currentServiceLoading && ((selectedService == .claude && viewModel.usage == nil) || (selectedService == .codex && viewModel.codexUsage == nil)) {
                 VStack(spacing: 12) {
                     ProgressView()
                     Text("데이터 로딩 중...")
@@ -464,14 +806,23 @@ struct PopoverView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 150)
 
-            } else if let error = viewModel.error, viewModel.usage == nil {
+            } else if selectedService == .claude, let error = viewModel.error, viewModel.usage == nil {
                 ErrorSectionView(error: error) {
                     viewModel.refresh()
                 }
                 .padding(16)
 
-            } else if let usage = viewModel.usage {
-                standardContent(usage: usage)
+            } else if selectedService == .codex, let error = viewModel.codexError, viewModel.codexUsage == nil {
+                ErrorSectionView(error: error) {
+                    viewModel.refresh()
+                }
+                .padding(16)
+
+            } else if selectedService == .claude, viewModel.usage != nil {
+                standardClaudeContent(usage: viewModel.usage)
+
+            } else if selectedService == .codex, viewModel.codexUsage != nil {
+                standardCodexContent()
 
             } else {
                 VStack {
@@ -488,26 +839,56 @@ struct PopoverView: View {
     // MARK: - Compact Content
 
     @ViewBuilder
-    private func compactContent(usage: ClaudeUsageResponse) -> some View {
+    private func compactClaudeContent(usage: ClaudeUsageResponse?) -> some View {
+        let visibleClaudeItems = settings.effectiveCompactItems.filter { $0.visible }
         VStack(spacing: 5) {
-            ForEach(settings.effectiveCompactItems.filter { $0.visible }, id: \.id) { item in
-                switch item.id {
+            ForEach(visibleClaudeItems.map(\.id), id: \.self) { itemID in
+                switch itemID {
                 case "currentSession":
-                    CompactUsageRow(label: "현재", percentage: usage.fiveHour.utilization, resetAt: usage.fiveHour.resetsAt)
+                    if let usage {
+                        CompactUsageRow(label: "현재", percentage: usage.fiveHour.utilization, resetAt: usage.fiveHour.resetsAt, timeFormatStyle: settings.timeFormat)
+                    }
                 case "weeklyLimit":
-                    if let sevenDay = usage.sevenDay {
-                        CompactUsageRow(label: "주간", percentage: sevenDay.utilization, resetAt: sevenDay.resetsAt, isWeekly: true)
+                    if let sevenDay = usage?.sevenDay {
+                        CompactUsageRow(label: "주간", percentage: sevenDay.utilization, resetAt: sevenDay.resetsAt, isWeekly: true, timeFormatStyle: settings.timeFormat)
                     }
                 case "modelUsage":
-                    if let sonnet = usage.sevenDaySonnet {
-                        CompactUsageRow(label: "Sonnet", percentage: sonnet.utilization, resetAt: sonnet.resetsAt, isWeekly: true)
+                    if let sonnet = usage?.sevenDaySonnet {
+                        CompactUsageRow(label: "Sonnet", percentage: sonnet.utilization, resetAt: sonnet.resetsAt, isWeekly: true, timeFormatStyle: settings.timeFormat)
                     }
-                    if let opus = usage.sevenDayOpus {
-                        CompactUsageRow(label: "Opus", percentage: opus.utilization, resetAt: opus.resetsAt, isWeekly: true)
+                    if let opus = usage?.sevenDayOpus {
+                        CompactUsageRow(label: "Opus", percentage: opus.utilization, resetAt: opus.resetsAt, isWeekly: true, timeFormatStyle: settings.timeFormat)
                     }
                 case "overageUsage":
                     if let overage = viewModel.overage, overage.isEnabled {
                         CompactOverageRow(overage: overage)
+                    }
+                default:
+                    EmptyView()
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private func compactCodexContent() -> some View {
+        let visibleCodexItems = settings.effectiveCompactCodexItems.filter { $0.visible }
+        VStack(spacing: 5) {
+            ForEach(visibleCodexItems.map(\.id), id: \.self) { itemID in
+                switch itemID {
+                case "codexPrimary":
+                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.primaryWindow {
+                        CompactUsageRow(label: "Codex", percentage: window.utilization, resetAt: window.resetAtISO, timeFormatStyle: settings.codexTimeFormat)
+                    }
+                case "codexSecondary":
+                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.secondaryWindow {
+                        CompactUsageRow(label: "C-주간", percentage: window.utilization, resetAt: window.resetAtISO, isWeekly: true, timeFormatStyle: settings.codexTimeFormat)
+                    }
+                case "codexCredits":
+                    if let codex = viewModel.codexUsage, let credits = codex.credits {
+                        CompactCodexCreditsRow(credits: credits)
                     }
                 default:
                     EmptyView()
@@ -526,6 +907,7 @@ struct CompactUsageRow: View {
     let percentage: Double
     var resetAt: String? = nil
     var isWeekly: Bool = false
+    var timeFormatStyle: TimeFormatStyle = .h24
 
     var body: some View {
         HStack(spacing: 4) {
@@ -552,24 +934,53 @@ struct CompactUsageRow: View {
                 .frame(width: 34, alignment: .trailing)
 
             Text(compactResetText ?? "")
-                .font(.system(size: 9))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
                 .frame(width: 72, alignment: .trailing)
+                .lineLimit(1)
         }
     }
 
     private var compactResetText: String? {
-        guard let resetAt = resetAt else { return nil }
-        let style = AppSettings.shared.timeFormat
+        guard let resetAt = resetAt else { return "--" }
         if isWeekly {
-            return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: style)
+            return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: timeFormatStyle) ?? "--"
         }
         // 현재 세션(5시간)은 날짜 없이 시간만 표시
-        return TimeFormatter.formatResetTime(from: resetAt, style: style, includeDateIfNotToday: false)
+        return TimeFormatter.formatResetTime(from: resetAt, style: timeFormatStyle, includeDateIfNotToday: false) ?? "--"
     }
 }
 
 // MARK: - Error Section
+
+struct AuthRequiredSectionView: View {
+    let service: PopoverService
+    let openSettingsAction: () -> Void
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "lock.shield")
+                .font(.system(size: 30))
+                .foregroundStyle(.orange)
+
+            Text(service == .claude ? "Claude 인증이 필요합니다" : "Codex 인증이 필요합니다")
+                .font(.headline)
+
+            Text(service == .claude
+                 ? "로그인 후 세션키를 저장하면 조회가 시작됩니다."
+                 : "Codex CLI 로그인 후 토큰이 준비되면 조회가 시작됩니다.")
+                .font(.caption)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+
+            Button("인증 설정 열기") {
+                openSettingsAction()
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
 
 struct ErrorSectionView: View {
     let error: APIError
@@ -615,28 +1026,51 @@ struct ErrorSectionView: View {
 
 class PopoverViewModel: ObservableObject {
     @Published var usage: ClaudeUsageResponse?
+    @Published var codexUsage: CodexUsageResponse?
     @Published var error: APIError?
-    @Published var isLoading: Bool = false
-    @Published var lastUpdated: Date?
+    @Published var codexError: APIError?
+    @Published var isClaudeLoading: Bool = false
+    @Published var isCodexLoading: Bool = false
+    @Published var claudeLastUpdated: Date?
+    @Published var codexLastUpdated: Date?
+    @Published var selectedService: PopoverService = .claude
     @Published var overage: OverageSpendLimitResponse?
     @Published var systemStatus: ClaudeSystemStatus?
     @Published var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
     @Published var nextUsageRetryAt: Date?
-    var onRefresh: (() -> Void)?
-    var onOpenSettings: (() -> Void)?
-    var onPinChanged: ((Bool) -> Void)?
-    var onLayoutChanged: (() -> Void)?
+    var onRefreshService: ((PopoverService) -> Void)?
+    var onOpenSettingsForService: ((PopoverService) -> Void)?
+    var onServiceSelected: ((PopoverService) -> Void)?
+    var onPinChanged: ((PopoverService, Bool) -> Void)?
+    var onLayoutChanged: ((PopoverService) -> Void)?
 
     func refresh() {
-        onRefresh?()
+        onRefreshService?(selectedService)
+    }
+
+    func refresh(service: PopoverService) {
+        onRefreshService?(service)
     }
 
     func openSettings() {
-        onOpenSettings?()
+        onOpenSettingsForService?(selectedService)
+    }
+
+    func openSettings(for service: PopoverService) {
+        onOpenSettingsForService?(service)
+    }
+
+    func selectService(_ service: PopoverService) {
+        selectedService = service
+        onServiceSelected?(service)
     }
 
     func requestLayoutRefresh() {
-        onLayoutChanged?()
+        onLayoutChanged?(selectedService)
+    }
+
+    func requestLayoutRefresh(for service: PopoverService) {
+        onLayoutChanged?(service)
     }
 
     func openUsagePage() {
@@ -652,12 +1086,106 @@ class PopoverViewModel: ObservableObject {
         }
     }
 
-    func update(usage: ClaudeUsageResponse?, error: APIError?, isLoading: Bool, lastUpdated: Date? = nil, overage: OverageSpendLimitResponse? = nil) {
+    func update(
+        usage: ClaudeUsageResponse?,
+        codexUsage: CodexUsageResponse?,
+        error: APIError?,
+        codexError: APIError?,
+        isClaudeLoading: Bool,
+        isCodexLoading: Bool,
+        claudeLastUpdated: Date? = nil,
+        codexLastUpdated: Date? = nil,
+        overage: OverageSpendLimitResponse? = nil
+    ) {
         self.usage = usage
+        self.codexUsage = codexUsage
         self.error = error
-        self.isLoading = isLoading
-        if let lastUpdated { self.lastUpdated = lastUpdated }
+        self.codexError = codexError
+        self.isClaudeLoading = isClaudeLoading
+        self.isCodexLoading = isCodexLoading
+        if let claudeLastUpdated { self.claudeLastUpdated = claudeLastUpdated }
+        if let codexLastUpdated { self.codexLastUpdated = codexLastUpdated }
         if let overage { self.overage = overage }
+    }
+}
+
+struct ProviderStatusRow: View {
+    let title: String
+    let error: APIError?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "info.circle")
+                .foregroundStyle(.secondary)
+            Text(title)
+                .font(.subheadline)
+            Spacer()
+            Text(statusText)
+                .font(.caption)
+                .foregroundStyle(statusColor)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var statusText: String {
+        if let error {
+            return error.isDefinitiveAuthFailure ? "인증 필요" : "조회 실패"
+        }
+        return "데이터 없음"
+    }
+
+    private var statusColor: Color {
+        if let error {
+            return error.isDefinitiveAuthFailure ? .orange : .secondary
+        }
+        return .secondary
+    }
+}
+
+// MARK: - Codex Credits
+
+struct CodexCreditsView: View {
+    let credits: CodexCredits
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "creditcard")
+                    .foregroundStyle(.secondary)
+                Text("Codex 크레딧")
+                    .font(.headline)
+                Spacer()
+                Text(credits.formattedBalance)
+                    .font(.title3)
+                    .fontWeight(.semibold)
+            }
+            HStack {
+                Text(credits.unlimited ? "무제한 플랜" : "사용 가능한 크레딧")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct CompactCodexCreditsRow: View {
+    let credits: CodexCredits
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text("크레딧")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 36, alignment: .leading)
+
+            Text(credits.formattedBalance)
+                .font(.system(.caption, design: .monospaced))
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
     }
 }
 

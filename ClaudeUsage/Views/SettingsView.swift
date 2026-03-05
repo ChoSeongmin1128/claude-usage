@@ -19,10 +19,11 @@ struct SettingsView: View {
     @State private var refreshIntervalText: String = ""
     @State private var showKeyHelp: Bool = false
     @State private var alertTexts: [String] = []
-    @State private var snapshot: AppSettings.Snapshot?
-    @State private var didSave = false
+    @State private var codexAlertTexts: [String] = []
     @State private var draggingItemID: String?
+    @State private var codexDraggingItemID: String?
     @State private var compactConfigTab: Int = 0
+    @State private var codexCompactConfigTab: Int = 0
     @State private var selectedOrganizationID: String = ""
     @State private var organizations: [ClaudeAPIService.OrganizationSummary] = []
     @State private var organizationPreviews: [ClaudeAPIService.OrganizationPreview] = []
@@ -31,16 +32,21 @@ struct SettingsView: View {
     @State private var organizationMessage: String?
     @State private var organizationOAuthFallbackSummary: String?
     @State private var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
-    @State private var selectedPanel: SettingsPanel = .status
+    @State private var selectedPanel: SettingsPanel = .common
+    @State private var selectedCommonTab: CommonTab = .display
+    @State private var selectedClaudeTab: ClaudeTab = .auth
+    @State private var selectedCodexTab: CodexTab = .auth
     @State private var isAdvancedAuthExpanded = false
     @State private var isOAuthGuideExpanded = false
     @State private var isAuthFAQExpanded = false
+    @State private var codexAuthStatus: CodexAuthStatus = .checking
 
     var onSave: (() -> Void)?
     var onApply: (() -> Void)?
     var onCancel: (() -> Void)?
     var onOpenLogin: (() -> Void)?
     var onLogout: (() -> Void)?
+    var onCodexLogout: (() -> Void)?
 
     enum TestResult {
         case success
@@ -48,12 +54,93 @@ struct SettingsView: View {
     }
 
     enum SettingsPanel: String, CaseIterable, Identifiable {
-        case status = "상태"
-        case auth = "인증"
-        case display = "표시"
-        case advanced = "고급"
+        case common = "common"
+        case claude = "claude"
+        case codex = "codex"
 
         var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .common: return "공통"
+            case .claude: return "Claude"
+            case .codex: return "Codex"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .common: return "slider.horizontal.3"
+            case .claude: return "brain"
+            case .codex: return "bubble.left.and.bubble.right"
+            }
+        }
+    }
+
+    enum CommonTab: String, CaseIterable, Identifiable {
+        case display
+        case refreshPower
+        case alerts
+        case app
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .display: return "표시"
+            case .refreshPower: return "갱신/전원"
+            case .alerts: return "알림"
+            case .app: return "앱"
+            }
+        }
+    }
+
+    enum ClaudeTab: String, CaseIterable, Identifiable {
+        case auth
+        case display
+        case status
+        case organizations
+        case popover
+        case alerts
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .auth: return "인증"
+            case .display: return "표시"
+            case .status: return "상태"
+            case .organizations: return "Organization"
+            case .popover: return "표시 항목"
+            case .alerts: return "알림"
+            }
+        }
+    }
+
+    enum CodexTab: String, CaseIterable, Identifiable {
+        case auth
+        case display
+        case popover
+        case alerts
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .auth: return "인증"
+            case .display: return "표시"
+            case .popover: return "표시 항목"
+            case .alerts: return "알림"
+            }
+        }
+    }
+
+    private enum CodexAuthStatus {
+        case checking
+        case authenticated
+        case notInstalled
+        case notLoggedIn
+        case expired
     }
 
     private var isRefreshIntervalValid: Bool {
@@ -72,35 +159,25 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                ForEach(SettingsPanel.allCases) { panel in
-                    Button {
-                        selectedPanel = panel
-                    } label: {
-                        Text(panel.rawValue)
-                            .font(.subheadline)
-                            .fontWeight(selectedPanel == panel ? .semibold : .regular)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(selectedPanel == panel ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
-                            .foregroundStyle(selectedPanel == panel ? Color.accentColor : .primary)
-                            .cornerRadius(8)
+            HStack(spacing: 0) {
+                sidebar
+
+                Divider()
+
+                VStack(spacing: 0) {
+                    panelTabBar
+
+                    Divider()
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            panelContent
+                        }
+                        .padding(20)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .id(contentIdentity)
                     }
-                    .buttonStyle(.plain)
                 }
-                Spacer()
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
-
-            Divider()
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    panelContent
-                }
-                .padding(24)
             }
 
             // 하단 버튼
@@ -118,9 +195,8 @@ struct SettingsView: View {
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
         }
-        .frame(width: 420, height: 580)
+        .frame(width: 760, height: 600)
         .onAppear {
-            snapshot = settings.createSnapshot()
             if let key = KeychainManager.shared.load() {
                 storedSessionKey = key
                 sessionKey = key
@@ -131,38 +207,169 @@ struct SettingsView: View {
             testResult = nil
             refreshIntervalText = String(Int(settings.refreshInterval))
             alertTexts = settings.alertThresholds.map { String($0) }
+            codexAlertTexts = settings.codexAlertThresholds.map { String($0) }
             selectedOrganizationID = settings.preferredOrganizationID
+            selectedPanel = SettingsPanel(rawValue: settings.settingsLastTab) ?? .common
+            selectedClaudeTab = ClaudeTab(rawValue: settings.claudeSettingsLastTab) ?? .auth
+            selectedCodexTab = CodexTab(rawValue: settings.codexSettingsLastTab) ?? .auth
             loadUsageHealthSnapshot()
+            checkCodexAuth()
         }
-        .onDisappear {
-            if !didSave, let snapshot = snapshot {
-                settings.restore(from: snapshot)
+        .onChange(of: selectedPanel) { _, panel in
+            settings.settingsLastTab = panel.rawValue
+            if panel == .codex {
+                checkCodexAuth()
             }
+        }
+        .onChange(of: selectedClaudeTab) { _, tab in
+            settings.claudeSettingsLastTab = tab.rawValue
+            if tab == .organizations, organizations.isEmpty, !isLoadingOrganizations {
+                loadOrganizations(forceRefresh: false)
+            }
+        }
+        .onChange(of: selectedCodexTab) { _, tab in
+            settings.codexSettingsLastTab = tab.rawValue
+        }
+        .onChange(of: settings.codexEnabled) { _, _ in
+            checkCodexAuth()
         }
     }
 
     @ViewBuilder
     private var panelContent: some View {
         switch selectedPanel {
-        case .status:
-            statusSection
-        case .auth:
-            authSection
-        case .display:
-            displaySection
-            Divider()
-            popoverItemsSection
-            Divider()
-            refreshSection
-        case .advanced:
-            alertSection
-            Divider()
-            powerSection
-            Divider()
-            updateSection
-            Divider()
-            generalSection
+        case .common:
+            switch selectedCommonTab {
+            case .display:
+                commonDisplaySection
+            case .refreshPower:
+                refreshSection
+                Divider()
+                powerSection
+            case .alerts:
+                commonAlertSection
+            case .app:
+                updateSection
+                Divider()
+                generalSection
+            }
+        case .claude:
+            switch selectedClaudeTab {
+            case .auth:
+                authSection
+            case .display:
+                claudeDisplaySection
+            case .status:
+                statusSection
+            case .organizations:
+                organizationSection
+            case .popover:
+                popoverItemsSection
+            case .alerts:
+                alertSection
+            }
+        case .codex:
+            switch selectedCodexTab {
+            case .auth:
+                codexAuthSection
+            case .display:
+                codexDisplaySection
+            case .popover:
+                codexPopoverItemsSection
+            case .alerts:
+                codexAlertSection
+            }
         }
+    }
+
+    private var contentIdentity: String {
+        switch selectedPanel {
+        case .common:
+            return "common-\(selectedCommonTab.rawValue)"
+        case .claude:
+            return "claude-\(selectedClaudeTab.rawValue)"
+        case .codex:
+            return "codex-\(selectedCodexTab.rawValue)"
+        }
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("설정")
+                .font(.headline)
+                .padding(.horizontal, 8)
+                .padding(.top, 4)
+
+            ForEach(SettingsPanel.allCases) { panel in
+                Button {
+                    selectedPanel = panel
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: panel.icon)
+                            .frame(width: 16)
+                        Text(panel.title)
+                            .font(.subheadline)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(selectedPanel == panel ? Color.accentColor.opacity(0.16) : Color.clear)
+                    .foregroundStyle(selectedPanel == panel ? Color.accentColor : .primary)
+                    .cornerRadius(8)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer()
+        }
+        .padding(12)
+        .frame(width: 156)
+        .background(Color(NSColor.windowBackgroundColor))
+    }
+
+    @ViewBuilder
+    private var panelTabBar: some View {
+        HStack(spacing: 8) {
+            switch selectedPanel {
+            case .common:
+                ForEach(CommonTab.allCases) { tab in
+                    segmentedTabButton(title: tab.title, isSelected: selectedCommonTab == tab) {
+                        selectedCommonTab = tab
+                    }
+                }
+            case .claude:
+                ForEach(ClaudeTab.allCases) { tab in
+                    segmentedTabButton(title: tab.title, isSelected: selectedClaudeTab == tab) {
+                        selectedClaudeTab = tab
+                    }
+                }
+            case .codex:
+                ForEach(CodexTab.allCases) { tab in
+                    segmentedTabButton(title: tab.title, isSelected: selectedCodexTab == tab) {
+                        selectedCodexTab = tab
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
+    }
+
+    private func segmentedTabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption)
+                .fontWeight(isSelected ? .semibold : .regular)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(isSelected ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
+                .foregroundStyle(isSelected ? Color.accentColor : .primary)
+                .cornerRadius(8)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - 인증 섹션
@@ -172,145 +379,154 @@ struct SettingsView: View {
             Label("인증", systemImage: "key")
                 .font(.headline)
 
-            authNoticeCard
-            authChecklistCard
+            Toggle("Claude 모니터링 활성화", isOn: $settings.claudeEnabled)
 
-            if let storedSessionKey, !storedSessionKey.isEmpty {
-                // 저장된 세션 키 존재
-                HStack(spacing: 8) {
-                    if isTesting {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("확인 중...")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else if let result = testResult {
-                        switch result {
-                        case .success:
-                            Label("연결 확인됨", systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                        case .failure(let msg):
-                            Label(msg, systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                                .lineLimit(1)
-                        }
-                    } else {
-                        Label("세션 키 저장됨", systemImage: "key.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                }
-                HStack(spacing: 8) {
-                    Text("세션 키: \(String(storedSessionKey.prefix(20)))...")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    if case .success = testResult {} else {
-                        Button("다시 로그인") { onOpenLogin?() }
-                    }
-                    Button("로그아웃") { handleLogoutAction() }
-                        .foregroundStyle(.red)
-                }
-            } else {
-                // 미로그인 상태
-                Button(action: { onOpenLogin?() }) {
-                    Label("Claude 로그인", systemImage: "person.crop.circle")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+            if settings.claudeEnabled {
+                authNoticeCard
+                authChecklistCard
 
-                Text("claude.ai에 로그인하여 세션 키를 자동으로 가져옵니다")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            // 고급 옵션: 수동 세션 키 입력
-            DisclosureGroup(isExpanded: $isAdvancedAuthExpanded) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 4) {
-                        Text("세션 키 직접 입력")
-                            .font(.subheadline)
-                        Button(action: { showKeyHelp.toggle() }) {
-                            Image(systemName: "questionmark.circle")
-                                .foregroundStyle(.secondary)
-                                .font(.system(size: 14))
-                        }
-                        .buttonStyle(.borderless)
-                        .popover(isPresented: $showKeyHelp) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("세션 키 가져오는 방법")
-                                    .font(.headline)
-                                Text("1. claude.ai에 로그인")
-                                Text("2. ⌘⌥I (Cmd+Opt+I)로 개발자 도구 열기")
-                                Text("3. Application 탭 → Cookies → https://claude.ai")
-                                Text("4. sessionKey의 값을 복사")
-                            }
-                            .font(.callout)
-                            .padding(16)
-                            .frame(width: 320)
-                        }
-                    }
-
-                    TextField("sk-ant-... 또는 sessionKey=sk-ant-...", text: $sessionKey)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(.caption, design: .monospaced))
-
-                    Text("입력만으로 로그인 상태가 되지는 않으며, 저장 후 적용됩니다.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-
-                    if let warning = sessionKeyFormatWarning {
-                        Label(warning, systemImage: "exclamationmark.triangle")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    }
-
-                    HStack {
-                        Button("연결 테스트") { testConnection() }
-                            .disabled(sessionKey.isEmpty || isTesting)
-
+                if let storedSessionKey, !storedSessionKey.isEmpty {
+                    // 저장된 세션 키 존재
+                    HStack(spacing: 8) {
                         if isTesting {
                             ProgressView()
                                 .controlSize(.small)
-                        }
-
-                        if let result = testResult {
+                            Text("확인 중...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else if let result = testResult {
                             switch result {
                             case .success:
-                                Label("연결 성공", systemImage: "checkmark.circle.fill")
+                                Label("연결 확인됨", systemImage: "checkmark.circle.fill")
                                     .foregroundStyle(.green)
-                                    .font(.caption)
                             case .failure(let msg):
-                                Label(msg, systemImage: "xmark.circle.fill")
-                                    .foregroundStyle(.red)
-                                    .font(.caption)
+                                Label(msg, systemImage: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
                                     .lineLimit(1)
+                            }
+                        } else {
+                            Label("세션 키 저장됨", systemImage: "key.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    HStack(spacing: 8) {
+                        Text("세션 키: \(String(storedSessionKey.prefix(20)))...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if case .success = testResult {} else {
+                            Button("다시 로그인") { onOpenLogin?() }
+                        }
+                        Button("로그아웃") { handleLogoutAction() }
+                            .foregroundStyle(.red)
+                    }
+                } else {
+                    // 미로그인 상태
+                    Button(action: { onOpenLogin?() }) {
+                        Label("Claude 로그인", systemImage: "person.crop.circle")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+
+                    Text("claude.ai에 로그인하여 세션 키를 자동으로 가져옵니다")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                // 고급 옵션: 수동 세션 키 입력
+                DisclosureGroup(isExpanded: $isAdvancedAuthExpanded) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 4) {
+                            Text("세션 키 직접 입력")
+                                .font(.subheadline)
+                            Button(action: { showKeyHelp.toggle() }) {
+                                Image(systemName: "questionmark.circle")
+                                    .foregroundStyle(.secondary)
+                                    .font(.system(size: 14))
+                            }
+                            .buttonStyle(.borderless)
+                            .popover(isPresented: $showKeyHelp) {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("세션 키 가져오는 방법")
+                                        .font(.headline)
+                                    Text("1. claude.ai에 로그인")
+                                    Text("2. ⌘⌥I (Cmd+Opt+I)로 개발자 도구 열기")
+                                    Text("3. Application 탭 → Cookies → https://claude.ai")
+                                    Text("4. sessionKey의 값을 복사")
+                                }
+                                .font(.callout)
+                                .padding(16)
+                                .frame(width: 320)
+                            }
+                        }
+
+                        TextField("sk-ant-... 또는 sessionKey=sk-ant-...", text: $sessionKey)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.system(.caption, design: .monospaced))
+
+                        Text("입력만으로 로그인 상태가 되지는 않으며, 저장 후 적용됩니다.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+
+                        if let warning = sessionKeyFormatWarning {
+                            Label(warning, systemImage: "exclamationmark.triangle")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+
+                        HStack {
+                            Button("연결 테스트") { testConnection() }
+                                .disabled(sessionKey.isEmpty || isTesting)
+
+                            if isTesting {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+
+                            if let result = testResult {
+                                switch result {
+                                case .success:
+                                    Label("연결 성공", systemImage: "checkmark.circle.fill")
+                                        .foregroundStyle(.green)
+                                        .font(.caption)
+                                case .failure(let msg):
+                                    Label(msg, systemImage: "xmark.circle.fill")
+                                        .foregroundStyle(.red)
+                                        .font(.caption)
+                                        .lineLimit(1)
+                                }
                             }
                         }
                     }
-                }
-                .padding(.top, 4)
-            } label: {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        isAdvancedAuthExpanded.toggle()
-                    }
+                    .padding(.top, 4)
                 } label: {
-                    HStack {
-                        Text("고급 옵션")
-                        Spacer(minLength: 0)
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            isAdvancedAuthExpanded.toggle()
+                        }
+                    } label: {
+                        HStack {
+                            Text("고급 옵션")
+                            Spacer(minLength: 0)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .padding(.vertical, 4)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .padding(.vertical, 4)
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
-            }
-            .font(.subheadline)
+                .font(.subheadline)
 
-            oauthQuickGuideSection
-            authFAQSection
+                oauthQuickGuideSection
+                authFAQSection
+            } else {
+                Text("Claude 모니터링이 비활성화되어 있습니다. 활성화하면 메뉴바와 조회가 다시 동작합니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 6)
+            }
         }
     }
 
@@ -321,10 +537,6 @@ struct SettingsView: View {
 
             runtimeStatusSummaryCard
             usageHealthSection
-
-            Divider()
-
-            organizationSection
         }
     }
 
@@ -673,7 +885,6 @@ struct SettingsView: View {
 
     private var organizationSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Divider()
             organizationHeader
             organizationLoadActions
             organizationTargetPicker
@@ -826,7 +1037,403 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - Codex 섹션
+
+    private var codexAuthSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Codex 인증", systemImage: "bubble.left.and.bubble.right")
+                .font(.headline)
+
+            Toggle("Codex 모니터링 활성화", isOn: $settings.codexEnabled)
+
+            if settings.codexEnabled {
+                HStack(spacing: 8) {
+                    switch codexAuthStatus {
+                    case .checking:
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("확인 중...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    case .authenticated:
+                        Label("연결됨 (auth.json)", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    case .expired:
+                        Label("토큰 만료됨", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    case .notInstalled:
+                        Label("Codex CLI 미설치", systemImage: "xmark.circle.fill")
+                            .foregroundStyle(.red)
+                    case .notLoggedIn:
+                        Label("로그인 필요", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                    Spacer()
+                }
+
+                if codexAuthStatus == .notInstalled {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Codex CLI를 먼저 설치하세요:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        codexCommandRow("brew install --cask codex", label: "Homebrew")
+                        codexCommandRow("npm i -g @openai/codex", label: "npm")
+                    }
+                }
+
+                if codexAuthStatus == .notInstalled || codexAuthStatus == .notLoggedIn {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("터미널에서 로그인하세요:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        codexCommandRow("codex login", label: "로그인")
+                    }
+                }
+
+                if codexAuthStatus == .expired {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("토큰이 만료되었습니다. 다시 로그인하세요:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        codexCommandRow("codex login", label: "재로그인")
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    Button("인증 상태 새로고침") {
+                        checkCodexAuth()
+                    }
+
+                    if codexAuthStatus == .authenticated {
+                        Button("Codex 로그아웃") {
+                            onCodexLogout?()
+                            checkCodexAuth()
+                        }
+                        .foregroundStyle(.red)
+                    }
+                }
+            }
+        }
+    }
+
+    private func codexCommandRow(_ command: String, label: String) -> some View {
+        HStack(spacing: 4) {
+            Text(command)
+                .font(.system(.caption, design: .monospaced))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color(NSColor.controlBackgroundColor))
+                .cornerRadius(4)
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(command, forType: .string)
+            } label: {
+                Image(systemName: "doc.on.doc")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .help("\(label) 명령어 복사")
+        }
+    }
+
+    private func checkCodexAuth() {
+        if !settings.codexEnabled {
+            codexAuthStatus = .notLoggedIn
+            return
+        }
+
+        if CodexAuthManager.shared.authJsonExists {
+            if let token = CodexAuthManager.shared.getToken() {
+                codexAuthStatus = token.isExpired ? .expired : .authenticated
+            } else {
+                codexAuthStatus = .notLoggedIn
+            }
+            return
+        }
+
+        let codexInstalled = FileManager.default.isExecutableFile(atPath: "/usr/local/bin/codex")
+            || FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/codex")
+            || FileManager.default.isExecutableFile(atPath: "\(NSHomeDirectory())/.npm-global/bin/codex")
+            || {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+                process.arguments = ["codex"]
+                let pipe = Pipe()
+                process.standardOutput = pipe
+                process.standardError = Pipe()
+                try? process.run()
+                process.waitUntilExit()
+                return process.terminationStatus == 0
+            }()
+
+        codexAuthStatus = codexInstalled ? .notLoggedIn : .notInstalled
+    }
+
+    private var codexDisplaySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Codex 표시", systemImage: "slider.horizontal.3")
+                .font(.headline)
+
+            Toggle("Codex 아이콘", isOn: $settings.showCodexIcon)
+            Picker("퍼센트:", selection: $settings.codexPercentageDisplay) {
+                ForEach(PercentageDisplay.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            Picker("리셋 시간:", selection: $settings.codexResetTimeDisplay) {
+                ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            if settings.codexResetTimeDisplay != .none {
+                Picker("시간 형식:", selection: $settings.codexTimeFormat) {
+                    ForEach(TimeFormatStyle.allCases, id: \.self) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+            }
+
+            Divider()
+
+            Picker("아이콘:", selection: $settings.codexMenuBarStyle) {
+                Text("없음").tag(MenuBarStyle.none)
+                Section("개별 세션") {
+                    Text("배터리바").tag(MenuBarStyle.batteryBar)
+                    Text("원형").tag(MenuBarStyle.circular)
+                }
+                Section("동시 표시 (현재 세션 + 주간)") {
+                    Text("동심원").tag(MenuBarStyle.concentricRings)
+                    Text("이중 배터리").tag(MenuBarStyle.dualBattery)
+                    Text("좌우 배터리").tag(MenuBarStyle.sideBySideBattery)
+                }
+            }
+            .onChange(of: settings.codexMenuBarStyle) { _, newValue in
+                if newValue == .batteryBar || newValue == .dualBattery || newValue == .sideBySideBattery {
+                    settings.codexCircularDisplayMode = .remaining
+                } else if newValue == .none {
+                    settings.codexCircularDisplayMode = .usage
+                }
+            }
+
+            if isCodexBatteryWithPercent {
+                Toggle("배터리 내부 숫자", isOn: $settings.codexShowBatteryPercent)
+                    .padding(.leading, 20)
+            }
+            if isCodexCircularStyle {
+                Picker("표시 기준:", selection: $settings.codexCircularDisplayMode) {
+                    ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                .padding(.leading, 20)
+            }
+        }
+    }
+
+    private var isCodexBatteryWithPercent: Bool {
+        switch settings.codexMenuBarStyle {
+        case .batteryBar, .dualBattery, .sideBySideBattery: return true
+        default: return false
+        }
+    }
+
+    private var isCodexCircularStyle: Bool {
+        settings.codexMenuBarStyle == .circular || settings.codexMenuBarStyle == .concentricRings
+    }
+
+    private var isEditingCodexCompact: Bool {
+        settings.separateCompactConfig && codexCompactConfigTab == 1
+    }
+
+    private var codexPopoverItemsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Codex 표시 항목", systemImage: "list.bullet.indent")
+                .font(.headline)
+
+            Text("Codex 항목의 표시 여부와 순서를 설정합니다")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Toggle("기본/간소화 개별 설정", isOn: $settings.separateCompactConfig)
+
+            if settings.separateCompactConfig {
+                Picker("", selection: $codexCompactConfigTab) {
+                    Text("기본").tag(0)
+                    Text("간소화").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 160)
+            }
+
+            codexItemsList(isCompact: isEditingCodexCompact)
+        }
+    }
+
+    private func codexItemsList(isCompact: Bool) -> some View {
+        let items = isCompact ? settings.codexCompactPopoverItems : settings.codexPopoverItems
+        return VStack(spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                VStack(spacing: 0) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 14)
+
+                        Button {
+                            if isCompact {
+                                settings.codexCompactPopoverItems[index].visible.toggle()
+                            } else {
+                                settings.codexPopoverItems[index].visible.toggle()
+                            }
+                        } label: {
+                            Image(systemName: item.visible ? "eye" : "eye.slash")
+                                .foregroundStyle(item.visible ? .primary : .tertiary)
+                                .font(.system(size: 12))
+                                .frame(width: 16, height: 16)
+                        }
+                        .buttonStyle(.borderless)
+
+                        Text(item.displayName)
+                            .font(.subheadline)
+                            .foregroundStyle(item.visible ? .primary : .tertiary)
+                        Spacer()
+                    }
+                    .frame(height: 26)
+                    .padding(.horizontal, 8)
+                    .contentShape(Rectangle())
+
+                    if index < items.count - 1 {
+                        Divider().padding(.horizontal, 8)
+                    }
+                }
+                .background(codexDraggingItemID == item.id ? Color.accentColor.opacity(0.1) : Color.clear)
+                .cornerRadius(4)
+                .onDrag {
+                    codexDraggingItemID = item.id
+                    return NSItemProvider(object: item.id as NSString)
+                }
+                .onDrop(of: [.text], delegate: PopoverItemDropDelegate(
+                    targetID: item.id,
+                    settings: settings,
+                    isCompact: isCompact,
+                    provider: .codex,
+                    draggingItemID: $codexDraggingItemID
+                ))
+            }
+        }
+        .padding(.vertical, 4)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .cornerRadius(6)
+    }
+
+    private var codexAlertSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Codex 알림", systemImage: "bell.badge")
+                .font(.headline)
+
+            Toggle("Codex 알림 사용", isOn: $settings.codexAlertEnabled)
+
+            Text("세부 임계값과 기준은 공통 > 알림에서 설정합니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if !settings.notificationsEnabled {
+                Label("전체 알림이 꺼져 있어 실제 알림은 발송되지 않습니다.", systemImage: "bell.slash")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
+            Button {
+                selectedPanel = .common
+                selectedCommonTab = .alerts
+            } label: {
+                Label("공통 알림 설정 열기", systemImage: "slider.horizontal.3")
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+
+    private var codexAlertDetailSettings: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(settings.codexAlertThresholds.indices), id: \.self) { index in
+                HStack(spacing: 8) {
+                    TextField("", text: Binding(
+                        get: { index < codexAlertTexts.count ? codexAlertTexts[index] : "" },
+                        set: { newValue in
+                            guard index < codexAlertTexts.count else { return }
+                            codexAlertTexts[index] = newValue
+                            if let val = Int(newValue), val >= 1, val <= 100 {
+                                settings.codexAlertThresholds[index] = val
+                            }
+                        }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 50)
+
+                    Text(settings.codexAlertRemainingMode ? "% 남았을 때 알림" : "% 사용 시 알림")
+                        .font(.subheadline)
+
+                    Spacer()
+
+                    Button {
+                        settings.codexAlertThresholds.remove(at: index)
+                        codexAlertTexts.remove(at: index)
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .foregroundColor(.red.opacity(0.7))
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+
+            Button {
+                let next = suggestNextCodexThreshold()
+                settings.codexAlertThresholds.append(next)
+                codexAlertTexts.append(String(next))
+            } label: {
+                Label("임계값 추가", systemImage: "plus.circle.fill")
+                    .font(.subheadline)
+            }
+            .buttonStyle(.borderless)
+
+            Picker("기준:", selection: $settings.codexAlertRemainingMode) {
+                Text("사용량").tag(false)
+                Text("남은 사용량").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 200)
+            .onChange(of: settings.codexAlertRemainingMode) { _, _ in
+                settings.codexAlertThresholds = settings.codexAlertThresholds.map { max(1, min(100 - $0, 99)) }
+                codexAlertTexts = settings.codexAlertThresholds.map { String($0) }
+            }
+        }
+    }
+
+    private func suggestNextCodexThreshold() -> Int {
+        let existing = settings.codexAlertThresholds.sorted()
+        if existing.isEmpty { return 75 }
+        let candidates = [50, 60, 70, 75, 80, 85, 90, 95, 100]
+        for c in candidates where !existing.contains(c) {
+            return c
+        }
+        return min((existing.last ?? 90) + 5, 100)
+    }
+
     // MARK: - 디스플레이 섹션
+
+    private var commonDisplaySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("공통 표시", systemImage: "paintbrush")
+                .font(.headline)
+
+            Toggle("메뉴바 보조 텍스트 강조", isOn: $settings.menuBarTextHighContrast)
+            Text("메뉴바의 리셋 시간, 구분자 등을 기본 텍스트와 동일한 색상으로 표시")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
 
     private var isBatteryWithPercent: Bool {
         settings.menuBarStyle == .batteryBar || settings.menuBarStyle == .sideBySideBattery
@@ -847,7 +1454,7 @@ struct SettingsView: View {
         settings.menuBarStyle == .circular || settings.menuBarStyle == .concentricRings
     }
 
-    private var displaySection: some View {
+    private var claudeDisplaySection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Label("디스플레이", systemImage: "paintbrush")
@@ -878,11 +1485,6 @@ struct SettingsView: View {
                         }
                     }
                 }
-
-                Toggle("메뉴바 보조 텍스트 강조", isOn: $settings.menuBarTextHighContrast)
-                Text("메뉴바의 리셋 시간, 구분자 등을 기본 텍스트와 동일한 색상으로 표시")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
 
                 Divider()
 
@@ -1016,6 +1618,7 @@ struct SettingsView: View {
                     targetID: item.id,
                     settings: settings,
                     isCompact: isCompact,
+                    provider: .claude,
                     draggingItemID: $draggingItemID
                 ))
             }
@@ -1069,78 +1672,140 @@ struct SettingsView: View {
 
     // MARK: - 알림 섹션
 
-    private var alertSection: some View {
+    private var commonAlertSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("알림", systemImage: "bell")
                 .font(.headline)
 
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(settings.alertThresholds.indices), id: \.self) { index in
-                    HStack(spacing: 8) {
-                        TextField("", text: Binding(
-                            get: { index < alertTexts.count ? alertTexts[index] : "" },
-                            set: { newValue in
-                                guard index < alertTexts.count else { return }
-                                alertTexts[index] = newValue
-                                if let val = Int(newValue), val >= 1, val <= 100 {
-                                    settings.alertThresholds[index] = val
-                                }
-                            }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 50)
+            Toggle("전체 알림 사용", isOn: $settings.notificationsEnabled)
 
-                        Text(settings.alertRemainingMode ? "% 남았을 때 알림" : "% 사용 시 알림")
-                            .font(.subheadline)
-
-                        Spacer()
-
-                        Button {
-                            settings.alertThresholds.remove(at: index)
-                            alertTexts.remove(at: index)
-                        } label: {
-                            Image(systemName: "minus.circle.fill")
-                                .foregroundColor(.red.opacity(0.7))
-                        }
-                        .buttonStyle(.borderless)
-                    }
-                }
-
-                Button {
-                    let next = suggestNextThreshold()
-                    settings.alertThresholds.append(next)
-                    alertTexts.append(String(next))
-                } label: {
-                    Label("임계값 추가", systemImage: "plus.circle.fill")
-                        .font(.subheadline)
-                }
-                .buttonStyle(.borderless)
-
-                Picker("기준:", selection: $settings.alertRemainingMode) {
-                    Text("사용량").tag(false)
-                    Text("남은 사용량").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 200)
-                .onChange(of: settings.alertRemainingMode) { _, _ in
-                    settings.alertThresholds = settings.alertThresholds.map { max(1, min(100 - $0, 99)) }
-                    alertTexts = settings.alertThresholds.map { String($0) }
-                }
-
-                Divider()
-
-                Text("알림 대상")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Toggle("현재 세션", isOn: $settings.alertFiveHourEnabled)
-                Toggle("주간 세션", isOn: $settings.alertWeeklyEnabled)
-
-                Divider()
-
-                Text("시스템 설정 → 알림 → ClaudeUsage에서 알림을 허용해야 합니다.")
+            if !settings.notificationsEnabled {
+                Label("전체 알림이 꺼져 있어 Claude/Codex 알림이 모두 중지됩니다.", systemImage: "bell.slash")
                     .font(.caption)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.orange)
             }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Claude 알림 조건")
+                    .font(.subheadline.weight(.semibold))
+                claudeAlertDetailSettings
+                if !settings.claudeAlertEnabled {
+                    Text("Claude 알림은 Claude > 알림에서 활성화할 수 있습니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .disabled(!settings.notificationsEnabled)
+            .opacity(settings.notificationsEnabled ? 1.0 : 0.6)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Codex 알림 조건")
+                    .font(.subheadline.weight(.semibold))
+                codexAlertDetailSettings
+                if !settings.codexAlertEnabled {
+                    Text("Codex 알림은 Codex > 알림에서 활성화할 수 있습니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .disabled(!settings.notificationsEnabled)
+            .opacity(settings.notificationsEnabled ? 1.0 : 0.6)
+
+            Divider()
+
+            Text("시스템 설정 → 알림 → ClaudeUsage에서 알림을 허용해야 합니다.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private var alertSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Claude 알림", systemImage: "bell.badge")
+                .font(.headline)
+
+            Toggle("Claude 알림 사용", isOn: $settings.claudeAlertEnabled)
+
+            Text("세부 임계값과 기준은 공통 > 알림에서 설정합니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if !settings.notificationsEnabled {
+                Label("전체 알림이 꺼져 있어 실제 알림은 발송되지 않습니다.", systemImage: "bell.slash")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
+            Button {
+                selectedPanel = .common
+                selectedCommonTab = .alerts
+            } label: {
+                Label("공통 알림 설정 열기", systemImage: "slider.horizontal.3")
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+
+    private var claudeAlertDetailSettings: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(settings.alertThresholds.indices), id: \.self) { index in
+                HStack(spacing: 8) {
+                    TextField("", text: Binding(
+                        get: { index < alertTexts.count ? alertTexts[index] : "" },
+                        set: { newValue in
+                            guard index < alertTexts.count else { return }
+                            alertTexts[index] = newValue
+                            if let val = Int(newValue), val >= 1, val <= 100 {
+                                settings.alertThresholds[index] = val
+                            }
+                        }
+                    ))
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 50)
+
+                    Text(settings.alertRemainingMode ? "% 남았을 때 알림" : "% 사용 시 알림")
+                        .font(.subheadline)
+
+                    Spacer()
+
+                    Button {
+                        settings.alertThresholds.remove(at: index)
+                        alertTexts.remove(at: index)
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .foregroundColor(.red.opacity(0.7))
+                    }
+                    .buttonStyle(.borderless)
+                }
+            }
+
+            Button {
+                let next = suggestNextThreshold()
+                settings.alertThresholds.append(next)
+                alertTexts.append(String(next))
+            } label: {
+                Label("임계값 추가", systemImage: "plus.circle.fill")
+                    .font(.subheadline)
+            }
+            .buttonStyle(.borderless)
+
+            Picker("기준:", selection: $settings.alertRemainingMode) {
+                Text("사용량").tag(false)
+                Text("남은 사용량").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 200)
+            .onChange(of: settings.alertRemainingMode) { _, _ in
+                settings.alertThresholds = settings.alertThresholds.map { max(1, min(100 - $0, 99)) }
+                alertTexts = settings.alertThresholds.map { String($0) }
+            }
+
+            Toggle("현재 세션 알림", isOn: $settings.alertFiveHourEnabled)
+            Toggle("주간 세션 알림", isOn: $settings.alertWeeklyEnabled)
         }
     }
 
@@ -1331,14 +1996,11 @@ struct SettingsView: View {
 
     private func applyChanges() {
         persistChanges()
-        snapshot = settings.createSnapshot()
-        didSave = false
         onApply?()
     }
 
     private func confirmChanges() {
         persistChanges()
-        didSave = true
         onSave?()
     }
 
@@ -1537,20 +2199,30 @@ struct SettingsView: View {
         settings.resetToDefaults()
         refreshIntervalText = String(Int(settings.refreshInterval))
         alertTexts = settings.alertThresholds.map { String($0) }
+        codexAlertTexts = settings.codexAlertThresholds.map { String($0) }
         selectedOrganizationID = settings.preferredOrganizationID
         organizationPreviews = []
         isLoadingOrganizationPreviews = false
         organizationMessage = nil
         organizationOAuthFallbackSummary = nil
+        codexCompactConfigTab = 0
+        compactConfigTab = 0
+        checkCodexAuth()
     }
 }
 
 // MARK: - Drag & Drop Delegate
 
 struct PopoverItemDropDelegate: DropDelegate {
+    enum Provider {
+        case claude
+        case codex
+    }
+
     let targetID: String
     let settings: AppSettings
     let isCompact: Bool
+    let provider: Provider
     @Binding var draggingItemID: String?
 
     func performDrop(info: DropInfo) -> Bool {
@@ -1561,17 +2233,28 @@ struct PopoverItemDropDelegate: DropDelegate {
     func dropEntered(info: DropInfo) {
         guard let draggingID = draggingItemID, draggingID != targetID else { return }
 
-        let items = isCompact ? settings.compactPopoverItems : settings.popoverItems
+        let items: [PopoverItemConfig]
+        switch (provider, isCompact) {
+        case (.claude, false): items = settings.popoverItems
+        case (.claude, true): items = settings.compactPopoverItems
+        case (.codex, false): items = settings.codexPopoverItems
+        case (.codex, true): items = settings.codexCompactPopoverItems
+        }
         guard let fromIndex = items.firstIndex(where: { $0.id == draggingID }),
               let toIndex = items.firstIndex(where: { $0.id == targetID })
         else { return }
 
         withAnimation(.easeInOut(duration: 0.15)) {
             let offset = toIndex > fromIndex ? toIndex + 1 : toIndex
-            if isCompact {
-                settings.compactPopoverItems.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: offset)
-            } else {
+            switch (provider, isCompact) {
+            case (.claude, false):
                 settings.popoverItems.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: offset)
+            case (.claude, true):
+                settings.compactPopoverItems.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: offset)
+            case (.codex, false):
+                settings.codexPopoverItems.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: offset)
+            case (.codex, true):
+                settings.codexCompactPopoverItems.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: offset)
             }
         }
     }

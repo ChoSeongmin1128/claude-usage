@@ -98,22 +98,36 @@ struct PopoverItemConfig: Codable, Sendable, Equatable {
     let id: String
     var visible: Bool
 
-    static let defaultItems: [PopoverItemConfig] = [
+    static let defaultClaudeItems: [PopoverItemConfig] = [
         .init(id: "currentSession", visible: true),
         .init(id: "weeklyLimit", visible: true),
         .init(id: "modelUsage", visible: true),
         .init(id: "overageUsage", visible: true),
     ]
 
-    static let supportedIDs: [String] = defaultItems.map(\.id)
+    // 하위 호환용 별칭 (기존 코드 경로 유지)
+    static let defaultItems: [PopoverItemConfig] = defaultClaudeItems
 
-    static func normalized(_ items: [PopoverItemConfig]) -> [PopoverItemConfig] {
+    static let defaultCodexItems: [PopoverItemConfig] = [
+        .init(id: "codexPrimary", visible: false),
+        .init(id: "codexSecondary", visible: false),
+        .init(id: "codexCredits", visible: false),
+    ]
+
+    static let supportedClaudeIDs: [String] = defaultClaudeItems.map(\.id)
+    static let supportedCodexIDs: [String] = defaultCodexItems.map(\.id)
+
+    private static func normalized(
+        _ items: [PopoverItemConfig],
+        supportedIDs: [String],
+        defaults: [PopoverItemConfig]
+    ) -> [PopoverItemConfig] {
         let supported = Set(supportedIDs)
-        let defaultVisible = Dictionary(uniqueKeysWithValues: defaultItems.map { ($0.id, $0.visible) })
+        let defaultVisible = Dictionary(uniqueKeysWithValues: defaults.map { ($0.id, $0.visible) })
 
         var seen = Set<String>()
         var result: [PopoverItemConfig] = []
-        result.reserveCapacity(defaultItems.count)
+        result.reserveCapacity(defaults.count)
 
         for item in items {
             guard supported.contains(item.id), !seen.contains(item.id) else { continue }
@@ -125,7 +139,20 @@ struct PopoverItemConfig: Codable, Sendable, Equatable {
             result.append(.init(id: id, visible: defaultVisible[id] ?? true))
         }
 
-        return result.isEmpty ? defaultItems : result
+        return result.isEmpty ? defaults : result
+    }
+
+    static func normalizedClaude(_ items: [PopoverItemConfig]) -> [PopoverItemConfig] {
+        normalized(items, supportedIDs: supportedClaudeIDs, defaults: defaultClaudeItems)
+    }
+
+    static func normalizedCodex(_ items: [PopoverItemConfig]) -> [PopoverItemConfig] {
+        normalized(items, supportedIDs: supportedCodexIDs, defaults: defaultCodexItems)
+    }
+
+    // 하위 호환용 별칭 (기존 코드 경로 유지)
+    static func normalized(_ items: [PopoverItemConfig]) -> [PopoverItemConfig] {
+        normalizedClaude(items)
     }
 
     var displayName: String {
@@ -134,6 +161,9 @@ struct PopoverItemConfig: Codable, Sendable, Equatable {
         case "weeklyLimit": return "주간 한도"
         case "modelUsage": return "모델별 주간 한도"
         case "overageUsage": return "추가 사용량"
+        case "codexPrimary": return "Codex 현재"
+        case "codexSecondary": return "Codex 주간"
+        case "codexCredits": return "Codex 크레딧"
         default: return id
         }
     }
@@ -189,6 +219,9 @@ class AppSettings: ObservableObject {
     @Published var autoRefresh: Bool {
         didSet { defaults.set(autoRefresh, forKey: "autoRefresh") }
     }
+    @Published var notificationsEnabled: Bool {
+        didSet { defaults.set(notificationsEnabled, forKey: "notificationsEnabled") }
+    }
     @Published var alertThresholds: [Int] {
         didSet { defaults.set(alertThresholds, forKey: "alertThresholds") }
     }
@@ -204,8 +237,14 @@ class AppSettings: ObservableObject {
     @Published var showClaudeIcon: Bool {
         didSet { defaults.set(showClaudeIcon, forKey: "showClaudeIcon") }
     }
+    @Published var claudeEnabled: Bool {
+        didSet { defaults.set(claudeEnabled, forKey: "claudeEnabled") }
+    }
     @Published var menuBarTextHighContrast: Bool {
         didSet { defaults.set(menuBarTextHighContrast, forKey: "menuBarTextHighContrast") }
+    }
+    @Published var claudeAlertEnabled: Bool {
+        didSet { defaults.set(claudeAlertEnabled, forKey: "claudeAlertEnabled") }
     }
     @Published var alertFiveHourEnabled: Bool {
         didSet { defaults.set(alertFiveHourEnabled, forKey: "alertFiveHourEnabled") }
@@ -224,6 +263,18 @@ class AppSettings: ObservableObject {
     }
     @Published var popoverCompact: Bool {
         didSet { defaults.set(popoverCompact, forKey: "popoverCompact") }
+    }
+    @Published var claudePopoverPinned: Bool {
+        didSet { defaults.set(claudePopoverPinned, forKey: "claudePopoverPinned") }
+    }
+    @Published var codexPopoverPinned: Bool {
+        didSet { defaults.set(codexPopoverPinned, forKey: "codexPopoverPinned") }
+    }
+    @Published var claudePopoverCompact: Bool {
+        didSet { defaults.set(claudePopoverCompact, forKey: "claudePopoverCompact") }
+    }
+    @Published var codexPopoverCompact: Bool {
+        didSet { defaults.set(codexPopoverCompact, forKey: "codexPopoverCompact") }
     }
     @Published var launchAtLogin: Bool {
         didSet {
@@ -247,6 +298,7 @@ class AppSettings: ObservableObject {
             if separateCompactConfig {
                 // 분리 모드 전환: 기본 설정을 복사하여 시작
                 compactPopoverItems = popoverItems
+                codexCompactPopoverItems = codexPopoverItems
             }
         }
     }
@@ -256,6 +308,65 @@ class AppSettings: ObservableObject {
                 defaults.set(data, forKey: "compactPopoverItems")
             }
         }
+    }
+    @Published var codexEnabled: Bool {
+        didSet { defaults.set(codexEnabled, forKey: "codexEnabled") }
+    }
+    @Published var showCodexIcon: Bool {
+        didSet { defaults.set(showCodexIcon, forKey: "showCodexIcon") }
+    }
+    @Published var codexPercentageDisplay: PercentageDisplay {
+        didSet { defaults.set(codexPercentageDisplay.rawValue, forKey: "codexPercentageDisplay") }
+    }
+    @Published var codexResetTimeDisplay: ResetTimeDisplay {
+        didSet { defaults.set(codexResetTimeDisplay.rawValue, forKey: "codexResetTimeDisplay") }
+    }
+    @Published var codexTimeFormat: TimeFormatStyle {
+        didSet { defaults.set(codexTimeFormat.rawValue, forKey: "codexTimeFormat") }
+    }
+    @Published var codexMenuBarStyle: MenuBarStyle {
+        didSet { defaults.set(codexMenuBarStyle.rawValue, forKey: "codexMenuBarStyle") }
+    }
+    @Published var codexCircularDisplayMode: CircularDisplayMode {
+        didSet { defaults.set(codexCircularDisplayMode.rawValue, forKey: "codexCircularDisplayMode") }
+    }
+    @Published var codexShowBatteryPercent: Bool {
+        didSet { defaults.set(codexShowBatteryPercent, forKey: "codexShowBatteryPercent") }
+    }
+    @Published var codexAlertEnabled: Bool {
+        didSet { defaults.set(codexAlertEnabled, forKey: "codexAlertEnabled") }
+    }
+    @Published var codexAlertThresholds: [Int] {
+        didSet { defaults.set(codexAlertThresholds, forKey: "codexAlertThresholds") }
+    }
+    @Published var codexAlertRemainingMode: Bool {
+        didSet { defaults.set(codexAlertRemainingMode, forKey: "codexAlertRemainingMode") }
+    }
+    @Published var codexPopoverItems: [PopoverItemConfig] {
+        didSet {
+            if let data = try? JSONEncoder().encode(codexPopoverItems) {
+                defaults.set(data, forKey: "codexPopoverItems")
+            }
+        }
+    }
+    @Published var codexCompactPopoverItems: [PopoverItemConfig] {
+        didSet {
+            if let data = try? JSONEncoder().encode(codexCompactPopoverItems) {
+                defaults.set(data, forKey: "codexCompactPopoverItems")
+            }
+        }
+    }
+    @Published var settingsLastTab: String {
+        didSet { defaults.set(settingsLastTab, forKey: "settingsLastTab") }
+    }
+    @Published var menuBarActiveService: String {
+        didSet { defaults.set(menuBarActiveService, forKey: "menuBarActiveService") }
+    }
+    @Published var claudeSettingsLastTab: String {
+        didSet { defaults.set(claudeSettingsLastTab, forKey: "claudeSettingsLastTab") }
+    }
+    @Published var codexSettingsLastTab: String {
+        didSet { defaults.set(codexSettingsLastTab, forKey: "codexSettingsLastTab") }
     }
 
     // MARK: - Snapshot
@@ -269,21 +380,45 @@ class AppSettings: ObservableObject {
         let circularDisplayMode: CircularDisplayMode
         let refreshInterval: TimeInterval
         let autoRefresh: Bool
+        let notificationsEnabled: Bool
         let alertThresholds: [Int]
         let alertRemainingMode: Bool
         let reducedRefreshOnBattery: Bool
         let showClaudeIcon: Bool
+        let claudeEnabled: Bool
         let menuBarTextHighContrast: Bool
         let updateCheckInterval: UpdateCheckInterval
+        let claudeAlertEnabled: Bool
         let alertFiveHourEnabled: Bool
         let alertWeeklyEnabled: Bool
         let popoverPinned: Bool
         let popoverCompact: Bool
+        let claudePopoverPinned: Bool
+        let codexPopoverPinned: Bool
+        let claudePopoverCompact: Bool
+        let codexPopoverCompact: Bool
         let launchAtLogin: Bool
         let preferredOrganizationID: String
         let popoverItems: [PopoverItemConfig]
         let separateCompactConfig: Bool
         let compactPopoverItems: [PopoverItemConfig]
+        let codexEnabled: Bool
+        let showCodexIcon: Bool
+        let codexPercentageDisplay: PercentageDisplay
+        let codexResetTimeDisplay: ResetTimeDisplay
+        let codexTimeFormat: TimeFormatStyle
+        let codexMenuBarStyle: MenuBarStyle
+        let codexCircularDisplayMode: CircularDisplayMode
+        let codexShowBatteryPercent: Bool
+        let codexAlertEnabled: Bool
+        let codexAlertThresholds: [Int]
+        let codexAlertRemainingMode: Bool
+        let codexPopoverItems: [PopoverItemConfig]
+        let codexCompactPopoverItems: [PopoverItemConfig]
+        let settingsLastTab: String
+        let menuBarActiveService: String
+        let claudeSettingsLastTab: String
+        let codexSettingsLastTab: String
     }
 
     func createSnapshot() -> Snapshot {
@@ -296,21 +431,45 @@ class AppSettings: ObservableObject {
             circularDisplayMode: circularDisplayMode,
             refreshInterval: refreshInterval,
             autoRefresh: autoRefresh,
+            notificationsEnabled: notificationsEnabled,
             alertThresholds: alertThresholds,
             alertRemainingMode: alertRemainingMode,
             reducedRefreshOnBattery: reducedRefreshOnBattery,
             showClaudeIcon: showClaudeIcon,
+            claudeEnabled: claudeEnabled,
             menuBarTextHighContrast: menuBarTextHighContrast,
             updateCheckInterval: updateCheckInterval,
+            claudeAlertEnabled: claudeAlertEnabled,
             alertFiveHourEnabled: alertFiveHourEnabled,
             alertWeeklyEnabled: alertWeeklyEnabled,
             popoverPinned: popoverPinned,
             popoverCompact: popoverCompact,
+            claudePopoverPinned: claudePopoverPinned,
+            codexPopoverPinned: codexPopoverPinned,
+            claudePopoverCompact: claudePopoverCompact,
+            codexPopoverCompact: codexPopoverCompact,
             launchAtLogin: launchAtLogin,
             preferredOrganizationID: preferredOrganizationID,
             popoverItems: popoverItems,
             separateCompactConfig: separateCompactConfig,
-            compactPopoverItems: compactPopoverItems
+            compactPopoverItems: compactPopoverItems,
+            codexEnabled: codexEnabled,
+            showCodexIcon: showCodexIcon,
+            codexPercentageDisplay: codexPercentageDisplay,
+            codexResetTimeDisplay: codexResetTimeDisplay,
+            codexTimeFormat: codexTimeFormat,
+            codexMenuBarStyle: codexMenuBarStyle,
+            codexCircularDisplayMode: codexCircularDisplayMode,
+            codexShowBatteryPercent: codexShowBatteryPercent,
+            codexAlertEnabled: codexAlertEnabled,
+            codexAlertThresholds: codexAlertThresholds,
+            codexAlertRemainingMode: codexAlertRemainingMode,
+            codexPopoverItems: codexPopoverItems,
+            codexCompactPopoverItems: codexCompactPopoverItems,
+            settingsLastTab: settingsLastTab,
+            menuBarActiveService: menuBarActiveService,
+            claudeSettingsLastTab: claudeSettingsLastTab,
+            codexSettingsLastTab: codexSettingsLastTab
         )
     }
 
@@ -323,21 +482,45 @@ class AppSettings: ObservableObject {
         circularDisplayMode = snapshot.circularDisplayMode
         refreshInterval = snapshot.refreshInterval
         autoRefresh = snapshot.autoRefresh
+        notificationsEnabled = snapshot.notificationsEnabled
         alertThresholds = snapshot.alertThresholds
         alertRemainingMode = snapshot.alertRemainingMode
         reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
         showClaudeIcon = snapshot.showClaudeIcon
+        claudeEnabled = snapshot.claudeEnabled
         menuBarTextHighContrast = snapshot.menuBarTextHighContrast
         updateCheckInterval = snapshot.updateCheckInterval
+        claudeAlertEnabled = snapshot.claudeAlertEnabled
         alertFiveHourEnabled = snapshot.alertFiveHourEnabled
         alertWeeklyEnabled = snapshot.alertWeeklyEnabled
         popoverPinned = snapshot.popoverPinned
         popoverCompact = snapshot.popoverCompact
+        claudePopoverPinned = snapshot.claudePopoverPinned
+        codexPopoverPinned = snapshot.codexPopoverPinned
+        claudePopoverCompact = snapshot.claudePopoverCompact
+        codexPopoverCompact = snapshot.codexPopoverCompact
         launchAtLogin = snapshot.launchAtLogin
         preferredOrganizationID = snapshot.preferredOrganizationID
-        popoverItems = PopoverItemConfig.normalized(snapshot.popoverItems)
+        popoverItems = PopoverItemConfig.normalizedClaude(snapshot.popoverItems)
         separateCompactConfig = snapshot.separateCompactConfig
-        compactPopoverItems = PopoverItemConfig.normalized(snapshot.compactPopoverItems)
+        compactPopoverItems = PopoverItemConfig.normalizedClaude(snapshot.compactPopoverItems)
+        codexEnabled = snapshot.codexEnabled
+        showCodexIcon = snapshot.showCodexIcon
+        codexPercentageDisplay = snapshot.codexPercentageDisplay
+        codexResetTimeDisplay = snapshot.codexResetTimeDisplay
+        codexTimeFormat = snapshot.codexTimeFormat
+        codexMenuBarStyle = snapshot.codexMenuBarStyle
+        codexCircularDisplayMode = snapshot.codexCircularDisplayMode
+        codexShowBatteryPercent = snapshot.codexShowBatteryPercent
+        codexAlertEnabled = snapshot.codexAlertEnabled
+        codexAlertThresholds = snapshot.codexAlertThresholds
+        codexAlertRemainingMode = snapshot.codexAlertRemainingMode
+        codexPopoverItems = PopoverItemConfig.normalizedCodex(snapshot.codexPopoverItems)
+        codexCompactPopoverItems = PopoverItemConfig.normalizedCodex(snapshot.codexCompactPopoverItems)
+        settingsLastTab = snapshot.settingsLastTab
+        menuBarActiveService = snapshot.menuBarActiveService == "codex" ? "codex" : "claude"
+        claudeSettingsLastTab = snapshot.claudeSettingsLastTab
+        codexSettingsLastTab = snapshot.codexSettingsLastTab
     }
 
     // MARK: - Computed
@@ -350,9 +533,20 @@ class AppSettings: ObservableObject {
         return alertThresholds.sorted()
     }
 
+    var enabledCodexAlertThresholds: [Int] {
+        if codexAlertRemainingMode {
+            return codexAlertThresholds.map { 100 - $0 }.sorted()
+        }
+        return codexAlertThresholds.sorted()
+    }
+
     /// 간소화 모드에서 사용할 항목 배열
     var effectiveCompactItems: [PopoverItemConfig] {
         separateCompactConfig ? compactPopoverItems : popoverItems
+    }
+
+    var effectiveCompactCodexItems: [PopoverItemConfig] {
+        separateCompactConfig ? codexCompactPopoverItems : codexPopoverItems
     }
 
     // MARK: - Actions
@@ -366,21 +560,45 @@ class AppSettings: ObservableObject {
         circularDisplayMode = .usage
         refreshInterval = 30.0
         autoRefresh = true
+        notificationsEnabled = true
         alertThresholds = [75, 90, 95]
         alertRemainingMode = false
         reducedRefreshOnBattery = true
         showClaudeIcon = true
+        claudeEnabled = true
         menuBarTextHighContrast = false
         updateCheckInterval = .hourly
+        claudeAlertEnabled = true
         alertFiveHourEnabled = true
         alertWeeklyEnabled = false
         popoverPinned = false
         popoverCompact = false
+        claudePopoverPinned = false
+        codexPopoverPinned = false
+        claudePopoverCompact = false
+        codexPopoverCompact = false
         launchAtLogin = false
         preferredOrganizationID = ""
-        popoverItems = PopoverItemConfig.defaultItems
+        popoverItems = PopoverItemConfig.defaultClaudeItems
         separateCompactConfig = false
-        compactPopoverItems = PopoverItemConfig.defaultItems
+        compactPopoverItems = PopoverItemConfig.defaultClaudeItems
+        codexEnabled = false
+        showCodexIcon = false
+        codexPercentageDisplay = .none
+        codexResetTimeDisplay = .none
+        codexTimeFormat = .h24
+        codexMenuBarStyle = .none
+        codexCircularDisplayMode = .usage
+        codexShowBatteryPercent = true
+        codexAlertEnabled = false
+        codexAlertThresholds = [75, 90, 95]
+        codexAlertRemainingMode = false
+        codexPopoverItems = PopoverItemConfig.defaultCodexItems
+        codexCompactPopoverItems = PopoverItemConfig.defaultCodexItems
+        settingsLastTab = "common"
+        menuBarActiveService = "claude"
+        claudeSettingsLastTab = "auth"
+        codexSettingsLastTab = "auth"
     }
 
     // MARK: - Launch at Login
@@ -422,9 +640,11 @@ class AppSettings: ObservableObject {
         let rtd = defaults.string(forKey: "resetTimeDisplay") ?? ResetTimeDisplay.none.rawValue
         self.resetTimeDisplay = ResetTimeDisplay(rawValue: rtd) ?? .none
         let tf = defaults.string(forKey: "timeFormat") ?? TimeFormatStyle.h24.rawValue
-        self.timeFormat = TimeFormatStyle(rawValue: tf) ?? .h24
+        let resolvedTimeFormat = TimeFormatStyle(rawValue: tf) ?? .h24
+        self.timeFormat = resolvedTimeFormat
         self.refreshInterval = defaults.object(forKey: "refreshInterval") as? TimeInterval ?? 30.0
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
+        self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
         // 마이그레이션: alert1/2/3 → alertThresholds 배열
         if let saved = defaults.array(forKey: "alertThresholds") as? [Int] {
             self.alertThresholds = saved
@@ -443,53 +663,117 @@ class AppSettings: ObservableObject {
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
         self.circularDisplayMode = CircularDisplayMode(rawValue: cdm) ?? .usage
         self.showClaudeIcon = defaults.object(forKey: "showClaudeIcon") as? Bool ?? true
+        self.claudeEnabled = defaults.object(forKey: "claudeEnabled") as? Bool ?? true
         self.menuBarTextHighContrast = defaults.object(forKey: "menuBarTextHighContrast") as? Bool ?? false
         let uci = defaults.string(forKey: "updateCheckInterval") ?? UpdateCheckInterval.hourly.rawValue
         self.updateCheckInterval = UpdateCheckInterval(rawValue: uci) ?? .hourly
+        if let storedClaudeAlertEnabled = defaults.object(forKey: "claudeAlertEnabled") as? Bool {
+            self.claudeAlertEnabled = storedClaudeAlertEnabled
+        } else {
+            self.claudeAlertEnabled = (defaults.object(forKey: "alertFiveHourEnabled") as? Bool ?? true)
+                || (defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false)
+        }
         self.alertFiveHourEnabled = defaults.object(forKey: "alertFiveHourEnabled") as? Bool ?? true
         self.alertWeeklyEnabled = defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false
-        self.popoverPinned = defaults.object(forKey: "popoverPinned") as? Bool ?? false
-        self.popoverCompact = defaults.object(forKey: "popoverCompact") as? Bool ?? false
+        let legacyPinned = defaults.object(forKey: "popoverPinned") as? Bool ?? false
+        let legacyCompact = defaults.object(forKey: "popoverCompact") as? Bool ?? false
+        self.popoverPinned = legacyPinned
+        self.popoverCompact = legacyCompact
+        self.claudePopoverPinned = defaults.object(forKey: "claudePopoverPinned") as? Bool ?? legacyPinned
+        self.codexPopoverPinned = defaults.object(forKey: "codexPopoverPinned") as? Bool ?? legacyPinned
+        self.claudePopoverCompact = defaults.object(forKey: "claudePopoverCompact") as? Bool ?? legacyCompact
+        self.codexPopoverCompact = defaults.object(forKey: "codexPopoverCompact") as? Bool ?? legacyCompact
         // 시스템 상태에서 실제 등록 여부 확인
         let savedLaunchAtLogin = defaults.object(forKey: "launchAtLogin") as? Bool ?? false
         self.launchAtLogin = savedLaunchAtLogin
         self.preferredOrganizationID = defaults.string(forKey: "preferredOrganizationID")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        // popoverItems: JSON 로드 또는 마이그레이션
-        let loadedItems: [PopoverItemConfig]
+        self.codexEnabled = defaults.object(forKey: "codexEnabled") as? Bool ?? false
+        self.showCodexIcon = defaults.object(forKey: "showCodexIcon") as? Bool ?? false
+        let cpd = defaults.string(forKey: "codexPercentageDisplay") ?? PercentageDisplay.none.rawValue
+        self.codexPercentageDisplay = PercentageDisplay(rawValue: cpd) ?? .none
+        let crd = defaults.string(forKey: "codexResetTimeDisplay") ?? ResetTimeDisplay.none.rawValue
+        self.codexResetTimeDisplay = ResetTimeDisplay(rawValue: crd) ?? .none
+        let codexTF = defaults.string(forKey: "codexTimeFormat") ?? resolvedTimeFormat.rawValue
+        self.codexTimeFormat = TimeFormatStyle(rawValue: codexTF) ?? resolvedTimeFormat
+        let cms = defaults.string(forKey: "codexMenuBarStyle") ?? MenuBarStyle.none.rawValue
+        self.codexMenuBarStyle = MenuBarStyle(rawValue: cms) ?? .none
+        let ccdm = defaults.string(forKey: "codexCircularDisplayMode") ?? CircularDisplayMode.usage.rawValue
+        self.codexCircularDisplayMode = CircularDisplayMode(rawValue: ccdm) ?? .usage
+        self.codexShowBatteryPercent = defaults.object(forKey: "codexShowBatteryPercent") as? Bool ?? true
+        self.codexAlertEnabled = defaults.object(forKey: "codexAlertEnabled") as? Bool ?? false
+        self.codexAlertThresholds = defaults.array(forKey: "codexAlertThresholds") as? [Int] ?? [75, 90, 95]
+        self.codexAlertRemainingMode = defaults.object(forKey: "codexAlertRemainingMode") as? Bool ?? false
+        let legacySettingsLastTab = defaults.string(forKey: "settingsLastTab") ?? "common"
+        self.settingsLastTab = legacySettingsLastTab
+        let storedActiveService = defaults.string(forKey: "menuBarActiveService") ?? "claude"
+        self.menuBarActiveService = storedActiveService == "codex" ? "codex" : "claude"
+        self.claudeSettingsLastTab = defaults.string(forKey: "claudeSettingsLastTab") ?? "auth"
+        self.codexSettingsLastTab = defaults.string(forKey: "codexSettingsLastTab") ?? "auth"
+
+        // Claude popover items: JSON 로드 또는 마이그레이션
+        let loadedClaudeItems: [PopoverItemConfig]
         if let data = defaults.data(forKey: "popoverItems"),
            let items = try? JSONDecoder().decode([PopoverItemConfig].self, from: data) {
-            loadedItems = items
+            loadedClaudeItems = items
         } else {
             // 기존 showModelUsage/showOverageUsage에서 마이그레이션
             let showModel = defaults.object(forKey: "showModelUsage") as? Bool ?? true
             let showOverage = defaults.object(forKey: "showOverageUsage") as? Bool ?? true
-            loadedItems = [
+            loadedClaudeItems = [
                 .init(id: "currentSession", visible: true),
                 .init(id: "weeklyLimit", visible: true),
                 .init(id: "modelUsage", visible: showModel),
                 .init(id: "overageUsage", visible: showOverage),
             ]
         }
-        let normalizedLoadedItems = PopoverItemConfig.normalized(loadedItems)
-        self.popoverItems = normalizedLoadedItems
+        let normalizedClaudeItems = PopoverItemConfig.normalizedClaude(loadedClaudeItems)
+        self.popoverItems = normalizedClaudeItems
         self.separateCompactConfig = defaults.object(forKey: "separateCompactConfig") as? Bool ?? false
         if let cData = defaults.data(forKey: "compactPopoverItems"),
            let cItems = try? JSONDecoder().decode([PopoverItemConfig].self, from: cData) {
-            self.compactPopoverItems = PopoverItemConfig.normalized(cItems)
+            self.compactPopoverItems = PopoverItemConfig.normalizedClaude(cItems)
         } else {
-            self.compactPopoverItems = normalizedLoadedItems
+            self.compactPopoverItems = normalizedClaudeItems
         }
 
-        // 과거/외부 데이터에 남은 미지원 항목(codex 등)을 즉시 정리해 재등장 방지
-        if normalizedLoadedItems != loadedItems,
-           let data = try? JSONEncoder().encode(normalizedLoadedItems) {
+        // Codex popover items: 없으면 기본 숨김 구성 사용
+        let normalizedCodexItems: [PopoverItemConfig]
+        if let data = defaults.data(forKey: "codexPopoverItems"),
+           let items = try? JSONDecoder().decode([PopoverItemConfig].self, from: data) {
+            normalizedCodexItems = PopoverItemConfig.normalizedCodex(items)
+        } else {
+            normalizedCodexItems = PopoverItemConfig.defaultCodexItems
+        }
+        self.codexPopoverItems = normalizedCodexItems
+        if let cData = defaults.data(forKey: "codexCompactPopoverItems"),
+           let cItems = try? JSONDecoder().decode([PopoverItemConfig].self, from: cData) {
+            self.codexCompactPopoverItems = PopoverItemConfig.normalizedCodex(cItems)
+        } else {
+            self.codexCompactPopoverItems = normalizedCodexItems
+        }
+
+        // 과거/외부 데이터 정리
+        if normalizedClaudeItems != loadedClaudeItems,
+           let data = try? JSONEncoder().encode(normalizedClaudeItems) {
             defaults.set(data, forKey: "popoverItems")
         }
         if let cData = defaults.data(forKey: "compactPopoverItems"),
            let cItems = try? JSONDecoder().decode([PopoverItemConfig].self, from: cData),
-           PopoverItemConfig.normalized(cItems) != cItems,
-           let normalizedData = try? JSONEncoder().encode(PopoverItemConfig.normalized(cItems)) {
+           PopoverItemConfig.normalizedClaude(cItems) != cItems,
+           let normalizedData = try? JSONEncoder().encode(PopoverItemConfig.normalizedClaude(cItems)) {
             defaults.set(normalizedData, forKey: "compactPopoverItems")
+        }
+        if let data = defaults.data(forKey: "codexPopoverItems"),
+           let items = try? JSONDecoder().decode([PopoverItemConfig].self, from: data),
+           PopoverItemConfig.normalizedCodex(items) != items,
+           let normalizedData = try? JSONEncoder().encode(PopoverItemConfig.normalizedCodex(items)) {
+            defaults.set(normalizedData, forKey: "codexPopoverItems")
+        }
+        if let cData = defaults.data(forKey: "codexCompactPopoverItems"),
+           let cItems = try? JSONDecoder().decode([PopoverItemConfig].self, from: cData),
+           PopoverItemConfig.normalizedCodex(cItems) != cItems,
+           let normalizedData = try? JSONEncoder().encode(PopoverItemConfig.normalizedCodex(cItems)) {
+            defaults.set(normalizedData, forKey: "codexCompactPopoverItems")
         }
     }
 }
