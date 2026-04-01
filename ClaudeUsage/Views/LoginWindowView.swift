@@ -1,10 +1,4 @@
-//
-//  LoginWindowView.swift
-//  ClaudeUsage
-//
-//  Claude 로그인 윈도우 컨테이너
-//
-
+import AppKit
 import SwiftUI
 
 struct LoginWindowView: View {
@@ -34,8 +28,8 @@ struct LoginWindowView: View {
                 .font(.caption)
                 .fontWeight(.semibold)
             Text("1. 먼저 `Chrome에서 가져오기`를 시도합니다.")
-            Text("2. 실패하면 아래 웹 로그인으로 sessionKey 자동 추출을 시도합니다.")
-            Text("3. 계속 실패하면 설정의 고급 옵션에서 sessionKey 값만 직접 입력합니다.")
+                    Text("2. 실패하면 아래 웹 로그인으로 sessionKey 자동 추출을 시도합니다.")
+            Text("3. 계속 실패하면 Chrome을 직접 열어 로그인한 뒤 다시 가져오거나, 설정의 고급 옵션에서 sessionKey 값만 직접 입력합니다.")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -150,7 +144,7 @@ struct LoginWindowView: View {
             // 하단 바
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Chrome 자동 가져오기를 먼저 시도하고, 실패하면 웹 로그인으로 이어가시면 됩니다")
+                    Text("Chrome 자동 가져오기를 먼저 시도하고, 실패하면 Chrome을 직접 열어 로그인한 뒤 다시 가져오거나 아래 웹 로그인으로 이어가시면 됩니다")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Text("Chrome이 아니라면 설정의 고급 옵션에서 sessionKey 직접 입력 안내를 사용하시면 됩니다")
@@ -158,6 +152,10 @@ struct LoginWindowView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                Button("Chrome 열기") {
+                    openChromeForClaude()
+                }
+                .disabled(isLoading || isImportingFromChrome || loginSuccess)
                 Button("Chrome에서 가져오기") {
                     importFromChrome()
                 }
@@ -192,7 +190,8 @@ struct LoginWindowView: View {
                     self.statusMessage = "Chrome에서 sessionKey를 가져왔습니다"
                     self.onSessionKeyFound(key)
                 case .success(.manualSessionKeyRequired(let message)):
-                    self.statusMessage = message
+                    self.statusMessage = "Chrome 로그인 상태를 확인한 뒤 다시 가져오거나, 아래 웹 로그인으로 진행해 주세요."
+                    self.errorMessage = message
                 case .success(.unavailable(let message)):
                     self.errorMessage = message
                 case .failure(let error):
@@ -200,5 +199,20 @@ struct LoginWindowView: View {
                 }
             }
         }
+    }
+
+    private func openChromeForClaude() {
+        let targetURL = URL(string: "https://claude.ai/settings/usage")!
+        if let chromeAppURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
+            let configuration = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.open([targetURL], withApplicationAt: chromeAppURL, configuration: configuration)
+            statusMessage = "Chrome에서 claude.ai를 열었습니다. 로그인 후 다시 가져오기를 눌러 주세요."
+            errorMessage = nil
+            return
+        }
+
+        NSWorkspace.shared.open(targetURL)
+        statusMessage = "기본 브라우저로 claude.ai를 열었습니다. 로그인 후 다시 가져오기를 눌러 주세요."
+        errorMessage = nil
     }
 }

@@ -88,28 +88,10 @@ struct PopoverView: View {
             .padding(.top, isCompact ? 4 : 12)
             .padding(.bottom, isCompact ? 4 : 8)
 
-            if hasDiagnosticContent {
-                diagnosticSection
-                Divider()
-            }
-
             if isCompact {
                 compactMainSection
             } else {
-                VStack(spacing: 0) {
-                    if shouldShowFocusedServiceSection {
-                        focusedServiceSection
-                        Divider()
-                    } else if shouldShowOverviewSection {
-                        providerOverviewSection
-                        Divider()
-                    }
-
-                    providerShellSection
-                    Divider()
-
-                    standardMainSection
-                }
+                standardMainSection
             }
 
             Divider()
@@ -151,6 +133,17 @@ struct PopoverView: View {
                 }
                 .buttonStyle(.borderless)
                 .font(.caption)
+
+                if hasDiagnosticContent {
+                    Button {
+                        viewModel.openSettings()
+                    } label: {
+                        Image(systemName: "exclamationmark.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .help("자세한 상태와 오류는 설정에서 확인")
+                }
 
                 Button {
                     NSApplication.shared.terminate(nil)

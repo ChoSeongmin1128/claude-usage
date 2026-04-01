@@ -237,13 +237,13 @@ enum ClaudeChromiumCookieReader {
         guard status == kCCSuccess else { return nil }
         out.removeSubrange(outLength..<out.count)
 
-        if let value = String(data: out, encoding: .utf8), value.hasPrefix("sk-ant-") {
+        if let value = String(data: out, encoding: .utf8), self.looksReasonableCookieValue(value) {
             return value
         }
 
         if out.count > 32 {
             let trimmed = out.dropFirst(32)
-            if let value = String(data: trimmed, encoding: .utf8), value.hasPrefix("sk-ant-") {
+            if let value = String(data: trimmed, encoding: .utf8), self.looksReasonableCookieValue(value) {
                 return value
             }
         }
@@ -285,6 +285,14 @@ enum ClaudeChromiumCookieReader {
     private nonisolated static func normalizeDomain(_ domain: String) -> String {
         let trimmed = domain.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.hasPrefix(".") ? String(trimmed.dropFirst()) : trimmed
+    }
+
+    private nonisolated static func looksReasonableCookieValue(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: CharacterSet(charactersIn: "\"' \n\r\t"))
+        guard trimmed.count >= 16, trimmed.count <= 2048 else { return false }
+        guard !trimmed.contains(where: \.isWhitespace) else { return false }
+        let hasControl = trimmed.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
+        return !hasControl
     }
 
     private nonisolated static func sqliteErrorMessage(_ database: OpaquePointer?) -> String {

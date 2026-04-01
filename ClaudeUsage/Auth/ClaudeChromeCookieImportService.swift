@@ -6,6 +6,8 @@ protocol ClaudeBrowserCookieImporting {
 }
 
 final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unchecked Sendable {
+    private let extractor = ClaudeSessionKeyExtractor()
+
     nonisolated func discoverCandidates() -> [ClaudeBrowserSessionCandidate] {
         let fileManager = FileManager.default
         let home = fileManager.homeDirectoryForCurrentUser
@@ -123,20 +125,26 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
     }
 
     private static nonisolated func findSessionKey(in records: [ClaudeChromiumCookieRecord]) -> String? {
-        let relevantRecords = records.filter { record in
-            Self.isClaudeHost(record.domain) && Self.isSessionCookieName(record.name)
+        let extractor = ClaudeSessionKeyExtractor()
+        let relevantRecords = records.filter { Self.isClaudeHost($0.domain) }
+
+        if let exact = relevantRecords.first(where: { Self.isSessionCookieName($0.name) }) {
+            let normalized = extractor.normalizeTokenCandidate(exact.value)
+            if extractor.looksReasonableSessionCookieValue(normalized) {
+                return normalized
+            }
         }
 
-        if let exact = relevantRecords.first(where: { Self.normalizedSessionKeyValue(from: $0.value) != nil }) {
-            return Self.normalizedSessionKeyValue(from: exact.value)
+        if let explicitToken = relevantRecords.first(where: { extractor.extractLikelySessionKey(from: $0.value) != nil }),
+           let extracted = extractor.extractLikelySessionKey(from: explicitToken.value) {
+            return extracted
         }
 
-        if let fallback = records.first(where: {
-            Self.isClaudeHost($0.domain) &&
-            $0.value.hasPrefix("sk-ant-") &&
-            Self.isSessionCookieLikeName($0.name)
-        }) {
-            return Self.normalizedSessionKeyValue(from: fallback.value)
+        if let fallback = relevantRecords.first(where: { Self.isSessionCookieLikeName($0.name) }) {
+            let normalized = extractor.normalizeTokenCandidate(fallback.value)
+            if extractor.looksReasonableSessionCookieValue(normalized) {
+                return normalized
+            }
         }
 
         return nil
@@ -160,12 +168,6 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
         return lowered.replacingOccurrences(of: "_", with: "").replacingOccurrences(of: "-", with: "")
     }
 
-    private static nonisolated func normalizedSessionKeyValue(from value: String) -> String? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("sk-ant-") else { return nil }
-        return trimmed
-    }
-
     private nonisolated func manualGuidanceMessage(discoveredProfiles: [String], failureDetails: [String]) -> String {
         let profileLine: String
         if discoveredProfiles.isEmpty {
@@ -187,7 +189,7 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
         }
 
         var sections: [String] = [
-            "Chrome 자동 import는 Cookies DB를 임시 복사한 뒤 claude.ai의 sessionKey 쿠키(sk-ant-... 형식)를 추출합니다.",
+            "Chrome 자동 import는 Cookies DB를 임시 복사한 뒤 claude.ai의 sessionKey 쿠키를 추출합니다.",
             profileLine,
             "자동 import가 실패하면 아래를 확인하세요:",
             "1. Chrome에서 claude.ai에 로그인되어 있는지 확인",
@@ -203,7 +205,7 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
             sections.append(contentsOf: failureDetails.map { "   - \($0)" })
         }
 
-        sections.append("sessionKey 값은 보통 sk-ant-로 시작합니다.")
+        sections.append("sessionKey 값은 공백 없는 긴 토큰 형태입니다.")
         return sections.joined(separator: "\n")
     }
 }

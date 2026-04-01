@@ -52,6 +52,13 @@ enum MenuBarStatusComposer {
         return MenuBarRenderedContent(image: image, tooltip: "ClaudeUsage 설정")
     }
 
+    private static func statusDot(color: NSColor) -> MenuBarElement {
+        .text("•", attributes: [
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+            .foregroundColor: color,
+        ])
+    }
+
     static func claudeOnlyContent(
         config: ProviderMenuBarDisplayConfig,
         usage: ClaudeUsageResponse?,
@@ -129,7 +136,7 @@ enum MenuBarStatusComposer {
         }
 
         if elements.isEmpty {
-            elements.append(.text("Claude", attributes: [.font: smallFont, .foregroundColor: secondaryColor]))
+            elements.append(statusDot(color: secondaryColor))
         }
 
         let authWarning = hasAuthError ? "\n⚠️ Claude 인증 상태를 확인해주세요" : ""
@@ -211,7 +218,7 @@ enum MenuBarStatusComposer {
         }
 
         if elements.isEmpty {
-            elements.append(.text("Codex", attributes: [.font: smallFont, .foregroundColor: secondaryColor]))
+            elements.append(statusDot(color: secondaryColor))
         }
 
         return MenuBarRenderedContent(
@@ -285,10 +292,10 @@ enum MenuBarStatusComposer {
         }
 
         if leftElements.isEmpty {
-            leftElements.append(.text("Claude", attributes: [.font: resetFont, .foregroundColor: secondaryColor]))
+            leftElements.append(statusDot(color: claude.color))
         }
         if rightElements.isEmpty {
-            rightElements.append(.text("Codex", attributes: [.font: resetFont, .foregroundColor: secondaryColor]))
+            rightElements.append(statusDot(color: codex.color))
         }
 
         var elements = leftElements

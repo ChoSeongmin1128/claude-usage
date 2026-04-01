@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (12차)
+최종 갱신: 2026-04-02 (13차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -32,6 +32,9 @@
 - [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 는 메뉴바 표시 관련 변경을 묶는 `menuBarDisplayChangePublisher` 를 노출하고, [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 이를 소비하도록 단순화했습니다.
 - [RefreshScheduler.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RefreshScheduler.swift) 를 추가해 `AppDelegate` 의 타이머 start/stop/sync 책임을 별도 객체로 빼기 시작했습니다.
 - [LoginWebViewCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/LoginWebViewCoordinator.swift) 를 추가해 `LoginWebView` 의 WKNavigation/WKUIDelegate 오케스트레이션을 별도 파일로 이동시키기 시작했습니다.
+- 사용자 피드백 기준으로 팝오버는 다시 `사용량 중심`으로 단순화했고, provider overview / shell 정보는 설정 쪽으로 되돌리기 시작했습니다.
+- 메뉴바는 provider 이름 텍스트(`Claude`, `Codex`)를 fallback으로 띄우지 않고, 최소 상태 점으로만 대체하도록 수정했습니다.
+- Chrome 경로는 단순 DB 스캔 시도만 하던 상태에서, [LoginWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/LoginWindowView.swift) 에 `Chrome 열기` 경로를 추가해 사용자가 실제 Chrome에서 로그인한 뒤 재시도할 수 있게 했습니다.
 - 다만 AppDelegate orchestration과 multi-provider fetch/menu glue는 아직 더 분해해야 합니다.
 
 ## 2. 참고 레포에서 가져올 방향
@@ -234,7 +237,9 @@
 - 아직 남음
 - [ClaudeChromiumCookieReader.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Auth/ClaudeChromiumCookieReader.swift) 를 추가해 Chrome `Cookies` DB를 임시 복사하고 `-wal` / `-shm`까지 함께 읽도록 분리했습니다.
 - [ClaudeChromeCookieImportService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Auth/ClaudeChromeCookieImportService.swift) 는 실제 `sessionKey` 추출과 수동 안내 생성 책임만 갖도록 정리했습니다.
+- [ClaudeChromeCookieImportService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Auth/ClaudeChromeCookieImportService.swift) 는 `sk-ant-` 전제만 보던 경로를 완화해, `sessionKey` 쿠키 이름과 일반 토큰 패턴도 함께 보도록 보강했습니다.
 - [LoginWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/LoginWindowView.swift) 에 `Chrome에서 가져오기` 진입점을 추가했습니다.
+- [LoginWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/LoginWindowView.swift) 는 `Chrome 열기` 경로도 제공해, 실제 Chrome 로그인 후 재가져오기를 할 수 있게 했습니다.
 - [LoginWebView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/LoginWebView.swift) 는 session key 추출 규칙을 [ClaudeSessionKeyExtractor.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Auth/ClaudeSessionKeyExtractor.swift) 로 분리했습니다.
 - [LoginWebViewCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/LoginWebViewCoordinator.swift) 로 `LoginWebView` 의 coordinator를 분리해, 뷰 어댑터와 WKWebView delegate 책임을 파일 단위로 나누기 시작했습니다.
 - 아직 남음
@@ -378,6 +383,7 @@
 - [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 의 Claude 인증 탭은 `일반 흐름`과 `고급 및 진단` 섹션을 실제 UI로 나누기 시작했습니다.
 - [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 의 Claude 인증 탭은 이제 `일반 사용자 흐름`, `인증 상태`, `고급 설정`을 더 명확히 분리합니다.
 - [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 는 단일 provider일 때 `현재 provider` 집중 카드, 멀티 provider일 때 `Provider overview`를 먼저 보여주는 하이브리드 구조를 반영합니다.
+- 사용자 피드백 기준으로 [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 의 본문은 다시 사용량 중심으로 단순화하고, provider overview / shell 정보는 설정 쪽에서 보도록 되돌리기 시작했습니다.
 - [ProviderOverviewCardView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/Components/ProviderOverviewCardView.swift) 와 [PopoverProviderCards.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/Components/PopoverProviderCards.swift) 로 순수 렌더링 블록을 별도 컴포넌트로 분리하기 시작했습니다.
 - [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift) 와 `ProviderMenuBarDisplayConfig` 도입으로 메뉴바 표시 로직의 시각 규칙과 설정 해석을 한 층 더 분리했습니다.
 - [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift), [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift), [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 이제 `usageHealthSnapshot.runtime.credentialAvailability` 를 이용해 `OAuth-only` 계정에서 잘못된 인증 경고를 덜 띄우도록 맞추기 시작했습니다.
