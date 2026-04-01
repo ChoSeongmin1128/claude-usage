@@ -634,31 +634,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 디스플레이 관련 설정 변경 → 메뉴바 즉시 갱신
         // receive(on: RunLoop.main)으로 값 반영 후 업데이트
-        let displayPublishers: [AnyPublisher<Void, Never>] = [
-            AppSettings.shared.$menuBarStyle.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$percentageDisplay.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$resetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$timeFormat.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$circularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$showClaudeIcon.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$menuBarTextHighContrast.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$showCodexIcon.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$codexPercentageDisplay.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$codexResetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$codexTimeFormat.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$codexMenuBarStyle.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$codexCircularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$codexShowBatteryPercent.map { _ in () }.eraseToAnyPublisher()
-        ]
-
-        for publisher in displayPublishers {
-            publisher
-                .dropFirst()
-                .receive(on: RunLoop.main)
-                .sink { [weak self] in self?.updateMenuBar() }
-                .store(in: &cancellables)
-        }
+        AppSettings.shared.menuBarDisplayChangePublisher
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.updateMenuBar() }
+            .store(in: &cancellables)
 
         AppSettings.shared.$providerStates
             .dropFirst()

@@ -247,50 +247,14 @@ struct PopoverView: View {
             sectionHeader(title: "Provider overview", subtitle: "멀티 provider 전환")
 
             ForEach(availableServices, id: \.rawValue) { service in
-                Button {
+                PopoverProviderOverviewRowView(
+                    title: service.displayName,
+                    summary: viewModel.overviewSummary(for: appProviderKind(for: service), settings: settings),
+                    meta: viewModel.overviewMeta(for: appProviderKind(for: service)),
+                    isSelected: selectedService == service
+                ) {
                     selectService(service)
-                } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack(spacing: 6) {
-                                Text(service.displayName)
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.primary)
-                                if selectedService == service {
-                                    Text("활성")
-                                        .font(.caption2.weight(.medium))
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(Color.accentColor.opacity(0.15))
-                                        .foregroundStyle(Color.accentColor)
-                                        .clipShape(Capsule())
-                                }
-                            }
-                            Text(viewModel.overviewSummary(for: appProviderKind(for: service), settings: settings))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        Spacer()
-                        if let meta = viewModel.overviewMeta(for: appProviderKind(for: service)) {
-                            Text(meta)
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(selectedService == service
-                                  ? Color.accentColor.opacity(0.08)
-                                  : Color(NSColor.controlBackgroundColor).opacity(0.4))
-                    )
                 }
-                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 16)
@@ -325,18 +289,18 @@ struct PopoverView: View {
         let selectableService = popoverService(for: card.kind)
         let isSelected = selectableService.map { selectedService == $0 } ?? false
 
-        return Group {
-            if let selectableService, card.isSelectable {
-                Button {
-                    selectService(selectableService)
-                } label: {
-                    providerShellCardBody(card: card, isSelected: isSelected)
-                }
-                .buttonStyle(.plain)
-            } else {
-                providerShellCardBody(card: card, isSelected: false)
-                    .opacity(0.85)
-            }
+        return PopoverProviderShellCardView(
+            icon: card.icon,
+            title: card.title,
+            summary: card.summary,
+            detail: card.detail,
+            badgeTitle: card.badgeTitle,
+            isSelected: isSelected,
+            isSelectable: card.isSelectable,
+            disclosureTitle: selectableService?.displayName
+        ) {
+            guard let selectableService, card.isSelectable else { return }
+            selectService(selectableService)
         }
     }
 
@@ -345,57 +309,19 @@ struct PopoverView: View {
         isSelected: Bool,
         showsDisclosure: Bool = true
     ) -> some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Image(systemName: card.icon)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(isSelected ? Color.accentColor : .secondary)
-                    Text(card.title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    if let badge = card.badgeTitle {
-                        Text(badge)
-                            .font(.caption2.weight(.medium))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background((card.isSelectable ? Color.accentColor : Color.secondary).opacity(0.14))
-                            .foregroundStyle(card.isSelectable ? Color.accentColor : .secondary)
-                            .clipShape(Capsule())
-                    }
-                }
-
-                Text(card.summary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                if let detail = card.detail {
-                    Text(detail)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(2)
-                }
-            }
-
-            Spacer()
-
-            if showsDisclosure, card.isSelectable, let selectableService = popoverService(for: card.kind) {
-                Text(selectableService.displayName)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(isSelected
-                      ? Color.accentColor.opacity(0.08)
-                      : Color(NSColor.controlBackgroundColor).opacity(0.35))
+        PopoverProviderShellCardView(
+            icon: card.icon,
+            title: card.title,
+            summary: card.summary,
+            detail: card.detail,
+            badgeTitle: card.badgeTitle,
+            isSelected: isSelected,
+            isSelectable: card.isSelectable,
+            disclosureTitle: showsDisclosure ? popoverService(for: card.kind)?.displayName : nil,
+            onSelect: showsDisclosure ? {
+                guard let selectableService = popoverService(for: card.kind), card.isSelectable else { return }
+                selectService(selectableService)
+            } : nil
         )
     }
 

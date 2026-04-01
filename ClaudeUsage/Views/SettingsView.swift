@@ -2331,47 +2331,20 @@ struct SettingsView: View {
 
     private var providerOverviewCard: some View {
         let selectionState = settings.providerSelectionState
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Provider 상태")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("실동작 \(selectionState.runtimeEnabledKinds.count) · 설정 shell \(selectionState.shellEnabledKinds.count)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-
-            ForEach(AppProviderKind.allCases, id: \.self) { provider in
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(settings.isProviderEnabled(provider) ? Color.green : Color.secondary.opacity(0.35))
-                        .frame(width: 8, height: 8)
-
-                    Text(provider.displayName)
-                        .font(.caption)
-
-                    if settings.providerState(for: provider).isActive {
-                        Text("활성")
-                            .font(.caption2.weight(.medium))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.accentColor.opacity(0.15))
-                            .foregroundStyle(Color.accentColor)
-                            .cornerRadius(5)
-                    }
-
-                    Spacer()
-
-                    Text(providerRuntimeSummary(provider, selectionState: selectionState))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
+        let items = AppProviderKind.allCases.map { provider in
+            ProviderOverviewCardView.Item(
+                id: provider.rawValue,
+                title: provider.displayName,
+                isEnabled: settings.isProviderEnabled(provider),
+                isActive: settings.providerState(for: provider).isActive,
+                summary: providerRuntimeSummary(provider, selectionState: selectionState)
+            )
         }
-        .padding(10)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        .cornerRadius(8)
+        return ProviderOverviewCardView(
+            title: "Provider 상태",
+            subtitle: "실동작 \(selectionState.runtimeEnabledKinds.count) · 설정 shell \(selectionState.shellEnabledKinds.count)",
+            items: items
+        )
     }
 
     private func providerRuntimeSummary(_ provider: AppProviderKind, selectionState: ProviderSelectionState) -> String {

@@ -716,6 +716,31 @@ class AppSettings: ObservableObject {
         )
     }
 
+    var menuBarDisplayChangePublisher: AnyPublisher<Void, Never> {
+        Publishers.MergeMany(
+            [
+                $menuBarStyle.map { _ in () }.eraseToAnyPublisher(),
+                $percentageDisplay.map { _ in () }.eraseToAnyPublisher(),
+                $showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
+                $resetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
+                $timeFormat.map { _ in () }.eraseToAnyPublisher(),
+                $circularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
+                $iconMetric.map { _ in () }.eraseToAnyPublisher(),
+                $showClaudeIcon.map { _ in () }.eraseToAnyPublisher(),
+                $menuBarTextHighContrast.map { _ in () }.eraseToAnyPublisher(),
+                $showCodexIcon.map { _ in () }.eraseToAnyPublisher(),
+                $codexPercentageDisplay.map { _ in () }.eraseToAnyPublisher(),
+                $codexResetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
+                $codexTimeFormat.map { _ in () }.eraseToAnyPublisher(),
+                $codexMenuBarStyle.map { _ in () }.eraseToAnyPublisher(),
+                $codexCircularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
+                $codexIconMetric.map { _ in () }.eraseToAnyPublisher(),
+                $codexShowBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
+            ]
+        )
+        .eraseToAnyPublisher()
+    }
+
     func providerState(for kind: AppProviderKind) -> AppProviderState {
         providerStates.state(for: kind)
     }
