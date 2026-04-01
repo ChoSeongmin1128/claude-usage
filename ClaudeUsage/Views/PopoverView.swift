@@ -97,7 +97,10 @@ struct PopoverView: View {
                 compactMainSection
             } else {
                 VStack(spacing: 0) {
-                    if shouldShowOverviewSection {
+                    if shouldShowFocusedServiceSection {
+                        focusedServiceSection
+                        Divider()
+                    } else if shouldShowOverviewSection {
                         providerOverviewSection
                         Divider()
                     }
@@ -222,9 +225,26 @@ struct PopoverView: View {
         !isCompact && availableServices.count > 1
     }
 
+    private var shouldShowFocusedServiceSection: Bool {
+        !isCompact && availableServices.count == 1
+    }
+
+    private var focusedServiceSection: some View {
+        let kind = appProviderKind(for: selectedService)
+        let card = viewModel.overviewCard(for: kind, settings: settings)
+
+        return VStack(alignment: .leading, spacing: 10) {
+            sectionHeader(title: "현재 provider", subtitle: "집중형 표시")
+            providerShellCardBody(card: card, isSelected: true, showsDisclosure: false)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.18))
+    }
+
     private var providerOverviewSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(title: "Provider overview", subtitle: "실동작 provider만 선택")
+            sectionHeader(title: "Provider overview", subtitle: "멀티 provider 전환")
 
             ForEach(availableServices, id: \.rawValue) { service in
                 Button {
@@ -279,8 +299,12 @@ struct PopoverView: View {
     }
 
     private var providerShellSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(title: "Provider shell", subtitle: "미연결 provider 포함")
+        let selectionState = settings.providerSelectionState
+        return VStack(alignment: .leading, spacing: 10) {
+            sectionHeader(
+                title: "설정 전용 provider",
+                subtitle: "실동작 \(selectionState.runtimeEnabledKinds.count) · 설정 shell \(selectionState.shellEnabledKinds.count)"
+            )
 
             ForEach(viewModel.providerShellCards(settings: settings), id: \.id) { card in
                 providerShellRow(card)
@@ -316,7 +340,11 @@ struct PopoverView: View {
         }
     }
 
-    private func providerShellCardBody(card: PopoverViewModel.ProviderShellCard, isSelected: Bool) -> some View {
+    private func providerShellCardBody(
+        card: PopoverViewModel.ProviderShellCard,
+        isSelected: Bool,
+        showsDisclosure: Bool = true
+    ) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
@@ -352,7 +380,7 @@ struct PopoverView: View {
 
             Spacer()
 
-            if card.isSelectable, let selectableService = popoverService(for: card.kind) {
+            if showsDisclosure, card.isSelectable, let selectableService = popoverService(for: card.kind) {
                 Text(selectableService.displayName)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)

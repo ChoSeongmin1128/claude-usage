@@ -393,6 +393,7 @@ struct SettingsView: View {
             guard let provider = selectedProviderKind else { return nil }
             return SettingsProviderRegistry.providerShellDescriptor(for: provider)
         }()
+        let selectionState = settings.providerSelectionState
         return VStack(alignment: .leading, spacing: 12) {
             Label(descriptor.title, systemImage: descriptor.icon)
                 .font(.headline)
@@ -435,7 +436,7 @@ struct SettingsView: View {
                     )
                 )
 
-                Text("현재는 설정 shell만 준비되어 있습니다. 활성화 상태는 저장되지만 메뉴바/조회 경로는 다음 단계에서 연결됩니다.")
+                Text(shellSectionFootnote(for: provider, selectionState: selectionState))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -475,10 +476,8 @@ struct SettingsView: View {
                 if shouldShowAuthSetupFlow {
                     authSetupFlowCard
                 }
-                authNoticeCard
-                oauthQuickGuideSection
-                authChecklistCard
-                profileMetadataCard
+                generalAuthGuidanceCard
+                authStatusSection
 
                 if let storedSessionKey, !storedSessionKey.isEmpty {
                     // 저장된 세션 키 존재
@@ -554,7 +553,7 @@ struct SettingsView: View {
                 }
             } label: {
                 HStack {
-                    Text("고급")
+                    Text("고급 설정")
                     Spacer(minLength: 0)
                     Text("수동 입력 · fallback · FAQ")
                         .font(.caption2)
@@ -569,10 +568,40 @@ struct SettingsView: View {
         .font(.subheadline)
     }
 
+    private var generalAuthGuidanceCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionCardHeader(
+                title: "일반 사용자 흐름",
+                subtitle: "빠른 시작 · 인증 방식 · 표시 기준"
+            )
+
+            authNoticeCard
+            oauthQuickGuideSection
+        }
+        .padding(12)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .cornerRadius(8)
+    }
+
+    private var authStatusSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionCardHeader(
+                title: "인증 상태",
+                subtitle: "세션키 · OAuth · 계정 메타데이터"
+            )
+
+            authChecklistCard
+            profileMetadataCard
+        }
+        .padding(12)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .cornerRadius(8)
+    }
+
     private var manualSessionKeySection: some View {
         DisclosureGroup(isExpanded: $isAdvancedAuthExpanded) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(settingsViewModel.chromeImportHelpText)
+                Text("Chrome import가 실패했을 때만 이 값을 직접 입력합니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -747,7 +776,7 @@ struct SettingsView: View {
             Text("안내")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("일반 경로는 Chrome import와 웹 로그인입니다. 수동 sessionKey와 Messages fallback은 고급 설정에서 다룹니다.")
+            Text("일반 경로는 Chrome import와 웹 로그인입니다. 수동 sessionKey와 Messages fallback은 고급 설정에서만 다룹니다.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -825,6 +854,21 @@ struct SettingsView: View {
             .buttonStyle(.plain)
         }
         .font(.subheadline)
+    }
+
+    private func sectionCardHeader(title: String, subtitle: String? = nil) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+        }
     }
 
     private var authFAQSection: some View {
@@ -2286,13 +2330,14 @@ struct SettingsView: View {
     }
 
     private var providerOverviewCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let selectionState = settings.providerSelectionState
+        return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("Provider 상태")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text("기본 노출: Claude")
+                Text("실동작 \(selectionState.runtimeEnabledKinds.count) · 설정 shell \(selectionState.shellEnabledKinds.count)")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
@@ -2318,7 +2363,7 @@ struct SettingsView: View {
 
                     Spacer()
 
-                    Text(providerRuntimeSummary(provider))
+                    Text(providerRuntimeSummary(provider, selectionState: selectionState))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
@@ -2329,17 +2374,26 @@ struct SettingsView: View {
         .cornerRadius(8)
     }
 
-    private func providerRuntimeSummary(_ provider: AppProviderKind) -> String {
-        switch provider {
-        case .claude:
+    private func providerRuntimeSummary(_ provider: AppProviderKind, selectionState: ProviderSelectionState) -> String {
+        if provider.isRuntimeProvider {
+            if selectionState.activeRuntimeKind == provider {
+                return "실동작 · 기본"
+            }
             return "실동작"
-        case .codex:
-            return "실동작"
-        case .gemini:
-            return "설정 shell"
-        case .antigravity:
-            return "설정 shell"
         }
+        return settings.isProviderEnabled(provider) ? "설정 shell · 저장됨" : "설정 shell"
+    }
+
+    private func shellSectionFootnote(for provider: AppProviderKind, selectionState: ProviderSelectionState) -> String {
+        if provider.isRuntimeProvider {
+            return "이 provider는 실동작 경로를 가집니다. 일반 패널에서 인증과 표시 방식을 바로 조정할 수 있습니다."
+        }
+
+        if selectionState.shellEnabledKinds.contains(provider) {
+            return "현재는 설정 shell만 준비되어 있습니다. 활성화 상태는 저장되지만 메뉴바/조회 경로는 다음 단계에서 연결됩니다."
+        }
+
+        return "아직 설정 shell 단계입니다. 미리 활성화해 두면 다음 단계에서 연결 상태를 이어받을 수 있습니다."
     }
 
     // MARK: - Actions

@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (8차)
+최종 갱신: 2026-04-02 (9차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -26,7 +26,9 @@
 - `Gemini` / `Antigravity` 같은 shell provider가 메뉴바/타이머 런타임 서비스로 잘못 취급되던 경로는 [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift) 에서 runtime-capable provider만 세도록 정리했습니다.
 - `Claude` 런타임 health snapshot은 `session credential`과 `OAuth credential` 가용성을 모두 노출하고, bootstrap / timer / refresh 가능 여부도 이를 기준으로 계산하기 시작했습니다.
 - 메뉴바, 팝오버 overview, 설정 체크리스트는 `OAuth-only` 계정에서 더 이상 `세션 키 없음`만 보고 잘못 경고하지 않도록 맞추기 시작했습니다.
-- 다만 팝오버의 하이브리드 구조와 multi-provider fetch/menu glue는 아직 더 분해해야 합니다.
+- 팝오버는 단일 runtime provider일 때 `현재 provider` 집중 카드, 다중 runtime provider일 때 `Provider overview` 전환 카드가 먼저 보이는 하이브리드 구조로 옮기기 시작했습니다.
+- 설정의 Claude 인증 패널도 `일반 사용자 흐름`, `인증 상태`, `고급 설정`을 분리해 Chrome import / 웹 로그인과 수동 sessionKey / fallback 경계를 더 분명하게 드러내기 시작했습니다.
+- 다만 AppDelegate orchestration과 multi-provider fetch/menu glue는 아직 더 분해해야 합니다.
 
 ## 2. 참고 레포에서 가져올 방향
 
@@ -149,6 +151,9 @@
 - 현재 서비스의 강점인 상세 사용량/리셋/상태 가시성은 유지
 - CodexBar의 장점인 `Overview`, provider 전환, 통일된 카드형 구조는 선택적으로 도입
 - 진단/고급 정보는 별도 섹션 또는 설정으로 분리
+- 현재 반영
+- [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 는 단일 provider 집중형과 멀티 provider overview형 전환을 분리하기 시작했습니다.
+- `Gemini` / `Antigravity`는 팝오버에서 `설정 전용 provider`로 더 명시적으로 표시합니다.
 
 ### G. 리팩토링 범위 기준
 
@@ -364,10 +369,13 @@
 - [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 에 Overview 섹션과 helper 기반 상태 접근을 추가해 하이브리드 구조로 옮기는 중입니다.
 - [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 의 `일반` 섹션에는 provider overview 카드를 추가해 `실동작/설정 shell` 상태를 구분해 보여줍니다.
 - [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 의 Claude 인증 탭은 `일반 흐름`과 `고급 및 진단` 섹션을 실제 UI로 나누기 시작했습니다.
+- [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 의 Claude 인증 탭은 이제 `일반 사용자 흐름`, `인증 상태`, `고급 설정`을 더 명확히 분리합니다.
+- [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 는 단일 provider일 때 `현재 provider` 집중 카드, 멀티 provider일 때 `Provider overview`를 먼저 보여주는 하이브리드 구조를 반영합니다.
 - [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift) 와 `ProviderMenuBarDisplayConfig` 도입으로 메뉴바 표시 로직의 시각 규칙과 설정 해석을 한 층 더 분리했습니다.
 - [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift), [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift), [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 이제 `usageHealthSnapshot.runtime.credentialAvailability` 를 이용해 `OAuth-only` 계정에서 잘못된 인증 경고를 덜 띄우도록 맞추기 시작했습니다.
 - 아직 남음
-- 팝오버 하이브리드 구조, preset 체계, provider 추가 시 일관된 카드 구조는 아직 남아 있습니다.
+- `진단` / `업데이트` 섹션을 팝오버 메인 정보 흐름에서 얼마나 분리할지 추가 조정이 필요합니다.
+- preset 체계와 provider 추가 시 카드 구조 일관성은 아직 남아 있습니다.
 - 완료 기준
 - 체감 반응성과 설정 이해도가 개선됨
 

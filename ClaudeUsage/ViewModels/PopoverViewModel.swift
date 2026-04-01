@@ -132,7 +132,7 @@ final class PopoverViewModel: ObservableObject {
             }
             return "데이터를 아직 불러오지 못했습니다"
         case .gemini, .antigravity:
-            return "연결 준비 중"
+            return "설정 전용 provider"
         }
     }
 
@@ -169,7 +169,7 @@ final class PopoverViewModel: ObservableObject {
         case .codex:
             return settings.isProviderEnabled(.codex) ? baseSummary : "비활성화됨"
         case .gemini, .antigravity:
-            return baseSummary
+            return settings.isProviderEnabled(kind) ? "설정 전용 · \(baseSummary)" : "설정 전용"
         }
     }
 
@@ -179,14 +179,17 @@ final class PopoverViewModel: ObservableObject {
             if settings.isProviderEnabled(.claude) {
                 return baseDetail
             }
-            return "설정만 유지하고 있습니다."
+            return "현재는 설정만 유지하고 있습니다."
         case .codex:
             if settings.isProviderEnabled(.codex) {
                 return baseDetail
             }
-            return "설정만 유지하고 있습니다."
+            return "현재는 설정만 유지하고 있습니다."
         case .gemini, .antigravity:
-            return baseDetail
+            if settings.isProviderEnabled(kind) {
+                return baseDetail.map { "설정 전용 · \($0)" } ?? "현재는 설정만 유지하고 있습니다."
+            }
+            return "현재는 설정만 유지하고 있습니다."
         }
     }
 
@@ -197,7 +200,7 @@ final class PopoverViewModel: ObservableObject {
         case .codex:
             return settings.isProviderEnabled(.codex) ? "활성" : "비활성"
         case .gemini, .antigravity:
-            return baseBadge
+            return settings.isProviderEnabled(kind) ? (baseBadge ?? "설정 전용") : "설정 전용"
         }
     }
 

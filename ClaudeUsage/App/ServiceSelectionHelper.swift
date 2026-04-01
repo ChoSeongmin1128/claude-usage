@@ -33,11 +33,11 @@ struct ServiceSelectionHelper {
     }
 
     static func enabledServices(settings: AppSettings) -> [PopoverService] {
-        settings.runtimeEnabledProviderKinds.compactMap(service(for:))
+        settings.providerSelectionState.runtimeEnabledKinds.compactMap(service(for:))
     }
 
     static func enabledRuntimeProviderKinds(settings: AppSettings) -> [AppProviderKind] {
-        settings.runtimeEnabledProviderKinds
+        settings.providerSelectionState.runtimeEnabledKinds
     }
 
     static func isEnabled(_ service: PopoverService, settings: AppSettings) -> Bool {
@@ -45,44 +45,58 @@ struct ServiceSelectionHelper {
     }
 
     static func hasAnyEnabledService(settings: AppSettings) -> Bool {
-        settings.hasAnyRuntimeEnabledProvider
+        settings.providerSelectionState.runtimeEnabledKinds.isEmpty == false
     }
 
     static func hasMultipleEnabledServices(settings: AppSettings) -> Bool {
-        settings.hasMultipleRuntimeEnabledProviders
+        settings.providerSelectionState.runtimeEnabledKinds.count > 1
     }
 
     static func resolvedPopoverService(settings: AppSettings) -> PopoverService {
-        let preferred = preferredPopoverService(settings: settings)
-        let claudeEnabled = settings.isProviderEnabled(.claude)
-        let codexEnabled = settings.isProviderEnabled(.codex)
-
-        switch (claudeEnabled, codexEnabled) {
-        case (true, true):
-            return preferred
-        case (true, false):
-            return .claude
-        case (false, true):
-            return .codex
-        case (false, false):
-            return preferred
+        let selectionState = settings.providerSelectionState
+        let runtimeKinds = selectionState.runtimeEnabledKinds
+        guard !runtimeKinds.isEmpty else {
+            return preferredPopoverService(settings: settings)
         }
+
+        if runtimeKinds.count == 1, let service = service(for: runtimeKinds[0]) {
+            return service
+        }
+
+        if let activeRuntime = selectionState.activeRuntimeKind, runtimeKinds.contains(activeRuntime), let service = service(for: activeRuntime) {
+            return service
+        }
+
+        let preferredRuntime = preferredPopoverService(settings: settings)
+        let preferredKind = providerKind(for: preferredRuntime)
+        if runtimeKinds.contains(preferredKind) {
+            return preferredRuntime
+        }
+        if let firstRuntime = runtimeKinds.first, let service = service(for: firstRuntime) {
+            return service
+        }
+
+        return preferredPopoverService(settings: settings)
     }
 
     static func resolvedMenuBarService(settings: AppSettings) -> PopoverService? {
-        let preferred = resolvedPopoverService(settings: settings)
-        let claudeEnabled = settings.isProviderEnabled(.claude)
-        let codexEnabled = settings.isProviderEnabled(.codex)
+        let selectionState = settings.providerSelectionState
+        let runtimeKinds = selectionState.runtimeEnabledKinds
+        guard !runtimeKinds.isEmpty else { return nil }
 
-        switch preferred {
-        case .claude:
-            if claudeEnabled { return .claude }
-            if codexEnabled { return .codex }
-        case .codex:
-            if codexEnabled { return .codex }
-            if claudeEnabled { return .claude }
+        let preferred = resolvedPopoverService(settings: settings)
+        let preferredKind = providerKind(for: preferred)
+        if runtimeKinds.contains(preferredKind) {
+            return preferred
         }
-        return nil
+
+        if let activeRuntime = selectionState.activeRuntimeKind,
+           runtimeKinds.contains(activeRuntime),
+           let service = service(for: activeRuntime) {
+            return service
+        }
+
+        return runtimeKinds.first.flatMap(service(for:))
     }
 
     static func setActivePopoverService(_ service: PopoverService, settings: AppSettings) {
@@ -99,20 +113,20 @@ struct ServiceSelectionHelper {
     }
 
     static func canRefreshClaude(
-        settings: AppSettings,
+        selectionState: ProviderSelectionState,
         hasSessionKey: Bool,
         hasOAuthCredential: Bool
     ) -> Bool {
-        settings.isProviderEnabled(.claude) && (hasSessionKey || hasOAuthCredential)
+        selectionState.runtimeEnabledKinds.contains(.claude) && (hasSessionKey || hasOAuthCredential)
     }
 
-    static func canRefreshCodex(settings: AppSettings) -> Bool {
-        settings.isProviderEnabled(.codex)
+    static func canRefreshCodex(selectionState: ProviderSelectionState, isCodexAuthenticated: Bool) -> Bool {
+        selectionState.runtimeEnabledKinds.contains(.codex) && isCodexAuthenticated
     }
 
     static func canRefresh(
         _ service: PopoverService,
-        settings: AppSettings,
+        selectionState: ProviderSelectionState,
         hasClaudeSessionKey: Bool,
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool
@@ -120,12 +134,32 @@ struct ServiceSelectionHelper {
         switch service {
         case .claude:
             return canRefreshClaude(
-                settings: settings,
+                selectionState: selectionState,
                 hasSessionKey: hasClaudeSessionKey,
                 hasOAuthCredential: hasClaudeOAuthCredential
             )
         case .codex:
-            return canRefreshCodex(settings: settings) && isCodexAuthenticated
+            return canRefreshCodex(
+                selectionState: selectionState,
+                isCodexAuthenticated: isCodexAuthenticated
+            )
+        }
+    }
+
+    static func refreshableServices(
+        selectionState: ProviderSelectionState,
+        hasClaudeSessionKey: Bool,
+        hasClaudeOAuthCredential: Bool,
+        isCodexAuthenticated: Bool
+    ) -> [PopoverService] {
+        selectionState.runtimeEnabledKinds.compactMap(service(for:)).filter {
+            canRefresh(
+                $0,
+                selectionState: selectionState,
+                hasClaudeSessionKey: hasClaudeSessionKey,
+                hasClaudeOAuthCredential: hasClaudeOAuthCredential,
+                isCodexAuthenticated: isCodexAuthenticated
+            )
         }
     }
 
@@ -135,15 +169,26 @@ struct ServiceSelectionHelper {
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool
     ) -> [PopoverService] {
-        supportedPopoverServices.filter {
-            canRefresh(
-                $0,
-                settings: settings,
-                hasClaudeSessionKey: hasClaudeSessionKey,
-                hasClaudeOAuthCredential: hasClaudeOAuthCredential,
-                isCodexAuthenticated: isCodexAuthenticated
-            )
-        }
+        refreshableServices(
+            selectionState: settings.providerSelectionState,
+            hasClaudeSessionKey: hasClaudeSessionKey,
+            hasClaudeOAuthCredential: hasClaudeOAuthCredential,
+            isCodexAuthenticated: isCodexAuthenticated
+        )
+    }
+
+    static func hasRefreshableService(
+        selectionState: ProviderSelectionState,
+        hasClaudeSessionKey: Bool,
+        hasClaudeOAuthCredential: Bool,
+        isCodexAuthenticated: Bool
+    ) -> Bool {
+        !refreshableServices(
+            selectionState: selectionState,
+            hasClaudeSessionKey: hasClaudeSessionKey,
+            hasClaudeOAuthCredential: hasClaudeOAuthCredential,
+            isCodexAuthenticated: isCodexAuthenticated
+        ).isEmpty
     }
 
     static func hasRefreshableService(
@@ -152,12 +197,12 @@ struct ServiceSelectionHelper {
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool
     ) -> Bool {
-        !refreshableServices(
-            settings: settings,
+        !hasRefreshableService(
+            selectionState: settings.providerSelectionState,
             hasClaudeSessionKey: hasClaudeSessionKey,
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
             isCodexAuthenticated: isCodexAuthenticated
-        ).isEmpty
+        )
     }
 
     static func settingsRootTab(for service: PopoverService) -> String {

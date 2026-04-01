@@ -64,7 +64,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var refreshableServices: [PopoverService] {
         ServiceSelectionHelper.refreshableServices(
-            settings: AppSettings.shared,
+            selectionState: AppSettings.shared.providerSelectionState,
             hasClaudeSessionKey: KeychainManager.shared.hasSessionKey,
             hasClaudeOAuthCredential: claudeCredentialAvailability.oauthCredentialAvailable,
             isCodexAuthenticated: CodexAuthManager.shared.isAuthenticated
@@ -421,38 +421,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showUnifiedContextMenu() {
         let menu = NSMenu()
-        let canRefreshClaude = refreshableServices.contains(.claude)
-        let canRefreshCodex = refreshableServices.contains(.codex)
+        let runtimeServices = ServiceSelectionHelper.supportedPopoverServices
+        let refreshableServiceSet = Set(refreshableServices)
 
         let refreshAll = NSMenuItem(title: "전체 새로고침", action: #selector(refreshClicked), keyEquivalent: "r")
-        refreshAll.isEnabled = canRefreshClaude || canRefreshCodex
+        refreshAll.isEnabled = !refreshableServiceSet.isEmpty
         menu.addItem(refreshAll)
         menu.addItem(NSMenuItem.separator())
 
-        menu.addItem(makeServiceToggleMenuItem(
-            title: "Claude 모니터링 활성화",
-            isEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared),
-            action: #selector(toggleClaudeEnabled)
-        ))
-        menu.addItem(makeServiceRefreshMenuItem(title: "Claude 새로고침", isEnabled: canRefreshClaude, action: #selector(refreshClaudeClicked)))
-        menu.addItem(makeStyleMenuItem(
-            title: "Claude 아이콘 스타일",
-            currentStyle: AppSettings.shared.menuBarStyle,
-            action: #selector(changeStyle(_:))
-        ))
-        menu.addItem(NSMenuItem.separator())
-
-        menu.addItem(makeServiceToggleMenuItem(
-            title: "Codex 모니터링 활성화",
-            isEnabled: ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared),
-            action: #selector(toggleCodexEnabled)
-        ))
-        menu.addItem(makeServiceRefreshMenuItem(title: "Codex 새로고침", isEnabled: canRefreshCodex, action: #selector(refreshCodexClicked)))
-        menu.addItem(makeStyleMenuItem(
-            title: "Codex 아이콘 스타일",
-            currentStyle: AppSettings.shared.codexMenuBarStyle,
-            action: #selector(changeCodexStyle(_:))
-        ))
+        for (index, service) in runtimeServices.enumerated() {
+            if index > 0 {
+                menu.addItem(NSMenuItem.separator())
+            }
+            addRuntimeServiceContextMenuSection(
+                service,
+                canRefresh: refreshableServiceSet.contains(service),
+                to: menu
+            )
+        }
 
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "설정...", action: #selector(settingsClicked), keyEquivalent: ","))
@@ -462,6 +448,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
         statusItem?.menu = nil
+    }
+
+    private func addRuntimeServiceContextMenuSection(
+        _ service: PopoverService,
+        canRefresh: Bool,
+        to menu: NSMenu
+    ) {
+        let settings = AppSettings.shared
+        let serviceName = service.displayName
+        switch service {
+        case .claude:
+            menu.addItem(makeServiceToggleMenuItem(
+                title: "\(serviceName) 모니터링 활성화",
+                isEnabled: settings.isProviderEnabled(.claude),
+                action: #selector(toggleClaudeEnabled)
+            ))
+            menu.addItem(makeServiceRefreshMenuItem(title: "\(serviceName) 새로고침", isEnabled: canRefresh, action: #selector(refreshClaudeClicked)))
+            menu.addItem(makeStyleMenuItem(
+                title: "\(serviceName) 아이콘 스타일",
+                currentStyle: settings.menuBarStyle,
+                action: #selector(changeStyle(_:))
+            ))
+        case .codex:
+            menu.addItem(makeServiceToggleMenuItem(
+                title: "\(serviceName) 모니터링 활성화",
+                isEnabled: settings.isProviderEnabled(.codex),
+                action: #selector(toggleCodexEnabled)
+            ))
+            menu.addItem(makeServiceRefreshMenuItem(title: "\(serviceName) 새로고침", isEnabled: canRefresh, action: #selector(refreshCodexClicked)))
+            menu.addItem(makeStyleMenuItem(
+                title: "\(serviceName) 아이콘 스타일",
+                currentStyle: settings.codexMenuBarStyle,
+                action: #selector(changeCodexStyle(_:))
+            ))
+        }
     }
 
     private func makeServiceToggleMenuItem(title: String, isEnabled: Bool, action: Selector) -> NSMenuItem {
@@ -787,17 +808,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - API
 
     private func refreshAll(force: Bool = false) {
-        if refreshableServices.contains(.claude) {
+        for service in ServiceSelectionHelper.supportedPopoverServices {
+            if refreshableServices.contains(service) {
+                refresh(service: service, force: force)
+            } else if ServiceSelectionHelper.isEnabled(service, settings: AppSettings.shared) {
+                clearRuntimeServiceState(service)
+            }
+        }
+    }
+
+    private func refresh(service: PopoverService, force: Bool) {
+        switch service {
+        case .claude:
             refreshUsage(force: force)
-        } else if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
+        case .codex:
+            refreshCodexUsage(force: force)
+        }
+    }
+
+    private func clearRuntimeServiceState(_ service: PopoverService) {
+        switch service {
+        case .claude:
             currentUsage = nil
             currentError = nil
             hasAuthError = false
-        }
-
-        if refreshableServices.contains(.codex) {
-            refreshCodexUsage(force: force)
-        } else if ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) {
+        case .codex:
             currentCodexUsage = nil
             codexError = CodexAuthManager.shared.isAuthenticated ? nil : .invalidSessionKey
             hasCodexAuthError = !CodexAuthManager.shared.isAuthenticated
@@ -1175,7 +1210,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let codexIconTintColor = menuBarIconTintColor(for: button)
         let claudeIconTintColor = claudeBrandIconTintColor(for: button)
 
-        if ServiceSelectionHelper.hasMultipleEnabledServices(settings: settings),
+        if settings.hasMultipleRuntimeEnabledProviders,
            let claudeConfig,
            let codexConfig
         {
