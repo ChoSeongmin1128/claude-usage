@@ -11,6 +11,15 @@ import Combine
 enum PopoverService: String, Sendable {
     case claude
     case codex
+
+    var displayName: String {
+        switch self {
+        case .claude:
+            return "Claude"
+        case .codex:
+            return "Codex"
+        }
+    }
 }
 
 struct PopoverView: View {
@@ -79,180 +88,25 @@ struct PopoverView: View {
             .padding(.top, isCompact ? 4 : 12)
             .padding(.bottom, isCompact ? 4 : 8)
 
-            // 시스템 상태 배너 (장애 시에만 표시)
-            if selectedService == .claude, let status = viewModel.systemStatus, status.hasIssue {
+            if hasDiagnosticContent {
+                diagnosticSection
                 Divider()
-                VStack(alignment: .leading, spacing: isCompact ? 4 : 5) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(statusColor(for: status.indicator))
-
-                        Text(status.indicator.displayText)
-                            .font(.caption)
-                            .foregroundColor(.primary)
-
-                        if status.activeIncidentCount > 0 {
-                            Text("활성 \(status.activeIncidentCount)건")
-                                .font(.caption2)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 1)
-                                .background(statusColor(for: status.indicator).opacity(0.16))
-                                .foregroundColor(statusColor(for: status.indicator))
-                                .cornerRadius(4)
-                        }
-
-                        Spacer()
-
-                        if !isCompact {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.15)) {
-                                    isStatusExpanded.toggle()
-                                }
-                                DispatchQueue.main.async {
-                                    viewModel.requestLayoutRefresh()
-                                }
-                            } label: {
-                                HStack(spacing: 4) {
-                                    Text(isStatusExpanded ? "접기" : "상세")
-                                        .font(.caption2)
-                                    Image(systemName: isStatusExpanded ? "chevron.up" : "chevron.down")
-                                        .font(.system(size: 10, weight: .semibold))
-                                }
-                                .foregroundColor(.secondary)
-                            }
-                            .buttonStyle(.borderless)
-                        }
-
-                        Button {
-                            if let url = URL(string: status.latestIncident?.shortlink ?? "https://status.claude.com") {
-                                NSWorkspace.shared.open(url)
-                            }
-                        } label: {
-                            Image(systemName: "arrow.up.right.square")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.borderless)
-                        .help("status.claude.com 열기")
-                    }
-
-                    if !isCompact && isStatusExpanded {
-                        HStack(spacing: 8) {
-                            Text("상태")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                            Text(status.description)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                            Spacer()
-                        }
-
-                        if let incident = status.latestIncident {
-                            Text(incident.name)
-                                .font(.caption)
-                                .fontWeight(.semibold)
-                                .foregroundColor(.primary)
-                                .lineLimit(1)
-
-                            if let body = incident.latestUpdateBody, !body.isEmpty {
-                                Text(body)
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(isCompact ? 1 : 2)
-                            }
-
-                            let affected = affectedComponentsSummary(incident.affectedComponents)
-                            if !affected.isEmpty {
-                                Text("영향: \(affected)")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                            }
-
-                            if let updatedAt = incident.latestUpdateAt {
-                                Text("업데이트: \(updatedAt, style: .relative)")
-                                    .font(.caption2)
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                            }
-                        } else if !status.degradedComponents.isEmpty {
-                            Text("영향: \(affectedComponentsSummary(status.degradedComponents))")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
-                .background(statusColor(for: status.indicator).opacity(0.08))
-                .onChange(of: isCompact) { _, compact in
-                    if compact {
-                        isStatusExpanded = false
-                    }
-                }
             }
-
-            // 업데이트 배너
-            if let update = settings.availableUpdate {
-                Divider()
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.down.circle.fill")
-                            .foregroundColor(.accentColor)
-                        Text("v\(update.version) 업데이트 가능")
-                            .font(.caption)
-                        Spacer()
-                        Button("다운로드") {
-                            viewModel.downloadLatestRelease()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                    }
-
-                    if isCompact {
-                        Text("다운로드 후 앱 교체 필요")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("다운로드 후 기존 앱을 종료하고 새 앱으로 덮어쓴 뒤 다시 실행해 주세요. 첫 실행에서 차단되면 시스템 설정 > 개인정보 보호 및 보안 > 그래도 열기를 진행해 주세요.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(3)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
-                .background(Color.accentColor.opacity(0.08))
-            }
-
-            if let staleMessage = staleDataMessage {
-                Divider()
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(.orange)
-                    Text(staleMessage)
-                        .font(.caption)
-                        .foregroundColor(.primary)
-                    Spacer()
-                    if serviceError != nil {
-                        Text("자동 재시도 중")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 6)
-                .background(Color.orange.opacity(0.08))
-            }
-
-            Divider()
 
             if isCompact {
                 compactMainSection
             } else {
-                standardMainSection
+                VStack(spacing: 0) {
+                    if shouldShowOverviewSection {
+                        providerOverviewSection
+                        Divider()
+                    }
+
+                    providerShellSection
+                    Divider()
+
+                    standardMainSection
+                }
             }
 
             Divider()
@@ -326,10 +180,7 @@ struct PopoverView: View {
             normalizeSelectedServiceIfNeeded()
             syncCompactAcrossServicesIfNeeded()
         }
-        .onChange(of: settings.claudeEnabled) { _, _ in
-            normalizeSelectedServiceIfNeeded()
-        }
-        .onChange(of: settings.codexEnabled) { _, _ in
+        .onChange(of: settings.providerStates) { _, _ in
             normalizeSelectedServiceIfNeeded()
         }
         .onChange(of: viewModel.selectedService) { _, _ in
@@ -338,6 +189,391 @@ struct PopoverView: View {
     }
 
     // MARK: - Helpers
+
+    private var shouldShowOverviewSection: Bool {
+        !isCompact && availableServices.count > 1
+    }
+
+    private var providerOverviewSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Provider overview")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("Claude 중심 · 실동작 provider")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            ForEach(availableServices, id: \.rawValue) { service in
+                Button {
+                    viewModel.selectService(service)
+                    syncCompactAcrossServicesIfNeeded()
+                    DispatchQueue.main.async {
+                        viewModel.requestLayoutRefresh()
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                Text(service.displayName)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                if selectedService == service {
+                                    Text("활성")
+                                        .font(.caption2.weight(.medium))
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.accentColor.opacity(0.15))
+                                        .foregroundStyle(Color.accentColor)
+                                        .clipShape(Capsule())
+                                }
+                            }
+                            Text(viewModel.overviewSummary(for: appProviderKind(for: service), settings: settings))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        if let meta = viewModel.overviewMeta(for: appProviderKind(for: service)) {
+                            Text(meta)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(selectedService == service
+                                  ? Color.accentColor.opacity(0.08)
+                                  : Color(NSColor.controlBackgroundColor).opacity(0.4))
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+
+    private var providerShellSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Provider shell")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("미연결 provider 포함")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            ForEach(viewModel.providerShellCards(settings: settings), id: \.id) { card in
+                providerShellRow(card)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.18))
+    }
+
+    private var hasDiagnosticContent: Bool {
+        (selectedService == .claude && viewModel.systemStatus?.hasIssue == true)
+        || settings.availableUpdate != nil
+        || staleDataMessage != nil
+    }
+
+    private func providerShellRow(_ card: PopoverViewModel.ProviderShellCard) -> some View {
+        let selectableService = popoverService(for: card.kind)
+        let isSelected = selectableService.map { selectedService == $0 } ?? false
+
+        return Group {
+            if let selectableService, card.isSelectable {
+                Button {
+                    viewModel.selectService(selectableService)
+                    syncCompactAcrossServicesIfNeeded()
+                    DispatchQueue.main.async {
+                        viewModel.requestLayoutRefresh()
+                    }
+                } label: {
+                    providerShellCardBody(card: card, isSelected: isSelected)
+                }
+                .buttonStyle(.plain)
+            } else {
+                providerShellCardBody(card: card, isSelected: false)
+                    .opacity(0.85)
+            }
+        }
+    }
+
+    private func providerShellCardBody(card: PopoverViewModel.ProviderShellCard, isSelected: Bool) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Image(systemName: card.icon)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    Text(card.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    if let badge = card.badgeTitle {
+                        Text(badge)
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background((card.isSelectable ? Color.accentColor : Color.secondary).opacity(0.14))
+                            .foregroundStyle(card.isSelectable ? Color.accentColor : .secondary)
+                            .clipShape(Capsule())
+                    }
+                }
+
+                Text(card.summary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                if let detail = card.detail {
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer()
+
+            if card.isSelectable, let selectableService = popoverService(for: card.kind) {
+                Text(selectableService.displayName)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(isSelected
+                      ? Color.accentColor.opacity(0.08)
+                      : Color(NSColor.controlBackgroundColor).opacity(0.35))
+        )
+    }
+
+    private func diagnosticStatusRow(status: ClaudeSystemStatus) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(statusColor(for: status.indicator))
+
+                Text(status.indicator.displayText)
+                    .font(.caption)
+                    .foregroundColor(.primary)
+
+                if status.activeIncidentCount > 0 {
+                    Text("활성 \(status.activeIncidentCount)건")
+                        .font(.caption2)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(statusColor(for: status.indicator).opacity(0.16))
+                        .foregroundColor(statusColor(for: status.indicator))
+                        .cornerRadius(4)
+                }
+
+                Spacer()
+
+                if !isCompact {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            isStatusExpanded.toggle()
+                        }
+                        DispatchQueue.main.async {
+                            viewModel.requestLayoutRefresh()
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(isStatusExpanded ? "접기" : "상세")
+                                .font(.caption2)
+                            Image(systemName: isStatusExpanded ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 10, weight: .semibold))
+                        }
+                        .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                }
+
+                Button {
+                    if let url = URL(string: status.latestIncident?.shortlink ?? "https://status.claude.com") {
+                        NSWorkspace.shared.open(url)
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.borderless)
+                .help("status.claude.com 열기")
+            }
+
+            if !isCompact && isStatusExpanded {
+                HStack(spacing: 8) {
+                    Text("상태")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Text(status.description)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                    Spacer()
+                }
+
+                if let incident = status.latestIncident {
+                    Text(incident.name)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+
+                    if let body = incident.latestUpdateBody, !body.isEmpty {
+                        Text(body)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(isCompact ? 1 : 2)
+                    }
+
+                    let affected = affectedComponentsSummary(incident.affectedComponents)
+                    if !affected.isEmpty {
+                        Text("영향: \(affected)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    if let updatedAt = incident.latestUpdateAt {
+                        Text("업데이트: \(updatedAt, style: .relative)")
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                } else if !status.degradedComponents.isEmpty {
+                    Text("영향: \(affectedComponentsSummary(status.degradedComponents))")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        }
+    }
+
+    private func diagnosticUpdateRow(update: UpdateInfo) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .foregroundColor(.accentColor)
+                Text("v\(update.version) 업데이트 가능")
+                    .font(.caption)
+                Spacer()
+                Button("다운로드") {
+                    viewModel.downloadLatestRelease()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+
+            if isCompact {
+                Text("다운로드 후 앱 교체 필요")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("다운로드 후 기존 앱을 종료하고 새 앱으로 덮어쓴 뒤 다시 실행해 주세요. 첫 실행에서 차단되면 시스템 설정 > 개인정보 보호 및 보안 > 그래도 열기를 진행해 주세요.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color.accentColor.opacity(0.06))
+        .cornerRadius(10)
+    }
+
+    private func diagnosticStaleRow(message: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.orange)
+            Text(message)
+                .font(.caption)
+                .foregroundColor(.primary)
+            Spacer()
+            if serviceError != nil {
+                Text("자동 재시도 중")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color.orange.opacity(0.06))
+        .cornerRadius(10)
+    }
+
+    private func popoverService(for kind: AppProviderKind) -> PopoverService? {
+        switch kind {
+        case .claude:
+            return .claude
+        case .codex:
+            return .codex
+        case .gemini, .antigravity:
+            return nil
+        }
+    }
+
+    private func appProviderKind(for service: PopoverService) -> AppProviderKind {
+        switch service {
+        case .claude:
+            return .claude
+        case .codex:
+            return .codex
+        }
+    }
+
+    @ViewBuilder
+    private var diagnosticSection: some View {
+        if hasDiagnosticContent {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("진단")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("메인 흐름과 분리된 상태 정보")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
+                if selectedService == .claude, let status = viewModel.systemStatus, status.hasIssue {
+                    diagnosticStatusRow(status: status)
+                }
+
+                if let update = settings.availableUpdate {
+                    diagnosticUpdateRow(update: update)
+                }
+
+                if let staleMessage = staleDataMessage {
+                    diagnosticStaleRow(message: staleMessage)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.22))
+        }
+    }
 
     @ViewBuilder
     private var headerServiceSelector: some View {
@@ -352,7 +588,7 @@ struct PopoverView: View {
                         }
                     } label: {
                         HStack(spacing: 5) {
-                            Text(service == .claude ? "Claude" : "Codex")
+                            Text(service.displayName)
                                 .font(.system(size: 12.5, weight: selectedService == service ? .semibold : .medium))
                             if shouldShowWarningDot(for: service) {
                                 Circle()
@@ -370,7 +606,7 @@ struct PopoverView: View {
                 }
             }
         } else {
-            Text(selectedService == .claude ? "Claude" : "Codex")
+            Text(selectedService.displayName)
                 .font(.headline)
         }
     }
@@ -417,32 +653,52 @@ struct PopoverView: View {
         }
     }
 
+    private func overviewSummary(for service: PopoverService) -> String {
+        switch service {
+        case .claude:
+            if isAuthRequired(for: .claude) {
+                return "인증이 필요합니다"
+            }
+            if let usage = viewModel.usage {
+                return "현재 \(Int(usage.fiveHour.utilization.rounded()))% · 주간 \(Int((usage.sevenDay?.utilization ?? 0).rounded()))%"
+            }
+            if let error = viewModel.error {
+                return error.errorDescription ?? "조회 실패"
+            }
+            return "데이터를 아직 불러오지 못했습니다"
+        case .codex:
+            if isAuthRequired(for: .codex) {
+                return "인증이 필요합니다"
+            }
+            if let usage = viewModel.codexUsage {
+                return "현재 \(Int((usage.rateLimit?.primaryWindow?.utilization ?? 0).rounded()))% · 주간 \(Int((usage.rateLimit?.secondaryWindow?.utilization ?? 0).rounded()))%"
+            }
+            if let error = viewModel.codexError {
+                return error.errorDescription ?? "조회 실패"
+            }
+            return "데이터를 아직 불러오지 못했습니다"
+        }
+    }
+
+    private func overviewMeta(for service: PopoverService) -> String? {
+        guard let lastUpdated = serviceLastUpdated(for: service) else { return nil }
+        return RelativeDateTimeFormatter().localizedString(for: lastUpdated, relativeTo: Date())
+    }
+
     private var selectedService: PopoverService {
         viewModel.selectedService
     }
 
     private var currentServiceLastUpdated: Date? {
-        switch selectedService {
-        case .claude:
-            return viewModel.claudeLastUpdated
-        case .codex:
-            return viewModel.codexLastUpdated
-        }
+        serviceLastUpdated(for: selectedService)
     }
 
     private var currentServiceLoading: Bool {
-        switch selectedService {
-        case .claude:
-            return viewModel.isClaudeLoading
-        case .codex:
-            return viewModel.isCodexLoading
-        }
+        serviceLoading(for: selectedService)
     }
 
     private var availableServices: [PopoverService] {
-        var result: [PopoverService] = []
-        if settings.claudeEnabled { result.append(.claude) }
-        if settings.codexEnabled { result.append(.codex) }
+        let result = ServiceSelectionHelper.enabledServices(settings: settings)
         if result.isEmpty {
             return [.claude]
         }
@@ -452,18 +708,18 @@ struct PopoverView: View {
     private func shouldShowWarningDot(for service: PopoverService) -> Bool {
         switch service {
         case .claude:
-            return (settings.claudeEnabled && !KeychainManager.shared.hasSessionKey) || viewModel.error != nil
+            return (ServiceSelectionHelper.isEnabled(.claude, settings: settings) && !KeychainManager.shared.hasSessionKey) || viewModel.error != nil
         case .codex:
-            return (settings.codexEnabled && !CodexAuthManager.shared.isAuthenticated) || viewModel.codexError != nil
+            return (ServiceSelectionHelper.isEnabled(.codex, settings: settings) && !CodexAuthManager.shared.isAuthenticated) || viewModel.codexError != nil
         }
     }
 
     private func isAuthRequired(for service: PopoverService) -> Bool {
         switch service {
         case .claude:
-            return settings.claudeEnabled && !KeychainManager.shared.hasSessionKey
+            return ServiceSelectionHelper.isEnabled(.claude, settings: settings) && !KeychainManager.shared.hasSessionKey
         case .codex:
-            return settings.codexEnabled && !CodexAuthManager.shared.isAuthenticated
+            return ServiceSelectionHelper.isEnabled(.codex, settings: settings) && !CodexAuthManager.shared.isAuthenticated
         }
     }
 
@@ -474,12 +730,7 @@ struct PopoverView: View {
     }
 
     private var serviceError: APIError? {
-        switch selectedService {
-        case .claude:
-            return viewModel.error
-        case .codex:
-            return viewModel.codexError
-        }
+        error(for: selectedService)
     }
 
     private var isCompact: Bool {
@@ -528,12 +779,47 @@ struct PopoverView: View {
     }
 
     private var hasServiceData: Bool {
-        switch selectedService {
+        hasLoadedContent(for: selectedService) || error(for: selectedService) != nil
+    }
+
+    private func serviceLastUpdated(for service: PopoverService) -> Date? {
+        switch service {
         case .claude:
-            return viewModel.usage != nil || viewModel.error != nil
+            return viewModel.claudeLastUpdated
         case .codex:
-            return viewModel.codexUsage != nil || viewModel.codexError != nil
+            return viewModel.codexLastUpdated
         }
+    }
+
+    private func serviceLoading(for service: PopoverService) -> Bool {
+        switch service {
+        case .claude:
+            return viewModel.isClaudeLoading
+        case .codex:
+            return viewModel.isCodexLoading
+        }
+    }
+
+    private func error(for service: PopoverService) -> APIError? {
+        switch service {
+        case .claude:
+            return viewModel.error
+        case .codex:
+            return viewModel.codexError
+        }
+    }
+
+    private func hasLoadedContent(for service: PopoverService) -> Bool {
+        switch service {
+        case .claude:
+            return viewModel.usage != nil
+        case .codex:
+            return viewModel.codexUsage != nil
+        }
+    }
+
+    private func needsInitialLoad(for service: PopoverService) -> Bool {
+        serviceLoading(for: service) && !hasLoadedContent(for: service)
     }
 
     // MARK: - Standard Content
@@ -541,7 +827,7 @@ struct PopoverView: View {
     @ViewBuilder
     private func standardContent(usage: ClaudeUsageResponse?) -> some View {
         let visibleClaudeItems = settings.popoverItems.filter { $0.visible }
-        let visibleCodexItems = settings.codexEnabled ? settings.codexPopoverItems.filter { $0.visible } : []
+        let visibleCodexItems = ServiceSelectionHelper.isEnabled(.codex, settings: settings) ? settings.codexPopoverItems.filter { $0.visible } : []
         let orderedIDs = visibleClaudeItems.map(\.id) + visibleCodexItems.map(\.id)
         VStack(spacing: 12) {
             ForEach(Array(orderedIDs.enumerated()), id: \.offset) { index, itemID in
@@ -697,7 +983,7 @@ struct PopoverView: View {
 
     @ViewBuilder
     private func standardCodexContent() -> some View {
-        let visibleCodexItems = settings.codexEnabled ? settings.codexPopoverItems.filter { $0.visible } : []
+        let visibleCodexItems = ServiceSelectionHelper.isEnabled(.codex, settings: settings) ? settings.codexPopoverItems.filter { $0.visible } : []
         VStack(spacing: 12) {
             ForEach(Array(visibleCodexItems.enumerated()), id: \.offset) { index, item in
                 if index > 0 { Divider() }
@@ -750,7 +1036,7 @@ struct PopoverView: View {
                 }
                 .padding(12)
 
-            } else if currentServiceLoading && ((selectedService == .claude && viewModel.usage == nil) || (selectedService == .codex && viewModel.codexUsage == nil)) {
+            } else if needsInitialLoad(for: selectedService) {
                 VStack(spacing: 10) {
                     ProgressView()
                     Text("데이터 로딩 중...")
@@ -759,13 +1045,7 @@ struct PopoverView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 56)
 
-            } else if selectedService == .claude, let error = viewModel.error, viewModel.usage == nil {
-                ErrorSectionView(error: error) {
-                    viewModel.refresh()
-                }
-                .padding(12)
-
-            } else if selectedService == .codex, let error = viewModel.codexError, viewModel.codexUsage == nil {
+            } else if let error = serviceError, !hasLoadedContent(for: selectedService) {
                 ErrorSectionView(error: error) {
                     viewModel.refresh()
                 }
@@ -797,7 +1077,7 @@ struct PopoverView: View {
                 }
                 .padding(16)
 
-            } else if currentServiceLoading && ((selectedService == .claude && viewModel.usage == nil) || (selectedService == .codex && viewModel.codexUsage == nil)) {
+            } else if needsInitialLoad(for: selectedService) {
                 VStack(spacing: 12) {
                     ProgressView()
                     Text("데이터 로딩 중...")
@@ -806,13 +1086,7 @@ struct PopoverView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 150)
 
-            } else if selectedService == .claude, let error = viewModel.error, viewModel.usage == nil {
-                ErrorSectionView(error: error) {
-                    viewModel.refresh()
-                }
-                .padding(16)
-
-            } else if selectedService == .codex, let error = viewModel.codexError, viewModel.codexUsage == nil {
+            } else if let error = serviceError, !hasLoadedContent(for: selectedService) {
                 ErrorSectionView(error: error) {
                     viewModel.refresh()
                 }
@@ -1019,93 +1293,6 @@ struct ErrorSectionView: View {
             }
         }
         .frame(maxWidth: .infinity)
-    }
-}
-
-// MARK: - ViewModel
-
-class PopoverViewModel: ObservableObject {
-    @Published var usage: ClaudeUsageResponse?
-    @Published var codexUsage: CodexUsageResponse?
-    @Published var error: APIError?
-    @Published var codexError: APIError?
-    @Published var isClaudeLoading: Bool = false
-    @Published var isCodexLoading: Bool = false
-    @Published var claudeLastUpdated: Date?
-    @Published var codexLastUpdated: Date?
-    @Published var selectedService: PopoverService = .claude
-    @Published var overage: OverageSpendLimitResponse?
-    @Published var systemStatus: ClaudeSystemStatus?
-    @Published var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
-    @Published var nextUsageRetryAt: Date?
-    var onRefreshService: ((PopoverService) -> Void)?
-    var onOpenSettingsForService: ((PopoverService) -> Void)?
-    var onServiceSelected: ((PopoverService) -> Void)?
-    var onPinChanged: ((PopoverService, Bool) -> Void)?
-    var onLayoutChanged: ((PopoverService) -> Void)?
-
-    func refresh() {
-        onRefreshService?(selectedService)
-    }
-
-    func refresh(service: PopoverService) {
-        onRefreshService?(service)
-    }
-
-    func openSettings() {
-        onOpenSettingsForService?(selectedService)
-    }
-
-    func openSettings(for service: PopoverService) {
-        onOpenSettingsForService?(service)
-    }
-
-    func selectService(_ service: PopoverService) {
-        selectedService = service
-        onServiceSelected?(service)
-    }
-
-    func requestLayoutRefresh() {
-        onLayoutChanged?(selectedService)
-    }
-
-    func requestLayoutRefresh(for service: PopoverService) {
-        onLayoutChanged?(service)
-    }
-
-    func openUsagePage() {
-        if let url = URL(string: "https://claude.ai/settings/usage") {
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    func downloadLatestRelease() {
-        Task {
-            let url = await UpdateService.shared.latestDownloadURL()
-            NSWorkspace.shared.open(url)
-        }
-    }
-
-    func update(
-        usage: ClaudeUsageResponse?,
-        codexUsage: CodexUsageResponse?,
-        error: APIError?,
-        codexError: APIError?,
-        isClaudeLoading: Bool,
-        isCodexLoading: Bool,
-        claudeLastUpdated: Date? = nil,
-        codexLastUpdated: Date? = nil,
-        overage: OverageSpendLimitResponse? = nil
-    ) {
-        self.usage = usage
-        self.codexUsage = codexUsage
-        self.error = error
-        self.codexError = codexError
-        self.isClaudeLoading = isClaudeLoading
-        self.isCodexLoading = isCodexLoading
-        if let claudeLastUpdated { self.claudeLastUpdated = claudeLastUpdated }
-        if let codexLastUpdated { self.codexLastUpdated = codexLastUpdated }
-        if let overage { self.overage = overage }
     }
 }
 

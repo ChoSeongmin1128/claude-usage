@@ -94,6 +94,20 @@ enum CircularDisplayMode: String, Codable, CaseIterable, Sendable {
     }
 }
 
+enum IconMetric: String, Codable, CaseIterable, Sendable {
+    case fiveHour = "five_hour"
+    case weekly = "weekly"
+
+    var displayName: String {
+        switch self {
+        case .fiveHour:
+            return "현재 세션"
+        case .weekly:
+            return "주간"
+        }
+    }
+}
+
 struct PopoverItemConfig: Codable, Sendable, Equatable {
     let id: String
     var visible: Bool
@@ -191,10 +205,29 @@ enum UpdateCheckInterval: String, Codable, CaseIterable, Sendable {
     }
 }
 
+enum ClaudeMessagesFallbackPolicy: String, Codable, CaseIterable, Sendable {
+    case off = "off"
+    case manual = "manual"
+    case automatic = "automatic"
+
+    var displayName: String {
+        switch self {
+        case .off: return "끄기"
+        case .manual: return "수동 보조"
+        case .automatic: return "자동 보조"
+        }
+    }
+}
+
 class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
+    private static func normalizedMessagesFallbackThreshold(_ value: Int) -> Int {
+        min(max(value, 0), 100)
+    }
+
     private let defaults = UserDefaults.standard
+    private var isSyncingProviderState = false
 
     // MARK: - Published Properties
 
@@ -231,20 +264,35 @@ class AppSettings: ObservableObject {
     @Published var reducedRefreshOnBattery: Bool {
         didSet { defaults.set(reducedRefreshOnBattery, forKey: "reducedRefreshOnBattery") }
     }
+    @Published var hasCompletedSetupWizard: Bool {
+        didSet { defaults.set(hasCompletedSetupWizard, forKey: "hasCompletedSetupWizard") }
+    }
     @Published var circularDisplayMode: CircularDisplayMode {
         didSet { defaults.set(circularDisplayMode.rawValue, forKey: "circularDisplayMode") }
+    }
+    @Published var iconMetric: IconMetric {
+        didSet { defaults.set(iconMetric.rawValue, forKey: "iconMetric") }
     }
     @Published var showClaudeIcon: Bool {
         didSet { defaults.set(showClaudeIcon, forKey: "showClaudeIcon") }
     }
     @Published var claudeEnabled: Bool {
-        didSet { defaults.set(claudeEnabled, forKey: "claudeEnabled") }
+        didSet {
+            defaults.set(claudeEnabled, forKey: "claudeEnabled")
+            syncProviderStatesFromLegacyFields()
+        }
     }
     @Published var menuBarTextHighContrast: Bool {
         didSet { defaults.set(menuBarTextHighContrast, forKey: "menuBarTextHighContrast") }
     }
     @Published var claudeAlertEnabled: Bool {
         didSet { defaults.set(claudeAlertEnabled, forKey: "claudeAlertEnabled") }
+    }
+    @Published var claudeMessagesFallbackPolicy: ClaudeMessagesFallbackPolicy {
+        didSet { defaults.set(claudeMessagesFallbackPolicy.rawValue, forKey: "claudeMessagesFallbackPolicy") }
+    }
+    @Published var claudeMessagesFallbackAutoDisableBelowPercent: Int {
+        didSet { defaults.set(claudeMessagesFallbackAutoDisableBelowPercent, forKey: "claudeMessagesFallbackAutoDisableBelowPercent") }
     }
     @Published var alertFiveHourEnabled: Bool {
         didSet { defaults.set(alertFiveHourEnabled, forKey: "alertFiveHourEnabled") }
@@ -310,10 +358,22 @@ class AppSettings: ObservableObject {
         }
     }
     @Published var codexEnabled: Bool {
-        didSet { defaults.set(codexEnabled, forKey: "codexEnabled") }
+        didSet {
+            defaults.set(codexEnabled, forKey: "codexEnabled")
+            syncProviderStatesFromLegacyFields()
+        }
     }
     @Published var showCodexIcon: Bool {
         didSet { defaults.set(showCodexIcon, forKey: "showCodexIcon") }
+    }
+    @Published var providerStates: AppProviderStateCatalog {
+        didSet {
+            if let data = try? JSONEncoder().encode(providerStates) {
+                defaults.set(data, forKey: "providerStates")
+            }
+            guard !isSyncingProviderState else { return }
+            syncLegacyProviderFields(from: providerStates)
+        }
     }
     @Published var codexPercentageDisplay: PercentageDisplay {
         didSet { defaults.set(codexPercentageDisplay.rawValue, forKey: "codexPercentageDisplay") }
@@ -329,6 +389,9 @@ class AppSettings: ObservableObject {
     }
     @Published var codexCircularDisplayMode: CircularDisplayMode {
         didSet { defaults.set(codexCircularDisplayMode.rawValue, forKey: "codexCircularDisplayMode") }
+    }
+    @Published var codexIconMetric: IconMetric {
+        didSet { defaults.set(codexIconMetric.rawValue, forKey: "codexIconMetric") }
     }
     @Published var codexShowBatteryPercent: Bool {
         didSet { defaults.set(codexShowBatteryPercent, forKey: "codexShowBatteryPercent") }
@@ -360,7 +423,10 @@ class AppSettings: ObservableObject {
         didSet { defaults.set(settingsLastTab, forKey: "settingsLastTab") }
     }
     @Published var menuBarActiveService: String {
-        didSet { defaults.set(menuBarActiveService, forKey: "menuBarActiveService") }
+        didSet {
+            defaults.set(menuBarActiveService, forKey: "menuBarActiveService")
+            syncProviderStatesFromLegacyFields()
+        }
     }
     @Published var claudeSettingsLastTab: String {
         didSet { defaults.set(claudeSettingsLastTab, forKey: "claudeSettingsLastTab") }
@@ -378,17 +444,21 @@ class AppSettings: ObservableObject {
         let resetTimeDisplay: ResetTimeDisplay
         let timeFormat: TimeFormatStyle
         let circularDisplayMode: CircularDisplayMode
+        let iconMetric: IconMetric
         let refreshInterval: TimeInterval
         let autoRefresh: Bool
         let notificationsEnabled: Bool
         let alertThresholds: [Int]
         let alertRemainingMode: Bool
         let reducedRefreshOnBattery: Bool
+        let hasCompletedSetupWizard: Bool
         let showClaudeIcon: Bool
         let claudeEnabled: Bool
         let menuBarTextHighContrast: Bool
         let updateCheckInterval: UpdateCheckInterval
         let claudeAlertEnabled: Bool
+        let claudeMessagesFallbackPolicy: ClaudeMessagesFallbackPolicy
+        let claudeMessagesFallbackAutoDisableBelowPercent: Int
         let alertFiveHourEnabled: Bool
         let alertWeeklyEnabled: Bool
         let popoverPinned: Bool
@@ -409,12 +479,14 @@ class AppSettings: ObservableObject {
         let codexTimeFormat: TimeFormatStyle
         let codexMenuBarStyle: MenuBarStyle
         let codexCircularDisplayMode: CircularDisplayMode
+        let codexIconMetric: IconMetric
         let codexShowBatteryPercent: Bool
         let codexAlertEnabled: Bool
         let codexAlertThresholds: [Int]
         let codexAlertRemainingMode: Bool
         let codexPopoverItems: [PopoverItemConfig]
         let codexCompactPopoverItems: [PopoverItemConfig]
+        let providerStates: AppProviderStateCatalog
         let settingsLastTab: String
         let menuBarActiveService: String
         let claudeSettingsLastTab: String
@@ -429,17 +501,21 @@ class AppSettings: ObservableObject {
             resetTimeDisplay: resetTimeDisplay,
             timeFormat: timeFormat,
             circularDisplayMode: circularDisplayMode,
+            iconMetric: iconMetric,
             refreshInterval: refreshInterval,
             autoRefresh: autoRefresh,
             notificationsEnabled: notificationsEnabled,
             alertThresholds: alertThresholds,
             alertRemainingMode: alertRemainingMode,
             reducedRefreshOnBattery: reducedRefreshOnBattery,
+            hasCompletedSetupWizard: hasCompletedSetupWizard,
             showClaudeIcon: showClaudeIcon,
             claudeEnabled: claudeEnabled,
             menuBarTextHighContrast: menuBarTextHighContrast,
             updateCheckInterval: updateCheckInterval,
             claudeAlertEnabled: claudeAlertEnabled,
+            claudeMessagesFallbackPolicy: claudeMessagesFallbackPolicy,
+            claudeMessagesFallbackAutoDisableBelowPercent: claudeMessagesFallbackAutoDisableBelowPercent,
             alertFiveHourEnabled: alertFiveHourEnabled,
             alertWeeklyEnabled: alertWeeklyEnabled,
             popoverPinned: popoverPinned,
@@ -460,12 +536,14 @@ class AppSettings: ObservableObject {
             codexTimeFormat: codexTimeFormat,
             codexMenuBarStyle: codexMenuBarStyle,
             codexCircularDisplayMode: codexCircularDisplayMode,
+            codexIconMetric: codexIconMetric,
             codexShowBatteryPercent: codexShowBatteryPercent,
             codexAlertEnabled: codexAlertEnabled,
             codexAlertThresholds: codexAlertThresholds,
             codexAlertRemainingMode: codexAlertRemainingMode,
             codexPopoverItems: codexPopoverItems,
             codexCompactPopoverItems: codexCompactPopoverItems,
+            providerStates: providerStates,
             settingsLastTab: settingsLastTab,
             menuBarActiveService: menuBarActiveService,
             claudeSettingsLastTab: claudeSettingsLastTab,
@@ -480,17 +558,21 @@ class AppSettings: ObservableObject {
         resetTimeDisplay = snapshot.resetTimeDisplay
         timeFormat = snapshot.timeFormat
         circularDisplayMode = snapshot.circularDisplayMode
+        iconMetric = snapshot.iconMetric
         refreshInterval = snapshot.refreshInterval
         autoRefresh = snapshot.autoRefresh
         notificationsEnabled = snapshot.notificationsEnabled
         alertThresholds = snapshot.alertThresholds
         alertRemainingMode = snapshot.alertRemainingMode
         reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
+        hasCompletedSetupWizard = snapshot.hasCompletedSetupWizard
         showClaudeIcon = snapshot.showClaudeIcon
         claudeEnabled = snapshot.claudeEnabled
         menuBarTextHighContrast = snapshot.menuBarTextHighContrast
         updateCheckInterval = snapshot.updateCheckInterval
         claudeAlertEnabled = snapshot.claudeAlertEnabled
+        claudeMessagesFallbackPolicy = snapshot.claudeMessagesFallbackPolicy
+        claudeMessagesFallbackAutoDisableBelowPercent = Self.normalizedMessagesFallbackThreshold(snapshot.claudeMessagesFallbackAutoDisableBelowPercent)
         alertFiveHourEnabled = snapshot.alertFiveHourEnabled
         alertWeeklyEnabled = snapshot.alertWeeklyEnabled
         popoverPinned = snapshot.popoverPinned
@@ -511,6 +593,7 @@ class AppSettings: ObservableObject {
         codexTimeFormat = snapshot.codexTimeFormat
         codexMenuBarStyle = snapshot.codexMenuBarStyle
         codexCircularDisplayMode = snapshot.codexCircularDisplayMode
+        codexIconMetric = snapshot.codexIconMetric
         codexShowBatteryPercent = snapshot.codexShowBatteryPercent
         codexAlertEnabled = snapshot.codexAlertEnabled
         codexAlertThresholds = snapshot.codexAlertThresholds
@@ -521,6 +604,40 @@ class AppSettings: ObservableObject {
         menuBarActiveService = snapshot.menuBarActiveService == "codex" ? "codex" : "claude"
         claudeSettingsLastTab = snapshot.claudeSettingsLastTab
         codexSettingsLastTab = snapshot.codexSettingsLastTab
+        providerStates = snapshot.providerStates
+    }
+
+    private func syncProviderStatesFromLegacyFields() {
+        guard !isSyncingProviderState else { return }
+        isSyncingProviderState = true
+        providerStates = AppProviderStateCatalog.fromLegacy(
+            claudeEnabled: claudeEnabled,
+            codexEnabled: codexEnabled,
+            activeService: menuBarActiveService
+        )
+        isSyncingProviderState = false
+    }
+
+    private func syncLegacyProviderFields(from catalog: AppProviderStateCatalog) {
+        guard !isSyncingProviderState else { return }
+        isSyncingProviderState = true
+
+        let claudeState = catalog.state(for: .claude)
+        if claudeEnabled != claudeState.isEnabled {
+            claudeEnabled = claudeState.isEnabled
+        }
+
+        let codexState = catalog.state(for: .codex)
+        if codexEnabled != codexState.isEnabled {
+            codexEnabled = codexState.isEnabled
+        }
+
+        let resolvedService = catalog.legacyMenuBarActiveService(fallback: "claude")
+        if menuBarActiveService != resolvedService {
+            menuBarActiveService = resolvedService
+        }
+
+        isSyncingProviderState = false
     }
 
     // MARK: - Computed
@@ -549,6 +666,84 @@ class AppSettings: ObservableObject {
         separateCompactConfig ? codexCompactPopoverItems : codexPopoverItems
     }
 
+    var enabledProviderKinds: [AppProviderKind] {
+        providerStates.enabledProviderKinds
+    }
+
+    var hasAnyEnabledProvider: Bool {
+        !enabledProviderKinds.isEmpty
+    }
+
+    var hasMultipleEnabledProviders: Bool {
+        enabledProviderKinds.count > 1
+    }
+
+    var activeProviderKind: AppProviderKind? {
+        providerStates.activeProviderKind
+    }
+
+    var activeMenuBarServiceRawValue: String {
+        providerStates.legacyMenuBarActiveService(fallback: "claude")
+    }
+
+    var providerSelectionState: ProviderSelectionState {
+        ProviderSelectionState(
+            enabledKinds: enabledProviderKinds,
+            activeKind: activeProviderKind
+        )
+    }
+
+    func providerState(for kind: AppProviderKind) -> AppProviderState {
+        providerStates.state(for: kind)
+    }
+
+    func isProviderEnabled(_ kind: AppProviderKind) -> Bool {
+        providerStates.state(for: kind).isEnabled
+    }
+
+    func setProviderEnabled(_ enabled: Bool, for kind: AppProviderKind) {
+        var catalog = providerStates
+        catalog.setEnabled(enabled, for: kind)
+        providerStates = catalog
+    }
+
+    func setActiveProvider(_ kind: AppProviderKind?) {
+        var catalog = providerStates
+        catalog.setActiveProvider(kind)
+        providerStates = catalog
+    }
+
+    func menuBarDisplayConfig(for kind: AppProviderKind) -> ProviderMenuBarDisplayConfig? {
+        switch kind {
+        case .claude:
+            return ProviderMenuBarDisplayConfig(
+                kind: .claude,
+                showIcon: showClaudeIcon,
+                style: menuBarStyle,
+                percentageDisplay: percentageDisplay,
+                showBatteryPercent: showBatteryPercent,
+                resetTimeDisplay: resetTimeDisplay,
+                timeFormat: timeFormat,
+                circularDisplayMode: circularDisplayMode,
+                iconMetric: iconMetric
+            )
+        case .codex:
+            return ProviderMenuBarDisplayConfig(
+                kind: .codex,
+                showIcon: showCodexIcon,
+                style: codexMenuBarStyle,
+                percentageDisplay: codexPercentageDisplay,
+                showBatteryPercent: codexShowBatteryPercent,
+                resetTimeDisplay: codexResetTimeDisplay,
+                timeFormat: codexTimeFormat,
+                circularDisplayMode: codexCircularDisplayMode,
+                iconMetric: codexIconMetric
+            )
+        case .gemini, .antigravity:
+            return nil
+        }
+    }
+
     // MARK: - Actions
 
     func resetToDefaults() {
@@ -558,17 +753,21 @@ class AppSettings: ObservableObject {
         resetTimeDisplay = .none
         timeFormat = .h24
         circularDisplayMode = .usage
+        iconMetric = .fiveHour
         refreshInterval = 30.0
         autoRefresh = true
         notificationsEnabled = true
         alertThresholds = [75, 90, 95]
         alertRemainingMode = false
         reducedRefreshOnBattery = true
+        hasCompletedSetupWizard = false
         showClaudeIcon = true
         claudeEnabled = true
         menuBarTextHighContrast = false
         updateCheckInterval = .hourly
         claudeAlertEnabled = true
+        claudeMessagesFallbackPolicy = .off
+        claudeMessagesFallbackAutoDisableBelowPercent = Self.normalizedMessagesFallbackThreshold(20)
         alertFiveHourEnabled = true
         alertWeeklyEnabled = false
         popoverPinned = false
@@ -589,14 +788,15 @@ class AppSettings: ObservableObject {
         codexTimeFormat = .h24
         codexMenuBarStyle = .none
         codexCircularDisplayMode = .usage
+        codexIconMetric = .fiveHour
         codexShowBatteryPercent = true
         codexAlertEnabled = false
         codexAlertThresholds = [75, 90, 95]
         codexAlertRemainingMode = false
         codexPopoverItems = PopoverItemConfig.defaultCodexItems
         codexCompactPopoverItems = PopoverItemConfig.defaultCodexItems
+        providerStates = AppProviderStateCatalog.defaultCatalog
         settingsLastTab = "common"
-        menuBarActiveService = "claude"
         claudeSettingsLastTab = "auth"
         codexSettingsLastTab = "auth"
     }
@@ -660,10 +860,14 @@ class AppSettings: ObservableObject {
         }
         self.alertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
         self.reducedRefreshOnBattery = defaults.object(forKey: "reducedRefreshOnBattery") as? Bool ?? true
+        self.hasCompletedSetupWizard = defaults.object(forKey: "hasCompletedSetupWizard") as? Bool ?? KeychainManager.shared.hasSessionKey
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
         self.circularDisplayMode = CircularDisplayMode(rawValue: cdm) ?? .usage
+        let iconMetricRaw = defaults.string(forKey: "iconMetric") ?? IconMetric.fiveHour.rawValue
+        self.iconMetric = IconMetric(rawValue: iconMetricRaw) ?? .fiveHour
         self.showClaudeIcon = defaults.object(forKey: "showClaudeIcon") as? Bool ?? true
-        self.claudeEnabled = defaults.object(forKey: "claudeEnabled") as? Bool ?? true
+        let storedClaudeEnabled = defaults.object(forKey: "claudeEnabled") as? Bool ?? true
+        self.claudeEnabled = storedClaudeEnabled
         self.menuBarTextHighContrast = defaults.object(forKey: "menuBarTextHighContrast") as? Bool ?? false
         let uci = defaults.string(forKey: "updateCheckInterval") ?? UpdateCheckInterval.hourly.rawValue
         self.updateCheckInterval = UpdateCheckInterval(rawValue: uci) ?? .hourly
@@ -673,6 +877,10 @@ class AppSettings: ObservableObject {
             self.claudeAlertEnabled = (defaults.object(forKey: "alertFiveHourEnabled") as? Bool ?? true)
                 || (defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false)
         }
+        let fallbackPolicyRaw = defaults.string(forKey: "claudeMessagesFallbackPolicy") ?? ClaudeMessagesFallbackPolicy.off.rawValue
+        self.claudeMessagesFallbackPolicy = ClaudeMessagesFallbackPolicy(rawValue: fallbackPolicyRaw) ?? .off
+        let storedFallbackThreshold = defaults.object(forKey: "claudeMessagesFallbackAutoDisableBelowPercent") as? Int ?? 20
+        self.claudeMessagesFallbackAutoDisableBelowPercent = Self.normalizedMessagesFallbackThreshold(storedFallbackThreshold)
         self.alertFiveHourEnabled = defaults.object(forKey: "alertFiveHourEnabled") as? Bool ?? true
         self.alertWeeklyEnabled = defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false
         let legacyPinned = defaults.object(forKey: "popoverPinned") as? Bool ?? false
@@ -687,7 +895,8 @@ class AppSettings: ObservableObject {
         let savedLaunchAtLogin = defaults.object(forKey: "launchAtLogin") as? Bool ?? false
         self.launchAtLogin = savedLaunchAtLogin
         self.preferredOrganizationID = defaults.string(forKey: "preferredOrganizationID")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        self.codexEnabled = defaults.object(forKey: "codexEnabled") as? Bool ?? false
+        let storedCodexEnabled = defaults.object(forKey: "codexEnabled") as? Bool ?? false
+        self.codexEnabled = storedCodexEnabled
         self.showCodexIcon = defaults.object(forKey: "showCodexIcon") as? Bool ?? false
         let cpd = defaults.string(forKey: "codexPercentageDisplay") ?? PercentageDisplay.none.rawValue
         self.codexPercentageDisplay = PercentageDisplay(rawValue: cpd) ?? .none
@@ -699,6 +908,8 @@ class AppSettings: ObservableObject {
         self.codexMenuBarStyle = MenuBarStyle(rawValue: cms) ?? .none
         let ccdm = defaults.string(forKey: "codexCircularDisplayMode") ?? CircularDisplayMode.usage.rawValue
         self.codexCircularDisplayMode = CircularDisplayMode(rawValue: ccdm) ?? .usage
+        let codexIconMetricRaw = defaults.string(forKey: "codexIconMetric") ?? IconMetric.fiveHour.rawValue
+        self.codexIconMetric = IconMetric(rawValue: codexIconMetricRaw) ?? .fiveHour
         self.codexShowBatteryPercent = defaults.object(forKey: "codexShowBatteryPercent") as? Bool ?? true
         self.codexAlertEnabled = defaults.object(forKey: "codexAlertEnabled") as? Bool ?? false
         self.codexAlertThresholds = defaults.array(forKey: "codexAlertThresholds") as? [Int] ?? [75, 90, 95]
@@ -706,9 +917,29 @@ class AppSettings: ObservableObject {
         let legacySettingsLastTab = defaults.string(forKey: "settingsLastTab") ?? "common"
         self.settingsLastTab = legacySettingsLastTab
         let storedActiveService = defaults.string(forKey: "menuBarActiveService") ?? "claude"
-        self.menuBarActiveService = storedActiveService == "codex" ? "codex" : "claude"
+        let normalizedActiveService = storedActiveService == "codex" ? "codex" : "claude"
+        self.menuBarActiveService = normalizedActiveService
         self.claudeSettingsLastTab = defaults.string(forKey: "claudeSettingsLastTab") ?? "auth"
         self.codexSettingsLastTab = defaults.string(forKey: "codexSettingsLastTab") ?? "auth"
+
+        let loadedProviderStates: AppProviderStateCatalog
+        if let data = defaults.data(forKey: "providerStates"),
+           let catalog = try? JSONDecoder().decode(AppProviderStateCatalog.self, from: data) {
+            loadedProviderStates = catalog
+        } else {
+            loadedProviderStates = AppProviderStateCatalog.fromLegacy(
+                claudeEnabled: storedClaudeEnabled,
+                codexEnabled: storedCodexEnabled,
+                activeService: normalizedActiveService
+            )
+        }
+        self.providerStates = loadedProviderStates
+        self.claudeEnabled = loadedProviderStates.state(for: .claude).isEnabled
+        self.codexEnabled = loadedProviderStates.state(for: .codex).isEnabled
+        self.menuBarActiveService = loadedProviderStates.legacyMenuBarActiveService(fallback: "claude")
+        if let data = try? JSONEncoder().encode(loadedProviderStates) {
+            defaults.set(data, forKey: "providerStates")
+        }
 
         // Claude popover items: JSON 로드 또는 마이그레이션
         let loadedClaudeItems: [PopoverItemConfig]

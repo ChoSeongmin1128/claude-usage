@@ -53,6 +53,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var loginWindow: NSWindow?
     private var didLogMissingClaudeIconAsset = false
     private var didLogMissingCodexIconAsset = false
+    private var lastObservedProviderStates = AppSettings.shared.providerStates
     private var cancellables = Set<AnyCancellable>()
     private var eventMonitor: Any?
     private var globalClickMonitor: Any?
@@ -81,22 +82,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         observePowerState()
 
         // 세션 키 확인
-        if AppSettings.shared.claudeEnabled && KeychainManager.shared.hasSessionKey {
+        if ServiceSelectionHelper.canRefreshClaude(settings: AppSettings.shared, hasSessionKey: KeychainManager.shared.hasSessionKey) {
             Task {
                 await self.apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
                 await MainActor.run {
                     self.startMonitoring()
                 }
             }
-        } else if AppSettings.shared.codexEnabled && CodexAuthManager.shared.isAuthenticated {
+        } else if ServiceSelectionHelper.canRefreshCodex(settings: AppSettings.shared) && CodexAuthManager.shared.isAuthenticated {
             updateMenuBar()
             startTimer()
             refreshCodexUsage(force: true)
-        } else if AppSettings.shared.claudeEnabled {
+        } else if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
             updateMenuBar()
             showSettingsWindow()
         } else {
-            if AppSettings.shared.codexEnabled && !CodexAuthManager.shared.isAuthenticated {
+            if ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) && !CodexAuthManager.shared.isAuthenticated {
                 hasCodexAuthError = true
                 codexError = .invalidSessionKey
             }
@@ -196,7 +197,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.openSettingsForAuth(service: service)
         }
         popoverViewModel.onServiceSelected = { [weak self] service in
-            AppSettings.shared.menuBarActiveService = service.rawValue
+            ServiceSelectionHelper.setActivePopoverService(service, settings: AppSettings.shared)
             self?.updateMenuBar()
             self?.refreshServiceIfNeededOnTabSwitch(service)
             self?.refreshPopoverSizeIfShown(service: service)
@@ -245,7 +246,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func toggleUnifiedPopover() {
         guard let popover = popover, let button = statusItem?.button else { return }
 
-        if !AppSettings.shared.claudeEnabled && !AppSettings.shared.codexEnabled {
+        if !ServiceSelectionHelper.hasAnyEnabledService(settings: AppSettings.shared) {
             showSettingsWindow()
             return
         }
@@ -306,45 +307,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func resolvedPopoverService() -> PopoverService {
-        let preferred = AppSettings.shared.menuBarActiveService == "codex" ? PopoverService.codex : PopoverService.claude
-        let claudeAvailable = AppSettings.shared.claudeEnabled
-        let codexAvailable = AppSettings.shared.codexEnabled
-
-        switch (claudeAvailable, codexAvailable) {
-        case (true, true):
-            return preferred
-        case (true, false):
-            return .claude
-        case (false, true):
-            return .codex
-        case (false, false):
-            return preferred
-        }
+        ServiceSelectionHelper.resolvedPopoverService(settings: AppSettings.shared)
     }
 
     private func resolvedMenuBarService() -> PopoverService? {
-        let preferred = resolvedPopoverService()
-        let claudeAvailable = AppSettings.shared.claudeEnabled
-        let codexAvailable = AppSettings.shared.codexEnabled
-
-        switch preferred {
-        case .claude:
-            if claudeAvailable { return .claude }
-            if codexAvailable { return .codex }
-        case .codex:
-            if codexAvailable { return .codex }
-            if claudeAvailable { return .claude }
-        }
-        return nil
+        ServiceSelectionHelper.resolvedMenuBarService(settings: AppSettings.shared)
     }
 
     private func isPopoverPinned(for service: PopoverService) -> Bool {
-        switch service {
-        case .claude:
-            return AppSettings.shared.claudePopoverPinned
-        case .codex:
-            return AppSettings.shared.codexPopoverPinned
-        }
+        ServiceSelectionHelper.isPinned(service, settings: AppSettings.shared)
     }
 
     private func applyPopoverBehavior(for service: PopoverService) {
@@ -368,13 +339,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openSettingsForAuth(service: PopoverService) {
+        AppSettings.shared.settingsLastTab = ServiceSelectionHelper.settingsRootTab(for: service)
         switch service {
         case .claude:
-            AppSettings.shared.settingsLastTab = "claude"
-            AppSettings.shared.claudeSettingsLastTab = "auth"
+            AppSettings.shared.claudeSettingsLastTab = ServiceSelectionHelper.settingsAuthTab()
         case .codex:
-            AppSettings.shared.settingsLastTab = "codex"
-            AppSettings.shared.codexSettingsLastTab = "auth"
+            AppSettings.shared.codexSettingsLastTab = ServiceSelectionHelper.settingsAuthTab()
         }
         showSettingsWindow()
     }
@@ -428,48 +398,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showUnifiedContextMenu() {
         let menu = NSMenu()
-        let canRefreshClaude = AppSettings.shared.claudeEnabled && KeychainManager.shared.hasSessionKey
-        let canRefreshCodex = AppSettings.shared.codexEnabled
+        let canRefreshClaude = ServiceSelectionHelper.canRefreshClaude(
+            settings: AppSettings.shared,
+            hasSessionKey: KeychainManager.shared.hasSessionKey
+        )
+        let canRefreshCodex = ServiceSelectionHelper.canRefreshCodex(settings: AppSettings.shared)
 
         let refreshAll = NSMenuItem(title: "전체 새로고침", action: #selector(refreshClicked), keyEquivalent: "r")
         refreshAll.isEnabled = canRefreshClaude || canRefreshCodex
         menu.addItem(refreshAll)
         menu.addItem(NSMenuItem.separator())
 
-        let claudeToggle = NSMenuItem(title: "Claude 모니터링 활성화", action: #selector(toggleClaudeEnabled), keyEquivalent: "")
-        claudeToggle.state = AppSettings.shared.claudeEnabled ? .on : .off
-        menu.addItem(claudeToggle)
-        let claudeRefresh = NSMenuItem(title: "Claude 새로고침", action: #selector(refreshClaudeClicked), keyEquivalent: "")
-        claudeRefresh.isEnabled = canRefreshClaude
-        menu.addItem(claudeRefresh)
-        let claudeStyleMenu = NSMenu()
-        for style in MenuBarStyle.allCases {
-            let item = NSMenuItem(title: style.displayName, action: #selector(changeStyle(_:)), keyEquivalent: "")
-            item.representedObject = style
-            item.state = AppSettings.shared.menuBarStyle == style ? .on : .off
-            claudeStyleMenu.addItem(item)
-        }
-        let claudeStyleItem = NSMenuItem(title: "Claude 아이콘 스타일", action: nil, keyEquivalent: "")
-        claudeStyleItem.submenu = claudeStyleMenu
-        menu.addItem(claudeStyleItem)
+        menu.addItem(makeServiceToggleMenuItem(
+            title: "Claude 모니터링 활성화",
+            isEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared),
+            action: #selector(toggleClaudeEnabled)
+        ))
+        menu.addItem(makeServiceRefreshMenuItem(title: "Claude 새로고침", isEnabled: canRefreshClaude, action: #selector(refreshClaudeClicked)))
+        menu.addItem(makeStyleMenuItem(
+            title: "Claude 아이콘 스타일",
+            currentStyle: AppSettings.shared.menuBarStyle,
+            action: #selector(changeStyle(_:))
+        ))
         menu.addItem(NSMenuItem.separator())
 
-        let codexToggle = NSMenuItem(title: "Codex 모니터링 활성화", action: #selector(toggleCodexEnabled), keyEquivalent: "")
-        codexToggle.state = AppSettings.shared.codexEnabled ? .on : .off
-        menu.addItem(codexToggle)
-        let codexRefresh = NSMenuItem(title: "Codex 새로고침", action: #selector(refreshCodexClicked), keyEquivalent: "")
-        codexRefresh.isEnabled = canRefreshCodex
-        menu.addItem(codexRefresh)
-        let codexStyleMenu = NSMenu()
-        for style in MenuBarStyle.allCases {
-            let item = NSMenuItem(title: style.displayName, action: #selector(changeCodexStyle(_:)), keyEquivalent: "")
-            item.representedObject = style
-            item.state = AppSettings.shared.codexMenuBarStyle == style ? .on : .off
-            codexStyleMenu.addItem(item)
-        }
-        let codexStyleItem = NSMenuItem(title: "Codex 아이콘 스타일", action: nil, keyEquivalent: "")
-        codexStyleItem.submenu = codexStyleMenu
-        menu.addItem(codexStyleItem)
+        menu.addItem(makeServiceToggleMenuItem(
+            title: "Codex 모니터링 활성화",
+            isEnabled: ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared),
+            action: #selector(toggleCodexEnabled)
+        ))
+        menu.addItem(makeServiceRefreshMenuItem(title: "Codex 새로고침", isEnabled: canRefreshCodex, action: #selector(refreshCodexClicked)))
+        menu.addItem(makeStyleMenuItem(
+            title: "Codex 아이콘 스타일",
+            currentStyle: AppSettings.shared.codexMenuBarStyle,
+            action: #selector(changeCodexStyle(_:))
+        ))
 
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "설정...", action: #selector(settingsClicked), keyEquivalent: ","))
@@ -479,6 +442,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
         statusItem?.menu = nil
+    }
+
+    private func makeServiceToggleMenuItem(title: String, isEnabled: Bool, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.state = isEnabled ? .on : .off
+        return item
+    }
+
+    private func makeServiceRefreshMenuItem(title: String, isEnabled: Bool, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.isEnabled = isEnabled
+        return item
+    }
+
+    private func makeStyleMenuItem(title: String, currentStyle: MenuBarStyle, action: Selector) -> NSMenuItem {
+        let submenu = NSMenu()
+        for style in MenuBarStyle.allCases {
+            let item = NSMenuItem(title: style.displayName, action: action, keyEquivalent: "")
+            item.representedObject = style
+            item.state = currentStyle == style ? .on : .off
+            submenu.addItem(item)
+        }
+
+        let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        parent.submenu = submenu
+        return parent
     }
 
     private func startGlobalClickMonitor() {
@@ -516,11 +505,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleClaudeEnabled() {
-        AppSettings.shared.claudeEnabled.toggle()
+        toggleProviderEnabled(.claude)
     }
 
     @objc private func toggleCodexEnabled() {
-        AppSettings.shared.codexEnabled.toggle()
+        toggleProviderEnabled(.codex)
+    }
+
+    private func toggleProviderEnabled(_ service: PopoverService) {
+        let settings = AppSettings.shared
+        let kind = ServiceSelectionHelper.providerKind(for: service)
+        settings.setProviderEnabled(!settings.isProviderEnabled(kind), for: kind)
     }
 
     // MARK: - Monitoring
@@ -538,7 +533,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startTimer() {
         let interval = PowerMonitor.shared.effectiveRefreshInterval
-        let hasAnyEnabledService = AppSettings.shared.claudeEnabled || AppSettings.shared.codexEnabled
+        let hasAnyEnabledService = ServiceSelectionHelper.hasAnyEnabledService(settings: AppSettings.shared)
         guard AppSettings.shared.autoRefresh, hasAnyEnabledService else {
             timer?.invalidate()
             timer = nil
@@ -596,18 +591,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AppSettings.shared.$timeFormat.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$circularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$claudeEnabled.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$showClaudeIcon.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$menuBarTextHighContrast.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$codexEnabled.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$showCodexIcon.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$codexPercentageDisplay.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$codexResetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$codexTimeFormat.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$codexMenuBarStyle.map { _ in () }.eraseToAnyPublisher(),
             AppSettings.shared.$codexCircularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$codexShowBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
-            AppSettings.shared.$menuBarActiveService.map { _ in () }.eraseToAnyPublisher()
+            AppSettings.shared.$codexShowBatteryPercent.map { _ in () }.eraseToAnyPublisher()
         ]
 
         for publisher in displayPublishers {
@@ -618,80 +610,84 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 .store(in: &cancellables)
         }
 
-        AppSettings.shared.$claudeEnabled
+        AppSettings.shared.$providerStates
             .dropFirst()
-            .removeDuplicates()
-            .sink { [weak self] enabled in
+            .receive(on: RunLoop.main)
+            .sink { [weak self] catalog in
                 guard let self else { return }
-                let resolvedService = self.resolvedPopoverService()
-                self.popoverViewModel.selectedService = resolvedService
-                self.applyPopoverBehavior(for: resolvedService)
-                if enabled {
-                    if KeychainManager.shared.hasSessionKey {
-                        self.refreshUsage(force: true)
-                    } else {
-                        self.currentUsage = nil
-                        self.currentError = nil
-                        self.hasAuthError = false
-                        self.showSettingsWindow()
-                    }
-                } else {
-                    self.nextUsageRefreshAllowedAt = nil
-                    self.currentUsage = nil
-                    self.currentError = nil
-                    self.currentOverage = nil
-                    self.lastOverageFetchAt = nil
-                    self.hasAuthError = false
-                    self.consecutiveErrorCount = 0
-                    self.isLoading = false
-                    self.loadingStartedAt = nil
-                }
-                self.startTimer()
-                self.updatePopoverViewModel(
-                    usage: self.currentUsage,
-                    codexUsage: self.currentCodexUsage,
-                    error: self.currentError,
-                    codexError: self.codexError,
-                    isLoading: self.isLoading,
-                    lastUpdated: self.lastUpdated,
-                    overage: self.currentOverage
-                )
-                self.updateMenuBar()
+                let previous = self.lastObservedProviderStates
+                self.lastObservedProviderStates = catalog
+                self.handleProviderStateTransition(from: previous, to: catalog)
             }
             .store(in: &cancellables)
+    }
 
-        AppSettings.shared.$codexEnabled
-            .dropFirst()
-            .removeDuplicates()
-            .sink { [weak self] enabled in
-                guard let self else { return }
-                let resolvedService = self.resolvedPopoverService()
-                self.popoverViewModel.selectedService = resolvedService
-                self.applyPopoverBehavior(for: resolvedService)
-                if enabled {
-                    self.refreshCodexUsage(force: true)
+    private func handleProviderStateTransition(from previous: AppProviderStateCatalog, to current: AppProviderStateCatalog) {
+        let resolvedService = resolvedPopoverService()
+        popoverViewModel.selectedService = resolvedService
+        applyPopoverBehavior(for: resolvedService)
+
+        for kind in ServiceSelectionHelper.supportedProviderKinds {
+            let previousEnabled = previous.state(for: kind).isEnabled
+            let currentEnabled = current.state(for: kind).isEnabled
+            guard previousEnabled != currentEnabled,
+                  let service = ServiceSelectionHelper.service(for: kind) else { continue }
+            handleProviderEnabledChange(currentEnabled, for: service)
+        }
+
+        updatePopoverViewModel(
+            usage: currentUsage,
+            codexUsage: currentCodexUsage,
+            error: currentError,
+            codexError: codexError,
+            isLoading: isLoading,
+            lastUpdated: lastUpdated,
+            overage: currentOverage
+        )
+        startTimer()
+        updateMenuBar()
+    }
+
+    private func handleProviderEnabledChange(_ enabled: Bool, for service: PopoverService) {
+        switch service {
+        case .claude:
+            if enabled {
+                if KeychainManager.shared.hasSessionKey {
+                    AppSettings.shared.hasCompletedSetupWizard = true
+                    refreshUsage(force: true)
                 } else {
-                    self.nextCodexRefreshAllowedAt = nil
-                    self.currentCodexUsage = nil
-                    self.codexError = nil
-                    self.hasCodexAuthError = false
-                    self.codexConsecutiveErrorCount = 0
-                    self.isCodexLoading = false
-                    self.codexLoadingStartedAt = nil
-                    self.updatePopoverViewModel(
-                        usage: self.currentUsage,
-                        codexUsage: nil,
-                        error: self.currentError,
-                        codexError: nil,
-                        isLoading: self.isLoading,
-                        lastUpdated: self.lastUpdated,
-                        overage: self.currentOverage
-                    )
+                    currentUsage = nil
+                    currentError = nil
+                    hasAuthError = false
+                    showSettingsWindow()
                 }
-                self.startTimer()
-                self.updateMenuBar()
+                return
             }
-            .store(in: &cancellables)
+
+            nextUsageRefreshAllowedAt = nil
+            currentUsage = nil
+            currentError = nil
+            currentOverage = nil
+            lastOverageFetchAt = nil
+            hasAuthError = false
+            consecutiveErrorCount = 0
+            isLoading = false
+            loadingStartedAt = nil
+
+        case .codex:
+            if enabled {
+                refreshCodexUsage(force: true)
+                return
+            }
+
+            nextCodexRefreshAllowedAt = nil
+            currentCodexUsage = nil
+            codexError = nil
+            hasCodexAuthError = false
+            codexConsecutiveErrorCount = 0
+            isCodexLoading = false
+            codexLoadingStartedAt = nil
+        }
     }
 
     private func observePowerState() {
@@ -734,20 +730,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - API
 
     private func refreshAll(force: Bool = false) {
-        if AppSettings.shared.claudeEnabled && KeychainManager.shared.hasSessionKey {
+        if ServiceSelectionHelper.canRefreshClaude(settings: AppSettings.shared, hasSessionKey: KeychainManager.shared.hasSessionKey) {
             refreshUsage(force: force)
         } else {
             currentUsage = nil
             currentError = nil
             hasAuthError = false
         }
-        if AppSettings.shared.codexEnabled {
+        if ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) {
             refreshCodexUsage(force: force)
         }
     }
 
     private func refreshUsage(force: Bool = false) {
-        guard AppSettings.shared.claudeEnabled else { return }
+        guard ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) else { return }
 
         if !force, let allowedAt = nextUsageRefreshAllowedAt {
             let remaining = Int(ceil(allowedAt.timeIntervalSinceNow))
@@ -812,6 +808,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let fetchedOverage = shouldFetchOverage ? (try? await apiService.fetchOverageSpendLimit()) : nil
 
                 await MainActor.run {
+                    AppSettings.shared.hasCompletedSetupWizard = true
                     self.currentUsage = usage
                     if let fetchedOverage {
                         self.currentOverage = fetchedOverage
@@ -943,7 +940,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refreshCodexUsage(force: Bool = false) {
-        guard AppSettings.shared.codexEnabled else { return }
+        guard ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) else { return }
 
         if !force, let allowedAt = nextCodexRefreshAllowedAt {
             let remaining = Int(ceil(allowedAt.timeIntervalSinceNow))
@@ -1109,502 +1106,80 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateMenuBar() {
         let settings = AppSettings.shared
         guard let button = statusItem?.button else { return }
+        let claudeConfig = settings.menuBarDisplayConfig(for: .claude)
+        let codexConfig = settings.menuBarDisplayConfig(for: .codex)
 
-        // 메뉴바 외관 감지 (배경화면 밝기 반영)
         let secondaryColor = secondaryTextColor(for: button)
         let codexIconTintColor = menuBarIconTintColor(for: button)
         let claudeIconTintColor = claudeBrandIconTintColor(for: button)
-        if settings.claudeEnabled && settings.codexEnabled {
-            renderCombinedServicesMenuBar(
-                button: button,
+
+        if ServiceSelectionHelper.hasMultipleEnabledServices(settings: settings),
+           let claudeConfig,
+           let codexConfig
+        {
+            let content = MenuBarStatusComposer.combinedContent(
+                claudeConfig: claudeConfig,
+                claudeUsage: currentUsage,
+                claudeError: currentError,
+                hasClaudeAuthError: hasAuthError,
+                hasClaudeSessionKey: KeychainManager.shared.hasSessionKey,
+                claudeIcon: claudeConfig.showIcon ? claudeMenuBarIcon(size: NSSize(width: 14, height: 14), tint: claudeIconTintColor) : nil,
+                codexConfig: codexConfig,
+                codexUsage: currentCodexUsage,
+                codexError: codexError,
+                hasCodexAuthError: hasCodexAuthError,
+                isCodexAuthenticated: CodexAuthManager.shared.isAuthenticated,
+                codexIcon: codexConfig.showIcon ? codexMenuBarIcon(size: NSSize(width: 14, height: 14), tint: codexIconTintColor) : nil,
                 secondaryColor: secondaryColor,
-                claudeIconTintColor: claudeIconTintColor,
-                codexIconTintColor: codexIconTintColor
             )
+            applyMenuBarContent(content, to: button)
             return
         }
 
         guard let activeService = resolvedMenuBarService() else {
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
-                .foregroundColor: secondaryColor
-            ]
-            let text = "⋯"
-            let size = (text as NSString).size(withAttributes: attrs)
-            let image = NSImage(size: NSSize(width: max(14, size.width), height: 22), flipped: false) { _ in
-                (text as NSString).draw(at: NSPoint(x: 0, y: (22 - size.height) / 2), withAttributes: attrs)
-                return true
-            }
-            image.isTemplate = false
-            button.image = image
-            button.imagePosition = .imageOnly
-            button.attributedTitle = NSAttributedString(string: "")
-            button.toolTip = "ClaudeUsage 설정"
+            applyMenuBarContent(MenuBarStatusComposer.placeholder(secondaryColor: secondaryColor), to: button)
             return
         }
 
         if activeService == .codex {
-            renderCodexOnlyMenuBar(button: button, secondaryColor: secondaryColor, iconTintColor: codexIconTintColor)
+            guard let codexConfig else {
+                applyMenuBarContent(MenuBarStatusComposer.placeholder(secondaryColor: secondaryColor), to: button)
+                return
+            }
+            let content = MenuBarStatusComposer.codexOnlyContent(
+                config: codexConfig,
+                usage: currentCodexUsage,
+                error: codexError,
+                hasAuthError: hasCodexAuthError,
+                isAuthenticated: CodexAuthManager.shared.isAuthenticated,
+                secondaryColor: secondaryColor,
+                icon: codexConfig.showIcon ? codexMenuBarIcon(size: NSSize(width: 18, height: 18), tint: codexIconTintColor) : nil
+            )
+            applyMenuBarContent(content, to: button)
             return
         }
 
-        if !KeychainManager.shared.hasSessionKey {
-            // 세션 키 미설정
-            let claudeIcon = claudeMenuBarIcon(size: NSSize(width: 18, height: 18), tint: claudeIconTintColor)
-            let statusFont = NSFont.systemFont(ofSize: 12)
-            let statusAttrs: [NSAttributedString.Key: Any] = [.font: statusFont, .foregroundColor: secondaryColor]
-            let statusText = "로그인 필요"
-            let textSize = (statusText as NSString).size(withAttributes: statusAttrs)
-            let iconW: CGFloat = 18
-            let gap: CGFloat = 4
-            let totalW = iconW + gap + textSize.width
-            let h: CGFloat = 22
-            let img = NSImage(size: NSSize(width: totalW, height: h), flipped: false) { _ in
-                claudeIcon?.draw(in: NSRect(x: 0, y: (h - iconW) / 2, width: iconW, height: iconW))
-                (statusText as NSString).draw(at: NSPoint(x: iconW + gap, y: (h - textSize.height) / 2), withAttributes: statusAttrs)
-                return true
-            }
-            img.isTemplate = false
-            button.image = img
-            button.imagePosition = .imageOnly
-            button.attributedTitle = NSAttributedString(string: "")
-            button.toolTip = "클릭하여 로그인"
+        guard let claudeConfig else {
+            applyMenuBarContent(MenuBarStatusComposer.placeholder(secondaryColor: secondaryColor), to: button)
             return
         }
+        let content = MenuBarStatusComposer.claudeOnlyContent(
+            config: claudeConfig,
+            usage: currentUsage,
+            error: currentError,
+            hasAuthError: hasAuthError,
+            hasSessionKey: KeychainManager.shared.hasSessionKey,
+            secondaryColor: secondaryColor,
+            icon: claudeConfig.showIcon ? claudeMenuBarIcon(size: NSSize(width: 18, height: 18), tint: claudeIconTintColor) : nil
+        )
+        applyMenuBarContent(content, to: button)
+    }
 
-        if let error = currentError, currentUsage == nil {
-            // 에러 (데이터 없음)
-            let claudeIcon = claudeMenuBarIcon(size: NSSize(width: 18, height: 18), tint: claudeIconTintColor)
-            let statusFont = NSFont.systemFont(ofSize: 12)
-            let label = hasAuthError ? "인증 필요" : "⚠"
-            let color: NSColor = hasAuthError ? .systemOrange : secondaryColor
-            let statusAttrs: [NSAttributedString.Key: Any] = [.font: statusFont, .foregroundColor: color]
-            let textSize = (label as NSString).size(withAttributes: statusAttrs)
-            let iconW: CGFloat = 18
-            let gap: CGFloat = 4
-            let totalW = iconW + gap + textSize.width
-            let h: CGFloat = 22
-            let img = NSImage(size: NSSize(width: totalW, height: h), flipped: false) { _ in
-                claudeIcon?.draw(in: NSRect(x: 0, y: (h - iconW) / 2, width: iconW, height: iconW))
-                (label as NSString).draw(at: NSPoint(x: iconW + gap, y: (h - textSize.height) / 2), withAttributes: statusAttrs)
-                return true
-            }
-            img.isTemplate = false
-            button.image = img
-            button.imagePosition = .imageOnly
-            button.attributedTitle = NSAttributedString(string: "")
-            button.toolTip = error.errorDescription ?? "알 수 없는 에러"
-            return
-        }
-
-        guard let usage = currentUsage else {
-            // 로딩 중
-            let claudeIcon = claudeMenuBarIcon(size: NSSize(width: 18, height: 18), tint: claudeIconTintColor)
-            button.image = claudeIcon
-            button.imagePosition = .imageOnly
-            button.attributedTitle = NSAttributedString(string: "")
-            button.toolTip = "데이터 로딩 중"
-            return
-        }
-
-        let fiveHourPct = usage.fiveHourPercentage
-        let weeklyPct = usage.sevenDay?.utilization ?? 0
-        let primaryPct = fiveHourPct
-
-        let fiveHourColor = ColorProvider.nsStatusColor(for: fiveHourPct)
-        let weeklyColor = ColorProvider.nsWeeklyStatusColor(for: weeklyPct)
-        let primaryColor = fiveHourColor
-
-        // 모든 요소를 하나의 이미지로 통합 렌더링 (세로 정렬 보장)
-        let menuBarHeight: CGFloat = 22
-        let spacing: CGFloat = 4
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
-        let smallFont = NSFont.systemFont(ofSize: 11)
-        var elements: [(image: NSImage?, text: String?, attrs: [NSAttributedString.Key: Any]?)] = []
-
-        // 1. Claude 아이콘 (설정)
-        if settings.showClaudeIcon {
-            let iconSize = NSSize(width: 18, height: 18)
-            if let claudeIcon = claudeMenuBarIcon(size: iconSize, tint: claudeIconTintColor) {
-                elements.append((image: claudeIcon, text: nil, attrs: nil))
-            }
-        }
-
-        // 2. 퍼센트 (설정) — 배터리 계열: 남은 사용량, 원형/동심원: 표시 기준 설정, 그 외: 사용량
-        let showRemaining: Bool = {
-            switch settings.menuBarStyle {
-            case .batteryBar, .dualBattery, .sideBySideBattery:
-                return true
-            case .circular, .concentricRings:
-                return settings.circularDisplayMode == .remaining
-            case .none:
-                return false
-            }
-        }()
-        let displayFiveHour = showRemaining ? (100.0 - fiveHourPct) : fiveHourPct
-        let displayWeekly = showRemaining ? (100.0 - weeklyPct) : weeklyPct
-        switch settings.percentageDisplay {
-        case .none:
-            break
-        case .fiveHour:
-            let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: fiveHourColor]
-            elements.append((image: nil, text: String(format: "%.0f%%", displayFiveHour), attrs: attrs))
-        case .weekly:
-            let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: weeklyColor]
-            elements.append((image: nil, text: String(format: "%.0f%%", displayWeekly), attrs: attrs))
-        case .dual:
-            let t1 = String(format: "%.0f%%", displayFiveHour)
-            let t2 = " · "
-            let t3 = String(format: "%.0f%%", displayWeekly)
-            let a1: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: fiveHourColor]
-            let a2: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: secondaryColor]
-            let a3: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: weeklyColor]
-            let w1 = (t1 as NSString).size(withAttributes: a1).width
-            let w2 = (t2 as NSString).size(withAttributes: a2).width
-            let w3 = (t3 as NSString).size(withAttributes: a3).width
-            let textHeight = (t1 as NSString).size(withAttributes: a1).height
-            let textImage = NSImage(size: NSSize(width: w1 + w2 + w3, height: textHeight), flipped: false) { _ in
-                var x: CGFloat = 0
-                (t1 as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: a1); x += w1
-                (t2 as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: a2); x += w2
-                (t3 as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: a3)
-                return true
-            }
-            elements.append((image: textImage, text: nil, attrs: nil))
-        }
-
-        // 3. 추가 아이콘 (설정)
-        let isRemainingMode = settings.circularDisplayMode == .remaining
-        let circularValue = isRemainingMode ? (100.0 - primaryPct) : primaryPct
-        let concentricOuter = isRemainingMode ? (100.0 - fiveHourPct) : fiveHourPct
-        let concentricInner = isRemainingMode ? (100.0 - weeklyPct) : weeklyPct
-        let extraIcon: NSImage? = switch settings.menuBarStyle {
-        case .none: nil
-        case .batteryBar: MenuBarIconRenderer.batteryIcon(percentage: primaryPct, color: primaryColor, showPercent: settings.showBatteryPercent)
-        case .circular: MenuBarIconRenderer.circularRingIcon(percentage: circularValue, color: primaryColor)
-        case .concentricRings: MenuBarIconRenderer.concentricRingsIcon(
-            outerPercent: concentricOuter, innerPercent: concentricInner,
-            outerColor: fiveHourColor, innerColor: weeklyColor)
-        case .dualBattery: MenuBarIconRenderer.dualBatteryIcon(
-            topPercent: fiveHourPct, bottomPercent: weeklyPct,
-            topColor: fiveHourColor, bottomColor: weeklyColor)
-        case .sideBySideBattery: MenuBarIconRenderer.sideBySideBatteryIcon(
-            leftPercent: fiveHourPct, rightPercent: weeklyPct,
-            leftColor: fiveHourColor, rightColor: weeklyColor,
-            showPercent: settings.showBatteryPercent)
-        }
-        if let extra = extraIcon {
-            elements.append((image: extra, text: nil, attrs: nil))
-        }
-
-        // 4. 인증 에러 경고
-        if hasAuthError {
-            let warnFont = NSFont.systemFont(ofSize: 12)
-            let warnAttrs: [NSAttributedString.Key: Any] = [.font: warnFont, .foregroundColor: NSColor.systemOrange]
-            elements.append((image: nil, text: "⚠", attrs: warnAttrs))
-        }
-
-        // 5. 리셋 시간 (설정)
-        switch settings.resetTimeDisplay {
-        case .none:
-            break
-        case .fiveHour:
-            if let resetAt = usage.fiveHour.resetsAt,
-               let clock = TimeFormatter.formatResetTime(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false) {
-                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
-                elements.append((image: nil, text: clock, attrs: attrs))
-            }
-        case .weekly:
-            if let resetAt = usage.sevenDay?.resetsAt,
-               let clock = TimeFormatter.formatResetTimeWeekly(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false) {
-                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
-                elements.append((image: nil, text: clock, attrs: attrs))
-            }
-        case .dual:
-            let r1 = usage.fiveHour.resetsAt.flatMap { TimeFormatter.formatResetTime(from: $0, style: settings.timeFormat, includeDateIfNotToday: false) }
-            let r2 = usage.sevenDay?.resetsAt.flatMap { TimeFormatter.formatResetTimeWeekly(from: $0, style: settings.timeFormat, includeDateIfNotToday: false) }
-            let dualText: String?
-            if let t1 = r1, let t2 = r2 {
-                dualText = "\(t1) · \(t2)"
-            } else {
-                dualText = r1 ?? r2
-            }
-            if let text = dualText {
-                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
-                elements.append((image: nil, text: text, attrs: attrs))
-            }
-        }
-
-        // 총 너비 계산
-        if elements.isEmpty {
-            let fallbackAttrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
-            elements.append((image: nil, text: "Claude", attrs: fallbackAttrs))
-        }
-
-        var totalWidth: CGFloat = 0
-        for (i, el) in elements.enumerated() {
-            if i > 0 { totalWidth += spacing }
-            if let img = el.image {
-                totalWidth += img.size.width
-            } else if let txt = el.text, let attrs = el.attrs {
-                totalWidth += (txt as NSString).size(withAttributes: attrs).width
-            }
-        }
-
-        // 통합 이미지 생성
-        let compositeImage = NSImage(size: NSSize(width: totalWidth, height: menuBarHeight), flipped: false) { _ in
-            var x: CGFloat = 0
-            for (i, el) in elements.enumerated() {
-                if i > 0 { x += spacing }
-                if let img = el.image {
-                    let y = (menuBarHeight - img.size.height) / 2
-                    img.draw(in: NSRect(x: x, y: y, width: img.size.width, height: img.size.height))
-                    x += img.size.width
-                } else if let txt = el.text, let attrs = el.attrs {
-                    let size = (txt as NSString).size(withAttributes: attrs)
-                    let y = (menuBarHeight - size.height) / 2
-                    (txt as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
-                    x += size.width
-                }
-            }
-            return true
-        }
-        compositeImage.isTemplate = false
-
-        button.image = compositeImage
+    private func applyMenuBarContent(_ content: MenuBarRenderedContent, to button: NSStatusBarButton) {
+        button.image = content.image
         button.imagePosition = .imageOnly
         button.attributedTitle = NSAttributedString(string: "")
-        let authWarning = hasAuthError ? "\n⚠️ 세션 키가 유효하지 않습니다" : ""
-        let tooltip = "현재 세션: \(Int(fiveHourPct))% / 주간: \(Int(weeklyPct))%\(authWarning)"
-        button.toolTip = tooltip
-    }
-
-    private func renderCombinedServicesMenuBar(
-        button: NSStatusBarButton,
-        secondaryColor: NSColor,
-        claudeIconTintColor: NSColor,
-        codexIconTintColor: NSColor
-    ) {
-        let settings = AppSettings.shared
-        let separatorFont = NSFont.systemFont(ofSize: 11, weight: .regular)
-        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
-        let resetFont = NSFont.systemFont(ofSize: 10, weight: .regular)
-        let spacing: CGFloat = 4
-        let menuBarHeight: CGFloat = 22
-        var leftElements: [(image: NSImage?, text: String?, attrs: [NSAttributedString.Key: Any]?)] = []
-        var rightElements: [(image: NSImage?, text: String?, attrs: [NSAttributedString.Key: Any]?)] = []
-
-        let claude = combinedClaudeStatus(secondaryColor: secondaryColor)
-        let codex = combinedCodexStatus(secondaryColor: secondaryColor)
-
-        if settings.showClaudeIcon,
-           let icon = claudeMenuBarIcon(size: NSSize(width: 14, height: 14), tint: claudeIconTintColor) {
-            leftElements.append((image: icon, text: nil, attrs: nil))
-        }
-        if !claude.text.isEmpty {
-            leftElements.append((image: nil, text: claude.text, attrs: [.font: valueFont, .foregroundColor: claude.color]))
-        }
-        if let styleIcon = combinedClaudeStyleIcon() {
-            leftElements.append((image: styleIcon, text: nil, attrs: nil))
-        }
-        if let claudeReset = combinedClaudeResetTimeText() {
-            leftElements.append((image: nil, text: claudeReset, attrs: [.font: resetFont, .foregroundColor: secondaryColor]))
-        }
-
-        if settings.showCodexIcon,
-           let icon = codexMenuBarIcon(size: NSSize(width: 14, height: 14), tint: codexIconTintColor) {
-            rightElements.append((image: icon, text: nil, attrs: nil))
-        }
-        if !codex.text.isEmpty {
-            rightElements.append((image: nil, text: codex.text, attrs: [.font: valueFont, .foregroundColor: codex.color]))
-        }
-        if let styleIcon = combinedCodexStyleIcon() {
-            rightElements.append((image: styleIcon, text: nil, attrs: nil))
-        }
-        if let codexReset = combinedCodexResetTimeText() {
-            rightElements.append((image: nil, text: codexReset, attrs: [.font: resetFont, .foregroundColor: secondaryColor]))
-        }
-
-        if leftElements.isEmpty {
-            leftElements.append((image: nil, text: "Claude", attrs: [.font: resetFont, .foregroundColor: secondaryColor]))
-        }
-        if rightElements.isEmpty {
-            rightElements.append((image: nil, text: "Codex", attrs: [.font: resetFont, .foregroundColor: secondaryColor]))
-        }
-
-        var elements = leftElements
-        if !leftElements.isEmpty && !rightElements.isEmpty {
-            elements.append((image: nil, text: "·", attrs: [.font: separatorFont, .foregroundColor: secondaryColor]))
-        }
-        elements.append(contentsOf: rightElements)
-
-        var totalWidth: CGFloat = 0
-        for (i, element) in elements.enumerated() {
-            if i > 0 { totalWidth += spacing }
-            if let image = element.image {
-                totalWidth += image.size.width
-            } else if let text = element.text, let attrs = element.attrs {
-                totalWidth += (text as NSString).size(withAttributes: attrs).width
-            }
-        }
-
-        let image = NSImage(size: NSSize(width: totalWidth, height: menuBarHeight), flipped: false) { _ in
-            var x: CGFloat = 0
-            for (i, element) in elements.enumerated() {
-                if i > 0 { x += spacing }
-                if let image = element.image {
-                    let y = (menuBarHeight - image.size.height) / 2
-                    image.draw(in: NSRect(x: x, y: y, width: image.size.width, height: image.size.height))
-                    x += image.size.width
-                } else if let text = element.text, let attrs = element.attrs {
-                    let size = (text as NSString).size(withAttributes: attrs)
-                    let y = (menuBarHeight - size.height) / 2
-                    (text as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
-                    x += size.width
-                }
-            }
-            return true
-        }
-        image.isTemplate = false
-
-        button.image = image
-        button.imagePosition = .imageOnly
-        button.attributedTitle = NSAttributedString(string: "")
-        button.toolTip = "Claude: \(claude.tooltip) / Codex: \(codex.tooltip)"
-    }
-
-    private func combinedClaudeResetTimeText() -> String? {
-        let settings = AppSettings.shared
-
-        guard let usage = currentUsage else { return nil }
-        switch settings.resetTimeDisplay {
-        case .none:
-            return nil
-        case .fiveHour:
-            guard let resetAt = usage.fiveHour.resetsAt else { return nil }
-            return TimeFormatter.formatResetTime(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false)
-        case .weekly:
-            guard let resetAt = usage.sevenDay?.resetsAt else { return nil }
-            return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: settings.timeFormat, includeDateIfNotToday: false)
-        case .dual:
-            let r1 = usage.fiveHour.resetsAt.flatMap {
-                TimeFormatter.formatResetTime(from: $0, style: settings.timeFormat, includeDateIfNotToday: false)
-            }
-            let r2 = usage.sevenDay?.resetsAt.flatMap {
-                TimeFormatter.formatResetTimeWeekly(from: $0, style: settings.timeFormat, includeDateIfNotToday: false)
-            }
-            if let r1, let r2 { return "\(r1)/\(r2)" }
-            return r1 ?? r2
-        }
-    }
-
-    private func combinedCodexResetTimeText() -> String? {
-        let settings = AppSettings.shared
-        guard let usage = currentCodexUsage else { return nil }
-
-        switch settings.codexResetTimeDisplay {
-        case .none:
-            return nil
-        case .fiveHour:
-            guard let resetAt = usage.rateLimit?.primaryWindow?.resetAtISO else { return nil }
-            return TimeFormatter.formatResetTime(from: resetAt, style: settings.codexTimeFormat, includeDateIfNotToday: false)
-        case .weekly:
-            guard let resetAt = usage.rateLimit?.secondaryWindow?.resetAtISO else { return nil }
-            return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: settings.codexTimeFormat, includeDateIfNotToday: false)
-        case .dual:
-            let r1 = usage.rateLimit?.primaryWindow?.resetAtISO.flatMap {
-                TimeFormatter.formatResetTime(from: $0, style: settings.codexTimeFormat, includeDateIfNotToday: false)
-            }
-            let r2 = usage.rateLimit?.secondaryWindow?.resetAtISO.flatMap {
-                TimeFormatter.formatResetTimeWeekly(from: $0, style: settings.codexTimeFormat, includeDateIfNotToday: false)
-            }
-            if let r1, let r2 { return "\(r1)/\(r2)" }
-            return r1 ?? r2
-        }
-    }
-
-    private func combinedClaudeStatus(secondaryColor: NSColor) -> (text: String, color: NSColor, tooltip: String) {
-        let settings = AppSettings.shared
-        if !KeychainManager.shared.hasSessionKey {
-            return ("로그인", .systemOrange, "로그인 필요")
-        }
-        if let error = currentError, currentUsage == nil {
-            return (hasAuthError ? "인증" : "오류", .systemOrange, error.errorDescription ?? "조회 오류")
-        }
-        guard let usage = currentUsage else {
-            return ("…", secondaryColor, "로딩 중")
-        }
-        let fiveHour = usage.fiveHourPercentage
-        let weekly = usage.sevenDay?.utilization ?? 0
-        let fiveHourText = Int(fiveHour.rounded())
-        let weeklyText = Int(weekly.rounded())
-        let showRemaining: Bool = {
-            switch settings.menuBarStyle {
-            case .batteryBar, .dualBattery, .sideBySideBattery:
-                return true
-            case .circular, .concentricRings:
-                return settings.circularDisplayMode == .remaining
-            case .none:
-                return false
-            }
-        }()
-        let displayFiveHour = max(0, min(100, showRemaining ? (100.0 - fiveHour) : fiveHour))
-        let displayWeekly = max(0, min(100, showRemaining ? (100.0 - weekly) : weekly))
-        let text: String = {
-            switch settings.percentageDisplay {
-            case .none:
-                return ""
-            case .fiveHour:
-                return String(format: "%.0f%%", displayFiveHour)
-            case .weekly:
-                return String(format: "%.0f%%", displayWeekly)
-            case .dual:
-                return String(format: "%.0f%%·%.0f%%", displayFiveHour, displayWeekly)
-            }
-        }()
-        return (text, ColorProvider.nsStatusColor(for: fiveHour), "현재 \(fiveHourText)% / 주간 \(weeklyText)%")
-    }
-
-    private func combinedCodexStatus(secondaryColor: NSColor) -> (text: String, color: NSColor, tooltip: String) {
-        let settings = AppSettings.shared
-        if !CodexAuthManager.shared.isAuthenticated {
-            return ("로그인", .systemOrange, "로그인 필요")
-        }
-        if let usage = currentCodexUsage {
-            let primary = usage.primaryPercentage
-            let weekly = usage.secondaryPercentage
-            let primaryText = Int(primary.rounded())
-            let weeklyText = Int(weekly.rounded())
-            let showRemaining: Bool = {
-                switch settings.codexMenuBarStyle {
-                case .batteryBar, .dualBattery, .sideBySideBattery:
-                    return true
-                case .circular, .concentricRings:
-                    return settings.codexCircularDisplayMode == .remaining
-                case .none:
-                    return false
-                }
-            }()
-            let displayPrimary = max(0, min(100, showRemaining ? (100.0 - primary) : primary))
-            let displayWeekly = max(0, min(100, showRemaining ? (100.0 - weekly) : weekly))
-            let text: String = {
-                switch settings.codexPercentageDisplay {
-                case .none:
-                    return ""
-                case .fiveHour:
-                    return String(format: "%.0f%%", displayPrimary)
-                case .weekly:
-                    return String(format: "%.0f%%", displayWeekly)
-                case .dual:
-                    return String(format: "%.0f%%·%.0f%%", displayPrimary, displayWeekly)
-                }
-            }()
-            return (text, ColorProvider.nsStatusColor(for: primary), "현재 \(primaryText)% / 주간 \(weeklyText)%")
-        }
-        if let error = codexError {
-            return (hasCodexAuthError ? "인증" : "오류", .systemOrange, error.errorDescription ?? "조회 오류")
-        }
-        return ("…", secondaryColor, "로딩 중")
+        button.toolTip = content.tooltip
     }
 
     private func secondaryTextColor(for button: NSStatusBarButton) -> NSColor {
@@ -1627,105 +1202,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func claudeBrandIconTintColor(for button: NSStatusBarButton) -> NSColor {
         _ = button
         return NSColor.systemOrange
-    }
-
-    private func combinedClaudeStyleIcon() -> NSImage? {
-        let settings = AppSettings.shared
-        guard let usage = currentUsage else { return nil }
-
-        let fiveHourPct = usage.fiveHourPercentage
-        let weeklyPct = usage.sevenDay?.utilization ?? 0
-        let fiveHourColor = ColorProvider.nsStatusColor(for: fiveHourPct)
-        let weeklyColor = ColorProvider.nsWeeklyStatusColor(for: weeklyPct)
-        let primaryColor = fiveHourColor
-        let isRemainingMode = settings.circularDisplayMode == .remaining
-        let circularValue = isRemainingMode ? (100.0 - fiveHourPct) : fiveHourPct
-        let concentricOuter = isRemainingMode ? (100.0 - fiveHourPct) : fiveHourPct
-        let concentricInner = isRemainingMode ? (100.0 - weeklyPct) : weeklyPct
-
-        switch settings.menuBarStyle {
-        case .none:
-            return nil
-        case .batteryBar:
-            return MenuBarIconRenderer.batteryIcon(
-                percentage: fiveHourPct,
-                color: primaryColor,
-                showPercent: settings.showBatteryPercent
-            )
-        case .circular:
-            return MenuBarIconRenderer.circularRingIcon(percentage: circularValue, color: primaryColor)
-        case .concentricRings:
-            return MenuBarIconRenderer.concentricRingsIcon(
-                outerPercent: concentricOuter,
-                innerPercent: concentricInner,
-                outerColor: fiveHourColor,
-                innerColor: weeklyColor
-            )
-        case .dualBattery:
-            return MenuBarIconRenderer.dualBatteryIcon(
-                topPercent: fiveHourPct,
-                bottomPercent: weeklyPct,
-                topColor: fiveHourColor,
-                bottomColor: weeklyColor
-            )
-        case .sideBySideBattery:
-            return MenuBarIconRenderer.sideBySideBatteryIcon(
-                leftPercent: fiveHourPct,
-                rightPercent: weeklyPct,
-                leftColor: fiveHourColor,
-                rightColor: weeklyColor,
-                showPercent: settings.showBatteryPercent
-            )
-        }
-    }
-
-    private func combinedCodexStyleIcon() -> NSImage? {
-        let settings = AppSettings.shared
-        guard let usage = currentCodexUsage else { return nil }
-
-        let primary = usage.primaryPercentage
-        let weekly = usage.secondaryPercentage
-        let primaryColor = ColorProvider.nsStatusColor(for: primary)
-        let weeklyColor = ColorProvider.nsWeeklyStatusColor(for: weekly)
-        let isRemainingMode = settings.codexCircularDisplayMode == .remaining
-        let circularValue = isRemainingMode ? (100.0 - primary) : primary
-        let concentricOuter = isRemainingMode ? (100.0 - primary) : primary
-        let concentricInner = isRemainingMode ? (100.0 - weekly) : weekly
-
-        switch settings.codexMenuBarStyle {
-        case .none:
-            return nil
-        case .batteryBar:
-            return MenuBarIconRenderer.batteryIcon(
-                percentage: primary,
-                color: primaryColor,
-                showPercent: settings.codexShowBatteryPercent
-            )
-        case .circular:
-            return MenuBarIconRenderer.circularRingIcon(percentage: circularValue, color: primaryColor)
-        case .concentricRings:
-            return MenuBarIconRenderer.concentricRingsIcon(
-                outerPercent: concentricOuter,
-                innerPercent: concentricInner,
-                outerColor: primaryColor,
-                innerColor: weeklyColor
-            )
-        case .dualBattery:
-            return MenuBarIconRenderer.dualBatteryIcon(
-                topPercent: primary,
-                bottomPercent: weekly,
-                topColor: primaryColor,
-                bottomColor: weeklyColor
-            )
-        case .sideBySideBattery:
-            return MenuBarIconRenderer.sideBySideBatteryIcon(
-                leftPercent: primary,
-                rightPercent: weekly,
-                leftColor: primaryColor,
-                rightColor: weeklyColor,
-                showPercent: settings.codexShowBatteryPercent
-            )
-        }
     }
 
     private func resizeWorkItem(for service: PopoverService) -> DispatchWorkItem? {
@@ -1761,190 +1237,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             isAdjustingClaudePopoverSize = isAdjusting
         case .codex:
             isAdjustingCodexPopoverSize = isAdjusting
-        }
-    }
-
-    private func renderCodexOnlyMenuBar(
-        button: NSStatusBarButton,
-        secondaryColor: NSColor,
-        iconTintColor: NSColor
-    ) {
-        let settings = AppSettings.shared
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
-        let smallFont = NSFont.systemFont(ofSize: 11)
-        let spacing: CGFloat = 4
-        var elements: [(image: NSImage?, text: String?, attrs: [NSAttributedString.Key: Any]?)] = []
-
-        if settings.showCodexIcon {
-            if let codexIcon = codexMenuBarIcon(size: NSSize(width: 18, height: 18), tint: iconTintColor) {
-                elements.append((image: codexIcon, text: nil, attrs: nil))
-            }
-        }
-
-        if let codex = currentCodexUsage {
-            let p = codex.primaryPercentage
-            let w = codex.secondaryPercentage
-            let primaryColor = ColorProvider.nsStatusColor(for: p)
-            let weeklyColor = ColorProvider.nsWeeklyStatusColor(for: w)
-            let showRemaining: Bool = {
-                switch settings.codexMenuBarStyle {
-                case .batteryBar, .dualBattery, .sideBySideBattery:
-                    return true
-                case .circular, .concentricRings:
-                    return settings.codexCircularDisplayMode == .remaining
-                case .none:
-                    return false
-                }
-            }()
-            let displayPrimary = max(0, min(100, showRemaining ? (100.0 - p) : p))
-            let displayWeekly = max(0, min(100, showRemaining ? (100.0 - w) : w))
-
-            switch settings.codexPercentageDisplay {
-            case .none:
-                break
-            case .fiveHour:
-                let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: primaryColor]
-                elements.append((image: nil, text: String(format: "%.0f%%", displayPrimary), attrs: attrs))
-            case .weekly:
-                let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: weeklyColor]
-                elements.append((image: nil, text: String(format: "%.0f%%", displayWeekly), attrs: attrs))
-            case .dual:
-                let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: primaryColor]
-                elements.append((image: nil, text: String(format: "%.0f%%", displayPrimary), attrs: attrs))
-                let dotAttrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
-                elements.append((image: nil, text: "·", attrs: dotAttrs))
-                let secondAttrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: weeklyColor]
-                elements.append((image: nil, text: String(format: "%.0f%%", displayWeekly), attrs: secondAttrs))
-            }
-
-            let isRemainingMode = settings.codexCircularDisplayMode == .remaining
-            let circularValue = isRemainingMode ? (100.0 - p) : p
-            let concentricOuter = isRemainingMode ? (100.0 - p) : p
-            let concentricInner = isRemainingMode ? (100.0 - w) : w
-            let styleIcon: NSImage? = switch settings.codexMenuBarStyle {
-            case .none:
-                nil
-            case .batteryBar:
-                MenuBarIconRenderer.batteryIcon(percentage: p, color: primaryColor, showPercent: settings.codexShowBatteryPercent)
-            case .circular:
-                MenuBarIconRenderer.circularRingIcon(percentage: circularValue, color: primaryColor)
-            case .concentricRings:
-                MenuBarIconRenderer.concentricRingsIcon(
-                    outerPercent: concentricOuter,
-                    innerPercent: concentricInner,
-                    outerColor: primaryColor,
-                    innerColor: weeklyColor
-                )
-            case .dualBattery:
-                MenuBarIconRenderer.dualBatteryIcon(
-                    topPercent: p,
-                    bottomPercent: w,
-                    topColor: primaryColor,
-                    bottomColor: weeklyColor
-                )
-            case .sideBySideBattery:
-                MenuBarIconRenderer.sideBySideBatteryIcon(
-                    leftPercent: p,
-                    rightPercent: w,
-                    leftColor: primaryColor,
-                    rightColor: weeklyColor,
-                    showPercent: settings.codexShowBatteryPercent
-                )
-            }
-            if let styleIcon {
-                elements.append((image: styleIcon, text: nil, attrs: nil))
-            }
-
-            switch settings.codexResetTimeDisplay {
-            case .none:
-                break
-            case .fiveHour:
-                if let resetAt = codex.rateLimit?.primaryWindow?.resetAtISO,
-                   let clock = TimeFormatter.formatResetTime(from: resetAt, style: settings.codexTimeFormat, includeDateIfNotToday: false) {
-                    let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
-                    elements.append((image: nil, text: clock, attrs: attrs))
-                }
-            case .weekly:
-                if let resetAt = codex.rateLimit?.secondaryWindow?.resetAtISO,
-                   let clock = TimeFormatter.formatResetTimeWeekly(from: resetAt, style: settings.codexTimeFormat, includeDateIfNotToday: false) {
-                    let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
-                    elements.append((image: nil, text: clock, attrs: attrs))
-                }
-            case .dual:
-                let r1 = codex.rateLimit?.primaryWindow?.resetAtISO.flatMap {
-                    TimeFormatter.formatResetTime(from: $0, style: settings.codexTimeFormat, includeDateIfNotToday: false)
-                }
-                let r2 = codex.rateLimit?.secondaryWindow?.resetAtISO.flatMap {
-                    TimeFormatter.formatResetTimeWeekly(from: $0, style: settings.codexTimeFormat, includeDateIfNotToday: false)
-                }
-                let dualText: String?
-                if let t1 = r1, let t2 = r2 {
-                    dualText = "\(t1) · \(t2)"
-                } else {
-                    dualText = r1 ?? r2
-                }
-                if let dualText {
-                    let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
-                    elements.append((image: nil, text: dualText, attrs: attrs))
-                }
-            }
-
-            if settings.codexPercentageDisplay == .none, settings.codexMenuBarStyle == .none {
-                let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
-                elements.append((image: nil, text: "Codex", attrs: attrs))
-            }
-        } else if hasCodexAuthError {
-            let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.systemOrange]
-            elements.append((image: nil, text: "Codex 인증 필요", attrs: attrs))
-        } else {
-            let attrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: NSColor.systemOrange]
-            elements.append((image: nil, text: "Codex 오류", attrs: attrs))
-        }
-
-        let menuBarHeight: CGFloat = 22
-        if elements.isEmpty {
-            let fallbackAttrs: [NSAttributedString.Key: Any] = [.font: smallFont, .foregroundColor: secondaryColor]
-            elements.append((image: nil, text: "Codex", attrs: fallbackAttrs))
-        }
-
-        var totalWidth: CGFloat = 0
-        for (i, el) in elements.enumerated() {
-            if i > 0 { totalWidth += spacing }
-            if let image = el.image {
-                totalWidth += image.size.width
-            } else if let text = el.text, let attrs = el.attrs {
-                totalWidth += (text as NSString).size(withAttributes: attrs).width
-            }
-        }
-
-        let image = NSImage(size: NSSize(width: totalWidth, height: menuBarHeight), flipped: false) { _ in
-            var x: CGFloat = 0
-            for (i, el) in elements.enumerated() {
-                if i > 0 { x += spacing }
-                if let image = el.image {
-                    let y = (menuBarHeight - image.size.height) / 2
-                    image.draw(in: NSRect(x: x, y: y, width: image.size.width, height: image.size.height))
-                    x += image.size.width
-                } else if let text = el.text, let attrs = el.attrs {
-                    let size = (text as NSString).size(withAttributes: attrs)
-                    let y = (menuBarHeight - size.height) / 2
-                    (text as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attrs)
-                    x += size.width
-                }
-            }
-            return true
-        }
-        image.isTemplate = false
-
-        button.image = image
-        button.imagePosition = .imageOnly
-        button.attributedTitle = NSAttributedString(string: "")
-        if let codex = currentCodexUsage {
-            button.toolTip = "Codex 현재: \(Int(codex.primaryPercentage))% / 주간: \(Int(codex.secondaryPercentage))%"
-        } else if hasCodexAuthError {
-            button.toolTip = "Codex 인증 필요"
-        } else {
-            button.toolTip = "Codex 조회 오류"
         }
     }
 
@@ -2132,7 +1424,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func applySettingsFromWindow() {
         Task {
             await self.apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
-            if AppSettings.shared.claudeEnabled, let key = KeychainManager.shared.load(), !key.isEmpty {
+            if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared), let key = KeychainManager.shared.load(), !key.isEmpty {
+                AppSettings.shared.hasCompletedSetupWizard = true
                 await self.apiService.updateSessionKey(key)
                 await MainActor.run {
                     self.startMonitoring()
@@ -2140,6 +1433,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 await self.apiService.clearSession()
                 await MainActor.run {
+                    AppSettings.shared.hasCompletedSetupWizard = false
                     self.currentUsage = nil
                     self.currentOverage = nil
                     self.lastOverageFetchAt = nil
@@ -2158,10 +1452,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         lastUpdated: self.lastUpdated,
                         overage: nil
                     )
-                    if AppSettings.shared.codexEnabled {
+                    if ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) {
                         self.startTimer()
                         self.refreshCodexUsage(force: true)
-                    } else if AppSettings.shared.claudeEnabled && KeychainManager.shared.hasSessionKey {
+                    } else if ServiceSelectionHelper.canRefreshClaude(settings: AppSettings.shared, hasSessionKey: KeychainManager.shared.hasSessionKey) {
                         self.startTimer()
                     } else {
                         self.timer?.invalidate()
@@ -2179,6 +1473,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
+        }
+
+        if !AppSettings.shared.hasCompletedSetupWizard {
+            AppSettings.shared.settingsLastTab = "claude"
+            AppSettings.shared.claudeSettingsLastTab = "auth"
         }
 
         settingsSnapshot = AppSettings.shared.createSnapshot()
@@ -2208,6 +1507,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 Task {
                     await self.apiService.clearSession()
                     await MainActor.run {
+                        AppSettings.shared.hasCompletedSetupWizard = false
                         self.syncUsageHealthSnapshotToUI()
                     }
                 }
@@ -2230,7 +1530,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     overage: nil
                 )
                 self.settingsSnapshot = AppSettings.shared.createSnapshot()
-                if AppSettings.shared.codexEnabled {
+                if ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) {
                     self.startTimer()
                     self.refreshCodexUsage(force: true)
                 } else {
@@ -2322,6 +1622,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     await self.apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
                     await self.apiService.updateSessionKey(key)
                     await MainActor.run {
+                        AppSettings.shared.hasCompletedSetupWizard = true
                         self.hasAuthError = false
                         self.startMonitoring()
                     }
@@ -2361,8 +1662,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Actions
 
     @objc private func refreshClicked() {
-        let canRefreshClaude = AppSettings.shared.claudeEnabled && KeychainManager.shared.hasSessionKey
-        let canRefreshCodex = AppSettings.shared.codexEnabled
+        let canRefreshClaude = ServiceSelectionHelper.canRefreshClaude(settings: AppSettings.shared, hasSessionKey: KeychainManager.shared.hasSessionKey)
+        let canRefreshCodex = ServiceSelectionHelper.canRefreshCodex(settings: AppSettings.shared)
         if canRefreshClaude || canRefreshCodex {
             refreshAll(force: true)
         } else {

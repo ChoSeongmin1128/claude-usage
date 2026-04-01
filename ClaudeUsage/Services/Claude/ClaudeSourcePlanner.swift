@@ -1,0 +1,85 @@
+import Foundation
+
+struct ClaudeSourcePlanner {
+    nonisolated init() {}
+
+    nonisolated func makePlan(from context: ClaudeFetchContext) -> ClaudeFetchPlan {
+        let candidates = self.primaryCandidates(for: context)
+        return ClaudeFetchPlan(
+            context: context,
+            primaryCandidates: candidates,
+            fallbackPolicy: context.fallbackPolicy)
+    }
+
+    private nonisolated func primaryCandidates(for context: ClaudeFetchContext) -> [ClaudeSourceCandidate] {
+        let orderedSources: [ClaudeUsageSource] = switch context.sourcePreference {
+        case .auto:
+            self.autoOrder(for: context)
+        case .webSession:
+            [.webSession, .oauth]
+        case .oauth:
+            [.oauth, .webSession]
+        case .recentSuccess:
+            self.recentSuccessOrder(for: context)
+        }
+
+        return orderedSources.map { source in
+            ClaudeSourceCandidate(
+                source: source,
+                isAvailable: self.isAvailable(source, in: context),
+                reason: self.reason(for: source, context: context))
+        }
+    }
+
+    private nonisolated func autoOrder(for context: ClaudeFetchContext) -> [ClaudeUsageSource] {
+        if let recentSuccessfulSource = context.recentSuccessfulSource,
+           recentSuccessfulSource != .messagesHeaderFallback
+        {
+            return self.recentSuccessOrder(for: context)
+        }
+        return [.webSession, .oauth]
+    }
+
+    private nonisolated func recentSuccessOrder(for context: ClaudeFetchContext) -> [ClaudeUsageSource] {
+        guard let recentSuccessfulSource = context.recentSuccessfulSource,
+              recentSuccessfulSource != .messagesHeaderFallback
+        else {
+            return [.webSession, .oauth]
+        }
+
+        let fallback = recentSuccessfulSource == .webSession ? ClaudeUsageSource.oauth : .webSession
+        return [recentSuccessfulSource, fallback]
+    }
+
+    private nonisolated func isAvailable(_ source: ClaudeUsageSource, in context: ClaudeFetchContext) -> Bool {
+        switch source {
+        case .webSession:
+            context.webSessionAvailable
+        case .oauth:
+            context.oauthAvailable
+        case .messagesHeaderFallback:
+            context.fallbackPolicy.isEnabled
+        }
+    }
+
+    private nonisolated func reason(for source: ClaudeUsageSource, context: ClaudeFetchContext) -> String {
+        switch (context.sourcePreference, source) {
+        case (.auto, .webSession):
+            return "default-web-session-first"
+        case (.auto, .oauth):
+            return "default-oauth-fallback"
+        case (.webSession, .webSession):
+            return "explicit-web-session"
+        case (.webSession, .oauth):
+            return "web-session-then-oauth"
+        case (.oauth, .oauth):
+            return "explicit-oauth"
+        case (.oauth, .webSession):
+            return "oauth-then-web-session"
+        case (.recentSuccess, _):
+            return "recent-success-first"
+        default:
+            return "auto"
+        }
+    }
+}

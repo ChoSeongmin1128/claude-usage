@@ -12,6 +12,7 @@ import UniformTypeIdentifiers
 
 struct SettingsView: View {
     @ObservedObject var settings = AppSettings.shared
+    @StateObject private var settingsViewModel = SettingsViewModel()
     @State private var sessionKey: String = ""
     @State private var storedSessionKey: String?
     @State private var testResult: TestResult?
@@ -32,13 +33,18 @@ struct SettingsView: View {
     @State private var organizationMessage: String?
     @State private var organizationOAuthFallbackSummary: String?
     @State private var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
-    @State private var selectedPanel: SettingsPanel = .common
+    @State private var profileMetadata: ClaudeProfileMetadata?
+    @State private var selectedPanel: SettingsProviderPanel = .common
     @State private var selectedCommonTab: CommonTab = .display
     @State private var selectedClaudeTab: ClaudeTab = .auth
     @State private var selectedCodexTab: CodexTab = .auth
     @State private var isAdvancedAuthExpanded = false
+    @State private var isClaudeAdvancedSectionExpanded = false
     @State private var isOAuthGuideExpanded = false
     @State private var isAuthFAQExpanded = false
+    @State private var isMessagesFallbackExpanded = false
+    @State private var isTestingMessagesFallback = false
+    @State private var messagesFallbackStatus: String?
     @State private var codexAuthStatus: CodexAuthStatus = .checking
 
     var onSave: (() -> Void)?
@@ -51,30 +57,6 @@ struct SettingsView: View {
     enum TestResult {
         case success
         case failure(String)
-    }
-
-    enum SettingsPanel: String, CaseIterable, Identifiable {
-        case common = "common"
-        case claude = "claude"
-        case codex = "codex"
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .common: return "공통"
-            case .claude: return "Claude"
-            case .codex: return "Codex"
-            }
-        }
-
-        var icon: String {
-            switch self {
-            case .common: return "slider.horizontal.3"
-            case .claude: return "brain"
-            case .codex: return "bubble.left.and.bubble.right"
-            }
-        }
     }
 
     enum CommonTab: String, CaseIterable, Identifiable {
@@ -209,9 +191,10 @@ struct SettingsView: View {
             alertTexts = settings.alertThresholds.map { String($0) }
             codexAlertTexts = settings.codexAlertThresholds.map { String($0) }
             selectedOrganizationID = settings.preferredOrganizationID
-            selectedPanel = SettingsPanel(rawValue: settings.settingsLastTab) ?? .common
+            selectedPanel = SettingsProviderPanel(rawValue: settings.settingsLastTab) ?? .common
             selectedClaudeTab = ClaudeTab(rawValue: settings.claudeSettingsLastTab) ?? .auth
             selectedCodexTab = CodexTab(rawValue: settings.codexSettingsLastTab) ?? .auth
+            refreshSetupWizardState()
             loadUsageHealthSnapshot()
             checkCodexAuth()
         }
@@ -230,7 +213,7 @@ struct SettingsView: View {
         .onChange(of: selectedCodexTab) { _, tab in
             settings.codexSettingsLastTab = tab.rawValue
         }
-        .onChange(of: settings.codexEnabled) { _, _ in
+        .onChange(of: settings.providerStates) { _, _ in
             checkCodexAuth()
         }
     }
@@ -279,6 +262,8 @@ struct SettingsView: View {
             case .alerts:
                 codexAlertSection
             }
+        case .gemini, .antigravity:
+            comingSoonSection
         }
     }
 
@@ -290,6 +275,8 @@ struct SettingsView: View {
             return "claude-\(selectedClaudeTab.rawValue)"
         case .codex:
             return "codex-\(selectedCodexTab.rawValue)"
+        case .gemini, .antigravity:
+            return "\(selectedPanel.rawValue)-coming-soon"
         }
     }
 
@@ -300,21 +287,36 @@ struct SettingsView: View {
                 .padding(.horizontal, 8)
                 .padding(.top, 4)
 
-            ForEach(SettingsPanel.allCases) { panel in
+            ForEach(SettingsProviderRegistry.sidebarPanels) { panel in
                 Button {
-                    selectedPanel = panel
+                    selectedPanel = panel.panel
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: panel.icon)
                             .frame(width: 16)
-                        Text(panel.title)
-                            .font(.subheadline)
+                        VStack(alignment: .leading, spacing: 1) {
+                            HStack(spacing: 4) {
+                                Text(panel.title)
+                                    .font(.subheadline)
+                                if let badge = panel.availability.badgeTitle {
+                                    Text(badge)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            if let detail = panel.availability.detailMessage {
+                                Text(detail)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 8)
-                    .background(selectedPanel == panel ? Color.accentColor.opacity(0.16) : Color.clear)
-                    .foregroundStyle(selectedPanel == panel ? Color.accentColor : .primary)
+                    .background(selectedPanel == panel.panel ? Color.accentColor.opacity(0.16) : Color.clear)
+                    .foregroundStyle(selectedPanel == panel.panel ? Color.accentColor : .primary)
                     .cornerRadius(8)
                     .contentShape(Rectangle())
                 }
@@ -350,12 +352,94 @@ struct SettingsView: View {
                         selectedCodexTab = tab
                     }
                 }
+            case .gemini, .antigravity:
+                Label("탭 준비 중", systemImage: "clock")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+                    .cornerRadius(8)
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 20)
         .padding(.top, 14)
         .padding(.bottom, 10)
+    }
+
+    private var selectedPanelDescriptor: SettingsProviderPanelDescriptor {
+        SettingsProviderRegistry.descriptor(for: selectedPanel)
+    }
+
+    private var selectedProviderKind: AppProviderKind? {
+        switch selectedPanel {
+        case .common:
+            return nil
+        case .claude:
+            return .claude
+        case .codex:
+            return .codex
+        case .gemini:
+            return .gemini
+        case .antigravity:
+            return .antigravity
+        }
+    }
+
+    private var comingSoonSection: some View {
+        let descriptor = selectedPanelDescriptor
+        let shellDescriptor: ProviderShellDescriptor? = {
+            guard let provider = selectedProviderKind else { return nil }
+            return SettingsProviderRegistry.providerShellDescriptor(for: provider)
+        }()
+        return VStack(alignment: .leading, spacing: 12) {
+            Label(descriptor.title, systemImage: descriptor.icon)
+                .font(.headline)
+
+            if let message = descriptor.availability.detailMessage {
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let shellDescriptor {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        Text(shellDescriptor.summary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if let badge = shellDescriptor.role.badgeTitle {
+                            Text(badge)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    if let detail = shellDescriptor.detail {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(10)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+                .cornerRadius(8)
+            }
+
+            if let provider = selectedProviderKind {
+                Toggle(
+                    "\(descriptor.title) provider 활성화",
+                    isOn: Binding(
+                        get: { settings.isProviderEnabled(provider) },
+                        set: { settings.setProviderEnabled($0, for: provider) }
+                    )
+                )
+
+                Text("현재는 설정 shell만 준비되어 있습니다. 활성화 상태는 저장되지만 메뉴바/조회 경로는 다음 단계에서 연결됩니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     private func segmentedTabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
@@ -379,11 +463,21 @@ struct SettingsView: View {
             Label("인증", systemImage: "key")
                 .font(.headline)
 
-            Toggle("Claude 모니터링 활성화", isOn: $settings.claudeEnabled)
+            Toggle(
+                "Claude 모니터링 활성화",
+                isOn: Binding(
+                    get: { settings.isProviderEnabled(.claude) },
+                    set: { settings.setProviderEnabled($0, for: .claude) }
+                )
+            )
 
-            if settings.claudeEnabled {
+            if settings.isProviderEnabled(.claude) {
+                if shouldShowAuthSetupFlow {
+                    authSetupFlowCard
+                }
                 authNoticeCard
                 authChecklistCard
+                profileMetadataCard
 
                 if let storedSessionKey, !storedSessionKey.isEmpty {
                     // 저장된 세션 키 존재
@@ -422,105 +516,19 @@ struct SettingsView: View {
                             .foregroundStyle(.red)
                     }
                 } else {
-                    // 미로그인 상태
                     Button(action: { onOpenLogin?() }) {
-                        Label("Claude 로그인", systemImage: "person.crop.circle")
+                        Label("Chrome 또는 웹 로그인", systemImage: "person.crop.circle")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
 
-                    Text("claude.ai에 로그인하여 세션 키를 자동으로 가져옵니다")
+                    Text("먼저 Chrome 자동 가져오기를 시도하고, 실패하면 웹 로그인으로 sessionKey를 추출합니다.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                // 고급 옵션: 수동 세션 키 입력
-                DisclosureGroup(isExpanded: $isAdvancedAuthExpanded) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 4) {
-                            Text("세션 키 직접 입력")
-                                .font(.subheadline)
-                            Button(action: { showKeyHelp.toggle() }) {
-                                Image(systemName: "questionmark.circle")
-                                    .foregroundStyle(.secondary)
-                                    .font(.system(size: 14))
-                            }
-                            .buttonStyle(.borderless)
-                            .popover(isPresented: $showKeyHelp) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("세션 키 가져오는 방법")
-                                        .font(.headline)
-                                    Text("1. claude.ai에 로그인")
-                                    Text("2. ⌘⌥I (Cmd+Opt+I)로 개발자 도구 열기")
-                                    Text("3. Application 탭 → Cookies → https://claude.ai")
-                                    Text("4. sessionKey의 값을 복사")
-                                }
-                                .font(.callout)
-                                .padding(16)
-                                .frame(width: 320)
-                            }
-                        }
-
-                        TextField("sk-ant-... 또는 sessionKey=sk-ant-...", text: $sessionKey)
-                            .textFieldStyle(.roundedBorder)
-                            .font(.system(.caption, design: .monospaced))
-
-                        Text("입력만으로 로그인 상태가 되지는 않으며, 저장 후 적용됩니다.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-
-                        if let warning = sessionKeyFormatWarning {
-                            Label(warning, systemImage: "exclamationmark.triangle")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        }
-
-                        HStack {
-                            Button("연결 테스트") { testConnection() }
-                                .disabled(sessionKey.isEmpty || isTesting)
-
-                            if isTesting {
-                                ProgressView()
-                                    .controlSize(.small)
-                            }
-
-                            if let result = testResult {
-                                switch result {
-                                case .success:
-                                    Label("연결 성공", systemImage: "checkmark.circle.fill")
-                                        .foregroundStyle(.green)
-                                        .font(.caption)
-                                case .failure(let msg):
-                                    Label(msg, systemImage: "xmark.circle.fill")
-                                        .foregroundStyle(.red)
-                                        .font(.caption)
-                                        .lineLimit(1)
-                                }
-                            }
-                        }
-                    }
-                    .padding(.top, 4)
-                } label: {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            isAdvancedAuthExpanded.toggle()
-                        }
-                    } label: {
-                        HStack {
-                            Text("고급 옵션")
-                            Spacer(minLength: 0)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
-                        .padding(.vertical, 4)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .font(.subheadline)
-
-                oauthQuickGuideSection
-                authFAQSection
+                claudeAdvancedSection
             } else {
                 Text("Claude 모니터링이 비활성화되어 있습니다. 활성화하면 메뉴바와 조회가 다시 동작합니다.")
                     .font(.caption)
@@ -528,6 +536,126 @@ struct SettingsView: View {
                     .padding(.vertical, 6)
             }
         }
+    }
+
+    private var claudeAdvancedSection: some View {
+        DisclosureGroup(isExpanded: $isClaudeAdvancedSectionExpanded) {
+            VStack(alignment: .leading, spacing: 12) {
+                manualSessionKeySection
+                oauthQuickGuideSection
+                messagesFallbackSection
+                authFAQSection
+            }
+            .padding(.top, 4)
+        } label: {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isClaudeAdvancedSectionExpanded.toggle()
+                }
+            } label: {
+                HStack {
+                    Text("고급 및 진단")
+                    Spacer(minLength: 0)
+                    Text("수동 입력 · fallback · FAQ")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+        }
+        .font(.subheadline)
+    }
+
+    private var manualSessionKeySection: some View {
+        DisclosureGroup(isExpanded: $isAdvancedAuthExpanded) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(settingsViewModel.chromeImportHelpText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 4) {
+                    Text("세션 키 직접 입력")
+                        .font(.subheadline)
+                    Button(action: { showKeyHelp.toggle() }) {
+                        Image(systemName: "questionmark.circle")
+                            .foregroundStyle(.secondary)
+                            .font(.system(size: 14))
+                    }
+                    .buttonStyle(.borderless)
+                    .popover(isPresented: $showKeyHelp) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("수동 입력 방법")
+                                .font(.headline)
+                            Text("1. claude.ai에 로그인")
+                            Text("2. ⌘⌥I (Cmd+Opt+I)로 개발자 도구 열기")
+                            Text("3. Application 탭 → Cookies → https://claude.ai")
+                            Text("4. sessionKey의 값만 복사")
+                        }
+                        .font(.callout)
+                        .padding(16)
+                        .frame(width: 320)
+                    }
+                }
+
+                TextField("sk-ant-... 값만 붙여넣기", text: $sessionKey)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(.caption, design: .monospaced))
+
+                Text("전체 쿠키 문자열이 아니라 sessionKey 값만 입력하고, 저장 후 적용됩니다.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                if let warning = sessionKeyFormatWarning {
+                    Label(warning, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                HStack {
+                    Button("연결 테스트") { testConnection() }
+                        .disabled(sessionKey.isEmpty || isTesting)
+
+                    if isTesting {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+
+                    if let result = testResult {
+                        switch result {
+                        case .success:
+                            Label("연결 성공", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.caption)
+                        case .failure(let msg):
+                            Label(msg, systemImage: "xmark.circle.fill")
+                                .foregroundStyle(.red)
+                                .font(.caption)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
+            .padding(.top, 4)
+        } label: {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isAdvancedAuthExpanded.toggle()
+                }
+            } label: {
+                HStack {
+                    Text("수동 sessionKey")
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+        }
+        .font(.subheadline)
     }
 
     private var statusSection: some View {
@@ -572,12 +700,52 @@ struct SettingsView: View {
         .cornerRadius(8)
     }
 
+    private var authSetupFlowCard: some View {
+        SetupWizardView(
+            currentStep: currentSetupWizardStep,
+            hasReadyCredential: hasReadyClaudeCredential,
+            isAdvancedExpanded: isAdvancedAuthExpanded,
+            onOpenLogin: {
+                onOpenLogin?()
+            },
+            onOpenAdvanced: {
+                isClaudeAdvancedSectionExpanded = true
+                isAdvancedAuthExpanded = true
+            },
+            onDismiss: {
+                settings.hasCompletedSetupWizard = true
+            }
+        )
+    }
+
+    private var hasReadyClaudeCredential: Bool {
+        let normalized = normalizeSessionKey(sessionKey)
+        return !(storedSessionKey ?? "").isEmpty || !normalized.isEmpty || usageHealthSnapshot?.lastOverallSuccessAt != nil
+    }
+
+    private var shouldShowAuthSetupFlow: Bool {
+        !settings.hasCompletedSetupWizard || !hasReadyClaudeCredential
+    }
+
+    private var currentSetupWizardStep: SetupWizardView.Step {
+        if hasReadyClaudeCredential {
+            return .chromeImport
+        }
+        if isAdvancedAuthExpanded || !(storedSessionKey ?? "").isEmpty || !normalizeSessionKey(sessionKey).isEmpty {
+            return .manualSessionKey
+        }
+        if isOAuthGuideExpanded {
+            return .webLogin
+        }
+        return .chromeImport
+    }
+
     private var authNoticeCard: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("안내")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("현재 세션키 경로가 429/Cloudflare/서버 오류의 영향을 받아 불안정할 수 있습니다. 조회 안정성을 위해 Claude CLI OAuth 인증을 권장합니다.")
+            Text("Chrome import를 먼저 시도하고, 실패하면 웹 로그인 또는 sessionKey 수동 입력으로 이어가는 흐름이 현재 기준 가장 현실적입니다.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -586,15 +754,51 @@ struct SettingsView: View {
         .cornerRadius(6)
     }
 
+    @ViewBuilder
+    private var profileMetadataCard: some View {
+        if let metadata = profileMetadata, !metadata.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("감지된 계정 메타데이터")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if let updatedAt = metadata.lastUpdatedAt {
+                        Text(shortRelativeTimestamp(updatedAt))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                LazyVGrid(columns: [
+                    GridItem(.flexible(minimum: 140), alignment: .leading),
+                    GridItem(.flexible(minimum: 140), alignment: .leading)
+                ], alignment: .leading, spacing: 8) {
+                    metadataField(title: "Organization", value: metadata.organizationUUID)
+                    metadataField(title: "구독", value: metadata.subscriptionType)
+                    metadataField(title: "Rate Limit Tier", value: metadata.rateLimitTier)
+                    metadataField(title: "Billing", value: metadata.billingType)
+                    metadataField(
+                        title: "추가 사용량",
+                        value: metadata.hasExtraUsageEnabled.map { $0 ? "활성" : "비활성" }
+                    )
+                    metadataField(title: "계정 생성", value: formattedMetadataDate(metadata.accountCreatedAt))
+                    metadataField(title: "구독 시작", value: formattedMetadataDate(metadata.subscriptionCreatedAt))
+                }
+            }
+            .padding(10)
+            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+            .cornerRadius(8)
+        }
+    }
+
     private var oauthQuickGuideSection: some View {
         DisclosureGroup(isExpanded: $isOAuthGuideExpanded) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("1. 터미널 앱을 엽니다.")
-                Text("2. Claude CLI를 설치합니다 (macOS 권장): `brew install --cask claude-code`")
-                Text("3. Homebrew를 쓰지 않는 경우: `curl -fsSL https://claude.ai/install.sh | bash`")
-                Text("4. `claude login` 을 실행합니다.")
-                Text("5. 브라우저에서 로그인 후 허용(Authorize)을 누릅니다.")
-                Text("6. 이 앱에서 '상태 새로고침'을 눌러 OAuth 경로가 정상인지 확인합니다.")
+                Text("1. `Chrome 또는 웹 로그인`을 누릅니다.")
+                Text("2. 로그인 창에서 `Chrome에서 가져오기`를 먼저 시도합니다.")
+                Text("3. 자동 가져오기가 실패하면 같은 창에서 웹 로그인으로 sessionKey 추출을 시도합니다.")
+                Text("4. 계속 실패하면 아래 고급 옵션에서 sessionKey 값만 직접 입력합니다.")
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -606,7 +810,7 @@ struct SettingsView: View {
                 }
             } label: {
                 HStack {
-                    Text("Claude CLI OAuth 빠른 가이드")
+                    Text("Chrome import 빠른 가이드")
                     Spacer(minLength: 0)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -673,6 +877,79 @@ struct SettingsView: View {
                 .padding(.vertical, 4)
             }
             .buttonStyle(.plain)
+        }
+        .font(.subheadline)
+    }
+
+    private var messagesFallbackSection: some View {
+        DisclosureGroup(isExpanded: $isMessagesFallbackExpanded) {
+            VStack(alignment: .leading, spacing: 10) {
+                Picker("동작:", selection: $settings.claudeMessagesFallbackPolicy) {
+                    ForEach(ClaudeMessagesFallbackPolicy.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 300)
+
+                if settings.claudeMessagesFallbackPolicy == .automatic {
+                    HStack(alignment: .center, spacing: 8) {
+                        Text("자동 중지 기준")
+                            .font(.subheadline)
+                        Stepper(
+                            value: Binding(
+                                get: { settings.claudeMessagesFallbackAutoDisableBelowPercent },
+                                set: { settings.claudeMessagesFallbackAutoDisableBelowPercent = settingsViewModel.clampFallbackThreshold($0) }
+                            ),
+                            in: 0...100,
+                            step: 5
+                        ) {
+                            Text("\(settings.claudeMessagesFallbackAutoDisableBelowPercent)% 미만")
+                                .font(.subheadline)
+                        }
+                        .labelsHidden()
+                    }
+
+                    Text(settingsViewModel.messagesFallbackThresholdHelpText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if settings.claudeMessagesFallbackPolicy == .manual {
+                    Text("수동 보조 모드에서는 사용자가 직접 fallback 경로를 사용할 수 있습니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("기능이 꺼져 있습니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if settings.claudeMessagesFallbackPolicy != .off {
+                    HStack(spacing: 10) {
+                        Button(isTestingMessagesFallback ? "복구 확인 중..." : "보조 복구 테스트") {
+                            runMessagesFallbackTest()
+                        }
+                        .disabled(isTestingMessagesFallback)
+
+                        if let messagesFallbackStatus {
+                            Text(messagesFallbackStatus)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            .padding(.top, 4)
+        } label: {
+            HStack(spacing: 6) {
+                Text("보조 사용량 복구")
+                Image(systemName: "questionmark.circle")
+                    .foregroundStyle(.secondary)
+                    .help(settingsViewModel.messagesFallbackHelpText)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .padding(.vertical, 4)
         }
         .font(.subheadline)
     }
@@ -840,6 +1117,19 @@ struct SettingsView: View {
         .background(color.opacity(0.16))
         .foregroundStyle(color)
         .cornerRadius(6)
+    }
+
+    private func metadataField(title: String, value: String?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(value?.isEmpty == false ? value! : "없음")
+                .font(.caption)
+                .textSelection(.enabled)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func runtimePathLabel(_ path: ClaudeAPIService.RuntimeAuthSnapshot.ActivePath) -> String {
@@ -1044,9 +1334,15 @@ struct SettingsView: View {
             Label("Codex 인증", systemImage: "bubble.left.and.bubble.right")
                 .font(.headline)
 
-            Toggle("Codex 모니터링 활성화", isOn: $settings.codexEnabled)
+            Toggle(
+                "Codex 모니터링 활성화",
+                isOn: Binding(
+                    get: { settings.isProviderEnabled(.codex) },
+                    set: { settings.setProviderEnabled($0, for: .codex) }
+                )
+            )
 
-            if settings.codexEnabled {
+            if settings.isProviderEnabled(.codex) {
                 HStack(spacing: 8) {
                     switch codexAuthStatus {
                     case .checking:
@@ -1137,7 +1433,7 @@ struct SettingsView: View {
     }
 
     private func checkCodexAuth() {
-        if !settings.codexEnabled {
+        if !settings.isProviderEnabled(.codex) {
             codexAuthStatus = .notLoggedIn
             return
         }
@@ -1219,6 +1515,15 @@ struct SettingsView: View {
                 Toggle("배터리 내부 숫자", isOn: $settings.codexShowBatteryPercent)
                     .padding(.leading, 20)
             }
+            if isCodexSingleMetricStyle {
+                Picker("아이콘 기준:", selection: $settings.codexIconMetric) {
+                    ForEach(IconMetric.allCases, id: \.self) { metric in
+                        Text(metric.displayName).tag(metric)
+                    }
+                }
+                .pickerStyle(.radioGroup)
+                .padding(.leading, 20)
+            }
             if isCodexCircularStyle {
                 Picker("표시 기준:", selection: $settings.codexCircularDisplayMode) {
                     ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
@@ -1240,6 +1545,10 @@ struct SettingsView: View {
 
     private var isCodexCircularStyle: Bool {
         settings.codexMenuBarStyle == .circular || settings.codexMenuBarStyle == .concentricRings
+    }
+
+    private var isCodexSingleMetricStyle: Bool {
+        settings.codexMenuBarStyle == .batteryBar || settings.codexMenuBarStyle == .circular
     }
 
     private var isEditingCodexCompact: Bool {
@@ -1454,6 +1763,10 @@ struct SettingsView: View {
         settings.menuBarStyle == .circular || settings.menuBarStyle == .concentricRings
     }
 
+    private var isSingleMetricStyle: Bool {
+        settings.menuBarStyle == .batteryBar || settings.menuBarStyle == .circular
+    }
+
     private var claudeDisplaySection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -1523,6 +1836,16 @@ struct SettingsView: View {
                         .padding(.leading, 20)
                 }
 
+                if isSingleMetricStyle {
+                    Picker("아이콘 기준:", selection: $settings.iconMetric) {
+                        ForEach(IconMetric.allCases, id: \.self) { metric in
+                            Text(metric.displayName).tag(metric)
+                        }
+                    }
+                    .pickerStyle(.radioGroup)
+                    .padding(.leading, 20)
+                }
+
                 // 원형 하위: 표시 기준
                 if isCircularStyle {
                     Picker("표시 기준:", selection: $settings.circularDisplayMode) {
@@ -1533,6 +1856,11 @@ struct SettingsView: View {
                     .pickerStyle(.radioGroup)
                     .padding(.leading, 20)
                 }
+
+                Text(settingsViewModel.weeklyDisplayHelpText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 20)
 
             }
         }
@@ -1936,11 +2264,70 @@ struct SettingsView: View {
             Label("일반", systemImage: "gearshape.2")
                 .font(.headline)
 
+            providerOverviewCard
+
             Toggle("로그인 시 자동 시작", isOn: $settings.launchAtLogin)
 
             Text("시스템 설정 → 일반 → 로그인 항목에서도 관리할 수 있습니다")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var providerOverviewCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Provider 상태")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("기본 노출: Claude")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            ForEach(AppProviderKind.allCases, id: \.self) { provider in
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(settings.isProviderEnabled(provider) ? Color.green : Color.secondary.opacity(0.35))
+                        .frame(width: 8, height: 8)
+
+                    Text(provider.displayName)
+                        .font(.caption)
+
+                    if settings.providerState(for: provider).isActive {
+                        Text("활성")
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor.opacity(0.15))
+                            .foregroundStyle(Color.accentColor)
+                            .cornerRadius(5)
+                    }
+
+                    Spacer()
+
+                    Text(providerRuntimeSummary(provider))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(10)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .cornerRadius(8)
+    }
+
+    private func providerRuntimeSummary(_ provider: AppProviderKind) -> String {
+        switch provider {
+        case .claude:
+            return "실동작"
+        case .codex:
+            return "실동작"
+        case .gemini:
+            return "설정 shell"
+        case .antigravity:
+            return "설정 shell"
         }
     }
 
@@ -1950,6 +2337,7 @@ struct SettingsView: View {
         onLogout?()
         storedSessionKey = nil
         sessionKey = ""
+        settings.hasCompletedSetupWizard = false
         testResult = nil
         organizations = []
         organizationPreviews = []
@@ -1982,12 +2370,39 @@ struct SettingsView: View {
                     } catch {
                         Logger.error("세션 키 저장 실패: \(error)")
                     }
+                    refreshSetupWizardState()
                     loadUsageHealthSnapshot()
                 }
             } catch {
                 await MainActor.run {
                     testResult = .failure(error.localizedDescription)
                     isTesting = false
+                    loadUsageHealthSnapshot()
+                }
+            }
+        }
+    }
+
+    private func runMessagesFallbackTest() {
+        guard !isTestingMessagesFallback else { return }
+        isTestingMessagesFallback = true
+        messagesFallbackStatus = nil
+
+        Task {
+            do {
+                let service = ClaudeAPIService()
+                let usage = try await service.fetchUsageUsingMessagesFallback()
+                let fiveHour = String(format: "%.0f%%", usage.fiveHour.utilization)
+                let weekly = String(format: "%.0f%%", usage.sevenDay?.utilization ?? 0)
+                await MainActor.run {
+                    messagesFallbackStatus = "현재 \(fiveHour) · 주간 \(weekly)"
+                    isTestingMessagesFallback = false
+                    loadUsageHealthSnapshot()
+                }
+            } catch {
+                await MainActor.run {
+                    messagesFallbackStatus = "실패: \(error.localizedDescription)"
+                    isTestingMessagesFallback = false
                     loadUsageHealthSnapshot()
                 }
             }
@@ -2015,12 +2430,14 @@ struct SettingsView: View {
             do {
                 try KeychainManager.shared.save(normalizedKey)
                 storedSessionKey = normalizedKey
+                settings.hasCompletedSetupWizard = true
             } catch {
                 Logger.error("세션 키 저장 실패: \(error)")
             }
         } else {
             try? KeychainManager.shared.delete()
             storedSessionKey = nil
+            settings.hasCompletedSetupWizard = false
             testResult = nil
         }
 
@@ -2172,11 +2589,26 @@ struct SettingsView: View {
 
     private func loadUsageHealthSnapshot() {
         Task {
-            let snapshot = await ClaudeAPIService().fetchUsageHealthSnapshot()
+            let service = ClaudeAPIService()
+            async let snapshot = service.fetchUsageHealthSnapshot()
+            async let metadata = service.fetchCachedProfileMetadata()
+            let resolvedSnapshot = await snapshot
+            let resolvedMetadata = await metadata
             await MainActor.run {
-                usageHealthSnapshot = snapshot
+                usageHealthSnapshot = resolvedSnapshot
+                profileMetadata = resolvedMetadata
+                refreshSetupWizardState()
             }
         }
+    }
+
+    private func refreshSetupWizardState() {
+        settings.hasCompletedSetupWizard = hasReadyClaudeCredential
+    }
+
+    private func formattedMetadataDate(_ date: Date?) -> String? {
+        guard let date else { return nil }
+        return date.formatted(date: .abbreviated, time: .omitted)
     }
 
     private func formattedTimestamp(_ date: Date?) -> String {

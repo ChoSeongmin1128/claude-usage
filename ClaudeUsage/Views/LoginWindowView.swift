@@ -8,7 +8,10 @@
 import SwiftUI
 
 struct LoginWindowView: View {
+    private let chromeImporter = ClaudeChromeCookieImportService()
+
     @State private var isLoading = false
+    @State private var isImportingFromChrome = false
     @State private var errorMessage: String?
     @State private var statusMessage: String?
     @State private var loginSuccess = false
@@ -25,6 +28,23 @@ struct LoginWindowView: View {
         self.onCancel = onCancel
     }
 
+    private var guidanceCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("권장 경로")
+                .font(.caption)
+                .fontWeight(.semibold)
+            Text("1. 먼저 `Chrome에서 가져오기`를 시도합니다.")
+            Text("2. 실패하면 아래 웹 로그인으로 sessionKey 자동 추출을 시도합니다.")
+            Text("3. 계속 실패하면 설정의 고급 옵션에서 sessionKey 값만 직접 입력합니다.")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.55))
+        .cornerRadius(8)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // 상단 바
@@ -33,6 +53,12 @@ struct LoginWindowView: View {
                     ProgressView()
                         .controlSize(.small)
                     Text("로딩 중...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if isImportingFromChrome {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Chrome에서 가져오는 중...")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else if let status = statusMessage, !loginSuccess {
@@ -63,6 +89,10 @@ struct LoginWindowView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(.bar)
+
+            guidanceCard
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
 
             if let error = errorMessage {
                 HStack {
@@ -119,10 +149,19 @@ struct LoginWindowView: View {
 
             // 하단 바
             HStack {
-                Text("claude.ai에 로그인하면 세션 키가 자동으로 추출됩니다")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Chrome 자동 가져오기를 먼저 시도하고, 실패하면 웹 로그인으로 이어가시면 됩니다")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("Chrome이 아니라면 설정의 고급 옵션에서 sessionKey 직접 입력 안내를 사용하시면 됩니다")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
+                Button("Chrome에서 가져오기") {
+                    importFromChrome()
+                }
+                .disabled(isLoading || isImportingFromChrome || loginSuccess)
                 Button("취소") { onCancel() }
                     .keyboardShortcut(.cancelAction)
             }
@@ -130,5 +169,36 @@ struct LoginWindowView: View {
             .padding(.vertical, 8)
         }
         .frame(width: 800, height: 700)
+    }
+
+    private func importFromChrome() {
+        errorMessage = nil
+        statusMessage = "Chrome 프로필과 쿠키를 확인하는 중..."
+        isImportingFromChrome = true
+
+        Task.detached(priority: .userInitiated) {
+            let outcome: Result<ClaudeBrowserImportOutcome, Error>
+            do {
+                outcome = .success(try self.chromeImporter.attemptImport())
+            } catch {
+                outcome = .failure(error)
+            }
+
+            await MainActor.run {
+                self.isImportingFromChrome = false
+                switch outcome {
+                case .success(.importedSessionKey(let key)):
+                    self.loginSuccess = true
+                    self.statusMessage = "Chrome에서 sessionKey를 가져왔습니다"
+                    self.onSessionKeyFound(key)
+                case .success(.manualSessionKeyRequired(let message)):
+                    self.statusMessage = message
+                case .success(.unavailable(let message)):
+                    self.errorMessage = message
+                case .failure(let error):
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+        }
     }
 }

@@ -149,12 +149,17 @@ actor ClaudeAPIService {
     private var sessionPathCooldownReason: APIError?
     private var sessionPathLimitStrike = 0
     private let requestTimeout: TimeInterval = 20
+    private let sourcePlanner = ClaudeSourcePlanner()
+    private let messagesHeaderFallbackFetcher = ClaudeMessagesHeaderFallbackFetcher()
+    private let profileMetadataStore = ClaudeProfileMetadataStore()
     private var discoveredCLIServiceNames: [String] = []
     private var didDiscoverCLIServiceNames = false
     private let organizationCacheDefaultsKey = "ClaudeUsage.cachedOrganizations.v1"
     private let organizationCacheTTL: TimeInterval = 7 * 24 * 60 * 60
     private static let authPathHealthDefaultsKey = "ClaudeUsage.authPathHealth.v1"
     private var authPathHealthStore = ClaudeAPIService.loadAuthPathHealthStore()
+    private var lastKnownUsagePercent: Double?
+    private var lastSuccessfulUsageSource: ClaudeUsageSource?
 
     private struct OrganizationCache: Codable {
         let savedAt: Date
@@ -221,76 +226,109 @@ actor ClaudeAPIService {
         )
     }
 
+    func fetchCachedProfileMetadata() async -> ClaudeProfileMetadata? {
+        await profileMetadataStore.load()
+    }
+
     // MARK: - Public API
 
     /// 사용량 데이터 가져오기
     func fetchUsage() async throws -> ClaudeUsageResponse {
         Logger.info("사용량 데이터 요청 시작")
-        var sessionPathError: APIError?
         let normalizedSessionKey: String? = {
             guard let sessionKey, !sessionKey.isEmpty else { return nil }
             return sessionKey
         }()
         let sessionCooldownError = normalizedSessionKey != nil ? currentSessionPathCooldownError() : nil
+        let oauthAccessToken = try await readSystemOAuthAccessToken()
+        let context = ClaudeFetchContext(
+            sourcePreference: sourcePreference(sessionCooldownError: sessionCooldownError, oauthAccessToken: oauthAccessToken),
+            webSessionAvailable: normalizedSessionKey != nil && sessionCooldownError == nil,
+            oauthAvailable: oauthAccessToken != nil,
+            recentSuccessfulSource: effectiveRecentSuccessfulSource(),
+            currentUsagePercent: lastKnownUsagePercent,
+            fallbackPolicy: await currentMessagesFallbackPolicy())
+        let plan = sourcePlanner.makePlan(from: context)
+        var sourceErrors: [ClaudeUsageSource: APIError] = [:]
 
-        // 세션키가 없거나 쿨다운 중일 때만 OAuth 우선 모드를 강제한다.
-        // 세션키가 정상이라면 항상 세션키를 먼저 시도한다.
-        if shouldPreferOAuthNow(), normalizedSessionKey == nil || sessionCooldownError != nil {
-            do {
-                let usage = try await fetchUsageViaOAuth()
-                recordOverallUsageSuccess()
-                Logger.debug("OAuth 우선 경로 사용 중")
-                return usage
-            } catch {
-                // 우선 경로가 실패하면 즉시 해제하고 세션 키 경로로 복귀
-                preferOAuthUntil = nil
-                Logger.warning("OAuth 우선 경로 실패 → 세션키 경로로 복귀: \(error.localizedDescription)")
-            }
+        if let cooldownError = sessionCooldownError {
+            sourceErrors[.webSession] = cooldownError
+            Logger.warning("세션키 경로 쿨다운 중(\(cooldownError.localizedDescription))")
         }
 
-        if let sessionKey = normalizedSessionKey {
-            if let cooldownError = sessionCooldownError {
-                sessionPathError = cooldownError
-                Logger.warning("세션키 경로 쿨다운 중(\(cooldownError.localizedDescription)) → OAuth 경로 시도")
-            } else {
+        for candidate in plan.primaryCandidates where candidate.isAvailable {
+            switch candidate.source {
+            case .webSession:
+                guard let sessionKey = normalizedSessionKey else {
+                    sourceErrors[.webSession] = .invalidSessionKey
+                    continue
+                }
                 do {
                     let usage = try await fetchUsageWithSessionKey(sessionKey)
                     preferOAuthUntil = nil
                     resetSessionPathCooldown()
-                    recordOverallUsageSuccess()
+                    rememberSuccessfulUsage(usage, source: .webSession)
                     return usage
                 } catch let apiError as APIError {
-                    sessionPathError = apiError
+                    sourceErrors[.webSession] = apiError
                     Logger.warning("세션키 경로 실패: \(apiError.localizedDescription)")
                 } catch {
-                    sessionPathError = .unknownError(error.localizedDescription)
+                    let apiError = APIError.unknownError(error.localizedDescription)
+                    sourceErrors[.webSession] = apiError
                     Logger.warning("세션키 경로 실패: \(error.localizedDescription)")
                 }
+
+            case .oauth:
+                guard let oauthAccessToken else {
+                    sourceErrors[.oauth] = .unknownError("Claude Code OAuth 토큰을 찾을 수 없습니다")
+                    continue
+                }
+
+                do {
+                    let usage = try await fetchUsageViaOAuth(accessToken: oauthAccessToken)
+                    if let sessionPathError = sourceErrors[.webSession],
+                       shouldPreferOAuthAfter(error: sessionPathError)
+                    {
+                        let duration = oauthPreferDuration(after: sessionPathError)
+                        preferOAuthUntil = Date().addingTimeInterval(duration)
+                    }
+                    rememberSuccessfulUsage(usage, source: .oauth)
+                    return usage
+                } catch let apiError as APIError {
+                    sourceErrors[.oauth] = apiError
+                    Logger.warning("OAuth 경로 실패: \(apiError.localizedDescription)")
+
+                    if plan.shouldAttemptAutomaticFallback {
+                        do {
+                            let usage = try await fetchUsageViaMessagesFallback(
+                                accessToken: oauthAccessToken,
+                                policy: plan.fallbackPolicy,
+                                currentUsagePercent: lastKnownUsagePercent)
+                            Logger.warning("OAuth 경로 실패 → Messages 헤더 복구 성공")
+                            rememberSuccessfulUsage(usage, source: .messagesHeaderFallback)
+                            return usage
+                        } catch {
+                            Logger.warning("Messages 헤더 복구 실패: \(error.localizedDescription)")
+                        }
+                    }
+                } catch {
+                    let apiError = APIError.unknownError(error.localizedDescription)
+                    sourceErrors[.oauth] = apiError
+                    Logger.warning("OAuth 경로 실패: \(error.localizedDescription)")
+                }
+
+            case .messagesHeaderFallback:
+                continue
             }
-        } else {
-            sessionPathError = .invalidSessionKey
-            Logger.warning("세션 키 없음 → OAuth 경로 시도")
         }
 
-        do {
-            Logger.info("OAuth 경로 시도 시작")
-            let usage = try await fetchUsageViaOAuth()
-            if let sessionPathError, shouldPreferOAuthAfter(error: sessionPathError) {
-                let duration = oauthPreferDuration(after: sessionPathError)
-                preferOAuthUntil = Date().addingTimeInterval(duration)
-            }
-            if let sessionPathError {
-                Logger.warning("세션키 경로 실패(\(sessionPathError.localizedDescription)) → OAuth 경로 성공")
-            }
-            recordOverallUsageSuccess()
-            return usage
-        } catch {
-            Logger.warning("OAuth 경로 실패: \(error.localizedDescription)")
-            if let sessionPathError {
-                throw sessionPathError
-            }
-            throw APIError.invalidSessionKey
+        if let oauthError = sourceErrors[.oauth] {
+            throw oauthError
         }
+        if let sessionError = sourceErrors[.webSession] {
+            throw sessionError
+        }
+        throw APIError.invalidSessionKey
     }
 
     /// 현재 세션 키 기준 organization 목록 조회 (설정 UI 용도)
@@ -667,6 +705,28 @@ actor ClaudeAPIService {
         throw lastError ?? APIError.unknownError("모든 재시도 실패")
     }
 
+    func fetchUsageUsingMessagesFallback() async throws -> ClaudeUsageResponse {
+        guard let accessToken = try await readSystemOAuthAccessToken() else {
+            throw APIError.unknownError("Claude Code OAuth 토큰을 찾을 수 없습니다")
+        }
+
+        let configuredPolicy = await currentMessagesFallbackPolicy()
+        guard configuredPolicy.isEnabled else {
+            throw APIError.unknownError("보조 사용량 복구가 비활성화되어 있습니다")
+        }
+
+        let manualPolicy = ClaudeMessagesHeaderFallbackPolicy(
+            isEnabled: true,
+            allowAutomaticFallback: true,
+            minimumUsagePercent: 0)
+        let usage = try await fetchUsageViaMessagesFallback(
+            accessToken: accessToken,
+            policy: manualPolicy,
+            currentUsagePercent: nil)
+        rememberSuccessfulUsage(usage, source: .messagesHeaderFallback)
+        return usage
+    }
+
     private func retryDelayNanoseconds(for error: Error, attempt: Int) -> UInt64 {
         let cappedAttempt = max(1, attempt)
         let seconds: Double
@@ -856,13 +916,16 @@ actor ClaudeAPIService {
     }
 
     private func fetchUsageViaOAuth() async throws -> ClaudeUsageResponse {
-        recordPathAttempt(.oauth)
-
-        guard let accessToken = try readSystemOAuthAccessToken() else {
+        guard let accessToken = try await readSystemOAuthAccessToken() else {
             let apiError = APIError.unknownError("Claude Code OAuth 토큰을 찾을 수 없습니다")
             recordPathFailure(.oauth, error: apiError)
             throw apiError
         }
+        return try await fetchUsageViaOAuth(accessToken: accessToken)
+    }
+
+    private func fetchUsageViaOAuth(accessToken: String) async throws -> ClaudeUsageResponse {
+        recordPathAttempt(.oauth)
 
         guard let url = URL(string: "https://api.anthropic.com/api/oauth/usage") else {
             let apiError = APIError.unknownError("OAuth usage endpoint URL 생성 실패")
@@ -903,17 +966,18 @@ actor ClaudeAPIService {
         }
     }
 
-    private func readSystemOAuthAccessToken() throws -> String? {
+    private func readSystemOAuthAccessToken() async throws -> String? {
         // 1) 키체인 기본 서비스 먼저 시도 (대부분 케이스)
         let primaryService = "Claude Code-credentials"
         if let credentials = try readKeychainCredentialPayload(serviceName: primaryService),
            let token = parseOAuthAccessToken(from: credentials) {
+            await persistProfileMetadata(from: credentials)
             Logger.info("OAuth 토큰 조회 성공 (키체인 서비스: \(primaryService))")
             return token
         }
 
         // 2) 파일 fallback: 키체인 접근이 제한된 환경 대비
-        if let token = readOAuthAccessTokenFromCredentialFiles() {
+        if let token = await readOAuthAccessTokenFromCredentialFiles() {
             return token
         }
 
@@ -925,6 +989,7 @@ actor ClaudeAPIService {
         for service in discoveredServices {
             guard let credentials = try readKeychainCredentialPayload(serviceName: service) else { continue }
             if let token = parseOAuthAccessToken(from: credentials) {
+                await persistProfileMetadata(from: credentials)
                 Logger.info("OAuth 토큰 조회 성공 (키체인 서비스: \(service))")
                 return token
             }
@@ -1034,7 +1099,7 @@ actor ClaudeAPIService {
         return (process.terminationStatus, stdout, stderr)
     }
 
-    private func readOAuthAccessTokenFromCredentialFiles() -> String? {
+    private func readOAuthAccessTokenFromCredentialFiles() async -> String? {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let candidates = [
             home.appendingPathComponent(".claude/.credentials.json"),
@@ -1047,6 +1112,7 @@ actor ClaudeAPIService {
                   !text.isEmpty else { continue }
 
             if let token = parseOAuthAccessToken(from: text) {
+                await persistProfileMetadata(from: text)
                 Logger.info("OAuth 토큰 조회 성공 (파일: \(fileURL.lastPathComponent))")
                 return token
             }
@@ -1068,6 +1134,50 @@ actor ClaudeAPIService {
         return extractAccessTokenByRegex(from: credentialsText)
     }
 
+    private func parseProfileMetadata(from credentialsText: String) -> ClaudeProfileMetadata? {
+        guard let data = credentialsText.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return nil
+        }
+
+        let oauth = json["claudeAiOauth"] as? [String: Any]
+        let account = json["oauthAccount"] as? [String: Any]
+
+        var metadata = ClaudeProfileMetadata()
+        metadata.organizationUUID = firstNonEmptyString(
+            account?["organizationUuid"],
+            account?["organizationUUID"],
+            json["organizationUuid"],
+            json["organizationUUID"])
+        metadata.subscriptionType = firstNonEmptyString(
+            oauth?["subscriptionType"],
+            json["subscriptionType"])
+        metadata.rateLimitTier = firstNonEmptyString(
+            oauth?["rateLimitTier"],
+            json["rateLimitTier"])
+        metadata.hasExtraUsageEnabled = firstBool(
+            account?["hasExtraUsageEnabled"],
+            json["hasExtraUsageEnabled"])
+        metadata.billingType = firstNonEmptyString(
+            account?["billingType"],
+            json["billingType"])
+        metadata.accountCreatedAt = firstDateValue(
+            account?["accountCreatedAt"],
+            json["accountCreatedAt"])
+        metadata.subscriptionCreatedAt = firstDateValue(
+            account?["subscriptionCreatedAt"],
+            json["subscriptionCreatedAt"])
+        metadata.lastUpdatedAt = Date()
+
+        return metadata.isEmpty ? nil : metadata
+    }
+
+    private func persistProfileMetadata(from credentialsText: String) async {
+        guard let metadata = parseProfileMetadata(from: credentialsText) else { return }
+        await profileMetadataStore.save(metadata)
+    }
+
     private func extractAccessTokenByRegex(from text: String) -> String? {
         let pattern = #""accessToken"\s*:\s*"([^"]+)""#
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
@@ -1083,6 +1193,72 @@ actor ClaudeAPIService {
         return token.isEmpty ? nil : token
     }
 
+    private func sourcePreference(sessionCooldownError: APIError?, oauthAccessToken: String?) -> ClaudeSourcePreference {
+        guard oauthAccessToken != nil else { return .auto }
+        if shouldPreferOAuthNow() || sessionCooldownError != nil {
+            return .oauth
+        }
+        return .auto
+    }
+
+    private func currentMessagesFallbackPolicy() async -> ClaudeMessagesHeaderFallbackPolicy {
+        await MainActor.run {
+            let settings = AppSettings.shared
+            switch settings.claudeMessagesFallbackPolicy {
+            case .off:
+                return .init(isEnabled: false, allowAutomaticFallback: false, minimumUsagePercent: 20)
+            case .manual:
+                return .init(
+                    isEnabled: true,
+                    allowAutomaticFallback: false,
+                    minimumUsagePercent: Double(settings.claudeMessagesFallbackAutoDisableBelowPercent))
+            case .automatic:
+                return .init(
+                    isEnabled: true,
+                    allowAutomaticFallback: true,
+                    minimumUsagePercent: Double(settings.claudeMessagesFallbackAutoDisableBelowPercent))
+            }
+        }
+    }
+
+    private func effectiveRecentSuccessfulSource() -> ClaudeUsageSource? {
+        if let lastSuccessfulUsageSource,
+           lastSuccessfulUsageSource != .messagesHeaderFallback {
+            return lastSuccessfulUsageSource
+        }
+
+        let sessionSuccess = authPathHealthStore.session.lastSuccessAt
+        let oauthSuccess = authPathHealthStore.oauth.lastSuccessAt
+        switch (sessionSuccess, oauthSuccess) {
+        case let (.some(session), .some(oauth)):
+            return oauth > session ? .oauth : .webSession
+        case (.some, nil):
+            return .webSession
+        case (nil, .some):
+            return .oauth
+        case (nil, nil):
+            return nil
+        }
+    }
+
+    private func fetchUsageViaMessagesFallback(
+        accessToken: String,
+        policy: ClaudeMessagesHeaderFallbackPolicy,
+        currentUsagePercent: Double?) async throws -> ClaudeUsageResponse
+    {
+        let snapshot = try await messagesHeaderFallbackFetcher.fetchSnapshot(
+            accessToken: accessToken,
+            policy: policy,
+            currentUsagePercent: currentUsagePercent)
+        return ClaudeUsageResponse(
+            fiveHour: UsageWindow(
+                utilization: snapshot.sessionUsagePercent,
+                resetsAt: Self.isoString(from: snapshot.sessionResetAt)),
+            sevenDay: UsageWindow(
+                utilization: snapshot.weeklyUsagePercent,
+                resetsAt: Self.isoString(from: snapshot.weeklyResetAt)))
+    }
+
     private func currentSessionFingerprint() -> String? {
         guard let sessionKey, !sessionKey.isEmpty else { return nil }
         return Self.computeSessionFingerprint(sessionKey)
@@ -1091,6 +1267,14 @@ actor ClaudeAPIService {
     private static func computeSessionFingerprint(_ sessionKey: String) -> String {
         let digest = SHA256.hash(data: Data(sessionKey.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func rememberSuccessfulUsage(_ usage: ClaudeUsageResponse, source: ClaudeUsageSource) {
+        lastKnownUsagePercent = usage.fiveHourPercentage
+        if source != .messagesHeaderFallback {
+            lastSuccessfulUsageSource = source
+        }
+        recordOverallUsageSuccess()
     }
 
     private func recordOverallUsageSuccess() {
@@ -1221,5 +1405,55 @@ actor ClaudeAPIService {
         guard let raw else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func isoString(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    private func firstNonEmptyString(_ values: Any?...) -> String? {
+        for value in values {
+            if let string = value as? String {
+                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+        }
+        return nil
+    }
+
+    private func firstBool(_ values: Any?...) -> Bool? {
+        for value in values {
+            if let bool = value as? Bool {
+                return bool
+            }
+        }
+        return nil
+    }
+
+    private func firstDateValue(_ values: Any?...) -> Date? {
+        for value in values {
+            if let string = value as? String {
+                let iso = ISO8601DateFormatter()
+                iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                if let date = iso.date(from: string) {
+                    return date
+                }
+                iso.formatOptions = [.withInternetDateTime]
+                if let date = iso.date(from: string) {
+                    return date
+                }
+            }
+            if let timestamp = value as? TimeInterval {
+                return Date(timeIntervalSince1970: timestamp)
+            }
+            if let intTimestamp = value as? Int {
+                return Date(timeIntervalSince1970: TimeInterval(intTimestamp))
+            }
+        }
+        return nil
     }
 }
