@@ -7,7 +7,6 @@
 
 import AppKit
 import SwiftUI
-import Combine
 import WebKit
 
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -19,6 +18,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let apiService = ClaudeAPIService()
     private let codexAPIService = CodexAPIService()
     private let popoverCoordinator = AppPopoverCoordinator()
+    private let runtimeObservationCoordinator = AppRuntimeObservationCoordinator()
 
     private var currentUsage: ClaudeUsageResponse?
     private var currentCodexUsage: CodexUsageResponse?
@@ -48,7 +48,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var didLogMissingClaudeIconAsset = false
     private var didLogMissingCodexIconAsset = false
     private var lastObservedProviderStates = AppSettings.shared.providerStates
-    private var cancellables = Set<AnyCancellable>()
     private var eventMonitor: Any?
     private var globalClickMonitor: Any?
     private var claudeCredentialAvailability = ClaudeCredentialAvailability(
@@ -90,10 +89,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupKeyboardShortcuts()
 
         // 설정 변경 감지
-        observeSettings()
-
-        // 배터리 상태 변경 감지
-        observePowerState()
+        bindRuntimeObservers()
 
         bootstrapRefreshState()
 
@@ -169,6 +165,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         updateCheckTimer?.invalidate()
         statusTimer?.invalidate()
         popoverCoordinator.invalidate()
+        runtimeObservationCoordinator.cancelAll()
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
@@ -490,39 +487,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Settings Observer
 
-    private func observeSettings() {
-        // 새로고침 간격 변경 감지
-        AppSettings.shared.$refreshInterval
-            .dropFirst()
-            .sink { [weak self] _ in self?.syncRefreshTimerState() }
-            .store(in: &cancellables)
-
-        // 자동 새로고침 토글
-        AppSettings.shared.$autoRefresh
-            .dropFirst()
-            .sink { [weak self] _ in
+    private func bindRuntimeObservers() {
+        runtimeObservationCoordinator.bind(
+            onRefreshConfigurationChanged: { [weak self] in
                 self?.syncRefreshTimerState()
-            }
-            .store(in: &cancellables)
-
-        // 디스플레이 관련 설정 변경 → 메뉴바 즉시 갱신
-        // receive(on: RunLoop.main)으로 값 반영 후 업데이트
-        AppSettings.shared.menuBarDisplayChangePublisher
-            .dropFirst()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] in self?.updateMenuBar() }
-            .store(in: &cancellables)
-
-        AppSettings.shared.$providerStates
-            .dropFirst()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] catalog in
+            },
+            onMenuBarDisplayChanged: { [weak self] in
+                self?.updateMenuBar()
+            },
+            onProviderStatesChanged: { [weak self] catalog in
                 guard let self else { return }
                 let previous = self.lastObservedProviderStates
                 self.lastObservedProviderStates = catalog
                 self.handleProviderStateTransition(from: previous, to: catalog)
+            },
+            onPowerStateChanged: { [weak self] in
+                self?.syncRefreshTimerState()
             }
-            .store(in: &cancellables)
+        )
     }
 
     private func handleProviderStateTransition(from previous: AppProviderStateCatalog, to current: AppProviderStateCatalog) {
@@ -591,13 +573,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             isCodexLoading = false
             codexLoadingStartedAt = nil
         }
-    }
-
-    private func observePowerState() {
-        PowerMonitor.shared.$isOnBattery
-            .dropFirst()
-            .sink { [weak self] _ in self?.syncRefreshTimerState() }
-            .store(in: &cancellables)
     }
 
     // MARK: - System Status

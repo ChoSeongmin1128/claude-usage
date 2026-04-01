@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (16차)
+최종 갱신: 2026-04-02 (17차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -38,6 +38,7 @@
 - 내부 WebView의 session key 추출도 [ClaudeSessionKeyExtractor.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Auth/ClaudeSessionKeyExtractor.swift) 에서 `session_key` / `session-key` / 기타 session-like 쿠키명을 더 넓게 허용하도록 완화했고, [LoginWebViewCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/LoginWebViewCoordinator.swift) 는 `WKHTTPCookieStore` 외에 `HTTPCookieStorage.shared` 도 함께 확인하도록 보강했습니다.
 - 상태바 우클릭 메뉴 조립도 [StatusContextMenuBuilder.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/StatusContextMenuBuilder.swift) 로 분리해, `AppDelegate` 안의 메뉴 생성/section 조립 책임을 줄이기 시작했습니다.
 - 팝오버 객체와 리사이즈 상태도 [AppPopoverCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppPopoverCoordinator.swift) 로 분리해, `AppDelegate` 가 직접 `NSPopover` 생성/hosting controller 구성/resize work item 수명 관리를 하지 않도록 정리하기 시작했습니다.
+- 설정/전원 상태 observer 구독도 [AppRuntimeObservationCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppRuntimeObservationCoordinator.swift) 로 분리해, `AppDelegate` 가 `Combine` 구독과 cancellable 수명 관리를 직접 갖지 않도록 정리하기 시작했습니다.
 - 다만 AppDelegate orchestration과 multi-provider fetch/menu glue는 아직 더 분해해야 합니다.
 
 ## 2. 참고 레포에서 가져올 방향
