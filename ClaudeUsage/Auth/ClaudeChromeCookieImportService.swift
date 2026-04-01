@@ -6,8 +6,6 @@ protocol ClaudeBrowserCookieImporting {
 }
 
 final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unchecked Sendable {
-    private let extractor = ClaudeSessionKeyExtractor()
-
     nonisolated func discoverCandidates() -> [ClaudeBrowserSessionCandidate] {
         let fileManager = FileManager.default
         let home = fileManager.homeDirectoryForCurrentUser
