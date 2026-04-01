@@ -419,95 +419,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showUnifiedContextMenu() {
-        let menu = NSMenu()
-        let runtimeServices = ServiceSelectionHelper.supportedPopoverServices
-        let refreshableServiceSet = Set(refreshableServices)
-
-        let refreshAll = NSMenuItem(title: "전체 새로고침", action: #selector(refreshClicked), keyEquivalent: "r")
-        refreshAll.isEnabled = !refreshableServiceSet.isEmpty
-        menu.addItem(refreshAll)
-        menu.addItem(NSMenuItem.separator())
-
-        for (index, service) in runtimeServices.enumerated() {
-            if index > 0 {
-                menu.addItem(NSMenuItem.separator())
-            }
-            addRuntimeServiceContextMenuSection(
-                service,
-                canRefresh: refreshableServiceSet.contains(service),
-                to: menu
+        let menu = StatusContextMenuBuilder.build(
+            settings: AppSettings.shared,
+            runtimeServices: ServiceSelectionHelper.supportedPopoverServices,
+            refreshableServiceSet: Set(refreshableServices),
+            actions: StatusContextMenuActions(
+                target: self,
+                refreshAll: #selector(refreshClicked),
+                settings: #selector(settingsClicked),
+                openUsage: #selector(openUsagePage),
+                quit: #selector(quitClicked),
+                claudeToggle: #selector(toggleClaudeEnabled),
+                codexToggle: #selector(toggleCodexEnabled),
+                claudeRefresh: #selector(refreshClaudeClicked),
+                codexRefresh: #selector(refreshCodexClicked),
+                claudeStyleChange: #selector(changeStyle(_:)),
+                codexStyleChange: #selector(changeCodexStyle(_:))
             )
-        }
-
-        menu.addItem(NSMenuItem.separator())
-        menu.addItem(NSMenuItem(title: "설정...", action: #selector(settingsClicked), keyEquivalent: ","))
-        menu.addItem(NSMenuItem(title: "사용량 상세 보기", action: #selector(openUsagePage), keyEquivalent: "u"))
-        menu.addItem(NSMenuItem(title: "종료", action: #selector(quitClicked), keyEquivalent: "q"))
+        )
 
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
         statusItem?.menu = nil
-    }
-
-    private func addRuntimeServiceContextMenuSection(
-        _ service: PopoverService,
-        canRefresh: Bool,
-        to menu: NSMenu
-    ) {
-        let settings = AppSettings.shared
-        let serviceName = service.displayName
-        switch service {
-        case .claude:
-            menu.addItem(makeServiceToggleMenuItem(
-                title: "\(serviceName) 모니터링 활성화",
-                isEnabled: settings.isProviderEnabled(.claude),
-                action: #selector(toggleClaudeEnabled)
-            ))
-            menu.addItem(makeServiceRefreshMenuItem(title: "\(serviceName) 새로고침", isEnabled: canRefresh, action: #selector(refreshClaudeClicked)))
-            menu.addItem(makeStyleMenuItem(
-                title: "\(serviceName) 아이콘 스타일",
-                currentStyle: settings.menuBarStyle,
-                action: #selector(changeStyle(_:))
-            ))
-        case .codex:
-            menu.addItem(makeServiceToggleMenuItem(
-                title: "\(serviceName) 모니터링 활성화",
-                isEnabled: settings.isProviderEnabled(.codex),
-                action: #selector(toggleCodexEnabled)
-            ))
-            menu.addItem(makeServiceRefreshMenuItem(title: "\(serviceName) 새로고침", isEnabled: canRefresh, action: #selector(refreshCodexClicked)))
-            menu.addItem(makeStyleMenuItem(
-                title: "\(serviceName) 아이콘 스타일",
-                currentStyle: settings.codexMenuBarStyle,
-                action: #selector(changeCodexStyle(_:))
-            ))
-        }
-    }
-
-    private func makeServiceToggleMenuItem(title: String, isEnabled: Bool, action: Selector) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        item.state = isEnabled ? .on : .off
-        return item
-    }
-
-    private func makeServiceRefreshMenuItem(title: String, isEnabled: Bool, action: Selector) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-        item.isEnabled = isEnabled
-        return item
-    }
-
-    private func makeStyleMenuItem(title: String, currentStyle: MenuBarStyle, action: Selector) -> NSMenuItem {
-        let submenu = NSMenu()
-        for style in MenuBarStyle.allCases {
-            let item = NSMenuItem(title: style.displayName, action: action, keyEquivalent: "")
-            item.representedObject = style
-            item.state = currentStyle == style ? .on : .off
-            submenu.addItem(item)
-        }
-
-        let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        parent.submenu = submenu
-        return parent
     }
 
     private func startGlobalClickMonitor() {

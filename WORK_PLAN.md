@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (14차)
+최종 갱신: 2026-04-02 (15차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -36,6 +36,7 @@
 - 메뉴바는 provider 이름 텍스트(`Claude`, `Codex`)를 fallback으로 띄우지 않고, 최소 상태 점으로만 대체하도록 수정했습니다.
 - Chrome 경로는 단순 DB 스캔 시도만 하던 상태에서, [LoginWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/LoginWindowView.swift) 에 `Chrome 열기` 경로를 추가해 사용자가 실제 Chrome에서 로그인한 뒤 재시도할 수 있게 했습니다.
 - 내부 WebView의 session key 추출도 [ClaudeSessionKeyExtractor.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Auth/ClaudeSessionKeyExtractor.swift) 에서 `session_key` / `session-key` / 기타 session-like 쿠키명을 더 넓게 허용하도록 완화했고, [LoginWebViewCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/LoginWebViewCoordinator.swift) 는 `WKHTTPCookieStore` 외에 `HTTPCookieStorage.shared` 도 함께 확인하도록 보강했습니다.
+- 상태바 우클릭 메뉴 조립도 [StatusContextMenuBuilder.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/StatusContextMenuBuilder.swift) 로 분리해, `AppDelegate` 안의 메뉴 생성/section 조립 책임을 줄이기 시작했습니다.
 - 다만 AppDelegate orchestration과 multi-provider fetch/menu glue는 아직 더 분해해야 합니다.
 
 ## 2. 참고 레포에서 가져올 방향
