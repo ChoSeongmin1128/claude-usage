@@ -14,12 +14,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Properties
 
     private var statusItem: NSStatusItem?
-    private var popover: NSPopover?
     private var updateCheckTimer: Timer?
     private let refreshScheduler = RefreshScheduler()
     private let apiService = ClaudeAPIService()
     private let codexAPIService = CodexAPIService()
-    private let popoverViewModel = PopoverViewModel()
+    private let popoverCoordinator = AppPopoverCoordinator()
 
     private var currentUsage: ClaudeUsageResponse?
     private var currentCodexUsage: CodexUsageResponse?
@@ -42,10 +41,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var codexConsecutiveErrorCount = 0
     private var statusTimer: Timer?
     private var appearanceObservation: NSKeyValueObservation?
-    private var claudePopoverResizeWorkItem: DispatchWorkItem?
-    private var codexPopoverResizeWorkItem: DispatchWorkItem?
-    private var isAdjustingClaudePopoverSize = false
-    private var isAdjustingCodexPopoverSize = false
 
     private var settingsWindow: NSWindow?
     private var settingsSnapshot: AppSettings.Snapshot?
@@ -60,6 +55,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         sessionCredentialAvailable: false,
         oauthCredentialAvailable: false
     )
+
+    private var popover: NSPopover? { popoverCoordinator.popover }
+    private var popoverViewModel: PopoverViewModel { popoverCoordinator.viewModel }
 
     private var refreshableServices: [PopoverService] {
         ServiceSelectionHelper.refreshableServices(
@@ -170,8 +168,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         refreshScheduler.stop()
         updateCheckTimer?.invalidate()
         statusTimer?.invalidate()
-        claudePopoverResizeWorkItem?.cancel()
-        codexPopoverResizeWorkItem?.cancel()
+        popoverCoordinator.invalidate()
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
@@ -206,54 +203,47 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Popover
 
     private func setupPopovers() {
-        popoverViewModel.onRefreshService = { [weak self] service in
-            switch service {
-            case .claude:
-                self?.refreshUsage(force: true)
-            case .codex:
-                self?.refreshCodexUsage(force: true)
+        popoverCoordinator.configure(
+            initialService: resolvedPopoverService(),
+            onRefreshService: { [weak self] service in
+                switch service {
+                case .claude:
+                    self?.refreshUsage(force: true)
+                case .codex:
+                    self?.refreshCodexUsage(force: true)
+                }
+            },
+            onOpenSettingsForService: { [weak self] service in
+                self?.closePopover()
+                self?.openSettingsForAuth(service: service)
+            },
+            onServiceSelected: { [weak self] service in
+                ServiceSelectionHelper.setActivePopoverService(service, settings: AppSettings.shared)
+                self?.updateMenuBar()
+                self?.refreshServiceIfNeededOnTabSwitch(service)
+                self?.refreshPopoverSizeIfShown(service: service)
+            },
+            onLayoutChanged: { [weak self] service in
+                self?.refreshPopoverSizeIfShown(service: service)
+            },
+            onPinChanged: { [weak self] service, isPinned in
+                guard let self else { return }
+                switch service {
+                case .claude:
+                    AppSettings.shared.claudePopoverPinned = isPinned
+                case .codex:
+                    AppSettings.shared.codexPopoverPinned = isPinned
+                }
+                self.applyPopoverBehavior(for: service)
+                if isPinned {
+                    self.stopGlobalClickMonitor()
+                } else if self.popover?.isShown == true {
+                    self.startGlobalClickMonitor()
+                }
             }
-        }
-        popoverViewModel.onOpenSettingsForService = { [weak self] service in
-            self?.closePopover()
-            self?.openSettingsForAuth(service: service)
-        }
-        popoverViewModel.onServiceSelected = { [weak self] service in
-            ServiceSelectionHelper.setActivePopoverService(service, settings: AppSettings.shared)
-            self?.updateMenuBar()
-            self?.refreshServiceIfNeededOnTabSwitch(service)
-            self?.refreshPopoverSizeIfShown(service: service)
-        }
-        popoverViewModel.onLayoutChanged = { [weak self] service in
-            self?.refreshPopoverSizeIfShown(service: service)
-        }
-        popoverViewModel.onPinChanged = { [weak self] service, isPinned in
-            guard let self else { return }
-            switch service {
-            case .claude:
-                AppSettings.shared.claudePopoverPinned = isPinned
-            case .codex:
-                AppSettings.shared.codexPopoverPinned = isPinned
-            }
-            self.applyPopoverBehavior(for: service)
-            if isPinned {
-                self.stopGlobalClickMonitor()
-            } else if self.popover?.isShown == true {
-                self.startGlobalClickMonitor()
-            }
-        }
+        )
 
-        popoverViewModel.selectedService = resolvedPopoverService()
-        let popoverView = PopoverView(viewModel: popoverViewModel)
-        let hostingController = NSHostingController(rootView: popoverView)
-        if #available(macOS 13.0, *) {
-            hostingController.sizingOptions = [.preferredContentSize]
-        }
-
-        popover = NSPopover()
-        popover?.contentViewController = hostingController
         applyPopoverBehavior(for: popoverViewModel.selectedService)
-        popover?.animates = true
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -298,7 +288,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func closePopover() {
-        popover?.close()
+        popoverCoordinator.close()
         stopGlobalClickMonitor()
     }
 
@@ -372,46 +362,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refreshPopoverSizeIfShown(service: PopoverService) {
-        guard let targetPopover = popover, targetPopover.isShown else { return }
-
-        resizeWorkItem(for: service)?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            let popover: NSPopover? = self.popover
-            guard let popover,
-                  popover.isShown,
-                  let hosting = popover.contentViewController as? NSHostingController<PopoverView> else {
-                return
-            }
-            if self.isAdjustingPopoverSize(for: service) {
-                return
-            }
-            self.setAdjustingPopoverSize(true, for: service)
-            defer { self.setAdjustingPopoverSize(false, for: service) }
-
-            let fitting = hosting.view.fittingSize
-            guard fitting.width > 0, fitting.height > 0 else { return }
-
-            let compact: Bool = {
-                let claudeCompact = AppSettings.shared.claudePopoverCompact
-                let codexCompact = AppSettings.shared.codexPopoverCompact
-                if claudeCompact == codexCompact { return claudeCompact }
-                return service == .claude ? claudeCompact : codexCompact
-            }()
-            let width: CGFloat = compact ? 300 : 340
-            let minHeight: CGFloat = compact ? 104 : 280
-            let maxHeight = max(minHeight, (NSScreen.main?.visibleFrame.height ?? 900) - 100)
-            let height = min(max(fitting.height, minHeight), maxHeight)
-            let targetSize = NSSize(width: width, height: height)
-
-            let changed = abs(popover.contentSize.width - targetSize.width) > 0.5 ||
-                          abs(popover.contentSize.height - targetSize.height) > 0.5
-            if changed {
-                popover.contentSize = targetSize
-            }
-        }
-        setResizeWorkItem(workItem, for: service)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: workItem)
+        let compact: Bool = {
+            let claudeCompact = AppSettings.shared.claudePopoverCompact
+            let codexCompact = AppSettings.shared.codexPopoverCompact
+            if claudeCompact == codexCompact { return claudeCompact }
+            return service == .claude ? claudeCompact : codexCompact
+        }()
+        popoverCoordinator.refreshSizeIfShown(service: service, compact: compact)
     }
 
     private func refreshPopoverSizeIfShown() {
@@ -1195,42 +1152,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func claudeBrandIconTintColor(for button: NSStatusBarButton) -> NSColor {
         _ = button
         return NSColor.systemOrange
-    }
-
-    private func resizeWorkItem(for service: PopoverService) -> DispatchWorkItem? {
-        switch service {
-        case .claude:
-            return claudePopoverResizeWorkItem
-        case .codex:
-            return codexPopoverResizeWorkItem
-        }
-    }
-
-    private func setResizeWorkItem(_ workItem: DispatchWorkItem?, for service: PopoverService) {
-        switch service {
-        case .claude:
-            claudePopoverResizeWorkItem = workItem
-        case .codex:
-            codexPopoverResizeWorkItem = workItem
-        }
-    }
-
-    private func isAdjustingPopoverSize(for service: PopoverService) -> Bool {
-        switch service {
-        case .claude:
-            return isAdjustingClaudePopoverSize
-        case .codex:
-            return isAdjustingCodexPopoverSize
-        }
-    }
-
-    private func setAdjustingPopoverSize(_ isAdjusting: Bool, for service: PopoverService) {
-        switch service {
-        case .claude:
-            isAdjustingClaudePopoverSize = isAdjusting
-        case .codex:
-            isAdjustingCodexPopoverSize = isAdjusting
-        }
     }
 
     private func codexMenuBarIcon(size: NSSize, tint: NSColor) -> NSImage? {
