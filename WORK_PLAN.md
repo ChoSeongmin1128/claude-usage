@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (10차)
+최종 갱신: 2026-04-02 (11차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -30,6 +30,7 @@
 - 설정의 Claude 인증 패널도 `일반 사용자 흐름`, `인증 상태`, `고급 설정`을 분리해 Chrome import / 웹 로그인과 수동 sessionKey / fallback 경계를 더 분명하게 드러내기 시작했습니다.
 - [ProviderOverviewCardView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/Components/ProviderOverviewCardView.swift), [PopoverProviderCards.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/Components/PopoverProviderCards.swift) 를 추가해 `SettingsView` / `PopoverView` 의 순수 렌더링 블록을 별도 컴포넌트로 빼기 시작했습니다.
 - [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 는 메뉴바 표시 관련 변경을 묶는 `menuBarDisplayChangePublisher` 를 노출하고, [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 이를 소비하도록 단순화했습니다.
+- [RefreshScheduler.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RefreshScheduler.swift) 를 추가해 `AppDelegate` 의 타이머 start/stop/sync 책임을 별도 객체로 빼기 시작했습니다.
 - 다만 AppDelegate orchestration과 multi-provider fetch/menu glue는 아직 더 분해해야 합니다.
 
 ## 2. 참고 레포에서 가져올 방향
@@ -337,11 +338,12 @@
 - [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift) 를 추가해 메뉴바 상태 계산과 합성 렌더링을 `AppDelegate` 밖으로 옮겼습니다.
 - [ProviderMenuBarDisplayConfig](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift) 와 [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 의 `menuBarDisplayConfig(for:)` 로 provider별 표시 옵션을 한 묶음으로 읽기 시작했습니다.
 - [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 의 `menuBarDisplayChangePublisher` 로 display observer를 한곳에 모으기 시작했습니다.
+- [RefreshScheduler.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RefreshScheduler.swift) 로 timer lifecycle 일부를 `AppDelegate` 밖으로 이동시켰습니다.
 - [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift) 는 shell provider를 제외한 `runtime-enabled service` 기준으로 메뉴바/타이머 판단을 하도록 수정했습니다.
 - [ProviderStateModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift) 는 runtime provider / shell provider 메타데이터와 `enabledRuntimeProviderKinds`, `enabledShellProviderKinds`, `activeRuntimeProviderKind` 를 갖게 됐고, [ProviderSettingsRegistry.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/ProviderSettingsRegistry.swift) 는 이를 기반으로 패널/셸 descriptor를 생성합니다.
 - [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `OAuth-only` Claude 계정도 refreshable service로 인정하도록 bootstrap / refresh / timer / settings-apply / logout 경로를 다시 맞췄습니다.
 - 아직 남음
-- `AppDelegate`의 refresh/timer composition을 더 coordinator 성격으로 분리하고, `ServiceSelectionHelper`의 Claude/Codex 2-provider 전제를 더 걷어내야 합니다.
+- `AppDelegate`의 refresh/backoff execution을 더 coordinator 성격으로 분리하고, `ServiceSelectionHelper`의 Claude/Codex 2-provider 전제를 더 걷어내야 합니다.
 - 완료 기준
 - 핵심 파일이 역할별로 나뉘고 테스트 가능한 단위가 생김
 

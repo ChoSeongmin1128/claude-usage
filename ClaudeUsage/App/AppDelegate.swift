@@ -15,9 +15,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
-    private var timer: Timer?
-    private var activeTimerInterval: TimeInterval?
     private var updateCheckTimer: Timer?
+    private let refreshScheduler = RefreshScheduler()
     private let apiService = ClaudeAPIService()
     private let codexAPIService = CodexAPIService()
     private let popoverViewModel = PopoverViewModel()
@@ -168,7 +167,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         Logger.info("ClaudeUsage 앱 종료")
-        timer?.invalidate()
+        refreshScheduler.stop()
         updateCheckTimer?.invalidate()
         statusTimer?.invalidate()
         claudePopoverResizeWorkItem?.cancel()
@@ -571,44 +570,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func stopRefreshTimer() {
-        timer?.invalidate()
-        timer = nil
-        activeTimerInterval = nil
+        _ = refreshScheduler.stop()
     }
 
     private func syncRefreshTimerState() {
-        if AppSettings.shared.autoRefresh, hasRefreshableService {
-            startTimer()
-        } else {
-            stopRefreshTimer()
+        let change = refreshScheduler.sync(
+            autoRefresh: AppSettings.shared.autoRefresh,
+            hasRefreshableService: hasRefreshableService,
+            interval: PowerMonitor.shared.effectiveRefreshInterval
+        ) { [weak self] in
+            self?.refreshAll(force: false)
+        }
+
+        switch change {
+        case .started(let interval):
+            Logger.info("자동 갱신 타이머 시작 (\(Int(interval))초)")
+        case .stopped:
+            Logger.info("자동 새로고침 비활성화")
+        case .unchanged:
+            break
         }
     }
 
     // MARK: - Timer
 
     private func startTimer() {
-        let interval = PowerMonitor.shared.effectiveRefreshInterval
-        guard AppSettings.shared.autoRefresh, hasRefreshableService else {
-            stopRefreshTimer()
-            Logger.info("자동 새로고침 비활성화")
-            return
-        }
-
-        if timer != nil, activeTimerInterval == interval {
-            return
-        }
-
-        timer?.invalidate()
-
-        timer = Timer.scheduledTimer(
-            withTimeInterval: interval,
-            repeats: true
-        ) { [weak self] _ in
-            self?.refreshAll(force: false)
-        }
-        activeTimerInterval = interval
-
-        Logger.info("자동 갱신 타이머 시작 (\(Int(interval))초)")
+        syncRefreshTimerState()
     }
 
     // MARK: - Settings Observer
@@ -617,18 +604,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 새로고침 간격 변경 감지
         AppSettings.shared.$refreshInterval
             .dropFirst()
-            .sink { [weak self] _ in self?.startTimer() }
+            .sink { [weak self] _ in self?.syncRefreshTimerState() }
             .store(in: &cancellables)
 
         // 자동 새로고침 토글
         AppSettings.shared.$autoRefresh
             .dropFirst()
-            .sink { [weak self] enabled in
-                if enabled {
-                    self?.startTimer()
-                } else {
-                    self?.stopRefreshTimer()
-                }
+            .sink { [weak self] _ in
+                self?.syncRefreshTimerState()
             }
             .store(in: &cancellables)
 
@@ -723,7 +706,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func observePowerState() {
         PowerMonitor.shared.$isOnBattery
             .dropFirst()
-            .sink { [weak self] _ in self?.startTimer() }
+            .sink { [weak self] _ in self?.syncRefreshTimerState() }
             .store(in: &cancellables)
     }
 
