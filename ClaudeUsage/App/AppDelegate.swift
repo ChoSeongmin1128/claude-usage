@@ -332,18 +332,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refreshServiceIfNeededOnTabSwitch(_ service: PopoverService) {
-        let threshold = max(AppSettings.shared.refreshInterval * 2, 60)
+        guard ProviderTransitionPolicy.shouldRefreshOnTabSwitch(
+            service: service,
+            refreshInterval: AppSettings.shared.refreshInterval,
+            claudeLastUpdated: lastUpdated,
+            codexLastUpdated: codexLastUpdated,
+            hasClaudeUsage: currentUsage != nil,
+            hasCodexUsage: currentCodexUsage != nil,
+            claudeError: currentError,
+            codexError: codexError
+        ) else {
+            return
+        }
+
         switch service {
         case .claude:
-            let stale = lastUpdated.map { Date().timeIntervalSince($0) >= threshold } ?? true
-            if currentUsage == nil || currentError != nil || stale {
-                refreshUsage(force: false)
-            }
+            refreshUsage(force: false)
         case .codex:
-            let stale = codexLastUpdated.map { Date().timeIntervalSince($0) >= threshold } ?? true
-            if currentCodexUsage == nil || codexError != nil || stale {
-                refreshCodexUsage(force: false)
-            }
+            refreshCodexUsage(force: false)
         }
     }
 
@@ -534,44 +540,55 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleProviderEnabledChange(_ enabled: Bool, for service: PopoverService) {
-        switch service {
-        case .claude:
-            if enabled {
-                if KeychainManager.shared.hasSessionKey {
-                    AppSettings.shared.hasCompletedSetupWizard = true
-                    refreshUsage(force: true)
-                } else {
-                    currentUsage = nil
-                    currentError = nil
-                    hasAuthError = false
-                    showSettingsWindow()
-                }
-                return
-            }
-
-            nextUsageRefreshAllowedAt = nil
-            currentUsage = nil
-            currentError = nil
-            currentOverage = nil
-            lastOverageFetchAt = nil
-            hasAuthError = false
-            consecutiveErrorCount = 0
-            isLoading = false
-            loadingStartedAt = nil
-
-        case .codex:
-            if enabled {
+        switch ProviderTransitionPolicy.enabledChangeDecision(
+            service: service,
+            enabled: enabled,
+            hasClaudeSessionKey: KeychainManager.shared.hasSessionKey,
+            isCodexAuthenticated: CodexAuthManager.shared.isAuthenticated
+        ) {
+        case .refreshNow:
+            switch service {
+            case .claude:
+                AppSettings.shared.hasCompletedSetupWizard = true
+                refreshUsage(force: true)
+            case .codex:
                 refreshCodexUsage(force: true)
-                return
             }
 
-            nextCodexRefreshAllowedAt = nil
-            currentCodexUsage = nil
-            codexError = nil
-            hasCodexAuthError = false
-            codexConsecutiveErrorCount = 0
-            isCodexLoading = false
-            codexLoadingStartedAt = nil
+        case .clearAndPromptAuth:
+            switch service {
+            case .claude:
+                currentUsage = nil
+                currentError = nil
+                hasAuthError = false
+            case .codex:
+                currentCodexUsage = nil
+                codexError = nil
+                hasCodexAuthError = false
+            }
+            showSettingsWindow()
+
+        case .clearStateOnly:
+            switch service {
+            case .claude:
+                nextUsageRefreshAllowedAt = nil
+                currentUsage = nil
+                currentError = nil
+                currentOverage = nil
+                lastOverageFetchAt = nil
+                hasAuthError = false
+                consecutiveErrorCount = 0
+                isLoading = false
+                loadingStartedAt = nil
+            case .codex:
+                nextCodexRefreshAllowedAt = nil
+                currentCodexUsage = nil
+                codexError = nil
+                hasCodexAuthError = false
+                codexConsecutiveErrorCount = 0
+                isCodexLoading = false
+                codexLoadingStartedAt = nil
+            }
         }
     }
 
