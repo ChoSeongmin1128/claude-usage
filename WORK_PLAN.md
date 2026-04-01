@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (11차)
+최종 갱신: 2026-04-02 (12차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -31,6 +31,7 @@
 - [ProviderOverviewCardView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/Components/ProviderOverviewCardView.swift), [PopoverProviderCards.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/Components/PopoverProviderCards.swift) 를 추가해 `SettingsView` / `PopoverView` 의 순수 렌더링 블록을 별도 컴포넌트로 빼기 시작했습니다.
 - [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 는 메뉴바 표시 관련 변경을 묶는 `menuBarDisplayChangePublisher` 를 노출하고, [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 이를 소비하도록 단순화했습니다.
 - [RefreshScheduler.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RefreshScheduler.swift) 를 추가해 `AppDelegate` 의 타이머 start/stop/sync 책임을 별도 객체로 빼기 시작했습니다.
+- [LoginWebViewCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/LoginWebViewCoordinator.swift) 를 추가해 `LoginWebView` 의 WKNavigation/WKUIDelegate 오케스트레이션을 별도 파일로 이동시키기 시작했습니다.
 - 다만 AppDelegate orchestration과 multi-provider fetch/menu glue는 아직 더 분해해야 합니다.
 
 ## 2. 참고 레포에서 가져올 방향
@@ -235,6 +236,7 @@
 - [ClaudeChromeCookieImportService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Auth/ClaudeChromeCookieImportService.swift) 는 실제 `sessionKey` 추출과 수동 안내 생성 책임만 갖도록 정리했습니다.
 - [LoginWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/LoginWindowView.swift) 에 `Chrome에서 가져오기` 진입점을 추가했습니다.
 - [LoginWebView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/LoginWebView.swift) 는 session key 추출 규칙을 [ClaudeSessionKeyExtractor.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Auth/ClaudeSessionKeyExtractor.swift) 로 분리했습니다.
+- [LoginWebViewCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/LoginWebViewCoordinator.swift) 로 `LoginWebView` 의 coordinator를 분리해, 뷰 어댑터와 WKWebView delegate 책임을 파일 단위로 나누기 시작했습니다.
 - 아직 남음
 - `LoginWebView`의 popup/window 제어와 상태 보고를 더 잘게 나누는 작업은 남아 있습니다.
 - 완료 기준
