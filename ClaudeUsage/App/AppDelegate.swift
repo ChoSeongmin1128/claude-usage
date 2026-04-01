@@ -687,9 +687,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshUsage(force: Bool = false) {
         guard ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) else { return }
 
-        if !force, let allowedAt = nextUsageRefreshAllowedAt {
-            let remaining = Int(ceil(allowedAt.timeIntervalSinceNow))
-            if remaining > 0 {
+        if !force, let remaining = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextUsageRefreshAllowedAt) {
+            if let allowedAt = nextUsageRefreshAllowedAt {
                 Logger.debug("사용량 갱신 스킵: 임시 오류 백오프 \(remaining)초 남음")
                 popoverViewModel.nextUsageRetryAt = allowedAt
                 refreshPopoverSizeIfShown()
@@ -701,21 +700,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // 이미 갱신 중이면 중복 요청을 막아 로딩/회전 애니메이션 과도 지속을 방지
-        if isLoading {
-            if let startedAt = loadingStartedAt {
-                let elapsed = Date().timeIntervalSince(startedAt)
-                if elapsed >= 90 {
-                    Logger.warning("사용량 갱신 고착 감지(\(Int(elapsed))초) → 상태 복구 후 재시도")
-                    isLoading = false
-                    loadingStartedAt = nil
-                } else {
-                    Logger.debug("사용량 갱신 스킵: 이미 요청 진행 중")
-                    return
-                }
-            } else {
-                Logger.debug("사용량 갱신 스킵: 이미 요청 진행 중")
-                return
-            }
+        switch RefreshExecutionPolicy.inFlightDecision(isLoading: isLoading, startedAt: loadingStartedAt) {
+        case .start:
+            break
+        case .recoverStale(let elapsed):
+            Logger.warning("사용량 갱신 고착 감지(\(elapsed)초) → 상태 복구 후 재시도")
+            isLoading = false
+            loadingStartedAt = nil
+        case .skip:
+            Logger.debug("사용량 갱신 스킵: 이미 요청 진행 중")
+            return
         }
 
         // 고착 복구 케이스에서는 즉시 로딩 상태를 반영해 UI 튐을 줄인다
@@ -849,63 +843,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyUsageRefreshBackoff(for error: APIError) {
-        guard error.isTemporaryFailure else {
+        let result = RefreshExecutionPolicy.nextBackoffDate(
+            for: error,
+            minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
+            existingAllowedAt: nextUsageRefreshAllowedAt)
+
+        guard let candidate = result.candidate else {
             nextUsageRefreshAllowedAt = nil
-            return
-        }
-
-        let retryAfterSeconds: Int = {
-            switch error {
-            case .rateLimited(let retryAfter), .cloudflareBlocked(let retryAfter):
-                return retryAfter ?? 0
-            case .networkError:
-                return 10
-            case .serverError(let statusCode):
-                return statusCode >= 500 ? 20 : 10
-            case .invalidSessionKey, .parseError, .unknownError:
-                return 0
-            }
-        }()
-
-        let floor = Int(max(15, PowerMonitor.shared.effectiveRefreshInterval))
-        let backoffSeconds = max(floor, retryAfterSeconds)
-        let candidate = Date().addingTimeInterval(TimeInterval(backoffSeconds))
-
-        if let current = nextUsageRefreshAllowedAt, current > candidate {
             return
         }
 
         nextUsageRefreshAllowedAt = candidate
         popoverViewModel.nextUsageRetryAt = candidate
         refreshPopoverSizeIfShown()
-        Logger.info("임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
+        if let backoffSeconds = result.seconds {
+            Logger.info("임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
+        }
     }
 
     private func refreshCodexUsage(force: Bool = false) {
         guard ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) else { return }
 
-        if !force, let allowedAt = nextCodexRefreshAllowedAt {
-            let remaining = Int(ceil(allowedAt.timeIntervalSinceNow))
-            if remaining > 0 {
+        if !force, let remaining = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextCodexRefreshAllowedAt) {
+            if let allowedAt = nextCodexRefreshAllowedAt {
                 Logger.debug("Codex 갱신 스킵: 임시 오류 백오프 \(remaining)초 남음")
                 return
             }
             nextCodexRefreshAllowedAt = nil
         }
 
-        if isCodexLoading {
-            if let startedAt = codexLoadingStartedAt {
-                let elapsed = Date().timeIntervalSince(startedAt)
-                if elapsed >= 90 {
-                    Logger.warning("Codex 갱신 고착 감지(\(Int(elapsed))초) → 상태 복구")
-                    isCodexLoading = false
-                    codexLoadingStartedAt = nil
-                } else {
-                    return
-                }
-            } else {
-                return
-            }
+        switch RefreshExecutionPolicy.inFlightDecision(isLoading: isCodexLoading, startedAt: codexLoadingStartedAt) {
+        case .start:
+            break
+        case .recoverStale(let elapsed):
+            Logger.warning("Codex 갱신 고착 감지(\(elapsed)초) → 상태 복구")
+            isCodexLoading = false
+            codexLoadingStartedAt = nil
+        case .skip:
+            return
         }
 
         if !CodexAuthManager.shared.isAuthenticated {
@@ -1014,33 +989,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyCodexRefreshBackoff(for error: APIError) {
-        guard error.isTemporaryFailure else {
+        let result = RefreshExecutionPolicy.nextBackoffDate(
+            for: error,
+            minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
+            existingAllowedAt: nextCodexRefreshAllowedAt)
+
+        guard let candidate = result.candidate else {
             nextCodexRefreshAllowedAt = nil
             return
         }
-
-        let retryAfterSeconds: Int = {
-            switch error {
-            case .rateLimited(let retryAfter), .cloudflareBlocked(let retryAfter):
-                return retryAfter ?? 0
-            case .networkError:
-                return 10
-            case .serverError(let statusCode):
-                return statusCode >= 500 ? 20 : 10
-            case .invalidSessionKey, .parseError, .unknownError:
-                return 0
-            }
-        }()
-
-        let floor = Int(max(15, PowerMonitor.shared.effectiveRefreshInterval))
-        let backoffSeconds = max(floor, retryAfterSeconds)
-        let candidate = Date().addingTimeInterval(TimeInterval(backoffSeconds))
-
-        if let current = nextCodexRefreshAllowedAt, current > candidate {
-            return
-        }
         nextCodexRefreshAllowedAt = candidate
-        Logger.info("Codex 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
+        if let backoffSeconds = result.seconds {
+            Logger.info("Codex 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
+        }
     }
 
     // MARK: - Menu Bar Update

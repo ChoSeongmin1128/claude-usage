@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (18차)
+최종 갱신: 2026-04-02 (19차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -40,6 +40,7 @@
 - 팝오버 객체와 리사이즈 상태도 [AppPopoverCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppPopoverCoordinator.swift) 로 분리해, `AppDelegate` 가 직접 `NSPopover` 생성/hosting controller 구성/resize work item 수명 관리를 하지 않도록 정리하기 시작했습니다.
 - 설정/전원 상태 observer 구독도 [AppRuntimeObservationCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppRuntimeObservationCoordinator.swift) 로 분리해, `AppDelegate` 가 `Combine` 구독과 cancellable 수명 관리를 직접 갖지 않도록 정리하기 시작했습니다.
 - provider 전환 시 stale refresh 판단과 enable/disable 정책도 [ProviderTransitionPolicy.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ProviderTransitionPolicy.swift) 로 분리해, `AppDelegate` 안의 서비스 전환 분기가 단순 결정 호출 위주로 바뀌기 시작했습니다.
+- `Claude` / `Codex` refresh의 백오프 계산과 in-flight 고착 판단도 [RefreshExecutionPolicy.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RefreshExecutionPolicy.swift) 로 분리해, `AppDelegate` 안의 중복된 retry/backoff 규칙을 줄이기 시작했습니다.
 - 다만 AppDelegate orchestration과 multi-provider fetch/menu glue는 아직 더 분해해야 합니다.
 
 ## 2. 참고 레포에서 가져올 방향
