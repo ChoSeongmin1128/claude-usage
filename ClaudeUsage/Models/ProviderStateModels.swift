@@ -6,7 +6,7 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
     case gemini
     case antigravity
 
-    var displayName: String {
+    nonisolated var displayName: String {
         switch self {
         case .claude: return "Claude"
         case .codex: return "Codex"
@@ -15,13 +15,81 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
         }
     }
 
-    var supportsMenuBarServiceSelection: Bool {
+    nonisolated var supportsMenuBarServiceSelection: Bool {
         switch self {
         case .claude, .codex:
             return true
         case .gemini, .antigravity:
             return false
         }
+    }
+
+    nonisolated var isRuntimeProvider: Bool {
+        supportsMenuBarServiceSelection
+    }
+
+    nonisolated var isShellProvider: Bool {
+        !isRuntimeProvider
+    }
+
+    nonisolated var settingsPanelTitle: String {
+        displayName
+    }
+
+    nonisolated var settingsPanelIconName: String {
+        switch self {
+        case .claude:
+            return "brain"
+        case .codex:
+            return "bubble.left.and.bubble.right"
+        case .gemini:
+            return "sparkles"
+        case .antigravity:
+            return "antenna.radiowaves.left.and.right"
+        }
+    }
+
+    nonisolated var settingsPanelSummary: String {
+        switch self {
+        case .claude:
+            return "메인 usage 경로"
+        case .codex:
+            return "CLI / OAuth"
+        case .gemini, .antigravity:
+            return "연결 준비 중"
+        }
+    }
+
+    nonisolated var settingsPanelDetail: String {
+        switch self {
+        case .claude:
+            return "세션키와 OAuth를 함께 유지합니다."
+        case .codex:
+            return "Codex는 별도 셸과 표시 규칙을 유지합니다."
+        case .gemini:
+            return "실동작 fetcher 없이 shell만 먼저 노출합니다."
+        case .antigravity:
+            return "Gemini와 별개 provider로 분리해서 다룹니다."
+        }
+    }
+
+    nonisolated var settingsComingSoonMessage: String? {
+        switch self {
+        case .claude, .codex:
+            return nil
+        case .gemini:
+            return "Gemini 패널은 다음 단계에서 연결할 예정입니다."
+        case .antigravity:
+            return "Antigravity 패널은 Gemini와 별개 provider로 연결할 예정입니다."
+        }
+    }
+
+    nonisolated static var runtimeKinds: [AppProviderKind] {
+        allCases.filter(\.isRuntimeProvider)
+    }
+
+    nonisolated static var shellKinds: [AppProviderKind] {
+        allCases.filter(\.isShellProvider)
     }
 }
 
@@ -58,8 +126,20 @@ struct AppProviderStateCatalog: Codable, Equatable, Sendable {
         AppProviderKind.allCases.filter { self[$0].isEnabled }
     }
 
+    var enabledRuntimeProviderKinds: [AppProviderKind] {
+        AppProviderKind.runtimeKinds.filter { self[$0].isEnabled }
+    }
+
+    var enabledShellProviderKinds: [AppProviderKind] {
+        AppProviderKind.shellKinds.filter { self[$0].isEnabled }
+    }
+
     var activeProviderKind: AppProviderKind? {
         AppProviderKind.allCases.first { self[$0].isActive }
+    }
+
+    var activeRuntimeProviderKind: AppProviderKind? {
+        AppProviderKind.runtimeKinds.first { self[$0].isActive }
     }
 
     func state(for kind: AppProviderKind) -> AppProviderState {
@@ -117,7 +197,10 @@ struct AppProviderStateCatalog: Codable, Equatable, Sendable {
 
 struct ProviderSelectionState: Equatable, Sendable {
     let enabledKinds: [AppProviderKind]
+    let runtimeEnabledKinds: [AppProviderKind]
+    let shellEnabledKinds: [AppProviderKind]
     let activeKind: AppProviderKind?
+    let activeRuntimeKind: AppProviderKind?
 }
 
 struct ProviderMenuBarDisplayConfig: Equatable, Sendable {

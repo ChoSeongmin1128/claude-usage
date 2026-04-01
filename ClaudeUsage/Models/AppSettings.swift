@@ -670,6 +670,14 @@ class AppSettings: ObservableObject {
         providerStates.enabledProviderKinds
     }
 
+    var runtimeEnabledProviderKinds: [AppProviderKind] {
+        providerStates.enabledRuntimeProviderKinds
+    }
+
+    var shellEnabledProviderKinds: [AppProviderKind] {
+        providerStates.enabledShellProviderKinds
+    }
+
     var hasAnyEnabledProvider: Bool {
         !enabledProviderKinds.isEmpty
     }
@@ -678,8 +686,20 @@ class AppSettings: ObservableObject {
         enabledProviderKinds.count > 1
     }
 
+    var hasAnyRuntimeEnabledProvider: Bool {
+        !runtimeEnabledProviderKinds.isEmpty
+    }
+
+    var hasMultipleRuntimeEnabledProviders: Bool {
+        runtimeEnabledProviderKinds.count > 1
+    }
+
     var activeProviderKind: AppProviderKind? {
         providerStates.activeProviderKind
+    }
+
+    var activeRuntimeProviderKind: AppProviderKind? {
+        providerStates.activeRuntimeProviderKind
     }
 
     var activeMenuBarServiceRawValue: String {
@@ -689,7 +709,10 @@ class AppSettings: ObservableObject {
     var providerSelectionState: ProviderSelectionState {
         ProviderSelectionState(
             enabledKinds: enabledProviderKinds,
-            activeKind: activeProviderKind
+            runtimeEnabledKinds: runtimeEnabledProviderKinds,
+            shellEnabledKinds: shellEnabledProviderKinds,
+            activeKind: activeProviderKind,
+            activeRuntimeKind: activeRuntimeProviderKind
         )
     }
 

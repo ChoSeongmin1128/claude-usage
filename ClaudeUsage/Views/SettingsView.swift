@@ -476,6 +476,7 @@ struct SettingsView: View {
                     authSetupFlowCard
                 }
                 authNoticeCard
+                oauthQuickGuideSection
                 authChecklistCard
                 profileMetadataCard
 
@@ -542,7 +543,6 @@ struct SettingsView: View {
         DisclosureGroup(isExpanded: $isClaudeAdvancedSectionExpanded) {
             VStack(alignment: .leading, spacing: 12) {
                 manualSessionKeySection
-                oauthQuickGuideSection
                 messagesFallbackSection
                 authFAQSection
             }
@@ -554,7 +554,7 @@ struct SettingsView: View {
                 }
             } label: {
                 HStack {
-                    Text("고급 및 진단")
+                    Text("고급")
                     Spacer(minLength: 0)
                     Text("수동 입력 · fallback · FAQ")
                         .font(.caption2)
@@ -670,6 +670,7 @@ struct SettingsView: View {
 
     private var authChecklistCard: some View {
         let hasSessionCredential = !(storedSessionKey ?? "").isEmpty || !normalizeSessionKey(sessionKey).isEmpty
+        let hasOAuthCredential = usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false
         let hasOAuthSuccess = usageHealthSnapshot?.oauth.lastSuccessAt != nil
         let hasAnySuccessfulFetch = usageHealthSnapshot?.lastOverallSuccessAt != nil
         let organizationReady = selectedOrganizationID.isEmpty || organizations.contains(where: { $0.id == selectedOrganizationID }) || organizations.isEmpty
@@ -681,8 +682,8 @@ struct SettingsView: View {
 
             checklistRow(
                 title: "자격 준비",
-                detail: hasSessionCredential ? "세션키 감지됨" : (hasOAuthSuccess ? "OAuth 성공 이력 감지됨" : "세션키 또는 OAuth 준비 필요"),
-                state: hasSessionCredential || hasOAuthSuccess ? .ok : .warning
+                detail: hasSessionCredential ? "세션키 감지됨" : (hasOAuthCredential ? "OAuth 자격 감지됨" : (hasOAuthSuccess ? "OAuth 성공 이력 감지됨" : "세션키 또는 OAuth 준비 필요")),
+                state: hasSessionCredential || hasOAuthCredential || hasOAuthSuccess ? .ok : .warning
             )
             checklistRow(
                 title: "조회 검증",
@@ -720,7 +721,8 @@ struct SettingsView: View {
 
     private var hasReadyClaudeCredential: Bool {
         let normalized = normalizeSessionKey(sessionKey)
-        return !(storedSessionKey ?? "").isEmpty || !normalized.isEmpty || usageHealthSnapshot?.lastOverallSuccessAt != nil
+        let hasOAuthCredential = usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false
+        return !(storedSessionKey ?? "").isEmpty || !normalized.isEmpty || hasOAuthCredential || usageHealthSnapshot?.lastOverallSuccessAt != nil
     }
 
     private var shouldShowAuthSetupFlow: Bool {
@@ -745,7 +747,7 @@ struct SettingsView: View {
             Text("안내")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("Chrome import를 먼저 시도하고, 실패하면 웹 로그인 또는 sessionKey 수동 입력으로 이어가는 흐름이 현재 기준 가장 현실적입니다.")
+            Text("일반 경로는 Chrome import와 웹 로그인입니다. 수동 sessionKey와 Messages fallback은 고급 설정에서 다룹니다.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -797,8 +799,8 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("1. `Chrome 또는 웹 로그인`을 누릅니다.")
                 Text("2. 로그인 창에서 `Chrome에서 가져오기`를 먼저 시도합니다.")
-                Text("3. 자동 가져오기가 실패하면 같은 창에서 웹 로그인으로 sessionKey 추출을 시도합니다.")
-                Text("4. 계속 실패하면 아래 고급 옵션에서 sessionKey 값만 직접 입력합니다.")
+                Text("3. 실패하면 같은 창에서 웹 로그인으로 sessionKey 추출을 시도합니다.")
+                Text("4. 계속 실패하면 고급 설정에서 sessionKey 값만 직접 입력합니다.")
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -810,8 +812,11 @@ struct SettingsView: View {
                 }
             } label: {
                 HStack {
-                    Text("Chrome import 빠른 가이드")
+                    Text("권장 일반 경로")
                     Spacer(minLength: 0)
+                    Text("Chrome import → 웹 로그인")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -1057,6 +1062,12 @@ struct SettingsView: View {
                         value: runtimePathLabel(snapshot.runtime.activePath),
                         color: runtimePathColor(snapshot.runtime.activePath)
                     )
+                    if snapshot.runtime.credentialAvailability.sessionCredentialAvailable {
+                        chip(title: "세션", value: "준비됨", color: .green)
+                    }
+                    if snapshot.runtime.credentialAvailability.oauthCredentialAvailable {
+                        chip(title: "OAuth", value: "준비됨", color: .blue)
+                    }
                     if let cooldown = snapshot.runtime.sessionCooldownRemaining {
                         chip(title: "세션 재시도", value: formatDuration(seconds: cooldown), color: .orange)
                     }

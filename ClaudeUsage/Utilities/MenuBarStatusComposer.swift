@@ -57,11 +57,11 @@ enum MenuBarStatusComposer {
         usage: ClaudeUsageResponse?,
         error: APIError?,
         hasAuthError: Bool,
-        hasSessionKey: Bool,
+        hasCredential: Bool,
         secondaryColor: NSColor,
         icon: NSImage?
     ) -> MenuBarRenderedContent {
-        if !hasSessionKey {
+        if !hasCredential {
             return iconWithStatusContent(
                 icon: icon,
                 label: "로그인 필요",
@@ -132,7 +132,7 @@ enum MenuBarStatusComposer {
             elements.append(.text("Claude", attributes: [.font: smallFont, .foregroundColor: secondaryColor]))
         }
 
-        let authWarning = hasAuthError ? "\n⚠️ 세션 키가 유효하지 않습니다" : ""
+        let authWarning = hasAuthError ? "\n⚠️ Claude 인증 상태를 확인해주세요" : ""
         let tooltip = "현재 세션: \(Int(fiveHour))% / 주간: \(Int(weekly))%\(authWarning)"
         return MenuBarRenderedContent(image: composeElements(elements), tooltip: tooltip)
     }
@@ -225,7 +225,7 @@ enum MenuBarStatusComposer {
         claudeUsage: ClaudeUsageResponse?,
         claudeError: APIError?,
         hasClaudeAuthError: Bool,
-        hasClaudeSessionKey: Bool,
+        hasClaudeCredential: Bool,
         claudeIcon: NSImage?,
         codexConfig: ProviderMenuBarDisplayConfig,
         codexUsage: CodexUsageResponse?,
@@ -243,7 +243,7 @@ enum MenuBarStatusComposer {
             usage: claudeUsage,
             error: claudeError,
             hasAuthError: hasClaudeAuthError,
-            hasSessionKey: hasClaudeSessionKey,
+            hasCredential: hasClaudeCredential,
             secondaryColor: secondaryColor
         )
         let codex = codexStatus(
@@ -308,10 +308,10 @@ enum MenuBarStatusComposer {
         usage: ClaudeUsageResponse?,
         error: APIError?,
         hasAuthError: Bool,
-        hasSessionKey: Bool,
+        hasCredential: Bool,
         secondaryColor: NSColor
     ) -> MenuBarProviderStatus {
-        if !hasSessionKey {
+        if !hasCredential {
             return MenuBarProviderStatus(text: "로그인", color: .systemOrange, tooltip: "로그인 필요")
         }
         if let error, usage == nil {

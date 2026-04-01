@@ -33,7 +33,7 @@ struct SetupWizardView: View {
         var ctaTitle: String {
             switch self {
             case .chromeImport, .webLogin:
-                return "로그인 열기"
+                return self == .chromeImport ? "Chrome 열기" : "웹 로그인 열기"
             case .manualSessionKey:
                 return "고급 열기"
             }

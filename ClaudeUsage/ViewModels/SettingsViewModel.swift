@@ -5,7 +5,7 @@ import Combine
 final class SettingsViewModel: ObservableObject {
     let messagesFallbackHelpText = """
     Claude 사용량 조회가 실패할 때 Messages API의 rate limit 헤더로 최소 사용량 정보를 복구합니다.
-    기본값은 꺼짐이며, 자동 보조는 사용량이 충분히 높을 때만 동작합니다.
+    기본값은 꺼짐이며, 자동 보조는 고급 설정에서만 켤 수 있고 사용량이 충분히 높을 때만 동작합니다.
     """
 
     let messagesFallbackThresholdHelpText = """
@@ -15,7 +15,7 @@ final class SettingsViewModel: ObservableObject {
 
     let chromeImportHelpText = """
     Chrome 로그인 상태를 우선 탐지합니다.
-    가능하면 sessionKey를 자동으로 가져오고, 실패하면 sessionKey 직접 입력 안내로 이어집니다.
+    가능하면 sessionKey를 자동으로 가져오고, 실패하면 웹 로그인과 수동 sessionKey 안내로 이어집니다.
     """
 
     let weeklyDisplayHelpText = """

@@ -135,3 +135,17 @@ struct ClaudeProfileMetadata: Equatable, Sendable {
             self.subscriptionCreatedAt == nil
     }
 }
+
+struct ClaudeCredentialAvailability: Sendable, Equatable {
+    let sessionCredentialAvailable: Bool
+    let oauthCredentialAvailable: Bool
+
+    nonisolated static func == (lhs: ClaudeCredentialAvailability, rhs: ClaudeCredentialAvailability) -> Bool {
+        lhs.sessionCredentialAvailable == rhs.sessionCredentialAvailable &&
+            lhs.oauthCredentialAvailable == rhs.oauthCredentialAvailable
+    }
+
+    nonisolated var hasAnyCredential: Bool {
+        sessionCredentialAvailable || oauthCredentialAvailable
+    }
+}

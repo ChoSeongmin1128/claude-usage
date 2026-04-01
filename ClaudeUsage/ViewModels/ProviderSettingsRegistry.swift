@@ -43,69 +43,63 @@ struct SettingsProviderPanelDescriptor: Identifiable, Sendable, Equatable {
 }
 
 enum SettingsProviderRegistry {
-    static let sidebarPanels: [SettingsProviderPanelDescriptor] = [
-        .init(panel: .common, title: "공통", icon: "slider.horizontal.3", availability: .active),
-        .init(panel: .claude, title: "Claude", icon: "brain", availability: .active),
-        .init(panel: .codex, title: "Codex", icon: "bubble.left.and.bubble.right", availability: .active),
-        .init(
-            panel: .gemini,
-            title: "Gemini",
-            icon: "sparkles",
-            availability: .comingSoon(message: "Gemini 패널은 다음 단계에서 연결할 예정입니다.")
-        ),
-        .init(
-            panel: .antigravity,
-            title: "Antigravity",
-            icon: "antenna.radiowaves.left.and.right",
-            availability: .comingSoon(message: "Antigravity 패널은 Gemini와 별개 provider로 연결할 예정입니다.")
-        ),
-    ]
+    static var sidebarPanels: [SettingsProviderPanelDescriptor] {
+        [
+            .init(panel: .common, title: "공통", icon: "slider.horizontal.3", availability: .active),
+            providerPanelDescriptor(for: .claude),
+            providerPanelDescriptor(for: .codex),
+            providerPanelDescriptor(for: .gemini),
+            providerPanelDescriptor(for: .antigravity),
+        ]
+    }
 
-    static let providerShellDescriptors: [ProviderShellDescriptor] = [
-        .init(
-            kind: .claude,
-            title: "Claude",
-            icon: "brain",
-            role: .active,
-            summary: "메인 usage 경로",
-            detail: "세션키와 OAuth를 함께 유지합니다.",
-            supportsPopoverSelection: true
-        ),
-        .init(
-            kind: .codex,
-            title: "Codex",
-            icon: "bubble.left.and.bubble.right",
-            role: .active,
-            summary: "CLI / OAuth",
-            detail: "Codex는 별도 셸과 표시 규칙을 유지합니다.",
-            supportsPopoverSelection: true
-        ),
-        .init(
-            kind: .gemini,
-            title: "Gemini",
-            icon: "sparkles",
-            role: .comingSoon,
-            summary: "연결 준비 중",
-            detail: "실동작 fetcher 없이 shell만 먼저 노출합니다.",
-            supportsPopoverSelection: false
-        ),
-        .init(
-            kind: .antigravity,
-            title: "Antigravity",
-            icon: "antenna.radiowaves.left.and.right",
-            role: .comingSoon,
-            summary: "연결 준비 중",
-            detail: "Gemini와 별개 provider로 분리해서 다룹니다.",
-            supportsPopoverSelection: false
-        ),
-    ]
+    static var providerShellDescriptors: [ProviderShellDescriptor] {
+        AppProviderKind.allCases.map { providerShellDescriptor(for: $0) }
+    }
 
     static func descriptor(for panel: SettingsProviderPanel) -> SettingsProviderPanelDescriptor {
         sidebarPanels.first { $0.panel == panel } ?? sidebarPanels[0]
     }
 
     static func providerShellDescriptor(for kind: AppProviderKind) -> ProviderShellDescriptor {
-        providerShellDescriptors.first { $0.kind == kind } ?? providerShellDescriptors[0]
+        .init(
+            kind: kind,
+            title: kind.settingsPanelTitle,
+            icon: kind.settingsPanelIconName,
+            role: kind.isRuntimeProvider ? .active : .comingSoon,
+            summary: kind.settingsPanelSummary,
+            detail: kind.settingsPanelDetail,
+            supportsPopoverSelection: kind.supportsMenuBarServiceSelection
+        )
+    }
+
+    static func providerPanelDescriptor(for kind: AppProviderKind) -> SettingsProviderPanelDescriptor {
+        let availability: SettingsProviderPanelDescriptor.Availability
+        if let message = kind.settingsComingSoonMessage {
+            availability = .comingSoon(message: message)
+        } else {
+            availability = .active
+        }
+
+        return .init(
+            panel: panel(for: kind),
+            title: kind.settingsPanelTitle,
+            icon: kind.settingsPanelIconName,
+            availability: availability
+        )
+    }
+
+    private static func panel(for kind: AppProviderKind) -> SettingsProviderPanel {
+        switch kind {
+        case .claude:
+            return .claude
+        case .codex:
+            return .codex
+        case .gemini:
+            return .gemini
+        case .antigravity:
+            return .antigravity
+        }
     }
 }
 

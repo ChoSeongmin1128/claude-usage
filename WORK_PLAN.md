@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (7차)
+최종 갱신: 2026-04-02 (8차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -24,6 +24,8 @@
 - 설정의 `일반` 영역에는 provider별 실동작/설정 shell 상태를 한눈에 보여주는 overview 카드가 추가됐습니다.
 - 메뉴바 조합 로직은 [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift) 로 분리됐고, provider별 표시 옵션도 [ProviderMenuBarDisplayConfig](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift) 로 묶기 시작했습니다.
 - `Gemini` / `Antigravity` 같은 shell provider가 메뉴바/타이머 런타임 서비스로 잘못 취급되던 경로는 [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift) 에서 runtime-capable provider만 세도록 정리했습니다.
+- `Claude` 런타임 health snapshot은 `session credential`과 `OAuth credential` 가용성을 모두 노출하고, bootstrap / timer / refresh 가능 여부도 이를 기준으로 계산하기 시작했습니다.
+- 메뉴바, 팝오버 overview, 설정 체크리스트는 `OAuth-only` 계정에서 더 이상 `세션 키 없음`만 보고 잘못 경고하지 않도록 맞추기 시작했습니다.
 - 다만 팝오버의 하이브리드 구조와 multi-provider fetch/menu glue는 아직 더 분해해야 합니다.
 
 ## 2. 참고 레포에서 가져올 방향
@@ -250,6 +252,7 @@
 - [ClaudeSourcePlanner.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/Claude/ClaudeSourcePlanner.swift), [ClaudeFetchModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/Claude/ClaudeFetchModels.swift), [ClaudeMessagesHeaderFallbackFetcher.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/Claude/ClaudeMessagesHeaderFallbackFetcher.swift) 를 추가했습니다.
 - [ClaudeAPIService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/ClaudeAPIService.swift) 에 `web + oauth` 주경로, recent-success 기반 `Auto`, OAuth 실패 시 자동 fallback, threshold 정책을 배선했습니다.
 - `Messages header fallback` 기본값은 `off`, 자동 threshold 기본값은 `20%`로 설정되어 있습니다.
+- [ClaudeAPIService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/ClaudeAPIService.swift) 의 health snapshot은 이제 `credentialAvailability`를 포함하고, [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 이를 이용해 `OAuth-only` bootstrap / 설정 적용 / 로그아웃 후 재평가까지 처리합니다.
 - 완료 기준
 - source별 성공/실패와 fallback 경로가 코드에서 명확해짐
 
@@ -327,8 +330,10 @@
 - [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift) 를 추가해 메뉴바 상태 계산과 합성 렌더링을 `AppDelegate` 밖으로 옮겼습니다.
 - [ProviderMenuBarDisplayConfig](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift) 와 [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 의 `menuBarDisplayConfig(for:)` 로 provider별 표시 옵션을 한 묶음으로 읽기 시작했습니다.
 - [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift) 는 shell provider를 제외한 `runtime-enabled service` 기준으로 메뉴바/타이머 판단을 하도록 수정했습니다.
+- [ProviderStateModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift) 는 runtime provider / shell provider 메타데이터와 `enabledRuntimeProviderKinds`, `enabledShellProviderKinds`, `activeRuntimeProviderKind` 를 갖게 됐고, [ProviderSettingsRegistry.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/ProviderSettingsRegistry.swift) 는 이를 기반으로 패널/셸 descriptor를 생성합니다.
+- [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `OAuth-only` Claude 계정도 refreshable service로 인정하도록 bootstrap / refresh / timer / settings-apply / logout 경로를 다시 맞췄습니다.
 - 아직 남음
-- `AppDelegate`의 refresh/timer composition, `PopoverView`의 provider shell, `AppSettings`의 presentation profile 분리는 아직 완료 전입니다.
+- `AppDelegate`의 refresh/timer composition을 더 coordinator 성격으로 분리하고, `ServiceSelectionHelper`의 Claude/Codex 2-provider 전제를 더 걷어내야 합니다.
 - 완료 기준
 - 핵심 파일이 역할별로 나뉘고 테스트 가능한 단위가 생김
 
@@ -360,6 +365,7 @@
 - [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 의 `일반` 섹션에는 provider overview 카드를 추가해 `실동작/설정 shell` 상태를 구분해 보여줍니다.
 - [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 의 Claude 인증 탭은 `일반 흐름`과 `고급 및 진단` 섹션을 실제 UI로 나누기 시작했습니다.
 - [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift) 와 `ProviderMenuBarDisplayConfig` 도입으로 메뉴바 표시 로직의 시각 규칙과 설정 해석을 한 층 더 분리했습니다.
+- [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift), [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift), [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 이제 `usageHealthSnapshot.runtime.credentialAvailability` 를 이용해 `OAuth-only` 계정에서 잘못된 인증 경고를 덜 띄우도록 맞추기 시작했습니다.
 - 아직 남음
 - 팝오버 하이브리드 구조, preset 체계, provider 추가 시 일관된 카드 구조는 아직 남아 있습니다.
 - 완료 기준

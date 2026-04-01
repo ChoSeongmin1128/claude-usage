@@ -1,10 +1,10 @@
 import Foundation
 
 struct ServiceSelectionHelper {
-    static let supportedPopoverServices: [PopoverService] = [.claude, .codex]
-    static let supportedProviderKinds: [AppProviderKind] = [.claude, .codex]
+    static let supportedProviderKinds: [AppProviderKind] = AppProviderKind.runtimeKinds
+    static let supportedPopoverServices: [PopoverService] = supportedProviderKinds.compactMap(service(for:))
 
-    static func providerKind(for service: PopoverService) -> AppProviderKind {
+    nonisolated static func providerKind(for service: PopoverService) -> AppProviderKind {
         switch service {
         case .claude:
             return .claude
@@ -13,7 +13,7 @@ struct ServiceSelectionHelper {
         }
     }
 
-    static func service(for kind: AppProviderKind) -> PopoverService? {
+    nonisolated static func service(for kind: AppProviderKind) -> PopoverService? {
         switch kind {
         case .claude:
             return .claude
@@ -24,7 +24,7 @@ struct ServiceSelectionHelper {
         }
     }
 
-    static func preferredPopoverService(from rawValue: String) -> PopoverService {
+    nonisolated static func preferredPopoverService(from rawValue: String) -> PopoverService {
         rawValue == "codex" ? .codex : .claude
     }
 
@@ -33,11 +33,11 @@ struct ServiceSelectionHelper {
     }
 
     static func enabledServices(settings: AppSettings) -> [PopoverService] {
-        supportedPopoverServices.filter { isEnabled($0, settings: settings) }
+        settings.runtimeEnabledProviderKinds.compactMap(service(for:))
     }
 
     static func enabledRuntimeProviderKinds(settings: AppSettings) -> [AppProviderKind] {
-        supportedProviderKinds.filter { settings.isProviderEnabled($0) }
+        settings.runtimeEnabledProviderKinds
     }
 
     static func isEnabled(_ service: PopoverService, settings: AppSettings) -> Bool {
@@ -45,11 +45,11 @@ struct ServiceSelectionHelper {
     }
 
     static func hasAnyEnabledService(settings: AppSettings) -> Bool {
-        !enabledRuntimeProviderKinds(settings: settings).isEmpty
+        settings.hasAnyRuntimeEnabledProvider
     }
 
     static func hasMultipleEnabledServices(settings: AppSettings) -> Bool {
-        enabledRuntimeProviderKinds(settings: settings).count > 1
+        settings.hasMultipleRuntimeEnabledProviders
     }
 
     static func resolvedPopoverService(settings: AppSettings) -> PopoverService {
@@ -98,12 +98,66 @@ struct ServiceSelectionHelper {
         }
     }
 
-    static func canRefreshClaude(settings: AppSettings, hasSessionKey: Bool) -> Bool {
-        settings.isProviderEnabled(.claude) && hasSessionKey
+    static func canRefreshClaude(
+        settings: AppSettings,
+        hasSessionKey: Bool,
+        hasOAuthCredential: Bool
+    ) -> Bool {
+        settings.isProviderEnabled(.claude) && (hasSessionKey || hasOAuthCredential)
     }
 
     static func canRefreshCodex(settings: AppSettings) -> Bool {
         settings.isProviderEnabled(.codex)
+    }
+
+    static func canRefresh(
+        _ service: PopoverService,
+        settings: AppSettings,
+        hasClaudeSessionKey: Bool,
+        hasClaudeOAuthCredential: Bool,
+        isCodexAuthenticated: Bool
+    ) -> Bool {
+        switch service {
+        case .claude:
+            return canRefreshClaude(
+                settings: settings,
+                hasSessionKey: hasClaudeSessionKey,
+                hasOAuthCredential: hasClaudeOAuthCredential
+            )
+        case .codex:
+            return canRefreshCodex(settings: settings) && isCodexAuthenticated
+        }
+    }
+
+    static func refreshableServices(
+        settings: AppSettings,
+        hasClaudeSessionKey: Bool,
+        hasClaudeOAuthCredential: Bool,
+        isCodexAuthenticated: Bool
+    ) -> [PopoverService] {
+        supportedPopoverServices.filter {
+            canRefresh(
+                $0,
+                settings: settings,
+                hasClaudeSessionKey: hasClaudeSessionKey,
+                hasClaudeOAuthCredential: hasClaudeOAuthCredential,
+                isCodexAuthenticated: isCodexAuthenticated
+            )
+        }
+    }
+
+    static func hasRefreshableService(
+        settings: AppSettings,
+        hasClaudeSessionKey: Bool,
+        hasClaudeOAuthCredential: Bool,
+        isCodexAuthenticated: Bool
+    ) -> Bool {
+        !refreshableServices(
+            settings: settings,
+            hasClaudeSessionKey: hasClaudeSessionKey,
+            hasClaudeOAuthCredential: hasClaudeOAuthCredential,
+            isCodexAuthenticated: isCodexAuthenticated
+        ).isEmpty
     }
 
     static func settingsRootTab(for service: PopoverService) -> String {

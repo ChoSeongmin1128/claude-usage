@@ -57,6 +57,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var cancellables = Set<AnyCancellable>()
     private var eventMonitor: Any?
     private var globalClickMonitor: Any?
+    private var claudeCredentialAvailability = ClaudeCredentialAvailability(
+        sessionCredentialAvailable: false,
+        oauthCredentialAvailable: false
+    )
+
+    private var refreshableServices: [PopoverService] {
+        ServiceSelectionHelper.refreshableServices(
+            settings: AppSettings.shared,
+            hasClaudeSessionKey: KeychainManager.shared.hasSessionKey,
+            hasClaudeOAuthCredential: claudeCredentialAvailability.oauthCredentialAvailable,
+            isCodexAuthenticated: CodexAuthManager.shared.isAuthenticated
+        )
+    }
+
+    private var hasRefreshableService: Bool {
+        !refreshableServices.isEmpty
+    }
 
     // MARK: - Lifecycle
 
@@ -81,28 +98,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 배터리 상태 변경 감지
         observePowerState()
 
-        // 세션 키 확인
-        if ServiceSelectionHelper.canRefreshClaude(settings: AppSettings.shared, hasSessionKey: KeychainManager.shared.hasSessionKey) {
-            Task {
-                await self.apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
-                await MainActor.run {
-                    self.startMonitoring()
-                }
-            }
-        } else if ServiceSelectionHelper.canRefreshCodex(settings: AppSettings.shared) && CodexAuthManager.shared.isAuthenticated {
-            updateMenuBar()
-            startTimer()
-            refreshCodexUsage(force: true)
-        } else if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
-            updateMenuBar()
-            showSettingsWindow()
-        } else {
-            if ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) && !CodexAuthManager.shared.isAuthenticated {
-                hasCodexAuthError = true
-                codexError = .invalidSessionKey
-            }
-            updateMenuBar()
-        }
+        bootstrapRefreshState()
 
         // 업데이트 확인
         let interval = AppSettings.shared.updateCheckInterval
@@ -116,7 +112,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Claude 시스템 상태 체크 시작 (5분 간격)
         refreshSystemStatus()
         startStatusTimer()
-        syncUsageHealthSnapshotToUI()
+    }
+
+    private func bootstrapRefreshState() {
+        Task {
+            await self.apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
+            let snapshot = await self.apiService.fetchUsageHealthSnapshot()
+            await MainActor.run {
+                self.applyUsageHealthSnapshot(snapshot)
+                self.finishBootstrap(using: snapshot)
+            }
+        }
+    }
+
+    private func finishBootstrap(using snapshot: ClaudeAPIService.UsageHealthSnapshot) {
+        if hasRefreshableService {
+            startMonitoring()
+        } else if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
+            updateMenuBar()
+            if !snapshot.runtime.credentialAvailability.hasAnyCredential {
+                showSettingsWindow()
+            }
+        } else {
+            if ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) && !CodexAuthManager.shared.isAuthenticated {
+                hasCodexAuthError = true
+                codexError = .invalidSessionKey
+            }
+            updateMenuBar()
+        }
     }
 
     private func startUpdateCheckTimer(interval: TimeInterval) {
@@ -398,11 +421,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showUnifiedContextMenu() {
         let menu = NSMenu()
-        let canRefreshClaude = ServiceSelectionHelper.canRefreshClaude(
-            settings: AppSettings.shared,
-            hasSessionKey: KeychainManager.shared.hasSessionKey
-        )
-        let canRefreshCodex = ServiceSelectionHelper.canRefreshCodex(settings: AppSettings.shared)
+        let canRefreshClaude = refreshableServices.contains(.claude)
+        let canRefreshCodex = refreshableServices.contains(.codex)
 
         let refreshAll = NSMenuItem(title: "전체 새로고침", action: #selector(refreshClicked), keyEquivalent: "r")
         refreshAll.isEnabled = canRefreshClaude || canRefreshCodex
@@ -529,15 +549,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         startTimer()
     }
 
+    private func stopRefreshTimer() {
+        timer?.invalidate()
+        timer = nil
+        activeTimerInterval = nil
+    }
+
+    private func syncRefreshTimerState() {
+        if AppSettings.shared.autoRefresh, hasRefreshableService {
+            startTimer()
+        } else {
+            stopRefreshTimer()
+        }
+    }
+
     // MARK: - Timer
 
     private func startTimer() {
         let interval = PowerMonitor.shared.effectiveRefreshInterval
-        let hasAnyEnabledService = ServiceSelectionHelper.hasAnyEnabledService(settings: AppSettings.shared)
-        guard AppSettings.shared.autoRefresh, hasAnyEnabledService else {
-            timer?.invalidate()
-            timer = nil
-            activeTimerInterval = nil
+        guard AppSettings.shared.autoRefresh, hasRefreshableService else {
+            stopRefreshTimer()
             Logger.info("자동 새로고침 비활성화")
             return
         }
@@ -575,9 +606,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if enabled {
                     self?.startTimer()
                 } else {
-                    self?.timer?.invalidate()
-                    self?.timer = nil
-                    self?.activeTimerInterval = nil
+                    self?.stopRefreshTimer()
                 }
             }
             .store(in: &cancellables)
@@ -720,25 +749,58 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             let snapshot = await apiService.fetchUsageHealthSnapshot()
             await MainActor.run {
-                self.popoverViewModel.usageHealthSnapshot = snapshot
-                self.popoverViewModel.nextUsageRetryAt = self.nextUsageRefreshAllowedAt
-                self.refreshPopoverSizeIfShown()
+                self.applyUsageHealthSnapshot(snapshot)
             }
         }
+    }
+
+    private func applyUsageHealthSnapshot(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) {
+        let previousOAuthCredential = claudeCredentialAvailability.oauthCredentialAvailable
+        claudeCredentialAvailability = snapshot.runtime.credentialAvailability
+        popoverViewModel.usageHealthSnapshot = snapshot
+        popoverViewModel.nextUsageRetryAt = nextUsageRefreshAllowedAt
+
+        if previousOAuthCredential != claudeCredentialAvailability.oauthCredentialAvailable {
+            syncRefreshTimerState()
+            updateMenuBar()
+        }
+
+        refreshPopoverSizeIfShown()
+    }
+
+    private func clearClaudePresentationState(markSetupIncomplete: Bool) {
+        if markSetupIncomplete {
+            AppSettings.shared.hasCompletedSetupWizard = false
+        }
+        currentUsage = nil
+        currentOverage = nil
+        lastOverageFetchAt = nil
+        currentError = nil
+        hasAuthError = false
+        consecutiveErrorCount = 0
+        isLoading = false
+        loadingStartedAt = nil
+        nextUsageRefreshAllowedAt = nil
+        popoverViewModel.nextUsageRetryAt = nil
     }
 
     // MARK: - API
 
     private func refreshAll(force: Bool = false) {
-        if ServiceSelectionHelper.canRefreshClaude(settings: AppSettings.shared, hasSessionKey: KeychainManager.shared.hasSessionKey) {
+        if refreshableServices.contains(.claude) {
             refreshUsage(force: force)
-        } else {
+        } else if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
             currentUsage = nil
             currentError = nil
             hasAuthError = false
         }
-        if ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) {
+
+        if refreshableServices.contains(.codex) {
             refreshCodexUsage(force: force)
+        } else if ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) {
+            currentCodexUsage = nil
+            codexError = CodexAuthManager.shared.isAuthenticated ? nil : .invalidSessionKey
+            hasCodexAuthError = !CodexAuthManager.shared.isAuthenticated
         }
     }
 
@@ -1122,7 +1184,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 claudeUsage: currentUsage,
                 claudeError: currentError,
                 hasClaudeAuthError: hasAuthError,
-                hasClaudeSessionKey: KeychainManager.shared.hasSessionKey,
+                hasClaudeCredential: claudeCredentialAvailability.hasAnyCredential,
                 claudeIcon: claudeConfig.showIcon ? claudeMenuBarIcon(size: NSSize(width: 14, height: 14), tint: claudeIconTintColor) : nil,
                 codexConfig: codexConfig,
                 codexUsage: currentCodexUsage,
@@ -1168,7 +1230,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             usage: currentUsage,
             error: currentError,
             hasAuthError: hasAuthError,
-            hasSessionKey: KeychainManager.shared.hasSessionKey,
+            hasCredential: claudeCredentialAvailability.hasAnyCredential,
             secondaryColor: secondaryColor,
             icon: claudeConfig.showIcon ? claudeMenuBarIcon(size: NSSize(width: 18, height: 18), tint: claudeIconTintColor) : nil
         )
@@ -1424,24 +1486,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func applySettingsFromWindow() {
         Task {
             await self.apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
-            if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared), let key = KeychainManager.shared.load(), !key.isEmpty {
-                AppSettings.shared.hasCompletedSetupWizard = true
+            let credentialAvailability = await self.apiService.fetchCredentialAvailability()
+
+            if credentialAvailability.sessionCredentialAvailable,
+               let key = KeychainManager.shared.load(),
+               !key.isEmpty {
                 await self.apiService.updateSessionKey(key)
-                await MainActor.run {
-                    self.startMonitoring()
-                }
             } else {
                 await self.apiService.clearSession()
-                await MainActor.run {
-                    AppSettings.shared.hasCompletedSetupWizard = false
-                    self.currentUsage = nil
-                    self.currentOverage = nil
-                    self.lastOverageFetchAt = nil
-                    self.currentError = nil
-                    self.hasAuthError = false
-                    self.consecutiveErrorCount = 0
-                    self.isLoading = false
-                    self.nextUsageRefreshAllowedAt = nil
+            }
+            let snapshot = await self.apiService.fetchUsageHealthSnapshot()
+            await MainActor.run {
+                self.applyUsageHealthSnapshot(snapshot)
+                if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared),
+                   snapshot.runtime.credentialAvailability.hasAnyCredential {
+                    AppSettings.shared.hasCompletedSetupWizard = true
+                    self.startMonitoring()
+                } else {
+                    self.clearClaudePresentationState(
+                        markSetupIncomplete: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
+                    )
                     self.updateMenuBar()
                     self.updatePopoverViewModel(
                         usage: nil,
@@ -1452,15 +1516,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         lastUpdated: self.lastUpdated,
                         overage: nil
                     )
-                    if ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) {
-                        self.startTimer()
-                        self.refreshCodexUsage(force: true)
-                    } else if ServiceSelectionHelper.canRefreshClaude(settings: AppSettings.shared, hasSessionKey: KeychainManager.shared.hasSessionKey) {
-                        self.startTimer()
-                    } else {
-                        self.timer?.invalidate()
-                        self.timer = nil
-                        self.activeTimerInterval = nil
+                    self.syncRefreshTimerState()
+                    if self.hasRefreshableService {
+                        self.refreshAll(force: true)
                     }
                 }
             }
@@ -1506,19 +1564,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 try? KeychainManager.shared.delete()
                 Task {
                     await self.apiService.clearSession()
+                    let snapshot = await self.apiService.fetchUsageHealthSnapshot()
                     await MainActor.run {
-                        AppSettings.shared.hasCompletedSetupWizard = false
-                        self.syncUsageHealthSnapshotToUI()
+                        AppSettings.shared.hasCompletedSetupWizard = snapshot.runtime.credentialAvailability.hasAnyCredential
+                        self.applyUsageHealthSnapshot(snapshot)
                     }
                 }
-                self.currentUsage = nil
-                self.currentOverage = nil
-                self.lastOverageFetchAt = nil
-                self.currentError = nil
-                self.hasAuthError = false
-                self.consecutiveErrorCount = 0
-                self.isLoading = false
-                self.nextUsageRefreshAllowedAt = nil
+                self.clearClaudePresentationState(markSetupIncomplete: false)
                 self.updateMenuBar()
                 self.updatePopoverViewModel(
                     usage: nil,
@@ -1530,13 +1582,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     overage: nil
                 )
                 self.settingsSnapshot = AppSettings.shared.createSnapshot()
-                if ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) {
-                    self.startTimer()
-                    self.refreshCodexUsage(force: true)
-                } else {
-                    self.timer?.invalidate()
-                    self.timer = nil
-                    self.activeTimerInterval = nil
+                self.syncRefreshTimerState()
+                if self.hasRefreshableService {
+                    self.refreshAll(force: true)
                 }
                 self.clearWebSessionData()
                 Logger.info("로그아웃 완료")
@@ -1662,9 +1710,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Actions
 
     @objc private func refreshClicked() {
-        let canRefreshClaude = ServiceSelectionHelper.canRefreshClaude(settings: AppSettings.shared, hasSessionKey: KeychainManager.shared.hasSessionKey)
-        let canRefreshCodex = ServiceSelectionHelper.canRefreshCodex(settings: AppSettings.shared)
-        if canRefreshClaude || canRefreshCodex {
+        if hasRefreshableService {
             refreshAll(force: true)
         } else {
             showSettingsWindow()

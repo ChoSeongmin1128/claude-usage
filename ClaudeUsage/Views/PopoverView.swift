@@ -190,29 +190,45 @@ struct PopoverView: View {
 
     // MARK: - Helpers
 
+    private func selectService(_ service: PopoverService) {
+        viewModel.selectService(service)
+        syncCompactAcrossServicesIfNeeded()
+        requestLayoutRefresh()
+    }
+
+    private func requestLayoutRefresh() {
+        DispatchQueue.main.async {
+            viewModel.requestLayoutRefresh()
+        }
+    }
+
+    private func sectionHeader(title: String, subtitle: String? = nil) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            Spacer()
+        }
+    }
+
     private var shouldShowOverviewSection: Bool {
         !isCompact && availableServices.count > 1
     }
 
     private var providerOverviewSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Provider overview")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("Claude 중심 · 실동작 provider")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
+            sectionHeader(title: "Provider overview", subtitle: "실동작 provider만 선택")
 
             ForEach(availableServices, id: \.rawValue) { service in
                 Button {
-                    viewModel.selectService(service)
-                    syncCompactAcrossServicesIfNeeded()
-                    DispatchQueue.main.async {
-                        viewModel.requestLayoutRefresh()
-                    }
+                    selectService(service)
                 } label: {
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 3) {
@@ -259,19 +275,12 @@ struct PopoverView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.18))
     }
 
     private var providerShellSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Provider shell")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("미연결 provider 포함")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
+            sectionHeader(title: "Provider shell", subtitle: "미연결 provider 포함")
 
             ForEach(viewModel.providerShellCards(settings: settings), id: \.id) { card in
                 providerShellRow(card)
@@ -295,11 +304,7 @@ struct PopoverView: View {
         return Group {
             if let selectableService, card.isSelectable {
                 Button {
-                    viewModel.selectService(selectableService)
-                    syncCompactAcrossServicesIfNeeded()
-                    DispatchQueue.main.async {
-                        viewModel.requestLayoutRefresh()
-                    }
+                    selectService(selectableService)
                 } label: {
                     providerShellCardBody(card: card, isSelected: isSelected)
                 }
@@ -547,15 +552,7 @@ struct PopoverView: View {
     private var diagnosticSection: some View {
         if hasDiagnosticContent {
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("진단")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Text("메인 흐름과 분리된 상태 정보")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
+                sectionHeader(title: "진단", subtitle: "메인 흐름과 분리된 상태 정보")
 
                 if selectedService == .claude, let status = viewModel.systemStatus, status.hasIssue {
                     diagnosticStatusRow(status: status)
@@ -581,11 +578,7 @@ struct PopoverView: View {
             HStack(spacing: 6) {
                 ForEach(availableServices, id: \.rawValue) { service in
                     Button {
-                        viewModel.selectService(service)
-                        syncCompactAcrossServicesIfNeeded()
-                        DispatchQueue.main.async {
-                            viewModel.requestLayoutRefresh()
-                        }
+                        selectService(service)
                     } label: {
                         HStack(spacing: 5) {
                             Text(service.displayName)
@@ -708,7 +701,7 @@ struct PopoverView: View {
     private func shouldShowWarningDot(for service: PopoverService) -> Bool {
         switch service {
         case .claude:
-            return (ServiceSelectionHelper.isEnabled(.claude, settings: settings) && !KeychainManager.shared.hasSessionKey) || viewModel.error != nil
+            return (ServiceSelectionHelper.isEnabled(.claude, settings: settings) && !viewModel.hasClaudeCredential) || viewModel.error != nil
         case .codex:
             return (ServiceSelectionHelper.isEnabled(.codex, settings: settings) && !CodexAuthManager.shared.isAuthenticated) || viewModel.codexError != nil
         }
@@ -717,7 +710,7 @@ struct PopoverView: View {
     private func isAuthRequired(for service: PopoverService) -> Bool {
         switch service {
         case .claude:
-            return ServiceSelectionHelper.isEnabled(.claude, settings: settings) && !KeychainManager.shared.hasSessionKey
+            return ServiceSelectionHelper.isEnabled(.claude, settings: settings) && !viewModel.hasClaudeCredential
         case .codex:
             return ServiceSelectionHelper.isEnabled(.codex, settings: settings) && !CodexAuthManager.shared.isAuthenticated
         }

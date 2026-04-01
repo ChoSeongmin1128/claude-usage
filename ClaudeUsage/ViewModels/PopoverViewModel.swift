@@ -91,13 +91,17 @@ final class PopoverViewModel: ObservableObject {
         }
     }
 
+    var hasClaudeCredential: Bool {
+        usageHealthSnapshot?.runtime.credentialAvailability.hasAnyCredential ?? KeychainManager.shared.hasSessionKey
+    }
+
     func overviewSummary(for kind: AppProviderKind, settings: AppSettings) -> String {
         switch kind {
         case .claude:
             if !settings.isProviderEnabled(.claude) {
                 return "비활성화됨"
             }
-            if !KeychainManager.shared.hasSessionKey {
+            if !hasClaudeCredential {
                 return "인증 필요"
             }
             if isClaudeLoading {

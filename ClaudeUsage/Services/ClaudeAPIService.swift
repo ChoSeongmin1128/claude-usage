@@ -73,6 +73,7 @@ actor ClaudeAPIService {
         }
 
         let activePath: ActivePath
+        let credentialAvailability: ClaudeCredentialAvailability
         let sessionCooldownRemaining: Int?
         let oauthPreferredRemaining: Int?
     }
@@ -217,12 +218,21 @@ actor ClaudeAPIService {
         return !key.isEmpty
     }
 
-    func fetchUsageHealthSnapshot() -> UsageHealthSnapshot {
-        UsageHealthSnapshot(
+    func fetchUsageHealthSnapshot() async -> UsageHealthSnapshot {
+        let oauthCredentialAvailable = (try? await readSystemOAuthAccessToken()) != nil
+        return UsageHealthSnapshot(
             lastOverallSuccessAt: authPathHealthStore.lastOverallSuccessAt,
             session: makeAuthPathSnapshot(for: .session),
             oauth: makeAuthPathSnapshot(for: .oauth),
-            runtime: makeRuntimeAuthSnapshot()
+            runtime: makeRuntimeAuthSnapshot(oauthCredentialAvailable: oauthCredentialAvailable)
+        )
+    }
+
+    func fetchCredentialAvailability() async -> ClaudeCredentialAvailability {
+        let oauthCredentialAvailable = (try? await readSystemOAuthAccessToken()) != nil
+        return ClaudeCredentialAvailability(
+            sessionCredentialAvailable: hasSessionKey(),
+            oauthCredentialAvailable: oauthCredentialAvailable
         )
     }
 
@@ -1323,11 +1333,15 @@ actor ClaudeAPIService {
         )
     }
 
-    private func makeRuntimeAuthSnapshot() -> RuntimeAuthSnapshot {
+    private func makeRuntimeAuthSnapshot(oauthCredentialAvailable: Bool) -> RuntimeAuthSnapshot {
         let now = Date()
         let hasSessionCredential = hasSessionKey()
         let sessionState = authPathState(for: .session)
         let oauthState = authPathState(for: .oauth)
+        let credentialAvailability = ClaudeCredentialAvailability(
+            sessionCredentialAvailable: hasSessionCredential,
+            oauthCredentialAvailable: oauthCredentialAvailable
+        )
         let sessionCooldownRemaining: Int? = {
             guard let until = sessionPathCooldownUntil else { return nil }
             let remaining = Int(ceil(until.timeIntervalSince(now)))
@@ -1342,7 +1356,7 @@ actor ClaudeAPIService {
         let activePath: RuntimeAuthSnapshot.ActivePath = {
             if !hasSessionCredential {
                 // 세션 키가 없으면 OAuth 전용 경로가 실질 기본
-                if oauthState.lastSuccessAt != nil || oauthState.lastAttemptAt != nil {
+                if oauthCredentialAvailable || oauthState.lastSuccessAt != nil || oauthState.lastAttemptAt != nil {
                     return .oauthFallback
                 }
                 return .unauthenticated
@@ -1364,6 +1378,7 @@ actor ClaudeAPIService {
 
         return RuntimeAuthSnapshot(
             activePath: activePath,
+            credentialAvailability: credentialAvailability,
             sessionCooldownRemaining: sessionCooldownRemaining,
             oauthPreferredRemaining: oauthPreferredRemaining
         )
