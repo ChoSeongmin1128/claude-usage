@@ -9,10 +9,21 @@ import Foundation
 import UserNotifications
 
 enum SessionType: String {
-    case fiveHour = "현재 세션"
-    case weekly = "주간"
-    case codexPrimary = "Codex 현재"
-    case codexSecondary = "Codex 주간"
+    case fiveHour
+    case weekly
+    case codexPrimary
+    case codexSecondary
+
+    var displayName: String {
+        switch self {
+        case .fiveHour, .codexPrimary:
+            return "현재 세션"
+        case .weekly:
+            return "주간"
+        case .codexSecondary:
+            return "주간 세션"
+        }
+    }
 }
 
 class NotificationManager {
@@ -75,7 +86,7 @@ class NotificationManager {
                 tracker.alertedThresholds.insert(threshold)
             }
 
-            Logger.info("\(session.rawValue) 첫 실행 기록: \(Int(percentage))%")
+            Logger.info("\(session.displayName) 첫 실행 기록: \(Int(percentage))%")
             return
         }
 
@@ -84,13 +95,13 @@ class NotificationManager {
 
         // 리셋 감지: 5분 이상 차이나야 실제 리셋으로 판단
         if let resetAt = resetAt, let lastReset = tracker.lastResetAt, isActualReset(from: lastReset, to: resetAt) {
-            Logger.info("\(session.rawValue) 세션 리셋 감지")
+            Logger.info("\(session.displayName) 세션 리셋 감지")
             tracker.alertedThresholds.removeAll()
             tracker.lastResetAt = resetAt
 
             sendNotification(
                 title: "\(serviceName) 세션 리셋",
-                body: "\(session.rawValue) 세션이 리셋되었습니다"
+                body: "\(session.displayName) 세션이 리셋되었습니다"
             )
             return
         }
@@ -105,7 +116,7 @@ class NotificationManager {
                     : "\(serviceName) 사용량 안내"
                 sendNotification(
                     title: title,
-                    body: "\(session.rawValue) 세션의 \(threshold)%를 사용했습니다"
+                    body: "\(session.displayName)의 \(threshold)%를 사용했습니다"
                 )
                 tracker.alertedThresholds.insert(threshold)
                 break
