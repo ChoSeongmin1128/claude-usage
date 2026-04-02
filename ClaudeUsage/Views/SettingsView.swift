@@ -190,8 +190,8 @@ struct SettingsView: View {
             alertPresetTexts = settings.sortedNotificationPresets.map { String($0.threshold) }
             selectedOrganizationID = settings.preferredOrganizationID
             selectedPanel = SettingsProviderPanel(rawValue: settings.settingsLastTab) ?? .common
-            selectedClaudeTab = ClaudeTab(rawValue: settings.claudeSettingsLastTab) ?? .auth
-            selectedCodexTab = CodexTab(rawValue: settings.codexSettingsLastTab) ?? .auth
+            selectedClaudeTab = ClaudeTab(rawValue: settings.providerSettingsLastTab(for: .claude)) ?? .auth
+            selectedCodexTab = CodexTab(rawValue: settings.providerSettingsLastTab(for: .codex)) ?? .auth
             refreshSetupWizardState()
             loadUsageHealthSnapshot()
             checkCodexAuth()
@@ -203,13 +203,13 @@ struct SettingsView: View {
             }
         }
         .onChange(of: selectedClaudeTab) { _, tab in
-            settings.claudeSettingsLastTab = tab.rawValue
+            settings.setProviderSettingsLastTab(tab.rawValue, for: .claude)
             if tab == .organizations, organizations.isEmpty, !isLoadingOrganizations {
                 loadOrganizations(forceRefresh: false)
             }
         }
         .onChange(of: selectedCodexTab) { _, tab in
-            settings.codexSettingsLastTab = tab.rawValue
+            settings.setProviderSettingsLastTab(tab.rawValue, for: .codex)
         }
         .onChange(of: settings.providerStates) { _, _ in
             checkCodexAuth()
@@ -351,7 +351,7 @@ struct SettingsView: View {
                     }
                 }
             case .gemini, .antigravity:
-                Label("런타임 연결 준비 중", systemImage: "clock")
+                Label("추가 provider 준비 상태", systemImage: "clock")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 10)

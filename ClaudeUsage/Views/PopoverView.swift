@@ -223,7 +223,7 @@ struct PopoverView: View {
 
     private var providerOverviewSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader(title: "Provider overview", subtitle: "멀티 provider 전환")
+            sectionHeader(title: "Provider 개요", subtitle: "멀티 provider 전환")
 
             ForEach(availableServices, id: \.rawValue) { service in
                 PopoverProviderOverviewRowView(
@@ -245,8 +245,8 @@ struct PopoverView: View {
         let selectionState = settings.providerSelectionState
         return VStack(alignment: .leading, spacing: 10) {
             sectionHeader(
-                title: "설정 전용 provider",
-                subtitle: "실동작 \(selectionState.runtimeEnabledKinds.count) · 설정 shell \(selectionState.shellEnabledKinds.count)"
+                title: "추가 provider",
+                subtitle: "실동작 \(selectionState.runtimeEnabledKinds.count) · 준비 중 \(selectionState.shellEnabledKinds.count)"
             )
 
             ForEach(viewModel.providerShellCards(settings: settings), id: \.id) { card in
