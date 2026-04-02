@@ -987,28 +987,26 @@ struct CompactUsageRow: View {
     var timeFormatStyle: TimeFormatStyle = .h24
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .center, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .layoutPriority(1)
-                if let compactResetText {
-                    Text(compactResetText)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .truncationMode(.tail)
-                }
+
+                Text(compactResetText ?? "--")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .truncationMode(.tail)
             }
             .layoutPriority(1)
 
             HStack(spacing: 6) {
                 ProgressBarView(percentage: percentage, height: 6)
-                    .frame(width: 76)
+                    .frame(maxWidth: .infinity)
 
                 Text(String(format: "%.0f%%", percentage))
                     .font(.system(.caption, design: .monospaced))
@@ -1017,8 +1015,9 @@ struct CompactUsageRow: View {
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
-            .fixedSize(horizontal: true, vertical: false)
+            .frame(minWidth: 88, idealWidth: 110, maxWidth: 140)
         }
+        .padding(.vertical, 1)
     }
 
     private var compactResetText: String? {
@@ -1214,32 +1213,26 @@ struct OverageUsageView: View {
     let overage: OverageSpendLimitResponse
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Image(systemName: "creditcard")
-                        .foregroundStyle(.secondary)
-                    Text("추가 사용량")
-                        .font(.headline)
-                }
-
-                Text("\(overage.formattedUsedCredits) 사용 / \(overage.formattedCreditLimit) 한도 (잔액 \(overage.formattedRemainingCredits))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-            .layoutPriority(1)
-
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                ProgressBarView(percentage: overage.usagePercentage, height: 8, color: .purple)
-                    .frame(width: 120)
-
+                Image(systemName: "creditcard")
+                    .foregroundStyle(.secondary)
+                Text("추가 사용량")
+                    .font(.headline)
+                Spacer(minLength: 0)
                 Text(String(format: "%.0f%%", overage.usagePercentage))
-                    .font(.title3)
-                    .fontWeight(.bold)
+                    .font(.headline)
+                    .fontWeight(.semibold)
                     .foregroundStyle(.purple)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
-            .fixedSize(horizontal: true, vertical: false)
+
+            Text("\(overage.formattedUsedCredits) 사용 / \(overage.formattedCreditLimit) 한도 (잔액 \(overage.formattedRemainingCredits))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
         }
         .padding(.vertical, 2)
     }
@@ -1251,12 +1244,13 @@ struct CompactOverageRow: View {
     let overage: OverageSpendLimitResponse
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .center, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("추가")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+
                 Text("잔액 \(overage.formattedRemainingCredits)")
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
@@ -1268,7 +1262,7 @@ struct CompactOverageRow: View {
 
             HStack(spacing: 6) {
                 ProgressBarView(percentage: overage.usagePercentage, height: 6, color: .purple)
-                    .frame(width: 76)
+                    .frame(maxWidth: .infinity)
 
                 Text(String(format: "%.0f%%", overage.usagePercentage))
                     .font(.system(.caption, design: .monospaced))
@@ -1277,7 +1271,8 @@ struct CompactOverageRow: View {
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
-            .fixedSize(horizontal: true, vertical: false)
+            .frame(minWidth: 88, idealWidth: 110, maxWidth: 140)
         }
+        .padding(.vertical, 1)
     }
 }
