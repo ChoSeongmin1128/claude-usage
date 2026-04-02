@@ -47,6 +47,7 @@ struct SettingsView: View {
     @State private var isTestingMessagesFallback = false
     @State private var messagesFallbackStatus: String?
     @State private var codexAuthStatus: CodexAuthStatus = .checking
+    @State private var updateModeSummary: String = "업데이트 엔진 확인 중"
 
     var onSave: (() -> Void)?
     var onApply: (() -> Void)?
@@ -193,6 +194,9 @@ struct SettingsView: View {
             refreshSetupWizardState()
             loadUsageHealthSnapshot()
             checkCodexAuth()
+            Task {
+                updateModeSummary = await UpdateService.shared.currentModeSummary()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange)) { _ in
             syncStoredSessionKeyState()
@@ -2603,6 +2607,10 @@ struct SettingsView: View {
                     .controlSize(.small)
                 }
             }
+
+            Text(updateModeSummary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             if let result = updateCheckResult {
                 HStack {

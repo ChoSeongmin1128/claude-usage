@@ -20,11 +20,19 @@ enum UpdateCheckResult {
     case error(String)
 }
 
-actor UpdateService {
-    static let shared = UpdateService()
+protocol AppUpdateEngine: Sendable {
+    func modeSummary() async -> String
+    func checkForUpdates() async -> UpdateCheckResult
+    func latestDownloadURL() async -> URL
+}
 
+final class GitHubReleaseUpdateEngine: AppUpdateEngine, @unchecked Sendable {
     private let repoOwner = "ChoSeongmin1128"
     private let repoName = "claude-usage"
+
+    func modeSummary() async -> String {
+        "현재는 GitHub Release 수동 다운로드 엔진을 사용 중입니다"
+    }
 
     // MARK: - Check for Updates
 
@@ -83,9 +91,29 @@ actor UpdateService {
         }
     }
 
-    // MARK: - Download Latest Release
-
-    func latestDownloadURL() -> URL {
+    func latestDownloadURL() async -> URL {
         URL(string: "https://github.com/\(repoOwner)/\(repoName)/releases/latest/download/ClaudeUsage.zip")!
+    }
+}
+
+actor UpdateService {
+    static let shared = UpdateService()
+
+    private let engine: any AppUpdateEngine
+
+    init(engine: (any AppUpdateEngine)? = nil) {
+        self.engine = engine ?? GitHubReleaseUpdateEngine()
+    }
+
+    func checkForUpdates() async -> UpdateCheckResult {
+        await engine.checkForUpdates()
+    }
+
+    func latestDownloadURL() async -> URL {
+        await engine.latestDownloadURL()
+    }
+
+    func currentModeSummary() async -> String {
+        await engine.modeSummary()
     }
 }
