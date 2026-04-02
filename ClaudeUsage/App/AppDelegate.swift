@@ -467,7 +467,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var shouldShowStandaloneSetupWizard: Bool {
         SetupCompletionPolicy.shouldShowSetupFlow(
-            hasCompletedSetupWizard: AppSettings.shared.hasCompletedSetupWizard,
             hasReadyCredential: hasReadyClaudeCredential,
             hasSuccessfulFetch: hasSuccessfulClaudeFetch,
             preferredOrganizationID: AppSettings.shared.preferredOrganizationID,

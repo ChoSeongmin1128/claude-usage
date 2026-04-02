@@ -140,10 +140,8 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine {
     )
 
     static func makeIfConfigured() -> SparkleUpdateEngine? {
-        guard let feedURL = Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String,
-              !feedURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let publicKey = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
-              !publicKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard UpdateConfigurationInspector.configuredValue(for: "SUFeedURL") != nil,
+              UpdateConfigurationInspector.configuredValue(for: "SUPublicEDKey") != nil else {
             return nil
         }
 
@@ -210,10 +208,12 @@ enum UpdateConfigurationInspector {
     }
 
     #if canImport(Sparkle)
-    private nonisolated static func configuredValue(for key: String) -> String? {
+    nonisolated static func configuredValue(for key: String) -> String? {
         guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        guard !trimmed.isEmpty else { return nil }
+        guard !trimmed.contains("$("), !trimmed.contains("${") else { return nil }
+        return trimmed
     }
     #endif
 }

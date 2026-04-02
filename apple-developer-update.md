@@ -38,6 +38,7 @@
 - zip 다운로드 후 수동 교체는 fallback 경로로만 남아 있고, 사용자 경험이 여전히 거칩니다.
 - 서명/노타리제이션이 없으면 최초 실행 설명이 계속 번거롭습니다.
 - Sparkle 패키지는 붙었지만, 배포 채널이 없으므로 제품 입장에서는 아직 완전한 자동 업데이트가 아닙니다.
+- 현재 코드는 [Info.plist](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Info.plist) 의 `SUFeedURL`, `SUPublicEDKey` build setting 경계를 읽습니다. 예시 값은 [Sparkle.release.example.xcconfig](/Users/seongmin/Personal/ClaudeUsage/Config/Sparkle.release.example.xcconfig) 에 추가했습니다.
 
 ## 3. Apple Developer 계정이 생기면 가능한 것
 
@@ -258,6 +259,25 @@ Sparkle 문서상 sandbox 앱은 `Installer.xpc`와 관련 entitlement가 필요
 이 순서가 맞는 이유는, 현재 앱의 인증/파일 접근 구조가 App Store 친화적이지 않기 때문입니다. App Store를 목표로 먼저 설계하면 배포는 깔끔해 보일 수 있지만, 실제 제품 기능을 크게 꺾을 가능성이 높습니다.
 
 ## 12. Sparkle 구현 메모
+
+### 현재 코드 기준 배선 상태
+
+- [Info.plist](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Info.plist)
+  - `SUFeedURL`
+  - `SUPublicEDKey`
+- [UpdateService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/UpdateService.swift)
+  - 값이 비어 있거나 unresolved placeholder(`$(...)`)면 미설정으로 간주
+  - 이 경우 Sparkle 대신 GitHub fallback 엔진 사용
+- 예시 설정 파일
+  - [Sparkle.release.example.xcconfig](/Users/seongmin/Personal/ClaudeUsage/Config/Sparkle.release.example.xcconfig)
+
+### 실제 릴리즈 때 해야 할 것
+
+1. 예시 파일을 복사해 실제 release 전용 xcconfig 생성
+2. `SUFeedURL`, `SUPublicEDKey` 채우기
+3. Release configuration에 해당 xcconfig 연결
+4. 서명/노타리제이션 이후 appcast 배포
+5. 설정 화면에서 `appcast 준비`, `공개키 준비`가 모두 `준비됨`인지 확인
 
 - `Sparkle`은 macOS 직접 배포 앱에서 널리 쓰이는 자동업데이트 프레임워크입니다.
 - 인디 앱과 direct distribution 앱에서 사실상 표준에 가깝고, [CodexBar]( /Users/seongmin/Personal/CodexBar/Package.swift )도 실제로 사용 중입니다.

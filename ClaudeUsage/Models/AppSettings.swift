@@ -1251,7 +1251,7 @@ class AppSettings: ObservableObject {
         self.alertRemainingMode = storedAlertRemainingMode
         self.notificationPresets = Self.migrateNotificationPresets(from: defaults, commonRemainingMode: storedAlertRemainingMode)
         self.reducedRefreshOnBattery = defaults.object(forKey: "reducedRefreshOnBattery") as? Bool ?? true
-        self.hasCompletedSetupWizard = defaults.object(forKey: "hasCompletedSetupWizard") as? Bool ?? KeychainManager.shared.hasSessionKey
+        self.hasCompletedSetupWizard = defaults.object(forKey: "hasCompletedSetupWizard") as? Bool ?? false
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
         self.circularDisplayMode = CircularDisplayMode(rawValue: cdm) ?? .usage
         let iconMetricRaw = defaults.string(forKey: "iconMetric") ?? IconMetric.fiveHour.rawValue

@@ -1,0 +1,5 @@
+// Copy to a real xcconfig that is only applied to signed release builds.
+// Do not commit the real public feed or release signing details if you do not want them in git.
+
+SUFeedURL = https://example.com/claude-usage/appcast.xml
+SUPublicEDKey = REPLACE_WITH_SPARKLE_PUBLIC_KEY

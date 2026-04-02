@@ -107,16 +107,11 @@ enum SetupCompletionPolicy {
     }
 
     static func shouldShowSetupFlow(
-        hasCompletedSetupWizard: Bool,
         hasReadyCredential: Bool,
         hasSuccessfulFetch: Bool,
         preferredOrganizationID: String,
         cachedMetadata: ClaudeProfileMetadata?
     ) -> Bool {
-        if !hasCompletedSetupWizard {
-            return true
-        }
-
         let progress = resolveWizardProgress(
             hasReadyCredential: hasReadyCredential,
             hasSuccessfulFetch: hasSuccessfulFetch,
