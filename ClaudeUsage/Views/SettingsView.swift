@@ -1881,11 +1881,13 @@ struct SettingsView: View {
                     value: selectedOrganizationID.isEmpty ? "자동 선택" : "직접 선택",
                     color: selectedOrganizationID.isEmpty ? .green : .blue
                 )
-                chip(
-                    title: "검증 상태",
-                    value: organizationValidationChipValue,
-                    color: organizationValidationChipColor
-                )
+                if !selectedOrganizationID.isEmpty || !hasSuccessfulClaudeFetch || !isOrganizationSelectionReady {
+                    chip(
+                        title: "검증 상태",
+                        value: organizationValidationChipValue,
+                        color: organizationValidationChipColor
+                    )
+                }
                 if !selectedOrganizationID.isEmpty {
                     Text(selectedOrganizationID)
                         .font(.caption2)
@@ -1896,9 +1898,15 @@ struct SettingsView: View {
             }
 
             if selectedOrganizationID.isEmpty {
-                Text("지금은 organization을 따로 고르지 않고, Claude가 연결된 기본 organization으로 바로 사용합니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if hasSuccessfulClaudeFetch {
+                    Text("지금은 기본 organization을 자동으로 사용 중입니다. 여러 organization을 직접 구분해서 볼 때만 아래 수동 선택을 여시면 됩니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("기본은 자동 선택입니다. 첫 성공 조회가 끝나면 기본 organization으로 바로 사용할 수 있습니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             } else {
                 Text(organizationChecklistDetail)
                     .font(.caption)
@@ -1906,7 +1914,7 @@ struct SettingsView: View {
             }
 
             HStack(spacing: 8) {
-                Button(shouldShowOrganizationAdvancedControls ? "수동 선택 숨기기" : "여러 organization 직접 고르기") {
+                Button(shouldShowOrganizationAdvancedControls ? "수동 선택 닫기" : "수동 선택 열기") {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         isOrganizationAdvancedExpanded.toggle()
                     }

@@ -91,7 +91,7 @@ struct SetupWizardView: View {
                     }
                     .padding(.top, 6)
                 } label: {
-                    Text("다른 인증 방법")
+                    Text("현재 단계가 실패했을 때만 다른 방법 보기")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
