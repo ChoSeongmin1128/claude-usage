@@ -7,6 +7,7 @@ final class AppRuntimeObservationCoordinator {
 
     func bind(
         onRefreshConfigurationChanged: @escaping () -> Void,
+        onUpdateConfigurationChanged: @escaping () -> Void,
         onMenuBarDisplayChanged: @escaping () -> Void,
         onProviderStatesChanged: @escaping (AppProviderStateCatalog) -> Void,
         onPowerStateChanged: @escaping () -> Void
@@ -21,6 +22,11 @@ final class AppRuntimeObservationCoordinator {
         AppSettings.shared.$autoRefresh
             .dropFirst()
             .sink { _ in onRefreshConfigurationChanged() }
+            .store(in: &cancellables)
+
+        AppSettings.shared.$updateCheckInterval
+            .dropFirst()
+            .sink { _ in onUpdateConfigurationChanged() }
             .store(in: &cancellables)
 
         AppSettings.shared.menuBarDisplayChangePublisher

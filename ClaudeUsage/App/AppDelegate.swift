@@ -13,8 +13,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Properties
 
     private var statusItem: NSStatusItem?
-    private var updateCheckTimer: Timer?
     private let refreshScheduler = RefreshScheduler()
+    private let updateCoordinator = AppUpdateCoordinator()
     private let apiService = ClaudeAPIService()
     private let codexAPIService = CodexAPIService()
     private let popoverCoordinator = AppPopoverCoordinator()
@@ -94,13 +94,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         bootstrapRefreshState()
 
         // 업데이트 확인
-        let interval = AppSettings.shared.updateCheckInterval
-        if interval != .off {
-            checkForUpdates()
-        }
-        if let seconds = interval.timerInterval {
-            startUpdateCheckTimer(interval: seconds)
-        }
+        syncUpdateCheckState(runImmediate: true)
 
         // Claude 시스템 상태 체크 시작 (5분 간격)
         refreshSystemStatus()
@@ -135,13 +129,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func startUpdateCheckTimer(interval: TimeInterval) {
-        updateCheckTimer?.invalidate()
-        updateCheckTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            self?.checkForUpdates()
-        }
-    }
-
     private func checkForUpdates() {
         Task {
             let result = await UpdateService.shared.checkForUpdates()
@@ -158,11 +145,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func syncUpdateCheckState(runImmediate: Bool = false) {
+        updateCoordinator.apply(
+            interval: AppSettings.shared.updateCheckInterval,
+            runImmediate: runImmediate
+        ) { [weak self] in
+            self?.checkForUpdates()
+        }
+    }
+
 
     func applicationWillTerminate(_ notification: Notification) {
         Logger.info("ClaudeUsage 앱 종료")
         refreshScheduler.stop()
-        updateCheckTimer?.invalidate()
+        updateCoordinator.invalidate()
         statusTimer?.invalidate()
         popoverCoordinator.invalidate()
         settingsWindowCoordinator.invalidate()
@@ -492,6 +488,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         runtimeObservationCoordinator.bind(
             onRefreshConfigurationChanged: { [weak self] in
                 self?.syncRefreshTimerState()
+            },
+            onUpdateConfigurationChanged: { [weak self] in
+                self?.syncUpdateCheckState(runImmediate: true)
             },
             onMenuBarDisplayChanged: { [weak self] in
                 self?.updateMenuBar()
