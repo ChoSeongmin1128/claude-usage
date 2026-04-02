@@ -51,7 +51,7 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
         case .codex:
             return "CLI / OAuth"
         case .gemini, .antigravity:
-            return "연결 준비 중"
+            return "런타임 연결 준비 중"
         }
     }
 
@@ -62,9 +62,9 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
         case .codex:
             return "Codex는 별도 셸과 표시 규칙을 유지합니다."
         case .gemini:
-            return "실동작 fetcher 없이 shell만 먼저 노출합니다."
+            return "설정과 표시 구조를 먼저 정리하고, 다음 단계에서 fetch/auth를 연결합니다."
         case .antigravity:
-            return "Gemini와 별개 provider로 분리해서 다룹니다."
+            return "Gemini와 별개 provider로 유지하면서, 별도 runtime fetch/auth를 연결합니다."
         }
     }
 
@@ -73,9 +73,9 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
         case .claude, .codex:
             return nil
         case .gemini:
-            return "Gemini 패널은 다음 단계에서 연결할 예정입니다."
+            return "Gemini는 설정 패널과 표시 경로를 먼저 열어두고, runtime 연결을 이어서 붙입니다."
         case .antigravity:
-            return "Antigravity 패널은 Gemini와 별개 provider로 연결할 예정입니다."
+            return "Antigravity는 Gemini와 별개 provider로 유지하면서 runtime 연결을 이어서 붙입니다."
         }
     }
 

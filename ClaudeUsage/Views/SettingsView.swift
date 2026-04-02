@@ -351,7 +351,7 @@ struct SettingsView: View {
                     }
                 }
             case .gemini, .antigravity:
-                Label("탭 준비 중", systemImage: "clock")
+                Label("런타임 연결 준비 중", systemImage: "clock")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 10)

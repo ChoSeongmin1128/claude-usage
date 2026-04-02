@@ -20,7 +20,7 @@ struct SettingsProviderPanelDescriptor: Identifiable, Sendable, Equatable {
             case .active:
                 return nil
             case .comingSoon:
-                return "Coming soon"
+                return "준비 중"
             }
         }
 
@@ -113,7 +113,7 @@ struct ProviderShellDescriptor: Identifiable, Sendable, Equatable {
             case .active:
                 return nil
             case .comingSoon:
-                return "Coming soon"
+                return "준비 중"
             }
         }
     }
