@@ -4,7 +4,7 @@ enum PopoverService: String, CaseIterable, Sendable {
     case claude
     case codex
 
-    var displayName: String {
+    nonisolated var displayName: String {
         switch self {
         case .claude:
             return "Claude"
@@ -13,11 +13,24 @@ enum PopoverService: String, CaseIterable, Sendable {
         }
     }
 
-    var providerKind: AppProviderKind {
+    nonisolated var providerKind: AppProviderKind {
         AppProviderKind(rawValue: rawValue) ?? .claude
     }
 
-    init?(kind: AppProviderKind) {
+    nonisolated init?(kind: AppProviderKind) {
         self.init(rawValue: kind.rawValue)
     }
+}
+
+struct RuntimeProviderPresentationState: Sendable {
+    let service: PopoverService
+    let lastUpdated: Date?
+    let hasContent: Bool
+    let error: APIError?
+}
+
+struct RuntimeProviderActivationState: Sendable {
+    let service: PopoverService
+    let enabled: Bool
+    let hasCredential: Bool
 }

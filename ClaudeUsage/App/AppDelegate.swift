@@ -326,14 +326,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshServiceIfNeededOnTabSwitch(_ service: PopoverService) {
         guard let action = RefreshOrchestration.actionForTabSwitch(
-            service: service,
-            refreshInterval: AppSettings.shared.refreshInterval,
-            claudeLastUpdated: lastUpdated,
-            codexLastUpdated: codexLastUpdated,
-            hasClaudeUsage: currentUsage != nil,
-            hasCodexUsage: currentCodexUsage != nil,
-            claudeError: currentError,
-            codexError: codexError
+            state: runtimePresentationState(for: service),
+            refreshInterval: AppSettings.shared.refreshInterval
         ) else { return }
 
         performRuntimeAction(action)
@@ -522,10 +516,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleProviderEnabledChange(_ enabled: Bool, for service: PopoverService) {
         let action = RefreshOrchestration.actionForEnabledChange(
-            service: service,
-            enabled: enabled,
-            hasClaudeSessionKey: KeychainManager.shared.hasSessionKey,
-            isCodexAuthenticated: CodexAuthManager.shared.isAuthenticated
+            state: runtimeActivationState(for: service, enabled: enabled)
         )
         performRuntimeAction(action)
     }
@@ -586,6 +577,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         loadingStartedAt = nil
         nextUsageRefreshAllowedAt = nil
         popoverViewModel.nextUsageRetryAt = nil
+    }
+
+    private func runtimePresentationState(for service: PopoverService) -> RuntimeProviderPresentationState {
+        switch service {
+        case .claude:
+            return RuntimeProviderPresentationState(
+                service: .claude,
+                lastUpdated: lastUpdated,
+                hasContent: currentUsage != nil,
+                error: currentError
+            )
+        case .codex:
+            return RuntimeProviderPresentationState(
+                service: .codex,
+                lastUpdated: codexLastUpdated,
+                hasContent: currentCodexUsage != nil,
+                error: codexError
+            )
+        }
+    }
+
+    private func runtimeActivationState(for service: PopoverService, enabled: Bool) -> RuntimeProviderActivationState {
+        switch service {
+        case .claude:
+            return RuntimeProviderActivationState(
+                service: .claude,
+                enabled: enabled,
+                hasCredential: KeychainManager.shared.hasSessionKey || claudeCredentialAvailability.oauthCredentialAvailable
+            )
+        case .codex:
+            return RuntimeProviderActivationState(
+                service: .codex,
+                enabled: enabled,
+                hasCredential: CodexAuthManager.shared.isAuthenticated
+            )
+        }
     }
 
     // MARK: - API

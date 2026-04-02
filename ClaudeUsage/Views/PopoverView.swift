@@ -462,23 +462,11 @@ struct PopoverView: View {
     }
 
     private func popoverService(for kind: AppProviderKind) -> PopoverService? {
-        switch kind {
-        case .claude:
-            return .claude
-        case .codex:
-            return .codex
-        case .gemini, .antigravity:
-            return nil
-        }
+        PopoverService(kind: kind)
     }
 
     private func appProviderKind(for service: PopoverService) -> AppProviderKind {
-        switch service {
-        case .claude:
-            return .claude
-        case .codex:
-            return .codex
-        }
+        service.providerKind
     }
 
     @ViewBuilder
@@ -626,7 +614,7 @@ struct PopoverView: View {
     private var availableServices: [PopoverService] {
         let result = ServiceSelectionHelper.enabledServices(settings: settings)
         if result.isEmpty {
-            return [.claude]
+            return ServiceSelectionHelper.supportedPopoverServices.isEmpty ? [.claude] : ServiceSelectionHelper.supportedPopoverServices
         }
         return result
     }
@@ -680,7 +668,7 @@ struct PopoverView: View {
 
     private func setCompactForAllServices(_ compact: Bool) {
         let runtimeKinds = settings.providerSelectionState.runtimeEnabledKinds
-        let targets = runtimeKinds.isEmpty ? [.claude, .codex] : runtimeKinds
+        let targets = runtimeKinds.isEmpty ? ServiceSelectionHelper.supportedProviderKinds : runtimeKinds
         for kind in targets where settings.isPopoverCompact(for: kind) != compact {
             settings.setPopoverCompact(compact, for: kind)
         }

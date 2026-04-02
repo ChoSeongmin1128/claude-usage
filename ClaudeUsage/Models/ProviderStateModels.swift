@@ -16,12 +16,7 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
     }
 
     nonisolated var supportsMenuBarServiceSelection: Bool {
-        switch self {
-        case .claude, .codex:
-            return true
-        case .gemini, .antigravity:
-            return false
-        }
+        runtimeService != nil
     }
 
     nonisolated var isRuntimeProvider: Bool {
@@ -84,8 +79,12 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
         }
     }
 
+    nonisolated var runtimeService: PopoverService? {
+        PopoverService(rawValue: rawValue)
+    }
+
     nonisolated static var runtimeKinds: [AppProviderKind] {
-        allCases.filter(\.isRuntimeProvider)
+        allCases.filter { $0.runtimeService != nil }
     }
 
     nonisolated static var shellKinds: [AppProviderKind] {

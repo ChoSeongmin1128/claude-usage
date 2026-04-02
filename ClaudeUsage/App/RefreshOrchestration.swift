@@ -8,29 +8,17 @@ enum ProviderRuntimeAction {
 
 enum RefreshOrchestration {
     static func actionForTabSwitch(
-        service: PopoverService,
-        refreshInterval: TimeInterval,
-        claudeLastUpdated: Date?,
-        codexLastUpdated: Date?,
-        hasClaudeUsage: Bool,
-        hasCodexUsage: Bool,
-        claudeError: APIError?,
-        codexError: APIError?
+        state: RuntimeProviderPresentationState,
+        refreshInterval: TimeInterval
     ) -> ProviderRuntimeAction? {
         guard ProviderTransitionPolicy.shouldRefreshOnTabSwitch(
-            service: service,
-            refreshInterval: refreshInterval,
-            claudeLastUpdated: claudeLastUpdated,
-            codexLastUpdated: codexLastUpdated,
-            hasClaudeUsage: hasClaudeUsage,
-            hasCodexUsage: hasCodexUsage,
-            claudeError: claudeError,
-            codexError: codexError
+            state: state,
+            refreshInterval: refreshInterval
         ) else {
             return nil
         }
 
-        return .refresh(service: service, force: false, markSetupComplete: false)
+        return .refresh(service: state.service, force: false, markSetupComplete: false)
     }
 
     static func actionsForRefreshAll(
@@ -53,27 +41,21 @@ enum RefreshOrchestration {
     }
 
     static func actionForEnabledChange(
-        service: PopoverService,
-        enabled: Bool,
-        hasClaudeSessionKey: Bool,
-        isCodexAuthenticated: Bool
+        state: RuntimeProviderActivationState
     ) -> ProviderRuntimeAction {
         switch ProviderTransitionPolicy.enabledChangeDecision(
-            service: service,
-            enabled: enabled,
-            hasClaudeSessionKey: hasClaudeSessionKey,
-            isCodexAuthenticated: isCodexAuthenticated
+            state: state
         ) {
         case .refreshNow:
             return .refresh(
-                service: service,
+                service: state.service,
                 force: true,
-                markSetupComplete: service == .claude
+                markSetupComplete: state.service == .claude
             )
         case .clearAndPromptAuth:
-            return .clearAndPromptAuth(service)
+            return .clearAndPromptAuth(state.service)
         case .clearStateOnly:
-            return .clearState(service)
+            return .clearState(state.service)
         }
     }
 }
