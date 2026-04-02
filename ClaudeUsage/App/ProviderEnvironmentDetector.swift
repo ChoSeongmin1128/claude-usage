@@ -34,14 +34,41 @@ enum ProviderEnvironmentDetector {
         case .claude, .codex:
             return false
         case .gemini:
-            switch geminiCredentialState() {
-            case .usable, .refreshOnly:
-                return true
-            case .missing:
+            guard binaryExists(named: "gemini") else { return false }
+            switch geminiAuthType() {
+            case .apiKey, .vertexAI:
                 return false
+            case .oauthPersonal, .unknown:
+                switch geminiCredentialState() {
+                case .usable, .refreshOnly:
+                    return true
+                case .missing:
+                    return false
+                }
             }
         case .antigravity:
             return antigravitySignals().canAttemptRefresh
+        }
+    }
+
+    static func requiresInteractiveSetup(for kind: AppProviderKind) -> Bool {
+        switch kind {
+        case .claude, .codex:
+            return false
+        case .gemini:
+            let hasBinary = binaryExists(named: "gemini")
+            let authType = geminiAuthType()
+            let credentialState = geminiCredentialState()
+            if !hasBinary { return true }
+            switch authType {
+            case .apiKey, .vertexAI:
+                return true
+            case .oauthPersonal, .unknown:
+                return credentialState == .missing
+            }
+        case .antigravity:
+            let signals = antigravitySignals()
+            return !signals.hasRuntimeConnection && !signals.hasPersistedAuthState
         }
     }
 
@@ -81,33 +108,39 @@ enum ProviderEnvironmentDetector {
 
     private static func antigravityStatus() -> ProviderEnvironmentStatus {
         let signals = antigravitySignals()
-        let hasStateDirectory = signals.hasStateDirectory
-        let appRunning = signals.appRunning
-        let runningProcess = signals.runningProcess
-
-        switch (runningProcess, hasStateDirectory, appRunning) {
-        case let (.some(process), _, _) where process.csrfToken != nil:
+        switch (signals.runningProcess, signals.hasPersistedAuthState, signals.appRunning, signals.hasStateDirectory) {
+        case let (.some(process), _, _, _) where process.csrfToken != nil:
             return ProviderEnvironmentStatus(
                 isDetected: true,
-                summary: "Antigravity language server와 로컬 상태 디렉토리 감지"
+                summary: "Antigravity quota 서버 감지 · 바로 조회할 수 있습니다"
             )
-        case let (.some(process), _, _):
+        case let (.some(process), _, _, _):
             let portSuffix = process.extensionPort.map { " · 포트 \($0)" } ?? ""
             return ProviderEnvironmentStatus(
                 isDetected: true,
-                summary: "Antigravity language server 감지 · 연결 토큰 확인 중\(portSuffix)"
+                summary: "Antigravity quota 서버 감지 · 연결 토큰 확인 중\(portSuffix)"
             )
-        case (nil, _, true):
+        case (nil, true, true, _):
             return ProviderEnvironmentStatus(
                 isDetected: true,
-                summary: "Antigravity 앱은 실행 중이며 quota language server를 준비 중입니다"
+                summary: "Antigravity 앱과 인증 상태 감지 · quota 서버 연결 준비 중"
             )
-        case (nil, true, _):
+        case (nil, true, false, _):
             return ProviderEnvironmentStatus(
-                isDetected: false,
-                summary: "Antigravity 로컬 상태는 있지만 quota language server는 아직 실행되지 않았습니다"
+                isDetected: true,
+                summary: "Antigravity 인증 상태 감지 · 앱을 실행하면 조회를 시작합니다"
             )
-        case (nil, false, false):
+        case (nil, false, true, _):
+            return ProviderEnvironmentStatus(
+                isDetected: true,
+                summary: "Antigravity 앱 실행 중 · 로그인 또는 quota 서버 초기화를 기다리는 중입니다"
+            )
+        case (nil, false, false, true):
+            return ProviderEnvironmentStatus(
+                isDetected: true,
+                summary: "Antigravity 로컬 상태 감지 · 앱 실행이 필요합니다"
+            )
+        case (nil, false, false, false):
             return ProviderEnvironmentStatus(
                 isDetected: false,
                 summary: "Antigravity 상태 미감지"
@@ -119,9 +152,19 @@ enum ProviderEnvironmentDetector {
         let hasStateDirectory: Bool
         let appRunning: Bool
         let runningProcess: AntigravityProcessSnapshot?
+        let hasAuthStatus: Bool
+        let hasOAuthToken: Bool
+
+        var hasPersistedAuthState: Bool {
+            hasAuthStatus || hasOAuthToken
+        }
+
+        var hasRuntimeConnection: Bool {
+            runningProcess?.csrfToken?.isEmpty == false
+        }
 
         var canAttemptRefresh: Bool {
-            runningProcess != nil || appRunning || hasStateDirectory
+            hasRuntimeConnection || (appRunning && hasPersistedAuthState)
         }
     }
 
@@ -138,10 +181,59 @@ enum ProviderEnvironmentDetector {
             atPath: FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent("Library/Application Support/Antigravity").path
         )
+        let persistedState = antigravityPersistedState()
         return AntigravitySignals(
             hasStateDirectory: hasLegacyStateDirectory || hasHomeStateDirectory || hasApplicationSupportDirectory,
             appRunning: AntigravityStatusProbe.appProcessRunning(),
-            runningProcess: AntigravityStatusProbe.runningProcess()
+            runningProcess: AntigravityStatusProbe.runningProcess(),
+            hasAuthStatus: persistedState.hasAuthStatus,
+            hasOAuthToken: persistedState.hasOAuthToken
+        )
+    }
+
+    private struct AntigravityPersistedState {
+        let hasAuthStatus: Bool
+        let hasOAuthToken: Bool
+    }
+
+    private static func antigravityPersistedState() -> AntigravityPersistedState {
+        let dbURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Antigravity/User/globalStorage/state.vscdb")
+        guard FileManager.default.fileExists(atPath: dbURL.path) else {
+            return AntigravityPersistedState(hasAuthStatus: false, hasOAuthToken: false)
+        }
+
+        guard let sqlite3Path = shellBinaryPath(named: "sqlite3") else {
+            return AntigravityPersistedState(hasAuthStatus: false, hasOAuthToken: false)
+        }
+
+        func hasKey(_ key: String) -> Bool {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: sqlite3Path)
+            process.arguments = [
+                dbURL.path,
+                "SELECT 1 FROM ItemTable WHERE key='\(key.replacingOccurrences(of: "'", with: "''"))' LIMIT 1;"
+            ]
+
+            let output = Pipe()
+            process.standardOutput = output
+            process.standardError = Pipe()
+
+            do {
+                try process.run()
+                process.waitUntilExit()
+            } catch {
+                return false
+            }
+
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            let result = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            return result == "1"
+        }
+
+        return AntigravityPersistedState(
+            hasAuthStatus: hasKey("antigravityAuthStatus") || hasKey("antigravityUnifiedStateSync.userStatus"),
+            hasOAuthToken: hasKey("antigravityUnifiedStateSync.oauthToken")
         )
     }
 

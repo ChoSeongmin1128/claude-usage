@@ -3070,13 +3070,13 @@ struct SettingsView: View {
             case .codex:
                 return CodexAuthManager.shared.isAuthenticated ? "활성" : "인증 필요"
             case .gemini:
-                if !ProviderEnvironmentDetector.canAttemptRefresh(for: .gemini) {
+                if ProviderEnvironmentDetector.requiresInteractiveSetup(for: .gemini) {
                     return "로그인 필요"
                 }
                 return "활성"
             case .antigravity:
-                if !ProviderEnvironmentDetector.canAttemptRefresh(for: .antigravity) {
-                    return "연결 필요"
+                if ProviderEnvironmentDetector.requiresInteractiveSetup(for: .antigravity) {
+                    return "앱 실행 필요"
                 }
                 return "활성"
             }

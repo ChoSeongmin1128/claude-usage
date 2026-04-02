@@ -489,7 +489,8 @@ enum MenuBarStatusComposer {
         for snapshot: MenuBarProviderSnapshot,
         valueFont: NSFont,
         resetFont: NSFont,
-        secondaryColor: NSColor
+        secondaryColor: NSColor,
+        includeResetText: Bool = true
     ) -> [MenuBarElement] {
         var elements: [MenuBarElement] = []
         if let icon = snapshot.icon {
@@ -501,7 +502,7 @@ enum MenuBarStatusComposer {
         if let styleIcon = snapshot.styleIcon {
             elements.append(.image(styleIcon))
         }
-        if let resetText = snapshot.resetText {
+        if includeResetText, let resetText = snapshot.resetText {
             elements.append(.text(resetText, attributes: [.font: resetFont, .foregroundColor: secondaryColor]))
         }
         return elements
@@ -616,6 +617,13 @@ enum MenuBarStatusComposer {
         }
         guard let usage else {
             if let error {
+                if error.isTemporaryFailure {
+                    return MenuBarProviderStatus(
+                        text: "…",
+                        color: secondaryColor,
+                        tooltip: error.errorDescription ?? "재시도 중"
+                    )
+                }
                 return MenuBarProviderStatus(
                     text: hasAuthError ? "인증" : "오류",
                     color: .systemOrange,
@@ -662,6 +670,13 @@ enum MenuBarStatusComposer {
         }
         guard let usage else {
             if let error {
+                if error.isTemporaryFailure {
+                    return MenuBarProviderStatus(
+                        text: "…",
+                        color: secondaryColor,
+                        tooltip: error.errorDescription ?? "재시도 중"
+                    )
+                }
                 return MenuBarProviderStatus(
                     text: hasAuthError ? "연결" : "오류",
                     color: .systemOrange,

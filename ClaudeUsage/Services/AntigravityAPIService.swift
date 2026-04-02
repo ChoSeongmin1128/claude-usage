@@ -437,7 +437,12 @@ actor AntigravityAPIService {
             _ = try await makeRequest(path: unleashPath, body: unleashRequestBody(), context: context)
             return true
         } catch {
-            return false
+            do {
+                _ = try await makeRequest(path: userStatusPath, body: defaultRequestBody(), context: context)
+                return true
+            } catch {
+                return false
+            }
         }
     }
 

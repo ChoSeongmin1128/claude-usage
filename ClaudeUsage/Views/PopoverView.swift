@@ -69,7 +69,7 @@ struct PopoverView: View {
                 .buttonStyle(.borderless)
                 .help(isPinned ? "고정 해제" : "고정")
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, isCompact ? 12 : 16)
             .padding(.top, isCompact ? 4 : 12)
             .padding(.bottom, isCompact ? 4 : 8)
 
@@ -130,7 +130,7 @@ struct PopoverView: View {
                 .buttonStyle(.borderless)
                 .font(.caption)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, isCompact ? 12 : 16)
             .padding(.vertical, isCompact ? 6 : 8)
 
             if !isCompact {
@@ -205,6 +205,7 @@ struct PopoverView: View {
                                 Text(service.displayName)
                                     .font(.system(size: 12.5, weight: selectedService == service ? .semibold : .medium))
                                     .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
                                 if shouldShowWarningDot(for: service) {
                                     Circle()
                                         .fill(Color.orange)
@@ -314,13 +315,16 @@ struct PopoverView: View {
     }
 
     private var preferredPopoverWidth: CGFloat {
-        let baseWidth: CGFloat = isCompact ? 320 : 360
+        let baseWidth: CGFloat = isCompact ? 360 : 420
         let providerCount = max(availableServices.count, 1)
-        let selectorWidth = CGFloat(providerCount) * (isCompact ? 84 : 92)
-        let utilityWidth: CGFloat = shouldCollapseHeaderMetadata ? 128 : 172
-        let minRequiredWidth = selectorWidth + utilityWidth
-        let capWidth: CGFloat = isCompact ? 460 : 560
-        return min(max(baseWidth, minRequiredWidth), capWidth)
+        let extraProviders = max(providerCount - 1, 0)
+        let providerWidthBoost = CGFloat(extraProviders) * (isCompact ? 42 : 56)
+        let longestNameLength = availableServices.map(\.displayName.count).max() ?? selectedService.displayName.count
+        let nameWidthBoost = CGFloat(max(longestNameLength - 6, 0)) * (isCompact ? 9 : 12)
+        let headerUtilityWidth: CGFloat = shouldCollapseHeaderMetadata ? 150 : 196
+        let crowdedTabsBoost: CGFloat = providerCount >= 4 ? (isCompact ? 40 : 64) : 0
+        let capWidth: CGFloat = isCompact ? 620 : 760
+        return min(baseWidth + providerWidthBoost + nameWidthBoost + headerUtilityWidth + crowdedTabsBoost, capWidth)
     }
 
     private var hasServiceData: Bool {
@@ -696,8 +700,8 @@ struct PopoverView: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
     @ViewBuilder
@@ -723,8 +727,8 @@ struct PopoverView: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
     @ViewBuilder
@@ -800,8 +804,8 @@ struct PopoverView: View {
                 CompactUsageRow(label: "Lite", percentage: tertiary.usedPercent, resetAt: tertiary.resetAtISO, isWeekly: true, timeFormatStyle: settings.timeFormat)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 
     @ViewBuilder
@@ -877,8 +881,8 @@ struct PopoverView: View {
                 CompactUsageRow(label: tertiary.label, percentage: tertiary.usedPercent, resetAt: tertiary.resetAtISO, isWeekly: true, timeFormatStyle: settings.timeFormat)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 }
 
