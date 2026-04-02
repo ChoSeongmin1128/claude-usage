@@ -57,7 +57,7 @@ struct SettingsView: View {
     var onOpenClaudeInChrome: (() -> Void)?
     var onLogout: (() -> Void)?
     var onCodexLogout: (() -> Void)?
-    var onSessionKeyStored: (() -> Void)?
+    var onSessionKeyStored: (() async -> Void)?
 
     enum TestResult {
         case success
@@ -699,7 +699,20 @@ struct SettingsView: View {
             if settings.isProviderEnabled(.claude) {
                 compactAuthStatusCard
                 authPrimaryActionsCard
-                claudeAdvancedSection
+                if shouldShowAdvancedAuthSection {
+                    claudeAdvancedSection
+                } else {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            isClaudeAdvancedSectionExpanded = true
+                        }
+                    } label: {
+                        Text("문제 해결 및 수동 입력 보기")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.borderless)
+                }
             } else {
                 Text("Claude 모니터링이 비활성화되어 있습니다. 활성화하면 메뉴바와 조회가 다시 동작합니다.")
                     .font(.caption)
@@ -1068,6 +1081,19 @@ struct SettingsView: View {
             || settings.claudeMessagesFallbackPolicy != .off
             || snapshot.oauth.lastFailureAt != nil
             || snapshot.session.lastFailureAt != nil
+    }
+
+    private var hasPendingManualSessionKey: Bool {
+        let normalized = normalizeSessionKey(sessionKey)
+        guard !normalized.isEmpty else { return false }
+        return normalized != normalizeSessionKey(storedSessionKey ?? "")
+    }
+
+    private var shouldShowAdvancedAuthSection: Bool {
+        isClaudeAdvancedSectionExpanded
+            || !hasReadyClaudeCredential
+            || shouldSurfaceRecoveryAndDiagnostics
+            || hasPendingManualSessionKey
     }
 
     private var hasSuccessfulClaudeFetch: Bool {
@@ -2810,6 +2836,7 @@ struct SettingsView: View {
     private func testConnection() {
         let normalizedKey = normalizeSessionKey(sessionKey)
         guard !normalizedKey.isEmpty else { return }
+        let shouldPersist = normalizeSessionKey(storedSessionKey ?? "") != normalizedKey
         if normalizedKey != sessionKey {
             sessionKey = normalizedKey
         }
@@ -2821,25 +2848,20 @@ struct SettingsView: View {
                 let service = ClaudeAPIService(sessionKey: normalizedKey)
                 await service.updatePreferredOrganizationID(normalizeOrganizationID(selectedOrganizationID))
                 let _ = try await service.fetchUsage()
+                if shouldPersist {
+                    try KeychainManager.shared.save(normalizedKey)
+                    Logger.info("연결 테스트 성공, 변경된 세션 키 저장됨")
+                    if let onSessionKeyStored {
+                        await onSessionKeyStored()
+                    }
+                } else {
+                    Logger.info("연결 테스트 성공, 기존 세션 키를 재사용함")
+                }
                 await MainActor.run {
+                    storedSessionKey = normalizedKey
                     testResult = .success
                     isTesting = false
-                    let shouldPersist = normalizeSessionKey(storedSessionKey ?? "") != normalizedKey
-                    if shouldPersist {
-                        do {
-                            try KeychainManager.shared.save(normalizedKey)
-                            storedSessionKey = normalizedKey
-                            Logger.info("연결 테스트 성공, 변경된 세션 키 저장됨")
-                        } catch {
-                            Logger.error("세션 키 저장 실패: \(error)")
-                        }
-                    } else {
-                        Logger.info("연결 테스트 성공, 기존 세션 키를 재사용함")
-                    }
                     loadUsageHealthSnapshot()
-                    if shouldPersist {
-                        onSessionKeyStored?()
-                    }
                 }
             } catch {
                 await MainActor.run {

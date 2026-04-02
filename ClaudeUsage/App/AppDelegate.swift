@@ -1754,31 +1754,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         showSettingsWindow()
     }
 
-    private func applySettingsFromWindow() {
-        Task {
-            let result = await ClaudeSettingsApplyCoordinator.syncStoredCredential(
-                apiService: self.apiService,
-                preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
-                providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
-            )
-            await MainActor.run {
-                self.applyUsageHealthSnapshot(result.snapshot)
-                self.setClaudeSetupCompleted(result.shouldMarkSetupComplete)
-                if result.shouldStartMonitoring {
-                    self.startMonitoring()
-                } else {
-                    self.clearClaudePresentationState(
-                        markSetupIncomplete: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
-                    )
-                    self.updateMenuBar()
-                    self.updatePopoverViewModel()
-                    self.syncRefreshTimerState()
-                    if self.hasRefreshableService {
-                        self.refreshAll(force: true)
-                    }
+    private func syncClaudeSettingsFromWindow() async {
+        let result = await ClaudeSettingsApplyCoordinator.syncStoredCredential(
+            apiService: self.apiService,
+            preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
+            providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
+        )
+        await MainActor.run {
+            self.applyUsageHealthSnapshot(result.snapshot)
+            self.setClaudeSetupCompleted(result.shouldMarkSetupComplete)
+            if result.shouldStartMonitoring {
+                self.startMonitoring()
+            } else {
+                self.clearClaudePresentationState(
+                    markSetupIncomplete: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
+                )
+                self.updateMenuBar()
+                self.updatePopoverViewModel()
+                self.syncRefreshTimerState()
+                if self.hasRefreshableService {
+                    self.refreshAll(force: true)
                 }
             }
-            Logger.info("설정 적용 완료")
+        }
+        Logger.info("설정 적용 완료")
+    }
+
+    private func applySettingsFromWindow() {
+        Task {
+            await self.syncClaudeSettingsFromWindow()
         }
     }
 
@@ -1854,7 +1858,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onSessionKeyStored: { [weak self] in
                 guard let self else { return }
-                self.applySettingsFromWindow()
+                await self.syncClaudeSettingsFromWindow()
             }
         )
         settingsWindowCoordinator.present(rootView: settingsView, snapshot: snapshot)
