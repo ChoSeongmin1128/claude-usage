@@ -70,7 +70,7 @@ struct SetupWizardWindowView: View {
     private var secondaryActionTitle: String? {
         switch progress.stage {
         case .credential:
-            return nil
+            return currentStep == .chromeImport ? "웹 로그인" : nil
         case .verification:
             return nil
         case .organization:
@@ -96,7 +96,7 @@ struct SetupWizardWindowView: View {
     private var stageSummaryDetail: String {
         switch progress.stage {
         case .credential:
-            return "먼저 Chrome 가져오기만 시도하면 됩니다. 다른 경로는 이 단계가 실패할 때만 여는 편이 맞습니다."
+            return "먼저 권장 경로 하나만 시도하면 됩니다. 다만 이 창에서 웹 로그인과 수동 입력으로 바로 내려갈 수도 있습니다."
         case .verification:
             return "자격은 준비됐습니다. 이제 첫 성공 조회만 끝내면 됩니다."
         case .organization:
@@ -169,6 +169,13 @@ struct SetupWizardWindowView: View {
             .cornerRadius(8)
 
             HStack {
+                if progress.stage == .credential && !progress.hasReadyCredential {
+                    Button("수동 입력") {
+                        onOpenAdvancedSettings()
+                    }
+                    .buttonStyle(.bordered)
+                }
+
                 if let secondaryActionTitle {
                     Button(secondaryActionTitle) {
                         performSecondaryAction()
@@ -216,7 +223,9 @@ struct SetupWizardWindowView: View {
     private func performSecondaryAction() {
         switch progress.stage {
         case .credential:
-            return
+            if currentStep == .chromeImport {
+                onOpenWebLogin()
+            }
         case .verification:
             onOpenAdvancedSettings()
         case .organization:

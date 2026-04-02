@@ -1988,6 +1988,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.showLoginWindow(clearCookies: true)
             },
             onOpenAdvancedSettings: { [weak self] in
+                AppSettings.shared.settingsLastTab = "claude"
+                AppSettings.shared.claudeSettingsLastTab = "auth"
+                AppSettings.shared.shouldRevealClaudeAdvancedAuth = true
                 self?.setupWizardWindowCoordinator.close()
                 self?.showSettingsWindow()
             },

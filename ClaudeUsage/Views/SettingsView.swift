@@ -251,6 +251,16 @@ struct SettingsView: View {
         .onChange(of: settings.providerStates) { _, _ in
             checkCodexAuth()
         }
+        .onReceive(settings.$shouldRevealClaudeAdvancedAuth.removeDuplicates()) { shouldReveal in
+            guard shouldReveal else { return }
+            selectedPanel = .claude
+            selectedClaudeTab = .auth
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isClaudeAdvancedSectionExpanded = true
+                isAdvancedAuthExpanded = true
+            }
+            settings.shouldRevealClaudeAdvancedAuth = false
+        }
     }
 
     @ViewBuilder
@@ -886,7 +896,9 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionCardHeader(
                 title: "현재 인증 상태",
-                subtitle: "처음 필요한 행동만 먼저 보여줍니다"
+                subtitle: currentSetupProgress.stage == .complete
+                    ? "지금 필요한 상태와 다음 행동만 보여줍니다"
+                    : "처음 필요한 행동만 먼저 보여줍니다"
             )
 
             if let snapshot = usageHealthSnapshot {

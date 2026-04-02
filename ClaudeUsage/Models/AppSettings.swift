@@ -273,6 +273,7 @@ class AppSettings: ObservableObject {
     @Published var circularDisplayMode: CircularDisplayMode {
         didSet { defaults.set(circularDisplayMode.rawValue, forKey: "circularDisplayMode") }
     }
+    @Published var shouldRevealClaudeAdvancedAuth: Bool = false
     @Published var iconMetric: IconMetric {
         didSet { defaults.set(iconMetric.rawValue, forKey: "iconMetric") }
     }
