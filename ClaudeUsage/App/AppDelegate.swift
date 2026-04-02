@@ -20,6 +20,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let popoverCoordinator = AppPopoverCoordinator()
     private let runtimeObservationCoordinator = AppRuntimeObservationCoordinator()
     private let settingsWindowCoordinator = SettingsWindowCoordinator()
+    private let loginWindowCoordinator = LoginWindowCoordinator()
 
     private var currentUsage: ClaudeUsageResponse?
     private var currentCodexUsage: CodexUsageResponse?
@@ -43,7 +44,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusTimer: Timer?
     private var appearanceObservation: NSKeyValueObservation?
 
-    private var loginWindow: NSWindow?
     private var lastObservedProviderStates = AppSettings.shared.providerStates
     private var eventMonitor: Any?
     private var globalClickMonitor: Any?
@@ -166,6 +166,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusTimer?.invalidate()
         popoverCoordinator.invalidate()
         settingsWindowCoordinator.invalidate()
+        loginWindowCoordinator.invalidate()
         runtimeObservationCoordinator.cancelAll()
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
@@ -1230,13 +1231,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Login Window
 
     func showLoginWindow(clearCookies: Bool = false) {
-        if let window = loginWindow, window.isVisible {
+        if loginWindowCoordinator.focusIfVisible() {
             if clearCookies {
-                window.close()
-                loginWindow = nil
+                loginWindowCoordinator.close()
             } else {
-                window.makeKeyAndOrderFront(nil)
-                NSApp.activate(ignoringOtherApps: true)
                 return
             }
         }
@@ -1245,9 +1243,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             clearWebSessionData()
         }
 
-        if let window = loginWindow, window.isVisible {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+        if loginWindowCoordinator.focusIfVisible() {
             return
         }
 
@@ -1260,7 +1256,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 Task {
                     try? await Task.sleep(nanoseconds: 1_500_000_000)
                     await MainActor.run {
-                        self.loginWindow?.close()
+                        self.loginWindowCoordinator.close()
                     }
                     do {
                         let result = try await ClaudeSettingsApplyCoordinator.activateSessionKey(
@@ -1284,23 +1280,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             },
             onCancel: { [weak self] in
-                self?.loginWindow?.close()
+                self?.loginWindowCoordinator.close()
             }
         )
-
-        let hostingController = NSHostingController(rootView: loginView)
-
-        let window = NSWindow(contentViewController: hostingController)
-        window.title = "Claude 로그인"
-        window.styleMask = [.titled, .closable]
-        window.center()
-        window.isReleasedWhenClosed = false
-        window.level = .floating
-
-        self.loginWindow = window
-
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        loginWindowCoordinator.present(rootView: loginView)
     }
 
     private func clearWebSessionData() {
