@@ -504,12 +504,15 @@ struct PopoverView: View {
                         HStack(spacing: 5) {
                             Text(service.displayName)
                                 .font(.system(size: 12.5, weight: selectedService == service ? .semibold : .medium))
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
                             if shouldShowWarningDot(for: service) {
                                 Circle()
                                     .fill(Color.orange)
                                     .frame(width: 6, height: 6)
                             }
                         }
+                        .fixedSize(horizontal: true, vertical: false)
                         .padding(.horizontal, 9)
                         .padding(.vertical, 4)
                         .background(selectedService == service ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
@@ -519,6 +522,8 @@ struct PopoverView: View {
                     .buttonStyle(.plain)
                 }
             }
+            .fixedSize(horizontal: true, vertical: false)
+            .layoutPriority(1)
         } else {
             Text(selectedService.displayName)
                 .font(.headline)

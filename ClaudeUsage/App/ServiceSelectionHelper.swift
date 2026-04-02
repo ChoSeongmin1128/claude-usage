@@ -2,7 +2,7 @@ import Foundation
 
 struct ServiceSelectionHelper {
     static let supportedProviderKinds: [AppProviderKind] = AppProviderKind.runtimeKinds
-    static let supportedPopoverServices: [PopoverService] = supportedProviderKinds.compactMap(\.runtimeService)
+    static let supportedPopoverServices: [PopoverService] = RuntimeProviderRegistry.supportedServices
 
     nonisolated static func providerKind(for service: PopoverService) -> AppProviderKind {
         AppProviderKind(rawValue: service.rawValue) ?? .claude
@@ -95,18 +95,6 @@ struct ServiceSelectionHelper {
         settings.isPopoverPinned(for: providerKind(for: service))
     }
 
-    static func canRefreshClaude(
-        selectionState: ProviderSelectionState,
-        hasSessionKey: Bool,
-        hasOAuthCredential: Bool
-    ) -> Bool {
-        selectionState.runtimeEnabledKinds.contains(.claude) && (hasSessionKey || hasOAuthCredential)
-    }
-
-    static func canRefreshCodex(selectionState: ProviderSelectionState, isCodexAuthenticated: Bool) -> Bool {
-        selectionState.runtimeEnabledKinds.contains(.codex) && isCodexAuthenticated
-    }
-
     static func canRefresh(
         _ service: PopoverService,
         selectionState: ProviderSelectionState,
@@ -114,19 +102,13 @@ struct ServiceSelectionHelper {
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool
     ) -> Bool {
-        switch service {
-        case .claude:
-            return canRefreshClaude(
-                selectionState: selectionState,
-                hasSessionKey: hasClaudeSessionKey,
-                hasOAuthCredential: hasClaudeOAuthCredential
-            )
-        case .codex:
-            return canRefreshCodex(
-                selectionState: selectionState,
-                isCodexAuthenticated: isCodexAuthenticated
-            )
-        }
+        guard selectionState.runtimeEnabledKinds.contains(providerKind(for: service)) else { return false }
+        let context = RuntimeProviderRefreshContext(
+            hasClaudeSessionKey: hasClaudeSessionKey,
+            hasClaudeOAuthCredential: hasClaudeOAuthCredential,
+            isCodexAuthenticated: isCodexAuthenticated
+        )
+        return RuntimeProviderRegistry.descriptor(for: service).isRefreshable(using: context)
     }
 
     static func refreshableServices(

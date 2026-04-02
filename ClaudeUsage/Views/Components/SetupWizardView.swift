@@ -43,7 +43,8 @@ struct SetupWizardView: View {
     let currentStep: Step
     let hasReadyCredential: Bool
     let isAdvancedExpanded: Bool
-    let onOpenLogin: () -> Void
+    let onOpenChrome: () -> Void
+    let onOpenWebLogin: () -> Void
     let onOpenAdvanced: () -> Void
     let onDismiss: () -> Void
 
@@ -165,8 +166,10 @@ struct SetupWizardView: View {
 
     private func performPrimaryAction() {
         switch currentStep {
-        case .chromeImport, .webLogin:
-            onOpenLogin()
+        case .chromeImport:
+            onOpenChrome()
+        case .webLogin:
+            onOpenWebLogin()
         case .manualSessionKey:
             onOpenAdvanced()
         }

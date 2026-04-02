@@ -753,11 +753,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func runtimeActivationState(for service: PopoverService, enabled: Bool) -> RuntimeProviderActivationState {
         let snapshot = runtimeProviderSnapshot(for: service)
+        let descriptor = RuntimeProviderRegistry.descriptor(for: service)
         return RuntimeProviderActivationState(
             service: service,
             enabled: enabled,
             hasCredential: snapshot.hasCredential,
-            shouldMarkSetupCompleteOnRefresh: service == .claude && enabled && snapshot.hasCredential
+            shouldMarkSetupCompleteOnRefresh: descriptor.shouldMarkSetupComplete(
+                enabled: enabled,
+                hasCredential: snapshot.hasCredential
+            )
         )
     }
 
@@ -1263,6 +1267,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.settingsWindowCoordinator.close()
                 self?.showLoginWindow(clearCookies: true)
             },
+            onOpenClaudeInChrome: { [weak self] in
+                self?.openClaudeUsageInChrome()
+            },
             onLogout: { [weak self] in
                 guard let self = self else { return }
                 Task {
@@ -1372,7 +1379,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             hasReadyCredential: hasReadyClaudeCredential,
             hasSuccessfulFetch: lastUpdated != nil,
             organizationSummary: setupWizardOrganizationSummary,
-            onOpenLogin: { [weak self] in
+            onOpenChrome: { [weak self] in
+                self?.openClaudeUsageInChrome()
+            },
+            onOpenWebLogin: { [weak self] in
                 self?.setupWizardWindowCoordinator.close()
                 self?.showLoginWindow(clearCookies: true)
             },
@@ -1418,6 +1428,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let url = URL(string: "https://claude.ai/settings/usage") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    private func openClaudeUsageInChrome() {
+        let targetURL = URL(string: "https://claude.ai/settings/usage")!
+        if let chromeAppURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
+            let configuration = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.open([targetURL], withApplicationAt: chromeAppURL, configuration: configuration)
+            return
+        }
+
+        NSWorkspace.shared.open(targetURL)
     }
 
     @objc private func quitClicked() {

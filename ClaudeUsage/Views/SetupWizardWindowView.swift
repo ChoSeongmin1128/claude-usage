@@ -5,7 +5,8 @@ struct SetupWizardWindowView: View {
     let hasReadyCredential: Bool
     let hasSuccessfulFetch: Bool
     let organizationSummary: String
-    let onOpenLogin: () -> Void
+    let onOpenChrome: () -> Void
+    let onOpenWebLogin: () -> Void
     let onOpenAdvancedSettings: () -> Void
     let onDismiss: () -> Void
 
@@ -43,7 +44,8 @@ struct SetupWizardWindowView: View {
                 currentStep: currentStep,
                 hasReadyCredential: hasReadyCredential,
                 isAdvancedExpanded: false,
-                onOpenLogin: onOpenLogin,
+                onOpenChrome: onOpenChrome,
+                onOpenWebLogin: onOpenWebLogin,
                 onOpenAdvanced: onOpenAdvancedSettings,
                 onDismiss: onDismiss
             )
@@ -92,8 +94,10 @@ struct SetupWizardWindowView: View {
                 Button(currentStep.ctaTitle) {
                     if currentStep == .manualSessionKey {
                         onOpenAdvancedSettings()
+                    } else if currentStep == .chromeImport {
+                        onOpenChrome()
                     } else {
-                        onOpenLogin()
+                        onOpenWebLogin()
                     }
                 }
                 .buttonStyle(.borderedProminent)

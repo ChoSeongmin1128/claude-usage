@@ -27,6 +27,48 @@ enum RuntimeProviderPayload {
     case codex(CodexUsageResponse)
 }
 
+struct RuntimeProviderRefreshContext: Sendable, Equatable {
+    let hasClaudeSessionKey: Bool
+    let hasClaudeOAuthCredential: Bool
+    let isCodexAuthenticated: Bool
+}
+
+struct RuntimeProviderDescriptor: Sendable, Equatable {
+    let service: PopoverService
+    let marksSetupCompleteOnRefresh: Bool
+
+    var kind: AppProviderKind {
+        service.providerKind
+    }
+
+    func isRefreshable(using context: RuntimeProviderRefreshContext) -> Bool {
+        switch service {
+        case .claude:
+            return context.hasClaudeSessionKey || context.hasClaudeOAuthCredential
+        case .codex:
+            return context.isCodexAuthenticated
+        }
+    }
+
+    func shouldMarkSetupComplete(enabled: Bool, hasCredential: Bool) -> Bool {
+        marksSetupCompleteOnRefresh && enabled && hasCredential
+    }
+}
+
+enum RuntimeProviderRegistry {
+    static let supportedDescriptors: [RuntimeProviderDescriptor] = [
+        .init(service: .claude, marksSetupCompleteOnRefresh: true),
+        .init(service: .codex, marksSetupCompleteOnRefresh: false),
+    ]
+
+    static let supportedServices: [PopoverService] = supportedDescriptors.map(\.service)
+
+    static func descriptor(for service: PopoverService) -> RuntimeProviderDescriptor {
+        supportedDescriptors.first(where: { $0.service == service })
+            ?? .init(service: service, marksSetupCompleteOnRefresh: false)
+    }
+}
+
 struct RuntimeProviderState {
     var payload: RuntimeProviderPayload?
     var error: APIError?

@@ -50,6 +50,7 @@ struct SettingsView: View {
     var onApply: (() -> Void)?
     var onCancel: (() -> Void)?
     var onOpenLogin: (() -> Void)?
+    var onOpenClaudeInChrome: (() -> Void)?
     var onLogout: (() -> Void)?
     var onCodexLogout: (() -> Void)?
 
@@ -733,7 +734,10 @@ struct SettingsView: View {
             currentStep: currentSetupWizardStep,
             hasReadyCredential: hasReadyClaudeCredential,
             isAdvancedExpanded: isAdvancedAuthExpanded,
-            onOpenLogin: {
+            onOpenChrome: {
+                onOpenClaudeInChrome?()
+            },
+            onOpenWebLogin: {
                 onOpenLogin?()
             },
             onOpenAdvanced: {
