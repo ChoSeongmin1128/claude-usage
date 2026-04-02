@@ -11,7 +11,6 @@ CONFIGURATION="${CONFIGURATION:-Release}"
 PROJECT_PATH="${PROJECT_PATH:-$ROOT_DIR/ClaudeUsage.xcodeproj}"
 XC_CONFIG_PATH="${XC_CONFIG_PATH:-$ROOT_DIR/Config/Release.xcconfig}"
 LOCAL_XC_CONFIG_PATH="${LOCAL_XC_CONFIG_PATH:-$ROOT_DIR/Config/Sparkle.release.local.xcconfig}"
-NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 
 extract_xcconfig_value() {
   local file="$1"
@@ -38,6 +37,8 @@ is_placeholder_value() {
   [[ "$value" == *'$('* ]] && return 0
   return 1
 }
+
+NOTARY_PROFILE="${NOTARY_PROFILE:-$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "NOTARY_PROFILE")}"
 
 echo "ClaudeUsage release 산출물 빌드와 notarization을 시작합니다"
 
@@ -68,8 +69,8 @@ if is_placeholder_value "$PUBLIC_KEY"; then
 fi
 
 if [[ -z "$NOTARY_PROFILE" ]]; then
-  echo "NOTARY_PROFILE 환경변수가 비어 있습니다." >&2
-  echo "예: export NOTARY_PROFILE=ClaudeUsageNotary" >&2
+  echo "유효한 NOTARY_PROFILE을 찾지 못했습니다." >&2
+  echo "Config/Sparkle.release.local.xcconfig 또는 환경변수 NOTARY_PROFILE을 확인해 주세요." >&2
   exit 1
 fi
 
@@ -119,6 +120,16 @@ xcrun notarytool submit "$ZIP_PATH" \
 echo
 echo "4. 앱 staple 적용"
 xcrun stapler staple "$APP_PATH"
+
+echo
+echo "5. stapled 앱으로 ZIP 다시 생성"
+rm -f "$ZIP_PATH"
+ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
+
+if [[ ! -f "$ZIP_PATH" ]]; then
+  echo "stapled ZIP 재생성에 실패했습니다: $ZIP_PATH" >&2
+  exit 1
+fi
 
 echo
 cat <<EOF

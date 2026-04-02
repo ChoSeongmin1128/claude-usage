@@ -65,6 +65,39 @@ enum SetupCompletionPolicy {
         )
     }
 
+    static func hasReadyCredential(
+        sessionCredentialAvailable: Bool,
+        oauthCredentialAvailable: Bool,
+        storedSessionKey: String?
+    ) -> Bool {
+        sessionCredentialAvailable
+            || oauthCredentialAvailable
+            || !(storedSessionKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func notificationPolicy(from metadata: ClaudeProfileMetadata?) -> ClaudeNotificationPolicy? {
+        metadata.map(ClaudeNotificationPolicy.init(metadata:))
+    }
+
+    static func messagesFallbackPolicy(from settings: AppSettings) -> ClaudeMessagesHeaderFallbackPolicy {
+        switch settings.claudeMessagesFallbackPolicy {
+        case .off:
+            return .init(isEnabled: false, allowAutomaticFallback: false, minimumUsagePercent: 20)
+        case .manual:
+            return .init(
+                isEnabled: true,
+                allowAutomaticFallback: false,
+                minimumUsagePercent: Double(settings.claudeMessagesFallbackAutoDisableBelowPercent)
+            )
+        case .automatic:
+            return .init(
+                isEnabled: true,
+                allowAutomaticFallback: true,
+                minimumUsagePercent: Double(settings.claudeMessagesFallbackAutoDisableBelowPercent)
+            )
+        }
+    }
+
     static func resolveWizardProgress(
         hasReadyCredential: Bool,
         hasSuccessfulFetch: Bool,

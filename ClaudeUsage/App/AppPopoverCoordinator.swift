@@ -67,13 +67,15 @@ final class AppPopoverCoordinator {
             let fitting = hosting.view.fittingSize
             guard fitting.width > 0, fitting.height > 0 else { return }
 
-            let preferredWidth = PopoverView.preferredPopoverWidth(
-                for: service,
-                compact: compact
+            let screenMaxWidth = (NSScreen.main?.visibleFrame.width ?? 1440) - 80
+            let width = min(
+                PopoverView.resolvedPopoverWidth(
+                    for: service,
+                    compact: compact,
+                    fittingWidth: fitting.width
+                ),
+                max(320, screenMaxWidth)
             )
-            let minWidth: CGFloat = preferredWidth
-            let maxWidth = max(minWidth, (NSScreen.main?.visibleFrame.width ?? 1440) - 80)
-            let width = min(max(fitting.width, minWidth), maxWidth)
             let minHeight: CGFloat = compact ? 104 : 280
             let maxHeight = max(minHeight, (NSScreen.main?.visibleFrame.height ?? 900) - 100)
             let height = min(max(fitting.height, minHeight), maxHeight)

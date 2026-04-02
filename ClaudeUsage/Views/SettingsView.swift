@@ -1239,10 +1239,11 @@ struct SettingsView: View {
     }
 
     private var hasReadyClaudeCredential: Bool {
-        if usageHealthSnapshot?.runtime.credentialAvailability.hasAnyCredential == true {
-            return true
-        }
-        return !(storedSessionKey ?? "").isEmpty
+        SetupCompletionPolicy.hasReadyCredential(
+            sessionCredentialAvailable: usageHealthSnapshot?.runtime.credentialAvailability.sessionCredentialAvailable ?? false,
+            oauthCredentialAvailable: usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false,
+            storedSessionKey: storedSessionKey
+        )
     }
 
     private var appliedPreferredOrganizationID: String {
@@ -1338,8 +1339,7 @@ struct SettingsView: View {
     }
 
     private var claudeNotificationPolicySummary: String? {
-        guard let profileMetadata else { return nil }
-        return ClaudeNotificationPolicy(metadata: profileMetadata).summaryLine
+        SetupCompletionPolicy.notificationPolicy(from: profileMetadata)?.summaryLine
     }
 
     private var shouldRecommendCLIOAuth: Bool {

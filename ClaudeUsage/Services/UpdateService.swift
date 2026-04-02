@@ -39,6 +39,13 @@ struct UpdateEngineStatus {
     }
 }
 
+private enum UpdateEngineMessages {
+    static let githubFallback = "Sparkle는 통합되었지만 유효한 appcast/feed 또는 공개키가 없어 GitHub Release 엔진을 사용 중입니다"
+    static let sparkleInteractiveReady = "Sparkle 앱내 확인이 준비되었고, 자동 확인 주기는 앱 타이머가 계속 관리합니다"
+    static let sparkleInteractiveOnlyError = "Sparkle 엔진은 앱 내부 확인만 지원합니다"
+    static let sparkleInteractiveStarted = "Sparkle 업데이트 확인을 시작했습니다"
+}
+
 enum UpdateCheckResult {
     case available(UpdateInfo)
     case upToDate
@@ -166,11 +173,11 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine {
     }
 
     func modeSummary() async -> String {
-        "Sparkle 앱내 확인을 지원하고, 자동 확인 주기는 앱 타이머가 계속 관리합니다"
+        UpdateEngineMessages.sparkleInteractiveReady
     }
 
     func checkForUpdates() async -> UpdateCheckResult {
-        .error("Sparkle 엔진은 앱 내부 확인만 지원합니다")
+        .error(UpdateEngineMessages.sparkleInteractiveOnlyError)
     }
 
     func latestDownloadURL() async -> URL {
@@ -183,12 +190,12 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine {
 
     func performInteractiveCheck() async -> String? {
         updaterController.checkForUpdates(nil)
-        return "Sparkle 업데이트 확인을 시작했습니다"
+        return UpdateEngineMessages.sparkleInteractiveStarted
     }
 
     func configurationStatus() async -> UpdateEngineStatus {
         UpdateEngineStatus(
-            modeSummary: "Sparkle 앱내 확인을 지원하고, 자동 확인 주기는 앱 타이머가 계속 관리합니다",
+            modeSummary: UpdateEngineMessages.sparkleInteractiveReady,
             sparkleIntegrated: true,
             feedConfigured: true,
             publicKeyConfigured: true
@@ -204,9 +211,9 @@ enum UpdateConfigurationInspector {
         let publicKeyConfigured = configuredValue(for: "SUPublicEDKey") != nil
         let summary: String
         if feedConfigured && publicKeyConfigured {
-            summary = "Sparkle 앱내 확인을 지원하고, 자동 확인 주기는 앱 타이머가 계속 관리합니다"
+            summary = UpdateEngineMessages.sparkleInteractiveReady
         } else {
-            summary = "Sparkle는 통합되었지만 appcast/feed가 아직 설정되지 않아 GitHub Release 엔진을 사용 중입니다"
+            summary = UpdateEngineMessages.githubFallback
         }
         return UpdateEngineStatus(
             modeSummary: summary,
@@ -258,7 +265,7 @@ enum UpdateEngineFactory {
         }
 
         return GitHubReleaseUpdateEngine(
-            modeDescription: "Sparkle는 통합되었지만 appcast/feed가 아직 설정되지 않아 GitHub Release 엔진을 사용 중입니다"
+            modeDescription: UpdateEngineMessages.githubFallback
         )
         #else
         return GitHubReleaseUpdateEngine()

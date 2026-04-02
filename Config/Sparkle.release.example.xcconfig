@@ -1,5 +1,8 @@
 // Copy to a real xcconfig that is only applied to signed release builds.
 // Do not commit the real public feed or release signing details if you do not want them in git.
+// Runtime Sparkle readiness uses SUFeedURL + SUPublicEDKey.
+// build-notarize-release.sh also reads NOTARY_PROFILE from here when the environment variable is unset.
 
 SUFeedURL = https://example.com/claude-usage/appcast.xml
 SUPublicEDKey = REPLACE_WITH_SPARKLE_PUBLIC_KEY
+NOTARY_PROFILE = REPLACE_WITH_NOTARY_PROFILE

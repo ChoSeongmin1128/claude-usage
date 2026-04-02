@@ -8,6 +8,7 @@ LOCAL_CONFIG="$ROOT_DIR/Config/Sparkle.release.local.xcconfig"
 
 FEED_URL="${SU_FEED_URL:-}"
 PUBLIC_KEY="${SU_PUBLIC_ED_KEY:-}"
+NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 
 extract_xcconfig_value() {
   local file="$1"
@@ -43,6 +44,10 @@ if [[ -z "$PUBLIC_KEY" ]]; then
   PUBLIC_KEY="$(extract_xcconfig_value "$LOCAL_CONFIG" "SUPublicEDKey")"
 fi
 
+if [[ -z "$NOTARY_PROFILE" ]]; then
+  NOTARY_PROFILE="$(extract_xcconfig_value "$LOCAL_CONFIG" "NOTARY_PROFILE")"
+fi
+
 echo "Sparkle release 준비 상태를 점검합니다"
 
 if [[ ! -f "$APP_INFO_PLIST" ]]; then
@@ -71,11 +76,17 @@ else
   echo "- SU_PUBLIC_ED_KEY: 설정됨"
 fi
 
+if is_placeholder_value "$NOTARY_PROFILE"; then
+  echo "- NOTARY_PROFILE: 비어 있음"
+else
+  echo "- NOTARY_PROFILE: 설정됨"
+fi
+
 cat <<'EOF'
 
 다음 단계
 1. Config/Sparkle.release.example.xcconfig 를 복사해 실제 release 전용 xcconfig를 만듭니다
-2. SUFeedURL, SUPublicEDKey 값을 채웁니다
+2. SUFeedURL, SUPublicEDKey, NOTARY_PROFILE 값을 채웁니다
 3. Release configuration에 해당 xcconfig를 연결합니다
 4. Developer ID 서명과 notarization을 거친 산출물을 준비합니다
 5. appcast.xml 과 Sparkle 서명을 함께 배포합니다

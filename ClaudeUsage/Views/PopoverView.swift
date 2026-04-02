@@ -15,31 +15,17 @@ struct PopoverView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // 상단 바
-            Group {
-                if shouldStackHeaderControls {
-                    VStack(alignment: .leading, spacing: 6) {
-                        headerServiceSelector
-                        HStack(spacing: 10) {
-                            if !shouldCollapseHeaderMetadata, let lastUpdated = currentServiceLastUpdated {
-                                Text(lastUpdated, style: .time)
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
-                            Spacer()
-                            headerUtilityControls
-                        }
-                    }
-                } else {
-                    HStack(spacing: 8) {
-                        headerServiceSelector
-                        headerUtilityControls
-                        Spacer()
-                        if !shouldCollapseHeaderMetadata, let lastUpdated = currentServiceLastUpdated {
-                            Text(lastUpdated, style: .time)
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
+            HStack(spacing: 8) {
+                headerServiceSelector
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                headerUtilityControls
+                Spacer(minLength: 0)
+                if !isCompact, !shouldCollapseHeaderMetadata, let lastUpdated = currentServiceLastUpdated {
+                    Text(lastUpdated, style: .time)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
             }
             .padding(.horizontal, isCompact ? 12 : 16)
@@ -223,9 +209,12 @@ struct PopoverView: View {
                 }
             }
             .scrollIndicators(.never)
+            .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(selectedService.displayName)
                 .font(.headline)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -239,13 +228,14 @@ struct PopoverView: View {
                     .font(.system(size: 12.5, weight: selectedService == service ? .semibold : .medium))
                     .lineLimit(1)
                     .minimumScaleFactor(0.92)
+                    .fixedSize(horizontal: true, vertical: false)
                 if shouldShowWarningDot(for: service) {
                     Circle()
                         .fill(Color.orange)
                         .frame(width: 6, height: 6)
                 }
             }
-            .padding(.horizontal, 9)
+            .padding(.horizontal, 10)
             .padding(.vertical, 4)
             .background(selectedService == service ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
             .foregroundStyle(selectedService == service ? Color.accentColor : .primary)
@@ -275,11 +265,7 @@ struct PopoverView: View {
     }
 
     private var shouldCollapseHeaderMetadata: Bool {
-        availableServices.count >= 4
-    }
-
-    private var shouldStackHeaderControls: Bool {
-        availableServices.count >= 4
+        isCompact || availableServices.count >= 4
     }
 
     private func shouldShowWarningDot(for service: PopoverService) -> Bool {
@@ -344,10 +330,19 @@ struct PopoverView: View {
     static func preferredPopoverWidth(for service: PopoverService, compact: Bool) -> CGFloat {
         switch service {
         case .claude, .codex:
-            return compact ? 380 : 460
+            return compact ? 388 : 460
         case .gemini, .antigravity:
-            return compact ? 396 : 476
+            return compact ? 388 : 476
         }
+    }
+
+    static func resolvedPopoverWidth(for service: PopoverService, compact: Bool, fittingWidth: CGFloat) -> CGFloat {
+        let preferredWidth = self.preferredPopoverWidth(for: service, compact: compact)
+        guard !compact else {
+            return preferredWidth
+        }
+
+        return min(max(fittingWidth, preferredWidth), preferredWidth + 48)
     }
 
     private func requestRefreshIfNeededForVisibleService() {
@@ -611,25 +606,13 @@ struct PopoverView: View {
     private var compactMainSection: some View {
         Group {
             if isAuthRequired(for: selectedService) {
-                AuthRequiredSectionView(service: selectedService) {
-                    viewModel.openSettings(for: selectedService)
-                }
-                .padding(12)
+                compactAuthRequiredState
 
             } else if needsInitialLoad(for: selectedService) {
-                VStack(spacing: 10) {
-                    ProgressView()
-                    Text("데이터 로딩 중...")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 56)
+                compactLoadingState
 
             } else if let error = serviceError, !hasLoadedContent(for: selectedService) {
-                ErrorSectionView(error: error) {
-                    viewModel.refresh()
-                }
-                .padding(12)
+                compactErrorState(error)
 
             } else if selectedService == .claude, claudeUsage != nil {
                 compactClaudeContent(usage: claudeUsage)
@@ -644,10 +627,7 @@ struct PopoverView: View {
                 compactAntigravityContent()
 
             } else {
-                Text("데이터 없음")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, minHeight: 36)
-                    .padding(.vertical, 4)
+                compactEmptyState
             }
         }
         .frame(maxWidth: .infinity, alignment: .top)
@@ -700,6 +680,83 @@ struct PopoverView: View {
         }
         .frame(maxWidth: .infinity, minHeight: 180, alignment: .top)
         .padding(.bottom, 4)
+    }
+
+    private var compactAuthRequiredState: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "lock.shield")
+                    .foregroundStyle(.orange)
+                Text("\(selectedService.displayName) 연결 필요")
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 0)
+            }
+
+            Text("인증 후 조회가 시작됩니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Button("인증 설정 열기") {
+                viewModel.openSettings(for: selectedService)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+        }
+        .padding(12)
+    }
+
+    private var compactLoadingState: some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .controlSize(.small)
+            Text("로딩 중")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private func compactErrorState(_ error: APIError) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                Text(error.isDefinitiveAuthFailure ? "인증 필요" : "조회 실패")
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 0)
+            }
+
+            if let message = error.errorDescription {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Button("다시 시도") {
+                viewModel.refresh()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(12)
+    }
+
+    private var compactEmptyState: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "tray")
+                .foregroundStyle(.secondary)
+            Text("데이터 없음")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 
     // MARK: - Compact Content
@@ -930,21 +987,35 @@ struct CompactUsageRow: View {
     var timeFormatStyle: TimeFormatStyle = .h24
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            compactRow(includeResetText: true)
-            compactRow(includeResetText: false)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(1)
+
+                Spacer(minLength: 0)
+
+                Text(String(format: "%.0f%%", percentage))
+                    .font(.system(.caption, design: .monospaced))
+                    .fontWeight(.medium)
+                    .foregroundStyle(ColorProvider.statusColor(for: percentage))
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+
+            ViewThatFits(in: .horizontal) {
+                compactProgressLine(includeResetText: true)
+                compactProgressLine(includeResetText: false)
+            }
         }
     }
 
     @ViewBuilder
-    private func compactRow(includeResetText: Bool) -> some View {
+    private func compactProgressLine(includeResetText: Bool) -> some View {
         HStack(spacing: 4) {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .frame(minWidth: 34, idealWidth: 42, maxWidth: 56, alignment: .leading)
-
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 2.5)
@@ -957,18 +1028,13 @@ struct CompactUsageRow: View {
             .frame(height: 6)
             .layoutPriority(1)
 
-            Text(String(format: "%.0f%%", percentage))
-                .font(.system(.caption, design: .monospaced))
-                .fontWeight(.medium)
-                .foregroundStyle(ColorProvider.statusColor(for: percentage))
-                .frame(minWidth: 34, idealWidth: 38, maxWidth: 42, alignment: .trailing)
-
             if includeResetText {
                 Text(compactResetText ?? "")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.secondary)
-                    .frame(minWidth: 46, idealWidth: 60, maxWidth: 84, alignment: .trailing)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .fixedSize(horizontal: false, vertical: false)
             }
         }
     }
@@ -1195,34 +1261,41 @@ struct CompactOverageRow: View {
     let overage: OverageSpendLimitResponse
 
     var body: some View {
-        HStack(spacing: 4) {
-            Text("추가")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(minWidth: 34, idealWidth: 42, maxWidth: 56, alignment: .leading)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Text("추가")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
 
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2.5)
-                        .fill(Color.secondary.opacity(0.15))
-                    RoundedRectangle(cornerRadius: 2.5)
-                        .fill(Color.purple)
-                        .frame(width: geo.size.width * min(overage.usagePercentage, 100) / 100)
-                }
+                Spacer(minLength: 0)
+
+                Text(String(format: "%.0f%%", overage.usagePercentage))
+                    .font(.system(.caption, design: .monospaced))
+                    .fontWeight(.medium)
+                    .foregroundStyle(.purple)
+                    .fixedSize(horizontal: true, vertical: false)
             }
-            .frame(height: 6)
 
-            Text(String(format: "%.0f%%", overage.usagePercentage))
-                .font(.system(.caption, design: .monospaced))
-                .fontWeight(.medium)
-                .foregroundStyle(.purple)
-                .frame(minWidth: 34, idealWidth: 38, maxWidth: 42, alignment: .trailing)
+            HStack(spacing: 6) {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 2.5)
+                            .fill(Color.secondary.opacity(0.15))
+                        RoundedRectangle(cornerRadius: 2.5)
+                            .fill(Color.purple)
+                            .frame(width: geo.size.width * min(overage.usagePercentage, 100) / 100)
+                    }
+                }
+                .frame(height: 6)
+                .layoutPriority(1)
 
-            Text("잔액 \(overage.formattedRemainingCredits)")
-                .font(.system(size: 9))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .frame(minWidth: 54, idealWidth: 68, maxWidth: 84, alignment: .trailing)
+                Text("잔액 \(overage.formattedRemainingCredits)")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
         }
     }
 }

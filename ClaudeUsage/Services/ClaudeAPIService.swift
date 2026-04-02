@@ -1148,7 +1148,7 @@ actor ClaudeAPIService {
             return nil
         }
 
-        await persistProfileMetadata(from: credentialsText)
+        _ = await profileMetadataStore.update(from: credentialsText)
 
         if credential.isExpired {
             Logger.warning("OAuth 토큰이 만료되어 건너뜀 (\(sourceDescription))")
@@ -1177,50 +1177,6 @@ actor ClaudeAPIService {
         return nil
     }
 
-    private func parseProfileMetadata(from credentialsText: String) -> ClaudeProfileMetadata? {
-        guard let data = credentialsText.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            return nil
-        }
-
-        let oauth = json["claudeAiOauth"] as? [String: Any]
-        let account = json["oauthAccount"] as? [String: Any]
-
-        var metadata = ClaudeProfileMetadata()
-        metadata.organizationUUID = firstNonEmptyString(
-            account?["organizationUuid"],
-            account?["organizationUUID"],
-            json["organizationUuid"],
-            json["organizationUUID"])
-        metadata.subscriptionType = firstNonEmptyString(
-            oauth?["subscriptionType"],
-            json["subscriptionType"])
-        metadata.rateLimitTier = firstNonEmptyString(
-            oauth?["rateLimitTier"],
-            json["rateLimitTier"])
-        metadata.hasExtraUsageEnabled = firstBool(
-            account?["hasExtraUsageEnabled"],
-            json["hasExtraUsageEnabled"])
-        metadata.billingType = firstNonEmptyString(
-            account?["billingType"],
-            json["billingType"])
-        metadata.accountCreatedAt = firstDateValue(
-            account?["accountCreatedAt"],
-            json["accountCreatedAt"])
-        metadata.subscriptionCreatedAt = firstDateValue(
-            account?["subscriptionCreatedAt"],
-            json["subscriptionCreatedAt"])
-        metadata.lastUpdatedAt = Date()
-
-        return metadata.isEmpty ? nil : metadata
-    }
-
-    private func persistProfileMetadata(from credentialsText: String) async {
-        guard let metadata = parseProfileMetadata(from: credentialsText) else { return }
-        await profileMetadataStore.save(metadata)
-    }
-
     private func extractAccessTokenByRegex(from text: String) -> String? {
         let pattern = #""accessToken"\s*:\s*"([^"]+)""#
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
@@ -1246,21 +1202,7 @@ actor ClaudeAPIService {
 
     private func currentMessagesFallbackPolicy() async -> ClaudeMessagesHeaderFallbackPolicy {
         await MainActor.run {
-            let settings = AppSettings.shared
-            switch settings.claudeMessagesFallbackPolicy {
-            case .off:
-                return .init(isEnabled: false, allowAutomaticFallback: false, minimumUsagePercent: 20)
-            case .manual:
-                return .init(
-                    isEnabled: true,
-                    allowAutomaticFallback: false,
-                    minimumUsagePercent: Double(settings.claudeMessagesFallbackAutoDisableBelowPercent))
-            case .automatic:
-                return .init(
-                    isEnabled: true,
-                    allowAutomaticFallback: true,
-                    minimumUsagePercent: Double(settings.claudeMessagesFallbackAutoDisableBelowPercent))
-            }
+            SetupCompletionPolicy.messagesFallbackPolicy(from: AppSettings.shared)
         }
     }
 

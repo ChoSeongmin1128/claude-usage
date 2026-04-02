@@ -1,5 +1,7 @@
 // Shared release defaults for signed builds.
 // Keep committed defaults empty and let a local, untracked file override them.
+// Sparkle runtime readiness only depends on SUFeedURL and SUPublicEDKey.
+// NOTARY_PROFILE is a release-script prerequisite and should live in the local override or environment.
 
 SUFeedURL =
 SUPublicEDKey =
