@@ -180,13 +180,7 @@ struct SettingsView: View {
         }
         .frame(width: 760, height: 600)
         .onAppear {
-            if let key = KeychainManager.shared.load() {
-                storedSessionKey = key
-                sessionKey = key
-            } else {
-                storedSessionKey = nil
-                sessionKey = ""
-            }
+            syncStoredSessionKeyState()
             testResult = nil
             refreshIntervalText = String(Int(settings.refreshInterval))
             alertPresetTexts = settings.sortedNotificationPresets.map { String($0.threshold) }
@@ -197,6 +191,11 @@ struct SettingsView: View {
             refreshSetupWizardState()
             loadUsageHealthSnapshot()
             checkCodexAuth()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange)) { _ in
+            syncStoredSessionKeyState()
+            refreshSetupWizardState()
+            loadUsageHealthSnapshot()
         }
         .onChange(of: selectedPanel) { _, panel in
             settings.settingsLastTab = panel.rawValue
@@ -265,7 +264,7 @@ struct SettingsView: View {
         case .gemini:
             runtimeProviderSection(for: .gemini)
         case .antigravity:
-            comingSoonSection
+            runtimeProviderSection(for: .antigravity)
         }
     }
 
@@ -280,7 +279,7 @@ struct SettingsView: View {
         case .gemini:
             return "gemini-runtime"
         case .antigravity:
-            return "antigravity-coming-soon"
+            return "antigravity-runtime"
         }
     }
 
@@ -365,7 +364,7 @@ struct SettingsView: View {
                     .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
                     .cornerRadius(8)
             case .antigravity:
-                Label("추가 provider 준비 상태", systemImage: "clock")
+                Label("Antigravity runtime 설정", systemImage: "antenna.radiowaves.left.and.right")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 10)
@@ -476,6 +475,7 @@ struct SettingsView: View {
     private func runtimeProviderSection(for provider: AppProviderKind) -> some View {
         let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: provider)
         let environmentStatus = ProviderEnvironmentDetector.status(for: provider)
+        let displayConfig = settings.menuBarDisplayConfig(for: provider)
         VStack(alignment: .leading, spacing: 12) {
             Label(descriptor.title, systemImage: descriptor.icon)
                 .font(.headline)
@@ -516,6 +516,123 @@ struct SettingsView: View {
             Text(shellSectionFootnote(for: provider, selectionState: settings.providerSelectionState))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            if let displayConfig {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("메뉴바 표시")
+                        .font(.subheadline.weight(.semibold))
+
+                    Toggle(
+                        "\(descriptor.title) 아이콘",
+                        isOn: Binding(
+                            get: { settings.menuBarDisplayConfig(for: provider)?.showIcon ?? true },
+                            set: { settings.setProviderShowIcon($0, for: provider) }
+                        )
+                    )
+
+                    Picker("퍼센트:", selection: Binding(
+                        get: { settings.menuBarDisplayConfig(for: provider)?.percentageDisplay ?? .fiveHour },
+                        set: { settings.setProviderPercentageDisplay($0, for: provider) }
+                    )) {
+                        ForEach(PercentageDisplay.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+
+                    Picker("리셋 시간:", selection: Binding(
+                        get: { settings.menuBarDisplayConfig(for: provider)?.resetTimeDisplay ?? .none },
+                        set: { settings.setProviderResetTimeDisplay($0, for: provider) }
+                    )) {
+                        ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+
+                    if displayConfig.resetTimeDisplay != .none {
+                        Picker("시간 형식:", selection: Binding(
+                            get: { settings.menuBarDisplayConfig(for: provider)?.timeFormat ?? .h24 },
+                            set: { settings.setProviderTimeFormat($0, for: provider) }
+                        )) {
+                            ForEach(TimeFormatStyle.allCases, id: \.self) { style in
+                                Text(style.displayName).tag(style)
+                            }
+                        }
+                    }
+
+                    Picker("아이콘:", selection: Binding(
+                        get: { settings.menuBarDisplayConfig(for: provider)?.style ?? .none },
+                        set: { settings.setMenuBarStyle($0, for: provider) }
+                    )) {
+                        Text("없음").tag(MenuBarStyle.none)
+                        Section("개별 기준") {
+                            Text("배터리바").tag(MenuBarStyle.batteryBar)
+                            Text("원형").tag(MenuBarStyle.circular)
+                        }
+                        Section("동시 표시") {
+                            Text("동심원").tag(MenuBarStyle.concentricRings)
+                            Text("이중 배터리").tag(MenuBarStyle.dualBattery)
+                            Text("좌우 배터리").tag(MenuBarStyle.sideBySideBattery)
+                        }
+                    }
+
+                    if displayConfig.style == .batteryBar || displayConfig.style == .sideBySideBattery {
+                        Toggle(
+                            "배터리 내부 숫자",
+                            isOn: Binding(
+                                get: { settings.menuBarDisplayConfig(for: provider)?.showBatteryPercent ?? true },
+                                set: { settings.setProviderShowBatteryPercent($0, for: provider) }
+                            )
+                        )
+                    }
+
+                    if displayConfig.style == .batteryBar || displayConfig.style == .circular {
+                        Picker("아이콘 기준:", selection: Binding(
+                            get: { settings.menuBarDisplayConfig(for: provider)?.iconMetric ?? .fiveHour },
+                            set: { settings.setProviderIconMetric($0, for: provider) }
+                        )) {
+                            ForEach(IconMetric.allCases, id: \.self) { metric in
+                                Text(metric.displayName).tag(metric)
+                            }
+                        }
+                        .pickerStyle(.radioGroup)
+                    }
+
+                    if displayConfig.style == .circular || displayConfig.style == .concentricRings {
+                        Picker("표시 기준:", selection: Binding(
+                            get: { settings.menuBarDisplayConfig(for: provider)?.circularDisplayMode ?? .usage },
+                            set: { settings.setProviderCircularDisplayMode($0, for: provider) }
+                        )) {
+                            ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
+                                Text(mode.displayName).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.radioGroup)
+                    }
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("팝오버")
+                        .font(.subheadline.weight(.semibold))
+                    Toggle(
+                        "간소화 보기",
+                        isOn: Binding(
+                            get: { settings.isPopoverCompact(for: provider) },
+                            set: { settings.setPopoverCompact($0, for: provider) }
+                        )
+                    )
+                    Toggle(
+                        "팝오버 고정",
+                        isOn: Binding(
+                            get: { settings.isPopoverPinned(for: provider) },
+                            set: { settings.setPopoverPinned($0, for: provider) }
+                        )
+                    )
+                }
+            }
         }
     }
 
@@ -2419,6 +2536,16 @@ struct SettingsView: View {
         organizationPreviews = []
         organizationOAuthFallbackSummary = nil
         organizationMessage = "로그아웃되었습니다. 다시 로그인하거나 세션 키를 입력해 주세요."
+    }
+
+    private func syncStoredSessionKeyState() {
+        if let key = KeychainManager.shared.load() {
+            storedSessionKey = key
+            sessionKey = key
+        } else {
+            storedSessionKey = nil
+            sessionKey = ""
+        }
     }
 
     private func testConnection() {

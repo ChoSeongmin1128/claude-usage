@@ -321,6 +321,34 @@ enum MenuBarStatusComposer {
         )
     }
 
+    static func antigravitySnapshot(
+        config: ProviderMenuBarDisplayConfig,
+        usage: AntigravityUsageResponse?,
+        error: APIError?,
+        hasAuthError: Bool,
+        hasCredential: Bool,
+        secondaryColor: NSColor,
+        icon: NSImage?
+    ) -> MenuBarProviderSnapshot {
+        let status = antigravityStatus(
+            config: config,
+            usage: usage,
+            error: error,
+            hasAuthError: hasAuthError,
+            hasCredential: hasCredential,
+            secondaryColor: secondaryColor
+        )
+        return MenuBarProviderSnapshot(
+            kind: .antigravity,
+            text: status.text,
+            color: status.color,
+            tooltip: status.tooltip,
+            icon: config.showIcon ? icon : nil,
+            styleIcon: styleIcon(usage: usage, config: config),
+            resetText: resetText(usage: usage, config: config)
+        )
+    }
+
     static func combinedContent(
         claudeConfig: ProviderMenuBarDisplayConfig,
         claudeUsage: ClaudeUsageResponse?,
@@ -621,6 +649,53 @@ enum MenuBarStatusComposer {
         )
     }
 
+    private static func antigravityStatus(
+        config: ProviderMenuBarDisplayConfig,
+        usage: AntigravityUsageResponse?,
+        error: APIError?,
+        hasAuthError: Bool,
+        hasCredential: Bool,
+        secondaryColor: NSColor
+    ) -> MenuBarProviderStatus {
+        if !hasCredential {
+            return MenuBarProviderStatus(text: "연결", color: .systemOrange, tooltip: "Antigravity 연결 필요")
+        }
+        guard let usage else {
+            if let error {
+                return MenuBarProviderStatus(
+                    text: hasAuthError ? "연결" : "오류",
+                    color: .systemOrange,
+                    tooltip: error.errorDescription ?? "조회 오류"
+                )
+            }
+            return MenuBarProviderStatus(text: "…", color: secondaryColor, tooltip: "로딩 중")
+        }
+
+        let primary = usage.primaryPercentage
+        let secondary = usage.secondaryPercentage
+        let tertiary = usage.tertiaryPercentage
+        let displayPrimary = displayValue(for: primary, showRemaining: showsRemaining(config: config))
+        let displaySecondary = displayValue(for: secondary, showRemaining: showsRemaining(config: config))
+        let text: String = {
+            switch config.percentageDisplay {
+            case .none:
+                return ""
+            case .fiveHour:
+                return String(format: "%.0f%%", displayPrimary)
+            case .weekly:
+                return String(format: "%.0f%%", displaySecondary)
+            case .dual:
+                return String(format: "%.0f%%·%.0f%%", displayPrimary, displaySecondary)
+            }
+        }()
+
+        return MenuBarProviderStatus(
+            text: text,
+            color: ColorProvider.nsStatusColor(for: primary),
+            tooltip: "Claude \(Int(primary.rounded()))% / Pro \(Int(secondary.rounded()))% / Flash \(Int(tertiary.rounded()))%"
+        )
+    }
+
     private static func resetText(usage: ClaudeUsageResponse?, config: ProviderMenuBarDisplayConfig) -> String? {
         guard let usage else { return nil }
         switch config.resetTimeDisplay {
@@ -690,6 +765,29 @@ enum MenuBarStatusComposer {
         }
     }
 
+    private static func resetText(usage: AntigravityUsageResponse?, config: ProviderMenuBarDisplayConfig) -> String? {
+        guard let usage else { return nil }
+        switch config.resetTimeDisplay {
+        case .none:
+            return nil
+        case .fiveHour:
+            guard let resetAt = usage.primaryWindow?.resetAtISO else { return nil }
+            return TimeFormatter.formatResetTime(from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
+        case .weekly:
+            guard let resetAt = usage.secondaryWindow?.resetAtISO else { return nil }
+            return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
+        case .dual:
+            let first = usage.primaryWindow?.resetAtISO.flatMap {
+                TimeFormatter.formatResetTime(from: $0, style: config.timeFormat, includeDateIfNotToday: false)
+            }
+            let second = usage.secondaryWindow?.resetAtISO.flatMap {
+                TimeFormatter.formatResetTimeWeekly(from: $0, style: config.timeFormat, includeDateIfNotToday: false)
+            }
+            if let first, let second { return "\(first) · \(second)" }
+            return first ?? second
+        }
+    }
+
     private static func styleIcon(usage: ClaudeUsageResponse?, config: ProviderMenuBarDisplayConfig) -> NSImage? {
         guard let usage else { return nil }
         let primary = usage.fiveHourPercentage
@@ -715,6 +813,18 @@ enum MenuBarStatusComposer {
     }
 
     private static func styleIcon(usage: GeminiUsageResponse?, config: ProviderMenuBarDisplayConfig) -> NSImage? {
+        guard let usage else { return nil }
+        let primary = usage.primaryPercentage
+        let secondary = usage.secondaryPercentage
+        return styleIcon(
+            primary: primary,
+            secondary: secondary,
+            config: config,
+            metric: resolvedMetric(primary: primary, secondary: secondary, config: config)
+        )
+    }
+
+    private static func styleIcon(usage: AntigravityUsageResponse?, config: ProviderMenuBarDisplayConfig) -> NSImage? {
         guard let usage else { return nil }
         let primary = usage.primaryPercentage
         let secondary = usage.secondaryPercentage

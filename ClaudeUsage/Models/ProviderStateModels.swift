@@ -88,12 +88,12 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 displayName: "Antigravity",
                 settingsPanelTitle: "Antigravity",
                 settingsPanelIconName: "antenna.radiowaves.left.and.right",
-                settingsPanelSummary: "런타임 연결 준비 중",
-                settingsPanelDetail: "Gemini와 별개 provider로 유지하면서, 별도 runtime fetch/auth를 연결합니다.",
-                settingsComingSoonMessage: "Antigravity는 Gemini와 별개 provider로 유지하면서 runtime 연결을 이어서 붙입니다.",
+                settingsPanelSummary: "로컬 language server",
+                settingsPanelDetail: "Antigravity의 로컬 language server에 직접 연결해 Claude/Gemini quota를 읽습니다.",
+                settingsComingSoonMessage: nil,
                 capabilities: ProviderCapabilities(
-                    runtimeService: nil,
-                    refreshStrategy: nil,
+                    runtimeService: .antigravity,
+                    refreshStrategy: .antigravity,
                     supportsBrowserImport: false,
                     defaultEnabled: false
                 )

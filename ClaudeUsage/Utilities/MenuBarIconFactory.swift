@@ -5,6 +5,7 @@ enum MenuBarIconFactory {
     private static var didLogMissingClaudeIconAsset = false
     private static var didLogMissingCodexIconAsset = false
     private static var didLogMissingGeminiIconAsset = false
+    private static var didLogMissingAntigravityIconAsset = false
 
     static func secondaryTextColor(highContrast: Bool) -> NSColor {
         highContrast ? NSColor.labelColor : NSColor.secondaryLabelColor.withAlphaComponent(0.95)
@@ -67,6 +68,22 @@ enum MenuBarIconFactory {
             return tintedIcon(fallback, size: size, tint: NSColor.systemPurple)
         }
         Logger.error("Gemini 메뉴바 아이콘 생성 실패(에셋/SF Symbol 모두 실패)")
+        return nil
+    }
+
+    static func antigravityMenuBarIcon(size: NSSize) -> NSImage? {
+        if let base = NSImage(named: "AntigravityMenuBarIcon") {
+            let cropped = imageByTrimmingTransparentPadding(base)
+            return tintedIcon(cropped, size: size, tint: NSColor.systemTeal)
+        }
+        if !didLogMissingAntigravityIconAsset {
+            didLogMissingAntigravityIconAsset = true
+            Logger.warning("AntigravityMenuBarIcon 에셋 로드 실패, SF Symbol 폴백 사용")
+        }
+        if let fallback = NSImage(systemSymbolName: "antenna.radiowaves.left.and.right", accessibilityDescription: "Antigravity") {
+            return tintedIcon(fallback, size: size, tint: NSColor.systemTeal)
+        }
+        Logger.error("Antigravity 메뉴바 아이콘 생성 실패(에셋/SF Symbol 모두 실패)")
         return nil
     }
 

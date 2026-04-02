@@ -5,7 +5,8 @@ enum RuntimeRefreshHandlerRegistry {
         descriptors: [RuntimeProviderDescriptor] = RuntimeProviderRegistry.supportedDescriptors,
         refreshClaude: @escaping (Bool) -> Void,
         refreshCodex: @escaping (Bool) -> Void,
-        refreshGemini: @escaping (Bool) -> Void
+        refreshGemini: @escaping (Bool) -> Void,
+        refreshAntigravity: @escaping (Bool) -> Void
     ) -> [PopoverService: (Bool) -> Void] {
         var handlers: [PopoverService: (Bool) -> Void] = [:]
 
@@ -17,6 +18,8 @@ enum RuntimeRefreshHandlerRegistry {
                 handlers[descriptor.service] = refreshCodex
             case .gemini:
                 handlers[descriptor.service] = refreshGemini
+            case .antigravity:
+                handlers[descriptor.service] = refreshAntigravity
             }
         }
 

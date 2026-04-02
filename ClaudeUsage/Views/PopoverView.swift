@@ -692,6 +692,10 @@ struct PopoverView: View {
         viewModel.runtimeSnapshots[.gemini]?.geminiUsage ?? viewModel.geminiUsage
     }
 
+    private var antigravityUsage: AntigravityUsageResponse? {
+        viewModel.runtimeSnapshots[.antigravity]?.antigravityUsage ?? viewModel.antigravityUsage
+    }
+
     private func needsInitialLoad(for service: PopoverService) -> Bool {
         serviceLoading(for: service) && !hasLoadedContent(for: service)
     }
@@ -934,6 +938,9 @@ struct PopoverView: View {
             } else if selectedService == .gemini, geminiUsage != nil {
                 compactGeminiContent()
 
+            } else if selectedService == .antigravity, antigravityUsage != nil {
+                compactAntigravityContent()
+
             } else {
                 Text("데이터 없음")
                     .foregroundStyle(.secondary)
@@ -977,6 +984,9 @@ struct PopoverView: View {
 
             } else if selectedService == .gemini, geminiUsage != nil {
                 standardGeminiContent()
+
+            } else if selectedService == .antigravity, antigravityUsage != nil {
+                standardAntigravityContent()
 
             } else {
                 VStack {
@@ -1129,6 +1139,83 @@ struct PopoverView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
     }
+
+    @ViewBuilder
+    private func standardAntigravityContent() -> some View {
+        VStack(spacing: 12) {
+            if let primary = antigravityUsage?.primaryWindow {
+                UsageSectionView(
+                    systemIcon: "brain",
+                    title: primary.label,
+                    percentage: primary.usedPercent,
+                    resetAt: primary.resetAtISO,
+                    timeFormatStyle: settings.timeFormat
+                )
+            }
+
+            if let secondary = antigravityUsage?.secondaryWindow {
+                Divider()
+                UsageSectionView(
+                    systemIcon: "sparkles",
+                    title: secondary.label,
+                    percentage: secondary.usedPercent,
+                    resetAt: secondary.resetAtISO,
+                    isWeekly: true,
+                    timeFormatStyle: settings.timeFormat
+                )
+            }
+
+            if let tertiary = antigravityUsage?.tertiaryWindow {
+                Divider()
+                UsageSectionView(
+                    systemIcon: "bolt.horizontal.circle",
+                    title: tertiary.label,
+                    percentage: tertiary.usedPercent,
+                    resetAt: tertiary.resetAtISO,
+                    isWeekly: true,
+                    timeFormatStyle: settings.timeFormat
+                )
+            }
+
+            if let usage = antigravityUsage,
+               usage.accountEmail != nil || usage.accountPlan != nil {
+                Divider()
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("계정 정보", systemImage: "person.crop.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let email = usage.accountEmail {
+                        Text(email)
+                            .font(.subheadline)
+                    }
+                    if let plan = usage.accountPlan {
+                        Text("플랜: \(plan)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(16)
+    }
+
+    @ViewBuilder
+    private func compactAntigravityContent() -> some View {
+        VStack(spacing: 5) {
+            if let primary = antigravityUsage?.primaryWindow {
+                CompactUsageRow(label: primary.label, percentage: primary.usedPercent, resetAt: primary.resetAtISO, timeFormatStyle: settings.timeFormat)
+            }
+            if let secondary = antigravityUsage?.secondaryWindow {
+                CompactUsageRow(label: secondary.label, percentage: secondary.usedPercent, resetAt: secondary.resetAtISO, isWeekly: true, timeFormatStyle: settings.timeFormat)
+            }
+            if let tertiary = antigravityUsage?.tertiaryWindow {
+                CompactUsageRow(label: tertiary.label, percentage: tertiary.usedPercent, resetAt: tertiary.resetAtISO, isWeekly: true, timeFormatStyle: settings.timeFormat)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
 }
 
 // MARK: - Compact Usage Row
@@ -1194,12 +1281,10 @@ struct AuthRequiredSectionView: View {
                 .font(.system(size: 30))
                 .foregroundStyle(.orange)
 
-            Text(service == .claude ? "Claude 인증이 필요합니다" : "Codex 인증이 필요합니다")
+            Text(authTitle)
                 .font(.headline)
 
-            Text(service == .claude
-                 ? "로그인 후 세션키를 저장하면 조회가 시작됩니다."
-                 : "Codex CLI 로그인 후 토큰이 준비되면 조회가 시작됩니다.")
+            Text(authMessage)
                 .font(.caption)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
@@ -1210,6 +1295,32 @@ struct AuthRequiredSectionView: View {
             .buttonStyle(.borderedProminent)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var authTitle: String {
+        switch service {
+        case .claude:
+            return "Claude 인증이 필요합니다"
+        case .codex:
+            return "Codex 인증이 필요합니다"
+        case .gemini:
+            return "Gemini 연결이 필요합니다"
+        case .antigravity:
+            return "Antigravity 연결이 필요합니다"
+        }
+    }
+
+    private var authMessage: String {
+        switch service {
+        case .claude:
+            return "로그인 후 세션키를 저장하면 조회가 시작됩니다."
+        case .codex:
+            return "Codex CLI 로그인 후 토큰이 준비되면 조회가 시작됩니다."
+        case .gemini:
+            return "Gemini CLI OAuth 자격이 준비되면 조회가 시작됩니다."
+        case .antigravity:
+            return "Antigravity language server가 실행 중이면 로컬 quota 조회가 시작됩니다."
+        }
     }
 }
 

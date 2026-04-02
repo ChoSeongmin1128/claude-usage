@@ -4,6 +4,7 @@ enum PopoverService: String, CaseIterable, Sendable {
     case claude
     case codex
     case gemini
+    case antigravity
 
     nonisolated var displayName: String {
         switch self {
@@ -13,6 +14,8 @@ enum PopoverService: String, CaseIterable, Sendable {
             return "Codex"
         case .gemini:
             return "Gemini"
+        case .antigravity:
+            return "Antigravity"
         }
     }
 
@@ -29,12 +32,14 @@ enum RuntimeProviderPayload {
     case claude(ClaudeUsageResponse)
     case codex(CodexUsageResponse)
     case gemini(GeminiUsageResponse)
+    case antigravity(AntigravityUsageResponse)
 }
 
 enum RuntimeRefreshStrategy: Sendable, Equatable {
     case claude
     case codex
     case gemini
+    case antigravity
 }
 
 struct RuntimeProviderRefreshContext: Sendable, Equatable {
@@ -42,6 +47,7 @@ struct RuntimeProviderRefreshContext: Sendable, Equatable {
     let hasClaudeOAuthCredential: Bool
     let isCodexAuthenticated: Bool
     let hasGeminiCredential: Bool
+    let hasAntigravityCredential: Bool
 }
 
 struct RuntimeProviderDescriptor: Sendable, Equatable {
@@ -60,6 +66,8 @@ struct RuntimeProviderDescriptor: Sendable, Equatable {
             return context.isCodexAuthenticated
         case .gemini:
             return context.hasGeminiCredential
+        case .antigravity:
+            return context.hasAntigravityCredential
         }
     }
 }
@@ -126,6 +134,11 @@ struct RuntimeProviderState {
         guard case let .gemini(usage)? = payload else { return nil }
         return usage
     }
+
+    var antigravityUsage: AntigravityUsageResponse? {
+        guard case let .antigravity(usage)? = payload else { return nil }
+        return usage
+    }
 }
 
 struct RuntimeProviderStateCatalog {
@@ -133,6 +146,7 @@ struct RuntimeProviderStateCatalog {
         .claude: RuntimeProviderState(),
         .codex: RuntimeProviderState(),
         .gemini: RuntimeProviderState(),
+        .antigravity: RuntimeProviderState(),
     ]
 
     subscript(service: PopoverService) -> RuntimeProviderState {
@@ -165,6 +179,11 @@ struct RuntimeProviderSnapshot {
 
     var geminiUsage: GeminiUsageResponse? {
         guard case let .gemini(usage)? = payload else { return nil }
+        return usage
+    }
+
+    var antigravityUsage: AntigravityUsageResponse? {
+        guard case let .antigravity(usage)? = payload else { return nil }
         return usage
     }
 }

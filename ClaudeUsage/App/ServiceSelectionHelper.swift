@@ -101,14 +101,16 @@ struct ServiceSelectionHelper {
         hasClaudeSessionKey: Bool,
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool,
-        hasGeminiCredential: Bool
+        hasGeminiCredential: Bool,
+        hasAntigravityCredential: Bool
     ) -> Bool {
         guard selectionState.runtimeEnabledKinds.contains(providerKind(for: service)) else { return false }
         let context = RuntimeProviderRefreshContext(
             hasClaudeSessionKey: hasClaudeSessionKey,
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
             isCodexAuthenticated: isCodexAuthenticated,
-            hasGeminiCredential: hasGeminiCredential
+            hasGeminiCredential: hasGeminiCredential,
+            hasAntigravityCredential: hasAntigravityCredential
         )
         guard let descriptor = RuntimeProviderRegistry.descriptor(for: service) else { return false }
         return descriptor.isRefreshable(using: context)
@@ -119,7 +121,8 @@ struct ServiceSelectionHelper {
         hasClaudeSessionKey: Bool,
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool,
-        hasGeminiCredential: Bool
+        hasGeminiCredential: Bool,
+        hasAntigravityCredential: Bool
     ) -> [PopoverService] {
         selectionState.runtimeEnabledKinds.compactMap(service(for:)).filter {
             canRefresh(
@@ -128,7 +131,8 @@ struct ServiceSelectionHelper {
                 hasClaudeSessionKey: hasClaudeSessionKey,
                 hasClaudeOAuthCredential: hasClaudeOAuthCredential,
                 isCodexAuthenticated: isCodexAuthenticated,
-                hasGeminiCredential: hasGeminiCredential
+                hasGeminiCredential: hasGeminiCredential,
+                hasAntigravityCredential: hasAntigravityCredential
             )
         }
     }
@@ -138,14 +142,16 @@ struct ServiceSelectionHelper {
         hasClaudeSessionKey: Bool,
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool,
-        hasGeminiCredential: Bool
+        hasGeminiCredential: Bool,
+        hasAntigravityCredential: Bool
     ) -> [PopoverService] {
         refreshableServices(
             selectionState: settings.providerSelectionState,
             hasClaudeSessionKey: hasClaudeSessionKey,
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
             isCodexAuthenticated: isCodexAuthenticated,
-            hasGeminiCredential: hasGeminiCredential
+            hasGeminiCredential: hasGeminiCredential,
+            hasAntigravityCredential: hasAntigravityCredential
         )
     }
 
@@ -154,14 +160,16 @@ struct ServiceSelectionHelper {
         hasClaudeSessionKey: Bool,
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool,
-        hasGeminiCredential: Bool
+        hasGeminiCredential: Bool,
+        hasAntigravityCredential: Bool
     ) -> Bool {
         !refreshableServices(
             selectionState: selectionState,
             hasClaudeSessionKey: hasClaudeSessionKey,
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
             isCodexAuthenticated: isCodexAuthenticated,
-            hasGeminiCredential: hasGeminiCredential
+            hasGeminiCredential: hasGeminiCredential,
+            hasAntigravityCredential: hasAntigravityCredential
         ).isEmpty
     }
 
@@ -170,14 +178,16 @@ struct ServiceSelectionHelper {
         hasClaudeSessionKey: Bool,
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool,
-        hasGeminiCredential: Bool
+        hasGeminiCredential: Bool,
+        hasAntigravityCredential: Bool
     ) -> Bool {
         hasRefreshableService(
             selectionState: settings.providerSelectionState,
             hasClaudeSessionKey: hasClaudeSessionKey,
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
             isCodexAuthenticated: isCodexAuthenticated,
-            hasGeminiCredential: hasGeminiCredential
+            hasGeminiCredential: hasGeminiCredential,
+            hasAntigravityCredential: hasAntigravityCredential
         )
     }
 

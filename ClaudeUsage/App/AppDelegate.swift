@@ -18,6 +18,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let apiService = ClaudeAPIService()
     private let codexAPIService = CodexAPIService()
     private let geminiAPIService = GeminiAPIService()
+    private let antigravityAPIService = AntigravityAPIService()
     private let popoverCoordinator = AppPopoverCoordinator()
     private let runtimeObservationCoordinator = AppRuntimeObservationCoordinator()
     private let settingsWindowCoordinator = SettingsWindowCoordinator()
@@ -47,7 +48,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         RuntimeRefreshHandlerRegistry.makeHandlers(
             refreshClaude: { [weak self] force in self?.refreshUsage(force: force) },
             refreshCodex: { [weak self] force in self?.refreshCodexUsage(force: force) },
-            refreshGemini: { [weak self] force in self?.refreshGeminiUsage(force: force) }
+            refreshGemini: { [weak self] force in self?.refreshGeminiUsage(force: force) },
+            refreshAntigravity: { [weak self] force in self?.refreshAntigravityUsage(force: force) }
         )
 
     private var currentUsage: ClaudeUsageResponse? {
@@ -74,6 +76,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             var state = runtimeStateCatalog[.gemini]
             state.payload = newValue.map(RuntimeProviderPayload.gemini)
             runtimeStateCatalog[.gemini] = state
+        }
+    }
+
+    private var currentAntigravityUsage: AntigravityUsageResponse? {
+        get { runtimeStateCatalog[.antigravity].antigravityUsage }
+        set {
+            var state = runtimeStateCatalog[.antigravity]
+            state.payload = newValue.map(RuntimeProviderPayload.antigravity)
+            runtimeStateCatalog[.antigravity] = state
         }
     }
 
@@ -104,6 +115,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private var antigravityError: APIError? {
+        get { runtimeStateCatalog[.antigravity].error }
+        set {
+            var state = runtimeStateCatalog[.antigravity]
+            state.error = newValue
+            runtimeStateCatalog[.antigravity] = state
+        }
+    }
+
     private var isLoading: Bool {
         get { runtimeStateCatalog[.claude].isLoading }
         set {
@@ -128,6 +148,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             var state = runtimeStateCatalog[.gemini]
             state.isLoading = newValue
             runtimeStateCatalog[.gemini] = state
+        }
+    }
+
+    private var isAntigravityLoading: Bool {
+        get { runtimeStateCatalog[.antigravity].isLoading }
+        set {
+            var state = runtimeStateCatalog[.antigravity]
+            state.isLoading = newValue
+            runtimeStateCatalog[.antigravity] = state
         }
     }
 
@@ -158,6 +187,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private var antigravityLoadingStartedAt: Date? {
+        get { runtimeStateCatalog[.antigravity].loadingStartedAt }
+        set {
+            var state = runtimeStateCatalog[.antigravity]
+            state.loadingStartedAt = newValue
+            runtimeStateCatalog[.antigravity] = state
+        }
+    }
+
     private var nextUsageRefreshAllowedAt: Date? {
         get { runtimeStateCatalog[.claude].nextRefreshAllowedAt }
         set {
@@ -182,6 +220,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             var state = runtimeStateCatalog[.gemini]
             state.nextRefreshAllowedAt = newValue
             runtimeStateCatalog[.gemini] = state
+        }
+    }
+
+    private var nextAntigravityRefreshAllowedAt: Date? {
+        get { runtimeStateCatalog[.antigravity].nextRefreshAllowedAt }
+        set {
+            var state = runtimeStateCatalog[.antigravity]
+            state.nextRefreshAllowedAt = newValue
+            runtimeStateCatalog[.antigravity] = state
         }
     }
 
@@ -212,6 +259,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private var antigravityLastUpdated: Date? {
+        get { runtimeStateCatalog[.antigravity].lastUpdated }
+        set {
+            var state = runtimeStateCatalog[.antigravity]
+            state.lastUpdated = newValue
+            runtimeStateCatalog[.antigravity] = state
+        }
+    }
+
     private var hasAuthError: Bool {
         get { runtimeStateCatalog[.claude].hasAuthError }
         set {
@@ -236,6 +292,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             var state = runtimeStateCatalog[.gemini]
             state.hasAuthError = newValue
             runtimeStateCatalog[.gemini] = state
+        }
+    }
+
+    private var hasAntigravityAuthError: Bool {
+        get { runtimeStateCatalog[.antigravity].hasAuthError }
+        set {
+            var state = runtimeStateCatalog[.antigravity]
+            state.hasAuthError = newValue
+            runtimeStateCatalog[.antigravity] = state
         }
     }
 
@@ -266,8 +331,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private var antigravityConsecutiveErrorCount: Int {
+        get { runtimeStateCatalog[.antigravity].consecutiveErrorCount }
+        set {
+            var state = runtimeStateCatalog[.antigravity]
+            state.consecutiveErrorCount = newValue
+            runtimeStateCatalog[.antigravity] = state
+        }
+    }
+
     private var hasGeminiCredential: Bool {
         ProviderEnvironmentDetector.status(for: .gemini)?.isDetected == true
+    }
+
+    private var hasAntigravityCredential: Bool {
+        ProviderEnvironmentDetector.status(for: .antigravity)?.isDetected == true
     }
 
     private var refreshableServices: [PopoverService] {
@@ -276,7 +354,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             hasClaudeSessionKey: KeychainManager.shared.hasSessionKey,
             hasClaudeOAuthCredential: claudeCredentialAvailability.oauthCredentialAvailable,
             isCodexAuthenticated: CodexAuthManager.shared.isAuthenticated,
-            hasGeminiCredential: hasGeminiCredential
+            hasGeminiCredential: hasGeminiCredential,
+            hasAntigravityCredential: hasAntigravityCredential
         )
     }
 
@@ -481,6 +560,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.refreshCodexUsage(force: true)
                 case .gemini:
                     self?.refreshGeminiUsage(force: true)
+                case .antigravity:
+                    self?.refreshAntigravityUsage(force: true)
                 }
             },
             onOpenSettingsForService: { [weak self] service in
@@ -595,6 +676,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 lastUpdated: geminiLastUpdated,
                 hasCredential: hasGeminiCredential,
                 hasAuthError: hasGeminiAuthError
+            )
+        case .antigravity:
+            return RuntimeProviderSnapshot(
+                service: .antigravity,
+                payload: currentAntigravityUsage.map(RuntimeProviderPayload.antigravity),
+                error: antigravityError,
+                isLoading: isAntigravityLoading,
+                lastUpdated: antigravityLastUpdated,
+                hasCredential: hasAntigravityCredential,
+                hasAuthError: hasAntigravityAuthError
             )
         }
     }
@@ -928,6 +1019,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 resetState.error = .invalidSessionKey
                 resetState.hasAuthError = true
             }
+        case .antigravity:
+            if !hasAntigravityCredential {
+                resetState.error = .invalidSessionKey
+                resetState.hasAuthError = true
+            }
         }
         runtimeStateCatalog[service] = resetState
     }
@@ -941,6 +1037,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .codex:
             break
         case .gemini:
+            break
+        case .antigravity:
             break
         }
         runtimeStateCatalog[service] = RuntimeProviderState()
@@ -1279,6 +1377,88 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func refreshAntigravityUsage(force: Bool = false) {
+        guard ServiceSelectionHelper.isEnabled(.antigravity, settings: AppSettings.shared) else { return }
+
+        if !force, let remaining = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextAntigravityRefreshAllowedAt) {
+            if nextAntigravityRefreshAllowedAt != nil {
+                Logger.debug("Antigravity 갱신 스킵: 임시 오류 백오프 \(remaining)초 남음")
+                return
+            }
+            nextAntigravityRefreshAllowedAt = nil
+        }
+
+        switch RefreshExecutionPolicy.inFlightDecision(isLoading: isAntigravityLoading, startedAt: antigravityLoadingStartedAt) {
+        case .start:
+            break
+        case .recoverStale(let elapsed):
+            Logger.warning("Antigravity 갱신 고착 감지(\(elapsed)초) → 상태 복구")
+            isAntigravityLoading = false
+            antigravityLoadingStartedAt = nil
+        case .skip:
+            return
+        }
+
+        if !hasAntigravityCredential {
+            hasAntigravityAuthError = true
+            antigravityError = .invalidSessionKey
+            currentAntigravityUsage = nil
+            updateMenuBar()
+            updatePopoverViewModel(overage: currentOverage)
+            return
+        }
+
+        isAntigravityLoading = true
+        antigravityLoadingStartedAt = Date()
+
+        Task {
+            do {
+                let usage = try await AntigravityRuntimeRefresher.refresh(apiService: antigravityAPIService)
+                await MainActor.run {
+                    self.currentAntigravityUsage = usage
+                    self.antigravityError = nil
+                    self.hasAntigravityAuthError = false
+                    self.antigravityConsecutiveErrorCount = 0
+                    self.nextAntigravityRefreshAllowedAt = nil
+                    self.antigravityLastUpdated = Date()
+                    self.isAntigravityLoading = false
+                    self.antigravityLoadingStartedAt = nil
+                    self.updateMenuBar()
+                    self.updatePopoverViewModel(overage: self.currentOverage)
+                }
+            } catch let error as APIError {
+                await MainActor.run {
+                    self.isAntigravityLoading = false
+                    self.antigravityLoadingStartedAt = nil
+                    self.antigravityConsecutiveErrorCount += 1
+                    self.applyAntigravityRefreshBackoff(for: error)
+                    self.hasAntigravityAuthError = error.isDefinitiveAuthFailure
+                    self.antigravityError = error
+                    if self.antigravityConsecutiveErrorCount >= 3 && error.isTemporaryFailure {
+                        self.currentAntigravityUsage = nil
+                    }
+                    self.updateMenuBar()
+                    self.updatePopoverViewModel(overage: self.currentOverage)
+                }
+            } catch {
+                let wrapped = APIError.unknownError(error.localizedDescription)
+                await MainActor.run {
+                    self.isAntigravityLoading = false
+                    self.antigravityLoadingStartedAt = nil
+                    self.antigravityConsecutiveErrorCount += 1
+                    self.applyAntigravityRefreshBackoff(for: wrapped)
+                    self.hasAntigravityAuthError = false
+                    self.antigravityError = wrapped
+                    if self.antigravityConsecutiveErrorCount >= 3 {
+                        self.currentAntigravityUsage = nil
+                    }
+                    self.updateMenuBar()
+                    self.updatePopoverViewModel(overage: self.currentOverage)
+                }
+            }
+        }
+    }
+
     private func applyCodexRefreshBackoff(for error: APIError) {
         let result = RefreshExecutionPolicy.nextBackoffDate(
             for: error,
@@ -1308,6 +1488,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         nextGeminiRefreshAllowedAt = candidate
         if let backoffSeconds = result.seconds {
             Logger.info("Gemini 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
+        }
+    }
+
+    private func applyAntigravityRefreshBackoff(for error: APIError) {
+        let result = RefreshExecutionPolicy.nextBackoffDate(
+            for: error,
+            minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
+            existingAllowedAt: nextAntigravityRefreshAllowedAt
+        )
+
+        guard let candidate = result.candidate else {
+            nextAntigravityRefreshAllowedAt = nil
+            return
+        }
+        nextAntigravityRefreshAllowedAt = candidate
+        if let backoffSeconds = result.seconds {
+            Logger.info("Antigravity 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
         }
     }
 
@@ -1401,7 +1598,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 icon: config.showIcon ? MenuBarIconFactory.geminiMenuBarIcon(size: iconSize) : nil
             )
         case .antigravity:
-            return nil
+            guard let config = AppSettings.shared.menuBarDisplayConfig(for: .antigravity) else { return nil }
+            return MenuBarStatusComposer.antigravitySnapshot(
+                config: config,
+                usage: currentAntigravityUsage,
+                error: antigravityError,
+                hasAuthError: hasAntigravityAuthError,
+                hasCredential: hasAntigravityCredential,
+                secondaryColor: secondaryColor,
+                icon: config.showIcon ? MenuBarIconFactory.antigravityMenuBarIcon(size: iconSize) : nil
+            )
         }
     }
 
@@ -1572,25 +1778,46 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             onSessionKeyFound: { [weak self] key in
                 guard let self = self else { return }
 
-                let result = try await ClaudeSettingsApplyCoordinator.activateSessionKey(
-                    key,
-                    apiService: self.apiService,
-                    preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
-                    providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
-                )
                 await MainActor.run {
-                    self.applyUsageHealthSnapshot(result.snapshot)
-                    AppSettings.shared.hasCompletedSetupWizard = result.shouldMarkSetupComplete
+                    self.currentError = nil
                     self.hasAuthError = false
-                    if result.shouldStartMonitoring {
-                        self.startMonitoring()
-                    } else {
+                    if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
+                        self.isLoading = true
+                        self.loadingStartedAt = Date()
+                    }
+                    self.updateMenuBar()
+                    self.updatePopoverViewModel(overage: self.currentOverage)
+                }
+
+                do {
+                    let result = try await ClaudeSettingsApplyCoordinator.activateSessionKey(
+                        key,
+                        apiService: self.apiService,
+                        preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
+                        providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
+                    )
+                    await MainActor.run {
+                        self.applyUsageHealthSnapshot(result.snapshot)
+                        AppSettings.shared.hasCompletedSetupWizard = result.shouldMarkSetupComplete
+                        self.hasAuthError = false
+                        if result.shouldStartMonitoring {
+                            self.startMonitoring()
+                        } else {
+                            self.updateMenuBar()
+                            self.updatePopoverViewModel(overage: self.currentOverage)
+                        }
+                        self.loginWindowCoordinator.close()
+                    }
+                    Logger.info("로그인 완료, 모니터링 시작")
+                } catch {
+                    await MainActor.run {
+                        self.isLoading = false
+                        self.loadingStartedAt = nil
                         self.updateMenuBar()
                         self.updatePopoverViewModel(overage: self.currentOverage)
                     }
-                    self.loginWindowCoordinator.close()
+                    throw error
                 }
-                Logger.info("로그인 완료, 모니터링 시작")
             },
             onCancel: { [weak self] in
                 self?.loginWindowCoordinator.close()

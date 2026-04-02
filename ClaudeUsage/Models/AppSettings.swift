@@ -886,6 +886,18 @@ class AppSettings: ObservableObject {
         menuBarDisplayConfig(for: kind)?.style
     }
 
+    func setProviderShowIcon(_ enabled: Bool, for kind: AppProviderKind) {
+        switch kind {
+        case .claude:
+            showClaudeIcon = enabled
+        case .codex:
+            showCodexIcon = enabled
+        case .gemini, .antigravity:
+            objectWillChange.send()
+            defaults.set(enabled, forKey: providerDefaultsKey(kind, suffix: "showIcon"))
+        }
+    }
+
     func setMenuBarStyle(_ style: MenuBarStyle, for kind: AppProviderKind) {
         switch kind {
         case .claude:
@@ -894,6 +906,78 @@ class AppSettings: ObservableObject {
             codexMenuBarStyle = style
         case .gemini, .antigravity:
             defaults.set(style.rawValue, forKey: providerDefaultsKey(kind, suffix: "menuBarStyle"))
+        }
+    }
+
+    func setProviderPercentageDisplay(_ display: PercentageDisplay, for kind: AppProviderKind) {
+        switch kind {
+        case .claude:
+            percentageDisplay = display
+        case .codex:
+            codexPercentageDisplay = display
+        case .gemini, .antigravity:
+            objectWillChange.send()
+            defaults.set(display.rawValue, forKey: providerDefaultsKey(kind, suffix: "percentageDisplay"))
+        }
+    }
+
+    func setProviderResetTimeDisplay(_ display: ResetTimeDisplay, for kind: AppProviderKind) {
+        switch kind {
+        case .claude:
+            resetTimeDisplay = display
+        case .codex:
+            codexResetTimeDisplay = display
+        case .gemini, .antigravity:
+            objectWillChange.send()
+            defaults.set(display.rawValue, forKey: providerDefaultsKey(kind, suffix: "resetTimeDisplay"))
+        }
+    }
+
+    func setProviderTimeFormat(_ format: TimeFormatStyle, for kind: AppProviderKind) {
+        switch kind {
+        case .claude:
+            timeFormat = format
+        case .codex:
+            codexTimeFormat = format
+        case .gemini, .antigravity:
+            objectWillChange.send()
+            defaults.set(format.rawValue, forKey: providerDefaultsKey(kind, suffix: "timeFormat"))
+        }
+    }
+
+    func setProviderShowBatteryPercent(_ enabled: Bool, for kind: AppProviderKind) {
+        switch kind {
+        case .claude:
+            showBatteryPercent = enabled
+        case .codex:
+            codexShowBatteryPercent = enabled
+        case .gemini, .antigravity:
+            objectWillChange.send()
+            defaults.set(enabled, forKey: providerDefaultsKey(kind, suffix: "showBatteryPercent"))
+        }
+    }
+
+    func setProviderCircularDisplayMode(_ mode: CircularDisplayMode, for kind: AppProviderKind) {
+        switch kind {
+        case .claude:
+            circularDisplayMode = mode
+        case .codex:
+            codexCircularDisplayMode = mode
+        case .gemini, .antigravity:
+            objectWillChange.send()
+            defaults.set(mode.rawValue, forKey: providerDefaultsKey(kind, suffix: "circularDisplayMode"))
+        }
+    }
+
+    func setProviderIconMetric(_ metric: IconMetric, for kind: AppProviderKind) {
+        switch kind {
+        case .claude:
+            iconMetric = metric
+        case .codex:
+            codexIconMetric = metric
+        case .gemini, .antigravity:
+            objectWillChange.send()
+            defaults.set(metric.rawValue, forKey: providerDefaultsKey(kind, suffix: "iconMetric"))
         }
     }
 

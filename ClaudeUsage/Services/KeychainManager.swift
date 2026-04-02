@@ -8,6 +8,10 @@
 
 import Foundation
 
+extension Notification.Name {
+    nonisolated static let claudeSessionKeyDidChange = Notification.Name("claudeSessionKeyDidChange")
+}
+
 enum KeychainError: Error, LocalizedError {
     case invalidData
     case storageFailed(String)
@@ -40,6 +44,7 @@ final class KeychainManager: @unchecked Sendable {
             throw KeychainError.storageFailed(error.localizedDescription)
         }
         UserDefaults.standard.removeObject(forKey: self.storageKey)
+        NotificationCenter.default.post(name: .claudeSessionKeyDidChange, object: nil)
         Logger.info("세션 키 저장 완료")
     }
 
@@ -73,6 +78,7 @@ final class KeychainManager: @unchecked Sendable {
             throw KeychainError.storageFailed(error.localizedDescription)
         }
         UserDefaults.standard.removeObject(forKey: self.storageKey)
+        NotificationCenter.default.post(name: .claudeSessionKeyDidChange, object: nil)
     }
 
     nonisolated var hasSessionKey: Bool {

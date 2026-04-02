@@ -53,6 +53,10 @@ final class PopoverViewModel: ObservableObject {
         runtimeSnapshots[.gemini]?.geminiUsage
     }
 
+    var antigravityUsage: AntigravityUsageResponse? {
+        runtimeSnapshots[.antigravity]?.antigravityUsage
+    }
+
     func refresh() {
         self.onRefreshService?(self.selectedService)
     }
@@ -219,6 +223,31 @@ final class PopoverViewModel: ObservableObject {
                 isAuthRequired: isAuthRequired,
                 shouldShowWarningDot: isAuthRequired || runtimeSnapshots[.gemini]?.error != nil
             )
+        case .antigravity:
+            let isEnabled = settings.isProviderEnabled(.antigravity)
+            let isAuthRequired = isEnabled && !(ProviderEnvironmentDetector.status(for: .antigravity)?.isDetected ?? false)
+            let summary: String
+            if !isEnabled {
+                summary = "비활성화됨"
+            } else if isAuthRequired {
+                summary = "연결 필요"
+            } else if let antigravityUsage {
+                summary = "Claude \(Int(antigravityUsage.primaryPercentage.rounded()))% · Pro \(Int(antigravityUsage.secondaryPercentage.rounded()))%"
+            } else {
+                summary = ProviderEnvironmentDetector.status(for: .antigravity)?.summary ?? "데이터를 아직 불러오지 못했습니다"
+            }
+
+            return RuntimeServiceState(
+                service: .antigravity,
+                summary: summary,
+                meta: runtimeSnapshots[.antigravity]?.lastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) },
+                lastUpdated: runtimeSnapshots[.antigravity]?.lastUpdated,
+                isLoading: runtimeSnapshots[.antigravity]?.isLoading ?? false,
+                error: runtimeSnapshots[.antigravity]?.error,
+                hasContent: antigravityUsage != nil,
+                isAuthRequired: isAuthRequired,
+                shouldShowWarningDot: isAuthRequired || runtimeSnapshots[.antigravity]?.error != nil
+            )
         }
     }
 
@@ -231,10 +260,7 @@ final class PopoverViewModel: ObservableObject {
         case .gemini:
             return runtimeServiceState(for: .gemini, settings: settings).summary
         case .antigravity:
-            if !settings.isProviderEnabled(kind) {
-                return "비활성화됨"
-            }
-            return ProviderEnvironmentDetector.status(for: kind)?.summary ?? "런타임 연결 준비 중"
+            return runtimeServiceState(for: .antigravity, settings: settings).summary
         }
     }
 
@@ -247,7 +273,7 @@ final class PopoverViewModel: ObservableObject {
         case .gemini:
             return runtimeServiceState(for: .gemini, settings: .shared).meta
         case .antigravity:
-            return nil
+            return runtimeServiceState(for: .antigravity, settings: .shared).meta
         }
     }
 
@@ -368,6 +394,10 @@ final class PopoverViewModel: ObservableObject {
         if let usage = snapshot.geminiUsage {
             let tertiary = usage.tertiaryWindow.map { " · Lite \(Int($0.usedPercent.rounded()))%" } ?? ""
             return "Pro \(Int(usage.primaryPercentage.rounded()))% · Flash \(Int(usage.secondaryPercentage.rounded()))%\(tertiary)"
+        }
+        if let usage = snapshot.antigravityUsage {
+            let tertiary = usage.tertiaryWindow.map { " · Flash \(Int($0.usedPercent.rounded()))%" } ?? ""
+            return "Claude \(Int(usage.primaryPercentage.rounded()))% · Pro \(Int(usage.secondaryPercentage.rounded()))%\(tertiary)"
         }
         if let error = snapshot.error {
             return error.errorDescription ?? "조회 실패"
