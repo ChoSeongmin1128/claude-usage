@@ -53,6 +53,7 @@ struct SettingsView: View {
     var onOpenClaudeInChrome: (() -> Void)?
     var onLogout: (() -> Void)?
     var onCodexLogout: (() -> Void)?
+    var onSessionKeyStored: (() -> Void)?
 
     enum TestResult {
         case success
@@ -2388,6 +2389,7 @@ struct SettingsView: View {
                     }
                     refreshSetupWizardState()
                     loadUsageHealthSnapshot()
+                    onSessionKeyStored?()
                 }
             } catch {
                 await MainActor.run {

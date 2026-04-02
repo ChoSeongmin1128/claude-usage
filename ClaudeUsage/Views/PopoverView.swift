@@ -680,6 +680,18 @@ struct PopoverView: View {
         viewModel.runtimeServiceState(for: service, settings: settings).hasContent
     }
 
+    private var claudeUsage: ClaudeUsageResponse? {
+        viewModel.runtimeSnapshots[.claude]?.claudeUsage ?? viewModel.usage
+    }
+
+    private var codexUsage: CodexUsageResponse? {
+        viewModel.runtimeSnapshots[.codex]?.codexUsage ?? viewModel.codexUsage
+    }
+
+    private var geminiUsage: GeminiUsageResponse? {
+        viewModel.runtimeSnapshots[.gemini]?.geminiUsage ?? viewModel.geminiUsage
+    }
+
     private func needsInitialLoad(for service: PopoverService) -> Bool {
         serviceLoading(for: service) && !hasLoadedContent(for: service)
     }
@@ -743,7 +755,7 @@ struct PopoverView: View {
                         OverageUsageView(overage: overage)
                     }
                 case "codexPrimary":
-                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.primaryWindow {
+                    if let codex = codexUsage, let window = codex.rateLimit?.primaryWindow {
                         UsageSectionView(
                             systemIcon: "bubble.left.and.bubble.right",
                             title: "현재 세션",
@@ -755,7 +767,7 @@ struct PopoverView: View {
                         ProviderStatusRow(title: "현재 세션", error: viewModel.codexError)
                     }
                 case "codexSecondary":
-                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.secondaryWindow {
+                    if let codex = codexUsage, let window = codex.rateLimit?.secondaryWindow {
                         UsageSectionView(
                             systemIcon: "calendar.badge.clock",
                             title: "주간 한도",
@@ -768,7 +780,7 @@ struct PopoverView: View {
                         ProviderStatusRow(title: "주간 한도", error: viewModel.codexError)
                     }
                 case "codexCredits":
-                    if let codex = viewModel.codexUsage, let credits = codex.credits {
+                    if let codex = codexUsage, let credits = codex.credits {
                         CodexCreditsView(credits: credits)
                     } else {
                         ProviderStatusRow(title: "Codex 크레딧", error: viewModel.codexError)
@@ -851,7 +863,7 @@ struct PopoverView: View {
                 if index > 0 { Divider() }
                 switch item.id {
                 case "codexPrimary":
-                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.primaryWindow {
+                    if let codex = codexUsage, let window = codex.rateLimit?.primaryWindow {
                         UsageSectionView(
                             systemIcon: "bubble.left.and.bubble.right",
                             title: "현재 세션",
@@ -863,7 +875,7 @@ struct PopoverView: View {
                         ProviderStatusRow(title: "현재 세션", error: viewModel.codexError)
                     }
                 case "codexSecondary":
-                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.secondaryWindow {
+                    if let codex = codexUsage, let window = codex.rateLimit?.secondaryWindow {
                         UsageSectionView(
                             systemIcon: "calendar.badge.clock",
                             title: "주간 한도",
@@ -876,7 +888,7 @@ struct PopoverView: View {
                         ProviderStatusRow(title: "주간 한도", error: viewModel.codexError)
                     }
                 case "codexCredits":
-                    if let codex = viewModel.codexUsage, let credits = codex.credits {
+                    if let codex = codexUsage, let credits = codex.credits {
                         CodexCreditsView(credits: credits)
                     } else {
                         ProviderStatusRow(title: "Codex 크레딧", error: viewModel.codexError)
@@ -913,13 +925,13 @@ struct PopoverView: View {
                 }
                 .padding(12)
 
-            } else if selectedService == .claude, viewModel.usage != nil {
-                compactClaudeContent(usage: viewModel.usage)
+            } else if selectedService == .claude, claudeUsage != nil {
+                compactClaudeContent(usage: claudeUsage)
 
-            } else if selectedService == .codex, viewModel.codexUsage != nil {
+            } else if selectedService == .codex, codexUsage != nil {
                 compactCodexContent()
 
-            } else if selectedService == .gemini, viewModel.geminiUsage != nil {
+            } else if selectedService == .gemini, geminiUsage != nil {
                 compactGeminiContent()
 
             } else {
@@ -957,13 +969,13 @@ struct PopoverView: View {
                 }
                 .padding(16)
 
-            } else if selectedService == .claude, viewModel.usage != nil {
-                standardClaudeContent(usage: viewModel.usage)
+            } else if selectedService == .claude, claudeUsage != nil {
+                standardClaudeContent(usage: claudeUsage)
 
-            } else if selectedService == .codex, viewModel.codexUsage != nil {
+            } else if selectedService == .codex, codexUsage != nil {
                 standardCodexContent()
 
-            } else if selectedService == .gemini, viewModel.geminiUsage != nil {
+            } else if selectedService == .gemini, geminiUsage != nil {
                 standardGeminiContent()
 
             } else {
@@ -1021,15 +1033,15 @@ struct PopoverView: View {
             ForEach(visibleCodexItems.map(\.id), id: \.self) { itemID in
                 switch itemID {
                 case "codexPrimary":
-                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.primaryWindow {
+                    if let codex = codexUsage, let window = codex.rateLimit?.primaryWindow {
                         CompactUsageRow(label: "현재", percentage: window.utilization, resetAt: window.resetAtISO, timeFormatStyle: settings.codexTimeFormat)
                     }
                 case "codexSecondary":
-                    if let codex = viewModel.codexUsage, let window = codex.rateLimit?.secondaryWindow {
+                    if let codex = codexUsage, let window = codex.rateLimit?.secondaryWindow {
                         CompactUsageRow(label: "주간", percentage: window.utilization, resetAt: window.resetAtISO, isWeekly: true, timeFormatStyle: settings.codexTimeFormat)
                     }
                 case "codexCredits":
-                    if let codex = viewModel.codexUsage, let credits = codex.credits {
+                    if let codex = codexUsage, let credits = codex.credits {
                         CompactCodexCreditsRow(credits: credits)
                     }
                 default:
@@ -1044,7 +1056,7 @@ struct PopoverView: View {
     @ViewBuilder
     private func standardGeminiContent() -> some View {
         VStack(spacing: 12) {
-            if let primary = viewModel.geminiUsage?.primaryWindow {
+            if let primary = geminiUsage?.primaryWindow {
                 UsageSectionView(
                     systemIcon: "sparkles",
                     title: primary.label,
@@ -1054,7 +1066,7 @@ struct PopoverView: View {
                 )
             }
 
-            if let secondary = viewModel.geminiUsage?.secondaryWindow {
+            if let secondary = geminiUsage?.secondaryWindow {
                 Divider()
                 UsageSectionView(
                     systemIcon: "bolt.horizontal.circle",
@@ -1066,7 +1078,7 @@ struct PopoverView: View {
                 )
             }
 
-            if let tertiary = viewModel.geminiUsage?.tertiaryWindow {
+            if let tertiary = geminiUsage?.tertiaryWindow {
                 Divider()
                 UsageSectionView(
                     systemIcon: "circle.hexagongrid",
@@ -1078,7 +1090,7 @@ struct PopoverView: View {
                 )
             }
 
-            if let usage = viewModel.geminiUsage,
+            if let usage = geminiUsage,
                usage.accountEmail != nil || usage.accountPlan != nil {
                 Divider()
                 VStack(alignment: .leading, spacing: 6) {
@@ -1104,13 +1116,13 @@ struct PopoverView: View {
     @ViewBuilder
     private func compactGeminiContent() -> some View {
         VStack(spacing: 5) {
-            if let primary = viewModel.geminiUsage?.primaryWindow {
+            if let primary = geminiUsage?.primaryWindow {
                 CompactUsageRow(label: primary.label, percentage: primary.usedPercent, resetAt: primary.resetAtISO, timeFormatStyle: settings.timeFormat)
             }
-            if let secondary = viewModel.geminiUsage?.secondaryWindow {
+            if let secondary = geminiUsage?.secondaryWindow {
                 CompactUsageRow(label: secondary.label, percentage: secondary.usedPercent, resetAt: secondary.resetAtISO, isWeekly: true, timeFormatStyle: settings.timeFormat)
             }
-            if let tertiary = viewModel.geminiUsage?.tertiaryWindow {
+            if let tertiary = geminiUsage?.tertiaryWindow {
                 CompactUsageRow(label: "Lite", percentage: tertiary.usedPercent, resetAt: tertiary.resetAtISO, isWeekly: true, timeFormatStyle: settings.timeFormat)
             }
         }

@@ -715,6 +715,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         isLoading = false
         loadingStartedAt = nil
         updateMenuBar()
+        updatePopoverViewModel(overage: currentOverage)
         refreshAll()
         startTimer()
     }
@@ -827,16 +828,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func applyUsageHealthSnapshot(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) {
-        let previousOAuthCredential = claudeCredentialAvailability.oauthCredentialAvailable
+        let previousCredentialAvailability = claudeCredentialAvailability.hasAnyCredential
         claudeCredentialAvailability = snapshot.runtime.credentialAvailability
         popoverViewModel.usageHealthSnapshot = snapshot
         popoverViewModel.nextUsageRetryAt = nextUsageRefreshAllowedAt
 
-        if previousOAuthCredential != claudeCredentialAvailability.oauthCredentialAvailable {
+        if previousCredentialAvailability != claudeCredentialAvailability.hasAnyCredential {
             syncRefreshTimerState()
             updateMenuBar()
         }
 
+        updatePopoverViewModel(overage: currentOverage)
         refreshPopoverSizeIfShown()
     }
 
@@ -1535,6 +1537,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.nextCodexRefreshAllowedAt = nil
                 self.updateMenuBar()
                 self.updatePopoverViewModel(overage: self.currentOverage)
+            },
+            onSessionKeyStored: { [weak self] in
+                guard let self else { return }
+                self.applySettingsFromWindow()
             }
         )
         settingsWindowCoordinator.present(rootView: settingsView, snapshot: snapshot)
@@ -1566,9 +1572,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             onSessionKeyFound: { [weak self] key in
                 guard let self = self else { return }
 
-                // 1.5초 후 창 닫기 및 모니터링 시작
                 Task {
-                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    try? await Task.sleep(nanoseconds: 350_000_000)
                     await MainActor.run {
                         self.loginWindowCoordinator.close()
                     }
@@ -1585,6 +1590,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                             self.hasAuthError = false
                             if result.shouldStartMonitoring {
                                 self.startMonitoring()
+                            } else {
+                                self.updateMenuBar()
+                                self.updatePopoverViewModel(overage: self.currentOverage)
                             }
                         }
                         Logger.info("로그인 완료, 모니터링 시작")
