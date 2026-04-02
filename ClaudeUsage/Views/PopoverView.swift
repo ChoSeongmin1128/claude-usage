@@ -932,26 +932,26 @@ struct PopoverView: View {
                     if let codex = viewModel.codexUsage, let window = codex.rateLimit?.primaryWindow {
                         UsageSectionView(
                             systemIcon: "bubble.left.and.bubble.right",
-                            title: "Codex 현재",
+                            title: "현재 세션",
                             percentage: window.utilization,
                             resetAt: window.resetAtISO,
                             timeFormatStyle: settings.codexTimeFormat
                         )
                     } else {
-                        ProviderStatusRow(title: "Codex 현재", error: viewModel.codexError)
+                        ProviderStatusRow(title: "현재 세션", error: viewModel.codexError)
                     }
                 case "codexSecondary":
                     if let codex = viewModel.codexUsage, let window = codex.rateLimit?.secondaryWindow {
                         UsageSectionView(
                             systemIcon: "calendar.badge.clock",
-                            title: "Codex 주간",
+                            title: "주간 한도",
                             percentage: window.utilization,
                             resetAt: window.resetAtISO,
                             isWeekly: true,
                             timeFormatStyle: settings.codexTimeFormat
                         )
                     } else {
-                        ProviderStatusRow(title: "Codex 주간", error: viewModel.codexError)
+                        ProviderStatusRow(title: "주간 한도", error: viewModel.codexError)
                     }
                 case "codexCredits":
                     if let codex = viewModel.codexUsage, let credits = codex.credits {
