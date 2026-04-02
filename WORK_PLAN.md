@@ -686,6 +686,7 @@
 - 같은 후속 정리로 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift), [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift), [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 wizard의 `수동 입력` CTA가 단순히 일반 설정 창만 여는 것이 아니라, Claude 인증 탭과 `문제 해결 및 수동 입력` 섹션을 즉시 펼친 상태로 연결되도록 보강했습니다.
 - 같은 시점에 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 의 기본 인증 상태 카드도 `currentSetupProgress.stage` 기준으로 완료 전/완료 후 subtitle을 달리 써, 첫 실행 직후와 안정 상태를 같은 톤으로 보여주던 문제를 줄였습니다.
 - 추가로 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 정상 상태에서는 `문제 해결 및 수동 입력 보기` teaser 자체를 숨기도록 조정했습니다. setup이 끝났고 복구가 필요 없는 상태인데도 계속 문제 해결 CTA가 남아 있으면 마감된 화면처럼 보이지 않기 때문입니다.
+- 같은 마감 후속으로 [SetupWizardWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SetupWizardWindowView.swift) 는 완료 단계에서 더 이상 `자격 준비 / 조회 검증 / Organization 확인` 체크리스트를 다시 보여주지 않도록 바뀌었습니다. wizard가 끝났는데도 wizard 문법이 계속 남아 있으면 사용자는 아직 미완료라고 느끼기 쉽기 때문입니다.
 
 ### 제품 방향
 

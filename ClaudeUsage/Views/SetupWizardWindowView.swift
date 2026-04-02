@@ -42,7 +42,7 @@ struct SetupWizardWindowView: View {
         case .organization:
             return checklistState.filter { $0.0 == "Organization 확인" }
         case .complete:
-            return checklistState
+            return []
         }
     }
 
@@ -142,31 +142,33 @@ struct SetupWizardWindowView: View {
                 )
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                Text(checklistTitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            if !visibleChecklistState.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(checklistTitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
-                ForEach(Array(visibleChecklistState.enumerated()), id: \.offset) { _, item in
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: item.2 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                            .foregroundStyle(item.2 ? .green : .orange)
-                            .font(.caption)
-                            .padding(.top, 1)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(item.0)
+                    ForEach(Array(visibleChecklistState.enumerated()), id: \.offset) { _, item in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: item.2 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                                .foregroundStyle(item.2 ? .green : .orange)
                                 .font(.caption)
-                            Text(item.1)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                                .padding(.top, 1)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.0)
+                                    .font(.caption)
+                                Text(item.1)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
                         }
-                        Spacer(minLength: 0)
                     }
                 }
+                .padding(10)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+                .cornerRadius(8)
             }
-            .padding(10)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-            .cornerRadius(8)
 
             HStack {
                 if progress.stage == .credential && !progress.hasReadyCredential {
