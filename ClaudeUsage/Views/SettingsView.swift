@@ -720,8 +720,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 detailedAuthStatusSection
                 manualSessionKeySection
-                messagesFallbackSection
-                authFAQSection
+                recoveryAndHelpSection
             }
             .padding(.top, 4)
         } label: {
@@ -742,6 +741,28 @@ struct SettingsView: View {
                 .padding(.vertical, 4)
             }
             .buttonStyle(.plain)
+        }
+        .font(.subheadline)
+    }
+
+    private var recoveryAndHelpSection: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 12) {
+                messagesFallbackSection
+                authFAQSection
+            }
+            .padding(.top, 4)
+        } label: {
+            HStack {
+                Text("복구 및 도움말")
+                Spacer(minLength: 0)
+                Text("fallback · FAQ")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .padding(.vertical, 4)
         }
         .font(.subheadline)
     }
