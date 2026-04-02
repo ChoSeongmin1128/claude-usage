@@ -1656,7 +1656,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let secondaryColor = MenuBarIconFactory.secondaryTextColor(highContrast: highContrast)
         let claudeIconTintColor = MenuBarIconFactory.claudeBrandIconTintColor()
 
-        let runtimeKinds = ServiceSelectionHelper.enabledRuntimeProviderKinds(settings: settings)
+        let runtimeKinds = ServiceSelectionHelper
+            .enabledRuntimeProviderKinds(settings: settings)
+            .filter { settings.isProviderVisibleInMenuBar($0) }
         let compactSnapshots = runtimeKinds.compactMap {
             menuBarProviderSnapshot(
                 for: $0,
@@ -1702,6 +1704,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         secondaryColor: NSColor,
         claudeIconTintColor: NSColor
     ) -> MenuBarProviderSnapshot? {
+        guard AppSettings.shared.isProviderVisibleInMenuBar(kind) else { return nil }
         switch kind {
         case .claude:
             guard let config = AppSettings.shared.menuBarDisplayConfig(for: .claude) else { return nil }

@@ -117,7 +117,6 @@ struct PopoverView: View {
                 .padding(.bottom, 6)
             }
         }
-        .frame(width: preferredPopoverWidth)
         .background(Color(NSColor.windowBackgroundColor))
         .onAppear {
             normalizeSelectedServiceIfNeeded()
@@ -224,7 +223,6 @@ struct PopoverView: View {
                 }
             }
             .scrollIndicators(.never)
-            .layoutPriority(1)
         } else {
             Text(selectedService.displayName)
                 .font(.headline)
@@ -281,7 +279,7 @@ struct PopoverView: View {
     }
 
     private var shouldStackHeaderControls: Bool {
-        availableServices.count >= 5
+        availableServices.count >= 4
     }
 
     private func shouldShowWarningDot(for service: PopoverService) -> Bool {
@@ -343,25 +341,13 @@ struct PopoverView: View {
         }
     }
 
-    private var preferredPopoverWidth: CGFloat {
-        Self.preferredPopoverWidth(
-            for: availableServices,
-            compact: isCompact,
-            stackHeaderControls: shouldStackHeaderControls
-        )
-    }
-
-    static func preferredPopoverWidth(
-        for services: [PopoverService],
-        compact: Bool,
-        stackHeaderControls: Bool
-    ) -> CGFloat {
-        let longestNameLength = services.map(\.displayName.count).max() ?? 6
-        let baseWidth: CGFloat = compact ? 400 : 520
-        let nameWidthBoost = CGFloat(max(longestNameLength - 10, 0)) * (compact ? 4 : 6)
-        let stackBoost: CGFloat = stackHeaderControls ? (compact ? 20 : 36) : 0
-        let capWidth: CGFloat = compact ? 520 : 640
-        return min(baseWidth + nameWidthBoost + stackBoost, capWidth)
+    static func preferredPopoverWidth(for service: PopoverService, compact: Bool) -> CGFloat {
+        switch service {
+        case .claude, .codex:
+            return compact ? 380 : 460
+        case .gemini, .antigravity:
+            return compact ? 396 : 476
+        }
     }
 
     private func requestRefreshIfNeededForVisibleService() {
