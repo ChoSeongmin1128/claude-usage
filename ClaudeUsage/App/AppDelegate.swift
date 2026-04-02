@@ -922,6 +922,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleClaudeSessionKeyChanged() {
         Task {
+            let preferredOrganizationID = AppSettings.shared.preferredOrganizationID
+            await apiService.updatePreferredOrganizationID(preferredOrganizationID)
+
+            if let sessionKey = KeychainManager.shared.load(), !sessionKey.isEmpty {
+                await apiService.updateSessionKey(sessionKey)
+            } else {
+                await apiService.clearSession()
+            }
+
             async let snapshotTask = apiService.fetchUsageHealthSnapshot()
             async let metadataTask = apiService.fetchCachedProfileMetadata()
             let snapshot = await snapshotTask
