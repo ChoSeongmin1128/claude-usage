@@ -426,6 +426,23 @@ struct SettingsView: View {
                 .cornerRadius(8)
             }
 
+            if let provider = selectedProviderKind,
+               let environmentStatus = ProviderEnvironmentDetector.status(for: provider)
+            {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: environmentStatus.isDetected ? "checkmark.circle.fill" : "exclamationmark.circle")
+                        .foregroundStyle(environmentStatus.isDetected ? .green : .orange)
+                        .padding(.top, 1)
+                    Text(environmentStatus.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                .padding(10)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+                .cornerRadius(8)
+            }
+
             if let provider = selectedProviderKind {
                 Toggle(
                     "\(descriptor.title) provider 활성화",
