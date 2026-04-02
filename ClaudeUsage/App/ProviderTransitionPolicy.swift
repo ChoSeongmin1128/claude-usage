@@ -21,6 +21,12 @@ enum ProviderTransitionPolicy {
         state: RuntimeProviderActivationState
     ) -> ProviderEnabledTransitionDecision {
         guard state.enabled else { return .clearStateOnly }
+        switch state.service {
+        case .gemini, .antigravity:
+            return .refreshNow
+        case .claude, .codex:
+            break
+        }
         return state.hasCredential ? .refreshNow : .clearAndPromptAuth
     }
 }

@@ -65,9 +65,9 @@ struct RuntimeProviderDescriptor: Sendable, Equatable {
         case .codex:
             return context.isCodexAuthenticated
         case .gemini:
-            return context.hasGeminiCredential
+            return true
         case .antigravity:
-            return context.hasAntigravityCredential
+            return true
         }
     }
 }

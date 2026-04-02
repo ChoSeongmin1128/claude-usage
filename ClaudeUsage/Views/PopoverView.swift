@@ -15,59 +15,32 @@ struct PopoverView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // 상단 바
-            HStack(spacing: 8) {
-                headerServiceSelector
-
-                // 새로고침 (제목 옆)
-                Button(action: { viewModel.refresh() }) {
-                    Group {
-                        if currentServiceLoading {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 12))
+            Group {
+                if shouldStackHeaderControls {
+                    VStack(alignment: .leading, spacing: 6) {
+                        headerServiceSelector
+                        HStack(spacing: 10) {
+                            if !shouldCollapseHeaderMetadata, let lastUpdated = currentServiceLastUpdated {
+                                Text(lastUpdated, style: .time)
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Spacer()
+                            headerUtilityControls
                         }
                     }
-                    .frame(width: 14, height: 14)
-                }
-                .buttonStyle(.borderless)
-                .disabled(currentServiceLoading)
-
-                Spacer()
-
-                if !shouldCollapseHeaderMetadata, let lastUpdated = currentServiceLastUpdated {
-                    Text(lastUpdated, style: .time)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-
-                // 간소화 토글
-                Button {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        isCompact.toggle()
+                } else {
+                    HStack(spacing: 8) {
+                        headerServiceSelector
+                        headerUtilityControls
+                        Spacer()
+                        if !shouldCollapseHeaderMetadata, let lastUpdated = currentServiceLastUpdated {
+                            Text(lastUpdated, style: .time)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
                     }
-                    DispatchQueue.main.async {
-                        viewModel.requestLayoutRefresh()
-                    }
-                } label: {
-                    Image(systemName: isCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
-                        .font(.system(size: 12))
                 }
-                .buttonStyle(.borderless)
-                .help(isCompact ? "기본 보기" : "간소화")
-
-                // 고정 핀
-                Button {
-                    isPinned.toggle()
-                    viewModel.onPinChanged?(selectedService, isPinned)
-                } label: {
-                    Image(systemName: isPinned ? "pin.fill" : "pin")
-                        .font(.system(size: 12))
-                        .foregroundColor(isPinned ? .accentColor : .secondary)
-                }
-                .buttonStyle(.borderless)
-                .help(isPinned ? "고정 해제" : "고정")
             }
             .padding(.horizontal, isCompact ? 12 : 16)
             .padding(.top, isCompact ? 4 : 12)
@@ -159,6 +132,52 @@ struct PopoverView: View {
     }
 
     // MARK: - Helpers
+
+    @ViewBuilder
+    private var headerUtilityControls: some View {
+        HStack(spacing: 10) {
+            Button(action: { viewModel.refresh() }) {
+                Group {
+                    if currentServiceLoading {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 12))
+                    }
+                }
+                .frame(width: 14, height: 14)
+            }
+            .buttonStyle(.borderless)
+            .disabled(currentServiceLoading)
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isCompact.toggle()
+                }
+                DispatchQueue.main.async {
+                    viewModel.requestLayoutRefresh()
+                }
+            } label: {
+                Image(systemName: isCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.borderless)
+            .help(isCompact ? "기본 보기" : "간소화")
+
+            Button {
+                isPinned.toggle()
+                viewModel.onPinChanged?(selectedService, isPinned)
+            } label: {
+                Image(systemName: isPinned ? "pin.fill" : "pin")
+                    .font(.system(size: 12))
+                    .foregroundColor(isPinned ? .accentColor : .secondary)
+            }
+            .buttonStyle(.borderless)
+            .help(isPinned ? "고정 해제" : "고정")
+        }
+        .fixedSize()
+    }
 
     private func selectService(_ service: PopoverService) {
         viewModel.selectService(service)
@@ -252,6 +271,10 @@ struct PopoverView: View {
     }
 
     private var shouldCollapseHeaderMetadata: Bool {
+        availableServices.count >= 5
+    }
+
+    private var shouldStackHeaderControls: Bool {
         availableServices.count >= 4
     }
 
@@ -315,16 +338,27 @@ struct PopoverView: View {
     }
 
     private var preferredPopoverWidth: CGFloat {
-        let baseWidth: CGFloat = isCompact ? 360 : 420
-        let providerCount = max(availableServices.count, 1)
-        let extraProviders = max(providerCount - 1, 0)
-        let providerWidthBoost = CGFloat(extraProviders) * (isCompact ? 42 : 56)
-        let longestNameLength = availableServices.map(\.displayName.count).max() ?? selectedService.displayName.count
-        let nameWidthBoost = CGFloat(max(longestNameLength - 6, 0)) * (isCompact ? 9 : 12)
-        let headerUtilityWidth: CGFloat = shouldCollapseHeaderMetadata ? 150 : 196
-        let crowdedTabsBoost: CGFloat = providerCount >= 4 ? (isCompact ? 40 : 64) : 0
-        let capWidth: CGFloat = isCompact ? 620 : 760
-        return min(baseWidth + providerWidthBoost + nameWidthBoost + headerUtilityWidth + crowdedTabsBoost, capWidth)
+        Self.preferredPopoverWidth(
+            for: availableServices,
+            compact: isCompact,
+            stackHeaderControls: shouldStackHeaderControls
+        )
+    }
+
+    static func preferredPopoverWidth(
+        for services: [PopoverService],
+        compact: Bool,
+        stackHeaderControls: Bool
+    ) -> CGFloat {
+        let providerCount = max(services.count, 1)
+        let longestNameLength = services.map(\.displayName.count).max() ?? 6
+        let baseWidth: CGFloat = compact ? 420 : 520
+        let providerWidthBoost = CGFloat(max(providerCount - 1, 0)) * (compact ? 34 : 44)
+        let nameWidthBoost = CGFloat(max(longestNameLength - 6, 0)) * (compact ? 8 : 11)
+        let headerUtilityWidth: CGFloat = stackHeaderControls ? 0 : (compact ? 144 : 188)
+        let stackBoost: CGFloat = stackHeaderControls ? (compact ? 40 : 72) : 0
+        let capWidth: CGFloat = compact ? 760 : 920
+        return min(baseWidth + providerWidthBoost + nameWidthBoost + headerUtilityWidth + stackBoost, capWidth)
     }
 
     private var hasServiceData: Bool {

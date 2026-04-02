@@ -1420,15 +1420,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        if !hasGeminiCredential {
-            hasGeminiAuthError = true
-            geminiError = .invalidSessionKey
-            currentGeminiUsage = nil
-            updateMenuBar()
-            updatePopoverViewModel(overage: currentOverage)
-            return
-        }
-
         isGeminiLoading = true
         geminiLoadingStartedAt = Date()
 
@@ -1517,15 +1508,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             isAntigravityLoading = false
             antigravityLoadingStartedAt = nil
         case .skip:
-            return
-        }
-
-        if !hasAntigravityCredential {
-            hasAntigravityAuthError = true
-            antigravityError = .invalidSessionKey
-            currentAntigravityUsage = nil
-            updateMenuBar()
-            updatePopoverViewModel(overage: currentOverage)
             return
         }
 
