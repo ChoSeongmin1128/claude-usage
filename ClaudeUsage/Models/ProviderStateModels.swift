@@ -74,7 +74,7 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 settingsPanelIconName: "sparkles",
                 settingsPanelSummary: "CLI / OAuth",
                 settingsPanelDetail: "Gemini CLI의 OAuth 자격을 읽어 quota를 직접 조회합니다.",
-                settingsComingSoonMessage: "전용 설정 패널은 이어서 정리하지만, runtime 조회는 먼저 연결합니다.",
+                settingsComingSoonMessage: nil,
                 capabilities: ProviderCapabilities(
                     runtimeService: .gemini,
                     refreshStrategy: .gemini,

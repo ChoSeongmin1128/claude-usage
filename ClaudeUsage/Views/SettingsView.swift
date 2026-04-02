@@ -262,7 +262,9 @@ struct SettingsView: View {
             case .alerts:
                 codexAlertSection
             }
-        case .gemini, .antigravity:
+        case .gemini:
+            runtimeProviderSection(for: .gemini)
+        case .antigravity:
             comingSoonSection
         }
     }
@@ -275,8 +277,10 @@ struct SettingsView: View {
             return "claude-\(selectedClaudeTab.rawValue)"
         case .codex:
             return "codex-\(selectedCodexTab.rawValue)"
-        case .gemini, .antigravity:
-            return "\(selectedPanel.rawValue)-coming-soon"
+        case .gemini:
+            return "gemini-runtime"
+        case .antigravity:
+            return "antigravity-coming-soon"
         }
     }
 
@@ -352,7 +356,15 @@ struct SettingsView: View {
                         selectedCodexTab = tab
                     }
                 }
-            case .gemini, .antigravity:
+            case .gemini:
+                Label("Gemini runtime 설정", systemImage: "sparkles")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+                    .cornerRadius(8)
+            case .antigravity:
                 Label("추가 provider 준비 상태", systemImage: "clock")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -457,6 +469,53 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func runtimeProviderSection(for provider: AppProviderKind) -> some View {
+        let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: provider)
+        let environmentStatus = ProviderEnvironmentDetector.status(for: provider)
+        VStack(alignment: .leading, spacing: 12) {
+            Label(descriptor.title, systemImage: descriptor.icon)
+                .font(.headline)
+
+            Text(descriptor.summary)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            if let detail = descriptor.detail {
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let environmentStatus {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: environmentStatus.isDetected ? "checkmark.circle.fill" : "exclamationmark.circle")
+                        .foregroundStyle(environmentStatus.isDetected ? .green : .orange)
+                        .padding(.top, 1)
+                    Text(environmentStatus.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+                .padding(10)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+                .cornerRadius(8)
+            }
+
+            Toggle(
+                "\(descriptor.title) provider 활성화",
+                isOn: Binding(
+                    get: { settings.isProviderEnabled(provider) },
+                    set: { settings.setProviderEnabled($0, for: provider) }
+                )
+            )
+
+            Text(shellSectionFootnote(for: provider, selectionState: settings.providerSelectionState))
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
