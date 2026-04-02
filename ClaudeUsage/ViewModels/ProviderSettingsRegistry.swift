@@ -43,6 +43,8 @@ struct SettingsProviderPanelDescriptor: Identifiable, Sendable, Equatable {
 }
 
 enum SettingsProviderRegistry {
+    static let providerDescriptors: [ProviderDescriptor] = AppProviderKind.allCases.map(\.descriptor)
+
     static var sidebarPanels: [SettingsProviderPanelDescriptor] {
         [
             .init(panel: .common, title: "공통", icon: "slider.horizontal.3", availability: .active),
@@ -54,7 +56,7 @@ enum SettingsProviderRegistry {
     }
 
     static var providerShellDescriptors: [ProviderShellDescriptor] {
-        AppProviderKind.allCases.map { providerShellDescriptor(for: $0) }
+        providerDescriptors.map { providerShellDescriptor(for: $0.kind) }
     }
 
     static func descriptor(for panel: SettingsProviderPanel) -> SettingsProviderPanelDescriptor {
@@ -62,20 +64,22 @@ enum SettingsProviderRegistry {
     }
 
     static func providerShellDescriptor(for kind: AppProviderKind) -> ProviderShellDescriptor {
-        .init(
+        let providerDescriptor = kind.descriptor
+        return ProviderShellDescriptor(
             kind: kind,
-            title: kind.settingsPanelTitle,
-            icon: kind.settingsPanelIconName,
-            role: kind.isRuntimeProvider ? .active : .comingSoon,
-            summary: kind.settingsPanelSummary,
-            detail: kind.settingsPanelDetail,
-            supportsPopoverSelection: kind.supportsMenuBarServiceSelection
+            title: providerDescriptor.settingsPanelTitle,
+            icon: providerDescriptor.settingsPanelIconName,
+            role: providerDescriptor.capabilities.isRuntimeProvider ? .active : .comingSoon,
+            summary: providerDescriptor.settingsPanelSummary,
+            detail: providerDescriptor.settingsPanelDetail,
+            supportsPopoverSelection: providerDescriptor.capabilities.supportsPopoverSelection
         )
     }
 
     static func providerPanelDescriptor(for kind: AppProviderKind) -> SettingsProviderPanelDescriptor {
+        let providerDescriptor = kind.descriptor
         let availability: SettingsProviderPanelDescriptor.Availability
-        if let message = kind.settingsComingSoonMessage {
+        if let message = providerDescriptor.settingsComingSoonMessage {
             availability = .comingSoon(message: message)
         } else {
             availability = .active
@@ -83,8 +87,8 @@ enum SettingsProviderRegistry {
 
         return .init(
             panel: panel(for: kind),
-            title: kind.settingsPanelTitle,
-            icon: kind.settingsPanelIconName,
+            title: providerDescriptor.settingsPanelTitle,
+            icon: providerDescriptor.settingsPanelIconName,
             availability: availability
         )
     }

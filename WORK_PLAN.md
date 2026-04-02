@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (34차)
+최종 갱신: 2026-04-02 (35차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -73,6 +73,8 @@
 - 2026-04-02 33차 통합에서 [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift) 에 `RuntimeProviderState`, `RuntimeProviderStateCatalog` 를 추가했고, [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `currentUsage/currentCodexUsage/currentError/...` 이중 필드를 이 카탈로그 위 computed wrapper로 바꿨습니다.
 - 같은 통합에서 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `runtimeRefreshHandlers` 를 도입해 `refresh(service:)` switch를 lookup 기반으로 줄였고, `clearRuntimeServiceState(_:)` 도 카탈로그 reset 중심으로 단순화했습니다.
 - 2026-04-02 34차 통합에서 [ClaudeRuntimeRefresher.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ClaudeRuntimeRefresher.swift), [CodexRuntimeRefresher.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/CodexRuntimeRefresher.swift) 를 추가했고, [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 provider별 네트워크 fetch 세부를 직접 수행하지 않고 refresher를 통해 호출하기 시작했습니다.
+- 2026-04-02 35차 통합에서 [ProviderStateModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift) 에 `ProviderCapabilities`, `ProviderDescriptor` 를 도입했고, `AppProviderKind` 의 `runtime/browser-import/defaultEnabled/settings` 성격을 descriptor 기반으로 읽기 시작했습니다.
+- 같은 통합에서 [ProviderSettingsRegistry.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/ProviderSettingsRegistry.swift), [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift) 는 runtime service 판정과 settings shell descriptor를 더 이상 raw switch 조합에 의존하지 않고 provider descriptor를 통해 읽기 시작했습니다.
 
 ## 2. 참고 레포에서 가져올 방향
 
@@ -565,9 +567,8 @@
 
 ## 7. 바로 다음 작업
 
-- `AppDelegate`의 Claude/Codex 이중 상태 필드를 `provider runtime state catalog` 로 통합하기
-- `refreshUsage/refreshCodexUsage` 를 `provider refresher registry` 기반 구조로 올리고 `Gemini`용 진입 자리를 만들기
-- `updateMenuBar()` 와 `updatePopoverViewModel(...)` 를 provider snapshot 컬렉션 기반으로 바꿔 `Gemini` 진입 병목을 제거하기
+- `ClaudeRuntimeRefresher` / `CodexRuntimeRefresher` 를 `provider refresher registry` 로 한 단계 더 일반화하고 `Gemini`용 진입 자리를 만들기
+- `PopoverService` 와 runtime capability를 분리한 descriptor/registry 위에 `Gemini` runtime 상태 shape를 얹을 수 있게 AppDelegate orchestration 남은 하드코딩을 줄이기
 - 설정 내부 체크리스트를 넘어서 독립 `Setup Wizard` 플로우를 완성하고 Chrome/Keychain 권한 설명을 붙이기
 - metadata cache를 실제 알림 문구와 warning suppression 정책까지 연결하기
 - README와 배포/업데이트 문서를 실제 구현 상태에 맞게 계속 갱신하기
