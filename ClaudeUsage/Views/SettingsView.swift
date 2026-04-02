@@ -718,14 +718,23 @@ struct SettingsView: View {
                             .foregroundStyle(.red)
                     }
                 } else {
-                    Button(action: { onOpenLogin?() }) {
-                        Label("Chrome 또는 웹 로그인", systemImage: "person.crop.circle")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+                    HStack(spacing: 10) {
+                        Button(action: { onOpenClaudeInChrome?() }) {
+                            Label("Chrome에서 가져오기", systemImage: "globe")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
 
-                    Text("먼저 Chrome 자동 가져오기를 시도하고, 실패하면 웹 로그인으로 sessionKey를 추출합니다.")
+                        Button(action: { onOpenLogin?() }) {
+                            Label("웹 로그인 열기", systemImage: "person.crop.circle")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.large)
+                    }
+
+                    Text("먼저 Chrome 로그인 상태에서 자동 가져오기를 시도하고, 실패하면 웹 로그인 창에서 sessionKey 추출을 시도합니다.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
