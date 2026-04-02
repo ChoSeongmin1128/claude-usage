@@ -49,6 +49,19 @@ struct SetupWizardWindowView: View {
         }
     }
 
+    private var secondaryActionTitle: String? {
+        switch progress.stage {
+        case .credential:
+            return currentStep == .manualSessionKey ? "설정 열기" : "다른 방법 보기"
+        case .verification:
+            return "설정 열기"
+        case .organization:
+            return "설정 열기"
+        case .complete:
+            return "설정 열기"
+        }
+    }
+
     private var stageSummaryTitle: String {
         switch progress.stage {
         case .credential:
@@ -80,7 +93,7 @@ struct SetupWizardWindowView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("빠른 시작")
                     .font(.title3.weight(.semibold))
-                Text("Claude 중심 menubar 앱이므로, 먼저 Claude 자격을 안정적으로 확보한 뒤 설정과 provider 확장을 진행하는 편이 맞습니다.")
+                Text("처음에는 Claude 연결만 안정적으로 끝내면 됩니다. 다른 provider와 세부 설정은 그 뒤에 해도 늦지 않습니다.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -133,14 +146,9 @@ struct SetupWizardWindowView: View {
             .cornerRadius(8)
 
             HStack {
-                Button("설정 열기") {
-                    onOpenAdvancedSettings()
-                }
-                .buttonStyle(.bordered)
-
-                if progress.hasReadyCredential {
-                    Button("Organization") {
-                        onOpenOrganizations()
+                if let secondaryActionTitle {
+                    Button(secondaryActionTitle) {
+                        performSecondaryAction()
                     }
                     .buttonStyle(.bordered)
                 }
@@ -176,5 +184,18 @@ struct SetupWizardWindowView: View {
         }
         .padding(20)
         .frame(width: 460)
+    }
+
+    private func performSecondaryAction() {
+        switch progress.stage {
+        case .credential:
+            onOpenAdvancedSettings()
+        case .verification:
+            onOpenAdvancedSettings()
+        case .organization:
+            onOpenAdvancedSettings()
+        case .complete:
+            onOpenAdvancedSettings()
+        }
     }
 }

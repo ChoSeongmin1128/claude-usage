@@ -682,41 +682,7 @@ struct SettingsView: View {
                 compactAuthStatusCard
 
                 if let storedSessionKey, !storedSessionKey.isEmpty {
-                    // 저장된 세션 키 존재
-                    HStack(spacing: 8) {
-                        if isTesting {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("확인 중...")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        } else if let result = testResult {
-                            switch result {
-                            case .success:
-                                Label("연결 확인됨", systemImage: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                            case .failure(let msg):
-                                Label(msg, systemImage: "exclamationmark.triangle.fill")
-                                    .foregroundStyle(.orange)
-                                    .lineLimit(1)
-                            }
-                        } else {
-                            Label("세션 키 저장됨", systemImage: "key.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                    }
-                    HStack(spacing: 8) {
-                        Text("세션 키: \(String(storedSessionKey.prefix(20)))...")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        if case .success = testResult {} else {
-                            Button("다시 로그인") { onOpenLogin?() }
-                        }
-                        Button("로그아웃") { handleLogoutAction() }
-                            .foregroundStyle(.red)
-                    }
+                    savedCredentialCard
                 } else {
                     HStack(spacing: 10) {
                         Button(action: { onOpenClaudeInChrome?() }) {
@@ -780,25 +746,6 @@ struct SettingsView: View {
         .font(.subheadline)
     }
 
-    private var generalAuthGuidanceCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionCardHeader(
-                title: "일반 사용자 흐름",
-                subtitle: "빠른 시작 · 인증 방식 · 표시 기준"
-            )
-
-            authNoticeCard
-            claudeCLIOAuthGuideSection
-            if shouldRecommendCLIOAuth {
-                claudeCLIOAuthGuideCard
-            }
-            oauthQuickGuideSection
-        }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        .cornerRadius(8)
-    }
-
     private var compactAuthStatusCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionCardHeader(
@@ -824,18 +771,6 @@ struct SettingsView: View {
                     Text(authSummaryLine(snapshot))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-
-                    if shouldRecommendCLIOAuth {
-                        Text("세션 경로가 불안정할 수 있어 `claude login`으로 Claude Code OAuth를 같이 준비하는 편이 낫습니다.")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    }
-
-                    if !isOrganizationSelectionReady {
-                        Text(organizationChecklistDetail)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 }
             } else {
                 Text("인증 상태를 아직 불러오지 못했습니다. 먼저 가져오기 또는 로그인부터 진행하시면 됩니다.")
@@ -848,18 +783,59 @@ struct SettingsView: View {
         .cornerRadius(8)
     }
 
-    private var authStatusSection: some View {
+    private var savedCredentialCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionCardHeader(
-                title: "인증 상태",
-                subtitle: "세션키 · OAuth · 계정 메타데이터"
-            )
+            HStack(spacing: 8) {
+                if isTesting {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("연결 상태를 확인하고 있습니다")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if let result = testResult {
+                    switch result {
+                    case .success:
+                        Label("저장된 세션으로 최근 연결 확인됨", systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    case .failure(let msg):
+                        Label(msg, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .lineLimit(2)
+                    }
+                } else {
+                    Label("저장된 세션 자격이 있습니다", systemImage: "key.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
 
-            authChecklistCard
-            profileMetadataCard
+            HStack(spacing: 8) {
+                Button("상태 새로고침") {
+                    loadUsageHealthSnapshot()
+                }
+                .buttonStyle(.bordered)
+
+                if case .success = testResult {
+                } else {
+                    Button("웹 로그인 다시 열기") { onOpenLogin?() }
+                        .buttonStyle(.bordered)
+                }
+
+                Spacer()
+
+                Button("로그아웃") { handleLogoutAction() }
+                    .foregroundStyle(.red)
+            }
+
+            Text("실제 sessionKey 값과 수동 테스트는 고급 설정에서 확인할 수 있습니다.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
         }
         .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
         .cornerRadius(8)
     }
 
@@ -1105,20 +1081,6 @@ struct SettingsView: View {
         return .chromeImport
     }
 
-    private var authNoticeCard: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("안내")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text("기본 순서는 `Chrome 가져오기` → `웹 로그인` → `수동 sessionKey`입니다. Messages fallback은 인증 경로가 아니라 복구 옵션입니다.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(8)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.55))
-        .cornerRadius(6)
-    }
-
     private func authSummaryLine(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> String {
         if !hasSuccessfulClaudeFetch {
             return "아직 성공 조회가 없습니다. 먼저 가져오기 또는 로그인 후 상태 새로고침이 필요합니다."
@@ -1137,29 +1099,6 @@ struct SettingsView: View {
         }
 
         return "자격 준비 상태를 다시 확인해 주세요."
-    }
-
-    private var claudeCLIOAuthGuideCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Claude Code CLI OAuth 권장")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text("세션키 단독 상태이거나 세션 경로가 불안정하면 Claude Code OAuth를 같이 준비하는 편이 맞습니다.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("1. `brew install --cask claude-code`")
-                Text("2. 터미널에서 `claude login` 실행")
-                Text("3. 브라우저 인증 완료 후 이 화면에서 `상태 새로고침`")
-                Text("4. `OAuth 준비됨` 또는 활성 경로가 `OAuth`로 보이는지 확인")
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-        }
-        .padding(8)
-        .background(Color.blue.opacity(0.08))
-        .cornerRadius(6)
     }
 
     private var claudeCLIOAuthGuideSection: some View {
@@ -2695,13 +2634,36 @@ struct SettingsView: View {
     }
 
     private func providerRuntimeSummary(_ provider: AppProviderKind, selectionState: ProviderSelectionState) -> String {
+        if !settings.isProviderEnabled(provider) {
+            return "비활성화됨"
+        }
+
         if provider.isRuntimeProvider {
             if selectionState.activeRuntimeKind == provider {
                 return "활성 · 기본"
             }
-            return settings.isProviderEnabled(provider) ? "활성" : "비활성화됨"
+
+            switch provider {
+            case .claude:
+                if !hasReadyClaudeCredential {
+                    return "인증 필요"
+                }
+                return "활성"
+            case .codex:
+                return CodexAuthManager.shared.isAuthenticated ? "활성" : "인증 필요"
+            case .gemini:
+                if let status = ProviderEnvironmentDetector.status(for: .gemini), !status.isDetected {
+                    return "로그인 필요"
+                }
+                return "활성"
+            case .antigravity:
+                if let status = ProviderEnvironmentDetector.status(for: .antigravity), !status.isDetected {
+                    return "연결 필요"
+                }
+                return "활성"
+            }
         }
-        return settings.isProviderEnabled(provider) ? "활성 예정" : "비활성화됨"
+        return "활성 예정"
     }
 
     private func shellSectionFootnote(for provider: AppProviderKind, selectionState: ProviderSelectionState) -> String {
