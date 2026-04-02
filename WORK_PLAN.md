@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (89차)
+최종 갱신: 2026-04-02 (90차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -110,6 +110,11 @@
 - 같은 통합에서 자격이 이미 있으면 기본 화면에서 `상태 새로고침`, `Organization 열기`, `다시 로그인`만 우선 제공하고, `수동 sessionKey`, `보조 복구`, `FAQ`는 계속 고급 설정 안쪽에 남깁니다. 자격이 아직 없을 때도 기본 CTA는 `Chrome에서 가져오기`와 `웹 로그인 열기`만 남겨, 경로 설명보다 행동이 먼저 읽히게 했습니다.
 - 2026-04-02 71차 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 settings 내부에 별도 `빠른 시작` wizard를 다시 그리지 않도록 바꿨습니다. 이제 first-run용 단계 플로우는 standalone [SetupWizardWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SetupWizardWindowView.swift) 가 맡고, settings의 Claude 인증 탭은 post-setup 상태 확인과 조정에 집중합니다.
 - 같은 통합에서 이 정리로 settings 안에서 `first-run 단계 설명`과 `현재 인증 상태`가 같은 깊이에서 경쟁하던 중복을 줄였습니다. 즉 역할을 `wizard = 초기 연결`, `settings = 이후 조정`으로 더 분명히 나눈 것입니다.
+- 2026-04-02 90차 통합에서 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `메뉴바 표시 끔`인 runtime provider가 더 이상 로그인/연결 경고를 메뉴바에 다시 섞지 않도록 필터를 한 번 더 강화했습니다. `enabled runtime provider`와 `visible in menu bar`를 같은 조건으로 맞춰, 숨긴 provider는 메뉴바 요약과 경고 모두에서 빠집니다.
+- 같은 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 `Gemini` / `Antigravity`의 `팝오버` / `알림` 탭명을 실제 역할 기준으로 `동작` / `알림 사용`으로 정리했습니다. `간소화 보기`는 runtime provider 공통값이고, 임계값 프리셋은 공통 알림이 원본이라는 점도 화면에 직접 적어 중복 설정처럼 읽히는 문제를 줄였습니다.
+- 같은 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 의 `hasReadyClaudeCredential` 는 아직 저장하지 않은 수동 sessionKey 입력값을 `자격 준비 완료`로 치지 않도록 보수적으로 바뀌었습니다. 이제 first-run/설정의 준비 상태는 실제 저장된 sessionKey 또는 runtime health snapshot이 감지한 자격만 기준으로 계산합니다.
+- 같은 통합에서 [UpdateService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/UpdateService.swift) 와 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 `Sparkle 내부 스케줄러`처럼 잘못 읽히던 설명을 제거하고, `Sparkle 앱내 확인 + 앱 타이머 기반 자동 확인`이라는 현재 구현 의미에 맞게 문구를 수정했습니다.
+- 같은 통합에서 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 standalone wizard의 `자동 선택으로 전환` 경로에서 organization 상태 동기화와 snapshot 갱신이 끝난 뒤 창을 닫도록 순서를 바꿨습니다. 이로써 wizard를 닫자마자 settings 카드가 잠깐 이전 organization 기준으로 남는 경쟁 조건을 조금 더 줄였습니다.
 - 2026-04-02 72차 통합에서 [SetupWizardWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SetupWizardWindowView.swift) 도 같은 원칙으로 더 줄였습니다. 단계 요약 문구를 짧게 다듬고, checklist는 현재 단계에서 필요한 확인 위주로만 노출해 `설명 3개 + 체크 3개`가 동시에 경쟁하던 구조를 완화했습니다.
 - 같은 통합에서 wizard는 이제 `현재 해야 할 행동 1개 + 남은 확인`에 더 가깝게 읽히므로, settings에서 빠진 first-run 설명의 빈자리를 과도한 텍스트로 다시 채우지 않습니다.
 - 2026-04-02 73차 통합에서 [UpdateService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/UpdateService.swift) 는 `AppUpdateEngine` 추상화 뒤로 현재 GitHub Release 수동 업데이트를 넣기 시작했습니다. 이 단계에서 업데이트 코드는 `엔진 인터페이스 -> 현재 구현체(GitHub)` 구조를 갖추기 시작했으므로 Sparkle 래퍼를 같은 자리에 넣을 발판이 생겼습니다.

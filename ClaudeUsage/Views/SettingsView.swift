@@ -1241,8 +1241,10 @@ struct SettingsView: View {
     }
 
     private var hasReadyClaudeCredential: Bool {
-        let normalized = normalizeSessionKey(sessionKey)
-        return !(storedSessionKey ?? "").isEmpty || !normalized.isEmpty || hasOAuthCredential
+        if usageHealthSnapshot?.runtime.credentialAvailability.hasAnyCredential == true {
+            return true
+        }
+        return !(storedSessionKey ?? "").isEmpty
     }
 
     private var currentSetupProgress: SetupCompletionPolicy.WizardProgress {
@@ -2937,10 +2939,9 @@ struct SettingsView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .disabled(supportsInteractiveUpdates)
 
             if supportsInteractiveUpdates {
-                Text("현재 빌드는 Sparkle 내부 스케줄러가 업데이트 주기를 관리합니다.")
+                Text("현재 빌드는 Sparkle 앱내 확인을 지원하지만, 자동 확인 주기는 앱이 계속 관리합니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -3127,7 +3128,7 @@ struct SettingsView: View {
 
     private func updateReadinessSummary(_ status: UpdateEngineStatus) -> String {
         if status.usesSparkleReadyPath {
-            return "현재 빌드는 Sparkle 앱내 확인과 GitHub fallback을 함께 사용할 수 있습니다."
+            return "현재 빌드는 Sparkle 앱내 확인을 지원하고, 자동 확인 주기는 앱 설정을 계속 사용합니다."
         }
         if status.sparkleIntegrated {
             return "Sparkle 패키지는 포함됐지만 appcast 또는 공개키가 없어 아직 GitHub fallback을 사용합니다."

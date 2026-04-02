@@ -166,7 +166,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine {
     }
 
     func modeSummary() async -> String {
-        "Sparkle 앱내 확인을 지원하고, 백그라운드 확인은 GitHub fallback을 유지합니다"
+        "Sparkle 앱내 확인을 지원하고, 자동 확인 주기는 앱 타이머가 계속 관리합니다"
     }
 
     func checkForUpdates() async -> UpdateCheckResult {
@@ -188,7 +188,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine {
 
     func configurationStatus() async -> UpdateEngineStatus {
         UpdateEngineStatus(
-            modeSummary: "Sparkle 앱내 확인을 지원하고, 백그라운드 확인은 GitHub fallback을 유지합니다",
+            modeSummary: "Sparkle 앱내 확인을 지원하고, 자동 확인 주기는 앱 타이머가 계속 관리합니다",
             sparkleIntegrated: true,
             feedConfigured: true,
             publicKeyConfigured: true
@@ -204,7 +204,7 @@ enum UpdateConfigurationInspector {
         let publicKeyConfigured = configuredValue(for: "SUPublicEDKey") != nil
         let summary: String
         if feedConfigured && publicKeyConfigured {
-            summary = "Sparkle 앱내 확인을 지원하고, 백그라운드 확인은 GitHub fallback을 유지합니다"
+            summary = "Sparkle 앱내 확인을 지원하고, 자동 확인 주기는 앱 타이머가 계속 관리합니다"
         } else {
             summary = "Sparkle는 통합되었지만 appcast/feed가 아직 설정되지 않아 GitHub Release 엔진을 사용 중입니다"
         }

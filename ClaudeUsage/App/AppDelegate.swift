@@ -2020,9 +2020,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                             self.updateMenuBar()
                             self.updatePopoverViewModel(overage: self.currentOverage)
                         }
+                        self.setupWizardWindowCoordinator.close()
                     }
                 }
-                self.setupWizardWindowCoordinator.close()
             },
             onVerifyFetch: { [weak self] in
                 self?.refreshUsage(force: true)
