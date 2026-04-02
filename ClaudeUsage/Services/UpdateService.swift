@@ -26,6 +26,17 @@ struct UpdateEngineStatus {
     var usesSparkleReadyPath: Bool {
         sparkleIntegrated && feedConfigured && publicKeyConfigured
     }
+
+    var missingSparkleRequirements: [String] {
+        var items: [String] = []
+        if !feedConfigured {
+            items.append("appcast")
+        }
+        if !publicKeyConfigured {
+            items.append("공개키")
+        }
+        return items
+    }
 }
 
 enum UpdateCheckResult {

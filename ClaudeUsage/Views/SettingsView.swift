@@ -2744,6 +2744,12 @@ struct SettingsView: View {
                     Text("현재 빌드는 Sparkle 패키지는 포함하지만 appcast 또는 공개키가 없어 GitHub fallback 경로를 사용합니다.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+
+                    if !updateEngineStatus.missingSparkleRequirements.isEmpty {
+                        Text("아직 필요한 항목: \(updateEngineStatus.missingSparkleRequirements.joined(separator: ", "))")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
                 }
             }
 
