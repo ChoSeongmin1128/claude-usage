@@ -16,6 +16,18 @@ final class PopoverViewModel: ObservableObject {
         var id: String { kind.rawValue }
     }
 
+    struct RuntimeServiceState: Sendable {
+        let service: PopoverService
+        let summary: String
+        let meta: String?
+        let lastUpdated: Date?
+        let isLoading: Bool
+        let error: APIError?
+        let hasContent: Bool
+        let isAuthRequired: Bool
+        let shouldShowWarningDot: Bool
+    }
+
     @Published var usage: ClaudeUsageResponse?
     @Published var codexUsage: CodexUsageResponse?
     @Published var error: APIError?
@@ -95,42 +107,79 @@ final class PopoverViewModel: ObservableObject {
         usageHealthSnapshot?.runtime.credentialAvailability.hasAnyCredential ?? KeychainManager.shared.hasSessionKey
     }
 
+    func runtimeServiceState(for service: PopoverService, settings: AppSettings) -> RuntimeServiceState {
+        switch service {
+        case .claude:
+            let isEnabled = settings.isProviderEnabled(.claude)
+            let isAuthRequired = isEnabled && !hasClaudeCredential
+            let summary: String
+            if !isEnabled {
+                summary = "비활성화됨"
+            } else if isAuthRequired {
+                summary = "인증 필요"
+            } else if isClaudeLoading {
+                summary = "조회 중"
+            } else if let usage {
+                summary = "현재 \(Int(usage.fiveHour.utilization.rounded()))% · 주간 \(Int((usage.sevenDay?.utilization ?? 0).rounded()))%"
+            } else if let error {
+                summary = error.errorDescription ?? "조회 실패"
+            } else {
+                summary = "데이터를 아직 불러오지 못했습니다"
+            }
+
+            let meta = claudeLastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) }
+            let hasContent = usage != nil
+            return RuntimeServiceState(
+                service: .claude,
+                summary: summary,
+                meta: meta,
+                lastUpdated: claudeLastUpdated,
+                isLoading: isClaudeLoading,
+                error: error,
+                hasContent: hasContent,
+                isAuthRequired: isAuthRequired,
+                shouldShowWarningDot: isAuthRequired || error != nil
+            )
+        case .codex:
+            let isEnabled = settings.isProviderEnabled(.codex)
+            let isAuthRequired = isEnabled && !CodexAuthManager.shared.isAuthenticated
+            let summary: String
+            if !isEnabled {
+                summary = "비활성화됨"
+            } else if isAuthRequired {
+                summary = "인증 필요"
+            } else if isCodexLoading {
+                summary = "조회 중"
+            } else if let codexUsage {
+                summary = "현재 \(Int((codexUsage.rateLimit?.primaryWindow?.utilization ?? 0).rounded()))% · 주간 \(Int((codexUsage.rateLimit?.secondaryWindow?.utilization ?? 0).rounded()))%"
+            } else if let codexError {
+                summary = codexError.errorDescription ?? "조회 실패"
+            } else {
+                summary = "데이터를 아직 불러오지 못했습니다"
+            }
+
+            let meta = codexLastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) }
+            let hasContent = codexUsage != nil
+            return RuntimeServiceState(
+                service: .codex,
+                summary: summary,
+                meta: meta,
+                lastUpdated: codexLastUpdated,
+                isLoading: isCodexLoading,
+                error: codexError,
+                hasContent: hasContent,
+                isAuthRequired: isAuthRequired,
+                shouldShowWarningDot: isAuthRequired || codexError != nil
+            )
+        }
+    }
+
     func overviewSummary(for kind: AppProviderKind, settings: AppSettings) -> String {
         switch kind {
         case .claude:
-            if !settings.isProviderEnabled(.claude) {
-                return "비활성화됨"
-            }
-            if !hasClaudeCredential {
-                return "인증 필요"
-            }
-            if isClaudeLoading {
-                return "조회 중"
-            }
-            if let usage {
-                return "현재 \(Int(usage.fiveHour.utilization.rounded()))% · 주간 \(Int((usage.sevenDay?.utilization ?? 0).rounded()))%"
-            }
-            if let error {
-                return error.errorDescription ?? "조회 실패"
-            }
-            return "데이터를 아직 불러오지 못했습니다"
+            return runtimeServiceState(for: .claude, settings: settings).summary
         case .codex:
-            if !settings.isProviderEnabled(.codex) {
-                return "비활성화됨"
-            }
-            if !CodexAuthManager.shared.isAuthenticated {
-                return "인증 필요"
-            }
-            if isCodexLoading {
-                return "조회 중"
-            }
-            if let codexUsage {
-                return "현재 \(Int((codexUsage.rateLimit?.primaryWindow?.utilization ?? 0).rounded()))% · 주간 \(Int((codexUsage.rateLimit?.secondaryWindow?.utilization ?? 0).rounded()))%"
-            }
-            if let codexError {
-                return codexError.errorDescription ?? "조회 실패"
-            }
-            return "데이터를 아직 불러오지 못했습니다"
+            return runtimeServiceState(for: .codex, settings: settings).summary
         case .gemini, .antigravity:
             return settings.isProviderEnabled(kind) ? "런타임 연결 준비 중" : "비활성화됨"
         }
@@ -139,11 +188,9 @@ final class PopoverViewModel: ObservableObject {
     func overviewMeta(for kind: AppProviderKind) -> String? {
         switch kind {
         case .claude:
-            guard let claudeLastUpdated else { return nil }
-            return RelativeDateTimeFormatter().localizedString(for: claudeLastUpdated, relativeTo: Date())
+            return runtimeServiceState(for: .claude, settings: .shared).meta
         case .codex:
-            guard let codexLastUpdated else { return nil }
-            return RelativeDateTimeFormatter().localizedString(for: codexLastUpdated, relativeTo: Date())
+            return runtimeServiceState(for: .codex, settings: .shared).meta
         case .gemini, .antigravity:
             return nil
         }

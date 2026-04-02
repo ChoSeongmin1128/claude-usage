@@ -568,35 +568,11 @@ struct PopoverView: View {
     }
 
     private func overviewSummary(for service: PopoverService) -> String {
-        switch service {
-        case .claude:
-            if isAuthRequired(for: .claude) {
-                return "인증이 필요합니다"
-            }
-            if let usage = viewModel.usage {
-                return "현재 \(Int(usage.fiveHour.utilization.rounded()))% · 주간 \(Int((usage.sevenDay?.utilization ?? 0).rounded()))%"
-            }
-            if let error = viewModel.error {
-                return error.errorDescription ?? "조회 실패"
-            }
-            return "데이터를 아직 불러오지 못했습니다"
-        case .codex:
-            if isAuthRequired(for: .codex) {
-                return "인증이 필요합니다"
-            }
-            if let usage = viewModel.codexUsage {
-                return "현재 \(Int((usage.rateLimit?.primaryWindow?.utilization ?? 0).rounded()))% · 주간 \(Int((usage.rateLimit?.secondaryWindow?.utilization ?? 0).rounded()))%"
-            }
-            if let error = viewModel.codexError {
-                return error.errorDescription ?? "조회 실패"
-            }
-            return "데이터를 아직 불러오지 못했습니다"
-        }
+        viewModel.runtimeServiceState(for: service, settings: settings).summary
     }
 
     private func overviewMeta(for service: PopoverService) -> String? {
-        guard let lastUpdated = serviceLastUpdated(for: service) else { return nil }
-        return RelativeDateTimeFormatter().localizedString(for: lastUpdated, relativeTo: Date())
+        viewModel.runtimeServiceState(for: service, settings: settings).meta
     }
 
     private var selectedService: PopoverService {
@@ -620,21 +596,11 @@ struct PopoverView: View {
     }
 
     private func shouldShowWarningDot(for service: PopoverService) -> Bool {
-        switch service {
-        case .claude:
-            return (ServiceSelectionHelper.isEnabled(.claude, settings: settings) && !viewModel.hasClaudeCredential) || viewModel.error != nil
-        case .codex:
-            return (ServiceSelectionHelper.isEnabled(.codex, settings: settings) && !CodexAuthManager.shared.isAuthenticated) || viewModel.codexError != nil
-        }
+        viewModel.runtimeServiceState(for: service, settings: settings).shouldShowWarningDot
     }
 
     private func isAuthRequired(for service: PopoverService) -> Bool {
-        switch service {
-        case .claude:
-            return ServiceSelectionHelper.isEnabled(.claude, settings: settings) && !viewModel.hasClaudeCredential
-        case .codex:
-            return ServiceSelectionHelper.isEnabled(.codex, settings: settings) && !CodexAuthManager.shared.isAuthenticated
-        }
+        viewModel.runtimeServiceState(for: service, settings: settings).isAuthRequired
     }
 
     private func normalizeSelectedServiceIfNeeded() {
@@ -689,43 +655,24 @@ struct PopoverView: View {
     }
 
     private var hasServiceData: Bool {
-        hasLoadedContent(for: selectedService) || error(for: selectedService) != nil
+        let runtimeState = viewModel.runtimeServiceState(for: selectedService, settings: settings)
+        return runtimeState.hasContent || runtimeState.error != nil
     }
 
     private func serviceLastUpdated(for service: PopoverService) -> Date? {
-        switch service {
-        case .claude:
-            return viewModel.claudeLastUpdated
-        case .codex:
-            return viewModel.codexLastUpdated
-        }
+        viewModel.runtimeServiceState(for: service, settings: settings).lastUpdated
     }
 
     private func serviceLoading(for service: PopoverService) -> Bool {
-        switch service {
-        case .claude:
-            return viewModel.isClaudeLoading
-        case .codex:
-            return viewModel.isCodexLoading
-        }
+        viewModel.runtimeServiceState(for: service, settings: settings).isLoading
     }
 
     private func error(for service: PopoverService) -> APIError? {
-        switch service {
-        case .claude:
-            return viewModel.error
-        case .codex:
-            return viewModel.codexError
-        }
+        viewModel.runtimeServiceState(for: service, settings: settings).error
     }
 
     private func hasLoadedContent(for service: PopoverService) -> Bool {
-        switch service {
-        case .claude:
-            return viewModel.usage != nil
-        case .codex:
-            return viewModel.codexUsage != nil
-        }
+        viewModel.runtimeServiceState(for: service, settings: settings).hasContent
     }
 
     private func needsInitialLoad(for service: PopoverService) -> Bool {

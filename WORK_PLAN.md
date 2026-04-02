@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (29차)
+최종 갱신: 2026-04-02 (30차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -60,6 +60,8 @@
 - [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift) 는 `RuntimeProviderPresentationState` 와 `RuntimeProviderActivationState` 를 도입해, provider 정책 입력을 `Claude/Codex` 개별 파라미터 묶음에서 벗어나기 시작했습니다.
 - [ProviderTransitionPolicy.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ProviderTransitionPolicy.swift), [RefreshOrchestration.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RefreshOrchestration.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 이제 탭 전환 refresh / enable 변화 판단을 provider별 상태 struct 기준으로 다루기 시작했습니다.
 - [StatusContextMenuBuilder.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/StatusContextMenuBuilder.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift), [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 는 상태바 우클릭 메뉴의 toggle / refresh / style 변경도 provider-generic selector와 helper 기준으로 맞추기 시작했습니다.
+- [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift) 는 `RuntimeServiceState` 를 도입해, Claude/Codex의 summary / meta / loading / auth-required / warning-dot 판단을 뷰 파일 밖으로 모으기 시작했습니다.
+- [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 는 overview / warning / loading / error / lastUpdated 접근을 이 runtime state accessor로 읽기 시작해 `Claude/Codex`별 switch를 더 줄였습니다.
 - 다만 AppDelegate orchestration과 multi-provider fetch/menu glue는 아직 더 분해해야 합니다.
 
 ## 2. 참고 레포에서 가져올 방향
