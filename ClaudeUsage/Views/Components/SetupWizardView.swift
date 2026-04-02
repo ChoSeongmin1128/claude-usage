@@ -102,7 +102,7 @@ struct SetupWizardView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             } else if !isAdvancedExpanded {
-                Text("수동 sessionKey는 마지막 수단입니다. 먼저 권장 경로를 끝내는 편이 맞습니다.")
+                Text("지금은 현재 단계만 보시면 됩니다. 다른 방법은 실패했을 때만 여는 편이 맞습니다.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -220,11 +220,11 @@ struct SetupWizardView: View {
     private func actionHint(for step: Step) -> String {
         switch step {
         case .chromeImport:
-            return "Chrome을 켜고 claude.ai 로그인 상태를 맞춘 뒤 다시 가져오면 됩니다."
+            return "Chrome에서 claude.ai 로그인 상태만 맞춘 뒤 이 경로를 다시 시도하면 됩니다."
         case .webLogin:
-            return "내장 로그인 창이 열리면 인증 후 자동 추출이 끝날 때까지 기다리시면 됩니다."
+            return "Chrome 경로가 안 될 때만 여시면 됩니다."
         case .manualSessionKey:
-            return "수동 입력은 마지막 수단입니다. 앞 경로가 다 실패했을 때만 여는 편이 맞습니다."
+            return "앞 경로가 다 실패했을 때만 여는 마지막 수단입니다."
         }
     }
 }

@@ -35,11 +35,11 @@ struct SetupWizardWindowView: View {
     private var visibleChecklistState: [(String, String, Bool)] {
         switch progress.stage {
         case .credential:
-            return checklistState.filter { !$0.2 || $0.0 == "자격 준비" }
+            return checklistState.filter { $0.0 == "자격 준비" }
         case .verification:
-            return checklistState.filter { !$0.2 || $0.0 == "조회 검증" }
+            return checklistState.filter { $0.0 == "조회 검증" }
         case .organization:
-            return checklistState.filter { !$0.2 || $0.0 == "Organization 확인" }
+            return checklistState.filter { $0.0 == "Organization 확인" }
         case .complete:
             return checklistState
         }
@@ -69,9 +69,9 @@ struct SetupWizardWindowView: View {
     private var secondaryActionTitle: String? {
         switch progress.stage {
         case .credential:
-            return "고급 설정"
+            return nil
         case .verification:
-            return "설정 열기"
+            return "고급 설정"
         case .organization:
             return "자동 선택 유지"
         case .complete:
@@ -95,7 +95,7 @@ struct SetupWizardWindowView: View {
     private var stageSummaryDetail: String {
         switch progress.stage {
         case .credential:
-            return "권장 경로는 Chrome 가져오기입니다. 실패할 때만 웹 로그인이나 수동 입력으로 내려가면 됩니다."
+            return "먼저 Chrome 가져오기만 시도하면 됩니다. 다른 경로는 이 단계가 실패할 때만 여는 편이 맞습니다."
         case .verification:
             return "자격은 준비됐습니다. 이제 첫 성공 조회만 끝내면 됩니다."
         case .organization:
@@ -206,7 +206,7 @@ struct SetupWizardWindowView: View {
     private func performSecondaryAction() {
         switch progress.stage {
         case .credential:
-            onOpenAdvancedSettings()
+            return
         case .verification:
             onOpenAdvancedSettings()
         case .organization:

@@ -32,12 +32,11 @@ struct LoginWindowView: View {
 
     private var guidanceCard: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("권장 순서")
+            Text("권장 경로")
                 .font(.caption)
                 .fontWeight(.semibold)
-            Text("1. 먼저 `Chrome에서 가져오기`를 시도합니다.")
-            Text("2. Chrome 로그인 상태가 애매하면 `Chrome 로그인 열기`로 claude.ai를 연 뒤 다시 가져옵니다.")
-            Text("3. 계속 실패하면 이 창의 웹 로그인 추출 또는 `고급 설정`의 수동 sessionKey로 넘어갑니다.")
+            Text("먼저 `Chrome에서 가져오기`만 시도하시면 됩니다.")
+            Text("안 되면 `Chrome 로그인 열기` 후 다시 가져오고, 그래도 실패할 때만 웹 로그인이나 수동 입력으로 내려가면 됩니다.")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -146,9 +145,9 @@ struct LoginWindowView: View {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 48))
                             .foregroundStyle(.green)
-                        Text("세션 키를 성공적으로 가져왔습니다")
+                        Text("세션 반영 완료")
                             .font(.headline)
-                        Text("저장과 반영까지 완료했습니다")
+                        Text("저장과 동기화까지 끝났습니다")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -161,14 +160,6 @@ struct LoginWindowView: View {
 
             // 하단 바
             HStack {
-                Text("Chrome 로그인 상태가 애매하면 `Chrome 열기` 후 다시 가져오기를 누르시는 편이 맞습니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("고급 설정") {
-                    onOpenAdvancedSettings()
-                }
-                .disabled(isLoading || isImportingFromChrome || isActivatingSession || loginSuccess)
                 Button("Chrome 로그인 열기") {
                     openChromeForClaude()
                 }
@@ -177,6 +168,11 @@ struct LoginWindowView: View {
                     importFromChrome()
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(isLoading || isImportingFromChrome || isActivatingSession || loginSuccess)
+                Spacer()
+                Button("고급 설정") {
+                    onOpenAdvancedSettings()
+                }
                 .disabled(isLoading || isImportingFromChrome || isActivatingSession || loginSuccess)
                 Button("취소") { onCancel() }
                     .disabled(isActivatingSession)

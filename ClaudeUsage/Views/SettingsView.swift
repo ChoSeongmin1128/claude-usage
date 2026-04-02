@@ -195,11 +195,7 @@ struct SettingsView: View {
             selectedCodexTab = CodexTab(rawValue: settings.providerSettingsLastTab(for: .codex)) ?? .auth
             loadUsageHealthSnapshot()
             checkCodexAuth()
-            Task {
-                updateModeSummary = await UpdateService.shared.currentModeSummary()
-                updateEngineStatus = await UpdateService.shared.currentEngineStatus()
-                supportsInteractiveUpdates = await UpdateService.shared.supportsInteractiveCheck()
-            }
+            refreshUpdateEnginePresentation()
         }
         .onReceive(NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange)) { _ in
             syncStoredSessionKeyState()
@@ -219,6 +215,9 @@ struct SettingsView: View {
         }
         .onChange(of: selectedCodexTab) { _, tab in
             settings.setProviderSettingsLastTab(tab.rawValue, for: .codex)
+        }
+        .onChange(of: settings.updateCheckInterval) { _, _ in
+            refreshUpdateEnginePresentation()
         }
         .onChange(of: settings.providerStates) { _, _ in
             checkCodexAuth()
@@ -754,9 +753,9 @@ struct SettingsView: View {
                 }
             } label: {
                 HStack {
-                    Text("고급 설정")
+                    Text("문제 해결 및 수동 입력")
                     Spacer(minLength: 0)
-                    Text(shouldSurfaceRecoveryAndDiagnostics ? "수동 입력 · 복구 · 진단" : "수동 입력")
+                    Text(shouldSurfaceRecoveryAndDiagnostics ? "수동 입력 · 복구" : "수동 입력")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -780,9 +779,9 @@ struct SettingsView: View {
             .padding(.top, 4)
         } label: {
             HStack {
-                Text("복구 및 진단")
+                Text("복구 및 도움말")
                 Spacer(minLength: 0)
-                Text("상태 · fallback · FAQ")
+                Text("복구 · OAuth 안내 · FAQ")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
@@ -874,7 +873,7 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("수동 sessionKey, 보조 복구, FAQ는 고급 설정에서만 확인합니다.")
+                        Text("문제가 없으면 여기서는 상태 새로고침만 보시면 됩니다.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -885,7 +884,7 @@ struct SettingsView: View {
                         .foregroundStyle(.red)
                 }
             } else {
-                HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 8) {
                     Button(action: { onOpenClaudeInChrome?() }) {
                         Label("Chrome에서 가져오기", systemImage: "globe")
                             .frame(maxWidth: .infinity)
@@ -893,17 +892,30 @@ struct SettingsView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
 
-                    Button(action: { onOpenLogin?() }) {
-                        Label("웹 로그인 열기", systemImage: "person.crop.circle")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.large)
-                }
+                    HStack(spacing: 8) {
+                        Button(action: { onOpenLogin?() }) {
+                            Label("웹 로그인 열기", systemImage: "person.crop.circle")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
 
-                Text("권장 경로는 Chrome 자동 가져오기입니다. 실패할 때만 웹 로그인이나 수동 sessionKey로 내려가는 편이 맞습니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                isClaudeAdvancedSectionExpanded = true
+                            }
+                        } label: {
+                            Text("수동 입력")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.regular)
+                    }
+
+                    Text("기본은 Chrome 가져오기입니다. 다른 방법은 위 경로가 실패할 때만 여는 편이 맞습니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(12)
@@ -920,7 +932,7 @@ struct SettingsView: View {
             .padding(.top, 4)
         } label: {
             HStack {
-                Text("상세 인증 상태")
+                Text("상세 상태")
                 Spacer(minLength: 0)
                 Text("체크리스트 · 메타데이터")
                     .font(.caption2)
@@ -1097,6 +1109,7 @@ struct SettingsView: View {
             || settings.claudeMessagesFallbackPolicy != .off
             || snapshot.oauth.lastFailureAt != nil
             || snapshot.session.lastFailureAt != nil
+            || messagesFallbackStatus != nil
     }
 
     private var hasPendingManualSessionKey: Bool {
@@ -2613,6 +2626,19 @@ struct SettingsView: View {
     @State private var isCheckingUpdate = false
     @State private var updateCheckResult: String?
 
+    private func refreshUpdateEnginePresentation() {
+        Task {
+            let modeSummary = await UpdateService.shared.currentModeSummary()
+            let engineStatus = await UpdateService.shared.currentEngineStatus()
+            let supportsInteractive = await UpdateService.shared.supportsInteractiveCheck()
+            await MainActor.run {
+                updateModeSummary = modeSummary
+                updateEngineStatus = engineStatus
+                supportsInteractiveUpdates = supportsInteractive
+            }
+        }
+    }
+
     private var updateSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("업데이트", systemImage: "arrow.triangle.2.circlepath")
@@ -2654,6 +2680,7 @@ struct SettingsView: View {
                                     isCheckingUpdate = false
                                     updateCheckResult = message ?? "Sparkle 업데이트 확인을 시작했습니다"
                                 }
+                                refreshUpdateEnginePresentation()
                             } else {
                                 let result = await UpdateService.shared.checkForUpdates()
                                 await MainActor.run {
@@ -2669,6 +2696,7 @@ struct SettingsView: View {
                                         updateCheckResult = "확인 실패: \(msg)"
                                     }
                                 }
+                                refreshUpdateEnginePresentation()
                             }
                         }
                     }

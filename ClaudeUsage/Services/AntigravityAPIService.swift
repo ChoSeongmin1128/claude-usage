@@ -359,32 +359,18 @@ actor AntigravityAPIService {
 
     private func detectProcessInfo() throws -> AntigravityProcessInfo {
         guard let process = AntigravityStatusProbe.runningProcess() else {
-            throw APIError.invalidSessionKey
+            throw APIError.networkError("Antigravity language server가 실행 중이 아닙니다")
         }
 
-        guard let csrfToken = extractFlag("--csrf_token", from: process.command) else {
-            throw APIError.invalidSessionKey
+        guard let csrfToken = process.csrfToken, !csrfToken.isEmpty else {
+            throw APIError.networkError("Antigravity는 실행 중이지만 연결 토큰을 찾지 못했습니다")
         }
 
         return AntigravityProcessInfo(
             pid: process.pid,
             csrfToken: csrfToken,
-            extensionPort: extractPort("--extension_server_port", from: process.command)
+            extensionPort: process.extensionPort
         )
-    }
-
-    private func extractFlag(_ flag: String, from command: String) -> String? {
-        let pattern = "\(NSRegularExpression.escapedPattern(for: flag))[=\\s]+([^\\s]+)"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return nil }
-        let range = NSRange(command.startIndex..<command.endIndex, in: command)
-        guard let match = regex.firstMatch(in: command, options: [], range: range),
-              let tokenRange = Range(match.range(at: 1), in: command) else { return nil }
-        return String(command[tokenRange])
-    }
-
-    private func extractPort(_ flag: String, from command: String) -> Int? {
-        guard let raw = extractFlag(flag, from: command) else { return nil }
-        return Int(raw)
     }
 
     private func detectListeningPorts(pid: Int) throws -> [Int] {
@@ -412,7 +398,7 @@ actor AntigravityAPIService {
         let raw = String(decoding: data, as: UTF8.self)
         let ports = parseListeningPorts(raw)
         guard !ports.isEmpty else {
-            throw APIError.networkError("Antigravity listening port를 찾지 못했습니다")
+            throw APIError.networkError("Antigravity는 실행 중이지만 아직 listening port를 열지 않았습니다")
         }
         return ports
     }
@@ -436,7 +422,7 @@ actor AntigravityAPIService {
                 return port
             }
         }
-        throw APIError.networkError("Antigravity connect 포트를 찾지 못했습니다")
+        throw APIError.networkError("Antigravity connect 포트를 찾지 못했습니다. 잠시 후 다시 시도해주세요")
     }
 
     private func isWorkingConnectPort(port: Int, csrfToken: String) async -> Bool {

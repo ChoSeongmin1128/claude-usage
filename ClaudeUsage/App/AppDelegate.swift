@@ -457,6 +457,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showInitialClaudeSetupFlow() {
+        synchronizeClaudeSetupCompletionFromCurrentState()
         if shouldShowStandaloneSetupWizard {
             showSetupWizardWindow()
         } else {
@@ -519,6 +520,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             hasSuccessfulFetch: hasSuccessfulFetch,
             cachedMetadata: cachedMetadata
         ))
+    }
+
+    private func synchronizeClaudeSetupCompletionFromCurrentState() {
+        updateClaudeSetupCompletion(
+            hasSuccessfulFetch: hasSuccessfulClaudeFetch,
+            cachedMetadata: currentClaudeProfileMetadata
+        )
     }
 
     private func setClaudeSetupCompleted(_ isCompleted: Bool) {
@@ -2022,8 +2030,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.refreshUsage(force: true)
             },
             onComplete: { [weak self] in
-                if self?.setupWizardProgress.stage == .complete {
-                    self?.setClaudeSetupCompleted(true)
+                if let self, self.setupWizardProgress.stage == .complete {
+                    self.synchronizeClaudeSetupCompletionFromCurrentState()
                 }
                 self?.setupWizardWindowCoordinator.close()
             },
