@@ -138,8 +138,8 @@ struct SettingsView: View {
             switch self {
             case .auth: return "인증"
             case .display: return "표시"
-            case .popover: return "팝오버"
-            case .alerts: return "알림"
+            case .popover: return "동작"
+            case .alerts: return "알림 사용"
             }
         }
     }
@@ -705,8 +705,12 @@ struct SettingsView: View {
     private func runtimeProviderPopoverSection(for provider: AppProviderKind) -> some View {
         let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: provider)
         VStack(alignment: .leading, spacing: 12) {
-            Label("\(descriptor.title) 팝오버", systemImage: descriptor.icon)
+            Label("\(descriptor.title) 팝오버 동작", systemImage: descriptor.icon)
                 .font(.headline)
+
+            Text("간소화 보기는 runtime provider 전체에 함께 적용되고, 팝오버 고정만 이 provider에 개별 적용됩니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             settingsToggleRow(
                 "간소화 보기",
@@ -729,10 +733,10 @@ struct SettingsView: View {
     private func runtimeProviderAlertsSection(for provider: AppProviderKind) -> some View {
         let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: provider)
         VStack(alignment: .leading, spacing: 12) {
-            Label("\(descriptor.title) 알림", systemImage: descriptor.icon)
+            Label("\(descriptor.title) 알림 사용", systemImage: descriptor.icon)
                 .font(.headline)
 
-            Text("공통 알림 프리셋을 공유하되, 이 provider에 대해 알림을 보낼지만 따로 정합니다.")
+            Text("임계값 프리셋은 공통 알림에서 한 번만 관리하고, 여기서는 이 provider를 그 알림 대상에 포함할지만 정합니다.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -743,6 +747,15 @@ struct SettingsView: View {
                     set: { settings.setProviderAlertEnabled($0, for: provider) }
                 )
             )
+
+            Button {
+                selectedPanel = .common
+                selectedCommonTab = .alerts
+                settings.settingsLastTab = SettingsProviderPanel.common.rawValue
+            } label: {
+                Label("공통 알림 프리셋 열기", systemImage: "bell.badge")
+            }
+            .buttonStyle(.link)
         }
     }
 
