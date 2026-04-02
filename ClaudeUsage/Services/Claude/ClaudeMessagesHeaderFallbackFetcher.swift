@@ -15,6 +15,26 @@ enum ClaudeMessagesHeaderFallbackFetcherError: Error, Equatable {
     case httpError(statusCode: Int)
 }
 
+extension ClaudeMessagesHeaderFallbackFetcherError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .disabled:
+            return "보조 사용량 복구가 꺼져 있거나 자동 호출 조건을 만족하지 않았습니다"
+        case .invalidEndpoint:
+            return "Messages API 엔드포인트를 만들지 못했습니다"
+        case .invalidResponse:
+            return "Messages API 응답을 해석하지 못했습니다"
+        case .noUsageHeaders:
+            return "Messages 응답에 사용량 헤더가 없어 복구할 수 없습니다"
+        case .httpError(let statusCode):
+            if statusCode == 401 || statusCode == 403 {
+                return "Claude Code OAuth 토큰이 없거나 만료되어 복구를 실행할 수 없습니다"
+            }
+            return "Messages API 호출이 실패했습니다 (HTTP \(statusCode))"
+        }
+    }
+}
+
 struct ClaudeMessagesHeaderFallbackFetcher {
     private let baseURL = URL(string: "https://api.anthropic.com")!
     private let modelName: String

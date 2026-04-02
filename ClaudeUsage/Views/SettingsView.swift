@@ -1243,9 +1243,20 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
                 .frame(width: 300)
 
+                Text(settingsViewModel.messagesFallbackModeSummary(
+                    policy: settings.claudeMessagesFallbackPolicy,
+                    thresholdPercent: settings.claudeMessagesFallbackAutoDisableBelowPercent
+                ))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
                 HStack(alignment: .center, spacing: 8) {
                     Text("자동 중지 기준")
                         .font(.subheadline)
+                    Spacer(minLength: 12)
+                    Text("\(settings.claudeMessagesFallbackAutoDisableBelowPercent)% 미만")
+                        .font(.subheadline)
+                        .foregroundStyle(settings.claudeMessagesFallbackPolicy == .automatic ? .primary : .secondary)
                     Stepper(
                         value: Binding(
                             get: { settings.claudeMessagesFallbackAutoDisableBelowPercent },
@@ -1254,8 +1265,7 @@ struct SettingsView: View {
                         in: 0...100,
                         step: 5
                     ) {
-                        Text("\(settings.claudeMessagesFallbackAutoDisableBelowPercent)% 미만")
-                            .font(.subheadline)
+                        EmptyView()
                     }
                     .labelsHidden()
                     .disabled(settings.claudeMessagesFallbackPolicy != .automatic)
@@ -1275,17 +1285,24 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                if settings.claudeMessagesFallbackPolicy != .off && !hasOAuthCredential {
+                    Text(settingsViewModel.messagesFallbackOAuthHelpText)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
                 if settings.claudeMessagesFallbackPolicy != .off {
                     HStack(spacing: 10) {
                         Button(isTestingMessagesFallback ? "복구 확인 중..." : "Messages 헤더 복구 테스트") {
                             runMessagesFallbackTest()
                         }
-                        .disabled(isTestingMessagesFallback)
+                        .disabled(isTestingMessagesFallback || !hasOAuthCredential)
+                        .help(hasOAuthCredential ? "현재 OAuth 토큰으로 Messages 헤더 복구를 바로 확인합니다" : "Claude Code OAuth 토큰이 있어야 테스트할 수 있습니다")
 
                         if let messagesFallbackStatus {
                             Text(messagesFallbackStatus)
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(messagesFallbackStatus.hasPrefix("실패:") ? .orange : .secondary)
                         }
                     }
                 }
@@ -1293,7 +1310,7 @@ struct SettingsView: View {
             .padding(.top, 4)
         } label: {
             HStack(spacing: 6) {
-                Text("보조 사용량 복구")
+                Text("Messages 헤더 기반 보조 조회")
                 Image(systemName: "questionmark.circle")
                     .foregroundStyle(.secondary)
                     .help(settingsViewModel.messagesFallbackHelpText)
@@ -2570,7 +2587,7 @@ struct SettingsView: View {
         }
         return ProviderOverviewCardView(
             title: "Provider 상태",
-            subtitle: "실동작 \(selectionState.runtimeEnabledKinds.count) · 설정 shell \(selectionState.shellEnabledKinds.count)",
+            subtitle: "활성 \(selectionState.enabledKinds.count) · 실동작 \(selectionState.runtimeEnabledKinds.count)",
             items: items
         )
     }
@@ -2578,9 +2595,9 @@ struct SettingsView: View {
     private func providerRuntimeSummary(_ provider: AppProviderKind, selectionState: ProviderSelectionState) -> String {
         if provider.isRuntimeProvider {
             if selectionState.activeRuntimeKind == provider {
-                return "실동작 · 기본"
+                return "활성 · 기본"
             }
-            return "실동작"
+            return settings.isProviderEnabled(provider) ? "활성" : "비활성화됨"
         }
         return settings.isProviderEnabled(provider) ? "설정 shell · 저장됨" : "설정 shell"
     }

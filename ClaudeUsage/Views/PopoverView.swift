@@ -246,7 +246,7 @@ struct PopoverView: View {
         return VStack(alignment: .leading, spacing: 10) {
             sectionHeader(
                 title: "추가 provider",
-                subtitle: "실동작 \(selectionState.runtimeEnabledKinds.count) · 준비 중 \(selectionState.shellEnabledKinds.count)"
+                subtitle: "활성 \(selectionState.enabledKinds.count) · 실동작 \(selectionState.runtimeEnabledKinds.count)"
             )
 
             ForEach(viewModel.providerShellCards(settings: settings), id: \.id) { card in

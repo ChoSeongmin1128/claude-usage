@@ -13,6 +13,11 @@ final class SettingsViewModel: ObservableObject {
     낮은 사용량 구간에서 불필요한 probe 호출을 줄이기 위한 안전장치입니다.
     """
 
+    let messagesFallbackOAuthHelpText = """
+    Messages 헤더 복구는 Claude Code OAuth 토큰이 있어야 동작합니다.
+    터미널에서 `claude login`을 완료한 뒤 다시 시도해 주세요.
+    """
+
     let chromeImportHelpText = """
     Chrome 로그인 상태를 우선 탐지합니다.
     가능하면 sessionKey를 자동으로 가져오고, 실패하면 웹 로그인과 수동 sessionKey 안내로 이어집니다.
@@ -24,5 +29,19 @@ final class SettingsViewModel: ObservableObject {
 
     func clampFallbackThreshold(_ value: Int) -> Int {
         min(max(value, 0), 100)
+    }
+
+    func messagesFallbackModeSummary(
+        policy: ClaudeMessagesFallbackPolicy,
+        thresholdPercent: Int
+    ) -> String {
+        switch policy {
+        case .off:
+            return "현재: 꺼짐"
+        case .manual:
+            return "현재: 수동 보조"
+        case .automatic:
+            return "현재: 자동 보조 · \(thresholdPercent)% 미만 중지"
+        }
     }
 }
