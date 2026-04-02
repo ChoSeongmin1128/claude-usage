@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (26차)
+최종 갱신: 2026-04-02 (27차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -54,6 +54,9 @@
 - provider 전환 시 stale refresh 판단과 enable/disable 정책도 [ProviderTransitionPolicy.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ProviderTransitionPolicy.swift) 로 분리해, `AppDelegate` 안의 서비스 전환 분기가 단순 결정 호출 위주로 바뀌기 시작했습니다.
 - `Claude` / `Codex` refresh의 백오프 계산과 in-flight 고착 판단도 [RefreshExecutionPolicy.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RefreshExecutionPolicy.swift) 로 분리해, `AppDelegate` 안의 중복된 retry/backoff 규칙을 줄이기 시작했습니다.
 - 메뉴바 아이콘/색상 렌더링 세부 구현도 [MenuBarIconFactory.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarIconFactory.swift) 로 분리해, `AppDelegate` 안에 남아 있던 이미지 합성/알파 트리밍/색상 선택 로직을 utility로 이동시켰습니다.
+- [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift) 로 `PopoverService` 를 분리해, provider 선택 축을 뷰 파일 밖에서 재사용할 수 있게 정리하기 시작했습니다.
+- [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 는 `popover pinned / compact / provider settings last tab` 을 provider kind 기준 helper 메서드로 읽고 쓰기 시작했습니다.
+- [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift), [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 이제 이 helper를 이용해 `claude/codex` 개별 필드명에 직접 매달리지 않도록 줄이기 시작했습니다.
 - 다만 AppDelegate orchestration과 multi-provider fetch/menu glue는 아직 더 분해해야 합니다.
 
 ## 2. 참고 레포에서 가져올 방향
@@ -525,6 +528,7 @@
 ## 7. 바로 다음 작업
 
 - `providerStates`를 실제 메뉴바/팝오버/AppDelegate refresh 경로까지 더 연결해 `claude/codex` 하드코딩을 추가로 걷어내기
+- `PopoverService` 와 runtime provider 선택 축을 `Gemini` 진입을 막지 않는 구조로 더 일반화하기
 - 팝오버를 `Claude 집중형 + Overview/Provider 전환` 하이브리드로 마저 정리하기
 - `Gemini`, `Antigravity`의 shell을 fetch/auth 플랫폼 레이어와 연결할 준비를 하기
 - refresh/timer 경로도 runtime-capable provider 기준으로 더 분리하기

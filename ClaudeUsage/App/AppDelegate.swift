@@ -223,12 +223,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onPinChanged: { [weak self] service, isPinned in
                 guard let self else { return }
-                switch service {
-                case .claude:
-                    AppSettings.shared.claudePopoverPinned = isPinned
-                case .codex:
-                    AppSettings.shared.codexPopoverPinned = isPinned
-                }
+                AppSettings.shared.setPopoverPinned(isPinned, for: ServiceSelectionHelper.providerKind(for: service))
                 self.applyPopoverBehavior(for: service)
                 if isPinned {
                     self.stopGlobalClickMonitor()
@@ -345,23 +340,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openSettingsForAuth(service: PopoverService) {
+        let kind = ServiceSelectionHelper.providerKind(for: service)
         AppSettings.shared.settingsLastTab = ServiceSelectionHelper.settingsRootTab(for: service)
-        switch service {
-        case .claude:
-            AppSettings.shared.claudeSettingsLastTab = ServiceSelectionHelper.settingsAuthTab()
-        case .codex:
-            AppSettings.shared.codexSettingsLastTab = ServiceSelectionHelper.settingsAuthTab()
-        }
+        AppSettings.shared.setProviderSettingsLastTab(ServiceSelectionHelper.settingsAuthTab(), for: kind)
         showSettingsWindow()
     }
 
     private func refreshPopoverSizeIfShown(service: PopoverService) {
-        let compact: Bool = {
-            let claudeCompact = AppSettings.shared.claudePopoverCompact
-            let codexCompact = AppSettings.shared.codexPopoverCompact
-            if claudeCompact == codexCompact { return claudeCompact }
-            return service == .claude ? claudeCompact : codexCompact
-        }()
+        let kind = ServiceSelectionHelper.providerKind(for: service)
+        let compact = AppSettings.shared.isPopoverCompact(for: kind)
         popoverCoordinator.refreshSizeIfShown(service: service, compact: compact)
     }
 

@@ -8,20 +8,6 @@
 import SwiftUI
 import Combine
 
-enum PopoverService: String, Sendable {
-    case claude
-    case codex
-
-    var displayName: String {
-        switch self {
-        case .claude:
-            return "Claude"
-        case .codex:
-            return "Codex"
-        }
-    }
-}
-
 struct PopoverView: View {
     @ObservedObject var viewModel: PopoverViewModel
     @ObservedObject private var settings = AppSettings.shared
@@ -675,10 +661,17 @@ struct PopoverView: View {
 
     private var isCompact: Bool {
         get {
-            if settings.claudePopoverCompact == settings.codexPopoverCompact {
-                return settings.claudePopoverCompact
+            let runtimeKinds = settings.providerSelectionState.runtimeEnabledKinds
+            if runtimeKinds.isEmpty {
+                return settings.isPopoverCompact(for: appProviderKind(for: selectedService))
             }
-            return selectedService == .claude ? settings.claudePopoverCompact : settings.codexPopoverCompact
+
+            let compactValues = Set(runtimeKinds.map(settings.isPopoverCompact(for:)))
+            if compactValues.count == 1 {
+                return compactValues.first ?? settings.isPopoverCompact(for: appProviderKind(for: selectedService))
+            }
+
+            return settings.isPopoverCompact(for: appProviderKind(for: selectedService))
         }
         nonmutating set {
             setCompactForAllServices(newValue)
@@ -686,11 +679,10 @@ struct PopoverView: View {
     }
 
     private func setCompactForAllServices(_ compact: Bool) {
-        if settings.claudePopoverCompact != compact {
-            settings.claudePopoverCompact = compact
-        }
-        if settings.codexPopoverCompact != compact {
-            settings.codexPopoverCompact = compact
+        let runtimeKinds = settings.providerSelectionState.runtimeEnabledKinds
+        let targets = runtimeKinds.isEmpty ? [.claude, .codex] : runtimeKinds
+        for kind in targets where settings.isPopoverCompact(for: kind) != compact {
+            settings.setPopoverCompact(compact, for: kind)
         }
     }
 
@@ -701,20 +693,10 @@ struct PopoverView: View {
 
     private var isPinned: Bool {
         get {
-            switch selectedService {
-            case .claude:
-                return settings.claudePopoverPinned
-            case .codex:
-                return settings.codexPopoverPinned
-            }
+            settings.isPopoverPinned(for: appProviderKind(for: selectedService))
         }
         nonmutating set {
-            switch selectedService {
-            case .claude:
-                settings.claudePopoverPinned = newValue
-            case .codex:
-                settings.codexPopoverPinned = newValue
-            }
+            settings.setPopoverPinned(newValue, for: appProviderKind(for: selectedService))
         }
     }
 

@@ -815,6 +815,72 @@ class AppSettings: ObservableObject {
         providerStates = catalog
     }
 
+    func isPopoverPinned(for kind: AppProviderKind) -> Bool {
+        switch kind {
+        case .claude:
+            return claudePopoverPinned
+        case .codex:
+            return codexPopoverPinned
+        case .gemini, .antigravity:
+            return defaults.object(forKey: "\(kind.rawValue)PopoverPinned") as? Bool ?? popoverPinned
+        }
+    }
+
+    func setPopoverPinned(_ isPinned: Bool, for kind: AppProviderKind) {
+        switch kind {
+        case .claude:
+            claudePopoverPinned = isPinned
+        case .codex:
+            codexPopoverPinned = isPinned
+        case .gemini, .antigravity:
+            defaults.set(isPinned, forKey: "\(kind.rawValue)PopoverPinned")
+        }
+    }
+
+    func isPopoverCompact(for kind: AppProviderKind) -> Bool {
+        switch kind {
+        case .claude:
+            return claudePopoverCompact
+        case .codex:
+            return codexPopoverCompact
+        case .gemini, .antigravity:
+            return defaults.object(forKey: "\(kind.rawValue)PopoverCompact") as? Bool ?? popoverCompact
+        }
+    }
+
+    func setPopoverCompact(_ isCompact: Bool, for kind: AppProviderKind) {
+        switch kind {
+        case .claude:
+            claudePopoverCompact = isCompact
+        case .codex:
+            codexPopoverCompact = isCompact
+        case .gemini, .antigravity:
+            defaults.set(isCompact, forKey: "\(kind.rawValue)PopoverCompact")
+        }
+    }
+
+    func providerSettingsLastTab(for kind: AppProviderKind) -> String {
+        switch kind {
+        case .claude:
+            return claudeSettingsLastTab
+        case .codex:
+            return codexSettingsLastTab
+        case .gemini, .antigravity:
+            return defaults.string(forKey: "\(kind.rawValue)SettingsLastTab") ?? "auth"
+        }
+    }
+
+    func setProviderSettingsLastTab(_ tab: String, for kind: AppProviderKind) {
+        switch kind {
+        case .claude:
+            claudeSettingsLastTab = tab
+        case .codex:
+            codexSettingsLastTab = tab
+        case .gemini, .antigravity:
+            defaults.set(tab, forKey: "\(kind.rawValue)SettingsLastTab")
+        }
+    }
+
     func menuBarDisplayConfig(for kind: AppProviderKind) -> ProviderMenuBarDisplayConfig? {
         switch kind {
         case .claude:

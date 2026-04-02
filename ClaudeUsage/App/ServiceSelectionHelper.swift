@@ -2,30 +2,18 @@ import Foundation
 
 struct ServiceSelectionHelper {
     static let supportedProviderKinds: [AppProviderKind] = AppProviderKind.runtimeKinds
-    static let supportedPopoverServices: [PopoverService] = supportedProviderKinds.compactMap(service(for:))
+    static let supportedPopoverServices: [PopoverService] = PopoverService.allCases.filter { $0.providerKind.isRuntimeProvider }
 
     nonisolated static func providerKind(for service: PopoverService) -> AppProviderKind {
-        switch service {
-        case .claude:
-            return .claude
-        case .codex:
-            return .codex
-        }
+        service.providerKind
     }
 
     nonisolated static func service(for kind: AppProviderKind) -> PopoverService? {
-        switch kind {
-        case .claude:
-            return .claude
-        case .codex:
-            return .codex
-        case .gemini, .antigravity:
-            return nil
-        }
+        PopoverService(rawValue: kind.rawValue)
     }
 
     nonisolated static func preferredPopoverService(from rawValue: String) -> PopoverService {
-        rawValue == "codex" ? .codex : .claude
+        PopoverService(rawValue: rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) ?? .claude
     }
 
     static func preferredPopoverService(settings: AppSettings) -> PopoverService {
@@ -104,12 +92,7 @@ struct ServiceSelectionHelper {
     }
 
     static func isPinned(_ service: PopoverService, settings: AppSettings) -> Bool {
-        switch service {
-        case .claude:
-            return settings.claudePopoverPinned
-        case .codex:
-            return settings.codexPopoverPinned
-        }
+        settings.isPopoverPinned(for: providerKind(for: service))
     }
 
     static func canRefreshClaude(
@@ -197,7 +180,7 @@ struct ServiceSelectionHelper {
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool
     ) -> Bool {
-        !hasRefreshableService(
+        hasRefreshableService(
             selectionState: settings.providerSelectionState,
             hasClaudeSessionKey: hasClaudeSessionKey,
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
@@ -206,12 +189,7 @@ struct ServiceSelectionHelper {
     }
 
     static func settingsRootTab(for service: PopoverService) -> String {
-        switch service {
-        case .claude:
-            return "claude"
-        case .codex:
-            return "codex"
-        }
+        service.rawValue
     }
 
     static func settingsAuthTab() -> String {
