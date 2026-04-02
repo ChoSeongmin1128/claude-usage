@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (35차)
+최종 갱신: 2026-04-02 (37차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -75,6 +75,10 @@
 - 2026-04-02 34차 통합에서 [ClaudeRuntimeRefresher.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ClaudeRuntimeRefresher.swift), [CodexRuntimeRefresher.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/CodexRuntimeRefresher.swift) 를 추가했고, [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 provider별 네트워크 fetch 세부를 직접 수행하지 않고 refresher를 통해 호출하기 시작했습니다.
 - 2026-04-02 35차 통합에서 [ProviderStateModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift) 에 `ProviderCapabilities`, `ProviderDescriptor` 를 도입했고, `AppProviderKind` 의 `runtime/browser-import/defaultEnabled/settings` 성격을 descriptor 기반으로 읽기 시작했습니다.
 - 같은 통합에서 [ProviderSettingsRegistry.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/ProviderSettingsRegistry.swift), [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift) 는 runtime service 판정과 settings shell descriptor를 더 이상 raw switch 조합에 의존하지 않고 provider descriptor를 통해 읽기 시작했습니다.
+- 2026-04-02 36차 통합에서 [SetupWizardWindowCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/SetupWizardWindowCoordinator.swift), [SetupWizardWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SetupWizardWindowView.swift) 를 추가했고, [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 최초 Claude 인증 유도가 더 이상 설정창 내부 카드에만 머물지 않고 독립 `빠른 시작` 창으로 진입하기 시작했습니다.
+- 같은 통합에서 설정창 내부의 [SetupWizardView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/Components/SetupWizardView.swift) 는 보조 카드로 유지하되, 첫 실행 진입 책임은 별도 window coordinator로 이동시키기 시작했습니다.
+- 2026-04-02 37차 통합에서 [ClaudeFetchModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/Claude/ClaudeFetchModels.swift) 에 `ClaudeNotificationPolicy` 를 도입했고, [NotificationManager.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/NotificationManager.swift) 는 `team/enterprise + extra usage` 계정의 저긴급 임계값을 자동 억제하고 billing/subscription 상태에 따라 안내 문구를 달리하기 시작했습니다.
+- 같은 통합에서 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 성공 조회 직후 cached profile metadata를 읽어 현재 Claude 알림 정책으로 연결하기 시작했습니다.
 
 ## 2. 참고 레포에서 가져올 방향
 
@@ -569,6 +573,6 @@
 
 - `ClaudeRuntimeRefresher` / `CodexRuntimeRefresher` 를 `provider refresher registry` 로 한 단계 더 일반화하고 `Gemini`용 진입 자리를 만들기
 - `PopoverService` 와 runtime capability를 분리한 descriptor/registry 위에 `Gemini` runtime 상태 shape를 얹을 수 있게 AppDelegate orchestration 남은 하드코딩을 줄이기
-- 설정 내부 체크리스트를 넘어서 독립 `Setup Wizard` 플로우를 완성하고 Chrome/Keychain 권한 설명을 붙이기
-- metadata cache를 실제 알림 문구와 warning suppression 정책까지 연결하기
+- 독립 `Setup Wizard` 를 첫 실행 전용 단계 라우팅으로 더 확장하고 Chrome/Keychain 권한 설명, organization 선택, 검증 완료 흐름을 완성하기
+- metadata cache를 실제 알림 문구와 warning suppression 정책까지 더 넓혀 `fallback 빈도`, `팝오버 정책 문구`, `설정 요약`까지 연결하기
 - README와 배포/업데이트 문서를 실제 구현 상태에 맞게 계속 갱신하기

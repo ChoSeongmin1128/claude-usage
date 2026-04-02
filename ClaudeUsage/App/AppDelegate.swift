@@ -21,9 +21,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let runtimeObservationCoordinator = AppRuntimeObservationCoordinator()
     private let settingsWindowCoordinator = SettingsWindowCoordinator()
     private let loginWindowCoordinator = LoginWindowCoordinator()
+    private let setupWizardWindowCoordinator = SetupWizardWindowCoordinator()
 
     private var runtimeStateCatalog = RuntimeProviderStateCatalog()
     private var currentOverage: OverageSpendLimitResponse?
+    private var currentClaudeNotificationPolicy: ClaudeNotificationPolicy?
     private var lastOverageFetchAt: Date?
     private var systemStatus: ClaudeSystemStatus?
     private var statusTimer: Timer?
@@ -238,7 +240,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             await self.apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
             let snapshot = await self.apiService.fetchUsageHealthSnapshot()
+            let cachedProfileMetadata = await self.apiService.fetchCachedProfileMetadata()
             await MainActor.run {
+                self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
                 self.applyUsageHealthSnapshot(snapshot)
                 self.finishBootstrap(using: snapshot)
             }
@@ -251,7 +255,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
             updateMenuBar()
             if !snapshot.runtime.credentialAvailability.hasAnyCredential {
-                showSettingsWindow()
+                showInitialClaudeSetupFlow()
             }
         } else {
             if ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) && !CodexAuthManager.shared.isAuthenticated {
@@ -260,6 +264,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             updateMenuBar()
         }
+    }
+
+    private func showInitialClaudeSetupFlow() {
+        if shouldShowStandaloneSetupWizard {
+            showSetupWizardWindow()
+        } else {
+            showSettingsWindow()
+        }
+    }
+
+    private var shouldShowStandaloneSetupWizard: Bool {
+        !AppSettings.shared.hasCompletedSetupWizard || !hasReadyClaudeCredential
+    }
+
+    private var hasReadyClaudeCredential: Bool {
+        KeychainManager.shared.hasSessionKey
+        || claudeCredentialAvailability.hasAnyCredential
+        || lastUpdated != nil
+    }
+
+    private var currentSetupWizardStep: SetupWizardView.Step {
+        if hasReadyClaudeCredential {
+            return .chromeImport
+        }
+        return .chromeImport
+    }
+
+    private var setupWizardOrganizationSummary: String {
+        let preferredID = AppSettings.shared.preferredOrganizationID.trimmingCharacters(in: .whitespacesAndNewlines)
+        if preferredID.isEmpty {
+            return "자동 선택 모드입니다"
+        }
+        return "선택한 organization이 저장되어 있습니다"
     }
 
     private func checkForUpdates() {
@@ -831,9 +868,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     apiService: apiService,
                     lastOverageFetchAt: self.lastOverageFetchAt
                 )
+                let cachedProfileMetadata = await self.apiService.fetchCachedProfileMetadata()
 
                 await MainActor.run {
                     AppSettings.shared.hasCompletedSetupWizard = true
+                    self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
                     self.currentUsage = result.usage
                     if let fetchedOverage = result.overage {
                         self.currentOverage = fetchedOverage
@@ -858,12 +897,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     NotificationManager.shared.checkThreshold(
                         session: .fiveHour,
                         percentage: result.usage.fiveHourPercentage,
-                        resetAt: result.usage.fiveHour.resetsAt
+                        resetAt: result.usage.fiveHour.resetsAt,
+                        claudePolicy: self.currentClaudeNotificationPolicy
                     )
                     NotificationManager.shared.checkThreshold(
                         session: .weekly,
                         percentage: result.usage.weeklyPercentage,
-                        resetAt: result.usage.sevenDay?.resetsAt
+                        resetAt: result.usage.sevenDay?.resetsAt,
+                        claudePolicy: self.currentClaudeNotificationPolicy
                     )
                 }
 
@@ -1191,6 +1232,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showSettingsWindow() {
+        setupWizardWindowCoordinator.close()
+
         if settingsWindowCoordinator.focusIfVisible() {
             return
         }
@@ -1262,6 +1305,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Login Window
 
     func showLoginWindow(clearCookies: Bool = false) {
+        setupWizardWindowCoordinator.close()
+
         if loginWindowCoordinator.focusIfVisible() {
             if clearCookies {
                 loginWindowCoordinator.close()
@@ -1317,6 +1362,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         loginWindowCoordinator.present(rootView: loginView)
     }
 
+    private func showSetupWizardWindow() {
+        if setupWizardWindowCoordinator.focusIfVisible() {
+            return
+        }
+
+        let rootView = SetupWizardWindowView(
+            currentStep: currentSetupWizardStep,
+            hasReadyCredential: hasReadyClaudeCredential,
+            hasSuccessfulFetch: lastUpdated != nil,
+            organizationSummary: setupWizardOrganizationSummary,
+            onOpenLogin: { [weak self] in
+                self?.setupWizardWindowCoordinator.close()
+                self?.showLoginWindow(clearCookies: true)
+            },
+            onOpenAdvancedSettings: { [weak self] in
+                AppSettings.shared.settingsLastTab = "claude"
+                AppSettings.shared.claudeSettingsLastTab = "auth"
+                self?.setupWizardWindowCoordinator.close()
+                self?.showSettingsWindow()
+            },
+            onDismiss: { [weak self] in
+                AppSettings.shared.hasCompletedSetupWizard = true
+                self?.setupWizardWindowCoordinator.close()
+            }
+        )
+        setupWizardWindowCoordinator.present(rootView: rootView)
+    }
+
     private func clearWebSessionData() {
         let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
         WKWebsiteDataStore.default().removeData(ofTypes: dataTypes, modifiedSince: .distantPast) {
@@ -1333,7 +1406,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if hasRefreshableService {
             refreshAll(force: true)
         } else {
-            showSettingsWindow()
+            showInitialClaudeSetupFlow()
         }
     }
 

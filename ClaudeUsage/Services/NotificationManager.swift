@@ -52,7 +52,12 @@ class NotificationManager {
 
     // MARK: - Threshold Check
 
-    func checkThreshold(session: SessionType, percentage: Double, resetAt: String?) {
+    func checkThreshold(
+        session: SessionType,
+        percentage: Double,
+        resetAt: String?,
+        claudePolicy: ClaudeNotificationPolicy? = nil
+    ) {
         let settings = AppSettings.shared
 
         guard settings.notificationsEnabled else { return }
@@ -76,6 +81,7 @@ class NotificationManager {
                 return settings.enabledAlertThresholds
             }
         }()
+        let normalizedClaudePolicy = claudePolicy?.isFreshEnoughForNotifications == true ? claudePolicy : nil
 
         // 첫 번째 호출: 현재 상태만 기록, 알림 보내지 않음
         if tracker.isFirstCheck {
@@ -83,6 +89,13 @@ class NotificationManager {
             tracker.lastResetAt = resetAt
 
             for threshold in thresholds where percentage >= Double(threshold) {
+                if shouldSuppressThreshold(
+                    threshold,
+                    session: session,
+                    claudePolicy: normalizedClaudePolicy
+                ) {
+                    continue
+                }
                 tracker.alertedThresholds.insert(threshold)
             }
 
@@ -110,13 +123,28 @@ class NotificationManager {
 
         // 임계값 알림 (높은 순서대로, 한 번에 하나만)
         for threshold in thresholds.reversed() {
+            if shouldSuppressThreshold(
+                threshold,
+                session: session,
+                claudePolicy: normalizedClaudePolicy
+            ) {
+                continue
+            }
             if percentage >= Double(threshold) && !tracker.alertedThresholds.contains(threshold) {
                 let title = threshold >= 95 ? "\(serviceName) 사용량 경고"
                     : threshold >= 90 ? "\(serviceName) 사용량 주의"
                     : "\(serviceName) 사용량 안내"
+                let guidanceSuffix = (session == .fiveHour || session == .weekly)
+                    ? normalizedClaudePolicy?.guidanceSuffix
+                    : nil
+                let body = if let guidanceSuffix {
+                    "\(session.displayName)의 \(threshold)%를 사용했습니다. \(guidanceSuffix)"
+                } else {
+                    "\(session.displayName)의 \(threshold)%를 사용했습니다"
+                }
                 sendNotification(
                     title: title,
-                    body: "\(session.displayName)의 \(threshold)%를 사용했습니다"
+                    body: body
                 )
                 tracker.alertedThresholds.insert(threshold)
                 break
@@ -146,6 +174,16 @@ class NotificationManager {
         }
 
         return abs(newDate.timeIntervalSince(oldDate)) > 300
+    }
+
+    private func shouldSuppressThreshold(
+        _ threshold: Int,
+        session: SessionType,
+        claudePolicy: ClaudeNotificationPolicy?
+    ) -> Bool {
+        guard session == .fiveHour || session == .weekly else { return false }
+        guard let claudePolicy else { return false }
+        return claudePolicy.shouldSuppressLowUrgencyThresholds && threshold < 90
     }
 
     // MARK: - Send Notification

@@ -136,6 +136,52 @@ struct ClaudeProfileMetadata: Equatable, Sendable {
     }
 }
 
+struct ClaudeNotificationPolicy: Equatable, Sendable {
+    let subscriptionType: String?
+    let billingType: String?
+    let hasExtraUsageEnabled: Bool?
+    let rateLimitTier: String?
+    let lastUpdatedAt: Date?
+
+    init(metadata: ClaudeProfileMetadata) {
+        self.subscriptionType = metadata.subscriptionType
+        self.billingType = metadata.billingType
+        self.hasExtraUsageEnabled = metadata.hasExtraUsageEnabled
+        self.rateLimitTier = metadata.rateLimitTier
+        self.lastUpdatedAt = metadata.lastUpdatedAt
+    }
+
+    nonisolated var isFreshEnoughForNotifications: Bool {
+        guard let lastUpdatedAt else { return false }
+        return abs(lastUpdatedAt.timeIntervalSinceNow) <= 60 * 60 * 24 * 7
+    }
+
+    nonisolated var isOrganizationPlan: Bool {
+        let haystacks = [subscriptionType, billingType, rateLimitTier]
+            .compactMap { $0?.lowercased() }
+        return haystacks.contains(where: { value in
+            value.contains("team") || value.contains("enterprise") || value.contains("org")
+        })
+    }
+
+    nonisolated var shouldSuppressLowUrgencyThresholds: Bool {
+        isOrganizationPlan && hasExtraUsageEnabled == true
+    }
+
+    nonisolated var guidanceSuffix: String? {
+        if isOrganizationPlan && hasExtraUsageEnabled == false {
+            return "관리자에게 추가 사용량 설정을 확인해 주세요"
+        }
+
+        let lowerSubscription = subscriptionType?.lowercased() ?? ""
+        if lowerSubscription.contains("pro") || lowerSubscription.contains("max") {
+            return "플랜 한도도 함께 확인해 주세요"
+        }
+
+        return nil
+    }
+}
+
 struct ClaudeCredentialAvailability: Sendable, Equatable {
     let sessionCredentialAvailable: Bool
     let oauthCredentialAvailable: Bool
