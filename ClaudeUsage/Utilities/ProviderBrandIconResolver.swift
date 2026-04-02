@@ -8,30 +8,20 @@ enum ProviderBrandIconKind: Sendable {
 }
 
 enum ProviderBrandIconResolver {
+    private static var cachedImages: [String: NSImage] = [:]
+
     static func image(
         for provider: AppProviderKind,
         kind: ProviderBrandIconKind
     ) -> NSImage? {
-        if let assetName = assetName(for: provider, kind: kind),
-           let image = NSImage(named: assetName) {
-            image.isTemplate = false
-            return image
+        if kind == .menuBar {
+            return MenuBarIconFactory.providerMenuBarIcon(for: provider, size: NSSize(width: 18, height: 18))
         }
 
-        if kind == .menuBar {
-            switch provider {
-            case .claude:
-                return MenuBarIconFactory.claudeMenuBarIcon(
-                    size: NSSize(width: 18, height: 18),
-                    tint: MenuBarIconFactory.claudeBrandIconTintColor()
-                )
-            case .codex:
-                return MenuBarIconFactory.codexMenuBarIcon(size: NSSize(width: 18, height: 18))
-            case .gemini:
-                return MenuBarIconFactory.geminiMenuBarIcon(size: NSSize(width: 18, height: 18))
-            case .antigravity:
-                return MenuBarIconFactory.antigravityMenuBarIcon(size: NSSize(width: 18, height: 18))
-            }
+        if let assetName = assetName(for: provider, kind: kind),
+           let image = baseImage(named: assetName) {
+            image.isTemplate = false
+            return image
         }
 
         if let symbol = provider.fallbackSystemSymbolName,
@@ -44,11 +34,24 @@ enum ProviderBrandIconResolver {
 
     static func assetName(for provider: AppProviderKind, kind: ProviderBrandIconKind) -> String? {
         switch kind {
-        case .menuBar:
-            return provider.menuBarAssetName
-        case .popover, .settings:
+        case .menuBar, .popover, .settings:
             return provider.brandAssetName
         }
+    }
+
+    static func baseImage(for provider: AppProviderKind) -> NSImage? {
+        guard let assetName = provider.brandAssetName else { return nil }
+        return baseImage(named: assetName)
+    }
+
+    private static func baseImage(named assetName: String) -> NSImage? {
+        if let cached = cachedImages[assetName] {
+            return cached.copy() as? NSImage ?? cached
+        }
+        guard let image = NSImage(named: assetName) else { return nil }
+        image.isTemplate = false
+        cachedImages[assetName] = image
+        return image.copy() as? NSImage ?? image
     }
 }
 

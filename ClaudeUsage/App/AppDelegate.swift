@@ -1661,7 +1661,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let button = statusItem?.button else { return }
         let highContrast = AppSettings.shared.menuBarTextHighContrast
         let secondaryColor = MenuBarIconFactory.secondaryTextColor(highContrast: highContrast)
-        let claudeIconTintColor = MenuBarIconFactory.claudeBrandIconTintColor()
 
         let runtimeKinds = ServiceSelectionHelper
             .enabledRuntimeProviderKinds(settings: settings)
@@ -1670,8 +1669,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menuBarProviderSnapshot(
                 for: $0,
                 iconSize: NSSize(width: 14, height: 14),
-                secondaryColor: secondaryColor,
-                claudeIconTintColor: claudeIconTintColor
+                secondaryColor: secondaryColor
             )
         }
 
@@ -1692,8 +1690,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let snapshot = menuBarProviderSnapshot(
             for: activeService.providerKind,
             iconSize: NSSize(width: 18, height: 18),
-            secondaryColor: secondaryColor,
-            claudeIconTintColor: claudeIconTintColor
+            secondaryColor: secondaryColor
         ) else {
             applyMenuBarContent(MenuBarStatusComposer.placeholder(secondaryColor: secondaryColor), to: button)
             return
@@ -1708,8 +1705,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func menuBarProviderSnapshot(
         for kind: AppProviderKind,
         iconSize: NSSize,
-        secondaryColor: NSColor,
-        claudeIconTintColor: NSColor
+        secondaryColor: NSColor
     ) -> MenuBarProviderSnapshot? {
         guard AppSettings.shared.isProviderVisibleInMenuBar(kind) else { return nil }
         switch kind {
@@ -1722,7 +1718,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 hasAuthError: hasAuthError,
                 hasCredential: claudeCredentialAvailability.hasAnyCredential,
                 secondaryColor: secondaryColor,
-                icon: config.showIcon ? MenuBarIconFactory.claudeMenuBarIcon(size: iconSize, tint: claudeIconTintColor) : nil
+                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .claude, size: iconSize) : nil
             )
         case .codex:
             guard let config = AppSettings.shared.menuBarDisplayConfig(for: .codex) else { return nil }
@@ -1733,7 +1729,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 hasAuthError: hasCodexAuthError,
                 isAuthenticated: CodexAuthManager.shared.isAuthenticated,
                 secondaryColor: secondaryColor,
-                icon: config.showIcon ? MenuBarIconFactory.codexMenuBarIcon(size: iconSize) : nil
+                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .codex, size: iconSize) : nil
             )
         case .gemini:
             guard let config = AppSettings.shared.menuBarDisplayConfig(for: .gemini) else { return nil }
@@ -1744,7 +1740,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 hasAuthError: hasGeminiAuthError,
                 hasCredential: hasGeminiCredential,
                 secondaryColor: secondaryColor,
-                icon: config.showIcon ? MenuBarIconFactory.geminiMenuBarIcon(size: iconSize) : nil
+                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .gemini, size: iconSize) : nil
             )
         case .antigravity:
             guard let config = AppSettings.shared.menuBarDisplayConfig(for: .antigravity) else { return nil }
@@ -1755,7 +1751,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 hasAuthError: hasAntigravityAuthError,
                 hasCredential: hasAntigravityCredential,
                 secondaryColor: secondaryColor,
-                icon: config.showIcon ? MenuBarIconFactory.antigravityMenuBarIcon(size: iconSize) : nil
+                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .antigravity, size: iconSize) : nil
             )
         }
     }
