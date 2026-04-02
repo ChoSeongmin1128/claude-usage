@@ -227,7 +227,6 @@ class AppSettings: ObservableObject {
     }
 
     private let defaults = UserDefaults.standard
-    private var isSyncingProviderState = false
 
     // MARK: - Published Properties
 
@@ -279,12 +278,6 @@ class AppSettings: ObservableObject {
     }
     @Published var showClaudeIcon: Bool {
         didSet { defaults.set(showClaudeIcon, forKey: "showClaudeIcon") }
-    }
-    @Published var claudeEnabled: Bool {
-        didSet {
-            defaults.set(claudeEnabled, forKey: "claudeEnabled")
-            syncProviderStatesFromLegacyFields()
-        }
     }
     @Published var menuBarTextHighContrast: Bool {
         didSet { defaults.set(menuBarTextHighContrast, forKey: "menuBarTextHighContrast") }
@@ -361,12 +354,6 @@ class AppSettings: ObservableObject {
             }
         }
     }
-    @Published var codexEnabled: Bool {
-        didSet {
-            defaults.set(codexEnabled, forKey: "codexEnabled")
-            syncProviderStatesFromLegacyFields()
-        }
-    }
     @Published var showCodexIcon: Bool {
         didSet { defaults.set(showCodexIcon, forKey: "showCodexIcon") }
     }
@@ -375,8 +362,7 @@ class AppSettings: ObservableObject {
             if let data = try? JSONEncoder().encode(providerStates) {
                 defaults.set(data, forKey: "providerStates")
             }
-            guard !isSyncingProviderState else { return }
-            syncLegacyProviderFields(from: providerStates)
+            persistLegacyProviderFields(from: providerStates)
         }
     }
     @Published var codexPercentageDisplay: PercentageDisplay {
@@ -420,12 +406,6 @@ class AppSettings: ObservableObject {
     @Published var settingsLastTab: String {
         didSet { defaults.set(settingsLastTab, forKey: "settingsLastTab") }
     }
-    @Published var menuBarActiveService: String {
-        didSet {
-            defaults.set(menuBarActiveService, forKey: "menuBarActiveService")
-            syncProviderStatesFromLegacyFields()
-        }
-    }
     @Published var claudeSettingsLastTab: String {
         didSet { defaults.set(claudeSettingsLastTab, forKey: "claudeSettingsLastTab") }
     }
@@ -451,7 +431,6 @@ class AppSettings: ObservableObject {
         let reducedRefreshOnBattery: Bool
         let hasCompletedSetupWizard: Bool
         let showClaudeIcon: Bool
-        let claudeEnabled: Bool
         let menuBarTextHighContrast: Bool
         let updateCheckInterval: UpdateCheckInterval
         let claudeAlertEnabled: Bool
@@ -470,7 +449,6 @@ class AppSettings: ObservableObject {
         let popoverItems: [PopoverItemConfig]
         let separateCompactConfig: Bool
         let compactPopoverItems: [PopoverItemConfig]
-        let codexEnabled: Bool
         let showCodexIcon: Bool
         let codexPercentageDisplay: PercentageDisplay
         let codexResetTimeDisplay: ResetTimeDisplay
@@ -484,7 +462,6 @@ class AppSettings: ObservableObject {
         let codexCompactPopoverItems: [PopoverItemConfig]
         let providerStates: AppProviderStateCatalog
         let settingsLastTab: String
-        let menuBarActiveService: String
         let claudeSettingsLastTab: String
         let codexSettingsLastTab: String
     }
@@ -506,7 +483,6 @@ class AppSettings: ObservableObject {
             reducedRefreshOnBattery: reducedRefreshOnBattery,
             hasCompletedSetupWizard: hasCompletedSetupWizard,
             showClaudeIcon: showClaudeIcon,
-            claudeEnabled: claudeEnabled,
             menuBarTextHighContrast: menuBarTextHighContrast,
             updateCheckInterval: updateCheckInterval,
             claudeAlertEnabled: claudeAlertEnabled,
@@ -525,7 +501,6 @@ class AppSettings: ObservableObject {
             popoverItems: popoverItems,
             separateCompactConfig: separateCompactConfig,
             compactPopoverItems: compactPopoverItems,
-            codexEnabled: codexEnabled,
             showCodexIcon: showCodexIcon,
             codexPercentageDisplay: codexPercentageDisplay,
             codexResetTimeDisplay: codexResetTimeDisplay,
@@ -539,7 +514,6 @@ class AppSettings: ObservableObject {
             codexCompactPopoverItems: codexCompactPopoverItems,
             providerStates: providerStates,
             settingsLastTab: settingsLastTab,
-            menuBarActiveService: menuBarActiveService,
             claudeSettingsLastTab: claudeSettingsLastTab,
             codexSettingsLastTab: codexSettingsLastTab
         )
@@ -561,7 +535,6 @@ class AppSettings: ObservableObject {
         reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
         hasCompletedSetupWizard = snapshot.hasCompletedSetupWizard
         showClaudeIcon = snapshot.showClaudeIcon
-        claudeEnabled = snapshot.claudeEnabled
         menuBarTextHighContrast = snapshot.menuBarTextHighContrast
         updateCheckInterval = snapshot.updateCheckInterval
         claudeAlertEnabled = snapshot.claudeAlertEnabled
@@ -580,7 +553,6 @@ class AppSettings: ObservableObject {
         popoverItems = PopoverItemConfig.normalizedClaude(snapshot.popoverItems)
         separateCompactConfig = snapshot.separateCompactConfig
         compactPopoverItems = PopoverItemConfig.normalizedClaude(snapshot.compactPopoverItems)
-        codexEnabled = snapshot.codexEnabled
         showCodexIcon = snapshot.showCodexIcon
         codexPercentageDisplay = snapshot.codexPercentageDisplay
         codexResetTimeDisplay = snapshot.codexResetTimeDisplay
@@ -592,44 +564,16 @@ class AppSettings: ObservableObject {
         codexAlertEnabled = snapshot.codexAlertEnabled
         codexPopoverItems = PopoverItemConfig.normalizedCodex(snapshot.codexPopoverItems)
         codexCompactPopoverItems = PopoverItemConfig.normalizedCodex(snapshot.codexCompactPopoverItems)
+        providerStates = snapshot.providerStates
         settingsLastTab = snapshot.settingsLastTab
-        menuBarActiveService = snapshot.menuBarActiveService == "codex" ? "codex" : "claude"
         claudeSettingsLastTab = snapshot.claudeSettingsLastTab
         codexSettingsLastTab = snapshot.codexSettingsLastTab
-        providerStates = snapshot.providerStates
     }
 
-    private func syncProviderStatesFromLegacyFields() {
-        guard !isSyncingProviderState else { return }
-        isSyncingProviderState = true
-        providerStates = AppProviderStateCatalog.fromLegacy(
-            claudeEnabled: claudeEnabled,
-            codexEnabled: codexEnabled,
-            activeService: menuBarActiveService
-        )
-        isSyncingProviderState = false
-    }
-
-    private func syncLegacyProviderFields(from catalog: AppProviderStateCatalog) {
-        guard !isSyncingProviderState else { return }
-        isSyncingProviderState = true
-
-        let claudeState = catalog.state(for: .claude)
-        if claudeEnabled != claudeState.isEnabled {
-            claudeEnabled = claudeState.isEnabled
-        }
-
-        let codexState = catalog.state(for: .codex)
-        if codexEnabled != codexState.isEnabled {
-            codexEnabled = codexState.isEnabled
-        }
-
-        let resolvedService = catalog.legacyMenuBarActiveService(fallback: "claude")
-        if menuBarActiveService != resolvedService {
-            menuBarActiveService = resolvedService
-        }
-
-        isSyncingProviderState = false
+    private func persistLegacyProviderFields(from catalog: AppProviderStateCatalog) {
+        defaults.set(catalog.state(for: .claude).isEnabled, forKey: "claudeEnabled")
+        defaults.set(catalog.state(for: .codex).isEnabled, forKey: "codexEnabled")
+        defaults.set(catalog.legacyMenuBarActiveService(fallback: "claude"), forKey: "menuBarActiveService")
     }
 
     // MARK: - Computed
@@ -758,6 +702,18 @@ class AppSettings: ObservableObject {
 
     var activeMenuBarServiceRawValue: String {
         providerStates.legacyMenuBarActiveService(fallback: "claude")
+    }
+
+    var claudeEnabled: Bool {
+        providerStates.state(for: .claude).isEnabled
+    }
+
+    var codexEnabled: Bool {
+        providerStates.state(for: .codex).isEnabled
+    }
+
+    var menuBarActiveService: String {
+        activeMenuBarServiceRawValue
     }
 
     var providerSelectionState: ProviderSelectionState {
@@ -945,7 +901,6 @@ class AppSettings: ObservableObject {
         reducedRefreshOnBattery = true
         hasCompletedSetupWizard = false
         showClaudeIcon = true
-        claudeEnabled = true
         menuBarTextHighContrast = false
         updateCheckInterval = .hourly
         claudeAlertEnabled = true
@@ -964,7 +919,6 @@ class AppSettings: ObservableObject {
         popoverItems = PopoverItemConfig.defaultClaudeItems
         separateCompactConfig = false
         compactPopoverItems = PopoverItemConfig.defaultClaudeItems
-        codexEnabled = false
         showCodexIcon = false
         codexPercentageDisplay = .none
         codexResetTimeDisplay = .none
@@ -1037,7 +991,6 @@ class AppSettings: ObservableObject {
         self.iconMetric = IconMetric(rawValue: iconMetricRaw) ?? .fiveHour
         self.showClaudeIcon = defaults.object(forKey: "showClaudeIcon") as? Bool ?? true
         let storedClaudeEnabled = defaults.object(forKey: "claudeEnabled") as? Bool ?? true
-        self.claudeEnabled = storedClaudeEnabled
         self.menuBarTextHighContrast = defaults.object(forKey: "menuBarTextHighContrast") as? Bool ?? false
         let uci = defaults.string(forKey: "updateCheckInterval") ?? UpdateCheckInterval.hourly.rawValue
         self.updateCheckInterval = UpdateCheckInterval(rawValue: uci) ?? .hourly
@@ -1066,7 +1019,6 @@ class AppSettings: ObservableObject {
         self.launchAtLogin = savedLaunchAtLogin
         self.preferredOrganizationID = defaults.string(forKey: "preferredOrganizationID")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let storedCodexEnabled = defaults.object(forKey: "codexEnabled") as? Bool ?? false
-        self.codexEnabled = storedCodexEnabled
         self.showCodexIcon = defaults.object(forKey: "showCodexIcon") as? Bool ?? false
         let cpd = defaults.string(forKey: "codexPercentageDisplay") ?? PercentageDisplay.none.rawValue
         self.codexPercentageDisplay = PercentageDisplay(rawValue: cpd) ?? .none
@@ -1086,7 +1038,6 @@ class AppSettings: ObservableObject {
         self.settingsLastTab = legacySettingsLastTab
         let storedActiveService = defaults.string(forKey: "menuBarActiveService") ?? "claude"
         let normalizedActiveService = storedActiveService == "codex" ? "codex" : "claude"
-        self.menuBarActiveService = normalizedActiveService
         self.claudeSettingsLastTab = defaults.string(forKey: "claudeSettingsLastTab") ?? "auth"
         self.codexSettingsLastTab = defaults.string(forKey: "codexSettingsLastTab") ?? "auth"
 
@@ -1102,9 +1053,9 @@ class AppSettings: ObservableObject {
             )
         }
         self.providerStates = loadedProviderStates
-        self.claudeEnabled = loadedProviderStates.state(for: .claude).isEnabled
-        self.codexEnabled = loadedProviderStates.state(for: .codex).isEnabled
-        self.menuBarActiveService = loadedProviderStates.legacyMenuBarActiveService(fallback: "claude")
+        defaults.set(loadedProviderStates.state(for: .claude).isEnabled, forKey: "claudeEnabled")
+        defaults.set(loadedProviderStates.state(for: .codex).isEnabled, forKey: "codexEnabled")
+        defaults.set(loadedProviderStates.legacyMenuBarActiveService(fallback: "claude"), forKey: "menuBarActiveService")
         if let data = try? JSONEncoder().encode(loadedProviderStates) {
             defaults.set(data, forKey: "providerStates")
         }
