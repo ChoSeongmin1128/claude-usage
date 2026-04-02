@@ -119,7 +119,7 @@ final class PopoverViewModel: ObservableObject {
     func runtimeServiceState(for service: PopoverService, settings: AppSettings) -> RuntimeServiceState {
         if let snapshot = runtimeSnapshots[service] {
             let isEnabled = settings.isProviderEnabled(service.providerKind)
-            let isAuthRequired = isEnabled && !snapshot.hasCredential
+            let isAuthRequired = isEnabled && !snapshot.hasCredential && !snapshot.hasContent && !snapshot.isLoading
             let summary = runtimeSummary(for: snapshot, isEnabled: isEnabled, isAuthRequired: isAuthRequired)
             let meta = snapshot.lastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) }
             return RuntimeServiceState(
@@ -131,7 +131,7 @@ final class PopoverViewModel: ObservableObject {
                 error: snapshot.error,
                 hasContent: snapshot.hasContent,
                 isAuthRequired: isAuthRequired,
-                shouldShowWarningDot: isAuthRequired || snapshot.error != nil || snapshot.hasAuthError
+                shouldShowWarningDot: isAuthRequired || snapshot.hasAuthError || (snapshot.error?.isDefinitiveAuthFailure ?? false)
             )
         }
 

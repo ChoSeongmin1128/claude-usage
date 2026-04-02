@@ -723,7 +723,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 error: geminiError,
                 isLoading: isGeminiLoading,
                 lastUpdated: geminiLastUpdated,
-                hasCredential: hasGeminiCredential,
+                hasCredential: hasGeminiCredential
+                    || currentGeminiUsage != nil
+                    || ProviderEnvironmentDetector.status(for: .gemini)?.isDetected == true,
                 hasAuthError: hasGeminiAuthError
             )
         case .antigravity:
@@ -733,7 +735,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 error: antigravityError,
                 isLoading: isAntigravityLoading,
                 lastUpdated: antigravityLastUpdated,
-                hasCredential: hasAntigravityCredential,
+                hasCredential: hasAntigravityCredential
+                    || currentAntigravityUsage != nil
+                    || ProviderEnvironmentDetector.status(for: .antigravity)?.isDetected == true,
                 hasAuthError: hasAntigravityAuthError
             )
         }
