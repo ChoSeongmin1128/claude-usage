@@ -677,6 +677,7 @@
 - 2026-04-02 늦은 저녁 마감 작업으로 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 `Organization` 섹션에 현재 모드와 검증 상태를 분리해 보여주고, `Sparkle` 업데이트 섹션은 `현재 상태 + 다음 행동` 요약 카드와 접히는 상세 단계로 정리했습니다. 즉 설정 화면에서 마감 전제 조건은 바로 읽히되, 긴 절차 설명은 기본 노출에서 뺐습니다.
 - 같은 마감 작업으로 [SetupWizardWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SetupWizardWindowView.swift) 는 자동 organization 모드의 완료 CTA를 더 직접적인 문구로 바꾸고, 수동 organization 단계는 “특정 organization을 직접 고를 때만 필요한 단계”라는 점을 더 분명히 드러내도록 정리했습니다.
 - 후속 정리로 [UpdateService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/UpdateService.swift) 의 `SparkleUpdateEngine` 도 의미를 맞췄습니다. Sparkle 경로는 더 이상 `checkForUpdates()` 에서 무조건 최신이라고 응답하지 않고, 현재는 `앱 내부 Sparkle 확인 + GitHub fallback 백그라운드 확인` 구조로 동작합니다. `SUFeedURL` 은 유효한 `http/https` URL과 placeholder 배제를 통과해야만 설정된 것으로 간주합니다.
+- 같은 축의 후속 작업으로 [Scripts/prepare-sparkle-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/prepare-sparkle-release.sh), [Scripts/build-notarize-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/build-notarize-release.sh) 는 `Config/Sparkle.release.local.xcconfig` 와 환경변수에서 `SUFeedURL` / `SUPublicEDKey` 를 읽고, `example.com`, `REPLACE_WITH`, `CHANGE_ME` 같은 placeholder 값이면 초기에 실패하도록 보강했습니다. release 준비가 늦게 깨지는 대신 스크립트 시작 시점에 바로 잡는 것이 목적입니다.
 
 ### 제품 방향
 
@@ -700,4 +701,5 @@
 - `세션키 연결 테스트` 를 검증 경로와 저장 경로로 더 깔끔하게 분리하고, 설정창의 성공/실패 후속 동작을 덜 놀랍게 만들기
 - `Antigravity` runtime provider의 연결 상태/오류 문구를 더 사용자 친화적으로 다듬고, 실제 환경에서 포트 probe fallback과 응답 파싱 회복력을 보강하기
 - provider별 메뉴바/팝오버 표시 자유도는 유지하되, 기본 preset / 고급 preset / 고급 도움말 copy 를 더 정리하기
+- `Organization` 섹션과 wizard 단계에서 자동 선택 모드의 CTA/보조 설명을 더 줄여, 현재 단계의 한 가지 행동만 먼저 보이게 다듬기
 - `Sparkle` 실제 배선을 `AppUpdateEngine` 추상화 뒤에 연결하고, README와 배포/업데이트 문서를 실제 구현 상태에 맞게 계속 갱신하기

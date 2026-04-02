@@ -10,7 +10,34 @@ SCHEME="${SCHEME:-ClaudeUsage}"
 CONFIGURATION="${CONFIGURATION:-Release}"
 PROJECT_PATH="${PROJECT_PATH:-$ROOT_DIR/ClaudeUsage.xcodeproj}"
 XC_CONFIG_PATH="${XC_CONFIG_PATH:-$ROOT_DIR/Config/Release.xcconfig}"
+LOCAL_XC_CONFIG_PATH="${LOCAL_XC_CONFIG_PATH:-$ROOT_DIR/Config/Sparkle.release.local.xcconfig}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
+
+extract_xcconfig_value() {
+  local file="$1"
+  local key="$2"
+  [[ -f "$file" ]] || return 0
+  awk -F '=' -v target="$key" '
+    $1 ~ "^[[:space:]]*"target"[[:space:]]*$" {
+      value=$2
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      print value
+      exit
+    }
+  ' "$file"
+}
+
+is_placeholder_value() {
+  local value="${1,,}"
+  [[ -z "$value" ]] && return 0
+  [[ "$value" == *"change_me"* ]] && return 0
+  [[ "$value" == *"placeholder"* ]] && return 0
+  [[ "$value" == *"replace_with"* ]] && return 0
+  [[ "$value" == *"example.com"* ]] && return 0
+  [[ "$value" == *'$('* ]] && return 0
+  return 1
+}
 
 echo "ClaudeUsage release 산출물 빌드와 notarization을 시작합니다"
 
@@ -22,6 +49,21 @@ fi
 if [[ ! -f "$XC_CONFIG_PATH" ]]; then
   echo "release xcconfig를 찾지 못했습니다: $XC_CONFIG_PATH" >&2
   echo "Config/Release.xcconfig 와 Config/Sparkle.release.local.xcconfig 구성을 확인한 뒤 다시 실행해 주세요." >&2
+  exit 1
+fi
+
+FEED_URL="${SU_FEED_URL:-$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SUFeedURL")}"
+PUBLIC_KEY="${SU_PUBLIC_ED_KEY:-$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SUPublicEDKey")}"
+
+if is_placeholder_value "$FEED_URL"; then
+  echo "유효한 SUFeedURL을 찾지 못했습니다." >&2
+  echo "Config/Sparkle.release.local.xcconfig 또는 환경변수 SU_FEED_URL을 확인해 주세요." >&2
+  exit 1
+fi
+
+if is_placeholder_value "$PUBLIC_KEY"; then
+  echo "유효한 SUPublicEDKey를 찾지 못했습니다." >&2
+  echo "Config/Sparkle.release.local.xcconfig 또는 환경변수 SU_PUBLIC_ED_KEY를 확인해 주세요." >&2
   exit 1
 fi
 

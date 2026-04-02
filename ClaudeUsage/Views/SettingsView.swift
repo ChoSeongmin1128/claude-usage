@@ -928,7 +928,7 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.borderedProminent)
 
-                    if hasSuccessfulClaudeFetch {
+                    if shouldShowOrganizationAction {
                         Button("Organization 열기") {
                             selectedClaudeTab = .organizations
                         }
@@ -1011,6 +1011,11 @@ struct SettingsView: View {
         .padding(12)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
         .cornerRadius(8)
+    }
+
+    private var shouldShowOrganizationAction: Bool {
+        guard hasSuccessfulClaudeFetch else { return false }
+        return !selectedOrganizationID.isEmpty || currentSetupProgress.stage == .organization
     }
 
     private var detailedAuthStatusSection: some View {

@@ -4,9 +4,44 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_INFO_PLIST="$ROOT_DIR/ClaudeUsage/Info.plist"
 EXAMPLE_CONFIG="$ROOT_DIR/Config/Sparkle.release.example.xcconfig"
+LOCAL_CONFIG="$ROOT_DIR/Config/Sparkle.release.local.xcconfig"
 
 FEED_URL="${SU_FEED_URL:-}"
 PUBLIC_KEY="${SU_PUBLIC_ED_KEY:-}"
+
+extract_xcconfig_value() {
+  local file="$1"
+  local key="$2"
+  [[ -f "$file" ]] || return 0
+  awk -F '=' -v target="$key" '
+    $1 ~ "^[[:space:]]*"target"[[:space:]]*$" {
+      value=$2
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      print value
+      exit
+    }
+  ' "$file"
+}
+
+is_placeholder_value() {
+  local value="${1,,}"
+  [[ -z "$value" ]] && return 0
+  [[ "$value" == *"change_me"* ]] && return 0
+  [[ "$value" == *"placeholder"* ]] && return 0
+  [[ "$value" == *"replace_with"* ]] && return 0
+  [[ "$value" == *"example.com"* ]] && return 0
+  [[ "$value" == *'$('* ]] && return 0
+  return 1
+}
+
+if [[ -z "$FEED_URL" ]]; then
+  FEED_URL="$(extract_xcconfig_value "$LOCAL_CONFIG" "SUFeedURL")"
+fi
+
+if [[ -z "$PUBLIC_KEY" ]]; then
+  PUBLIC_KEY="$(extract_xcconfig_value "$LOCAL_CONFIG" "SUPublicEDKey")"
+fi
 
 echo "Sparkle release 준비 상태를 점검합니다"
 
@@ -22,14 +57,15 @@ fi
 
 echo "- Info.plist: $APP_INFO_PLIST"
 echo "- 예시 xcconfig: $EXAMPLE_CONFIG"
+echo "- 로컬 xcconfig: $LOCAL_CONFIG"
 
-if [[ -z "$FEED_URL" ]]; then
+if is_placeholder_value "$FEED_URL"; then
   echo "- SU_FEED_URL: 비어 있음"
 else
   echo "- SU_FEED_URL: 설정됨"
 fi
 
-if [[ -z "$PUBLIC_KEY" ]]; then
+if is_placeholder_value "$PUBLIC_KEY"; then
   echo "- SU_PUBLIC_ED_KEY: 비어 있음"
 else
   echo "- SU_PUBLIC_ED_KEY: 설정됨"
