@@ -49,6 +49,10 @@ final class PopoverViewModel: ObservableObject {
     var onPinChanged: ((PopoverService, Bool) -> Void)?
     var onLayoutChanged: ((PopoverService) -> Void)?
 
+    var geminiUsage: GeminiUsageResponse? {
+        runtimeSnapshots[.gemini]?.geminiUsage
+    }
+
     func refresh() {
         self.onRefreshService?(self.selectedService)
     }
@@ -190,6 +194,31 @@ final class PopoverViewModel: ObservableObject {
                 isAuthRequired: isAuthRequired,
                 shouldShowWarningDot: isAuthRequired || codexError != nil
             )
+        case .gemini:
+            let isEnabled = settings.isProviderEnabled(.gemini)
+            let isAuthRequired = isEnabled && !(ProviderEnvironmentDetector.status(for: .gemini)?.isDetected ?? false)
+            let summary: String
+            if !isEnabled {
+                summary = "비활성화됨"
+            } else if isAuthRequired {
+                summary = "인증 필요"
+            } else if let geminiUsage {
+                summary = "Pro \(Int(geminiUsage.primaryPercentage.rounded()))% · Flash \(Int(geminiUsage.secondaryPercentage.rounded()))%"
+            } else {
+                summary = ProviderEnvironmentDetector.status(for: .gemini)?.summary ?? "데이터를 아직 불러오지 못했습니다"
+            }
+
+            return RuntimeServiceState(
+                service: .gemini,
+                summary: summary,
+                meta: nil,
+                lastUpdated: runtimeSnapshots[.gemini]?.lastUpdated,
+                isLoading: runtimeSnapshots[.gemini]?.isLoading ?? false,
+                error: runtimeSnapshots[.gemini]?.error,
+                hasContent: geminiUsage != nil,
+                isAuthRequired: isAuthRequired,
+                shouldShowWarningDot: isAuthRequired || runtimeSnapshots[.gemini]?.error != nil
+            )
         }
     }
 
@@ -199,7 +228,9 @@ final class PopoverViewModel: ObservableObject {
             return runtimeServiceState(for: .claude, settings: settings).summary
         case .codex:
             return runtimeServiceState(for: .codex, settings: settings).summary
-        case .gemini, .antigravity:
+        case .gemini:
+            return runtimeServiceState(for: .gemini, settings: settings).summary
+        case .antigravity:
             if !settings.isProviderEnabled(kind) {
                 return "비활성화됨"
             }
@@ -213,7 +244,9 @@ final class PopoverViewModel: ObservableObject {
             return runtimeServiceState(for: .claude, settings: .shared).meta
         case .codex:
             return runtimeServiceState(for: .codex, settings: .shared).meta
-        case .gemini, .antigravity:
+        case .gemini:
+            return runtimeServiceState(for: .gemini, settings: .shared).meta
+        case .antigravity:
             return nil
         }
     }
@@ -331,6 +364,10 @@ final class PopoverViewModel: ObservableObject {
         }
         if let usage = snapshot.codexUsage {
             return "현재 \(Int((usage.rateLimit?.primaryWindow?.utilization ?? 0).rounded()))% · 주간 \(Int((usage.rateLimit?.secondaryWindow?.utilization ?? 0).rounded()))%"
+        }
+        if let usage = snapshot.geminiUsage {
+            let tertiary = usage.tertiaryWindow.map { " · Lite \(Int($0.usedPercent.rounded()))%" } ?? ""
+            return "Pro \(Int(usage.primaryPercentage.rounded()))% · Flash \(Int(usage.secondaryPercentage.rounded()))%\(tertiary)"
         }
         if let error = snapshot.error {
             return error.errorDescription ?? "조회 실패"

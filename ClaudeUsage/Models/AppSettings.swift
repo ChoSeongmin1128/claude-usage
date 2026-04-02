@@ -868,7 +868,17 @@ class AppSettings: ObservableObject {
                 iconMetric: codexIconMetric
             )
         case .gemini, .antigravity:
-            return nil
+            return ProviderMenuBarDisplayConfig(
+                kind: kind,
+                showIcon: providerBoolDefault(true, for: kind, suffix: "showIcon"),
+                style: providerMenuBarStyle(for: kind),
+                percentageDisplay: providerPercentageDisplay(for: kind),
+                showBatteryPercent: providerBoolDefault(true, for: kind, suffix: "showBatteryPercent"),
+                resetTimeDisplay: providerResetTimeDisplay(for: kind),
+                timeFormat: providerTimeFormat(for: kind),
+                circularDisplayMode: providerCircularDisplayMode(for: kind),
+                iconMetric: providerIconMetric(for: kind)
+            )
         }
     }
 
@@ -883,8 +893,46 @@ class AppSettings: ObservableObject {
         case .codex:
             codexMenuBarStyle = style
         case .gemini, .antigravity:
-            break
+            defaults.set(style.rawValue, forKey: providerDefaultsKey(kind, suffix: "menuBarStyle"))
         }
+    }
+
+    private func providerDefaultsKey(_ kind: AppProviderKind, suffix: String) -> String {
+        "\(kind.rawValue).\(suffix)"
+    }
+
+    private func providerBoolDefault(_ fallback: Bool, for kind: AppProviderKind, suffix: String) -> Bool {
+        defaults.object(forKey: providerDefaultsKey(kind, suffix: suffix)) as? Bool ?? fallback
+    }
+
+    private func providerMenuBarStyle(for kind: AppProviderKind) -> MenuBarStyle {
+        let raw = defaults.string(forKey: providerDefaultsKey(kind, suffix: "menuBarStyle")) ?? MenuBarStyle.none.rawValue
+        return MenuBarStyle(rawValue: raw) ?? .none
+    }
+
+    private func providerPercentageDisplay(for kind: AppProviderKind) -> PercentageDisplay {
+        let raw = defaults.string(forKey: providerDefaultsKey(kind, suffix: "percentageDisplay")) ?? PercentageDisplay.fiveHour.rawValue
+        return PercentageDisplay(rawValue: raw) ?? .fiveHour
+    }
+
+    private func providerResetTimeDisplay(for kind: AppProviderKind) -> ResetTimeDisplay {
+        let raw = defaults.string(forKey: providerDefaultsKey(kind, suffix: "resetTimeDisplay")) ?? ResetTimeDisplay.none.rawValue
+        return ResetTimeDisplay(rawValue: raw) ?? .none
+    }
+
+    private func providerTimeFormat(for kind: AppProviderKind) -> TimeFormatStyle {
+        let raw = defaults.string(forKey: providerDefaultsKey(kind, suffix: "timeFormat")) ?? TimeFormatStyle.h24.rawValue
+        return TimeFormatStyle(rawValue: raw) ?? .h24
+    }
+
+    private func providerCircularDisplayMode(for kind: AppProviderKind) -> CircularDisplayMode {
+        let raw = defaults.string(forKey: providerDefaultsKey(kind, suffix: "circularDisplayMode")) ?? CircularDisplayMode.usage.rawValue
+        return CircularDisplayMode(rawValue: raw) ?? .usage
+    }
+
+    private func providerIconMetric(for kind: AppProviderKind) -> IconMetric {
+        let raw = defaults.string(forKey: providerDefaultsKey(kind, suffix: "iconMetric")) ?? IconMetric.fiveHour.rawValue
+        return IconMetric(rawValue: raw) ?? .fiveHour
     }
 
     // MARK: - Actions

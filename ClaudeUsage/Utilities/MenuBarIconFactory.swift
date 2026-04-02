@@ -4,6 +4,7 @@ import Foundation
 enum MenuBarIconFactory {
     private static var didLogMissingClaudeIconAsset = false
     private static var didLogMissingCodexIconAsset = false
+    private static var didLogMissingGeminiIconAsset = false
 
     static func secondaryTextColor(highContrast: Bool) -> NSColor {
         highContrast ? NSColor.labelColor : NSColor.secondaryLabelColor.withAlphaComponent(0.95)
@@ -50,6 +51,22 @@ enum MenuBarIconFactory {
             return tintedIcon(fallback, size: size, tint: tint)
         }
         Logger.error("Claude 메뉴바 아이콘 생성 실패(에셋/SF Symbol 모두 실패)")
+        return nil
+    }
+
+    static func geminiMenuBarIcon(size: NSSize) -> NSImage? {
+        if let base = NSImage(named: "GeminiMenuBarIcon") {
+            let cropped = imageByTrimmingTransparentPadding(base)
+            return tintedIcon(cropped, size: size, tint: NSColor.systemPurple)
+        }
+        if !didLogMissingGeminiIconAsset {
+            didLogMissingGeminiIconAsset = true
+            Logger.warning("GeminiMenuBarIcon 에셋 로드 실패, SF Symbol 폴백 사용")
+        }
+        if let fallback = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Gemini") {
+            return tintedIcon(fallback, size: size, tint: NSColor.systemPurple)
+        }
+        Logger.error("Gemini 메뉴바 아이콘 생성 실패(에셋/SF Symbol 모두 실패)")
         return nil
     }
 

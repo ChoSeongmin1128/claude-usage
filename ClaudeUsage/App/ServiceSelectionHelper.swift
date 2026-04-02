@@ -100,13 +100,15 @@ struct ServiceSelectionHelper {
         selectionState: ProviderSelectionState,
         hasClaudeSessionKey: Bool,
         hasClaudeOAuthCredential: Bool,
-        isCodexAuthenticated: Bool
+        isCodexAuthenticated: Bool,
+        hasGeminiCredential: Bool
     ) -> Bool {
         guard selectionState.runtimeEnabledKinds.contains(providerKind(for: service)) else { return false }
         let context = RuntimeProviderRefreshContext(
             hasClaudeSessionKey: hasClaudeSessionKey,
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
-            isCodexAuthenticated: isCodexAuthenticated
+            isCodexAuthenticated: isCodexAuthenticated,
+            hasGeminiCredential: hasGeminiCredential
         )
         guard let descriptor = RuntimeProviderRegistry.descriptor(for: service) else { return false }
         return descriptor.isRefreshable(using: context)
@@ -116,7 +118,8 @@ struct ServiceSelectionHelper {
         selectionState: ProviderSelectionState,
         hasClaudeSessionKey: Bool,
         hasClaudeOAuthCredential: Bool,
-        isCodexAuthenticated: Bool
+        isCodexAuthenticated: Bool,
+        hasGeminiCredential: Bool
     ) -> [PopoverService] {
         selectionState.runtimeEnabledKinds.compactMap(service(for:)).filter {
             canRefresh(
@@ -124,7 +127,8 @@ struct ServiceSelectionHelper {
                 selectionState: selectionState,
                 hasClaudeSessionKey: hasClaudeSessionKey,
                 hasClaudeOAuthCredential: hasClaudeOAuthCredential,
-                isCodexAuthenticated: isCodexAuthenticated
+                isCodexAuthenticated: isCodexAuthenticated,
+                hasGeminiCredential: hasGeminiCredential
             )
         }
     }
@@ -133,13 +137,15 @@ struct ServiceSelectionHelper {
         settings: AppSettings,
         hasClaudeSessionKey: Bool,
         hasClaudeOAuthCredential: Bool,
-        isCodexAuthenticated: Bool
+        isCodexAuthenticated: Bool,
+        hasGeminiCredential: Bool
     ) -> [PopoverService] {
         refreshableServices(
             selectionState: settings.providerSelectionState,
             hasClaudeSessionKey: hasClaudeSessionKey,
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
-            isCodexAuthenticated: isCodexAuthenticated
+            isCodexAuthenticated: isCodexAuthenticated,
+            hasGeminiCredential: hasGeminiCredential
         )
     }
 
@@ -147,13 +153,15 @@ struct ServiceSelectionHelper {
         selectionState: ProviderSelectionState,
         hasClaudeSessionKey: Bool,
         hasClaudeOAuthCredential: Bool,
-        isCodexAuthenticated: Bool
+        isCodexAuthenticated: Bool,
+        hasGeminiCredential: Bool
     ) -> Bool {
         !refreshableServices(
             selectionState: selectionState,
             hasClaudeSessionKey: hasClaudeSessionKey,
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
-            isCodexAuthenticated: isCodexAuthenticated
+            isCodexAuthenticated: isCodexAuthenticated,
+            hasGeminiCredential: hasGeminiCredential
         ).isEmpty
     }
 
@@ -161,13 +169,15 @@ struct ServiceSelectionHelper {
         settings: AppSettings,
         hasClaudeSessionKey: Bool,
         hasClaudeOAuthCredential: Bool,
-        isCodexAuthenticated: Bool
+        isCodexAuthenticated: Bool,
+        hasGeminiCredential: Bool
     ) -> Bool {
         hasRefreshableService(
             selectionState: settings.providerSelectionState,
             hasClaudeSessionKey: hasClaudeSessionKey,
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
-            isCodexAuthenticated: isCodexAuthenticated
+            isCodexAuthenticated: isCodexAuthenticated,
+            hasGeminiCredential: hasGeminiCredential
         )
     }
 

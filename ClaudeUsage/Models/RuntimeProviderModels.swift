@@ -3,6 +3,7 @@ import Foundation
 enum PopoverService: String, CaseIterable, Sendable {
     case claude
     case codex
+    case gemini
 
     nonisolated var displayName: String {
         switch self {
@@ -10,6 +11,8 @@ enum PopoverService: String, CaseIterable, Sendable {
             return "Claude"
         case .codex:
             return "Codex"
+        case .gemini:
+            return "Gemini"
         }
     }
 
@@ -25,17 +28,20 @@ enum PopoverService: String, CaseIterable, Sendable {
 enum RuntimeProviderPayload {
     case claude(ClaudeUsageResponse)
     case codex(CodexUsageResponse)
+    case gemini(GeminiUsageResponse)
 }
 
 enum RuntimeRefreshStrategy: Sendable, Equatable {
     case claude
     case codex
+    case gemini
 }
 
 struct RuntimeProviderRefreshContext: Sendable, Equatable {
     let hasClaudeSessionKey: Bool
     let hasClaudeOAuthCredential: Bool
     let isCodexAuthenticated: Bool
+    let hasGeminiCredential: Bool
 }
 
 struct RuntimeProviderDescriptor: Sendable, Equatable {
@@ -52,6 +58,8 @@ struct RuntimeProviderDescriptor: Sendable, Equatable {
             return context.hasClaudeSessionKey || context.hasClaudeOAuthCredential
         case .codex:
             return context.isCodexAuthenticated
+        case .gemini:
+            return context.hasGeminiCredential
         }
     }
 }
@@ -113,12 +121,18 @@ struct RuntimeProviderState {
         guard case let .codex(usage)? = payload else { return nil }
         return usage
     }
+
+    var geminiUsage: GeminiUsageResponse? {
+        guard case let .gemini(usage)? = payload else { return nil }
+        return usage
+    }
 }
 
 struct RuntimeProviderStateCatalog {
     private var states: [PopoverService: RuntimeProviderState] = [
         .claude: RuntimeProviderState(),
         .codex: RuntimeProviderState(),
+        .gemini: RuntimeProviderState(),
     ]
 
     subscript(service: PopoverService) -> RuntimeProviderState {
@@ -146,6 +160,11 @@ struct RuntimeProviderSnapshot {
 
     var codexUsage: CodexUsageResponse? {
         guard case let .codex(usage)? = payload else { return nil }
+        return usage
+    }
+
+    var geminiUsage: GeminiUsageResponse? {
+        guard case let .gemini(usage)? = payload else { return nil }
         return usage
     }
 }

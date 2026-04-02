@@ -72,12 +72,12 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 displayName: "Gemini",
                 settingsPanelTitle: "Gemini",
                 settingsPanelIconName: "sparkles",
-                settingsPanelSummary: "런타임 연결 준비 중",
-                settingsPanelDetail: "설정과 표시 구조를 먼저 정리하고, 다음 단계에서 fetch/auth를 연결합니다.",
-                settingsComingSoonMessage: "Gemini는 설정 패널과 표시 경로를 먼저 열어두고, runtime 연결을 이어서 붙입니다.",
+                settingsPanelSummary: "CLI / OAuth",
+                settingsPanelDetail: "Gemini CLI의 OAuth 자격을 읽어 quota를 직접 조회합니다.",
+                settingsComingSoonMessage: "전용 설정 패널은 이어서 정리하지만, runtime 조회는 먼저 연결합니다.",
                 capabilities: ProviderCapabilities(
-                    runtimeService: nil,
-                    refreshStrategy: nil,
+                    runtimeService: .gemini,
+                    refreshStrategy: .gemini,
                     supportsBrowserImport: false,
                     defaultEnabled: false
                 )

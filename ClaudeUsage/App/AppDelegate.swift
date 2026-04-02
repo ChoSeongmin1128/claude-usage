@@ -17,6 +17,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let updateCoordinator = AppUpdateCoordinator()
     private let apiService = ClaudeAPIService()
     private let codexAPIService = CodexAPIService()
+    private let geminiAPIService = GeminiAPIService()
     private let popoverCoordinator = AppPopoverCoordinator()
     private let runtimeObservationCoordinator = AppRuntimeObservationCoordinator()
     private let settingsWindowCoordinator = SettingsWindowCoordinator()
@@ -45,7 +46,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var runtimeRefreshHandlers: [PopoverService: (Bool) -> Void] =
         RuntimeRefreshHandlerRegistry.makeHandlers(
             refreshClaude: { [weak self] force in self?.refreshUsage(force: force) },
-            refreshCodex: { [weak self] force in self?.refreshCodexUsage(force: force) }
+            refreshCodex: { [weak self] force in self?.refreshCodexUsage(force: force) },
+            refreshGemini: { [weak self] force in self?.refreshGeminiUsage(force: force) }
         )
 
     private var currentUsage: ClaudeUsageResponse? {
@@ -63,6 +65,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             var state = runtimeStateCatalog[.codex]
             state.payload = newValue.map(RuntimeProviderPayload.codex)
             runtimeStateCatalog[.codex] = state
+        }
+    }
+
+    private var currentGeminiUsage: GeminiUsageResponse? {
+        get { runtimeStateCatalog[.gemini].geminiUsage }
+        set {
+            var state = runtimeStateCatalog[.gemini]
+            state.payload = newValue.map(RuntimeProviderPayload.gemini)
+            runtimeStateCatalog[.gemini] = state
         }
     }
 
@@ -84,6 +95,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private var geminiError: APIError? {
+        get { runtimeStateCatalog[.gemini].error }
+        set {
+            var state = runtimeStateCatalog[.gemini]
+            state.error = newValue
+            runtimeStateCatalog[.gemini] = state
+        }
+    }
+
     private var isLoading: Bool {
         get { runtimeStateCatalog[.claude].isLoading }
         set {
@@ -99,6 +119,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             var state = runtimeStateCatalog[.codex]
             state.isLoading = newValue
             runtimeStateCatalog[.codex] = state
+        }
+    }
+
+    private var isGeminiLoading: Bool {
+        get { runtimeStateCatalog[.gemini].isLoading }
+        set {
+            var state = runtimeStateCatalog[.gemini]
+            state.isLoading = newValue
+            runtimeStateCatalog[.gemini] = state
         }
     }
 
@@ -120,6 +149,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private var geminiLoadingStartedAt: Date? {
+        get { runtimeStateCatalog[.gemini].loadingStartedAt }
+        set {
+            var state = runtimeStateCatalog[.gemini]
+            state.loadingStartedAt = newValue
+            runtimeStateCatalog[.gemini] = state
+        }
+    }
+
     private var nextUsageRefreshAllowedAt: Date? {
         get { runtimeStateCatalog[.claude].nextRefreshAllowedAt }
         set {
@@ -135,6 +173,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             var state = runtimeStateCatalog[.codex]
             state.nextRefreshAllowedAt = newValue
             runtimeStateCatalog[.codex] = state
+        }
+    }
+
+    private var nextGeminiRefreshAllowedAt: Date? {
+        get { runtimeStateCatalog[.gemini].nextRefreshAllowedAt }
+        set {
+            var state = runtimeStateCatalog[.gemini]
+            state.nextRefreshAllowedAt = newValue
+            runtimeStateCatalog[.gemini] = state
         }
     }
 
@@ -156,6 +203,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private var geminiLastUpdated: Date? {
+        get { runtimeStateCatalog[.gemini].lastUpdated }
+        set {
+            var state = runtimeStateCatalog[.gemini]
+            state.lastUpdated = newValue
+            runtimeStateCatalog[.gemini] = state
+        }
+    }
+
     private var hasAuthError: Bool {
         get { runtimeStateCatalog[.claude].hasAuthError }
         set {
@@ -171,6 +227,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             var state = runtimeStateCatalog[.codex]
             state.hasAuthError = newValue
             runtimeStateCatalog[.codex] = state
+        }
+    }
+
+    private var hasGeminiAuthError: Bool {
+        get { runtimeStateCatalog[.gemini].hasAuthError }
+        set {
+            var state = runtimeStateCatalog[.gemini]
+            state.hasAuthError = newValue
+            runtimeStateCatalog[.gemini] = state
         }
     }
 
@@ -192,12 +257,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private var geminiConsecutiveErrorCount: Int {
+        get { runtimeStateCatalog[.gemini].consecutiveErrorCount }
+        set {
+            var state = runtimeStateCatalog[.gemini]
+            state.consecutiveErrorCount = newValue
+            runtimeStateCatalog[.gemini] = state
+        }
+    }
+
+    private var hasGeminiCredential: Bool {
+        ProviderEnvironmentDetector.status(for: .gemini)?.isDetected == true
+    }
+
     private var refreshableServices: [PopoverService] {
         ServiceSelectionHelper.refreshableServices(
             selectionState: AppSettings.shared.providerSelectionState,
             hasClaudeSessionKey: KeychainManager.shared.hasSessionKey,
             hasClaudeOAuthCredential: claudeCredentialAvailability.oauthCredentialAvailable,
-            isCodexAuthenticated: CodexAuthManager.shared.isAuthenticated
+            isCodexAuthenticated: CodexAuthManager.shared.isAuthenticated,
+            hasGeminiCredential: hasGeminiCredential
         )
     }
 
@@ -400,6 +479,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self?.refreshUsage(force: true)
                 case .codex:
                     self?.refreshCodexUsage(force: true)
+                case .gemini:
+                    self?.refreshGeminiUsage(force: true)
                 }
             },
             onOpenSettingsForService: { [weak self] service in
@@ -504,6 +585,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 lastUpdated: codexLastUpdated,
                 hasCredential: CodexAuthManager.shared.isAuthenticated,
                 hasAuthError: hasCodexAuthError
+            )
+        case .gemini:
+            return RuntimeProviderSnapshot(
+                service: .gemini,
+                payload: currentGeminiUsage.map(RuntimeProviderPayload.gemini),
+                error: geminiError,
+                isLoading: isGeminiLoading,
+                lastUpdated: geminiLastUpdated,
+                hasCredential: hasGeminiCredential,
+                hasAuthError: hasGeminiAuthError
             )
         }
     }
@@ -830,6 +921,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 resetState.error = .invalidSessionKey
                 resetState.hasAuthError = true
             }
+        case .gemini:
+            if !hasGeminiCredential {
+                resetState.error = .invalidSessionKey
+                resetState.hasAuthError = true
+            }
         }
         runtimeStateCatalog[service] = resetState
     }
@@ -841,6 +937,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             lastOverageFetchAt = nil
             popoverViewModel.nextUsageRetryAt = nil
         case .codex:
+            break
+        case .gemini:
             break
         }
         runtimeStateCatalog[service] = RuntimeProviderState()
@@ -1097,6 +1195,88 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func refreshGeminiUsage(force: Bool = false) {
+        guard ServiceSelectionHelper.isEnabled(.gemini, settings: AppSettings.shared) else { return }
+
+        if !force, let remaining = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextGeminiRefreshAllowedAt) {
+            if nextGeminiRefreshAllowedAt != nil {
+                Logger.debug("Gemini 갱신 스킵: 임시 오류 백오프 \(remaining)초 남음")
+                return
+            }
+            nextGeminiRefreshAllowedAt = nil
+        }
+
+        switch RefreshExecutionPolicy.inFlightDecision(isLoading: isGeminiLoading, startedAt: geminiLoadingStartedAt) {
+        case .start:
+            break
+        case .recoverStale(let elapsed):
+            Logger.warning("Gemini 갱신 고착 감지(\(elapsed)초) → 상태 복구")
+            isGeminiLoading = false
+            geminiLoadingStartedAt = nil
+        case .skip:
+            return
+        }
+
+        if !hasGeminiCredential {
+            hasGeminiAuthError = true
+            geminiError = .invalidSessionKey
+            currentGeminiUsage = nil
+            updateMenuBar()
+            updatePopoverViewModel(overage: currentOverage)
+            return
+        }
+
+        isGeminiLoading = true
+        geminiLoadingStartedAt = Date()
+
+        Task {
+            do {
+                let usage = try await GeminiRuntimeRefresher.refresh(apiService: geminiAPIService)
+                await MainActor.run {
+                    self.currentGeminiUsage = usage
+                    self.geminiError = nil
+                    self.hasGeminiAuthError = false
+                    self.geminiConsecutiveErrorCount = 0
+                    self.nextGeminiRefreshAllowedAt = nil
+                    self.geminiLastUpdated = Date()
+                    self.isGeminiLoading = false
+                    self.geminiLoadingStartedAt = nil
+                    self.updateMenuBar()
+                    self.updatePopoverViewModel(overage: self.currentOverage)
+                }
+            } catch let error as APIError {
+                await MainActor.run {
+                    self.isGeminiLoading = false
+                    self.geminiLoadingStartedAt = nil
+                    self.geminiConsecutiveErrorCount += 1
+                    self.applyGeminiRefreshBackoff(for: error)
+                    self.hasGeminiAuthError = error.isDefinitiveAuthFailure
+                    self.geminiError = error
+                    if self.geminiConsecutiveErrorCount >= 3 && error.isTemporaryFailure {
+                        self.currentGeminiUsage = nil
+                    }
+                    self.updateMenuBar()
+                    self.updatePopoverViewModel(overage: self.currentOverage)
+                }
+            } catch {
+                let wrapped = APIError.unknownError(error.localizedDescription)
+                await MainActor.run {
+                    self.isGeminiLoading = false
+                    self.geminiLoadingStartedAt = nil
+                    self.geminiConsecutiveErrorCount += 1
+                    self.applyGeminiRefreshBackoff(for: wrapped)
+                    self.hasGeminiAuthError = false
+                    self.geminiError = wrapped
+                    if self.geminiConsecutiveErrorCount >= 3 {
+                        self.currentGeminiUsage = nil
+                    }
+                    self.updateMenuBar()
+                    self.updatePopoverViewModel(overage: self.currentOverage)
+                }
+            }
+        }
+    }
+
     private func applyCodexRefreshBackoff(for error: APIError) {
         let result = RefreshExecutionPolicy.nextBackoffDate(
             for: error,
@@ -1110,6 +1290,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         nextCodexRefreshAllowedAt = candidate
         if let backoffSeconds = result.seconds {
             Logger.info("Codex 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
+        }
+    }
+
+    private func applyGeminiRefreshBackoff(for error: APIError) {
+        let result = RefreshExecutionPolicy.nextBackoffDate(
+            for: error,
+            minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
+            existingAllowedAt: nextGeminiRefreshAllowedAt)
+
+        guard let candidate = result.candidate else {
+            nextGeminiRefreshAllowedAt = nil
+            return
+        }
+        nextGeminiRefreshAllowedAt = candidate
+        if let backoffSeconds = result.seconds {
+            Logger.info("Gemini 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
         }
     }
 
@@ -1191,7 +1387,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 secondaryColor: secondaryColor,
                 icon: config.showIcon ? MenuBarIconFactory.codexMenuBarIcon(size: iconSize) : nil
             )
-        case .gemini, .antigravity:
+        case .gemini:
+            guard let config = AppSettings.shared.menuBarDisplayConfig(for: .gemini) else { return nil }
+            return MenuBarStatusComposer.geminiSnapshot(
+                config: config,
+                usage: currentGeminiUsage,
+                error: geminiError,
+                hasAuthError: hasGeminiAuthError,
+                hasCredential: hasGeminiCredential,
+                secondaryColor: secondaryColor,
+                icon: config.showIcon ? MenuBarIconFactory.geminiMenuBarIcon(size: iconSize) : nil
+            )
+        case .antigravity:
             return nil
         }
     }

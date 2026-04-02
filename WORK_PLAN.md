@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (48차)
+최종 갱신: 2026-04-02 (49차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -78,6 +78,9 @@
 - 2026-04-02 36차 통합에서 [SetupWizardWindowCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/SetupWizardWindowCoordinator.swift), [SetupWizardWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SetupWizardWindowView.swift) 를 추가했고, [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 최초 Claude 인증 유도가 더 이상 설정창 내부 카드에만 머물지 않고 독립 `빠른 시작` 창으로 진입하기 시작했습니다.
 - 같은 통합에서 설정창 내부의 [SetupWizardView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/Components/SetupWizardView.swift) 는 보조 카드로 유지하되, 첫 실행 진입 책임은 별도 window coordinator로 이동시키기 시작했습니다.
 - 2026-04-02 37차 통합에서 [ClaudeFetchModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/Claude/ClaudeFetchModels.swift) 에 `ClaudeNotificationPolicy` 를 도입했고, [NotificationManager.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/NotificationManager.swift) 는 `team/enterprise + extra usage` 계정의 저긴급 임계값을 자동 억제하고 billing/subscription 상태에 따라 안내 문구를 달리하기 시작했습니다.
+- 2026-04-02 49차 통합에서 [GeminiUsageModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/GeminiUsageModels.swift), [GeminiAPIService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/GeminiAPIService.swift), [GeminiRuntimeRefresher.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/GeminiRuntimeRefresher.swift) 를 추가했고, `~/.gemini/oauth_creds.json` 과 Gemini CLI 설치 경로의 OAuth 설정을 직접 읽어 quota API를 호출하는 최소 runtime 경로를 붙였습니다.
+- 같은 통합에서 [ProviderStateModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift), [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift), [RuntimeRefreshHandlerRegistry.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RuntimeRefreshHandlerRegistry.swift), [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `Gemini` 를 실제 runtime provider로 인식하고 refresh/backoff/state snapshot/menu bar/popup selection 경로에 포함하기 시작했습니다.
+- 같은 통합에서 [MenuBarIconFactory.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarIconFactory.swift), [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift), [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift), [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift), [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 는 `Gemini` 의 메뉴바 아이콘/요약/리셋 시간/compact·standard popover 렌더링과 기본 표시 설정 저장을 시작했습니다.
 - 같은 통합에서 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 성공 조회 직후 cached profile metadata를 읽어 현재 Claude 알림 정책으로 연결하기 시작했습니다.
 - 2026-04-02 38차 통합에서 [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 의 상단 service selector에 `lineLimit(1)`, `fixedSize`, `layoutPriority` 를 넣어 경고 점이 붙을 때 provider 이름이 두 줄로 감기던 레이아웃 버그를 고쳤습니다.
 - 같은 통합에서 [SetupWizardView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/Components/SetupWizardView.swift), [SetupWizardWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SetupWizardWindowView.swift), [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `Chrome 열기` 와 `웹 로그인 열기` CTA를 분리해, 단계 설명과 실제 동작이 어긋나던 wizard 흐름을 정리하기 시작했습니다.
@@ -583,10 +586,10 @@
 
 ## 7. 바로 다음 작업
 
-- `ClaudeRuntimeRefresher` / `CodexRuntimeRefresher` 를 `provider refresher registry` 로 한 단계 더 일반화하고 `Gemini`용 진입 자리를 만들기
-- `PopoverService` 와 runtime capability를 분리한 descriptor/registry 위에 `Gemini` runtime 상태 shape를 얹을 수 있게 AppDelegate orchestration 남은 하드코딩을 줄이기
-- `RuntimeProviderRefreshDriver` 수준의 최소 공통 인터페이스를 도입할지 검토하고, 도입 시에도 `Claude overage/profile metadata`, `Codex auth` 차이를 억지로 한 타입에 섞지 않도록 보수적으로 진행하기
-- `AppSettings` 의 `claudeEnabled/codexEnabled/menuBarActiveService` legacy 브리지를 점진적으로 축소하고 `providerStates/providerSelectionState` 중심으로 읽히게 바꾸기
+- `Gemini` 를 설정 패널에서도 `준비 중` shell이 아니라 실제 runtime provider로 다루도록 `SettingsView` / `ProviderSettingsRegistry` / provider 탭 구조를 정리하기
+- `Gemini` 메뉴바/팝오버 표시를 사용자 설정으로 충분히 제어할 수 있게 provider별 display/popover 설정 UI를 추가하기
+- `Gemini` 알림을 공통 프리셋 구조 위에 얹고, provider on/off 와 세션별 reset 문구를 정리하기
+- `Antigravity` 를 `Gemini` 와 별개 runtime provider로 연결하되, `Gemini` 경로를 복사하지 않고 registry/descriptor를 재사용하는 방향으로 붙이기
 - 독립 `Setup Wizard` 를 첫 실행 전용 단계 라우팅으로 더 확장하고 Chrome/Keychain 권한 설명, organization 선택, 검증 완료 흐름을 완성하기
 - metadata cache를 실제 알림 문구와 warning suppression 정책까지 더 넓혀 `fallback 빈도`, `팝오버 정책 문구`, `설정 요약`까지 연결하기
 - README와 배포/업데이트 문서를 실제 구현 상태에 맞게 계속 갱신하기

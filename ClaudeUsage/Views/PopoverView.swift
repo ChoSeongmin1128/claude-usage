@@ -919,6 +919,9 @@ struct PopoverView: View {
             } else if selectedService == .codex, viewModel.codexUsage != nil {
                 compactCodexContent()
 
+            } else if selectedService == .gemini, viewModel.geminiUsage != nil {
+                compactGeminiContent()
+
             } else {
                 Text("데이터 없음")
                     .foregroundStyle(.secondary)
@@ -959,6 +962,9 @@ struct PopoverView: View {
 
             } else if selectedService == .codex, viewModel.codexUsage != nil {
                 standardCodexContent()
+
+            } else if selectedService == .gemini, viewModel.geminiUsage != nil {
+                standardGeminiContent()
 
             } else {
                 VStack {
@@ -1029,6 +1035,83 @@ struct PopoverView: View {
                 default:
                     EmptyView()
                 }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private func standardGeminiContent() -> some View {
+        VStack(spacing: 12) {
+            if let primary = viewModel.geminiUsage?.primaryWindow {
+                UsageSectionView(
+                    systemIcon: "sparkles",
+                    title: primary.label,
+                    percentage: primary.usedPercent,
+                    resetAt: primary.resetAtISO,
+                    timeFormatStyle: settings.timeFormat
+                )
+            }
+
+            if let secondary = viewModel.geminiUsage?.secondaryWindow {
+                Divider()
+                UsageSectionView(
+                    systemIcon: "bolt.horizontal.circle",
+                    title: secondary.label,
+                    percentage: secondary.usedPercent,
+                    resetAt: secondary.resetAtISO,
+                    isWeekly: true,
+                    timeFormatStyle: settings.timeFormat
+                )
+            }
+
+            if let tertiary = viewModel.geminiUsage?.tertiaryWindow {
+                Divider()
+                UsageSectionView(
+                    systemIcon: "circle.hexagongrid",
+                    title: tertiary.label,
+                    percentage: tertiary.usedPercent,
+                    resetAt: tertiary.resetAtISO,
+                    isWeekly: true,
+                    timeFormatStyle: settings.timeFormat
+                )
+            }
+
+            if let usage = viewModel.geminiUsage,
+               usage.accountEmail != nil || usage.accountPlan != nil {
+                Divider()
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("계정 정보", systemImage: "person.crop.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let email = usage.accountEmail {
+                        Text(email)
+                            .font(.subheadline)
+                    }
+                    if let plan = usage.accountPlan {
+                        Text("플랜: \(plan)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(16)
+    }
+
+    @ViewBuilder
+    private func compactGeminiContent() -> some View {
+        VStack(spacing: 5) {
+            if let primary = viewModel.geminiUsage?.primaryWindow {
+                CompactUsageRow(label: primary.label, percentage: primary.usedPercent, resetAt: primary.resetAtISO, timeFormatStyle: settings.timeFormat)
+            }
+            if let secondary = viewModel.geminiUsage?.secondaryWindow {
+                CompactUsageRow(label: secondary.label, percentage: secondary.usedPercent, resetAt: secondary.resetAtISO, isWeekly: true, timeFormatStyle: settings.timeFormat)
+            }
+            if let tertiary = viewModel.geminiUsage?.tertiaryWindow {
+                CompactUsageRow(label: "Lite", percentage: tertiary.usedPercent, resetAt: tertiary.resetAtISO, isWeekly: true, timeFormatStyle: settings.timeFormat)
             }
         }
         .padding(.horizontal, 16)
