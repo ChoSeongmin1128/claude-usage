@@ -11,32 +11,33 @@
 이 판단의 이유는 단순합니다.
 
 - 현재 앱은 App Store형 앱보다 직접 배포형 도구에 가깝습니다.
-- 이미 [UpdateService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/UpdateService.swift)가 GitHub Releases를 조회해 수동 다운로드를 여는 구조입니다.
-- [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift#L1842)와 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift#L106)에도 업데이트 확인 UI와 타이머는 있지만, 실제 자동 설치 엔진은 없습니다.
+- [UpdateService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/UpdateService.swift)는 이제 `AppUpdateEngine` 경계 뒤에서 `Sparkle` 과 `GitHub Release fallback` 을 함께 다룰 수 있습니다.
+- 다만 현재 개발 빌드는 `SUFeedURL` / `SUPublicEDKey` 가 없어서 여전히 GitHub Release 엔진으로 fallback 됩니다. 즉, 패키지 통합은 끝났지만 실제 appcast 배포 채널은 아직 없습니다.
 
 ## 2. 현재 상태 진단
 
 ### 이미 있는 것
 
-- GitHub Releases 기반 최신 버전 확인
-- 메뉴/설정에서 수동 업데이트 안내
+- Sparkle 2.8.1 Swift Package 통합
+- `AppUpdateEngine` 기반 업데이트 엔진 선택 구조
+- appcast/feed 미설정 빌드에서 GitHub Release fallback
+- 메뉴/설정에서 현재 업데이트 엔진 모드 표시
 - 새 버전 발견 시 다운로드 URL 열기
 
 ### 없는 것
 
-- 자동 다운로드
-- 자동 설치
+- 실제 appcast XML 배포 채널
+- Sparkle 공개키/개인키 운영
 - 코드 서명된 배포 파이프라인
 - notarization
-- appcast 기반 업데이트 채널
 - 베타/정식 채널 분리
 
 ### 현재 방식의 한계
 
-- GitHub API를 직접 두드리는 방식은 rate limit과 장애 표면이 있습니다.
-- zip 다운로드 후 수동 교체는 사용자 경험이 나쁩니다.
+- appcast/feed 가 없는 현재 개발 빌드는 여전히 GitHub API fallback 에 의존하므로 rate limit 과 장애 표면이 남아 있습니다.
+- zip 다운로드 후 수동 교체는 fallback 경로로만 남아 있고, 사용자 경험이 여전히 거칩니다.
 - 서명/노타리제이션이 없으면 최초 실행 설명이 계속 번거롭습니다.
-- “업데이트 확인”은 있으나 “자동 업데이트”는 아닙니다.
+- Sparkle 패키지는 붙었지만, 배포 채널이 없으므로 제품 입장에서는 아직 완전한 자동 업데이트가 아닙니다.
 
 ## 3. Apple Developer 계정이 생기면 가능한 것
 

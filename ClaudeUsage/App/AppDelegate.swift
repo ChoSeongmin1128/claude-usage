@@ -525,11 +525,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func syncUpdateCheckState(runImmediate: Bool = false) {
-        updateCoordinator.apply(
-            interval: AppSettings.shared.updateCheckInterval,
-            runImmediate: runImmediate
-        ) { [weak self] in
-            self?.checkForUpdates()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let usesExternalScheduler = await UpdateService.shared.usesExternalScheduler()
+
+            if usesExternalScheduler {
+                self.updateCoordinator.invalidate()
+                return
+            }
+
+            self.updateCoordinator.apply(
+                interval: AppSettings.shared.updateCheckInterval,
+                runImmediate: runImmediate
+            ) { [weak self] in
+                self?.checkForUpdates()
+            }
         }
     }
 
@@ -1156,10 +1166,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 await MainActor.run {
                     self.currentClaudeProfileMetadata = cachedProfileMetadata
-                    AppSettings.shared.hasCompletedSetupWizard = self.resolveClaudeSetupCompletion(
+                    self.setClaudeSetupCompleted(self.resolveClaudeSetupCompletion(
                         hasSuccessfulFetch: true,
                         cachedMetadata: cachedProfileMetadata
-                    )
+                    ))
                     self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
                     self.currentUsage = result.usage
                     if let fetchedOverage = result.overage {

@@ -48,6 +48,7 @@ struct SettingsView: View {
     @State private var messagesFallbackStatus: String?
     @State private var codexAuthStatus: CodexAuthStatus = .checking
     @State private var updateModeSummary: String = "업데이트 엔진 확인 중"
+    @State private var supportsInteractiveUpdates = false
 
     var onSave: (() -> Void)?
     var onApply: (() -> Void)?
@@ -195,6 +196,7 @@ struct SettingsView: View {
             checkCodexAuth()
             Task {
                 updateModeSummary = await UpdateService.shared.currentModeSummary()
+                supportsInteractiveUpdates = await UpdateService.shared.supportsInteractiveCheck()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange)) { _ in
@@ -711,7 +713,9 @@ struct SettingsView: View {
         DisclosureGroup(isExpanded: $isClaudeAdvancedSectionExpanded) {
             VStack(alignment: .leading, spacing: 12) {
                 manualSessionKeySection
-                recoveryAndHelpSection
+                if shouldSurfaceRecoveryAndDiagnostics {
+                    recoveryAndHelpSection
+                }
             }
             .padding(.top, 4)
         } label: {
@@ -723,7 +727,7 @@ struct SettingsView: View {
                 HStack {
                     Text("고급 설정")
                     Spacer(minLength: 0)
-                    Text("수동 입력 · 복구 · 진단")
+                    Text(shouldSurfaceRecoveryAndDiagnostics ? "수동 입력 · 복구 · 진단" : "수동 입력")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -1054,6 +1058,16 @@ struct SettingsView: View {
     private var hasReadyClaudeCredential: Bool {
         let normalized = normalizeSessionKey(sessionKey)
         return !(storedSessionKey ?? "").isEmpty || !normalized.isEmpty || hasOAuthCredential || usageHealthSnapshot?.lastOverallSuccessAt != nil
+    }
+
+    private var shouldSurfaceRecoveryAndDiagnostics: Bool {
+        guard let snapshot = usageHealthSnapshot else { return true }
+        return !hasSuccessfulClaudeFetch
+            || !hasReadyClaudeCredential
+            || shouldRecommendCLIOAuth
+            || settings.claudeMessagesFallbackPolicy != .off
+            || snapshot.oauth.lastFailureAt != nil
+            || snapshot.session.lastFailureAt != nil
     }
 
     private var hasSuccessfulClaudeFetch: Bool {
@@ -2568,6 +2582,13 @@ struct SettingsView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .disabled(supportsInteractiveUpdates)
+
+            if supportsInteractiveUpdates {
+                Text("현재 빌드는 Sparkle 내부 스케줄러가 업데이트 주기를 관리합니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             HStack {
                 let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
@@ -2581,22 +2602,30 @@ struct SettingsView: View {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    Button("지금 확인") {
+                    Button(supportsInteractiveUpdates ? "Sparkle로 확인" : "지금 확인") {
                         isCheckingUpdate = true
                         updateCheckResult = nil
                         Task {
-                            let result = await UpdateService.shared.checkForUpdates()
-                            await MainActor.run {
-                                isCheckingUpdate = false
-                                switch result {
-                                case .available(let info):
-                                    updateCheckResult = "v\(info.version) 업데이트 가능"
-                                    AppSettings.shared.availableUpdate = info
-                                case .upToDate:
-                                    updateCheckResult = "최신 버전입니다"
-                                    AppSettings.shared.availableUpdate = nil
-                                case .error(let msg):
-                                    updateCheckResult = "확인 실패: \(msg)"
+                            if supportsInteractiveUpdates {
+                                let message = await UpdateService.shared.performInteractiveCheck()
+                                await MainActor.run {
+                                    isCheckingUpdate = false
+                                    updateCheckResult = message ?? "Sparkle 업데이트 확인을 시작했습니다"
+                                }
+                            } else {
+                                let result = await UpdateService.shared.checkForUpdates()
+                                await MainActor.run {
+                                    isCheckingUpdate = false
+                                    switch result {
+                                    case .available(let info):
+                                        updateCheckResult = "v\(info.version) 업데이트 가능"
+                                        AppSettings.shared.availableUpdate = info
+                                    case .upToDate:
+                                        updateCheckResult = "최신 버전입니다"
+                                        AppSettings.shared.availableUpdate = nil
+                                    case .error(let msg):
+                                        updateCheckResult = "확인 실패: \(msg)"
+                                    }
                                 }
                             }
                         }
@@ -2615,7 +2644,7 @@ struct SettingsView: View {
                     Text(result)
                         .font(.caption)
                         .foregroundStyle(result.contains("가능") ? .orange : result.contains("실패") ? .red : .green)
-                    if result.contains("가능") {
+                    if result.contains("가능") && !supportsInteractiveUpdates {
                         Button("다운로드") {
                             Task {
                                 let url = await UpdateService.shared.latestDownloadURL()
@@ -2632,18 +2661,30 @@ struct SettingsView: View {
                 Text("업데이트 설치 가이드")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("1. '다운로드'를 눌러 최신 앱을 받습니다.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Text("2. 실행 중인 ClaudeUsage를 완전히 종료합니다.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Text("3. 기존 앱 파일을 새 앱으로 교체(덮어쓰기)합니다.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Text("4. 다시 실행합니다. 최초 실행에서 차단되면 시스템 설정 > 개인정보 보호 및 보안 > 그래도 열기를 선택하세요.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                if supportsInteractiveUpdates {
+                    Text("1. 'Sparkle로 확인'을 누르면 앱 내부에서 업데이트 확인을 시작합니다.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text("2. 새 버전이 있으면 Sparkle 설치 안내가 열리고, 없으면 조용히 유지됩니다.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text("3. appcast/feed가 아직 설정되지 않은 빌드에서는 GitHub Release 엔진으로 자동 fallback됩니다.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("1. '다운로드'를 눌러 최신 앱을 받습니다.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text("2. 실행 중인 ClaudeUsage를 완전히 종료합니다.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text("3. 기존 앱 파일을 새 앱으로 교체(덮어쓰기)합니다.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text("4. 다시 실행합니다. 최초 실행에서 차단되면 시스템 설정 > 개인정보 보호 및 보안 > 그래도 열기를 선택하세요.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(10)
             .background(Color(NSColor.controlBackgroundColor).opacity(0.5))

@@ -35,7 +35,7 @@
 - Claude 인증 상태의 `세션키 / OAuth / organization / metadata` 분리 표시
 - `Messages header fallback` 수동/자동 보조 복구
 - `Claude Code CLI OAuth` 안내와 상태 표시
-- GitHub Releases 기반 수동 업데이트 확인
+- Sparkle 패키지 통합 + appcast 미설정 시 GitHub Release fallback
 - Claude 인증 탭의 단계형 빠른 시작 wizard
 
 ## 인증 경로
@@ -162,7 +162,7 @@ ClaudeUsage/
 
 ## 현재 한계
 
-- 자동 업데이트는 아직 Sparkle 전환 전입니다.
+- Sparkle 패키지는 이미 통합됐지만, appcast/feed와 공개키가 없는 개발 빌드에서는 GitHub Release 엔진으로 fallback됩니다.
 - 메뉴바와 refresh 경로는 runtime-capable provider 기준으로 많이 정리됐지만, 일부 내부 구조는 여전히 `Claude/Codex` 중심 흔적이 남아 있습니다.
 - `Gemini`, `Antigravity`는 런타임 연결은 됐지만 provider별 UX, 오류 문구, 환경 안내는 Claude보다 덜 다듬어져 있습니다.
 - first-run onboarding과 권한 설명은 아직 더 다듬어야 합니다.
