@@ -14,24 +14,30 @@ struct LoginWindowView: View {
 
     var clearOnOpen: Bool
     var onSessionKeyFound: (String) async throws -> Void
+    var onOpenAdvancedSettings: () -> Void
     var onCancel: () -> Void
 
-    init(clearOnOpen: Bool = false, onSessionKeyFound: @escaping (String) async throws -> Void, onCancel: @escaping () -> Void) {
+    init(
+        clearOnOpen: Bool = false,
+        onSessionKeyFound: @escaping (String) async throws -> Void,
+        onOpenAdvancedSettings: @escaping () -> Void,
+        onCancel: @escaping () -> Void
+    ) {
         self.clearOnOpen = clearOnOpen
         self._clearTrigger = State(initialValue: clearOnOpen ? 1 : 0)
         self.onSessionKeyFound = onSessionKeyFound
+        self.onOpenAdvancedSettings = onOpenAdvancedSettings
         self.onCancel = onCancel
     }
 
     private var guidanceCard: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("권장 경로")
+            Text("권장 순서")
                 .font(.caption)
                 .fontWeight(.semibold)
             Text("1. 먼저 `Chrome에서 가져오기`를 시도합니다.")
-            Text("2. 실패하면 이 창에서 웹 로그인으로 sessionKey 자동 추출을 시도합니다.")
-            Text("3. 계속 실패하면 `Chrome 열기`로 claude.ai에 로그인한 뒤 다시 가져오기를 누릅니다.")
-            Text("4. 그래도 안 되면 설정의 고급 옵션에서 sessionKey 값만 직접 입력합니다.")
+            Text("2. Chrome 로그인 상태가 애매하면 `Chrome 로그인 열기`로 claude.ai를 연 뒤 다시 가져옵니다.")
+            Text("3. 계속 실패하면 이 창의 웹 로그인 추출 또는 `고급 설정`의 수동 sessionKey로 넘어갑니다.")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -72,7 +78,7 @@ struct LoginWindowView: View {
                 }
                 Spacer()
                 if loginSuccess {
-                    Label("세션 키 추출 완료!", systemImage: "checkmark.circle.fill")
+                    Label("세션 반영 완료", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                         .font(.callout.bold())
                 } else {
@@ -103,6 +109,11 @@ struct LoginWindowView: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                     Spacer()
+                    Button("고급 설정") {
+                        onOpenAdvancedSettings()
+                    }
+                    .font(.caption)
+                    .buttonStyle(.borderless)
                     Button("닫기") { errorMessage = nil }
                         .font(.caption)
                         .buttonStyle(.borderless)
@@ -150,22 +161,22 @@ struct LoginWindowView: View {
 
             // 하단 바
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("기본 순서는 `Chrome에서 가져오기` → `웹 로그인 추출` → `수동 sessionKey`입니다")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text("Chrome 로그인 상태가 애매하면 먼저 `Chrome 열기`로 claude.ai를 연 뒤 다시 가져오기를 누르시는 편이 맞습니다")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
+                Text("Chrome 로그인 상태가 애매하면 `Chrome 열기` 후 다시 가져오기를 누르시는 편이 맞습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Spacer()
-                Button("Chrome 열기") {
+                Button("고급 설정") {
+                    onOpenAdvancedSettings()
+                }
+                .disabled(isLoading || isImportingFromChrome || isActivatingSession || loginSuccess)
+                Button("Chrome 로그인 열기") {
                     openChromeForClaude()
                 }
                 .disabled(isLoading || isImportingFromChrome || isActivatingSession || loginSuccess)
                 Button("Chrome에서 가져오기") {
                     importFromChrome()
                 }
+                .buttonStyle(.borderedProminent)
                 .disabled(isLoading || isImportingFromChrome || isActivatingSession || loginSuccess)
                 Button("취소") { onCancel() }
                     .disabled(isActivatingSession)

@@ -52,7 +52,7 @@ struct SetupWizardWindowView: View {
     private var secondaryActionTitle: String? {
         switch progress.stage {
         case .credential:
-            return currentStep == .manualSessionKey ? "설정 열기" : "다른 방법 보기"
+            return "고급 설정"
         case .verification:
             return "설정 열기"
         case .organization:

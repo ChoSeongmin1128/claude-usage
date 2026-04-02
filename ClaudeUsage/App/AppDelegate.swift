@@ -1855,6 +1855,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         throw error
                     }
                 },
+                onOpenAdvancedSettings: { [weak self] in
+                    AppSettings.shared.settingsLastTab = "claude"
+                    AppSettings.shared.claudeSettingsLastTab = "auth"
+                    self?.loginWindowCoordinator.close()
+                    self?.showSettingsWindow()
+                },
                 onCancel: { [weak self] in
                     self?.loginWindowCoordinator.close()
                 }
