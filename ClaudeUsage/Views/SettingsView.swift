@@ -785,8 +785,12 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 12) {
                 detailedAuthStatusSection
                 messagesFallbackSection
-                claudeCLIOAuthGuideSection
-                authFAQSection
+                if shouldRecommendCLIOAuth || !hasOAuthCredential {
+                    claudeCLIOAuthGuideSection
+                }
+                if messagesFallbackStatus != nil || !hasSuccessfulClaudeFetch || shouldRecommendCLIOAuth {
+                    authFAQSection
+                }
             }
             .padding(.top, 4)
         } label: {
@@ -1401,6 +1405,15 @@ struct SettingsView: View {
                 ))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+                if settings.claudeMessagesFallbackPolicy == .automatic {
+                    Label(
+                        "OAuth 조회가 실패하고 현재 사용량이 \(settings.claudeMessagesFallbackAutoDisableBelowPercent)% 이상일 때만 자동으로 보조 복구를 시도합니다",
+                        systemImage: "bolt.horizontal.circle"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
 
                 HStack(alignment: .center, spacing: 8) {
                     Text("자동 중지 기준")

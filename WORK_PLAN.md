@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (82차)
+최종 갱신: 2026-04-02 (83차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -135,6 +135,8 @@
 - 같은 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 업데이트 엔진 칩을 `Sparkle 통합 여부`가 아니라 `실제 동작 엔진` 기준으로 보여주도록 바꿨습니다. 이제 feed/public key가 빠져 GitHub fallback으로 도는 빌드에서는 `Sparkle 통합`이 실제 자동업데이트처럼 읽히지 않습니다.
 - 2026-04-02 82차 통합에서 [build-notarize-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/build-notarize-release.sh) 를 추가했습니다. 이 스크립트는 실제 release xcconfig 와 `NOTARY_PROFILE` 이 준비된 상태에서 `xcodebuild archive -> ZIP 생성 -> notarytool 제출 -> stapler` 까지 한 번에 수행하는 골격입니다.
 - 같은 통합에서 [apple-developer-update.md](/Users/seongmin/Personal/ClaudeUsage/apple-developer-update.md), [README.md](/Users/seongmin/Personal/ClaudeUsage/README.md) 도 이 스크립트를 기준으로 갱신했습니다. 따라서 현재 레포는 더 이상 Sparkle 배포를 문서 설명만으로 남겨두지 않고, 실제 릴리즈 직전에 필요한 로컬 실행 경로까지 포함합니다.
+- 2026-04-02 83차 통합에서 [generate-sparkle-appcast.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/generate-sparkle-appcast.sh) 를 추가했습니다. 이 스크립트는 notarized ZIP 이 모인 디렉토리와 `DOWNLOAD_BASE_URL` 을 받아 `generate_appcast` 로 Sparkle appcast.xml 을 생성하는 골격입니다.
+- 같은 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 Claude 고급 설정의 `복구 및 도움말` 노출을 더 줄였습니다. 이제 CLI OAuth 안내는 실제로 필요한 경우에만 보이고, FAQ도 실패/복구 상황이 아닐 때는 접혀 있어 기본 화면의 정보 밀도를 더 낮춥니다.
 - 2026-04-02 49차 통합에서 [GeminiUsageModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/GeminiUsageModels.swift), [GeminiAPIService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/GeminiAPIService.swift), [GeminiRuntimeRefresher.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/GeminiRuntimeRefresher.swift) 를 추가했고, `~/.gemini/oauth_creds.json` 과 Gemini CLI 설치 경로의 OAuth 설정을 직접 읽어 quota API를 호출하는 최소 runtime 경로를 붙였습니다.
 - 같은 통합에서 [ProviderStateModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift), [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift), [RuntimeRefreshHandlerRegistry.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RuntimeRefreshHandlerRegistry.swift), [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `Gemini` 를 실제 runtime provider로 인식하고 refresh/backoff/state snapshot/menu bar/popup selection 경로에 포함하기 시작했습니다.
 - 같은 통합에서 [MenuBarIconFactory.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarIconFactory.swift), [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift), [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift), [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift), [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 는 `Gemini` 의 메뉴바 아이콘/요약/리셋 시간/compact·standard popover 렌더링과 기본 표시 설정 저장을 시작했습니다.

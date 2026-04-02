@@ -273,6 +273,7 @@ Sparkle 문서상 sandbox 앱은 `Installer.xpc`와 관련 entitlement가 필요
 - 점검 스크립트
   - [prepare-sparkle-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/prepare-sparkle-release.sh)
   - [build-notarize-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/build-notarize-release.sh)
+  - [generate-sparkle-appcast.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/generate-sparkle-appcast.sh)
 
 ### 실제 릴리즈 때 해야 할 것
 
@@ -280,8 +281,9 @@ Sparkle 문서상 sandbox 앱은 `Installer.xpc`와 관련 entitlement가 필요
 2. `SUFeedURL`, `SUPublicEDKey` 채우기
 3. `NOTARY_PROFILE`을 준비한 뒤 [build-notarize-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/build-notarize-release.sh) 실행
 4. Release configuration에 해당 xcconfig 연결
-5. 서명/노타리제이션 이후 appcast 배포
-6. 설정 화면에서 `appcast 준비`, `공개키 준비`가 모두 `준비됨`인지 확인
+5. [generate-sparkle-appcast.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/generate-sparkle-appcast.sh) 로 appcast 생성
+6. 서명/노타리제이션 산출물과 appcast 배포
+7. 설정 화면에서 `appcast 준비`, `공개키 준비`가 모두 `준비됨`인지 확인
 
 - `Sparkle`은 macOS 직접 배포 앱에서 널리 쓰이는 자동업데이트 프레임워크입니다.
 - 인디 앱과 direct distribution 앱에서 사실상 표준에 가깝고, [CodexBar]( /Users/seongmin/Personal/CodexBar/Package.swift )도 실제로 사용 중입니다.
