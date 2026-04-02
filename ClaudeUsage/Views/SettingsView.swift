@@ -54,6 +54,7 @@ struct SettingsView: View {
     @State private var updateModeSummary: String = "업데이트 엔진 확인 중"
     @State private var updateEngineStatus: UpdateEngineStatus?
     @State private var supportsInteractiveUpdates = false
+    @State private var isUpdateGuidanceExpanded = false
 
     var onSave: (() -> Void)?
     var onApply: (() -> Void)?
@@ -1875,6 +1876,11 @@ struct SettingsView: View {
                     value: selectedOrganizationID.isEmpty ? "자동 선택" : "직접 선택",
                     color: selectedOrganizationID.isEmpty ? .green : .blue
                 )
+                chip(
+                    title: "검증 상태",
+                    value: organizationValidationChipValue,
+                    color: organizationValidationChipColor
+                )
                 if !selectedOrganizationID.isEmpty {
                     Text(selectedOrganizationID)
                         .font(.caption2)
@@ -1886,6 +1892,10 @@ struct SettingsView: View {
 
             if selectedOrganizationID.isEmpty {
                 Text("지금은 organization을 따로 고르지 않고, Claude가 연결된 기본 organization으로 바로 사용합니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text(organizationChecklistDetail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -2914,52 +2924,58 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
 
             if let updateEngineStatus {
-                HStack(spacing: 8) {
-                    chip(
-                        title: "엔진",
-                        value: updateEngineChipValue,
-                        color: updateEngineChipColor
-                    )
-                    chip(
-                        title: "appcast",
-                        value: updateEngineStatus.feedConfigured ? "준비됨" : "미설정",
-                        color: updateEngineStatus.feedConfigured ? .green : .orange
-                    )
-                    chip(
-                        title: "공개키",
-                        value: updateEngineStatus.publicKeyConfigured ? "준비됨" : "미설정",
-                        color: updateEngineStatus.publicKeyConfigured ? .green : .orange
-                    )
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        chip(
+                            title: "엔진",
+                            value: updateEngineChipValue,
+                            color: updateEngineChipColor
+                        )
+                        chip(
+                            title: "appcast",
+                            value: updateEngineStatus.feedConfigured ? "준비됨" : "미설정",
+                            color: updateEngineStatus.feedConfigured ? .green : .orange
+                        )
+                        chip(
+                            title: "공개키",
+                            value: updateEngineStatus.publicKeyConfigured ? "준비됨" : "미설정",
+                            color: updateEngineStatus.publicKeyConfigured ? .green : .orange
+                        )
+                    }
+
+                    Text(updateReadinessSummary(updateEngineStatus))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+                .padding(10)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+                .cornerRadius(8)
 
                 if !updateEngineStatus.usesSparkleReadyPath {
-                    Text("현재 빌드는 Sparkle 패키지는 포함하지만 appcast 또는 공개키가 없어 GitHub fallback 경로를 사용합니다.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    DisclosureGroup(isExpanded: $isUpdateGuidanceExpanded) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            if !updateEngineStatus.missingSparkleRequirements.isEmpty {
+                                Text("아직 필요한 항목: \(updateEngineStatus.missingSparkleRequirements.joined(separator: ", "))")
+                                    .font(.caption2)
+                                    .foregroundStyle(.orange)
+                            }
 
-                    if !updateEngineStatus.missingSparkleRequirements.isEmpty {
-                        Text("아직 필요한 항목: \(updateEngineStatus.missingSparkleRequirements.joined(separator: ", "))")
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
-                    }
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Sparkle 전환 다음 단계")
+                            Text("1. release xcconfig에서 `SUFeedURL`, `SUPublicEDKey`를 채웁니다.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text("2. `Scripts/build-notarize-release.sh`로 notarized ZIP을 만듭니다.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text("3. `Scripts/generate-sparkle-appcast.sh`로 appcast.xml을 생성하고 함께 배포합니다.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.top, 4)
+                    } label: {
+                        Text("Sparkle 전환 다음 단계 보기")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Text("1. release xcconfig에서 `SUFeedURL`, `SUPublicEDKey`를 채웁니다.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Text("2. `Scripts/build-notarize-release.sh`로 notarized ZIP을 만듭니다.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                        Text("3. `Scripts/generate-sparkle-appcast.sh`로 appcast.xml을 생성하고 함께 배포합니다.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
                     }
-                    .padding(10)
-                    .background(Color(NSColor.controlBackgroundColor).opacity(0.4))
-                    .cornerRadius(8)
                 }
             }
 
@@ -3014,6 +3030,36 @@ struct SettingsView: View {
             .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
             .cornerRadius(8)
         }
+    }
+
+    private var organizationValidationChipValue: String {
+        if !hasSuccessfulClaudeFetch {
+            return "조회 전"
+        }
+        if selectedOrganizationID.isEmpty {
+            return "자동"
+        }
+        return isOrganizationSelectionReady ? "검증됨" : "확인 필요"
+    }
+
+    private var organizationValidationChipColor: Color {
+        if !hasSuccessfulClaudeFetch {
+            return .orange
+        }
+        if selectedOrganizationID.isEmpty {
+            return .green
+        }
+        return isOrganizationSelectionReady ? .green : .orange
+    }
+
+    private func updateReadinessSummary(_ status: UpdateEngineStatus) -> String {
+        if status.usesSparkleReadyPath {
+            return "현재 빌드는 Sparkle 자동업데이트 경로가 준비된 상태입니다."
+        }
+        if status.sparkleIntegrated {
+            return "Sparkle 패키지는 포함됐지만 appcast 또는 공개키가 없어 아직 GitHub fallback을 사용합니다."
+        }
+        return "현재 빌드는 GitHub Release 수동 다운로드 경로를 사용합니다."
     }
 
     // MARK: - 일반 섹션

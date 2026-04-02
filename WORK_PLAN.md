@@ -673,6 +673,8 @@
 - 같은 세션키를 다시 저장할 때는 Keychain 저장을 건너뛰도록 바꿔, 테스트/적용 과정에서 불필요한 키체인 쓰기와 프롬프트를 줄이기 시작했습니다. 빠른 시작도 자격이 준비된 뒤에는 `다른 인증 방법`을 다시 펼치지 않도록 줄여 first-run 정보 밀도를 낮추고 있습니다.
 - Claude 인증 설정에서 `상세 인증 상태`는 `복구 및 진단` 안쪽으로 다시 내려, 기본 고급 화면에는 `수동 sessionKey`와 `복구/도움말`만 먼저 보이게 정리하고 있습니다.
 - persisted `hasCompletedSetupWizard` 를 제거했으므로, setup 완료는 더 이상 별도 저장 플래그가 아니라 현재 런타임 상태와 `SetupCompletionPolicy` 로만 판단합니다.
+- 2026-04-02 늦은 저녁 마감 작업으로 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 `Organization` 섹션에 현재 모드와 검증 상태를 분리해 보여주고, `Sparkle` 업데이트 섹션은 `현재 상태 + 다음 행동` 요약 카드와 접히는 상세 단계로 정리했습니다. 즉 설정 화면에서 마감 전제 조건은 바로 읽히되, 긴 절차 설명은 기본 노출에서 뺐습니다.
+- 같은 마감 작업으로 [SetupWizardWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SetupWizardWindowView.swift) 는 자동 organization 모드의 완료 CTA를 더 직접적인 문구로 바꾸고, 수동 organization 단계는 “특정 organization을 직접 고를 때만 필요한 단계”라는 점을 더 분명히 드러내도록 정리했습니다.
 
 ### 제품 방향
 

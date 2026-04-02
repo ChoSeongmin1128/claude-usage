@@ -61,7 +61,7 @@ struct SetupWizardWindowView: View {
         case .verification:
             return isVerifyingFetch ? "조회 확인 중" : "지금 조회 검증"
         case .organization:
-            return progress.isAutomaticOrganizationMode ? "바로 시작" : "Organization 확인"
+            return progress.isAutomaticOrganizationMode ? "자동 선택으로 완료" : "Organization 확인"
         case .complete:
             return "완료"
         }
@@ -101,7 +101,7 @@ struct SetupWizardWindowView: View {
             return "자격은 준비됐습니다. 이제 첫 성공 조회만 끝내면 됩니다."
         case .organization:
             if progress.isAutomaticOrganizationMode {
-                return "자동 선택 모드입니다. 별도 organization을 고르지 않을 거라면 바로 마무리하시면 됩니다."
+                return "자동 선택 모드입니다. 별도 organization을 직접 고르지 않을 거라면 여기서 바로 마무리하면 됩니다."
             }
             return "\(progress.organizationSummary) 특정 organization을 직접 고를 때만 이 단계가 필요합니다."
         case .complete:
