@@ -19,6 +19,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let codexAPIService = CodexAPIService()
     private let popoverCoordinator = AppPopoverCoordinator()
     private let runtimeObservationCoordinator = AppRuntimeObservationCoordinator()
+    private let settingsWindowCoordinator = SettingsWindowCoordinator()
 
     private var currentUsage: ClaudeUsageResponse?
     private var currentCodexUsage: CodexUsageResponse?
@@ -42,8 +43,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusTimer: Timer?
     private var appearanceObservation: NSKeyValueObservation?
 
-    private var settingsWindow: NSWindow?
-    private var settingsSnapshot: AppSettings.Snapshot?
     private var loginWindow: NSWindow?
     private var lastObservedProviderStates = AppSettings.shared.providerStates
     private var eventMonitor: Any?
@@ -88,6 +87,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 설정 변경 감지
         bindRuntimeObservers()
+        settingsWindowCoordinator.onRestoreSnapshot = { snapshot in
+            AppSettings.shared.restore(from: snapshot)
+        }
 
         bootstrapRefreshState()
 
@@ -163,6 +165,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         updateCheckTimer?.invalidate()
         statusTimer?.invalidate()
         popoverCoordinator.invalidate()
+        settingsWindowCoordinator.invalidate()
         runtimeObservationCoordinator.cancelAll()
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
@@ -1140,9 +1143,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showSettingsWindow() {
-        if let window = settingsWindow, window.isVisible {
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
+        if settingsWindowCoordinator.focusIfVisible() {
             return
         }
 
@@ -1151,25 +1152,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AppSettings.shared.claudeSettingsLastTab = "auth"
         }
 
-        settingsSnapshot = AppSettings.shared.createSnapshot()
+        let snapshot = AppSettings.shared.createSnapshot()
 
         let settingsView = SettingsView(
             onSave: { [weak self] in
                 guard let self = self else { return }
-                self.settingsSnapshot = nil  // 저장 시 스냅샷 클리어 → 복원 방지
-                self.settingsWindow?.close()
+                self.settingsWindowCoordinator.close(clearSnapshot: true)
                 self.applySettingsFromWindow()
             },
             onApply: { [weak self] in
                 guard let self = self else { return }
-                self.settingsSnapshot = AppSettings.shared.createSnapshot()
+                self.settingsWindowCoordinator.refreshSnapshot(AppSettings.shared.createSnapshot())
                 self.applySettingsFromWindow()
             },
             onCancel: { [weak self] in
-                self?.settingsWindow?.close()
+                self?.settingsWindowCoordinator.close()
             },
             onOpenLogin: { [weak self] in
-                self?.settingsWindow?.close()
+                self?.settingsWindowCoordinator.close()
                 self?.showLoginWindow(clearCookies: true)
             },
             onLogout: { [weak self] in
@@ -1194,9 +1194,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     codexError: self.codexError,
                     isLoading: false,
                     lastUpdated: self.lastUpdated,
-                    overage: nil
+                        overage: nil
                 )
-                self.settingsSnapshot = AppSettings.shared.createSnapshot()
+                self.settingsWindowCoordinator.refreshSnapshot(AppSettings.shared.createSnapshot())
                 self.syncRefreshTimerState()
                 if self.hasRefreshableService {
                     self.refreshAll(force: true)
@@ -1224,20 +1224,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 )
             }
         )
-
-        let hostingController = NSHostingController(rootView: settingsView)
-
-        let window = NSWindow(contentViewController: hostingController)
-        window.title = "ClaudeUsage 설정"
-        window.styleMask = [.titled, .closable]
-        window.center()
-        window.isReleasedWhenClosed = false
-        window.delegate = self
-
-        self.settingsWindow = window
-
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        settingsWindowCoordinator.present(rootView: settingsView, snapshot: snapshot)
     }
 
     // MARK: - Login Window
@@ -1348,24 +1335,5 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quitClicked() {
         NSApplication.shared.terminate(nil)
-    }
-}
-
-// MARK: - NSWindowDelegate
-
-extension AppDelegate: NSWindowDelegate {
-    func windowDidResignKey(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow else { return }
-        if window == settingsWindow {
-            window.close()
-        }
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow else { return }
-        if window == settingsWindow, let snapshot = settingsSnapshot {
-            AppSettings.shared.restore(from: snapshot)
-            settingsSnapshot = nil
-        }
     }
 }
