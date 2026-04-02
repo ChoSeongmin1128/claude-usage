@@ -740,12 +740,10 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            settingsToggleRow(
-                "\(descriptor.title) 알림 사용",
-                isOn: Binding(
-                    get: { settings.isProviderAlertEnabled(provider) },
-                    set: { settings.setProviderAlertEnabled($0, for: provider) }
-                )
+            chip(
+                title: "현재 상태",
+                value: settings.isProviderAlertEnabled(provider) ? "공통 알림 대상" : "제외됨",
+                color: settings.isProviderAlertEnabled(provider) ? .green : .secondary
             )
 
             Button {
@@ -753,7 +751,7 @@ struct SettingsView: View {
                 selectedCommonTab = .alerts
                 settings.settingsLastTab = SettingsProviderPanel.common.rawValue
             } label: {
-                Label("공통 알림 프리셋 열기", systemImage: "bell.badge")
+                Label("공통 알림 열기", systemImage: "bell.badge")
             }
             .buttonStyle(.link)
         }
