@@ -1114,22 +1114,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func applySettingsFromWindow() {
         Task {
-            await self.apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
-            let credentialAvailability = await self.apiService.fetchCredentialAvailability()
-
-            if credentialAvailability.sessionCredentialAvailable,
-               let key = KeychainManager.shared.load(),
-               !key.isEmpty {
-                await self.apiService.updateSessionKey(key)
-            } else {
-                await self.apiService.clearSession()
-            }
-            let snapshot = await self.apiService.fetchUsageHealthSnapshot()
+            let result = await ClaudeSettingsApplyCoordinator.syncStoredCredential(
+                apiService: self.apiService,
+                preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
+                providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
+            )
             await MainActor.run {
-                self.applyUsageHealthSnapshot(snapshot)
-                if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared),
-                   snapshot.runtime.credentialAvailability.hasAnyCredential {
-                    AppSettings.shared.hasCompletedSetupWizard = true
+                self.applyUsageHealthSnapshot(result.snapshot)
+                if result.shouldStartMonitoring {
+                    AppSettings.shared.hasCompletedSetupWizard = result.shouldMarkSetupComplete
                     self.startMonitoring()
                 } else {
                     self.clearClaudePresentationState(
@@ -1190,13 +1183,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onLogout: { [weak self] in
                 guard let self = self else { return }
-                try? KeychainManager.shared.delete()
                 Task {
-                    await self.apiService.clearSession()
-                    let snapshot = await self.apiService.fetchUsageHealthSnapshot()
+                    let result = await ClaudeSettingsApplyCoordinator.logout(
+                        apiService: self.apiService,
+                        preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
+                        providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
+                    )
                     await MainActor.run {
-                        AppSettings.shared.hasCompletedSetupWizard = snapshot.runtime.credentialAvailability.hasAnyCredential
-                        self.applyUsageHealthSnapshot(snapshot)
+                        AppSettings.shared.hasCompletedSetupWizard = result.shouldMarkSetupComplete
+                        self.applyUsageHealthSnapshot(result.snapshot)
                     }
                 }
                 self.clearClaudePresentationState(markSetupIncomplete: false)
@@ -1283,27 +1278,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             onSessionKeyFound: { [weak self] key in
                 guard let self = self else { return }
 
-                // 세션 키 저장
-                do {
-                    try KeychainManager.shared.save(key)
-                } catch {
-                    Logger.error("세션 키 저장 실패: \(error)")
-                }
-
                 // 1.5초 후 창 닫기 및 모니터링 시작
                 Task {
                     try? await Task.sleep(nanoseconds: 1_500_000_000)
                     await MainActor.run {
                         self.loginWindow?.close()
                     }
-                    await self.apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
-                    await self.apiService.updateSessionKey(key)
-                    await MainActor.run {
-                        AppSettings.shared.hasCompletedSetupWizard = true
-                        self.hasAuthError = false
-                        self.startMonitoring()
+                    do {
+                        let result = try await ClaudeSettingsApplyCoordinator.activateSessionKey(
+                            key,
+                            apiService: self.apiService,
+                            preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
+                            providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
+                        )
+                        await MainActor.run {
+                            self.applyUsageHealthSnapshot(result.snapshot)
+                            AppSettings.shared.hasCompletedSetupWizard = result.shouldMarkSetupComplete
+                            self.hasAuthError = false
+                            if result.shouldStartMonitoring {
+                                self.startMonitoring()
+                            }
+                        }
+                        Logger.info("로그인 완료, 모니터링 시작")
+                    } catch {
+                        Logger.error("세션 키 저장 실패: \(error)")
                     }
-                    Logger.info("로그인 완료, 모니터링 시작")
                 }
             },
             onCancel: { [weak self] in

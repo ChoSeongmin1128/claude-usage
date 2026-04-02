@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (20차)
+최종 갱신: 2026-04-02 (21차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -39,6 +39,8 @@
 - 상태바 우클릭 메뉴 조립도 [StatusContextMenuBuilder.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/StatusContextMenuBuilder.swift) 로 분리해, `AppDelegate` 안의 메뉴 생성/section 조립 책임을 줄이기 시작했습니다.
 - 팝오버 객체와 리사이즈 상태도 [AppPopoverCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppPopoverCoordinator.swift) 로 분리해, `AppDelegate` 가 직접 `NSPopover` 생성/hosting controller 구성/resize work item 수명 관리를 하지 않도록 정리하기 시작했습니다.
 - 설정/전원 상태 observer 구독도 [AppRuntimeObservationCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppRuntimeObservationCoordinator.swift) 로 분리해, `AppDelegate` 가 `Combine` 구독과 cancellable 수명 관리를 직접 갖지 않도록 정리하기 시작했습니다.
+- Claude 설정 적용과 session key 반영도 [ClaudeSettingsApplyCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ClaudeSettingsApplyCoordinator.swift) 로 분리해, 설정 저장/로그아웃/로그인 완료 시 `Keychain -> APIService -> health snapshot` 순서를 `AppDelegate` 밖으로 옮기기 시작했습니다.
+- 알림 설정은 provider별 임계값을 길게 늘어놓는 구조를 버리고, `공통 알림 프리셋 + 프리셋별 on/off` 구조로 단순화해야 합니다.
 - provider 전환 시 stale refresh 판단과 enable/disable 정책도 [ProviderTransitionPolicy.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ProviderTransitionPolicy.swift) 로 분리해, `AppDelegate` 안의 서비스 전환 분기가 단순 결정 호출 위주로 바뀌기 시작했습니다.
 - `Claude` / `Codex` refresh의 백오프 계산과 in-flight 고착 판단도 [RefreshExecutionPolicy.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RefreshExecutionPolicy.swift) 로 분리해, `AppDelegate` 안의 중복된 retry/backoff 규칙을 줄이기 시작했습니다.
 - 메뉴바 아이콘/색상 렌더링 세부 구현도 [MenuBarIconFactory.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarIconFactory.swift) 로 분리해, `AppDelegate` 안에 남아 있던 이미지 합성/알파 트리밍/색상 선택 로직을 utility로 이동시켰습니다.
@@ -155,6 +157,15 @@
 - 상세 표시(배터리, 리셋 시간, 다중 provider)는 사용자가 선택해서 확장
 - provider별 스타일/표시 자유도를 우선 보장
 - 정보 밀도 충돌은 기본 preset에서만 관리하고, 사용자가 의도적으로 많이 켜는 것은 허용
+
+### E-2. 알림 UX 방향
+
+- provider별로 별도 퍼센트 임계값 세트를 복제하지 않음
+- 알림 프리셋은 공통으로 유지
+- 각 프리셋은 `사용`, `끄기`를 개별로 선택 가능하게 둠
+- `현재 세션`, `주간 세션`은 프리셋 대상 윈도우를 고르는 축으로만 남기고, 임계값 편집 UI와 섞지 않음
+- 설정 화면에서는 알림 프리셋을 짧게 요약하고, 과도한 설명/토글 중복을 제거
+- `NotificationManager` 도 공통 프리셋 정의를 기준으로 provider별 상태만 추적하도록 단순화
 
 ### F. 팝오버 UX 방향
 
