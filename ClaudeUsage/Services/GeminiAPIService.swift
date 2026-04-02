@@ -8,6 +8,12 @@ actor GeminiAPIService {
         case unknown
     }
 
+    private enum GeminiUserTierID: String {
+        case free = "free-tier"
+        case legacy = "legacy-tier"
+        case standard = "standard-tier"
+    }
+
     private struct OAuthCredentials {
         let accessToken: String?
         let idToken: String?
@@ -25,6 +31,13 @@ actor GeminiAPIService {
         let hostedDomain: String?
     }
 
+    private struct CodeAssistStatus {
+        let tier: GeminiUserTierID?
+        let projectID: String?
+
+        static let empty = CodeAssistStatus(tier: nil, projectID: nil)
+    }
+
     private struct QuotaBucket: Decodable {
         let remainingFraction: Double?
         let resetTime: String?
@@ -36,6 +49,8 @@ actor GeminiAPIService {
     }
 
     private let quotaEndpoint = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota")!
+    private let loadCodeAssistEndpoint = URL(string: "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist")!
+    private let projectsEndpoint = URL(string: "https://cloudresourcemanager.googleapis.com/v1/projects")!
     private let tokenRefreshEndpoint = URL(string: "https://oauth2.googleapis.com/token")!
     private let requestTimeout: TimeInterval = 20
 
@@ -61,12 +76,25 @@ actor GeminiAPIService {
             throw APIError.invalidSessionKey
         }
 
+        let claims = extractClaims(from: credentials.idToken)
+        let codeAssistStatus = await loadCodeAssistStatus(accessToken: accessToken)
+        let projectID: String?
+        if let detectedProjectID = codeAssistStatus.projectID {
+            projectID = detectedProjectID
+        } else {
+            projectID = try? await discoverGeminiProjectID(accessToken: accessToken)
+        }
+
         var request = URLRequest(url: quotaEndpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = requestTimeout
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = Data("{}".utf8)
+        if let projectID, !projectID.isEmpty {
+            request.httpBody = Data("{\"project\":\"\(projectID)\"}".utf8)
+        } else {
+            request.httpBody = Data("{}".utf8)
+        }
 
         let data: Data
         let response: URLResponse
@@ -89,9 +117,8 @@ actor GeminiAPIService {
             throw APIError.serverError(httpResponse.statusCode)
         }
 
-        let claims = extractClaims(from: credentials.idToken)
         do {
-            return try parseUsage(data, claims: claims)
+            return try parseUsage(data, claims: claims, codeAssistStatus: codeAssistStatus)
         } catch let error as APIError {
             throw error
         } catch {
@@ -275,10 +302,20 @@ actor GeminiAPIService {
     }
 
     private func resolvedGeminiBinaryURL() -> URL? {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
         let envPaths = ProcessInfo.processInfo.environment["PATH"]?
             .split(separator: ":")
             .map(String.init) ?? []
-        let fallbackPaths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
+        let fallbackPaths = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "\(home)/.bun/bin",
+            "\(home)/.npm/bin",
+            "\(home)/.local/bin",
+            "\(home)/bin",
+        ]
         let candidates = Array(Set(envPaths + fallbackPaths))
         let fm = FileManager.default
 
@@ -344,7 +381,11 @@ actor GeminiAPIService {
         )
     }
 
-    private func parseUsage(_ data: Data, claims: TokenClaims) throws -> GeminiUsageResponse {
+    private func parseUsage(
+        _ data: Data,
+        claims: TokenClaims,
+        codeAssistStatus: CodeAssistStatus
+    ) throws -> GeminiUsageResponse {
         let response = try JSONDecoder().decode(QuotaResponse.self, from: data)
         guard let buckets = response.buckets, !buckets.isEmpty else {
             throw APIError.parseError
@@ -377,12 +418,20 @@ actor GeminiAPIService {
         let secondary = quotas.first(where: { isFlashModel(id: $0.modelID) }) ?? quotas.dropFirst().first
         let tertiary = quotas.first(where: { isFlashLiteModel(id: $0.modelID) })
 
-        let accountPlan: String? = {
-            if claims.hostedDomain?.isEmpty == false {
-                return "Workspace"
-            }
-            return "OAuth"
-        }()
+        let accountPlan: String? = switch (codeAssistStatus.tier, claims.hostedDomain) {
+        case (.standard, _):
+            "Paid"
+        case (.free, .some):
+            "Workspace"
+        case (.free, .none):
+            "Free"
+        case (.legacy, _):
+            "Legacy"
+        case (.none, .some):
+            "Workspace"
+        case (.none, .none):
+            "OAuth"
+        }
 
         return GeminiUsageResponse(
             accountEmail: claims.email,
@@ -436,5 +485,89 @@ actor GeminiAPIService {
 
     private func isProModel(id: String) -> Bool {
         id.lowercased().contains("pro")
+    }
+
+    private func loadCodeAssistStatus(accessToken: String) async -> CodeAssistStatus {
+        var request = URLRequest(url: loadCodeAssistEndpoint)
+        request.httpMethod = "POST"
+        request.timeoutInterval = requestTimeout
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{\"metadata\":{\"ideType\":\"GEMINI_CLI\",\"pluginType\":\"GEMINI\"}}".utf8)
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            return .empty
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            return .empty
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return .empty
+        }
+
+        let rawProjectID: String? = {
+            if let project = json["cloudaicompanionProject"] as? String {
+                return project
+            }
+            if let project = json["cloudaicompanionProject"] as? [String: Any] {
+                return (project["id"] as? String) ?? (project["projectId"] as? String)
+            }
+            return nil
+        }()
+
+        let trimmedProjectID = rawProjectID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let projectID = (trimmedProjectID?.isEmpty == false) ? trimmedProjectID : nil
+        let tier = ((json["currentTier"] as? [String: Any])?["id"] as? String)
+            .flatMap(GeminiUserTierID.init(rawValue:))
+
+        return CodeAssistStatus(tier: tier, projectID: projectID)
+    }
+
+    private func discoverGeminiProjectID(accessToken: String) async throws -> String? {
+        var request = URLRequest(url: projectsEndpoint)
+        request.httpMethod = "GET"
+        request.timeoutInterval = requestTimeout
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw APIError.networkError(error.localizedDescription)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.unknownError("Invalid Gemini projects response")
+        }
+        guard httpResponse.statusCode == 200 else {
+            return nil
+        }
+
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let projects = json["projects"] as? [[String: Any]]
+        else {
+            return nil
+        }
+
+        for project in projects {
+            guard let projectID = project["projectId"] as? String else { continue }
+            if projectID.hasPrefix("gen-lang-client") {
+                return projectID
+            }
+            if let labels = project["labels"] as? [String: String],
+               labels["generative-language"] != nil {
+                return projectID
+            }
+        }
+
+        return nil
     }
 }

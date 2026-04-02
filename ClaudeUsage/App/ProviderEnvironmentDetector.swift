@@ -46,23 +46,29 @@ enum ProviderEnvironmentDetector {
         let hasStateDirectory = FileManager.default.fileExists(atPath: antigravityURL.path)
         let runningProcess = AntigravityStatusProbe.runningProcess()
 
-        switch (runningProcess != nil, hasStateDirectory) {
-        case (true, true):
+        switch (runningProcess, hasStateDirectory) {
+        case let (.some(process), true) where process.csrfToken != nil:
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 summary: "Antigravity language server와 로컬 상태 디렉토리 감지"
             )
-        case (true, false):
+        case let (.some(process), false) where process.csrfToken != nil:
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 summary: "Antigravity language server 감지"
             )
-        case (false, true):
+        case let (.some(process), _):
+            let portSuffix = process.extensionPort.map { " · 포트 \($0)" } ?? ""
+            return ProviderEnvironmentStatus(
+                isDetected: false,
+                summary: "Antigravity language server는 실행 중이지만 연결 토큰이 없습니다\(portSuffix)"
+            )
+        case (nil, true):
             return ProviderEnvironmentStatus(
                 isDetected: false,
                 summary: "Antigravity 상태 디렉토리는 있지만 실행 중인 language server는 없습니다"
             )
-        case (false, false):
+        case (nil, false):
             return ProviderEnvironmentStatus(
                 isDetected: false,
                 summary: "Antigravity 상태 미감지"
@@ -71,12 +77,26 @@ enum ProviderEnvironmentDetector {
     }
 
     private static func binaryExists(named name: String) -> Bool {
+        let candidates = binaryCandidateDirectories()
+        let fm = FileManager.default
+        return candidates.contains { fm.isExecutableFile(atPath: ($0 as NSString).appendingPathComponent(name)) }
+    }
+
+    private static func binaryCandidateDirectories() -> [String] {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
         let envPaths = ProcessInfo.processInfo.environment["PATH"]?
             .split(separator: ":")
             .map(String.init) ?? []
-        let fallbackPaths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]
-        let candidates = Array(Set(envPaths + fallbackPaths))
-        let fm = FileManager.default
-        return candidates.contains { fm.isExecutableFile(atPath: ($0 as NSString).appendingPathComponent(name)) }
+        let fallbackPaths = [
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+            "\(home)/.bun/bin",
+            "\(home)/.npm/bin",
+            "\(home)/.local/bin",
+            "\(home)/bin",
+        ]
+        return Array(Set(envPaths + fallbackPaths))
     }
 }

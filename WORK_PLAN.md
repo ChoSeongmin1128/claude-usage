@@ -630,6 +630,10 @@
 - 독립 `Setup Wizard` 는 `Organization 열기`와 `자동 선택 유지`를 분리해, organization 단계에서 설정창을 억지로 다시 열지 않고도 완료로 넘어갈 수 있게 정리했습니다.
 - `SetupCompletionPolicy` 에 credential step 선택 로직을 올려 `AppDelegate` 와 `SettingsView` 가 같은 기준으로 `Chrome -> 웹 로그인 -> 수동 sessionKey` 흐름을 고르도록 맞추기 시작했습니다.
 - `CodexBar`는 README와 provider 문서에 `권한 이유`, `로컬만 읽는 데이터`, `브라우저별 제약`, `키체인 prompt 정책`을 분명히 적습니다. 현재 앱도 설정 설명과 README, 향후 Sparkle 배포 문서에서 이 수준의 설명 책임을 져야 합니다.
+- `CodexBar`와의 직접 비교 결과, `Gemini`는 단순 `oauth_creds.json -> retrieveUserQuota`만으로 끝나지 않고 `loadCodeAssist`와 Cloud Resource Manager project 탐색을 함께 써서 quota 정확도와 즉시성을 높입니다. 현재 앱도 이 흐름을 일부 가져와 `project` body를 포함한 quota 요청으로 올렸습니다.
+- 같은 비교에서 `CodexBar`는 앱 시작 시 `provider detection -> enabled state 반영 -> 첫 refresh`를 자동으로 수행합니다. 현재 앱도 `Gemini` / `Antigravity` 에 대해 1회 초기 자동 감지·활성화를 추가했지만, 이후에는 사용자가 끈 상태를 다시 덮어쓰지 않도록 bootstrap 소유권을 더 분명히 해야 합니다.
+- 2026-04-02 추가 비교 반영으로 [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `providerStates`가 이미 저장된 기존 사용자에게 자동 감지가 다시 enable 상태를 덮어쓰지 않도록 수정했습니다. 즉 자동 활성화는 신규 설치 bootstrap에만 한정됩니다.
+- 같은 통합에서 [ProviderEnvironmentDetector.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ProviderEnvironmentDetector.swift), [AntigravityStatusProbe.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AntigravityStatusProbe.swift) 는 `Antigravity`를 단순 실행/미실행이 아니라 `실행 중이지만 CSRF/연결 토큰이 없음` 상태까지 구분하도록 올렸습니다. 이제 `바로 못 가져오는` 이유가 설정과 popover에서 더 직접 드러납니다.
 - 세션키 저장 직후 메뉴바, 팝오버, 설정이 서로 다른 상태를 보이던 문제를 줄이기 위해 `claudeSessionKeyDidChange` 반응을 `AppDelegate` 중심으로 모으기 시작했습니다. `SettingsView`가 `health snapshot`을 기준으로 `hasCompletedSetupWizard`를 다시 쓰던 경로는 제거했고, 전역 반영은 `AppRuntimeObservationCoordinator -> AppDelegate -> refresh/updateMenuBar/updatePopover` 순서로 단일화하고 있습니다.
 - 같은 세션키를 다시 저장할 때는 Keychain 저장을 건너뛰도록 바꿔, 테스트/적용 과정에서 불필요한 키체인 쓰기와 프롬프트를 줄이기 시작했습니다. 빠른 시작도 자격이 준비된 뒤에는 `다른 인증 방법`을 다시 펼치지 않도록 줄여 first-run 정보 밀도를 낮추고 있습니다.
 - Claude 인증 설정에서 `상세 인증 상태`는 `복구 및 진단` 안쪽으로 다시 내려, 기본 고급 화면에는 `수동 sessionKey`와 `복구/도움말`만 먼저 보이게 정리하고 있습니다.

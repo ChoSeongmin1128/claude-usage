@@ -229,6 +229,7 @@ class AppSettings: ObservableObject {
     }
 
     private let defaults = UserDefaults.standard
+    let loadedProviderStatesFromDisk: Bool
 
     // MARK: - Published Properties
 
@@ -1307,8 +1308,10 @@ class AppSettings: ObservableObject {
         self.claudeSettingsLastTab = defaults.string(forKey: "claudeSettingsLastTab") ?? "auth"
         self.codexSettingsLastTab = defaults.string(forKey: "codexSettingsLastTab") ?? "auth"
 
+        let persistedProviderStatesData = defaults.data(forKey: "providerStates")
+        self.loadedProviderStatesFromDisk = persistedProviderStatesData != nil
         let loadedProviderStates: AppProviderStateCatalog
-        if let data = defaults.data(forKey: "providerStates"),
+        if let data = persistedProviderStatesData,
            let catalog = try? JSONDecoder().decode(AppProviderStateCatalog.self, from: data) {
             loadedProviderStates = catalog
         } else {

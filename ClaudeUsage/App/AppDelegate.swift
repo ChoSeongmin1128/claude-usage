@@ -12,6 +12,8 @@ import WebKit
 class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Properties
 
+    private static let initialRuntimeProviderDetectionKey = "initialRuntimeProviderDetectionCompleted"
+
     private var statusItem: NSStatusItem?
     private let refreshScheduler = RefreshScheduler()
     private let updateCoordinator = AppUpdateCoordinator()
@@ -386,6 +388,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             AppSettings.shared.restore(from: snapshot)
         }
 
+        applyInitialRuntimeProviderDetectionIfNeeded()
+
         bootstrapRefreshState()
 
         // 업데이트 확인
@@ -394,6 +398,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Claude 시스템 상태 체크 시작 (5분 간격)
         refreshSystemStatus()
         startStatusTimer()
+    }
+
+    private func applyInitialRuntimeProviderDetectionIfNeeded() {
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: Self.initialRuntimeProviderDetectionKey) == false else { return }
+        guard AppSettings.shared.loadedProviderStatesFromDisk == false else {
+            defaults.set(true, forKey: Self.initialRuntimeProviderDetectionKey)
+            return
+        }
+
+        let settings = AppSettings.shared
+        var enabledKinds: [AppProviderKind] = []
+
+        for kind in [AppProviderKind.gemini, .antigravity] {
+            guard settings.isProviderEnabled(kind) == false else { continue }
+            guard ProviderEnvironmentDetector.status(for: kind)?.isDetected == true else { continue }
+            settings.setProviderEnabled(true, for: kind)
+            enabledKinds.append(kind)
+        }
+
+        defaults.set(true, forKey: Self.initialRuntimeProviderDetectionKey)
+
+        if enabledKinds.isEmpty == false {
+            Logger.info("초기 runtime provider 감지 완료: \(enabledKinds.map(\.rawValue).joined(separator: ", "))")
+        }
     }
 
     private func bootstrapRefreshState() {

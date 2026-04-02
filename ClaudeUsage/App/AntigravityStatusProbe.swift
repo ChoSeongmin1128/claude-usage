@@ -3,6 +3,8 @@ import Foundation
 struct AntigravityProcessSnapshot: Sendable, Equatable {
     let pid: Int
     let command: String
+    let csrfToken: String?
+    let extensionPort: Int?
 }
 
 enum AntigravityStatusProbe {
@@ -21,7 +23,12 @@ enum AntigravityStatusProbe {
             guard command.contains("language_server_macos"),
                   isAntigravityCommand(command) else { continue }
 
-            return AntigravityProcessSnapshot(pid: pid, command: command)
+            return AntigravityProcessSnapshot(
+                pid: pid,
+                command: command,
+                csrfToken: extractFlag("--csrf_token", from: command),
+                extensionPort: extractPort("--extension_server_port", from: command)
+            )
         }
 
         return nil
@@ -43,6 +50,20 @@ enum AntigravityStatusProbe {
         }
 
         return false
+    }
+
+    private nonisolated static func extractFlag(_ flag: String, from command: String) -> String? {
+        let pattern = "\(NSRegularExpression.escapedPattern(for: flag))[=\\s]+([^\\s]+)"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return nil }
+        let range = NSRange(command.startIndex..<command.endIndex, in: command)
+        guard let match = regex.firstMatch(in: command, options: [], range: range),
+              let tokenRange = Range(match.range(at: 1), in: command) else { return nil }
+        return String(command[tokenRange])
+    }
+
+    private nonisolated static func extractPort(_ flag: String, from command: String) -> Int? {
+        guard let raw = extractFlag(flag, from: command) else { return nil }
+        return Int(raw)
     }
 
     private nonisolated static func runProcess(arguments: [String]) throws -> String {
