@@ -201,14 +201,20 @@ final class PopoverViewModel: ObservableObject {
         case .gemini:
             let isEnabled = settings.isProviderEnabled(.gemini)
             let environmentStatus = ProviderEnvironmentDetector.status(for: .gemini)
-            let isAuthRequired = isEnabled && ProviderEnvironmentDetector.requiresInteractiveSetup(for: .gemini)
-            let runtimeError = runtimeSnapshots[.gemini]?.error
+            let snapshot = runtimeSnapshots[.gemini]
+            let runtimeError = snapshot?.error
+            let hasCredential = snapshot?.hasCredential == true
+                || ProviderEnvironmentDetector.canAttemptRefresh(for: .gemini)
+                || environmentStatus?.isDetected == true
+            let isAuthRequired = isEnabled
+                && !hasCredential
+                && (runtimeError?.isDefinitiveAuthFailure ?? true)
             let summary: String
             if !isEnabled {
                 summary = "비활성화됨"
             } else if let geminiUsage {
                 summary = "Pro \(Int(geminiUsage.primaryPercentage.rounded()))% · Flash \(Int(geminiUsage.secondaryPercentage.rounded()))%"
-            } else if runtimeSnapshots[.gemini]?.isLoading == true {
+            } else if snapshot?.isLoading == true {
                 summary = "조회 중"
             } else if isAuthRequired {
                 summary = "인증 필요"
@@ -222,8 +228,8 @@ final class PopoverViewModel: ObservableObject {
                 service: .gemini,
                 summary: summary,
                 meta: nil,
-                lastUpdated: runtimeSnapshots[.gemini]?.lastUpdated,
-                isLoading: runtimeSnapshots[.gemini]?.isLoading ?? false,
+                lastUpdated: snapshot?.lastUpdated,
+                isLoading: snapshot?.isLoading ?? false,
                 error: runtimeError,
                 hasContent: geminiUsage != nil,
                 isAuthRequired: isAuthRequired,
@@ -232,14 +238,20 @@ final class PopoverViewModel: ObservableObject {
         case .antigravity:
             let isEnabled = settings.isProviderEnabled(.antigravity)
             let environmentStatus = ProviderEnvironmentDetector.status(for: .antigravity)
-            let isAuthRequired = isEnabled && ProviderEnvironmentDetector.requiresInteractiveSetup(for: .antigravity)
-            let runtimeError = runtimeSnapshots[.antigravity]?.error
+            let snapshot = runtimeSnapshots[.antigravity]
+            let runtimeError = snapshot?.error
+            let hasCredential = snapshot?.hasCredential == true
+                || ProviderEnvironmentDetector.canAttemptRefresh(for: .antigravity)
+                || environmentStatus?.isDetected == true
+            let isAuthRequired = isEnabled
+                && !hasCredential
+                && (runtimeError?.isDefinitiveAuthFailure ?? true)
             let summary: String
             if !isEnabled {
                 summary = "비활성화됨"
             } else if let antigravityUsage {
                 summary = "Claude \(Int(antigravityUsage.primaryPercentage.rounded()))% · Pro \(Int(antigravityUsage.secondaryPercentage.rounded()))%"
-            } else if runtimeSnapshots[.antigravity]?.isLoading == true {
+            } else if snapshot?.isLoading == true {
                 summary = "조회 중"
             } else if isAuthRequired {
                 summary = environmentStatus?.summary ?? "앱 실행 또는 인증이 필요합니다"
@@ -252,9 +264,9 @@ final class PopoverViewModel: ObservableObject {
             return RuntimeServiceState(
                 service: .antigravity,
                 summary: summary,
-                meta: runtimeSnapshots[.antigravity]?.lastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) },
-                lastUpdated: runtimeSnapshots[.antigravity]?.lastUpdated,
-                isLoading: runtimeSnapshots[.antigravity]?.isLoading ?? false,
+                meta: snapshot?.lastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) },
+                lastUpdated: snapshot?.lastUpdated,
+                isLoading: snapshot?.isLoading ?? false,
                 error: runtimeError,
                 hasContent: antigravityUsage != nil,
                 isAuthRequired: isAuthRequired,

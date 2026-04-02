@@ -6,7 +6,7 @@ final class AppPopoverCoordinator {
     let viewModel = PopoverViewModel()
     let popover = NSPopover()
 
-    private var resizeWorkItems: [PopoverService: DispatchWorkItem] = [:]
+    private var resizeWorkItem: DispatchWorkItem?
     private var adjustingServices = Set<PopoverService>()
 
     func configure(
@@ -39,8 +39,8 @@ final class AppPopoverCoordinator {
     }
 
     func invalidate() {
-        resizeWorkItems.values.forEach { $0.cancel() }
-        resizeWorkItems.removeAll()
+        resizeWorkItem?.cancel()
+        resizeWorkItem = nil
         adjustingServices.removeAll()
     }
 
@@ -51,7 +51,7 @@ final class AppPopoverCoordinator {
     func refreshSizeIfShown(service: PopoverService, compact: Bool) {
         guard popover.isShown else { return }
 
-        resizeWorkItems[service]?.cancel()
+        resizeWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             guard self.popover.isShown,
@@ -74,11 +74,17 @@ final class AppPopoverCoordinator {
                     compact: compact,
                     fittingWidth: fitting.width
                 ),
-                max(320, screenMaxWidth)
+                max(300, screenMaxWidth)
             )
-            let minHeight: CGFloat = compact ? 104 : 280
+            let minHeight: CGFloat = compact ? 120 : 280
             let maxHeight = max(minHeight, (NSScreen.main?.visibleFrame.height ?? 900) - 100)
-            let height = min(max(fitting.height, minHeight), maxHeight)
+            let height: CGFloat
+            if compact {
+                let currentHeight = self.popover.contentSize.height > 0 ? self.popover.contentSize.height : minHeight
+                height = min(max(max(fitting.height, minHeight), currentHeight), maxHeight)
+            } else {
+                height = min(max(fitting.height, minHeight), maxHeight)
+            }
             let targetSize = NSSize(width: width, height: height)
 
             let changed = abs(self.popover.contentSize.width - targetSize.width) > 0.5 ||
@@ -88,7 +94,7 @@ final class AppPopoverCoordinator {
             }
         }
 
-        resizeWorkItems[service] = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: workItem)
+        resizeWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now(), execute: workItem)
     }
 }

@@ -17,9 +17,8 @@ struct PopoverView: View {
             // 상단 바
             HStack(spacing: 8) {
                 headerServiceSelector
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                headerUtilityControls
-                Spacer(minLength: 0)
+                    .layoutPriority(1)
+                Spacer(minLength: 8)
                 if !isCompact, !shouldCollapseHeaderMetadata, let lastUpdated = currentServiceLastUpdated {
                     Text(lastUpdated, style: .time)
                         .font(.caption2)
@@ -27,6 +26,7 @@ struct PopoverView: View {
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
                 }
+                headerUtilityControls
             }
             .padding(.horizontal, isCompact ? 12 : 16)
             .padding(.top, isCompact ? 4 : 12)
@@ -209,7 +209,6 @@ struct PopoverView: View {
                 }
             }
             .scrollIndicators(.never)
-            .frame(maxWidth: .infinity, alignment: .leading)
         } else {
             Text(selectedService.displayName)
                 .font(.headline)
@@ -225,18 +224,18 @@ struct PopoverView: View {
         } label: {
             HStack(spacing: 5) {
                 Text(service.displayName)
-                    .font(.system(size: 12.5, weight: selectedService == service ? .semibold : .medium))
+                    .font(.system(size: isCompact ? 11.5 : 12.5, weight: selectedService == service ? .semibold : .medium))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.92)
+                    .minimumScaleFactor(0.88)
                     .fixedSize(horizontal: true, vertical: false)
-                if shouldShowWarningDot(for: service) {
+                if shouldShowWarningDot(for: service) && !isCompact {
                     Circle()
                         .fill(Color.orange)
                         .frame(width: 6, height: 6)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .padding(.horizontal, isCompact ? 7 : 10)
+            .padding(.vertical, isCompact ? 3 : 4)
             .background(selectedService == service ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
             .foregroundStyle(selectedService == service ? Color.accentColor : .primary)
             .cornerRadius(8)
@@ -265,7 +264,7 @@ struct PopoverView: View {
     }
 
     private var shouldCollapseHeaderMetadata: Bool {
-        isCompact || availableServices.count >= 4
+        isCompact
     }
 
     private func shouldShowWarningDot(for service: PopoverService) -> Bool {
@@ -328,18 +327,21 @@ struct PopoverView: View {
     }
 
     static func preferredPopoverWidth(for service: PopoverService, compact: Bool) -> CGFloat {
+        if compact {
+            return 304
+        }
         switch service {
         case .claude, .codex:
-            return compact ? 388 : 460
+            return 460
         case .gemini, .antigravity:
-            return compact ? 388 : 476
+            return 476
         }
     }
 
     static func resolvedPopoverWidth(for service: PopoverService, compact: Bool, fittingWidth: CGFloat) -> CGFloat {
         let preferredWidth = self.preferredPopoverWidth(for: service, compact: compact)
         guard !compact else {
-            return preferredWidth
+            return min(max(fittingWidth, 300), 336)
         }
 
         return min(max(fittingWidth, preferredWidth), preferredWidth + 48)
@@ -683,7 +685,7 @@ struct PopoverView: View {
     }
 
     private var compactAuthRequiredState: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Image(systemName: "lock.shield")
                     .foregroundStyle(.orange)
@@ -702,7 +704,7 @@ struct PopoverView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
         }
-        .padding(12)
+        .padding(10)
     }
 
     private var compactLoadingState: some View {
@@ -714,13 +716,13 @@ struct PopoverView: View {
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 
     private func compactErrorState(_ error: APIError) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
@@ -742,7 +744,7 @@ struct PopoverView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
         }
-        .padding(12)
+        .padding(10)
     }
 
     private var compactEmptyState: some View {
@@ -754,9 +756,9 @@ struct PopoverView: View {
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
     }
 
     // MARK: - Compact Content
@@ -764,7 +766,7 @@ struct PopoverView: View {
     @ViewBuilder
     private func compactClaudeContent(usage: ClaudeUsageResponse?) -> some View {
         let visibleClaudeItems = settings.effectiveCompactItems.filter { $0.visible }
-        VStack(spacing: 5) {
+        VStack(spacing: 4) {
             ForEach(visibleClaudeItems.map(\.id), id: \.self) { itemID in
                 switch itemID {
                 case "currentSession":
@@ -791,14 +793,14 @@ struct PopoverView: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder
     private func compactCodexContent() -> some View {
         let visibleCodexItems = settings.effectiveCompactCodexItems.filter { $0.visible }
-        VStack(spacing: 5) {
+        VStack(spacing: 4) {
             ForEach(visibleCodexItems.map(\.id), id: \.self) { itemID in
                 switch itemID {
                 case "codexPrimary":
@@ -818,8 +820,8 @@ struct PopoverView: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -884,7 +886,7 @@ struct PopoverView: View {
 
     @ViewBuilder
     private func compactGeminiContent() -> some View {
-        VStack(spacing: 5) {
+        VStack(spacing: 4) {
             if let primary = geminiUsage?.primaryWindow {
                 CompactUsageRow(label: primary.label, percentage: primary.usedPercent, resetAt: primary.resetAtISO, timeFormatStyle: settings.timeFormat)
             }
@@ -895,8 +897,8 @@ struct PopoverView: View {
                 CompactUsageRow(label: "Lite", percentage: tertiary.usedPercent, resetAt: tertiary.resetAtISO, isWeekly: true, timeFormatStyle: settings.timeFormat)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -961,7 +963,7 @@ struct PopoverView: View {
 
     @ViewBuilder
     private func compactAntigravityContent() -> some View {
-        VStack(spacing: 5) {
+        VStack(spacing: 4) {
             if let primary = antigravityUsage?.primaryWindow {
                 CompactUsageRow(label: primary.label, percentage: primary.usedPercent, resetAt: primary.resetAtISO, timeFormatStyle: settings.timeFormat)
             }
@@ -972,8 +974,8 @@ struct PopoverView: View {
                 CompactUsageRow(label: tertiary.label, percentage: tertiary.usedPercent, resetAt: tertiary.resetAtISO, isWeekly: true, timeFormatStyle: settings.timeFormat)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 }
 
@@ -1006,16 +1008,6 @@ struct CompactUsageRow: View {
                     .fixedSize(horizontal: true, vertical: false)
             }
 
-            ViewThatFits(in: .horizontal) {
-                compactProgressLine(includeResetText: true)
-                compactProgressLine(includeResetText: false)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func compactProgressLine(includeResetText: Bool) -> some View {
-        HStack(spacing: 4) {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 2.5)
@@ -1026,16 +1018,13 @@ struct CompactUsageRow: View {
                 }
             }
             .frame(height: 6)
-            .layoutPriority(1)
 
-            if includeResetText {
-                Text(compactResetText ?? "")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    .fixedSize(horizontal: false, vertical: false)
-            }
+            Text(compactResetText ?? "")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .truncationMode(.tail)
         }
     }
 
@@ -1277,25 +1266,23 @@ struct CompactOverageRow: View {
                     .fixedSize(horizontal: true, vertical: false)
             }
 
-            HStack(spacing: 6) {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 2.5)
-                            .fill(Color.secondary.opacity(0.15))
-                        RoundedRectangle(cornerRadius: 2.5)
-                            .fill(Color.purple)
-                            .frame(width: geo.size.width * min(overage.usagePercentage, 100) / 100)
-                    }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2.5)
+                        .fill(Color.secondary.opacity(0.15))
+                    RoundedRectangle(cornerRadius: 2.5)
+                        .fill(Color.purple)
+                        .frame(width: geo.size.width * min(overage.usagePercentage, 100) / 100)
                 }
-                .frame(height: 6)
-                .layoutPriority(1)
-
-                Text("잔액 \(overage.formattedRemainingCredits)")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
             }
+            .frame(height: 6)
+
+            Text("잔액 \(overage.formattedRemainingCredits)")
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .truncationMode(.tail)
         }
     }
 }

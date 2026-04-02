@@ -289,8 +289,8 @@ actor GeminiAPIService {
 
     private func geminiOAuthConfigCandidates() -> [URL] {
         guard let binaryURL = resolvedGeminiBinaryURL() else { return [] }
-        let realURL = binaryURL.resolvingSymlinksInPath()
-        let baseDir = realURL.deletingLastPathComponent().deletingLastPathComponent()
+        let executableURL = resolvedGeminiExecutableURL(from: binaryURL)
+        let baseDir = executableURL.deletingLastPathComponent().deletingLastPathComponent()
         let fm = FileManager.default
 
         var candidates: [URL] = [
@@ -301,16 +301,45 @@ actor GeminiAPIService {
             baseDir.appendingPathComponent("node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js"),
         ]
 
-        let bundleDir = baseDir.appendingPathComponent("bundle")
-        if fm.fileExists(atPath: bundleDir.path),
-           let enumerator = fm.enumerator(at: bundleDir, includingPropertiesForKeys: nil) {
-            for case let fileURL as URL in enumerator {
-                guard fileURL.pathExtension == "js" else { continue }
-                candidates.append(fileURL)
+        let bundleDirectories = [
+            baseDir.appendingPathComponent("libexec/lib/node_modules/@google/gemini-cli/bundle"),
+            baseDir.appendingPathComponent("lib/node_modules/@google/gemini-cli/bundle"),
+        ]
+        for bundleDir in bundleDirectories where fm.fileExists(atPath: bundleDir.path) {
+            if let enumerator = fm.enumerator(at: bundleDir, includingPropertiesForKeys: nil) {
+                for case let fileURL as URL in enumerator {
+                    guard fileURL.pathExtension == "js" else { continue }
+                    candidates.append(fileURL)
+                }
             }
         }
 
         return candidates
+    }
+
+    private func resolvedGeminiExecutableURL(from binaryURL: URL) -> URL {
+        var currentURL = binaryURL
+        var safetyCounter = 0
+
+        while safetyCounter < 8 {
+            safetyCounter += 1
+            let path = currentURL.path
+            guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: path) else {
+                return currentURL
+            }
+
+            if destination.hasPrefix("/") {
+                currentURL = URL(fileURLWithPath: destination)
+                continue
+            }
+
+            currentURL = URL(fileURLWithPath: path)
+                .deletingLastPathComponent()
+                .appendingPathComponent(destination)
+                .standardizedFileURL
+        }
+
+        return currentURL
     }
 
     private func resolvedGeminiBinaryURL() -> URL? {
@@ -369,8 +398,8 @@ actor GeminiAPIService {
     }
 
     private func parseOAuthClientCredentials(from content: String) -> OAuthClientCredentials? {
-        let clientIDPattern = #"OAUTH_CLIENT_ID\s*=\s*['"]([\w\-\.]+)['"]\s*;"#
-        let secretPattern = #"OAUTH_CLIENT_SECRET\s*=\s*['"]([\w\-]+)['"]\s*;"#
+        let clientIDPattern = #"(?:var|const)?\s*OAUTH_CLIENT_ID\s*=\s*['"]([\w\-\.]+)['"]\s*;"#
+        let secretPattern = #"(?:var|const)?\s*OAUTH_CLIENT_SECRET\s*=\s*['"]([\w\-]+)['"]\s*;"#
 
         guard
             let clientRegex = try? NSRegularExpression(pattern: clientIDPattern),
@@ -380,18 +409,32 @@ actor GeminiAPIService {
         }
 
         let range = NSRange(content.startIndex..., in: content)
+        if let clientMatch = clientRegex.firstMatch(in: content, range: range),
+           let clientRange = Range(clientMatch.range(at: 1), in: content),
+           let secretMatch = secretRegex.firstMatch(in: content, range: range),
+           let secretRange = Range(secretMatch.range(at: 1), in: content) {
+            return OAuthClientCredentials(
+                clientID: String(content[clientRange]),
+                clientSecret: String(content[secretRange])
+            )
+        }
+
+        let fallbackIDPattern = #"[0-9]{6,}-[A-Za-z0-9_\-]+\.apps\.googleusercontent\.com"#
+        let fallbackSecretPattern = #"GOCSPX-[A-Za-z0-9_\-]+"#
         guard
-            let clientMatch = clientRegex.firstMatch(in: content, range: range),
-            let clientRange = Range(clientMatch.range(at: 1), in: content),
-            let secretMatch = secretRegex.firstMatch(in: content, range: range),
-            let secretRange = Range(secretMatch.range(at: 1), in: content)
+            let fallbackIDRegex = try? NSRegularExpression(pattern: fallbackIDPattern),
+            let fallbackSecretRegex = try? NSRegularExpression(pattern: fallbackSecretPattern),
+            let fallbackIDMatch = fallbackIDRegex.firstMatch(in: content, range: range),
+            let fallbackIDRange = Range(fallbackIDMatch.range(at: 0), in: content),
+            let fallbackSecretMatch = fallbackSecretRegex.firstMatch(in: content, range: range),
+            let fallbackSecretRange = Range(fallbackSecretMatch.range(at: 0), in: content)
         else {
             return nil
         }
 
         return OAuthClientCredentials(
-            clientID: String(content[clientRange]),
-            clientSecret: String(content[secretRange])
+            clientID: String(content[fallbackIDRange]),
+            clientSecret: String(content[fallbackSecretRange])
         )
     }
 

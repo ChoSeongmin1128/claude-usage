@@ -344,10 +344,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var hasGeminiCredential: Bool {
         ProviderEnvironmentDetector.canAttemptRefresh(for: .gemini)
+            || (ProviderEnvironmentDetector.status(for: .gemini)?.isDetected ?? false)
     }
 
     private var hasAntigravityCredential: Bool {
         ProviderEnvironmentDetector.canAttemptRefresh(for: .antigravity)
+            || (ProviderEnvironmentDetector.status(for: .antigravity)?.isDetected ?? false)
     }
 
     private var refreshableServices: [PopoverService] {
