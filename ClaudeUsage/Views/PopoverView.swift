@@ -987,16 +987,28 @@ struct CompactUsageRow: View {
     var timeFormatStyle: TimeFormatStyle = .h24
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(label)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
+                if let compactResetText {
+                    Text(compactResetText)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .truncationMode(.tail)
+                }
+            }
+            .layoutPriority(1)
 
-                Spacer(minLength: 0)
+            HStack(spacing: 6) {
+                ProgressBarView(percentage: percentage, height: 6)
+                    .frame(width: 76)
 
                 Text(String(format: "%.0f%%", percentage))
                     .font(.system(.caption, design: .monospaced))
@@ -1005,24 +1017,7 @@ struct CompactUsageRow: View {
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
-
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2.5)
-                        .fill(Color.secondary.opacity(0.15))
-                    RoundedRectangle(cornerRadius: 2.5)
-                        .fill(ColorProvider.statusColor(for: percentage))
-                        .frame(width: geo.size.width * min(percentage, 100) / 100)
-                }
-            }
-            .frame(height: 6)
-
-            Text(compactResetText ?? "")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .truncationMode(.tail)
+            .fixedSize(horizontal: true, vertical: false)
         }
     }
 
@@ -1219,26 +1214,34 @@ struct OverageUsageView: View {
     let overage: OverageSpendLimitResponse
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Image(systemName: "creditcard")
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Image(systemName: "creditcard")
+                        .foregroundStyle(.secondary)
+                    Text("추가 사용량")
+                        .font(.headline)
+                }
+
+                Text("\(overage.formattedUsedCredits) 사용 / \(overage.formattedCreditLimit) 한도 (잔액 \(overage.formattedRemainingCredits))")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("추가 사용량")
-                    .font(.headline)
-                Spacer()
+                    .lineLimit(2)
+            }
+            .layoutPriority(1)
+
+            HStack(spacing: 8) {
+                ProgressBarView(percentage: overage.usagePercentage, height: 8, color: .purple)
+                    .frame(width: 120)
+
                 Text(String(format: "%.0f%%", overage.usagePercentage))
-                    .font(.title2)
+                    .font(.title3)
                     .fontWeight(.bold)
                     .foregroundStyle(.purple)
             }
-
-            ProgressBarView(percentage: overage.usagePercentage, color: .purple)
-
-            Text("\(overage.formattedUsedCredits) 사용 / \(overage.formattedCreditLimit) 한도 (잔액 \(overage.formattedRemainingCredits))")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .fixedSize(horizontal: true, vertical: false)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 }
 
@@ -1248,39 +1251,33 @@ struct CompactOverageRow: View {
     let overage: OverageSpendLimitResponse
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text("추가")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                Text("잔액 \(overage.formattedRemainingCredits)")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .truncationMode(.tail)
+            }
+            .layoutPriority(1)
 
-                Spacer(minLength: 0)
+            HStack(spacing: 6) {
+                ProgressBarView(percentage: overage.usagePercentage, height: 6, color: .purple)
+                    .frame(width: 76)
 
                 Text(String(format: "%.0f%%", overage.usagePercentage))
                     .font(.system(.caption, design: .monospaced))
                     .fontWeight(.medium)
                     .foregroundStyle(.purple)
+                    .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
-
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2.5)
-                        .fill(Color.secondary.opacity(0.15))
-                    RoundedRectangle(cornerRadius: 2.5)
-                        .fill(Color.purple)
-                        .frame(width: geo.size.width * min(overage.usagePercentage, 100) / 100)
-                }
-            }
-            .frame(height: 6)
-
-            Text("잔액 \(overage.formattedRemainingCredits)")
-                .font(.system(size: 9))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .truncationMode(.tail)
+            .fixedSize(horizontal: true, vertical: false)
         }
     }
 }

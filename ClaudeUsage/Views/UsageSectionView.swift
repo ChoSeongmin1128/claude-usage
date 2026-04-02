@@ -16,31 +16,39 @@ struct UsageSectionView: View {
     var timeFormatStyle: TimeFormatStyle = .h24
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // 제목 + 퍼센트
-            HStack {
-                Image(systemName: systemIcon)
-                    .foregroundStyle(.secondary)
-                Text(title)
-                    .font(.headline)
-                Spacer()
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Image(systemName: systemIcon)
+                        .foregroundStyle(.secondary)
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(1)
+                }
+
+                if let text = resetTimeText {
+                    Text(text)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            .layoutPriority(1)
+
+            HStack(spacing: 8) {
+                ProgressBarView(percentage: percentage, height: 8)
+                    .frame(width: 120)
+
                 Text(String(format: "%.0f%%", percentage))
-                    .font(.title2)
+                    .font(.title3)
                     .fontWeight(.bold)
                     .foregroundStyle(ColorProvider.statusColor(for: percentage))
+                    .fixedSize(horizontal: true, vertical: false)
             }
-
-            // 진행바
-            ProgressBarView(percentage: percentage)
-
-            // 리셋 시간 (남은 시간 + 시각)
-            if let text = resetTimeText {
-                Text(text)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            .fixedSize(horizontal: true, vertical: false)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 
     private var resetTimeText: String? {
