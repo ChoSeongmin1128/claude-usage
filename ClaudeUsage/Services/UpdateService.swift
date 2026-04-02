@@ -150,13 +150,20 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine {
         userDriverDelegate: nil
     )
 
+    private let feedURL: URL?
+
     static func makeIfConfigured() -> SparkleUpdateEngine? {
-        guard UpdateConfigurationInspector.configuredValue(for: "SUFeedURL") != nil,
+        guard let feedURLString = UpdateConfigurationInspector.configuredValue(for: "SUFeedURL"),
+              let feedURL = URL(string: feedURLString),
               UpdateConfigurationInspector.configuredValue(for: "SUPublicEDKey") != nil else {
             return nil
         }
 
-        return SparkleUpdateEngine()
+        return SparkleUpdateEngine(feedURL: feedURL)
+    }
+
+    init(feedURL: URL?) {
+        self.feedURL = feedURL
     }
 
     func modeSummary() async -> String {
@@ -164,11 +171,11 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine {
     }
 
     func checkForUpdates() async -> UpdateCheckResult {
-        .upToDate
+        .error("Sparkle 엔진은 앱 내부 확인만 지원합니다")
     }
 
     func latestDownloadURL() async -> URL {
-        URL(string: "https://github.com/ChoSeongmin1128/claude-usage/releases/latest")!
+        feedURL ?? URL(string: "https://github.com/ChoSeongmin1128/claude-usage/releases/latest")!
     }
 
     func usesExternalScheduler() async -> Bool { true }
