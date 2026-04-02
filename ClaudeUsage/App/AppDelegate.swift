@@ -508,6 +508,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupWizardProgress.organizationSummary
     }
 
+    private func applyClaudeSetupLandingTabsIfNeeded() {
+        guard shouldShowStandaloneSetupWizard else { return }
+
+        AppSettings.shared.settingsLastTab = "claude"
+        switch setupWizardProgress.stage {
+        case .credential:
+            AppSettings.shared.claudeSettingsLastTab = "auth"
+        case .verification:
+            AppSettings.shared.claudeSettingsLastTab = "status"
+        case .organization:
+            AppSettings.shared.claudeSettingsLastTab = "organizations"
+        case .complete:
+            break
+        }
+    }
+
     private func checkForUpdates() {
         Task {
             let result = await UpdateService.shared.checkForUpdates()
@@ -1793,10 +1809,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        if !AppSettings.shared.hasCompletedSetupWizard {
-            AppSettings.shared.settingsLastTab = "claude"
-            AppSettings.shared.claudeSettingsLastTab = "auth"
-        }
+        applyClaudeSetupLandingTabsIfNeeded()
 
         let snapshot = AppSettings.shared.createSnapshot()
 
@@ -1967,8 +1980,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.showLoginWindow(clearCookies: true)
             },
             onOpenAdvancedSettings: { [weak self] in
-                AppSettings.shared.settingsLastTab = "claude"
-                AppSettings.shared.claudeSettingsLastTab = "auth"
                 self?.setupWizardWindowCoordinator.close()
                 self?.showSettingsWindow()
             },
