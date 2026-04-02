@@ -2888,6 +2888,24 @@ struct SettingsView: View {
                             .font(.caption2)
                             .foregroundStyle(.orange)
                     }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Sparkle 전환 다음 단계")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("1. release xcconfig에서 `SUFeedURL`, `SUPublicEDKey`를 채웁니다.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text("2. `Scripts/build-notarize-release.sh`로 notarized ZIP을 만듭니다.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text("3. `Scripts/generate-sparkle-appcast.sh`로 appcast.xml을 생성하고 함께 배포합니다.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(10)
+                    .background(Color(NSColor.controlBackgroundColor).opacity(0.4))
+                    .cornerRadius(8)
                 }
             }
 
