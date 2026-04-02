@@ -40,6 +40,10 @@ final class KeychainManager: @unchecked Sendable {
         guard !sessionKey.isEmpty else {
             throw KeychainError.invalidData
         }
+        if self.cachedSessionKeyValue() == sessionKey {
+            Logger.debug("세션 키 저장 스킵: 동일한 값이 이미 캐시에 있음")
+            return
+        }
         do {
             try self.keychainStore.saveString(sessionKey)
         } catch {

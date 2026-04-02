@@ -82,7 +82,7 @@ struct SetupWizardView: View {
 
             primaryStepCard
 
-            if !alternativeSteps.isEmpty {
+            if !hasReadyCredential && !alternativeSteps.isEmpty {
                 DisclosureGroup(isExpanded: $isAlternativeMethodsExpanded) {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(alternativeSteps) { step in

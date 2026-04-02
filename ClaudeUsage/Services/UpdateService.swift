@@ -21,22 +21,24 @@ enum UpdateCheckResult {
 }
 
 protocol AppUpdateEngine: Sendable {
-    func modeSummary() async -> String
-    func checkForUpdates() async -> UpdateCheckResult
-    func latestDownloadURL() async -> URL
+    nonisolated func modeSummary() async -> String
+    nonisolated func checkForUpdates() async -> UpdateCheckResult
+    nonisolated func latestDownloadURL() async -> URL
 }
 
-final class GitHubReleaseUpdateEngine: AppUpdateEngine, @unchecked Sendable {
+struct GitHubReleaseUpdateEngine: AppUpdateEngine, Sendable {
     private let repoOwner = "ChoSeongmin1128"
     private let repoName = "claude-usage"
 
-    func modeSummary() async -> String {
+    nonisolated init() {}
+
+    nonisolated func modeSummary() async -> String {
         "현재는 GitHub Release 수동 다운로드 엔진을 사용 중입니다"
     }
 
     // MARK: - Check for Updates
 
-    func checkForUpdates() async -> UpdateCheckResult {
+    nonisolated func checkForUpdates() async -> UpdateCheckResult {
         let urlString = "https://api.github.com/repos/\(repoOwner)/\(repoName)/releases/latest"
         guard let url = URL(string: urlString) else { return .error("잘못된 URL") }
 
@@ -91,7 +93,7 @@ final class GitHubReleaseUpdateEngine: AppUpdateEngine, @unchecked Sendable {
         }
     }
 
-    func latestDownloadURL() async -> URL {
+    nonisolated func latestDownloadURL() async -> URL {
         URL(string: "https://github.com/\(repoOwner)/\(repoName)/releases/latest/download/ClaudeUsage.zip")!
     }
 }

@@ -623,6 +623,7 @@
 - `SetupCompletionPolicy` 에 credential step 선택 로직을 올려 `AppDelegate` 와 `SettingsView` 가 같은 기준으로 `Chrome -> 웹 로그인 -> 수동 sessionKey` 흐름을 고르도록 맞추기 시작했습니다.
 - `CodexBar`는 README와 provider 문서에 `권한 이유`, `로컬만 읽는 데이터`, `브라우저별 제약`, `키체인 prompt 정책`을 분명히 적습니다. 현재 앱도 설정 설명과 README, 향후 Sparkle 배포 문서에서 이 수준의 설명 책임을 져야 합니다.
 - 세션키 저장 직후 메뉴바, 팝오버, 설정이 서로 다른 상태를 보이던 문제를 줄이기 위해 `claudeSessionKeyDidChange` 반응을 `AppDelegate` 중심으로 모으기 시작했습니다. `SettingsView`가 `health snapshot`을 기준으로 `hasCompletedSetupWizard`를 다시 쓰던 경로는 제거했고, 전역 반영은 `AppRuntimeObservationCoordinator -> AppDelegate -> refresh/updateMenuBar/updatePopover` 순서로 단일화하고 있습니다.
+- 같은 세션키를 다시 저장할 때는 Keychain 저장을 건너뛰도록 바꿔, 테스트/적용 과정에서 불필요한 키체인 쓰기와 프롬프트를 줄이기 시작했습니다. 빠른 시작도 자격이 준비된 뒤에는 `다른 인증 방법`을 다시 펼치지 않도록 줄여 first-run 정보 밀도를 낮추고 있습니다.
 
 ### 제품 방향
 

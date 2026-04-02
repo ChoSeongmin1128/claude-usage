@@ -471,6 +471,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    private func resolveClaudeSetupCompletion(
+        hasSuccessfulFetch: Bool,
+        cachedMetadata: ClaudeProfileMetadata?
+    ) -> Bool {
+        SetupCompletionPolicy.shouldMarkSetupComplete(
+            hasSuccessfulFetch: hasSuccessfulFetch,
+            preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
+            cachedMetadata: cachedMetadata
+        )
+    }
+
     private var isSetupWizardOrganizationReady: Bool {
         setupWizardProgress.isOrganizationReady
     }
@@ -876,9 +887,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.currentClaudeProfileMetadata = cachedProfileMetadata
                 self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
                 self.applyUsageHealthSnapshot(snapshot)
-                AppSettings.shared.hasCompletedSetupWizard = SetupCompletionPolicy.shouldMarkSetupComplete(
+                AppSettings.shared.hasCompletedSetupWizard = self.resolveClaudeSetupCompletion(
                     hasSuccessfulFetch: snapshot.lastOverallSuccessAt != nil,
-                    preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
                     cachedMetadata: cachedProfileMetadata
                 )
 
@@ -1128,11 +1138,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 await MainActor.run {
                     self.currentClaudeProfileMetadata = cachedProfileMetadata
-                    AppSettings.shared.hasCompletedSetupWizard =
-                        SetupCompletionPolicy.shouldMarkCompleteAfterSuccessfulClaudeRefresh(
-                            preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
-                            cachedMetadata: cachedProfileMetadata
-                        )
+                    AppSettings.shared.hasCompletedSetupWizard = self.resolveClaudeSetupCompletion(
+                        hasSuccessfulFetch: true,
+                        cachedMetadata: cachedProfileMetadata
+                    )
                     self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
                     self.currentUsage = result.usage
                     if let fetchedOverage = result.overage {
@@ -1941,7 +1950,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.refreshUsage(force: true)
             },
             onComplete: { [weak self] in
-                AppSettings.shared.hasCompletedSetupWizard = true
+                AppSettings.shared.hasCompletedSetupWizard = self?.setupWizardProgress.stage == .complete
                 self?.setupWizardWindowCoordinator.close()
             },
             onDismiss: { [weak self] in
