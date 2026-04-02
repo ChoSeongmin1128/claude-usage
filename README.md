@@ -36,6 +36,7 @@
 - `Messages header fallback` 수동/자동 보조 복구
 - `Claude Code CLI OAuth` 안내와 상태 표시
 - Sparkle 패키지 통합 + appcast 미설정 시 GitHub Release fallback
+- notarization용 release 스크립트 골격 추가
 - Claude 인증 탭의 단계형 빠른 시작 wizard
 
 ## 인증 경로
@@ -103,6 +104,7 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
 - 현재 앱은 `Sparkle 패키지`를 이미 포함합니다.
 - 하지만 `appcast(feed)`와 `공개키`가 준비되지 않은 개발 빌드에서는 `GitHub Release fallback`으로 동작합니다.
 - 설정 화면의 `업데이트` 섹션에서 지금 빌드가 `Sparkle 통합`, `appcast 준비`, `공개키 준비` 중 어디까지 와 있는지 직접 볼 수 있습니다.
+- 릴리즈 산출물은 [build-notarize-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/build-notarize-release.sh) 로 `archive -> zip -> notarize -> staple` 골격을 실행할 수 있습니다.
 
 ## 보조 사용량 복구
 
