@@ -1558,6 +1558,10 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                Text(messagesFallbackRuntimeHint)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+
                 if settings.claudeMessagesFallbackPolicy != .off && !hasOAuthCredential {
                     Text(settingsViewModel.messagesFallbackOAuthHelpText)
                         .font(.caption)
@@ -1588,6 +1592,10 @@ struct SettingsView: View {
                                 .foregroundStyle(messagesFallbackStatus.hasPrefix("실패:") ? .orange : .secondary)
                         }
                     }
+
+                    Text(messagesFallbackTestHint)
+                        .font(.caption2)
+                        .foregroundStyle(hasOAuthCredential ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.orange))
                 }
             }
             .padding(.top, 4)
@@ -1604,6 +1612,24 @@ struct SettingsView: View {
             .padding(.vertical, 4)
         }
         .font(.subheadline)
+    }
+
+    private var messagesFallbackRuntimeHint: String {
+        switch settings.claudeMessagesFallbackPolicy {
+        case .off:
+            return "지금은 기본 조회가 실패해도 Messages 헤더 보조 경로를 전혀 시도하지 않습니다."
+        case .manual:
+            return "자동 실행은 하지 않고, 아래 테스트 버튼으로만 보조 경로를 확인합니다."
+        case .automatic:
+            return "자동 실행 조건: Claude Code OAuth 준비 + 기본 조회 실패 + 현재 사용량 \(settings.claudeMessagesFallbackAutoDisableBelowPercent)% 이상"
+        }
+    }
+
+    private var messagesFallbackTestHint: String {
+        if !hasOAuthCredential {
+            return "테스트 버튼이 비활성화된 이유: Claude Code OAuth 토큰이 아직 준비되지 않았습니다."
+        }
+        return "이 테스트는 현재 OAuth 토큰으로 보조 경로만 확인하며, 저장된 설정이나 세션키를 바꾸지 않습니다."
     }
 
     private var usageHealthSection: some View {
