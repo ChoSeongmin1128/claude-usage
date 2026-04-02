@@ -47,11 +47,6 @@ final class SettingsWindowCoordinator: NSObject, NSWindowDelegate {
         snapshot = nil
     }
 
-    func windowDidResignKey(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow, window == self.window else { return }
-        window.close()
-    }
-
     func windowWillClose(_ notification: Notification) {
         guard let window = notification.object as? NSWindow, window == self.window else { return }
         if let snapshot {

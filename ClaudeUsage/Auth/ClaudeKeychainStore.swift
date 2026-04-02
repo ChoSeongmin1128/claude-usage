@@ -44,26 +44,33 @@ final class ClaudeKeychainStore: @unchecked Sendable {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
 
-        let deleteStatus = SecItemDelete(query as CFDictionary)
-        if deleteStatus != errSecSuccess && deleteStatus != errSecItemNotFound {
-            throw ClaudeKeychainStoreError.unexpectedStatus(deleteStatus)
-        }
+        let updateStatus = SecItemUpdate(query as CFDictionary, [
+            kSecValueData as String: data,
+        ] as CFDictionary)
 
-        let addStatus = SecItemAdd(attributes as CFDictionary, nil)
-        switch addStatus {
+        switch updateStatus {
         case errSecSuccess:
             return
-        case errSecDuplicateItem:
-            let updateStatus = SecItemUpdate(query as CFDictionary, [
+        case errSecItemNotFound:
+            let addStatus = SecItemAdd(attributes as CFDictionary, nil)
+            guard addStatus == errSecSuccess else {
+                throw ClaudeKeychainStoreError.unexpectedStatus(addStatus)
+            }
+        default:
+            let addStatus = SecItemAdd(attributes as CFDictionary, nil)
+            switch addStatus {
+            case errSecSuccess:
+                return
+            case errSecDuplicateItem:
+                let retryStatus = SecItemUpdate(query as CFDictionary, [
                 kSecValueData as String: data,
             ] as CFDictionary)
-            guard updateStatus == errSecSuccess else {
-                throw ClaudeKeychainStoreError.unexpectedStatus(updateStatus)
+                guard retryStatus == errSecSuccess else {
+                    throw ClaudeKeychainStoreError.unexpectedStatus(retryStatus)
+                }
+            default:
+                throw ClaudeKeychainStoreError.unexpectedStatus(addStatus)
             }
-        case errSecItemNotFound:
-            throw ClaudeKeychainStoreError.itemNotFound
-        default:
-            throw ClaudeKeychainStoreError.unexpectedStatus(addStatus)
         }
     }
 

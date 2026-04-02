@@ -31,6 +31,8 @@ final class KeychainManager: @unchecked Sendable {
 
     private nonisolated let storageKey = "claude-session-key"
     private let keychainStore = ClaudeKeychainStore.shared
+    private nonisolated(unsafe) let cacheLock = NSLock()
+    private nonisolated(unsafe) var cachedSessionKey: String?
 
     private init() {}
 
@@ -43,14 +45,20 @@ final class KeychainManager: @unchecked Sendable {
         } catch {
             throw KeychainError.storageFailed(error.localizedDescription)
         }
+        self.setCachedSessionKey(sessionKey)
         UserDefaults.standard.removeObject(forKey: self.storageKey)
         NotificationCenter.default.post(name: .claudeSessionKeyDidChange, object: nil)
         Logger.info("세션 키 저장 완료")
     }
 
     nonisolated func load() -> String? {
+        if let cached = self.cachedSessionKeyValue(), !cached.isEmpty {
+            return cached
+        }
+
         if let existing = try? self.keychainStore.loadString() {
             if !existing.isEmpty {
+                self.setCachedSessionKey(existing)
                 return existing
             }
         }
@@ -62,6 +70,7 @@ final class KeychainManager: @unchecked Sendable {
 
         do {
             try self.keychainStore.saveString(legacy)
+            self.setCachedSessionKey(legacy)
             UserDefaults.standard.removeObject(forKey: self.storageKey)
             Logger.info("레거시 세션 키를 Keychain으로 마이그레이션 완료")
             return legacy
@@ -77,6 +86,7 @@ final class KeychainManager: @unchecked Sendable {
         } catch {
             throw KeychainError.storageFailed(error.localizedDescription)
         }
+        self.setCachedSessionKey(nil)
         UserDefaults.standard.removeObject(forKey: self.storageKey)
         NotificationCenter.default.post(name: .claudeSessionKeyDidChange, object: nil)
     }
@@ -84,5 +94,17 @@ final class KeychainManager: @unchecked Sendable {
     nonisolated var hasSessionKey: Bool {
         guard let key = load(), !key.isEmpty else { return false }
         return true
+    }
+
+    private nonisolated func cachedSessionKeyValue() -> String? {
+        self.cacheLock.lock()
+        defer { self.cacheLock.unlock() }
+        return self.cachedSessionKey
+    }
+
+    private nonisolated func setCachedSessionKey(_ value: String?) {
+        self.cacheLock.lock()
+        self.cachedSessionKey = value
+        self.cacheLock.unlock()
     }
 }
