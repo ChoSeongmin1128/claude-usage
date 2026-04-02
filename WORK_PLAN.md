@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (52차)
+최종 갱신: 2026-04-02 (53차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -85,6 +85,7 @@
 - 2026-04-02 50차 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift), [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 는 Claude 세션키 연결 테스트 성공 시 실제 런타임 credential 동기화를 바로 실행하고, 로그인 직후 메뉴바와 popover가 서로 다른 상태를 보이던 경로를 줄였습니다. popover는 이제 runtime snapshot을 우선 사용해 Claude 데이터를 그립니다.
 - 2026-04-02 51차 통합에서 [ProviderStateModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift), [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 `Gemini` 를 더 이상 `준비 상태` shell처럼 보이지 않게 정리했습니다. 설정 패널 상단 문구와 본문을 runtime provider 기준으로 바꿨고, `Antigravity` 만 여전히 coming-soon 경로로 남깁니다.
 - 2026-04-02 52차 통합에서 [AntigravityStatusProbe.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AntigravityStatusProbe.swift), [ProviderEnvironmentDetector.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ProviderEnvironmentDetector.swift) 는 `Antigravity` 감지를 단순 상태 디렉토리 존재 여부에서 실제 `language_server_macos` 프로세스 기반으로 올렸습니다. 이제 `--app_data_dir antigravity` 또는 `/antigravity/` marker가 붙은 로컬 language server 실행 여부를 함께 보므로, 이후 runtime probe를 붙일 발판이 더 정확해졌습니다.
+- 2026-04-02 53차 통합에서 [LoginWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/LoginWindowView.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `세션키 추출 성공`과 `세션키 저장/반영 완료`를 분리했습니다. 이제 로그인 창은 실제 저장과 런타임 반영이 끝난 뒤에만 성공으로 표시하고 자동으로 닫히며, 실패 시 창을 유지한 채 오류를 보여주므로 `저장 안 된 것 같다`는 착시를 줄입니다.
 - 2026-04-02 38차 통합에서 [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 의 상단 service selector에 `lineLimit(1)`, `fixedSize`, `layoutPriority` 를 넣어 경고 점이 붙을 때 provider 이름이 두 줄로 감기던 레이아웃 버그를 고쳤습니다.
 - 같은 통합에서 [SetupWizardView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/Components/SetupWizardView.swift), [SetupWizardWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SetupWizardWindowView.swift), [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `Chrome 열기` 와 `웹 로그인 열기` CTA를 분리해, 단계 설명과 실제 동작이 어긋나던 wizard 흐름을 정리하기 시작했습니다.
 - 2026-04-02 39차 통합에서 [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift) 에 `RuntimeProviderRefreshContext`, `RuntimeProviderDescriptor`, `RuntimeProviderRegistry` 를 추가했고, [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 refresh 가능 조건과 `setup complete` 전환 판단을 service별 하드코딩보다 runtime registry를 통해 읽기 시작했습니다.

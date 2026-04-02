@@ -6,16 +6,17 @@ struct LoginWindowView: View {
 
     @State private var isLoading = false
     @State private var isImportingFromChrome = false
+    @State private var isActivatingSession = false
     @State private var errorMessage: String?
     @State private var statusMessage: String?
     @State private var loginSuccess = false
     @State private var clearTrigger: Int
 
     var clearOnOpen: Bool
-    var onSessionKeyFound: (String) -> Void
+    var onSessionKeyFound: (String) async throws -> Void
     var onCancel: () -> Void
 
-    init(clearOnOpen: Bool = false, onSessionKeyFound: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+    init(clearOnOpen: Bool = false, onSessionKeyFound: @escaping (String) async throws -> Void, onCancel: @escaping () -> Void) {
         self.clearOnOpen = clearOnOpen
         self._clearTrigger = State(initialValue: clearOnOpen ? 1 : 0)
         self.onSessionKeyFound = onSessionKeyFound
@@ -55,6 +56,12 @@ struct LoginWindowView: View {
                     Text("Chrome에서 가져오는 중...")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                } else if isActivatingSession {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("세션 키 저장 및 반영 중...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } else if let status = statusMessage, !loginSuccess {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
@@ -71,6 +78,7 @@ struct LoginWindowView: View {
                     Button(action: {
                         clearTrigger += 1
                         loginSuccess = false
+                        isActivatingSession = false
                         statusMessage = "쿠키 초기화됨"
                     }) {
                         Label("초기화", systemImage: "arrow.counterclockwise")
@@ -107,9 +115,7 @@ struct LoginWindowView: View {
             ZStack {
                 LoginWebView(
                     onSessionKeyFound: { key in
-                        loginSuccess = true
-                        statusMessage = nil
-                        onSessionKeyFound(key)
+                        activateSessionKey(key)
                     },
                     onLoadingChanged: { loading in
                         isLoading = loading
@@ -130,7 +136,7 @@ struct LoginWindowView: View {
                             .foregroundStyle(.green)
                         Text("세션 키를 성공적으로 가져왔습니다")
                             .font(.headline)
-                        Text("이 창은 자동으로 닫힙니다")
+                        Text("저장과 반영까지 완료했습니다")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -155,18 +161,43 @@ struct LoginWindowView: View {
                 Button("Chrome 열기") {
                     openChromeForClaude()
                 }
-                .disabled(isLoading || isImportingFromChrome || loginSuccess)
+                .disabled(isLoading || isImportingFromChrome || isActivatingSession || loginSuccess)
                 Button("Chrome에서 가져오기") {
                     importFromChrome()
                 }
-                .disabled(isLoading || isImportingFromChrome || loginSuccess)
+                .disabled(isLoading || isImportingFromChrome || isActivatingSession || loginSuccess)
                 Button("취소") { onCancel() }
+                    .disabled(isActivatingSession)
                     .keyboardShortcut(.cancelAction)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
         .frame(width: 800, height: 700)
+    }
+
+    private func activateSessionKey(_ key: String) {
+        errorMessage = nil
+        statusMessage = "세션 키를 확인했습니다"
+        isActivatingSession = true
+
+        Task {
+            do {
+                try await onSessionKeyFound(key)
+                await MainActor.run {
+                    self.isActivatingSession = false
+                    self.loginSuccess = true
+                    self.statusMessage = "세션 키 저장과 반영이 완료됐습니다"
+                }
+            } catch {
+                await MainActor.run {
+                    self.isActivatingSession = false
+                    self.loginSuccess = false
+                    self.statusMessage = "세션 키 저장 또는 반영에 실패했습니다"
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+        }
     }
 
     private func importFromChrome() {
@@ -186,9 +217,7 @@ struct LoginWindowView: View {
                 self.isImportingFromChrome = false
                 switch outcome {
                 case .success(.importedSessionKey(let key)):
-                    self.loginSuccess = true
-                    self.statusMessage = "Chrome에서 sessionKey를 가져왔습니다"
-                    self.onSessionKeyFound(key)
+                    self.activateSessionKey(key)
                 case .success(.manualSessionKeyRequired(let message)):
                     self.statusMessage = "Chrome 로그인 상태를 확인한 뒤 다시 가져오거나, 아래 웹 로그인으로 진행해 주세요."
                     self.errorMessage = message

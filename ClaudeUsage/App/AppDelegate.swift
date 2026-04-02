@@ -1572,34 +1572,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             onSessionKeyFound: { [weak self] key in
                 guard let self = self else { return }
 
-                Task {
-                    try? await Task.sleep(nanoseconds: 350_000_000)
-                    await MainActor.run {
-                        self.loginWindowCoordinator.close()
+                let result = try await ClaudeSettingsApplyCoordinator.activateSessionKey(
+                    key,
+                    apiService: self.apiService,
+                    preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
+                    providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
+                )
+                await MainActor.run {
+                    self.applyUsageHealthSnapshot(result.snapshot)
+                    AppSettings.shared.hasCompletedSetupWizard = result.shouldMarkSetupComplete
+                    self.hasAuthError = false
+                    if result.shouldStartMonitoring {
+                        self.startMonitoring()
+                    } else {
+                        self.updateMenuBar()
+                        self.updatePopoverViewModel(overage: self.currentOverage)
                     }
-                    do {
-                        let result = try await ClaudeSettingsApplyCoordinator.activateSessionKey(
-                            key,
-                            apiService: self.apiService,
-                            preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
-                            providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
-                        )
-                        await MainActor.run {
-                            self.applyUsageHealthSnapshot(result.snapshot)
-                            AppSettings.shared.hasCompletedSetupWizard = result.shouldMarkSetupComplete
-                            self.hasAuthError = false
-                            if result.shouldStartMonitoring {
-                                self.startMonitoring()
-                            } else {
-                                self.updateMenuBar()
-                                self.updatePopoverViewModel(overage: self.currentOverage)
-                            }
-                        }
-                        Logger.info("로그인 완료, 모니터링 시작")
-                    } catch {
-                        Logger.error("세션 키 저장 실패: \(error)")
-                    }
+                    self.loginWindowCoordinator.close()
                 }
+                Logger.info("로그인 완료, 모니터링 시작")
             },
             onCancel: { [weak self] in
                 self?.loginWindowCoordinator.close()
