@@ -41,10 +41,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var popover: NSPopover? { popoverCoordinator.popover }
     private var popoverViewModel: PopoverViewModel { popoverCoordinator.viewModel }
-    private lazy var runtimeRefreshHandlers: [PopoverService: (Bool) -> Void] = [
-        .claude: { [weak self] force in self?.refreshUsage(force: force) },
-        .codex: { [weak self] force in self?.refreshCodexUsage(force: force) },
-    ]
+    private lazy var runtimeRefreshHandlers: [PopoverService: (Bool) -> Void] =
+        RuntimeRefreshHandlerRegistry.makeHandlers(
+            refreshClaude: { [weak self] force in self?.refreshUsage(force: force) },
+            refreshCodex: { [weak self] force in self?.refreshCodexUsage(force: force) }
+        )
 
     private var currentUsage: ClaudeUsageResponse? {
         get { runtimeStateCatalog[.claude].claudeUsage }

@@ -27,6 +27,11 @@ enum RuntimeProviderPayload {
     case codex(CodexUsageResponse)
 }
 
+enum RuntimeRefreshStrategy: Sendable, Equatable {
+    case claude
+    case codex
+}
+
 struct RuntimeProviderRefreshContext: Sendable, Equatable {
     let hasClaudeSessionKey: Bool
     let hasClaudeOAuthCredential: Bool
@@ -35,6 +40,7 @@ struct RuntimeProviderRefreshContext: Sendable, Equatable {
 
 struct RuntimeProviderDescriptor: Sendable, Equatable {
     let service: PopoverService
+    let refreshStrategy: RuntimeRefreshStrategy
     let marksSetupCompleteOnRefresh: Bool
 
     var kind: AppProviderKind {
@@ -42,7 +48,7 @@ struct RuntimeProviderDescriptor: Sendable, Equatable {
     }
 
     func isRefreshable(using context: RuntimeProviderRefreshContext) -> Bool {
-        switch service {
+        switch refreshStrategy {
         case .claude:
             return context.hasClaudeSessionKey || context.hasClaudeOAuthCredential
         case .codex:
@@ -57,15 +63,15 @@ struct RuntimeProviderDescriptor: Sendable, Equatable {
 
 enum RuntimeProviderRegistry {
     static let supportedDescriptors: [RuntimeProviderDescriptor] = [
-        .init(service: .claude, marksSetupCompleteOnRefresh: true),
-        .init(service: .codex, marksSetupCompleteOnRefresh: false),
+        .init(service: .claude, refreshStrategy: .claude, marksSetupCompleteOnRefresh: true),
+        .init(service: .codex, refreshStrategy: .codex, marksSetupCompleteOnRefresh: false),
     ]
 
     static let supportedServices: [PopoverService] = supportedDescriptors.map(\.service)
 
     static func descriptor(for service: PopoverService) -> RuntimeProviderDescriptor {
         supportedDescriptors.first(where: { $0.service == service })
-            ?? .init(service: service, marksSetupCompleteOnRefresh: false)
+            ?? .init(service: service, refreshStrategy: service == .claude ? .claude : .codex, marksSetupCompleteOnRefresh: false)
     }
 }
 

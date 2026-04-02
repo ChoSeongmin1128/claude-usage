@@ -5,11 +5,11 @@ struct ProviderCapabilities: Sendable, Equatable {
     let supportsBrowserImport: Bool
     let defaultEnabled: Bool
 
-    var supportsPopoverSelection: Bool {
+    nonisolated var supportsPopoverSelection: Bool {
         runtimeService != nil
     }
 
-    var isRuntimeProvider: Bool {
+    nonisolated var isRuntimeProvider: Bool {
         runtimeService != nil
     }
 }

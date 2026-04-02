@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (41차)
+최종 갱신: 2026-04-02 (42차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -84,6 +84,7 @@
 - 2026-04-02 39차 통합에서 [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift) 에 `RuntimeProviderRefreshContext`, `RuntimeProviderDescriptor`, `RuntimeProviderRegistry` 를 추가했고, [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 refresh 가능 조건과 `setup complete` 전환 판단을 service별 하드코딩보다 runtime registry를 통해 읽기 시작했습니다.
 - 2026-04-02 40차 통합에서 [SetupWizardWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SetupWizardWindowView.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 독립 setup wizard에서 바로 `Organization` 설정 화면으로 진입할 수 있는 버튼을 추가해, 인증 후 다음 행동이 막히던 first-run 흐름을 조금 더 메웠습니다.
 - 2026-04-02 41차 통합에서 [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 는 `claudeEnabled`, `codexEnabled`, `menuBarActiveService` 를 저장 중심 `@Published` 필드에서 계산형 compatibility layer로 내렸고, `providerStates` 변경 시에만 legacy `UserDefaults` 키를 갱신하도록 단순화했습니다. 이로써 provider 상태의 단일 원천이 더 명확해졌고, 다음 단계인 runtime registry 일반화와 Gemini 연결 전에 가장 큰 이중 저장 병목을 줄였습니다.
+- 2026-04-02 42차 통합에서 [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift), [RuntimeRefreshHandlerRegistry.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RuntimeRefreshHandlerRegistry.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 refresh 전략(`Claude`, `Codex`)을 runtime descriptor 쪽으로 끌어올리고, 실제 handler 배선을 별도 registry로 분리했습니다. 아직 결과 타입은 서비스별로 유지하지만, 다음 단계에서 `Gemini` 전략을 추가할 자리는 이 단계에서 확보했습니다.
 
 ## 2. 참고 레포에서 가져올 방향
 
