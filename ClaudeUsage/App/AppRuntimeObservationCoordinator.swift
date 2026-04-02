@@ -10,7 +10,8 @@ final class AppRuntimeObservationCoordinator {
         onUpdateConfigurationChanged: @escaping () -> Void,
         onMenuBarDisplayChanged: @escaping () -> Void,
         onProviderStatesChanged: @escaping (AppProviderStateCatalog) -> Void,
-        onPowerStateChanged: @escaping () -> Void
+        onPowerStateChanged: @escaping () -> Void,
+        onClaudeSessionKeyChanged: @escaping () -> Void
     ) {
         cancelAll()
 
@@ -44,6 +45,11 @@ final class AppRuntimeObservationCoordinator {
         PowerMonitor.shared.$isOnBattery
             .dropFirst()
             .sink { _ in onPowerStateChanged() }
+            .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange)
+            .receive(on: RunLoop.main)
+            .sink { _ in onClaudeSessionKeyChanged() }
             .store(in: &cancellables)
     }
 

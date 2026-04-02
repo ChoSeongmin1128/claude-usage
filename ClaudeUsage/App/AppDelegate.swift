@@ -859,8 +859,45 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onPowerStateChanged: { [weak self] in
                 self?.syncRefreshTimerState()
+            },
+            onClaudeSessionKeyChanged: { [weak self] in
+                self?.handleClaudeSessionKeyChanged()
             }
         )
+    }
+
+    private func handleClaudeSessionKeyChanged() {
+        Task {
+            async let snapshotTask = apiService.fetchUsageHealthSnapshot()
+            async let metadataTask = apiService.fetchCachedProfileMetadata()
+            let snapshot = await snapshotTask
+            let cachedProfileMetadata = await metadataTask
+            await MainActor.run {
+                self.currentClaudeProfileMetadata = cachedProfileMetadata
+                self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
+                self.applyUsageHealthSnapshot(snapshot)
+                AppSettings.shared.hasCompletedSetupWizard = SetupCompletionPolicy.shouldMarkSetupComplete(
+                    hasSuccessfulFetch: snapshot.lastOverallSuccessAt != nil,
+                    preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
+                    cachedMetadata: cachedProfileMetadata
+                )
+
+                if snapshot.runtime.credentialAvailability.hasAnyCredential {
+                    if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
+                        self.refreshUsage(force: true)
+                    } else {
+                        self.updateMenuBar()
+                        self.updatePopoverViewModel(overage: self.currentOverage)
+                    }
+                } else {
+                    AppSettings.shared.hasCompletedSetupWizard = false
+                    self.clearClaudePresentationState(markSetupIncomplete: false)
+                    self.updateMenuBar()
+                    self.updatePopoverViewModel(overage: self.currentOverage)
+                    self.syncRefreshTimerState()
+                }
+            }
+        }
     }
 
     private func handleProviderStateTransition(from previous: AppProviderStateCatalog, to current: AppProviderStateCatalog) {
@@ -1689,8 +1726,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             )
             await MainActor.run {
                 self.applyUsageHealthSnapshot(result.snapshot)
+                AppSettings.shared.hasCompletedSetupWizard = result.shouldMarkSetupComplete
                 if result.shouldStartMonitoring {
-                    AppSettings.shared.hasCompletedSetupWizard = result.shouldMarkSetupComplete
                     self.startMonitoring()
                 } else {
                     self.clearClaudePresentationState(

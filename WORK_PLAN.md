@@ -622,6 +622,7 @@
 - 독립 `Setup Wizard` 는 `Organization 열기`와 `자동 선택 유지`를 분리해, organization 단계에서 설정창을 억지로 다시 열지 않고도 완료로 넘어갈 수 있게 정리했습니다.
 - `SetupCompletionPolicy` 에 credential step 선택 로직을 올려 `AppDelegate` 와 `SettingsView` 가 같은 기준으로 `Chrome -> 웹 로그인 -> 수동 sessionKey` 흐름을 고르도록 맞추기 시작했습니다.
 - `CodexBar`는 README와 provider 문서에 `권한 이유`, `로컬만 읽는 데이터`, `브라우저별 제약`, `키체인 prompt 정책`을 분명히 적습니다. 현재 앱도 설정 설명과 README, 향후 Sparkle 배포 문서에서 이 수준의 설명 책임을 져야 합니다.
+- 세션키 저장 직후 메뉴바, 팝오버, 설정이 서로 다른 상태를 보이던 문제를 줄이기 위해 `claudeSessionKeyDidChange` 반응을 `AppDelegate` 중심으로 모으기 시작했습니다. `SettingsView`가 `health snapshot`을 기준으로 `hasCompletedSetupWizard`를 다시 쓰던 경로는 제거했고, 전역 반영은 `AppRuntimeObservationCoordinator -> AppDelegate -> refresh/updateMenuBar/updatePopover` 순서로 단일화하고 있습니다.
 
 ### 제품 방향
 
@@ -638,10 +639,12 @@
 
 ## 7. 바로 다음 작업
 
+- `hasCompletedSetupWizard` 쓰기 지점을 `AppDelegate + SetupCompletionPolicy` 중심으로 더 줄이고, settings/logout/login/save 경로의 중복 쓰기를 정리하기
+- 세션키 저장, 삭제, 재검증 이후 `메뉴바 / popover / settings`가 같은 snapshot을 보도록 전역 동기화 순서를 더 단단히 만들기
 - 독립 `Setup Wizard` 를 첫 실행 전용 단계 라우팅으로 더 확장하고 Chrome/Keychain 권한 설명, organization 선택, 검증 완료 흐름을 완성하기
 - `Messages fallback` 수동 테스트와 자동 정책의 의미를 UI와 내부 경로에서 더 명확히 분리하고, 자동/수동 모드의 진단 문구를 정리하기
 - Claude 인증 설정의 정보 밀도를 더 줄여 `현재 상태 + 다음 1개 행동` 중심으로 남기고, 상세 상태/복구/FAQ는 한 단계 더 안쪽으로 내리기
 - `세션키 연결 테스트` 를 검증 경로와 저장 경로로 더 깔끔하게 분리하고, 설정창의 성공/실패 후속 동작을 덜 놀랍게 만들기
 - `Antigravity` runtime provider의 연결 상태/오류 문구를 더 사용자 친화적으로 다듬고, 실제 환경에서 포트 probe fallback과 응답 파싱 회복력을 보강하기
 - provider별 메뉴바/팝오버 표시 자유도는 유지하되, 기본 preset / 고급 preset / 고급 도움말 copy 를 더 정리하기
-- README와 배포/업데이트 문서를 실제 구현 상태에 맞게 계속 갱신하기
+- `Sparkle` 실제 배선을 `AppUpdateEngine` 추상화 뒤에 연결하고, README와 배포/업데이트 문서를 실제 구현 상태에 맞게 계속 갱신하기

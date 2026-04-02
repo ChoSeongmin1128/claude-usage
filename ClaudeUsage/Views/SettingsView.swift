@@ -191,7 +191,6 @@ struct SettingsView: View {
             selectedPanel = SettingsProviderPanel(rawValue: settings.settingsLastTab) ?? .common
             selectedClaudeTab = ClaudeTab(rawValue: settings.providerSettingsLastTab(for: .claude)) ?? .auth
             selectedCodexTab = CodexTab(rawValue: settings.providerSettingsLastTab(for: .codex)) ?? .auth
-            refreshSetupWizardState()
             loadUsageHealthSnapshot()
             checkCodexAuth()
             Task {
@@ -200,7 +199,6 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange)) { _ in
             syncStoredSessionKeyState()
-            refreshSetupWizardState()
             loadUsageHealthSnapshot()
         }
         .onChange(of: selectedPanel) { _, panel in
@@ -2751,7 +2749,6 @@ struct SettingsView: View {
         onLogout?()
         storedSessionKey = nil
         sessionKey = ""
-        settings.hasCompletedSetupWizard = false
         testResult = nil
         organizations = []
         organizationPreviews = []
@@ -2798,7 +2795,6 @@ struct SettingsView: View {
                     } else {
                         Logger.info("연결 테스트 성공, 기존 세션 키를 재사용함")
                     }
-                    refreshSetupWizardState()
                     loadUsageHealthSnapshot()
                     if shouldPersist {
                         onSessionKeyStored?()
@@ -2863,7 +2859,6 @@ struct SettingsView: View {
                 do {
                     try KeychainManager.shared.save(normalizedKey)
                     storedSessionKey = normalizedKey
-                    settings.hasCompletedSetupWizard = false
                 } catch {
                     Logger.error("세션 키 저장 실패: \(error)")
                 }
@@ -2871,7 +2866,6 @@ struct SettingsView: View {
         } else {
             try? KeychainManager.shared.delete()
             storedSessionKey = nil
-            settings.hasCompletedSetupWizard = false
             testResult = nil
         }
 
@@ -3031,17 +3025,8 @@ struct SettingsView: View {
             await MainActor.run {
                 usageHealthSnapshot = resolvedSnapshot
                 profileMetadata = resolvedMetadata
-                refreshSetupWizardState()
             }
         }
-    }
-
-    private func refreshSetupWizardState() {
-        settings.hasCompletedSetupWizard = SetupCompletionPolicy.shouldMarkSetupComplete(
-            hasSuccessfulFetch: hasSuccessfulClaudeFetch,
-            preferredOrganizationID: settings.preferredOrganizationID,
-            cachedMetadata: profileMetadata
-        )
     }
 
     private func formattedMetadataDate(_ date: Date?) -> String? {
