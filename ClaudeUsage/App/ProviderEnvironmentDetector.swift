@@ -2,6 +2,8 @@ import Foundation
 
 struct ProviderEnvironmentStatus: Sendable, Equatable {
     let isDetected: Bool
+    let credentialState: ProviderCredentialState
+    let canAttemptRefresh: Bool
     let summary: String
 }
 
@@ -20,6 +22,8 @@ enum ProviderEnvironmentDetector {
         case .codex:
             return ProviderEnvironmentStatus(
                 isDetected: CodexAuthManager.shared.isAuthenticated,
+                credentialState: CodexAuthManager.shared.isAuthenticated ? .usable : .missing,
+                canAttemptRefresh: CodexAuthManager.shared.isAuthenticated,
                 summary: CodexAuthManager.shared.isAuthenticated ? "CLI/OAuth 인증 감지" : "CLI/OAuth 인증 미감지"
             )
         case .gemini:
@@ -30,25 +34,7 @@ enum ProviderEnvironmentDetector {
     }
 
     static func canAttemptRefresh(for kind: AppProviderKind) -> Bool {
-        switch kind {
-        case .claude, .codex:
-            return false
-        case .gemini:
-            guard binaryExists(named: "gemini") else { return false }
-            switch geminiAuthType() {
-            case .apiKey, .vertexAI:
-                return false
-            case .oauthPersonal, .unknown:
-                switch geminiCredentialState() {
-                case .usable, .refreshOnly:
-                    return true
-                case .missing:
-                    return false
-                }
-            }
-        case .antigravity:
-            return antigravitySignals().canAttemptRefresh
-        }
+        status(for: kind)?.canAttemptRefresh ?? false
     }
 
     static func requiresInteractiveSetup(for kind: AppProviderKind) -> Bool {
@@ -81,11 +67,15 @@ enum ProviderEnvironmentDetector {
         case .apiKey:
             return ProviderEnvironmentStatus(
                 isDetected: false,
+                credentialState: .missing,
+                canAttemptRefresh: false,
                 summary: hasBinary ? "Gemini CLI 감지됨 · 현재 인증 방식은 API 키입니다" : "Gemini CLI 미설치"
             )
         case .vertexAI:
             return ProviderEnvironmentStatus(
                 isDetected: false,
+                credentialState: .missing,
+                canAttemptRefresh: false,
                 summary: hasBinary ? "Gemini CLI 감지됨 · 현재 인증 방식은 Vertex AI입니다" : "Gemini CLI 미설치"
             )
         case .oauthPersonal, .unknown:
@@ -94,15 +84,15 @@ enum ProviderEnvironmentDetector {
 
         switch (hasBinary, credentialState) {
         case (true, .usable):
-            return ProviderEnvironmentStatus(isDetected: true, summary: "Gemini CLI OAuth 감지")
+            return ProviderEnvironmentStatus(isDetected: true, credentialState: .usable, canAttemptRefresh: true, summary: "Gemini CLI OAuth 감지")
         case (true, .refreshOnly):
-            return ProviderEnvironmentStatus(isDetected: true, summary: "Gemini CLI OAuth 감지 · 액세스 토큰은 갱신이 필요합니다")
+            return ProviderEnvironmentStatus(isDetected: true, credentialState: .refreshable, canAttemptRefresh: true, summary: "Gemini CLI OAuth 감지 · 액세스 토큰은 갱신이 필요합니다")
         case (true, .missing):
-            return ProviderEnvironmentStatus(isDetected: false, summary: "Gemini CLI 감지됨 · 로그인 필요")
+            return ProviderEnvironmentStatus(isDetected: true, credentialState: .missing, canAttemptRefresh: false, summary: "Gemini CLI 감지됨 · 로그인 필요")
         case (false, .usable), (false, .refreshOnly):
-            return ProviderEnvironmentStatus(isDetected: false, summary: "Gemini OAuth 자격은 있지만 CLI가 없습니다")
+            return ProviderEnvironmentStatus(isDetected: true, credentialState: credentialState == .usable ? .usable : .refreshable, canAttemptRefresh: false, summary: "Gemini OAuth 자격은 있지만 CLI가 없습니다")
         case (false, .missing):
-            return ProviderEnvironmentStatus(isDetected: false, summary: "Gemini CLI 미설치")
+            return ProviderEnvironmentStatus(isDetected: false, credentialState: .missing, canAttemptRefresh: false, summary: "Gemini CLI 미설치")
         }
     }
 
@@ -112,37 +102,51 @@ enum ProviderEnvironmentDetector {
         case let (.some(process), _, _, _) where process.csrfToken != nil:
             return ProviderEnvironmentStatus(
                 isDetected: true,
+                credentialState: .usable,
+                canAttemptRefresh: true,
                 summary: "Antigravity quota 서버 감지 · 바로 조회할 수 있습니다"
             )
         case let (.some(process), _, _, _):
             let portSuffix = process.extensionPort.map { " · 포트 \($0)" } ?? ""
             return ProviderEnvironmentStatus(
                 isDetected: true,
+                credentialState: .refreshable,
+                canAttemptRefresh: signals.canAttemptRefresh,
                 summary: "Antigravity quota 서버 감지 · 연결 토큰 확인 중\(portSuffix)"
             )
         case (nil, true, true, _):
             return ProviderEnvironmentStatus(
                 isDetected: true,
+                credentialState: .refreshable,
+                canAttemptRefresh: signals.canAttemptRefresh,
                 summary: "Antigravity 앱과 인증 상태 감지 · quota 서버 연결 준비 중"
             )
         case (nil, true, false, _):
             return ProviderEnvironmentStatus(
                 isDetected: true,
+                credentialState: .refreshable,
+                canAttemptRefresh: false,
                 summary: "Antigravity 인증 상태 감지 · 앱을 실행하면 조회를 시작합니다"
             )
         case (nil, false, true, _):
             return ProviderEnvironmentStatus(
                 isDetected: true,
+                credentialState: .unknown,
+                canAttemptRefresh: false,
                 summary: "Antigravity 앱 실행 중 · 로그인 또는 quota 서버 초기화를 기다리는 중입니다"
             )
         case (nil, false, false, true):
             return ProviderEnvironmentStatus(
                 isDetected: true,
+                credentialState: .unknown,
+                canAttemptRefresh: false,
                 summary: "Antigravity 로컬 상태 감지 · 앱 실행이 필요합니다"
             )
         case (nil, false, false, false):
             return ProviderEnvironmentStatus(
                 isDetected: false,
+                credentialState: .missing,
+                canAttemptRefresh: false,
                 summary: "Antigravity 상태 미감지"
             )
         }

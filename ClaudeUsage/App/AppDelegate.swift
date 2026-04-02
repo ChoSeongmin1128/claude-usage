@@ -343,13 +343,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var hasGeminiCredential: Bool {
-        ProviderEnvironmentDetector.canAttemptRefresh(for: .gemini)
-            || (ProviderEnvironmentDetector.status(for: .gemini)?.isDetected ?? false)
+        ProviderEnvironmentDetector.status(for: .gemini)?.credentialState.hasAnyCredential ?? false
     }
 
     private var hasAntigravityCredential: Bool {
-        ProviderEnvironmentDetector.canAttemptRefresh(for: .antigravity)
-            || (ProviderEnvironmentDetector.status(for: .antigravity)?.isDetected ?? false)
+        ProviderEnvironmentDetector.status(for: .antigravity)?.credentialState.hasAnyCredential ?? false
     }
 
     private var refreshableServices: [PopoverService] {
@@ -705,7 +703,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 error: currentError,
                 isLoading: isLoading,
                 lastUpdated: lastUpdated,
-                hasCredential: claudeCredentialAvailability.hasAnyCredential,
+                credentialState: claudeCredentialAvailability.hasAnyCredential ? .usable : .missing,
+                isDetected: claudeCredentialAvailability.hasAnyCredential,
+                canAttemptRefresh: claudeCredentialAvailability.hasAnyCredential,
                 hasAuthError: hasAuthError
             )
         case .codex:
@@ -715,31 +715,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 error: codexError,
                 isLoading: isCodexLoading,
                 lastUpdated: codexLastUpdated,
-                hasCredential: CodexAuthManager.shared.isAuthenticated,
+                credentialState: CodexAuthManager.shared.isAuthenticated ? .usable : .missing,
+                isDetected: CodexAuthManager.shared.isAuthenticated,
+                canAttemptRefresh: CodexAuthManager.shared.isAuthenticated,
                 hasAuthError: hasCodexAuthError
             )
         case .gemini:
+            let status = ProviderEnvironmentDetector.status(for: .gemini)
             return RuntimeProviderSnapshot(
                 service: .gemini,
                 payload: currentGeminiUsage.map(RuntimeProviderPayload.gemini),
                 error: geminiError,
                 isLoading: isGeminiLoading,
                 lastUpdated: geminiLastUpdated,
-                hasCredential: hasGeminiCredential
-                    || currentGeminiUsage != nil
-                    || ProviderEnvironmentDetector.status(for: .gemini)?.isDetected == true,
+                credentialState: currentGeminiUsage != nil ? .usable : (status?.credentialState ?? .unknown),
+                isDetected: status?.isDetected ?? false,
+                canAttemptRefresh: currentGeminiUsage != nil || (status?.canAttemptRefresh ?? false),
                 hasAuthError: hasGeminiAuthError
             )
         case .antigravity:
+            let status = ProviderEnvironmentDetector.status(for: .antigravity)
             return RuntimeProviderSnapshot(
                 service: .antigravity,
                 payload: currentAntigravityUsage.map(RuntimeProviderPayload.antigravity),
                 error: antigravityError,
                 isLoading: isAntigravityLoading,
                 lastUpdated: antigravityLastUpdated,
-                hasCredential: hasAntigravityCredential
-                    || currentAntigravityUsage != nil
-                    || ProviderEnvironmentDetector.status(for: .antigravity)?.isDetected == true,
+                credentialState: currentAntigravityUsage != nil ? .usable : (status?.credentialState ?? .unknown),
+                isDetected: status?.isDetected ?? false,
+                canAttemptRefresh: currentAntigravityUsage != nil || (status?.canAttemptRefresh ?? false),
                 hasAuthError: hasAntigravityAuthError
             )
         }

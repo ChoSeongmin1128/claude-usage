@@ -1,5 +1,30 @@
 import Foundation
 
+enum ProviderCredentialState: String, Sendable, Equatable {
+    case missing
+    case refreshable
+    case usable
+    case unknown
+
+    var hasAnyCredential: Bool {
+        switch self {
+        case .refreshable, .usable:
+            return true
+        case .missing, .unknown:
+            return false
+        }
+    }
+
+    var canRefreshNow: Bool {
+        switch self {
+        case .usable, .refreshable:
+            return true
+        case .missing, .unknown:
+            return false
+        }
+    }
+}
+
 enum PopoverService: String, CaseIterable, Sendable {
     case claude
     case codex
@@ -161,11 +186,14 @@ struct RuntimeProviderSnapshot {
     let error: APIError?
     let isLoading: Bool
     let lastUpdated: Date?
-    let hasCredential: Bool
+    let credentialState: ProviderCredentialState
+    let isDetected: Bool
+    let canAttemptRefresh: Bool
     let hasAuthError: Bool
 
     var kind: AppProviderKind { service.providerKind }
     var hasContent: Bool { payload != nil }
+    var hasCredential: Bool { credentialState.hasAnyCredential }
 
     var claudeUsage: ClaudeUsageResponse? {
         guard case let .claude(usage)? = payload else { return nil }

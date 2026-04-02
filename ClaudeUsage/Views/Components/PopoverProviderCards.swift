@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct PopoverProviderOverviewRowView: View {
+    let provider: AppProviderKind
     let title: String
     let summary: String
     let meta: String?
@@ -12,6 +13,7 @@ struct PopoverProviderOverviewRowView: View {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
+                        ProviderBrandIconView(provider: provider, kind: .popover, size: 14)
                         Text(title)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.primary)
@@ -57,6 +59,7 @@ struct PopoverProviderOverviewRowView: View {
 }
 
 struct PopoverProviderShellCardView: View {
+    let provider: AppProviderKind
     let icon: String
     let title: String
     let summary: String
@@ -85,9 +88,7 @@ struct PopoverProviderShellCardView: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Image(systemName: icon)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    ProviderBrandIconView(provider: provider, kind: .popover, size: 13)
                     Text(title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)

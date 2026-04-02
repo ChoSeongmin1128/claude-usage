@@ -70,9 +70,10 @@ enum SetupCompletionPolicy {
         oauthCredentialAvailable: Bool,
         storedSessionKey: String?
     ) -> Bool {
-        sessionCredentialAvailable
+        let normalizedStoredSessionKey = (storedSessionKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return sessionCredentialAvailable
             || oauthCredentialAvailable
-            || !(storedSessionKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !normalizedStoredSessionKey.isEmpty
     }
 
     @MainActor

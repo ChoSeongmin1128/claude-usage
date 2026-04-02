@@ -341,8 +341,13 @@ struct SettingsView: View {
                     selectedPanel = panel.panel
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: panel.icon)
-                            .frame(width: 16)
+                        if let provider = panel.providerKind {
+                            ProviderBrandIconView(provider: provider, kind: .settings, size: 16)
+                                .frame(width: 16)
+                        } else {
+                            Image(systemName: panel.icon)
+                                .frame(width: 16)
+                        }
                         VStack(alignment: .leading, spacing: 1) {
                             HStack(spacing: 4) {
                                 Text(panel.title)
@@ -1198,7 +1203,8 @@ struct SettingsView: View {
     }
 
     private var authChecklistCard: some View {
-        let hasSessionCredential = !(storedSessionKey ?? "").isEmpty || !normalizeSessionKey(sessionKey).isEmpty
+        let hasStoredSessionCredential = !(storedSessionKey ?? "").isEmpty
+        let hasDraftSessionCredential = !normalizeSessionKey(sessionKey).isEmpty && normalizeSessionKey(sessionKey) != normalizeSessionKey(storedSessionKey ?? "")
         let hasOAuthCredential = self.hasOAuthCredential
         let hasOAuthSuccess = usageHealthSnapshot?.oauth.lastSuccessAt != nil
         let hasAnySuccessfulFetch = hasSuccessfulClaudeFetch
@@ -1211,8 +1217,8 @@ struct SettingsView: View {
 
             checklistRow(
                 title: "자격 준비",
-                detail: hasSessionCredential ? "세션키 감지됨" : (hasOAuthCredential ? "OAuth 자격 감지됨" : (hasOAuthSuccess ? "OAuth 성공 이력 감지됨" : "세션키 또는 OAuth 준비 필요")),
-                state: hasSessionCredential || hasOAuthCredential || hasOAuthSuccess ? .ok : .warning
+                detail: hasStoredSessionCredential ? "저장된 세션키 감지됨" : (hasOAuthCredential ? "OAuth 자격 감지됨" : (hasOAuthSuccess ? "OAuth 성공 이력 감지됨" : "세션키 또는 OAuth 준비 필요")),
+                state: hasStoredSessionCredential || hasOAuthCredential || hasOAuthSuccess ? .ok : .warning
             )
             checklistRow(
                 title: "조회 검증",
@@ -1230,6 +1236,14 @@ struct SettingsView: View {
                     title: "Claude Code OAuth",
                     detail: hasOAuthCredential ? "Claude Code OAuth 자격이 준비되었습니다" : "세션키 단독 상태이거나 세션 경로가 불안정하면 `claude login`을 권장합니다",
                     state: hasOAuthCredential ? .ok : .warning
+                )
+            }
+
+            if hasDraftSessionCredential {
+                checklistRow(
+                    title: "임시 입력",
+                    detail: "세션키 입력값이 아직 저장되지 않았습니다",
+                    state: .warning
                 )
             }
         }

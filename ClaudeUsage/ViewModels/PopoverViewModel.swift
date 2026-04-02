@@ -203,11 +203,11 @@ final class PopoverViewModel: ObservableObject {
             let environmentStatus = ProviderEnvironmentDetector.status(for: .gemini)
             let snapshot = runtimeSnapshots[.gemini]
             let runtimeError = snapshot?.error
-            let hasCredential = snapshot?.hasCredential == true
-                || ProviderEnvironmentDetector.canAttemptRefresh(for: .gemini)
-                || environmentStatus?.isDetected == true
+            let hasCredential = snapshot?.credentialState.hasAnyCredential == true
+            let canAttemptRefresh = snapshot?.canAttemptRefresh == true || environmentStatus?.canAttemptRefresh == true
             let isAuthRequired = isEnabled
                 && !hasCredential
+                && !canAttemptRefresh
                 && (runtimeError?.isDefinitiveAuthFailure ?? true)
             let summary: String
             if !isEnabled {
@@ -216,6 +216,8 @@ final class PopoverViewModel: ObservableObject {
                 summary = "Pro \(Int(geminiUsage.primaryPercentage.rounded()))% · Flash \(Int(geminiUsage.secondaryPercentage.rounded()))%"
             } else if snapshot?.isLoading == true {
                 summary = "조회 중"
+            } else if snapshot?.credentialState == .refreshable {
+                summary = "토큰 갱신 필요"
             } else if isAuthRequired {
                 summary = "인증 필요"
             } else if let runtimeError, !shouldSuppressRecoverableError(runtimeError, kind: .gemini) {
@@ -240,11 +242,11 @@ final class PopoverViewModel: ObservableObject {
             let environmentStatus = ProviderEnvironmentDetector.status(for: .antigravity)
             let snapshot = runtimeSnapshots[.antigravity]
             let runtimeError = snapshot?.error
-            let hasCredential = snapshot?.hasCredential == true
-                || ProviderEnvironmentDetector.canAttemptRefresh(for: .antigravity)
-                || environmentStatus?.isDetected == true
+            let hasCredential = snapshot?.credentialState.hasAnyCredential == true
+            let canAttemptRefresh = snapshot?.canAttemptRefresh == true || environmentStatus?.canAttemptRefresh == true
             let isAuthRequired = isEnabled
                 && !hasCredential
+                && !canAttemptRefresh
                 && (runtimeError?.isDefinitiveAuthFailure ?? true)
             let summary: String
             if !isEnabled {
@@ -253,6 +255,8 @@ final class PopoverViewModel: ObservableObject {
                 summary = "Claude \(Int(antigravityUsage.primaryPercentage.rounded()))% · Pro \(Int(antigravityUsage.secondaryPercentage.rounded()))%"
             } else if snapshot?.isLoading == true {
                 summary = "조회 중"
+            } else if snapshot?.credentialState == .refreshable {
+                summary = "연결 준비 중"
             } else if isAuthRequired {
                 summary = environmentStatus?.summary ?? "앱 실행 또는 인증이 필요합니다"
             } else if let runtimeError, !shouldSuppressRecoverableError(runtimeError, kind: .antigravity) {
@@ -356,8 +360,11 @@ final class PopoverViewModel: ObservableObject {
         case .gemini, .antigravity:
             guard settings.isProviderEnabled(kind) else { return "비활성" }
             if let environmentStatus = ProviderEnvironmentDetector.status(for: kind) {
-                if environmentStatus.isDetected {
+                if environmentStatus.credentialState == .usable {
                     return "감지됨"
+                }
+                if environmentStatus.credentialState == .refreshable {
+                    return kind == .gemini ? "갱신 가능" : "준비 중"
                 }
                 return ProviderEnvironmentDetector.requiresInteractiveSetup(for: kind)
                     ? (kind == .gemini ? "로그인 필요" : "앱 필요")

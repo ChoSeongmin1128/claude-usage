@@ -20,6 +20,8 @@ struct ProviderDescriptor: Sendable, Equatable {
     let displayName: String
     let settingsPanelTitle: String
     let settingsPanelIconName: String
+    let brandAssetName: String?
+    let menuBarAssetName: String?
     let settingsPanelSummary: String
     let settingsPanelDetail: String
     let settingsComingSoonMessage: String?
@@ -40,6 +42,8 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 displayName: "Claude",
                 settingsPanelTitle: "Claude",
                 settingsPanelIconName: "brain",
+                brandAssetName: "ProviderClaudeIcon",
+                menuBarAssetName: "ClaudeMenuBarIcon",
                 settingsPanelSummary: "메인 usage 경로",
                 settingsPanelDetail: "세션키와 OAuth를 함께 유지합니다.",
                 settingsComingSoonMessage: nil,
@@ -56,6 +60,8 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 displayName: "Codex",
                 settingsPanelTitle: "Codex",
                 settingsPanelIconName: "bubble.left.and.bubble.right",
+                brandAssetName: "ProviderCodexIcon",
+                menuBarAssetName: "CodexMenuBarIcon",
                 settingsPanelSummary: "CLI / OAuth",
                 settingsPanelDetail: "Codex는 별도 셸과 표시 규칙을 유지합니다.",
                 settingsComingSoonMessage: nil,
@@ -72,6 +78,8 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 displayName: "Gemini",
                 settingsPanelTitle: "Gemini",
                 settingsPanelIconName: "sparkles",
+                brandAssetName: "ProviderGeminiIcon",
+                menuBarAssetName: "GeminiMenuBarIcon",
                 settingsPanelSummary: "CLI / OAuth",
                 settingsPanelDetail: "Gemini CLI의 OAuth 자격을 읽어 quota를 직접 조회합니다.",
                 settingsComingSoonMessage: nil,
@@ -88,6 +96,8 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 displayName: "Antigravity",
                 settingsPanelTitle: "Antigravity",
                 settingsPanelIconName: "antenna.radiowaves.left.and.right",
+                brandAssetName: "ProviderAntigravityIcon",
+                menuBarAssetName: "AntigravityMenuBarIcon",
                 settingsPanelSummary: "로컬 language server",
                 settingsPanelDetail: "Antigravity의 로컬 language server에 직접 연결해 Claude/Gemini quota를 읽습니다.",
                 settingsComingSoonMessage: nil,
@@ -123,6 +133,18 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
 
     nonisolated var settingsPanelIconName: String {
         descriptor.settingsPanelIconName
+    }
+
+    nonisolated var fallbackSystemSymbolName: String? {
+        descriptor.settingsPanelIconName
+    }
+
+    nonisolated var brandAssetName: String? {
+        descriptor.brandAssetName
+    }
+
+    nonisolated var menuBarAssetName: String? {
+        descriptor.menuBarAssetName
     }
 
     nonisolated var settingsPanelSummary: String {

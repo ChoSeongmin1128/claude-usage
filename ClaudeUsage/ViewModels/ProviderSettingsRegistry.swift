@@ -37,6 +37,7 @@ struct SettingsProviderPanelDescriptor: Identifiable, Sendable, Equatable {
     let panel: SettingsProviderPanel
     let title: String
     let icon: String
+    let providerKind: AppProviderKind?
     let availability: Availability
 
     var id: String { panel.rawValue }
@@ -47,7 +48,7 @@ enum SettingsProviderRegistry {
 
     static var sidebarPanels: [SettingsProviderPanelDescriptor] {
         [
-            .init(panel: .common, title: "공통", icon: "slider.horizontal.3", availability: .active),
+            .init(panel: .common, title: "공통", icon: "slider.horizontal.3", providerKind: nil, availability: .active),
             providerPanelDescriptor(for: .claude),
             providerPanelDescriptor(for: .codex),
             providerPanelDescriptor(for: .gemini),
@@ -89,6 +90,7 @@ enum SettingsProviderRegistry {
             panel: panel(for: kind),
             title: providerDescriptor.settingsPanelTitle,
             icon: providerDescriptor.settingsPanelIconName,
+            providerKind: kind,
             availability: availability
         )
     }

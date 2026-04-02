@@ -58,10 +58,6 @@ actor ClaudeProfileMetadataStore {
         return stored.makeMetadata()
     }
 
-    func loadNotificationPolicy() -> ClaudeNotificationPolicy? {
-        load().map(ClaudeNotificationPolicy.init(metadata:))
-    }
-
     func update(from credentialsText: String) -> ClaudeProfileMetadata? {
         guard let metadata = Self.parseProfileMetadata(from: credentialsText) else { return nil }
         save(metadata)

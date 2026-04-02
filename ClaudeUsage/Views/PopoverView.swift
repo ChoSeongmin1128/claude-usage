@@ -210,31 +210,38 @@ struct PopoverView: View {
             }
             .scrollIndicators(.never)
         } else {
-            Text(selectedService.displayName)
-                .font(.headline)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                ProviderBrandIconView(provider: selectedService.providerKind, kind: .popover, size: 16)
+                Text(selectedService.displayName)
+                    .font(.headline)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     @ViewBuilder
     private func headerSelectorButton(for service: PopoverService) -> some View {
+        let showText = !isCompact && (availableServices.count < 4 || selectedService == service)
         Button {
             selectService(service)
         } label: {
             HStack(spacing: 5) {
-                Text(service.displayName)
-                    .font(.system(size: isCompact ? 11.5 : 12.5, weight: selectedService == service ? .semibold : .medium))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.88)
-                    .fixedSize(horizontal: true, vertical: false)
+                ProviderBrandIconView(provider: service.providerKind, kind: .popover, size: isCompact ? 13 : 14)
+                if showText {
+                    Text(service.displayName)
+                        .font(.system(size: isCompact ? 11.5 : 12.5, weight: selectedService == service ? .semibold : .medium))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.88)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
                 if shouldShowWarningDot(for: service) && !isCompact {
                     Circle()
                         .fill(Color.orange)
                         .frame(width: 6, height: 6)
                 }
             }
-            .padding(.horizontal, isCompact ? 7 : 10)
+            .padding(.horizontal, isCompact ? 7 : (showText ? 10 : 8))
             .padding(.vertical, isCompact ? 3 : 4)
             .background(selectedService == service ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
             .foregroundStyle(selectedService == service ? Color.accentColor : .primary)
@@ -341,10 +348,10 @@ struct PopoverView: View {
     static func resolvedPopoverWidth(for service: PopoverService, compact: Bool, fittingWidth: CGFloat) -> CGFloat {
         let preferredWidth = self.preferredPopoverWidth(for: service, compact: compact)
         guard !compact else {
-            return min(max(fittingWidth, 300), 336)
+            return min(max(preferredWidth, 300), 320)
         }
 
-        return min(max(fittingWidth, preferredWidth), preferredWidth + 48)
+        return min(max(fittingWidth, preferredWidth), preferredWidth + 24)
     }
 
     private func requestRefreshIfNeededForVisibleService() {

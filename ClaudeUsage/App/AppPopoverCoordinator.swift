@@ -80,8 +80,7 @@ final class AppPopoverCoordinator {
             let maxHeight = max(minHeight, (NSScreen.main?.visibleFrame.height ?? 900) - 100)
             let height: CGFloat
             if compact {
-                let currentHeight = self.popover.contentSize.height > 0 ? self.popover.contentSize.height : minHeight
-                height = min(max(max(fitting.height, minHeight), currentHeight), maxHeight)
+                height = min(max(fitting.height, minHeight), maxHeight)
             } else {
                 height = min(max(fitting.height, minHeight), maxHeight)
             }
