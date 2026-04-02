@@ -41,7 +41,6 @@ struct RuntimeProviderRefreshContext: Sendable, Equatable {
 struct RuntimeProviderDescriptor: Sendable, Equatable {
     let service: PopoverService
     let refreshStrategy: RuntimeRefreshStrategy
-    let marksSetupCompleteOnRefresh: Bool
 
     var kind: AppProviderKind {
         service.providerKind
@@ -55,23 +54,23 @@ struct RuntimeProviderDescriptor: Sendable, Equatable {
             return context.isCodexAuthenticated
         }
     }
-
-    func shouldMarkSetupComplete(enabled: Bool, hasCredential: Bool) -> Bool {
-        marksSetupCompleteOnRefresh && enabled && hasCredential
-    }
 }
 
 enum RuntimeProviderRegistry {
-    static let supportedDescriptors: [RuntimeProviderDescriptor] = [
-        .init(service: .claude, refreshStrategy: .claude, marksSetupCompleteOnRefresh: true),
-        .init(service: .codex, refreshStrategy: .codex, marksSetupCompleteOnRefresh: false),
-    ]
+    nonisolated static let supportedDescriptors: [RuntimeProviderDescriptor] = AppProviderKind.runtimeKinds.compactMap(descriptor(for:))
 
-    static let supportedServices: [PopoverService] = supportedDescriptors.map(\.service)
+    nonisolated static let supportedServices: [PopoverService] = supportedDescriptors.map(\.service)
 
-    static func descriptor(for service: PopoverService) -> RuntimeProviderDescriptor {
+    nonisolated static func descriptor(for kind: AppProviderKind) -> RuntimeProviderDescriptor? {
+        guard let service = kind.runtimeService, let refreshStrategy = kind.refreshStrategy else { return nil }
+        return .init(
+            service: service,
+            refreshStrategy: refreshStrategy
+        )
+    }
+
+    nonisolated static func descriptor(for service: PopoverService) -> RuntimeProviderDescriptor? {
         supportedDescriptors.first(where: { $0.service == service })
-            ?? .init(service: service, refreshStrategy: service == .claude ? .claude : .codex, marksSetupCompleteOnRefresh: false)
     }
 }
 
@@ -162,5 +161,4 @@ struct RuntimeProviderActivationState: Sendable {
     let service: PopoverService
     let enabled: Bool
     let hasCredential: Bool
-    let shouldMarkSetupCompleteOnRefresh: Bool
 }

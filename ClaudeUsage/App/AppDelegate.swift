@@ -26,6 +26,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var runtimeStateCatalog = RuntimeProviderStateCatalog()
     private var currentOverage: OverageSpendLimitResponse?
     private var currentClaudeNotificationPolicy: ClaudeNotificationPolicy?
+    private var currentClaudeProfileMetadata: ClaudeProfileMetadata?
     private var lastOverageFetchAt: Date?
     private var systemStatus: ClaudeSystemStatus?
     private var statusTimer: Timer?
@@ -243,6 +244,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let snapshot = await self.apiService.fetchUsageHealthSnapshot()
             let cachedProfileMetadata = await self.apiService.fetchCachedProfileMetadata()
             await MainActor.run {
+                self.currentClaudeProfileMetadata = cachedProfileMetadata
                 self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
                 self.applyUsageHealthSnapshot(snapshot)
                 self.finishBootstrap(using: snapshot)
@@ -276,7 +278,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var shouldShowStandaloneSetupWizard: Bool {
-        !AppSettings.shared.hasCompletedSetupWizard || !hasReadyClaudeCredential || !hasSuccessfulClaudeFetch
+        !AppSettings.shared.hasCompletedSetupWizard
+            || !hasReadyClaudeCredential
+            || !hasSuccessfulClaudeFetch
+            || !isSetupWizardOrganizationReady
     }
 
     private var hasReadyClaudeCredential: Bool {
@@ -296,6 +301,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return .chromeImport
     }
 
+    private var isSetupWizardOrganizationReady: Bool {
+        guard hasSuccessfulClaudeFetch else { return false }
+        return SetupCompletionPolicy.isOrganizationReady(
+            preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
+            cachedMetadata: currentClaudeProfileMetadata
+        )
+    }
+
     private var setupWizardOrganizationSummary: String {
         guard hasSuccessfulClaudeFetch else {
             return "첫 성공 조회 후 organization 상태를 확인합니다"
@@ -304,7 +317,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if preferredID.isEmpty {
             return "자동 선택 모드입니다"
         }
-        return "선택한 organization이 저장되어 있습니다"
+        if isSetupWizardOrganizationReady {
+            return "선택한 organization이 검증되었습니다"
+        }
+        return "선택한 organization을 설정에서 다시 확인해야 합니다"
     }
 
     private func checkForUpdates() {
@@ -739,7 +755,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         currentUsage = nil
         currentOverage = nil
+        currentClaudeProfileMetadata = nil
+        currentClaudeNotificationPolicy = nil
         lastOverageFetchAt = nil
+        lastUpdated = nil
         currentError = nil
         hasAuthError = false
         consecutiveErrorCount = 0
@@ -761,15 +780,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func runtimeActivationState(for service: PopoverService, enabled: Bool) -> RuntimeProviderActivationState {
         let snapshot = runtimeProviderSnapshot(for: service)
-        let descriptor = RuntimeProviderRegistry.descriptor(for: service)
         return RuntimeProviderActivationState(
             service: service,
             enabled: enabled,
-            hasCredential: snapshot.hasCredential,
-            shouldMarkSetupCompleteOnRefresh: descriptor.shouldMarkSetupComplete(
-                enabled: enabled,
-                hasCredential: snapshot.hasCredential
-            )
+            hasCredential: snapshot.hasCredential
         )
     }
 
@@ -790,10 +804,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func performRuntimeAction(_ action: ProviderRuntimeAction) {
         switch action {
-        case .refresh(let service, let force, let markSetupComplete):
-            if markSetupComplete {
-                AppSettings.shared.hasCompletedSetupWizard = true
-            }
+        case .refresh(let service, let force):
             refresh(service: service, force: force)
         case .clearState(let service):
             clearRuntimeServiceState(service)
@@ -883,7 +894,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let cachedProfileMetadata = await self.apiService.fetchCachedProfileMetadata()
 
                 await MainActor.run {
-                    AppSettings.shared.hasCompletedSetupWizard = true
+                    self.currentClaudeProfileMetadata = cachedProfileMetadata
+                    AppSettings.shared.hasCompletedSetupWizard =
+                        SetupCompletionPolicy.shouldMarkCompleteAfterSuccessfulClaudeRefresh(
+                            preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
+                            cachedMetadata: cachedProfileMetadata
+                        )
                     self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
                     self.currentUsage = result.usage
                     if let fetchedOverage = result.overage {
@@ -1386,6 +1402,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             currentStep: currentSetupWizardStep,
             hasReadyCredential: hasReadyClaudeCredential,
             hasSuccessfulFetch: lastUpdated != nil,
+            isOrganizationReady: isSetupWizardOrganizationReady,
             organizationSummary: setupWizardOrganizationSummary,
             onOpenChrome: { [weak self] in
                 self?.openClaudeUsageInChrome()

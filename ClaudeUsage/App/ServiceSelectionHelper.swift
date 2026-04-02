@@ -108,7 +108,8 @@ struct ServiceSelectionHelper {
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
             isCodexAuthenticated: isCodexAuthenticated
         )
-        return RuntimeProviderRegistry.descriptor(for: service).isRefreshable(using: context)
+        guard let descriptor = RuntimeProviderRegistry.descriptor(for: service) else { return false }
+        return descriptor.isRefreshable(using: context)
     }
 
     static func refreshableServices(

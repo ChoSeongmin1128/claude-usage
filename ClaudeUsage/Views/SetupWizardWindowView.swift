@@ -4,6 +4,7 @@ struct SetupWizardWindowView: View {
     let currentStep: SetupWizardView.Step
     let hasReadyCredential: Bool
     let hasSuccessfulFetch: Bool
+    let isOrganizationReady: Bool
     let organizationSummary: String
     let onOpenChrome: () -> Void
     let onOpenWebLogin: () -> Void
@@ -26,9 +27,20 @@ struct SetupWizardWindowView: View {
             (
                 "Organization 확인",
                 organizationSummary,
-                !organizationSummary.contains("없습니다")
+                isOrganizationReady
             )
         ]
+    }
+
+    private var isFullyReady: Bool {
+        hasReadyCredential && hasSuccessfulFetch && isOrganizationReady
+    }
+
+    private var primaryActionTitle: String {
+        if hasReadyCredential && hasSuccessfulFetch && !isOrganizationReady {
+            return "Organization 열기"
+        }
+        return currentStep.ctaTitle
     }
 
     var body: some View {
@@ -93,14 +105,16 @@ struct SetupWizardWindowView: View {
                 Spacer()
 
                 if hasReadyCredential {
-                    Button("나중에") {
+                    Button(isFullyReady ? "완료" : "나중에") {
                         onDismiss()
                     }
                     .buttonStyle(.bordered)
                 }
 
-                Button(currentStep.ctaTitle) {
-                    if currentStep == .manualSessionKey {
+                Button(primaryActionTitle) {
+                    if hasReadyCredential && hasSuccessfulFetch && !isOrganizationReady {
+                        onOpenOrganizations()
+                    } else if currentStep == .manualSessionKey {
                         onOpenAdvancedSettings()
                     } else if currentStep == .chromeImport {
                         onOpenChrome()

@@ -2,6 +2,7 @@ import Foundation
 
 struct ProviderCapabilities: Sendable, Equatable {
     let runtimeService: PopoverService?
+    let refreshStrategy: RuntimeRefreshStrategy?
     let supportsBrowserImport: Bool
     let defaultEnabled: Bool
 
@@ -44,6 +45,7 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 settingsComingSoonMessage: nil,
                 capabilities: ProviderCapabilities(
                     runtimeService: .claude,
+                    refreshStrategy: .claude,
                     supportsBrowserImport: true,
                     defaultEnabled: true
                 )
@@ -59,6 +61,7 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 settingsComingSoonMessage: nil,
                 capabilities: ProviderCapabilities(
                     runtimeService: .codex,
+                    refreshStrategy: .codex,
                     supportsBrowserImport: false,
                     defaultEnabled: false
                 )
@@ -74,6 +77,7 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 settingsComingSoonMessage: "Gemini는 설정 패널과 표시 경로를 먼저 열어두고, runtime 연결을 이어서 붙입니다.",
                 capabilities: ProviderCapabilities(
                     runtimeService: nil,
+                    refreshStrategy: nil,
                     supportsBrowserImport: false,
                     defaultEnabled: false
                 )
@@ -89,6 +93,7 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 settingsComingSoonMessage: "Antigravity는 Gemini와 별개 provider로 유지하면서 runtime 연결을 이어서 붙입니다.",
                 capabilities: ProviderCapabilities(
                     runtimeService: nil,
+                    refreshStrategy: nil,
                     supportsBrowserImport: false,
                     defaultEnabled: false
                 )
@@ -134,6 +139,10 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
 
     nonisolated var runtimeService: PopoverService? {
         descriptor.capabilities.runtimeService
+    }
+
+    nonisolated var refreshStrategy: RuntimeRefreshStrategy? {
+        descriptor.capabilities.refreshStrategy
     }
 
     nonisolated var supportsBrowserImport: Bool {

@@ -1,7 +1,7 @@
 import Foundation
 
 enum ProviderRuntimeAction {
-    case refresh(service: PopoverService, force: Bool, markSetupComplete: Bool)
+    case refresh(service: PopoverService, force: Bool)
     case clearState(PopoverService)
     case clearAndPromptAuth(PopoverService)
 }
@@ -18,7 +18,7 @@ enum RefreshOrchestration {
             return nil
         }
 
-        return .refresh(service: state.service, force: false, markSetupComplete: false)
+        return .refresh(service: state.service, force: false)
     }
 
     static func actionsForRefreshAll(
@@ -29,7 +29,7 @@ enum RefreshOrchestration {
     ) -> [ProviderRuntimeAction] {
         supportedServices.compactMap { service in
             if refreshableServices.contains(service) {
-                return .refresh(service: service, force: force, markSetupComplete: false)
+                return .refresh(service: service, force: force)
             }
 
             if ServiceSelectionHelper.isEnabled(service, settings: settings) {
@@ -47,11 +47,7 @@ enum RefreshOrchestration {
             state: state
         ) {
         case .refreshNow:
-            return .refresh(
-                service: state.service,
-                force: true,
-                markSetupComplete: state.shouldMarkSetupCompleteOnRefresh
-            )
+            return .refresh(service: state.service, force: true)
         case .clearAndPromptAuth:
             return .clearAndPromptAuth(state.service)
         case .clearStateOnly:
