@@ -276,13 +276,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var shouldShowStandaloneSetupWizard: Bool {
-        !AppSettings.shared.hasCompletedSetupWizard || !hasReadyClaudeCredential
+        !AppSettings.shared.hasCompletedSetupWizard || !hasReadyClaudeCredential || !hasSuccessfulClaudeFetch
     }
 
     private var hasReadyClaudeCredential: Bool {
         KeychainManager.shared.hasSessionKey
         || claudeCredentialAvailability.hasAnyCredential
         || lastUpdated != nil
+    }
+
+    private var hasSuccessfulClaudeFetch: Bool {
+        lastUpdated != nil
     }
 
     private var currentSetupWizardStep: SetupWizardView.Step {
@@ -293,6 +297,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var setupWizardOrganizationSummary: String {
+        guard hasSuccessfulClaudeFetch else {
+            return "첫 성공 조회 후 organization 상태를 확인합니다"
+        }
         let preferredID = AppSettings.shared.preferredOrganizationID.trimmingCharacters(in: .whitespacesAndNewlines)
         if preferredID.isEmpty {
             return "자동 선택 모드입니다"
