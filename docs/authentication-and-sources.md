@@ -10,7 +10,7 @@ Claude는 한 가지 자격만 쓰지 않습니다. 앱은 아래 경로를 함�
 
 ### Claude Code CLI OAuth
 
-가장 권장하는 경로입니다.
+가장 안정적인 경로입니다. 다만 앱 안에서 사용자가 처음 누르게 되는 기본 CTA는 아닙니다.
 
 - 설치: `brew install --cask claude-code`
 - 로그인: `claude login`
@@ -24,7 +24,7 @@ Claude는 한 가지 자격만 쓰지 않습니다. 앱은 아래 경로를 함�
 
 ### Chrome 가져오기
 
-일반 사용자 기본 경로입니다.
+일반 사용자의 첫 시도 경로입니다.
 
 - Chrome 로그인 상태에서 `claude.ai`의 `sessionKey` 쿠키를 자동 추출합니다.
 - 앱은 Chrome `Cookies` DB를 임시 복사하고 `Safe Storage` 기반 복호화를 시도합니다.
@@ -105,9 +105,17 @@ Claude 사용량은 아래 소스를 함께 가집니다.
 
 ## 6. 사용자 입장에서 추천 순서
 
+앱 안에서 처음 시도할 순서:
+
+1. `Chrome 가져오기`
+2. `웹 로그인`
+3. `수동 sessionKey`
+
+장기적으로 권장하는 안정성 순서:
+
 1. `Claude Code CLI OAuth`
 2. `Chrome 가져오기`
 3. `웹 로그인`
 4. `수동 sessionKey`
 
-이 순서가 현재 제품 기준으로 가장 덜 불안정합니다.
+즉, 앱 UI의 첫 행동과 장기 운영 기준의 권장 경로는 다릅니다. 첫 행동은 `Chrome 가져오기`, 가장 안정적인 운영 경로는 `CLI OAuth`입니다.

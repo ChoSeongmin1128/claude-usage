@@ -58,18 +58,24 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
 
 ## Claude 인증 권장 순서
 
-일반적으로는 아래 순서가 가장 안전합니다.
+앱 안에서 처음 시도할 순서는 아래와 같습니다.
+
+1. `Chrome 가져오기`
+   - Chrome에서 `claude.ai` 로그인 상태일 때 sessionKey 자동 추출
+2. `웹 로그인`
+   - 내장 로그인 창에서 sessionKey 자동 추출
+3. `수동 sessionKey`
+   - 고급 설정의 마지막 수단
+
+장기적으로 더 안정적인 경로는 아래입니다.
 
 1. `Claude Code CLI OAuth`
    - `brew install --cask claude-code`
    - `claude login`
    - 앱의 `설정 > Claude > 인증 > 상태 새로고침`
 2. `Chrome 가져오기`
-   - Chrome에서 `claude.ai` 로그인 상태일 때 sessionKey 자동 추출
 3. `웹 로그인`
-   - 내장 로그인 창에서 sessionKey 자동 추출
 4. `수동 sessionKey`
-   - 고급 설정의 마지막 수단
 
 세션키 경로는 Cloudflare/429/서버 상태의 영향을 받을 수 있습니다. 따라서 sessionKey만으로 충분히 동작하더라도, 장기적으로는 `CLI OAuth`를 같이 준비하는 편이 더 안정적입니다.
 
@@ -115,7 +121,9 @@ xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -configuration Deb
 - `Claude`
   - 인증
   - 빠른 시작 wizard
-  - 일반 로그인 경로 / Claude Code CLI OAuth / 고급 및 진단 분리
+  - 일반 로그인 경로와 고급/진단 분리
+  - `현재 인증 상태`, `상태 새로고침`, `웹 로그인 다시 열기`, `로그아웃`
+  - `상세 인증 상태`, `수동 sessionKey`, `복구 및 도움말`은 고급 설정 안쪽
   - 표시
   - 상태
   - organization
