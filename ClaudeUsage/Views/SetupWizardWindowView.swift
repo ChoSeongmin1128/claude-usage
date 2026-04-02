@@ -8,6 +8,7 @@ struct SetupWizardWindowView: View {
     let onOpenChrome: () -> Void
     let onOpenWebLogin: () -> Void
     let onOpenAdvancedSettings: () -> Void
+    let onOpenOrganizations: () -> Void
     let onDismiss: () -> Void
 
     private var checklistState: [(String, String, Bool)] {
@@ -81,6 +82,13 @@ struct SetupWizardWindowView: View {
                     onOpenAdvancedSettings()
                 }
                 .buttonStyle(.bordered)
+
+                if hasReadyCredential {
+                    Button("Organization") {
+                        onOpenOrganizations()
+                    }
+                    .buttonStyle(.bordered)
+                }
 
                 Spacer()
 

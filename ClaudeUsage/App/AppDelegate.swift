@@ -1392,6 +1392,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.setupWizardWindowCoordinator.close()
                 self?.showSettingsWindow()
             },
+            onOpenOrganizations: { [weak self] in
+                AppSettings.shared.settingsLastTab = "claude"
+                AppSettings.shared.claudeSettingsLastTab = "organizations"
+                self?.setupWizardWindowCoordinator.close()
+                self?.showSettingsWindow()
+            },
             onDismiss: { [weak self] in
                 AppSettings.shared.hasCompletedSetupWizard = true
                 self?.setupWizardWindowCoordinator.close()
