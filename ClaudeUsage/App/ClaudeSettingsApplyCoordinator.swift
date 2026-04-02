@@ -24,10 +24,15 @@ enum ClaudeSettingsApplyCoordinator {
         }
 
         let snapshot = await apiService.fetchUsageHealthSnapshot()
+        let cachedMetadata = await apiService.fetchCachedProfileMetadata()
         return ClaudeSettingsApplyResult(
             snapshot: snapshot,
             shouldStartMonitoring: providerEnabled && snapshot.runtime.credentialAvailability.hasAnyCredential,
-            shouldMarkSetupComplete: snapshot.runtime.credentialAvailability.hasAnyCredential
+            shouldMarkSetupComplete: SetupCompletionPolicy.shouldMarkSetupComplete(
+                hasSuccessfulFetch: snapshot.lastOverallSuccessAt != nil,
+                preferredOrganizationID: preferredOrganizationID,
+                cachedMetadata: cachedMetadata
+            )
         )
     }
 
@@ -42,10 +47,15 @@ enum ClaudeSettingsApplyCoordinator {
         await apiService.updateSessionKey(key)
 
         let snapshot = await apiService.fetchUsageHealthSnapshot()
+        let cachedMetadata = await apiService.fetchCachedProfileMetadata()
         return ClaudeSettingsApplyResult(
             snapshot: snapshot,
             shouldStartMonitoring: providerEnabled && snapshot.runtime.credentialAvailability.hasAnyCredential,
-            shouldMarkSetupComplete: snapshot.runtime.credentialAvailability.hasAnyCredential
+            shouldMarkSetupComplete: SetupCompletionPolicy.shouldMarkSetupComplete(
+                hasSuccessfulFetch: snapshot.lastOverallSuccessAt != nil,
+                preferredOrganizationID: preferredOrganizationID,
+                cachedMetadata: cachedMetadata
+            )
         )
     }
 
@@ -62,7 +72,7 @@ enum ClaudeSettingsApplyCoordinator {
         return ClaudeSettingsApplyResult(
             snapshot: snapshot,
             shouldStartMonitoring: false,
-            shouldMarkSetupComplete: providerEnabled && snapshot.runtime.credentialAvailability.hasAnyCredential
+            shouldMarkSetupComplete: false
         )
     }
 }

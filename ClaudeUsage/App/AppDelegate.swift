@@ -454,31 +454,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var currentSetupWizardStep: SetupWizardView.Step {
         if hasReadyClaudeCredential {
-            return .chromeImport
+            return .webLogin
+        }
+        if NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") == nil {
+            return .webLogin
         }
         return .chromeImport
     }
 
-    private var isSetupWizardOrganizationReady: Bool {
-        guard hasSuccessfulClaudeFetch else { return false }
-        return SetupCompletionPolicy.isOrganizationReady(
+    private var setupWizardProgress: SetupCompletionPolicy.WizardProgress {
+        SetupCompletionPolicy.resolveWizardProgress(
+            hasReadyCredential: hasReadyClaudeCredential,
+            hasSuccessfulFetch: hasSuccessfulClaudeFetch,
             preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
             cachedMetadata: currentClaudeProfileMetadata
         )
     }
 
+    private var isSetupWizardOrganizationReady: Bool {
+        setupWizardProgress.isOrganizationReady
+    }
+
     private var setupWizardOrganizationSummary: String {
-        guard hasSuccessfulClaudeFetch else {
-            return "첫 성공 조회 후 organization 상태를 확인합니다"
-        }
-        let preferredID = AppSettings.shared.preferredOrganizationID.trimmingCharacters(in: .whitespacesAndNewlines)
-        if preferredID.isEmpty {
-            return "자동 선택 모드입니다"
-        }
-        if isSetupWizardOrganizationReady {
-            return "선택한 organization이 검증되었습니다"
-        }
-        return "선택한 organization을 설정에서 다시 확인해야 합니다"
+        setupWizardProgress.organizationSummary
     }
 
     private func checkForUpdates() {
@@ -1869,10 +1867,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let rootView = SetupWizardWindowView(
             currentStep: currentSetupWizardStep,
-            hasReadyCredential: hasReadyClaudeCredential,
-            hasSuccessfulFetch: lastUpdated != nil,
-            isOrganizationReady: isSetupWizardOrganizationReady,
-            organizationSummary: setupWizardOrganizationSummary,
+            progress: setupWizardProgress,
+            isVerifyingFetch: isLoading,
             onOpenChrome: { [weak self] in
                 self?.openClaudeUsageInChrome()
             },
@@ -1892,8 +1888,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.setupWizardWindowCoordinator.close()
                 self?.showSettingsWindow()
             },
-            onDismiss: { [weak self] in
+            onVerifyFetch: { [weak self] in
+                self?.refreshUsage(force: true)
+            },
+            onComplete: { [weak self] in
                 AppSettings.shared.hasCompletedSetupWizard = true
+                self?.setupWizardWindowCoordinator.close()
+            },
+            onDismiss: { [weak self] in
                 self?.setupWizardWindowCoordinator.close()
             }
         )
