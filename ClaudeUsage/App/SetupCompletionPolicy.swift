@@ -28,6 +28,23 @@ enum SetupCompletionPolicy {
         }
     }
 
+    static func resolveCredentialStep(
+        hasReadyCredential: Bool,
+        hasChromeApp: Bool,
+        shouldPreferManual: Bool = false
+    ) -> SetupWizardView.Step {
+        if hasReadyCredential {
+            return .webLogin
+        }
+        if shouldPreferManual {
+            return .manualSessionKey
+        }
+        if !hasChromeApp {
+            return .webLogin
+        }
+        return .chromeImport
+    }
+
     static func isOrganizationReady(
         preferredOrganizationID: String,
         cachedMetadata: ClaudeProfileMetadata?

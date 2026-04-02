@@ -456,13 +456,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var currentSetupWizardStep: SetupWizardView.Step {
-        if hasReadyClaudeCredential {
-            return .webLogin
-        }
-        if NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") == nil {
-            return .webLogin
-        }
-        return .chromeImport
+        SetupCompletionPolicy.resolveCredentialStep(
+            hasReadyCredential: hasReadyClaudeCredential,
+            hasChromeApp: NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") != nil
+        )
     }
 
     private var setupWizardProgress: SetupCompletionPolicy.WizardProgress {

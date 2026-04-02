@@ -1051,9 +1051,7 @@ struct SettingsView: View {
                 isClaudeAdvancedSectionExpanded = true
                 isAdvancedAuthExpanded = true
             },
-            onDismiss: {
-                settings.hasCompletedSetupWizard = true
-            }
+            onDismiss: {}
         )
     }
 
@@ -1114,16 +1112,11 @@ struct SettingsView: View {
     }
 
     private var currentSetupWizardStep: SetupWizardView.Step {
-        if hasReadyClaudeCredential {
-            return .webLogin
-        }
-        if isAdvancedAuthExpanded || !(storedSessionKey ?? "").isEmpty || !normalizeSessionKey(sessionKey).isEmpty {
-            return .manualSessionKey
-        }
-        if isOAuthGuideExpanded || NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") == nil {
-            return .webLogin
-        }
-        return .chromeImport
+        SetupCompletionPolicy.resolveCredentialStep(
+            hasReadyCredential: hasReadyClaudeCredential,
+            hasChromeApp: NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") != nil,
+            shouldPreferManual: isAdvancedAuthExpanded || !(storedSessionKey ?? "").isEmpty || !normalizeSessionKey(sessionKey).isEmpty
+        )
     }
 
     private func authSummaryLine(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> String {
