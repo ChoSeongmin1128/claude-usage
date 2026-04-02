@@ -22,25 +22,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private let settingsWindowCoordinator = SettingsWindowCoordinator()
     private let loginWindowCoordinator = LoginWindowCoordinator()
 
-    private var currentUsage: ClaudeUsageResponse?
-    private var currentCodexUsage: CodexUsageResponse?
+    private var runtimeStateCatalog = RuntimeProviderStateCatalog()
     private var currentOverage: OverageSpendLimitResponse?
     private var lastOverageFetchAt: Date?
     private var systemStatus: ClaudeSystemStatus?
-    private var currentError: APIError?
-    private var codexError: APIError?
-    private var isLoading = false
-    private var isCodexLoading = false
-    private var loadingStartedAt: Date?
-    private var codexLoadingStartedAt: Date?
-    private var nextUsageRefreshAllowedAt: Date?
-    private var nextCodexRefreshAllowedAt: Date?
-    private var lastUpdated: Date?
-    private var codexLastUpdated: Date?
-    private var hasAuthError = false
-    private var hasCodexAuthError = false
-    private var consecutiveErrorCount = 0
-    private var codexConsecutiveErrorCount = 0
     private var statusTimer: Timer?
     private var appearanceObservation: NSKeyValueObservation?
 
@@ -54,6 +39,154 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var popover: NSPopover? { popoverCoordinator.popover }
     private var popoverViewModel: PopoverViewModel { popoverCoordinator.viewModel }
+    private lazy var runtimeRefreshHandlers: [PopoverService: (Bool) -> Void] = [
+        .claude: { [weak self] force in self?.refreshUsage(force: force) },
+        .codex: { [weak self] force in self?.refreshCodexUsage(force: force) },
+    ]
+
+    private var currentUsage: ClaudeUsageResponse? {
+        get { runtimeStateCatalog[.claude].claudeUsage }
+        set {
+            var state = runtimeStateCatalog[.claude]
+            state.payload = newValue.map(RuntimeProviderPayload.claude)
+            runtimeStateCatalog[.claude] = state
+        }
+    }
+
+    private var currentCodexUsage: CodexUsageResponse? {
+        get { runtimeStateCatalog[.codex].codexUsage }
+        set {
+            var state = runtimeStateCatalog[.codex]
+            state.payload = newValue.map(RuntimeProviderPayload.codex)
+            runtimeStateCatalog[.codex] = state
+        }
+    }
+
+    private var currentError: APIError? {
+        get { runtimeStateCatalog[.claude].error }
+        set {
+            var state = runtimeStateCatalog[.claude]
+            state.error = newValue
+            runtimeStateCatalog[.claude] = state
+        }
+    }
+
+    private var codexError: APIError? {
+        get { runtimeStateCatalog[.codex].error }
+        set {
+            var state = runtimeStateCatalog[.codex]
+            state.error = newValue
+            runtimeStateCatalog[.codex] = state
+        }
+    }
+
+    private var isLoading: Bool {
+        get { runtimeStateCatalog[.claude].isLoading }
+        set {
+            var state = runtimeStateCatalog[.claude]
+            state.isLoading = newValue
+            runtimeStateCatalog[.claude] = state
+        }
+    }
+
+    private var isCodexLoading: Bool {
+        get { runtimeStateCatalog[.codex].isLoading }
+        set {
+            var state = runtimeStateCatalog[.codex]
+            state.isLoading = newValue
+            runtimeStateCatalog[.codex] = state
+        }
+    }
+
+    private var loadingStartedAt: Date? {
+        get { runtimeStateCatalog[.claude].loadingStartedAt }
+        set {
+            var state = runtimeStateCatalog[.claude]
+            state.loadingStartedAt = newValue
+            runtimeStateCatalog[.claude] = state
+        }
+    }
+
+    private var codexLoadingStartedAt: Date? {
+        get { runtimeStateCatalog[.codex].loadingStartedAt }
+        set {
+            var state = runtimeStateCatalog[.codex]
+            state.loadingStartedAt = newValue
+            runtimeStateCatalog[.codex] = state
+        }
+    }
+
+    private var nextUsageRefreshAllowedAt: Date? {
+        get { runtimeStateCatalog[.claude].nextRefreshAllowedAt }
+        set {
+            var state = runtimeStateCatalog[.claude]
+            state.nextRefreshAllowedAt = newValue
+            runtimeStateCatalog[.claude] = state
+        }
+    }
+
+    private var nextCodexRefreshAllowedAt: Date? {
+        get { runtimeStateCatalog[.codex].nextRefreshAllowedAt }
+        set {
+            var state = runtimeStateCatalog[.codex]
+            state.nextRefreshAllowedAt = newValue
+            runtimeStateCatalog[.codex] = state
+        }
+    }
+
+    private var lastUpdated: Date? {
+        get { runtimeStateCatalog[.claude].lastUpdated }
+        set {
+            var state = runtimeStateCatalog[.claude]
+            state.lastUpdated = newValue
+            runtimeStateCatalog[.claude] = state
+        }
+    }
+
+    private var codexLastUpdated: Date? {
+        get { runtimeStateCatalog[.codex].lastUpdated }
+        set {
+            var state = runtimeStateCatalog[.codex]
+            state.lastUpdated = newValue
+            runtimeStateCatalog[.codex] = state
+        }
+    }
+
+    private var hasAuthError: Bool {
+        get { runtimeStateCatalog[.claude].hasAuthError }
+        set {
+            var state = runtimeStateCatalog[.claude]
+            state.hasAuthError = newValue
+            runtimeStateCatalog[.claude] = state
+        }
+    }
+
+    private var hasCodexAuthError: Bool {
+        get { runtimeStateCatalog[.codex].hasAuthError }
+        set {
+            var state = runtimeStateCatalog[.codex]
+            state.hasAuthError = newValue
+            runtimeStateCatalog[.codex] = state
+        }
+    }
+
+    private var consecutiveErrorCount: Int {
+        get { runtimeStateCatalog[.claude].consecutiveErrorCount }
+        set {
+            var state = runtimeStateCatalog[.claude]
+            state.consecutiveErrorCount = newValue
+            runtimeStateCatalog[.claude] = state
+        }
+    }
+
+    private var codexConsecutiveErrorCount: Int {
+        get { runtimeStateCatalog[.codex].consecutiveErrorCount }
+        set {
+            var state = runtimeStateCatalog[.codex]
+            state.consecutiveErrorCount = newValue
+            runtimeStateCatalog[.codex] = state
+        }
+    }
 
     private var refreshableServices: [PopoverService] {
         ServiceSelectionHelper.refreshableServices(
@@ -622,49 +755,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refresh(service: PopoverService, force: Bool) {
-        switch service {
-        case .claude:
-            refreshUsage(force: force)
-        case .codex:
-            refreshCodexUsage(force: force)
-        }
+        runtimeRefreshHandlers[service]?(force)
     }
 
     private func clearRuntimeServiceState(_ service: PopoverService) {
+        var resetState = RuntimeProviderState()
         switch service {
         case .claude:
-            nextUsageRefreshAllowedAt = nil
-            currentUsage = nil
-            currentError = nil
-            hasAuthError = false
             currentOverage = nil
             lastOverageFetchAt = nil
-            consecutiveErrorCount = 0
-            isLoading = false
-            loadingStartedAt = nil
             popoverViewModel.nextUsageRetryAt = nil
         case .codex:
-            nextCodexRefreshAllowedAt = nil
-            currentCodexUsage = nil
-            codexError = CodexAuthManager.shared.isAuthenticated ? nil : .invalidSessionKey
-            hasCodexAuthError = !CodexAuthManager.shared.isAuthenticated
-            codexConsecutiveErrorCount = 0
-            isCodexLoading = false
-            codexLoadingStartedAt = nil
+            if !CodexAuthManager.shared.isAuthenticated {
+                resetState.error = .invalidSessionKey
+                resetState.hasAuthError = true
+            }
         }
+        runtimeStateCatalog[service] = resetState
     }
 
     private func clearStateForAuthPrompt(_ service: PopoverService) {
-        clearRuntimeServiceState(service)
-
         switch service {
         case .claude:
-            currentError = nil
-            hasAuthError = false
+            currentOverage = nil
+            lastOverageFetchAt = nil
+            popoverViewModel.nextUsageRetryAt = nil
         case .codex:
-            codexError = nil
-            hasCodexAuthError = false
+            break
         }
+        runtimeStateCatalog[service] = RuntimeProviderState()
     }
 
     private func refreshUsage(force: Bool = false) {
