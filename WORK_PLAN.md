@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (45차)
+최종 갱신: 2026-04-02 (46차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -88,6 +88,7 @@
 - 2026-04-02 43차 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 first-run 완료 조건을 `자격 확보`만이 아니라 `첫 성공 조회`까지 포함하도록 보수적으로 강화했습니다. 세션 키를 저장했다고 바로 setup 완료로 치지 않게 바꿨고, organization 체크리스트도 성공 조회 전에는 완료로 보이지 않게 정리했습니다.
 - 2026-04-02 44차 통합에서 [ProviderStateModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift), [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift), [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift) 는 provider descriptor가 `runtimeService + refreshStrategy` 를 함께 들고, `RuntimeProviderRegistry` 가 이를 직접 읽도록 맞췄습니다. 동시에 지원하지 않는 runtime service에 대해 조용히 기본 descriptor를 만들어주던 fallback을 제거해, 이후 `Gemini` 를 붙일 때 descriptor 누락이 감춰지지 않도록 정리했습니다.
 - 2026-04-02 45차 통합에서 [SetupCompletionPolicy.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/SetupCompletionPolicy.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift), [SetupWizardWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SetupWizardWindowView.swift) 는 `setup 완료`를 단순 refresh 액션 진입이 아니라 실제 Claude 성공 조회와 organization readiness 기준으로만 올리도록 바꿨습니다. 자동 organization 모드에서는 첫 성공 조회로 완료되지만, 특정 organization을 고른 경우에는 wizard가 `Organization 열기`를 마지막 우선 CTA로 내세우도록 조정해 first-run 흐름을 더 닫았습니다.
+- 2026-04-02 46차 통합에서 [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 는 `providerStates` 저장 시 레거시 `claudeEnabled` / `codexEnabled` / `menuBarActiveService` 키를 매 변경마다 다시 쓰지 않도록 정리했습니다. 이제 레거시 키는 init 시 버전 가드가 있는 단방향 마이그레이션에서만 갱신되고, 런타임 단일 원천은 `providerStates` 로 더 분명해졌습니다.
 
 ## 2. 참고 레포에서 가져올 방향
 

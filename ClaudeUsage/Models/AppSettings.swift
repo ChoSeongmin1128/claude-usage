@@ -221,6 +221,8 @@ enum ClaudeMessagesFallbackPolicy: String, Codable, CaseIterable, Sendable {
 
 class AppSettings: ObservableObject {
     static let shared = AppSettings()
+    private static let providerStateMigrationVersionKey = "providerStateMigrationVersion"
+    private static let currentProviderStateMigrationVersion = 1
 
     private static func normalizedMessagesFallbackThreshold(_ value: Int) -> Int {
         min(max(value, 0), 100)
@@ -362,7 +364,6 @@ class AppSettings: ObservableObject {
             if let data = try? JSONEncoder().encode(providerStates) {
                 defaults.set(data, forKey: "providerStates")
             }
-            persistLegacyProviderFields(from: providerStates)
         }
     }
     @Published var codexPercentageDisplay: PercentageDisplay {
@@ -570,10 +571,13 @@ class AppSettings: ObservableObject {
         codexSettingsLastTab = snapshot.codexSettingsLastTab
     }
 
-    private func persistLegacyProviderFields(from catalog: AppProviderStateCatalog) {
+    private static func migrateLegacyProviderFieldsIfNeeded(from catalog: AppProviderStateCatalog, defaults: UserDefaults) {
+        let storedVersion = defaults.integer(forKey: Self.providerStateMigrationVersionKey)
+        guard storedVersion < Self.currentProviderStateMigrationVersion else { return }
         defaults.set(catalog.state(for: .claude).isEnabled, forKey: "claudeEnabled")
         defaults.set(catalog.state(for: .codex).isEnabled, forKey: "codexEnabled")
         defaults.set(catalog.legacyMenuBarActiveService(fallback: "claude"), forKey: "menuBarActiveService")
+        defaults.set(Self.currentProviderStateMigrationVersion, forKey: Self.providerStateMigrationVersionKey)
     }
 
     // MARK: - Computed
@@ -1053,9 +1057,7 @@ class AppSettings: ObservableObject {
             )
         }
         self.providerStates = loadedProviderStates
-        defaults.set(loadedProviderStates.state(for: .claude).isEnabled, forKey: "claudeEnabled")
-        defaults.set(loadedProviderStates.state(for: .codex).isEnabled, forKey: "codexEnabled")
-        defaults.set(loadedProviderStates.legacyMenuBarActiveService(fallback: "claude"), forKey: "menuBarActiveService")
+        Self.migrateLegacyProviderFieldsIfNeeded(from: loadedProviderStates, defaults: defaults)
         if let data = try? JSONEncoder().encode(loadedProviderStates) {
             defaults.set(data, forKey: "providerStates")
         }
