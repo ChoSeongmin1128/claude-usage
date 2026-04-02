@@ -69,7 +69,7 @@ struct ServiceSelectionHelper {
 
     static func resolvedMenuBarService(settings: AppSettings) -> PopoverService? {
         let selectionState = settings.providerSelectionState
-        let runtimeKinds = selectionState.runtimeEnabledKinds
+        let runtimeKinds = selectionState.runtimeEnabledKinds.filter { settings.isProviderVisibleInMenuBar($0) }
         guard !runtimeKinds.isEmpty else { return nil }
 
         let preferred = resolvedPopoverService(settings: settings)

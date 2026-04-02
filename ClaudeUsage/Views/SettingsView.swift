@@ -541,90 +541,104 @@ struct SettingsView: View {
                         .font(.subheadline.weight(.semibold))
 
                     settingsToggleRow(
-                        "\(descriptor.title) 아이콘",
+                        "\(descriptor.title) 메뉴바에 표시",
                         isOn: Binding(
-                            get: { settings.menuBarDisplayConfig(for: provider)?.showIcon ?? true },
-                            set: { settings.setProviderShowIcon($0, for: provider) }
+                            get: { settings.isProviderVisibleInMenuBar(provider) },
+                            set: { settings.setProviderMenuBarVisible($0, for: provider) }
                         )
                     )
 
-                    Picker("퍼센트:", selection: Binding(
-                        get: { settings.menuBarDisplayConfig(for: provider)?.percentageDisplay ?? .fiveHour },
-                        set: { settings.setProviderPercentageDisplay($0, for: provider) }
-                    )) {
-                        ForEach(PercentageDisplay.allCases, id: \.self) { mode in
-                            Text(mode.displayName).tag(mode)
-                        }
-                    }
-
-                    Picker("리셋 시간:", selection: Binding(
-                        get: { settings.menuBarDisplayConfig(for: provider)?.resetTimeDisplay ?? .none },
-                        set: { settings.setProviderResetTimeDisplay($0, for: provider) }
-                    )) {
-                        ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
-                            Text(mode.displayName).tag(mode)
-                        }
-                    }
-
-                    if displayConfig.resetTimeDisplay != .none {
-                        Picker("시간 형식:", selection: Binding(
-                            get: { settings.menuBarDisplayConfig(for: provider)?.timeFormat ?? .h24 },
-                            set: { settings.setProviderTimeFormat($0, for: provider) }
-                        )) {
-                            ForEach(TimeFormatStyle.allCases, id: \.self) { style in
-                                Text(style.displayName).tag(style)
-                            }
-                        }
-                    }
-
-                    Picker("아이콘:", selection: Binding(
-                        get: { settings.menuBarDisplayConfig(for: provider)?.style ?? .none },
-                        set: { settings.setMenuBarStyle($0, for: provider) }
-                    )) {
-                        Text("없음").tag(MenuBarStyle.none)
-                        Section("개별 기준") {
-                            Text("배터리바").tag(MenuBarStyle.batteryBar)
-                            Text("원형").tag(MenuBarStyle.circular)
-                        }
-                        Section("동시 표시") {
-                            Text("동심원").tag(MenuBarStyle.concentricRings)
-                            Text("이중 배터리").tag(MenuBarStyle.dualBattery)
-                            Text("좌우 배터리").tag(MenuBarStyle.sideBySideBattery)
-                        }
-                    }
-
-                    if displayConfig.style == .batteryBar || displayConfig.style == .sideBySideBattery {
+                    if settings.isProviderVisibleInMenuBar(provider) {
                         settingsToggleRow(
-                            "배터리 내부 숫자",
+                            "\(descriptor.title) 아이콘",
                             isOn: Binding(
-                                get: { settings.menuBarDisplayConfig(for: provider)?.showBatteryPercent ?? true },
-                                set: { settings.setProviderShowBatteryPercent($0, for: provider) }
+                                get: { settings.menuBarDisplayConfig(for: provider)?.showIcon ?? true },
+                                set: { settings.setProviderShowIcon($0, for: provider) }
                             )
                         )
-                    }
 
-                    if displayConfig.style == .batteryBar || displayConfig.style == .circular {
-                        Picker("아이콘 기준:", selection: Binding(
-                            get: { settings.menuBarDisplayConfig(for: provider)?.iconMetric ?? .fiveHour },
-                            set: { settings.setProviderIconMetric($0, for: provider) }
+                        Picker("퍼센트:", selection: Binding(
+                            get: { settings.menuBarDisplayConfig(for: provider)?.percentageDisplay ?? .fiveHour },
+                            set: { settings.setProviderPercentageDisplay($0, for: provider) }
                         )) {
-                            ForEach(IconMetric.allCases, id: \.self) { metric in
-                                Text(metric.displayName).tag(metric)
-                            }
-                        }
-                        .pickerStyle(.radioGroup)
-                    }
-
-                    if displayConfig.style == .circular || displayConfig.style == .concentricRings {
-                        Picker("표시 기준:", selection: Binding(
-                            get: { settings.menuBarDisplayConfig(for: provider)?.circularDisplayMode ?? .usage },
-                            set: { settings.setProviderCircularDisplayMode($0, for: provider) }
-                        )) {
-                            ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
+                            ForEach(PercentageDisplay.allCases, id: \.self) { mode in
                                 Text(mode.displayName).tag(mode)
                             }
                         }
-                        .pickerStyle(.radioGroup)
+
+                        Picker("리셋 시간:", selection: Binding(
+                            get: { settings.menuBarDisplayConfig(for: provider)?.resetTimeDisplay ?? .none },
+                            set: { settings.setProviderResetTimeDisplay($0, for: provider) }
+                        )) {
+                            ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
+                                Text(mode.displayName).tag(mode)
+                            }
+                        }
+
+                        if displayConfig.resetTimeDisplay != .none {
+                            Picker("시간 형식:", selection: Binding(
+                                get: { settings.menuBarDisplayConfig(for: provider)?.timeFormat ?? .h24 },
+                                set: { settings.setProviderTimeFormat($0, for: provider) }
+                            )) {
+                                ForEach(TimeFormatStyle.allCases, id: \.self) { style in
+                                    Text(style.displayName).tag(style)
+                                }
+                            }
+                        }
+
+                        Picker("아이콘:", selection: Binding(
+                            get: { settings.menuBarDisplayConfig(for: provider)?.style ?? .none },
+                            set: { settings.setMenuBarStyle($0, for: provider) }
+                        )) {
+                            Text("없음").tag(MenuBarStyle.none)
+                            Section("개별 기준") {
+                                Text("배터리바").tag(MenuBarStyle.batteryBar)
+                                Text("원형").tag(MenuBarStyle.circular)
+                            }
+                            Section("동시 표시") {
+                                Text("동심원").tag(MenuBarStyle.concentricRings)
+                                Text("이중 배터리").tag(MenuBarStyle.dualBattery)
+                                Text("좌우 배터리").tag(MenuBarStyle.sideBySideBattery)
+                            }
+                        }
+
+                        if displayConfig.style == .batteryBar || displayConfig.style == .sideBySideBattery {
+                            settingsToggleRow(
+                                "배터리 내부 숫자",
+                                isOn: Binding(
+                                    get: { settings.menuBarDisplayConfig(for: provider)?.showBatteryPercent ?? true },
+                                    set: { settings.setProviderShowBatteryPercent($0, for: provider) }
+                                )
+                            )
+                        }
+
+                        if displayConfig.style == .batteryBar || displayConfig.style == .circular {
+                            Picker("아이콘 기준:", selection: Binding(
+                                get: { settings.menuBarDisplayConfig(for: provider)?.iconMetric ?? .fiveHour },
+                                set: { settings.setProviderIconMetric($0, for: provider) }
+                            )) {
+                                ForEach(IconMetric.allCases, id: \.self) { metric in
+                                    Text(metric.displayName).tag(metric)
+                                }
+                            }
+                            .pickerStyle(.radioGroup)
+                        }
+
+                        if displayConfig.style == .circular || displayConfig.style == .concentricRings {
+                            Picker("표시 기준:", selection: Binding(
+                                get: { settings.menuBarDisplayConfig(for: provider)?.circularDisplayMode ?? .usage },
+                                set: { settings.setProviderCircularDisplayMode($0, for: provider) }
+                            )) {
+                                ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
+                                    Text(mode.displayName).tag(mode)
+                                }
+                            }
+                            .pickerStyle(.radioGroup)
+                        }
+                    } else {
+                        Text("이 provider는 popover와 새로고침에는 참여하지만 메뉴바에는 표시하지 않습니다.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
 

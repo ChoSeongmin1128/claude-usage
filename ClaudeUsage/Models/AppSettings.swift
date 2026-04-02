@@ -816,6 +816,23 @@ class AppSettings: ObservableObject {
         }
     }
 
+    func isProviderVisibleInMenuBar(_ kind: AppProviderKind) -> Bool {
+        guard let config = menuBarDisplayConfig(for: kind) else { return false }
+        return isMenuBarConfigVisible(config)
+    }
+
+    func setProviderMenuBarVisible(_ visible: Bool, for kind: AppProviderKind) {
+        if visible {
+            applyMinimalVisiblePreset(force: true, for: kind)
+            return
+        }
+
+        setProviderShowIcon(false, for: kind)
+        setProviderPercentageDisplay(.none, for: kind)
+        setProviderResetTimeDisplay(.none, for: kind)
+        setMenuBarStyle(.none, for: kind)
+    }
+
     func setActiveProvider(_ kind: AppProviderKind?) {
         var catalog = providerStates
         catalog.setActiveProvider(kind)
@@ -1084,6 +1101,14 @@ class AppSettings: ObservableObject {
         guard !hasExplicitMenuBarCustomization(for: kind) else { return }
         guard let config = menuBarDisplayConfig(for: kind), !isMenuBarConfigVisible(config) else { return }
 
+        applyMinimalVisiblePreset(force: false, for: kind)
+    }
+
+    private func applyMinimalVisiblePreset(force: Bool, for kind: AppProviderKind) {
+        guard kind.isRuntimeProvider else { return }
+        if !force, let config = menuBarDisplayConfig(for: kind), isMenuBarConfigVisible(config) {
+            return
+        }
         setProviderShowIcon(true, for: kind)
         setProviderPercentageDisplay(.fiveHour, for: kind)
         setProviderResetTimeDisplay(.none, for: kind)
