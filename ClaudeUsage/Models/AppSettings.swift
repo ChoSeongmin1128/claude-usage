@@ -807,9 +807,13 @@ class AppSettings: ObservableObject {
     }
 
     func setProviderEnabled(_ enabled: Bool, for kind: AppProviderKind) {
+        let wasEnabled = providerStates.state(for: kind).isEnabled
         var catalog = providerStates
         catalog.setEnabled(enabled, for: kind)
         providerStates = catalog
+        if enabled && !wasEnabled {
+            applyMinimalVisiblePresetIfNeeded(for: kind)
+        }
     }
 
     func setActiveProvider(_ kind: AppProviderKind?) {
@@ -1051,6 +1055,41 @@ class AppSettings: ObservableObject {
         "\(kind.rawValue).\(suffix)"
     }
 
+    private func isMenuBarConfigVisible(_ config: ProviderMenuBarDisplayConfig) -> Bool {
+        config.showIcon
+            || config.percentageDisplay != .none
+            || config.resetTimeDisplay != .none
+            || config.style != .none
+    }
+
+    private func hasExplicitMenuBarCustomization(for kind: AppProviderKind) -> Bool {
+        switch kind {
+        case .claude:
+            return true
+        case .codex:
+            return defaults.object(forKey: "showCodexIcon") != nil
+                || defaults.object(forKey: "codexPercentageDisplay") != nil
+                || defaults.object(forKey: "codexResetTimeDisplay") != nil
+                || defaults.object(forKey: "codexMenuBarStyle") != nil
+        case .gemini, .antigravity:
+            return defaults.object(forKey: providerDefaultsKey(kind, suffix: "showIcon")) != nil
+                || defaults.object(forKey: providerDefaultsKey(kind, suffix: "percentageDisplay")) != nil
+                || defaults.object(forKey: providerDefaultsKey(kind, suffix: "resetTimeDisplay")) != nil
+                || defaults.object(forKey: providerDefaultsKey(kind, suffix: "menuBarStyle")) != nil
+        }
+    }
+
+    private func applyMinimalVisiblePresetIfNeeded(for kind: AppProviderKind) {
+        guard kind.isRuntimeProvider else { return }
+        guard !hasExplicitMenuBarCustomization(for: kind) else { return }
+        guard let config = menuBarDisplayConfig(for: kind), !isMenuBarConfigVisible(config) else { return }
+
+        setProviderShowIcon(true, for: kind)
+        setProviderPercentageDisplay(.fiveHour, for: kind)
+        setProviderResetTimeDisplay(.none, for: kind)
+        setMenuBarStyle(.none, for: kind)
+    }
+
     private func providerBoolDefault(_ fallback: Bool, for kind: AppProviderKind, suffix: String) -> Bool {
         defaults.object(forKey: providerDefaultsKey(kind, suffix: suffix)) as? Bool ?? fallback
     }
@@ -1121,8 +1160,8 @@ class AppSettings: ObservableObject {
         popoverItems = PopoverItemConfig.defaultClaudeItems
         separateCompactConfig = false
         compactPopoverItems = PopoverItemConfig.defaultClaudeItems
-        showCodexIcon = false
-        codexPercentageDisplay = .none
+        showCodexIcon = true
+        codexPercentageDisplay = .fiveHour
         codexResetTimeDisplay = .none
         codexTimeFormat = .h24
         codexMenuBarStyle = .none
@@ -1221,9 +1260,9 @@ class AppSettings: ObservableObject {
         self.launchAtLogin = savedLaunchAtLogin
         self.preferredOrganizationID = defaults.string(forKey: "preferredOrganizationID")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let storedCodexEnabled = defaults.object(forKey: "codexEnabled") as? Bool ?? false
-        self.showCodexIcon = defaults.object(forKey: "showCodexIcon") as? Bool ?? false
-        let cpd = defaults.string(forKey: "codexPercentageDisplay") ?? PercentageDisplay.none.rawValue
-        self.codexPercentageDisplay = PercentageDisplay(rawValue: cpd) ?? .none
+        self.showCodexIcon = defaults.object(forKey: "showCodexIcon") as? Bool ?? true
+        let cpd = defaults.string(forKey: "codexPercentageDisplay") ?? PercentageDisplay.fiveHour.rawValue
+        self.codexPercentageDisplay = PercentageDisplay(rawValue: cpd) ?? .fiveHour
         let crd = defaults.string(forKey: "codexResetTimeDisplay") ?? ResetTimeDisplay.none.rawValue
         self.codexResetTimeDisplay = ResetTimeDisplay(rawValue: crd) ?? .none
         let codexTF = defaults.string(forKey: "codexTimeFormat") ?? resolvedTimeFormat.rawValue
