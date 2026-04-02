@@ -710,7 +710,6 @@ struct SettingsView: View {
     private var claudeAdvancedSection: some View {
         DisclosureGroup(isExpanded: $isClaudeAdvancedSectionExpanded) {
             VStack(alignment: .leading, spacing: 12) {
-                detailedAuthStatusSection
                 manualSessionKeySection
                 recoveryAndHelpSection
             }
@@ -724,7 +723,7 @@ struct SettingsView: View {
                 HStack {
                     Text("고급 설정")
                     Spacer(minLength: 0)
-                    Text("수동 입력 · fallback · FAQ")
+                    Text("수동 입력 · 복구 · 진단")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -740,6 +739,7 @@ struct SettingsView: View {
     private var recoveryAndHelpSection: some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 12) {
+                detailedAuthStatusSection
                 messagesFallbackSection
                 claudeCLIOAuthGuideSection
                 authFAQSection
@@ -747,9 +747,9 @@ struct SettingsView: View {
             .padding(.top, 4)
         } label: {
             HStack {
-                Text("복구 및 도움말")
+                Text("복구 및 진단")
                 Spacer(minLength: 0)
-                Text("fallback · FAQ")
+                Text("상태 · fallback · FAQ")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
