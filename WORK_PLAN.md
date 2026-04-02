@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (30차)
+최종 갱신: 2026-04-02 (31차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -63,6 +63,10 @@
 - [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift) 는 `RuntimeServiceState` 를 도입해, Claude/Codex의 summary / meta / loading / auth-required / warning-dot 판단을 뷰 파일 밖으로 모으기 시작했습니다.
 - [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 는 overview / warning / loading / error / lastUpdated 접근을 이 runtime state accessor로 읽기 시작해 `Claude/Codex`별 switch를 더 줄였습니다.
 - 다만 AppDelegate orchestration과 multi-provider fetch/menu glue는 아직 더 분해해야 합니다.
+- 2026-04-02 참고 레포 재비교 결과, `CodexBar`의 descriptor/pipeline 구조와 비교하면 현재 최대 병목은 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 의 `Claude/Codex` 이중 상태 세트와 `refresh/menu/presentation` 하드코딩입니다.
+- 같은 비교 기준으로, 현재 온보딩은 설정 내부 체크리스트 수준까지는 왔지만 최신 `Claude-Usage-Tracker`의 [SetupWizardView.swift](/Users/seongmin/Personal/Claude-Usage-Tracker/Claude%20Usage/Views/SetupWizardView.swift) 처럼 `CLI 감지 -> 권장 경로 제시 -> 수동 fallback`을 독립 플로우로 끝내는 완성도에는 아직 못 미칩니다.
+- `claude-code`의 [rateLimitMessages.ts](/Users/seongmin/Personal/claude-code/src/services/rateLimitMessages.ts) 와 비교하면, 현재 앱은 `profile metadata`를 저장하기 시작했지만 이를 실제 `reset-aware warning`, `extra usage`, `team/enterprise suppress policy` 같은 문구/알림 정책까지 확장하지는 못했습니다.
+- `CodexBar`의 [README.md](/Users/seongmin/Personal/CodexBar/README.md), [docs/provider.md](/Users/seongmin/Personal/CodexBar/docs/provider.md), [docs/claude.md](/Users/seongmin/Personal/CodexBar/docs/claude.md) 와 비교하면, 현재 앱은 `왜 Chrome/Keychain 권한이 필요한지`, `어떤 source를 어떤 순서로 시도하는지`, `어떤 데이터는 로컬만 읽는지`를 설명하는 제품 문서와 UI copy가 아직 약합니다.
 
 ## 2. 참고 레포에서 가져올 방향
 
@@ -362,6 +366,8 @@
 - [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 Claude 인증 탭을 `일반 흐름` 과 `고급 및 진단` 으로 실제 분리했고, 설정 overview 카드도 추가됐습니다.
 - 아직 남음
 - 초기 설정 마법사의 완료도 판단과 provider별 온보딩 연결은 더 다듬어야 합니다.
+- `Claude-Usage-Tracker`의 독립 `SetupWizard` 수준으로 `CLI 감지`, `Chrome 권장`, `웹 로그인`, `수동 session key`를 단계형으로 끝내는 첫 실행 플로우를 별도 창/시트로 완성해야 합니다.
+- `CodexBar` 수준으로 `Chrome Safe Storage`, `Claude CLI Keychain`, `Chrome만 지원하는 이유`, `수동 입력이 필요한 경우`를 UI와 문서 양쪽에서 명확히 설명해야 합니다.
 - 완료 기준
 - 로그인과 설정 변경의 의미를 사용자가 이해할 수 있음
 
@@ -389,6 +395,12 @@
 - [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `OAuth-only` Claude 계정도 refreshable service로 인정하도록 bootstrap / refresh / timer / settings-apply / logout 경로를 다시 맞췄습니다.
 - 아직 남음
 - `AppDelegate`의 refresh/backoff execution을 더 coordinator 성격으로 분리하고, `ServiceSelectionHelper`의 Claude/Codex 2-provider 전제를 더 걷어내야 합니다.
+- 참고 레포 비교 기준 추가 체크리스트
+- `CodexBar`의 provider descriptor / fetch strategy 구조처럼 `runtime service registry` 와 `provider refresher` lookup을 도입해야 합니다.
+- [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 의 `currentUsage`, `currentCodexUsage`, `currentError`, `codexError`, `isLoading`, `isCodexLoading`, `lastUpdated`, `codexLastUpdated` 같은 이중 필드를 `provider runtime state catalog` 로 통합해야 합니다.
+- [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 의 `refreshUsage(force:)`, `refreshCodexUsage(force:)`, `clearRuntimeServiceState(_:)`, `clearStateForAuthPrompt(_:)`, `runtimePresentationState(for:)`, `runtimeActivationState(for:enabled:)`, `updateMenuBar()` 는 `Gemini` 진입 전에 provider lookup 기반으로 바뀌어야 합니다.
+- [RefreshOrchestration.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RefreshOrchestration.swift) 의 `markSetupComplete: state.service == .claude` 는 provider policy로 옮겨야 합니다.
+- `PopoverViewModel` 과 메뉴바 렌더러는 `Claude/Codex` 쌍 인자를 넘기는 방식이 아니라 `provider presentation snapshot` 컬렉션을 소비하도록 바뀌어야 합니다.
 - 완료 기준
 - 핵심 파일이 역할별로 나뉘고 테스트 가능한 단위가 생김
 
@@ -428,6 +440,8 @@
 - 아직 남음
 - `진단` / `업데이트` 섹션을 팝오버 메인 정보 흐름에서 얼마나 분리할지 추가 조정이 필요합니다.
 - preset 체계와 provider 추가 시 카드 구조 일관성은 아직 남아 있습니다.
+- `claude-code`의 `reset-aware` 문구 생성처럼 metadata 기반 경고 문구를 더 정교하게 만들고, `extra usage`, `team/enterprise`, `warning suppression` 정책을 알림 프리셋에 연결해야 합니다.
+- `CodexBar`의 UI 문서처럼 `Overview`, `provider row`, `권한 설명`, `고급 표시 옵션`을 제품 copy 수준으로 정리해야 합니다.
 - 완료 기준
 - 체감 반응성과 설정 이해도가 개선됨
 
@@ -517,6 +531,13 @@
 - 전체 화면이 큰 상태 객체에 과도하게 의존할 가능성이 높습니다.
 - refresh, notification, menu update, settings observe를 coordinator 단위로 쪼개야 합니다.
 
+### 참고 레포 비교로 추가 확인된 보완점
+
+- `CodexBar`는 provider 추가 기준이 `descriptor + strategy + UI hook` 단위라서 새 provider가 들어와도 host API만 재사용하면 됩니다. 현재 앱은 아직 `Claude/Codex` 이중 배선을 걷어내는 중이라 `Gemini`를 붙이기 전 `provider runtime registry`를 먼저 끝내야 합니다.
+- `Claude-Usage-Tracker`는 setup wizard가 단순 입력 화면이 아니라 `CLI 감지`, `내장 브라우저`, `수동 fallback`, `조직 선택`, `마이그레이션`까지 한 흐름으로 묶여 있습니다. 현재 앱도 설정 내부 보조 카드가 아니라 독립 `first-run flow` 완성도가 더 필요합니다.
+- `claude-code`는 metadata를 저장하는 데서 멈추지 않고 실제 경고 문구와 정책 판단까지 연결합니다. 현재 앱은 `organizationUuid`, `subscriptionType`, `hasExtraUsageEnabled`, `rateLimitTier`를 저장하기 시작했지만 아직 `알림 문구/표시 정책`까지 소비하지 못합니다.
+- `CodexBar`는 README와 provider 문서에 `권한 이유`, `로컬만 읽는 데이터`, `브라우저별 제약`, `키체인 prompt 정책`을 분명히 적습니다. 현재 앱도 설정 설명과 README, 향후 Sparkle 배포 문서에서 이 수준의 설명 책임을 져야 합니다.
+
 ### 제품 방향
 
 - 현재 README와 실제 구현 상태가 어긋납니다.
@@ -532,9 +553,9 @@
 
 ## 7. 바로 다음 작업
 
-- `providerStates`를 실제 메뉴바/팝오버/AppDelegate refresh 경로까지 더 연결해 `claude/codex` 하드코딩을 추가로 걷어내기
-- `PopoverService` 와 runtime provider 선택 축을 `Gemini` 진입을 막지 않는 구조로 더 일반화하기
-- 팝오버를 `Claude 집중형 + Overview/Provider 전환` 하이브리드로 마저 정리하기
-- `Gemini`, `Antigravity`의 shell을 fetch/auth 플랫폼 레이어와 연결할 준비를 하기
-- refresh/timer 경로도 runtime-capable provider 기준으로 더 분리하기
+- `AppDelegate`의 Claude/Codex 이중 상태 필드를 `provider runtime state catalog` 로 통합하기
+- `refreshUsage/refreshCodexUsage` 를 `provider refresher registry` 기반 구조로 올리고 `Gemini`용 진입 자리를 만들기
+- `updateMenuBar()` 와 `updatePopoverViewModel(...)` 를 provider snapshot 컬렉션 기반으로 바꿔 `Gemini` 진입 병목을 제거하기
+- 설정 내부 체크리스트를 넘어서 독립 `Setup Wizard` 플로우를 완성하고 Chrome/Keychain 권한 설명을 붙이기
+- metadata cache를 실제 알림 문구와 warning suppression 정책까지 연결하기
 - README와 배포/업데이트 문서를 실제 구현 상태에 맞게 계속 갱신하기
