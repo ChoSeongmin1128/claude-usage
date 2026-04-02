@@ -270,6 +270,8 @@ Sparkle 문서상 sandbox 앱은 `Installer.xpc`와 관련 entitlement가 필요
   - 이 경우 Sparkle 대신 GitHub fallback 엔진 사용
 - 예시 설정 파일
   - [Sparkle.release.example.xcconfig](/Users/seongmin/Personal/ClaudeUsage/Config/Sparkle.release.example.xcconfig)
+- 점검 스크립트
+  - [prepare-sparkle-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/prepare-sparkle-release.sh)
 
 ### 실제 릴리즈 때 해야 할 것
 

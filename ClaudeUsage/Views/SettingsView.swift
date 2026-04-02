@@ -1173,7 +1173,7 @@ struct SettingsView: View {
             return "첫 성공 조회 후 organization 상태를 확인합니다"
         }
         if selectedOrganizationID.isEmpty {
-            return "자동 선택 모드"
+            return "자동 선택 모드로 바로 사용 가능합니다"
         }
         return isOrganizationSelectionReady ? "선택한 organization이 유효합니다" : "선택값이 목록에 없습니다"
     }
@@ -1719,7 +1719,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Organization 선택")
                 .font(.subheadline)
-            Text("여러 organization을 사용하는 경우 조회 대상을 선택할 수 있습니다. 비워두면 자동 선택됩니다.")
+            Text("기본은 자동 선택입니다. 여러 organization을 직접 구분해서 볼 때만 여기서 고르면 됩니다.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

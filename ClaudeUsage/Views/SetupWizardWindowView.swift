@@ -60,7 +60,7 @@ struct SetupWizardWindowView: View {
         case .verification:
             return isVerifyingFetch ? "조회 확인 중" : "지금 조회 검증"
         case .organization:
-            return "Organization 열기"
+            return "Organization 확인"
         case .complete:
             return "완료"
         }
@@ -73,7 +73,7 @@ struct SetupWizardWindowView: View {
         case .verification:
             return "고급 설정"
         case .organization:
-            return "자동 선택 유지"
+            return "자동 선택으로 완료"
         case .complete:
             return "설정 열기"
         }
@@ -99,7 +99,7 @@ struct SetupWizardWindowView: View {
         case .verification:
             return "자격은 준비됐습니다. 이제 첫 성공 조회만 끝내면 됩니다."
         case .organization:
-            return "\(progress.organizationSummary) 필요하면 organization 탭에서 직접 확인하고, 아니면 자동 선택으로 계속 진행하면 됩니다."
+            return "\(progress.organizationSummary) 특정 organization을 직접 쓸 때만 확인이 필요합니다."
         case .complete:
             return "Claude 초기 설정이 끝났습니다. 이제 필요할 때 다른 provider를 추가하면 됩니다."
         }

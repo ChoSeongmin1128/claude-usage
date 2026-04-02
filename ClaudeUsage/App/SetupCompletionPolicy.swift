@@ -12,6 +12,7 @@ enum SetupCompletionPolicy {
         let hasReadyCredential: Bool
         let hasSuccessfulFetch: Bool
         let isOrganizationReady: Bool
+        let isAutomaticOrganizationMode: Bool
         let organizationSummary: String
 
         var stage: WizardStage {
@@ -76,11 +77,12 @@ enum SetupCompletionPolicy {
         )
 
         let preferredID = preferredOrganizationID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isAutomaticOrganizationMode = preferredID.isEmpty
         let organizationSummary: String
         if !hasSuccessfulFetch {
             organizationSummary = "첫 성공 조회 후 organization 상태를 확인합니다"
-        } else if preferredID.isEmpty {
-            organizationSummary = "자동 선택 모드입니다"
+        } else if isAutomaticOrganizationMode {
+            organizationSummary = "자동 선택 모드로 바로 사용할 수 있습니다"
         } else if organizationReady {
             organizationSummary = "선택한 organization이 검증되었습니다"
         } else {
@@ -91,6 +93,7 @@ enum SetupCompletionPolicy {
             hasReadyCredential: hasReadyCredential,
             hasSuccessfulFetch: hasSuccessfulFetch,
             isOrganizationReady: organizationReady,
+            isAutomaticOrganizationMode: isAutomaticOrganizationMode,
             organizationSummary: organizationSummary
         )
     }
