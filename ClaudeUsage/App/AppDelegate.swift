@@ -482,6 +482,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    private func updateClaudeSetupCompletion(
+        hasSuccessfulFetch: Bool,
+        cachedMetadata: ClaudeProfileMetadata?
+    ) {
+        setClaudeSetupCompleted(resolveClaudeSetupCompletion(
+            hasSuccessfulFetch: hasSuccessfulFetch,
+            cachedMetadata: cachedMetadata
+        ))
+    }
+
+    private func setClaudeSetupCompleted(_ isCompleted: Bool) {
+        AppSettings.shared.hasCompletedSetupWizard = isCompleted
+    }
+
+    private func markClaudeSetupIncomplete() {
+        setClaudeSetupCompleted(false)
+    }
+
     private var isSetupWizardOrganizationReady: Bool {
         setupWizardProgress.isOrganizationReady
     }
@@ -887,7 +905,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.currentClaudeProfileMetadata = cachedProfileMetadata
                 self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
                 self.applyUsageHealthSnapshot(snapshot)
-                AppSettings.shared.hasCompletedSetupWizard = self.resolveClaudeSetupCompletion(
+                self.updateClaudeSetupCompletion(
                     hasSuccessfulFetch: snapshot.lastOverallSuccessAt != nil,
                     cachedMetadata: cachedProfileMetadata
                 )
@@ -900,7 +918,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         self.updatePopoverViewModel(overage: self.currentOverage)
                     }
                 } else {
-                    AppSettings.shared.hasCompletedSetupWizard = false
+                    self.markClaudeSetupIncomplete()
                     self.clearClaudePresentationState(markSetupIncomplete: false)
                     self.updateMenuBar()
                     self.updatePopoverViewModel(overage: self.currentOverage)
@@ -980,7 +998,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func clearClaudePresentationState(markSetupIncomplete: Bool) {
         if markSetupIncomplete {
-            AppSettings.shared.hasCompletedSetupWizard = false
+            markClaudeSetupIncomplete()
         }
         currentUsage = nil
         currentOverage = nil
@@ -1735,7 +1753,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             )
             await MainActor.run {
                 self.applyUsageHealthSnapshot(result.snapshot)
-                AppSettings.shared.hasCompletedSetupWizard = result.shouldMarkSetupComplete
+                self.setClaudeSetupCompleted(result.shouldMarkSetupComplete)
                 if result.shouldStartMonitoring {
                     self.startMonitoring()
                 } else {
@@ -1798,7 +1816,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
                     )
                     await MainActor.run {
-                        AppSettings.shared.hasCompletedSetupWizard = result.shouldMarkSetupComplete
+                        self.markClaudeSetupIncomplete()
                         self.applyUsageHealthSnapshot(result.snapshot)
                     }
                 }
@@ -1877,7 +1895,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         )
                         await MainActor.run {
                             self.applyUsageHealthSnapshot(result.snapshot)
-                            AppSettings.shared.hasCompletedSetupWizard = result.shouldMarkSetupComplete
+                            self.setClaudeSetupCompleted(result.shouldMarkSetupComplete)
                             self.hasAuthError = false
                             if result.shouldStartMonitoring {
                                 self.startMonitoring()
@@ -1950,7 +1968,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.refreshUsage(force: true)
             },
             onComplete: { [weak self] in
-                AppSettings.shared.hasCompletedSetupWizard = self?.setupWizardProgress.stage == .complete
+                if self?.setupWizardProgress.stage == .complete {
+                    self?.setClaudeSetupCompleted(true)
+                }
                 self?.setupWizardWindowCoordinator.close()
             },
             onDismiss: { [weak self] in
