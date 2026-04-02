@@ -330,7 +330,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func refreshServiceIfNeededOnTabSwitch(_ service: PopoverService) {
-        guard ProviderTransitionPolicy.shouldRefreshOnTabSwitch(
+        guard let action = RefreshOrchestration.actionForTabSwitch(
             service: service,
             refreshInterval: AppSettings.shared.refreshInterval,
             claudeLastUpdated: lastUpdated,
@@ -339,16 +339,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             hasCodexUsage: currentCodexUsage != nil,
             claudeError: currentError,
             codexError: codexError
-        ) else {
-            return
-        }
+        ) else { return }
 
-        switch service {
-        case .claude:
-            refreshUsage(force: false)
-        case .codex:
-            refreshCodexUsage(force: false)
-        }
+        performRuntimeAction(action)
     }
 
     private func openSettingsForAuth(service: PopoverService) {
@@ -538,56 +531,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleProviderEnabledChange(_ enabled: Bool, for service: PopoverService) {
-        switch ProviderTransitionPolicy.enabledChangeDecision(
+        let action = RefreshOrchestration.actionForEnabledChange(
             service: service,
             enabled: enabled,
             hasClaudeSessionKey: KeychainManager.shared.hasSessionKey,
             isCodexAuthenticated: CodexAuthManager.shared.isAuthenticated
-        ) {
-        case .refreshNow:
-            switch service {
-            case .claude:
-                AppSettings.shared.hasCompletedSetupWizard = true
-                refreshUsage(force: true)
-            case .codex:
-                refreshCodexUsage(force: true)
-            }
-
-        case .clearAndPromptAuth:
-            switch service {
-            case .claude:
-                currentUsage = nil
-                currentError = nil
-                hasAuthError = false
-            case .codex:
-                currentCodexUsage = nil
-                codexError = nil
-                hasCodexAuthError = false
-            }
-            showSettingsWindow()
-
-        case .clearStateOnly:
-            switch service {
-            case .claude:
-                nextUsageRefreshAllowedAt = nil
-                currentUsage = nil
-                currentError = nil
-                currentOverage = nil
-                lastOverageFetchAt = nil
-                hasAuthError = false
-                consecutiveErrorCount = 0
-                isLoading = false
-                loadingStartedAt = nil
-            case .codex:
-                nextCodexRefreshAllowedAt = nil
-                currentCodexUsage = nil
-                codexError = nil
-                hasCodexAuthError = false
-                codexConsecutiveErrorCount = 0
-                isCodexLoading = false
-                codexLoadingStartedAt = nil
-            }
-        }
+        )
+        performRuntimeAction(action)
     }
 
     // MARK: - System Status
@@ -651,12 +601,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - API
 
     private func refreshAll(force: Bool = false) {
-        for service in ServiceSelectionHelper.supportedPopoverServices {
-            if refreshableServices.contains(service) {
-                refresh(service: service, force: force)
-            } else if ServiceSelectionHelper.isEnabled(service, settings: AppSettings.shared) {
-                clearRuntimeServiceState(service)
+        let actions = RefreshOrchestration.actionsForRefreshAll(
+            supportedServices: ServiceSelectionHelper.supportedPopoverServices,
+            refreshableServices: refreshableServices,
+            settings: AppSettings.shared,
+            force: force
+        )
+
+        for action in actions {
+            performRuntimeAction(action)
+        }
+    }
+
+    private func performRuntimeAction(_ action: ProviderRuntimeAction) {
+        switch action {
+        case .refresh(let service, let force, let markSetupComplete):
+            if markSetupComplete, service == .claude {
+                AppSettings.shared.hasCompletedSetupWizard = true
             }
+            refresh(service: service, force: force)
+        case .clearState(let service):
+            clearRuntimeServiceState(service)
+        case .clearAndPromptAuth(let service):
+            clearStateForAuthPrompt(service)
+            showSettingsWindow()
         }
     }
 
@@ -672,13 +640,37 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func clearRuntimeServiceState(_ service: PopoverService) {
         switch service {
         case .claude:
+            nextUsageRefreshAllowedAt = nil
             currentUsage = nil
             currentError = nil
             hasAuthError = false
+            currentOverage = nil
+            lastOverageFetchAt = nil
+            consecutiveErrorCount = 0
+            isLoading = false
+            loadingStartedAt = nil
+            popoverViewModel.nextUsageRetryAt = nil
         case .codex:
+            nextCodexRefreshAllowedAt = nil
             currentCodexUsage = nil
             codexError = CodexAuthManager.shared.isAuthenticated ? nil : .invalidSessionKey
             hasCodexAuthError = !CodexAuthManager.shared.isAuthenticated
+            codexConsecutiveErrorCount = 0
+            isCodexLoading = false
+            codexLoadingStartedAt = nil
+        }
+    }
+
+    private func clearStateForAuthPrompt(_ service: PopoverService) {
+        clearRuntimeServiceState(service)
+
+        switch service {
+        case .claude:
+            currentError = nil
+            hasAuthError = false
+        case .codex:
+            codexError = nil
+            hasCodexAuthError = false
         }
     }
 
@@ -863,7 +855,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) else { return }
 
         if !force, let remaining = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextCodexRefreshAllowedAt) {
-            if let allowedAt = nextCodexRefreshAllowedAt {
+            if nextCodexRefreshAllowedAt != nil {
                 Logger.debug("Codex 갱신 스킵: 임시 오류 백오프 \(remaining)초 남음")
                 return
             }
@@ -1012,7 +1004,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let highContrast = AppSettings.shared.menuBarTextHighContrast
         let secondaryColor = MenuBarIconFactory.secondaryTextColor(highContrast: highContrast)
-        let codexIconTintColor = MenuBarIconFactory.menuBarIconTintColor(for: button, highContrast: highContrast)
         let claudeIconTintColor = MenuBarIconFactory.claudeBrandIconTintColor()
 
         if settings.hasMultipleRuntimeEnabledProviders,

@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (22차)
+최종 갱신: 2026-04-02 (23차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -43,6 +43,8 @@
 - 알림 설정은 provider별 임계값을 길게 늘어놓는 구조를 버리고, `공통 알림 프리셋 + 프리셋별 on/off` 구조로 단순화해야 합니다.
 - [NotificationPresetModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/NotificationPresetModels.swift) 를 추가해 공통 알림 프리셋 모델을 도입했고, [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 provider별 임계값 편집 대신 `공통 프리셋 + provider별 on/off` 구조로 바꾸기 시작했습니다.
 - [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 는 기존 Claude/Codex 임계값 배열을 마이그레이션 입력으로만 쓰고, 실제 런타임은 공통 프리셋 목록을 기준으로 계산하도록 정리하기 시작했습니다.
+- [RefreshOrchestration.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RefreshOrchestration.swift) 를 추가해 `refreshAll`, 탭 전환 refresh, provider enable 전환 시의 결정 로직을 공통 action planner로 묶기 시작했습니다.
+- [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 이제 `performRuntimeAction` 을 통해 실제 부작용만 실행하고, refresh/clear/prompt 판단은 planner가 맡도록 줄이기 시작했습니다.
 - provider 전환 시 stale refresh 판단과 enable/disable 정책도 [ProviderTransitionPolicy.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ProviderTransitionPolicy.swift) 로 분리해, `AppDelegate` 안의 서비스 전환 분기가 단순 결정 호출 위주로 바뀌기 시작했습니다.
 - `Claude` / `Codex` refresh의 백오프 계산과 in-flight 고착 판단도 [RefreshExecutionPolicy.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RefreshExecutionPolicy.swift) 로 분리해, `AppDelegate` 안의 중복된 retry/backoff 규칙을 줄이기 시작했습니다.
 - 메뉴바 아이콘/색상 렌더링 세부 구현도 [MenuBarIconFactory.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarIconFactory.swift) 로 분리해, `AppDelegate` 안에 남아 있던 이미지 합성/알파 트리밍/색상 선택 로직을 utility로 이동시켰습니다.
