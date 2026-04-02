@@ -751,6 +751,7 @@ struct SettingsView: View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 12) {
                 messagesFallbackSection
+                claudeCLIOAuthGuideSection
                 authFAQSection
             }
             .padding(.top, 4)
@@ -867,14 +868,13 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 authChecklistCard
                 profileMetadataCard
-                claudeCLIOAuthGuideSection
             }
             .padding(.top, 4)
         } label: {
             HStack {
                 Text("상세 인증 상태")
                 Spacer(minLength: 0)
-                Text("체크리스트 · 메타데이터 · CLI")
+                Text("체크리스트 · 메타데이터")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
