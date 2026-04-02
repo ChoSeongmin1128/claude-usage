@@ -539,6 +539,10 @@ struct SettingsView: View {
                     Text("메뉴바 표시")
                         .font(.subheadline.weight(.semibold))
 
+                    Text("`활성화`는 조회와 팝오버 참여를 뜻하고, `메뉴바에 표시`는 상단 메뉴바에 실제로 그릴지 여부입니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
                     settingsToggleRow(
                         "\(descriptor.title) 메뉴바에 표시",
                         isOn: Binding(
@@ -635,9 +639,17 @@ struct SettingsView: View {
                             .pickerStyle(.radioGroup)
                         }
                     } else {
-                        Text("이 provider는 popover와 새로고침에는 참여하지만 메뉴바에는 표시하지 않습니다.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "eye.slash")
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 1)
+                            Text("이 provider는 활성화되어 있어도 popover와 새로고침에만 참여하고, 메뉴바에는 표시하지 않습니다.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(10)
+                        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+                        .cornerRadius(8)
                     }
                 }
 
