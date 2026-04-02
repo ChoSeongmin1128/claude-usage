@@ -797,7 +797,7 @@ struct SettingsView: View {
                 authPrimaryActionsCard
                 if shouldShowAdvancedAuthSection {
                     claudeAdvancedSection
-                } else {
+                } else if shouldOfferAdvancedAuthTeaser {
                     VStack(alignment: .leading, spacing: 4) {
                         Button {
                             withAnimation(.easeInOut(duration: 0.15)) {
@@ -1260,6 +1260,15 @@ struct SettingsView: View {
 
     private var shouldShowAdvancedAuthSection: Bool {
         isClaudeAdvancedSectionExpanded || hasPendingManualSessionKey
+    }
+
+    private var shouldOfferAdvancedAuthTeaser: Bool {
+        shouldShowAdvancedAuthSection
+            || !hasSuccessfulClaudeFetch
+            || !hasReadyClaudeCredential
+            || shouldRecommendCLIOAuth
+            || settings.claudeMessagesFallbackPolicy != .off
+            || messagesFallbackStatus != nil
     }
 
     private var advancedAuthButtonSubtitle: String? {
