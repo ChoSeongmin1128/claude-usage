@@ -89,8 +89,26 @@ while queue:
             visited.add((nx, ny))
             queue.append((nx, ny))
 
-img.resize((64, 64), Image.Resampling.LANCZOS).save(one_x)
-img.resize((128, 128), Image.Resampling.LANCZOS).save(two_x)
+alpha = img.getchannel("A")
+bbox = alpha.getbbox()
+if bbox:
+    img = img.crop(bbox)
+
+def pad_to_square(source_img, target_size):
+    width, height = source_img.size
+    canvas = Image.new("RGBA", (target_size, target_size), (0, 0, 0, 0))
+    inner = int(target_size * 0.84)
+    scale = min(inner / width, inner / height)
+    resized = source_img.resize(
+        (max(1, int(round(width * scale))), max(1, int(round(height * scale)))),
+        Image.Resampling.LANCZOS,
+    )
+    offset = ((target_size - resized.width) // 2, (target_size - resized.height) // 2)
+    canvas.alpha_composite(resized, offset)
+    return canvas
+
+pad_to_square(img, 64).save(one_x)
+pad_to_square(img, 128).save(two_x)
 PY
 }
 
