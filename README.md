@@ -103,11 +103,13 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
 
 - 현재 앱은 `Sparkle 패키지`를 이미 포함합니다.
 - 현재 구현은 `Sparkle 앱내 확인 + GitHub Release fallback` 구조입니다.
+- 여기서 `Sparkle 준비됨`의 기준은 `유효한 SUFeedURL + 유효한 SUPublicEDKey` 입니다.
+- `NOTARY_PROFILE` 은 런타임 readiness가 아니라 release 스크립트 실행 전제입니다.
 - `appcast(feed)`와 `공개키`가 준비되지 않은 개발 빌드에서는 `GitHub Release fallback`으로 동작합니다.
 - 설정 화면의 `업데이트` 섹션에서 지금 빌드가 `Sparkle 통합`, `appcast 준비`, `공개키 준비` 중 어디까지 와 있는지 직접 볼 수 있습니다.
-- 릴리즈 산출물은 [build-notarize-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/build-notarize-release.sh) 로 `archive -> zip -> notarize -> staple` 골격을 실행할 수 있습니다.
-- Sparkle 채널용 appcast는 [generate-sparkle-appcast.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/generate-sparkle-appcast.sh) 로 생성할 수 있습니다.
-- Release 빌드는 [Release.xcconfig](/Users/seongmin/Personal/ClaudeUsage/Config/Release.xcconfig) 를 기본으로 읽고, 로컬 비밀값은 `Config/Sparkle.release.local.xcconfig` 에서 덮어쓰도록 맞춰뒀습니다.
+- 릴리즈 산출물은 [build-notarize-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/build-notarize-release.sh) 로 `archive -> zip -> notarize -> staple -> stapled zip 재생성` 흐름을 실행할 수 있습니다.
+- Sparkle 채널용 appcast는 [generate-sparkle-appcast.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/generate-sparkle-appcast.sh) 로 생성할 수 있고, `DOWNLOAD_BASE_URL` 을 주지 않으면 `SUFeedURL` 의 디렉토리에서 유도합니다.
+- Release 빌드는 [Release.xcconfig](/Users/seongmin/Personal/ClaudeUsage/Config/Release.xcconfig) 를 기본으로 읽고, 로컬 비밀값은 `Config/Sparkle.release.local.xcconfig` 에서 덮어씁니다. 이 로컬 파일에는 `SUFeedURL`, `SUPublicEDKey`, `NOTARY_PROFILE` 을 함께 둘 수 있습니다.
 
 ## 보조 사용량 복구
 
@@ -194,6 +196,7 @@ ClaudeUsage/
 
 - Sparkle 패키지는 이미 통합됐지만, 현재 구현은 `앱 내부 Sparkle 확인 + GitHub Release fallback` 기준입니다.
 - appcast/feed와 공개키가 없는 개발 빌드에서는 GitHub Release 엔진으로 fallback됩니다.
+- `Sparkle 준비됨`은 `feed + 공개키` 기준이고, notarization 계정 프로필은 배포 스크립트 전제이므로 설정 화면의 readiness와 별개입니다.
 - 메뉴바와 refresh 경로는 runtime-capable provider 기준으로 많이 정리됐지만, 일부 내부 구조는 여전히 `Claude/Codex` 중심 흔적이 남아 있습니다.
 - `Gemini`, `Antigravity`는 런타임 연결은 됐지만 provider별 UX, 오류 문구, 환경 안내는 Claude보다 덜 다듬어져 있습니다.
 - first-run onboarding과 권한 설명은 아직 더 다듬어야 합니다.

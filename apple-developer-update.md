@@ -12,7 +12,8 @@
 
 - 현재 앱은 App Store형 앱보다 직접 배포형 도구에 가깝습니다.
 - [UpdateService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/UpdateService.swift)는 이제 `AppUpdateEngine` 경계 뒤에서 `Sparkle` 과 `GitHub Release fallback` 을 함께 다룰 수 있습니다.
-- 다만 현재 개발 빌드는 `SUFeedURL` / `SUPublicEDKey` 가 비어 있어서 여전히 GitHub Release 엔진으로 fallback 됩니다. 즉, 패키지 통합은 끝났지만 실제 appcast 배포 채널은 아직 없습니다.
+- 다만 현재 개발 빌드는 `SUFeedURL` / `SUPublicEDKey` 가 비어 있거나 placeholder 이므로 여전히 GitHub Release 엔진으로 fallback 됩니다. 즉, 패키지 통합은 끝났지만 실제 appcast 배포 채널은 아직 없습니다.
+- 여기서 `Sparkle 준비됨`의 기준은 런타임 기준으로 `유효한 SUFeedURL + 유효한 SUPublicEDKey` 입니다. `NOTARY_PROFILE` 은 배포 스크립트 실행 전제이며 런타임 readiness 조건은 아닙니다.
 
 ## 2. 현재 상태 진단
 
@@ -140,6 +141,11 @@ Sparkle 공식 문서 기준, 일반 앱 업데이트에는 appcast, EdDSA 서�
 - 설정에서 자동 확인, 자동 다운로드, 수동 확인을 더 자연스럽게 제공 가능
 - 지인 공유용 direct download 앱에서도 App Store 없이 업데이트 경험을 정상화할 수 있음
 
+현재 구현 메모:
+
+- 지금 코드는 `Sparkle 앱내 확인`은 지원하지만, 자동 확인 주기 자체는 앱의 기존 타이머가 계속 관리합니다.
+- 즉 설정 화면에서 `Sparkle 준비됨`이더라도 의미는 `앱 내부 Sparkle 확인 가능`이며, 완전한 Sparkle background lane으로 넘어간 것은 아닙니다.
+
 ### Sparkle 도입 시 주의점
 
 - Sparkle는 단순 라이브러리 추가로 끝나지 않습니다.
@@ -266,7 +272,7 @@ Sparkle 문서상 sandbox 앱은 `Installer.xpc`와 관련 entitlement가 필요
   - `SUFeedURL`
   - `SUPublicEDKey`
 - [UpdateService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/UpdateService.swift)
-  - 값이 비어 있거나 unresolved placeholder(`$(...)`)면 미설정으로 간주
+  - 값이 비어 있거나 unresolved placeholder(`$(...)`, `REPLACE_WITH...`, `example.com`)면 미설정으로 간주
   - 이 경우 Sparkle 앱내 확인 대신 GitHub fallback 엔진 사용
 - 예시 설정 파일
   - [Release.xcconfig](/Users/seongmin/Personal/ClaudeUsage/Config/Release.xcconfig)
@@ -279,12 +285,17 @@ Sparkle 문서상 sandbox 앱은 `Installer.xpc`와 관련 entitlement가 필요
 ### 실제 릴리즈 때 해야 할 것
 
 1. 예시 파일을 복사해 실제 release 전용 xcconfig 생성
-2. `Config/Sparkle.release.local.xcconfig` 또는 Release 환경에서 `SUFeedURL`, `SUPublicEDKey` 채우기
-3. `NOTARY_PROFILE`을 준비한 뒤 [build-notarize-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/build-notarize-release.sh) 실행
+2. `Config/Sparkle.release.local.xcconfig` 또는 Release 환경에서 `SUFeedURL`, `SUPublicEDKey`, `NOTARY_PROFILE` 채우기
+3. `NOTARY_PROFILE` 을 환경변수 또는 로컬 xcconfig로 준비한 뒤 [build-notarize-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/build-notarize-release.sh) 실행
 4. Release configuration에 해당 xcconfig 연결
 5. [generate-sparkle-appcast.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/generate-sparkle-appcast.sh) 로 appcast 생성
 6. 서명/노타리제이션 산출물과 appcast 배포
 7. 설정 화면에서 `appcast 준비`, `공개키 준비`가 모두 `준비됨`인지 확인
+
+추가 메모:
+
+- `build-notarize-release.sh` 는 notarization 뒤 `staple` 을 적용한 앱으로 ZIP 을 다시 생성합니다.
+- `generate-sparkle-appcast.sh` 는 `DOWNLOAD_BASE_URL` 이 비어 있으면 `SUFeedURL` 의 디렉토리 경로를 기준으로 사용합니다.
 
 - `Sparkle`은 macOS 직접 배포 앱에서 널리 쓰이는 업데이트 프레임워크입니다.
 - 인디 앱과 direct distribution 앱에서 사실상 표준에 가깝고, [CodexBar]( /Users/seongmin/Personal/CodexBar/Package.swift )도 실제로 사용 중입니다.

@@ -40,10 +40,10 @@ struct UpdateEngineStatus {
 }
 
 private enum UpdateEngineMessages {
-    static let githubFallback = "Sparkle는 통합되었지만 유효한 appcast/feed 또는 공개키가 없어 GitHub Release 엔진을 사용 중입니다"
-    static let sparkleInteractiveReady = "Sparkle 앱내 확인이 준비되었고, 자동 확인 주기는 앱 타이머가 계속 관리합니다"
-    static let sparkleInteractiveOnlyError = "Sparkle 엔진은 앱 내부 확인만 지원합니다"
-    static let sparkleInteractiveStarted = "Sparkle 업데이트 확인을 시작했습니다"
+    nonisolated static let githubFallback = "Sparkle는 통합되었지만 유효한 appcast/feed 또는 공개키가 없어 GitHub Release 엔진을 사용 중입니다"
+    nonisolated static let sparkleInteractiveReady = "Sparkle 앱내 확인이 준비되었고, 자동 확인 주기는 앱 타이머가 계속 관리합니다"
+    nonisolated static let sparkleInteractiveOnlyError = "Sparkle 엔진은 앱 내부 확인만 지원합니다"
+    nonisolated static let sparkleInteractiveStarted = "Sparkle 업데이트 확인을 시작했습니다"
 }
 
 enum UpdateCheckResult {
