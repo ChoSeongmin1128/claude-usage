@@ -19,8 +19,7 @@ struct SettingsView: View {
     @State private var isTesting: Bool = false
     @State private var refreshIntervalText: String = ""
     @State private var showKeyHelp: Bool = false
-    @State private var alertTexts: [String] = []
-    @State private var codexAlertTexts: [String] = []
+    @State private var alertPresetTexts: [String] = []
     @State private var draggingItemID: String?
     @State private var codexDraggingItemID: String?
     @State private var compactConfigTab: Int = 0
@@ -188,8 +187,7 @@ struct SettingsView: View {
             }
             testResult = nil
             refreshIntervalText = String(Int(settings.refreshInterval))
-            alertTexts = settings.alertThresholds.map { String($0) }
-            codexAlertTexts = settings.codexAlertThresholds.map { String($0) }
+            alertPresetTexts = settings.sortedNotificationPresets.map { String($0.threshold) }
             selectedOrganizationID = settings.preferredOrganizationID
             selectedPanel = SettingsProviderPanel(rawValue: settings.settingsLastTab) ?? .common
             selectedClaudeTab = ClaudeTab(rawValue: settings.claudeSettingsLastTab) ?? .auth
@@ -1699,7 +1697,7 @@ struct SettingsView: View {
 
             Toggle("Codex 알림 사용", isOn: $settings.codexAlertEnabled)
 
-            Text("세부 임계값과 기준은 공통 > 알림에서 설정합니다.")
+            Text("퍼센트 프리셋은 공통 > 알림에서 관리하고, 여기서는 Codex 알림을 보낼지만 결정합니다.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -1717,72 +1715,6 @@ struct SettingsView: View {
             }
             .buttonStyle(.borderless)
         }
-    }
-
-    private var codexAlertDetailSettings: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(settings.codexAlertThresholds.indices), id: \.self) { index in
-                HStack(spacing: 8) {
-                    TextField("", text: Binding(
-                        get: { index < codexAlertTexts.count ? codexAlertTexts[index] : "" },
-                        set: { newValue in
-                            guard index < codexAlertTexts.count else { return }
-                            codexAlertTexts[index] = newValue
-                            if let val = Int(newValue), val >= 1, val <= 100 {
-                                settings.codexAlertThresholds[index] = val
-                            }
-                        }
-                    ))
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 50)
-
-                    Text(settings.codexAlertRemainingMode ? "% 남았을 때 알림" : "% 사용 시 알림")
-                        .font(.subheadline)
-
-                    Spacer()
-
-                    Button {
-                        settings.codexAlertThresholds.remove(at: index)
-                        codexAlertTexts.remove(at: index)
-                    } label: {
-                        Image(systemName: "minus.circle.fill")
-                            .foregroundColor(.red.opacity(0.7))
-                    }
-                    .buttonStyle(.borderless)
-                }
-            }
-
-            Button {
-                let next = suggestNextCodexThreshold()
-                settings.codexAlertThresholds.append(next)
-                codexAlertTexts.append(String(next))
-            } label: {
-                Label("임계값 추가", systemImage: "plus.circle.fill")
-                    .font(.subheadline)
-            }
-            .buttonStyle(.borderless)
-
-            Picker("기준:", selection: $settings.codexAlertRemainingMode) {
-                Text("사용량").tag(false)
-                Text("남은 사용량").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 200)
-            .onChange(of: settings.codexAlertRemainingMode) { _, _ in
-                settings.codexAlertThresholds = settings.codexAlertThresholds.map { max(1, min(100 - $0, 99)) }
-                codexAlertTexts = settings.codexAlertThresholds.map { String($0) }
-            }
-        }
-    }
-
-    private func suggestNextCodexThreshold() -> Int {
-        let existing = settings.codexAlertThresholds.sorted()
-        if existing.isEmpty { return 75 }
-        let candidates = [50, 60, 70, 75, 80, 85, 90, 95, 100]
-        for c in candidates where !existing.contains(c) {
-            return c
-        }
-        return min((existing.last ?? 90) + 5, 100)
     }
 
     // MARK: - 디스플레이 섹션
@@ -2071,14 +2003,13 @@ struct SettingsView: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Claude 알림 조건")
-                    .font(.subheadline.weight(.semibold))
-                claudeAlertDetailSettings
-                if !settings.claudeAlertEnabled {
-                    Text("Claude 알림은 Claude > 알림에서 활성화할 수 있습니다.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text("Provider 알림")
+                .font(.subheadline.weight(.semibold))
+                Toggle("Claude 알림 사용", isOn: $settings.claudeAlertEnabled)
+                Toggle("Codex 알림 사용", isOn: $settings.codexAlertEnabled)
+                Text("퍼센트 프리셋은 아래 공통 목록을 두 provider가 함께 사용합니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             .disabled(!settings.notificationsEnabled)
             .opacity(settings.notificationsEnabled ? 1.0 : 0.6)
@@ -2086,14 +2017,75 @@ struct SettingsView: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Codex 알림 조건")
+                Text("공통 알림 프리셋")
                     .font(.subheadline.weight(.semibold))
-                codexAlertDetailSettings
-                if !settings.codexAlertEnabled {
-                    Text("Codex 알림은 Codex > 알림에서 활성화할 수 있습니다.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                ForEach(Array(settings.sortedNotificationPresets.enumerated()), id: \.element.id) { index, preset in
+                    HStack(spacing: 8) {
+                        Toggle("", isOn: Binding(
+                            get: { preset.isEnabled },
+                            set: { newValue in
+                                updateNotificationPreset(id: preset.id) { $0.isEnabled = newValue }
+                            }
+                        ))
+                        .labelsHidden()
+
+                        TextField("", text: Binding(
+                            get: { index < alertPresetTexts.count ? alertPresetTexts[index] : String(preset.threshold) },
+                            set: { newValue in
+                                guard index < alertPresetTexts.count else { return }
+                                alertPresetTexts[index] = newValue
+                                if let threshold = Int(newValue), (1...100).contains(threshold) {
+                                    updateNotificationPreset(id: preset.id) { $0.threshold = threshold }
+                                }
+                            }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 52)
+
+                        Text(settings.alertRemainingMode ? "% 남았을 때" : "% 사용 시")
+                            .font(.subheadline)
+
+                        Spacer()
+
+                        Button {
+                            removeNotificationPreset(id: preset.id)
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .foregroundColor(.red.opacity(0.7))
+                        }
+                        .buttonStyle(.borderless)
+                    }
                 }
+
+                HStack(spacing: 10) {
+                    Button {
+                        addNotificationPreset()
+                    } label: {
+                        Label("프리셋 추가", systemImage: "plus.circle.fill")
+                            .font(.subheadline)
+                    }
+                    .buttonStyle(.borderless)
+
+                    Picker("기준:", selection: $settings.alertRemainingMode) {
+                        Text("사용량").tag(false)
+                        Text("남은 사용량").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 220)
+                    .onChange(of: settings.alertRemainingMode) { _, _ in
+                        settings.notificationPresets = settings.notificationPresets.map {
+                            NotificationPreset(
+                                id: $0.id,
+                                threshold: max(1, min(100 - $0.threshold, 99)),
+                                isEnabled: $0.isEnabled
+                            )
+                        }
+                        alertPresetTexts = settings.sortedNotificationPresets.map { String($0.threshold) }
+                    }
+                }
+
+                Toggle("현재 세션 알림", isOn: $settings.alertFiveHourEnabled)
+                Toggle("주간 세션 알림", isOn: $settings.alertWeeklyEnabled)
             }
             .disabled(!settings.notificationsEnabled)
             .opacity(settings.notificationsEnabled ? 1.0 : 0.6)
@@ -2113,7 +2105,7 @@ struct SettingsView: View {
 
             Toggle("Claude 알림 사용", isOn: $settings.claudeAlertEnabled)
 
-            Text("세부 임계값과 기준은 공통 > 알림에서 설정합니다.")
+            Text("퍼센트 프리셋은 공통 > 알림에서 관리하고, 여기서는 Claude 알림을 보낼지만 결정합니다.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -2131,75 +2123,6 @@ struct SettingsView: View {
             }
             .buttonStyle(.borderless)
         }
-    }
-
-    private var claudeAlertDetailSettings: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(settings.alertThresholds.indices), id: \.self) { index in
-                HStack(spacing: 8) {
-                    TextField("", text: Binding(
-                        get: { index < alertTexts.count ? alertTexts[index] : "" },
-                        set: { newValue in
-                            guard index < alertTexts.count else { return }
-                            alertTexts[index] = newValue
-                            if let val = Int(newValue), val >= 1, val <= 100 {
-                                settings.alertThresholds[index] = val
-                            }
-                        }
-                    ))
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 50)
-
-                    Text(settings.alertRemainingMode ? "% 남았을 때 알림" : "% 사용 시 알림")
-                        .font(.subheadline)
-
-                    Spacer()
-
-                    Button {
-                        settings.alertThresholds.remove(at: index)
-                        alertTexts.remove(at: index)
-                    } label: {
-                        Image(systemName: "minus.circle.fill")
-                            .foregroundColor(.red.opacity(0.7))
-                    }
-                    .buttonStyle(.borderless)
-                }
-            }
-
-            Button {
-                let next = suggestNextThreshold()
-                settings.alertThresholds.append(next)
-                alertTexts.append(String(next))
-            } label: {
-                Label("임계값 추가", systemImage: "plus.circle.fill")
-                    .font(.subheadline)
-            }
-            .buttonStyle(.borderless)
-
-            Picker("기준:", selection: $settings.alertRemainingMode) {
-                Text("사용량").tag(false)
-                Text("남은 사용량").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 200)
-            .onChange(of: settings.alertRemainingMode) { _, _ in
-                settings.alertThresholds = settings.alertThresholds.map { max(1, min(100 - $0, 99)) }
-                alertTexts = settings.alertThresholds.map { String($0) }
-            }
-
-            Toggle("현재 세션 알림", isOn: $settings.alertFiveHourEnabled)
-            Toggle("주간 세션 알림", isOn: $settings.alertWeeklyEnabled)
-        }
-    }
-
-    private func suggestNextThreshold() -> Int {
-        let existing = settings.alertThresholds.sorted()
-        if existing.isEmpty { return 75 }
-        let candidates = [50, 60, 70, 75, 80, 85, 90, 95, 100]
-        for c in candidates where !existing.contains(c) {
-            return c
-        }
-        return min((existing.last ?? 90) + 5, 100)
     }
 
     // MARK: - 절전 섹션
@@ -2665,11 +2588,33 @@ struct SettingsView: View {
         return relativeFormatter.localizedString(for: date, relativeTo: Date())
     }
 
+    private func updateNotificationPreset(id: String, mutate: (inout NotificationPreset) -> Void) {
+        guard let index = settings.notificationPresets.firstIndex(where: { $0.id == id }) else { return }
+        var presets = settings.notificationPresets
+        mutate(&presets[index])
+        settings.notificationPresets = presets
+        alertPresetTexts = settings.sortedNotificationPresets.map { String($0.threshold) }
+    }
+
+    private func removeNotificationPreset(id: String) {
+        guard settings.notificationPresets.count > 1 else { return }
+        settings.notificationPresets.removeAll { $0.id == id }
+        alertPresetTexts = settings.sortedNotificationPresets.map { String($0.threshold) }
+    }
+
+    private func addNotificationPreset() {
+        let existing = Set(settings.notificationPresets.map(\.threshold))
+        let candidates = [50, 60, 70, 75, 80, 85, 90, 95, 100]
+        let next = candidates.first(where: { !existing.contains($0) })
+            ?? min((settings.notificationPresets.map(\.threshold).max() ?? 90) + 5, 100)
+        settings.notificationPresets.append(NotificationPreset(threshold: next, isEnabled: true))
+        alertPresetTexts = settings.sortedNotificationPresets.map { String($0.threshold) }
+    }
+
     private func resetToDefaults() {
         settings.resetToDefaults()
         refreshIntervalText = String(Int(settings.refreshInterval))
-        alertTexts = settings.alertThresholds.map { String($0) }
-        codexAlertTexts = settings.codexAlertThresholds.map { String($0) }
+        alertPresetTexts = settings.sortedNotificationPresets.map { String($0.threshold) }
         selectedOrganizationID = settings.preferredOrganizationID
         organizationPreviews = []
         isLoadingOrganizationPreviews = false

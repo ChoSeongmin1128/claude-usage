@@ -255,8 +255,12 @@ class AppSettings: ObservableObject {
     @Published var notificationsEnabled: Bool {
         didSet { defaults.set(notificationsEnabled, forKey: "notificationsEnabled") }
     }
-    @Published var alertThresholds: [Int] {
-        didSet { defaults.set(alertThresholds, forKey: "alertThresholds") }
+    @Published var notificationPresets: [NotificationPreset] {
+        didSet {
+            if let data = try? JSONEncoder().encode(notificationPresets) {
+                defaults.set(data, forKey: "notificationPresets")
+            }
+        }
     }
     @Published var alertRemainingMode: Bool {
         didSet { defaults.set(alertRemainingMode, forKey: "alertRemainingMode") }
@@ -399,12 +403,6 @@ class AppSettings: ObservableObject {
     @Published var codexAlertEnabled: Bool {
         didSet { defaults.set(codexAlertEnabled, forKey: "codexAlertEnabled") }
     }
-    @Published var codexAlertThresholds: [Int] {
-        didSet { defaults.set(codexAlertThresholds, forKey: "codexAlertThresholds") }
-    }
-    @Published var codexAlertRemainingMode: Bool {
-        didSet { defaults.set(codexAlertRemainingMode, forKey: "codexAlertRemainingMode") }
-    }
     @Published var codexPopoverItems: [PopoverItemConfig] {
         didSet {
             if let data = try? JSONEncoder().encode(codexPopoverItems) {
@@ -448,7 +446,7 @@ class AppSettings: ObservableObject {
         let refreshInterval: TimeInterval
         let autoRefresh: Bool
         let notificationsEnabled: Bool
-        let alertThresholds: [Int]
+        let notificationPresets: [NotificationPreset]
         let alertRemainingMode: Bool
         let reducedRefreshOnBattery: Bool
         let hasCompletedSetupWizard: Bool
@@ -482,8 +480,6 @@ class AppSettings: ObservableObject {
         let codexIconMetric: IconMetric
         let codexShowBatteryPercent: Bool
         let codexAlertEnabled: Bool
-        let codexAlertThresholds: [Int]
-        let codexAlertRemainingMode: Bool
         let codexPopoverItems: [PopoverItemConfig]
         let codexCompactPopoverItems: [PopoverItemConfig]
         let providerStates: AppProviderStateCatalog
@@ -505,7 +501,7 @@ class AppSettings: ObservableObject {
             refreshInterval: refreshInterval,
             autoRefresh: autoRefresh,
             notificationsEnabled: notificationsEnabled,
-            alertThresholds: alertThresholds,
+            notificationPresets: notificationPresets,
             alertRemainingMode: alertRemainingMode,
             reducedRefreshOnBattery: reducedRefreshOnBattery,
             hasCompletedSetupWizard: hasCompletedSetupWizard,
@@ -539,8 +535,6 @@ class AppSettings: ObservableObject {
             codexIconMetric: codexIconMetric,
             codexShowBatteryPercent: codexShowBatteryPercent,
             codexAlertEnabled: codexAlertEnabled,
-            codexAlertThresholds: codexAlertThresholds,
-            codexAlertRemainingMode: codexAlertRemainingMode,
             codexPopoverItems: codexPopoverItems,
             codexCompactPopoverItems: codexCompactPopoverItems,
             providerStates: providerStates,
@@ -562,7 +556,7 @@ class AppSettings: ObservableObject {
         refreshInterval = snapshot.refreshInterval
         autoRefresh = snapshot.autoRefresh
         notificationsEnabled = snapshot.notificationsEnabled
-        alertThresholds = snapshot.alertThresholds
+        notificationPresets = snapshot.notificationPresets
         alertRemainingMode = snapshot.alertRemainingMode
         reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
         hasCompletedSetupWizard = snapshot.hasCompletedSetupWizard
@@ -596,8 +590,6 @@ class AppSettings: ObservableObject {
         codexIconMetric = snapshot.codexIconMetric
         codexShowBatteryPercent = snapshot.codexShowBatteryPercent
         codexAlertEnabled = snapshot.codexAlertEnabled
-        codexAlertThresholds = snapshot.codexAlertThresholds
-        codexAlertRemainingMode = snapshot.codexAlertRemainingMode
         codexPopoverItems = PopoverItemConfig.normalizedCodex(snapshot.codexPopoverItems)
         codexCompactPopoverItems = PopoverItemConfig.normalizedCodex(snapshot.codexCompactPopoverItems)
         settingsLastTab = snapshot.settingsLastTab
@@ -642,19 +634,29 @@ class AppSettings: ObservableObject {
 
     // MARK: - Computed
 
+    var sortedNotificationPresets: [NotificationPreset] {
+        notificationPresets.sorted { lhs, rhs in
+            if lhs.threshold == rhs.threshold {
+                return lhs.id < rhs.id
+            }
+            return lhs.threshold < rhs.threshold
+        }
+    }
+
     /// 실제 사용량 기준 임계값 (NotificationManager에서 사용)
     var enabledAlertThresholds: [Int] {
+        let thresholds = sortedNotificationPresets
+            .filter(\.isEnabled)
+            .map(\.threshold)
+
         if alertRemainingMode {
-            return alertThresholds.map { 100 - $0 }.sorted()
+            return thresholds.map { max(1, min(100 - $0, 99)) }.sorted()
         }
-        return alertThresholds.sorted()
+        return thresholds.sorted()
     }
 
     var enabledCodexAlertThresholds: [Int] {
-        if codexAlertRemainingMode {
-            return codexAlertThresholds.map { 100 - $0 }.sorted()
-        }
-        return codexAlertThresholds.sorted()
+        enabledAlertThresholds
     }
 
     /// 간소화 모드에서 사용할 항목 배열
@@ -692,6 +694,58 @@ class AppSettings: ObservableObject {
 
     var hasMultipleRuntimeEnabledProviders: Bool {
         runtimeEnabledProviderKinds.count > 1
+    }
+
+    static var defaultNotificationPresets: [NotificationPreset] {
+        [75, 90, 95].map { NotificationPreset(threshold: $0, isEnabled: true) }
+    }
+
+    private static func legacyAlertThresholds(from defaults: UserDefaults) -> [Int] {
+        if let saved = defaults.array(forKey: "alertThresholds") as? [Int], !saved.isEmpty {
+            return saved
+        }
+
+        var migrated: [Int] = []
+        let e1 = defaults.object(forKey: "alert1Enabled") as? Bool ?? true
+        let e2 = defaults.object(forKey: "alert2Enabled") as? Bool ?? true
+        let e3 = defaults.object(forKey: "alert3Enabled") as? Bool ?? true
+        if e1 { migrated.append(defaults.object(forKey: "alert1Threshold") as? Int ?? 75) }
+        if e2 { migrated.append(defaults.object(forKey: "alert2Threshold") as? Int ?? 90) }
+        if e3 { migrated.append(defaults.object(forKey: "alert3Threshold") as? Int ?? 95) }
+        return migrated.isEmpty ? [75, 90, 95] : migrated
+    }
+
+    private static func migrateNotificationPresets(from defaults: UserDefaults, commonRemainingMode: Bool) -> [NotificationPreset] {
+        if let data = defaults.data(forKey: "notificationPresets"),
+           let decoded = try? JSONDecoder().decode([NotificationPreset].self, from: data),
+           !decoded.isEmpty {
+            return decoded
+        }
+
+        let claudeThresholds = legacyAlertThresholds(from: defaults)
+        let codexThresholds = defaults.array(forKey: "codexAlertThresholds") as? [Int] ?? claudeThresholds
+        let codexRemainingMode = defaults.object(forKey: "codexAlertRemainingMode") as? Bool ?? commonRemainingMode
+
+        func actualUsageThresholds(_ values: [Int], remainingMode: Bool) -> [Int] {
+            values.map { value in
+                let normalized = max(1, min(value, 100))
+                return remainingMode ? max(1, min(100 - normalized, 99)) : normalized
+            }
+        }
+
+        func storedThreshold(from actualThreshold: Int) -> Int {
+            if commonRemainingMode {
+                return max(1, min(100 - actualThreshold, 99))
+            }
+            return max(1, min(actualThreshold, 100))
+        }
+
+        let merged = Set(
+            actualUsageThresholds(claudeThresholds, remainingMode: commonRemainingMode)
+                + actualUsageThresholds(codexThresholds, remainingMode: codexRemainingMode)
+        )
+        let resolved = merged.isEmpty ? [75, 90, 95] : merged.sorted()
+        return resolved.map { NotificationPreset(threshold: storedThreshold(from: $0), isEnabled: true) }
     }
 
     var activeProviderKind: AppProviderKind? {
@@ -805,7 +859,7 @@ class AppSettings: ObservableObject {
         refreshInterval = 30.0
         autoRefresh = true
         notificationsEnabled = true
-        alertThresholds = [75, 90, 95]
+        notificationPresets = Self.defaultNotificationPresets
         alertRemainingMode = false
         reducedRefreshOnBattery = true
         hasCompletedSetupWizard = false
@@ -839,8 +893,6 @@ class AppSettings: ObservableObject {
         codexIconMetric = .fiveHour
         codexShowBatteryPercent = true
         codexAlertEnabled = false
-        codexAlertThresholds = [75, 90, 95]
-        codexAlertRemainingMode = false
         codexPopoverItems = PopoverItemConfig.defaultCodexItems
         codexCompactPopoverItems = PopoverItemConfig.defaultCodexItems
         providerStates = AppProviderStateCatalog.defaultCatalog
@@ -893,20 +945,9 @@ class AppSettings: ObservableObject {
         self.refreshInterval = defaults.object(forKey: "refreshInterval") as? TimeInterval ?? 30.0
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
-        // 마이그레이션: alert1/2/3 → alertThresholds 배열
-        if let saved = defaults.array(forKey: "alertThresholds") as? [Int] {
-            self.alertThresholds = saved
-        } else {
-            var migrated: [Int] = []
-            let e1 = defaults.object(forKey: "alert1Enabled") as? Bool ?? true
-            let e2 = defaults.object(forKey: "alert2Enabled") as? Bool ?? true
-            let e3 = defaults.object(forKey: "alert3Enabled") as? Bool ?? true
-            if e1 { migrated.append(defaults.object(forKey: "alert1Threshold") as? Int ?? 75) }
-            if e2 { migrated.append(defaults.object(forKey: "alert2Threshold") as? Int ?? 90) }
-            if e3 { migrated.append(defaults.object(forKey: "alert3Threshold") as? Int ?? 95) }
-            self.alertThresholds = migrated.isEmpty ? [75, 90, 95] : migrated
-        }
-        self.alertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
+        let storedAlertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
+        self.alertRemainingMode = storedAlertRemainingMode
+        self.notificationPresets = Self.migrateNotificationPresets(from: defaults, commonRemainingMode: storedAlertRemainingMode)
         self.reducedRefreshOnBattery = defaults.object(forKey: "reducedRefreshOnBattery") as? Bool ?? true
         self.hasCompletedSetupWizard = defaults.object(forKey: "hasCompletedSetupWizard") as? Bool ?? KeychainManager.shared.hasSessionKey
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
@@ -960,8 +1001,6 @@ class AppSettings: ObservableObject {
         self.codexIconMetric = IconMetric(rawValue: codexIconMetricRaw) ?? .fiveHour
         self.codexShowBatteryPercent = defaults.object(forKey: "codexShowBatteryPercent") as? Bool ?? true
         self.codexAlertEnabled = defaults.object(forKey: "codexAlertEnabled") as? Bool ?? false
-        self.codexAlertThresholds = defaults.array(forKey: "codexAlertThresholds") as? [Int] ?? [75, 90, 95]
-        self.codexAlertRemainingMode = defaults.object(forKey: "codexAlertRemainingMode") as? Bool ?? false
         let legacySettingsLastTab = defaults.string(forKey: "settingsLastTab") ?? "common"
         self.settingsLastTab = legacySettingsLastTab
         let storedActiveService = defaults.string(forKey: "menuBarActiveService") ?? "claude"
