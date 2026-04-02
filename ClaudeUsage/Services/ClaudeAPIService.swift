@@ -140,6 +140,16 @@ actor ClaudeAPIService {
         var lastOverallSuccessAt: Date?
     }
 
+    private struct OAuthCredential {
+        let accessToken: String
+        let expiresAt: Date?
+
+        var isExpired: Bool {
+            guard let expiresAt else { return false }
+            return Date() >= expiresAt.addingTimeInterval(-300)
+        }
+    }
+
     private var sessionKey: String?
     private let baseURL = "https://claude.ai/api"
     private var cachedOrganizationID: String?
@@ -161,6 +171,7 @@ actor ClaudeAPIService {
     private var authPathHealthStore = ClaudeAPIService.loadAuthPathHealthStore()
     private var lastKnownUsagePercent: Double?
     private var lastSuccessfulUsageSource: ClaudeUsageSource?
+    private var cachedOAuthCredential: OAuthCredential?
 
     private struct OrganizationCache: Codable {
         let savedAt: Date
@@ -977,32 +988,34 @@ actor ClaudeAPIService {
     }
 
     private func readSystemOAuthAccessToken() async throws -> String? {
-        // 1) 키체인 기본 서비스 먼저 시도 (대부분 케이스)
+        if let cachedOAuthCredential, !cachedOAuthCredential.isExpired {
+            return cachedOAuthCredential.accessToken
+        }
+        cachedOAuthCredential = nil
+
+        // Tracker와 동일하게 파일을 우선 사용해 키체인 프롬프트와 truncated payload 영향을 줄인다.
+        if let credential = await readOAuthCredentialFromCredentialFiles() {
+            cachedOAuthCredential = credential
+            return credential.accessToken
+        }
+
         let primaryService = "Claude Code-credentials"
-        if let credentials = try readKeychainCredentialPayload(serviceName: primaryService),
-           let token = parseOAuthAccessToken(from: credentials) {
-            await persistProfileMetadata(from: credentials)
-            Logger.info("OAuth 토큰 조회 성공 (키체인 서비스: \(primaryService))")
-            return token
+        if let credentials = try? readKeychainCredentialPayload(serviceName: primaryService),
+           let credential = await decodeOAuthCredential(from: credentials, sourceDescription: "키체인 서비스: \(primaryService)") {
+            cachedOAuthCredential = credential
+            return credential.accessToken
         }
 
-        // 2) 파일 fallback: 키체인 접근이 제한된 환경 대비
-        if let token = await readOAuthAccessTokenFromCredentialFiles() {
-            return token
-        }
-
-        // 3) 기본 서비스/파일 실패 시에만 hashed 서비스 탐색
         let discoveredServices = getDiscoveredCLIServiceNames().filter { $0 != primaryService }
         if !discoveredServices.isEmpty {
             Logger.debug("OAuth 토큰 조회: 추가 키체인 서비스 \(discoveredServices.count)개 후보")
         }
         for service in discoveredServices {
-            guard let credentials = try readKeychainCredentialPayload(serviceName: service) else { continue }
-            if let token = parseOAuthAccessToken(from: credentials) {
-                await persistProfileMetadata(from: credentials)
-                Logger.info("OAuth 토큰 조회 성공 (키체인 서비스: \(service))")
-                return token
-            }
+            guard let credentials = try? readKeychainCredentialPayload(serviceName: service),
+                  let credential = await decodeOAuthCredential(from: credentials, sourceDescription: "키체인 서비스: \(service)")
+            else { continue }
+            cachedOAuthCredential = credential
+            return credential.accessToken
         }
 
         Logger.warning("OAuth 토큰 조회 실패 (파일/키체인 모두 실패)")
@@ -1109,7 +1122,7 @@ actor ClaudeAPIService {
         return (process.terminationStatus, stdout, stderr)
     }
 
-    private func readOAuthAccessTokenFromCredentialFiles() async -> String? {
+    private func readOAuthCredentialFromCredentialFiles() async -> OAuthCredential? {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let candidates = [
             home.appendingPathComponent(".claude/.credentials.json"),
@@ -1121,10 +1134,8 @@ actor ClaudeAPIService {
                   let text = String(data: data, encoding: .utf8),
                   !text.isEmpty else { continue }
 
-            if let token = parseOAuthAccessToken(from: text) {
-                await persistProfileMetadata(from: text)
-                Logger.info("OAuth 토큰 조회 성공 (파일: \(fileURL.lastPathComponent))")
-                return token
+            if let credential = await decodeOAuthCredential(from: text, sourceDescription: "파일: \(fileURL.lastPathComponent)") {
+                return credential
             }
         }
 
@@ -1132,16 +1143,38 @@ actor ClaudeAPIService {
         return nil
     }
 
-    private func parseOAuthAccessToken(from credentialsText: String) -> String? {
+    private func decodeOAuthCredential(from credentialsText: String, sourceDescription: String) async -> OAuthCredential? {
+        guard let credential = parseOAuthCredential(from: credentialsText) else {
+            return nil
+        }
+
+        await persistProfileMetadata(from: credentialsText)
+
+        if credential.isExpired {
+            Logger.warning("OAuth 토큰이 만료되어 건너뜀 (\(sourceDescription))")
+            return nil
+        }
+
+        Logger.info("OAuth 토큰 조회 성공 (\(sourceDescription))")
+        return credential
+    }
+
+    private func parseOAuthCredential(from credentialsText: String) -> OAuthCredential? {
         if let data = credentialsText.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let oauth = json["claudeAiOauth"] as? [String: Any],
-           let token = oauth["accessToken"] as? String,
-           !token.isEmpty {
-            return token
+           let oauth = json["claudeAiOauth"] as? [String: Any]
+        {
+            let token = firstNonEmptyString(oauth["accessToken"], json["accessToken"])
+            let expiresAt = firstDateValue(oauth["expiresAt"], json["expiresAt"])
+            if let token, !token.isEmpty {
+                return OAuthCredential(accessToken: token, expiresAt: expiresAt)
+            }
         }
         // 키체인 JSON이 잘린 경우를 위해 accessToken 정규식 fallback
-        return extractAccessTokenByRegex(from: credentialsText)
+        if let token = extractAccessTokenByRegex(from: credentialsText) {
+            return OAuthCredential(accessToken: token, expiresAt: nil)
+        }
+        return nil
     }
 
     private func parseProfileMetadata(from credentialsText: String) -> ClaudeProfileMetadata? {

@@ -44,6 +44,7 @@ struct SettingsView: View {
     @State private var isAuthFAQExpanded = false
     @State private var isAuthDetailsExpanded = false
     @State private var isMessagesFallbackExpanded = false
+    @State private var isStatusDetailsExpanded = false
     @State private var isTestingMessagesFallback = false
     @State private var messagesFallbackStatus: String?
     @State private var codexAuthStatus: CodexAuthStatus = .checking
@@ -779,7 +780,7 @@ struct SettingsView: View {
                     HStack(spacing: 6) {
                         chip(
                             title: "활성 경로",
-                            value: runtimePathLabel(snapshot.runtime.activePath),
+                            value: compactRuntimePathLabel(snapshot),
                             color: runtimePathColor(snapshot.runtime.activePath)
                         )
                         if let oauthChip = oauthStatusChip(snapshot) {
@@ -973,12 +974,23 @@ struct SettingsView: View {
     }
 
     private var statusSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("조회 상태", systemImage: "waveform.path.ecg")
-                .font(.headline)
-
-            runtimeStatusSummaryCard
-            usageHealthSection
+        DisclosureGroup(isExpanded: $isStatusDetailsExpanded) {
+            VStack(alignment: .leading, spacing: 12) {
+                runtimeStatusSummaryCard
+                usageHealthSection
+            }
+            .padding(.top, 4)
+        } label: {
+            HStack {
+                Label("조회 상태", systemImage: "waveform.path.ecg")
+                    .font(.headline)
+                Spacer(minLength: 0)
+                Text("상세")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
+            .padding(.vertical, 4)
         }
     }
 
@@ -1648,6 +1660,20 @@ struct SettingsView: View {
         if snapshot.session.isUnstable { labels.append("세션키") }
         if snapshot.oauth.isUnstable { labels.append("OAuth") }
         return labels.joined(separator: ", ")
+    }
+
+    private func compactRuntimePathLabel(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> String {
+        switch snapshot.runtime.activePath {
+        case .unauthenticated:
+            return "인증 없음"
+        case .sessionPrimary:
+            return "세션키"
+        case .oauthPreferred, .oauthFallback:
+            if snapshot.oauth.lastSuccessAt != nil {
+                return "OAuth"
+            }
+            return "OAuth 후보"
+        }
     }
 
     private func formatDuration(seconds: Int) -> String {
@@ -2815,17 +2841,23 @@ struct SettingsView: View {
                 await MainActor.run {
                     testResult = .success
                     isTesting = false
-                    // 연결 성공 시 자동 저장
-                    do {
-                        try KeychainManager.shared.save(normalizedKey)
-                        storedSessionKey = normalizedKey
-                        Logger.info("연결 테스트 성공, 세션 키 자동 저장됨")
-                    } catch {
-                        Logger.error("세션 키 저장 실패: \(error)")
+                    let shouldPersist = normalizeSessionKey(storedSessionKey ?? "") != normalizedKey
+                    if shouldPersist {
+                        do {
+                            try KeychainManager.shared.save(normalizedKey)
+                            storedSessionKey = normalizedKey
+                            Logger.info("연결 테스트 성공, 변경된 세션 키 저장됨")
+                        } catch {
+                            Logger.error("세션 키 저장 실패: \(error)")
+                        }
+                    } else {
+                        Logger.info("연결 테스트 성공, 기존 세션 키를 재사용함")
                     }
                     refreshSetupWizardState()
                     loadUsageHealthSnapshot()
-                    onSessionKeyStored?()
+                    if shouldPersist {
+                        onSessionKeyStored?()
+                    }
                 }
             } catch {
                 await MainActor.run {
@@ -2881,12 +2913,15 @@ struct SettingsView: View {
 
         // 세션 키 저장
         if !normalizedKey.isEmpty {
-            do {
-                try KeychainManager.shared.save(normalizedKey)
-                storedSessionKey = normalizedKey
-                settings.hasCompletedSetupWizard = false
-            } catch {
-                Logger.error("세션 키 저장 실패: \(error)")
+            let existingKey = normalizeSessionKey(storedSessionKey ?? "")
+            if existingKey != normalizedKey {
+                do {
+                    try KeychainManager.shared.save(normalizedKey)
+                    storedSessionKey = normalizedKey
+                    settings.hasCompletedSetupWizard = false
+                } catch {
+                    Logger.error("세션 키 저장 실패: \(error)")
+                }
             }
         } else {
             try? KeychainManager.shared.delete()

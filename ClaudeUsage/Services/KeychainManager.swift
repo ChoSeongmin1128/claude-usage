@@ -31,7 +31,7 @@ final class KeychainManager: @unchecked Sendable {
 
     private nonisolated let storageKey = "claude-session-key"
     private let keychainStore = ClaudeKeychainStore.shared
-    private nonisolated(unsafe) let cacheLock = NSLock()
+    private let cacheLock = NSLock()
     private nonisolated(unsafe) var cachedSessionKey: String?
 
     private init() {}

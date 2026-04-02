@@ -500,10 +500,15 @@
 - [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift) 의 provider snapshot 렌더링 도입으로, 다중 provider 메뉴바는 더 이상 `combinedContent(claude,codex)` 전용 입력만 바라보지 않습니다.
 - [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift), [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift), [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 이제 `usageHealthSnapshot.runtime.credentialAvailability` 를 이용해 `OAuth-only` 계정에서 잘못된 인증 경고를 덜 띄우도록 맞추기 시작했습니다.
 - [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift) 는 이제 `runtimeSnapshots` 를 저장하고, snapshot 기반으로 요약/메타/경고점을 계산합니다.
+- [ClaudeFetchModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/Claude/ClaudeFetchModels.swift), [NotificationManager.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/NotificationManager.swift), [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 이제 Claude metadata를 공통 알림 프리셋 문구와 요약 설명에 연결하고, `남은 사용량` 모드에서도 올바른 알림 문구를 사용합니다.
+- [SetupWizardView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/Components/SetupWizardView.swift) 는 권장 경로 1개를 먼저 보여주고 다른 인증 방법은 접어 두는 구조로 바뀌어, 온보딩 단계에서 경로가 과도하게 경쟁하지 않도록 줄였습니다.
+- [ClaudeAPIService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/ClaudeAPIService.swift) 와 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 `OAuth 감지`, `OAuth 검증`, `OAuth 확인 필요`를 구분해 표시하고, 실제 현재 자격이 없을 때는 `OAuth(폴백)` 경로를 더 이상 활성처럼 보여주지 않습니다.
+- [ClaudeChromeCookieImportService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Auth/ClaudeChromeCookieImportService.swift) 는 `Local State`의 프로필 목록을 함께 읽어 Chrome 프로필 탐색 범위를 넓혔고, 자동 import 실패 안내도 긴 경로 나열 대신 짧은 실패 요약 중심으로 줄였습니다.
+- [ClaudeKeychainStore.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Auth/ClaudeKeychainStore.swift), [KeychainManager.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/KeychainManager.swift), [SettingsWindowCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/SettingsWindowCoordinator.swift) 는 세션키 테스트 시 keychain 프롬프트 반복과 설정창 자동 종료를 줄이는 방향으로 정리했습니다.
 - 아직 남음
 - `진단` / `업데이트` 섹션을 팝오버 메인 정보 흐름에서 얼마나 분리할지 추가 조정이 필요합니다.
 - preset 체계와 provider 추가 시 카드 구조 일관성은 아직 남아 있습니다.
-- `claude-code`의 `reset-aware` 문구 생성처럼 metadata 기반 경고 문구를 더 정교하게 만들고, `extra usage`, `team/enterprise`, `warning suppression` 정책을 알림 프리셋에 연결해야 합니다.
+- `claude-code`의 `reset-aware` 문구 생성처럼 metadata 기반 경고 문구를 더 정교하게 만들고, `extra usage`, `team/enterprise`, `warning suppression` 정책을 provider별 알림 전체에 더 넓혀야 합니다.
 - `CodexBar`의 UI 문서처럼 `Overview`, `provider row`, `권한 설명`, `고급 표시 옵션`을 제품 copy 수준으로 정리해야 합니다.
 - 완료 기준
 - 체감 반응성과 설정 이해도가 개선됨
@@ -519,6 +524,7 @@
 - 현재 반영
 - [README.md](/Users/seongmin/Personal/ClaudeUsage/README.md) 는 Claude 중심 multi-provider 제품 방향과 현재 구현 범위를 반영하도록 갱신했습니다.
 - `ClaudeProfileMetadataStore` 관련 Swift 6 경고를 제거해 빌드 출력이 더 깨끗해졌습니다.
+- 인증/소스 문서와 README는 현재 `Chrome 가져오기 -> 웹 로그인 -> 수동 sessionKey` 흐름과 `CLI OAuth 권장` 서사를 반영하도록 갱신했습니다.
 - 완료 기준
 - 문서와 구현이 어긋나지 않음
 
@@ -599,6 +605,8 @@
 - `CodexBar`는 provider 추가 기준이 `descriptor + strategy + UI hook` 단위라서 새 provider가 들어와도 host API만 재사용하면 됩니다. 현재 앱은 아직 `Claude/Codex` 이중 배선을 걷어내는 중이라 `Gemini`를 붙이기 전 `provider runtime registry`를 먼저 끝내야 합니다.
 - `Claude-Usage-Tracker`는 setup wizard가 단순 입력 화면이 아니라 `CLI 감지`, `내장 브라우저`, `수동 fallback`, `조직 선택`, `마이그레이션`까지 한 흐름으로 묶여 있습니다. 현재 앱도 설정 내부 보조 카드가 아니라 독립 `first-run flow` 완성도가 더 필요합니다.
 - `claude-code`는 metadata를 저장하는 데서 멈추지 않고 실제 경고 문구와 정책 판단까지 연결합니다. 현재 앱은 `organizationUuid`, `subscriptionType`, `hasExtraUsageEnabled`, `rateLimitTier`를 저장하기 시작했지만 아직 `알림 문구/표시 정책`까지 소비하지 못합니다.
+- `Claude Code OAuth` 실패 원인은 구현 버그가 섞여 있었습니다. 실제 토큰은 살아 있는데 `Messages` probe에 `User-Agent` / `anthropic-beta` 헤더가 빠져 `OAuth authentication is currently not supported` 401을 유발하던 경로를 수정했습니다.
+- `Claude Code OAuth` 읽기 경로는 `Claude-Usage-Tracker`처럼 `~/.claude` credentials 파일 우선, 키체인 후순위로 재정렬했고, 만료 시각과 메모리 캐시를 같이 보도록 보강했습니다.
 - `CodexBar`는 README와 provider 문서에 `권한 이유`, `로컬만 읽는 데이터`, `브라우저별 제약`, `키체인 prompt 정책`을 분명히 적습니다. 현재 앱도 설정 설명과 README, 향후 Sparkle 배포 문서에서 이 수준의 설명 책임을 져야 합니다.
 
 ### 제품 방향
@@ -616,10 +624,10 @@
 
 ## 7. 바로 다음 작업
 
-- `Gemini` 를 설정 패널에서도 `준비 중` shell이 아니라 실제 runtime provider로 다루도록 `SettingsView` / `ProviderSettingsRegistry` / provider 탭 구조를 정리하기
-- `Gemini` 메뉴바/팝오버 표시를 사용자 설정으로 충분히 제어할 수 있게 provider별 display/popover 설정 UI를 추가하기
-- `Gemini` 알림을 공통 프리셋 구조 위에 얹고, provider on/off 와 세션별 reset 문구를 정리하기
-- `Antigravity` runtime provider의 연결 상태/오류 문구를 더 사용자 친화적으로 다듬고, 실제 환경에서 포트 probe fallback과 응답 파싱 회복력을 보강하기
 - 독립 `Setup Wizard` 를 첫 실행 전용 단계 라우팅으로 더 확장하고 Chrome/Keychain 권한 설명, organization 선택, 검증 완료 흐름을 완성하기
-- metadata cache를 실제 알림 문구와 warning suppression 정책까지 더 넓혀 `fallback 빈도`, `팝오버 정책 문구`, `설정 요약`까지 연결하기
+- `Messages fallback` 수동 테스트와 자동 정책의 의미를 UI와 내부 경로에서 더 명확히 분리하고, 자동/수동 모드의 진단 문구를 정리하기
+- Claude 인증 설정의 정보 밀도를 더 줄여 `현재 상태 + 다음 1개 행동` 중심으로 남기고, 상세 상태/복구/FAQ는 한 단계 더 안쪽으로 내리기
+- `세션키 연결 테스트` 를 검증 경로와 저장 경로로 더 깔끔하게 분리하고, 설정창의 성공/실패 후속 동작을 덜 놀랍게 만들기
+- `Antigravity` runtime provider의 연결 상태/오류 문구를 더 사용자 친화적으로 다듬고, 실제 환경에서 포트 probe fallback과 응답 파싱 회복력을 보강하기
+- provider별 메뉴바/팝오버 표시 자유도는 유지하되, 기본 preset / 고급 preset / 고급 도움말 copy 를 더 정리하기
 - README와 배포/업데이트 문서를 실제 구현 상태에 맞게 계속 갱신하기

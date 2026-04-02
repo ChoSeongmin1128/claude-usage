@@ -39,6 +39,8 @@ struct ClaudeMessagesHeaderFallbackFetcher {
     private let baseURL = URL(string: "https://api.anthropic.com")!
     private let modelName: String
     private let anthropicVersion = "2023-06-01"
+    private let userAgent = "claude-code/2.1.5"
+    private let oauthBetaHeader = "oauth-2025-04-20"
 
     nonisolated init(modelName: String = "claude-haiku-4-5-20251001") {
         self.modelName = modelName
@@ -61,6 +63,8 @@ struct ClaudeMessagesHeaderFallbackFetcher {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(self.anthropicVersion, forHTTPHeaderField: "anthropic-version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(self.userAgent, forHTTPHeaderField: "User-Agent")
+        request.setValue(self.oauthBetaHeader, forHTTPHeaderField: "anthropic-beta")
         request.timeoutInterval = 30
         request.httpBody = try JSONSerialization.data(
             withJSONObject: [
