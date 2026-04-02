@@ -216,29 +216,14 @@ struct PopoverView: View {
     @ViewBuilder
     private var headerServiceSelector: some View {
         if availableServices.count > 1 {
-            Group {
-                if shouldUseWrappedHeaderSelector {
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: isCompact ? 120 : 132), spacing: 6, alignment: .leading)],
-                        alignment: .leading,
-                        spacing: 6
-                    ) {
-                        ForEach(availableServices, id: \.rawValue) { service in
-                            headerSelectorButton(for: service)
-                        }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(availableServices, id: \.rawValue) { service in
+                        headerSelectorButton(for: service)
                     }
-                } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(availableServices, id: \.rawValue) { service in
-                                headerSelectorButton(for: service)
-                            }
-                        }
-                    }
-                    .scrollIndicators(.never)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .scrollIndicators(.never)
             .layoutPriority(1)
         } else {
             Text(selectedService.displayName)
@@ -262,7 +247,6 @@ struct PopoverView: View {
                         .frame(width: 6, height: 6)
                 }
             }
-            .frame(maxWidth: shouldUseWrappedHeaderSelector ? .infinity : nil, alignment: .leading)
             .padding(.horizontal, 9)
             .padding(.vertical, 4)
             .background(selectedService == service ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
@@ -297,11 +281,7 @@ struct PopoverView: View {
     }
 
     private var shouldStackHeaderControls: Bool {
-        availableServices.count >= 3
-    }
-
-    private var shouldUseWrappedHeaderSelector: Bool {
-        availableServices.count >= 4
+        availableServices.count >= 5
     }
 
     private func shouldShowWarningDot(for service: PopoverService) -> Bool {
@@ -367,27 +347,21 @@ struct PopoverView: View {
         Self.preferredPopoverWidth(
             for: availableServices,
             compact: isCompact,
-            stackHeaderControls: shouldStackHeaderControls,
-            wrapHeaderSelector: shouldUseWrappedHeaderSelector
+            stackHeaderControls: shouldStackHeaderControls
         )
     }
 
     static func preferredPopoverWidth(
         for services: [PopoverService],
         compact: Bool,
-        stackHeaderControls: Bool,
-        wrapHeaderSelector: Bool = false
+        stackHeaderControls: Bool
     ) -> CGFloat {
-        let providerCount = max(services.count, 1)
         let longestNameLength = services.map(\.displayName.count).max() ?? 6
-        let baseWidth: CGFloat = compact ? 460 : 560
-        let providerWidthBoost = CGFloat(max(providerCount - 1, 0)) * (compact ? 36 : 48)
-        let nameWidthBoost = CGFloat(max(longestNameLength - 6, 0)) * (compact ? 9 : 12)
-        let headerUtilityWidth: CGFloat = stackHeaderControls ? 0 : (compact ? 156 : 196)
-        let stackBoost: CGFloat = stackHeaderControls ? (compact ? 44 : 84) : 0
-        let wrapBoost: CGFloat = wrapHeaderSelector ? (compact ? 68 : 112) : 0
-        let capWidth: CGFloat = compact ? 820 : 980
-        return min(baseWidth + providerWidthBoost + nameWidthBoost + headerUtilityWidth + stackBoost + wrapBoost, capWidth)
+        let baseWidth: CGFloat = compact ? 400 : 520
+        let nameWidthBoost = CGFloat(max(longestNameLength - 10, 0)) * (compact ? 4 : 6)
+        let stackBoost: CGFloat = stackHeaderControls ? (compact ? 20 : 36) : 0
+        let capWidth: CGFloat = compact ? 520 : 640
+        return min(baseWidth + nameWidthBoost + stackBoost, capWidth)
     }
 
     private func requestRefreshIfNeededForVisibleService() {

@@ -72,8 +72,7 @@ final class AppPopoverCoordinator {
             let preferredWidth = PopoverView.preferredPopoverWidth(
                 for: referenceServices,
                 compact: compact,
-                stackHeaderControls: referenceServices.count >= 3,
-                wrapHeaderSelector: referenceServices.count >= 4
+                stackHeaderControls: referenceServices.count >= 5
             )
             let minWidth: CGFloat = preferredWidth
             let maxWidth = max(minWidth, (NSScreen.main?.visibleFrame.width ?? 1440) - 80)
