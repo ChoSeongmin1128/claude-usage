@@ -122,12 +122,14 @@ struct PopoverView: View {
         .onAppear {
             normalizeSelectedServiceIfNeeded()
             syncCompactAcrossServicesIfNeeded()
+            requestRefreshIfNeededForVisibleService()
         }
         .onChange(of: settings.providerStates) { _, _ in
             normalizeSelectedServiceIfNeeded()
         }
         .onChange(of: viewModel.selectedService) { _, _ in
             syncCompactAcrossServicesIfNeeded()
+            requestRefreshIfNeededForVisibleService()
         }
     }
 
@@ -214,40 +216,60 @@ struct PopoverView: View {
     @ViewBuilder
     private var headerServiceSelector: some View {
         if availableServices.count > 1 {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(availableServices, id: \.rawValue) { service in
-                        Button {
-                            selectService(service)
-                        } label: {
-                            HStack(spacing: 5) {
-                                Text(service.displayName)
-                                    .font(.system(size: 12.5, weight: selectedService == service ? .semibold : .medium))
-                                    .lineLimit(1)
-                                    .fixedSize(horizontal: true, vertical: false)
-                                if shouldShowWarningDot(for: service) {
-                                    Circle()
-                                        .fill(Color.orange)
-                                        .frame(width: 6, height: 6)
-                                }
-                            }
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 4)
-                            .background(selectedService == service ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
-                            .foregroundStyle(selectedService == service ? Color.accentColor : .primary)
-                            .cornerRadius(8)
+            Group {
+                if shouldUseWrappedHeaderSelector {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: isCompact ? 120 : 132), spacing: 6, alignment: .leading)],
+                        alignment: .leading,
+                        spacing: 6
+                    ) {
+                        ForEach(availableServices, id: \.rawValue) { service in
+                            headerSelectorButton(for: service)
                         }
-                        .buttonStyle(.plain)
                     }
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(availableServices, id: \.rawValue) { service in
+                                headerSelectorButton(for: service)
+                            }
+                        }
+                    }
+                    .scrollIndicators(.never)
                 }
             }
-            .scrollIndicators(.never)
             .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(1)
         } else {
             Text(selectedService.displayName)
                 .font(.headline)
         }
+    }
+
+    @ViewBuilder
+    private func headerSelectorButton(for service: PopoverService) -> some View {
+        Button {
+            selectService(service)
+        } label: {
+            HStack(spacing: 5) {
+                Text(service.displayName)
+                    .font(.system(size: 12.5, weight: selectedService == service ? .semibold : .medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.92)
+                if shouldShowWarningDot(for: service) {
+                    Circle()
+                        .fill(Color.orange)
+                        .frame(width: 6, height: 6)
+                }
+            }
+            .frame(maxWidth: shouldUseWrappedHeaderSelector ? .infinity : nil, alignment: .leading)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .background(selectedService == service ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
+            .foregroundStyle(selectedService == service ? Color.accentColor : .primary)
+            .cornerRadius(8)
+        }
+        .buttonStyle(.plain)
     }
 
     private var selectedService: PopoverService {
@@ -271,10 +293,14 @@ struct PopoverView: View {
     }
 
     private var shouldCollapseHeaderMetadata: Bool {
-        availableServices.count >= 5
+        availableServices.count >= 4
     }
 
     private var shouldStackHeaderControls: Bool {
+        availableServices.count >= 3
+    }
+
+    private var shouldUseWrappedHeaderSelector: Bool {
         availableServices.count >= 4
     }
 
@@ -341,24 +367,38 @@ struct PopoverView: View {
         Self.preferredPopoverWidth(
             for: availableServices,
             compact: isCompact,
-            stackHeaderControls: shouldStackHeaderControls
+            stackHeaderControls: shouldStackHeaderControls,
+            wrapHeaderSelector: shouldUseWrappedHeaderSelector
         )
     }
 
     static func preferredPopoverWidth(
         for services: [PopoverService],
         compact: Bool,
-        stackHeaderControls: Bool
+        stackHeaderControls: Bool,
+        wrapHeaderSelector: Bool = false
     ) -> CGFloat {
         let providerCount = max(services.count, 1)
         let longestNameLength = services.map(\.displayName.count).max() ?? 6
-        let baseWidth: CGFloat = compact ? 420 : 520
-        let providerWidthBoost = CGFloat(max(providerCount - 1, 0)) * (compact ? 34 : 44)
-        let nameWidthBoost = CGFloat(max(longestNameLength - 6, 0)) * (compact ? 8 : 11)
-        let headerUtilityWidth: CGFloat = stackHeaderControls ? 0 : (compact ? 144 : 188)
-        let stackBoost: CGFloat = stackHeaderControls ? (compact ? 40 : 72) : 0
-        let capWidth: CGFloat = compact ? 760 : 920
-        return min(baseWidth + providerWidthBoost + nameWidthBoost + headerUtilityWidth + stackBoost, capWidth)
+        let baseWidth: CGFloat = compact ? 460 : 560
+        let providerWidthBoost = CGFloat(max(providerCount - 1, 0)) * (compact ? 36 : 48)
+        let nameWidthBoost = CGFloat(max(longestNameLength - 6, 0)) * (compact ? 9 : 12)
+        let headerUtilityWidth: CGFloat = stackHeaderControls ? 0 : (compact ? 156 : 196)
+        let stackBoost: CGFloat = stackHeaderControls ? (compact ? 44 : 84) : 0
+        let wrapBoost: CGFloat = wrapHeaderSelector ? (compact ? 68 : 112) : 0
+        let capWidth: CGFloat = compact ? 820 : 980
+        return min(baseWidth + providerWidthBoost + nameWidthBoost + headerUtilityWidth + stackBoost + wrapBoost, capWidth)
+    }
+
+    private func requestRefreshIfNeededForVisibleService() {
+        guard ServiceSelectionHelper.isEnabled(selectedService, settings: settings) else { return }
+        guard !serviceLoading(for: selectedService) else { return }
+        guard !isAuthRequired(for: selectedService) else { return }
+
+        let runtimeState = viewModel.runtimeServiceState(for: selectedService, settings: settings)
+        if runtimeState.hasContent == false || runtimeState.error?.isTemporaryFailure == true {
+            viewModel.refresh(service: selectedService)
+        }
     }
 
     private var hasServiceData: Bool {

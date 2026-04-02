@@ -859,7 +859,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         loadingStartedAt = nil
         updateMenuBar()
         updatePopoverViewModel(overage: currentOverage)
-        refreshAll()
+        refreshAll(force: true)
         startTimer()
     }
 
@@ -1404,7 +1404,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshGeminiUsage(force: Bool = false) {
         guard ServiceSelectionHelper.isEnabled(.gemini, settings: AppSettings.shared) else { return }
 
-        if !force, let remaining = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextGeminiRefreshAllowedAt) {
+        let shouldRespectBackoff = !force && currentGeminiUsage != nil
+        if shouldRespectBackoff, let remaining = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextGeminiRefreshAllowedAt) {
             if nextGeminiRefreshAllowedAt != nil {
                 Logger.debug("Gemini 갱신 스킵: 임시 오류 백오프 \(remaining)초 남음")
                 return
@@ -1425,6 +1426,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         isGeminiLoading = true
         geminiLoadingStartedAt = Date()
+        geminiError = nil
+        hasGeminiAuthError = false
 
         Task {
             do {
@@ -1495,7 +1498,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshAntigravityUsage(force: Bool = false) {
         guard ServiceSelectionHelper.isEnabled(.antigravity, settings: AppSettings.shared) else { return }
 
-        if !force, let remaining = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextAntigravityRefreshAllowedAt) {
+        let shouldRespectBackoff = !force && currentAntigravityUsage != nil
+        if shouldRespectBackoff, let remaining = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextAntigravityRefreshAllowedAt) {
             if nextAntigravityRefreshAllowedAt != nil {
                 Logger.debug("Antigravity 갱신 스킵: 임시 오류 백오프 \(remaining)초 남음")
                 return
@@ -1516,6 +1520,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         isAntigravityLoading = true
         antigravityLoadingStartedAt = Date()
+        antigravityError = nil
+        hasAntigravityAuthError = false
 
         Task {
             do {

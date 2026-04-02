@@ -485,14 +485,25 @@ actor AntigravityAPIService {
                 csrfToken: context.csrfToken
             )
         } catch {
-            guard let httpPort = context.httpPort, httpPort != context.httpsPort else { throw error }
-            return try await sendRequest(
-                scheme: "http",
-                port: httpPort,
-                path: path,
-                body: body,
-                csrfToken: context.csrfToken
-            )
+            let fallbackPorts = [context.httpPort, context.httpsPort]
+                .compactMap { $0 }
+                .filter { $0 != context.httpsPort } + [context.httpsPort]
+
+            for port in fallbackPorts {
+                do {
+                    return try await sendRequest(
+                        scheme: "http",
+                        port: port,
+                        path: path,
+                        body: body,
+                        csrfToken: context.csrfToken
+                    )
+                } catch {
+                    continue
+                }
+            }
+
+            throw error
         }
     }
 
