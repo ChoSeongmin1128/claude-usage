@@ -16,6 +16,7 @@ struct SettingsView: View {
     @StateObject private var settingsViewModel = SettingsViewModel()
     @State private var sessionKey: String = ""
     @State private var storedSessionKey: String?
+    @State private var lastVerifiedSessionKey: String?
     @State private var testResult: TestResult?
     @State private var isTesting: Bool = false
     @State private var refreshIntervalText: String = ""
@@ -59,10 +60,8 @@ struct SettingsView: View {
     var onOpenClaudeInChrome: (() -> Void)?
     var onLogout: (() -> Void)?
     var onCodexLogout: (() -> Void)?
-    var onSessionKeyStored: (() async -> Void)?
-
     enum TestResult {
-        case success
+        case success(String)
         case failure(String)
     }
 
@@ -1018,8 +1017,8 @@ struct SettingsView: View {
 
                     if let result = testResult {
                         switch result {
-                        case .success:
-                            Label("연결 성공", systemImage: "checkmark.circle.fill")
+                        case .success(let message):
+                            Label(message, systemImage: "checkmark.circle.fill")
                                 .foregroundStyle(.green)
                                 .font(.caption)
                         case .failure(let msg):
@@ -2998,6 +2997,7 @@ struct SettingsView: View {
     private func handleLogoutAction() {
         onLogout?()
         storedSessionKey = nil
+        lastVerifiedSessionKey = nil
         sessionKey = ""
         testResult = nil
         organizations = []
@@ -3014,12 +3014,12 @@ struct SettingsView: View {
             storedSessionKey = nil
             sessionKey = ""
         }
+        lastVerifiedSessionKey = nil
     }
 
     private func testConnection() {
         let normalizedKey = normalizeSessionKey(sessionKey)
         guard !normalizedKey.isEmpty else { return }
-        let shouldPersist = normalizeSessionKey(storedSessionKey ?? "") != normalizedKey
         if normalizedKey != sessionKey {
             sessionKey = normalizedKey
         }
@@ -3031,23 +3031,15 @@ struct SettingsView: View {
                 let service = ClaudeAPIService(sessionKey: normalizedKey)
                 await service.updatePreferredOrganizationID(normalizeOrganizationID(selectedOrganizationID))
                 let _ = try await service.fetchUsage()
-                if shouldPersist {
-                    try KeychainManager.shared.save(normalizedKey)
-                    Logger.info("연결 테스트 성공, 변경된 세션 키 저장됨")
-                    if let onSessionKeyStored {
-                        await onSessionKeyStored()
-                    }
-                } else {
-                    Logger.info("연결 테스트 성공, 기존 세션 키를 재사용함")
-                }
                 await MainActor.run {
-                    storedSessionKey = normalizedKey
-                    testResult = .success
+                    lastVerifiedSessionKey = normalizedKey
+                    testResult = .success("연결 확인됨 · 저장은 적용 시점에 진행됩니다")
                     isTesting = false
                     loadUsageHealthSnapshot()
                 }
             } catch {
                 await MainActor.run {
+                    lastVerifiedSessionKey = nil
                     testResult = .failure(error.localizedDescription)
                     isTesting = false
                     loadUsageHealthSnapshot()
@@ -3105,6 +3097,7 @@ struct SettingsView: View {
                 do {
                     try KeychainManager.shared.save(normalizedKey)
                     storedSessionKey = normalizedKey
+                    lastVerifiedSessionKey = normalizedKey
                 } catch {
                     Logger.error("세션 키 저장 실패: \(error)")
                 }
@@ -3112,6 +3105,7 @@ struct SettingsView: View {
         } else {
             try? KeychainManager.shared.delete()
             storedSessionKey = nil
+            lastVerifiedSessionKey = nil
             testResult = nil
         }
 

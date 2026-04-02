@@ -1901,10 +1901,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.nextCodexRefreshAllowedAt = nil
                 self.updateMenuBar()
                 self.updatePopoverViewModel(overage: self.currentOverage)
-            },
-            onSessionKeyStored: { [weak self] in
-                guard let self else { return }
-                await self.syncClaudeSettingsFromWindow()
             }
         )
         settingsWindowCoordinator.present(rootView: settingsView, snapshot: snapshot)
