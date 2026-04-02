@@ -1065,7 +1065,13 @@ struct SettingsView: View {
     }
 
     private var shouldShowAuthSetupFlow: Bool {
-        !settings.hasCompletedSetupWizard || !hasReadyClaudeCredential || !hasSuccessfulClaudeFetch || !isOrganizationSelectionReady
+        SetupCompletionPolicy.shouldShowSetupFlow(
+            hasCompletedSetupWizard: settings.hasCompletedSetupWizard,
+            hasReadyCredential: hasReadyClaudeCredential,
+            hasSuccessfulFetch: hasSuccessfulClaudeFetch,
+            preferredOrganizationID: settings.preferredOrganizationID,
+            cachedMetadata: profileMetadata
+        )
     }
 
     private var currentSetupWizardStep: SetupWizardView.Step {
@@ -2973,7 +2979,11 @@ struct SettingsView: View {
     }
 
     private func refreshSetupWizardState() {
-        settings.hasCompletedSetupWizard = hasReadyClaudeCredential && hasSuccessfulClaudeFetch && isOrganizationSelectionReady
+        settings.hasCompletedSetupWizard = SetupCompletionPolicy.shouldMarkSetupComplete(
+            hasSuccessfulFetch: hasSuccessfulClaudeFetch,
+            preferredOrganizationID: settings.preferredOrganizationID,
+            cachedMetadata: profileMetadata
+        )
     }
 
     private func formattedMetadataDate(_ date: Date?) -> String? {

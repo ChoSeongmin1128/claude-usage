@@ -436,10 +436,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var shouldShowStandaloneSetupWizard: Bool {
-        !AppSettings.shared.hasCompletedSetupWizard
-            || !hasReadyClaudeCredential
-            || !hasSuccessfulClaudeFetch
-            || !isSetupWizardOrganizationReady
+        SetupCompletionPolicy.shouldShowSetupFlow(
+            hasCompletedSetupWizard: AppSettings.shared.hasCompletedSetupWizard,
+            hasReadyCredential: hasReadyClaudeCredential,
+            hasSuccessfulFetch: hasSuccessfulClaudeFetch,
+            preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
+            cachedMetadata: currentClaudeProfileMetadata
+        )
     }
 
     private var hasReadyClaudeCredential: Bool {
