@@ -32,6 +32,23 @@ struct SetupWizardWindowView: View {
         ]
     }
 
+    private var visibleChecklistState: [(String, String, Bool)] {
+        switch progress.stage {
+        case .credential:
+            return checklistState.filter { !$0.2 || $0.0 == "자격 준비" }
+        case .verification:
+            return checklistState.filter { !$0.2 || $0.0 == "조회 검증" }
+        case .organization:
+            return checklistState.filter { !$0.2 || $0.0 == "Organization 확인" }
+        case .complete:
+            return checklistState
+        }
+    }
+
+    private var checklistTitle: String {
+        isFullyReady ? "준비 완료" : "남은 확인"
+    }
+
     private var isFullyReady: Bool {
         progress.stage == .complete
     }
@@ -78,11 +95,11 @@ struct SetupWizardWindowView: View {
     private var stageSummaryDetail: String {
         switch progress.stage {
         case .credential:
-            return "Chrome 가져오기나 웹 로그인 중 하나로 Claude 자격을 먼저 확보해야 합니다."
+            return "권장 경로는 Chrome 가져오기입니다. 실패할 때만 웹 로그인이나 수동 입력으로 내려가면 됩니다."
         case .verification:
-            return "자격은 준비됐지만 아직 첫 성공 조회가 없습니다. 지금 바로 조회를 실행해 검증하는 편이 맞습니다."
+            return "자격은 준비됐습니다. 이제 첫 성공 조회만 끝내면 됩니다."
         case .organization:
-            return "\(progress.organizationSummary) 설정에서 organization 탭을 열어 확인하거나, 자동 선택 모드로 두고 계속 진행할 수 있습니다."
+            return "\(progress.organizationSummary) 필요하면 organization 탭에서 직접 확인하고, 아니면 자동 선택으로 계속 진행하면 됩니다."
         case .complete:
             return "Claude 초기 설정이 끝났습니다. 이제 필요할 때 다른 provider를 추가하면 됩니다."
         }
@@ -120,11 +137,11 @@ struct SetupWizardWindowView: View {
             )
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("초기 체크")
+                Text(checklistTitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                ForEach(Array(checklistState.enumerated()), id: \.offset) { _, item in
+                ForEach(Array(visibleChecklistState.enumerated()), id: \.offset) { _, item in
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: item.2 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                             .foregroundStyle(item.2 ? .green : .orange)
