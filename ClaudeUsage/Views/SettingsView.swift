@@ -1354,11 +1354,17 @@ struct SettingsView: View {
     }
 
     private var pendingOrganizationChecklistDetail: String {
-        pendingSetupProgress.organizationSummary
+        SetupCompletionPolicy.organizationStatusSummary(
+            preferredOrganizationID: normalizeOrganizationID(selectedOrganizationID),
+            cachedMetadata: profileMetadata
+        )
     }
 
     private var appliedOrganizationChecklistDetail: String {
-        appliedSetupProgress.organizationSummary
+        SetupCompletionPolicy.organizationStatusSummary(
+            preferredOrganizationID: appliedPreferredOrganizationID,
+            cachedMetadata: profileMetadata
+        )
     }
 
     private func authSummaryLine(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> String {
@@ -1976,11 +1982,11 @@ struct SettingsView: View {
 
             if selectedOrganizationID.isEmpty {
                 if hasSuccessfulClaudeFetch {
-                    Text("지금은 기본 organization을 자동으로 사용 중입니다. 여러 organization을 직접 구분해서 볼 때만 아래 수동 선택을 여시면 됩니다.")
+                    Text("지금은 자동 선택으로 동작합니다. 필요할 때만 아래 수동 선택을 여세요.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("기본은 자동 선택입니다. 첫 성공 조회가 끝나면 기본 organization으로 바로 사용할 수 있습니다.")
+                    Text("지금은 자동 선택으로 동작합니다. 저장된 organization 확인은 첫 조회 후 보강됩니다.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

@@ -75,6 +75,7 @@ enum SetupCompletionPolicy {
             || !(storedSessionKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    @MainActor
     static func notificationPolicy(from metadata: ClaudeProfileMetadata?) -> ClaudeNotificationPolicy? {
         metadata.map(ClaudeNotificationPolicy.init(metadata:))
     }
@@ -96,6 +97,27 @@ enum SetupCompletionPolicy {
                 minimumUsagePercent: Double(settings.claudeMessagesFallbackAutoDisableBelowPercent)
             )
         }
+    }
+
+    static func organizationStatusSummary(
+        preferredOrganizationID: String,
+        cachedMetadata: ClaudeProfileMetadata?
+    ) -> String {
+        let preferredID = preferredOrganizationID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !preferredID.isEmpty else {
+            return "자동 선택 사용 중"
+        }
+
+        guard let cachedOrganizationID = cachedMetadata?.organizationUUID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !cachedOrganizationID.isEmpty else {
+            return "직접 선택 사용 중 · 아직 계정 확인 전"
+        }
+
+        if cachedOrganizationID == preferredID {
+            return "직접 선택 사용 중 · 저장된 계정과 일치"
+        }
+
+        return "직접 선택 사용 중 · 저장된 계정과 다름"
     }
 
     static func resolveWizardProgress(

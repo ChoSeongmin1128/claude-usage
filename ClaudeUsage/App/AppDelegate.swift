@@ -439,7 +439,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func finishBootstrap(using snapshot: ClaudeAPIService.UsageHealthSnapshot) {
-        if hasRefreshableService {
+        let hasEnabledRuntimeService = AppSettings.shared.providerSelectionState.runtimeEnabledKinds.isEmpty == false
+        if hasRefreshableService || hasEnabledRuntimeService {
             startMonitoring()
         } else if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
             updateMenuBar()

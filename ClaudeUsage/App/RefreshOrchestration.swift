@@ -28,6 +28,13 @@ enum RefreshOrchestration {
         force: Bool
     ) -> [ProviderRuntimeAction] {
         supportedServices.compactMap { service in
+            if force,
+               service.providerKind.isRuntimeProvider,
+               ServiceSelectionHelper.isEnabled(service, settings: settings)
+            {
+                return .refresh(service: service, force: true)
+            }
+
             if refreshableServices.contains(service) {
                 return .refresh(service: service, force: force)
             }

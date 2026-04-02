@@ -685,7 +685,7 @@ struct PopoverView: View {
     }
 
     private var compactAuthRequiredState: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 Image(systemName: "lock.shield")
                     .foregroundStyle(.orange)
@@ -694,35 +694,31 @@ struct PopoverView: View {
                 Spacer(minLength: 0)
             }
 
-            Text("인증 후 조회가 시작됩니다.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Button("인증 설정 열기") {
+            Button("설정 열기") {
                 viewModel.openSettings(for: selectedService)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
         }
-        .padding(10)
+        .padding(8)
     }
 
     private var compactLoadingState: some View {
         HStack(spacing: 8) {
             ProgressView()
                 .controlSize(.small)
-            Text("로딩 중")
+            Text("불러오는 중")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
     }
 
     private func compactErrorState(_ error: APIError) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
@@ -731,34 +727,36 @@ struct PopoverView: View {
                 Spacer(minLength: 0)
             }
 
-            if let message = error.errorDescription {
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            Text(error.isDefinitiveAuthFailure ? "연결을 다시 확인해 주세요." : "잠시 후 다시 시도해 주세요.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
 
-            Button("다시 시도") {
-                viewModel.refresh()
+            Button(error.isDefinitiveAuthFailure ? "설정 열기" : "다시 시도") {
+                if error.isDefinitiveAuthFailure {
+                    viewModel.openSettings(for: selectedService)
+                } else {
+                    viewModel.refresh()
+                }
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
         }
-        .padding(10)
+        .padding(8)
     }
 
     private var compactEmptyState: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Image(systemName: "tray")
                 .foregroundStyle(.secondary)
-            Text("데이터 없음")
+            Text("없음")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
     }
 
     // MARK: - Compact Content
