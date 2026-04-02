@@ -5,7 +5,7 @@
 ## 1. 결론
 
 - Apple Developer 계정이 이제 가능하므로, 이 앱은 `Developer ID + notarization + Sparkle` 경로를 채택합니다.
-- 베타 배포는 필요 시 `TestFlight`, 정식 배포는 `직접 배포 + Sparkle 자동업데이트`의 이중 채널로 갑니다.
+- 베타 배포는 필요 시 `TestFlight`, 정식 배포는 `직접 배포 + Sparkle 앱내 확인 + GitHub fallback`의 이중 채널로 갑니다.
 - `Mac App Store`도 이론상 가능하지만, 현재 앱 구조와 권한 모델을 보면 우선순위가 낮습니다.
 
 이 판단의 이유는 단순합니다.
@@ -68,7 +68,7 @@ Apple 공식 문서 기준, Mac App Store 밖에서 배포하려면 `Developer I
 - 현재 앱 성격과 가장 잘 맞습니다.
 - GitHub Releases 또는 별도 CDN을 그대로 활용할 수 있습니다.
 - App Store 심사 제약 없이 빠르게 배포 가능합니다.
-- Sparkle로 자동 다운로드/설치 UX를 제공할 수 있습니다.
+- Sparkle로 앱 내부 업데이트 확인 UX를 제공할 수 있고, feed 채널이 안정화되면 자동 다운로드/설치까지 확장할 수 있습니다.
 
 단점:
 
@@ -199,7 +199,7 @@ Sparkle 문서상 sandbox 앱은 `Installer.xpc`와 관련 entitlement가 필요
 
 이 단계의 목표는 QA와 피드백 수집입니다.
 
-### Phase C. Sparkle 자동업데이트 도입
+### Phase C. Sparkle 릴리즈 채널 도입
 
 1. Sparkle 통합
 2. `SUFeedURL` 설정
@@ -267,7 +267,7 @@ Sparkle 문서상 sandbox 앱은 `Installer.xpc`와 관련 entitlement가 필요
   - `SUPublicEDKey`
 - [UpdateService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/UpdateService.swift)
   - 값이 비어 있거나 unresolved placeholder(`$(...)`)면 미설정으로 간주
-  - 이 경우 Sparkle 대신 GitHub fallback 엔진 사용
+  - 이 경우 Sparkle 앱내 확인 대신 GitHub fallback 엔진 사용
 - 예시 설정 파일
   - [Release.xcconfig](/Users/seongmin/Personal/ClaudeUsage/Config/Release.xcconfig)
   - [Sparkle.release.example.xcconfig](/Users/seongmin/Personal/ClaudeUsage/Config/Sparkle.release.example.xcconfig)
@@ -286,7 +286,7 @@ Sparkle 문서상 sandbox 앱은 `Installer.xpc`와 관련 entitlement가 필요
 6. 서명/노타리제이션 산출물과 appcast 배포
 7. 설정 화면에서 `appcast 준비`, `공개키 준비`가 모두 `준비됨`인지 확인
 
-- `Sparkle`은 macOS 직접 배포 앱에서 널리 쓰이는 자동업데이트 프레임워크입니다.
+- `Sparkle`은 macOS 직접 배포 앱에서 널리 쓰이는 업데이트 프레임워크입니다.
 - 인디 앱과 direct distribution 앱에서 사실상 표준에 가깝고, [CodexBar]( /Users/seongmin/Personal/CodexBar/Package.swift )도 실제로 사용 중입니다.
 - 필요한 구성요소
 - 앱 내 Sparkle 프레임워크 통합

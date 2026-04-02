@@ -102,7 +102,8 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
 ## 현재 업데이트 상태
 
 - 현재 앱은 `Sparkle 패키지`를 이미 포함합니다.
-- 하지만 `appcast(feed)`와 `공개키`가 준비되지 않은 개발 빌드에서는 `GitHub Release fallback`으로 동작합니다.
+- 현재 구현은 `Sparkle 앱내 확인 + GitHub Release fallback` 구조입니다.
+- `appcast(feed)`와 `공개키`가 준비되지 않은 개발 빌드에서는 `GitHub Release fallback`으로 동작합니다.
 - 설정 화면의 `업데이트` 섹션에서 지금 빌드가 `Sparkle 통합`, `appcast 준비`, `공개키 준비` 중 어디까지 와 있는지 직접 볼 수 있습니다.
 - 릴리즈 산출물은 [build-notarize-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/build-notarize-release.sh) 로 `archive -> zip -> notarize -> staple` 골격을 실행할 수 있습니다.
 - Sparkle 채널용 appcast는 [generate-sparkle-appcast.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/generate-sparkle-appcast.sh) 로 생성할 수 있습니다.
@@ -191,7 +192,8 @@ ClaudeUsage/
 
 ## 현재 한계
 
-- Sparkle 패키지는 이미 통합됐지만, appcast/feed와 공개키가 없는 개발 빌드에서는 GitHub Release 엔진으로 fallback됩니다.
+- Sparkle 패키지는 이미 통합됐지만, 현재 구현은 `앱 내부 Sparkle 확인 + GitHub Release fallback` 기준입니다.
+- appcast/feed와 공개키가 없는 개발 빌드에서는 GitHub Release 엔진으로 fallback됩니다.
 - 메뉴바와 refresh 경로는 runtime-capable provider 기준으로 많이 정리됐지만, 일부 내부 구조는 여전히 `Claude/Codex` 중심 흔적이 남아 있습니다.
 - `Gemini`, `Antigravity`는 런타임 연결은 됐지만 provider별 UX, 오류 문구, 환경 안내는 Claude보다 덜 다듬어져 있습니다.
 - first-run onboarding과 권한 설명은 아직 더 다듬어야 합니다.
