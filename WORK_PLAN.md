@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (90차)
+최종 갱신: 2026-04-02 (91차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -115,6 +115,10 @@
 - 같은 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 의 `hasReadyClaudeCredential` 는 아직 저장하지 않은 수동 sessionKey 입력값을 `자격 준비 완료`로 치지 않도록 보수적으로 바뀌었습니다. 이제 first-run/설정의 준비 상태는 실제 저장된 sessionKey 또는 runtime health snapshot이 감지한 자격만 기준으로 계산합니다.
 - 같은 통합에서 [UpdateService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/UpdateService.swift) 와 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 `Sparkle 내부 스케줄러`처럼 잘못 읽히던 설명을 제거하고, `Sparkle 앱내 확인 + 앱 타이머 기반 자동 확인`이라는 현재 구현 의미에 맞게 문구를 수정했습니다.
 - 같은 통합에서 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 standalone wizard의 `자동 선택으로 전환` 경로에서 organization 상태 동기화와 snapshot 갱신이 끝난 뒤 창을 닫도록 순서를 바꿨습니다. 이로써 wizard를 닫자마자 settings 카드가 잠깐 이전 organization 기준으로 남는 경쟁 조건을 조금 더 줄였습니다.
+- 2026-04-02 91차 통합에서 [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 안으로 `NotificationPreset` 타입을 직접 옮기고 별도 [NotificationPresetModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/NotificationPresetModels.swift) 파일을 제거했습니다. Xcode 동기화 상태에 따라 `Cannot find type 'NotificationPreset'`가 다시 뜨던 경로를 막기 위한 조치입니다.
+- 같은 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 `Organization` 관련 진행 상태를 두 층으로 나눴습니다. 인증 카드와 체크리스트는 `현재 실제 적용된 preferredOrganizationID` 기준의 `appliedSetupProgress`를 사용하고, organization 화면의 수동 선택 편집 UI만 `selectedOrganizationID` 기준의 `pendingSetupProgress`를 사용합니다.
+- 같은 통합에서 이 분리로 wizard를 닫은 직후나 settings에서 organization을 편집 중일 때, `현재 인증 상태` 카드가 아직 적용되지 않은 입력값 때문에 흔들리는 문제를 줄였습니다. 즉 `현재 상태`와 `편집 중인 값`을 더 이상 같은 진행도에 섞지 않습니다.
+- 같은 통합에서 `Gemini` / `Antigravity` provider 탭의 알림 영역은 더 이상 공통 알림을 다시 편집하지 않습니다. provider 탭은 `공통 알림 대상인지`만 요약하고, 실제 프리셋/발송 대상 편집은 `공통 알림` 화면으로 바로 보내는 구조로 정리했습니다.
 - 2026-04-02 72차 통합에서 [SetupWizardWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SetupWizardWindowView.swift) 도 같은 원칙으로 더 줄였습니다. 단계 요약 문구를 짧게 다듬고, checklist는 현재 단계에서 필요한 확인 위주로만 노출해 `설명 3개 + 체크 3개`가 동시에 경쟁하던 구조를 완화했습니다.
 - 같은 통합에서 wizard는 이제 `현재 해야 할 행동 1개 + 남은 확인`에 더 가깝게 읽히므로, settings에서 빠진 first-run 설명의 빈자리를 과도한 텍스트로 다시 채우지 않습니다.
 - 2026-04-02 73차 통합에서 [UpdateService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/UpdateService.swift) 는 `AppUpdateEngine` 추상화 뒤로 현재 GitHub Release 수동 업데이트를 넣기 시작했습니다. 이 단계에서 업데이트 코드는 `엔진 인터페이스 -> 현재 구현체(GitHub)` 구조를 갖추기 시작했으므로 Sparkle 래퍼를 같은 자리에 넣을 발판이 생겼습니다.

@@ -907,7 +907,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             sectionCardHeader(
                 title: "현재 인증 상태",
-                subtitle: currentSetupProgress.stage == .complete
+                subtitle: appliedSetupProgress.stage == .complete
                     ? "지금 필요한 상태와 다음 행동만 보여줍니다"
                     : "처음 필요한 행동만 먼저 보여줍니다"
             )
@@ -1038,7 +1038,7 @@ struct SettingsView: View {
 
     private var shouldShowOrganizationAction: Bool {
         guard hasSuccessfulClaudeFetch else { return false }
-        return !selectedOrganizationID.isEmpty || currentSetupProgress.stage == .organization
+        return !appliedPreferredOrganizationID.isEmpty || appliedSetupProgress.stage == .organization
     }
 
     private var detailedAuthStatusSection: some View {
@@ -1202,7 +1202,7 @@ struct SettingsView: View {
         let hasOAuthCredential = self.hasOAuthCredential
         let hasOAuthSuccess = usageHealthSnapshot?.oauth.lastSuccessAt != nil
         let hasAnySuccessfulFetch = hasSuccessfulClaudeFetch
-        let progress = currentSetupProgress
+        let progress = appliedSetupProgress
 
         return VStack(alignment: .leading, spacing: 8) {
             Text("인증 체크리스트")
@@ -1221,7 +1221,7 @@ struct SettingsView: View {
             )
             checklistRow(
                 title: "Organization 확인",
-                detail: organizationChecklistDetail,
+                detail: appliedOrganizationChecklistDetail,
                 state: progress.isOrganizationReady ? .ok : .warning
             )
 
@@ -1245,11 +1245,24 @@ struct SettingsView: View {
         return !(storedSessionKey ?? "").isEmpty
     }
 
-    private var currentSetupProgress: SetupCompletionPolicy.WizardProgress {
+    private var appliedPreferredOrganizationID: String {
+        normalizeOrganizationID(settings.preferredOrganizationID)
+    }
+
+    private var pendingSetupProgress: SetupCompletionPolicy.WizardProgress {
         SetupCompletionPolicy.resolveWizardProgress(
             hasReadyCredential: hasReadyClaudeCredential,
             hasSuccessfulFetch: hasSuccessfulClaudeFetch,
             preferredOrganizationID: normalizeOrganizationID(selectedOrganizationID),
+            cachedMetadata: profileMetadata
+        )
+    }
+
+    private var appliedSetupProgress: SetupCompletionPolicy.WizardProgress {
+        SetupCompletionPolicy.resolveWizardProgress(
+            hasReadyCredential: hasReadyClaudeCredential,
+            hasSuccessfulFetch: hasSuccessfulClaudeFetch,
+            preferredOrganizationID: appliedPreferredOrganizationID,
             cachedMetadata: profileMetadata
         )
     }
@@ -1337,11 +1350,15 @@ struct SettingsView: View {
     }
 
     private var isOrganizationSelectionReady: Bool {
-        currentSetupProgress.isOrganizationReady
+        pendingSetupProgress.isOrganizationReady
     }
 
-    private var organizationChecklistDetail: String {
-        currentSetupProgress.organizationSummary
+    private var pendingOrganizationChecklistDetail: String {
+        pendingSetupProgress.organizationSummary
+    }
+
+    private var appliedOrganizationChecklistDetail: String {
+        appliedSetupProgress.organizationSummary
     }
 
     private func authSummaryLine(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> String {
@@ -1968,9 +1985,9 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 }
             } else {
-                Text(organizationChecklistDetail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    Text(pendingOrganizationChecklistDetail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
             }
 
             HStack(spacing: 8) {
