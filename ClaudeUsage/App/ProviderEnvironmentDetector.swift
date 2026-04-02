@@ -43,11 +43,31 @@ enum ProviderEnvironmentDetector {
     private static func antigravityStatus() -> ProviderEnvironmentStatus {
         let antigravityURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".gemini/antigravity")
-        let exists = FileManager.default.fileExists(atPath: antigravityURL.path)
-        return ProviderEnvironmentStatus(
-            isDetected: exists,
-            summary: exists ? "Antigravity 로컬 상태 디렉토리 감지" : "Antigravity 상태 미감지"
-        )
+        let hasStateDirectory = FileManager.default.fileExists(atPath: antigravityURL.path)
+        let runningProcess = AntigravityStatusProbe.runningProcess()
+
+        switch (runningProcess != nil, hasStateDirectory) {
+        case (true, true):
+            return ProviderEnvironmentStatus(
+                isDetected: true,
+                summary: "Antigravity language server와 로컬 상태 디렉토리 감지"
+            )
+        case (true, false):
+            return ProviderEnvironmentStatus(
+                isDetected: true,
+                summary: "Antigravity language server 감지"
+            )
+        case (false, true):
+            return ProviderEnvironmentStatus(
+                isDetected: false,
+                summary: "Antigravity 상태 디렉토리는 있지만 실행 중인 language server는 없습니다"
+            )
+        case (false, false):
+            return ProviderEnvironmentStatus(
+                isDetected: false,
+                summary: "Antigravity 상태 미감지"
+            )
+        }
     }
 
     private static func binaryExists(named name: String) -> Bool {
