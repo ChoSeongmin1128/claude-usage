@@ -37,6 +37,7 @@ struct LoginWindowView: View {
                 .fontWeight(.semibold)
             Text("먼저 `Chrome에서 가져오기`만 시도하시면 됩니다.")
             Text("Chrome 로그인이 안 되어 있을 때만 `Chrome 로그인 열기`를 쓰고, 그래도 실패할 때만 고급 설정으로 내려가면 됩니다.")
+            Text("실제 저장 시점에는 macOS Keychain 확인 창이 한 번 뜰 수 있습니다. 연결 확인만으로는 저장하지 않습니다.")
         }
         .font(.caption)
         .foregroundStyle(.secondary)

@@ -1015,6 +1015,10 @@ struct SettingsView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
+                Text("연결 테스트는 저장하지 않습니다. 실제 Keychain 저장은 설정 적용 시점에만 일어나며, 그때 macOS 확인 창이 뜰 수 있습니다.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
                 if let warning = sessionKeyFormatWarning {
                     Label(warning, systemImage: "exclamationmark.triangle")
                         .font(.caption)
