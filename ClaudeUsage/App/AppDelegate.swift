@@ -454,7 +454,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showInitialClaudeSetupFlow() {
-        synchronizeClaudeSetupCompletionFromCurrentState()
         if shouldShowStandaloneSetupWizard {
             showSetupWizardWindow()
         } else {
@@ -495,42 +494,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
             cachedMetadata: currentClaudeProfileMetadata
         )
-    }
-
-    private func resolveClaudeSetupCompletion(
-        hasSuccessfulFetch: Bool,
-        cachedMetadata: ClaudeProfileMetadata?
-    ) -> Bool {
-        SetupCompletionPolicy.shouldMarkSetupComplete(
-            hasSuccessfulFetch: hasSuccessfulFetch,
-            preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
-            cachedMetadata: cachedMetadata
-        )
-    }
-
-    private func updateClaudeSetupCompletion(
-        hasSuccessfulFetch: Bool,
-        cachedMetadata: ClaudeProfileMetadata?
-    ) {
-        setClaudeSetupCompleted(resolveClaudeSetupCompletion(
-            hasSuccessfulFetch: hasSuccessfulFetch,
-            cachedMetadata: cachedMetadata
-        ))
-    }
-
-    private func synchronizeClaudeSetupCompletionFromCurrentState() {
-        updateClaudeSetupCompletion(
-            hasSuccessfulFetch: hasSuccessfulClaudeFetch,
-            cachedMetadata: currentClaudeProfileMetadata
-        )
-    }
-
-    private func setClaudeSetupCompleted(_ isCompleted: Bool) {
-        AppSettings.shared.hasCompletedSetupWizard = isCompleted
-    }
-
-    private func markClaudeSetupIncomplete() {
-        setClaudeSetupCompleted(false)
     }
 
     private var isSetupWizardOrganizationReady: Bool {
@@ -964,10 +927,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.currentClaudeProfileMetadata = cachedProfileMetadata
                 self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
                 self.applyUsageHealthSnapshot(snapshot)
-                self.updateClaudeSetupCompletion(
-                    hasSuccessfulFetch: snapshot.lastOverallSuccessAt != nil,
-                    cachedMetadata: cachedProfileMetadata
-                )
 
                 if snapshot.runtime.credentialAvailability.hasAnyCredential {
                     if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
@@ -977,7 +936,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         self.updatePopoverViewModel(overage: self.currentOverage)
                     }
                 } else {
-                    self.markClaudeSetupIncomplete()
                     self.clearClaudePresentationState(markSetupIncomplete: false)
                     self.updateMenuBar()
                     self.updatePopoverViewModel(overage: self.currentOverage)
@@ -1056,9 +1014,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func clearClaudePresentationState(markSetupIncomplete: Bool) {
-        if markSetupIncomplete {
-            markClaudeSetupIncomplete()
-        }
         currentUsage = nil
         currentOverage = nil
         currentClaudeProfileMetadata = nil
@@ -1215,10 +1170,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 await MainActor.run {
                     self.currentClaudeProfileMetadata = cachedProfileMetadata
-                    self.setClaudeSetupCompleted(self.resolveClaudeSetupCompletion(
-                        hasSuccessfulFetch: true,
-                        cachedMetadata: cachedProfileMetadata
-                    ))
                     self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
                     self.currentUsage = result.usage
                     if let fetchedOverage = result.overage {
@@ -1811,7 +1762,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         await MainActor.run {
             self.applyUsageHealthSnapshot(result.snapshot)
-            self.setClaudeSetupCompleted(result.shouldMarkSetupComplete)
             if result.shouldStartMonitoring {
                 self.startMonitoring()
             } else {
@@ -1876,7 +1826,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
                     )
                     await MainActor.run {
-                        self.markClaudeSetupIncomplete()
                         self.applyUsageHealthSnapshot(result.snapshot)
                     }
                 }
@@ -1951,7 +1900,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         )
                         await MainActor.run {
                             self.applyUsageHealthSnapshot(result.snapshot)
-                            self.setClaudeSetupCompleted(result.shouldMarkSetupComplete)
                             self.hasAuthError = false
                             if result.shouldStartMonitoring {
                                 self.startMonitoring()
@@ -2022,9 +1970,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.refreshUsage(force: true)
             },
             onComplete: { [weak self] in
-                if let self, self.setupWizardProgress.stage == .complete {
-                    self.synchronizeClaudeSetupCompletionFromCurrentState()
-                }
                 self?.setupWizardWindowCoordinator.close()
             },
             onDismiss: { [weak self] in

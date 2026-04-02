@@ -270,9 +270,6 @@ class AppSettings: ObservableObject {
     @Published var reducedRefreshOnBattery: Bool {
         didSet { defaults.set(reducedRefreshOnBattery, forKey: "reducedRefreshOnBattery") }
     }
-    @Published var hasCompletedSetupWizard: Bool {
-        didSet { defaults.set(hasCompletedSetupWizard, forKey: "hasCompletedSetupWizard") }
-    }
     @Published var circularDisplayMode: CircularDisplayMode {
         didSet { defaults.set(circularDisplayMode.rawValue, forKey: "circularDisplayMode") }
     }
@@ -431,7 +428,6 @@ class AppSettings: ObservableObject {
         let notificationPresets: [NotificationPreset]
         let alertRemainingMode: Bool
         let reducedRefreshOnBattery: Bool
-        let hasCompletedSetupWizard: Bool
         let showClaudeIcon: Bool
         let menuBarTextHighContrast: Bool
         let updateCheckInterval: UpdateCheckInterval
@@ -487,7 +483,6 @@ class AppSettings: ObservableObject {
             notificationPresets: notificationPresets,
             alertRemainingMode: alertRemainingMode,
             reducedRefreshOnBattery: reducedRefreshOnBattery,
-            hasCompletedSetupWizard: hasCompletedSetupWizard,
             showClaudeIcon: showClaudeIcon,
             menuBarTextHighContrast: menuBarTextHighContrast,
             updateCheckInterval: updateCheckInterval,
@@ -559,7 +554,6 @@ class AppSettings: ObservableObject {
         notificationPresets = snapshot.notificationPresets
         alertRemainingMode = snapshot.alertRemainingMode
         reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
-        hasCompletedSetupWizard = snapshot.hasCompletedSetupWizard
         showClaudeIcon = snapshot.showClaudeIcon
         menuBarTextHighContrast = snapshot.menuBarTextHighContrast
         updateCheckInterval = snapshot.updateCheckInterval
@@ -1166,7 +1160,7 @@ class AppSettings: ObservableObject {
         notificationPresets = Self.defaultNotificationPresets
         alertRemainingMode = false
         reducedRefreshOnBattery = true
-        hasCompletedSetupWizard = false
+        defaults.removeObject(forKey: "hasCompletedSetupWizard")
         showClaudeIcon = true
         menuBarTextHighContrast = false
         updateCheckInterval = .hourly
@@ -1251,7 +1245,6 @@ class AppSettings: ObservableObject {
         self.alertRemainingMode = storedAlertRemainingMode
         self.notificationPresets = Self.migrateNotificationPresets(from: defaults, commonRemainingMode: storedAlertRemainingMode)
         self.reducedRefreshOnBattery = defaults.object(forKey: "reducedRefreshOnBattery") as? Bool ?? true
-        self.hasCompletedSetupWizard = defaults.object(forKey: "hasCompletedSetupWizard") as? Bool ?? false
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
         self.circularDisplayMode = CircularDisplayMode(rawValue: cdm) ?? .usage
         let iconMetricRaw = defaults.string(forKey: "iconMetric") ?? IconMetric.fiveHour.rawValue

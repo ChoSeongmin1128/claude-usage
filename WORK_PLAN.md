@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (85차)
+최종 갱신: 2026-04-02 (86차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -140,6 +140,8 @@
 - 2026-04-02 84차 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 의 `Organization` 탭을 자동 선택 중심으로 다시 정리했습니다. 이제 기본 상태에서는 현재 모드 요약 카드만 먼저 보이고, 여러 organization을 직접 고를 때만 수동 선택 컨트롤과 미리보기 목록을 펼치도록 바꿨습니다.
 - 2026-04-02 85차 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 의 `세션키 연결 테스트` 를 저장 경로와 분리했습니다. 이제 테스트는 연결 확인만 수행하고, 실제 Keychain 저장과 전역 반영은 `적용/저장` 시점에만 일어나므로 테스트만 눌러도 매번 키체인 저장이 반복되던 구조를 줄였습니다.
 - 같은 통합에서 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 의 `onSessionKeyStored` 우회 동기화 경로도 제거해, 수동 sessionKey는 더 이상 `테스트 성공 = 저장 완료`처럼 읽히지 않게 정리했습니다.
+- 2026-04-02 86차 통합에서 [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 의 persisted `hasCompletedSetupWizard` 상태를 제거했습니다. 이제 standalone setup wizard 노출과 완료 판정은 더 이상 stale UserDefaults flag에 기대지 않고, 현재 `credential + 성공 조회 + organization readiness` 상태와 [SetupCompletionPolicy.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/SetupCompletionPolicy.swift) 로만 계산됩니다.
+- 같은 통합에서 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 setup 완료 동기화 helper와 직접 대입 경로를 제거했습니다. 이에 따라 로그인/로그아웃/refresh/settings 적용이 setup flag를 따로 밀어 넣지 않고, 런타임 상태 변화만으로 wizard/설정 흐름이 결정되도록 정리했습니다.
 - 2026-04-02 49차 통합에서 [GeminiUsageModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/GeminiUsageModels.swift), [GeminiAPIService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/GeminiAPIService.swift), [GeminiRuntimeRefresher.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/GeminiRuntimeRefresher.swift) 를 추가했고, `~/.gemini/oauth_creds.json` 과 Gemini CLI 설치 경로의 OAuth 설정을 직접 읽어 quota API를 호출하는 최소 runtime 경로를 붙였습니다.
 - 같은 통합에서 [ProviderStateModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift), [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift), [RuntimeRefreshHandlerRegistry.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RuntimeRefreshHandlerRegistry.swift), [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `Gemini` 를 실제 runtime provider로 인식하고 refresh/backoff/state snapshot/menu bar/popup selection 경로에 포함하기 시작했습니다.
 - 같은 통합에서 [MenuBarIconFactory.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarIconFactory.swift), [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift), [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift), [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift), [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 는 `Gemini` 의 메뉴바 아이콘/요약/리셋 시간/compact·standard popover 렌더링과 기본 표시 설정 저장을 시작했습니다.
@@ -655,7 +657,7 @@
 - 세션키 저장 직후 메뉴바, 팝오버, 설정이 서로 다른 상태를 보이던 문제를 줄이기 위해 `claudeSessionKeyDidChange` 반응을 `AppDelegate` 중심으로 모으기 시작했습니다. `SettingsView`가 `health snapshot`을 기준으로 `hasCompletedSetupWizard`를 다시 쓰던 경로는 제거했고, 전역 반영은 `AppRuntimeObservationCoordinator -> AppDelegate -> refresh/updateMenuBar/updatePopover` 순서로 단일화하고 있습니다.
 - 같은 세션키를 다시 저장할 때는 Keychain 저장을 건너뛰도록 바꿔, 테스트/적용 과정에서 불필요한 키체인 쓰기와 프롬프트를 줄이기 시작했습니다. 빠른 시작도 자격이 준비된 뒤에는 `다른 인증 방법`을 다시 펼치지 않도록 줄여 first-run 정보 밀도를 낮추고 있습니다.
 - Claude 인증 설정에서 `상세 인증 상태`는 `복구 및 진단` 안쪽으로 다시 내려, 기본 고급 화면에는 `수동 sessionKey`와 `복구/도움말`만 먼저 보이게 정리하고 있습니다.
-- `hasCompletedSetupWizard` 직접 대입도 `AppDelegate` helper 경유로 줄이기 시작했습니다. 아직 로그인/설정 적용/로그아웃/완료 버튼 경로가 남아 있지만, 값 계산과 대입을 분리해 중복 쓰기 범위를 좁히는 중입니다.
+- persisted `hasCompletedSetupWizard` 를 제거했으므로, setup 완료는 더 이상 별도 저장 플래그가 아니라 현재 런타임 상태와 `SetupCompletionPolicy` 로만 판단합니다.
 
 ### 제품 방향
 
@@ -672,7 +674,6 @@
 
 ## 7. 바로 다음 작업
 
-- `hasCompletedSetupWizard` 쓰기 지점을 `AppDelegate + SetupCompletionPolicy` 중심으로 더 줄이고, settings/logout/login/save 경로의 중복 쓰기를 정리하기
 - 세션키 저장, 삭제, 재검증 이후 `메뉴바 / popover / settings`가 같은 snapshot을 보도록 전역 동기화 순서를 더 단단히 만들기
 - 독립 `Setup Wizard` 를 첫 실행 전용 단계 라우팅으로 더 확장하고 Chrome/Keychain 권한 설명, organization 선택, 검증 완료 흐름을 완성하기
 - `Messages fallback` 수동 테스트와 자동 정책의 의미를 UI와 내부 경로에서 더 명확히 분리하고, 자동/수동 모드의 진단 문구를 정리하기
