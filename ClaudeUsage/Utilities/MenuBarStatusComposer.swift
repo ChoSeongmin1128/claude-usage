@@ -33,6 +33,16 @@ private struct MenuBarProviderStatus {
     let tooltip: String
 }
 
+struct MenuBarProviderSnapshot {
+    let kind: AppProviderKind
+    let text: String
+    let color: NSColor
+    let tooltip: String
+    let icon: NSImage?
+    let styleIcon: NSImage?
+    let resetText: String?
+}
+
 enum MenuBarStatusComposer {
     private static let menuBarHeight: CGFloat = 22
     private static let elementSpacing: CGFloat = 4
@@ -144,6 +154,34 @@ enum MenuBarStatusComposer {
         return MenuBarRenderedContent(image: composeElements(elements), tooltip: tooltip)
     }
 
+    static func claudeSnapshot(
+        config: ProviderMenuBarDisplayConfig,
+        usage: ClaudeUsageResponse?,
+        error: APIError?,
+        hasAuthError: Bool,
+        hasCredential: Bool,
+        secondaryColor: NSColor,
+        icon: NSImage?
+    ) -> MenuBarProviderSnapshot {
+        let status = claudeStatus(
+            config: config,
+            usage: usage,
+            error: error,
+            hasAuthError: hasAuthError,
+            hasCredential: hasCredential,
+            secondaryColor: secondaryColor
+        )
+        return MenuBarProviderSnapshot(
+            kind: .claude,
+            text: status.text,
+            color: status.color,
+            tooltip: status.tooltip,
+            icon: config.showIcon ? icon : nil,
+            styleIcon: styleIcon(usage: usage, config: config),
+            resetText: resetText(usage: usage, config: config)
+        )
+    }
+
     static func codexOnlyContent(
         config: ProviderMenuBarDisplayConfig,
         usage: CodexUsageResponse?,
@@ -224,6 +262,34 @@ enum MenuBarStatusComposer {
         return MenuBarRenderedContent(
             image: composeElements(elements),
             tooltip: "Codex 현재: \(Int(primary))% / 주간: \(Int(weekly))%"
+        )
+    }
+
+    static func codexSnapshot(
+        config: ProviderMenuBarDisplayConfig,
+        usage: CodexUsageResponse?,
+        error: APIError?,
+        hasAuthError: Bool,
+        isAuthenticated: Bool,
+        secondaryColor: NSColor,
+        icon: NSImage?
+    ) -> MenuBarProviderSnapshot {
+        let status = codexStatus(
+            config: config,
+            usage: usage,
+            error: error,
+            hasAuthError: hasAuthError,
+            isAuthenticated: isAuthenticated,
+            secondaryColor: secondaryColor
+        )
+        return MenuBarProviderSnapshot(
+            kind: .codex,
+            text: status.text,
+            color: status.color,
+            tooltip: status.tooltip,
+            icon: config.showIcon ? icon : nil,
+            styleIcon: styleIcon(usage: usage, config: config),
+            resetText: resetText(usage: usage, config: config)
         )
     }
 
@@ -308,6 +374,85 @@ enum MenuBarStatusComposer {
             image: composeElements(elements),
             tooltip: "Claude: \(claude.tooltip) / Codex: \(codex.tooltip)"
         )
+    }
+
+    static func singleProviderContent(
+        snapshot: MenuBarProviderSnapshot,
+        secondaryColor: NSColor
+    ) -> MenuBarRenderedContent {
+        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+        let resetFont = NSFont.systemFont(ofSize: 11)
+        var elements = renderElements(
+            for: snapshot,
+            valueFont: valueFont,
+            resetFont: resetFont,
+            secondaryColor: secondaryColor
+        )
+        if elements.isEmpty {
+            elements.append(statusDot(color: secondaryColor))
+        }
+        return MenuBarRenderedContent(
+            image: composeElements(elements),
+            tooltip: providerTooltipPrefix(for: snapshot.kind, value: snapshot.tooltip)
+        )
+    }
+
+    static func multipleProviderContent(
+        snapshots: [MenuBarProviderSnapshot],
+        secondaryColor: NSColor
+    ) -> MenuBarRenderedContent {
+        let separatorFont = NSFont.systemFont(ofSize: 11, weight: .regular)
+        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        let resetFont = NSFont.systemFont(ofSize: 10, weight: .regular)
+        let resolvedSnapshots = snapshots.filter { $0.kind.isRuntimeProvider }
+        let elements = resolvedSnapshots.enumerated().flatMap { index, snapshot -> [MenuBarElement] in
+            var rendered = renderElements(
+                for: snapshot,
+                valueFont: valueFont,
+                resetFont: resetFont,
+                secondaryColor: secondaryColor
+            )
+            if rendered.isEmpty {
+                rendered = [statusDot(color: snapshot.color)]
+            }
+            if index < resolvedSnapshots.count - 1 {
+                rendered.append(.text("·", attributes: [.font: separatorFont, .foregroundColor: secondaryColor]))
+            }
+            return rendered
+        }
+        let tooltip = resolvedSnapshots
+            .map { providerTooltipPrefix(for: $0.kind, value: $0.tooltip) }
+            .joined(separator: " / ")
+        return MenuBarRenderedContent(
+            image: composeElements(elements.isEmpty ? [statusDot(color: secondaryColor)] : elements),
+            tooltip: tooltip
+        )
+    }
+
+    private static func renderElements(
+        for snapshot: MenuBarProviderSnapshot,
+        valueFont: NSFont,
+        resetFont: NSFont,
+        secondaryColor: NSColor
+    ) -> [MenuBarElement] {
+        var elements: [MenuBarElement] = []
+        if let icon = snapshot.icon {
+            elements.append(.image(icon))
+        }
+        if !snapshot.text.isEmpty {
+            elements.append(.text(snapshot.text, attributes: [.font: valueFont, .foregroundColor: snapshot.color]))
+        }
+        if let styleIcon = snapshot.styleIcon {
+            elements.append(.image(styleIcon))
+        }
+        if let resetText = snapshot.resetText {
+            elements.append(.text(resetText, attributes: [.font: resetFont, .foregroundColor: secondaryColor]))
+        }
+        return elements
+    }
+
+    private static func providerTooltipPrefix(for kind: AppProviderKind, value: String) -> String {
+        "\(kind.displayName): \(value)"
     }
 
     private static func claudeStatus(

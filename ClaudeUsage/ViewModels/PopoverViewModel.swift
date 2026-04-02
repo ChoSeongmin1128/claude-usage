@@ -41,6 +41,7 @@ final class PopoverViewModel: ObservableObject {
     @Published var systemStatus: ClaudeSystemStatus?
     @Published var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
     @Published var nextUsageRetryAt: Date?
+    @Published private(set) var runtimeSnapshots: [PopoverService: RuntimeProviderSnapshot] = [:]
 
     var onRefreshService: ((PopoverService) -> Void)?
     var onOpenSettingsForService: ((PopoverService) -> Void)?
@@ -108,6 +109,24 @@ final class PopoverViewModel: ObservableObject {
     }
 
     func runtimeServiceState(for service: PopoverService, settings: AppSettings) -> RuntimeServiceState {
+        if let snapshot = runtimeSnapshots[service] {
+            let isEnabled = settings.isProviderEnabled(service.providerKind)
+            let isAuthRequired = isEnabled && !snapshot.hasCredential
+            let summary = runtimeSummary(for: snapshot, isEnabled: isEnabled, isAuthRequired: isAuthRequired)
+            let meta = snapshot.lastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) }
+            return RuntimeServiceState(
+                service: service,
+                summary: summary,
+                meta: meta,
+                lastUpdated: snapshot.lastUpdated,
+                isLoading: snapshot.isLoading,
+                error: snapshot.error,
+                hasContent: snapshot.hasContent,
+                isAuthRequired: isAuthRequired,
+                shouldShowWarningDot: isAuthRequired || snapshot.error != nil || snapshot.hasAuthError
+            )
+        }
+
         switch service {
         case .claude:
             let isEnabled = settings.isProviderEnabled(.claude)
@@ -252,24 +271,61 @@ final class PopoverViewModel: ObservableObject {
     }
 
     func update(
-        usage: ClaudeUsageResponse?,
-        codexUsage: CodexUsageResponse?,
-        error: APIError?,
-        codexError: APIError?,
-        isClaudeLoading: Bool,
-        isCodexLoading: Bool,
-        claudeLastUpdated: Date? = nil,
-        codexLastUpdated: Date? = nil,
+        snapshots: [RuntimeProviderSnapshot],
         overage: OverageSpendLimitResponse? = nil)
     {
-        self.usage = usage
-        self.codexUsage = codexUsage
-        self.error = error
-        self.codexError = codexError
-        self.isClaudeLoading = isClaudeLoading
-        self.isCodexLoading = isCodexLoading
-        if let claudeLastUpdated { self.claudeLastUpdated = claudeLastUpdated }
-        if let codexLastUpdated { self.codexLastUpdated = codexLastUpdated }
+        self.runtimeSnapshots = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.service, $0) })
+
+        if let claude = runtimeSnapshots[.claude] {
+            self.usage = claude.claudeUsage
+            self.error = claude.error
+            self.isClaudeLoading = claude.isLoading
+            self.claudeLastUpdated = claude.lastUpdated
+        } else {
+            self.usage = nil
+            self.error = nil
+            self.isClaudeLoading = false
+            self.claudeLastUpdated = nil
+        }
+
+        if let codex = runtimeSnapshots[.codex] {
+            self.codexUsage = codex.codexUsage
+            self.codexError = codex.error
+            self.isCodexLoading = codex.isLoading
+            self.codexLastUpdated = codex.lastUpdated
+        } else {
+            self.codexUsage = nil
+            self.codexError = nil
+            self.isCodexLoading = false
+            self.codexLastUpdated = nil
+        }
+
         if let overage { self.overage = overage }
+    }
+
+    private func runtimeSummary(
+        for snapshot: RuntimeProviderSnapshot,
+        isEnabled: Bool,
+        isAuthRequired: Bool
+    ) -> String {
+        if !isEnabled {
+            return "비활성화됨"
+        }
+        if isAuthRequired {
+            return "인증 필요"
+        }
+        if snapshot.isLoading {
+            return "조회 중"
+        }
+        if let usage = snapshot.claudeUsage {
+            return "현재 \(Int(usage.fiveHour.utilization.rounded()))% · 주간 \(Int((usage.sevenDay?.utilization ?? 0).rounded()))%"
+        }
+        if let usage = snapshot.codexUsage {
+            return "현재 \(Int((usage.rateLimit?.primaryWindow?.utilization ?? 0).rounded()))% · 주간 \(Int((usage.rateLimit?.secondaryWindow?.utilization ?? 0).rounded()))%"
+        }
+        if let error = snapshot.error {
+            return error.errorDescription ?? "조회 실패"
+        }
+        return "데이터를 아직 불러오지 못했습니다"
     }
 }

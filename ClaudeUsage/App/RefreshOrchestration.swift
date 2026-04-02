@@ -50,7 +50,7 @@ enum RefreshOrchestration {
             return .refresh(
                 service: state.service,
                 force: true,
-                markSetupComplete: state.service == .claude
+                markSetupComplete: state.shouldMarkSetupCompleteOnRefresh
             )
         case .clearAndPromptAuth:
             return .clearAndPromptAuth(state.service)

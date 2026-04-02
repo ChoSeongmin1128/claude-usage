@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (31차)
+최종 갱신: 2026-04-02 (32차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -67,6 +67,9 @@
 - 같은 비교 기준으로, 현재 온보딩은 설정 내부 체크리스트 수준까지는 왔지만 최신 `Claude-Usage-Tracker`의 [SetupWizardView.swift](/Users/seongmin/Personal/Claude-Usage-Tracker/Claude%20Usage/Views/SetupWizardView.swift) 처럼 `CLI 감지 -> 권장 경로 제시 -> 수동 fallback`을 독립 플로우로 끝내는 완성도에는 아직 못 미칩니다.
 - `claude-code`의 [rateLimitMessages.ts](/Users/seongmin/Personal/claude-code/src/services/rateLimitMessages.ts) 와 비교하면, 현재 앱은 `profile metadata`를 저장하기 시작했지만 이를 실제 `reset-aware warning`, `extra usage`, `team/enterprise suppress policy` 같은 문구/알림 정책까지 확장하지는 못했습니다.
 - `CodexBar`의 [README.md](/Users/seongmin/Personal/CodexBar/README.md), [docs/provider.md](/Users/seongmin/Personal/CodexBar/docs/provider.md), [docs/claude.md](/Users/seongmin/Personal/CodexBar/docs/claude.md) 와 비교하면, 현재 앱은 `왜 Chrome/Keychain 권한이 필요한지`, `어떤 source를 어떤 순서로 시도하는지`, `어떤 데이터는 로컬만 읽는지`를 설명하는 제품 문서와 UI copy가 아직 약합니다.
+- 2026-04-02 32차 통합에서 [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift) 에 `RuntimeProviderSnapshot` 을 추가했고, [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift) 는 이제 이 snapshot 컬렉션을 기준으로 런타임 상태를 계산하기 시작했습니다.
+- 같은 통합에서 [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift) 는 `MenuBarProviderSnapshot` 기반 단일/다중 provider 렌더링 경로를 갖게 됐고, [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 이를 사용해 `claude/codex` 전용 입력보다 provider snapshot 배열을 우선 쓰기 시작했습니다.
+- [RefreshOrchestration.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RefreshOrchestration.swift) 의 `markSetupComplete` 결정도 더 이상 `.claude` 비교를 직접 갖지 않고 `RuntimeProviderActivationState` 입력으로 밀어내기 시작했습니다.
 
 ## 2. 참고 레포에서 가져올 방향
 
@@ -393,6 +396,8 @@
 - [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift) 는 shell provider를 제외한 `runtime-enabled service` 기준으로 메뉴바/타이머 판단을 하도록 수정했습니다.
 - [ProviderStateModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift) 는 runtime provider / shell provider 메타데이터와 `enabledRuntimeProviderKinds`, `enabledShellProviderKinds`, `activeRuntimeProviderKind` 를 갖게 됐고, [ProviderSettingsRegistry.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/ProviderSettingsRegistry.swift) 는 이를 기반으로 패널/셸 descriptor를 생성합니다.
 - [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `OAuth-only` Claude 계정도 refreshable service로 인정하도록 bootstrap / refresh / timer / settings-apply / logout 경로를 다시 맞췄습니다.
+- [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift) 의 `RuntimeProviderSnapshot` 과 [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift) 의 snapshot 기반 `runtimeServiceState` 계산으로, 팝오버 입력이 `usage/codexUsage/error/...` 개별 인자보다 provider 단위 컬렉션에 조금 더 가까워졌습니다.
+- [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift) 는 `MenuBarProviderSnapshot` 기반 `singleProviderContent` / `multipleProviderContent` 를 추가했고, [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 active provider 배열에서 snapshot을 만들어 메뉴바를 갱신하도록 바뀌었습니다.
 - 아직 남음
 - `AppDelegate`의 refresh/backoff execution을 더 coordinator 성격으로 분리하고, `ServiceSelectionHelper`의 Claude/Codex 2-provider 전제를 더 걷어내야 합니다.
 - 참고 레포 비교 기준 추가 체크리스트
@@ -436,7 +441,9 @@
 - 사용자 피드백 기준으로 [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 의 본문은 다시 사용량 중심으로 단순화하고, provider overview / shell 정보는 설정 쪽에서 보도록 되돌리기 시작했습니다.
 - [ProviderOverviewCardView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/Components/ProviderOverviewCardView.swift) 와 [PopoverProviderCards.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/Components/PopoverProviderCards.swift) 로 순수 렌더링 블록을 별도 컴포넌트로 분리하기 시작했습니다.
 - [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift) 와 `ProviderMenuBarDisplayConfig` 도입으로 메뉴바 표시 로직의 시각 규칙과 설정 해석을 한 층 더 분리했습니다.
+- [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift) 의 provider snapshot 렌더링 도입으로, 다중 provider 메뉴바는 더 이상 `combinedContent(claude,codex)` 전용 입력만 바라보지 않습니다.
 - [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift), [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift), [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 이제 `usageHealthSnapshot.runtime.credentialAvailability` 를 이용해 `OAuth-only` 계정에서 잘못된 인증 경고를 덜 띄우도록 맞추기 시작했습니다.
+- [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift) 는 이제 `runtimeSnapshots` 를 저장하고, snapshot 기반으로 요약/메타/경고점을 계산합니다.
 - 아직 남음
 - `진단` / `업데이트` 섹션을 팝오버 메인 정보 흐름에서 얼마나 분리할지 추가 조정이 필요합니다.
 - preset 체계와 provider 추가 시 카드 구조 일관성은 아직 남아 있습니다.

@@ -259,15 +259,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let service = resolvedPopoverService()
             popoverViewModel.selectService(service)
             applyPopoverBehavior(for: service)
-            updatePopoverViewModel(
-                usage: currentUsage,
-                codexUsage: currentCodexUsage,
-                error: currentError,
-                codexError: codexError,
-                isLoading: isLoading,
-                lastUpdated: lastUpdated,
-                overage: currentOverage
-            )
+            updatePopoverViewModel(overage: currentOverage)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             refreshPopoverSizeIfShown(service: service)
             NSApp.activate()
@@ -282,30 +274,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         stopGlobalClickMonitor()
     }
 
-    private func updatePopoverViewModel(
-        usage: ClaudeUsageResponse?,
-        codexUsage: CodexUsageResponse?,
-        error: APIError?,
-        codexError: APIError?,
-        isLoading: Bool,
-        lastUpdated: Date? = nil,
-        overage: OverageSpendLimitResponse? = nil
-    ) {
+    private func updatePopoverViewModel(overage: OverageSpendLimitResponse? = nil) {
         popoverViewModel.update(
-            usage: usage,
-            codexUsage: codexUsage,
-            error: error,
-            codexError: codexError,
-            isClaudeLoading: isLoading,
-            isCodexLoading: isCodexLoading,
-            claudeLastUpdated: lastUpdated,
-            codexLastUpdated: codexLastUpdated,
+            snapshots: runtimeProviderSnapshots(),
             overage: overage
         )
         popoverViewModel.systemStatus = systemStatus
         popoverViewModel.nextUsageRetryAt = nextUsageRefreshAllowedAt
 
         refreshPopoverSizeIfShown(service: popoverViewModel.selectedService)
+    }
+
+    private func runtimeProviderSnapshots() -> [RuntimeProviderSnapshot] {
+        ServiceSelectionHelper.supportedPopoverServices.map(runtimeProviderSnapshot(for:))
+    }
+
+    private func runtimeProviderSnapshot(for service: PopoverService) -> RuntimeProviderSnapshot {
+        switch service {
+        case .claude:
+            return RuntimeProviderSnapshot(
+                service: .claude,
+                payload: currentUsage.map(RuntimeProviderPayload.claude),
+                error: currentError,
+                isLoading: isLoading,
+                lastUpdated: lastUpdated,
+                hasCredential: claudeCredentialAvailability.hasAnyCredential,
+                hasAuthError: hasAuthError
+            )
+        case .codex:
+            return RuntimeProviderSnapshot(
+                service: .codex,
+                payload: currentCodexUsage.map(RuntimeProviderPayload.codex),
+                error: codexError,
+                isLoading: isCodexLoading,
+                lastUpdated: codexLastUpdated,
+                hasCredential: CodexAuthManager.shared.isAuthenticated,
+                hasAuthError: hasCodexAuthError
+            )
+        }
     }
 
     private func resolvedPopoverService() -> PopoverService {
@@ -495,15 +501,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             handleProviderEnabledChange(currentEnabled, for: service)
         }
 
-        updatePopoverViewModel(
-            usage: currentUsage,
-            codexUsage: currentCodexUsage,
-            error: currentError,
-            codexError: codexError,
-            isLoading: isLoading,
-            lastUpdated: lastUpdated,
-            overage: currentOverage
-        )
+        updatePopoverViewModel(overage: currentOverage)
         startTimer()
         updateMenuBar()
     }
@@ -574,39 +572,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func runtimePresentationState(for service: PopoverService) -> RuntimeProviderPresentationState {
-        switch service {
-        case .claude:
-            return RuntimeProviderPresentationState(
-                service: .claude,
-                lastUpdated: lastUpdated,
-                hasContent: currentUsage != nil,
-                error: currentError
-            )
-        case .codex:
-            return RuntimeProviderPresentationState(
-                service: .codex,
-                lastUpdated: codexLastUpdated,
-                hasContent: currentCodexUsage != nil,
-                error: codexError
-            )
-        }
+        let snapshot = runtimeProviderSnapshot(for: service)
+        return RuntimeProviderPresentationState(
+            service: service,
+            lastUpdated: snapshot.lastUpdated,
+            hasContent: snapshot.hasContent,
+            error: snapshot.error
+        )
     }
 
     private func runtimeActivationState(for service: PopoverService, enabled: Bool) -> RuntimeProviderActivationState {
-        switch service {
-        case .claude:
-            return RuntimeProviderActivationState(
-                service: .claude,
-                enabled: enabled,
-                hasCredential: KeychainManager.shared.hasSessionKey || claudeCredentialAvailability.oauthCredentialAvailable
-            )
-        case .codex:
-            return RuntimeProviderActivationState(
-                service: .codex,
-                enabled: enabled,
-                hasCredential: CodexAuthManager.shared.isAuthenticated
-            )
-        }
+        let snapshot = runtimeProviderSnapshot(for: service)
+        return RuntimeProviderActivationState(
+            service: service,
+            enabled: enabled,
+            hasCredential: snapshot.hasCredential,
+            shouldMarkSetupCompleteOnRefresh: service == .claude && enabled && snapshot.hasCredential
+        )
     }
 
     // MARK: - API
@@ -627,7 +609,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func performRuntimeAction(_ action: ProviderRuntimeAction) {
         switch action {
         case .refresh(let service, let force, let markSetupComplete):
-            if markSetupComplete, service == .claude {
+            if markSetupComplete {
                 AppSettings.shared.hasCompletedSetupWizard = true
             }
             refresh(service: service, force: force)
@@ -717,15 +699,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if !isLoading {
             isLoading = true
             loadingStartedAt = Date()
-            updatePopoverViewModel(
-                usage: currentUsage,
-                codexUsage: currentCodexUsage,
-                error: nil,
-                codexError: codexError,
-                isLoading: true,
-                lastUpdated: lastUpdated,
-                overage: currentOverage
-            )
+            updatePopoverViewModel(overage: currentOverage)
         } else {
             Logger.debug("사용량 갱신 스킵: 이미 요청 진행 중")
             return
@@ -761,15 +735,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.consecutiveErrorCount = 0
                     self.lastUpdated = Date()
                     self.updateMenuBar()
-                    self.updatePopoverViewModel(
-                        usage: usage,
-                        codexUsage: self.currentCodexUsage,
-                        error: nil,
-                        codexError: self.codexError,
-                        isLoading: false,
-                        lastUpdated: self.lastUpdated,
-                        overage: self.currentOverage
-                    )
+                    self.updatePopoverViewModel(overage: self.currentOverage)
                     self.syncUsageHealthSnapshotToUI()
 
                     // 알림 체크
@@ -804,13 +770,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     }
 
                     self.updateMenuBar()
-                    self.updatePopoverViewModel(
-                        usage: self.currentUsage,
-                        codexUsage: self.currentCodexUsage,
-                        error: error,
-                        codexError: self.codexError,
-                        isLoading: false
-                    )
+                    self.updatePopoverViewModel()
                     self.popoverViewModel.nextUsageRetryAt = self.nextUsageRefreshAllowedAt
                     self.refreshPopoverSizeIfShown()
                     self.syncUsageHealthSnapshotToUI()
@@ -828,13 +788,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.hasAuthError = false
                     self.currentError = (self.currentUsage == nil) ? apiError : nil
                     self.updateMenuBar()
-                    self.updatePopoverViewModel(
-                        usage: self.currentUsage,
-                        codexUsage: self.currentCodexUsage,
-                        error: apiError,
-                        codexError: self.codexError,
-                        isLoading: false
-                    )
+                    self.updatePopoverViewModel()
                     self.popoverViewModel.nextUsageRetryAt = self.nextUsageRefreshAllowedAt
                     self.refreshPopoverSizeIfShown()
                     self.syncUsageHealthSnapshotToUI()
@@ -889,15 +843,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             codexError = .invalidSessionKey
             currentCodexUsage = nil
             updateMenuBar()
-            updatePopoverViewModel(
-                usage: currentUsage,
-                codexUsage: nil,
-                error: currentError,
-                codexError: codexError,
-                isLoading: isLoading,
-                lastUpdated: lastUpdated,
-                overage: currentOverage
-            )
+            updatePopoverViewModel(overage: currentOverage)
             return
         }
 
@@ -919,15 +865,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.isCodexLoading = false
                     self.codexLoadingStartedAt = nil
                     self.updateMenuBar()
-                    self.updatePopoverViewModel(
-                        usage: self.currentUsage,
-                        codexUsage: usage,
-                        error: self.currentError,
-                        codexError: nil,
-                        isLoading: self.isLoading,
-                        lastUpdated: self.lastUpdated,
-                        overage: self.currentOverage
-                    )
+                    self.updatePopoverViewModel(overage: self.currentOverage)
 
                     NotificationManager.shared.checkThreshold(
                         session: .codexPrimary,
@@ -952,15 +890,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         self.currentCodexUsage = nil
                     }
                     self.updateMenuBar()
-                    self.updatePopoverViewModel(
-                        usage: self.currentUsage,
-                        codexUsage: self.currentCodexUsage,
-                        error: self.currentError,
-                        codexError: error,
-                        isLoading: self.isLoading,
-                        lastUpdated: self.lastUpdated,
-                        overage: self.currentOverage
-                    )
+                    self.updatePopoverViewModel(overage: self.currentOverage)
                 }
             } catch {
                 let wrapped = APIError.unknownError(error.localizedDescription)
@@ -975,15 +905,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         self.currentCodexUsage = nil
                     }
                     self.updateMenuBar()
-                    self.updatePopoverViewModel(
-                        usage: self.currentUsage,
-                        codexUsage: self.currentCodexUsage,
-                        error: self.currentError,
-                        codexError: wrapped,
-                        isLoading: self.isLoading,
-                        lastUpdated: self.lastUpdated,
-                        overage: self.currentOverage
-                    )
+                    self.updatePopoverViewModel(overage: self.currentOverage)
                 }
             }
         }
@@ -1010,31 +932,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateMenuBar() {
         let settings = AppSettings.shared
         guard let button = statusItem?.button else { return }
-        let claudeConfig = settings.menuBarDisplayConfig(for: .claude)
-        let codexConfig = settings.menuBarDisplayConfig(for: .codex)
-
         let highContrast = AppSettings.shared.menuBarTextHighContrast
         let secondaryColor = MenuBarIconFactory.secondaryTextColor(highContrast: highContrast)
         let claudeIconTintColor = MenuBarIconFactory.claudeBrandIconTintColor()
 
-        if settings.hasMultipleRuntimeEnabledProviders,
-           let claudeConfig,
-           let codexConfig
-        {
-            let content = MenuBarStatusComposer.combinedContent(
-                claudeConfig: claudeConfig,
-                claudeUsage: currentUsage,
-                claudeError: currentError,
-                hasClaudeAuthError: hasAuthError,
-                hasClaudeCredential: claudeCredentialAvailability.hasAnyCredential,
-                claudeIcon: claudeConfig.showIcon ? MenuBarIconFactory.claudeMenuBarIcon(size: NSSize(width: 14, height: 14), tint: claudeIconTintColor) : nil,
-                codexConfig: codexConfig,
-                codexUsage: currentCodexUsage,
-                codexError: codexError,
-                hasCodexAuthError: hasCodexAuthError,
-                isCodexAuthenticated: CodexAuthManager.shared.isAuthenticated,
-                codexIcon: codexConfig.showIcon ? MenuBarIconFactory.codexMenuBarIcon(size: NSSize(width: 14, height: 14)) : nil,
+        let runtimeKinds = ServiceSelectionHelper.enabledRuntimeProviderKinds(settings: settings)
+        let compactSnapshots = runtimeKinds.compactMap {
+            menuBarProviderSnapshot(
+                for: $0,
+                iconSize: NSSize(width: 14, height: 14),
                 secondaryColor: secondaryColor,
+                claudeIconTintColor: claudeIconTintColor
+            )
+        }
+
+        if compactSnapshots.count > 1 {
+            let content = MenuBarStatusComposer.multipleProviderContent(
+                snapshots: compactSnapshots,
+                secondaryColor: secondaryColor
             )
             applyMenuBarContent(content, to: button)
             return
@@ -1045,38 +960,54 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        if activeService == .codex {
-            guard let codexConfig else {
-                applyMenuBarContent(MenuBarStatusComposer.placeholder(secondaryColor: secondaryColor), to: button)
-                return
-            }
-            let content = MenuBarStatusComposer.codexOnlyContent(
-                config: codexConfig,
+        guard let snapshot = menuBarProviderSnapshot(
+            for: activeService.providerKind,
+            iconSize: NSSize(width: 18, height: 18),
+            secondaryColor: secondaryColor,
+            claudeIconTintColor: claudeIconTintColor
+        ) else {
+            applyMenuBarContent(MenuBarStatusComposer.placeholder(secondaryColor: secondaryColor), to: button)
+            return
+        }
+        let content = MenuBarStatusComposer.singleProviderContent(
+            snapshot: snapshot,
+            secondaryColor: secondaryColor
+        )
+        applyMenuBarContent(content, to: button)
+    }
+
+    private func menuBarProviderSnapshot(
+        for kind: AppProviderKind,
+        iconSize: NSSize,
+        secondaryColor: NSColor,
+        claudeIconTintColor: NSColor
+    ) -> MenuBarProviderSnapshot? {
+        switch kind {
+        case .claude:
+            guard let config = AppSettings.shared.menuBarDisplayConfig(for: .claude) else { return nil }
+            return MenuBarStatusComposer.claudeSnapshot(
+                config: config,
+                usage: currentUsage,
+                error: currentError,
+                hasAuthError: hasAuthError,
+                hasCredential: claudeCredentialAvailability.hasAnyCredential,
+                secondaryColor: secondaryColor,
+                icon: config.showIcon ? MenuBarIconFactory.claudeMenuBarIcon(size: iconSize, tint: claudeIconTintColor) : nil
+            )
+        case .codex:
+            guard let config = AppSettings.shared.menuBarDisplayConfig(for: .codex) else { return nil }
+            return MenuBarStatusComposer.codexSnapshot(
+                config: config,
                 usage: currentCodexUsage,
                 error: codexError,
                 hasAuthError: hasCodexAuthError,
                 isAuthenticated: CodexAuthManager.shared.isAuthenticated,
                 secondaryColor: secondaryColor,
-                icon: codexConfig.showIcon ? MenuBarIconFactory.codexMenuBarIcon(size: NSSize(width: 18, height: 18)) : nil
+                icon: config.showIcon ? MenuBarIconFactory.codexMenuBarIcon(size: iconSize) : nil
             )
-            applyMenuBarContent(content, to: button)
-            return
+        case .gemini, .antigravity:
+            return nil
         }
-
-        guard let claudeConfig else {
-            applyMenuBarContent(MenuBarStatusComposer.placeholder(secondaryColor: secondaryColor), to: button)
-            return
-        }
-        let content = MenuBarStatusComposer.claudeOnlyContent(
-            config: claudeConfig,
-            usage: currentUsage,
-            error: currentError,
-            hasAuthError: hasAuthError,
-            hasCredential: claudeCredentialAvailability.hasAnyCredential,
-            secondaryColor: secondaryColor,
-            icon: claudeConfig.showIcon ? MenuBarIconFactory.claudeMenuBarIcon(size: NSSize(width: 18, height: 18), tint: claudeIconTintColor) : nil
-        )
-        applyMenuBarContent(content, to: button)
     }
 
     private func applyMenuBarContent(_ content: MenuBarRenderedContent, to button: NSStatusBarButton) {
@@ -1131,15 +1062,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         markSetupIncomplete: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
                     )
                     self.updateMenuBar()
-                    self.updatePopoverViewModel(
-                        usage: nil,
-                        codexUsage: self.currentCodexUsage,
-                        error: nil,
-                        codexError: self.codexError,
-                        isLoading: false,
-                        lastUpdated: self.lastUpdated,
-                        overage: nil
-                    )
+                    self.updatePopoverViewModel()
                     self.syncRefreshTimerState()
                     if self.hasRefreshableService {
                         self.refreshAll(force: true)
@@ -1195,15 +1118,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 self.clearClaudePresentationState(markSetupIncomplete: false)
                 self.updateMenuBar()
-                self.updatePopoverViewModel(
-                    usage: nil,
-                    codexUsage: self.currentCodexUsage,
-                    error: nil,
-                    codexError: self.codexError,
-                    isLoading: false,
-                    lastUpdated: self.lastUpdated,
-                        overage: nil
-                )
+                self.updatePopoverViewModel()
                 self.settingsWindowCoordinator.refreshSnapshot(AppSettings.shared.createSnapshot())
                 self.syncRefreshTimerState()
                 if self.hasRefreshableService {
@@ -1221,15 +1136,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.codexConsecutiveErrorCount = 0
                 self.nextCodexRefreshAllowedAt = nil
                 self.updateMenuBar()
-                self.updatePopoverViewModel(
-                    usage: self.currentUsage,
-                    codexUsage: nil,
-                    error: self.currentError,
-                    codexError: nil,
-                    isLoading: self.isLoading,
-                    lastUpdated: self.lastUpdated,
-                    overage: self.currentOverage
-                )
+                self.updatePopoverViewModel(overage: self.currentOverage)
             }
         )
         settingsWindowCoordinator.present(rootView: settingsView, snapshot: snapshot)
