@@ -17,6 +17,17 @@ struct UpdateInfo {
     let releaseNotes: String
 }
 
+struct UpdateEngineStatus {
+    let modeSummary: String
+    let sparkleIntegrated: Bool
+    let feedConfigured: Bool
+    let publicKeyConfigured: Bool
+
+    var usesSparkleReadyPath: Bool {
+        sparkleIntegrated && feedConfigured && publicKeyConfigured
+    }
+}
+
 enum UpdateCheckResult {
     case available(UpdateInfo)
     case upToDate
@@ -30,6 +41,7 @@ protocol AppUpdateEngine {
     func usesExternalScheduler() async -> Bool
     func supportsInteractiveCheck() async -> Bool
     func performInteractiveCheck() async -> String?
+    func configurationStatus() async -> UpdateEngineStatus
 }
 
 struct GitHubReleaseUpdateEngine: AppUpdateEngine {
@@ -107,6 +119,15 @@ struct GitHubReleaseUpdateEngine: AppUpdateEngine {
     func supportsInteractiveCheck() async -> Bool { false }
 
     func performInteractiveCheck() async -> String? { nil }
+
+    func configurationStatus() async -> UpdateEngineStatus {
+        UpdateEngineStatus(
+            modeSummary: modeDescription,
+            sparkleIntegrated: false,
+            feedConfigured: false,
+            publicKeyConfigured: false
+        )
+    }
 }
 
 #if canImport(Sparkle)
@@ -149,8 +170,53 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine {
         updaterController.checkForUpdates(nil)
         return "Sparkle 업데이트 확인을 시작했습니다"
     }
+
+    func configurationStatus() async -> UpdateEngineStatus {
+        UpdateEngineStatus(
+            modeSummary: "Sparkle 자동업데이트 엔진을 사용 중입니다",
+            sparkleIntegrated: true,
+            feedConfigured: true,
+            publicKeyConfigured: true
+        )
+    }
 }
 #endif
+
+enum UpdateConfigurationInspector {
+    nonisolated static func currentStatus() -> UpdateEngineStatus {
+        #if canImport(Sparkle)
+        let feedConfigured = configuredValue(for: "SUFeedURL") != nil
+        let publicKeyConfigured = configuredValue(for: "SUPublicEDKey") != nil
+        let summary: String
+        if feedConfigured && publicKeyConfigured {
+            summary = "Sparkle 자동업데이트 엔진을 사용 중입니다"
+        } else {
+            summary = "Sparkle는 통합되었지만 appcast/feed가 아직 설정되지 않아 GitHub Release 엔진을 사용 중입니다"
+        }
+        return UpdateEngineStatus(
+            modeSummary: summary,
+            sparkleIntegrated: true,
+            feedConfigured: feedConfigured,
+            publicKeyConfigured: publicKeyConfigured
+        )
+        #else
+        return UpdateEngineStatus(
+            modeSummary: "현재는 GitHub Release 수동 다운로드 엔진을 사용 중입니다",
+            sparkleIntegrated: false,
+            feedConfigured: false,
+            publicKeyConfigured: false
+        )
+        #endif
+    }
+
+    #if canImport(Sparkle)
+    private nonisolated static func configuredValue(for key: String) -> String? {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+    #endif
+}
 
 enum UpdateEngineFactory {
     static func makeDefaultEngine() async -> any AppUpdateEngine {
@@ -217,5 +283,16 @@ actor UpdateService {
     func performInteractiveCheck() async -> String? {
         let engine = await resolvedEngine()
         return await engine.performInteractiveCheck()
+    }
+
+    func currentEngineStatus() async -> UpdateEngineStatus {
+        let engine = await resolvedEngine()
+        let configuration = UpdateConfigurationInspector.currentStatus()
+        return UpdateEngineStatus(
+            modeSummary: await engine.modeSummary(),
+            sparkleIntegrated: configuration.sparkleIntegrated,
+            feedConfigured: configuration.feedConfigured,
+            publicKeyConfigured: configuration.publicKeyConfigured
+        )
     }
 }

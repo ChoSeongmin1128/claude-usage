@@ -48,6 +48,7 @@ struct SettingsView: View {
     @State private var messagesFallbackStatus: String?
     @State private var codexAuthStatus: CodexAuthStatus = .checking
     @State private var updateModeSummary: String = "업데이트 엔진 확인 중"
+    @State private var updateEngineStatus: UpdateEngineStatus?
     @State private var supportsInteractiveUpdates = false
 
     var onSave: (() -> Void)?
@@ -196,6 +197,7 @@ struct SettingsView: View {
             checkCodexAuth()
             Task {
                 updateModeSummary = await UpdateService.shared.currentModeSummary()
+                updateEngineStatus = await UpdateService.shared.currentEngineStatus()
                 supportsInteractiveUpdates = await UpdateService.shared.supportsInteractiveCheck()
             }
         }
@@ -2664,6 +2666,32 @@ struct SettingsView: View {
             Text(updateModeSummary)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            if let updateEngineStatus {
+                HStack(spacing: 8) {
+                    chip(
+                        title: "엔진",
+                        value: updateEngineStatus.sparkleIntegrated ? "Sparkle 통합" : "GitHub 전용",
+                        color: updateEngineStatus.sparkleIntegrated ? .blue : .secondary
+                    )
+                    chip(
+                        title: "appcast",
+                        value: updateEngineStatus.feedConfigured ? "준비됨" : "미설정",
+                        color: updateEngineStatus.feedConfigured ? .green : .orange
+                    )
+                    chip(
+                        title: "공개키",
+                        value: updateEngineStatus.publicKeyConfigured ? "준비됨" : "미설정",
+                        color: updateEngineStatus.publicKeyConfigured ? .green : .orange
+                    )
+                }
+
+                if !updateEngineStatus.usesSparkleReadyPath {
+                    Text("현재 빌드는 Sparkle 패키지는 포함하지만 appcast 또는 공개키가 없어 GitHub fallback 경로를 사용합니다.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
 
             if let result = updateCheckResult {
                 HStack {

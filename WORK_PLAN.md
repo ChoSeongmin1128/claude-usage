@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (70차)
+최종 갱신: 2026-04-02 (71차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -119,6 +119,7 @@
 - 2026-04-02 69차 통합에서 [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 는 4개 이상 provider가 켜졌을 때 상단 selector를 가로 스크롤로 바꾸고, `last updated` 메타데이터를 접도록 수정했습니다. 이로써 `Claude/Codex/Gemini/Antigravity`를 모두 켠 상태에서도 상단 헤더가 잘리거나 줄바꿈으로 깨지는 문제가 줄었습니다.
 - 같은 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 수동 sessionKey 테스트 성공 후 `키 저장 -> Claude 상태 동기화 -> 설정/팝오버 반영`을 순차적으로 기다리도록 바꿨습니다. 동시에 Claude 인증 기본 화면은 안정 상태에서는 `문제 해결 및 수동 입력`을 접어 두고, 실제 이슈가 있거나 수동 입력이 바뀐 경우에만 고급 인증 섹션을 기본 노출하도록 줄였습니다.
 - 2026-04-02 70차 통합에서 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 설정 창을 열 때 더 이상 무조건 Claude 인증 탭으로만 보내지 않도록 수정했습니다. 이제 standalone setup wizard가 필요한 상태에서는 현재 진행 단계에 따라 `인증 -> 상태 -> Organization` 탭으로 진입점을 맞추므로, first-run과 settings가 서로 다른 단계를 가리키는 어색한 공존이 줄어듭니다.
+- 2026-04-02 71차 통합에서 [UpdateService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/UpdateService.swift), [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 업데이트 엔진의 실제 준비 상태를 별도 모델로 노출하기 시작했습니다. 설정 화면은 이제 `Sparkle 통합 여부`, `appcast(feed) 설정 여부`, `공개키 설정 여부`를 직접 보여주므로, 왜 현재 빌드가 GitHub fallback으로 동작하는지 추론하지 않아도 됩니다.
 - 2026-04-02 75차 통합에서 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 의 Claude refresh 성공 경로에서 남아 있던 `hasCompletedSetupWizard` 직접 대입도 `setClaudeSetupCompleted(...)` helper 경유로 바꿨습니다. 이제 runtime ownership 관점에서 setup 완료 상태 직접 대입은 사실상 `AppDelegate` helper 한 곳과 `AppSettings` 자체 보관 경로만 남아, `SettingsView` / refresh 경로 / login 경로가 각자 flag 를 뒤집는 구조는 정리된 상태입니다.
 - 2026-04-02 49차 통합에서 [GeminiUsageModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/GeminiUsageModels.swift), [GeminiAPIService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/GeminiAPIService.swift), [GeminiRuntimeRefresher.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/GeminiRuntimeRefresher.swift) 를 추가했고, `~/.gemini/oauth_creds.json` 과 Gemini CLI 설치 경로의 OAuth 설정을 직접 읽어 quota API를 호출하는 최소 runtime 경로를 붙였습니다.
 - 같은 통합에서 [ProviderStateModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift), [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift), [RuntimeRefreshHandlerRegistry.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RuntimeRefreshHandlerRegistry.swift), [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `Gemini` 를 실제 runtime provider로 인식하고 refresh/backoff/state snapshot/menu bar/popup selection 경로에 포함하기 시작했습니다.
