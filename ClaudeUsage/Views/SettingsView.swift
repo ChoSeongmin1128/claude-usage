@@ -5,6 +5,7 @@
 //  Phase 3: 완전한 설정 창
 //
 
+import AppKit
 import SwiftUI
 import Combine
 import UniformTypeIdentifiers
@@ -777,6 +778,10 @@ struct SettingsView: View {
             )
 
             authNoticeCard
+            claudeCLIOAuthGuideSection
+            if shouldRecommendCLIOAuth {
+                claudeCLIOAuthGuideCard
+            }
             oauthQuickGuideSection
         }
         .padding(12)
@@ -900,7 +905,7 @@ struct SettingsView: View {
 
     private var authChecklistCard: some View {
         let hasSessionCredential = !(storedSessionKey ?? "").isEmpty || !normalizeSessionKey(sessionKey).isEmpty
-        let hasOAuthCredential = usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false
+        let hasOAuthCredential = self.hasOAuthCredential
         let hasOAuthSuccess = usageHealthSnapshot?.oauth.lastSuccessAt != nil
         let hasAnySuccessfulFetch = hasSuccessfulClaudeFetch
         let organizationReady = isOrganizationSelectionReady
@@ -925,6 +930,14 @@ struct SettingsView: View {
                 detail: organizationChecklistDetail,
                 state: organizationReady ? .ok : .warning
             )
+
+            if shouldRecommendCLIOAuth {
+                checklistRow(
+                    title: "Claude Code OAuth",
+                    detail: hasOAuthCredential ? "Claude Code OAuth 자격이 준비되었습니다" : "세션키 단독 상태이거나 세션 경로가 불안정하면 `claude login`을 권장합니다",
+                    state: hasOAuthCredential ? .ok : .warning
+                )
+            }
         }
         .padding(10)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
@@ -954,12 +967,22 @@ struct SettingsView: View {
 
     private var hasReadyClaudeCredential: Bool {
         let normalized = normalizeSessionKey(sessionKey)
-        let hasOAuthCredential = usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false
         return !(storedSessionKey ?? "").isEmpty || !normalized.isEmpty || hasOAuthCredential || usageHealthSnapshot?.lastOverallSuccessAt != nil
     }
 
     private var hasSuccessfulClaudeFetch: Bool {
         usageHealthSnapshot?.lastOverallSuccessAt != nil
+    }
+
+    private var hasOAuthCredential: Bool {
+        usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false
+    }
+
+    private var shouldRecommendCLIOAuth: Bool {
+        guard let snapshot = usageHealthSnapshot else { return false }
+        return snapshot.session.isUnstable
+            || (snapshot.runtime.credentialAvailability.sessionCredentialAvailable
+                && !snapshot.runtime.credentialAvailability.oauthCredentialAvailable)
     }
 
     private var isOrganizationSelectionReady: Bool {
@@ -989,12 +1012,12 @@ struct SettingsView: View {
 
     private var currentSetupWizardStep: SetupWizardView.Step {
         if hasReadyClaudeCredential {
-            return .chromeImport
+            return .webLogin
         }
         if isAdvancedAuthExpanded || !(storedSessionKey ?? "").isEmpty || !normalizeSessionKey(sessionKey).isEmpty {
             return .manualSessionKey
         }
-        if isOAuthGuideExpanded {
+        if isOAuthGuideExpanded || NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") == nil {
             return .webLogin
         }
         return .chromeImport
@@ -1005,13 +1028,63 @@ struct SettingsView: View {
             Text("안내")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("일반 경로는 Chrome import와 웹 로그인입니다. 수동 sessionKey와 Messages fallback은 고급 설정에서만 다룹니다.")
+            Text("기본 순서는 `Chrome 가져오기` → `웹 로그인` → `수동 sessionKey`입니다. Messages fallback은 인증 경로가 아니라 복구 옵션입니다.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .padding(8)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.55))
         .cornerRadius(6)
+    }
+
+    private var claudeCLIOAuthGuideCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Claude Code CLI OAuth 권장")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("세션키 단독 상태이거나 세션 경로가 불안정하면 Claude Code OAuth를 같이 준비하는 편이 맞습니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("1. `brew install --cask claude-code`")
+                Text("2. 터미널에서 `claude login` 실행")
+                Text("3. 브라우저 인증 완료 후 이 화면에서 `상태 새로고침`")
+                Text("4. `OAuth 준비됨` 또는 활성 경로가 `OAuth`로 보이는지 확인")
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+        .padding(8)
+        .background(Color.blue.opacity(0.08))
+        .cornerRadius(6)
+    }
+
+    private var claudeCLIOAuthGuideSection: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("1. 터미널에서 `brew install --cask claude-code`")
+                Text("2. 설치 후 `claude login` 실행")
+                Text("3. 브라우저 인증 완료")
+                Text("4. 이 화면에서 `상태 새로고침`")
+                Text("5. `OAuth 준비됨` 또는 활성 경로 `OAuth` 확인")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.top, 4)
+        } label: {
+            HStack {
+                Text("Claude Code CLI OAuth")
+                Spacer(minLength: 0)
+                Text("brew install → claude login")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .padding(.vertical, 4)
+        }
+        .font(.subheadline)
     }
 
     @ViewBuilder
@@ -1070,7 +1143,7 @@ struct SettingsView: View {
                 }
             } label: {
                 HStack {
-                    Text("권장 일반 경로")
+                    Text("일반 로그인 경로")
                     Spacer(minLength: 0)
                     Text("Chrome import → 웹 로그인")
                         .font(.caption2)
@@ -1162,7 +1235,7 @@ struct SettingsView: View {
     private var messagesFallbackSection: some View {
         DisclosureGroup(isExpanded: $isMessagesFallbackExpanded) {
             VStack(alignment: .leading, spacing: 10) {
-                Picker("동작:", selection: $settings.claudeMessagesFallbackPolicy) {
+                Picker("복구 모드:", selection: $settings.claudeMessagesFallbackPolicy) {
                     ForEach(ClaudeMessagesFallbackPolicy.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
                     }
@@ -1170,40 +1243,41 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
                 .frame(width: 300)
 
-                if settings.claudeMessagesFallbackPolicy == .automatic {
-                    HStack(alignment: .center, spacing: 8) {
-                        Text("자동 중지 기준")
+                HStack(alignment: .center, spacing: 8) {
+                    Text("자동 중지 기준")
+                        .font(.subheadline)
+                    Stepper(
+                        value: Binding(
+                            get: { settings.claudeMessagesFallbackAutoDisableBelowPercent },
+                            set: { settings.claudeMessagesFallbackAutoDisableBelowPercent = settingsViewModel.clampFallbackThreshold($0) }
+                        ),
+                        in: 0...100,
+                        step: 5
+                    ) {
+                        Text("\(settings.claudeMessagesFallbackAutoDisableBelowPercent)% 미만")
                             .font(.subheadline)
-                        Stepper(
-                            value: Binding(
-                                get: { settings.claudeMessagesFallbackAutoDisableBelowPercent },
-                                set: { settings.claudeMessagesFallbackAutoDisableBelowPercent = settingsViewModel.clampFallbackThreshold($0) }
-                            ),
-                            in: 0...100,
-                            step: 5
-                        ) {
-                            Text("\(settings.claudeMessagesFallbackAutoDisableBelowPercent)% 미만")
-                                .font(.subheadline)
-                        }
-                        .labelsHidden()
                     }
+                    .labelsHidden()
+                    .disabled(settings.claudeMessagesFallbackPolicy != .automatic)
+                }
 
+                if settings.claudeMessagesFallbackPolicy == .automatic {
                     Text(settingsViewModel.messagesFallbackThresholdHelpText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else if settings.claudeMessagesFallbackPolicy == .manual {
-                    Text("수동 보조 모드에서는 사용자가 직접 fallback 경로를 사용할 수 있습니다.")
+                    Text("수동 보조 모드에서는 사용자가 직접 복구 테스트만 실행합니다. 자동 중지 기준은 저장되지만 자동 호출에는 사용되지 않습니다.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("기능이 꺼져 있습니다.")
+                    Text("기능이 꺼져 있습니다. 자동 보조를 켜면 위 기준값을 사용해 저사용량 구간의 호출을 막습니다.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 if settings.claudeMessagesFallbackPolicy != .off {
                     HStack(spacing: 10) {
-                        Button(isTestingMessagesFallback ? "복구 확인 중..." : "보조 복구 테스트") {
+                        Button(isTestingMessagesFallback ? "복구 확인 중..." : "Messages 헤더 복구 테스트") {
                             runMessagesFallbackTest()
                         }
                         .disabled(isTestingMessagesFallback)

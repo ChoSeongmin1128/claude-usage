@@ -29,8 +29,9 @@ struct LoginWindowView: View {
                 .font(.caption)
                 .fontWeight(.semibold)
             Text("1. 먼저 `Chrome에서 가져오기`를 시도합니다.")
-                    Text("2. 실패하면 아래 웹 로그인으로 sessionKey 자동 추출을 시도합니다.")
-            Text("3. 계속 실패하면 Chrome을 직접 열어 로그인한 뒤 다시 가져오거나, 설정의 고급 옵션에서 sessionKey 값만 직접 입력합니다.")
+            Text("2. 실패하면 이 창에서 웹 로그인으로 sessionKey 자동 추출을 시도합니다.")
+            Text("3. 계속 실패하면 `Chrome 열기`로 claude.ai에 로그인한 뒤 다시 가져오기를 누릅니다.")
+            Text("4. 그래도 안 되면 설정의 고급 옵션에서 sessionKey 값만 직접 입력합니다.")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -150,10 +151,10 @@ struct LoginWindowView: View {
             // 하단 바
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Chrome 자동 가져오기를 먼저 시도하고, 실패하면 Chrome을 직접 열어 로그인한 뒤 다시 가져오거나 아래 웹 로그인으로 이어가시면 됩니다")
+                    Text("기본 순서는 `Chrome에서 가져오기` → `웹 로그인 추출` → `수동 sessionKey`입니다")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text("Chrome이 아니라면 설정의 고급 옵션에서 sessionKey 직접 입력 안내를 사용하시면 됩니다")
+                    Text("Chrome 로그인 상태가 애매하면 먼저 `Chrome 열기`로 claude.ai를 연 뒤 다시 가져오기를 누르시는 편이 맞습니다")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

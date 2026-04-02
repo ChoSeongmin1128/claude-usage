@@ -22,11 +22,11 @@ struct SetupWizardView: View {
         var detail: String {
             switch self {
             case .chromeImport:
-                return "가장 먼저 시도할 일반 사용자 경로입니다."
+                return "기본 경로입니다. Chrome 로그인 상태에서 sessionKey를 먼저 읽어옵니다."
             case .webLogin:
-                return "Chrome이 안 되면 내장 로그인 창으로 이어가는 보조 일반 경로입니다."
+                return "Chrome 가져오기가 안 되면 내장 로그인 창에서 sessionKey 자동 추출을 시도합니다."
             case .manualSessionKey:
-                return "고급 설정에서 마지막 수단으로 값만 직접 입력합니다."
+                return "둘 다 실패했을 때만 고급 설정에서 값만 직접 입력합니다."
             }
         }
 

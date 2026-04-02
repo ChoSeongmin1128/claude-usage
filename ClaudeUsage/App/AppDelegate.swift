@@ -1799,65 +1799,71 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        if clearCookies {
-            clearWebSessionData()
-        }
+        let presentLoginWindow = { [weak self] in
+            guard let self else { return }
 
-        if loginWindowCoordinator.focusIfVisible() {
-            return
-        }
+            if self.loginWindowCoordinator.focusIfVisible() {
+                return
+            }
 
-        let loginView = LoginWindowView(
-            clearOnOpen: clearCookies,
-            onSessionKeyFound: { [weak self] key in
-                guard let self = self else { return }
+            let loginView = LoginWindowView(
+                clearOnOpen: clearCookies,
+                onSessionKeyFound: { [weak self] key in
+                    guard let self = self else { return }
 
-                await MainActor.run {
-                    self.currentError = nil
-                    self.hasAuthError = false
-                    if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
-                        self.isLoading = true
-                        self.loadingStartedAt = Date()
-                    }
-                    self.updateMenuBar()
-                    self.updatePopoverViewModel(overage: self.currentOverage)
-                }
-
-                do {
-                    let result = try await ClaudeSettingsApplyCoordinator.activateSessionKey(
-                        key,
-                        apiService: self.apiService,
-                        preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
-                        providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
-                    )
                     await MainActor.run {
-                        self.applyUsageHealthSnapshot(result.snapshot)
-                        AppSettings.shared.hasCompletedSetupWizard = result.shouldMarkSetupComplete
+                        self.currentError = nil
                         self.hasAuthError = false
-                        if result.shouldStartMonitoring {
-                            self.startMonitoring()
-                        } else {
-                            self.updateMenuBar()
-                            self.updatePopoverViewModel(overage: self.currentOverage)
+                        if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
+                            self.isLoading = true
+                            self.loadingStartedAt = Date()
                         }
-                        self.loginWindowCoordinator.close()
-                    }
-                    Logger.info("로그인 완료, 모니터링 시작")
-                } catch {
-                    await MainActor.run {
-                        self.isLoading = false
-                        self.loadingStartedAt = nil
                         self.updateMenuBar()
                         self.updatePopoverViewModel(overage: self.currentOverage)
                     }
-                    throw error
+
+                    do {
+                        let result = try await ClaudeSettingsApplyCoordinator.activateSessionKey(
+                            key,
+                            apiService: self.apiService,
+                            preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
+                            providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
+                        )
+                        await MainActor.run {
+                            self.applyUsageHealthSnapshot(result.snapshot)
+                            AppSettings.shared.hasCompletedSetupWizard = result.shouldMarkSetupComplete
+                            self.hasAuthError = false
+                            if result.shouldStartMonitoring {
+                                self.startMonitoring()
+                            } else {
+                                self.updateMenuBar()
+                                self.updatePopoverViewModel(overage: self.currentOverage)
+                            }
+                            self.loginWindowCoordinator.close()
+                        }
+                        Logger.info("로그인 완료, 모니터링 시작")
+                    } catch {
+                        await MainActor.run {
+                            self.isLoading = false
+                            self.loadingStartedAt = nil
+                            self.updateMenuBar()
+                            self.updatePopoverViewModel(overage: self.currentOverage)
+                        }
+                        throw error
+                    }
+                },
+                onCancel: { [weak self] in
+                    self?.loginWindowCoordinator.close()
                 }
-            },
-            onCancel: { [weak self] in
-                self?.loginWindowCoordinator.close()
-            }
-        )
-        loginWindowCoordinator.present(rootView: loginView)
+            )
+            self.loginWindowCoordinator.present(rootView: loginView)
+        }
+
+        if clearCookies {
+            clearWebSessionData(completion: presentLoginWindow)
+        } else {
+            presentLoginWindow()
+        }
     }
 
     private func showSetupWizardWindow() {
@@ -1902,13 +1908,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupWizardWindowCoordinator.present(rootView: rootView)
     }
 
-    private func clearWebSessionData() {
+    private func clearWebSessionData(completion: (() -> Void)? = nil) {
         let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
         WKWebsiteDataStore.default().removeData(ofTypes: dataTypes, modifiedSince: .distantPast) {
             let cookieStorage = HTTPCookieStorage.shared
             cookieStorage.cookies?.forEach { cookieStorage.deleteCookie($0) }
             URLCache.shared.removeAllCachedResponses()
             Logger.info("웹 데이터 삭제 완료")
+            completion?()
         }
     }
 
