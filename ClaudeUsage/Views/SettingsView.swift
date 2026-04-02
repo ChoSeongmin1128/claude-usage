@@ -679,31 +679,32 @@ struct SettingsView: View {
             if settings.isProviderEnabled(.claude) {
                 if shouldShowAuthSetupFlow {
                     authSetupFlowCard
-                }
-                compactAuthStatusCard
-
-                if let storedSessionKey, !storedSessionKey.isEmpty {
-                    savedCredentialCard
                 } else {
-                    HStack(spacing: 10) {
-                        Button(action: { onOpenClaudeInChrome?() }) {
-                            Label("Chrome에서 가져오기", systemImage: "globe")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.large)
+                    compactAuthStatusCard
 
-                        Button(action: { onOpenLogin?() }) {
-                            Label("웹 로그인 열기", systemImage: "person.crop.circle")
-                                .frame(maxWidth: .infinity)
+                    if let storedSessionKey, !storedSessionKey.isEmpty {
+                        savedCredentialCard
+                    } else {
+                        HStack(spacing: 10) {
+                            Button(action: { onOpenClaudeInChrome?() }) {
+                                Label("Chrome에서 가져오기", systemImage: "globe")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.large)
+
+                            Button(action: { onOpenLogin?() }) {
+                                Label("웹 로그인 열기", systemImage: "person.crop.circle")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
                         }
-                        .buttonStyle(.bordered)
-                        .controlSize(.large)
+
+                        Text("먼저 Chrome 로그인 상태에서 자동 가져오기를 시도하고, 실패하면 웹 로그인 창에서 sessionKey 추출을 시도합니다.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-
-                    Text("먼저 Chrome 로그인 상태에서 자동 가져오기를 시도하고, 실패하면 웹 로그인 창에서 sessionKey 추출을 시도합니다.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
                 claudeAdvancedSection

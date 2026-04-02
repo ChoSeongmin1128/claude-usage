@@ -607,6 +607,8 @@
 - `claude-code`는 metadata를 저장하는 데서 멈추지 않고 실제 경고 문구와 정책 판단까지 연결합니다. 현재 앱은 `organizationUuid`, `subscriptionType`, `hasExtraUsageEnabled`, `rateLimitTier`를 저장하기 시작했지만 아직 `알림 문구/표시 정책`까지 소비하지 못합니다.
 - `Claude Code OAuth` 실패 원인은 구현 버그가 섞여 있었습니다. 실제 토큰은 살아 있는데 `Messages` probe에 `User-Agent` / `anthropic-beta` 헤더가 빠져 `OAuth authentication is currently not supported` 401을 유발하던 경로를 수정했습니다.
 - `Claude Code OAuth` 읽기 경로는 `Claude-Usage-Tracker`처럼 `~/.claude` credentials 파일 우선, 키체인 후순위로 재정렬했고, 만료 시각과 메모리 캐시를 같이 보도록 보강했습니다.
+- Claude 인증 기본 화면은 `빠른 시작`이 노출되는 동안 별도 상태 카드와 저장 자격 카드를 겹치지 않게 줄였고, 상세 상태는 접힌 `조회 상태`/`고급 설정` 안으로 더 밀어 넣기 시작했습니다.
+- 독립 `Setup Wizard` 는 `Organization 열기`와 `자동 선택 유지`를 분리해, organization 단계에서 설정창을 억지로 다시 열지 않고도 완료로 넘어갈 수 있게 정리했습니다.
 - `CodexBar`는 README와 provider 문서에 `권한 이유`, `로컬만 읽는 데이터`, `브라우저별 제약`, `키체인 prompt 정책`을 분명히 적습니다. 현재 앱도 설정 설명과 README, 향후 Sparkle 배포 문서에서 이 수준의 설명 책임을 져야 합니다.
 
 ### 제품 방향

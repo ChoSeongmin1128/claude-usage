@@ -24,7 +24,7 @@ struct SetupWizardView: View {
         var detail: String {
             switch self {
             case .chromeImport:
-                return "기본 경로입니다. Chrome 로그인 상태에서 sessionKey를 먼저 읽어옵니다."
+                return "권장 경로입니다. Chrome 로그인 상태에서 sessionKey를 먼저 읽어옵니다."
             case .webLogin:
                 return "Chrome 가져오기가 안 되면 내장 로그인 창에서 sessionKey 자동 추출을 시도합니다."
             case .manualSessionKey:
@@ -150,6 +150,11 @@ struct SetupWizardView: View {
                 Text(primaryStepDetail)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                if !hasReadyCredential {
+                    Text(actionHint(for: currentStep))
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
             Spacer(minLength: 0)
         }
@@ -209,6 +214,17 @@ struct SetupWizardView: View {
             onOpenWebLogin()
         case .manualSessionKey:
             onOpenAdvanced()
+        }
+    }
+
+    private func actionHint(for step: Step) -> String {
+        switch step {
+        case .chromeImport:
+            return "Chrome을 켜고 claude.ai 로그인 상태를 맞춘 뒤 다시 가져오면 됩니다."
+        case .webLogin:
+            return "내장 로그인 창이 열리면 인증 후 자동 추출이 끝날 때까지 기다리시면 됩니다."
+        case .manualSessionKey:
+            return "수동 입력은 마지막 수단입니다. 앞 경로가 다 실패했을 때만 여는 편이 맞습니다."
         }
     }
 }

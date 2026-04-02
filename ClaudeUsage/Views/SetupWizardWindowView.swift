@@ -56,7 +56,7 @@ struct SetupWizardWindowView: View {
         case .verification:
             return "설정 열기"
         case .organization:
-            return "설정 열기"
+            return "자동 선택 유지"
         case .complete:
             return "설정 열기"
         }
@@ -82,7 +82,7 @@ struct SetupWizardWindowView: View {
         case .verification:
             return "자격은 준비됐지만 아직 첫 성공 조회가 없습니다. 지금 바로 조회를 실행해 검증하는 편이 맞습니다."
         case .organization:
-            return progress.organizationSummary
+            return "\(progress.organizationSummary) 설정에서 organization 탭을 열어 확인하거나, 자동 선택 모드로 두고 계속 진행할 수 있습니다."
         case .complete:
             return "Claude 초기 설정이 끝났습니다. 이제 필요할 때 다른 provider를 추가하면 됩니다."
         }
@@ -193,7 +193,7 @@ struct SetupWizardWindowView: View {
         case .verification:
             onOpenAdvancedSettings()
         case .organization:
-            onOpenAdvancedSettings()
+            onComplete()
         case .complete:
             onOpenAdvancedSettings()
         }
