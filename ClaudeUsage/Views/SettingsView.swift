@@ -517,6 +517,14 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+            Toggle(
+                "\(descriptor.title) 알림 사용",
+                isOn: Binding(
+                    get: { settings.isProviderAlertEnabled(provider) },
+                    set: { settings.setProviderAlertEnabled($0, for: provider) }
+                )
+            )
+
             if let displayConfig {
                 Divider()
 

@@ -462,6 +462,10 @@ class AppSettings: ObservableObject {
         let codexPopoverItems: [PopoverItemConfig]
         let codexCompactPopoverItems: [PopoverItemConfig]
         let providerStates: AppProviderStateCatalog
+        let runtimeProviderDisplayConfigs: [AppProviderKind: ProviderMenuBarDisplayConfig]
+        let providerPopoverPinnedStates: [AppProviderKind: Bool]
+        let providerPopoverCompactStates: [AppProviderKind: Bool]
+        let providerAlertEnabledStates: [AppProviderKind: Bool]
         let settingsLastTab: String
         let claudeSettingsLastTab: String
         let codexSettingsLastTab: String
@@ -514,6 +518,26 @@ class AppSettings: ObservableObject {
             codexPopoverItems: codexPopoverItems,
             codexCompactPopoverItems: codexCompactPopoverItems,
             providerStates: providerStates,
+            runtimeProviderDisplayConfigs: Dictionary(
+                uniqueKeysWithValues: AppProviderKind.runtimeKinds.compactMap { kind in
+                    menuBarDisplayConfig(for: kind).map { (kind, $0) }
+                }
+            ),
+            providerPopoverPinnedStates: Dictionary(
+                uniqueKeysWithValues: AppProviderKind.runtimeKinds.map { kind in
+                    (kind, isPopoverPinned(for: kind))
+                }
+            ),
+            providerPopoverCompactStates: Dictionary(
+                uniqueKeysWithValues: AppProviderKind.runtimeKinds.map { kind in
+                    (kind, isPopoverCompact(for: kind))
+                }
+            ),
+            providerAlertEnabledStates: Dictionary(
+                uniqueKeysWithValues: AppProviderKind.runtimeKinds.map { kind in
+                    (kind, isProviderAlertEnabled(kind))
+                }
+            ),
             settingsLastTab: settingsLastTab,
             claudeSettingsLastTab: claudeSettingsLastTab,
             codexSettingsLastTab: codexSettingsLastTab
@@ -566,6 +590,25 @@ class AppSettings: ObservableObject {
         codexPopoverItems = PopoverItemConfig.normalizedCodex(snapshot.codexPopoverItems)
         codexCompactPopoverItems = PopoverItemConfig.normalizedCodex(snapshot.codexCompactPopoverItems)
         providerStates = snapshot.providerStates
+        for (kind, config) in snapshot.runtimeProviderDisplayConfigs {
+            setProviderShowIcon(config.showIcon, for: kind)
+            setMenuBarStyle(config.style, for: kind)
+            setProviderPercentageDisplay(config.percentageDisplay, for: kind)
+            setProviderShowBatteryPercent(config.showBatteryPercent, for: kind)
+            setProviderResetTimeDisplay(config.resetTimeDisplay, for: kind)
+            setProviderTimeFormat(config.timeFormat, for: kind)
+            setProviderCircularDisplayMode(config.circularDisplayMode, for: kind)
+            setProviderIconMetric(config.iconMetric, for: kind)
+        }
+        for (kind, isPinned) in snapshot.providerPopoverPinnedStates {
+            setPopoverPinned(isPinned, for: kind)
+        }
+        for (kind, isCompact) in snapshot.providerPopoverCompactStates {
+            setPopoverCompact(isCompact, for: kind)
+        }
+        for (kind, isEnabled) in snapshot.providerAlertEnabledStates {
+            setProviderAlertEnabled(isEnabled, for: kind)
+        }
         settingsLastTab = snapshot.settingsLastTab
         claudeSettingsLastTab = snapshot.claudeSettingsLastTab
         codexSettingsLastTab = snapshot.codexSettingsLastTab
@@ -895,6 +938,29 @@ class AppSettings: ObservableObject {
         case .gemini, .antigravity:
             objectWillChange.send()
             defaults.set(enabled, forKey: providerDefaultsKey(kind, suffix: "showIcon"))
+        }
+    }
+
+    func isProviderAlertEnabled(_ kind: AppProviderKind) -> Bool {
+        switch kind {
+        case .claude:
+            return claudeAlertEnabled
+        case .codex:
+            return codexAlertEnabled
+        case .gemini, .antigravity:
+            return providerBoolDefault(false, for: kind, suffix: "alertEnabled")
+        }
+    }
+
+    func setProviderAlertEnabled(_ enabled: Bool, for kind: AppProviderKind) {
+        switch kind {
+        case .claude:
+            claudeAlertEnabled = enabled
+        case .codex:
+            codexAlertEnabled = enabled
+        case .gemini, .antigravity:
+            objectWillChange.send()
+            defaults.set(enabled, forKey: providerDefaultsKey(kind, suffix: "alertEnabled"))
         }
     }
 

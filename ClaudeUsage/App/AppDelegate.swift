@@ -1343,6 +1343,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.geminiLoadingStartedAt = nil
                     self.updateMenuBar()
                     self.updatePopoverViewModel(overage: self.currentOverage)
+
+                    NotificationManager.shared.checkThreshold(
+                        session: .geminiPrimary,
+                        percentage: usage.primaryPercentage,
+                        resetAt: usage.primaryWindow?.resetAtISO
+                    )
+                    NotificationManager.shared.checkThreshold(
+                        session: .geminiSecondary,
+                        percentage: usage.secondaryPercentage,
+                        resetAt: usage.secondaryWindow?.resetAtISO
+                    )
+                    if let tertiary = usage.tertiaryWindow {
+                        NotificationManager.shared.checkThreshold(
+                            session: .geminiTertiary,
+                            percentage: tertiary.usedPercent,
+                            resetAt: tertiary.resetAtISO
+                        )
+                    }
                 }
             } catch let error as APIError {
                 await MainActor.run {
@@ -1425,6 +1443,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     self.antigravityLoadingStartedAt = nil
                     self.updateMenuBar()
                     self.updatePopoverViewModel(overage: self.currentOverage)
+
+                    NotificationManager.shared.checkThreshold(
+                        session: .antigravityPrimary,
+                        percentage: usage.primaryPercentage,
+                        resetAt: usage.primaryWindow?.resetAtISO
+                    )
+                    NotificationManager.shared.checkThreshold(
+                        session: .antigravitySecondary,
+                        percentage: usage.secondaryPercentage,
+                        resetAt: usage.secondaryWindow?.resetAtISO
+                    )
+                    if let tertiary = usage.tertiaryWindow {
+                        NotificationManager.shared.checkThreshold(
+                            session: .antigravityTertiary,
+                            percentage: tertiary.usedPercent,
+                            resetAt: tertiary.resetAtISO
+                        )
+                    }
                 }
             } catch let error as APIError {
                 await MainActor.run {
