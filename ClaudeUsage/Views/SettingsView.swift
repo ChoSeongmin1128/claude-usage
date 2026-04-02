@@ -459,7 +459,7 @@ struct SettingsView: View {
             }
 
             if let provider = selectedProviderKind {
-                Toggle(
+                settingsToggleRow(
                     "\(descriptor.title) provider 활성화",
                     isOn: Binding(
                         get: { settings.isProviderEnabled(provider) },
@@ -508,7 +508,7 @@ struct SettingsView: View {
                 .cornerRadius(8)
             }
 
-            Toggle(
+            settingsToggleRow(
                 "\(descriptor.title) provider 활성화",
                 isOn: Binding(
                     get: { settings.isProviderEnabled(provider) },
@@ -520,7 +520,7 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Toggle(
+            settingsToggleRow(
                 "\(descriptor.title) 알림 사용",
                 isOn: Binding(
                     get: { settings.isProviderAlertEnabled(provider) },
@@ -535,7 +535,7 @@ struct SettingsView: View {
                     Text("메뉴바 표시")
                         .font(.subheadline.weight(.semibold))
 
-                    Toggle(
+                    settingsToggleRow(
                         "\(descriptor.title) 아이콘",
                         isOn: Binding(
                             get: { settings.menuBarDisplayConfig(for: provider)?.showIcon ?? true },
@@ -589,7 +589,7 @@ struct SettingsView: View {
                     }
 
                     if displayConfig.style == .batteryBar || displayConfig.style == .sideBySideBattery {
-                        Toggle(
+                        settingsToggleRow(
                             "배터리 내부 숫자",
                             isOn: Binding(
                                 get: { settings.menuBarDisplayConfig(for: provider)?.showBatteryPercent ?? true },
@@ -628,14 +628,14 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("팝오버")
                         .font(.subheadline.weight(.semibold))
-                    Toggle(
+                    settingsToggleRow(
                         "간소화 보기",
                         isOn: Binding(
                             get: { settings.isPopoverCompact(for: provider) },
                             set: { settings.setPopoverCompact($0, for: provider) }
                         )
                     )
-                    Toggle(
+                    settingsToggleRow(
                         "팝오버 고정",
                         isOn: Binding(
                             get: { settings.isPopoverPinned(for: provider) },
@@ -661,6 +661,23 @@ struct SettingsView: View {
         .buttonStyle(.plain)
     }
 
+    private func settingsToggleRow(_ title: String, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                isOn.wrappedValue.toggle()
+            } label: {
+                Text(title)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+    }
+
     // MARK: - 인증 섹션
 
     private var authSection: some View {
@@ -668,7 +685,7 @@ struct SettingsView: View {
             Label("인증", systemImage: "key")
                 .font(.headline)
 
-            Toggle(
+            settingsToggleRow(
                 "Claude 모니터링 활성화",
                 isOn: Binding(
                     get: { settings.isProviderEnabled(.claude) },
@@ -1839,7 +1856,7 @@ struct SettingsView: View {
             Label("Codex 인증", systemImage: "bubble.left.and.bubble.right")
                 .font(.headline)
 
-            Toggle(
+            settingsToggleRow(
                 "Codex 모니터링 활성화",
                 isOn: Binding(
                     get: { settings.isProviderEnabled(.codex) },
@@ -1975,7 +1992,7 @@ struct SettingsView: View {
             Label("Codex 표시", systemImage: "slider.horizontal.3")
                 .font(.headline)
 
-            Toggle("Codex 아이콘", isOn: $settings.showCodexIcon)
+            settingsToggleRow("Codex 아이콘", isOn: $settings.showCodexIcon)
             Picker("퍼센트:", selection: $settings.codexPercentageDisplay) {
                 ForEach(PercentageDisplay.allCases, id: \.self) { mode in
                     Text(mode.displayName).tag(mode)
@@ -2017,7 +2034,7 @@ struct SettingsView: View {
             }
 
             if isCodexBatteryWithPercent {
-                Toggle("배터리 내부 숫자", isOn: $settings.codexShowBatteryPercent)
+                settingsToggleRow("배터리 내부 숫자", isOn: $settings.codexShowBatteryPercent)
                     .padding(.leading, 20)
             }
             if isCodexSingleMetricStyle {
@@ -2069,7 +2086,7 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Toggle("기본/간소화 개별 설정", isOn: $settings.separateCompactConfig)
+            settingsToggleRow("기본/간소화 개별 설정", isOn: $settings.separateCompactConfig)
 
             if settings.separateCompactConfig {
                 Picker("", selection: $codexCompactConfigTab) {
@@ -2147,7 +2164,7 @@ struct SettingsView: View {
             Label("Codex 알림", systemImage: "bell.badge")
                 .font(.headline)
 
-            Toggle("Codex 알림 사용", isOn: $settings.codexAlertEnabled)
+            settingsToggleRow("Codex 알림 사용", isOn: $settings.codexAlertEnabled)
 
             Text("퍼센트 프리셋은 공통 > 알림에서 관리하고, 여기서는 Codex 알림을 보낼지만 결정합니다.")
                 .font(.caption)
@@ -2176,7 +2193,7 @@ struct SettingsView: View {
             Label("공통 표시", systemImage: "paintbrush")
                 .font(.headline)
 
-            Toggle("메뉴바 보조 텍스트 강조", isOn: $settings.menuBarTextHighContrast)
+            settingsToggleRow("메뉴바 보조 텍스트 강조", isOn: $settings.menuBarTextHighContrast)
             Text("메뉴바의 리셋 시간, 구분자 등을 기본 텍스트와 동일한 색상으로 표시")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -2218,7 +2235,7 @@ struct SettingsView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Toggle("Claude 아이콘", isOn: $settings.showClaudeIcon)
+                settingsToggleRow("Claude 아이콘", isOn: $settings.showClaudeIcon)
                 Picker("퍼센트:", selection: $settings.percentageDisplay) {
                     ForEach(PercentageDisplay.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
@@ -2271,7 +2288,7 @@ struct SettingsView: View {
 
                 // 배터리 하위: 내부 숫자
                 if isBatteryWithPercent {
-                    Toggle("배터리 내부 숫자", isOn: $settings.showBatteryPercent)
+                    settingsToggleRow("배터리 내부 숫자", isOn: $settings.showBatteryPercent)
                         .padding(.leading, 20)
                 }
 
@@ -2320,7 +2337,7 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Toggle("기본/간소화 개별 설정", isOn: $settings.separateCompactConfig)
+            settingsToggleRow("기본/간소화 개별 설정", isOn: $settings.separateCompactConfig)
 
             if settings.separateCompactConfig {
                 Picker("", selection: $compactConfigTab) {
@@ -2432,7 +2449,7 @@ struct SettingsView: View {
                         .foregroundStyle(.red)
                 }
 
-                Toggle("자동 새로고침", isOn: $settings.autoRefresh)
+                settingsToggleRow("자동 새로고침", isOn: $settings.autoRefresh)
             }
         }
     }
@@ -2444,7 +2461,7 @@ struct SettingsView: View {
             Label("알림", systemImage: "bell")
                 .font(.headline)
 
-            Toggle("전체 알림 사용", isOn: $settings.notificationsEnabled)
+            settingsToggleRow("전체 알림 사용", isOn: $settings.notificationsEnabled)
 
             if !settings.notificationsEnabled {
                 Label("전체 알림이 꺼져 있어 Claude/Codex 알림이 모두 중지됩니다.", systemImage: "bell.slash")
@@ -2459,7 +2476,7 @@ struct SettingsView: View {
                     .font(.subheadline.weight(.semibold))
 
                 ForEach(AppProviderKind.runtimeKinds, id: \.self) { provider in
-                    Toggle(
+                    settingsToggleRow(
                         "\(provider.displayName) 알림 사용",
                         isOn: Binding(
                             get: { settings.isProviderAlertEnabled(provider) },
@@ -2551,8 +2568,8 @@ struct SettingsView: View {
                     }
                 }
 
-                Toggle("현재 세션 알림", isOn: $settings.alertFiveHourEnabled)
-                Toggle("주간 세션 알림", isOn: $settings.alertWeeklyEnabled)
+                settingsToggleRow("현재 세션 알림", isOn: $settings.alertFiveHourEnabled)
+                settingsToggleRow("주간 세션 알림", isOn: $settings.alertWeeklyEnabled)
             }
             .disabled(!settings.notificationsEnabled)
             .opacity(settings.notificationsEnabled ? 1.0 : 0.6)
@@ -2570,7 +2587,7 @@ struct SettingsView: View {
             Label("Claude 알림", systemImage: "bell.badge")
                 .font(.headline)
 
-            Toggle("Claude 알림 사용", isOn: $settings.claudeAlertEnabled)
+            settingsToggleRow("Claude 알림 사용", isOn: $settings.claudeAlertEnabled)
 
             Text("퍼센트 프리셋은 공통 > 알림에서 관리하고, 여기서는 Claude 알림을 보낼지만 결정합니다.")
                 .font(.caption)
@@ -2599,7 +2616,7 @@ struct SettingsView: View {
             Label("절전 모드", systemImage: "battery.75percent")
                 .font(.headline)
 
-            Toggle("배터리 사용 시 새로고침 감소", isOn: $settings.reducedRefreshOnBattery)
+            settingsToggleRow("배터리 사용 시 새로고침 감소", isOn: $settings.reducedRefreshOnBattery)
 
             Text("배터리 모드에서 새로고침 간격이 최소 60초로 제한됩니다")
                 .font(.caption)
@@ -2711,7 +2728,7 @@ struct SettingsView: View {
 
             providerOverviewCard
 
-            Toggle("로그인 시 자동 시작", isOn: $settings.launchAtLogin)
+            settingsToggleRow("로그인 시 자동 시작", isOn: $settings.launchAtLogin)
 
             Text("시스템 설정 → 일반 → 로그인 항목에서도 관리할 수 있습니다")
                 .font(.caption)
