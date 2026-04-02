@@ -79,6 +79,31 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
 
 세션키 경로는 Cloudflare/429/서버 상태의 영향을 받을 수 있습니다. 따라서 sessionKey만으로 충분히 동작하더라도, 장기적으로는 `CLI OAuth`를 같이 준비하는 편이 더 안정적입니다.
 
+## 로컬 데이터와 권한
+
+이 앱은 가능한 한 로컬 우선으로 동작합니다. 다만 provider별로 읽는 위치와 이유를 사용자가 이해할 수 있어야 합니다.
+
+- `Claude sessionKey`
+  - Chrome 쿠키 DB 또는 내장 로그인 창에서 읽습니다.
+  - 세션키 값은 Keychain에 저장합니다.
+- `Claude Code OAuth`
+  - `~/.claude` 자격 파일과 Keychain에 있는 Claude Code 자격을 읽습니다.
+  - OAuth 토큰과 profile metadata를 이용해 `organization`, `subscription`, `rate limit tier`를 판단합니다.
+- `Gemini`
+  - `~/.gemini/oauth_creds.json`, `settings.json`, 설치된 Gemini CLI 경로를 읽습니다.
+  - 필요 시 Google Cloud project를 탐색해 quota 요청의 정확도를 높입니다.
+- `Antigravity`
+  - 로컬 language server 프로세스와 connect 포트를 찾고, 로컬 API에 연결합니다.
+  - 실행 중이지만 연결 토큰이나 포트가 없으면 바로 그 상태를 표시합니다.
+
+즉, 브라우저 쿠키와 CLI credential은 “로그인 대행”이 아니라 “이미 로그인된 로컬 상태를 읽어 menubar에서 빠르게 신호를 주기 위한 입력”입니다.
+
+## 현재 업데이트 상태
+
+- 현재 앱은 `Sparkle 패키지`를 이미 포함합니다.
+- 하지만 `appcast(feed)`와 `공개키`가 준비되지 않은 개발 빌드에서는 `GitHub Release fallback`으로 동작합니다.
+- 설정 화면의 `업데이트` 섹션에서 지금 빌드가 `Sparkle 통합`, `appcast 준비`, `공개키 준비` 중 어디까지 와 있는지 직접 볼 수 있습니다.
+
 ## 보조 사용량 복구
 
 Claude는 `Messages header fallback` 기반 보조 사용량 복구를 지원합니다.
