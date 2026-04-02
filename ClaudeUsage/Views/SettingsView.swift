@@ -729,16 +729,31 @@ struct SettingsView: View {
                 if shouldShowAdvancedAuthSection {
                     claudeAdvancedSection
                 } else {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            isClaudeAdvancedSectionExpanded = true
+                    VStack(alignment: .leading, spacing: 4) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                isClaudeAdvancedSectionExpanded = true
+                            }
+                        } label: {
+                            HStack {
+                                Text("문제 해결 및 수동 입력 보기")
+                                    .font(.caption)
+                                Spacer(minLength: 0)
+                                if let subtitle = advancedAuthButtonSubtitle {
+                                    Text(subtitle)
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                }
+                            }
                         }
-                    } label: {
-                        Text("문제 해결 및 수동 입력 보기")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        .buttonStyle(.borderless)
+
+                        if let hint = advancedAuthCollapsedHint {
+                            Text(hint)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    .buttonStyle(.borderless)
                 }
             } else {
                 Text("Claude 모니터링이 비활성화되어 있습니다. 활성화하면 메뉴바와 조회가 다시 동작합니다.")
@@ -1155,10 +1170,39 @@ struct SettingsView: View {
     }
 
     private var shouldShowAdvancedAuthSection: Bool {
-        isClaudeAdvancedSectionExpanded
-            || !hasReadyClaudeCredential
-            || shouldSurfaceRecoveryAndDiagnostics
-            || hasPendingManualSessionKey
+        isClaudeAdvancedSectionExpanded || hasPendingManualSessionKey
+    }
+
+    private var advancedAuthButtonSubtitle: String? {
+        if hasPendingManualSessionKey {
+            return "저장 전 수동 입력"
+        }
+        if shouldRecommendCLIOAuth {
+            return "CLI OAuth 권장"
+        }
+        if settings.claudeMessagesFallbackPolicy != .off {
+            return "복구 설정 있음"
+        }
+        if !hasSuccessfulClaudeFetch {
+            return "진단 필요"
+        }
+        return nil
+    }
+
+    private var advancedAuthCollapsedHint: String? {
+        if hasPendingManualSessionKey {
+            return "연결 테스트 후에도 실제 저장은 적용 시점에만 일어납니다."
+        }
+        if shouldRecommendCLIOAuth {
+            return "최근 조회는 성공했지만 세션 경로가 불안정할 수 있습니다. 필요할 때만 고급 인증을 여시면 됩니다."
+        }
+        if settings.claudeMessagesFallbackPolicy != .off {
+            return "보조 복구와 FAQ는 고급 인증 안쪽에 유지됩니다."
+        }
+        if !hasSuccessfulClaudeFetch {
+            return "기본은 Chrome 가져오기입니다. 실패했을 때만 수동 입력과 복구 경로를 여는 편이 맞습니다."
+        }
+        return "수동 sessionKey 입력과 복구/FAQ는 필요할 때만 여는 편이 맞습니다."
     }
 
     private var hasSuccessfulClaudeFetch: Bool {

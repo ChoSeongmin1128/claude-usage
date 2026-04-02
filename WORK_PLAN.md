@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (86차)
+최종 갱신: 2026-04-02 (87차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -142,6 +142,8 @@
 - 같은 통합에서 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 의 `onSessionKeyStored` 우회 동기화 경로도 제거해, 수동 sessionKey는 더 이상 `테스트 성공 = 저장 완료`처럼 읽히지 않게 정리했습니다.
 - 2026-04-02 86차 통합에서 [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 의 persisted `hasCompletedSetupWizard` 상태를 제거했습니다. 이제 standalone setup wizard 노출과 완료 판정은 더 이상 stale UserDefaults flag에 기대지 않고, 현재 `credential + 성공 조회 + organization readiness` 상태와 [SetupCompletionPolicy.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/SetupCompletionPolicy.swift) 로만 계산됩니다.
 - 같은 통합에서 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 setup 완료 동기화 helper와 직접 대입 경로를 제거했습니다. 이에 따라 로그인/로그아웃/refresh/settings 적용이 setup flag를 따로 밀어 넣지 않고, 런타임 상태 변화만으로 wizard/설정 흐름이 결정되도록 정리했습니다.
+- 2026-04-02 87차 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 의 Claude 인증 기본 화면은 더 이상 문제 상황이라고 해서 고급 섹션을 자동으로 펼치지 않습니다. 이제 기본 화면은 `현재 상태 + 다음 행동`만 유지하고, `수동 sessionKey / 보조 복구 / CLI OAuth 안내 / FAQ`는 사용자가 직접 펼칠 때만 보이므로 정보 과밀도가 한 단계 더 내려갔습니다.
+- 같은 통합에서 고급 인증 진입 버튼은 현재 문제의 성격을 `CLI OAuth 권장`, `복구 설정 있음`, `진단 필요`, `저장 전 수동 입력`처럼 짧게 요약해 보여줍니다. 즉 상세 내용을 기본 화면에 밀어넣지 않고도, 왜 고급 섹션이 필요한지는 첫 줄에서 바로 파악할 수 있도록 정리했습니다.
 - 2026-04-02 49차 통합에서 [GeminiUsageModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/GeminiUsageModels.swift), [GeminiAPIService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/GeminiAPIService.swift), [GeminiRuntimeRefresher.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/GeminiRuntimeRefresher.swift) 를 추가했고, `~/.gemini/oauth_creds.json` 과 Gemini CLI 설치 경로의 OAuth 설정을 직접 읽어 quota API를 호출하는 최소 runtime 경로를 붙였습니다.
 - 같은 통합에서 [ProviderStateModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift), [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift), [RuntimeRefreshHandlerRegistry.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RuntimeRefreshHandlerRegistry.swift), [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `Gemini` 를 실제 runtime provider로 인식하고 refresh/backoff/state snapshot/menu bar/popup selection 경로에 포함하기 시작했습니다.
 - 같은 통합에서 [MenuBarIconFactory.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarIconFactory.swift), [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift), [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift), [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift), [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 는 `Gemini` 의 메뉴바 아이콘/요약/리셋 시간/compact·standard popover 렌더링과 기본 표시 설정 저장을 시작했습니다.
