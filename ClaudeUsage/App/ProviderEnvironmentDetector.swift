@@ -29,6 +29,22 @@ enum ProviderEnvironmentDetector {
         }
     }
 
+    static func canAttemptRefresh(for kind: AppProviderKind) -> Bool {
+        switch kind {
+        case .claude, .codex:
+            return false
+        case .gemini:
+            switch geminiCredentialState() {
+            case .usable, .refreshOnly:
+                return true
+            case .missing:
+                return false
+            }
+        case .antigravity:
+            return antigravitySignals().canAttemptRefresh
+        }
+    }
+
     private static func geminiStatus() -> ProviderEnvironmentStatus {
         let hasBinary = binaryExists(named: "gemini")
         let authType = geminiAuthType()
@@ -64,6 +80,52 @@ enum ProviderEnvironmentDetector {
     }
 
     private static func antigravityStatus() -> ProviderEnvironmentStatus {
+        let signals = antigravitySignals()
+        let hasStateDirectory = signals.hasStateDirectory
+        let appRunning = signals.appRunning
+        let runningProcess = signals.runningProcess
+
+        switch (runningProcess, hasStateDirectory, appRunning) {
+        case let (.some(process), _, _) where process.csrfToken != nil:
+            return ProviderEnvironmentStatus(
+                isDetected: true,
+                summary: "Antigravity language server와 로컬 상태 디렉토리 감지"
+            )
+        case let (.some(process), _, _):
+            let portSuffix = process.extensionPort.map { " · 포트 \($0)" } ?? ""
+            return ProviderEnvironmentStatus(
+                isDetected: true,
+                summary: "Antigravity language server 감지 · 연결 토큰 확인 중\(portSuffix)"
+            )
+        case (nil, _, true):
+            return ProviderEnvironmentStatus(
+                isDetected: true,
+                summary: "Antigravity 앱은 실행 중이며 quota language server를 준비 중입니다"
+            )
+        case (nil, true, _):
+            return ProviderEnvironmentStatus(
+                isDetected: false,
+                summary: "Antigravity 로컬 상태는 있지만 quota language server는 아직 실행되지 않았습니다"
+            )
+        case (nil, false, false):
+            return ProviderEnvironmentStatus(
+                isDetected: false,
+                summary: "Antigravity 상태 미감지"
+            )
+        }
+    }
+
+    private struct AntigravitySignals {
+        let hasStateDirectory: Bool
+        let appRunning: Bool
+        let runningProcess: AntigravityProcessSnapshot?
+
+        var canAttemptRefresh: Bool {
+            runningProcess != nil || appRunning || hasStateDirectory
+        }
+    }
+
+    private static func antigravitySignals() -> AntigravitySignals {
         let hasLegacyStateDirectory = FileManager.default.fileExists(
             atPath: FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".gemini/antigravity").path
@@ -76,49 +138,55 @@ enum ProviderEnvironmentDetector {
             atPath: FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent("Library/Application Support/Antigravity").path
         )
-        let hasStateDirectory = hasLegacyStateDirectory || hasHomeStateDirectory || hasApplicationSupportDirectory
-        let appRunning = AntigravityStatusProbe.appProcessRunning()
-        let runningProcess = AntigravityStatusProbe.runningProcess()
-
-        switch (runningProcess, hasStateDirectory) {
-        case let (.some(process), true) where process.csrfToken != nil:
-            return ProviderEnvironmentStatus(
-                isDetected: true,
-                summary: "Antigravity language server와 로컬 상태 디렉토리 감지"
-            )
-        case let (.some(process), false) where process.csrfToken != nil:
-            return ProviderEnvironmentStatus(
-                isDetected: true,
-                summary: "Antigravity language server 감지"
-            )
-        case let (.some(process), _):
-            let portSuffix = process.extensionPort.map { " · 포트 \($0)" } ?? ""
-            return ProviderEnvironmentStatus(
-                isDetected: false,
-                summary: "Antigravity language server는 실행 중이지만 연결 토큰이 없습니다\(portSuffix)"
-            )
-        case (nil, _) where appRunning:
-            return ProviderEnvironmentStatus(
-                isDetected: false,
-                summary: "Antigravity 앱은 실행 중이지만 quota language server가 아직 준비되지 않았습니다"
-            )
-        case (nil, true):
-            return ProviderEnvironmentStatus(
-                isDetected: false,
-                summary: "Antigravity 로컬 상태는 있지만 quota language server는 아직 실행되지 않았습니다"
-            )
-        case (nil, false):
-            return ProviderEnvironmentStatus(
-                isDetected: false,
-                summary: "Antigravity 상태 미감지"
-            )
-        }
+        return AntigravitySignals(
+            hasStateDirectory: hasLegacyStateDirectory || hasHomeStateDirectory || hasApplicationSupportDirectory,
+            appRunning: AntigravityStatusProbe.appProcessRunning(),
+            runningProcess: AntigravityStatusProbe.runningProcess()
+        )
     }
 
     private static func binaryExists(named name: String) -> Bool {
-        let candidates = binaryCandidateDirectories()
+        resolvedBinaryURL(named: name) != nil
+    }
+
+    private static func resolvedBinaryURL(named name: String) -> URL? {
         let fm = FileManager.default
-        return candidates.contains { fm.isExecutableFile(atPath: ($0 as NSString).appendingPathComponent(name)) }
+        for directory in binaryCandidateDirectories() {
+            let candidate = URL(fileURLWithPath: directory).appendingPathComponent(name)
+            if fm.isExecutableFile(atPath: candidate.path) {
+                return candidate
+            }
+        }
+
+        if let shellPath = shellBinaryPath(named: name) {
+            let url = URL(fileURLWithPath: shellPath)
+            if fm.isExecutableFile(atPath: url.path) {
+                return url
+            }
+        }
+
+        return nil
+    }
+
+    private static func shellBinaryPath(named name: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", "command -v \(name)"]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let path = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? nil : path
     }
 
     private static func binaryCandidateDirectories() -> [String] {

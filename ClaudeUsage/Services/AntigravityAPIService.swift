@@ -147,7 +147,7 @@ actor AntigravityAPIService {
 
     func fetchUsage() async throws -> AntigravityUsageResponse {
         let processInfo = try detectProcessInfo()
-        let listeningPorts = try detectListeningPorts(pid: processInfo.pid)
+        let listeningPorts = try detectListeningPorts(pid: processInfo.pid, preferredPort: processInfo.extensionPort)
         let connectPort = try await resolveConnectPort(
             ports: listeningPorts,
             csrfToken: processInfo.csrfToken
@@ -373,9 +373,12 @@ actor AntigravityAPIService {
         )
     }
 
-    private func detectListeningPorts(pid: Int) throws -> [Int] {
+    private func detectListeningPorts(pid: Int, preferredPort: Int?) throws -> [Int] {
         let lsofCandidates = ["/usr/sbin/lsof", "/usr/bin/lsof"]
         guard let executable = lsofCandidates.first(where: FileManager.default.isExecutableFile(atPath:)) else {
+            if let preferredPort {
+                return [preferredPort]
+            }
             throw APIError.networkError("lsof가 없습니다")
         }
 
@@ -398,6 +401,9 @@ actor AntigravityAPIService {
         let raw = String(decoding: data, as: UTF8.self)
         let ports = parseListeningPorts(raw)
         guard !ports.isEmpty else {
+            if let preferredPort {
+                return [preferredPort]
+            }
             throw APIError.networkError("Antigravity는 실행 중이지만 아직 listening port를 열지 않았습니다")
         }
         return ports

@@ -1108,7 +1108,6 @@ class AppSettings: ObservableObject {
     }
 
     private func applyMinimalVisiblePresetIfNeeded(for kind: AppProviderKind) {
-        guard kind.isRuntimeProvider else { return }
         guard !hasExplicitMenuBarCustomization(for: kind) else { return }
         guard let config = menuBarDisplayConfig(for: kind), !isMenuBarConfigVisible(config) else { return }
 
@@ -1116,7 +1115,6 @@ class AppSettings: ObservableObject {
     }
 
     private func applyMinimalVisiblePreset(force: Bool, for kind: AppProviderKind) {
-        guard kind.isRuntimeProvider else { return }
         if !force, let config = menuBarDisplayConfig(for: kind), isMenuBarConfigVisible(config) {
             return
         }

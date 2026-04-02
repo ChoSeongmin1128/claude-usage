@@ -29,13 +29,15 @@ struct PopoverProviderOverviewRowView: View {
                     Text(summary)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                        .lineLimit(2)
                 }
+                .layoutPriority(1)
                 Spacer()
                 if let meta {
                     Text(meta)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
+                        .lineLimit(1)
                 }
                 Image(systemName: "chevron.right")
                     .font(.system(size: 10, weight: .semibold))
@@ -103,15 +105,16 @@ struct PopoverProviderShellCardView: View {
                 Text(summary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
 
                 if let detail {
                     Text(detail)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
-                        .lineLimit(2)
+                        .lineLimit(3)
                 }
             }
+            .layoutPriority(1)
 
             Spacer()
 

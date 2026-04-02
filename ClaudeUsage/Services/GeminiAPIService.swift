@@ -291,14 +291,26 @@ actor GeminiAPIService {
         guard let binaryURL = resolvedGeminiBinaryURL() else { return [] }
         let realURL = binaryURL.resolvingSymlinksInPath()
         let baseDir = realURL.deletingLastPathComponent().deletingLastPathComponent()
+        let fm = FileManager.default
 
-        return [
+        var candidates: [URL] = [
             baseDir.appendingPathComponent("libexec/lib/node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js"),
             baseDir.appendingPathComponent("lib/node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js"),
             baseDir.appendingPathComponent("share/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js"),
             baseDir.appendingPathComponent("../gemini-cli-core/dist/src/code_assist/oauth2.js"),
             baseDir.appendingPathComponent("node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js"),
         ]
+
+        let bundleDir = baseDir.appendingPathComponent("bundle")
+        if fm.fileExists(atPath: bundleDir.path),
+           let enumerator = fm.enumerator(at: bundleDir, includingPropertiesForKeys: nil) {
+            for case let fileURL as URL in enumerator {
+                guard fileURL.pathExtension == "js" else { continue }
+                candidates.append(fileURL)
+            }
+        }
+
+        return candidates
     }
 
     private func resolvedGeminiBinaryURL() -> URL? {
@@ -325,7 +337,35 @@ actor GeminiAPIService {
                 return url
             }
         }
+
+        if let shellPath = shellBinaryPath(named: "gemini") {
+            let url = URL(fileURLWithPath: shellPath)
+            if fm.isExecutableFile(atPath: url.path) {
+                return url
+            }
+        }
         return nil
+    }
+
+    private func shellBinaryPath(named name: String) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", "command -v \(name)"]
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let path = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? nil : path
     }
 
     private func parseOAuthClientCredentials(from content: String) -> OAuthClientCredentials? {

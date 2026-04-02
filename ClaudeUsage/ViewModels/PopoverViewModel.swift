@@ -200,7 +200,7 @@ final class PopoverViewModel: ObservableObject {
             )
         case .gemini:
             let isEnabled = settings.isProviderEnabled(.gemini)
-            let isAuthRequired = isEnabled && !(ProviderEnvironmentDetector.status(for: .gemini)?.isDetected ?? false)
+            let isAuthRequired = isEnabled && !ProviderEnvironmentDetector.canAttemptRefresh(for: .gemini)
             let runtimeError = runtimeSnapshots[.gemini]?.error
             let summary: String
             if !isEnabled {
@@ -228,7 +228,7 @@ final class PopoverViewModel: ObservableObject {
             )
         case .antigravity:
             let isEnabled = settings.isProviderEnabled(.antigravity)
-            let isAuthRequired = isEnabled && !(ProviderEnvironmentDetector.status(for: .antigravity)?.isDetected ?? false)
+            let isAuthRequired = isEnabled && !ProviderEnvironmentDetector.canAttemptRefresh(for: .antigravity)
             let runtimeError = runtimeSnapshots[.antigravity]?.error
             let summary: String
             if !isEnabled {

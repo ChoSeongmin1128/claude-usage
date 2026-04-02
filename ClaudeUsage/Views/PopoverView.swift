@@ -144,7 +144,7 @@ struct PopoverView: View {
                 .padding(.bottom, 6)
             }
         }
-        .frame(width: isCompact ? 300 : 340)
+        .frame(width: preferredPopoverWidth)
         .background(Color(NSColor.windowBackgroundColor))
         .onAppear {
             normalizeSelectedServiceIfNeeded()
@@ -205,14 +205,12 @@ struct PopoverView: View {
                                 Text(service.displayName)
                                     .font(.system(size: 12.5, weight: selectedService == service ? .semibold : .medium))
                                     .lineLimit(1)
-                                    .fixedSize(horizontal: true, vertical: false)
                                 if shouldShowWarningDot(for: service) {
                                     Circle()
                                         .fill(Color.orange)
                                         .frame(width: 6, height: 6)
                                 }
                             }
-                            .fixedSize(horizontal: true, vertical: false)
                             .padding(.horizontal, 9)
                             .padding(.vertical, 4)
                             .background(selectedService == service ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
@@ -313,6 +311,16 @@ struct PopoverView: View {
         nonmutating set {
             settings.setPopoverPinned(newValue, for: appProviderKind(for: selectedService))
         }
+    }
+
+    private var preferredPopoverWidth: CGFloat {
+        let baseWidth: CGFloat = isCompact ? 320 : 360
+        let providerCount = max(availableServices.count, 1)
+        let selectorWidth = CGFloat(providerCount) * (isCompact ? 84 : 92)
+        let utilityWidth: CGFloat = shouldCollapseHeaderMetadata ? 128 : 172
+        let minRequiredWidth = selectorWidth + utilityWidth
+        let capWidth: CGFloat = isCompact ? 460 : 560
+        return min(max(baseWidth, minRequiredWidth), capWidth)
     }
 
     private var hasServiceData: Bool {
@@ -884,11 +892,20 @@ struct CompactUsageRow: View {
     var timeFormatStyle: TimeFormatStyle = .h24
 
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            compactRow(includeResetText: true)
+            compactRow(includeResetText: false)
+        }
+    }
+
+    @ViewBuilder
+    private func compactRow(includeResetText: Bool) -> some View {
         HStack(spacing: 4) {
             Text(label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .frame(width: 36, alignment: .leading)
+                .lineLimit(1)
+                .frame(minWidth: 34, idealWidth: 42, maxWidth: 56, alignment: .leading)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -900,18 +917,21 @@ struct CompactUsageRow: View {
                 }
             }
             .frame(height: 6)
+            .layoutPriority(1)
 
             Text(String(format: "%.0f%%", percentage))
                 .font(.system(.caption, design: .monospaced))
                 .fontWeight(.medium)
                 .foregroundStyle(ColorProvider.statusColor(for: percentage))
-                .frame(width: 34, alignment: .trailing)
+                .frame(minWidth: 34, idealWidth: 38, maxWidth: 42, alignment: .trailing)
 
-            Text(compactResetText ?? "")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 72, alignment: .trailing)
-                .lineLimit(1)
+            if includeResetText {
+                Text(compactResetText ?? "")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 46, idealWidth: 60, maxWidth: 84, alignment: .trailing)
+                    .lineLimit(1)
+            }
         }
     }
 
@@ -1089,13 +1109,15 @@ struct CompactCodexCreditsRow: View {
             Text("크레딧")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .frame(width: 36, alignment: .leading)
+                .frame(minWidth: 34, idealWidth: 42, maxWidth: 56, alignment: .leading)
 
             Text(credits.formattedBalance)
                 .font(.system(.caption, design: .monospaced))
                 .fontWeight(.medium)
                 .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .lineLimit(1)
+                .frame(minWidth: 48, alignment: .trailing)
+                .layoutPriority(1)
         }
     }
 }
@@ -1139,7 +1161,7 @@ struct CompactOverageRow: View {
             Text("추가")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .frame(width: 36, alignment: .leading)
+                .frame(minWidth: 34, idealWidth: 42, maxWidth: 56, alignment: .leading)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -1156,12 +1178,13 @@ struct CompactOverageRow: View {
                 .font(.system(.caption, design: .monospaced))
                 .fontWeight(.medium)
                 .foregroundStyle(.purple)
-                .frame(width: 34, alignment: .trailing)
+                .frame(minWidth: 34, idealWidth: 38, maxWidth: 42, alignment: .trailing)
 
             Text("잔액 \(overage.formattedRemainingCredits)")
                 .font(.system(size: 9))
                 .foregroundStyle(.tertiary)
-                .frame(width: 72, alignment: .trailing)
+                .lineLimit(1)
+                .frame(minWidth: 54, idealWidth: 68, maxWidth: 84, alignment: .trailing)
         }
     }
 }

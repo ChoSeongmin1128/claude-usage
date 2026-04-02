@@ -39,6 +39,8 @@ struct SettingsView: View {
     @State private var selectedCommonTab: CommonTab = .display
     @State private var selectedClaudeTab: ClaudeTab = .auth
     @State private var selectedCodexTab: CodexTab = .auth
+    @State private var selectedGeminiTab: RuntimeProviderTab = .auth
+    @State private var selectedAntigravityTab: RuntimeProviderTab = .auth
     @State private var isAdvancedAuthExpanded = false
     @State private var isClaudeAdvancedSectionExpanded = false
     @State private var isAuthFAQExpanded = false
@@ -123,6 +125,24 @@ struct SettingsView: View {
         }
     }
 
+    enum RuntimeProviderTab: String, CaseIterable, Identifiable {
+        case auth
+        case display
+        case popover
+        case alerts
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .auth: return "인증"
+            case .display: return "표시"
+            case .popover: return "팝오버"
+            case .alerts: return "알림"
+            }
+        }
+    }
+
     private enum CodexAuthStatus {
         case checking
         case authenticated
@@ -193,6 +213,8 @@ struct SettingsView: View {
             selectedPanel = SettingsProviderPanel(rawValue: settings.settingsLastTab) ?? .common
             selectedClaudeTab = ClaudeTab(rawValue: settings.providerSettingsLastTab(for: .claude)) ?? .auth
             selectedCodexTab = CodexTab(rawValue: settings.providerSettingsLastTab(for: .codex)) ?? .auth
+            selectedGeminiTab = RuntimeProviderTab(rawValue: settings.providerSettingsLastTab(for: .gemini)) ?? .auth
+            selectedAntigravityTab = RuntimeProviderTab(rawValue: settings.providerSettingsLastTab(for: .antigravity)) ?? .auth
             loadUsageHealthSnapshot()
             checkCodexAuth()
             refreshUpdateEnginePresentation()
@@ -215,6 +237,12 @@ struct SettingsView: View {
         }
         .onChange(of: selectedCodexTab) { _, tab in
             settings.setProviderSettingsLastTab(tab.rawValue, for: .codex)
+        }
+        .onChange(of: selectedGeminiTab) { _, tab in
+            settings.setProviderSettingsLastTab(tab.rawValue, for: .gemini)
+        }
+        .onChange(of: selectedAntigravityTab) { _, tab in
+            settings.setProviderSettingsLastTab(tab.rawValue, for: .antigravity)
         }
         .onChange(of: settings.updateCheckInterval) { _, _ in
             refreshUpdateEnginePresentation()
@@ -269,9 +297,9 @@ struct SettingsView: View {
                 codexAlertSection
             }
         case .gemini:
-            runtimeProviderSection(for: .gemini)
+            runtimeProviderPanel(for: .gemini, tab: selectedGeminiTab)
         case .antigravity:
-            runtimeProviderSection(for: .antigravity)
+            runtimeProviderPanel(for: .antigravity, tab: selectedAntigravityTab)
         }
     }
 
@@ -284,9 +312,9 @@ struct SettingsView: View {
         case .codex:
             return "codex-\(selectedCodexTab.rawValue)"
         case .gemini:
-            return "gemini-runtime"
+            return "gemini-\(selectedGeminiTab.rawValue)"
         case .antigravity:
-            return "antigravity-runtime"
+            return "antigravity-\(selectedAntigravityTab.rawValue)"
         }
     }
 
@@ -363,21 +391,17 @@ struct SettingsView: View {
                     }
                 }
             case .gemini:
-                Label("Gemini runtime 설정", systemImage: "sparkles")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
-                    .cornerRadius(8)
+                ForEach(RuntimeProviderTab.allCases) { tab in
+                    segmentedTabButton(title: tab.title, isSelected: selectedGeminiTab == tab) {
+                        selectedGeminiTab = tab
+                    }
+                }
             case .antigravity:
-                Label("Antigravity runtime 설정", systemImage: "antenna.radiowaves.left.and.right")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
-                    .cornerRadius(8)
+                ForEach(RuntimeProviderTab.allCases) { tab in
+                    segmentedTabButton(title: tab.title, isSelected: selectedAntigravityTab == tab) {
+                        selectedAntigravityTab = tab
+                    }
+                }
             }
             Spacer(minLength: 0)
         }
@@ -479,10 +503,23 @@ struct SettingsView: View {
     }
 
     @ViewBuilder
-    private func runtimeProviderSection(for provider: AppProviderKind) -> some View {
+    private func runtimeProviderPanel(for provider: AppProviderKind, tab: RuntimeProviderTab) -> some View {
+        switch tab {
+        case .auth:
+            runtimeProviderAuthSection(for: provider)
+        case .display:
+            runtimeProviderDisplaySection(for: provider)
+        case .popover:
+            runtimeProviderPopoverSection(for: provider)
+        case .alerts:
+            runtimeProviderAlertsSection(for: provider)
+        }
+    }
+
+    @ViewBuilder
+    private func runtimeProviderAuthSection(for provider: AppProviderKind) -> some View {
         let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: provider)
         let environmentStatus = ProviderEnvironmentDetector.status(for: provider)
-        let displayConfig = settings.menuBarDisplayConfig(for: provider)
         VStack(alignment: .leading, spacing: 12) {
             Label(descriptor.title, systemImage: descriptor.icon)
                 .font(.headline)
@@ -523,26 +560,23 @@ struct SettingsView: View {
             Text(shellSectionFootnote(for: provider, selectionState: settings.providerSelectionState))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
 
-            settingsToggleRow(
-                "\(descriptor.title) 알림 사용",
-                isOn: Binding(
-                    get: { settings.isProviderAlertEnabled(provider) },
-                    set: { settings.setProviderAlertEnabled($0, for: provider) }
-                )
-            )
+    @ViewBuilder
+    private func runtimeProviderDisplaySection(for provider: AppProviderKind) -> some View {
+        let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: provider)
+        let displayConfig = settings.menuBarDisplayConfig(for: provider)
+        VStack(alignment: .leading, spacing: 12) {
+            Label("\(descriptor.title) 표시", systemImage: descriptor.icon)
+                .font(.headline)
+
+            Text("메뉴바에 실제로 어떤 형태로 그릴지 정하는 영역입니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             if let displayConfig {
-                Divider()
-
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("메뉴바 표시")
-                        .font(.subheadline.weight(.semibold))
-
-                    Text("`활성화`는 조회와 팝오버 참여를 뜻하고, `메뉴바에 표시`는 상단 메뉴바에 실제로 그릴지 여부입니다.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
                     settingsToggleRow(
                         "\(descriptor.title) 메뉴바에 표시",
                         isOn: Binding(
@@ -652,28 +686,52 @@ struct SettingsView: View {
                         .cornerRadius(8)
                     }
                 }
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("팝오버")
-                        .font(.subheadline.weight(.semibold))
-                    settingsToggleRow(
-                        "간소화 보기",
-                        isOn: Binding(
-                            get: { settings.isPopoverCompact(for: provider) },
-                            set: { settings.setPopoverCompact($0, for: provider) }
-                        )
-                    )
-                    settingsToggleRow(
-                        "팝오버 고정",
-                        isOn: Binding(
-                            get: { settings.isPopoverPinned(for: provider) },
-                            set: { settings.setPopoverPinned($0, for: provider) }
-                        )
-                    )
-                }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func runtimeProviderPopoverSection(for provider: AppProviderKind) -> some View {
+        let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: provider)
+        VStack(alignment: .leading, spacing: 12) {
+            Label("\(descriptor.title) 팝오버", systemImage: descriptor.icon)
+                .font(.headline)
+
+            settingsToggleRow(
+                "간소화 보기",
+                isOn: Binding(
+                    get: { settings.isPopoverCompact(for: provider) },
+                    set: { settings.setPopoverCompact($0, for: provider) }
+                )
+            )
+            settingsToggleRow(
+                "팝오버 고정",
+                isOn: Binding(
+                    get: { settings.isPopoverPinned(for: provider) },
+                    set: { settings.setPopoverPinned($0, for: provider) }
+                )
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func runtimeProviderAlertsSection(for provider: AppProviderKind) -> some View {
+        let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: provider)
+        VStack(alignment: .leading, spacing: 12) {
+            Label("\(descriptor.title) 알림", systemImage: descriptor.icon)
+                .font(.headline)
+
+            Text("공통 알림 프리셋을 공유하되, 이 provider에 대해 알림을 보낼지만 따로 정합니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            settingsToggleRow(
+                "\(descriptor.title) 알림 사용",
+                isOn: Binding(
+                    get: { settings.isProviderAlertEnabled(provider) },
+                    set: { settings.setProviderAlertEnabled($0, for: provider) }
+                )
+            )
         }
     }
 
@@ -2311,9 +2369,7 @@ struct SettingsView: View {
             Label("Codex 알림", systemImage: "bell.badge")
                 .font(.headline)
 
-            settingsToggleRow("Codex 알림 사용", isOn: $settings.codexAlertEnabled)
-
-            Text("퍼센트 프리셋은 공통 > 알림에서 관리하고, 여기서는 Codex 알림을 보낼지만 결정합니다.")
+            Text("알림 프리셋과 provider별 발송 여부는 공통 > 알림에서만 관리합니다.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -2734,9 +2790,7 @@ struct SettingsView: View {
             Label("Claude 알림", systemImage: "bell.badge")
                 .font(.headline)
 
-            settingsToggleRow("Claude 알림 사용", isOn: $settings.claudeAlertEnabled)
-
-            Text("퍼센트 프리셋은 공통 > 알림에서 관리하고, 여기서는 Claude 알림을 보낼지만 결정합니다.")
+            Text("알림 프리셋과 provider별 발송 여부는 공통 > 알림에서만 관리합니다.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -3016,12 +3070,12 @@ struct SettingsView: View {
             case .codex:
                 return CodexAuthManager.shared.isAuthenticated ? "활성" : "인증 필요"
             case .gemini:
-                if let status = ProviderEnvironmentDetector.status(for: .gemini), !status.isDetected {
+                if !ProviderEnvironmentDetector.canAttemptRefresh(for: .gemini) {
                     return "로그인 필요"
                 }
                 return "활성"
             case .antigravity:
-                if let status = ProviderEnvironmentDetector.status(for: .antigravity), !status.isDetected {
+                if !ProviderEnvironmentDetector.canAttemptRefresh(for: .antigravity) {
                     return "연결 필요"
                 }
                 return "활성"
