@@ -42,6 +42,7 @@ struct SettingsView: View {
     @State private var isClaudeAdvancedSectionExpanded = false
     @State private var isOAuthGuideExpanded = false
     @State private var isAuthFAQExpanded = false
+    @State private var isAuthDetailsExpanded = false
     @State private var isMessagesFallbackExpanded = false
     @State private var isTestingMessagesFallback = false
     @State private var messagesFallbackStatus: String?
@@ -678,8 +679,7 @@ struct SettingsView: View {
                 if shouldShowAuthSetupFlow {
                     authSetupFlowCard
                 }
-                generalAuthGuidanceCard
-                authStatusSection
+                compactAuthStatusCard
 
                 if let storedSessionKey, !storedSessionKey.isEmpty {
                     // 저장된 세션 키 존재
@@ -752,6 +752,7 @@ struct SettingsView: View {
     private var claudeAdvancedSection: some View {
         DisclosureGroup(isExpanded: $isClaudeAdvancedSectionExpanded) {
             VStack(alignment: .leading, spacing: 12) {
+                detailedAuthStatusSection
                 manualSessionKeySection
                 messagesFallbackSection
                 authFAQSection
@@ -798,6 +799,55 @@ struct SettingsView: View {
         .cornerRadius(8)
     }
 
+    private var compactAuthStatusCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionCardHeader(
+                title: "현재 인증 상태",
+                subtitle: "처음 필요한 행동만 먼저 보여줍니다"
+            )
+
+            if let snapshot = usageHealthSnapshot {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        chip(
+                            title: "활성 경로",
+                            value: runtimePathLabel(snapshot.runtime.activePath),
+                            color: runtimePathColor(snapshot.runtime.activePath)
+                        )
+                        if snapshot.runtime.credentialAvailability.oauthCredentialAvailable {
+                            chip(title: "OAuth", value: "준비됨", color: .blue)
+                        } else if snapshot.runtime.credentialAvailability.sessionCredentialAvailable {
+                            chip(title: "세션", value: "준비됨", color: .green)
+                        }
+                    }
+
+                    Text(authSummaryLine(snapshot))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if shouldRecommendCLIOAuth {
+                        Text("세션 경로가 불안정할 수 있어 `claude login`으로 Claude Code OAuth를 같이 준비하는 편이 낫습니다.")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+
+                    if !isOrganizationSelectionReady {
+                        Text(organizationChecklistDetail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Text("인증 상태를 아직 불러오지 못했습니다. 먼저 가져오기 또는 로그인부터 진행하시면 됩니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .cornerRadius(8)
+    }
+
     private var authStatusSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionCardHeader(
@@ -811,6 +861,29 @@ struct SettingsView: View {
         .padding(12)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
         .cornerRadius(8)
+    }
+
+    private var detailedAuthStatusSection: some View {
+        DisclosureGroup(isExpanded: $isAuthDetailsExpanded) {
+            VStack(alignment: .leading, spacing: 10) {
+                authChecklistCard
+                profileMetadataCard
+                claudeCLIOAuthGuideSection
+            }
+            .padding(.top, 4)
+        } label: {
+            HStack {
+                Text("상세 인증 상태")
+                Spacer(minLength: 0)
+                Text("체크리스트 · 메타데이터 · CLI")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .padding(.vertical, 4)
+        }
+        .font(.subheadline)
     }
 
     private var manualSessionKeySection: some View {
@@ -1044,6 +1117,26 @@ struct SettingsView: View {
         .padding(8)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.55))
         .cornerRadius(6)
+    }
+
+    private func authSummaryLine(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> String {
+        if !hasSuccessfulClaudeFetch {
+            return "아직 성공 조회가 없습니다. 먼저 가져오기 또는 로그인 후 상태 새로고침이 필요합니다."
+        }
+
+        if shouldRecommendCLIOAuth {
+            return "최근 조회는 성공했지만 세션 경로가 불안정할 수 있습니다."
+        }
+
+        if snapshot.runtime.credentialAvailability.oauthCredentialAvailable {
+            return "Claude Code OAuth가 준비되어 있고 최근 조회도 성공했습니다."
+        }
+
+        if snapshot.runtime.credentialAvailability.sessionCredentialAvailable {
+            return "세션키 경로로 최근 조회가 성공했습니다."
+        }
+
+        return "자격 준비 상태를 다시 확인해 주세요."
     }
 
     private var claudeCLIOAuthGuideCard: some View {

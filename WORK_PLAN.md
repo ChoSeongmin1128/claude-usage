@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (61차)
+최종 갱신: 2026-04-02 (62차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -96,6 +96,8 @@
 - 같은 통합에서 fallback 테스트 오류는 더 이상 `ClaudeMessagesHeaderFallbackFetcherError error 0` 같은 raw enum 형태로 보이지 않고, `사용량 헤더 없음`, `OAuth 토큰 없음/만료`, `HTTP 상태 코드 실패` 같은 사용자 설명형 오류로 노출됩니다.
 - 같은 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift), [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 의 provider 상태 subtitle을 `활성 / 실동작` 기준으로 맞춰, 이미 runtime provider가 된 `Gemini` / `Antigravity`를 여전히 `설정 shell` 또는 `준비 중` 문맥으로 읽게 만드는 혼란을 더 줄였습니다.
 - 2026-04-02 61차 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 의 Claude 인증 기본 CTA를 `Chrome에서 가져오기` 와 `웹 로그인 열기`로 분리했습니다. 이제 settings 화면의 첫 행동 유도도 standalone setup wizard와 같은 순서로 읽히며, `브라우저를 여는 것`과 `가져오기를 실행하는 것`을 같은 버튼에 섞어놓던 혼란을 줄입니다.
+- 2026-04-02 62차 통합에서 레퍼런스인 `Claude-Usage-Tracker` / `CodexBar` / `claude-code`를 다시 비교한 뒤, [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 의 Claude 인증 패널을 `행동` 중심으로 더 단순화했습니다. 일반 영역에서는 `빠른 시작`, `현재 인증 상태`, 기본 CTA만 먼저 보이고, `체크리스트`, `계정 메타데이터`, `Claude Code CLI OAuth 상세 가이드`는 `고급 설정 > 상세 인증 상태`로 내렸습니다.
+- 같은 통합에서 현재 앱의 과한 문제는 단순히 카드 수가 많다는 것이 아니라 `처음 해야 할 행동`과 `진단/설명`이 같은 깊이에 섞여 있던 점이었습니다. 이번 정리는 그 층위를 다시 분리한 것입니다.
 - 2026-04-02 49차 통합에서 [GeminiUsageModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/GeminiUsageModels.swift), [GeminiAPIService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/GeminiAPIService.swift), [GeminiRuntimeRefresher.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/GeminiRuntimeRefresher.swift) 를 추가했고, `~/.gemini/oauth_creds.json` 과 Gemini CLI 설치 경로의 OAuth 설정을 직접 읽어 quota API를 호출하는 최소 runtime 경로를 붙였습니다.
 - 같은 통합에서 [ProviderStateModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift), [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift), [RuntimeRefreshHandlerRegistry.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RuntimeRefreshHandlerRegistry.swift), [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `Gemini` 를 실제 runtime provider로 인식하고 refresh/backoff/state snapshot/menu bar/popup selection 경로에 포함하기 시작했습니다.
 - 같은 통합에서 [MenuBarIconFactory.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarIconFactory.swift), [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift), [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift), [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift), [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 는 `Gemini` 의 메뉴바 아이콘/요약/리셋 시간/compact·standard popover 렌더링과 기본 표시 설정 저장을 시작했습니다.
