@@ -12,7 +12,7 @@
 
 - 현재 앱은 App Store형 앱보다 직접 배포형 도구에 가깝습니다.
 - [UpdateService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/UpdateService.swift)는 이제 `AppUpdateEngine` 경계 뒤에서 `Sparkle` 과 `GitHub Release fallback` 을 함께 다룰 수 있습니다.
-- 다만 현재 개발 빌드는 `SUFeedURL` / `SUPublicEDKey` 가 없어서 여전히 GitHub Release 엔진으로 fallback 됩니다. 즉, 패키지 통합은 끝났지만 실제 appcast 배포 채널은 아직 없습니다.
+- 다만 현재 개발 빌드는 `SUFeedURL` / `SUPublicEDKey` 가 비어 있어서 여전히 GitHub Release 엔진으로 fallback 됩니다. 즉, 패키지 통합은 끝났지만 실제 appcast 배포 채널은 아직 없습니다.
 
 ## 2. 현재 상태 진단
 
@@ -38,7 +38,7 @@
 - zip 다운로드 후 수동 교체는 fallback 경로로만 남아 있고, 사용자 경험이 여전히 거칩니다.
 - 서명/노타리제이션이 없으면 최초 실행 설명이 계속 번거롭습니다.
 - Sparkle 패키지는 붙었지만, 배포 채널이 없으므로 제품 입장에서는 아직 완전한 자동 업데이트가 아닙니다.
-- 현재 코드는 [Info.plist](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Info.plist) 의 `SUFeedURL`, `SUPublicEDKey` build setting 경계를 읽습니다. 예시 값은 [Sparkle.release.example.xcconfig](/Users/seongmin/Personal/ClaudeUsage/Config/Sparkle.release.example.xcconfig) 에 추가했습니다.
+- 현재 코드는 [Info.plist](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Info.plist) 의 `SUFeedURL`, `SUPublicEDKey` build setting 경계를 읽습니다. 프로젝트 Release 설정은 [Release.xcconfig](/Users/seongmin/Personal/ClaudeUsage/Config/Release.xcconfig) 를 읽고, 로컬 비밀값은 `Config/Sparkle.release.local.xcconfig` 로 덮어쓰는 구조입니다. 참고 예시는 [Sparkle.release.example.xcconfig](/Users/seongmin/Personal/ClaudeUsage/Config/Sparkle.release.example.xcconfig) 에 남겨뒀습니다.
 
 ## 3. Apple Developer 계정이 생기면 가능한 것
 
@@ -269,6 +269,7 @@ Sparkle 문서상 sandbox 앱은 `Installer.xpc`와 관련 entitlement가 필요
   - 값이 비어 있거나 unresolved placeholder(`$(...)`)면 미설정으로 간주
   - 이 경우 Sparkle 대신 GitHub fallback 엔진 사용
 - 예시 설정 파일
+  - [Release.xcconfig](/Users/seongmin/Personal/ClaudeUsage/Config/Release.xcconfig)
   - [Sparkle.release.example.xcconfig](/Users/seongmin/Personal/ClaudeUsage/Config/Sparkle.release.example.xcconfig)
 - 점검 스크립트
   - [prepare-sparkle-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/prepare-sparkle-release.sh)
@@ -278,7 +279,7 @@ Sparkle 문서상 sandbox 앱은 `Installer.xpc`와 관련 entitlement가 필요
 ### 실제 릴리즈 때 해야 할 것
 
 1. 예시 파일을 복사해 실제 release 전용 xcconfig 생성
-2. `SUFeedURL`, `SUPublicEDKey` 채우기
+2. `Config/Sparkle.release.local.xcconfig` 또는 Release 환경에서 `SUFeedURL`, `SUPublicEDKey` 채우기
 3. `NOTARY_PROFILE`을 준비한 뒤 [build-notarize-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/build-notarize-release.sh) 실행
 4. Release configuration에 해당 xcconfig 연결
 5. [generate-sparkle-appcast.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/generate-sparkle-appcast.sh) 로 appcast 생성

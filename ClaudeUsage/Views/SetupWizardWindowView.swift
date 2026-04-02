@@ -8,6 +8,7 @@ struct SetupWizardWindowView: View {
     let onOpenWebLogin: () -> Void
     let onOpenAdvancedSettings: () -> Void
     let onOpenOrganizations: () -> Void
+    let onUseAutomaticOrganization: () -> Void
     let onVerifyFetch: () -> Void
     let onComplete: () -> Void
     let onDismiss: () -> Void
@@ -60,7 +61,7 @@ struct SetupWizardWindowView: View {
         case .verification:
             return isVerifyingFetch ? "조회 확인 중" : "지금 조회 검증"
         case .organization:
-            return progress.isAutomaticOrganizationMode ? "완료" : "Organization 확인"
+            return progress.isAutomaticOrganizationMode ? "바로 시작" : "Organization 확인"
         case .complete:
             return "완료"
         }
@@ -73,7 +74,7 @@ struct SetupWizardWindowView: View {
         case .verification:
             return nil
         case .organization:
-            return progress.isAutomaticOrganizationMode ? nil : "자동 선택으로 완료"
+            return progress.isAutomaticOrganizationMode ? nil : "자동 선택으로 전환"
         case .complete:
             return "설정 열기"
         }
@@ -102,7 +103,7 @@ struct SetupWizardWindowView: View {
             if progress.isAutomaticOrganizationMode {
                 return "자동 선택 모드입니다. 별도 organization을 고르지 않을 거라면 바로 마무리하시면 됩니다."
             }
-            return "\(progress.organizationSummary) 특정 organization을 직접 쓸 때만 확인이 필요합니다."
+            return "\(progress.organizationSummary) 특정 organization을 직접 고를 때만 이 단계가 필요합니다."
         case .complete:
             return "Claude 초기 설정이 끝났습니다. 이제 필요할 때 다른 provider를 추가하면 됩니다."
         }
@@ -219,7 +220,7 @@ struct SetupWizardWindowView: View {
         case .verification:
             onOpenAdvancedSettings()
         case .organization:
-            onComplete()
+            onUseAutomaticOrganization()
         case .complete:
             onOpenAdvancedSettings()
         }

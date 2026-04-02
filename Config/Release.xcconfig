@@ -1,0 +1,7 @@
+// Shared release defaults for signed builds.
+// Keep committed defaults empty and let a local, untracked file override them.
+
+SUFeedURL =
+SUPublicEDKey =
+
+#include? "Sparkle.release.local.xcconfig"

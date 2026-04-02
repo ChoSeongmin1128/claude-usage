@@ -9,7 +9,7 @@ struct AntigravityProcessSnapshot: Sendable, Equatable {
 
 enum AntigravityStatusProbe {
     nonisolated static func runningProcess() -> AntigravityProcessSnapshot? {
-        guard let output = try? runProcess(arguments: ["-ax", "-o", "pid=,command="]) else { return nil }
+        guard let output = try? processListing() else { return nil }
 
         for line in output.split(separator: "\n") {
             let raw = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -32,6 +32,28 @@ enum AntigravityStatusProbe {
         }
 
         return nil
+    }
+
+    nonisolated static func appProcessRunning() -> Bool {
+        guard let output = try? processListing() else { return false }
+
+        for line in output.split(separator: "\n") {
+            let raw = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !raw.isEmpty else { continue }
+
+            let parts = raw.split(maxSplits: 1, whereSeparator: \.isWhitespace)
+            guard parts.count == 2 else { continue }
+
+            let command = String(parts[1]).lowercased()
+            if command.contains("/applications/antigravity.app/")
+                || command.contains("user-data-dir=/users/")
+                    && command.contains("/library/application support/antigravity")
+            {
+                return true
+            }
+        }
+
+        return false
     }
 
     nonisolated static func isRunning() -> Bool {
@@ -64,6 +86,10 @@ enum AntigravityStatusProbe {
     private nonisolated static func extractPort(_ flag: String, from command: String) -> Int? {
         guard let raw = extractFlag(flag, from: command) else { return nil }
         return Int(raw)
+    }
+
+    private nonisolated static func processListing() throws -> String {
+        try runProcess(arguments: ["-ax", "-o", "pid=,command="])
     }
 
     private nonisolated static func runProcess(arguments: [String]) throws -> String {

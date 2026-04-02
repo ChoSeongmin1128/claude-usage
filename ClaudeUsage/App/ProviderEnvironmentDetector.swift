@@ -6,6 +6,13 @@ struct ProviderEnvironmentStatus: Sendable, Equatable {
 }
 
 enum ProviderEnvironmentDetector {
+    private enum GeminiAuthType: String {
+        case oauthPersonal = "oauth-personal"
+        case apiKey = "api-key"
+        case vertexAI = "vertex-ai"
+        case unknown
+    }
+
     static func status(for kind: AppProviderKind) -> ProviderEnvironmentStatus? {
         switch kind {
         case .claude:
@@ -24,26 +31,53 @@ enum ProviderEnvironmentDetector {
 
     private static func geminiStatus() -> ProviderEnvironmentStatus {
         let hasBinary = binaryExists(named: "gemini")
-        let credsURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".gemini/oauth_creds.json")
-        let hasCreds = FileManager.default.fileExists(atPath: credsURL.path)
+        let authType = geminiAuthType()
+        let credentialState = geminiCredentialState()
 
-        switch (hasBinary, hasCreds) {
-        case (true, true):
-            return ProviderEnvironmentStatus(isDetected: true, summary: "Gemini CLI와 OAuth 자격 감지")
-        case (true, false):
+        switch authType {
+        case .apiKey:
+            return ProviderEnvironmentStatus(
+                isDetected: false,
+                summary: hasBinary ? "Gemini CLI 감지됨 · 현재 인증 방식은 API 키입니다" : "Gemini CLI 미설치"
+            )
+        case .vertexAI:
+            return ProviderEnvironmentStatus(
+                isDetected: false,
+                summary: hasBinary ? "Gemini CLI 감지됨 · 현재 인증 방식은 Vertex AI입니다" : "Gemini CLI 미설치"
+            )
+        case .oauthPersonal, .unknown:
+            break
+        }
+
+        switch (hasBinary, credentialState) {
+        case (true, .usable):
+            return ProviderEnvironmentStatus(isDetected: true, summary: "Gemini CLI OAuth 감지")
+        case (true, .refreshOnly):
+            return ProviderEnvironmentStatus(isDetected: true, summary: "Gemini CLI OAuth 감지 · 액세스 토큰은 갱신이 필요합니다")
+        case (true, .missing):
             return ProviderEnvironmentStatus(isDetected: false, summary: "Gemini CLI 감지됨 · 로그인 필요")
-        case (false, true):
-            return ProviderEnvironmentStatus(isDetected: false, summary: "Gemini 자격 흔적은 있지만 CLI가 없습니다")
-        case (false, false):
+        case (false, .usable), (false, .refreshOnly):
+            return ProviderEnvironmentStatus(isDetected: false, summary: "Gemini OAuth 자격은 있지만 CLI가 없습니다")
+        case (false, .missing):
             return ProviderEnvironmentStatus(isDetected: false, summary: "Gemini CLI 미설치")
         }
     }
 
     private static func antigravityStatus() -> ProviderEnvironmentStatus {
-        let antigravityURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".gemini/antigravity")
-        let hasStateDirectory = FileManager.default.fileExists(atPath: antigravityURL.path)
+        let hasLegacyStateDirectory = FileManager.default.fileExists(
+            atPath: FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".gemini/antigravity").path
+        )
+        let hasHomeStateDirectory = FileManager.default.fileExists(
+            atPath: FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".antigravity").path
+        )
+        let hasApplicationSupportDirectory = FileManager.default.fileExists(
+            atPath: FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/Antigravity").path
+        )
+        let hasStateDirectory = hasLegacyStateDirectory || hasHomeStateDirectory || hasApplicationSupportDirectory
+        let appRunning = AntigravityStatusProbe.appProcessRunning()
         let runningProcess = AntigravityStatusProbe.runningProcess()
 
         switch (runningProcess, hasStateDirectory) {
@@ -63,10 +97,15 @@ enum ProviderEnvironmentDetector {
                 isDetected: false,
                 summary: "Antigravity language server는 실행 중이지만 연결 토큰이 없습니다\(portSuffix)"
             )
+        case (nil, _) where appRunning:
+            return ProviderEnvironmentStatus(
+                isDetected: false,
+                summary: "Antigravity 앱은 실행 중이지만 quota language server가 아직 준비되지 않았습니다"
+            )
         case (nil, true):
             return ProviderEnvironmentStatus(
                 isDetected: false,
-                summary: "Antigravity 상태 디렉토리는 있지만 실행 중인 language server는 없습니다"
+                summary: "Antigravity 로컬 상태는 있지만 quota language server는 아직 실행되지 않았습니다"
             )
         case (nil, false):
             return ProviderEnvironmentStatus(
@@ -98,5 +137,49 @@ enum ProviderEnvironmentDetector {
             "\(home)/bin",
         ]
         return Array(Set(envPaths + fallbackPaths))
+    }
+
+    private enum GeminiCredentialState {
+        case usable
+        case refreshOnly
+        case missing
+    }
+
+    private static func geminiAuthType() -> GeminiAuthType {
+        let settingsURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".gemini/settings.json")
+
+        guard
+            let data = try? Data(contentsOf: settingsURL),
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let security = json["security"] as? [String: Any],
+            let auth = security["auth"] as? [String: Any],
+            let selectedType = auth["selectedType"] as? String
+        else {
+            return .unknown
+        }
+
+        return GeminiAuthType(rawValue: selectedType) ?? .unknown
+    }
+
+    private static func geminiCredentialState() -> GeminiCredentialState {
+        let credsURL = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".gemini/oauth_creds.json")
+        guard
+            let data = try? Data(contentsOf: credsURL),
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return .missing
+        }
+
+        let accessToken = (json["access_token"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let refreshToken = (json["refresh_token"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let accessToken, !accessToken.isEmpty {
+            return .usable
+        }
+        if let refreshToken, !refreshToken.isEmpty {
+            return .refreshOnly
+        }
+        return .missing
     }
 }

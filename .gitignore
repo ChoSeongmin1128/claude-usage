@@ -67,3 +67,6 @@ iOSInjectionProject/
 
 # Local release artifact
 ClaudeUsage.zip
+
+# Local Sparkle release overrides
+Config/Sparkle.release.local.xcconfig

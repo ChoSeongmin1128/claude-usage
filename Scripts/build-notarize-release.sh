@@ -9,7 +9,7 @@ ZIP_PATH="${ZIP_PATH:-$BUILD_DIR/ClaudeUsage.zip}"
 SCHEME="${SCHEME:-ClaudeUsage}"
 CONFIGURATION="${CONFIGURATION:-Release}"
 PROJECT_PATH="${PROJECT_PATH:-$ROOT_DIR/ClaudeUsage.xcodeproj}"
-XC_CONFIG_PATH="${XC_CONFIG_PATH:-$ROOT_DIR/Config/Sparkle.release.xcconfig}"
+XC_CONFIG_PATH="${XC_CONFIG_PATH:-$ROOT_DIR/Config/Release.xcconfig}"
 NOTARY_PROFILE="${NOTARY_PROFILE:-}"
 
 echo "ClaudeUsage release 산출물 빌드와 notarization을 시작합니다"
@@ -21,7 +21,7 @@ fi
 
 if [[ ! -f "$XC_CONFIG_PATH" ]]; then
   echo "release xcconfig를 찾지 못했습니다: $XC_CONFIG_PATH" >&2
-  echo "Config/Sparkle.release.example.xcconfig 를 복사해 실제 값을 채운 뒤 다시 실행해 주세요." >&2
+  echo "Config/Release.xcconfig 와 Config/Sparkle.release.local.xcconfig 구성을 확인한 뒤 다시 실행해 주세요." >&2
   exit 1
 fi
 

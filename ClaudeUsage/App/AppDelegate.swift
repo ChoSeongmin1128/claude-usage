@@ -964,10 +964,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleProviderEnabledChange(_ enabled: Bool, for service: PopoverService) {
+        if enabled {
+            resetTransientProviderAuthStateIfNeeded(for: service)
+        }
         let action = RefreshOrchestration.actionForEnabledChange(
             state: runtimeActivationState(for: service, enabled: enabled)
         )
         performRuntimeAction(action)
+    }
+
+    private func resetTransientProviderAuthStateIfNeeded(for service: PopoverService) {
+        switch service {
+        case .claude:
+            return
+        case .codex:
+            if CodexAuthManager.shared.isAuthenticated {
+                codexError = nil
+                hasCodexAuthError = false
+                codexConsecutiveErrorCount = 0
+                nextCodexRefreshAllowedAt = nil
+            }
+        case .gemini:
+            if hasGeminiCredential {
+                geminiError = nil
+                hasGeminiAuthError = false
+                geminiConsecutiveErrorCount = 0
+                nextGeminiRefreshAllowedAt = nil
+            }
+        case .antigravity:
+            if hasAntigravityCredential {
+                antigravityError = nil
+                hasAntigravityAuthError = false
+                antigravityConsecutiveErrorCount = 0
+                nextAntigravityRefreshAllowedAt = nil
+            }
+        }
     }
 
     // MARK: - System Status
@@ -1965,6 +1996,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 AppSettings.shared.claudeSettingsLastTab = "organizations"
                 self?.setupWizardWindowCoordinator.close()
                 self?.showSettingsWindow()
+            },
+            onUseAutomaticOrganization: { [weak self] in
+                guard let self else { return }
+                AppSettings.shared.preferredOrganizationID = ""
+                self.setupWizardWindowCoordinator.close()
+                self.updateMenuBar()
+                self.updatePopoverViewModel(overage: self.currentOverage)
             },
             onVerifyFetch: { [weak self] in
                 self?.refreshUsage(force: true)

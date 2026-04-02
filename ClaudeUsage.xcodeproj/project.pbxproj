@@ -11,6 +11,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		B4A000012F5000010029D266 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		3E5CA45E2F3C72330029D266 /* ClaudeUsage.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeUsage.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -50,6 +51,7 @@
 		3E5CA4552F3C72330029D266 = {
 			isa = PBXGroup;
 			children = (
+				B4A000022F5000010029D266 /* Config */,
 				3E5CA4602F3C72330029D266 /* ClaudeUsage */,
 				3E5CA45F2F3C72330029D266 /* Products */,
 			);
@@ -61,6 +63,14 @@
 				3E5CA45E2F3C72330029D266 /* ClaudeUsage.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		B4A000022F5000010029D266 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				B4A000012F5000010029D266 /* Release.xcconfig */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -212,6 +222,7 @@
 		};
 		3E5CA4682F3C72340029D266 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = B4A000012F5000010029D266 /* Release.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -300,6 +311,7 @@
 		};
 		3E5CA46B2F3C72340029D266 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = B4A000012F5000010029D266 /* Release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
