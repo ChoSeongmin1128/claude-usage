@@ -912,6 +912,21 @@ class AppSettings: ObservableObject {
         }
     }
 
+    func menuBarStyle(for kind: AppProviderKind) -> MenuBarStyle? {
+        menuBarDisplayConfig(for: kind)?.style
+    }
+
+    func setMenuBarStyle(_ style: MenuBarStyle, for kind: AppProviderKind) {
+        switch kind {
+        case .claude:
+            menuBarStyle = style
+        case .codex:
+            codexMenuBarStyle = style
+        case .gemini, .antigravity:
+            break
+        }
+    }
+
     // MARK: - Actions
 
     func resetToDefaults() {

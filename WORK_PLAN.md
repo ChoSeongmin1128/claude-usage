@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (28차)
+최종 갱신: 2026-04-02 (29차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -59,6 +59,7 @@
 - [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift), [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 이제 이 helper를 이용해 `claude/codex` 개별 필드명에 직접 매달리지 않도록 줄이기 시작했습니다.
 - [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift) 는 `RuntimeProviderPresentationState` 와 `RuntimeProviderActivationState` 를 도입해, provider 정책 입력을 `Claude/Codex` 개별 파라미터 묶음에서 벗어나기 시작했습니다.
 - [ProviderTransitionPolicy.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ProviderTransitionPolicy.swift), [RefreshOrchestration.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RefreshOrchestration.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 이제 탭 전환 refresh / enable 변화 판단을 provider별 상태 struct 기준으로 다루기 시작했습니다.
+- [StatusContextMenuBuilder.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/StatusContextMenuBuilder.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift), [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 는 상태바 우클릭 메뉴의 toggle / refresh / style 변경도 provider-generic selector와 helper 기준으로 맞추기 시작했습니다.
 - 다만 AppDelegate orchestration과 multi-provider fetch/menu glue는 아직 더 분해해야 합니다.
 
 ## 2. 참고 레포에서 가져올 방향

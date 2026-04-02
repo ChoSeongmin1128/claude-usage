@@ -361,12 +361,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 settings: #selector(settingsClicked),
                 openUsage: #selector(openUsagePage),
                 quit: #selector(quitClicked),
-                claudeToggle: #selector(toggleClaudeEnabled),
-                codexToggle: #selector(toggleCodexEnabled),
-                claudeRefresh: #selector(refreshClaudeClicked),
-                codexRefresh: #selector(refreshCodexClicked),
-                claudeStyleChange: #selector(changeStyle(_:)),
-                codexStyleChange: #selector(changeCodexStyle(_:))
+                toggleProvider: #selector(toggleProviderClicked(_:)),
+                refreshProvider: #selector(refreshProviderClicked(_:)),
+                changeProviderStyle: #selector(changeProviderStyleClicked(_:))
             )
         )
 
@@ -389,38 +386,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func changeStyle(_ sender: NSMenuItem) {
-        guard let style = sender.representedObject as? MenuBarStyle else { return }
-        AppSettings.shared.menuBarStyle = style
+    @objc private func changeProviderStyleClicked(_ sender: NSMenuItem) {
+        guard let payload = sender.representedObject as? ProviderStyleMenuSelection else { return }
+        applyMenuBarStyle(payload.style, for: payload.service.providerKind)
+    }
+
+    private func applyMenuBarStyle(_ style: MenuBarStyle, for kind: AppProviderKind) {
+        AppSettings.shared.setMenuBarStyle(style, for: kind)
         updateMenuBar()
     }
 
-    @objc private func changeCodexStyle(_ sender: NSMenuItem) {
-        guard let style = sender.representedObject as? MenuBarStyle else { return }
-        AppSettings.shared.codexMenuBarStyle = style
-        updateMenuBar()
+    @objc private func refreshProviderClicked(_ sender: NSMenuItem) {
+        guard let service = menuService(from: sender) else { return }
+        refresh(service: service, force: true)
     }
 
-    @objc private func refreshClaudeClicked() {
-        refreshUsage(force: true)
-    }
-
-    @objc private func refreshCodexClicked() {
-        refreshCodexUsage(force: true)
-    }
-
-    @objc private func toggleClaudeEnabled() {
-        toggleProviderEnabled(.claude)
-    }
-
-    @objc private func toggleCodexEnabled() {
-        toggleProviderEnabled(.codex)
+    @objc private func toggleProviderClicked(_ sender: NSMenuItem) {
+        guard let service = menuService(from: sender) else { return }
+        toggleProviderEnabled(service)
     }
 
     private func toggleProviderEnabled(_ service: PopoverService) {
         let settings = AppSettings.shared
         let kind = ServiceSelectionHelper.providerKind(for: service)
         settings.setProviderEnabled(!settings.isProviderEnabled(kind), for: kind)
+    }
+
+    private func menuService(from item: NSMenuItem) -> PopoverService? {
+        guard let rawValue = item.representedObject as? String else { return nil }
+        return PopoverService(rawValue: rawValue)
     }
 
     // MARK: - Monitoring

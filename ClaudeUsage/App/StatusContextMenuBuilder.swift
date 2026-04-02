@@ -1,18 +1,25 @@
 import AppKit
 import Foundation
 
+final class ProviderStyleMenuSelection: NSObject {
+    let service: PopoverService
+    let style: MenuBarStyle
+
+    init(service: PopoverService, style: MenuBarStyle) {
+        self.service = service
+        self.style = style
+    }
+}
+
 struct StatusContextMenuActions {
     let target: AnyObject
     let refreshAll: Selector
     let settings: Selector
     let openUsage: Selector
     let quit: Selector
-    let claudeToggle: Selector
-    let codexToggle: Selector
-    let claudeRefresh: Selector
-    let codexRefresh: Selector
-    let claudeStyleChange: Selector
-    let codexStyleChange: Selector
+    let toggleProvider: Selector
+    let refreshProvider: Selector
+    let changeProviderStyle: Selector
 }
 
 enum StatusContextMenuBuilder {
@@ -60,40 +67,26 @@ enum StatusContextMenuBuilder {
         to menu: NSMenu
     ) {
         let serviceName = service.displayName
-        switch service {
-        case .claude:
-            menu.addItem(toggleItem(
-                title: "\(serviceName) 모니터링 활성화",
-                isEnabled: settings.isProviderEnabled(.claude),
-                action: actions.claudeToggle,
-                target: actions.target))
-            menu.addItem(refreshItem(
-                title: "\(serviceName) 새로고침",
-                isEnabled: canRefresh,
-                action: actions.claudeRefresh,
-                target: actions.target))
-            menu.addItem(styleItem(
-                title: "\(serviceName) 아이콘 스타일",
-                currentStyle: settings.menuBarStyle,
-                action: actions.claudeStyleChange,
-                target: actions.target))
-        case .codex:
-            menu.addItem(toggleItem(
-                title: "\(serviceName) 모니터링 활성화",
-                isEnabled: settings.isProviderEnabled(.codex),
-                action: actions.codexToggle,
-                target: actions.target))
-            menu.addItem(refreshItem(
-                title: "\(serviceName) 새로고침",
-                isEnabled: canRefresh,
-                action: actions.codexRefresh,
-                target: actions.target))
-            menu.addItem(styleItem(
-                title: "\(serviceName) 아이콘 스타일",
-                currentStyle: settings.codexMenuBarStyle,
-                action: actions.codexStyleChange,
-                target: actions.target))
-        }
+        let kind = service.providerKind
+
+        menu.addItem(toggleItem(
+            title: "\(serviceName) 모니터링 활성화",
+            isEnabled: settings.isProviderEnabled(kind),
+            action: actions.toggleProvider,
+            target: actions.target,
+            representedObject: service.rawValue))
+        menu.addItem(refreshItem(
+            title: "\(serviceName) 새로고침",
+            isEnabled: canRefresh,
+            action: actions.refreshProvider,
+            target: actions.target,
+            representedObject: service.rawValue))
+        menu.addItem(styleItem(
+            title: "\(serviceName) 아이콘 스타일",
+            service: service,
+            currentStyle: settings.menuBarStyle(for: kind) ?? .none,
+            action: actions.changeProviderStyle,
+            target: actions.target))
     }
 
     private static func makeItem(
@@ -111,10 +104,12 @@ enum StatusContextMenuBuilder {
         title: String,
         isEnabled: Bool,
         action: Selector,
-        target: AnyObject
+        target: AnyObject,
+        representedObject: Any?
     ) -> NSMenuItem {
         let item = makeItem(title: title, action: action, target: target)
         item.state = isEnabled ? .on : .off
+        item.representedObject = representedObject
         return item
     }
 
@@ -122,15 +117,18 @@ enum StatusContextMenuBuilder {
         title: String,
         isEnabled: Bool,
         action: Selector,
-        target: AnyObject
+        target: AnyObject,
+        representedObject: Any?
     ) -> NSMenuItem {
         let item = makeItem(title: title, action: action, target: target)
         item.isEnabled = isEnabled
+        item.representedObject = representedObject
         return item
     }
 
     private static func styleItem(
         title: String,
+        service: PopoverService,
         currentStyle: MenuBarStyle,
         action: Selector,
         target: AnyObject
@@ -138,7 +136,7 @@ enum StatusContextMenuBuilder {
         let submenu = NSMenu()
         for style in MenuBarStyle.allCases {
             let item = makeItem(title: style.displayName, action: action, target: target)
-            item.representedObject = style
+            item.representedObject = ProviderStyleMenuSelection(service: service, style: style)
             item.state = currentStyle == style ? .on : .off
             submenu.addItem(item)
         }
