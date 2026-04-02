@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (33차)
+최종 갱신: 2026-04-02 (34차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -72,6 +72,7 @@
 - [RefreshOrchestration.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RefreshOrchestration.swift) 의 `markSetupComplete` 결정도 더 이상 `.claude` 비교를 직접 갖지 않고 `RuntimeProviderActivationState` 입력으로 밀어내기 시작했습니다.
 - 2026-04-02 33차 통합에서 [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift) 에 `RuntimeProviderState`, `RuntimeProviderStateCatalog` 를 추가했고, [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `currentUsage/currentCodexUsage/currentError/...` 이중 필드를 이 카탈로그 위 computed wrapper로 바꿨습니다.
 - 같은 통합에서 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `runtimeRefreshHandlers` 를 도입해 `refresh(service:)` switch를 lookup 기반으로 줄였고, `clearRuntimeServiceState(_:)` 도 카탈로그 reset 중심으로 단순화했습니다.
+- 2026-04-02 34차 통합에서 [ClaudeRuntimeRefresher.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ClaudeRuntimeRefresher.swift), [CodexRuntimeRefresher.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/CodexRuntimeRefresher.swift) 를 추가했고, [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 provider별 네트워크 fetch 세부를 직접 수행하지 않고 refresher를 통해 호출하기 시작했습니다.
 
 ## 2. 참고 레포에서 가져올 방향
 
@@ -401,6 +402,7 @@
 - [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift) 의 `RuntimeProviderSnapshot` 과 [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift) 의 snapshot 기반 `runtimeServiceState` 계산으로, 팝오버 입력이 `usage/codexUsage/error/...` 개별 인자보다 provider 단위 컬렉션에 조금 더 가까워졌습니다.
 - [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift) 는 `MenuBarProviderSnapshot` 기반 `singleProviderContent` / `multipleProviderContent` 를 추가했고, [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 active provider 배열에서 snapshot을 만들어 메뉴바를 갱신하도록 바뀌었습니다.
 - [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift) 의 `RuntimeProviderStateCatalog` 도입으로 `AppDelegate` 내부 이중 상태 세트가 하나의 저장소로 모이기 시작했습니다.
+- [ClaudeRuntimeRefresher.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ClaudeRuntimeRefresher.swift) 와 [CodexRuntimeRefresher.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/CodexRuntimeRefresher.swift) 도입으로, `AppDelegate` 안의 provider별 fetch 본체가 분리되기 시작했습니다.
 - 아직 남음
 - `AppDelegate`의 refresh/backoff execution을 더 coordinator 성격으로 분리하고, `ServiceSelectionHelper`의 Claude/Codex 2-provider 전제를 더 걷어내야 합니다.
 - 참고 레포 비교 기준 추가 체크리스트

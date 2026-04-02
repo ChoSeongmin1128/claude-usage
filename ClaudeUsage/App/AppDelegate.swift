@@ -827,22 +827,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Task {
             do {
                 Logger.debug("사용량 갱신 시작")
-
-                let usage = try await apiService.fetchUsageWithRetry()
-
-                // overage는 5분 캐시로 요청량 절감
-                let shouldFetchOverage: Bool = {
-                    guard let last = self.lastOverageFetchAt else { return true }
-                    return Date().timeIntervalSince(last) >= 300
-                }()
-                let fetchedOverage = shouldFetchOverage ? (try? await apiService.fetchOverageSpendLimit()) : nil
+                let result = try await ClaudeRuntimeRefresher.refresh(
+                    apiService: apiService,
+                    lastOverageFetchAt: self.lastOverageFetchAt
+                )
 
                 await MainActor.run {
                     AppSettings.shared.hasCompletedSetupWizard = true
-                    self.currentUsage = usage
-                    if let fetchedOverage {
+                    self.currentUsage = result.usage
+                    if let fetchedOverage = result.overage {
                         self.currentOverage = fetchedOverage
-                        self.lastOverageFetchAt = Date()
+                    }
+                    if let overageFetchedAt = result.overageFetchedAt {
+                        self.lastOverageFetchAt = overageFetchedAt
                     }
                     self.currentError = nil
                     self.isLoading = false
@@ -860,13 +857,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     // 알림 체크
                     NotificationManager.shared.checkThreshold(
                         session: .fiveHour,
-                        percentage: usage.fiveHourPercentage,
-                        resetAt: usage.fiveHour.resetsAt
+                        percentage: result.usage.fiveHourPercentage,
+                        resetAt: result.usage.fiveHour.resetsAt
                     )
                     NotificationManager.shared.checkThreshold(
                         session: .weekly,
-                        percentage: usage.weeklyPercentage,
-                        resetAt: usage.sevenDay?.resetsAt
+                        percentage: result.usage.weeklyPercentage,
+                        resetAt: result.usage.sevenDay?.resetsAt
                     )
                 }
 
@@ -971,8 +968,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         Task {
             do {
-                _ = await codexAPIService.refreshTokenIfNeeded()
-                let usage = try await codexAPIService.fetchUsageWithRetry()
+                let usage = try await CodexRuntimeRefresher.refresh(
+                    apiService: codexAPIService
+                )
 
                 await MainActor.run {
                     self.currentCodexUsage = usage
