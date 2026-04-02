@@ -40,7 +40,6 @@ struct SettingsView: View {
     @State private var selectedCodexTab: CodexTab = .auth
     @State private var isAdvancedAuthExpanded = false
     @State private var isClaudeAdvancedSectionExpanded = false
-    @State private var isOAuthGuideExpanded = false
     @State private var isAuthFAQExpanded = false
     @State private var isAuthDetailsExpanded = false
     @State private var isMessagesFallbackExpanded = false
@@ -698,30 +697,7 @@ struct SettingsView: View {
                     authSetupFlowCard
                 } else {
                     compactAuthStatusCard
-
-                    if let storedSessionKey, !storedSessionKey.isEmpty {
-                        savedCredentialCard
-                    } else {
-                        HStack(spacing: 10) {
-                            Button(action: { onOpenClaudeInChrome?() }) {
-                                Label("Chrome에서 가져오기", systemImage: "globe")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.large)
-
-                            Button(action: { onOpenLogin?() }) {
-                                Label("웹 로그인 열기", systemImage: "person.crop.circle")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.large)
-                        }
-
-                        Text("먼저 Chrome 로그인 상태에서 자동 가져오기를 시도하고, 실패하면 웹 로그인 창에서 sessionKey 추출을 시도합니다.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    authPrimaryActionsCard
                 }
 
                 claudeAdvancedSection
@@ -824,56 +800,81 @@ struct SettingsView: View {
         .cornerRadius(8)
     }
 
-    private var savedCredentialCard: some View {
+    private var authPrimaryActionsCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                if isTesting {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("연결 상태를 확인하고 있습니다")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else if let result = testResult {
-                    switch result {
-                    case .success:
-                        Label("저장된 세션으로 최근 연결 확인됨", systemImage: "checkmark.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.green)
-                    case .failure(let msg):
-                        Label(msg, systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                            .lineLimit(2)
+            if hasReadyClaudeCredential {
+                HStack(spacing: 8) {
+                    Button("상태 새로고침") {
+                        loadUsageHealthSnapshot()
                     }
-                } else {
-                    Label("저장된 세션 자격이 있습니다", systemImage: "key.fill")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
+                    .buttonStyle(.borderedProminent)
 
-            HStack(spacing: 8) {
-                Button("상태 새로고침") {
-                    loadUsageHealthSnapshot()
-                }
-                .buttonStyle(.bordered)
+                    if hasSuccessfulClaudeFetch {
+                        Button("Organization 열기") {
+                            selectedClaudeTab = .organizations
+                        }
+                        .buttonStyle(.bordered)
+                    }
 
-                if case .success = testResult {
-                } else {
-                    Button("웹 로그인 다시 열기") { onOpenLogin?() }
+                    Button("다시 로그인") { onOpenLogin?() }
                         .buttonStyle(.bordered)
                 }
 
-                Spacer()
+                HStack(spacing: 8) {
+                    if isTesting {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("연결 상태를 확인하고 있습니다")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if let result = testResult {
+                        switch result {
+                        case .success:
+                            Label("최근 연결 확인됨", systemImage: "checkmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        case .failure(let msg):
+                            Label(msg, systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .lineLimit(2)
+                        }
+                    } else if let summary = claudeNotificationPolicySummary {
+                        Text(summary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("수동 sessionKey, 보조 복구, FAQ는 고급 설정에서만 확인합니다.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
 
-                Button("로그아웃") { handleLogoutAction() }
-                    .foregroundStyle(.red)
+                    Spacer()
+
+                    Button("로그아웃") { handleLogoutAction() }
+                        .foregroundStyle(.red)
+                }
+            } else {
+                HStack(spacing: 10) {
+                    Button(action: { onOpenClaudeInChrome?() }) {
+                        Label("Chrome에서 가져오기", systemImage: "globe")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+
+                    Button(action: { onOpenLogin?() }) {
+                        Label("웹 로그인 열기", systemImage: "person.crop.circle")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                }
+
+                Text("권장 경로는 Chrome 자동 가져오기입니다. 실패할 때만 웹 로그인이나 수동 sessionKey로 내려가는 편이 맞습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-
-            Text("실제 sessionKey 값과 수동 테스트는 고급 설정에서 확인할 수 있습니다.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
         }
         .padding(12)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
@@ -1246,39 +1247,6 @@ struct SettingsView: View {
             .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
             .cornerRadius(8)
         }
-    }
-
-    private var oauthQuickGuideSection: some View {
-        DisclosureGroup(isExpanded: $isOAuthGuideExpanded) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("1. `Chrome 또는 웹 로그인`을 누릅니다.")
-                Text("2. 로그인 창에서 `Chrome에서 가져오기`를 먼저 시도합니다.")
-                Text("3. 실패하면 같은 창에서 웹 로그인으로 sessionKey 추출을 시도합니다.")
-                Text("4. 계속 실패하면 고급 설정에서 sessionKey 값만 직접 입력합니다.")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.top, 4)
-        } label: {
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    isOAuthGuideExpanded.toggle()
-                }
-            } label: {
-                HStack {
-                    Text("일반 로그인 경로")
-                    Spacer(minLength: 0)
-                    Text("Chrome import → 웹 로그인")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .padding(.vertical, 4)
-            }
-            .buttonStyle(.plain)
-        }
-        .font(.subheadline)
     }
 
     private func sectionCardHeader(title: String, subtitle: String? = nil) -> some View {
