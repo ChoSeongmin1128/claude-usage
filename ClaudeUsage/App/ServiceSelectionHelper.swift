@@ -2,10 +2,12 @@ import Foundation
 
 struct ServiceSelectionHelper {
     static let supportedProviderKinds: [AppProviderKind] = AppProviderKind.runtimeKinds
-    static let supportedPopoverServices: [PopoverService] = PopoverService.allCases.filter { $0.providerKind.isRuntimeProvider }
+    static let supportedPopoverServices: [PopoverService] = PopoverService.allCases.filter {
+        (AppProviderKind(rawValue: $0.rawValue) ?? .claude).isRuntimeProvider
+    }
 
     nonisolated static func providerKind(for service: PopoverService) -> AppProviderKind {
-        service.providerKind
+        AppProviderKind(rawValue: service.rawValue) ?? .claude
     }
 
     nonisolated static func service(for kind: AppProviderKind) -> PopoverService? {
