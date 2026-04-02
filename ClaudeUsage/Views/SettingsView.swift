@@ -2701,28 +2701,31 @@ struct SettingsView: View {
             }
             return settings.isProviderEnabled(provider) ? "활성" : "비활성화됨"
         }
-        return settings.isProviderEnabled(provider) ? "설정 shell · 저장됨" : "설정 shell"
+        return settings.isProviderEnabled(provider) ? "활성 예정" : "비활성화됨"
     }
 
     private func shellSectionFootnote(for provider: AppProviderKind, selectionState: ProviderSelectionState) -> String {
         if provider.isRuntimeProvider {
-            return "이 provider는 실동작 경로를 가집니다. 일반 패널에서 인증과 표시 방식을 바로 조정할 수 있습니다."
+            if settings.isProviderEnabled(provider) {
+                return "이 provider는 활성화 즉시 메뉴바와 조회 경로에 연결됩니다."
+            }
+            return "활성화하면 메뉴바와 조회 경로에 바로 연결됩니다."
         }
 
         let environmentStatus = ProviderEnvironmentDetector.status(for: provider)
 
         if selectionState.shellEnabledKinds.contains(provider) {
             if let environmentStatus, environmentStatus.isDetected {
-                return "로컬 환경은 감지됐지만 아직 설정 shell 단계입니다. 다음 단계에서 메뉴바/조회 경로와 직접 연결할 예정입니다."
+                return "로컬 환경은 감지됐고 다음 연결 단계만 남아 있습니다."
             }
-            return "현재는 설정 shell만 준비되어 있습니다. 활성화 상태는 저장되지만 메뉴바/조회 경로는 다음 단계에서 연결됩니다."
+            return "활성화 상태는 저장되지만 실제 조회 연결은 다음 단계에서 열립니다."
         }
 
         if let environmentStatus, environmentStatus.isDetected {
-            return "로컬 환경이 이미 감지됩니다. 활성화해 두면 다음 단계에서 연결 상태를 그대로 이어받을 수 있습니다."
+            return "로컬 환경이 이미 감지됩니다. 활성화하면 다음 단계에서 이 상태를 이어받습니다."
         }
 
-        return "아직 설정 shell 단계입니다. 미리 활성화해 두면 다음 단계에서 연결 상태를 이어받을 수 있습니다."
+        return "아직 연결 준비가 필요합니다. 환경이 준비되면 여기서 바로 활성화할 수 있습니다."
     }
 
     // MARK: - Actions

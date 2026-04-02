@@ -245,7 +245,7 @@ struct PopoverView: View {
         let selectionState = settings.providerSelectionState
         return VStack(alignment: .leading, spacing: 10) {
             sectionHeader(
-                title: "추가 provider",
+                title: "Provider",
                 subtitle: "활성 \(selectionState.enabledKinds.count) · 실동작 \(selectionState.runtimeEnabledKinds.count)"
             )
 

@@ -317,7 +317,7 @@ final class PopoverViewModel: ObservableObject {
             if settings.isProviderEnabled(kind) {
                 return ProviderEnvironmentDetector.status(for: kind)?.summary
                     ?? baseDetail
-                    ?? "런타임 연결 전 구조를 정리하고 있습니다."
+                    ?? "자격 또는 로컬 상태를 확인해 주세요."
             }
             return "비활성화된 상태입니다."
         }
@@ -332,9 +332,12 @@ final class PopoverViewModel: ObservableObject {
         case .gemini, .antigravity:
             guard settings.isProviderEnabled(kind) else { return "비활성" }
             if let environmentStatus = ProviderEnvironmentDetector.status(for: kind) {
-                return environmentStatus.isDetected ? "감지됨" : (baseBadge ?? "준비 중")
+                if environmentStatus.isDetected {
+                    return "감지됨"
+                }
+                return kind == .gemini ? "로그인 필요" : "연결 필요"
             }
-            return baseBadge ?? "준비 중"
+            return kind == .gemini ? "로그인 필요" : "연결 필요"
         }
     }
 
