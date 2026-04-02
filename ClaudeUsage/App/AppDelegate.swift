@@ -473,7 +473,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var hasReadyClaudeCredential: Bool {
         KeychainManager.shared.hasSessionKey
         || claudeCredentialAvailability.hasAnyCredential
-        || lastUpdated != nil
     }
 
     private var hasSuccessfulClaudeFetch: Bool {

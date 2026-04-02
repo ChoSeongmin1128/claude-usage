@@ -1154,7 +1154,7 @@ struct SettingsView: View {
             return "확인 중"
         }
         if updateEngineStatus.usesSparkleReadyPath {
-            return "Sparkle 자동업데이트"
+            return "Sparkle 확인 가능"
         }
         if updateEngineStatus.sparkleIntegrated {
             return "GitHub fallback"
@@ -1266,15 +1266,15 @@ struct SettingsView: View {
             return "연결 테스트 후에도 실제 저장은 적용 시점에만 일어납니다."
         }
         if shouldRecommendCLIOAuth {
-            return "최근 조회는 성공했지만 세션 경로가 불안정할 수 있습니다. 필요할 때만 고급 인증을 여시면 됩니다."
+            return "최근 조회는 성공했지만 세션 경로가 불안정할 수 있습니다."
         }
         if settings.claudeMessagesFallbackPolicy != .off {
             return "보조 복구와 FAQ는 고급 인증 안쪽에 유지됩니다."
         }
         if !hasSuccessfulClaudeFetch {
-            return "기본은 Chrome 가져오기입니다. 실패했을 때만 수동 입력과 복구 경로를 여는 편이 맞습니다."
+            return "기본은 Chrome 가져오기입니다. 실패했을 때만 수동 입력을 여는 편이 맞습니다."
         }
-        return "수동 sessionKey 입력과 복구/FAQ는 필요할 때만 여는 편이 맞습니다."
+        return "수동 입력과 복구는 필요할 때만 여는 편이 맞습니다."
     }
 
     private var hasSuccessfulClaudeFetch: Bool {
@@ -3054,7 +3054,7 @@ struct SettingsView: View {
 
     private func updateReadinessSummary(_ status: UpdateEngineStatus) -> String {
         if status.usesSparkleReadyPath {
-            return "현재 빌드는 Sparkle 자동업데이트 경로가 준비된 상태입니다."
+            return "현재 빌드는 Sparkle 앱내 확인과 GitHub fallback을 함께 사용할 수 있습니다."
         }
         if status.sparkleIntegrated {
             return "Sparkle 패키지는 포함됐지만 appcast 또는 공개키가 없어 아직 GitHub fallback을 사용합니다."

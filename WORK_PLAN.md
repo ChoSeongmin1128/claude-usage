@@ -676,7 +676,7 @@
 - persisted `hasCompletedSetupWizard` 를 제거했으므로, setup 완료는 더 이상 별도 저장 플래그가 아니라 현재 런타임 상태와 `SetupCompletionPolicy` 로만 판단합니다.
 - 2026-04-02 늦은 저녁 마감 작업으로 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 `Organization` 섹션에 현재 모드와 검증 상태를 분리해 보여주고, `Sparkle` 업데이트 섹션은 `현재 상태 + 다음 행동` 요약 카드와 접히는 상세 단계로 정리했습니다. 즉 설정 화면에서 마감 전제 조건은 바로 읽히되, 긴 절차 설명은 기본 노출에서 뺐습니다.
 - 같은 마감 작업으로 [SetupWizardWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SetupWizardWindowView.swift) 는 자동 organization 모드의 완료 CTA를 더 직접적인 문구로 바꾸고, 수동 organization 단계는 “특정 organization을 직접 고를 때만 필요한 단계”라는 점을 더 분명히 드러내도록 정리했습니다.
-- 후속 정리로 [UpdateService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/UpdateService.swift) 의 `SparkleUpdateEngine` 도 의미를 맞췄습니다. Sparkle 경로는 더 이상 `checkForUpdates()` 에서 무조건 최신이라고 응답하지 않고, `latestDownloadURL()` 은 GitHub 하드코딩보다 configured feed URL을 우선 기준으로 봅니다.
+- 후속 정리로 [UpdateService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/UpdateService.swift) 의 `SparkleUpdateEngine` 도 의미를 맞췄습니다. Sparkle 경로는 더 이상 `checkForUpdates()` 에서 무조건 최신이라고 응답하지 않고, 현재는 `앱 내부 Sparkle 확인 + GitHub fallback 백그라운드 확인` 구조로 동작합니다. `SUFeedURL` 은 유효한 `http/https` URL과 placeholder 배제를 통과해야만 설정된 것으로 간주합니다.
 
 ### 제품 방향
 

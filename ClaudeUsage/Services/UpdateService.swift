@@ -153,8 +153,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine {
     private let feedURL: URL?
 
     static func makeIfConfigured() -> SparkleUpdateEngine? {
-        guard let feedURLString = UpdateConfigurationInspector.configuredValue(for: "SUFeedURL"),
-              let feedURL = URL(string: feedURLString),
+        guard let feedURL = UpdateConfigurationInspector.configuredFeedURL(),
               UpdateConfigurationInspector.configuredValue(for: "SUPublicEDKey") != nil else {
             return nil
         }
@@ -167,7 +166,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine {
     }
 
     func modeSummary() async -> String {
-        "Sparkle 자동업데이트 엔진을 사용 중입니다"
+        "Sparkle 앱내 확인을 지원하고, 백그라운드 확인은 GitHub fallback을 유지합니다"
     }
 
     func checkForUpdates() async -> UpdateCheckResult {
@@ -175,10 +174,10 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine {
     }
 
     func latestDownloadURL() async -> URL {
-        feedURL ?? URL(string: "https://github.com/ChoSeongmin1128/claude-usage/releases/latest")!
+        URL(string: "https://github.com/ChoSeongmin1128/claude-usage/releases/latest")!
     }
 
-    func usesExternalScheduler() async -> Bool { true }
+    func usesExternalScheduler() async -> Bool { false }
 
     func supportsInteractiveCheck() async -> Bool { true }
 
@@ -189,7 +188,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine {
 
     func configurationStatus() async -> UpdateEngineStatus {
         UpdateEngineStatus(
-            modeSummary: "Sparkle 자동업데이트 엔진을 사용 중입니다",
+            modeSummary: "Sparkle 앱내 확인을 지원하고, 백그라운드 확인은 GitHub fallback을 유지합니다",
             sparkleIntegrated: true,
             feedConfigured: true,
             publicKeyConfigured: true
@@ -201,11 +200,11 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine {
 enum UpdateConfigurationInspector {
     nonisolated static func currentStatus() -> UpdateEngineStatus {
         #if canImport(Sparkle)
-        let feedConfigured = configuredValue(for: "SUFeedURL") != nil
+        let feedConfigured = configuredFeedURL() != nil
         let publicKeyConfigured = configuredValue(for: "SUPublicEDKey") != nil
         let summary: String
         if feedConfigured && publicKeyConfigured {
-            summary = "Sparkle 자동업데이트 엔진을 사용 중입니다"
+            summary = "Sparkle 앱내 확인을 지원하고, 백그라운드 확인은 GitHub fallback을 유지합니다"
         } else {
             summary = "Sparkle는 통합되었지만 appcast/feed가 아직 설정되지 않아 GitHub Release 엔진을 사용 중입니다"
         }
@@ -231,7 +230,20 @@ enum UpdateConfigurationInspector {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         guard !trimmed.contains("$("), !trimmed.contains("${") else { return nil }
+        let lowered = trimmed.lowercased()
+        let blockedPlaceholders = ["change_me", "placeholder", "your_public_key", "your_feed_url", "example.com/appcast.xml"]
+        guard !blockedPlaceholders.contains(where: { lowered.contains($0) }) else { return nil }
         return trimmed
+    }
+
+    nonisolated static func configuredFeedURL() -> URL? {
+        guard let feedURLString = configuredValue(for: "SUFeedURL"),
+              let feedURL = URL(string: feedURLString),
+              let scheme = feedURL.scheme?.lowercased(),
+              scheme == "https" || scheme == "http" else {
+            return nil
+        }
+        return feedURL
     }
     #endif
 }

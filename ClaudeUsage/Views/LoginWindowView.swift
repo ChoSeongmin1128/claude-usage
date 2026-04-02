@@ -35,9 +35,9 @@ struct LoginWindowView: View {
             Text("권장 경로")
                 .font(.caption)
                 .fontWeight(.semibold)
-            Text("먼저 `Chrome에서 가져오기`만 시도하시면 됩니다.")
-            Text("Chrome 로그인이 안 되어 있을 때만 `Chrome 로그인 열기`를 쓰고, 그래도 실패할 때만 고급 설정으로 내려가면 됩니다.")
-            Text("실제 저장 시점에는 macOS Keychain 확인 창이 한 번 뜰 수 있습니다. 연결 확인만으로는 저장하지 않습니다.")
+            Text("1. 먼저 `Chrome에서 가져오기`만 시도합니다.")
+            Text("2. Chrome 로그인이 안 되어 있을 때만 `Chrome 로그인 열기`를 씁니다.")
+            Text("3. 그래도 실패할 때만 `고급 설정`으로 내려가면 됩니다.")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -228,7 +228,7 @@ struct LoginWindowView: View {
                 case .success(.importedSessionKey(let key)):
                     self.activateSessionKey(key)
                 case .success(.manualSessionKeyRequired(let message)):
-                    self.statusMessage = "Chrome 로그인 상태를 확인한 뒤 다시 가져오거나, 아래 웹 로그인으로 진행해 주세요."
+                    self.statusMessage = "Chrome 로그인 상태를 확인한 뒤 다시 가져오거나, 필요하면 고급 설정으로 이동해 주세요."
                     self.errorMessage = message
                 case .success(.unavailable(let message)):
                     self.errorMessage = message
