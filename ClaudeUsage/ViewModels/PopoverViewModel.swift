@@ -200,7 +200,10 @@ final class PopoverViewModel: ObservableObject {
         case .codex:
             return runtimeServiceState(for: .codex, settings: settings).summary
         case .gemini, .antigravity:
-            return settings.isProviderEnabled(kind) ? "런타임 연결 준비 중" : "비활성화됨"
+            if !settings.isProviderEnabled(kind) {
+                return "비활성화됨"
+            }
+            return ProviderEnvironmentDetector.status(for: kind)?.summary ?? "런타임 연결 준비 중"
         }
     }
 
@@ -253,7 +256,9 @@ final class PopoverViewModel: ObservableObject {
             return "현재는 설정만 유지하고 있습니다."
         case .gemini, .antigravity:
             if settings.isProviderEnabled(kind) {
-                return baseDetail ?? "런타임 연결 전 구조를 정리하고 있습니다."
+                return ProviderEnvironmentDetector.status(for: kind)?.summary
+                    ?? baseDetail
+                    ?? "런타임 연결 전 구조를 정리하고 있습니다."
             }
             return "비활성화된 상태입니다."
         }
@@ -266,7 +271,11 @@ final class PopoverViewModel: ObservableObject {
         case .codex:
             return settings.isProviderEnabled(.codex) ? "활성" : "비활성"
         case .gemini, .antigravity:
-            return settings.isProviderEnabled(kind) ? (baseBadge ?? "준비 중") : "비활성"
+            guard settings.isProviderEnabled(kind) else { return "비활성" }
+            if let environmentStatus = ProviderEnvironmentDetector.status(for: kind) {
+                return environmentStatus.isDetected ? "감지됨" : (baseBadge ?? "준비 중")
+            }
+            return baseBadge ?? "준비 중"
         }
     }
 

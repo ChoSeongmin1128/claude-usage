@@ -1,6 +1,6 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (47차)
+최종 갱신: 2026-04-02 (48차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
@@ -90,6 +90,7 @@
 - 2026-04-02 45차 통합에서 [SetupCompletionPolicy.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/SetupCompletionPolicy.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift), [SetupWizardWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SetupWizardWindowView.swift) 는 `setup 완료`를 단순 refresh 액션 진입이 아니라 실제 Claude 성공 조회와 organization readiness 기준으로만 올리도록 바꿨습니다. 자동 organization 모드에서는 첫 성공 조회로 완료되지만, 특정 organization을 고른 경우에는 wizard가 `Organization 열기`를 마지막 우선 CTA로 내세우도록 조정해 first-run 흐름을 더 닫았습니다.
 - 2026-04-02 46차 통합에서 [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 는 `providerStates` 저장 시 레거시 `claudeEnabled` / `codexEnabled` / `menuBarActiveService` 키를 매 변경마다 다시 쓰지 않도록 정리했습니다. 이제 레거시 키는 init 시 버전 가드가 있는 단방향 마이그레이션에서만 갱신되고, 런타임 단일 원천은 `providerStates` 로 더 분명해졌습니다.
 - 2026-04-02 47차 통합에서 [ProviderEnvironmentDetector.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ProviderEnvironmentDetector.swift), [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 `Gemini` / `Antigravity` shell 패널에 로컬 환경 감지 상태를 추가했습니다. 이제 단순히 `준비 중`만 보여주지 않고, CLI 설치/OAuth 자격/로컬 상태 디렉토리 감지 여부를 바로 보여주므로 다음 행동을 추론하기 쉬워졌습니다.
+- 2026-04-02 48차 통합에서 [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift), [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 shell provider overview와 footnote도 로컬 감지 상태를 그대로 반영하도록 정리했습니다. 활성화된 `Gemini` / `Antigravity` 는 이제 overview 카드, badge, footnote에서 `감지됨` / `로그인 필요` 같은 실제 상태를 보여주므로 shell UX의 정보 밀도가 더 일관됩니다.
 
 ## 2. 참고 레포에서 가져올 방향
 
