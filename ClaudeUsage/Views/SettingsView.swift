@@ -44,6 +44,7 @@ struct SettingsView: View {
     @State private var isAuthDetailsExpanded = false
     @State private var isMessagesFallbackExpanded = false
     @State private var isStatusDetailsExpanded = false
+    @State private var isOrganizationAdvancedExpanded = false
     @State private var isTestingMessagesFallback = false
     @State private var messagesFallbackStatus: String?
     @State private var codexAuthStatus: CodexAuthStatus = .checking
@@ -1740,12 +1741,19 @@ struct SettingsView: View {
     private var organizationSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             organizationHeader
-            organizationLoadActions
-            organizationTargetPicker
-            organizationHealthChips
-            organizationPreviewList
+            organizationModeSummaryCard
+            if shouldShowOrganizationAdvancedControls {
+                organizationLoadActions
+                organizationTargetPicker
+                organizationHealthChips
+                organizationPreviewList
+            }
             organizationMessages
         }
+    }
+
+    private var shouldShowOrganizationAdvancedControls: Bool {
+        isOrganizationAdvancedExpanded || !selectedOrganizationID.isEmpty
     }
 
     private var organizationHeader: some View {
@@ -1756,6 +1764,55 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private var organizationModeSummaryCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                chip(
+                    title: "현재 모드",
+                    value: selectedOrganizationID.isEmpty ? "자동 선택" : "직접 선택",
+                    color: selectedOrganizationID.isEmpty ? .green : .blue
+                )
+                if !selectedOrganizationID.isEmpty {
+                    Text(selectedOrganizationID)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .textSelection(.enabled)
+                }
+            }
+
+            if selectedOrganizationID.isEmpty {
+                Text("지금은 organization을 따로 고르지 않고, Claude가 연결된 기본 organization으로 바로 사용합니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                Button(shouldShowOrganizationAdvancedControls ? "수동 선택 숨기기" : "여러 organization 직접 고르기") {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isOrganizationAdvancedExpanded.toggle()
+                    }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                if !selectedOrganizationID.isEmpty {
+                    Button("자동 선택으로 되돌리기") {
+                        selectedOrganizationID = ""
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            isOrganizationAdvancedExpanded = false
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+            }
+        }
+        .padding(10)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+        .cornerRadius(8)
     }
 
     private var organizationLoadActions: some View {
@@ -1774,7 +1831,12 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button("자동 선택") { selectedOrganizationID = "" }
+            Button("자동 선택") {
+                selectedOrganizationID = ""
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    isOrganizationAdvancedExpanded = false
+                }
+            }
                 .disabled(selectedOrganizationID.isEmpty)
         }
     }
