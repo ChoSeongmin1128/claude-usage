@@ -2002,10 +2002,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 AppSettings.shared.preferredOrganizationID = ""
                 Task {
                     await self.apiService.updatePreferredOrganizationID("")
+                    let snapshot = await self.apiService.fetchUsageHealthSnapshot()
+                    let cachedMetadata = await self.apiService.fetchCachedProfileMetadata()
+                    await MainActor.run {
+                        self.currentClaudeProfileMetadata = cachedMetadata
+                        self.applyUsageHealthSnapshot(snapshot)
+                        if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared),
+                           self.hasRefreshableService {
+                            self.refreshUsage(force: true)
+                        } else {
+                            self.updateMenuBar()
+                            self.updatePopoverViewModel(overage: self.currentOverage)
+                        }
+                    }
                 }
                 self.setupWizardWindowCoordinator.close()
-                self.updateMenuBar()
-                self.updatePopoverViewModel(overage: self.currentOverage)
             },
             onVerifyFetch: { [weak self] in
                 self?.refreshUsage(force: true)

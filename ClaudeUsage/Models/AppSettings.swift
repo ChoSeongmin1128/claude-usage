@@ -364,6 +364,7 @@ class AppSettings: ObservableObject {
             }
         }
     }
+    @Published private(set) var runtimeProviderDisplayRevision: Int = 0
     @Published var codexPercentageDisplay: PercentageDisplay {
         didSet { defaults.set(codexPercentageDisplay.rawValue, forKey: "codexPercentageDisplay") }
     }
@@ -769,26 +770,29 @@ class AppSettings: ObservableObject {
     }
 
     var menuBarDisplayChangePublisher: AnyPublisher<Void, Never> {
-        Publishers.MergeMany(
-            [
-                $menuBarStyle.map { _ in () }.eraseToAnyPublisher(),
-                $percentageDisplay.map { _ in () }.eraseToAnyPublisher(),
-                $showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
-                $resetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
-                $timeFormat.map { _ in () }.eraseToAnyPublisher(),
-                $circularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
-                $iconMetric.map { _ in () }.eraseToAnyPublisher(),
-                $showClaudeIcon.map { _ in () }.eraseToAnyPublisher(),
-                $menuBarTextHighContrast.map { _ in () }.eraseToAnyPublisher(),
-                $showCodexIcon.map { _ in () }.eraseToAnyPublisher(),
-                $codexPercentageDisplay.map { _ in () }.eraseToAnyPublisher(),
-                $codexResetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
-                $codexTimeFormat.map { _ in () }.eraseToAnyPublisher(),
-                $codexMenuBarStyle.map { _ in () }.eraseToAnyPublisher(),
-                $codexCircularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
-                $codexIconMetric.map { _ in () }.eraseToAnyPublisher(),
-                $codexShowBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
-            ]
+        let basePublishers: [AnyPublisher<Void, Never>] = [
+            $menuBarStyle.map { _ in () }.eraseToAnyPublisher(),
+            $percentageDisplay.map { _ in () }.eraseToAnyPublisher(),
+            $showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
+            $resetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
+            $timeFormat.map { _ in () }.eraseToAnyPublisher(),
+            $circularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
+            $iconMetric.map { _ in () }.eraseToAnyPublisher(),
+            $showClaudeIcon.map { _ in () }.eraseToAnyPublisher(),
+            $menuBarTextHighContrast.map { _ in () }.eraseToAnyPublisher(),
+            $showCodexIcon.map { _ in () }.eraseToAnyPublisher(),
+            $codexPercentageDisplay.map { _ in () }.eraseToAnyPublisher(),
+            $codexResetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
+            $codexTimeFormat.map { _ in () }.eraseToAnyPublisher(),
+            $codexMenuBarStyle.map { _ in () }.eraseToAnyPublisher(),
+            $codexCircularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
+            $codexIconMetric.map { _ in () }.eraseToAnyPublisher(),
+            $codexShowBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
+        ]
+
+        return Publishers.Merge(
+            Publishers.MergeMany(basePublishers).eraseToAnyPublisher(),
+            $runtimeProviderDisplayRevision.map { _ in () }.eraseToAnyPublisher()
         )
         .eraseToAnyPublisher()
     }
@@ -954,6 +958,7 @@ class AppSettings: ObservableObject {
         case .gemini, .antigravity:
             objectWillChange.send()
             defaults.set(enabled, forKey: providerDefaultsKey(kind, suffix: "showIcon"))
+            bumpRuntimeProviderDisplayRevision()
         }
     }
 
@@ -988,6 +993,7 @@ class AppSettings: ObservableObject {
             codexMenuBarStyle = style
         case .gemini, .antigravity:
             defaults.set(style.rawValue, forKey: providerDefaultsKey(kind, suffix: "menuBarStyle"))
+            bumpRuntimeProviderDisplayRevision()
         }
     }
 
@@ -1000,6 +1006,7 @@ class AppSettings: ObservableObject {
         case .gemini, .antigravity:
             objectWillChange.send()
             defaults.set(display.rawValue, forKey: providerDefaultsKey(kind, suffix: "percentageDisplay"))
+            bumpRuntimeProviderDisplayRevision()
         }
     }
 
@@ -1012,6 +1019,7 @@ class AppSettings: ObservableObject {
         case .gemini, .antigravity:
             objectWillChange.send()
             defaults.set(display.rawValue, forKey: providerDefaultsKey(kind, suffix: "resetTimeDisplay"))
+            bumpRuntimeProviderDisplayRevision()
         }
     }
 
@@ -1024,6 +1032,7 @@ class AppSettings: ObservableObject {
         case .gemini, .antigravity:
             objectWillChange.send()
             defaults.set(format.rawValue, forKey: providerDefaultsKey(kind, suffix: "timeFormat"))
+            bumpRuntimeProviderDisplayRevision()
         }
     }
 
@@ -1036,6 +1045,7 @@ class AppSettings: ObservableObject {
         case .gemini, .antigravity:
             objectWillChange.send()
             defaults.set(enabled, forKey: providerDefaultsKey(kind, suffix: "showBatteryPercent"))
+            bumpRuntimeProviderDisplayRevision()
         }
     }
 
@@ -1048,6 +1058,7 @@ class AppSettings: ObservableObject {
         case .gemini, .antigravity:
             objectWillChange.send()
             defaults.set(mode.rawValue, forKey: providerDefaultsKey(kind, suffix: "circularDisplayMode"))
+            bumpRuntimeProviderDisplayRevision()
         }
     }
 
@@ -1060,11 +1071,16 @@ class AppSettings: ObservableObject {
         case .gemini, .antigravity:
             objectWillChange.send()
             defaults.set(metric.rawValue, forKey: providerDefaultsKey(kind, suffix: "iconMetric"))
+            bumpRuntimeProviderDisplayRevision()
         }
     }
 
     private func providerDefaultsKey(_ kind: AppProviderKind, suffix: String) -> String {
         "\(kind.rawValue).\(suffix)"
+    }
+
+    private func bumpRuntimeProviderDisplayRevision() {
+        runtimeProviderDisplayRevision &+= 1
     }
 
     private func isMenuBarConfigVisible(_ config: ProviderMenuBarDisplayConfig) -> Bool {
@@ -1191,10 +1207,31 @@ class AppSettings: ObservableObject {
         codexAlertEnabled = false
         codexPopoverItems = PopoverItemConfig.defaultCodexItems
         codexCompactPopoverItems = PopoverItemConfig.defaultCodexItems
+        clearRuntimeProviderDefaults(for: .gemini)
+        clearRuntimeProviderDefaults(for: .antigravity)
         providerStates = AppProviderStateCatalog.defaultCatalog
         settingsLastTab = "common"
         claudeSettingsLastTab = "auth"
         codexSettingsLastTab = "auth"
+    }
+
+    private func clearRuntimeProviderDefaults(for kind: AppProviderKind) {
+        guard kind == .gemini || kind == .antigravity else { return }
+
+        [
+            "showIcon",
+            "alertEnabled",
+            "menuBarStyle",
+            "percentageDisplay",
+            "resetTimeDisplay",
+            "timeFormat",
+            "showBatteryPercent",
+            "circularDisplayMode",
+            "iconMetric",
+        ].forEach { suffix in
+            defaults.removeObject(forKey: providerDefaultsKey(kind, suffix: suffix))
+        }
+        bumpRuntimeProviderDisplayRevision()
     }
 
     // MARK: - Launch at Login

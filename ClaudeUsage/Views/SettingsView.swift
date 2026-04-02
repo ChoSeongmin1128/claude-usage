@@ -1115,7 +1115,7 @@ struct SettingsView: View {
         let hasOAuthCredential = self.hasOAuthCredential
         let hasOAuthSuccess = usageHealthSnapshot?.oauth.lastSuccessAt != nil
         let hasAnySuccessfulFetch = hasSuccessfulClaudeFetch
-        let organizationReady = isOrganizationSelectionReady
+        let progress = currentSetupProgress
 
         return VStack(alignment: .leading, spacing: 8) {
             Text("인증 체크리스트")
@@ -1135,7 +1135,7 @@ struct SettingsView: View {
             checklistRow(
                 title: "Organization 확인",
                 detail: organizationChecklistDetail,
-                state: organizationReady ? .ok : .warning
+                state: progress.isOrganizationReady ? .ok : .warning
             )
 
             if shouldRecommendCLIOAuth {
@@ -1153,7 +1153,16 @@ struct SettingsView: View {
 
     private var hasReadyClaudeCredential: Bool {
         let normalized = normalizeSessionKey(sessionKey)
-        return !(storedSessionKey ?? "").isEmpty || !normalized.isEmpty || hasOAuthCredential || usageHealthSnapshot?.lastOverallSuccessAt != nil
+        return !(storedSessionKey ?? "").isEmpty || !normalized.isEmpty || hasOAuthCredential
+    }
+
+    private var currentSetupProgress: SetupCompletionPolicy.WizardProgress {
+        SetupCompletionPolicy.resolveWizardProgress(
+            hasReadyCredential: hasReadyClaudeCredential,
+            hasSuccessfulFetch: hasSuccessfulClaudeFetch,
+            preferredOrganizationID: normalizeOrganizationID(selectedOrganizationID),
+            cachedMetadata: profileMetadata
+        )
     }
 
     private var shouldSurfaceRecoveryAndDiagnostics: Bool {
@@ -1230,24 +1239,11 @@ struct SettingsView: View {
     }
 
     private var isOrganizationSelectionReady: Bool {
-        guard hasSuccessfulClaudeFetch else { return false }
-        if selectedOrganizationID.isEmpty {
-            return true
-        }
-        if organizations.contains(where: { $0.id == selectedOrganizationID }) {
-            return true
-        }
-        return organizationPreviews.contains(where: { $0.id == selectedOrganizationID })
+        currentSetupProgress.isOrganizationReady
     }
 
     private var organizationChecklistDetail: String {
-        guard hasSuccessfulClaudeFetch else {
-            return "첫 성공 조회 후 organization 상태를 확인합니다"
-        }
-        if selectedOrganizationID.isEmpty {
-            return "자동 선택 모드로 바로 사용 가능합니다"
-        }
-        return isOrganizationSelectionReady ? "선택한 organization이 유효합니다" : "선택값이 목록에 없습니다"
+        currentSetupProgress.organizationSummary
     }
 
     private func authSummaryLine(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> String {
