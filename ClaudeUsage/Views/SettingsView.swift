@@ -693,13 +693,8 @@ struct SettingsView: View {
             )
 
             if settings.isProviderEnabled(.claude) {
-                if shouldShowAuthSetupFlow {
-                    authSetupFlowCard
-                } else {
-                    compactAuthStatusCard
-                    authPrimaryActionsCard
-                }
-
+                compactAuthStatusCard
+                authPrimaryActionsCard
                 claudeAdvancedSection
             } else {
                 Text("Claude 모니터링이 비활성화되어 있습니다. 활성화하면 메뉴바와 조회가 다시 동작합니다.")
@@ -1054,25 +1049,6 @@ struct SettingsView: View {
         .cornerRadius(8)
     }
 
-    private var authSetupFlowCard: some View {
-        SetupWizardView(
-            currentStep: currentSetupWizardStep,
-            hasReadyCredential: hasReadyClaudeCredential,
-            isAdvancedExpanded: isAdvancedAuthExpanded,
-            onOpenChrome: {
-                onOpenClaudeInChrome?()
-            },
-            onOpenWebLogin: {
-                onOpenLogin?()
-            },
-            onOpenAdvanced: {
-                isClaudeAdvancedSectionExpanded = true
-                isAdvancedAuthExpanded = true
-            },
-            onDismiss: {}
-        )
-    }
-
     private var hasReadyClaudeCredential: Bool {
         let normalized = normalizeSessionKey(sessionKey)
         return !(storedSessionKey ?? "").isEmpty || !normalized.isEmpty || hasOAuthCredential || usageHealthSnapshot?.lastOverallSuccessAt != nil
@@ -1117,24 +1093,6 @@ struct SettingsView: View {
             return "자동 선택 모드"
         }
         return isOrganizationSelectionReady ? "선택한 organization이 유효합니다" : "선택값이 목록에 없습니다"
-    }
-
-    private var shouldShowAuthSetupFlow: Bool {
-        SetupCompletionPolicy.shouldShowSetupFlow(
-            hasCompletedSetupWizard: settings.hasCompletedSetupWizard,
-            hasReadyCredential: hasReadyClaudeCredential,
-            hasSuccessfulFetch: hasSuccessfulClaudeFetch,
-            preferredOrganizationID: settings.preferredOrganizationID,
-            cachedMetadata: profileMetadata
-        )
-    }
-
-    private var currentSetupWizardStep: SetupWizardView.Step {
-        SetupCompletionPolicy.resolveCredentialStep(
-            hasReadyCredential: hasReadyClaudeCredential,
-            hasChromeApp: NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") != nil,
-            shouldPreferManual: isAdvancedAuthExpanded || !(storedSessionKey ?? "").isEmpty || !normalizeSessionKey(sessionKey).isEmpty
-        )
     }
 
     private func authSummaryLine(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> String {
