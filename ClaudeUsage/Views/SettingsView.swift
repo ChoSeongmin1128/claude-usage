@@ -3224,7 +3224,9 @@ struct SettingsView: View {
         }()
 
         guard !normalizedKey.isEmpty else {
-            organizationMessage = "세션 키가 없어 organization 목록을 불러올 수 없습니다."
+            organizationMessage = hasOAuthCredential
+                ? "세션 키가 없어 organization 목록은 건너뜁니다. 현재는 OAuth 기준 organization 상태만 확인할 수 있습니다."
+                : "세션 키가 없어 organization 목록을 불러올 수 없습니다."
             loadUsageHealthSnapshot()
             return
         }

@@ -2000,6 +2000,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             onUseAutomaticOrganization: { [weak self] in
                 guard let self else { return }
                 AppSettings.shared.preferredOrganizationID = ""
+                Task {
+                    await self.apiService.updatePreferredOrganizationID("")
+                }
                 self.setupWizardWindowCoordinator.close()
                 self.updateMenuBar()
                 self.updatePopoverViewModel(overage: self.currentOverage)
