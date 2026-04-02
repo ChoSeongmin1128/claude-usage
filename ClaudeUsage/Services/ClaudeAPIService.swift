@@ -1355,21 +1355,22 @@ actor ClaudeAPIService {
 
         let activePath: RuntimeAuthSnapshot.ActivePath = {
             if !hasSessionCredential {
-                // 세션 키가 없으면 OAuth 전용 경로가 실질 기본
-                if oauthCredentialAvailable || oauthState.lastSuccessAt != nil || oauthState.lastAttemptAt != nil {
+                // 세션 키가 없더라도 현재 사용할 OAuth 자격이 실제로 있을 때만 OAuth 경로로 표기한다.
+                if oauthCredentialAvailable {
                     return .oauthFallback
                 }
                 return .unauthenticated
             }
-            if let oauthPreferredRemaining, oauthPreferredRemaining > 0 {
+            if let oauthPreferredRemaining, oauthPreferredRemaining > 0, oauthCredentialAvailable {
                 return .oauthPreferred
             }
-            if let sessionCooldownRemaining, sessionCooldownRemaining > 0 {
+            if let sessionCooldownRemaining, sessionCooldownRemaining > 0, oauthCredentialAvailable {
                 return .oauthFallback
             }
-            // 최근 실제 성공 경로가 OAuth면 표기를 OAuth로 유지해 표시와 체감 불일치를 줄인다.
+            // 최근 실제 성공 경로가 OAuth여도 현재 자격이 없으면 세션 경로를 유지한다.
             if let sessionSuccess = sessionState.lastSuccessAt,
                let oauthSuccess = oauthState.lastSuccessAt,
+               oauthCredentialAvailable,
                oauthSuccess > sessionSuccess {
                 return .oauthFallback
             }

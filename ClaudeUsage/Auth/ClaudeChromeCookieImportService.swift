@@ -17,7 +17,7 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
         let localState = chromeRoot.appendingPathComponent("Local State", isDirectory: false)
         let localStatePath = fileManager.fileExists(atPath: localState.path) ? localState : nil
 
-        return self.discoverChromeProfileNames(in: chromeRoot).compactMap { profileName in
+        return self.discoverChromeProfileNames(in: chromeRoot, localStateURL: localStatePath).compactMap { profileName in
             let profileDirectory = chromeRoot.appendingPathComponent(profileName, isDirectory: true)
             guard let cookiesPath = self.resolveCookieDatabasePath(for: profileDirectory) else { return nil }
             return ClaudeBrowserSessionCandidate(
@@ -34,7 +34,7 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
         guard !candidates.isEmpty else {
             return .unavailable(message: self.manualGuidanceMessage(
                 discoveredProfiles: [],
-                failureDetails: ["Chrome 프로필(Default/Profile N)을 찾지 못했습니다."]))
+                failureDetails: ["Chrome 프로필이나 Cookies DB를 찾지 못했습니다."]))
         }
 
         var failureDetails: [String] = []
@@ -60,14 +60,15 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
             failureDetails: failureDetails))
     }
 
-    private nonisolated func discoverChromeProfileNames(in chromeRoot: URL) -> [String] {
+    private nonisolated func discoverChromeProfileNames(in chromeRoot: URL, localStateURL: URL?) -> [String] {
         let fileManager = FileManager.default
+        let localStateProfiles = self.profileNames(fromLocalState: localStateURL)
         let contents = (try? fileManager.contentsOfDirectory(
             at: chromeRoot,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles])) ?? []
 
-        let profileNames = contents.compactMap { url -> (name: String, rank: Int)? in
+        let scannedProfiles = contents.compactMap { url -> (name: String, rank: Int)? in
             let name = url.lastPathComponent
             guard self.isChromeProfileDirectory(name, at: url) else { return nil }
             if name == "Default" {
@@ -84,7 +85,7 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
             return (name, number)
         }
 
-        return profileNames
+        let orderedScannedProfiles = scannedProfiles
             .sorted { lhs, rhs in
                 if lhs.rank == rhs.rank {
                     return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
@@ -92,6 +93,30 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
                 return lhs.rank < rhs.rank
             }
             .map(\.name)
+
+        var orderedProfiles: [String] = []
+        for profile in localStateProfiles + orderedScannedProfiles where !orderedProfiles.contains(profile) {
+            let profileDirectory = chromeRoot.appendingPathComponent(profile, isDirectory: true)
+            guard self.resolveCookieDatabasePath(for: profileDirectory) != nil else { continue }
+            orderedProfiles.append(profile)
+        }
+        return orderedProfiles
+    }
+
+    private nonisolated func profileNames(fromLocalState localStateURL: URL?) -> [String] {
+        guard let localStateURL,
+              let data = try? Data(contentsOf: localStateURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let profile = json["profile"] as? [String: Any],
+              let infoCache = profile["info_cache"] as? [String: Any] else {
+            return []
+        }
+
+        return infoCache.keys.sorted { lhs, rhs in
+            if lhs == "Default" { return true }
+            if rhs == "Default" { return false }
+            return lhs.localizedStandardCompare(rhs) == .orderedAscending
+        }
     }
 
     private nonisolated func isChromeProfileDirectory(_ name: String, at url: URL) -> Bool {
@@ -167,43 +192,25 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
     }
 
     private nonisolated func manualGuidanceMessage(discoveredProfiles: [String], failureDetails: [String]) -> String {
-        let profileLine: String
-        if discoveredProfiles.isEmpty {
-            profileLine = "Chrome 프로필(Default/Profile N)을 찾지 못했습니다."
-        } else {
-            profileLine = "탐지된 Chrome 프로필: \(discoveredProfiles.joined(separator: ", "))"
-        }
-
-        let manualPathLines: [String]
-        if discoveredProfiles.isEmpty {
-            manualPathLines = [
-                "~/Library/Application Support/Google/Chrome/Default/Network/Cookies",
-                "~/Library/Application Support/Google/Chrome/Profile N/Network/Cookies",
-            ]
-        } else {
-            manualPathLines = discoveredProfiles.map { profile in
-                "~/Library/Application Support/Google/Chrome/\(profile)/Network/Cookies"
-            }
-        }
+        let profileLine = discoveredProfiles.isEmpty
+            ? "Chrome 프로필이나 Cookies DB를 찾지 못했습니다."
+            : "탐지된 프로필: \(discoveredProfiles.joined(separator: ", "))"
 
         var sections: [String] = [
-            "Chrome 자동 import는 Cookies DB를 임시 복사한 뒤 claude.ai의 sessionKey 쿠키를 추출합니다.",
+            "Chrome 자동 import에서 claude.ai sessionKey를 찾지 못했습니다.",
             profileLine,
-            "자동 import가 실패하면 아래를 확인하세요:",
+            "확인 순서:",
             "1. Chrome에서 claude.ai에 로그인되어 있는지 확인",
-            "2. 실제 사용 중인 프로필이 Default 또는 Profile N인지 확인",
-            "3. 위 Cookies DB 파일이 존재하는지 확인",
-            "4. Chrome DevTools > Application > Cookies > https://claude.ai에서 sessionKey 값을 수동 복사",
+            "2. 실제 사용 중인 프로필이 위 목록에 포함되는지 확인",
+            "3. 계속 실패하면 고급 설정에서 수동 sessionKey를 입력"
         ]
 
-        sections.append(contentsOf: manualPathLines.map { "   - \($0)" })
-
         if !failureDetails.isEmpty {
-            sections.append("실패 상세:")
-            sections.append(contentsOf: failureDetails.map { "   - \($0)" })
+            sections.append("실패 요약:")
+            sections.append(contentsOf: failureDetails.prefix(3).map { "   - \($0)" })
         }
 
-        sections.append("sessionKey 값은 공백 없는 긴 토큰 형태입니다.")
+        sections.append("sessionKey는 공백 없는 긴 토큰 형태입니다.")
         return sections.joined(separator: "\n")
     }
 }

@@ -782,8 +782,8 @@ struct SettingsView: View {
                             value: runtimePathLabel(snapshot.runtime.activePath),
                             color: runtimePathColor(snapshot.runtime.activePath)
                         )
-                        if snapshot.runtime.credentialAvailability.oauthCredentialAvailable {
-                            chip(title: "OAuth", value: "준비됨", color: .blue)
+                        if let oauthChip = oauthStatusChip(snapshot) {
+                            chip(title: "OAuth", value: oauthChip.value, color: oauthChip.color)
                         } else if snapshot.runtime.credentialAvailability.sessionCredentialAvailable {
                             chip(title: "세션", value: "준비됨", color: .green)
                         }
@@ -1113,12 +1113,23 @@ struct SettingsView: View {
             return "아직 성공 조회가 없습니다. 먼저 가져오기 또는 로그인 후 상태 새로고침이 필요합니다."
         }
 
+        if snapshot.runtime.credentialAvailability.oauthCredentialAvailable,
+           snapshot.oauth.lastSuccessAt != nil {
+            return "Claude Code OAuth가 최근에 실제로 검증됐고 조회도 성공했습니다."
+        }
+
+        if snapshot.runtime.credentialAvailability.oauthCredentialAvailable,
+           snapshot.oauth.lastFailureAt != nil,
+           snapshot.oauth.lastSuccessAt == nil {
+            return "Claude Code OAuth 자격은 감지됐지만 아직 검증되지 않았습니다. 보조 복구 테스트나 `claude login` 재인증이 필요할 수 있습니다."
+        }
+
         if shouldRecommendCLIOAuth {
             return "최근 조회는 성공했지만 세션 경로가 불안정할 수 있습니다."
         }
 
         if snapshot.runtime.credentialAvailability.oauthCredentialAvailable {
-            return "Claude Code OAuth가 준비되어 있고 최근 조회도 성공했습니다."
+            return "Claude Code OAuth 자격이 감지됐습니다. 필요하면 복구 테스트로 실제 동작을 확인하시는 편이 맞습니다."
         }
 
         if snapshot.runtime.credentialAvailability.sessionCredentialAvailable {
@@ -1128,6 +1139,22 @@ struct SettingsView: View {
         return "자격 준비 상태를 다시 확인해 주세요."
     }
 
+    private func oauthStatusChip(
+        _ snapshot: ClaudeAPIService.UsageHealthSnapshot
+    ) -> (value: String, color: Color)? {
+        guard snapshot.runtime.credentialAvailability.oauthCredentialAvailable else { return nil }
+
+        if snapshot.oauth.lastSuccessAt != nil {
+            return ("검증됨", .blue)
+        }
+
+        if snapshot.oauth.lastFailureAt != nil {
+            return ("확인 필요", .orange)
+        }
+
+        return ("감지됨", .blue)
+    }
+
     private var claudeCLIOAuthGuideSection: some View {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: 4) {
@@ -1135,7 +1162,7 @@ struct SettingsView: View {
                 Text("2. 설치 후 `claude login` 실행")
                 Text("3. 브라우저 인증 완료")
                 Text("4. 이 화면에서 `상태 새로고침`")
-                Text("5. `OAuth 준비됨` 또는 활성 경로 `OAuth` 확인")
+                Text("5. `OAuth 검증됨` 또는 활성 경로 `OAuth` 확인")
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -1359,6 +1386,16 @@ struct SettingsView: View {
                         .foregroundStyle(.orange)
                 }
 
+                if settings.claudeMessagesFallbackPolicy != .off,
+                   let snapshot = usageHealthSnapshot,
+                   snapshot.runtime.credentialAvailability.oauthCredentialAvailable,
+                   snapshot.oauth.lastFailureAt != nil,
+                   snapshot.oauth.lastSuccessAt == nil {
+                    Text("OAuth 자격은 감지됐지만 아직 유효성 검증이 되지 않았습니다. 테스트가 실패하면 `claude login`으로 다시 로그인하는 편이 맞습니다.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
                 if settings.claudeMessagesFallbackPolicy != .off {
                     HStack(spacing: 10) {
                         Button(isTestingMessagesFallback ? "복구 확인 중..." : "Messages 헤더 복구 테스트") {
@@ -1497,8 +1534,8 @@ struct SettingsView: View {
                     if snapshot.runtime.credentialAvailability.sessionCredentialAvailable {
                         chip(title: "세션", value: "준비됨", color: .green)
                     }
-                    if snapshot.runtime.credentialAvailability.oauthCredentialAvailable {
-                        chip(title: "OAuth", value: "준비됨", color: .blue)
+                    if let oauthChip = oauthStatusChip(snapshot) {
+                        chip(title: "OAuth", value: oauthChip.value, color: oauthChip.color)
                     }
                     if let cooldown = snapshot.runtime.sessionCooldownRemaining {
                         chip(title: "세션 재시도", value: formatDuration(seconds: cooldown), color: .orange)
