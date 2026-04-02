@@ -168,6 +168,23 @@ struct ClaudeNotificationPolicy: Equatable, Sendable {
         isOrganizationPlan && hasExtraUsageEnabled == true
     }
 
+    nonisolated var summaryLine: String? {
+        if isOrganizationPlan && hasExtraUsageEnabled == true {
+            return "조직 플랜 + 추가 사용량 활성화 상태라 Claude의 낮은 구간 알림은 자동으로 줄입니다"
+        }
+
+        if isOrganizationPlan && hasExtraUsageEnabled == false {
+            return "조직 플랜이지만 추가 사용량이 꺼져 있어 Claude 알림에 관리자 확인 안내를 함께 표시합니다"
+        }
+
+        let lowerSubscription = subscriptionType?.lowercased() ?? ""
+        if lowerSubscription.contains("pro") || lowerSubscription.contains("max") {
+            return "개인 플랜으로 보입니다. Claude 알림에는 플랜 한도 확인 안내를 함께 표시합니다"
+        }
+
+        return nil
+    }
+
     nonisolated var guidanceSuffix: String? {
         if isOrganizationPlan && hasExtraUsageEnabled == false {
             return "관리자에게 추가 사용량 설정을 확인해 주세요"
@@ -176,6 +193,25 @@ struct ClaudeNotificationPolicy: Equatable, Sendable {
         let lowerSubscription = subscriptionType?.lowercased() ?? ""
         if lowerSubscription.contains("pro") || lowerSubscription.contains("max") {
             return "플랜 한도도 함께 확인해 주세요"
+        }
+
+        return nil
+    }
+
+    nonisolated func guidanceSuffix(
+        threshold: Int,
+        alertRemainingMode: Bool
+    ) -> String? {
+        if isOrganizationPlan && hasExtraUsageEnabled == true {
+            let remainingThreshold = max(0, 100 - threshold)
+            if threshold >= 95 || (alertRemainingMode && remainingThreshold <= 5) {
+                return "조직 플랜이라도 상위 한도 근처에서는 관리자 정책을 다시 확인하는 편이 맞습니다"
+            }
+            return nil
+        }
+
+        if let guidanceSuffix {
+            return guidanceSuffix
         }
 
         return nil

@@ -60,6 +60,11 @@ enum SessionType: String {
 class NotificationManager {
     static let shared = NotificationManager()
 
+    private enum ThresholdPresentationMode {
+        case used
+        case remaining
+    }
+
     private var trackers: [SessionType: SessionTracker] = [
         .fiveHour: SessionTracker(),
         .weekly: SessionTracker(),
@@ -123,6 +128,7 @@ class NotificationManager {
             }
         }()
         let normalizedClaudePolicy = claudePolicy?.isFreshEnoughForNotifications == true ? claudePolicy : nil
+        let thresholdMode: ThresholdPresentationMode = settings.alertRemainingMode ? .remaining : .used
 
         // 첫 번째 호출: 현재 상태만 기록, 알림 보내지 않음
         if tracker.isFirstCheck {
@@ -171,17 +177,20 @@ class NotificationManager {
                 continue
             }
             if percentage >= Double(threshold) && !tracker.alertedThresholds.contains(threshold) {
-                let title = threshold >= 95 ? "\(serviceName) 사용량 경고"
-                    : threshold >= 90 ? "\(serviceName) 사용량 주의"
-                    : "\(serviceName) 사용량 안내"
+                let title = thresholdAlertTitle(
+                    serviceName: serviceName,
+                    threshold: threshold,
+                    presentationMode: thresholdMode)
                 let guidanceSuffix = (session == .fiveHour || session == .weekly)
-                    ? normalizedClaudePolicy?.guidanceSuffix
+                    ? normalizedClaudePolicy?.guidanceSuffix(
+                        threshold: threshold,
+                        alertRemainingMode: settings.alertRemainingMode)
                     : nil
-                let body = if let guidanceSuffix {
-                    "\(session.displayName)의 \(threshold)%를 사용했습니다. \(guidanceSuffix)"
-                } else {
-                    "\(session.displayName)의 \(threshold)%를 사용했습니다"
-                }
+                let body = thresholdAlertBody(
+                    session: session,
+                    threshold: threshold,
+                    presentationMode: thresholdMode,
+                    guidanceSuffix: guidanceSuffix)
                 sendNotification(
                     title: title,
                     body: body
@@ -224,6 +233,55 @@ class NotificationManager {
         guard session == .fiveHour || session == .weekly else { return false }
         guard let claudePolicy else { return false }
         return claudePolicy.shouldSuppressLowUrgencyThresholds && threshold < 90
+    }
+
+    private func thresholdAlertTitle(
+        serviceName: String,
+        threshold: Int,
+        presentationMode: ThresholdPresentationMode
+    ) -> String {
+        switch presentationMode {
+        case .used:
+            return threshold >= 95 ? "\(serviceName) 사용량 경고"
+                : threshold >= 90 ? "\(serviceName) 사용량 주의"
+                : "\(serviceName) 사용량 안내"
+        case .remaining:
+            let remaining = displayThresholdValue(threshold, mode: presentationMode)
+            return remaining <= 5 ? "\(serviceName) 잔여 한도 경고"
+                : remaining <= 10 ? "\(serviceName) 잔여 한도 주의"
+                : "\(serviceName) 잔여 한도 안내"
+        }
+    }
+
+    private func thresholdAlertBody(
+        session: SessionType,
+        threshold: Int,
+        presentationMode: ThresholdPresentationMode,
+        guidanceSuffix: String?
+    ) -> String {
+        let displayThreshold = displayThresholdValue(threshold, mode: presentationMode)
+        let baseMessage: String
+        switch presentationMode {
+        case .used:
+            baseMessage = "\(session.displayName)의 \(displayThreshold)%를 사용했습니다"
+        case .remaining:
+            baseMessage = "\(session.displayName)의 \(displayThreshold)%가 남았습니다"
+        }
+
+        guard let guidanceSuffix else { return baseMessage }
+        return "\(baseMessage). \(guidanceSuffix)"
+    }
+
+    private func displayThresholdValue(
+        _ threshold: Int,
+        mode: ThresholdPresentationMode
+    ) -> Int {
+        switch mode {
+        case .used:
+            return threshold
+        case .remaining:
+            return max(1, min(100 - threshold, 99))
+        }
     }
 
     // MARK: - Send Notification

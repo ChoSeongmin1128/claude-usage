@@ -1057,6 +1057,11 @@ struct SettingsView: View {
         usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false
     }
 
+    private var claudeNotificationPolicySummary: String? {
+        guard let profileMetadata else { return nil }
+        return ClaudeNotificationPolicy(metadata: profileMetadata).summaryLine
+    }
+
     private var shouldRecommendCLIOAuth: Bool {
         guard let snapshot = usageHealthSnapshot else { return false }
         return snapshot.session.isUnstable
@@ -2431,12 +2436,27 @@ struct SettingsView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Provider 알림")
-                .font(.subheadline.weight(.semibold))
-                Toggle("Claude 알림 사용", isOn: $settings.claudeAlertEnabled)
-                Toggle("Codex 알림 사용", isOn: $settings.codexAlertEnabled)
-                Text("퍼센트 프리셋은 아래 공통 목록을 두 provider가 함께 사용합니다.")
+                    .font(.subheadline.weight(.semibold))
+
+                ForEach(AppProviderKind.runtimeKinds, id: \.self) { provider in
+                    Toggle(
+                        "\(provider.displayName) 알림 사용",
+                        isOn: Binding(
+                            get: { settings.isProviderAlertEnabled(provider) },
+                            set: { settings.setProviderAlertEnabled($0, for: provider) }
+                        )
+                    )
+                }
+
+                Text("퍼센트 프리셋은 모든 runtime provider가 공통으로 사용하고, 여기서는 provider별 발송 여부만 켜고 끕니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if let claudeNotificationPolicySummary {
+                    Text(claudeNotificationPolicySummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             .disabled(!settings.notificationsEnabled)
             .opacity(settings.notificationsEnabled ? 1.0 : 0.6)

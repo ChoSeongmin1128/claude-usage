@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct SetupWizardView: View {
+    @State private var isAlternativeMethodsExpanded = false
+
     enum Step: Int, CaseIterable, Identifiable {
         case chromeImport
         case webLogin
@@ -78,30 +80,31 @@ struct SetupWizardView: View {
                 }
             }
 
-            ForEach(Step.allCases) { step in
-                stepRow(step)
+            primaryStepCard
+
+            if !alternativeSteps.isEmpty {
+                DisclosureGroup(isExpanded: $isAlternativeMethodsExpanded) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(alternativeSteps) { step in
+                            alternativeStepRow(step)
+                        }
+                    }
+                    .padding(.top, 6)
+                } label: {
+                    Text("다른 인증 방법")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
-            HStack(spacing: 8) {
-                Button(currentStep.ctaTitle) {
-                    performPrimaryAction()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-
-                if hasReadyCredential {
-                    Button("안내 숨기기") {
-                        onDismiss()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                } else if !isAdvancedExpanded {
-                    Button("고급 열기") {
-                        onOpenAdvanced()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
+            if hasReadyCredential {
+                Text("자격 준비는 끝났습니다. 이제 상태 새로고침이나 첫 성공 조회 확인으로 다음 단계로 넘어가면 됩니다.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else if !isAdvancedExpanded {
+                Text("수동 sessionKey는 마지막 수단입니다. 먼저 권장 경로를 끝내는 편이 맞습니다.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding(10)
@@ -109,20 +112,33 @@ struct SetupWizardView: View {
         .cornerRadius(8)
     }
 
-    @ViewBuilder
-    private func stepRow(_ step: Step) -> some View {
-        let state = state(for: step)
-        HStack(alignment: .top, spacing: 8) {
+    private var primaryStepTitle: String {
+        hasReadyCredential ? "자격 준비 완료" : currentStep.title
+    }
+
+    private var primaryStepDetail: String {
+        hasReadyCredential
+            ? "sessionKey 또는 OAuth 자격이 이미 준비되어 있습니다. 이제 첫 성공 조회와 organization 확인만 남았습니다."
+            : currentStep.detail
+    }
+
+    private var alternativeSteps: [Step] {
+        Step.allCases.filter { $0 != currentStep }
+    }
+
+    private var primaryStepCard: some View {
+        let state = state(for: currentStep)
+        return HStack(alignment: .top, spacing: 8) {
             Image(systemName: state.iconName)
                 .foregroundStyle(state.color)
                 .font(.caption)
                 .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(step.title)
-                        .font(.caption)
-                    if step == currentStep && !hasReadyCredential {
-                        Text("현재")
+                    Text(primaryStepTitle)
+                        .font(.caption.weight(.semibold))
+                    if !hasReadyCredential {
+                        Text("권장")
                             .font(.caption2.weight(.medium))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
@@ -131,11 +147,32 @@ struct SetupWizardView: View {
                             .cornerRadius(4)
                     }
                 }
+                Text(primaryStepDetail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+        .cornerRadius(8)
+    }
+
+    private func alternativeStepRow(_ step: Step) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(step.title)
+                    .font(.caption)
                 Text(step.detail)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
+            Button(step.buttonTitle) {
+                perform(step)
+            }
+            .buttonStyle(.borderless)
+            .font(.caption)
         }
     }
 
@@ -164,14 +201,27 @@ struct SetupWizardView: View {
         }
     }
 
-    private func performPrimaryAction() {
-        switch currentStep {
+    private func perform(_ step: Step) {
+        switch step {
         case .chromeImport:
             onOpenChrome()
         case .webLogin:
             onOpenWebLogin()
         case .manualSessionKey:
             onOpenAdvanced()
+        }
+    }
+}
+
+private extension SetupWizardView.Step {
+    var buttonTitle: String {
+        switch self {
+        case .chromeImport:
+            return "Chrome 열기"
+        case .webLogin:
+            return "웹 로그인"
+        case .manualSessionKey:
+            return "고급 설정"
         }
     }
 }
