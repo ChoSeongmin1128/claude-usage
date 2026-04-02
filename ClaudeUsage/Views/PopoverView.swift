@@ -36,7 +36,7 @@ struct PopoverView: View {
 
                 Spacer()
 
-                if let lastUpdated = currentServiceLastUpdated {
+                if !shouldCollapseHeaderMetadata, let lastUpdated = currentServiceLastUpdated {
                     Text(lastUpdated, style: .time)
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
@@ -195,33 +195,36 @@ struct PopoverView: View {
     @ViewBuilder
     private var headerServiceSelector: some View {
         if availableServices.count > 1 {
-            HStack(spacing: 6) {
-                ForEach(availableServices, id: \.rawValue) { service in
-                    Button {
-                        selectService(service)
-                    } label: {
-                        HStack(spacing: 5) {
-                            Text(service.displayName)
-                                .font(.system(size: 12.5, weight: selectedService == service ? .semibold : .medium))
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                            if shouldShowWarningDot(for: service) {
-                                Circle()
-                                    .fill(Color.orange)
-                                    .frame(width: 6, height: 6)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(availableServices, id: \.rawValue) { service in
+                        Button {
+                            selectService(service)
+                        } label: {
+                            HStack(spacing: 5) {
+                                Text(service.displayName)
+                                    .font(.system(size: 12.5, weight: selectedService == service ? .semibold : .medium))
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                if shouldShowWarningDot(for: service) {
+                                    Circle()
+                                        .fill(Color.orange)
+                                        .frame(width: 6, height: 6)
+                                }
                             }
+                            .fixedSize(horizontal: true, vertical: false)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
+                            .background(selectedService == service ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
+                            .foregroundStyle(selectedService == service ? Color.accentColor : .primary)
+                            .cornerRadius(8)
                         }
-                        .fixedSize(horizontal: true, vertical: false)
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 4)
-                        .background(selectedService == service ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
-                        .foregroundStyle(selectedService == service ? Color.accentColor : .primary)
-                        .cornerRadius(8)
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
-            .fixedSize(horizontal: true, vertical: false)
+            .scrollIndicators(.never)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .layoutPriority(1)
         } else {
             Text(selectedService.displayName)
@@ -247,6 +250,10 @@ struct PopoverView: View {
             return ServiceSelectionHelper.supportedPopoverServices.isEmpty ? [.claude] : ServiceSelectionHelper.supportedPopoverServices
         }
         return result
+    }
+
+    private var shouldCollapseHeaderMetadata: Bool {
+        availableServices.count >= 4
     }
 
     private func shouldShowWarningDot(for service: PopoverService) -> Bool {
