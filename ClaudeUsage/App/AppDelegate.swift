@@ -408,20 +408,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let settings = AppSettings.shared
-        var enabledKinds: [AppProviderKind] = []
+        var detectedKinds: [AppProviderKind] = []
 
         for kind in [AppProviderKind.gemini, .antigravity] {
-            guard settings.isProviderEnabled(kind) == false else { continue }
             guard ProviderEnvironmentDetector.status(for: kind)?.isDetected == true else { continue }
-            settings.setProviderEnabled(true, for: kind)
-            enabledKinds.append(kind)
+            detectedKinds.append(kind)
         }
 
         defaults.set(true, forKey: Self.initialRuntimeProviderDetectionKey)
 
-        if enabledKinds.isEmpty == false {
-            Logger.info("초기 runtime provider 감지 완료: \(enabledKinds.map(\.rawValue).joined(separator: ", "))")
+        if detectedKinds.isEmpty == false {
+            Logger.info("초기 runtime provider 감지 완료(자동 활성화 없음): \(detectedKinds.map(\.rawValue).joined(separator: ", "))")
         }
     }
 

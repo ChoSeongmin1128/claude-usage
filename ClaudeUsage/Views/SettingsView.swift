@@ -1067,6 +1067,26 @@ struct SettingsView: View {
         }
     }
 
+    private var updateEngineChipValue: String {
+        guard let updateEngineStatus else {
+            return "확인 중"
+        }
+        if updateEngineStatus.usesSparkleReadyPath {
+            return "Sparkle 자동업데이트"
+        }
+        if updateEngineStatus.sparkleIntegrated {
+            return "GitHub fallback"
+        }
+        return "GitHub 전용"
+    }
+
+    private var updateEngineChipColor: Color {
+        guard let updateEngineStatus else {
+            return .secondary
+        }
+        return updateEngineStatus.usesSparkleReadyPath ? .blue : .orange
+    }
+
     private var authChecklistCard: some View {
         let hasSessionCredential = !(storedSessionKey ?? "").isEmpty || !normalizeSessionKey(sessionKey).isEmpty
         let hasOAuthCredential = self.hasOAuthCredential
@@ -2725,8 +2745,8 @@ struct SettingsView: View {
                 HStack(spacing: 8) {
                     chip(
                         title: "엔진",
-                        value: updateEngineStatus.sparkleIntegrated ? "Sparkle 통합" : "GitHub 전용",
-                        color: updateEngineStatus.sparkleIntegrated ? .blue : .secondary
+                        value: updateEngineChipValue,
+                        color: updateEngineChipColor
                     )
                     chip(
                         title: "appcast",

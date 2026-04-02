@@ -36,7 +36,7 @@ struct LoginWindowView: View {
                 .font(.caption)
                 .fontWeight(.semibold)
             Text("먼저 `Chrome에서 가져오기`만 시도하시면 됩니다.")
-            Text("안 되면 `Chrome 로그인 열기` 후 다시 가져오고, 그래도 실패할 때만 웹 로그인이나 수동 입력으로 내려가면 됩니다.")
+            Text("Chrome 로그인이 안 되어 있을 때만 `Chrome 로그인 열기`를 쓰고, 그래도 실패할 때만 고급 설정으로 내려가면 됩니다.")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -160,16 +160,16 @@ struct LoginWindowView: View {
 
             // 하단 바
             HStack {
-                Button("Chrome 로그인 열기") {
-                    openChromeForClaude()
-                }
-                .disabled(isLoading || isImportingFromChrome || isActivatingSession || loginSuccess)
                 Button("Chrome에서 가져오기") {
                     importFromChrome()
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(isLoading || isImportingFromChrome || isActivatingSession || loginSuccess)
                 Spacer()
+                Button("Chrome 로그인 열기") {
+                    openChromeForClaude()
+                }
+                .disabled(isLoading || isImportingFromChrome || isActivatingSession || loginSuccess)
                 Button("고급 설정") {
                     onOpenAdvancedSettings()
                 }

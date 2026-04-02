@@ -60,7 +60,7 @@ struct SetupWizardWindowView: View {
         case .verification:
             return isVerifyingFetch ? "조회 확인 중" : "지금 조회 검증"
         case .organization:
-            return "Organization 확인"
+            return progress.isAutomaticOrganizationMode ? "완료" : "Organization 확인"
         case .complete:
             return "완료"
         }
@@ -71,9 +71,9 @@ struct SetupWizardWindowView: View {
         case .credential:
             return nil
         case .verification:
-            return "고급 설정"
+            return nil
         case .organization:
-            return "자동 선택으로 완료"
+            return progress.isAutomaticOrganizationMode ? nil : "자동 선택으로 완료"
         case .complete:
             return "설정 열기"
         }
@@ -99,6 +99,9 @@ struct SetupWizardWindowView: View {
         case .verification:
             return "자격은 준비됐습니다. 이제 첫 성공 조회만 끝내면 됩니다."
         case .organization:
+            if progress.isAutomaticOrganizationMode {
+                return "자동 선택 모드입니다. 별도 organization을 고르지 않을 거라면 바로 마무리하시면 됩니다."
+            }
             return "\(progress.organizationSummary) 특정 organization을 직접 쓸 때만 확인이 필요합니다."
         case .complete:
             return "Claude 초기 설정이 끝났습니다. 이제 필요할 때 다른 provider를 추가하면 됩니다."
@@ -126,15 +129,17 @@ struct SetupWizardWindowView: View {
             .background(Color(NSColor.controlBackgroundColor).opacity(0.55))
             .cornerRadius(8)
 
-            SetupWizardView(
-                currentStep: currentStep,
-                hasReadyCredential: progress.hasReadyCredential,
-                isAdvancedExpanded: false,
-                onOpenChrome: onOpenChrome,
-                onOpenWebLogin: onOpenWebLogin,
-                onOpenAdvanced: onOpenAdvancedSettings,
-                onDismiss: onDismiss
-            )
+            if progress.stage == .credential {
+                SetupWizardView(
+                    currentStep: currentStep,
+                    hasReadyCredential: progress.hasReadyCredential,
+                    isAdvancedExpanded: false,
+                    onOpenChrome: onOpenChrome,
+                    onOpenWebLogin: onOpenWebLogin,
+                    onOpenAdvanced: onOpenAdvancedSettings,
+                    onDismiss: onDismiss
+                )
+            }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text(checklistTitle)
@@ -190,7 +195,11 @@ struct SetupWizardWindowView: View {
                     case .verification:
                         onVerifyFetch()
                     case .organization:
-                        onOpenOrganizations()
+                        if progress.isAutomaticOrganizationMode {
+                            onComplete()
+                        } else {
+                            onOpenOrganizations()
+                        }
                     case .complete:
                         onComplete()
                     }
