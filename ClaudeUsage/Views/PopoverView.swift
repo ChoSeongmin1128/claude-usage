@@ -948,7 +948,7 @@ struct PopoverView: View {
                     }
                 case "modelUsage":
                     if let sonnet = usage?.sevenDaySonnet {
-                        CompactUsageRow(label: "Sonnet", percentage: sonnet.utilization, resetAt: sonnet.resetsAt, isWeekly: true, timeFormatStyle: settings.timeFormat)
+                        CompactUsageRow(label: "소넷", percentage: sonnet.utilization, resetAt: sonnet.resetsAt, isWeekly: true, timeFormatStyle: settings.timeFormat)
                     }
                     if let opus = usage?.sevenDayOpus {
                         CompactUsageRow(label: "Opus", percentage: opus.utilization, resetAt: opus.resetsAt, isWeekly: true, timeFormatStyle: settings.timeFormat)
