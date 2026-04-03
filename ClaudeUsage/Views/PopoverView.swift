@@ -245,10 +245,6 @@ struct PopoverView: View {
         viewModel.runtimeServiceState(for: selectedService, settings: settings)
     }
 
-    private var currentServiceSummary: String {
-        currentServiceRuntimeState.summary
-    }
-
     private var selectedContentPhase: PopoverContentPhase {
         viewModel.contentPhase(for: selectedService, settings: settings)
     }
@@ -419,42 +415,47 @@ struct PopoverView: View {
     }
 
     private var standardTitleArea: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .center, spacing: 10) {
-                ProviderBrandIconView(provider: selectedService.providerKind, kind: .popover, size: 17)
-                    .frame(width: 18, height: 18, alignment: .center)
-
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(selectedService.displayName)
-                    .font(.headline)
+                    .font(.title3.weight(.semibold))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.85)
 
-                Spacer(minLength: 8)
-
-                if let lastUpdated = currentServiceLastUpdated {
-                    Text(lastUpdated, style: .time)
-                        .font(.caption2.weight(.medium))
+                if let meta = currentServiceRuntimeState.meta {
+                    Text(meta)
+                        .font(.caption2)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text(currentServiceSummary)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+            if let lastUpdated = currentServiceLastUpdated {
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text("마지막 업데이트")
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                    Text(lastUpdated, style: .time)
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .fixedSize()
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 2)
-        .padding(.top, 2)
-        .padding(.bottom, 1)
+        .padding(.top, 1)
+        .padding(.bottom, 2)
     }
 
     @ViewBuilder
     private var compactBodyContent: some View {
         switch contentPhase(for: selectedService) {
         case .authRequired:
-            compactStatusCard(
+            compactInlineStatusPanel(
                 icon: "lock.shield",
                 iconColor: .orange,
                 title: "\(selectedService.displayName) 연결 필요",
@@ -465,14 +466,14 @@ struct PopoverView: View {
                 viewModel.openSettings(for: selectedService)
             }
         case .loading:
-            compactStatusCard(
+            compactInlineStatusPanel(
                 showsProgress: true,
                 title: "불러오는 중",
                 message: "현재 연결 상태를 확인하고 있습니다."
             )
         case .error:
             if let error = serviceError {
-                compactStatusCard(
+                compactInlineStatusPanel(
                     icon: "exclamationmark.triangle",
                     iconColor: .orange,
                     title: error.isDefinitiveAuthFailure ? "인증 필요" : "조회 실패",
@@ -499,7 +500,7 @@ struct PopoverView: View {
                 compactAntigravityContent()
             }
         case .empty:
-            compactStatusCard(
+            compactInlineStatusPanel(
                 icon: "tray",
                 iconColor: .secondary,
                 title: "데이터 없음",
@@ -512,10 +513,10 @@ struct PopoverView: View {
     private var standardBodyContent: some View {
         switch contentPhase(for: selectedService) {
         case .authRequired:
-            standardStatusCard(
+            standardInlineStatusPanel(
                 icon: "lock.shield",
                 iconColor: .orange,
-                title: "\(selectedService.displayName) 연결 필요",
+                title: "연결 필요",
                 message: "인증이 필요합니다. 설정에서 연결을 다시 확인해 주세요.",
                 actionTitle: "설정 열기",
                 actionStyle: .prominent
@@ -523,14 +524,14 @@ struct PopoverView: View {
                 viewModel.openSettings(for: selectedService)
             }
         case .loading:
-            standardStatusCard(
+            standardInlineStatusPanel(
                 showsProgress: true,
-                title: "데이터 로딩 중...",
+                title: "데이터 로딩 중",
                 message: "현재 연결 상태를 확인하고 있습니다."
             )
         case .error:
             if let error = serviceError {
-                standardStatusCard(
+                standardInlineStatusPanel(
                     icon: "exclamationmark.triangle",
                     iconColor: .orange,
                     title: error.isDefinitiveAuthFailure ? "인증 필요" : "조회 실패",
@@ -557,7 +558,7 @@ struct PopoverView: View {
                 standardAntigravityContent()
             }
         case .empty:
-            standardStatusCard(
+            standardInlineStatusPanel(
                 icon: "tray",
                 iconColor: .secondary,
                 title: "데이터 없음",
@@ -567,7 +568,7 @@ struct PopoverView: View {
     }
 
     @ViewBuilder
-    private func standardStatusCard(
+    private func standardInlineStatusPanel(
         icon: String? = nil,
         iconColor: Color = .secondary,
         showsProgress: Bool = false,
@@ -577,21 +578,43 @@ struct PopoverView: View {
         actionStyle: StatusActionStyle = .bordered,
         action: (() -> Void)? = nil
     ) -> some View {
-        centeredStatusCard(
-            compact: false,
-            icon: icon,
-            iconColor: iconColor,
-            showsProgress: showsProgress,
-            title: title,
-            message: message,
-            actionTitle: actionTitle,
-            actionStyle: actionStyle,
-            action: action
-        )
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
+                statusLeadingIndicator(
+                    compact: false,
+                    icon: icon,
+                    iconColor: iconColor,
+                    showsProgress: showsProgress
+                )
+
+                Text(title)
+                    .font(.title3.weight(.semibold))
+                    .lineLimit(1)
+
+                Spacer(minLength: 12)
+
+                if let actionTitle, let action {
+                    statusActionButton(
+                        title: actionTitle,
+                        compact: false,
+                        style: actionStyle,
+                        action: action
+                    )
+                }
+            }
+
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
     }
 
     @ViewBuilder
-    private func compactStatusCard(
+    private func compactInlineStatusPanel(
         icon: String? = nil,
         iconColor: Color = .secondary,
         showsProgress: Bool = false,
@@ -601,70 +624,80 @@ struct PopoverView: View {
         actionStyle: StatusActionStyle = .bordered,
         action: (() -> Void)? = nil
     ) -> some View {
-        centeredStatusCard(
-            compact: true,
-            icon: icon,
-            iconColor: iconColor,
-            showsProgress: showsProgress,
-            title: title,
-            message: message,
-            actionTitle: actionTitle,
-            actionStyle: actionStyle,
-            action: action
-        )
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 8) {
+                statusLeadingIndicator(
+                    compact: true,
+                    icon: icon,
+                    iconColor: iconColor,
+                    showsProgress: showsProgress
+                )
+
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+
+                Spacer(minLength: 8)
+
+                if let actionTitle, let action {
+                    statusActionButton(
+                        title: actionTitle,
+                        compact: true,
+                        style: actionStyle,
+                        action: action
+                    )
+                }
+            }
+
+            Text(message)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
-    private func centeredStatusCard(
+    private func statusLeadingIndicator(
         compact: Bool,
         icon: String?,
         iconColor: Color,
-        showsProgress: Bool,
-        title: String,
-        message: String,
-        actionTitle: String?,
-        actionStyle: StatusActionStyle,
-        action: (() -> Void)?
+        showsProgress: Bool
     ) -> some View {
-        VStack(spacing: compact ? 6 : 8) {
-            if showsProgress {
-                ProgressView()
-                    .controlSize(compact ? .small : .regular)
-            } else if let icon {
-                Image(systemName: icon)
-                    .font(.system(size: compact ? 24 : 34))
-                    .foregroundStyle(iconColor)
-            }
-
-            Text(title)
-                .font(compact ? .subheadline.weight(.semibold) : .headline)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-
-            Text(message)
-                .font(compact ? .caption2 : .caption)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.secondary)
-                .lineLimit(compact ? 2 : 3)
-                .fixedSize(horizontal: false, vertical: true)
-
-            if let actionTitle, let action {
-                if actionStyle == .prominent {
-                    Button(actionTitle) {
-                        action()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(compact ? .small : .regular)
-                } else {
-                    Button(actionTitle) {
-                        action()
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(compact ? .small : .regular)
-                }
-            }
+        if showsProgress {
+            ProgressView()
+                .controlSize(compact ? .small : .regular)
+                .frame(width: compact ? 14 : 18, height: compact ? 14 : 18, alignment: .center)
+        } else if let icon {
+            Image(systemName: icon)
+                .font(.system(size: compact ? 12 : 15, weight: .semibold))
+                .foregroundStyle(iconColor)
+                .frame(width: compact ? 14 : 18, height: compact ? 14 : 18, alignment: .center)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    @ViewBuilder
+    private func statusActionButton(
+        title: String,
+        compact: Bool,
+        style: StatusActionStyle,
+        action: @escaping () -> Void
+    ) -> some View {
+        if style == .prominent {
+            Button(title) {
+                action()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(compact ? .small : .regular)
+        } else {
+            Button(title) {
+                action()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(compact ? .small : .regular)
+        }
     }
 
     // MARK: - Standard Content
@@ -1120,30 +1153,30 @@ enum PopoverLayoutMetrics {
         if compact {
             switch phase {
             case .authRequired, .loading, .error, .empty:
-                return 116
+                return 104
             case .content:
                 switch rowCount {
                 case ...2:
-                    return 124
+                    return 116
                 case 3:
-                    return 144
+                    return 132
                 default:
-                    return 164
+                    return 148
                 }
             }
         }
 
         switch phase {
         case .authRequired, .loading, .error, .empty:
-            return 292
+            return 236
         case .content:
             switch rowCount {
             case ...2:
-                return 292
+                return 276
             case 3:
-                return 336
+                return 320
             default:
-                return 372
+                return 356
             }
         }
     }
@@ -1155,17 +1188,17 @@ enum PopoverLayoutMetrics {
         if compact {
             switch phase {
             case .content:
-                return 52
-            case .authRequired, .loading, .error, .empty:
                 return 44
+            case .authRequired, .loading, .error, .empty:
+                return 36
             }
         }
 
         switch phase {
         case .content:
-            return 124
+            return 108
         case .authRequired, .loading, .error, .empty:
-            return 112
+            return 72
         }
     }
 }
@@ -1187,9 +1220,9 @@ struct PopoverStateContainer<Content: View>: View {
 
     private var paddingInsets: EdgeInsets {
         if compact {
-            return EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 10)
+            return EdgeInsets(top: 3, leading: 10, bottom: 3, trailing: 10)
         }
-        return EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
+        return EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
     }
 
     var body: some View {
@@ -1210,20 +1243,7 @@ struct CompactUsageRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: PopoverLayoutMetrics.compactRowSpacing) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                Text(compactResetText ?? "--")
-                    .font(.system(size: 9.5, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    .truncationMode(.tail)
-            }
+            compactLabelLine
             .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
 
             HStack(spacing: 6) {
@@ -1239,7 +1259,26 @@ struct CompactUsageRow: View {
             }
             .frame(width: PopoverLayoutMetrics.compactRowMeterWidth, alignment: .trailing)
         }
-        .padding(.vertical, 1)
+        .padding(.vertical, 0.5)
+    }
+
+    private var compactLabelLine: some View {
+        (
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+            +
+            Text(" · ")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            +
+            Text(compactResetText ?? "--")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+        )
+        .lineLimit(1)
+        .minimumScaleFactor(0.72)
+        .truncationMode(.tail)
     }
 
     private var compactResetText: String? {

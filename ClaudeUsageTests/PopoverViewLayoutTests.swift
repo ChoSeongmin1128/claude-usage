@@ -20,26 +20,26 @@ final class PopoverViewLayoutTests: XCTestCase {
     func testStandardPopoverHeightShrinksForShortOrEmptyStates() {
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: false, phase: .authRequired, rowCount: 0),
-            292
+            236
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: false, phase: .content, rowCount: 2),
-            292
+            276
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: false, phase: .content, rowCount: 3),
-            336
+            320
         )
     }
 
     func testCompactPopoverHeightUsesShorterStatusVariant() {
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .empty, rowCount: 0),
-            116
+            104
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .content, rowCount: 2),
-            124
+            116
         )
     }
 }
