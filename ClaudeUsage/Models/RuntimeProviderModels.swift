@@ -25,6 +25,34 @@ enum ProviderCredentialState: String, Sendable, Equatable {
     }
 }
 
+enum RuntimeProviderFetchState: String, Sendable, Equatable {
+    case idle
+    case ready
+    case loading
+    case success
+    case temporaryFailure
+    case definitiveFailure
+    case authFailure
+    case blocked
+}
+
+enum PopoverLayoutRefreshReason: String, Sendable, Equatable {
+    case serviceSelection
+    case compactToggle
+}
+
+enum LocalProviderSummaryPhase: String, Sendable, Equatable {
+    case disabled
+    case loading
+    case backoff
+    case refreshingCredential
+    case probingRuntime
+    case waitingForApp
+    case authRequired
+    case temporaryError
+    case ready
+}
+
 enum PopoverService: String, CaseIterable, Sendable {
     case claude
     case codex
@@ -71,8 +99,8 @@ struct RuntimeProviderRefreshContext: Sendable, Equatable {
     let hasClaudeSessionKey: Bool
     let hasClaudeOAuthCredential: Bool
     let isCodexAuthenticated: Bool
-    let hasGeminiCredential: Bool
-    let hasAntigravityCredential: Bool
+    let geminiRuntimeReachability: Bool
+    let antigravityRuntimeReachability: Bool
 }
 
 struct RuntimeProviderDescriptor: Sendable, Equatable {
@@ -90,9 +118,9 @@ struct RuntimeProviderDescriptor: Sendable, Equatable {
         case .codex:
             return context.isCodexAuthenticated
         case .gemini:
-            return true
+            return context.geminiRuntimeReachability
         case .antigravity:
-            return true
+            return context.antigravityRuntimeReachability
         }
     }
 }
@@ -164,6 +192,25 @@ struct RuntimeProviderState {
         guard case let .antigravity(usage)? = payload else { return nil }
         return usage
     }
+
+    var fetchState: RuntimeProviderFetchState {
+        if isLoading {
+            return .loading
+        }
+        if payload != nil {
+            return .success
+        }
+        if let error {
+            if error.isDefinitiveAuthFailure {
+                return .authFailure
+            }
+            if error.isTemporaryFailure {
+                return .temporaryFailure
+            }
+            return .definitiveFailure
+        }
+        return .idle
+    }
 }
 
 struct RuntimeProviderStateCatalog {
@@ -186,6 +233,7 @@ struct RuntimeProviderSnapshot {
     let error: APIError?
     let isLoading: Bool
     let lastUpdated: Date?
+    let nextRefreshAllowedAt: Date?
     let credentialState: ProviderCredentialState
     let isDetected: Bool
     let canAttemptRefresh: Bool
@@ -194,6 +242,32 @@ struct RuntimeProviderSnapshot {
     var kind: AppProviderKind { service.providerKind }
     var hasContent: Bool { payload != nil }
     var hasCredential: Bool { credentialState.hasAnyCredential }
+    var runtimeReachability: Bool { canAttemptRefresh }
+    var hasBackoff: Bool { RefreshExecutionPolicy.remainingBackoffSeconds(until: nextRefreshAllowedAt) != nil }
+    var fetchState: RuntimeProviderFetchState {
+        if isLoading {
+            return .loading
+        }
+        if payload != nil {
+            return .success
+        }
+        if let error {
+            if error.isDefinitiveAuthFailure {
+                return .authFailure
+            }
+            if error.isTemporaryFailure {
+                return .temporaryFailure
+            }
+            return .definitiveFailure
+        }
+        if hasCredential && canAttemptRefresh {
+            return .ready
+        }
+        if isDetected || hasCredential {
+            return .blocked
+        }
+        return .idle
+    }
 
     var claudeUsage: ClaudeUsageResponse? {
         guard case let .claude(usage)? = payload else { return nil }

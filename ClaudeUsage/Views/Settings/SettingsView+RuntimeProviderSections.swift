@@ -1,0 +1,222 @@
+import AppKit
+import SwiftUI
+
+extension SettingsView {
+    @ViewBuilder
+    func runtimeProviderPanel(for provider: AppProviderKind, tab: RuntimeProviderTab) -> some View {
+        switch tab {
+        case .auth:
+            runtimeProviderAuthSection(for: provider)
+        case .display:
+            runtimeProviderDisplaySection(for: provider)
+        case .popover:
+            runtimeProviderPopoverSection(for: provider)
+        case .alerts:
+            runtimeProviderAlertsSection(for: provider)
+        }
+    }
+
+    @ViewBuilder
+    private func runtimeProviderAuthSection(for provider: AppProviderKind) -> some View {
+        let _ = runtimeEnvironmentRefreshTick
+        let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: provider)
+        if let presentation = RuntimeProviderSettingsPresentation.authPresentation(
+            for: provider,
+            isEnabled: settings.isProviderEnabled(provider)
+        ) {
+            RuntimeProviderAuthSectionView(
+                settings: settings,
+                provider: provider,
+                descriptor: descriptor,
+                presentation: presentation,
+                footnote: shellSectionFootnote(for: provider, selectionState: settings.providerSelectionState),
+                onRefreshEnvironment: { runtimeEnvironmentRefreshTick += 1 }
+            )
+        } else {
+            RuntimeProviderPanelShell(
+                descriptor: descriptor,
+                title: descriptor.title,
+                summary: descriptor.summary,
+                detail: descriptor.detail
+            ) {
+                Text("이 provider의 인증 설정은 아직 별도 presentation을 쓰지 않습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func runtimeProviderDisplaySection(for provider: AppProviderKind) -> some View {
+        let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: provider)
+        let displayConfig = settings.menuBarDisplayConfig(for: provider)
+        RuntimeProviderPanelShell(
+            descriptor: descriptor,
+            title: "\(descriptor.title) 표시",
+            summary: "메뉴바에 실제로 어떤 형태로 그릴지 정하는 영역입니다."
+        ) {
+            if let displayConfig {
+                VStack(alignment: .leading, spacing: 10) {
+                    settingsToggleRow(
+                        "\(descriptor.title) 메뉴바에 표시",
+                        isOn: Binding(
+                            get: { settings.isProviderVisibleInMenuBar(provider) },
+                            set: { settings.setProviderMenuBarVisible($0, for: provider) }
+                        )
+                    )
+
+                    if settings.isProviderVisibleInMenuBar(provider) {
+                        settingsToggleRow(
+                            "\(descriptor.title) 아이콘",
+                            isOn: Binding(
+                                get: { settings.menuBarDisplayConfig(for: provider)?.showIcon ?? true },
+                                set: { settings.setProviderShowIcon($0, for: provider) }
+                            )
+                        )
+
+                        Picker("퍼센트:", selection: Binding(
+                            get: { settings.menuBarDisplayConfig(for: provider)?.percentageDisplay ?? .fiveHour },
+                            set: { settings.setProviderPercentageDisplay($0, for: provider) }
+                        )) {
+                            ForEach(PercentageDisplay.allCases, id: \.self) { mode in
+                                Text(mode.displayName).tag(mode)
+                            }
+                        }
+
+                        Picker("리셋 시간:", selection: Binding(
+                            get: { settings.menuBarDisplayConfig(for: provider)?.resetTimeDisplay ?? .none },
+                            set: { settings.setProviderResetTimeDisplay($0, for: provider) }
+                        )) {
+                            ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
+                                Text(mode.displayName).tag(mode)
+                            }
+                        }
+
+                        if displayConfig.resetTimeDisplay != .none {
+                            Picker("시간 형식:", selection: Binding(
+                                get: { settings.menuBarDisplayConfig(for: provider)?.timeFormat ?? .h24 },
+                                set: { settings.setProviderTimeFormat($0, for: provider) }
+                            )) {
+                                ForEach(TimeFormatStyle.allCases, id: \.self) { style in
+                                    Text(style.displayName).tag(style)
+                                }
+                            }
+                        }
+
+                        Picker("아이콘:", selection: Binding(
+                            get: { settings.menuBarDisplayConfig(for: provider)?.style ?? .none },
+                            set: { settings.setMenuBarStyle($0, for: provider) }
+                        )) {
+                            Text("없음").tag(MenuBarStyle.none)
+                            Section("개별 기준") {
+                                Text("배터리바").tag(MenuBarStyle.batteryBar)
+                                Text("원형").tag(MenuBarStyle.circular)
+                            }
+                            Section("동시 표시") {
+                                Text("동심원").tag(MenuBarStyle.concentricRings)
+                                Text("이중 배터리").tag(MenuBarStyle.dualBattery)
+                                Text("좌우 배터리").tag(MenuBarStyle.sideBySideBattery)
+                            }
+                        }
+
+                        if displayConfig.style == .batteryBar || displayConfig.style == .sideBySideBattery {
+                            settingsToggleRow(
+                                "배터리 내부 숫자",
+                                isOn: Binding(
+                                    get: { settings.menuBarDisplayConfig(for: provider)?.showBatteryPercent ?? true },
+                                    set: { settings.setProviderShowBatteryPercent($0, for: provider) }
+                                )
+                            )
+                        }
+
+                        if displayConfig.style == .batteryBar || displayConfig.style == .circular {
+                            Picker("아이콘 기준:", selection: Binding(
+                                get: { settings.menuBarDisplayConfig(for: provider)?.iconMetric ?? .fiveHour },
+                                set: { settings.setProviderIconMetric($0, for: provider) }
+                            )) {
+                                ForEach(IconMetric.allCases, id: \.self) { metric in
+                                    Text(metric.displayName).tag(metric)
+                                }
+                            }
+                            .pickerStyle(.radioGroup)
+                        }
+
+                        if displayConfig.style == .circular || displayConfig.style == .concentricRings {
+                            Picker("표시 기준:", selection: Binding(
+                                get: { settings.menuBarDisplayConfig(for: provider)?.circularDisplayMode ?? .usage },
+                                set: { settings.setProviderCircularDisplayMode($0, for: provider) }
+                            )) {
+                                ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
+                                    Text(mode.displayName).tag(mode)
+                                }
+                            }
+                            .pickerStyle(.radioGroup)
+                        }
+                    } else {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "eye.slash")
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 1)
+                            Text("이 provider는 활성화되어 있어도 popover와 새로고침에만 참여하고, 메뉴바에는 표시하지 않습니다.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(10)
+                        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+                        .cornerRadius(8)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func runtimeProviderPopoverSection(for provider: AppProviderKind) -> some View {
+        let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: provider)
+        RuntimeProviderPanelShell(
+            descriptor: descriptor,
+            title: "\(descriptor.title) 팝오버 동작",
+            summary: "간소화 보기는 runtime provider 전체에 함께 적용되고, 팝오버 고정만 이 provider에 개별 적용됩니다."
+        ) {
+            settingsToggleRow(
+                "간소화 보기",
+                isOn: Binding(
+                    get: { settings.isPopoverCompact(for: provider) },
+                    set: { settings.setPopoverCompact($0, for: provider) }
+                )
+            )
+            settingsToggleRow(
+                "팝오버 고정",
+                isOn: Binding(
+                    get: { settings.isPopoverPinned(for: provider) },
+                    set: { settings.setPopoverPinned($0, for: provider) }
+                )
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func runtimeProviderAlertsSection(for provider: AppProviderKind) -> some View {
+        let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: provider)
+        RuntimeProviderPanelShell(
+            descriptor: descriptor,
+            title: "\(descriptor.title) 알림 사용",
+            summary: "임계값 프리셋은 공통 알림에서 한 번만 관리하고, 여기서는 이 provider를 그 알림 대상에 포함할지만 정합니다."
+        ) {
+            chip(
+                title: "현재 상태",
+                value: settings.isProviderAlertEnabled(provider) ? "공통 알림 대상" : "제외됨",
+                color: settings.isProviderAlertEnabled(provider) ? .green : .secondary
+            )
+
+            Button {
+                selectedPanel = .common
+                selectedCommonTab = .alerts
+                settings.settingsLastTab = SettingsProviderPanel.common.rawValue
+            } label: {
+                Label("공통 알림 열기", systemImage: "bell.badge")
+            }
+            .buttonStyle(.link)
+        }
+    }
+}

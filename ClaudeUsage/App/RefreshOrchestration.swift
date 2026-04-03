@@ -39,10 +39,6 @@ enum RefreshOrchestration {
                 return .refresh(service: service, force: force)
             }
 
-            if ServiceSelectionHelper.isEnabled(service, settings: settings) {
-                return .clearState(service)
-            }
-
             return nil
         }
     }

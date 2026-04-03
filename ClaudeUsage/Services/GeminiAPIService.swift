@@ -64,9 +64,34 @@ actor GeminiAPIService {
         }
 
         let credentials = try loadCredentials()
+        var accessToken = try await resolvedAccessToken(from: credentials)
+        let claims = extractClaims(from: credentials.idToken)
+        let codeAssistStatus = await loadCodeAssistStatus(accessToken: accessToken)
+        let projectID = try await resolvedProjectID(accessToken: accessToken, codeAssistStatus: codeAssistStatus)
+
+        do {
+            let data = try await fetchQuotaData(accessToken: accessToken, projectID: projectID)
+            return try parseUsage(data, claims: claims, codeAssistStatus: codeAssistStatus)
+        } catch let error as APIError where error.isDefinitiveAuthFailure {
+            guard let refreshToken = credentials.refreshToken, !refreshToken.isEmpty else {
+                throw error
+            }
+            accessToken = try await refreshAccessToken(refreshToken: refreshToken)
+            let refreshedStatus = await loadCodeAssistStatus(accessToken: accessToken)
+            let refreshedProjectID = try await resolvedProjectID(accessToken: accessToken, codeAssistStatus: refreshedStatus)
+            let data = try await fetchQuotaData(accessToken: accessToken, projectID: refreshedProjectID)
+            return try parseUsage(data, claims: claims, codeAssistStatus: refreshedStatus)
+        } catch let error as APIError {
+            throw error
+        } catch {
+            throw APIError.parseError
+        }
+    }
+
+    private func resolvedAccessToken(from credentials: OAuthCredentials) async throws -> String {
         var accessToken = credentials.accessToken
         if let expiryDate = credentials.expiryDate, expiryDate <= Date() {
-            guard let refreshToken = credentials.refreshToken else {
+            guard let refreshToken = credentials.refreshToken, !refreshToken.isEmpty else {
                 throw APIError.invalidSessionKey
             }
             accessToken = try await refreshAccessToken(refreshToken: refreshToken)
@@ -75,16 +100,17 @@ actor GeminiAPIService {
         guard let accessToken, !accessToken.isEmpty else {
             throw APIError.invalidSessionKey
         }
+        return accessToken
+    }
 
-        let claims = extractClaims(from: credentials.idToken)
-        let codeAssistStatus = await loadCodeAssistStatus(accessToken: accessToken)
-        let projectID: String?
+    private func resolvedProjectID(accessToken: String, codeAssistStatus: CodeAssistStatus) async throws -> String? {
         if let detectedProjectID = codeAssistStatus.projectID {
-            projectID = detectedProjectID
-        } else {
-            projectID = try? await discoverGeminiProjectID(accessToken: accessToken)
+            return detectedProjectID
         }
+        return try? await discoverGeminiProjectID(accessToken: accessToken)
+    }
 
+    private func fetchQuotaData(accessToken: String, projectID: String?) async throws -> Data {
         var request = URLRequest(url: quotaEndpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = requestTimeout
@@ -110,19 +136,11 @@ actor GeminiAPIService {
 
         switch httpResponse.statusCode {
         case 200:
-            break
+            return data
         case 401, 403:
             throw APIError.invalidSessionKey
         default:
             throw APIError.serverError(httpResponse.statusCode)
-        }
-
-        do {
-            return try parseUsage(data, claims: claims, codeAssistStatus: codeAssistStatus)
-        } catch let error as APIError {
-            throw error
-        } catch {
-            throw APIError.parseError
         }
     }
 
@@ -290,20 +308,18 @@ actor GeminiAPIService {
     private func geminiOAuthConfigCandidates() -> [URL] {
         guard let binaryURL = resolvedGeminiBinaryURL() else { return [] }
         let executableURL = resolvedGeminiExecutableURL(from: binaryURL)
-        let baseDir = executableURL.deletingLastPathComponent().deletingLastPathComponent()
+        let installRoot = geminiInstallRoot(for: executableURL)
         let fm = FileManager.default
 
         var candidates: [URL] = [
-            baseDir.appendingPathComponent("libexec/lib/node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js"),
-            baseDir.appendingPathComponent("lib/node_modules/@google/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js"),
-            baseDir.appendingPathComponent("share/gemini-cli/node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js"),
-            baseDir.appendingPathComponent("../gemini-cli-core/dist/src/code_assist/oauth2.js"),
-            baseDir.appendingPathComponent("node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js"),
+            installRoot.appendingPathComponent("node_modules/@google/gemini-cli-core/dist/src/code_assist/oauth2.js"),
+            installRoot.appendingPathComponent("bundle/gemini.js"),
         ]
 
         let bundleDirectories = [
-            baseDir.appendingPathComponent("libexec/lib/node_modules/@google/gemini-cli/bundle"),
-            baseDir.appendingPathComponent("lib/node_modules/@google/gemini-cli/bundle"),
+            installRoot.appendingPathComponent("bundle"),
+            installRoot.appendingPathComponent("libexec/lib/node_modules/@google/gemini-cli/bundle"),
+            installRoot.appendingPathComponent("lib/node_modules/@google/gemini-cli/bundle"),
         ]
         for bundleDir in bundleDirectories where fm.fileExists(atPath: bundleDir.path) {
             if let enumerator = fm.enumerator(at: bundleDir, includingPropertiesForKeys: nil) {
@@ -315,6 +331,15 @@ actor GeminiAPIService {
         }
 
         return candidates
+    }
+
+    private func geminiInstallRoot(for executableURL: URL) -> URL {
+        if executableURL.lastPathComponent == "gemini.js",
+           executableURL.deletingLastPathComponent().lastPathComponent == "bundle" {
+            return executableURL.deletingLastPathComponent().deletingLastPathComponent()
+        }
+
+        return executableURL.deletingLastPathComponent().deletingLastPathComponent()
     }
 
     private func resolvedGeminiExecutableURL(from binaryURL: URL) -> URL {

@@ -46,6 +46,81 @@ enum SetupCompletionPolicy {
         return .chromeImport
     }
 
+    static func resolveWizardStep(
+        progress: WizardProgress,
+        hasChromeApp: Bool,
+        credentialStepOverride: SetupWizardView.Step?
+    ) -> SetupWizardView.Step {
+        if progress.stage == .credential, let credentialStepOverride {
+            return credentialStepOverride
+        }
+
+        switch progress.stage {
+        case .credential:
+            return resolveCredentialStep(
+                hasReadyCredential: progress.hasReadyCredential,
+                hasChromeApp: hasChromeApp
+            )
+        case .verification, .organization, .complete:
+            return .webLogin
+        }
+    }
+
+    static func resolvePresentation(
+        hasReadyCredential: Bool,
+        hasSuccessfulFetch: Bool,
+        preferredOrganizationID: String,
+        cachedMetadata: ClaudeProfileMetadata?,
+        hasChromeApp: Bool,
+        credentialStepOverride: SetupWizardView.Step? = nil
+    ) -> ClaudeSetupPresentation {
+        let progress = resolveWizardProgress(
+            hasReadyCredential: hasReadyCredential,
+            hasSuccessfulFetch: hasSuccessfulFetch,
+            preferredOrganizationID: preferredOrganizationID,
+            cachedMetadata: cachedMetadata
+        )
+        let credentialStep = resolveWizardStep(
+            progress: progress,
+            hasChromeApp: hasChromeApp,
+            credentialStepOverride: credentialStepOverride
+        )
+
+        let landingSettingsTab: ClaudeSetupPresentation.LandingSettingsTab
+        let primaryActionKind: ClaudeSetupPresentation.PrimaryActionKind
+
+        switch progress.stage {
+        case .credential:
+            landingSettingsTab = .auth
+            switch credentialStep {
+            case .chromeImport:
+                primaryActionKind = .openChrome
+            case .webLogin:
+                primaryActionKind = .openWebLogin
+            case .manualSessionKey:
+                primaryActionKind = .openAdvancedSettings
+            }
+        case .verification:
+            landingSettingsTab = .status
+            primaryActionKind = .verifyFetch
+        case .organization:
+            landingSettingsTab = .organizations
+            primaryActionKind = progress.isAutomaticOrganizationMode ? .useAutomaticOrganization : .openOrganizations
+        case .complete:
+            landingSettingsTab = .status
+            primaryActionKind = .complete
+        }
+
+        return ClaudeSetupPresentation(
+            progress: progress,
+            credentialStep: credentialStep,
+            shouldShowWizard: progress.stage != .complete,
+            landingSettingsTab: landingSettingsTab,
+            primaryActionKind: primaryActionKind,
+            organizationSummary: progress.organizationSummary
+        )
+    }
+
     static func isOrganizationReady(
         preferredOrganizationID: String,
         cachedMetadata: ClaudeProfileMetadata?
@@ -67,13 +142,9 @@ enum SetupCompletionPolicy {
 
     static func hasReadyCredential(
         sessionCredentialAvailable: Bool,
-        oauthCredentialAvailable: Bool,
-        storedSessionKey: String?
+        oauthCredentialAvailable: Bool
     ) -> Bool {
-        let normalizedStoredSessionKey = (storedSessionKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return sessionCredentialAvailable
-            || oauthCredentialAvailable
-            || !normalizedStoredSessionKey.isEmpty
+        sessionCredentialAvailable || oauthCredentialAvailable
     }
 
     @MainActor

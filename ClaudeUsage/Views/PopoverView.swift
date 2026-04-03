@@ -28,6 +28,7 @@ struct PopoverView: View {
                 }
                 headerUtilityControls
             }
+            .frame(height: isCompact ? 26 : 30)
             .padding(.horizontal, isCompact ? 12 : 16)
             .padding(.top, isCompact ? 4 : 12)
             .padding(.bottom, isCompact ? 4 : 8)
@@ -35,7 +36,10 @@ struct PopoverView: View {
             if isCompact {
                 compactMainSection
             } else {
-                standardMainSection
+                ScrollView(.vertical, showsIndicators: false) {
+                    standardMainSection
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
 
             Divider()
@@ -114,7 +118,6 @@ struct PopoverView: View {
         }
         .onChange(of: viewModel.selectedService) { _, _ in
             syncCompactAcrossServicesIfNeeded()
-            requestRefreshIfNeededForVisibleService()
         }
     }
 
@@ -143,7 +146,7 @@ struct PopoverView: View {
                     isCompact.toggle()
                 }
                 DispatchQueue.main.async {
-                    viewModel.requestLayoutRefresh()
+                    viewModel.requestLayoutRefresh(reason: .compactToggle)
                 }
             } label: {
                 Image(systemName: isCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
@@ -167,14 +170,11 @@ struct PopoverView: View {
     }
 
     private func selectService(_ service: PopoverService) {
+        guard service != selectedService else { return }
         viewModel.selectService(service)
         syncCompactAcrossServicesIfNeeded()
-        requestLayoutRefresh()
-    }
-
-    private func requestLayoutRefresh() {
         DispatchQueue.main.async {
-            viewModel.requestLayoutRefresh()
+            viewModel.requestLayoutRefresh(for: service, reason: .serviceSelection)
         }
     }
 
@@ -209,6 +209,7 @@ struct PopoverView: View {
                 }
             }
             .scrollIndicators(.never)
+            .frame(height: isCompact ? 22 : 26)
         } else {
             HStack(spacing: 8) {
                 ProviderBrandIconView(provider: selectedService.providerKind, kind: .popover, size: 16)
@@ -222,11 +223,11 @@ struct PopoverView: View {
 
     @ViewBuilder
     private func headerSelectorButton(for service: PopoverService) -> some View {
-        let showText = !isCompact && (availableServices.count < 4 || selectedService == service)
+        let showText = !isCompact
         Button {
             selectService(service)
         } label: {
-            HStack(spacing: 5) {
+            HStack(spacing: showText ? 5 : 0) {
                 ProviderBrandIconView(provider: service.providerKind, kind: .popover, size: isCompact ? 13 : 14)
                 if showText {
                     Text(service.displayName)
@@ -235,14 +236,17 @@ struct PopoverView: View {
                         .minimumScaleFactor(0.88)
                         .fixedSize(horizontal: true, vertical: false)
                 }
+            }
+            .padding(.horizontal, isCompact ? 7 : (showText ? 10 : 8))
+            .padding(.vertical, isCompact ? 3 : 4)
+            .overlay(alignment: .topTrailing) {
                 if shouldShowWarningDot(for: service) && !isCompact {
                     Circle()
                         .fill(Color.orange)
                         .frame(width: 6, height: 6)
+                        .offset(x: 3, y: -3)
                 }
             }
-            .padding(.horizontal, isCompact ? 7 : (showText ? 10 : 8))
-            .padding(.vertical, isCompact ? 3 : 4)
             .background(selectedService == service ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
             .foregroundStyle(selectedService == service ? Color.accentColor : .primary)
             .cornerRadius(8)
@@ -333,25 +337,37 @@ struct PopoverView: View {
         }
     }
 
-    static func preferredPopoverWidth(for service: PopoverService, compact: Bool) -> CGFloat {
+    static func preferredPopoverWidth(compact: Bool) -> CGFloat {
         if compact {
-            return 304
+            return 296
         }
-        switch service {
-        case .claude, .codex:
-            return 460
-        case .gemini, .antigravity:
-            return 476
-        }
+        return 404
     }
 
-    static func resolvedPopoverWidth(for service: PopoverService, compact: Bool, fittingWidth: CGFloat) -> CGFloat {
-        let preferredWidth = self.preferredPopoverWidth(for: service, compact: compact)
-        guard !compact else {
-            return min(max(preferredWidth, 300), 320)
-        }
+    static func resolvedPopoverWidth(for service: PopoverService, compact: Bool) -> CGFloat {
+        self.preferredPopoverWidth(compact: compact)
+    }
 
-        return min(max(fittingWidth, preferredWidth), preferredWidth + 24)
+    static func minimumPopoverHeight(compact: Bool) -> CGFloat {
+        if !compact { return 260 }
+        return 116
+    }
+
+    static func preferredPopoverHeight(compact: Bool) -> CGFloat {
+        if !compact { return 336 }
+        return 144
+    }
+
+    static func maximumPopoverHeight(compact: Bool) -> CGFloat {
+        if !compact { return 420 }
+        return 176
+    }
+
+    static func resolvedPopoverSize(compact: Bool) -> CGSize {
+        CGSize(
+            width: preferredPopoverWidth(compact: compact),
+            height: preferredPopoverHeight(compact: compact)
+        )
     }
 
     private func requestRefreshIfNeededForVisibleService() {
@@ -387,23 +403,46 @@ struct PopoverView: View {
     }
 
     private var claudeUsage: ClaudeUsageResponse? {
-        viewModel.runtimeSnapshots[.claude]?.claudeUsage ?? viewModel.usage
+        viewModel.claudeUsage
     }
 
     private var codexUsage: CodexUsageResponse? {
-        viewModel.runtimeSnapshots[.codex]?.codexUsage ?? viewModel.codexUsage
+        viewModel.codexUsage
     }
 
     private var geminiUsage: GeminiUsageResponse? {
-        viewModel.runtimeSnapshots[.gemini]?.geminiUsage ?? viewModel.geminiUsage
+        viewModel.geminiUsage
     }
 
     private var antigravityUsage: AntigravityUsageResponse? {
-        viewModel.runtimeSnapshots[.antigravity]?.antigravityUsage ?? viewModel.antigravityUsage
+        viewModel.antigravityUsage
     }
 
     private func needsInitialLoad(for service: PopoverService) -> Bool {
         serviceLoading(for: service) && !hasLoadedContent(for: service)
+    }
+
+    private func contentPhase(for service: PopoverService) -> PopoverContentPhase {
+        if isAuthRequired(for: service) {
+            return .authRequired
+        }
+        if needsInitialLoad(for: service) {
+            return .loading
+        }
+        if error(for: service) != nil && !hasLoadedContent(for: service) {
+            return .error
+        }
+        switch service {
+        case .claude:
+            if claudeUsage != nil { return .content }
+        case .codex:
+            if codexUsage != nil { return .content }
+        case .gemini:
+            if geminiUsage != nil { return .content }
+        case .antigravity:
+            if antigravityUsage != nil { return .content }
+        }
+        return .empty
     }
 
     // MARK: - Standard Content
@@ -474,7 +513,7 @@ struct PopoverView: View {
                             timeFormatStyle: settings.codexTimeFormat
                         )
                     } else {
-                        ProviderStatusRow(title: "현재 세션", error: viewModel.codexError)
+                        ProviderStatusRow(title: "현재 세션", error: viewModel.snapshot(for: .codex)?.error)
                     }
                 case "codexSecondary":
                     if let codex = codexUsage, let window = codex.rateLimit?.secondaryWindow {
@@ -487,20 +526,19 @@ struct PopoverView: View {
                             timeFormatStyle: settings.codexTimeFormat
                         )
                     } else {
-                        ProviderStatusRow(title: "주간 한도", error: viewModel.codexError)
+                        ProviderStatusRow(title: "주간 한도", error: viewModel.snapshot(for: .codex)?.error)
                     }
                 case "codexCredits":
                     if let codex = codexUsage, let credits = codex.credits {
                         CodexCreditsView(credits: credits)
                     } else {
-                        ProviderStatusRow(title: "Codex 크레딧", error: viewModel.codexError)
+                        ProviderStatusRow(title: "Codex 크레딧", error: viewModel.snapshot(for: .codex)?.error)
                     }
                 default:
                     EmptyView()
                 }
             }
         }
-        .padding(16)
     }
 
     @ViewBuilder
@@ -562,7 +600,6 @@ struct PopoverView: View {
                 }
             }
         }
-        .padding(16)
     }
 
     @ViewBuilder
@@ -582,7 +619,7 @@ struct PopoverView: View {
                             timeFormatStyle: settings.codexTimeFormat
                         )
                     } else {
-                        ProviderStatusRow(title: "현재 세션", error: viewModel.codexError)
+                        ProviderStatusRow(title: "현재 세션", error: viewModel.snapshot(for: .codex)?.error)
                     }
                 case "codexSecondary":
                     if let codex = codexUsage, let window = codex.rateLimit?.secondaryWindow {
@@ -595,99 +632,96 @@ struct PopoverView: View {
                             timeFormatStyle: settings.codexTimeFormat
                         )
                     } else {
-                        ProviderStatusRow(title: "주간 한도", error: viewModel.codexError)
+                        ProviderStatusRow(title: "주간 한도", error: viewModel.snapshot(for: .codex)?.error)
                     }
                 case "codexCredits":
                     if let codex = codexUsage, let credits = codex.credits {
                         CodexCreditsView(credits: credits)
                     } else {
-                        ProviderStatusRow(title: "Codex 크레딧", error: viewModel.codexError)
+                        ProviderStatusRow(title: "Codex 크레딧", error: viewModel.snapshot(for: .codex)?.error)
                     }
                 default:
                     EmptyView()
                 }
             }
         }
-        .padding(16)
     }
 
     @ViewBuilder
     private var compactMainSection: some View {
-        Group {
-            if isAuthRequired(for: selectedService) {
+        PopoverStateContainer(compact: true) {
+            switch contentPhase(for: selectedService) {
+            case .authRequired:
                 compactAuthRequiredState
-
-            } else if needsInitialLoad(for: selectedService) {
+            case .loading:
                 compactLoadingState
-
-            } else if let error = serviceError, !hasLoadedContent(for: selectedService) {
-                compactErrorState(error)
-
-            } else if selectedService == .claude, claudeUsage != nil {
-                compactClaudeContent(usage: claudeUsage)
-
-            } else if selectedService == .codex, codexUsage != nil {
-                compactCodexContent()
-
-            } else if selectedService == .gemini, geminiUsage != nil {
-                compactGeminiContent()
-
-            } else if selectedService == .antigravity, antigravityUsage != nil {
-                compactAntigravityContent()
-
-            } else {
+            case .error:
+                if let error = serviceError {
+                    compactErrorState(error)
+                }
+            case .content:
+                switch selectedService {
+                case .claude:
+                    compactClaudeContent(usage: claudeUsage)
+                case .codex:
+                    compactCodexContent()
+                case .gemini:
+                    compactGeminiContent()
+                case .antigravity:
+                    compactAntigravityContent()
+                }
+            case .empty:
                 compactEmptyState
             }
         }
-        .frame(maxWidth: .infinity, alignment: .top)
         .padding(.bottom, 2)
     }
 
     @ViewBuilder
     private var standardMainSection: some View {
-        Group {
-            if isAuthRequired(for: selectedService) {
+        PopoverStateContainer(compact: false) {
+            switch contentPhase(for: selectedService) {
+            case .authRequired:
                 AuthRequiredSectionView(service: selectedService) {
                     viewModel.openSettings(for: selectedService)
                 }
-                .padding(16)
-
-            } else if needsInitialLoad(for: selectedService) {
-                VStack(spacing: 12) {
-                    ProgressView()
+            case .loading:
+                VStack(alignment: .leading, spacing: 8) {
                     Text("데이터 로딩 중...")
+                        .font(.subheadline.weight(.semibold))
+                    Text("현재 연결 상태를 확인하고 있습니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            case .error:
+                if let error = serviceError {
+                    ErrorSectionView(error: error) {
+                        viewModel.refresh()
+                    }
+                }
+            case .content:
+                switch selectedService {
+                case .claude:
+                    standardClaudeContent(usage: claudeUsage)
+                case .codex:
+                    standardCodexContent()
+                case .gemini:
+                    standardGeminiContent()
+                case .antigravity:
+                    standardAntigravityContent()
+                }
+            case .empty:
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("데이터 없음")
+                        .font(.subheadline.weight(.semibold))
+                    Text("아직 가져온 사용량이 없습니다.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: .infinity, minHeight: 150)
-
-            } else if let error = serviceError, !hasLoadedContent(for: selectedService) {
-                ErrorSectionView(error: error) {
-                    viewModel.refresh()
-                }
-                .padding(16)
-
-            } else if selectedService == .claude, claudeUsage != nil {
-                standardClaudeContent(usage: claudeUsage)
-
-            } else if selectedService == .codex, codexUsage != nil {
-                standardCodexContent()
-
-            } else if selectedService == .gemini, geminiUsage != nil {
-                standardGeminiContent()
-
-            } else if selectedService == .antigravity, antigravityUsage != nil {
-                standardAntigravityContent()
-
-            } else {
-                VStack {
-                    Text("데이터 없음")
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 100)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 180, alignment: .top)
         .padding(.bottom, 4)
     }
 
@@ -707,7 +741,6 @@ struct PopoverView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
         }
-        .padding(8)
     }
 
     private var compactLoadingState: some View {
@@ -719,9 +752,6 @@ struct PopoverView: View {
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
     }
 
     private func compactErrorState(_ error: APIError) -> some View {
@@ -749,7 +779,6 @@ struct PopoverView: View {
             .buttonStyle(.bordered)
             .controlSize(.small)
         }
-        .padding(8)
     }
 
     private var compactEmptyState: some View {
@@ -761,9 +790,6 @@ struct PopoverView: View {
                 .foregroundStyle(.secondary)
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
     }
 
     // MARK: - Compact Content
@@ -798,8 +824,6 @@ struct PopoverView: View {
                 }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -825,8 +849,6 @@ struct PopoverView: View {
                 }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -886,7 +908,6 @@ struct PopoverView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(16)
     }
 
     @ViewBuilder
@@ -902,8 +923,6 @@ struct PopoverView: View {
                 CompactUsageRow(label: "Lite", percentage: tertiary.usedPercent, resetAt: tertiary.resetAtISO, isWeekly: true, timeFormatStyle: settings.timeFormat)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -963,7 +982,6 @@ struct PopoverView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(16)
     }
 
     @ViewBuilder
@@ -979,8 +997,41 @@ struct PopoverView: View {
                 CompactUsageRow(label: tertiary.label, percentage: tertiary.usedPercent, resetAt: tertiary.resetAtISO, isWeekly: true, timeFormatStyle: settings.timeFormat)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+    }
+}
+
+enum PopoverContentPhase {
+    case authRequired
+    case loading
+    case error
+    case empty
+    case content
+}
+
+struct PopoverStateContainer<Content: View>: View {
+    let compact: Bool
+    private let content: Content
+
+    init(compact: Bool, @ViewBuilder content: () -> Content) {
+        self.compact = compact
+        self.content = content()
+    }
+
+    private var minHeight: CGFloat {
+        compact ? 72 : 184
+    }
+
+    private var paddingInsets: EdgeInsets {
+        if compact {
+            return EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
+        }
+        return EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+    }
+
+    var body: some View {
+        content
+            .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
+            .padding(paddingInsets)
     }
 }
 
@@ -1022,7 +1073,7 @@ struct CompactUsageRow: View {
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
-            .frame(minWidth: 88, idealWidth: 110, maxWidth: 140)
+            .frame(minWidth: 104, idealWidth: 132, maxWidth: 168)
         }
         .padding(.vertical, 1)
     }

@@ -10,6 +10,7 @@
 - 기본 노출은 `Claude만 활성화`
 - 사용자가 원할 때 다른 provider를 추가 활성화
 - `Web(sessionKey/cookie)`와 `OAuth`를 함께 다루는 Claude 중심 인증 구조
+- `ClaudeSetupPresentation + RuntimeProviderSnapshot` 기반의 공통 setup/runtime truth
 - 메뉴바에서 퍼센트, 리셋 시간, 아이콘 스타일을 조합해 빠르게 상태 확인
 - 팝오버에서 상세 사용량, 인증 상태, 경로 상태, organization 상태 확인
 
@@ -38,6 +39,9 @@
 - Sparkle 패키지 통합 + appcast 미설정 시 GitHub Release fallback
 - notarization용 release 스크립트 골격 추가
 - Claude 인증 탭의 단계형 빠른 시작 wizard
+- provider별 refresh/backoff/loading/error 상태를 runtime catalog로 통합
+- `Gemini`, `Antigravity`의 `감지됨 / 갱신 가능 / 연결 가능 / 첫 성공 조회` 상태 분리
+- `ClaudeUsageTests` 단위 테스트 타깃 추가
 
 ## 인증 경로
 
@@ -80,6 +84,8 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
 
 세션키 경로는 Cloudflare/429/서버 상태의 영향을 받을 수 있습니다. 따라서 sessionKey만으로 충분히 동작하더라도, 장기적으로는 `CLI OAuth`를 같이 준비하는 편이 더 안정적입니다.
 
+`설정`, `standalone wizard`, `메뉴바`, `팝오버`는 이제 같은 setup truth를 공유합니다. 즉 Claude의 완료 상태는 `자격 준비 -> 첫 성공 조회 -> organization readiness` 순서로만 올라가고, 한 화면만 따로 완료처럼 보이는 경로를 줄이는 방향으로 정리했습니다.
+
 ## 로컬 데이터와 권한
 
 이 앱은 가능한 한 로컬 우선으로 동작합니다. 다만 provider별로 읽는 위치와 이유를 사용자가 이해할 수 있어야 합니다.
@@ -93,9 +99,11 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
 - `Gemini`
   - `~/.gemini/oauth_creds.json`, `settings.json`, 설치된 Gemini CLI 경로를 읽습니다.
   - 필요 시 Google Cloud project를 탐색해 quota 요청의 정확도를 높입니다.
+  - 감지는 하되 자동 활성화하지 않습니다.
 - `Antigravity`
   - 로컬 language server 프로세스와 connect 포트를 찾고, 로컬 API에 연결합니다.
   - 실행 중이지만 연결 토큰이나 포트가 없으면 바로 그 상태를 표시합니다.
+  - 감지는 하되 자동 활성화하지 않습니다.
 
 즉, 브라우저 쿠키와 CLI credential은 “로그인 대행”이 아니라 “이미 로그인된 로컬 상태를 읽어 menubar에서 빠르게 신호를 주기 위한 입력”입니다.
 
@@ -168,8 +176,20 @@ xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -configuration Deb
   - 알림
 - `Gemini`, `Antigravity`
   - 런타임 provider 연결됨
-  - 환경 감지 / 표시 / 팝오버 / 알림까지 연결됨
+  - 환경 감지 / refresh 가능 여부 / 첫 성공 조회 상태를 구분해서 표시
+  - 자동 활성화는 하지 않고, 사용자가 직접 켜는 정책 유지
   - provider별 UX 마감은 Claude보다 덜 끝난 상태
+
+## 테스트
+
+현재 레포에는 `ClaudeUsageTests` 타깃이 포함되어 있고, 아래 범위를 단위 테스트로 검증합니다.
+
+- `SetupCompletionPolicy`
+- `ClaudeSourcePlanner`
+- `RefreshOrchestration` / `RuntimeProviderRefreshCoordinator`
+- `ProviderEnvironmentDetector` signal 해석
+
+CLI 기준으로는 `build-for-testing` 과 테스트 번들 직접 실행이 가장 안정적입니다. 이 앱은 메뉴바 앱 특성 때문에 `xcodebuild test` 가 macOS host runner에서 대기할 수 있으므로, 자동화에서는 테스트 번들 실행 경로를 우선 쓰는 편이 안전합니다.
 
 ## 프로젝트 구조
 

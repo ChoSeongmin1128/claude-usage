@@ -3,18 +3,62 @@ import Foundation
 struct ProviderEnvironmentStatus: Sendable, Equatable {
     let isDetected: Bool
     let credentialState: ProviderCredentialState
-    let canAttemptRefresh: Bool
+    let runtimeReachability: Bool
     let summary: String
+
+    var canAttemptRefresh: Bool {
+        runtimeReachability
+    }
+}
+
+enum GeminiAuthType: String, Sendable, Equatable {
+    case oauthPersonal = "oauth-personal"
+    case apiKey = "api-key"
+    case vertexAI = "vertex-ai"
+    case unknown
+}
+
+enum GeminiCredentialState: Sendable, Equatable {
+    case usable
+    case refreshOnly
+    case missing
+
+    var providerCredentialState: ProviderCredentialState {
+        switch self {
+        case .usable:
+            return .usable
+        case .refreshOnly:
+            return .refreshable
+        case .missing:
+            return .missing
+        }
+    }
+}
+
+struct GeminiEnvironmentSignals: Sendable, Equatable {
+    let hasBinary: Bool
+    let authType: GeminiAuthType
+    let credentialState: GeminiCredentialState
+}
+
+struct AntigravityEnvironmentSignals: Sendable, Equatable {
+    let hasStateDirectory: Bool
+    let appRunning: Bool
+    let runningProcess: AntigravityProcessSnapshot?
+    let hasAuthStatus: Bool
+    let hasOAuthToken: Bool
+
+    var hasPersistedAuthState: Bool {
+        hasAuthStatus || hasOAuthToken
+    }
+
+    var hasRuntimeConnection: Bool {
+        guard let process = runningProcess else { return false }
+        return process.csrfToken?.isEmpty == false && process.extensionPort != nil
+    }
 }
 
 enum ProviderEnvironmentDetector {
-    private enum GeminiAuthType: String {
-        case oauthPersonal = "oauth-personal"
-        case apiKey = "api-key"
-        case vertexAI = "vertex-ai"
-        case unknown
-    }
-
     static func status(for kind: AppProviderKind) -> ProviderEnvironmentStatus? {
         switch kind {
         case .claude:
@@ -23,13 +67,13 @@ enum ProviderEnvironmentDetector {
             return ProviderEnvironmentStatus(
                 isDetected: CodexAuthManager.shared.isAuthenticated,
                 credentialState: CodexAuthManager.shared.isAuthenticated ? .usable : .missing,
-                canAttemptRefresh: CodexAuthManager.shared.isAuthenticated,
+                runtimeReachability: CodexAuthManager.shared.isAuthenticated,
                 summary: CodexAuthManager.shared.isAuthenticated ? "CLI/OAuth 인증 감지" : "CLI/OAuth 인증 미감지"
             )
         case .gemini:
-            return geminiStatus()
+            return interpretGemini(signals: geminiSignals())
         case .antigravity:
-            return antigravityStatus()
+            return interpretAntigravity(signals: antigravitySignals())
         }
     }
 
@@ -42,15 +86,13 @@ enum ProviderEnvironmentDetector {
         case .claude, .codex:
             return false
         case .gemini:
-            let hasBinary = binaryExists(named: "gemini")
-            let authType = geminiAuthType()
-            let credentialState = geminiCredentialState()
-            if !hasBinary { return true }
-            switch authType {
+            let signals = geminiSignals()
+            if !signals.hasBinary { return signals.credentialState == .missing }
+            switch signals.authType {
             case .apiKey, .vertexAI:
                 return true
             case .oauthPersonal, .unknown:
-                return credentialState == .missing
+                return signals.credentialState == .missing
             }
         case .antigravity:
             let signals = antigravitySignals()
@@ -58,121 +100,136 @@ enum ProviderEnvironmentDetector {
         }
     }
 
-    private static func geminiStatus() -> ProviderEnvironmentStatus {
-        let hasBinary = binaryExists(named: "gemini")
-        let authType = geminiAuthType()
-        let credentialState = geminiCredentialState()
-
-        switch authType {
+    static func interpretGemini(signals: GeminiEnvironmentSignals) -> ProviderEnvironmentStatus {
+        switch signals.authType {
         case .apiKey:
             return ProviderEnvironmentStatus(
                 isDetected: false,
                 credentialState: .missing,
-                canAttemptRefresh: false,
-                summary: hasBinary ? "Gemini CLI 감지됨 · 현재 인증 방식은 API 키입니다" : "Gemini CLI 미설치"
+                runtimeReachability: false,
+                summary: signals.hasBinary ? "Gemini CLI 감지됨 · 현재 인증 방식은 API 키입니다" : "Gemini CLI 미설치"
             )
         case .vertexAI:
             return ProviderEnvironmentStatus(
                 isDetected: false,
                 credentialState: .missing,
-                canAttemptRefresh: false,
-                summary: hasBinary ? "Gemini CLI 감지됨 · 현재 인증 방식은 Vertex AI입니다" : "Gemini CLI 미설치"
+                runtimeReachability: false,
+                summary: signals.hasBinary ? "Gemini CLI 감지됨 · 현재 인증 방식은 Vertex AI입니다" : "Gemini CLI 미설치"
             )
         case .oauthPersonal, .unknown:
             break
         }
 
-        switch (hasBinary, credentialState) {
+        switch (signals.hasBinary, signals.credentialState) {
         case (true, .usable):
-            return ProviderEnvironmentStatus(isDetected: true, credentialState: .usable, canAttemptRefresh: true, summary: "Gemini CLI OAuth 감지")
-        case (true, .refreshOnly):
-            return ProviderEnvironmentStatus(isDetected: true, credentialState: .refreshable, canAttemptRefresh: true, summary: "Gemini CLI OAuth 감지 · 액세스 토큰은 갱신이 필요합니다")
-        case (true, .missing):
-            return ProviderEnvironmentStatus(isDetected: true, credentialState: .missing, canAttemptRefresh: false, summary: "Gemini CLI 감지됨 · 로그인 필요")
-        case (false, .usable), (false, .refreshOnly):
-            return ProviderEnvironmentStatus(isDetected: true, credentialState: credentialState == .usable ? .usable : .refreshable, canAttemptRefresh: false, summary: "Gemini OAuth 자격은 있지만 CLI가 없습니다")
-        case (false, .missing):
-            return ProviderEnvironmentStatus(isDetected: false, credentialState: .missing, canAttemptRefresh: false, summary: "Gemini CLI 미설치")
-        }
-    }
-
-    private static func antigravityStatus() -> ProviderEnvironmentStatus {
-        let signals = antigravitySignals()
-        switch (signals.runningProcess, signals.hasPersistedAuthState, signals.appRunning, signals.hasStateDirectory) {
-        case let (.some(process), _, _, _) where process.csrfToken != nil:
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .usable,
-                canAttemptRefresh: true,
-                summary: "Antigravity quota 서버 감지 · 바로 조회할 수 있습니다"
+                runtimeReachability: true,
+                summary: "Gemini CLI OAuth 감지"
+            )
+        case (true, .refreshOnly):
+            return ProviderEnvironmentStatus(
+                isDetected: true,
+                credentialState: .refreshable,
+                runtimeReachability: true,
+                summary: "Gemini CLI OAuth 감지 · 액세스 토큰은 갱신이 필요합니다"
+            )
+        case (true, .missing):
+            return ProviderEnvironmentStatus(
+                isDetected: true,
+                credentialState: .missing,
+                runtimeReachability: false,
+                summary: "Gemini CLI 감지됨 · 로그인 필요"
+            )
+        case (false, .usable):
+            return ProviderEnvironmentStatus(
+                isDetected: true,
+                credentialState: .usable,
+                runtimeReachability: false,
+                summary: "Gemini OAuth 자격 감지 · CLI 설치 경로를 확인하세요"
+            )
+        case (false, .refreshOnly):
+            return ProviderEnvironmentStatus(
+                isDetected: true,
+                credentialState: .refreshable,
+                runtimeReachability: false,
+                summary: "Gemini OAuth 자격 감지 · CLI 설치 경로를 확인하세요"
+            )
+        case (false, .missing):
+            return ProviderEnvironmentStatus(
+                isDetected: false,
+                credentialState: .missing,
+                runtimeReachability: false,
+                summary: "Gemini CLI 미설치"
+            )
+        }
+    }
+
+    static func interpretAntigravity(signals: AntigravityEnvironmentSignals) -> ProviderEnvironmentStatus {
+        switch (signals.runningProcess, signals.hasPersistedAuthState, signals.appRunning, signals.hasStateDirectory) {
+        case let (.some(process), _, _, _) where process.csrfToken != nil && process.extensionPort != nil:
+            return ProviderEnvironmentStatus(
+                isDetected: true,
+                credentialState: .refreshable,
+                runtimeReachability: true,
+                summary: "Antigravity quota 서버 감지 · 조회를 시도할 수 있습니다"
+            )
+        case let (.some(process), true, _, _) where process.csrfToken != nil:
+            let portSuffix = process.extensionPort.map { " · 포트 \($0)" } ?? ""
+            return ProviderEnvironmentStatus(
+                isDetected: true,
+                credentialState: .refreshable,
+                runtimeReachability: false,
+                summary: "Antigravity 인증 상태 감지 · quota 서버 연결 준비 중\(portSuffix)"
             )
         case let (.some(process), _, _, _):
             let portSuffix = process.extensionPort.map { " · 포트 \($0)" } ?? ""
             return ProviderEnvironmentStatus(
                 isDetected: true,
-                credentialState: .refreshable,
-                canAttemptRefresh: signals.canAttemptRefresh,
+                credentialState: .unknown,
+                runtimeReachability: false,
                 summary: "Antigravity quota 서버 감지 · 연결 토큰 확인 중\(portSuffix)"
             )
         case (nil, true, true, _):
             return ProviderEnvironmentStatus(
                 isDetected: true,
-                credentialState: .refreshable,
-                canAttemptRefresh: signals.canAttemptRefresh,
+                credentialState: .unknown,
+                runtimeReachability: false,
                 summary: "Antigravity 앱과 인증 상태 감지 · quota 서버 연결 준비 중"
             )
         case (nil, true, false, _):
             return ProviderEnvironmentStatus(
                 isDetected: true,
-                credentialState: .refreshable,
-                canAttemptRefresh: false,
+                credentialState: .unknown,
+                runtimeReachability: false,
                 summary: "Antigravity 인증 상태 감지 · 앱을 실행하면 조회를 시작합니다"
             )
         case (nil, false, true, _):
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .unknown,
-                canAttemptRefresh: false,
+                runtimeReachability: false,
                 summary: "Antigravity 앱 실행 중 · 로그인 또는 quota 서버 초기화를 기다리는 중입니다"
             )
         case (nil, false, false, true):
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .unknown,
-                canAttemptRefresh: false,
+                runtimeReachability: false,
                 summary: "Antigravity 로컬 상태 감지 · 앱 실행이 필요합니다"
             )
         case (nil, false, false, false):
             return ProviderEnvironmentStatus(
                 isDetected: false,
                 credentialState: .missing,
-                canAttemptRefresh: false,
+                runtimeReachability: false,
                 summary: "Antigravity 상태 미감지"
             )
         }
     }
 
-    private struct AntigravitySignals {
-        let hasStateDirectory: Bool
-        let appRunning: Bool
-        let runningProcess: AntigravityProcessSnapshot?
-        let hasAuthStatus: Bool
-        let hasOAuthToken: Bool
-
-        var hasPersistedAuthState: Bool {
-            hasAuthStatus || hasOAuthToken
-        }
-
-        var hasRuntimeConnection: Bool {
-            runningProcess?.csrfToken?.isEmpty == false
-        }
-
-        var canAttemptRefresh: Bool {
-            hasRuntimeConnection || (appRunning && hasPersistedAuthState)
-        }
-    }
-
-    private static func antigravitySignals() -> AntigravitySignals {
+    static func antigravitySignals() -> AntigravityEnvironmentSignals {
         let hasLegacyStateDirectory = FileManager.default.fileExists(
             atPath: FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".gemini/antigravity").path
@@ -186,7 +243,7 @@ enum ProviderEnvironmentDetector {
                 .appendingPathComponent("Library/Application Support/Antigravity").path
         )
         let persistedState = antigravityPersistedState()
-        return AntigravitySignals(
+        return AntigravityEnvironmentSignals(
             hasStateDirectory: hasLegacyStateDirectory || hasHomeStateDirectory || hasApplicationSupportDirectory,
             appRunning: AntigravityStatusProbe.appProcessRunning(),
             runningProcess: AntigravityStatusProbe.runningProcess(),
@@ -303,12 +360,6 @@ enum ProviderEnvironmentDetector {
         return Array(Set(envPaths + fallbackPaths))
     }
 
-    private enum GeminiCredentialState {
-        case usable
-        case refreshOnly
-        case missing
-    }
-
     private static func geminiAuthType() -> GeminiAuthType {
         let settingsURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".gemini/settings.json")
@@ -326,6 +377,14 @@ enum ProviderEnvironmentDetector {
         return GeminiAuthType(rawValue: selectedType) ?? .unknown
     }
 
+    static func geminiSignals() -> GeminiEnvironmentSignals {
+        GeminiEnvironmentSignals(
+            hasBinary: binaryExists(named: "gemini"),
+            authType: geminiAuthType(),
+            credentialState: geminiCredentialState()
+        )
+    }
+
     private static func geminiCredentialState() -> GeminiCredentialState {
         let credsURL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".gemini/oauth_creds.json")
@@ -338,7 +397,23 @@ enum ProviderEnvironmentDetector {
 
         let accessToken = (json["access_token"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let refreshToken = (json["refresh_token"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let accessToken, !accessToken.isEmpty {
+        let expiryDate: Date? = {
+            if let expiryMs = json["expiry_date"] as? Double {
+                return Date(timeIntervalSince1970: expiryMs / 1000)
+            }
+            if let expiryMs = json["expiry_date"] as? Int {
+                return Date(timeIntervalSince1970: Double(expiryMs) / 1000)
+            }
+            return nil
+        }()
+
+        let hasUsableAccessToken = {
+            guard let accessToken, !accessToken.isEmpty else { return false }
+            guard let expiryDate else { return true }
+            return expiryDate > Date()
+        }()
+
+        if hasUsableAccessToken {
             return .usable
         }
         if let refreshToken, !refreshToken.isEmpty {

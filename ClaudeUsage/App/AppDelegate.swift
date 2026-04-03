@@ -35,6 +35,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var systemStatus: ClaudeSystemStatus?
     private var statusTimer: Timer?
     private var appearanceObservation: NSKeyValueObservation?
+    private var setupWizardCredentialStepOverride: SetupWizardView.Step?
 
     private var lastObservedProviderStates = AppSettings.shared.providerStates
     private var eventMonitor: Any?
@@ -343,11 +344,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var hasGeminiCredential: Bool {
-        ProviderEnvironmentDetector.status(for: .gemini)?.credentialState.hasAnyCredential ?? false
+        let status = ProviderEnvironmentDetector.status(for: .gemini)
+        return status?.credentialState.hasAnyCredential ?? false
     }
 
     private var hasAntigravityCredential: Bool {
-        ProviderEnvironmentDetector.status(for: .antigravity)?.credentialState.hasAnyCredential ?? false
+        let status = ProviderEnvironmentDetector.status(for: .antigravity)
+        return status?.credentialState.hasAnyCredential ?? false
+    }
+
+    private var geminiRuntimeReachability: Bool {
+        let status = ProviderEnvironmentDetector.status(for: .gemini)
+        return status?.runtimeReachability ?? false
+    }
+
+    private var antigravityRuntimeReachability: Bool {
+        let status = ProviderEnvironmentDetector.status(for: .antigravity)
+        return status?.runtimeReachability ?? false
     }
 
     private var refreshableServices: [PopoverService] {
@@ -356,8 +369,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             hasClaudeSessionKey: KeychainManager.shared.hasSessionKey,
             hasClaudeOAuthCredential: claudeCredentialAvailability.oauthCredentialAvailable,
             isCodexAuthenticated: CodexAuthManager.shared.isAuthenticated,
-            hasGeminiCredential: hasGeminiCredential,
-            hasAntigravityCredential: hasAntigravityCredential
+            geminiRuntimeReachability: geminiRuntimeReachability,
+            antigravityRuntimeReachability: antigravityRuntimeReachability
         )
     }
 
@@ -365,9 +378,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         !refreshableServices.isEmpty
     }
 
+    private var shouldPollRuntimeProviders: Bool {
+        hasRefreshableService || ServiceSelectionHelper.hasAnyEnabledService(settings: AppSettings.shared)
+    }
+
+    private var isRunningUnitTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
     // MARK: - Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if isRunningUnitTests {
+            Logger.info("ClaudeUsage 테스트 런치 감지: 앱 초기화를 건너뜁니다")
+            return
+        }
+
         Logger.info("ClaudeUsage 앱 시작")
 
         // 알림 권한 요청
@@ -463,36 +489,40 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var shouldShowStandaloneSetupWizard: Bool {
-        SetupCompletionPolicy.shouldShowSetupFlow(
-            hasReadyCredential: hasReadyClaudeCredential,
-            hasSuccessfulFetch: hasSuccessfulClaudeFetch,
-            preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
-            cachedMetadata: currentClaudeProfileMetadata
-        )
+        claudeSetupPresentation.shouldShowWizard
     }
 
     private var hasReadyClaudeCredential: Bool {
-        KeychainManager.shared.hasSessionKey
-        || claudeCredentialAvailability.hasAnyCredential
+        SetupCompletionPolicy.hasReadyCredential(
+            sessionCredentialAvailable: KeychainManager.shared.hasSessionKey || claudeCredentialAvailability.sessionCredentialAvailable,
+            oauthCredentialAvailable: claudeCredentialAvailability.oauthCredentialAvailable
+        )
     }
 
     private var hasSuccessfulClaudeFetch: Bool {
         lastUpdated != nil
     }
 
+    private var hasChromeApp: Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") != nil
+    }
+
     private var currentSetupWizardStep: SetupWizardView.Step {
-        SetupCompletionPolicy.resolveCredentialStep(
-            hasReadyCredential: hasReadyClaudeCredential,
-            hasChromeApp: NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") != nil
-        )
+        claudeSetupPresentation.credentialStep
     }
 
     private var setupWizardProgress: SetupCompletionPolicy.WizardProgress {
-        SetupCompletionPolicy.resolveWizardProgress(
+        claudeSetupPresentation.progress
+    }
+
+    private var claudeSetupPresentation: ClaudeSetupPresentation {
+        SetupCompletionPolicy.resolvePresentation(
             hasReadyCredential: hasReadyClaudeCredential,
             hasSuccessfulFetch: hasSuccessfulClaudeFetch,
             preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
-            cachedMetadata: currentClaudeProfileMetadata
+            cachedMetadata: currentClaudeProfileMetadata,
+            hasChromeApp: hasChromeApp,
+            credentialStepOverride: setupWizardCredentialStepOverride
         )
     }
 
@@ -501,23 +531,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var setupWizardOrganizationSummary: String {
-        setupWizardProgress.organizationSummary
+        claudeSetupPresentation.organizationSummary
     }
 
     private func applyClaudeSetupLandingTabsIfNeeded() {
         guard shouldShowStandaloneSetupWizard else { return }
 
         AppSettings.shared.settingsLastTab = "claude"
-        switch setupWizardProgress.stage {
-        case .credential:
-            AppSettings.shared.claudeSettingsLastTab = "auth"
-        case .verification:
-            AppSettings.shared.claudeSettingsLastTab = "status"
-        case .organization:
-            AppSettings.shared.claudeSettingsLastTab = "organizations"
-        case .complete:
-            break
-        }
+        AppSettings.shared.claudeSettingsLastTab = claudeSetupPresentation.landingSettingsTab.rawValue
     }
 
     private func checkForUpdates() {
@@ -602,16 +623,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popoverCoordinator.configure(
             initialService: resolvedPopoverService(),
             onRefreshService: { [weak self] service in
-                switch service {
-                case .claude:
-                    self?.refreshUsage(force: true)
-                case .codex:
-                    self?.refreshCodexUsage(force: true)
-                case .gemini:
-                    self?.refreshGeminiUsage(force: true)
-                case .antigravity:
-                    self?.refreshAntigravityUsage(force: true)
-                }
+                self?.refresh(service: service, force: true)
             },
             onOpenSettingsForService: { [weak self] service in
                 self?.closePopover()
@@ -621,10 +633,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 ServiceSelectionHelper.setActivePopoverService(service, settings: AppSettings.shared)
                 self?.updateMenuBar()
                 self?.refreshServiceIfNeededOnTabSwitch(service)
-                self?.refreshPopoverSizeIfShown(service: service)
             },
-            onLayoutChanged: { [weak self] service in
-                self?.refreshPopoverSizeIfShown(service: service)
+            onLayoutChanged: { [weak self] service, reason in
+                self?.refreshPopoverSizeIfShown(service: service, reason: reason)
             },
             onPinChanged: { [weak self] service, isPinned in
                 guard let self else { return }
@@ -664,9 +675,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let service = resolvedPopoverService()
             popoverViewModel.selectService(service)
             applyPopoverBehavior(for: service)
-            updatePopoverViewModel(overage: currentOverage)
+            let compact = AppSettings.shared.isPopoverCompact(for: ServiceSelectionHelper.providerKind(for: service))
+            popoverCoordinator.prepareSizeForPresentation(compact: compact)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            refreshPopoverSizeIfShown(service: service)
+            updatePopoverViewModel(overage: currentOverage)
             NSApp.activate()
             if !isPopoverPinned(for: service) {
                 startGlobalClickMonitor()
@@ -682,12 +694,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func updatePopoverViewModel(overage: OverageSpendLimitResponse? = nil) {
         popoverViewModel.update(
             snapshots: runtimeProviderSnapshots(),
-            overage: overage
+            overage: overage,
+            setupPresentation: claudeSetupPresentation
         )
         popoverViewModel.systemStatus = systemStatus
         popoverViewModel.nextUsageRetryAt = nextUsageRefreshAllowedAt
+    }
 
-        refreshPopoverSizeIfShown(service: popoverViewModel.selectedService)
+    private func syncRuntimePresentation(overage: OverageSpendLimitResponse? = nil) {
+        updateMenuBar()
+        updatePopoverViewModel(overage: overage ?? currentOverage)
     }
 
     private func runtimeProviderSnapshots() -> [RuntimeProviderSnapshot] {
@@ -695,56 +711,61 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func runtimeProviderSnapshot(for service: PopoverService) -> RuntimeProviderSnapshot {
+        let state = runtimeStateCatalog[service]
         switch service {
         case .claude:
             return RuntimeProviderSnapshot(
                 service: .claude,
-                payload: currentUsage.map(RuntimeProviderPayload.claude),
-                error: currentError,
-                isLoading: isLoading,
-                lastUpdated: lastUpdated,
+                payload: state.payload,
+                error: state.error,
+                isLoading: state.isLoading,
+                lastUpdated: state.lastUpdated,
+                nextRefreshAllowedAt: state.nextRefreshAllowedAt,
                 credentialState: claudeCredentialAvailability.hasAnyCredential ? .usable : .missing,
                 isDetected: claudeCredentialAvailability.hasAnyCredential,
                 canAttemptRefresh: claudeCredentialAvailability.hasAnyCredential,
-                hasAuthError: hasAuthError
+                hasAuthError: state.hasAuthError
             )
         case .codex:
             return RuntimeProviderSnapshot(
                 service: .codex,
-                payload: currentCodexUsage.map(RuntimeProviderPayload.codex),
-                error: codexError,
-                isLoading: isCodexLoading,
-                lastUpdated: codexLastUpdated,
+                payload: state.payload,
+                error: state.error,
+                isLoading: state.isLoading,
+                lastUpdated: state.lastUpdated,
+                nextRefreshAllowedAt: state.nextRefreshAllowedAt,
                 credentialState: CodexAuthManager.shared.isAuthenticated ? .usable : .missing,
                 isDetected: CodexAuthManager.shared.isAuthenticated,
                 canAttemptRefresh: CodexAuthManager.shared.isAuthenticated,
-                hasAuthError: hasCodexAuthError
+                hasAuthError: state.hasAuthError
             )
         case .gemini:
             let status = ProviderEnvironmentDetector.status(for: .gemini)
             return RuntimeProviderSnapshot(
                 service: .gemini,
-                payload: currentGeminiUsage.map(RuntimeProviderPayload.gemini),
-                error: geminiError,
-                isLoading: isGeminiLoading,
-                lastUpdated: geminiLastUpdated,
-                credentialState: currentGeminiUsage != nil ? .usable : (status?.credentialState ?? .unknown),
+                payload: state.payload,
+                error: state.error,
+                isLoading: state.isLoading,
+                lastUpdated: state.lastUpdated,
+                nextRefreshAllowedAt: state.nextRefreshAllowedAt,
+                credentialState: status?.credentialState ?? .unknown,
                 isDetected: status?.isDetected ?? false,
-                canAttemptRefresh: currentGeminiUsage != nil || (status?.canAttemptRefresh ?? false),
-                hasAuthError: hasGeminiAuthError
+                canAttemptRefresh: status?.canAttemptRefresh ?? false,
+                hasAuthError: state.hasAuthError
             )
         case .antigravity:
             let status = ProviderEnvironmentDetector.status(for: .antigravity)
             return RuntimeProviderSnapshot(
                 service: .antigravity,
-                payload: currentAntigravityUsage.map(RuntimeProviderPayload.antigravity),
-                error: antigravityError,
-                isLoading: isAntigravityLoading,
-                lastUpdated: antigravityLastUpdated,
-                credentialState: currentAntigravityUsage != nil ? .usable : (status?.credentialState ?? .unknown),
+                payload: state.payload,
+                error: state.error,
+                isLoading: state.isLoading,
+                lastUpdated: state.lastUpdated,
+                nextRefreshAllowedAt: state.nextRefreshAllowedAt,
+                credentialState: status?.credentialState ?? .unknown,
                 isDetected: status?.isDetected ?? false,
-                canAttemptRefresh: currentAntigravityUsage != nil || (status?.canAttemptRefresh ?? false),
-                hasAuthError: hasAntigravityAuthError
+                canAttemptRefresh: status?.canAttemptRefresh ?? false,
+                hasAuthError: state.hasAuthError
             )
         }
     }
@@ -781,14 +802,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         showSettingsWindow()
     }
 
-    private func refreshPopoverSizeIfShown(service: PopoverService) {
+    private func refreshPopoverSizeIfShown(service: PopoverService, reason: PopoverLayoutRefreshReason) {
+        switch reason {
+        case .serviceSelection, .compactToggle:
+            break
+        }
         let kind = ServiceSelectionHelper.providerKind(for: service)
         let compact = AppSettings.shared.isPopoverCompact(for: kind)
         popoverCoordinator.refreshSizeIfShown(service: service, compact: compact)
-    }
-
-    private func refreshPopoverSizeIfShown() {
-        refreshPopoverSizeIfShown(service: popoverViewModel.selectedService)
     }
 
     private func showUnifiedContextMenu() {
@@ -877,7 +898,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func syncRefreshTimerState() {
         let change = refreshScheduler.sync(
             autoRefresh: AppSettings.shared.autoRefresh,
-            hasRefreshableService: hasRefreshableService,
+            shouldPoll: shouldPollRuntimeProviders,
             interval: PowerMonitor.shared.effectiveRefreshInterval
         ) { [weak self] in
             self?.refreshAll(force: false)
@@ -943,6 +964,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let snapshot = await snapshotTask
             let cachedProfileMetadata = await metadataTask
             await MainActor.run {
+                if snapshot.runtime.credentialAvailability.hasAnyCredential {
+                    self.setupWizardCredentialStepOverride = nil
+                }
                 self.currentClaudeProfileMetadata = cachedProfileMetadata
                 self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
                 self.applyUsageHealthSnapshot(snapshot)
@@ -1060,7 +1084,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         updatePopoverViewModel(overage: currentOverage)
-        refreshPopoverSizeIfShown()
     }
 
     private func clearClaudePresentationState(markSetupIncomplete: Bool) {
@@ -1130,29 +1153,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func clearRuntimeServiceState(_ service: PopoverService) {
-        var resetState = RuntimeProviderState()
-        switch service {
-        case .claude:
+        if service == .claude {
             currentOverage = nil
             lastOverageFetchAt = nil
             popoverViewModel.nextUsageRetryAt = nil
-        case .codex:
-            if !CodexAuthManager.shared.isAuthenticated {
-                resetState.error = .invalidSessionKey
-                resetState.hasAuthError = true
-            }
-        case .gemini:
-            if !hasGeminiCredential {
-                resetState.error = .invalidSessionKey
-                resetState.hasAuthError = true
-            }
-        case .antigravity:
-            if !hasAntigravityCredential {
-                resetState.error = .invalidSessionKey
-                resetState.hasAuthError = true
-            }
         }
-        runtimeStateCatalog[service] = resetState
+        runtimeStateCatalog[service] = RuntimeProviderRefreshCoordinator.clearedState(
+            service: service,
+            isCodexAuthenticated: CodexAuthManager.shared.isAuthenticated,
+            requiresInteractiveSetup: ProviderEnvironmentDetector.requiresInteractiveSetup(for: service.providerKind)
+        )
     }
 
     private func clearStateForAuthPrompt(_ service: PopoverService) {
@@ -1171,43 +1181,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         runtimeStateCatalog[service] = RuntimeProviderState()
     }
 
+    private func prepareRefresh(
+        for service: PopoverService,
+        force: Bool,
+        respectBackoffWithoutPayload: Bool = true
+    ) -> Bool {
+        var state = runtimeStateCatalog[service]
+        let preparation = RuntimeProviderRefreshCoordinator.prepareForRefresh(
+            state: &state,
+            force: force,
+            respectBackoffWithoutPayload: respectBackoffWithoutPayload
+        )
+        runtimeStateCatalog[service] = state
+
+        switch preparation {
+        case .start:
+            if service == .claude {
+                popoverViewModel.nextUsageRetryAt = state.nextRefreshAllowedAt
+            }
+            syncRuntimePresentation(overage: currentOverage)
+            return true
+        case .skip(.backoff(let remainingSeconds, let nextAllowedAt)):
+            Logger.debug("\(service.displayName) 갱신 스킵: 임시 오류 백오프 \(remainingSeconds)초 남음")
+            if service == .claude {
+                popoverViewModel.nextUsageRetryAt = nextAllowedAt
+            }
+            return false
+        case .skip(.alreadyInFlight):
+            Logger.debug("\(service.displayName) 갱신 스킵: 이미 요청 진행 중")
+            return false
+        }
+    }
+
     private func refreshUsage(force: Bool = false) {
         guard ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) else { return }
-
-        if !force, let remaining = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextUsageRefreshAllowedAt) {
-            if let allowedAt = nextUsageRefreshAllowedAt {
-                Logger.debug("사용량 갱신 스킵: 임시 오류 백오프 \(remaining)초 남음")
-                popoverViewModel.nextUsageRetryAt = allowedAt
-                refreshPopoverSizeIfShown()
-                return
-            }
-            nextUsageRefreshAllowedAt = nil
-            popoverViewModel.nextUsageRetryAt = nil
-            refreshPopoverSizeIfShown()
-        }
-
-        // 이미 갱신 중이면 중복 요청을 막아 로딩/회전 애니메이션 과도 지속을 방지
-        switch RefreshExecutionPolicy.inFlightDecision(isLoading: isLoading, startedAt: loadingStartedAt) {
-        case .start:
-            break
-        case .recoverStale(let elapsed):
-            Logger.warning("사용량 갱신 고착 감지(\(elapsed)초) → 상태 복구 후 재시도")
-            isLoading = false
-            loadingStartedAt = nil
-        case .skip:
-            Logger.debug("사용량 갱신 스킵: 이미 요청 진행 중")
-            return
-        }
-
-        // 고착 복구 케이스에서는 즉시 로딩 상태를 반영해 UI 튐을 줄인다
-        if !isLoading {
-            isLoading = true
-            loadingStartedAt = Date()
-            updatePopoverViewModel(overage: currentOverage)
-        } else {
-            Logger.debug("사용량 갱신 스킵: 이미 요청 진행 중")
-            return
-        }
+        guard prepareRefresh(for: .claude, force: force) else { return }
 
         Task {
             do {
@@ -1221,24 +1229,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 await MainActor.run {
                     self.currentClaudeProfileMetadata = cachedProfileMetadata
                     self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
-                    self.currentUsage = result.usage
                     if let fetchedOverage = result.overage {
                         self.currentOverage = fetchedOverage
                     }
                     if let overageFetchedAt = result.overageFetchedAt {
                         self.lastOverageFetchAt = overageFetchedAt
                     }
-                    self.currentError = nil
-                    self.isLoading = false
-                    self.loadingStartedAt = nil
-                    self.nextUsageRefreshAllowedAt = nil
-                    self.popoverViewModel.nextUsageRetryAt = nil
-                    self.refreshPopoverSizeIfShown()
-                    self.hasAuthError = false
-                    self.consecutiveErrorCount = 0
-                    self.lastUpdated = Date()
-                    self.updateMenuBar()
-                    self.updatePopoverViewModel(overage: self.currentOverage)
+                    var state = self.runtimeStateCatalog[.claude]
+                    RuntimeProviderRefreshCoordinator.applySuccess(
+                        state: &state,
+                        payload: .claude(result.usage)
+                    )
+                    self.runtimeStateCatalog[.claude] = state
+                    self.popoverViewModel.nextUsageRetryAt = state.nextRefreshAllowedAt
+                    self.syncRuntimePresentation(overage: self.currentOverage)
                     self.syncUsageHealthSnapshotToUI()
 
                     // 알림 체크
@@ -1260,24 +1264,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 Logger.error("API 에러: \(error.errorDescription ?? "")")
 
                 await MainActor.run {
-                    self.isLoading = false
-                    self.loadingStartedAt = nil
-                    self.consecutiveErrorCount += 1
-                    self.applyUsageRefreshBackoff(for: error)
-
-                    if error.isTemporaryFailure {
-                        // 임시 장애(Cloudflare/429/네트워크)는 마지막 성공 데이터를 유지
-                        self.hasAuthError = false
-                        self.currentError = (self.currentUsage == nil) ? error : nil
-                    } else {
-                        self.currentError = error
-                        self.hasAuthError = error.isDefinitiveAuthFailure
+                    var state = self.runtimeStateCatalog[.claude]
+                    let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
+                        state: &state,
+                        error: error,
+                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
+                        hideTemporaryErrorWhilePayloadAvailable: true
+                    )
+                    self.runtimeStateCatalog[.claude] = state
+                    self.popoverViewModel.nextUsageRetryAt = resolution.nextAllowedAt
+                    if let backoffSeconds = resolution.backoffSeconds {
+                        Logger.info("임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
                     }
-
-                    self.updateMenuBar()
-                    self.updatePopoverViewModel()
-                    self.popoverViewModel.nextUsageRetryAt = self.nextUsageRefreshAllowedAt
-                    self.refreshPopoverSizeIfShown()
+                    self.syncRuntimePresentation(overage: self.currentOverage)
                     self.syncUsageHealthSnapshotToUI()
                 }
 
@@ -1286,74 +1285,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                 let apiError = APIError.unknownError(error.localizedDescription)
                 await MainActor.run {
-                    self.isLoading = false
-                    self.loadingStartedAt = nil
-                    self.consecutiveErrorCount += 1
-                    self.applyUsageRefreshBackoff(for: apiError)
-                    self.hasAuthError = false
-                    self.currentError = (self.currentUsage == nil) ? apiError : nil
-                    self.updateMenuBar()
-                    self.updatePopoverViewModel()
-                    self.popoverViewModel.nextUsageRetryAt = self.nextUsageRefreshAllowedAt
-                    self.refreshPopoverSizeIfShown()
+                    var state = self.runtimeStateCatalog[.claude]
+                    let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
+                        state: &state,
+                        error: apiError,
+                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
+                        hideTemporaryErrorWhilePayloadAvailable: true
+                    )
+                    self.runtimeStateCatalog[.claude] = state
+                    self.popoverViewModel.nextUsageRetryAt = resolution.nextAllowedAt
+                    if let backoffSeconds = resolution.backoffSeconds {
+                        Logger.info("임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
+                    }
+                    self.syncRuntimePresentation(overage: self.currentOverage)
                     self.syncUsageHealthSnapshotToUI()
                 }
             }
         }
     }
 
-    private func applyUsageRefreshBackoff(for error: APIError) {
-        let result = RefreshExecutionPolicy.nextBackoffDate(
-            for: error,
-            minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
-            existingAllowedAt: nextUsageRefreshAllowedAt)
-
-        guard let candidate = result.candidate else {
-            nextUsageRefreshAllowedAt = nil
-            return
-        }
-
-        nextUsageRefreshAllowedAt = candidate
-        popoverViewModel.nextUsageRetryAt = candidate
-        refreshPopoverSizeIfShown()
-        if let backoffSeconds = result.seconds {
-            Logger.info("임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
-        }
-    }
-
     private func refreshCodexUsage(force: Bool = false) {
         guard ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) else { return }
-
-        if !force, let remaining = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextCodexRefreshAllowedAt) {
-            if nextCodexRefreshAllowedAt != nil {
-                Logger.debug("Codex 갱신 스킵: 임시 오류 백오프 \(remaining)초 남음")
-                return
-            }
-            nextCodexRefreshAllowedAt = nil
-        }
-
-        switch RefreshExecutionPolicy.inFlightDecision(isLoading: isCodexLoading, startedAt: codexLoadingStartedAt) {
-        case .start:
-            break
-        case .recoverStale(let elapsed):
-            Logger.warning("Codex 갱신 고착 감지(\(elapsed)초) → 상태 복구")
-            isCodexLoading = false
-            codexLoadingStartedAt = nil
-        case .skip:
-            return
-        }
 
         if !CodexAuthManager.shared.isAuthenticated {
             hasCodexAuthError = true
             codexError = .invalidSessionKey
             currentCodexUsage = nil
-            updateMenuBar()
-            updatePopoverViewModel(overage: currentOverage)
+            syncRuntimePresentation(overage: currentOverage)
             return
         }
-
-        isCodexLoading = true
-        codexLoadingStartedAt = Date()
+        guard prepareRefresh(for: .codex, force: force) else { return }
 
         Task {
             do {
@@ -1362,16 +1323,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 )
 
                 await MainActor.run {
-                    self.currentCodexUsage = usage
-                    self.codexError = nil
-                    self.hasCodexAuthError = false
-                    self.codexConsecutiveErrorCount = 0
-                    self.nextCodexRefreshAllowedAt = nil
-                    self.codexLastUpdated = Date()
-                    self.isCodexLoading = false
-                    self.codexLoadingStartedAt = nil
-                    self.updateMenuBar()
-                    self.updatePopoverViewModel(overage: self.currentOverage)
+                    var state = self.runtimeStateCatalog[.codex]
+                    RuntimeProviderRefreshCoordinator.applySuccess(
+                        state: &state,
+                        payload: .codex(usage)
+                    )
+                    self.runtimeStateCatalog[.codex] = state
+                    self.syncRuntimePresentation(overage: self.currentOverage)
 
                     NotificationManager.shared.checkThreshold(
                         session: .codexPrimary,
@@ -1386,32 +1344,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             } catch let error as APIError {
                 await MainActor.run {
-                    self.isCodexLoading = false
-                    self.codexLoadingStartedAt = nil
-                    self.codexConsecutiveErrorCount += 1
-                    self.applyCodexRefreshBackoff(for: error)
-                    self.hasCodexAuthError = error.isDefinitiveAuthFailure
-                    self.codexError = error
-                    if self.codexConsecutiveErrorCount >= 3 && error.isTemporaryFailure {
-                        self.currentCodexUsage = nil
+                    var state = self.runtimeStateCatalog[.codex]
+                    let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
+                        state: &state,
+                        error: error,
+                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
+                        clearPayloadAfterTemporaryFailures: 3
+                    )
+                    self.runtimeStateCatalog[.codex] = state
+                    if let backoffSeconds = resolution.backoffSeconds {
+                        Logger.info("Codex 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
                     }
-                    self.updateMenuBar()
-                    self.updatePopoverViewModel(overage: self.currentOverage)
+                    self.syncRuntimePresentation(overage: self.currentOverage)
                 }
             } catch {
                 let wrapped = APIError.unknownError(error.localizedDescription)
                 await MainActor.run {
-                    self.isCodexLoading = false
-                    self.codexLoadingStartedAt = nil
-                    self.codexConsecutiveErrorCount += 1
-                    self.applyCodexRefreshBackoff(for: wrapped)
-                    self.hasCodexAuthError = false
-                    self.codexError = wrapped
-                    if self.codexConsecutiveErrorCount >= 3 {
-                        self.currentCodexUsage = nil
+                    var state = self.runtimeStateCatalog[.codex]
+                    let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
+                        state: &state,
+                        error: wrapped,
+                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
+                        clearPayloadAfterTemporaryFailures: 3
+                    )
+                    self.runtimeStateCatalog[.codex] = state
+                    if let backoffSeconds = resolution.backoffSeconds {
+                        Logger.info("Codex 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
                     }
-                    self.updateMenuBar()
-                    self.updatePopoverViewModel(overage: self.currentOverage)
+                    self.syncRuntimePresentation(overage: self.currentOverage)
                 }
             }
         }
@@ -1419,29 +1379,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshGeminiUsage(force: Bool = false) {
         guard ServiceSelectionHelper.isEnabled(.gemini, settings: AppSettings.shared) else { return }
-
-        let shouldRespectBackoff = !force && currentGeminiUsage != nil
-        if shouldRespectBackoff, let remaining = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextGeminiRefreshAllowedAt) {
-            if nextGeminiRefreshAllowedAt != nil {
-                Logger.debug("Gemini 갱신 스킵: 임시 오류 백오프 \(remaining)초 남음")
-                return
-            }
-            nextGeminiRefreshAllowedAt = nil
-        }
-
-        switch RefreshExecutionPolicy.inFlightDecision(isLoading: isGeminiLoading, startedAt: geminiLoadingStartedAt) {
-        case .start:
-            break
-        case .recoverStale(let elapsed):
-            Logger.warning("Gemini 갱신 고착 감지(\(elapsed)초) → 상태 복구")
-            isGeminiLoading = false
-            geminiLoadingStartedAt = nil
-        case .skip:
-            return
-        }
-
-        isGeminiLoading = true
-        geminiLoadingStartedAt = Date()
+        guard prepareRefresh(for: .gemini, force: force, respectBackoffWithoutPayload: false) else { return }
         geminiError = nil
         hasGeminiAuthError = false
 
@@ -1449,16 +1387,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 let usage = try await GeminiRuntimeRefresher.refresh(apiService: geminiAPIService)
                 await MainActor.run {
-                    self.currentGeminiUsage = usage
-                    self.geminiError = nil
-                    self.hasGeminiAuthError = false
-                    self.geminiConsecutiveErrorCount = 0
-                    self.nextGeminiRefreshAllowedAt = nil
-                    self.geminiLastUpdated = Date()
-                    self.isGeminiLoading = false
-                    self.geminiLoadingStartedAt = nil
-                    self.updateMenuBar()
-                    self.updatePopoverViewModel(overage: self.currentOverage)
+                    var state = self.runtimeStateCatalog[.gemini]
+                    RuntimeProviderRefreshCoordinator.applySuccess(
+                        state: &state,
+                        payload: .gemini(usage)
+                    )
+                    self.runtimeStateCatalog[.gemini] = state
+                    self.syncRuntimePresentation(overage: self.currentOverage)
 
                     NotificationManager.shared.checkThreshold(
                         session: .geminiPrimary,
@@ -1480,32 +1415,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             } catch let error as APIError {
                 await MainActor.run {
-                    self.isGeminiLoading = false
-                    self.geminiLoadingStartedAt = nil
-                    self.geminiConsecutiveErrorCount += 1
-                    self.applyGeminiRefreshBackoff(for: error)
-                    self.hasGeminiAuthError = error.isDefinitiveAuthFailure
-                    self.geminiError = error
-                    if self.geminiConsecutiveErrorCount >= 3 && error.isTemporaryFailure {
-                        self.currentGeminiUsage = nil
+                    var state = self.runtimeStateCatalog[.gemini]
+                    let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
+                        state: &state,
+                        error: error,
+                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
+                        clearPayloadAfterTemporaryFailures: 3
+                    )
+                    self.runtimeStateCatalog[.gemini] = state
+                    if let backoffSeconds = resolution.backoffSeconds {
+                        Logger.info("Gemini 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
                     }
-                    self.updateMenuBar()
-                    self.updatePopoverViewModel(overage: self.currentOverage)
+                    self.syncRuntimePresentation(overage: self.currentOverage)
                 }
             } catch {
                 let wrapped = APIError.unknownError(error.localizedDescription)
                 await MainActor.run {
-                    self.isGeminiLoading = false
-                    self.geminiLoadingStartedAt = nil
-                    self.geminiConsecutiveErrorCount += 1
-                    self.applyGeminiRefreshBackoff(for: wrapped)
-                    self.hasGeminiAuthError = false
-                    self.geminiError = wrapped
-                    if self.geminiConsecutiveErrorCount >= 3 {
-                        self.currentGeminiUsage = nil
+                    var state = self.runtimeStateCatalog[.gemini]
+                    let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
+                        state: &state,
+                        error: wrapped,
+                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
+                        clearPayloadAfterTemporaryFailures: 3
+                    )
+                    self.runtimeStateCatalog[.gemini] = state
+                    if let backoffSeconds = resolution.backoffSeconds {
+                        Logger.info("Gemini 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
                     }
-                    self.updateMenuBar()
-                    self.updatePopoverViewModel(overage: self.currentOverage)
+                    self.syncRuntimePresentation(overage: self.currentOverage)
                 }
             }
         }
@@ -1513,29 +1450,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshAntigravityUsage(force: Bool = false) {
         guard ServiceSelectionHelper.isEnabled(.antigravity, settings: AppSettings.shared) else { return }
-
-        let shouldRespectBackoff = !force && currentAntigravityUsage != nil
-        if shouldRespectBackoff, let remaining = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextAntigravityRefreshAllowedAt) {
-            if nextAntigravityRefreshAllowedAt != nil {
-                Logger.debug("Antigravity 갱신 스킵: 임시 오류 백오프 \(remaining)초 남음")
-                return
-            }
-            nextAntigravityRefreshAllowedAt = nil
-        }
-
-        switch RefreshExecutionPolicy.inFlightDecision(isLoading: isAntigravityLoading, startedAt: antigravityLoadingStartedAt) {
-        case .start:
-            break
-        case .recoverStale(let elapsed):
-            Logger.warning("Antigravity 갱신 고착 감지(\(elapsed)초) → 상태 복구")
-            isAntigravityLoading = false
-            antigravityLoadingStartedAt = nil
-        case .skip:
-            return
-        }
-
-        isAntigravityLoading = true
-        antigravityLoadingStartedAt = Date()
+        guard prepareRefresh(for: .antigravity, force: force, respectBackoffWithoutPayload: false) else { return }
         antigravityError = nil
         hasAntigravityAuthError = false
 
@@ -1543,16 +1458,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 let usage = try await AntigravityRuntimeRefresher.refresh(apiService: antigravityAPIService)
                 await MainActor.run {
-                    self.currentAntigravityUsage = usage
-                    self.antigravityError = nil
-                    self.hasAntigravityAuthError = false
-                    self.antigravityConsecutiveErrorCount = 0
-                    self.nextAntigravityRefreshAllowedAt = nil
-                    self.antigravityLastUpdated = Date()
-                    self.isAntigravityLoading = false
-                    self.antigravityLoadingStartedAt = nil
-                    self.updateMenuBar()
-                    self.updatePopoverViewModel(overage: self.currentOverage)
+                    var state = self.runtimeStateCatalog[.antigravity]
+                    RuntimeProviderRefreshCoordinator.applySuccess(
+                        state: &state,
+                        payload: .antigravity(usage)
+                    )
+                    self.runtimeStateCatalog[.antigravity] = state
+                    self.syncRuntimePresentation(overage: self.currentOverage)
 
                     NotificationManager.shared.checkThreshold(
                         session: .antigravityPrimary,
@@ -1574,83 +1486,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             } catch let error as APIError {
                 await MainActor.run {
-                    self.isAntigravityLoading = false
-                    self.antigravityLoadingStartedAt = nil
-                    self.antigravityConsecutiveErrorCount += 1
-                    self.applyAntigravityRefreshBackoff(for: error)
-                    self.hasAntigravityAuthError = error.isDefinitiveAuthFailure
-                    self.antigravityError = error
-                    if self.antigravityConsecutiveErrorCount >= 3 && error.isTemporaryFailure {
-                        self.currentAntigravityUsage = nil
+                    var state = self.runtimeStateCatalog[.antigravity]
+                    let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
+                        state: &state,
+                        error: error,
+                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
+                        clearPayloadAfterTemporaryFailures: 3
+                    )
+                    self.runtimeStateCatalog[.antigravity] = state
+                    if let backoffSeconds = resolution.backoffSeconds {
+                        Logger.info("Antigravity 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
                     }
-                    self.updateMenuBar()
-                    self.updatePopoverViewModel(overage: self.currentOverage)
+                    self.syncRuntimePresentation(overage: self.currentOverage)
                 }
             } catch {
                 let wrapped = APIError.unknownError(error.localizedDescription)
                 await MainActor.run {
-                    self.isAntigravityLoading = false
-                    self.antigravityLoadingStartedAt = nil
-                    self.antigravityConsecutiveErrorCount += 1
-                    self.applyAntigravityRefreshBackoff(for: wrapped)
-                    self.hasAntigravityAuthError = false
-                    self.antigravityError = wrapped
-                    if self.antigravityConsecutiveErrorCount >= 3 {
-                        self.currentAntigravityUsage = nil
+                    var state = self.runtimeStateCatalog[.antigravity]
+                    let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
+                        state: &state,
+                        error: wrapped,
+                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
+                        clearPayloadAfterTemporaryFailures: 3
+                    )
+                    self.runtimeStateCatalog[.antigravity] = state
+                    if let backoffSeconds = resolution.backoffSeconds {
+                        Logger.info("Antigravity 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
                     }
-                    self.updateMenuBar()
-                    self.updatePopoverViewModel(overage: self.currentOverage)
+                    self.syncRuntimePresentation(overage: self.currentOverage)
                 }
             }
-        }
-    }
-
-    private func applyCodexRefreshBackoff(for error: APIError) {
-        let result = RefreshExecutionPolicy.nextBackoffDate(
-            for: error,
-            minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
-            existingAllowedAt: nextCodexRefreshAllowedAt)
-
-        guard let candidate = result.candidate else {
-            nextCodexRefreshAllowedAt = nil
-            return
-        }
-        nextCodexRefreshAllowedAt = candidate
-        if let backoffSeconds = result.seconds {
-            Logger.info("Codex 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
-        }
-    }
-
-    private func applyGeminiRefreshBackoff(for error: APIError) {
-        let result = RefreshExecutionPolicy.nextBackoffDate(
-            for: error,
-            minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
-            existingAllowedAt: nextGeminiRefreshAllowedAt)
-
-        guard let candidate = result.candidate else {
-            nextGeminiRefreshAllowedAt = nil
-            return
-        }
-        nextGeminiRefreshAllowedAt = candidate
-        if let backoffSeconds = result.seconds {
-            Logger.info("Gemini 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
-        }
-    }
-
-    private func applyAntigravityRefreshBackoff(for error: APIError) {
-        let result = RefreshExecutionPolicy.nextBackoffDate(
-            for: error,
-            minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
-            existingAllowedAt: nextAntigravityRefreshAllowedAt
-        )
-
-        guard let candidate = result.candidate else {
-            nextAntigravityRefreshAllowedAt = nil
-            return
-        }
-        nextAntigravityRefreshAllowedAt = candidate
-        if let backoffSeconds = result.seconds {
-            Logger.info("Antigravity 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
         }
     }
 
@@ -1708,15 +1573,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         secondaryColor: NSColor
     ) -> MenuBarProviderSnapshot? {
         guard AppSettings.shared.isProviderVisibleInMenuBar(kind) else { return nil }
+        guard let service = kind.runtimeService else { return nil }
+        let runtimeSnapshot = runtimeProviderSnapshot(for: service)
         switch kind {
         case .claude:
             guard let config = AppSettings.shared.menuBarDisplayConfig(for: .claude) else { return nil }
             return MenuBarStatusComposer.claudeSnapshot(
                 config: config,
-                usage: currentUsage,
-                error: currentError,
-                hasAuthError: hasAuthError,
-                hasCredential: claudeCredentialAvailability.hasAnyCredential,
+                usage: runtimeSnapshot.claudeUsage,
+                error: runtimeSnapshot.error,
+                hasAuthError: runtimeSnapshot.hasAuthError,
+                hasCredential: runtimeSnapshot.hasCredential,
                 secondaryColor: secondaryColor,
                 icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .claude, size: iconSize) : nil
             )
@@ -1724,10 +1591,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let config = AppSettings.shared.menuBarDisplayConfig(for: .codex) else { return nil }
             return MenuBarStatusComposer.codexSnapshot(
                 config: config,
-                usage: currentCodexUsage,
-                error: codexError,
-                hasAuthError: hasCodexAuthError,
-                isAuthenticated: CodexAuthManager.shared.isAuthenticated,
+                usage: runtimeSnapshot.codexUsage,
+                error: runtimeSnapshot.error,
+                hasAuthError: runtimeSnapshot.hasAuthError,
+                isAuthenticated: runtimeSnapshot.hasCredential,
                 secondaryColor: secondaryColor,
                 icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .codex, size: iconSize) : nil
             )
@@ -1735,10 +1602,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let config = AppSettings.shared.menuBarDisplayConfig(for: .gemini) else { return nil }
             return MenuBarStatusComposer.geminiSnapshot(
                 config: config,
-                usage: currentGeminiUsage,
-                error: geminiError,
-                hasAuthError: hasGeminiAuthError,
-                hasCredential: hasGeminiCredential,
+                usage: runtimeSnapshot.geminiUsage,
+                error: runtimeSnapshot.error,
+                hasAuthError: runtimeSnapshot.hasAuthError,
+                hasCredential: runtimeSnapshot.hasCredential,
                 secondaryColor: secondaryColor,
                 icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .gemini, size: iconSize) : nil
             )
@@ -1746,10 +1613,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let config = AppSettings.shared.menuBarDisplayConfig(for: .antigravity) else { return nil }
             return MenuBarStatusComposer.antigravitySnapshot(
                 config: config,
-                usage: currentAntigravityUsage,
-                error: antigravityError,
-                hasAuthError: hasAntigravityAuthError,
-                hasCredential: hasAntigravityCredential,
+                usage: runtimeSnapshot.antigravityUsage,
+                error: runtimeSnapshot.error,
+                hasAuthError: runtimeSnapshot.hasAuthError,
+                hasCredential: runtimeSnapshot.hasCredential,
                 secondaryColor: secondaryColor,
                 icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .antigravity, size: iconSize) : nil
             )
@@ -1808,7 +1675,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.updateMenuBar()
                 self.updatePopoverViewModel()
                 self.syncRefreshTimerState()
-                if self.hasRefreshableService {
+                if self.shouldPollRuntimeProviders {
                     self.refreshAll(force: true)
                 }
             }
@@ -1824,6 +1691,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showSettingsWindow() {
         setupWizardWindowCoordinator.close()
+        if setupWizardCredentialStepOverride == .manualSessionKey {
+            setupWizardCredentialStepOverride = nil
+        }
 
         if settingsWindowCoordinator.focusIfVisible() {
             return
@@ -1871,7 +1741,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self.updatePopoverViewModel()
                 self.settingsWindowCoordinator.refreshSnapshot(AppSettings.shared.createSnapshot())
                 self.syncRefreshTimerState()
-                if self.hasRefreshableService {
+                if self.shouldPollRuntimeProviders {
                     self.refreshAll(force: true)
                 }
                 self.clearWebSessionData()
@@ -1987,13 +1857,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             progress: setupWizardProgress,
             isVerifyingFetch: isLoading,
             onOpenChrome: { [weak self] in
+                self?.setupWizardCredentialStepOverride = .chromeImport
                 self?.openClaudeUsageInChrome()
             },
             onOpenWebLogin: { [weak self] in
+                self?.setupWizardCredentialStepOverride = .webLogin
                 self?.setupWizardWindowCoordinator.close()
                 self?.showLoginWindow(clearCookies: true)
             },
             onOpenAdvancedSettings: { [weak self] in
+                self?.setupWizardCredentialStepOverride = nil
                 AppSettings.shared.settingsLastTab = "claude"
                 AppSettings.shared.claudeSettingsLastTab = "auth"
                 AppSettings.shared.shouldRevealClaudeAdvancedAuth = true
@@ -2014,6 +1887,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     let snapshot = await self.apiService.fetchUsageHealthSnapshot()
                     let cachedMetadata = await self.apiService.fetchCachedProfileMetadata()
                     await MainActor.run {
+                        self.setupWizardCredentialStepOverride = nil
                         self.currentClaudeProfileMetadata = cachedMetadata
                         self.applyUsageHealthSnapshot(snapshot)
                         if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared),
@@ -2031,9 +1905,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.refreshUsage(force: true)
             },
             onComplete: { [weak self] in
+                self?.setupWizardCredentialStepOverride = nil
                 self?.setupWizardWindowCoordinator.close()
             },
             onDismiss: { [weak self] in
+                self?.setupWizardCredentialStepOverride = nil
                 self?.setupWizardWindowCoordinator.close()
             }
         )
@@ -2054,7 +1930,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Actions
 
     @objc private func refreshClicked() {
-        if hasRefreshableService {
+        if shouldPollRuntimeProviders {
             refreshAll(force: true)
         } else {
             showInitialClaudeSetupFlow()

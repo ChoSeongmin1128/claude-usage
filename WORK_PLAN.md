@@ -1,8 +1,24 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-02 (91차)
+최종 갱신: 2026-04-03 (106차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
+
+## 0. 이번 배치 요약
+
+- 완료
+- `RuntimeProviderRefreshCoordinator` 를 추가해 runtime refresh/backoff/loading/error 처리의 공통 경로를 만들었습니다.
+- `ClaudeSetupPresentation` 을 추가했고, `AppDelegate` 와 `SettingsView` 는 Claude setup 상태를 이 policy 출력 기준으로 읽기 시작했습니다.
+- `ProviderEnvironmentDetector` 는 `GeminiEnvironmentSignals`, `AntigravityEnvironmentSignals` 와 순수 `interpret*` 함수로 분리했습니다.
+- `SettingsView` 는 Claude pending/applied 상태를 개별 bool 계산보다 `ClaudeSetupPresentation` 기준으로 읽도록 정리했습니다.
+- `ClaudeUsageTests` 타깃과 shared scheme를 추가했고, `SetupCompletionPolicy`, `ClaudeSourcePlanner`, `RefreshOrchestration`, `ProviderEnvironmentDetector` 테스트 17개를 붙였습니다.
+- 검증
+- `Debug` 빌드 통과
+- `build-for-testing` 통과
+- `xcrun xctest .../ClaudeUsageTests.xctest` 통과
+- 남은 외부 의존성
+- `Sparkle` 실제 readiness는 여전히 `SUFeedURL`, `SUPublicEDKey`, `NOTARY_PROFILE` 같은 외부 자격값 주입이 필요합니다.
+- `xcodebuild test` 는 이 메뉴바 앱의 macOS host runner 특성 때문에 CLI에서 대기할 수 있습니다. 현재 자동화 검증은 `build-for-testing + xctest` 경로를 기준으로 봅니다.
 
 ## 1. 현재 판단
 
@@ -67,6 +83,19 @@
 - 같은 비교 기준으로, 현재 온보딩은 설정 내부 체크리스트 수준까지는 왔지만 최신 `Claude-Usage-Tracker`의 [SetupWizardView.swift](/Users/seongmin/Personal/Claude-Usage-Tracker/Claude%20Usage/Views/SetupWizardView.swift) 처럼 `CLI 감지 -> 권장 경로 제시 -> 수동 fallback`을 독립 플로우로 끝내는 완성도에는 아직 못 미칩니다.
 - `claude-code`의 [rateLimitMessages.ts](/Users/seongmin/Personal/claude-code/src/services/rateLimitMessages.ts) 와 비교하면, 현재 앱은 `profile metadata`를 저장하기 시작했지만 이를 실제 `reset-aware warning`, `extra usage`, `team/enterprise suppress policy` 같은 문구/알림 정책까지 확장하지는 못했습니다.
 - `CodexBar`의 [README.md](/Users/seongmin/Personal/CodexBar/README.md), [docs/provider.md](/Users/seongmin/Personal/CodexBar/docs/provider.md), [docs/claude.md](/Users/seongmin/Personal/CodexBar/docs/claude.md) 와 비교하면, 현재 앱은 `왜 Chrome/Keychain 권한이 필요한지`, `어떤 source를 어떤 순서로 시도하는지`, `어떤 데이터는 로컬만 읽는지`를 설명하는 제품 문서와 UI copy가 아직 약합니다.
+- 2026-04-03 96차 통합에서 compact/standard popover는 더 이상 `fittingSize`로 내용에 맞춰 계속 커지지 않고, [AppPopoverCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppPopoverCoordinator.swift) 의 고정 폭/높이 정책과 [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 의 내부 스크롤 기준으로 안정화되기 시작했습니다.
+- 같은 통합에서 `Antigravity`는 `persisted auth`만으로 `refreshable/runtimeReachability`를 올리지 않도록 [ProviderEnvironmentDetector.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ProviderEnvironmentDetector.swift) 를 보수적으로 되돌렸고, `Gemini/Antigravity`의 일시 오류 숨김도 [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift) 에서 `isDetected`가 아니라 실제 `runtimeReachability` 기준으로 좁혔습니다.
+- 2026-04-03 100차 통합에서 [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift) 는 `Gemini`가 첫 성공 fetch 전에는 더 이상 `조회 준비됨`으로 과승격되지 않고 `연결 확인 중` 또는 `토큰 갱신 후 연결 확인 중`으로만 보이도록 정리했습니다.
+- 같은 통합에서 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 의 `updatePopoverViewModel(...)` 는 standard 모드에서 스냅샷 갱신마다 다시 `popover.contentSize`를 건드리던 경로를 제거했고, 남은 size refresh는 compact toggle과 명시적 service/layout 전환 시점에만 일어나게 줄였습니다.
+- 2026-04-03 101차 통합에서 `manualSessionKey` 는 더 이상 wizard 단계 override로 유지되지 않고 settings 진입 의도로만 처리됩니다. [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 advanced settings 경로에서 override를 즉시 비우고 `shouldRevealClaudeAdvancedAuth`만 전달해, settings를 닫은 뒤 wizard를 다시 열었을 때 stale manual step이 강제되지 않게 정리했습니다.
+- 2026-04-03 102차 통합에서 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 Claude 사용량 갱신/백오프/health snapshot 동기화 때마다 다시 `refreshPopoverSizeIfShown()`를 호출하던 data-driven resize 경로를 제거했습니다. 고정 폭/높이 정책 이후에도 남아 있던 잔여 `popover` 흔들림 원인을 한 단계 더 줄인 것입니다.
+- 2026-04-03 103차 통합에서 [AppPopoverCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppPopoverCoordinator.swift) 와 [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 는 `popover` 크기를 더 이상 provider별로 계산하지 않고 compact/standard 모드별 고정 preset만 쓰도록 단순화했습니다. 같은 통합에서 `NSPopover.animates`도 꺼서 탭/모드 전환 시 남아 있던 시각적 흔들림을 더 줄였습니다.
+- 2026-04-03 104차 통합에서 [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 는 compact/standard 상태 카드의 최소 높이를 고정해 `인증 필요 / 로딩 / 오류 / 빈 상태` 사이를 전환할 때 내부 레이아웃이 위아래로 튀는 현상을 줄이기 시작했습니다. 같은 통합에서 헤더 strip 높이도 고정해 provider 탭 길이에 따라 헤더가 흔들리지 않게 맞췄습니다.
+- 같은 통합에서 [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift) 는 `Gemini`와 `Antigravity`의 summary가 더 이상 detector 신호만으로 `조회 준비됨`으로 과승격되지 않도록 정리했습니다. 이제 첫 성공 fetch 전에는 `연결 확인 중`, `토큰 갱신 후 연결 확인 중`, `quota 서버 연결 준비 중`처럼 더 보수적인 단계만 사용합니다.
+- 같은 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 의 Claude 인증 체크리스트는 `저장된 세션키 적용됨`과 `저장된 세션키 확인됨 · 적용 상태 확인 중`을 분리해서, 저장 흔적과 실제 runtime 반영 상태를 같은 truth처럼 보이게 하던 혼선을 줄였습니다.
+- 2026-04-03 105차 통합에서 [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift) 는 `Gemini`와 `Antigravity`의 `fetchState` fallback을 detector 기반 `.ready`에서 `.idle`로 낮춰, 첫 성공 fetch 전에는 summary가 `준비됨` 계열로 과승격되지 않게 정리했습니다. 이제 detector는 환경 힌트만 제공하고, `준비됨`은 실제 성공 조회 또는 명시적 runtime reachability가 있을 때만 사용합니다.
+- 같은 통합에서 [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 는 compact/standard 헤더 높이와 상태 카드 최소 높이를 더 고정해, 현재 남은 `popover` 흔들림이 창 크기 변경이 아니라 내부 정렬 점프인지 분리하기 쉽게 만들었습니다.
+- 같은 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 Claude 체크리스트의 `자격 준비` 문구를 runtime truth 기준으로 한 번 더 좁혀, 저장된 session 흔적과 실제 적용 상태가 같은 완료 상태처럼 읽히지 않게 조정했습니다.
 - 2026-04-02 32차 통합에서 [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift) 에 `RuntimeProviderSnapshot` 을 추가했고, [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift) 는 이제 이 snapshot 컬렉션을 기준으로 런타임 상태를 계산하기 시작했습니다.
 - 같은 통합에서 [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift) 는 `MenuBarProviderSnapshot` 기반 단일/다중 provider 렌더링 경로를 갖게 됐고, [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 이를 사용해 `claude/codex` 전용 입력보다 provider snapshot 배열을 우선 쓰기 시작했습니다.
 - [RefreshOrchestration.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RefreshOrchestration.swift) 의 `markSetupComplete` 결정도 더 이상 `.claude` 비교를 직접 갖지 않고 `RuntimeProviderActivationState` 입력으로 밀어내기 시작했습니다.
@@ -158,9 +187,16 @@
 - 2026-04-02 105차 통합에서 [SetupWizardWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SetupWizardWindowView.swift) 와 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 의 organization 단계 흐름을 바로잡았습니다. 이제 `자동 선택으로 전환`은 실제로 `preferredOrganizationID` 를 비우고 wizard 를 닫으므로, 라벨과 동작이 어긋나지 않습니다.
 - 2026-04-02 106차 통합에서 [Release.xcconfig](/Users/seongmin/Personal/ClaudeUsage/Config/Release.xcconfig) 를 추가하고 [ClaudeUsage.xcodeproj/project.pbxproj](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage.xcodeproj/project.pbxproj) Release 설정이 이 파일을 읽게 연결했습니다. 로컬 비밀값은 `.gitignore` 된 `Config/Sparkle.release.local.xcconfig` 에서 덮어쓰도록 바꿨고, [build-notarize-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/build-notarize-release.sh) 와 배포 문서도 이 경로 기준으로 맞췄습니다.
 - 2026-04-02 89차 통합에서 [LoginWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/LoginWindowView.swift), [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 Keychain 프롬프트가 `연결 테스트`가 아니라 `실제 저장` 시점에만 뜬다는 점을 화면에 직접 명시하기 시작했습니다. 이로써 수동 sessionKey 경로에서 `테스트 성공`, `저장`, `macOS 확인 창`의 의미가 더 분리되고, 왜 어떤 시점에만 키체인 확인이 뜨는지 설명 책임도 코드 안으로 들어왔습니다.
+- 2026-04-03 95차 통합에서 [GeminiAPIService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/GeminiAPIService.swift) 는 quota API가 `401/403`을 돌려도 `refresh_token` 이 있으면 즉시 토큰을 재발급받아 한 번 더 조회하도록 바뀌었습니다. 실제 로컬 Homebrew 설치본의 bundle chunk에서 OAuth client id/client secret이 추출되고, 수동 토큰 재발급도 성공하는 것을 확인했으므로 이제 `Gemini CLI 로그인은 되어 있는데 앱은 로그인 필요`로 남는 경로를 줄이는 방향으로 정리하고 있습니다.
+- 같은 통합에서 [AntigravityAPIService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/AntigravityAPIService.swift) 는 connect port probe가 `https-only` 로 정상 http 포트를 탈락시키던 버그를 고쳤습니다. 현재 로컬 환경에서는 `language_server_macos_arm` 이 여는 `54378/http` 포트에서 `GetUserStatus` 와 `GetUnleashData` 가 `200` 으로 응답하므로, 이전처럼 정상 포트를 못 찾고 `연결 필요`로 남는 false negative를 줄여야 합니다.
+- 같은 통합에서 [AppPopoverCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppPopoverCoordinator.swift), [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 compact popover를 다시 `고정 폭 + 고정 높이` 쪽으로 더 강하게 되돌렸습니다. 이제 compact에서는 데이터 갱신 때마다 `fittingSize` 로 다시 커졌다 줄어들지 않고, 탭 전환 시 한 번만 layout refresh를 거치도록 줄여 흔들림을 완화하고 있습니다.
 - 2026-04-02 49차 통합에서 [GeminiUsageModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/GeminiUsageModels.swift), [GeminiAPIService.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Services/GeminiAPIService.swift), [GeminiRuntimeRefresher.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/GeminiRuntimeRefresher.swift) 를 추가했고, `~/.gemini/oauth_creds.json` 과 Gemini CLI 설치 경로의 OAuth 설정을 직접 읽어 quota API를 호출하는 최소 runtime 경로를 붙였습니다.
 - 같은 통합에서 [ProviderStateModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift), [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift), [RuntimeRefreshHandlerRegistry.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RuntimeRefreshHandlerRegistry.swift), [ServiceSelectionHelper.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ServiceSelectionHelper.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `Gemini` 를 실제 runtime provider로 인식하고 refresh/backoff/state snapshot/menu bar/popup selection 경로에 포함하기 시작했습니다.
 - 같은 통합에서 [MenuBarIconFactory.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarIconFactory.swift), [MenuBarStatusComposer.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarStatusComposer.swift), [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift), [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift), [AppSettings.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/AppSettings.swift) 는 `Gemini` 의 메뉴바 아이콘/요약/리셋 시간/compact·standard popover 렌더링과 기본 표시 설정 저장을 시작했습니다.
+- 2026-04-03 92차 통합에서 [ProviderEnvironmentDetector.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ProviderEnvironmentDetector.swift), [RuntimeProviderModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/RuntimeProviderModels.swift), [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 `detected`, `credentialState`, `runtimeReachability`, `fetchState` 를 더 분리하기 시작했습니다. 특히 `Gemini` 는 PATH false negative 때문에 refresh가 막히지 않도록 `OAuth 자격 있음` 과 `CLI 경로 없음` 을 분리해 표시하고, `Antigravity` 도 runtime probe 성공 전에는 auth-ready처럼 보이지 않게 보수적으로 낮췄습니다.
+- 같은 통합에서 [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift), [UsageSectionView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/UsageSectionView.swift), [AppPopoverCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppPopoverCoordinator.swift) 는 compact popover를 `고정 폭 + 고정 높이 bucket` 기준으로 정리하기 시작했습니다. 이제 탭 수 때문에 전체 폭이 커지지 않고, compact usage row와 standard usage row 모두 `왼쪽 텍스트 / 오른쪽 bar+percent` 구조를 유지한 채 bar 길이만 남는 폭 안에서 조절되도록 바꿨습니다.
+- 2026-04-03 94차 통합에서 [SetupCompletionPolicy.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/SetupCompletionPolicy.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift), [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 `readyCredential`를 저장 흔적이 아니라 실제 runtime session/OAuth availability 기준으로 더 강하게 통일했습니다. unsaved session draft나 단순 keychain 존재만으로 wizard/settings가 `준비 완료`처럼 보이는 경로를 줄이고, `setupWizardCredentialStepOverride`도 dismiss/complete/organization 완료 시 해제되도록 정리했습니다.
+- 같은 통합에서 [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift), [AppPopoverCoordinator.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppPopoverCoordinator.swift) 는 tab selection 직후 `requestLayoutRefresh()`를 한 번만 올리고, coordinator 실제 contentSize 적용은 debounce 뒤에 하도록 바꿨습니다. 즉 `탭 선택 -> 즉시 resize -> onChange resize -> data update resize` 같은 중복 resize 경로를 더 줄였습니다.
 - 같은 통합에서 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 성공 조회 직후 cached profile metadata를 읽어 현재 Claude 알림 정책으로 연결하기 시작했습니다.
 - 2026-04-02 50차 통합에서 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift), [PopoverView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/PopoverView.swift) 는 Claude 세션키 연결 테스트 성공 시 실제 런타임 credential 동기화를 바로 실행하고, 로그인 직후 메뉴바와 popover가 서로 다른 상태를 보이던 경로를 줄였습니다. popover는 이제 runtime snapshot을 우선 사용해 Claude 데이터를 그립니다.
 - 2026-04-02 51차 통합에서 [ProviderStateModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift), [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 는 `Gemini` 를 더 이상 `준비 상태` shell처럼 보이지 않게 정리했습니다. 설정 패널 상단 문구와 본문을 runtime provider 기준으로 바꿨고, `Antigravity` 만 여전히 coming-soon 경로로 남깁니다.
@@ -699,6 +735,13 @@
 - 같은 마감 후속으로 [SetupWizardWindowView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SetupWizardWindowView.swift) 는 완료 단계에서 더 이상 `자격 준비 / 조회 검증 / Organization 확인` 체크리스트를 다시 보여주지 않도록 바뀌었습니다. wizard가 끝났는데도 wizard 문법이 계속 남아 있으면 사용자는 아직 미완료라고 느끼기 쉽기 때문입니다.
 - 2026-04-02 심야 아이콘 정리로 `temp/*.svg` 에 흩어져 있던 provider 아이콘은 [DesignAssets/ProviderBrandSources](/Users/seongmin/Personal/ClaudeUsage/DesignAssets/ProviderBrandSources) 로 옮겨 canonical source 로 고정했습니다. [Scripts/render-provider-brand-assets.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/render-provider-brand-assets.sh) 는 SVG의 `1em` 크기를 보정한 뒤 macOS `qlmanage` 로 렌더링하고, 코너에서 연결된 흰 배경만 투명화한 후 asset catalog PNG를 다시 생성합니다.
 - 같은 통합에서 [ProviderBrandIconResolver.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/ProviderBrandIconResolver.swift), [MenuBarIconFactory.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Utilities/MenuBarIconFactory.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift), [ProviderStateModels.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Models/ProviderStateModels.swift) 는 `popover/settings` 와 `menu bar` 가 더 이상 서로 다른 asset 이름과 렌더링 규칙을 쓰지 않도록 정리했습니다. 이제 메뉴바도 provider별 canonical brand asset 을 직접 읽어 같은 소스에서 축소 렌더링하며, 별도 `*MenuBarIcon.imageset` 경로는 제거했습니다.
+- 2026-04-03 새벽 후속 정리로 [ProviderEnvironmentDetector.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ProviderEnvironmentDetector.swift) 는 `Gemini` access token의 만료 시각을 읽어 만료된 토큰을 더 이상 `usable`로 승격하지 않습니다. 현재 로컬 환경처럼 `access_token`은 남아 있지만 이미 만료된 경우에는 `refreshable`로 내려가고, summary도 `토큰 갱신 후 조회` 흐름에 맞게 바뀝니다.
+- 같은 배치에서 [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift) 는 `Gemini` / `Antigravity`의 runtime summary를 generic snapshot path가 아니라 provider별 helper로 계산하도록 정리했습니다. 그동안 local provider 전용 summary 분기가 사실상 거의 안 타고 있었는데, 이제는 `detected / refreshable / ready / auth failure / temporary failure`가 별도 경로로 요약됩니다.
+- [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 와 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 의 `readyCredential`도 저장 직후 keychain truth를 반영하도록 다시 맞췄습니다. 즉 저장되지 않은 draft는 계속 제외하되, 이미 keychain 저장이 끝난 `sessionKey`는 health snapshot 반영이 조금 늦어도 `미준비`처럼 보이지 않게 정리했습니다.
+- 2026-04-03 오전 후속 정리로 [RefreshScheduler.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RefreshScheduler.swift), [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift), [RefreshOrchestration.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/RefreshOrchestration.swift) 는 `조회 가능한 서비스가 지금 하나도 없음`을 이유로 자동 재시도 타이머가 완전히 꺼지지 않게 바꿨습니다. 이제 enabled runtime provider가 남아 있으면 주기적인 재평가 루프를 유지하고, periodic tick이 매번 local provider state를 강제로 clear 하지도 않습니다.
+- 같은 배치에서 [ProviderEnvironmentDetector.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/ProviderEnvironmentDetector.swift) 와 [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift) 는 `Antigravity`의 runtime summary를 더 좁혔습니다. `csrf token`만 있다고 곧바로 `조회 준비됨`으로 올리지 않고, extension port까지 갖춘 경우에만 runtimeReachability를 주며, 그 전 단계는 `quota 서버 연결 준비 중` 또는 `연결 확인 중`으로 남깁니다.
+- `Organization` 카드도 [SettingsView.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/Views/SettingsView.swift) 에서 `현재 적용`과 `편집 중`을 한 줄에 섞지 않도록 바꿨습니다. applied truth와 pending edit가 분리되어 보이고, 저장 전에는 실제 조회와 완료 판정에 반영되지 않는다는 점을 카드 안에서 직접 설명합니다.
+- 이어지는 99차 정리에서 [AppDelegate.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/App/AppDelegate.swift) 는 탭 전환 직후의 중복 popover resize 호출을 하나 더 제거했고, [PopoverViewModel.swift](/Users/seongmin/Personal/ClaudeUsage/ClaudeUsage/ViewModels/PopoverViewModel.swift) 는 `Antigravity`가 첫 성공 조회 전에는 `조회 준비됨` 대신 `연결 확인 중`으로 남도록 더 보수적으로 바꿨습니다. 즉 detector 신호만으로 first success가 난 것처럼 보이지 않게 했습니다.
 
 ### 제품 방향
 
@@ -715,12 +758,25 @@
 
 ## 7. 바로 다음 작업
 
-- 세션키 저장, 삭제, 재검증 이후 `메뉴바 / popover / settings`가 같은 snapshot을 보도록 전역 동기화 순서를 더 단단히 만들기
-- 독립 `Setup Wizard` 를 첫 실행 전용 단계 라우팅으로 더 확장하고 Chrome/Keychain 권한 설명, organization 선택, 검증 완료 흐름을 완성하기
-- `Messages fallback` 수동 테스트와 자동 정책의 의미를 UI와 내부 경로에서 더 명확히 분리하고, 자동/수동 모드의 진단 문구를 정리하기
-- Claude 인증 설정의 정보 밀도를 더 줄여 `현재 상태 + 다음 1개 행동` 중심으로 남기고, 상세 상태/복구/FAQ는 한 단계 더 안쪽으로 내리기
-- `세션키 연결 테스트` 를 검증 경로와 저장 경로로 더 깔끔하게 분리하고, 설정창의 성공/실패 후속 동작을 덜 놀랍게 만들기
-- `Antigravity` runtime provider의 연결 상태/오류 문구를 더 사용자 친화적으로 다듬고, 실제 환경에서 포트 probe fallback과 응답 파싱 회복력을 보강하기
-- provider별 메뉴바/팝오버 표시 자유도는 유지하되, 기본 preset / 고급 preset / 고급 도움말 copy 를 더 정리하기
-- `Organization` 섹션과 wizard 단계에서 자동 선택 모드의 CTA/보조 설명을 더 줄여, 현재 단계의 한 가지 행동만 먼저 보이게 다듬기
-- `Sparkle` 실제 배선을 `AppUpdateEngine` 추상화 뒤에 연결하고, README와 배포/업데이트 문서를 실제 구현 상태에 맞게 계속 갱신하기
+- popover 흔들림 마감:
+  - `popover`의 남은 체감 흔들림이 `창 크기 변경`이 아니라 `내부 상태 카드/행 정렬 점프`인지 실제 시나리오 기준으로 확인하고, 필요하면 compact/standard 본문 섹션의 기준 높이를 더 단순화하기
+  - 탭 전환, compact 전환, refresh 완료 직후 세 경로만 남기고 나머지 layout refresh 호출은 더 제거하기
+- local provider first-fetch 마감:
+  - `Gemini`는 `refresh token -> access token 재발급 -> loadCodeAssist -> quota` 흐름이 실제 첫 조회에서 자연스럽게 승격되는지 다시 검증하기
+  - `Antigravity`는 `detected / refreshable / runtimeReachability / first success`를 끝까지 분리해, persisted auth 흔적이나 detector 신호만으로 `준비됨`처럼 보이지 않게 마감하기
+  - `Gemini` / `Antigravity`가 일시 실패 후에도 자동 재시도 루프를 잃지 않는지 계속 검증하기
+- runtime truth 정리:
+  - `readyCredential`는 계속 저장 흔적이 아니라 실제 session/OAuth availability만 기준으로 유지하기
+  - wizard, settings 체크리스트, runtime setup completion, organization 카드가 같은 truth를 쓰도록 계속 정리하기
+  - `Organization`은 applied truth와 pending edit를 끝까지 분리 유지하기
+- 세션 반영과 전역 동기화:
+  - 세션키 저장, 삭제, 재검증 이후 `메뉴바 / popover / settings`가 같은 snapshot을 보도록 전역 동기화 순서를 더 단단히 만들기
+  - `세션키 연결 테스트` 를 검증 경로와 저장 경로로 더 깔끔하게 분리하고, 설정창의 성공/실패 후속 동작을 덜 놀랍게 만들기
+- 설정 / first-run 마감:
+  - 독립 `Setup Wizard` 를 첫 실행 전용 단계 라우팅으로 더 확장하고 Chrome/Keychain 권한 설명, organization 선택, 검증 완료 흐름을 완성하기
+  - Claude 인증 설정의 정보 밀도를 더 줄여 `현재 상태 + 다음 1개 행동` 중심으로 남기고, 상세 상태/복구/FAQ는 한 단계 더 안쪽으로 내리기
+  - `Organization` 섹션과 wizard 단계에서 자동 선택 모드의 CTA/보조 설명을 더 줄여, 현재 단계의 한 가지 행동만 먼저 보이게 다듬기
+- 운영 / 배포 마감:
+  - `Messages fallback` 수동 테스트와 자동 정책의 의미를 UI와 내부 경로에서 더 명확히 분리하고, 자동/수동 모드의 진단 문구를 정리하기
+  - provider별 메뉴바/팝오버 표시 자유도는 유지하되, 기본 preset / 고급 preset / 고급 도움말 copy 를 더 정리하기
+  - `Sparkle` 실제 배선을 `AppUpdateEngine` 추상화 뒤에 연결하고, README와 배포/업데이트 문서를 실제 구현 상태에 맞게 계속 갱신하기

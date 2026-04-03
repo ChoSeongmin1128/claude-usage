@@ -38,7 +38,7 @@ struct UsageSectionView: View {
 
             HStack(spacing: 8) {
                 ProgressBarView(percentage: percentage, height: 8)
-                    .frame(width: 120)
+                    .frame(maxWidth: .infinity)
 
                 Text(String(format: "%.0f%%", percentage))
                     .font(.title3)
@@ -46,7 +46,7 @@ struct UsageSectionView: View {
                     .foregroundStyle(ColorProvider.statusColor(for: percentage))
                     .fixedSize(horizontal: true, vertical: false)
             }
-            .fixedSize(horizontal: true, vertical: false)
+            .frame(minWidth: 124, idealWidth: 156, maxWidth: 196, alignment: .trailing)
         }
         .padding(.vertical, 2)
     }

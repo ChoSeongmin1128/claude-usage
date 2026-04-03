@@ -12,11 +12,11 @@ final class RefreshScheduler {
 
     func sync(
         autoRefresh: Bool,
-        hasRefreshableService: Bool,
+        shouldPoll: Bool,
         interval: TimeInterval,
         onTick: @escaping () -> Void
     ) -> RefreshSchedulerChange {
-        guard autoRefresh, hasRefreshableService else {
+        guard autoRefresh, shouldPoll else {
             return stop()
         }
 

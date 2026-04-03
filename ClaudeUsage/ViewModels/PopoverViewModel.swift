@@ -28,33 +28,43 @@ final class PopoverViewModel: ObservableObject {
         let shouldShowWarningDot: Bool
     }
 
-    @Published var usage: ClaudeUsageResponse?
-    @Published var codexUsage: CodexUsageResponse?
-    @Published var error: APIError?
-    @Published var codexError: APIError?
-    @Published var isClaudeLoading: Bool = false
-    @Published var isCodexLoading: Bool = false
-    @Published var claudeLastUpdated: Date?
-    @Published var codexLastUpdated: Date?
+    struct LocalProviderSummaryState: Sendable, Equatable {
+        let phase: LocalProviderSummaryPhase
+        let summary: String
+    }
+
     @Published var selectedService: PopoverService = .claude
     @Published var overage: OverageSpendLimitResponse?
     @Published var systemStatus: ClaudeSystemStatus?
     @Published var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
     @Published var nextUsageRetryAt: Date?
+    @Published private(set) var claudeSetupPresentation: ClaudeSetupPresentation?
     @Published private(set) var runtimeSnapshots: [PopoverService: RuntimeProviderSnapshot] = [:]
 
     var onRefreshService: ((PopoverService) -> Void)?
     var onOpenSettingsForService: ((PopoverService) -> Void)?
     var onServiceSelected: ((PopoverService) -> Void)?
     var onPinChanged: ((PopoverService, Bool) -> Void)?
-    var onLayoutChanged: ((PopoverService) -> Void)?
+    var onLayoutChanged: ((PopoverService, PopoverLayoutRefreshReason) -> Void)?
+
+    func snapshot(for service: PopoverService) -> RuntimeProviderSnapshot? {
+        runtimeSnapshots[service]
+    }
+
+    var claudeUsage: ClaudeUsageResponse? {
+        snapshot(for: .claude)?.claudeUsage
+    }
+
+    var codexUsage: CodexUsageResponse? {
+        snapshot(for: .codex)?.codexUsage
+    }
 
     var geminiUsage: GeminiUsageResponse? {
-        runtimeSnapshots[.gemini]?.geminiUsage
+        snapshot(for: .gemini)?.geminiUsage
     }
 
     var antigravityUsage: AntigravityUsageResponse? {
-        runtimeSnapshots[.antigravity]?.antigravityUsage
+        snapshot(for: .antigravity)?.antigravityUsage
     }
 
     func refresh() {
@@ -78,12 +88,12 @@ final class PopoverViewModel: ObservableObject {
         self.onServiceSelected?(service)
     }
 
-    func requestLayoutRefresh() {
-        self.onLayoutChanged?(self.selectedService)
+    func requestLayoutRefresh(reason: PopoverLayoutRefreshReason) {
+        self.onLayoutChanged?(self.selectedService, reason)
     }
 
-    func requestLayoutRefresh(for service: PopoverService) {
-        self.onLayoutChanged?(service)
+    func requestLayoutRefresh(for service: PopoverService, reason: PopoverLayoutRefreshReason) {
+        self.onLayoutChanged?(service, reason)
     }
 
     func openUsagePage() {
@@ -113,170 +123,114 @@ final class PopoverViewModel: ObservableObject {
     }
 
     var hasClaudeCredential: Bool {
-        usageHealthSnapshot?.runtime.credentialAvailability.hasAnyCredential ?? KeychainManager.shared.hasSessionKey
+        claudeSetupPresentation?.progress.hasReadyCredential
+            ?? usageHealthSnapshot?.runtime.credentialAvailability.hasAnyCredential
+            ?? false
     }
 
     func runtimeServiceState(for service: PopoverService, settings: AppSettings) -> RuntimeServiceState {
-        if let snapshot = runtimeSnapshots[service] {
-            let isEnabled = settings.isProviderEnabled(service.providerKind)
-            let isAuthRequired = isEnabled && !snapshot.hasCredential && !snapshot.hasContent && !snapshot.isLoading
-            let summary = runtimeSummary(for: snapshot, isEnabled: isEnabled, isAuthRequired: isAuthRequired)
-            let meta = snapshot.lastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) }
-            return RuntimeServiceState(
-                service: service,
-                summary: summary,
-                meta: meta,
-                lastUpdated: snapshot.lastUpdated,
-                isLoading: snapshot.isLoading,
-                error: snapshot.error,
-                hasContent: snapshot.hasContent,
-                isAuthRequired: isAuthRequired,
-                shouldShowWarningDot: isAuthRequired || snapshot.hasAuthError || (snapshot.error?.isDefinitiveAuthFailure ?? false)
-            )
-        }
-
         switch service {
         case .claude:
             let isEnabled = settings.isProviderEnabled(.claude)
-            let isAuthRequired = isEnabled && !hasClaudeCredential
-            let summary: String
-            if !isEnabled {
-                summary = "비활성화됨"
-            } else if isAuthRequired {
-                summary = "인증 필요"
-            } else if isClaudeLoading {
-                summary = "조회 중"
-            } else if let usage {
-                summary = "현재 \(Int(usage.fiveHour.utilization.rounded()))% · 주간 \(Int((usage.sevenDay?.utilization ?? 0).rounded()))%"
-            } else if let error {
-                summary = error.errorDescription ?? "조회 실패"
-            } else {
-                summary = "데이터를 아직 불러오지 못했습니다"
-            }
-
-            let meta = claudeLastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) }
-            let hasContent = usage != nil
+            let snapshot = snapshot(for: service)
+            let isAuthRequired = isEnabled && !(snapshot?.hasCredential ?? false) && !(snapshot?.hasContent ?? false) && !(snapshot?.isLoading ?? false)
+            let summary = snapshot.map { runtimeSummary(for: $0, isEnabled: isEnabled, isAuthRequired: isAuthRequired) }
+                ?? (!isEnabled ? "비활성화됨" : (isAuthRequired ? "인증 필요" : "데이터를 아직 불러오지 못했습니다"))
+            let meta = snapshot?.lastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) }
             return RuntimeServiceState(
                 service: .claude,
                 summary: summary,
                 meta: meta,
-                lastUpdated: claudeLastUpdated,
-                isLoading: isClaudeLoading,
-                error: error,
-                hasContent: hasContent,
+                lastUpdated: snapshot?.lastUpdated,
+                isLoading: snapshot?.isLoading ?? false,
+                error: snapshot?.error,
+                hasContent: snapshot?.hasContent ?? false,
                 isAuthRequired: isAuthRequired,
-                shouldShowWarningDot: isAuthRequired || error != nil
+                shouldShowWarningDot: isAuthRequired || snapshot?.hasAuthError == true || snapshot?.error != nil
             )
         case .codex:
             let isEnabled = settings.isProviderEnabled(.codex)
-            let isAuthRequired = isEnabled && !CodexAuthManager.shared.isAuthenticated
-            let summary: String
-            if !isEnabled {
-                summary = "비활성화됨"
-            } else if isAuthRequired {
-                summary = "인증 필요"
-            } else if isCodexLoading {
-                summary = "조회 중"
-            } else if let codexUsage {
-                summary = "현재 \(Int((codexUsage.rateLimit?.primaryWindow?.utilization ?? 0).rounded()))% · 주간 \(Int((codexUsage.rateLimit?.secondaryWindow?.utilization ?? 0).rounded()))%"
-            } else if let codexError {
-                summary = codexError.errorDescription ?? "조회 실패"
-            } else {
-                summary = "데이터를 아직 불러오지 못했습니다"
-            }
-
-            let meta = codexLastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) }
-            let hasContent = codexUsage != nil
+            let snapshot = snapshot(for: service)
+            let isAuthRequired = isEnabled && !(snapshot?.hasCredential ?? false) && !(snapshot?.hasContent ?? false) && !(snapshot?.isLoading ?? false)
+            let summary = snapshot.map { runtimeSummary(for: $0, isEnabled: isEnabled, isAuthRequired: isAuthRequired) }
+                ?? (!isEnabled ? "비활성화됨" : (isAuthRequired ? "인증 필요" : "데이터를 아직 불러오지 못했습니다"))
+            let meta = snapshot?.lastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) }
             return RuntimeServiceState(
                 service: .codex,
                 summary: summary,
                 meta: meta,
-                lastUpdated: codexLastUpdated,
-                isLoading: isCodexLoading,
-                error: codexError,
-                hasContent: hasContent,
+                lastUpdated: snapshot?.lastUpdated,
+                isLoading: snapshot?.isLoading ?? false,
+                error: snapshot?.error,
+                hasContent: snapshot?.hasContent ?? false,
                 isAuthRequired: isAuthRequired,
-                shouldShowWarningDot: isAuthRequired || codexError != nil
+                shouldShowWarningDot: isAuthRequired || snapshot?.hasAuthError == true || snapshot?.error != nil
             )
         case .gemini:
-            let isEnabled = settings.isProviderEnabled(.gemini)
-            let environmentStatus = ProviderEnvironmentDetector.status(for: .gemini)
-            let snapshot = runtimeSnapshots[.gemini]
-            let runtimeError = snapshot?.error
-            let hasCredential = snapshot?.credentialState.hasAnyCredential == true
-            let canAttemptRefresh = snapshot?.canAttemptRefresh == true || environmentStatus?.canAttemptRefresh == true
-            let isAuthRequired = isEnabled
-                && !hasCredential
-                && !canAttemptRefresh
-                && (runtimeError?.isDefinitiveAuthFailure ?? true)
-            let summary: String
-            if !isEnabled {
-                summary = "비활성화됨"
-            } else if let geminiUsage {
-                summary = "Pro \(Int(geminiUsage.primaryPercentage.rounded()))% · Flash \(Int(geminiUsage.secondaryPercentage.rounded()))%"
-            } else if snapshot?.isLoading == true {
-                summary = "조회 중"
-            } else if snapshot?.credentialState == .refreshable {
-                summary = "토큰 갱신 필요"
-            } else if isAuthRequired {
-                summary = "인증 필요"
-            } else if let runtimeError, !shouldSuppressRecoverableError(runtimeError, kind: .gemini) {
-                summary = runtimeError.errorDescription ?? "조회 실패"
-            } else {
-                summary = environmentStatus?.summary ?? "Gemini 조회를 준비 중입니다"
-            }
-
-            return RuntimeServiceState(
-                service: .gemini,
-                summary: summary,
-                meta: nil,
-                lastUpdated: snapshot?.lastUpdated,
-                isLoading: snapshot?.isLoading ?? false,
-                error: runtimeError,
-                hasContent: geminiUsage != nil,
-                isAuthRequired: isAuthRequired,
-                shouldShowWarningDot: isAuthRequired || (runtimeError?.isDefinitiveAuthFailure ?? false)
-            )
+            return geminiRuntimeServiceState(settings: settings)
         case .antigravity:
-            let isEnabled = settings.isProviderEnabled(.antigravity)
-            let environmentStatus = ProviderEnvironmentDetector.status(for: .antigravity)
-            let snapshot = runtimeSnapshots[.antigravity]
-            let runtimeError = snapshot?.error
-            let hasCredential = snapshot?.credentialState.hasAnyCredential == true
-            let canAttemptRefresh = snapshot?.canAttemptRefresh == true || environmentStatus?.canAttemptRefresh == true
-            let isAuthRequired = isEnabled
-                && !hasCredential
-                && !canAttemptRefresh
-                && (runtimeError?.isDefinitiveAuthFailure ?? true)
-            let summary: String
-            if !isEnabled {
-                summary = "비활성화됨"
-            } else if let antigravityUsage {
-                summary = "Claude \(Int(antigravityUsage.primaryPercentage.rounded()))% · Pro \(Int(antigravityUsage.secondaryPercentage.rounded()))%"
-            } else if snapshot?.isLoading == true {
-                summary = "조회 중"
-            } else if snapshot?.credentialState == .refreshable {
-                summary = "연결 준비 중"
-            } else if isAuthRequired {
-                summary = environmentStatus?.summary ?? "앱 실행 또는 인증이 필요합니다"
-            } else if let runtimeError, !shouldSuppressRecoverableError(runtimeError, kind: .antigravity) {
-                summary = runtimeError.errorDescription ?? "조회 실패"
-            } else {
-                summary = environmentStatus?.summary ?? "Antigravity 조회를 준비 중입니다"
-            }
-
-            return RuntimeServiceState(
-                service: .antigravity,
-                summary: summary,
-                meta: snapshot?.lastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) },
-                lastUpdated: snapshot?.lastUpdated,
-                isLoading: snapshot?.isLoading ?? false,
-                error: runtimeError,
-                hasContent: antigravityUsage != nil,
-                isAuthRequired: isAuthRequired,
-                shouldShowWarningDot: isAuthRequired || (runtimeError?.isDefinitiveAuthFailure ?? false)
-            )
+            return antigravityRuntimeServiceState(settings: settings)
         }
+    }
+
+    private func geminiRuntimeServiceState(settings: AppSettings) -> RuntimeServiceState {
+        let isEnabled = settings.isProviderEnabled(.gemini)
+        let environmentStatus = ProviderEnvironmentDetector.status(for: .gemini)
+        let signals = ProviderEnvironmentDetector.geminiSignals()
+        let snapshot = runtimeSnapshots[.gemini]
+        let runtimeError = snapshot?.error
+        let requiresInteractiveSetup = ProviderEnvironmentDetector.requiresInteractiveSetup(for: .gemini)
+        let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
+        let isAuthRequired = isEnabled && requiresInteractiveSetup && missingCredential
+        let summaryState = Self.resolveGeminiSummaryState(
+            snapshot: snapshot,
+            environmentStatus: environmentStatus,
+            signals: signals,
+            isEnabled: isEnabled,
+            isAuthRequired: isAuthRequired
+        )
+
+        return RuntimeServiceState(
+            service: .gemini,
+            summary: summaryState.summary,
+            meta: snapshot?.lastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) },
+            lastUpdated: snapshot?.lastUpdated,
+            isLoading: snapshot?.isLoading ?? false,
+            error: runtimeError,
+            hasContent: geminiUsage != nil,
+            isAuthRequired: isAuthRequired,
+            shouldShowWarningDot: isAuthRequired || (runtimeError?.isDefinitiveAuthFailure ?? false)
+        )
+    }
+
+    private func antigravityRuntimeServiceState(settings: AppSettings) -> RuntimeServiceState {
+        let isEnabled = settings.isProviderEnabled(.antigravity)
+        let environmentStatus = ProviderEnvironmentDetector.status(for: .antigravity)
+        let signals = ProviderEnvironmentDetector.antigravitySignals()
+        let snapshot = runtimeSnapshots[.antigravity]
+        let runtimeError = snapshot?.error
+        let requiresInteractiveSetup = ProviderEnvironmentDetector.requiresInteractiveSetup(for: .antigravity)
+        let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
+        let isAuthRequired = isEnabled && requiresInteractiveSetup && missingCredential
+        let summaryState = Self.resolveAntigravitySummaryState(
+            snapshot: snapshot,
+            environmentStatus: environmentStatus,
+            signals: signals,
+            isEnabled: isEnabled,
+            isAuthRequired: isAuthRequired
+        )
+
+        return RuntimeServiceState(
+            service: .antigravity,
+            summary: summaryState.summary,
+            meta: snapshot?.lastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) },
+            lastUpdated: snapshot?.lastUpdated,
+            isLoading: snapshot?.isLoading ?? false,
+            error: runtimeError,
+            hasContent: antigravityUsage != nil,
+            isAuthRequired: isAuthRequired,
+            shouldShowWarningDot: isAuthRequired || (runtimeError?.isDefinitiveAuthFailure ?? false)
+        )
     }
 
     func overviewSummary(for kind: AppProviderKind, settings: AppSettings) -> String {
@@ -359,53 +313,41 @@ final class PopoverViewModel: ObservableObject {
             return settings.isProviderEnabled(.codex) ? "활성" : "비활성"
         case .gemini, .antigravity:
             guard settings.isProviderEnabled(kind) else { return "비활성" }
-            if let environmentStatus = ProviderEnvironmentDetector.status(for: kind) {
-                if environmentStatus.credentialState == .usable {
-                    return "감지됨"
-                }
-                if environmentStatus.credentialState == .refreshable {
-                    return kind == .gemini ? "갱신 가능" : "준비 중"
-                }
-                return ProviderEnvironmentDetector.requiresInteractiveSetup(for: kind)
-                    ? (kind == .gemini ? "로그인 필요" : "앱 필요")
-                    : "준비 중"
+            guard let service = kind.runtimeService else { return baseBadge }
+            let phase = localProviderSummaryState(for: service, settings: settings)?.phase
+            switch phase {
+            case .disabled:
+                return "비활성"
+            case .loading:
+                return "조회 중"
+            case .backoff:
+                return "재시도 대기"
+            case .refreshingCredential:
+                return kind == .gemini ? "갱신 필요" : "연결 준비"
+            case .probingRuntime:
+                return "연결 확인 중"
+            case .waitingForApp:
+                return "앱 필요"
+            case .authRequired:
+                return kind == .gemini ? "로그인 필요" : "연결 필요"
+            case .temporaryError:
+                return "일시 실패"
+            case .ready:
+                return "활성"
+            case .none:
+                return baseBadge
             }
-            return ProviderEnvironmentDetector.requiresInteractiveSetup(for: kind)
-                ? (kind == .gemini ? "로그인 필요" : "앱 필요")
-                : "준비 중"
         }
     }
 
     func update(
         snapshots: [RuntimeProviderSnapshot],
-        overage: OverageSpendLimitResponse? = nil)
+        overage: OverageSpendLimitResponse? = nil,
+        setupPresentation: ClaudeSetupPresentation? = nil
+    )
     {
         self.runtimeSnapshots = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.service, $0) })
-
-        if let claude = runtimeSnapshots[.claude] {
-            self.usage = claude.claudeUsage
-            self.error = claude.error
-            self.isClaudeLoading = claude.isLoading
-            self.claudeLastUpdated = claude.lastUpdated
-        } else {
-            self.usage = nil
-            self.error = nil
-            self.isClaudeLoading = false
-            self.claudeLastUpdated = nil
-        }
-
-        if let codex = runtimeSnapshots[.codex] {
-            self.codexUsage = codex.codexUsage
-            self.codexError = codex.error
-            self.isCodexLoading = codex.isLoading
-            self.codexLastUpdated = codex.lastUpdated
-        } else {
-            self.codexUsage = nil
-            self.codexError = nil
-            self.isCodexLoading = false
-            self.codexLastUpdated = nil
-        }
-
+        self.claudeSetupPresentation = setupPresentation
         if let overage { self.overage = overage }
     }
 
@@ -422,6 +364,13 @@ final class PopoverViewModel: ObservableObject {
         }
         if snapshot.isLoading {
             return "조회 중"
+        }
+        if snapshot.hasBackoff,
+           snapshot.payload == nil,
+           let nextRefreshAllowedAt = snapshot.nextRefreshAllowedAt,
+           let remainingSeconds = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextRefreshAllowedAt)
+        {
+            return "약 \(remainingSeconds)초 후 다시 시도"
         }
         if let usage = snapshot.claudeUsage {
             return "현재 \(Int(usage.fiveHour.utilization.rounded()))% · 주간 \(Int((usage.sevenDay?.utilization ?? 0).rounded()))%"
@@ -447,7 +396,144 @@ final class PopoverViewModel: ObservableObject {
         return ProviderEnvironmentDetector.status(for: snapshot.kind)?.summary ?? "데이터를 아직 불러오지 못했습니다"
     }
 
+    func localProviderSummaryState(for service: PopoverService, settings: AppSettings) -> LocalProviderSummaryState? {
+        switch service {
+        case .gemini:
+            let isEnabled = settings.isProviderEnabled(.gemini)
+            let environmentStatus = ProviderEnvironmentDetector.status(for: .gemini)
+            let signals = ProviderEnvironmentDetector.geminiSignals()
+            let requiresInteractiveSetup = ProviderEnvironmentDetector.requiresInteractiveSetup(for: .gemini)
+            let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
+            let isAuthRequired = isEnabled && requiresInteractiveSetup && missingCredential
+            return Self.resolveGeminiSummaryState(
+                snapshot: runtimeSnapshots[.gemini],
+                environmentStatus: environmentStatus,
+                signals: signals,
+                isEnabled: isEnabled,
+                isAuthRequired: isAuthRequired
+            )
+        case .antigravity:
+            let isEnabled = settings.isProviderEnabled(.antigravity)
+            let environmentStatus = ProviderEnvironmentDetector.status(for: .antigravity)
+            let signals = ProviderEnvironmentDetector.antigravitySignals()
+            let requiresInteractiveSetup = ProviderEnvironmentDetector.requiresInteractiveSetup(for: .antigravity)
+            let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
+            let isAuthRequired = isEnabled && requiresInteractiveSetup && missingCredential
+            return Self.resolveAntigravitySummaryState(
+                snapshot: runtimeSnapshots[.antigravity],
+                environmentStatus: environmentStatus,
+                signals: signals,
+                isEnabled: isEnabled,
+                isAuthRequired: isAuthRequired
+            )
+        case .claude, .codex:
+            return nil
+        }
+    }
+
+    static func resolveGeminiSummaryState(
+        snapshot: RuntimeProviderSnapshot?,
+        environmentStatus: ProviderEnvironmentStatus?,
+        signals: GeminiEnvironmentSignals,
+        isEnabled: Bool,
+        isAuthRequired: Bool
+    ) -> LocalProviderSummaryState {
+        if !isEnabled {
+            return .init(phase: .disabled, summary: "비활성화됨")
+        }
+        if let usage = snapshot?.geminiUsage {
+            return .init(
+                phase: .ready,
+                summary: "Pro \(Int(usage.primaryPercentage.rounded()))% · Flash \(Int(usage.secondaryPercentage.rounded()))%"
+            )
+        }
+        if snapshot?.isLoading == true {
+            return .init(phase: .loading, summary: "조회 중")
+        }
+        if let nextRefreshAllowedAt = snapshot?.nextRefreshAllowedAt,
+           snapshot?.payload == nil,
+           let remainingSeconds = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextRefreshAllowedAt)
+        {
+            return .init(phase: .backoff, summary: "약 \(remainingSeconds)초 후 다시 시도")
+        }
+        if environmentStatus?.credentialState == .refreshable, environmentStatus?.runtimeReachability == true {
+            return .init(phase: .refreshingCredential, summary: "토큰 갱신 후 연결 확인 중")
+        }
+        if environmentStatus?.runtimeReachability == true {
+            return .init(phase: .probingRuntime, summary: "연결 확인 중")
+        }
+        if let error = snapshot?.error, !shouldSuppressRecoverableError(error, runtimeReachability: environmentStatus?.runtimeReachability ?? false) {
+            if error.isDefinitiveAuthFailure || snapshot?.fetchState == .authFailure || isAuthRequired {
+                return .init(phase: .authRequired, summary: "로그인 필요")
+            }
+            return .init(phase: .temporaryError, summary: error.errorDescription ?? "일시 조회 실패")
+        }
+        if snapshot?.fetchState == .authFailure || isAuthRequired {
+            return .init(phase: .authRequired, summary: "로그인 필요")
+        }
+        if signals.credentialState == .missing {
+            return .init(phase: .authRequired, summary: environmentStatus?.summary ?? "로그인 필요")
+        }
+        return .init(phase: .probingRuntime, summary: environmentStatus?.summary ?? "Gemini 조회를 준비 중입니다")
+    }
+
+    static func resolveAntigravitySummaryState(
+        snapshot: RuntimeProviderSnapshot?,
+        environmentStatus: ProviderEnvironmentStatus?,
+        signals: AntigravityEnvironmentSignals,
+        isEnabled: Bool,
+        isAuthRequired: Bool
+    ) -> LocalProviderSummaryState {
+        if !isEnabled {
+            return .init(phase: .disabled, summary: "비활성화됨")
+        }
+        if let usage = snapshot?.antigravityUsage {
+            return .init(
+                phase: .ready,
+                summary: "Claude \(Int(usage.primaryPercentage.rounded()))% · Pro \(Int(usage.secondaryPercentage.rounded()))%"
+            )
+        }
+        if snapshot?.isLoading == true {
+            return .init(phase: .loading, summary: "조회 중")
+        }
+        if let nextRefreshAllowedAt = snapshot?.nextRefreshAllowedAt,
+           snapshot?.payload == nil,
+           let remainingSeconds = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextRefreshAllowedAt)
+        {
+            return .init(phase: .backoff, summary: "약 \(remainingSeconds)초 후 다시 시도")
+        }
+        if signals.hasRuntimeConnection {
+            return .init(phase: .probingRuntime, summary: "quota 서버 연결 확인 중")
+        }
+        if signals.hasPersistedAuthState {
+            return .init(phase: .waitingForApp, summary: "앱 실행 후 연결 확인 중")
+        }
+        if let error = snapshot?.error, !shouldSuppressRecoverableError(error, runtimeReachability: environmentStatus?.runtimeReachability ?? false) {
+            if error.isDefinitiveAuthFailure || snapshot?.fetchState == .authFailure || isAuthRequired {
+                return .init(phase: .authRequired, summary: environmentStatus?.summary ?? "앱 실행 또는 인증이 필요합니다")
+            }
+            return .init(phase: .temporaryError, summary: error.errorDescription ?? "일시 조회 실패")
+        }
+        if snapshot?.fetchState == .authFailure || isAuthRequired {
+            return .init(phase: .authRequired, summary: environmentStatus?.summary ?? "앱 실행 또는 인증이 필요합니다")
+        }
+        if signals.appRunning && !signals.hasPersistedAuthState {
+            return .init(phase: .authRequired, summary: environmentStatus?.summary ?? "앱 실행 또는 인증이 필요합니다")
+        }
+        if environmentStatus?.isDetected == true {
+            return .init(phase: .waitingForApp, summary: environmentStatus?.summary ?? "앱 실행 후 연결 확인 중")
+        }
+        return .init(phase: .authRequired, summary: environmentStatus?.summary ?? "앱 실행 또는 인증이 필요합니다")
+    }
+
+    private static func shouldSuppressRecoverableError(_ error: APIError, runtimeReachability: Bool) -> Bool {
+        error.isTemporaryFailure && runtimeReachability
+    }
+
     private func shouldSuppressRecoverableError(_ error: APIError, kind: AppProviderKind) -> Bool {
-        error.isTemporaryFailure && (ProviderEnvironmentDetector.status(for: kind)?.isDetected ?? false)
+        guard let status = ProviderEnvironmentDetector.status(for: kind) else {
+            return false
+        }
+        return Self.shouldSuppressRecoverableError(error, runtimeReachability: status.runtimeReachability)
     }
 }

@@ -5,16 +5,14 @@ import SwiftUI
 final class AppPopoverCoordinator {
     let viewModel = PopoverViewModel()
     let popover = NSPopover()
-
-    private var resizeWorkItem: DispatchWorkItem?
-    private var adjustingServices = Set<PopoverService>()
+    private var pendingSizeRefreshWorkItem: DispatchWorkItem?
 
     func configure(
         initialService: PopoverService,
         onRefreshService: @escaping (PopoverService) -> Void,
         onOpenSettingsForService: @escaping (PopoverService) -> Void,
         onServiceSelected: @escaping (PopoverService) -> Void,
-        onLayoutChanged: @escaping (PopoverService) -> Void,
+        onLayoutChanged: @escaping (PopoverService, PopoverLayoutRefreshReason) -> Void,
         onPinChanged: @escaping (PopoverService, Bool) -> Void
     ) {
         viewModel.onRefreshService = onRefreshService
@@ -31,69 +29,54 @@ final class AppPopoverCoordinator {
         }
 
         popover.contentViewController = hostingController
-        popover.animates = true
+        popover.animates = false
+        let initialCompact = AppSettings.shared.isPopoverCompact(for: initialService.providerKind)
+        applyPopoverSizeIfNeeded(compact: initialCompact, force: true)
     }
 
     func close() {
+        pendingSizeRefreshWorkItem?.cancel()
         popover.close()
     }
 
     func invalidate() {
-        resizeWorkItem?.cancel()
-        resizeWorkItem = nil
-        adjustingServices.removeAll()
+        pendingSizeRefreshWorkItem?.cancel()
     }
 
     func applyBehavior(isPinned: Bool) {
         popover.behavior = isPinned ? .applicationDefined : .transient
     }
 
+    func prepareSizeForPresentation(compact: Bool) {
+        pendingSizeRefreshWorkItem?.cancel()
+        applyPopoverSizeIfNeeded(compact: compact, force: true)
+    }
+
     func refreshSizeIfShown(service: PopoverService, compact: Bool) {
         guard popover.isShown else { return }
-
-        resizeWorkItem?.cancel()
+        _ = service
+        pendingSizeRefreshWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            guard self.popover.isShown,
-                  let hosting = self.popover.contentViewController as? NSHostingController<PopoverView> else {
-                return
-            }
-            guard !self.adjustingServices.contains(service) else { return }
-
-            self.adjustingServices.insert(service)
-            defer { self.adjustingServices.remove(service) }
-
-            hosting.view.layoutSubtreeIfNeeded()
-            let fitting = hosting.view.fittingSize
-            guard fitting.width > 0, fitting.height > 0 else { return }
-
-            let screenMaxWidth = (NSScreen.main?.visibleFrame.width ?? 1440) - 80
-            let width = min(
-                PopoverView.resolvedPopoverWidth(
-                    for: service,
-                    compact: compact,
-                    fittingWidth: fitting.width
-                ),
-                max(300, screenMaxWidth)
-            )
-            let minHeight: CGFloat = compact ? 120 : 280
-            let maxHeight = max(minHeight, (NSScreen.main?.visibleFrame.height ?? 900) - 100)
-            let height: CGFloat
-            if compact {
-                height = min(max(fitting.height, minHeight), maxHeight)
-            } else {
-                height = min(max(fitting.height, minHeight), maxHeight)
-            }
-            let targetSize = NSSize(width: width, height: height)
-
-            let changed = abs(self.popover.contentSize.width - targetSize.width) > 0.5 ||
-                abs(self.popover.contentSize.height - targetSize.height) > 0.5
-            if changed {
-                self.popover.contentSize = targetSize
-            }
+            guard self.popover.isShown else { return }
+            self.applyPopoverSizeIfNeeded(compact: compact, force: false)
         }
+        pendingSizeRefreshWorkItem = workItem
+        DispatchQueue.main.async(execute: workItem)
+    }
 
-        resizeWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now(), execute: workItem)
+    private func applyPopoverSizeIfNeeded(compact: Bool, force: Bool) {
+        let screenMaxWidth = max(300, (NSScreen.main?.visibleFrame.width ?? 1440) - 80)
+        let preferredSize = PopoverView.resolvedPopoverSize(compact: compact)
+        let targetSize = NSSize(
+            width: min(preferredSize.width, screenMaxWidth),
+            height: preferredSize.height
+        )
+
+        let changed = abs(popover.contentSize.width - targetSize.width) > 0.5 ||
+            abs(popover.contentSize.height - targetSize.height) > 0.5
+        if force || changed {
+            popover.contentSize = targetSize
+        }
     }
 }

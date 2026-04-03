@@ -10,9 +10,20 @@
 		A1B2C3D42F3C72330029D266 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D62F3C72330029D266 /* Sparkle */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		D1E100012F70000100AA0001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3E5CA4562F3C72330029D266 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3E5CA45D2F3C72330029D266;
+			remoteInfo = ClaudeUsage;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		3E5CA45E2F3C72330029D266 /* ClaudeUsage.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeUsage.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B4A000012F5000010029D266 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		D1E100022F70000100AA0001 /* ClaudeUsageTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ClaudeUsageTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -34,6 +45,11 @@
 			path = ClaudeUsage;
 			sourceTree = "<group>";
 		};
+		D1E100032F70000100AA0001 /* ClaudeUsageTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ClaudeUsageTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -45,6 +61,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D1E100042F70000100AA0001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -53,6 +76,7 @@
 			children = (
 				B4A000022F5000010029D266 /* Config */,
 				3E5CA4602F3C72330029D266 /* ClaudeUsage */,
+				D1E100032F70000100AA0001 /* ClaudeUsageTests */,
 				3E5CA45F2F3C72330029D266 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -61,6 +85,7 @@
 			isa = PBXGroup;
 			children = (
 				3E5CA45E2F3C72330029D266 /* ClaudeUsage.app */,
+				D1E100022F70000100AA0001 /* ClaudeUsageTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -99,6 +124,29 @@
 			productReference = 3E5CA45E2F3C72330029D266 /* ClaudeUsage.app */;
 			productType = "com.apple.product-type.application";
 		};
+		D1E100052F70000100AA0001 /* ClaudeUsageTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D1E1000B2F70000100AA0001 /* Build configuration list for PBXNativeTarget "ClaudeUsageTests" */;
+			buildPhases = (
+				D1E100082F70000100AA0001 /* Sources */,
+				D1E100042F70000100AA0001 /* Frameworks */,
+				D1E100072F70000100AA0001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				D1E100062F70000100AA0001 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				D1E100032F70000100AA0001 /* ClaudeUsageTests */,
+			);
+			name = ClaudeUsageTests;
+			packageProductDependencies = (
+			);
+			productName = ClaudeUsageTests;
+			productReference = D1E100022F70000100AA0001 /* ClaudeUsageTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -111,6 +159,10 @@
 				TargetAttributes = {
 					3E5CA45D2F3C72330029D266 = {
 						CreatedOnToolsVersion = 26.2;
+					};
+					D1E100052F70000100AA0001 = {
+						CreatedOnToolsVersion = 26.2;
+						TestTargetID = 3E5CA45D2F3C72330029D266;
 					};
 				};
 			};
@@ -132,12 +184,20 @@
 			projectRoot = "";
 			targets = (
 				3E5CA45D2F3C72330029D266 /* ClaudeUsage */,
+				D1E100052F70000100AA0001 /* ClaudeUsageTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		3E5CA45C2F3C72330029D266 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D1E100072F70000100AA0001 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -154,7 +214,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D1E100082F70000100AA0001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		D1E100062F70000100AA0001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3E5CA45D2F3C72330029D266 /* ClaudeUsage */;
+			targetProxy = D1E100012F70000100AA0001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		3E5CA4672F3C72340029D266 /* Debug */ = {
@@ -343,6 +418,56 @@
 			};
 			name = Release;
 		};
+		D1E100092F70000100AA0001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/../../../ClaudeUsage.app/Contents/MacOS",
+					"@loader_path/../../../ClaudeUsage.app/Contents/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.2;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"$(BUILT_PRODUCTS_DIR)/ClaudeUsage.app/Contents/MacOS/ClaudeUsage.debug.dylib",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.seongmin.ClaudeUsageTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		D1E1000A2F70000100AA0001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@loader_path/../../../ClaudeUsage.app/Contents/MacOS",
+					"@loader_path/../../../ClaudeUsage.app/Contents/Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.2;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"$(BUILT_PRODUCTS_DIR)/ClaudeUsage.app/Contents/MacOS/ClaudeUsage.debug.dylib",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.seongmin.ClaudeUsageTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -360,6 +485,15 @@
 			buildConfigurations = (
 				3E5CA46A2F3C72340029D266 /* Debug */,
 				3E5CA46B2F3C72340029D266 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		D1E1000B2F70000100AA0001 /* Build configuration list for PBXNativeTarget "ClaudeUsageTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D1E100092F70000100AA0001 /* Debug */,
+				D1E1000A2F70000100AA0001 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

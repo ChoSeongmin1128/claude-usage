@@ -166,6 +166,10 @@ actor AntigravityAPIService {
                 context: context
             )
             return try parseUserStatusResponse(response)
+        } catch let apiError as APIError {
+            if apiError.isDefinitiveAuthFailure {
+                throw apiError
+            }
         } catch {
             let response = try await makeRequest(
                 path: commandModelConfigPath,
@@ -174,6 +178,13 @@ actor AntigravityAPIService {
             )
             return try parseCommandModelResponse(response)
         }
+
+        let response = try await makeRequest(
+            path: commandModelConfigPath,
+            body: defaultRequestBody(),
+            context: context
+        )
+        return try parseCommandModelResponse(response)
     }
 
     func fetchUsageWithRetry(maxAttempts: Int = 3) async throws -> AntigravityUsageResponse {
@@ -432,7 +443,7 @@ actor AntigravityAPIService {
     }
 
     private func isWorkingConnectPort(port: Int, csrfToken: String) async -> Bool {
-        let context = RequestContext(httpsPort: port, httpPort: nil, csrfToken: csrfToken)
+        let context = RequestContext(httpsPort: port, httpPort: port, csrfToken: csrfToken)
         do {
             _ = try await makeRequest(path: unleashPath, body: unleashRequestBody(), context: context)
             return true
