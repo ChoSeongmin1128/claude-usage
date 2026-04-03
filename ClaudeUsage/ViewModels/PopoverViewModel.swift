@@ -351,6 +351,86 @@ final class PopoverViewModel: ObservableObject {
         if let overage { self.overage = overage }
     }
 
+    func preferredPopoverSize(for service: PopoverService, settings: AppSettings) -> CGSize {
+        let compact = settings.isPopoverCompact(for: service.providerKind)
+        let phase = contentPhase(for: service, settings: settings)
+        let rowCount = visibleContentRowCount(for: service, compact: compact, settings: settings)
+        return CGSize(
+            width: PopoverView.preferredPopoverWidth(compact: compact),
+            height: PopoverLayoutMetrics.preferredPopoverHeight(
+                compact: compact,
+                phase: phase,
+                rowCount: rowCount
+            )
+        )
+    }
+
+    func contentPhase(for service: PopoverService, settings: AppSettings) -> PopoverContentPhase {
+        let runtimeState = runtimeServiceState(for: service, settings: settings)
+        if runtimeState.isAuthRequired {
+            return .authRequired
+        }
+        if runtimeState.isLoading && !runtimeState.hasContent {
+            return .loading
+        }
+        if runtimeState.error != nil && !runtimeState.hasContent {
+            return .error
+        }
+        if runtimeState.hasContent {
+            return .content
+        }
+        return .empty
+    }
+
+    private func visibleContentRowCount(
+        for service: PopoverService,
+        compact: Bool,
+        settings: AppSettings
+    ) -> Int {
+        switch service {
+        case .claude:
+            let items = compact ? settings.effectiveCompactItems : settings.popoverItems
+            var count = 0
+            for item in items where item.visible {
+                switch item.id {
+                case "currentSession":
+                    if claudeUsage != nil { count += 1 }
+                case "weeklyLimit":
+                    if claudeUsage?.sevenDay != nil { count += 1 }
+                case "modelUsage":
+                    if claudeUsage?.sevenDaySonnet != nil { count += 1 }
+                    if claudeUsage?.sevenDayOpus != nil { count += 1 }
+                case "overageUsage":
+                    if overage?.isEnabled == true { count += 1 }
+                default:
+                    break
+                }
+            }
+            return max(count, claudeUsage != nil ? 1 : 0)
+
+        case .codex:
+            let items = compact ? settings.effectiveCompactCodexItems : settings.codexPopoverItems
+            let visibleCount = items.filter(\.visible).count
+            return max(visibleCount, codexUsage != nil ? 1 : 0)
+
+        case .gemini:
+            var count = 0
+            if geminiUsage?.primaryWindow != nil { count += 1 }
+            if geminiUsage?.secondaryWindow != nil { count += 1 }
+            if geminiUsage?.tertiaryWindow != nil { count += 1 }
+            if !compact, (geminiUsage?.accountEmail != nil || geminiUsage?.accountPlan != nil) { count += 1 }
+            return max(count, geminiUsage != nil ? 1 : 0)
+
+        case .antigravity:
+            var count = 0
+            if antigravityUsage?.primaryWindow != nil { count += 1 }
+            if antigravityUsage?.secondaryWindow != nil { count += 1 }
+            if antigravityUsage?.tertiaryWindow != nil { count += 1 }
+            if !compact, (antigravityUsage?.accountEmail != nil || antigravityUsage?.accountPlan != nil) { count += 1 }
+            return max(count, antigravityUsage != nil ? 1 : 0)
+        }
+    }
+
     private func runtimeSummary(
         for snapshot: RuntimeProviderSnapshot,
         isEnabled: Bool,

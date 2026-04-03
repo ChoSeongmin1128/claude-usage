@@ -675,10 +675,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             let service = resolvedPopoverService()
             popoverViewModel.selectService(service)
             applyPopoverBehavior(for: service)
-            let compact = AppSettings.shared.isPopoverCompact(for: ServiceSelectionHelper.providerKind(for: service))
-            popoverCoordinator.prepareSizeForPresentation(compact: compact)
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             updatePopoverViewModel(overage: currentOverage)
+            popoverCoordinator.prepareSizeForPresentation(size: preferredPopoverSize(for: service))
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate()
             if !isPopoverPinned(for: service) {
                 startGlobalClickMonitor()
@@ -699,6 +698,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         popoverViewModel.systemStatus = systemStatus
         popoverViewModel.nextUsageRetryAt = nextUsageRefreshAllowedAt
+        refreshVisiblePopoverSizeForCurrentState()
     }
 
     private func syncRuntimePresentation(overage: OverageSpendLimitResponse? = nil) {
@@ -807,9 +807,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .serviceSelection, .compactToggle:
             break
         }
-        let kind = ServiceSelectionHelper.providerKind(for: service)
-        let compact = AppSettings.shared.isPopoverCompact(for: kind)
-        popoverCoordinator.refreshSizeIfShown(service: service, compact: compact)
+        popoverCoordinator.refreshSizeIfShown(size: preferredPopoverSize(for: service))
+    }
+
+    private func preferredPopoverSize(for service: PopoverService) -> CGSize {
+        popoverViewModel.preferredPopoverSize(for: service, settings: AppSettings.shared)
+    }
+
+    private func refreshVisiblePopoverSizeForCurrentState() {
+        guard popover?.isShown == true else { return }
+        popoverCoordinator.refreshSizeIfShown(size: preferredPopoverSize(for: popoverViewModel.selectedService))
     }
 
     private func showUnifiedContextMenu() {

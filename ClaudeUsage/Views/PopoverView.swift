@@ -21,10 +21,10 @@ struct PopoverView: View {
                 Spacer(minLength: 8)
                 headerUtilityControls
             }
-            .frame(height: isCompact ? 26 : 30)
+            .frame(height: isCompact ? 24 : 28)
             .padding(.horizontal, isCompact ? 12 : 16)
-            .padding(.top, isCompact ? 4 : 12)
-            .padding(.bottom, isCompact ? 4 : 8)
+            .padding(.top, isCompact ? 3 : 10)
+            .padding(.bottom, isCompact ? 3 : 6)
 
             if isCompact {
                 compactMainSection
@@ -87,7 +87,7 @@ struct PopoverView: View {
                 .font(.caption)
             }
             .padding(.horizontal, isCompact ? 12 : 16)
-            .padding(.vertical, isCompact ? 6 : 8)
+            .padding(.vertical, isCompact ? 4 : 8)
 
             if !isCompact {
                 HStack(spacing: 8) {
@@ -249,6 +249,10 @@ struct PopoverView: View {
         currentServiceRuntimeState.summary
     }
 
+    private var selectedContentPhase: PopoverContentPhase {
+        viewModel.contentPhase(for: selectedService, settings: settings)
+    }
+
     private var currentServiceLoading: Bool {
         serviceLoading(for: selectedService)
     }
@@ -332,7 +336,7 @@ struct PopoverView: View {
     }
 
     static func minimumPopoverHeight(compact: Bool) -> CGFloat {
-        if !compact { return 260 }
+        if !compact { return 292 }
         return 116
     }
 
@@ -406,26 +410,7 @@ struct PopoverView: View {
     }
 
     private func contentPhase(for service: PopoverService) -> PopoverContentPhase {
-        if isAuthRequired(for: service) {
-            return .authRequired
-        }
-        if needsInitialLoad(for: service) {
-            return .loading
-        }
-        if error(for: service) != nil && !hasLoadedContent(for: service) {
-            return .error
-        }
-        switch service {
-        case .claude:
-            if claudeUsage != nil { return .content }
-        case .codex:
-            if codexUsage != nil { return .content }
-        case .gemini:
-            if geminiUsage != nil { return .content }
-        case .antigravity:
-            if antigravityUsage != nil { return .content }
-        }
-        return .empty
+        viewModel.contentPhase(for: service, settings: settings)
     }
 
     private enum StatusActionStyle {
@@ -434,41 +419,35 @@ struct PopoverView: View {
     }
 
     private var standardTitleArea: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 10) {
-                ProviderBrandIconView(provider: selectedService.providerKind, kind: .popover, size: 18)
-                    .frame(width: 20, height: 20, alignment: .center)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .center, spacing: 10) {
+                ProviderBrandIconView(provider: selectedService.providerKind, kind: .popover, size: 17)
+                    .frame(width: 18, height: 18, alignment: .center)
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(selectedService.displayName)
-                        .font(.headline)
-                        .lineLimit(1)
-
-                    Text(currentServiceSummary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Text(selectedService.displayName)
+                    .font(.headline)
+                    .lineLimit(1)
 
                 Spacer(minLength: 8)
 
                 if let lastUpdated = currentServiceLastUpdated {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("마지막 업데이트")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                        Text(lastUpdated, style: .time)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+                    Text(lastUpdated, style: .time)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
                 }
             }
+
+            Text(currentServiceSummary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 2)
-        .padding(.vertical, 2)
+        .padding(.top, 2)
+        .padding(.bottom, 1)
     }
 
     @ViewBuilder
@@ -892,23 +871,23 @@ struct PopoverView: View {
 
     @ViewBuilder
     private var compactMainSection: some View {
-        PopoverStateContainer(compact: true) {
+        PopoverStateContainer(compact: true, phase: selectedContentPhase) {
             compactBodyContent
         }
-        .padding(.bottom, 2)
+        .padding(.bottom, 1)
     }
 
     @ViewBuilder
     private var standardMainSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             standardTitleArea
 
-            PopoverStateContainer(compact: false) {
+            PopoverStateContainer(compact: false, phase: selectedContentPhase) {
                 standardBodyContent
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .padding(.bottom, 4)
+        .padding(.bottom, 2)
     }
 
     // MARK: - Compact Content
@@ -916,7 +895,7 @@ struct PopoverView: View {
     @ViewBuilder
     private func compactClaudeContent(usage: ClaudeUsageResponse?) -> some View {
         let visibleClaudeItems = settings.effectiveCompactItems.filter { $0.visible }
-        VStack(spacing: 4) {
+        VStack(spacing: 3) {
             ForEach(visibleClaudeItems.map(\.id), id: \.self) { itemID in
                 switch itemID {
                 case "currentSession":
@@ -948,7 +927,7 @@ struct PopoverView: View {
     @ViewBuilder
     private func compactCodexContent() -> some View {
         let visibleCodexItems = settings.effectiveCompactCodexItems.filter { $0.visible }
-        VStack(spacing: 4) {
+        VStack(spacing: 3) {
             ForEach(visibleCodexItems.map(\.id), id: \.self) { itemID in
                 switch itemID {
                 case "codexPrimary":
@@ -1031,7 +1010,7 @@ struct PopoverView: View {
 
     @ViewBuilder
     private func compactGeminiContent() -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 3) {
             if let primary = geminiUsage?.primaryWindow {
                 CompactUsageRow(label: primary.label, percentage: primary.usedPercent, resetAt: primary.resetAtISO, timeFormatStyle: settings.timeFormat)
             }
@@ -1105,7 +1084,7 @@ struct PopoverView: View {
 
     @ViewBuilder
     private func compactAntigravityContent() -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 3) {
             if let primary = antigravityUsage?.primaryWindow {
                 CompactUsageRow(label: primary.label, percentage: primary.usedPercent, resetAt: primary.resetAtISO, timeFormatStyle: settings.timeFormat)
             }
@@ -1129,29 +1108,88 @@ enum PopoverContentPhase {
 
 enum PopoverLayoutMetrics {
     static let standardPopoverWidth: CGFloat = 368
-    static let compactRowLabelWidth: CGFloat = 108
-    static let compactRowMeterWidth: CGFloat = 140
-    static let compactRowSpacing: CGFloat = 8
+    static let compactRowLabelWidth: CGFloat = 100
+    static let compactRowMeterWidth: CGFloat = 150
+    static let compactRowSpacing: CGFloat = 6
+
+    static func preferredPopoverHeight(
+        compact: Bool,
+        phase: PopoverContentPhase,
+        rowCount: Int
+    ) -> CGFloat {
+        if compact {
+            switch phase {
+            case .authRequired, .loading, .error, .empty:
+                return 116
+            case .content:
+                switch rowCount {
+                case ...2:
+                    return 124
+                case 3:
+                    return 144
+                default:
+                    return 164
+                }
+            }
+        }
+
+        switch phase {
+        case .authRequired, .loading, .error, .empty:
+            return 292
+        case .content:
+            switch rowCount {
+            case ...2:
+                return 292
+            case 3:
+                return 336
+            default:
+                return 372
+            }
+        }
+    }
+
+    static func minimumBodyHeight(
+        compact: Bool,
+        phase: PopoverContentPhase
+    ) -> CGFloat {
+        if compact {
+            switch phase {
+            case .content:
+                return 52
+            case .authRequired, .loading, .error, .empty:
+                return 44
+            }
+        }
+
+        switch phase {
+        case .content:
+            return 124
+        case .authRequired, .loading, .error, .empty:
+            return 112
+        }
+    }
 }
 
 struct PopoverStateContainer<Content: View>: View {
     let compact: Bool
+    let phase: PopoverContentPhase
     private let content: Content
 
-    init(compact: Bool, @ViewBuilder content: () -> Content) {
+    init(compact: Bool, phase: PopoverContentPhase, @ViewBuilder content: () -> Content) {
         self.compact = compact
+        self.phase = phase
         self.content = content()
     }
 
     private var minHeight: CGFloat {
-        compact ? 72 : 184
+        PopoverLayoutMetrics.minimumBodyHeight(compact: compact, phase: phase)
     }
 
     private var paddingInsets: EdgeInsets {
         if compact {
-            return EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
+            return EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 10)
         }
-        return EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+        return EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
     }
 
     var body: some View {
@@ -1180,7 +1218,7 @@ struct CompactUsageRow: View {
                     .truncationMode(.tail)
 
                 Text(compactResetText ?? "--")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)

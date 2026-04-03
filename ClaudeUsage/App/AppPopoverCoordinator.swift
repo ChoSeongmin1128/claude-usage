@@ -30,8 +30,8 @@ final class AppPopoverCoordinator {
 
         popover.contentViewController = hostingController
         popover.animates = false
-        let initialCompact = AppSettings.shared.isPopoverCompact(for: initialService.providerKind)
-        applyPopoverSizeIfNeeded(compact: initialCompact, force: true)
+        let initialSize = viewModel.preferredPopoverSize(for: initialService, settings: AppSettings.shared)
+        applyPopoverSizeIfNeeded(size: initialSize, force: true)
     }
 
     func close() {
@@ -47,30 +47,28 @@ final class AppPopoverCoordinator {
         popover.behavior = isPinned ? .applicationDefined : .transient
     }
 
-    func prepareSizeForPresentation(compact: Bool) {
+    func prepareSizeForPresentation(size: CGSize) {
         pendingSizeRefreshWorkItem?.cancel()
-        applyPopoverSizeIfNeeded(compact: compact, force: true)
+        applyPopoverSizeIfNeeded(size: size, force: true)
     }
 
-    func refreshSizeIfShown(service: PopoverService, compact: Bool) {
+    func refreshSizeIfShown(size: CGSize) {
         guard popover.isShown else { return }
-        _ = service
         pendingSizeRefreshWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             guard self.popover.isShown else { return }
-            self.applyPopoverSizeIfNeeded(compact: compact, force: false)
+            self.applyPopoverSizeIfNeeded(size: size, force: false)
         }
         pendingSizeRefreshWorkItem = workItem
         DispatchQueue.main.async(execute: workItem)
     }
 
-    private func applyPopoverSizeIfNeeded(compact: Bool, force: Bool) {
+    private func applyPopoverSizeIfNeeded(size: CGSize, force: Bool) {
         let screenMaxWidth = max(300, (NSScreen.main?.visibleFrame.width ?? 1440) - 80)
-        let preferredSize = PopoverView.resolvedPopoverSize(compact: compact)
         let targetSize = NSSize(
-            width: min(preferredSize.width, screenMaxWidth),
-            height: preferredSize.height
+            width: min(size.width, screenMaxWidth),
+            height: size.height
         )
 
         let changed = abs(popover.contentSize.width - targetSize.width) > 0.5 ||
