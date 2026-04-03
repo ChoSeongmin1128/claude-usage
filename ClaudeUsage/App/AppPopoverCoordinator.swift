@@ -74,7 +74,14 @@ final class AppPopoverCoordinator {
         let changed = abs(popover.contentSize.width - targetSize.width) > 0.5 ||
             abs(popover.contentSize.height - targetSize.height) > 0.5
         if force || changed {
-            popover.contentSize = targetSize
+            if force {
+                popover.contentSize = targetSize
+            } else {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.18
+                    self.popover.contentSize = targetSize
+                }
+            }
         }
     }
 }

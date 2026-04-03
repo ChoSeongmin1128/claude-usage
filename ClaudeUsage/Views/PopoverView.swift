@@ -415,34 +415,6 @@ struct PopoverView: View {
         case prominent
     }
 
-    private var standardTitleArea: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Text(selectedService.displayName)
-                .font(.title3.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-
-            Spacer(minLength: 8)
-
-            if let lastUpdated = currentServiceLastUpdated {
-                HStack(spacing: 4) {
-                    Image(systemName: "clock")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                    Text(lastUpdated, style: .time)
-                        .font(.callout.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                .fixedSize()
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 2)
-        .padding(.top, 1)
-        .padding(.bottom, 0)
-    }
-
     @ViewBuilder
     private var compactBodyContent: some View {
         switch contentPhase(for: selectedService) {
@@ -951,12 +923,8 @@ struct PopoverView: View {
 
     @ViewBuilder
     private var standardMainSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            standardTitleArea
-
-            PopoverStateContainer(compact: false, phase: selectedContentPhase) {
-                standardBodyContent
-            }
+        PopoverStateContainer(compact: false, phase: selectedContentPhase) {
+            standardBodyContent
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(.bottom, 2)
@@ -1210,15 +1178,15 @@ enum PopoverLayoutMetrics {
 
         switch phase {
         case .authRequired, .loading, .error, .empty:
-            return 236
+            return 216
         case .content:
             switch rowCount {
             case ...2:
-                return 276
+                return 256
             case 3:
-                return 320
+                return 300
             default:
-                return 356
+                return 336
             }
         }
     }
