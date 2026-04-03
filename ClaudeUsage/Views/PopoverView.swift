@@ -19,13 +19,6 @@ struct PopoverView: View {
                 headerServiceSelector
                     .layoutPriority(1)
                 Spacer(minLength: 8)
-                if !isCompact, !shouldCollapseHeaderMetadata, let lastUpdated = currentServiceLastUpdated {
-                    Text(lastUpdated, style: .time)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
                 headerUtilityControls
             }
             .frame(height: isCompact ? 26 : 30)
@@ -209,37 +202,22 @@ struct PopoverView: View {
                 }
             }
             .scrollIndicators(.never)
-            .frame(height: isCompact ? 22 : 26)
+            .frame(height: 22)
         } else {
-            HStack(spacing: 8) {
-                ProviderBrandIconView(provider: selectedService.providerKind, kind: .popover, size: 16)
-                Text(selectedService.displayName)
-                    .font(.headline)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            headerSelectorButton(for: selectedService)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     @ViewBuilder
     private func headerSelectorButton(for service: PopoverService) -> some View {
-        let showText = !isCompact
         Button {
             selectService(service)
         } label: {
-            HStack(spacing: showText ? 5 : 0) {
-                ProviderBrandIconView(provider: service.providerKind, kind: .popover, size: isCompact ? 13 : 14)
-                if showText {
-                    Text(service.displayName)
-                        .font(.system(size: isCompact ? 11.5 : 12.5, weight: selectedService == service ? .semibold : .medium))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.88)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-            }
-            .padding(.horizontal, isCompact ? 7 : (showText ? 10 : 8))
-            .padding(.vertical, isCompact ? 3 : 4)
-            .overlay(alignment: .topTrailing) {
+            ZStack(alignment: .topTrailing) {
+                ProviderBrandIconView(provider: service.providerKind, kind: .popover, size: 15)
+                    .frame(width: 18, height: 18)
+
                 if shouldShowWarningDot(for: service) && !isCompact {
                     Circle()
                         .fill(Color.orange)
@@ -247,9 +225,10 @@ struct PopoverView: View {
                         .offset(x: 3, y: -3)
                 }
             }
+            .frame(width: 22, height: 22)
             .background(selectedService == service ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
             .foregroundStyle(selectedService == service ? Color.accentColor : .primary)
-            .cornerRadius(8)
+            .cornerRadius(7)
         }
         .buttonStyle(.plain)
     }
@@ -262,6 +241,14 @@ struct PopoverView: View {
         serviceLastUpdated(for: selectedService)
     }
 
+    private var currentServiceRuntimeState: PopoverViewModel.RuntimeServiceState {
+        viewModel.runtimeServiceState(for: selectedService, settings: settings)
+    }
+
+    private var currentServiceSummary: String {
+        currentServiceRuntimeState.summary
+    }
+
     private var currentServiceLoading: Bool {
         serviceLoading(for: selectedService)
     }
@@ -272,10 +259,6 @@ struct PopoverView: View {
             return ServiceSelectionHelper.supportedPopoverServices.isEmpty ? [.claude] : ServiceSelectionHelper.supportedPopoverServices
         }
         return result
-    }
-
-    private var shouldCollapseHeaderMetadata: Bool {
-        isCompact
     }
 
     private func shouldShowWarningDot(for service: PopoverService) -> Bool {
@@ -341,7 +324,7 @@ struct PopoverView: View {
         if compact {
             return 296
         }
-        return 404
+        return PopoverLayoutMetrics.standardPopoverWidth
     }
 
     static func resolvedPopoverWidth(for service: PopoverService, compact: Bool) -> CGFloat {
@@ -443,6 +426,266 @@ struct PopoverView: View {
             if antigravityUsage != nil { return .content }
         }
         return .empty
+    }
+
+    private enum StatusActionStyle {
+        case bordered
+        case prominent
+    }
+
+    private var standardTitleArea: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                ProviderBrandIconView(provider: selectedService.providerKind, kind: .popover, size: 18)
+                    .frame(width: 20, height: 20, alignment: .center)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(selectedService.displayName)
+                        .font(.headline)
+                        .lineLimit(1)
+
+                    Text(currentServiceSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+
+                if let lastUpdated = currentServiceLastUpdated {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("마지막 업데이트")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        Text(lastUpdated, style: .time)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 2)
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private var compactBodyContent: some View {
+        switch contentPhase(for: selectedService) {
+        case .authRequired:
+            compactStatusCard(
+                icon: "lock.shield",
+                iconColor: .orange,
+                title: "\(selectedService.displayName) 연결 필요",
+                message: "인증이 필요합니다. 설정에서 연결을 다시 확인해 주세요.",
+                actionTitle: "설정 열기",
+                actionStyle: .prominent
+            ) {
+                viewModel.openSettings(for: selectedService)
+            }
+        case .loading:
+            compactStatusCard(
+                showsProgress: true,
+                title: "불러오는 중",
+                message: "현재 연결 상태를 확인하고 있습니다."
+            )
+        case .error:
+            if let error = serviceError {
+                compactStatusCard(
+                    icon: "exclamationmark.triangle",
+                    iconColor: .orange,
+                    title: error.isDefinitiveAuthFailure ? "인증 필요" : "조회 실패",
+                    message: error.isDefinitiveAuthFailure ? "연결을 다시 확인해 주세요." : "잠시 후 다시 시도해 주세요.",
+                    actionTitle: error.isDefinitiveAuthFailure ? "설정 열기" : "다시 시도",
+                    actionStyle: error.isDefinitiveAuthFailure ? .prominent : .bordered
+                ) {
+                    if error.isDefinitiveAuthFailure {
+                        viewModel.openSettings(for: selectedService)
+                    } else {
+                        viewModel.refresh()
+                    }
+                }
+            }
+        case .content:
+            switch selectedService {
+            case .claude:
+                compactClaudeContent(usage: claudeUsage)
+            case .codex:
+                compactCodexContent()
+            case .gemini:
+                compactGeminiContent()
+            case .antigravity:
+                compactAntigravityContent()
+            }
+        case .empty:
+            compactStatusCard(
+                icon: "tray",
+                iconColor: .secondary,
+                title: "데이터 없음",
+                message: "아직 가져온 사용량이 없습니다."
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var standardBodyContent: some View {
+        switch contentPhase(for: selectedService) {
+        case .authRequired:
+            standardStatusCard(
+                icon: "lock.shield",
+                iconColor: .orange,
+                title: "\(selectedService.displayName) 연결 필요",
+                message: "인증이 필요합니다. 설정에서 연결을 다시 확인해 주세요.",
+                actionTitle: "설정 열기",
+                actionStyle: .prominent
+            ) {
+                viewModel.openSettings(for: selectedService)
+            }
+        case .loading:
+            standardStatusCard(
+                showsProgress: true,
+                title: "데이터 로딩 중...",
+                message: "현재 연결 상태를 확인하고 있습니다."
+            )
+        case .error:
+            if let error = serviceError {
+                standardStatusCard(
+                    icon: "exclamationmark.triangle",
+                    iconColor: .orange,
+                    title: error.isDefinitiveAuthFailure ? "인증 필요" : "조회 실패",
+                    message: error.isDefinitiveAuthFailure ? "연결을 다시 확인해 주세요." : "잠시 후 다시 시도해 주세요.",
+                    actionTitle: error.isDefinitiveAuthFailure ? "설정 열기" : "다시 시도",
+                    actionStyle: error.isDefinitiveAuthFailure ? .prominent : .bordered
+                ) {
+                    if error.isDefinitiveAuthFailure {
+                        viewModel.openSettings(for: selectedService)
+                    } else {
+                        viewModel.refresh()
+                    }
+                }
+            }
+        case .content:
+            switch selectedService {
+            case .claude:
+                standardClaudeContent(usage: claudeUsage)
+            case .codex:
+                standardCodexContent()
+            case .gemini:
+                standardGeminiContent()
+            case .antigravity:
+                standardAntigravityContent()
+            }
+        case .empty:
+            standardStatusCard(
+                icon: "tray",
+                iconColor: .secondary,
+                title: "데이터 없음",
+                message: "아직 가져온 사용량이 없습니다."
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func standardStatusCard(
+        icon: String? = nil,
+        iconColor: Color = .secondary,
+        showsProgress: Bool = false,
+        title: String,
+        message: String,
+        actionTitle: String? = nil,
+        actionStyle: StatusActionStyle = .bordered,
+        action: (() -> Void)? = nil
+    ) -> some View {
+        centeredStatusCard(
+            compact: false,
+            icon: icon,
+            iconColor: iconColor,
+            showsProgress: showsProgress,
+            title: title,
+            message: message,
+            actionTitle: actionTitle,
+            actionStyle: actionStyle,
+            action: action
+        )
+    }
+
+    @ViewBuilder
+    private func compactStatusCard(
+        icon: String? = nil,
+        iconColor: Color = .secondary,
+        showsProgress: Bool = false,
+        title: String,
+        message: String,
+        actionTitle: String? = nil,
+        actionStyle: StatusActionStyle = .bordered,
+        action: (() -> Void)? = nil
+    ) -> some View {
+        centeredStatusCard(
+            compact: true,
+            icon: icon,
+            iconColor: iconColor,
+            showsProgress: showsProgress,
+            title: title,
+            message: message,
+            actionTitle: actionTitle,
+            actionStyle: actionStyle,
+            action: action
+        )
+    }
+
+    @ViewBuilder
+    private func centeredStatusCard(
+        compact: Bool,
+        icon: String?,
+        iconColor: Color,
+        showsProgress: Bool,
+        title: String,
+        message: String,
+        actionTitle: String?,
+        actionStyle: StatusActionStyle,
+        action: (() -> Void)?
+    ) -> some View {
+        VStack(spacing: compact ? 6 : 8) {
+            if showsProgress {
+                ProgressView()
+                    .controlSize(compact ? .small : .regular)
+            } else if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: compact ? 24 : 34))
+                    .foregroundStyle(iconColor)
+            }
+
+            Text(title)
+                .font(compact ? .subheadline.weight(.semibold) : .headline)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+
+            Text(message)
+                .font(compact ? .caption2 : .caption)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .lineLimit(compact ? 2 : 3)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let actionTitle, let action {
+                if actionStyle == .prominent {
+                    Button(actionTitle) {
+                        action()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(compact ? .small : .regular)
+                } else {
+                    Button(actionTitle) {
+                        action()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(compact ? .small : .regular)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     // MARK: - Standard Content
@@ -650,146 +893,22 @@ struct PopoverView: View {
     @ViewBuilder
     private var compactMainSection: some View {
         PopoverStateContainer(compact: true) {
-            switch contentPhase(for: selectedService) {
-            case .authRequired:
-                compactAuthRequiredState
-            case .loading:
-                compactLoadingState
-            case .error:
-                if let error = serviceError {
-                    compactErrorState(error)
-                }
-            case .content:
-                switch selectedService {
-                case .claude:
-                    compactClaudeContent(usage: claudeUsage)
-                case .codex:
-                    compactCodexContent()
-                case .gemini:
-                    compactGeminiContent()
-                case .antigravity:
-                    compactAntigravityContent()
-                }
-            case .empty:
-                compactEmptyState
-            }
+            compactBodyContent
         }
         .padding(.bottom, 2)
     }
 
     @ViewBuilder
     private var standardMainSection: some View {
-        PopoverStateContainer(compact: false) {
-            switch contentPhase(for: selectedService) {
-            case .authRequired:
-                AuthRequiredSectionView(service: selectedService) {
-                    viewModel.openSettings(for: selectedService)
-                }
-            case .loading:
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("데이터 로딩 중...")
-                        .font(.subheadline.weight(.semibold))
-                    Text("현재 연결 상태를 확인하고 있습니다.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    ProgressView()
-                        .controlSize(.small)
-                }
-            case .error:
-                if let error = serviceError {
-                    ErrorSectionView(error: error) {
-                        viewModel.refresh()
-                    }
-                }
-            case .content:
-                switch selectedService {
-                case .claude:
-                    standardClaudeContent(usage: claudeUsage)
-                case .codex:
-                    standardCodexContent()
-                case .gemini:
-                    standardGeminiContent()
-                case .antigravity:
-                    standardAntigravityContent()
-                }
-            case .empty:
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("데이터 없음")
-                        .font(.subheadline.weight(.semibold))
-                    Text("아직 가져온 사용량이 없습니다.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+        VStack(alignment: .leading, spacing: 10) {
+            standardTitleArea
+
+            PopoverStateContainer(compact: false) {
+                standardBodyContent
             }
         }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(.bottom, 4)
-    }
-
-    private var compactAuthRequiredState: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Image(systemName: "lock.shield")
-                    .foregroundStyle(.orange)
-                Text("\(selectedService.displayName) 연결 필요")
-                    .font(.subheadline.weight(.semibold))
-                Spacer(minLength: 0)
-            }
-
-            Button("설정 열기") {
-                viewModel.openSettings(for: selectedService)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-        }
-    }
-
-    private var compactLoadingState: some View {
-        HStack(spacing: 8) {
-            ProgressView()
-                .controlSize(.small)
-            Text("불러오는 중")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
-        }
-    }
-
-    private func compactErrorState(_ error: APIError) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
-                Text(error.isDefinitiveAuthFailure ? "인증 필요" : "조회 실패")
-                    .font(.subheadline.weight(.semibold))
-                Spacer(minLength: 0)
-            }
-
-            Text(error.isDefinitiveAuthFailure ? "연결을 다시 확인해 주세요." : "잠시 후 다시 시도해 주세요.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            Button(error.isDefinitiveAuthFailure ? "설정 열기" : "다시 시도") {
-                if error.isDefinitiveAuthFailure {
-                    viewModel.openSettings(for: selectedService)
-                } else {
-                    viewModel.refresh()
-                }
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-        }
-    }
-
-    private var compactEmptyState: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "tray")
-                .foregroundStyle(.secondary)
-            Text("없음")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
-        }
     }
 
     // MARK: - Compact Content
@@ -1008,6 +1127,13 @@ enum PopoverContentPhase {
     case content
 }
 
+enum PopoverLayoutMetrics {
+    static let standardPopoverWidth: CGFloat = 368
+    static let compactRowLabelWidth: CGFloat = 108
+    static let compactRowMeterWidth: CGFloat = 140
+    static let compactRowSpacing: CGFloat = 8
+}
+
 struct PopoverStateContainer<Content: View>: View {
     let compact: Bool
     private let content: Content
@@ -1045,7 +1171,7 @@ struct CompactUsageRow: View {
     var timeFormatStyle: TimeFormatStyle = .h24
 
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
+        HStack(alignment: .center, spacing: PopoverLayoutMetrics.compactRowSpacing) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(label)
                     .font(.caption)
@@ -1060,7 +1186,7 @@ struct CompactUsageRow: View {
                     .minimumScaleFactor(0.75)
                     .truncationMode(.tail)
             }
-            .layoutPriority(1)
+            .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
 
             HStack(spacing: 6) {
                 ProgressBarView(percentage: percentage, height: 6)
@@ -1073,7 +1199,7 @@ struct CompactUsageRow: View {
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
-            .frame(minWidth: 104, idealWidth: 132, maxWidth: 168)
+            .frame(width: PopoverLayoutMetrics.compactRowMeterWidth, alignment: .trailing)
         }
         .padding(.vertical, 1)
     }
