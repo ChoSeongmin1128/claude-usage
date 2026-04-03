@@ -29,7 +29,7 @@ final class AppPopoverCoordinator {
         }
 
         popover.contentViewController = hostingController
-        popover.animates = true
+        popover.animates = false
         let initialSize = viewModel.preferredPopoverSize(for: initialService, settings: AppSettings.shared)
         applyPopoverSizeIfNeeded(size: initialSize, force: true)
     }
@@ -74,14 +74,7 @@ final class AppPopoverCoordinator {
         let changed = abs(popover.contentSize.width - targetSize.width) > 0.5 ||
             abs(popover.contentSize.height - targetSize.height) > 0.5
         if force || changed {
-            if force {
-                popover.contentSize = targetSize
-            } else {
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.18
-                    self.popover.contentSize = targetSize
-                }
-            }
+            popover.contentSize = targetSize
         }
     }
 }
