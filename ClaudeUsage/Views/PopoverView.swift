@@ -101,6 +101,7 @@ struct PopoverView: View {
             }
         }
         .background(Color(NSColor.windowBackgroundColor))
+        .animation(.easeInOut(duration: 0.18), value: isCompact)
         .onAppear {
             normalizeSelectedServiceIfNeeded()
             syncCompactAcrossServicesIfNeeded()
@@ -415,28 +416,19 @@ struct PopoverView: View {
     }
 
     private var standardTitleArea: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(selectedService.displayName)
-                    .font(.title3.weight(.semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
+        HStack(alignment: .center, spacing: 10) {
+            Text(selectedService.displayName)
+                .font(.title3.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
 
-                if let meta = currentServiceRuntimeState.meta {
-                    Text(meta)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 8)
 
             if let lastUpdated = currentServiceLastUpdated {
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text("마지막 업데이트")
-                        .font(.caption2.weight(.medium))
+                HStack(spacing: 4) {
+                    Image(systemName: "clock")
+                        .font(.caption2)
                         .foregroundStyle(.tertiary)
-                        .lineLimit(1)
                     Text(lastUpdated, style: .time)
                         .font(.callout.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -448,7 +440,7 @@ struct PopoverView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 2)
         .padding(.top, 1)
-        .padding(.bottom, 2)
+        .padding(.bottom, 0)
     }
 
     @ViewBuilder
@@ -458,7 +450,7 @@ struct PopoverView: View {
             compactInlineStatusPanel(
                 icon: "lock.shield",
                 iconColor: .orange,
-                title: "\(selectedService.displayName) 연결 필요",
+                title: "연결 필요",
                 message: "인증이 필요합니다. 설정에서 연결을 다시 확인해 주세요.",
                 actionTitle: "설정 열기",
                 actionStyle: .prominent
@@ -578,39 +570,44 @@ struct PopoverView: View {
         actionStyle: StatusActionStyle = .bordered,
         action: (() -> Void)? = nil
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 10) {
-                statusLeadingIndicator(
-                    compact: false,
-                    icon: icon,
-                    iconColor: iconColor,
-                    showsProgress: showsProgress
-                )
-
-                Text(title)
-                    .font(.title3.weight(.semibold))
-                    .lineLimit(1)
-
-                Spacer(minLength: 12)
-
-                if let actionTitle, let action {
-                    statusActionButton(
-                        title: actionTitle,
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    statusLeadingIndicator(
                         compact: false,
-                        style: actionStyle,
-                        action: action
+                        icon: icon,
+                        iconColor: iconColor,
+                        showsProgress: showsProgress
                     )
-                }
-            }
 
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+                    Text(title)
+                        .font(.headline)
+                        .lineLimit(1)
+                }
+
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .layoutPriority(1)
+
+            standardStatusRail(
+                title: actionTitle,
+                compact: false,
+                style: actionStyle,
+                action: action
+            )
+            .frame(
+                minWidth: PopoverLayoutMetrics.standardStatusRailMinWidth,
+                idealWidth: PopoverLayoutMetrics.standardStatusRailIdealWidth,
+                maxWidth: PopoverLayoutMetrics.standardStatusRailMaxWidth,
+                alignment: .trailing
+            )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 
     @ViewBuilder
@@ -625,29 +622,29 @@ struct PopoverView: View {
         action: (() -> Void)? = nil
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .center, spacing: 8) {
-                statusLeadingIndicator(
-                    compact: true,
-                    icon: icon,
-                    iconColor: iconColor,
-                    showsProgress: showsProgress
-                )
-
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-
-                Spacer(minLength: 8)
-
-                if let actionTitle, let action {
-                    statusActionButton(
-                        title: actionTitle,
+            HStack(alignment: .center, spacing: PopoverLayoutMetrics.compactRowSpacing) {
+                HStack(spacing: 6) {
+                    statusLeadingIndicator(
                         compact: true,
-                        style: actionStyle,
-                        action: action
+                        icon: icon,
+                        iconColor: iconColor,
+                        showsProgress: showsProgress
                     )
+
+                    Text(title)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                 }
+                .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
+
+                compactStatusRail(
+                    title: actionTitle,
+                    compact: true,
+                    style: actionStyle,
+                    action: action
+                )
+                .frame(width: PopoverLayoutMetrics.compactRowMeterWidth, alignment: .trailing)
             }
 
             Text(message)
@@ -697,6 +694,48 @@ struct PopoverView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(compact ? .small : .regular)
+        }
+    }
+
+    @ViewBuilder
+    private func standardStatusRail(
+        title: String?,
+        compact: Bool,
+        style: StatusActionStyle,
+        action: (() -> Void)?
+    ) -> some View {
+        if let title, let action {
+            statusActionButton(
+                title: title,
+                compact: compact,
+                style: style,
+                action: action
+            )
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        } else {
+            Color.clear
+                .frame(maxWidth: .infinity, minHeight: 1, alignment: .trailing)
+        }
+    }
+
+    @ViewBuilder
+    private func compactStatusRail(
+        title: String?,
+        compact: Bool,
+        style: StatusActionStyle,
+        action: (() -> Void)?
+    ) -> some View {
+        if let title, let action {
+            statusActionButton(
+                title: title,
+                compact: compact,
+                style: style,
+                action: action
+            )
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        } else {
+            Color.clear
+                .frame(maxWidth: .infinity, minHeight: 1, alignment: .trailing)
         }
     }
 
@@ -1144,6 +1183,9 @@ enum PopoverLayoutMetrics {
     static let compactRowLabelWidth: CGFloat = 100
     static let compactRowMeterWidth: CGFloat = 150
     static let compactRowSpacing: CGFloat = 6
+    static let standardStatusRailMinWidth: CGFloat = 124
+    static let standardStatusRailIdealWidth: CGFloat = 156
+    static let standardStatusRailMaxWidth: CGFloat = 196
 
     static func preferredPopoverHeight(
         compact: Bool,

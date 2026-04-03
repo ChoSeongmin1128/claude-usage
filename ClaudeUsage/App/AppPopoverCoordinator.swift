@@ -29,7 +29,7 @@ final class AppPopoverCoordinator {
         }
 
         popover.contentViewController = hostingController
-        popover.animates = false
+        popover.animates = true
         let initialSize = viewModel.preferredPopoverSize(for: initialService, settings: AppSettings.shared)
         applyPopoverSizeIfNeeded(size: initialSize, force: true)
     }
