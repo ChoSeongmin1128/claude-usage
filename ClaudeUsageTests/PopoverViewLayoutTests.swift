@@ -18,6 +18,11 @@ final class PopoverViewLayoutTests: XCTestCase {
         XCTAssertEqual(PopoverLayoutMetrics.compactRowLabelWidth, 100)
         XCTAssertEqual(PopoverLayoutMetrics.compactRowMeterWidth, 150)
         XCTAssertEqual(PopoverLayoutMetrics.compactRowSpacing, 6)
+        XCTAssertEqual(PopoverLayoutMetrics.compactUsageRowHeight, 18)
+        XCTAssertEqual(PopoverLayoutMetrics.compactCreditsRowHeight, 18)
+        XCTAssertEqual(PopoverLayoutMetrics.compactStatusRowHeight, 18)
+        XCTAssertEqual(PopoverLayoutMetrics.compactOverageRowHeight, 22)
+        XCTAssertEqual(PopoverLayoutMetrics.compactProgressBarHeight, 8)
     }
 
     func testStandardPopoverHeightShrinksForShortOrEmptyStates() {
@@ -38,12 +43,47 @@ final class PopoverViewLayoutTests: XCTestCase {
     func testCompactPopoverHeightUsesShorterStatusVariant() {
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .empty, rowCount: 0),
-            104
+            108
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .content, rowCount: 2),
-            116
+            107
         )
+    }
+
+    func testCompactLayoutSpecUsesExactVisibleRowHeights() async {
+        let result = await MainActor.run { () -> (CGFloat, CGFloat) in
+            let settings = AppSettings.shared
+            let snapshot = settings.createSnapshot()
+            defer { settings.restore(from: snapshot) }
+
+            settings.popoverCompact = true
+            settings.setProviderEnabled(true, for: .claude)
+
+            let viewModel = PopoverViewModel()
+            viewModel.update(
+                snapshots: [
+                    RuntimeProviderSnapshot(
+                        service: .claude,
+                        payload: layoutTestClaudePayload,
+                        error: nil,
+                        isLoading: false,
+                        lastUpdated: Date(),
+                        nextRefreshAllowedAt: nil,
+                        credentialState: .usable,
+                        isDetected: true,
+                        canAttemptRefresh: true,
+                        hasAuthError: false
+                    )
+                ]
+            )
+
+            let layoutSpec = viewModel.layoutSpec(for: .claude, settings: settings)
+            return (layoutSpec.bodyContentHeight, layoutSpec.size.height)
+        }
+
+        XCTAssertEqual(result.0, 39)
+        XCTAssertEqual(result.1, 107)
     }
 
     func testStandardWidthStaysFixedAcrossAllPopoverPhases() async {

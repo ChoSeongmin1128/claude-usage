@@ -69,6 +69,19 @@ struct PopoverDisplaySection: Identifiable {
     let payload: PopoverDisplayPayload
 }
 
+struct PopoverLayoutSpec: Equatable {
+    let density: PopoverDensity
+    let phase: PopoverContentPhase
+    let size: CGSize
+    let bodyContentHeight: CGFloat
+    let bodyInsets: EdgeInsets
+    let sectionSpacing: CGFloat
+
+    var isCompact: Bool {
+        density.isCompact
+    }
+}
+
 @MainActor
 final class PopoverViewModel: ObservableObject {
     struct ProviderShellCard: Identifiable, Sendable, Equatable {
@@ -427,16 +440,19 @@ final class PopoverViewModel: ObservableObject {
     }
 
     func preferredPopoverSize(for service: PopoverService, settings: AppSettings) -> CGSize {
+        layoutSpec(for: service, settings: settings).size
+    }
+
+    func layoutSpec(for service: PopoverService, settings: AppSettings) -> PopoverLayoutSpec {
         let density: PopoverDensity = settings.isPopoverCompact(for: service.providerKind) ? .compact : .standard
         let phase = contentPhase(for: service, settings: settings)
+        let sections = displaySections(for: service, density: density, settings: settings)
         let rowCount = preferredContentRowCount(for: service, density: density, phase: phase, settings: settings)
-        return CGSize(
-            width: PopoverLayoutMetrics.preferredPopoverWidth(compact: density.isCompact),
-            height: PopoverLayoutMetrics.preferredPopoverHeight(
-                compact: density.isCompact,
-                phase: phase,
-                rowCount: rowCount
-            )
+        return PopoverLayoutMetrics.layoutSpec(
+            density: density,
+            phase: phase,
+            sections: sections,
+            rowCount: rowCount
         )
     }
 

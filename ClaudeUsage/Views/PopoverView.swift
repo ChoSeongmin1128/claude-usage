@@ -13,6 +13,8 @@ struct PopoverView: View {
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
+        let layoutSpec = currentLayoutSpec
+
         VStack(alignment: .leading, spacing: 0) {
             // 상단 바
             HStack(spacing: 8) {
@@ -27,10 +29,10 @@ struct PopoverView: View {
             .padding(.bottom, isCompact ? 3 : 6)
 
             if isCompact {
-                compactMainSection
+                compactMainSection(layoutSpec: layoutSpec)
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
-                    standardMainSection
+                    standardMainSection(layoutSpec: layoutSpec)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
@@ -100,7 +102,7 @@ struct PopoverView: View {
                 .padding(.bottom, 6)
             }
         }
-        .frame(width: popoverWidth, alignment: .topLeading)
+        .frame(width: layoutSpec.size.width, alignment: .topLeading)
         .background(Color(NSColor.windowBackgroundColor))
         .onAppear {
             normalizeSelectedServiceIfNeeded()
@@ -139,9 +141,7 @@ struct PopoverView: View {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     isCompact.toggle()
                 }
-                DispatchQueue.main.async {
-                    viewModel.requestLayoutRefresh(reason: .compactToggle)
-                }
+                viewModel.requestLayoutRefresh(reason: .compactToggle)
             } label: {
                 Image(systemName: isCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
                     .font(.system(size: 12))
@@ -167,9 +167,7 @@ struct PopoverView: View {
         guard service != selectedService else { return }
         viewModel.selectService(service)
         syncCompactAcrossServicesIfNeeded()
-        DispatchQueue.main.async {
-            viewModel.requestLayoutRefresh(for: service, reason: .serviceSelection)
-        }
+        viewModel.requestLayoutRefresh(for: service, reason: .serviceSelection)
     }
 
     private func sectionHeader(title: String, subtitle: String? = nil) -> some View {
@@ -246,10 +244,6 @@ struct PopoverView: View {
         viewModel.runtimeServiceState(for: selectedService, settings: settings)
     }
 
-    private var selectedContentPhase: PopoverContentPhase {
-        viewModel.contentPhase(for: selectedService, settings: settings)
-    }
-
     private var currentServiceLoading: Bool {
         serviceLoading(for: selectedService)
     }
@@ -306,8 +300,8 @@ struct PopoverView: View {
         }
     }
 
-    private var popoverWidth: CGFloat {
-        PopoverLayoutMetrics.preferredPopoverWidth(compact: isCompact)
+    private var currentLayoutSpec: PopoverLayoutSpec {
+        viewModel.layoutSpec(for: selectedService, settings: settings)
     }
 
     static func preferredPopoverWidth(compact: Bool) -> CGFloat {
@@ -392,10 +386,6 @@ struct PopoverView: View {
         serviceLoading(for: service) && !hasLoadedContent(for: service)
     }
 
-    private func contentPhase(for service: PopoverService) -> PopoverContentPhase {
-        viewModel.contentPhase(for: service, settings: settings)
-    }
-
     private typealias StatusActionStyle = StatusPanelActionStyle
 
     private struct StatusPanelConfiguration {
@@ -410,21 +400,11 @@ struct PopoverView: View {
     }
 
     @ViewBuilder
-    private var compactBodyContent: some View {
-        bodyContent(for: .compact)
-    }
-
-    @ViewBuilder
-    private var standardBodyContent: some View {
-        bodyContent(for: .standard)
-    }
-
-    @ViewBuilder
-    private func bodyContent(for density: PopoverDensity) -> some View {
-        switch contentPhase(for: selectedService) {
+    private func bodyContent(layoutSpec: PopoverLayoutSpec) -> some View {
+        switch layoutSpec.phase {
         case .authRequired:
             statusPanel(
-                density: density,
+                density: layoutSpec.density,
                 configuration: StatusPanelConfiguration(
                     icon: "lock.shield",
                     iconColor: .orange,
@@ -438,7 +418,7 @@ struct PopoverView: View {
             )
         case .loading:
             statusPanel(
-                density: density,
+                density: layoutSpec.density,
                 configuration: StatusPanelConfiguration(
                     icon: nil,
                     iconColor: .secondary,
@@ -453,7 +433,7 @@ struct PopoverView: View {
         case .error:
             if let error = serviceError {
                 statusPanel(
-                    density: density,
+                    density: layoutSpec.density,
                     configuration: StatusPanelConfiguration(
                         icon: "exclamationmark.triangle",
                         iconColor: .orange,
@@ -473,10 +453,10 @@ struct PopoverView: View {
                 )
             }
         case .content:
-            displaySectionsContent(for: density)
+            displaySectionsContent(layoutSpec: layoutSpec)
         case .empty:
             statusPanel(
-                density: density,
+                density: layoutSpec.density,
                 configuration: StatusPanelConfiguration(
                     icon: "tray",
                     iconColor: .secondary,
@@ -510,35 +490,35 @@ struct PopoverView: View {
     }
 
     @ViewBuilder
-    private func displaySectionsContent(for density: PopoverDensity) -> some View {
-        let sections = viewModel.displaySections(for: selectedService, density: density, settings: settings)
+    private func displaySectionsContent(layoutSpec: PopoverLayoutSpec) -> some View {
+        let sections = viewModel.displaySections(for: selectedService, density: layoutSpec.density, settings: settings)
         if sections.isEmpty {
             Color.clear
                 .frame(maxWidth: .infinity, minHeight: 1)
         } else {
-            VStack(spacing: density.isCompact ? 3 : 12) {
+            VStack(spacing: layoutSpec.sectionSpacing) {
                 ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
-                    if index > 0 && !density.isCompact {
+                    if index > 0 && !layoutSpec.isCompact {
                         Divider()
                     }
-                    PopoverDisplaySectionView(section: section, density: density)
+                    PopoverDisplaySectionView(section: section, density: layoutSpec.density)
                 }
             }
         }
     }
 
     @ViewBuilder
-    private var compactMainSection: some View {
-        PopoverStateContainer(compact: true, phase: selectedContentPhase) {
-            compactBodyContent
+    private func compactMainSection(layoutSpec: PopoverLayoutSpec) -> some View {
+        PopoverStateContainer(layoutSpec: layoutSpec) {
+            bodyContent(layoutSpec: layoutSpec)
         }
         .padding(.bottom, 1)
     }
 
     @ViewBuilder
-    private var standardMainSection: some View {
-        PopoverStateContainer(compact: false, phase: selectedContentPhase) {
-            standardBodyContent
+    private func standardMainSection(layoutSpec: PopoverLayoutSpec) -> some View {
+        PopoverStateContainer(layoutSpec: layoutSpec) {
+            bodyContent(layoutSpec: layoutSpec)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(.bottom, 2)
@@ -556,12 +536,71 @@ enum PopoverContentPhase {
 enum PopoverLayoutMetrics {
     static let standardPopoverWidth: CGFloat = 368
     static let compactPopoverWidth: CGFloat = 296
+    static let compactHeaderHeight: CGFloat = 30
+    static let compactFooterHeight: CGFloat = 31
+    static let dividerHeight: CGFloat = 1
+    static let compactBodyInsets = EdgeInsets(top: 3, leading: 10, bottom: 3, trailing: 10)
+    static let standardBodyInsets = EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
+    static let compactSectionSpacing: CGFloat = 3
+    static let standardSectionSpacing: CGFloat = 12
     static let compactRowLabelWidth: CGFloat = 100
     static let compactRowMeterWidth: CGFloat = 150
     static let compactRowSpacing: CGFloat = 6
+    static let compactUsageRowHeight: CGFloat = 18
+    static let compactCreditsRowHeight: CGFloat = 18
+    static let compactStatusRowHeight: CGFloat = 18
+    static let compactOverageRowHeight: CGFloat = 22
+    static let compactProgressBarHeight: CGFloat = 8
+    static let compactStatusPanelHeight: CGFloat = 40
+    static let compactInteractiveStatusPanelHeight: CGFloat = 48
+    static let compactMinimumPopoverHeight: CGFloat = 96
 
     static func preferredPopoverWidth(compact: Bool) -> CGFloat {
         compact ? compactPopoverWidth : standardPopoverWidth
+    }
+
+    static func layoutSpec(
+        density: PopoverDensity,
+        phase: PopoverContentPhase,
+        sections: [PopoverDisplaySection],
+        rowCount: Int
+    ) -> PopoverLayoutSpec {
+        let bodyInsets = density.isCompact ? compactBodyInsets : standardBodyInsets
+        let sectionSpacing = density.isCompact ? compactSectionSpacing : standardSectionSpacing
+
+        if density.isCompact {
+            let bodyContentHeight = compactBodyContentHeight(phase: phase, sections: sections)
+            let totalHeight = max(
+                compactMinimumPopoverHeight,
+                compactHeaderHeight
+                    + bodyInsets.top
+                    + bodyContentHeight
+                    + bodyInsets.bottom
+                    + dividerHeight
+                    + compactFooterHeight
+            )
+            return PopoverLayoutSpec(
+                density: density,
+                phase: phase,
+                size: CGSize(width: compactPopoverWidth, height: totalHeight),
+                bodyContentHeight: bodyContentHeight,
+                bodyInsets: bodyInsets,
+                sectionSpacing: sectionSpacing
+            )
+        }
+
+        let bodyContentHeight = minimumBodyHeight(compact: false, phase: phase)
+        return PopoverLayoutSpec(
+            density: density,
+            phase: phase,
+            size: CGSize(
+                width: standardPopoverWidth,
+                height: preferredPopoverHeight(compact: false, phase: phase, rowCount: rowCount)
+            ),
+            bodyContentHeight: bodyContentHeight,
+            bodyInsets: bodyInsets,
+            sectionSpacing: sectionSpacing
+        )
     }
 
     static func preferredPopoverHeight(
@@ -570,19 +609,28 @@ enum PopoverLayoutMetrics {
         rowCount: Int
     ) -> CGFloat {
         if compact {
-            switch phase {
-            case .authRequired, .loading, .error, .empty:
-                return 104
-            case .content:
-                switch rowCount {
-                case ...2:
-                    return 116
-                case 3:
-                    return 132
-                default:
-                    return 148
-                }
+            if phase == .content {
+                let contentHeight = compactUsageRowHeight * CGFloat(max(rowCount, 1))
+                    + compactSectionSpacing * CGFloat(max(0, rowCount - 1))
+                return max(
+                    compactMinimumPopoverHeight,
+                    compactHeaderHeight
+                        + compactBodyInsets.top
+                        + contentHeight
+                        + compactBodyInsets.bottom
+                        + dividerHeight
+                        + compactFooterHeight
+                )
             }
+            let statusHeight = phase == .authRequired || phase == .error
+                ? compactInteractiveStatusPanelHeight
+                : compactStatusPanelHeight
+            return compactHeaderHeight
+                + compactBodyInsets.top
+                + statusHeight
+                + compactBodyInsets.bottom
+                + dividerHeight
+                + compactFooterHeight
         }
 
         switch phase {
@@ -620,34 +668,57 @@ enum PopoverLayoutMetrics {
             return 72
         }
     }
+
+    static func compactSectionHeight(for kind: PopoverDisplaySectionKind) -> CGFloat {
+        switch kind {
+        case .usage:
+            return compactUsageRowHeight
+        case .credits:
+            return compactCreditsRowHeight
+        case .overage:
+            return compactOverageRowHeight
+        case .account:
+            return compactOverageRowHeight
+        case .status:
+            return compactStatusRowHeight
+        }
+    }
+
+    static func compactBodyContentHeight(
+        phase: PopoverContentPhase,
+        sections: [PopoverDisplaySection]
+    ) -> CGFloat {
+        guard phase == .content else {
+            return phase == .authRequired || phase == .error
+                ? compactInteractiveStatusPanelHeight
+                : compactStatusPanelHeight
+        }
+
+        let sectionHeights = sections.map { compactSectionHeight(for: $0.kind) }
+        guard !sectionHeights.isEmpty else { return 1 }
+        return sectionHeights.reduce(0, +)
+            + compactSectionSpacing * CGFloat(max(0, sectionHeights.count - 1))
+    }
 }
 
 struct PopoverStateContainer<Content: View>: View {
-    let compact: Bool
-    let phase: PopoverContentPhase
+    let layoutSpec: PopoverLayoutSpec
     private let content: Content
 
-    init(compact: Bool, phase: PopoverContentPhase, @ViewBuilder content: () -> Content) {
-        self.compact = compact
-        self.phase = phase
+    init(layoutSpec: PopoverLayoutSpec, @ViewBuilder content: () -> Content) {
+        self.layoutSpec = layoutSpec
         self.content = content()
-    }
-
-    private var minHeight: CGFloat {
-        PopoverLayoutMetrics.minimumBodyHeight(compact: compact, phase: phase)
-    }
-
-    private var paddingInsets: EdgeInsets {
-        if compact {
-            return EdgeInsets(top: 3, leading: 10, bottom: 3, trailing: 10)
-        }
-        return EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
     }
 
     var body: some View {
         content
-            .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
-            .padding(paddingInsets)
+            .frame(
+                maxWidth: .infinity,
+                minHeight: layoutSpec.bodyContentHeight,
+                maxHeight: layoutSpec.isCompact ? layoutSpec.bodyContentHeight : nil,
+                alignment: .topLeading
+            )
+            .padding(layoutSpec.bodyInsets)
     }
 }
 
@@ -666,6 +737,13 @@ struct StatusPanelView: View {
     let actionTitle: String?
     let actionStyle: StatusPanelActionStyle
     let action: (() -> Void)?
+
+    private var compactPanelHeight: CGFloat {
+        if actionTitle != nil, action != nil {
+            return PopoverLayoutMetrics.compactInteractiveStatusPanelHeight
+        }
+        return PopoverLayoutMetrics.compactStatusPanelHeight
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: density.isCompact ? 6 : 10) {
@@ -691,6 +769,11 @@ struct StatusPanelView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(
+            minHeight: density.isCompact ? compactPanelHeight : nil,
+            maxHeight: density.isCompact ? compactPanelHeight : nil,
+            alignment: .topLeading
+        )
         .padding(.vertical, density.isCompact ? 0 : 4)
     }
 
@@ -808,7 +891,12 @@ struct ProviderStatusSectionView: View {
                     .foregroundStyle(statusColor)
                     .lineLimit(1)
             }
-            .padding(.vertical, 1)
+            .frame(
+                maxWidth: .infinity,
+                minHeight: PopoverLayoutMetrics.compactStatusRowHeight,
+                maxHeight: PopoverLayoutMetrics.compactStatusRowHeight,
+                alignment: .center
+            )
         } else {
             ProviderStatusRow(title: status.title, error: status.error)
         }
@@ -844,7 +932,10 @@ struct CompactUsageRow: View {
             .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
 
             HStack(spacing: 6) {
-                ProgressBarView(percentage: percentage, height: 6)
+                ProgressBarView(
+                    percentage: percentage,
+                    height: PopoverLayoutMetrics.compactProgressBarHeight
+                )
                     .frame(maxWidth: .infinity)
 
                 Text(String(format: "%.0f%%", percentage))
@@ -856,7 +947,12 @@ struct CompactUsageRow: View {
             }
             .frame(width: PopoverLayoutMetrics.compactRowMeterWidth, alignment: .trailing)
         }
-        .padding(.vertical, 0.5)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: PopoverLayoutMetrics.compactUsageRowHeight,
+            maxHeight: PopoverLayoutMetrics.compactUsageRowHeight,
+            alignment: .center
+        )
     }
 
     private var compactLabelLine: some View {
@@ -1062,6 +1158,12 @@ struct CompactCodexCreditsRow: View {
                 .frame(minWidth: 48, alignment: .trailing)
                 .layoutPriority(1)
         }
+        .frame(
+            maxWidth: .infinity,
+            minHeight: PopoverLayoutMetrics.compactCreditsRowHeight,
+            maxHeight: PopoverLayoutMetrics.compactCreditsRowHeight,
+            alignment: .center
+        )
     }
 }
 
@@ -1119,7 +1221,11 @@ struct CompactOverageRow: View {
             .layoutPriority(1)
 
             HStack(spacing: 6) {
-                ProgressBarView(percentage: overage.usagePercentage, height: 6, color: .purple)
+                ProgressBarView(
+                    percentage: overage.usagePercentage,
+                    height: PopoverLayoutMetrics.compactProgressBarHeight,
+                    color: .purple
+                )
                     .frame(maxWidth: .infinity)
 
                 Text(String(format: "%.0f%%", overage.usagePercentage))
@@ -1131,6 +1237,11 @@ struct CompactOverageRow: View {
             }
             .frame(minWidth: 88, idealWidth: 110, maxWidth: 140)
         }
-        .padding(.vertical, 1)
+        .frame(
+            maxWidth: .infinity,
+            minHeight: PopoverLayoutMetrics.compactOverageRowHeight,
+            maxHeight: PopoverLayoutMetrics.compactOverageRowHeight,
+            alignment: .center
+        )
     }
 }

@@ -5,7 +5,6 @@ import SwiftUI
 final class AppPopoverCoordinator {
     let viewModel = PopoverViewModel()
     let popover = NSPopover()
-    private var pendingSizeRefreshWorkItem: DispatchWorkItem?
 
     func configure(
         initialService: PopoverService,
@@ -32,33 +31,22 @@ final class AppPopoverCoordinator {
     }
 
     func close() {
-        pendingSizeRefreshWorkItem?.cancel()
         popover.close()
     }
 
-    func invalidate() {
-        pendingSizeRefreshWorkItem?.cancel()
-    }
+    func invalidate() {}
 
     func applyBehavior(isPinned: Bool) {
         popover.behavior = isPinned ? .applicationDefined : .transient
     }
 
     func prepareSizeForPresentation(size: CGSize) {
-        pendingSizeRefreshWorkItem?.cancel()
         applyPopoverSizeIfNeeded(size: size, force: true)
     }
 
     func refreshSizeIfShown(size: CGSize) {
         guard popover.isShown else { return }
-        pendingSizeRefreshWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            guard self.popover.isShown else { return }
-            self.applyPopoverSizeIfNeeded(size: size, force: false)
-        }
-        pendingSizeRefreshWorkItem = workItem
-        DispatchQueue.main.async(execute: workItem)
+        applyPopoverSizeIfNeeded(size: size, force: false)
     }
 
     private func applyPopoverSizeIfNeeded(size: CGSize, force: Bool) {
