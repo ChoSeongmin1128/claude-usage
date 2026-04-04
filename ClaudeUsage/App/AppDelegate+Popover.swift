@@ -54,7 +54,10 @@ extension AppDelegate {
             let initialSize = preferredPopoverSize(for: service)
             popoverCoordinator.prepareSizeForPresentation(size: initialSize)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popoverCoordinator.finalizeSizeAfterPresentation(size: initialSize)
+            popoverCoordinator.finalizeSizeAfterPresentation { [weak self] in
+                guard let self else { return initialSize }
+                return self.preferredPopoverSize(for: self.popoverViewModel.selectedService)
+            }
             NSApp.activate()
             if !isPopoverPinned(for: service) {
                 startGlobalClickMonitor()
