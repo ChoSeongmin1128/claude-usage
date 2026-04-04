@@ -36,6 +36,33 @@ enum RuntimeProviderFetchState: String, Sendable, Equatable {
     case blocked
 }
 
+enum RuntimeProviderAttemptState: String, Sendable, Equatable {
+    case idle
+    case loading
+    case temporaryFailure
+    case authFailure
+    case definitiveFailure
+
+    static func resolve(
+        isLoading: Bool,
+        error: APIError?
+    ) -> RuntimeProviderAttemptState {
+        if isLoading {
+            return .loading
+        }
+        guard let error else {
+            return .idle
+        }
+        if error.isDefinitiveAuthFailure {
+            return .authFailure
+        }
+        if error.isTemporaryFailure {
+            return .temporaryFailure
+        }
+        return .definitiveFailure
+    }
+}
+
 enum PopoverLayoutRefreshReason: String, Sendable, Equatable {
     case serviceSelection
     case compactToggle
@@ -144,14 +171,14 @@ enum RuntimeProviderRegistry {
 }
 
 struct RuntimeProviderState {
-    var payload: RuntimeProviderPayload?
-    var error: APIError?
+    private var lastSuccessfulPayloadStorage: RuntimeProviderPayload?
+    private var lastSuccessfulAtStorage: Date?
+    private var lastAttemptErrorStorage: APIError?
+    var lastAttemptState: RuntimeProviderAttemptState
     var isLoading: Bool
     var loadingStartedAt: Date?
     var nextRefreshAllowedAt: Date?
-    var lastUpdated: Date?
     var hasAuthError: Bool
-    var consecutiveErrorCount: Int
 
     init(
         payload: RuntimeProviderPayload? = nil,
@@ -161,35 +188,86 @@ struct RuntimeProviderState {
         nextRefreshAllowedAt: Date? = nil,
         lastUpdated: Date? = nil,
         hasAuthError: Bool = false,
-        consecutiveErrorCount: Int = 0
+        lastAttemptState: RuntimeProviderAttemptState? = nil
     ) {
-        self.payload = payload
-        self.error = error
+        self.lastSuccessfulPayloadStorage = payload
+        self.lastSuccessfulAtStorage = lastUpdated
+        self.lastAttemptErrorStorage = error
+        self.lastAttemptState = lastAttemptState ?? RuntimeProviderAttemptState.resolve(
+            isLoading: isLoading,
+            error: error
+        )
         self.isLoading = isLoading
         self.loadingStartedAt = loadingStartedAt
         self.nextRefreshAllowedAt = nextRefreshAllowedAt
-        self.lastUpdated = lastUpdated
         self.hasAuthError = hasAuthError
-        self.consecutiveErrorCount = consecutiveErrorCount
+    }
+
+    var lastSuccessfulPayload: RuntimeProviderPayload? {
+        get { lastSuccessfulPayloadStorage }
+        set { lastSuccessfulPayloadStorage = newValue }
+    }
+
+    var lastSuccessfulAt: Date? {
+        get { lastSuccessfulAtStorage }
+        set { lastSuccessfulAtStorage = newValue }
+    }
+
+    var lastAttemptError: APIError? {
+        get { lastAttemptErrorStorage }
+        set {
+            lastAttemptErrorStorage = newValue
+            lastAttemptState = RuntimeProviderAttemptState.resolve(
+                isLoading: isLoading,
+                error: newValue
+            )
+            if newValue?.isDefinitiveAuthFailure == true {
+                hasAuthError = true
+            }
+        }
+    }
+
+    var payload: RuntimeProviderPayload? {
+        get { lastSuccessfulPayloadStorage }
+        set { lastSuccessfulPayloadStorage = newValue }
+    }
+
+    var error: APIError? {
+        get { lastAttemptErrorStorage }
+        set {
+            lastAttemptErrorStorage = newValue
+            lastAttemptState = RuntimeProviderAttemptState.resolve(
+                isLoading: isLoading,
+                error: newValue
+            )
+            if newValue?.isDefinitiveAuthFailure == true {
+                hasAuthError = true
+            }
+        }
+    }
+
+    var lastUpdated: Date? {
+        get { lastSuccessfulAtStorage }
+        set { lastSuccessfulAtStorage = newValue }
     }
 
     var claudeUsage: ClaudeUsageResponse? {
-        guard case let .claude(usage)? = payload else { return nil }
+        guard case let .claude(usage)? = lastSuccessfulPayloadStorage else { return nil }
         return usage
     }
 
     var codexUsage: CodexUsageResponse? {
-        guard case let .codex(usage)? = payload else { return nil }
+        guard case let .codex(usage)? = lastSuccessfulPayloadStorage else { return nil }
         return usage
     }
 
     var geminiUsage: GeminiUsageResponse? {
-        guard case let .gemini(usage)? = payload else { return nil }
+        guard case let .gemini(usage)? = lastSuccessfulPayloadStorage else { return nil }
         return usage
     }
 
     var antigravityUsage: AntigravityUsageResponse? {
-        guard case let .antigravity(usage)? = payload else { return nil }
+        guard case let .antigravity(usage)? = lastSuccessfulPayloadStorage else { return nil }
         return usage
     }
 
@@ -197,19 +275,21 @@ struct RuntimeProviderState {
         if isLoading {
             return .loading
         }
-        if payload != nil {
+        if lastSuccessfulPayloadStorage != nil {
             return .success
         }
-        if let error {
-            if error.isDefinitiveAuthFailure {
-                return .authFailure
-            }
-            if error.isTemporaryFailure {
-                return .temporaryFailure
-            }
+        switch lastAttemptState {
+        case .idle:
+            return .idle
+        case .loading:
+            return .loading
+        case .temporaryFailure:
+            return .temporaryFailure
+        case .authFailure:
+            return .authFailure
+        case .definitiveFailure:
             return .definitiveFailure
         }
-        return .idle
     }
 }
 
@@ -229,36 +309,74 @@ struct RuntimeProviderStateCatalog {
 
 struct RuntimeProviderSnapshot {
     let service: PopoverService
-    let payload: RuntimeProviderPayload?
-    let error: APIError?
+    let displayPayload: RuntimeProviderPayload?
+    let displayUpdatedAt: Date?
+    let lastAttemptState: RuntimeProviderAttemptState
+    let lastAttemptError: APIError?
     let isLoading: Bool
-    let lastUpdated: Date?
     let nextRefreshAllowedAt: Date?
     let credentialState: ProviderCredentialState
     let isDetected: Bool
     let canAttemptRefresh: Bool
     let hasAuthError: Bool
 
+    init(
+        service: PopoverService,
+        payload: RuntimeProviderPayload? = nil,
+        error: APIError? = nil,
+        isLoading: Bool = false,
+        lastUpdated: Date? = nil,
+        nextRefreshAllowedAt: Date? = nil,
+        credentialState: ProviderCredentialState,
+        isDetected: Bool,
+        canAttemptRefresh: Bool,
+        hasAuthError: Bool,
+        lastAttemptState: RuntimeProviderAttemptState? = nil
+    ) {
+        self.service = service
+        self.displayPayload = payload
+        self.displayUpdatedAt = lastUpdated
+        self.lastAttemptError = error
+        self.isLoading = isLoading
+        self.nextRefreshAllowedAt = nextRefreshAllowedAt
+        self.credentialState = credentialState
+        self.isDetected = isDetected
+        self.canAttemptRefresh = canAttemptRefresh
+        self.hasAuthError = hasAuthError
+        self.lastAttemptState = lastAttemptState ?? RuntimeProviderAttemptState.resolve(
+            isLoading: isLoading,
+            error: error
+        )
+    }
+
     var kind: AppProviderKind { service.providerKind }
-    var hasContent: Bool { payload != nil }
+    var payload: RuntimeProviderPayload? { displayPayload }
+    var error: APIError? { lastAttemptError }
+    var lastUpdated: Date? { displayUpdatedAt }
+    var hasContent: Bool { displayPayload != nil }
     var hasCredential: Bool { credentialState.hasAnyCredential }
     var runtimeReachability: Bool { canAttemptRefresh }
     var hasBackoff: Bool { RefreshExecutionPolicy.remainingBackoffSeconds(until: nextRefreshAllowedAt) != nil }
+    var isStaleRecoverable: Bool { displayPayload != nil && lastAttemptState == .temporaryFailure }
+
     var fetchState: RuntimeProviderFetchState {
         if isLoading {
             return .loading
         }
-        if payload != nil {
+        if displayPayload != nil {
             return .success
         }
-        if let error {
-            if error.isDefinitiveAuthFailure {
-                return .authFailure
-            }
-            if error.isTemporaryFailure {
-                return .temporaryFailure
-            }
+        switch lastAttemptState {
+        case .loading:
+            return .loading
+        case .temporaryFailure:
+            return .temporaryFailure
+        case .authFailure:
+            return .authFailure
+        case .definitiveFailure:
             return .definitiveFailure
+        case .idle:
+            break
         }
         if hasCredential && canAttemptRefresh {
             return .ready
@@ -270,22 +388,22 @@ struct RuntimeProviderSnapshot {
     }
 
     var claudeUsage: ClaudeUsageResponse? {
-        guard case let .claude(usage)? = payload else { return nil }
+        guard case let .claude(usage)? = displayPayload else { return nil }
         return usage
     }
 
     var codexUsage: CodexUsageResponse? {
-        guard case let .codex(usage)? = payload else { return nil }
+        guard case let .codex(usage)? = displayPayload else { return nil }
         return usage
     }
 
     var geminiUsage: GeminiUsageResponse? {
-        guard case let .gemini(usage)? = payload else { return nil }
+        guard case let .gemini(usage)? = displayPayload else { return nil }
         return usage
     }
 
     var antigravityUsage: AntigravityUsageResponse? {
-        guard case let .antigravity(usage)? = payload else { return nil }
+        guard case let .antigravity(usage)? = displayPayload else { return nil }
         return usage
     }
 }
@@ -295,6 +413,24 @@ struct RuntimeProviderPresentationState: Sendable {
     let lastUpdated: Date?
     let hasContent: Bool
     let error: APIError?
+    let lastAttemptState: RuntimeProviderAttemptState
+    let nextRefreshAllowedAt: Date?
+
+    init(
+        service: PopoverService,
+        lastUpdated: Date?,
+        hasContent: Bool,
+        error: APIError?,
+        lastAttemptState: RuntimeProviderAttemptState = .idle,
+        nextRefreshAllowedAt: Date? = nil
+    ) {
+        self.service = service
+        self.lastUpdated = lastUpdated
+        self.hasContent = hasContent
+        self.error = error
+        self.lastAttemptState = lastAttemptState
+        self.nextRefreshAllowedAt = nextRefreshAllowedAt
+    }
 }
 
 struct RuntimeProviderActivationState: Sendable {

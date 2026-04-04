@@ -79,58 +79,101 @@ final class RefreshOrchestrationTests: XCTestCase {
         XCTAssertFalse(state.isLoading)
     }
 
-    func testApplyFailureKeepsPayloadAndHidesTemporaryErrorWhileGraceWindowRemains() {
+    func testApplyFailureKeepsPayloadForTemporaryFailure() {
         var state = RuntimeProviderState(
-            payload: .claude(
-                ClaudeUsageResponse(
-                    fiveHour: UsageWindow(utilization: 24, resetsAt: nil),
-                    sevenDay: nil
-                )
-            ),
+            payload: sampleClaudePayload,
             isLoading: true,
-            loadingStartedAt: Date(),
-            consecutiveErrorCount: 1
+            loadingStartedAt: Date()
         )
 
         let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
             state: &state,
             error: .networkError("timeout"),
-            minimumInterval: 30,
-            clearPayloadAfterTemporaryFailures: 3,
-            hideTemporaryErrorWhilePayloadAvailable: true
+            minimumInterval: 30
         )
 
         XCTAssertNotNil(state.payload)
-        XCTAssertNil(state.error)
+        XCTAssertEqual(state.error?.errorDescription, APIError.networkError("timeout").errorDescription)
+        XCTAssertEqual(state.lastAttemptState, .temporaryFailure)
         XCTAssertFalse(state.isLoading)
-        XCTAssertEqual(state.consecutiveErrorCount, 2)
         XCTAssertNotNil(resolution.nextAllowedAt)
         XCTAssertNotNil(resolution.backoffSeconds)
     }
 
-    func testApplyFailureClearsPayloadAfterRepeatedTemporaryFailures() {
+    func testApplyFailureClearsPayloadForDefinitiveAuthFailure() {
         var state = RuntimeProviderState(
-            payload: .claude(
-                ClaudeUsageResponse(
-                    fiveHour: UsageWindow(utilization: 24, resetsAt: nil),
-                    sevenDay: nil
-                )
-            ),
-            consecutiveErrorCount: 2
+            payload: sampleClaudePayload
         )
 
         _ = RuntimeProviderRefreshCoordinator.applyFailure(
             state: &state,
-            error: .networkError("timeout"),
-            minimumInterval: 30,
-            clearPayloadAfterTemporaryFailures: 3
+            error: .invalidSessionKey,
+            minimumInterval: 30
         )
 
         XCTAssertNil(state.payload)
-        XCTAssertEqual(state.error?.errorDescription, APIError.networkError("timeout").errorDescription)
+        XCTAssertEqual(state.lastAttemptState, .authFailure)
+        XCTAssertTrue(state.hasAuthError)
+    }
+
+    func testApplyFailureClearsPayloadForDefinitiveNonAuthFailure() {
+        var state = RuntimeProviderState(
+            payload: sampleClaudePayload
+        )
+
+        _ = RuntimeProviderRefreshCoordinator.applyFailure(
+            state: &state,
+            error: .unknownError("boom"),
+            minimumInterval: 30
+        )
+
+        XCTAssertNil(state.payload)
+        XCTAssertEqual(state.lastAttemptState, .definitiveFailure)
+        XCTAssertFalse(state.hasAuthError)
+    }
+
+    func testActionForTabSwitchRefreshesWithCachedPayloadAndRecoverableFailure() {
+        let state = RuntimeProviderPresentationState(
+            service: .codex,
+            lastUpdated: Date(),
+            hasContent: true,
+            error: .networkError("timeout"),
+            lastAttemptState: .temporaryFailure,
+            nextRefreshAllowedAt: Date(timeIntervalSinceNow: 20)
+        )
+
+        let action = RefreshOrchestration.actionForTabSwitch(
+            state: state,
+            refreshInterval: 120
+        )
+
+        guard case let .refresh(service, force)? = action else {
+            return XCTFail("recoverable stale 상태는 refresh 대상이어야 합니다")
+        }
+
+        XCTAssertEqual(service, .codex)
+        XCTAssertFalse(force)
+    }
+
+    func testActionForTabSwitchSkipsFreshSuccessfulPayload() {
+        let state = RuntimeProviderPresentationState(
+            service: .claude,
+            lastUpdated: Date(),
+            hasContent: true,
+            error: nil,
+            lastAttemptState: .idle
+        )
+
+        let action = RefreshOrchestration.actionForTabSwitch(
+            state: state,
+            refreshInterval: 120
+        )
+
+        XCTAssertNil(action)
     }
 }
 
+@MainActor
 final class PopoverViewModelTests: XCTestCase {
     func testUpdateDoesNotRequestLayoutRefreshForDataOnlySnapshotUpdate() async {
         let events = await MainActor.run { () -> [(PopoverService, PopoverLayoutRefreshReason)] in
@@ -291,4 +334,112 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(phase, .waitingForApp)
         XCTAssertEqual(summary, "앱 실행 후 연결 확인 중")
     }
+
+    func testContentPhaseKeepsContentForStalePayloadWithTemporaryFailure() async {
+        let result = await MainActor.run { () -> (PopoverContentPhase, PopoverViewModel.RuntimeServiceState) in
+            let settings = AppSettings.shared
+            let previousEnabled = settings.isProviderEnabled(.claude)
+            settings.setProviderEnabled(true, for: .claude)
+            defer { settings.setProviderEnabled(previousEnabled, for: .claude) }
+
+            let viewModel = PopoverViewModel()
+            viewModel.update(
+                snapshots: [
+                    RuntimeProviderSnapshot(
+                        service: .claude,
+                        payload: sampleClaudePayload,
+                        error: .networkError("timeout"),
+                        isLoading: false,
+                        lastUpdated: Date(timeIntervalSinceNow: -180),
+                        nextRefreshAllowedAt: Date(timeIntervalSinceNow: 20),
+                        credentialState: .usable,
+                        isDetected: true,
+                        canAttemptRefresh: true,
+                        hasAuthError: false,
+                        lastAttemptState: .temporaryFailure
+                    )
+                ]
+            )
+
+            return (
+                viewModel.contentPhase(for: .claude, settings: settings),
+                viewModel.runtimeServiceState(for: .claude, settings: settings)
+            )
+        }
+
+        XCTAssertEqual(result.0, .content)
+        XCTAssertTrue(result.1.summary.contains("현재 24%"))
+        XCTAssertEqual(result.1.meta?.contains("재시도 대기"), true)
+    }
+
+    func testContentPhaseShowsAuthRequiredWhenNoPayloadAndAuthFailure() async {
+        let phase = await MainActor.run { () -> PopoverContentPhase in
+            let settings = AppSettings.shared
+            let previousEnabled = settings.isProviderEnabled(.claude)
+            settings.setProviderEnabled(true, for: .claude)
+            defer { settings.setProviderEnabled(previousEnabled, for: .claude) }
+
+            let viewModel = PopoverViewModel()
+            viewModel.update(
+                snapshots: [
+                    RuntimeProviderSnapshot(
+                        service: .claude,
+                        payload: nil,
+                        error: .invalidSessionKey,
+                        isLoading: false,
+                        lastUpdated: nil,
+                        nextRefreshAllowedAt: nil,
+                        credentialState: .missing,
+                        isDetected: false,
+                        canAttemptRefresh: false,
+                        hasAuthError: true,
+                        lastAttemptState: .authFailure
+                    )
+                ]
+            )
+
+            return viewModel.contentPhase(for: .claude, settings: settings)
+        }
+
+        XCTAssertEqual(phase, .authRequired)
+    }
+
+    func testContentPhaseShowsErrorWhenNoPayloadAndTemporaryFailure() async {
+        let phase = await MainActor.run { () -> PopoverContentPhase in
+            let settings = AppSettings.shared
+            let previousEnabled = settings.isProviderEnabled(.claude)
+            settings.setProviderEnabled(true, for: .claude)
+            defer { settings.setProviderEnabled(previousEnabled, for: .claude) }
+
+            let viewModel = PopoverViewModel()
+            viewModel.update(
+                snapshots: [
+                    RuntimeProviderSnapshot(
+                        service: .claude,
+                        payload: nil,
+                        error: .networkError("timeout"),
+                        isLoading: false,
+                        lastUpdated: nil,
+                        nextRefreshAllowedAt: Date(timeIntervalSinceNow: 20),
+                        credentialState: .usable,
+                        isDetected: true,
+                        canAttemptRefresh: true,
+                        hasAuthError: false,
+                        lastAttemptState: .temporaryFailure
+                    )
+                ]
+            )
+
+            return viewModel.contentPhase(for: .claude, settings: settings)
+        }
+
+        XCTAssertEqual(phase, .error)
+    }
 }
+
+private let sampleClaudePayload: RuntimeProviderPayload = .claude(
+    ClaudeUsageResponse(
+        fiveHour: UsageWindow(utilization: 24, resetsAt: nil),
+        sevenDay: UsageWindow(utilization: 35, resetsAt: nil)
+    )
+)

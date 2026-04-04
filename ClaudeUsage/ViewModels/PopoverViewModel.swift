@@ -136,7 +136,7 @@ final class PopoverViewModel: ObservableObject {
             let isAuthRequired = isEnabled && !(snapshot?.hasCredential ?? false) && !(snapshot?.hasContent ?? false) && !(snapshot?.isLoading ?? false)
             let summary = snapshot.map { runtimeSummary(for: $0, isEnabled: isEnabled, isAuthRequired: isAuthRequired) }
                 ?? (!isEnabled ? "비활성화됨" : (isAuthRequired ? "인증 필요" : "데이터를 아직 불러오지 못했습니다"))
-            let meta = snapshot?.lastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) }
+            let meta = snapshot.flatMap(runtimeMeta(for:))
             return RuntimeServiceState(
                 service: .claude,
                 summary: summary,
@@ -146,7 +146,7 @@ final class PopoverViewModel: ObservableObject {
                 error: snapshot?.error,
                 hasContent: snapshot?.hasContent ?? false,
                 isAuthRequired: isAuthRequired,
-                shouldShowWarningDot: isAuthRequired || snapshot?.hasAuthError == true || snapshot?.error != nil
+                shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired)
             )
         case .codex:
             let isEnabled = settings.isProviderEnabled(.codex)
@@ -154,7 +154,7 @@ final class PopoverViewModel: ObservableObject {
             let isAuthRequired = isEnabled && !(snapshot?.hasCredential ?? false) && !(snapshot?.hasContent ?? false) && !(snapshot?.isLoading ?? false)
             let summary = snapshot.map { runtimeSummary(for: $0, isEnabled: isEnabled, isAuthRequired: isAuthRequired) }
                 ?? (!isEnabled ? "비활성화됨" : (isAuthRequired ? "인증 필요" : "데이터를 아직 불러오지 못했습니다"))
-            let meta = snapshot?.lastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) }
+            let meta = snapshot.flatMap(runtimeMeta(for:))
             return RuntimeServiceState(
                 service: .codex,
                 summary: summary,
@@ -164,7 +164,7 @@ final class PopoverViewModel: ObservableObject {
                 error: snapshot?.error,
                 hasContent: snapshot?.hasContent ?? false,
                 isAuthRequired: isAuthRequired,
-                shouldShowWarningDot: isAuthRequired || snapshot?.hasAuthError == true || snapshot?.error != nil
+                shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired)
             )
         case .gemini:
             return geminiRuntimeServiceState(settings: settings)
@@ -181,7 +181,11 @@ final class PopoverViewModel: ObservableObject {
         let runtimeError = snapshot?.error
         let requiresInteractiveSetup = ProviderEnvironmentDetector.requiresInteractiveSetup(for: .gemini)
         let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
-        let isAuthRequired = isEnabled && requiresInteractiveSetup && missingCredential
+        let isAuthRequired = isEnabled
+            && requiresInteractiveSetup
+            && missingCredential
+            && !(snapshot?.hasContent ?? false)
+            && !(snapshot?.isLoading ?? false)
         let summaryState = Self.resolveGeminiSummaryState(
             snapshot: snapshot,
             environmentStatus: environmentStatus,
@@ -193,13 +197,13 @@ final class PopoverViewModel: ObservableObject {
         return RuntimeServiceState(
             service: .gemini,
             summary: summaryState.summary,
-            meta: snapshot?.lastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) },
+            meta: snapshot.flatMap(runtimeMeta(for:)),
             lastUpdated: snapshot?.lastUpdated,
             isLoading: snapshot?.isLoading ?? false,
             error: runtimeError,
             hasContent: geminiUsage != nil,
             isAuthRequired: isAuthRequired,
-            shouldShowWarningDot: isAuthRequired || (runtimeError?.isDefinitiveAuthFailure ?? false)
+            shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired)
         )
     }
 
@@ -211,7 +215,11 @@ final class PopoverViewModel: ObservableObject {
         let runtimeError = snapshot?.error
         let requiresInteractiveSetup = ProviderEnvironmentDetector.requiresInteractiveSetup(for: .antigravity)
         let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
-        let isAuthRequired = isEnabled && requiresInteractiveSetup && missingCredential
+        let isAuthRequired = isEnabled
+            && requiresInteractiveSetup
+            && missingCredential
+            && !(snapshot?.hasContent ?? false)
+            && !(snapshot?.isLoading ?? false)
         let summaryState = Self.resolveAntigravitySummaryState(
             snapshot: snapshot,
             environmentStatus: environmentStatus,
@@ -223,13 +231,13 @@ final class PopoverViewModel: ObservableObject {
         return RuntimeServiceState(
             service: .antigravity,
             summary: summaryState.summary,
-            meta: snapshot?.lastUpdated.map { RelativeDateTimeFormatter().localizedString(for: $0, relativeTo: Date()) },
+            meta: snapshot.flatMap(runtimeMeta(for:)),
             lastUpdated: snapshot?.lastUpdated,
             isLoading: snapshot?.isLoading ?? false,
             error: runtimeError,
             hasContent: antigravityUsage != nil,
             isAuthRequired: isAuthRequired,
-            shouldShowWarningDot: isAuthRequired || (runtimeError?.isDefinitiveAuthFailure ?? false)
+            shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired)
         )
     }
 
@@ -442,16 +450,6 @@ final class PopoverViewModel: ObservableObject {
         if isAuthRequired {
             return "인증 필요"
         }
-        if snapshot.isLoading {
-            return "조회 중"
-        }
-        if snapshot.hasBackoff,
-           snapshot.payload == nil,
-           let nextRefreshAllowedAt = snapshot.nextRefreshAllowedAt,
-           let remainingSeconds = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextRefreshAllowedAt)
-        {
-            return "약 \(remainingSeconds)초 후 다시 시도"
-        }
         if let usage = snapshot.claudeUsage {
             return "현재 \(Int(usage.fiveHour.utilization.rounded()))% · 주간 \(Int((usage.sevenDay?.utilization ?? 0).rounded()))%"
         }
@@ -466,6 +464,15 @@ final class PopoverViewModel: ObservableObject {
             let tertiary = usage.tertiaryWindow.map { " · Flash \(Int($0.usedPercent.rounded()))%" } ?? ""
             return "Claude \(Int(usage.primaryPercentage.rounded()))% · Pro \(Int(usage.secondaryPercentage.rounded()))%\(tertiary)"
         }
+        if snapshot.isLoading {
+            return "조회 중"
+        }
+        if snapshot.hasBackoff,
+           let nextRefreshAllowedAt = snapshot.nextRefreshAllowedAt,
+           let remainingSeconds = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextRefreshAllowedAt)
+        {
+            return "약 \(remainingSeconds)초 후 다시 시도"
+        }
         if let error = snapshot.error {
             if shouldSuppressRecoverableError(error, kind: snapshot.kind),
                let environmentStatus = ProviderEnvironmentDetector.status(for: snapshot.kind) {
@@ -476,17 +483,62 @@ final class PopoverViewModel: ObservableObject {
         return ProviderEnvironmentDetector.status(for: snapshot.kind)?.summary ?? "데이터를 아직 불러오지 못했습니다"
     }
 
+    private func runtimeMeta(for snapshot: RuntimeProviderSnapshot) -> String? {
+        guard snapshot.hasContent else {
+            return snapshot.lastUpdated.map(relativeTimestamp(for:))
+        }
+        if snapshot.isLoading {
+            return "갱신 중"
+        }
+        guard let lastUpdated = snapshot.lastUpdated else {
+            return nil
+        }
+        let relative = relativeTimestamp(for: lastUpdated)
+        if snapshot.lastAttemptState == .temporaryFailure {
+            if snapshot.hasBackoff {
+                return "재시도 대기 · 마지막 성공 \(relative)"
+            }
+            return "마지막 성공 \(relative)"
+        }
+        return relative
+    }
+
+    private func shouldShowWarningDot(
+        snapshot: RuntimeProviderSnapshot?,
+        isAuthRequired: Bool
+    ) -> Bool {
+        guard let snapshot else {
+            return isAuthRequired
+        }
+        if isAuthRequired || snapshot.hasAuthError {
+            return true
+        }
+        if snapshot.isStaleRecoverable {
+            return false
+        }
+        return snapshot.error != nil
+    }
+
+    private func relativeTimestamp(for date: Date) -> String {
+        RelativeDateTimeFormatter().localizedString(for: date, relativeTo: Date())
+    }
+
     func localProviderSummaryState(for service: PopoverService, settings: AppSettings) -> LocalProviderSummaryState? {
         switch service {
         case .gemini:
             let isEnabled = settings.isProviderEnabled(.gemini)
             let environmentStatus = ProviderEnvironmentDetector.status(for: .gemini)
             let signals = ProviderEnvironmentDetector.geminiSignals()
+            let snapshot = runtimeSnapshots[.gemini]
             let requiresInteractiveSetup = ProviderEnvironmentDetector.requiresInteractiveSetup(for: .gemini)
             let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
-            let isAuthRequired = isEnabled && requiresInteractiveSetup && missingCredential
+            let isAuthRequired = isEnabled
+                && requiresInteractiveSetup
+                && missingCredential
+                && !(snapshot?.hasContent ?? false)
+                && !(snapshot?.isLoading ?? false)
             return Self.resolveGeminiSummaryState(
-                snapshot: runtimeSnapshots[.gemini],
+                snapshot: snapshot,
                 environmentStatus: environmentStatus,
                 signals: signals,
                 isEnabled: isEnabled,
@@ -496,11 +548,16 @@ final class PopoverViewModel: ObservableObject {
             let isEnabled = settings.isProviderEnabled(.antigravity)
             let environmentStatus = ProviderEnvironmentDetector.status(for: .antigravity)
             let signals = ProviderEnvironmentDetector.antigravitySignals()
+            let snapshot = runtimeSnapshots[.antigravity]
             let requiresInteractiveSetup = ProviderEnvironmentDetector.requiresInteractiveSetup(for: .antigravity)
             let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
-            let isAuthRequired = isEnabled && requiresInteractiveSetup && missingCredential
+            let isAuthRequired = isEnabled
+                && requiresInteractiveSetup
+                && missingCredential
+                && !(snapshot?.hasContent ?? false)
+                && !(snapshot?.isLoading ?? false)
             return Self.resolveAntigravitySummaryState(
-                snapshot: runtimeSnapshots[.antigravity],
+                snapshot: snapshot,
                 environmentStatus: environmentStatus,
                 signals: signals,
                 isEnabled: isEnabled,

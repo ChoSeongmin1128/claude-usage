@@ -21,7 +21,7 @@ enum RuntimeProviderRefreshCoordinator {
         force: Bool,
         respectBackoffWithoutPayload: Bool = true
     ) -> RuntimeRefreshPreparation {
-        let shouldRespectBackoff = !force && (respectBackoffWithoutPayload || state.payload != nil)
+        let shouldRespectBackoff = !force && (respectBackoffWithoutPayload || state.lastSuccessfulPayload != nil)
         if shouldRespectBackoff,
            let nextAllowedAt = state.nextRefreshAllowedAt,
            let remainingSeconds = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextAllowedAt)
@@ -44,6 +44,8 @@ enum RuntimeProviderRefreshCoordinator {
 
         state.isLoading = true
         state.loadingStartedAt = Date()
+        state.lastAttemptState = .loading
+        state.lastAttemptError = nil
         return .start
     }
 
@@ -52,55 +54,55 @@ enum RuntimeProviderRefreshCoordinator {
         payload: RuntimeProviderPayload,
         updatedAt: Date = Date()
     ) {
-        state.payload = payload
-        state.error = nil
+        state.lastSuccessfulPayload = payload
+        state.lastSuccessfulAt = updatedAt
+        state.lastAttemptState = .idle
+        state.lastAttemptError = nil
         state.isLoading = false
         state.loadingStartedAt = nil
         state.nextRefreshAllowedAt = nil
-        state.lastUpdated = updatedAt
         state.hasAuthError = false
-        state.consecutiveErrorCount = 0
     }
 
     static func applyFailure(
         state: inout RuntimeProviderState,
         error: APIError,
-        minimumInterval: TimeInterval,
-        clearPayloadAfterTemporaryFailures: Int? = nil,
-        hideTemporaryErrorWhilePayloadAvailable: Bool = false
+        minimumInterval: TimeInterval
     ) -> RuntimeRefreshFailureResolution {
         state.isLoading = false
         state.loadingStartedAt = nil
-        state.consecutiveErrorCount += 1
-
-        let backoff = RefreshExecutionPolicy.nextBackoffDate(
-            for: error,
-            minimumInterval: minimumInterval,
-            existingAllowedAt: state.nextRefreshAllowedAt
-        )
-        state.nextRefreshAllowedAt = backoff.candidate
 
         if error.isTemporaryFailure {
-            if let clearPayloadAfterTemporaryFailures,
-               state.consecutiveErrorCount >= clearPayloadAfterTemporaryFailures
-            {
-                state.payload = nil
-            }
-
+            let backoff = RefreshExecutionPolicy.nextBackoffDate(
+                for: error,
+                minimumInterval: minimumInterval,
+                existingAllowedAt: state.nextRefreshAllowedAt
+            )
+            state.lastAttemptState = .temporaryFailure
+            state.lastAttemptError = error
+            state.nextRefreshAllowedAt = backoff.candidate
             state.hasAuthError = false
-            if hideTemporaryErrorWhilePayloadAvailable, state.payload != nil {
-                state.error = nil
-            } else {
-                state.error = error
-            }
+            return RuntimeRefreshFailureResolution(
+                nextAllowedAt: backoff.candidate,
+                backoffSeconds: backoff.seconds
+            )
+        }
+
+        state.lastSuccessfulPayload = nil
+        state.lastSuccessfulAt = nil
+        state.lastAttemptError = error
+        state.nextRefreshAllowedAt = nil
+        if error.isDefinitiveAuthFailure {
+            state.lastAttemptState = .authFailure
+            state.hasAuthError = true
         } else {
-            state.error = error
-            state.hasAuthError = error.isDefinitiveAuthFailure
+            state.lastAttemptState = .definitiveFailure
+            state.hasAuthError = false
         }
 
         return RuntimeRefreshFailureResolution(
-            nextAllowedAt: backoff.candidate,
-            backoffSeconds: backoff.seconds
+            nextAllowedAt: nil,
+            backoffSeconds: nil
         )
     }
 
@@ -109,19 +111,25 @@ enum RuntimeProviderRefreshCoordinator {
         isCodexAuthenticated: Bool,
         requiresInteractiveSetup: Bool
     ) -> RuntimeProviderState {
-        var clearedState = RuntimeProviderState()
+        let clearedState = RuntimeProviderState()
         switch service {
         case .claude:
             return clearedState
         case .codex:
             if !isCodexAuthenticated {
-                clearedState.error = .invalidSessionKey
-                clearedState.hasAuthError = true
+                return RuntimeProviderState(
+                    error: .invalidSessionKey,
+                    hasAuthError: true,
+                    lastAttemptState: .authFailure
+                )
             }
         case .gemini, .antigravity:
             if requiresInteractiveSetup {
-                clearedState.error = .invalidSessionKey
-                clearedState.hasAuthError = true
+                return RuntimeProviderState(
+                    error: .invalidSessionKey,
+                    hasAuthError: true,
+                    lastAttemptState: .authFailure
+                )
             }
         }
         return clearedState

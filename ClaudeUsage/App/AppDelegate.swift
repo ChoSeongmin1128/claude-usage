@@ -132,6 +132,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         set {
             var state = runtimeStateCatalog[.claude]
             state.isLoading = newValue
+            state.lastAttemptState = newValue
+                ? .loading
+                : RuntimeProviderAttemptState.resolve(isLoading: false, error: state.error)
             runtimeStateCatalog[.claude] = state
         }
     }
@@ -141,6 +144,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         set {
             var state = runtimeStateCatalog[.codex]
             state.isLoading = newValue
+            state.lastAttemptState = newValue
+                ? .loading
+                : RuntimeProviderAttemptState.resolve(isLoading: false, error: state.error)
             runtimeStateCatalog[.codex] = state
         }
     }
@@ -150,6 +156,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         set {
             var state = runtimeStateCatalog[.gemini]
             state.isLoading = newValue
+            state.lastAttemptState = newValue
+                ? .loading
+                : RuntimeProviderAttemptState.resolve(isLoading: false, error: state.error)
             runtimeStateCatalog[.gemini] = state
         }
     }
@@ -159,6 +168,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         set {
             var state = runtimeStateCatalog[.antigravity]
             state.isLoading = newValue
+            state.lastAttemptState = newValue
+                ? .loading
+                : RuntimeProviderAttemptState.resolve(isLoading: false, error: state.error)
             runtimeStateCatalog[.antigravity] = state
         }
     }
@@ -303,42 +315,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         set {
             var state = runtimeStateCatalog[.antigravity]
             state.hasAuthError = newValue
-            runtimeStateCatalog[.antigravity] = state
-        }
-    }
-
-    private var consecutiveErrorCount: Int {
-        get { runtimeStateCatalog[.claude].consecutiveErrorCount }
-        set {
-            var state = runtimeStateCatalog[.claude]
-            state.consecutiveErrorCount = newValue
-            runtimeStateCatalog[.claude] = state
-        }
-    }
-
-    private var codexConsecutiveErrorCount: Int {
-        get { runtimeStateCatalog[.codex].consecutiveErrorCount }
-        set {
-            var state = runtimeStateCatalog[.codex]
-            state.consecutiveErrorCount = newValue
-            runtimeStateCatalog[.codex] = state
-        }
-    }
-
-    private var geminiConsecutiveErrorCount: Int {
-        get { runtimeStateCatalog[.gemini].consecutiveErrorCount }
-        set {
-            var state = runtimeStateCatalog[.gemini]
-            state.consecutiveErrorCount = newValue
-            runtimeStateCatalog[.gemini] = state
-        }
-    }
-
-    private var antigravityConsecutiveErrorCount: Int {
-        get { runtimeStateCatalog[.antigravity].consecutiveErrorCount }
-        set {
-            var state = runtimeStateCatalog[.antigravity]
-            state.consecutiveErrorCount = newValue
             runtimeStateCatalog[.antigravity] = state
         }
     }
@@ -724,7 +700,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 credentialState: claudeCredentialAvailability.hasAnyCredential ? .usable : .missing,
                 isDetected: claudeCredentialAvailability.hasAnyCredential,
                 canAttemptRefresh: claudeCredentialAvailability.hasAnyCredential,
-                hasAuthError: state.hasAuthError
+                hasAuthError: state.hasAuthError,
+                lastAttemptState: state.lastAttemptState
             )
         case .codex:
             return RuntimeProviderSnapshot(
@@ -737,7 +714,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 credentialState: CodexAuthManager.shared.isAuthenticated ? .usable : .missing,
                 isDetected: CodexAuthManager.shared.isAuthenticated,
                 canAttemptRefresh: CodexAuthManager.shared.isAuthenticated,
-                hasAuthError: state.hasAuthError
+                hasAuthError: state.hasAuthError,
+                lastAttemptState: state.lastAttemptState
             )
         case .gemini:
             let status = ProviderEnvironmentDetector.status(for: .gemini)
@@ -751,7 +729,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 credentialState: status?.credentialState ?? .unknown,
                 isDetected: status?.isDetected ?? false,
                 canAttemptRefresh: status?.canAttemptRefresh ?? false,
-                hasAuthError: state.hasAuthError
+                hasAuthError: state.hasAuthError,
+                lastAttemptState: state.lastAttemptState
             )
         case .antigravity:
             let status = ProviderEnvironmentDetector.status(for: .antigravity)
@@ -765,7 +744,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 credentialState: status?.credentialState ?? .unknown,
                 isDetected: status?.isDetected ?? false,
                 canAttemptRefresh: status?.canAttemptRefresh ?? false,
-                hasAuthError: state.hasAuthError
+                hasAuthError: state.hasAuthError,
+                lastAttemptState: state.lastAttemptState
             )
         }
     }
@@ -1031,21 +1011,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if CodexAuthManager.shared.isAuthenticated {
                 codexError = nil
                 hasCodexAuthError = false
-                codexConsecutiveErrorCount = 0
                 nextCodexRefreshAllowedAt = nil
             }
         case .gemini:
             if hasGeminiCredential {
                 geminiError = nil
                 hasGeminiAuthError = false
-                geminiConsecutiveErrorCount = 0
                 nextGeminiRefreshAllowedAt = nil
             }
         case .antigravity:
             if hasAntigravityCredential {
                 antigravityError = nil
                 hasAntigravityAuthError = false
-                antigravityConsecutiveErrorCount = 0
                 nextAntigravityRefreshAllowedAt = nil
             }
         }
@@ -1094,18 +1071,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func clearClaudePresentationState(markSetupIncomplete: Bool) {
-        currentUsage = nil
+        runtimeStateCatalog[.claude] = RuntimeProviderState()
         currentOverage = nil
         currentClaudeProfileMetadata = nil
         currentClaudeNotificationPolicy = nil
         lastOverageFetchAt = nil
-        lastUpdated = nil
-        currentError = nil
-        hasAuthError = false
-        consecutiveErrorCount = 0
-        isLoading = false
-        loadingStartedAt = nil
-        nextUsageRefreshAllowedAt = nil
         popoverViewModel.nextUsageRetryAt = nil
     }
 
@@ -1115,7 +1085,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             service: service,
             lastUpdated: snapshot.lastUpdated,
             hasContent: snapshot.hasContent,
-            error: snapshot.error
+            error: snapshot.error,
+            lastAttemptState: snapshot.lastAttemptState,
+            nextRefreshAllowedAt: snapshot.nextRefreshAllowedAt
         )
     }
 
@@ -1275,8 +1247,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
                         state: &state,
                         error: error,
-                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
-                        hideTemporaryErrorWhilePayloadAvailable: true
+                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
                     )
                     self.runtimeStateCatalog[.claude] = state
                     self.popoverViewModel.nextUsageRetryAt = resolution.nextAllowedAt
@@ -1296,8 +1267,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
                         state: &state,
                         error: apiError,
-                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
-                        hideTemporaryErrorWhilePayloadAvailable: true
+                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
                     )
                     self.runtimeStateCatalog[.claude] = state
                     self.popoverViewModel.nextUsageRetryAt = resolution.nextAllowedAt
@@ -1315,9 +1285,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) else { return }
 
         if !CodexAuthManager.shared.isAuthenticated {
-            hasCodexAuthError = true
-            codexError = .invalidSessionKey
-            currentCodexUsage = nil
+            var state = runtimeStateCatalog[.codex]
+            _ = RuntimeProviderRefreshCoordinator.applyFailure(
+                state: &state,
+                error: .invalidSessionKey,
+                minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
+            )
+            runtimeStateCatalog[.codex] = state
             syncRuntimePresentation(overage: currentOverage)
             return
         }
@@ -1355,8 +1329,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
                         state: &state,
                         error: error,
-                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
-                        clearPayloadAfterTemporaryFailures: 3
+                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
                     )
                     self.runtimeStateCatalog[.codex] = state
                     if let backoffSeconds = resolution.backoffSeconds {
@@ -1371,8 +1344,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
                         state: &state,
                         error: wrapped,
-                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
-                        clearPayloadAfterTemporaryFailures: 3
+                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
                     )
                     self.runtimeStateCatalog[.codex] = state
                     if let backoffSeconds = resolution.backoffSeconds {
@@ -1387,8 +1359,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshGeminiUsage(force: Bool = false) {
         guard ServiceSelectionHelper.isEnabled(.gemini, settings: AppSettings.shared) else { return }
         guard prepareRefresh(for: .gemini, force: force, respectBackoffWithoutPayload: false) else { return }
-        geminiError = nil
-        hasGeminiAuthError = false
 
         Task {
             do {
@@ -1426,8 +1396,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
                         state: &state,
                         error: error,
-                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
-                        clearPayloadAfterTemporaryFailures: 3
+                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
                     )
                     self.runtimeStateCatalog[.gemini] = state
                     if let backoffSeconds = resolution.backoffSeconds {
@@ -1442,8 +1411,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
                         state: &state,
                         error: wrapped,
-                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
-                        clearPayloadAfterTemporaryFailures: 3
+                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
                     )
                     self.runtimeStateCatalog[.gemini] = state
                     if let backoffSeconds = resolution.backoffSeconds {
@@ -1458,8 +1426,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshAntigravityUsage(force: Bool = false) {
         guard ServiceSelectionHelper.isEnabled(.antigravity, settings: AppSettings.shared) else { return }
         guard prepareRefresh(for: .antigravity, force: force, respectBackoffWithoutPayload: false) else { return }
-        antigravityError = nil
-        hasAntigravityAuthError = false
 
         Task {
             do {
@@ -1497,8 +1463,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
                         state: &state,
                         error: error,
-                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
-                        clearPayloadAfterTemporaryFailures: 3
+                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
                     )
                     self.runtimeStateCatalog[.antigravity] = state
                     if let backoffSeconds = resolution.backoffSeconds {
@@ -1513,8 +1478,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
                         state: &state,
                         error: wrapped,
-                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval,
-                        clearPayloadAfterTemporaryFailures: 3
+                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
                     )
                     self.runtimeStateCatalog[.antigravity] = state
                     if let backoffSeconds = resolution.backoffSeconds {
@@ -1757,11 +1721,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             onCodexLogout: { [weak self] in
                 guard let self else { return }
                 CodexAuthManager.shared.clearCache()
-                self.currentCodexUsage = nil
-                self.codexError = nil
-                self.hasCodexAuthError = false
-                self.codexConsecutiveErrorCount = 0
-                self.nextCodexRefreshAllowedAt = nil
+                self.runtimeStateCatalog[.codex] = RuntimeProviderState()
                 self.updateMenuBar()
                 self.updatePopoverViewModel(overage: self.currentOverage)
             }

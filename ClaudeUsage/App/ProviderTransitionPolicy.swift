@@ -14,7 +14,9 @@ enum ProviderTransitionPolicy {
         let threshold = max(refreshInterval * 2, 60)
 
         let stale = state.lastUpdated.map { Date().timeIntervalSince($0) >= threshold } ?? true
-        return !state.hasContent || state.error != nil || stale
+        let recoverableAttempt = state.lastAttemptState == .temporaryFailure || state.lastAttemptState == .loading
+        let hasBackoff = RefreshExecutionPolicy.remainingBackoffSeconds(until: state.nextRefreshAllowedAt) != nil
+        return !state.hasContent || recoverableAttempt || hasBackoff || stale
     }
 
     static func enabledChangeDecision(
