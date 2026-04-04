@@ -431,7 +431,7 @@ final class PopoverViewModel: ObservableObject {
         let phase = contentPhase(for: service, settings: settings)
         let rowCount = preferredContentRowCount(for: service, density: density, phase: phase, settings: settings)
         return CGSize(
-            width: PopoverView.preferredPopoverWidth(compact: density.isCompact),
+            width: PopoverLayoutMetrics.preferredPopoverWidth(compact: density.isCompact),
             height: PopoverLayoutMetrics.preferredPopoverHeight(
                 compact: density.isCompact,
                 phase: phase,

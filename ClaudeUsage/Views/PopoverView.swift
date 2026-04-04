@@ -100,6 +100,7 @@ struct PopoverView: View {
                 .padding(.bottom, 6)
             }
         }
+        .frame(width: popoverWidth, alignment: .topLeading)
         .background(Color(NSColor.windowBackgroundColor))
         .onAppear {
             normalizeSelectedServiceIfNeeded()
@@ -305,11 +306,12 @@ struct PopoverView: View {
         }
     }
 
+    private var popoverWidth: CGFloat {
+        PopoverLayoutMetrics.preferredPopoverWidth(compact: isCompact)
+    }
+
     static func preferredPopoverWidth(compact: Bool) -> CGFloat {
-        if compact {
-            return 296
-        }
-        return PopoverLayoutMetrics.standardPopoverWidth
+        PopoverLayoutMetrics.preferredPopoverWidth(compact: compact)
     }
 
     static func resolvedPopoverWidth(for service: PopoverService, compact: Bool) -> CGFloat {
@@ -553,9 +555,14 @@ enum PopoverContentPhase {
 
 enum PopoverLayoutMetrics {
     static let standardPopoverWidth: CGFloat = 368
+    static let compactPopoverWidth: CGFloat = 296
     static let compactRowLabelWidth: CGFloat = 100
     static let compactRowMeterWidth: CGFloat = 150
     static let compactRowSpacing: CGFloat = 6
+
+    static func preferredPopoverWidth(compact: Bool) -> CGFloat {
+        compact ? compactPopoverWidth : standardPopoverWidth
+    }
 
     static func preferredPopoverHeight(
         compact: Bool,

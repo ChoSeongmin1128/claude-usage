@@ -24,9 +24,6 @@ final class AppPopoverCoordinator {
 
         let popoverView = PopoverView(viewModel: viewModel)
         let hostingController = NSHostingController(rootView: popoverView)
-        if #available(macOS 13.0, *) {
-            hostingController.sizingOptions = [.preferredContentSize]
-        }
 
         popover.contentViewController = hostingController
         popover.animates = false
@@ -74,6 +71,7 @@ final class AppPopoverCoordinator {
         let changed = abs(popover.contentSize.width - targetSize.width) > 0.5 ||
             abs(popover.contentSize.height - targetSize.height) > 0.5
         if force || changed {
+            popover.contentViewController?.preferredContentSize = targetSize
             popover.contentSize = targetSize
         }
     }
