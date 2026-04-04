@@ -875,12 +875,10 @@ class AppSettings: ObservableObject {
     }
 
     func isPopoverCompact(for kind: AppProviderKind) -> Bool {
-        _ = kind
-        popoverCompact
+        return popoverCompact
     }
 
     func setPopoverCompact(_ isCompact: Bool, for kind: AppProviderKind) {
-        _ = kind
         if popoverCompact != isCompact {
             popoverCompact = isCompact
         } else {
