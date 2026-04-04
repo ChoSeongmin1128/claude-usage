@@ -23,6 +23,7 @@ final class PopoverViewLayoutTests: XCTestCase {
         XCTAssertEqual(PopoverLayoutMetrics.compactStatusRowHeight, 18)
         XCTAssertEqual(PopoverLayoutMetrics.compactOverageRowHeight, 22)
         XCTAssertEqual(PopoverLayoutMetrics.compactProgressBarHeight, 8)
+        XCTAssertEqual(PopoverLayoutMetrics.compactContentBottomSpacing, 5)
     }
 
     func testStandardPopoverHeightShrinksForShortOrEmptyStates() {
@@ -43,16 +44,16 @@ final class PopoverViewLayoutTests: XCTestCase {
     func testCompactPopoverHeightUsesShorterStatusVariant() {
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .empty, rowCount: 0),
-            108
+            113
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .content, rowCount: 2),
-            107
+            112
         )
     }
 
     func testCompactLayoutSpecUsesExactVisibleRowHeights() async {
-        let result = await MainActor.run { () -> (CGFloat, CGFloat) in
+        let result = await MainActor.run { () -> (CGFloat, CGFloat, CGFloat) in
             let settings = AppSettings.shared
             let snapshot = settings.createSnapshot()
             defer { settings.restore(from: snapshot) }
@@ -79,11 +80,12 @@ final class PopoverViewLayoutTests: XCTestCase {
             )
 
             let layoutSpec = viewModel.layoutSpec(for: .claude, settings: settings)
-            return (layoutSpec.bodyContentHeight, layoutSpec.size.height)
+            return (layoutSpec.bodyContentHeight, layoutSpec.contentBottomSpacing, layoutSpec.size.height)
         }
 
         XCTAssertEqual(result.0, 39)
-        XCTAssertEqual(result.1, 107)
+        XCTAssertEqual(result.1, 5)
+        XCTAssertEqual(result.2, 112)
     }
 
     func testStandardWidthStaysFixedAcrossAllPopoverPhases() async {

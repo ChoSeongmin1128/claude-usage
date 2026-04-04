@@ -5,6 +5,7 @@ import SwiftUI
 final class AppPopoverCoordinator {
     let viewModel = PopoverViewModel()
     let popover = NSPopover()
+    private var presentationRevision: Int = 0
 
     func configure(
         initialService: PopoverService,
@@ -31,10 +32,13 @@ final class AppPopoverCoordinator {
     }
 
     func close() {
+        presentationRevision += 1
         popover.close()
     }
 
-    func invalidate() {}
+    func invalidate() {
+        presentationRevision += 1
+    }
 
     func applyBehavior(isPinned: Bool) {
         popover.behavior = isPinned ? .applicationDefined : .transient
@@ -47,6 +51,18 @@ final class AppPopoverCoordinator {
     func refreshSizeIfShown(size: CGSize) {
         guard popover.isShown else { return }
         applyPopoverSizeIfNeeded(size: size, force: false)
+    }
+
+    func finalizeSizeAfterPresentation(size: CGSize) {
+        presentationRevision += 1
+        let revision = presentationRevision
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard self.presentationRevision == revision else { return }
+            guard self.popover.isShown else { return }
+            self.popover.contentViewController?.view.layoutSubtreeIfNeeded()
+            self.applyPopoverSizeIfNeeded(size: size, force: true)
+        }
     }
 
     private func applyPopoverSizeIfNeeded(size: CGSize, force: Bool) {

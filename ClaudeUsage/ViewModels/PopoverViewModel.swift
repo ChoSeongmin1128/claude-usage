@@ -75,6 +75,7 @@ struct PopoverLayoutSpec: Equatable {
     let size: CGSize
     let bodyContentHeight: CGFloat
     let bodyInsets: EdgeInsets
+    let contentBottomSpacing: CGFloat
     let sectionSpacing: CGFloat
 
     var isCompact: Bool {

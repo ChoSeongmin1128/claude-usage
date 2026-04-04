@@ -554,6 +554,7 @@ enum PopoverLayoutMetrics {
     static let compactStatusPanelHeight: CGFloat = 40
     static let compactInteractiveStatusPanelHeight: CGFloat = 48
     static let compactMinimumPopoverHeight: CGFloat = 96
+    static let compactContentBottomSpacing: CGFloat = 5
 
     static func preferredPopoverWidth(compact: Bool) -> CGFloat {
         compact ? compactPopoverWidth : standardPopoverWidth
@@ -567,6 +568,7 @@ enum PopoverLayoutMetrics {
     ) -> PopoverLayoutSpec {
         let bodyInsets = density.isCompact ? compactBodyInsets : standardBodyInsets
         let sectionSpacing = density.isCompact ? compactSectionSpacing : standardSectionSpacing
+        let contentBottomSpacing = density.isCompact ? compactContentBottomSpacing : 0
 
         if density.isCompact {
             let bodyContentHeight = compactBodyContentHeight(phase: phase, sections: sections)
@@ -576,6 +578,7 @@ enum PopoverLayoutMetrics {
                     + bodyInsets.top
                     + bodyContentHeight
                     + bodyInsets.bottom
+                    + contentBottomSpacing
                     + dividerHeight
                     + compactFooterHeight
             )
@@ -585,6 +588,7 @@ enum PopoverLayoutMetrics {
                 size: CGSize(width: compactPopoverWidth, height: totalHeight),
                 bodyContentHeight: bodyContentHeight,
                 bodyInsets: bodyInsets,
+                contentBottomSpacing: contentBottomSpacing,
                 sectionSpacing: sectionSpacing
             )
         }
@@ -599,6 +603,7 @@ enum PopoverLayoutMetrics {
             ),
             bodyContentHeight: bodyContentHeight,
             bodyInsets: bodyInsets,
+            contentBottomSpacing: contentBottomSpacing,
             sectionSpacing: sectionSpacing
         )
     }
@@ -618,6 +623,7 @@ enum PopoverLayoutMetrics {
                         + compactBodyInsets.top
                         + contentHeight
                         + compactBodyInsets.bottom
+                        + compactContentBottomSpacing
                         + dividerHeight
                         + compactFooterHeight
                 )
@@ -629,6 +635,7 @@ enum PopoverLayoutMetrics {
                 + compactBodyInsets.top
                 + statusHeight
                 + compactBodyInsets.bottom
+                + compactContentBottomSpacing
                 + dividerHeight
                 + compactFooterHeight
         }
@@ -718,7 +725,10 @@ struct PopoverStateContainer<Content: View>: View {
                 maxHeight: layoutSpec.isCompact ? layoutSpec.bodyContentHeight : nil,
                 alignment: .topLeading
             )
-            .padding(layoutSpec.bodyInsets)
+            .padding(.top, layoutSpec.bodyInsets.top)
+            .padding(.leading, layoutSpec.bodyInsets.leading)
+            .padding(.trailing, layoutSpec.bodyInsets.trailing)
+            .padding(.bottom, layoutSpec.bodyInsets.bottom + layoutSpec.contentBottomSpacing)
     }
 }
 
