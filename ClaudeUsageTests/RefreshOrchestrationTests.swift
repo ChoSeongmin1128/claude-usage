@@ -132,6 +132,30 @@ final class RefreshOrchestrationTests: XCTestCase {
         XCTAssertFalse(state.hasAuthError)
     }
 
+    func testClearedStateMarksCodexAuthFailureWhenUnauthenticated() {
+        let state = RuntimeProviderRefreshCoordinator.clearedState(
+            service: .codex,
+            isCodexAuthenticated: false,
+            requiresInteractiveSetup: false
+        )
+
+        XCTAssertEqual(state.lastAttemptState, .authFailure)
+        XCTAssertTrue(state.hasAuthError)
+        XCTAssertEqual(state.error?.errorDescription, APIError.invalidSessionKey.errorDescription)
+    }
+
+    func testClearedStateMarksLocalProviderAuthFailureWhenInteractiveSetupRequired() {
+        let state = RuntimeProviderRefreshCoordinator.clearedState(
+            service: .gemini,
+            isCodexAuthenticated: true,
+            requiresInteractiveSetup: true
+        )
+
+        XCTAssertEqual(state.lastAttemptState, .authFailure)
+        XCTAssertTrue(state.hasAuthError)
+        XCTAssertEqual(state.error?.errorDescription, APIError.invalidSessionKey.errorDescription)
+    }
+
     func testActionForTabSwitchRefreshesWithCachedPayloadAndRecoverableFailure() {
         let state = RuntimeProviderPresentationState(
             service: .codex,
@@ -435,6 +459,171 @@ final class PopoverViewModelTests: XCTestCase {
 
         XCTAssertEqual(phase, .error)
     }
+
+    func testDisplaySectionsHideSecondaryGeminiAccountInCompact() async {
+        let result = await MainActor.run { () -> ([PopoverDisplaySection], [PopoverDisplaySection]) in
+            let viewModel = PopoverViewModel()
+            let payload = GeminiUsageResponse(
+                accountEmail: "user@example.com",
+                accountPlan: "Gemini Advanced",
+                primaryWindow: GeminiUsageWindow(label: "Pro", modelID: "gemini-pro", usedPercent: 24, resetAtISO: nil),
+                secondaryWindow: GeminiUsageWindow(label: "Flash", modelID: "gemini-flash", usedPercent: 11, resetAtISO: nil),
+                tertiaryWindow: nil
+            )
+            viewModel.update(
+                snapshots: [
+                    RuntimeProviderSnapshot(
+                        service: .gemini,
+                        payload: .gemini(payload),
+                        error: nil,
+                        isLoading: false,
+                        lastUpdated: Date(),
+                        nextRefreshAllowedAt: nil,
+                        credentialState: .usable,
+                        isDetected: true,
+                        canAttemptRefresh: true,
+                        hasAuthError: false
+                    )
+                ]
+            )
+
+            return (
+                viewModel.displaySections(for: .gemini, density: .standard, settings: .shared),
+                viewModel.displaySections(for: .gemini, density: .compact, settings: .shared)
+            )
+        }
+
+        XCTAssertEqual(result.0.count, 3)
+        XCTAssertEqual(result.0.map(\.kind), [.usage, .usage, .account])
+        XCTAssertEqual(result.1.count, 2)
+        XCTAssertEqual(result.1.map(\.kind), [.usage, .usage])
+    }
+
+    func testDisplaySectionsKeepCodexVisibleItemsAcrossDensitiesWhenCompactConfigShared() async {
+        let result = await MainActor.run { () -> ([String], [PopoverDisplaySectionKind]) in
+            let settings = AppSettings.shared
+            let snapshot = settings.createSnapshot()
+            defer { settings.restore(from: snapshot) }
+
+            settings.separateCompactConfig = false
+            settings.codexPopoverItems = PopoverItemConfig.normalizedCodex([
+                .init(id: "codexPrimary", visible: true),
+                .init(id: "codexSecondary", visible: true),
+                .init(id: "codexCredits", visible: true),
+            ])
+
+            let viewModel = PopoverViewModel()
+            viewModel.update(
+                snapshots: [
+                    RuntimeProviderSnapshot(
+                        service: .codex,
+                        payload: .codex(makeCodexUsageResponse(primary: 42, secondary: nil, creditsBalance: nil)),
+                        error: nil,
+                        isLoading: false,
+                        lastUpdated: Date(),
+                        nextRefreshAllowedAt: nil,
+                        credentialState: .usable,
+                        isDetected: true,
+                        canAttemptRefresh: true,
+                        hasAuthError: false
+                    )
+                ]
+            )
+
+            let standardSections = viewModel.displaySections(for: .codex, density: .standard, settings: settings)
+            let compactSections = viewModel.displaySections(for: .codex, density: .compact, settings: settings)
+            return (
+                standardSections.map(\.id),
+                compactSections.map(\.kind)
+            )
+        }
+
+        XCTAssertEqual(
+            result.0,
+            ["codexPrimary", "codexSecondary-status", "codexCredits-status"]
+        )
+        XCTAssertEqual(result.1, [.usage, .status, .status])
+    }
+
+    func testPreferredPopoverSizeUsesDisplaySectionsForGeminiSecondaryAccount() async {
+        let size = await MainActor.run { () -> CGSize in
+            let settings = AppSettings.shared
+            let snapshot = settings.createSnapshot()
+            defer { settings.restore(from: snapshot) }
+
+            settings.popoverCompact = false
+            let viewModel = PopoverViewModel()
+            let payload = GeminiUsageResponse(
+                accountEmail: "user@example.com",
+                accountPlan: "Gemini Advanced",
+                primaryWindow: GeminiUsageWindow(label: "Pro", modelID: "gemini-pro", usedPercent: 24, resetAtISO: nil),
+                secondaryWindow: GeminiUsageWindow(label: "Flash", modelID: "gemini-flash", usedPercent: 11, resetAtISO: nil),
+                tertiaryWindow: nil
+            )
+            viewModel.update(
+                snapshots: [
+                    RuntimeProviderSnapshot(
+                        service: .gemini,
+                        payload: .gemini(payload),
+                        error: nil,
+                        isLoading: false,
+                        lastUpdated: Date(),
+                        nextRefreshAllowedAt: nil,
+                        credentialState: .usable,
+                        isDetected: true,
+                        canAttemptRefresh: true,
+                        hasAuthError: false
+                    )
+                ]
+            )
+
+            return viewModel.preferredPopoverSize(for: .gemini, settings: settings)
+        }
+
+        XCTAssertEqual(size.width, 368)
+        XCTAssertEqual(size.height, 300)
+    }
+
+    func testGlobalCompactSettingIgnoresProviderSpecificCompactValues() async {
+        let result = await MainActor.run { () -> (Bool, Bool, Bool, Bool, Bool, Bool, Bool) in
+            let settings = AppSettings.shared
+            let snapshot = settings.createSnapshot()
+            defer { settings.restore(from: snapshot) }
+
+            settings.popoverCompact = false
+            settings.claudePopoverCompact = true
+            settings.codexPopoverCompact = true
+            UserDefaults.standard.set(true, forKey: "geminiPopoverCompact")
+            UserDefaults.standard.set(true, forKey: "antigravityPopoverCompact")
+
+            let before = (
+                settings.isPopoverCompact(for: .claude),
+                settings.isPopoverCompact(for: .codex),
+                settings.isPopoverCompact(for: .gemini),
+                settings.isPopoverCompact(for: .antigravity)
+            )
+
+            settings.setPopoverCompact(true, for: .codex)
+
+            return (
+                before.0,
+                before.1,
+                before.2,
+                before.3,
+                settings.popoverCompact,
+                settings.claudePopoverCompact,
+                settings.codexPopoverCompact
+            )
+        }
+
+        XCTAssertEqual(result.0, false)
+        XCTAssertEqual(result.1, false)
+        XCTAssertEqual(result.2, false)
+        XCTAssertEqual(result.3, false)
+        XCTAssertEqual(result.4, true)
+        XCTAssertEqual(result.5, true)
+        XCTAssertEqual(result.6, true)
+    }
 }
 
 private let sampleClaudePayload: RuntimeProviderPayload = .claude(
@@ -443,3 +632,41 @@ private let sampleClaudePayload: RuntimeProviderPayload = .claude(
         sevenDay: UsageWindow(utilization: 35, resetsAt: nil)
     )
 )
+
+private func makeCodexUsageResponse(
+    primary: Double?,
+    secondary: Double?,
+    creditsBalance: Double?
+) -> CodexUsageResponse {
+    var payload: [String: Any] = [:]
+    var rateLimit: [String: Any] = [:]
+
+    if let primary {
+        rateLimit["primary_window"] = [
+            "used_percent": primary,
+            "reset_at": 1_700_000_000,
+        ]
+    }
+
+    if let secondary {
+        rateLimit["secondary_window"] = [
+            "used_percent": secondary,
+            "reset_at": 1_700_086_400,
+        ]
+    }
+
+    if !rateLimit.isEmpty {
+        payload["rate_limit"] = rateLimit
+    }
+
+    if let creditsBalance {
+        payload["credits"] = [
+            "has_credits": true,
+            "unlimited": false,
+            "balance": creditsBalance,
+        ]
+    }
+
+    let data = try! JSONSerialization.data(withJSONObject: payload)
+    return try! JSONDecoder().decode(CodexUsageResponse.self, from: data)
+}
