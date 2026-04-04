@@ -2,6 +2,73 @@ import Foundation
 import SwiftUI
 import Combine
 
+enum PopoverDensity: Equatable {
+    case compact
+    case standard
+
+    var isCompact: Bool {
+        self == .compact
+    }
+}
+
+enum PopoverSectionImportance: Equatable {
+    case primary
+    case secondary
+}
+
+enum PopoverDisplaySectionKind: Equatable {
+    case usage
+    case credits
+    case overage
+    case account
+    case status
+}
+
+struct PopoverUsageSectionData {
+    let systemIcon: String
+    let title: String
+    let compactLabel: String
+    let percentage: Double
+    let resetAt: String?
+    let isWeekly: Bool
+    let timeFormatStyle: TimeFormatStyle
+}
+
+struct PopoverCreditsSectionData {
+    let credits: CodexCredits
+}
+
+struct PopoverOverageSectionData {
+    let overage: OverageSpendLimitResponse
+}
+
+struct PopoverAccountSectionData {
+    let title: String
+    let email: String?
+    let plan: String?
+    let systemIcon: String
+}
+
+struct PopoverStatusSectionData {
+    let title: String
+    let error: APIError?
+}
+
+enum PopoverDisplayPayload {
+    case usage(PopoverUsageSectionData)
+    case credits(PopoverCreditsSectionData)
+    case overage(PopoverOverageSectionData)
+    case account(PopoverAccountSectionData)
+    case status(PopoverStatusSectionData)
+}
+
+struct PopoverDisplaySection: Identifiable {
+    let id: String
+    let kind: PopoverDisplaySectionKind
+    let importance: PopoverSectionImportance
+    let payload: PopoverDisplayPayload
+}
+
 @MainActor
 final class PopoverViewModel: ObservableObject {
     struct ProviderShellCard: Identifiable, Sendable, Equatable {
@@ -360,13 +427,13 @@ final class PopoverViewModel: ObservableObject {
     }
 
     func preferredPopoverSize(for service: PopoverService, settings: AppSettings) -> CGSize {
-        let compact = settings.isPopoverCompact(for: service.providerKind)
+        let density: PopoverDensity = settings.isPopoverCompact(for: service.providerKind) ? .compact : .standard
         let phase = contentPhase(for: service, settings: settings)
-        let rowCount = visibleContentRowCount(for: service, compact: compact, settings: settings)
+        let rowCount = preferredContentRowCount(for: service, density: density, phase: phase, settings: settings)
         return CGSize(
-            width: PopoverView.preferredPopoverWidth(compact: compact),
+            width: PopoverView.preferredPopoverWidth(compact: density.isCompact),
             height: PopoverLayoutMetrics.preferredPopoverHeight(
-                compact: compact,
+                compact: density.isCompact,
                 phase: phase,
                 rowCount: rowCount
             )
@@ -390,53 +457,429 @@ final class PopoverViewModel: ObservableObject {
         return .empty
     }
 
-    private func visibleContentRowCount(
+    func displaySections(
         for service: PopoverService,
-        compact: Bool,
+        density: PopoverDensity,
         settings: AppSettings
-    ) -> Int {
+    ) -> [PopoverDisplaySection] {
+        let sections: [PopoverDisplaySection]
         switch service {
         case .claude:
-            let items = compact ? settings.effectiveCompactItems : settings.popoverItems
-            var count = 0
-            for item in items where item.visible {
-                switch item.id {
-                case "currentSession":
-                    if claudeUsage != nil { count += 1 }
-                case "weeklyLimit":
-                    if claudeUsage?.sevenDay != nil { count += 1 }
-                case "modelUsage":
-                    if claudeUsage?.sevenDaySonnet != nil { count += 1 }
-                    if claudeUsage?.sevenDayOpus != nil { count += 1 }
-                case "overageUsage":
-                    if overage?.isEnabled == true { count += 1 }
-                default:
-                    break
-                }
-            }
-            return max(count, claudeUsage != nil ? 1 : 0)
-
+            sections = claudeDisplaySections(density: density, settings: settings)
         case .codex:
-            let items = compact ? settings.effectiveCompactCodexItems : settings.codexPopoverItems
-            let visibleCount = items.filter(\.visible).count
-            return max(visibleCount, codexUsage != nil ? 1 : 0)
-
+            sections = codexDisplaySections(density: density, settings: settings)
         case .gemini:
-            var count = 0
-            if geminiUsage?.primaryWindow != nil { count += 1 }
-            if geminiUsage?.secondaryWindow != nil { count += 1 }
-            if geminiUsage?.tertiaryWindow != nil { count += 1 }
-            if !compact, (geminiUsage?.accountEmail != nil || geminiUsage?.accountPlan != nil) { count += 1 }
-            return max(count, geminiUsage != nil ? 1 : 0)
-
+            sections = geminiDisplaySections()
         case .antigravity:
-            var count = 0
-            if antigravityUsage?.primaryWindow != nil { count += 1 }
-            if antigravityUsage?.secondaryWindow != nil { count += 1 }
-            if antigravityUsage?.tertiaryWindow != nil { count += 1 }
-            if !compact, (antigravityUsage?.accountEmail != nil || antigravityUsage?.accountPlan != nil) { count += 1 }
-            return max(count, antigravityUsage != nil ? 1 : 0)
+            sections = antigravityDisplaySections()
         }
+
+        if density == .compact {
+            return sections.filter { $0.importance == .primary }
+        }
+        return sections
+    }
+
+    private func preferredContentRowCount(
+        for service: PopoverService,
+        density: PopoverDensity,
+        phase: PopoverContentPhase,
+        settings: AppSettings
+    ) -> Int {
+        guard phase == .content else { return 0 }
+
+        let visibleSectionCount = displaySections(for: service, density: density, settings: settings).count
+        let hasContent = runtimeServiceState(for: service, settings: settings).hasContent
+        return max(visibleSectionCount, hasContent ? 1 : 0)
+    }
+
+    private func claudeDisplaySections(
+        density: PopoverDensity,
+        settings: AppSettings
+    ) -> [PopoverDisplaySection] {
+        let visibleItemIDs = (density == .compact ? settings.effectiveCompactItems : settings.popoverItems)
+            .filter(\.visible)
+            .map(\.id)
+        var sections: [PopoverDisplaySection] = []
+
+        for itemID in visibleItemIDs {
+            switch itemID {
+            case "currentSession":
+                if let usage = claudeUsage {
+                    sections.append(
+                        PopoverDisplaySection(
+                            id: "currentSession",
+                            kind: .usage,
+                            importance: .primary,
+                            payload: .usage(
+                                PopoverUsageSectionData(
+                                    systemIcon: "gauge.medium",
+                                    title: "현재 세션",
+                                    compactLabel: "현재",
+                                    percentage: usage.fiveHour.utilization,
+                                    resetAt: usage.fiveHour.resetsAt,
+                                    isWeekly: false,
+                                    timeFormatStyle: settings.timeFormat
+                                )
+                            )
+                        )
+                    )
+                }
+            case "weeklyLimit":
+                if let sevenDay = claudeUsage?.sevenDay {
+                    sections.append(
+                        PopoverDisplaySection(
+                            id: "weeklyLimit",
+                            kind: .usage,
+                            importance: .primary,
+                            payload: .usage(
+                                PopoverUsageSectionData(
+                                    systemIcon: "calendar",
+                                    title: "주간 한도",
+                                    compactLabel: "주간",
+                                    percentage: sevenDay.utilization,
+                                    resetAt: sevenDay.resetsAt,
+                                    isWeekly: true,
+                                    timeFormatStyle: settings.timeFormat
+                                )
+                            )
+                        )
+                    )
+                }
+            case "modelUsage":
+                if let sonnet = claudeUsage?.sevenDaySonnet {
+                    sections.append(
+                        PopoverDisplaySection(
+                            id: "modelUsage-sonnet",
+                            kind: .usage,
+                            importance: .primary,
+                            payload: .usage(
+                                PopoverUsageSectionData(
+                                    systemIcon: "bolt.fill",
+                                    title: "Sonnet (주간)",
+                                    compactLabel: "소넷",
+                                    percentage: sonnet.utilization,
+                                    resetAt: sonnet.resetsAt,
+                                    isWeekly: true,
+                                    timeFormatStyle: settings.timeFormat
+                                )
+                            )
+                        )
+                    )
+                }
+                if let opus = claudeUsage?.sevenDayOpus {
+                    sections.append(
+                        PopoverDisplaySection(
+                            id: "modelUsage-opus",
+                            kind: .usage,
+                            importance: .primary,
+                            payload: .usage(
+                                PopoverUsageSectionData(
+                                    systemIcon: "diamond.fill",
+                                    title: "Opus (주간)",
+                                    compactLabel: "Opus",
+                                    percentage: opus.utilization,
+                                    resetAt: opus.resetsAt,
+                                    isWeekly: true,
+                                    timeFormatStyle: settings.timeFormat
+                                )
+                            )
+                        )
+                    )
+                }
+            case "overageUsage":
+                if let overage, overage.isEnabled {
+                    sections.append(
+                        PopoverDisplaySection(
+                            id: "overageUsage",
+                            kind: .overage,
+                            importance: .primary,
+                            payload: .overage(PopoverOverageSectionData(overage: overage))
+                        )
+                    )
+                }
+            default:
+                break
+            }
+        }
+
+        return sections
+    }
+
+    private func codexDisplaySections(
+        density: PopoverDensity,
+        settings: AppSettings
+    ) -> [PopoverDisplaySection] {
+        let visibleItemIDs = (density == .compact ? settings.effectiveCompactCodexItems : settings.codexPopoverItems)
+            .filter(\.visible)
+            .map(\.id)
+        let codexError = snapshot(for: .codex)?.error
+        var sections: [PopoverDisplaySection] = []
+
+        for itemID in visibleItemIDs {
+            switch itemID {
+            case "codexPrimary":
+                if let window = codexUsage?.rateLimit?.primaryWindow {
+                    sections.append(
+                        PopoverDisplaySection(
+                            id: "codexPrimary",
+                            kind: .usage,
+                            importance: .primary,
+                            payload: .usage(
+                                PopoverUsageSectionData(
+                                    systemIcon: "bubble.left.and.bubble.right",
+                                    title: "현재 세션",
+                                    compactLabel: "현재",
+                                    percentage: window.utilization,
+                                    resetAt: window.resetAtISO,
+                                    isWeekly: false,
+                                    timeFormatStyle: settings.codexTimeFormat
+                                )
+                            )
+                        )
+                    )
+                } else {
+                    sections.append(
+                        PopoverDisplaySection(
+                            id: "codexPrimary-status",
+                            kind: .status,
+                            importance: .primary,
+                            payload: .status(PopoverStatusSectionData(title: "현재 세션", error: codexError))
+                        )
+                    )
+                }
+            case "codexSecondary":
+                if let window = codexUsage?.rateLimit?.secondaryWindow {
+                    sections.append(
+                        PopoverDisplaySection(
+                            id: "codexSecondary",
+                            kind: .usage,
+                            importance: .primary,
+                            payload: .usage(
+                                PopoverUsageSectionData(
+                                    systemIcon: "calendar.badge.clock",
+                                    title: "주간 한도",
+                                    compactLabel: "주간",
+                                    percentage: window.utilization,
+                                    resetAt: window.resetAtISO,
+                                    isWeekly: true,
+                                    timeFormatStyle: settings.codexTimeFormat
+                                )
+                            )
+                        )
+                    )
+                } else {
+                    sections.append(
+                        PopoverDisplaySection(
+                            id: "codexSecondary-status",
+                            kind: .status,
+                            importance: .primary,
+                            payload: .status(PopoverStatusSectionData(title: "주간 한도", error: codexError))
+                        )
+                    )
+                }
+            case "codexCredits":
+                if let credits = codexUsage?.credits {
+                    sections.append(
+                        PopoverDisplaySection(
+                            id: "codexCredits",
+                            kind: .credits,
+                            importance: .primary,
+                            payload: .credits(PopoverCreditsSectionData(credits: credits))
+                        )
+                    )
+                } else {
+                    sections.append(
+                        PopoverDisplaySection(
+                            id: "codexCredits-status",
+                            kind: .status,
+                            importance: .primary,
+                            payload: .status(PopoverStatusSectionData(title: "Codex 크레딧", error: codexError))
+                        )
+                    )
+                }
+            default:
+                break
+            }
+        }
+
+        return sections
+    }
+
+    private func geminiDisplaySections() -> [PopoverDisplaySection] {
+        var sections: [PopoverDisplaySection] = []
+
+        if let primary = geminiUsage?.primaryWindow {
+            sections.append(
+                PopoverDisplaySection(
+                    id: "gemini-primary",
+                    kind: .usage,
+                    importance: .primary,
+                    payload: .usage(
+                        PopoverUsageSectionData(
+                            systemIcon: "sparkles",
+                            title: primary.label,
+                            compactLabel: primary.label,
+                            percentage: primary.usedPercent,
+                            resetAt: primary.resetAtISO,
+                            isWeekly: false,
+                            timeFormatStyle: AppSettings.shared.timeFormat
+                        )
+                    )
+                )
+            )
+        }
+
+        if let secondary = geminiUsage?.secondaryWindow {
+            sections.append(
+                PopoverDisplaySection(
+                    id: "gemini-secondary",
+                    kind: .usage,
+                    importance: .primary,
+                    payload: .usage(
+                        PopoverUsageSectionData(
+                            systemIcon: "bolt.horizontal.circle",
+                            title: secondary.label,
+                            compactLabel: secondary.label,
+                            percentage: secondary.usedPercent,
+                            resetAt: secondary.resetAtISO,
+                            isWeekly: true,
+                            timeFormatStyle: AppSettings.shared.timeFormat
+                        )
+                    )
+                )
+            )
+        }
+
+        if let tertiary = geminiUsage?.tertiaryWindow {
+            sections.append(
+                PopoverDisplaySection(
+                    id: "gemini-tertiary",
+                    kind: .usage,
+                    importance: .primary,
+                    payload: .usage(
+                        PopoverUsageSectionData(
+                            systemIcon: "circle.hexagongrid",
+                            title: tertiary.label,
+                            compactLabel: tertiary.label,
+                            percentage: tertiary.usedPercent,
+                            resetAt: tertiary.resetAtISO,
+                            isWeekly: true,
+                            timeFormatStyle: AppSettings.shared.timeFormat
+                        )
+                    )
+                )
+            )
+        }
+
+        if let usage = geminiUsage,
+           usage.accountEmail != nil || usage.accountPlan != nil {
+            sections.append(
+                PopoverDisplaySection(
+                    id: "gemini-account",
+                    kind: .account,
+                    importance: .secondary,
+                    payload: .account(
+                        PopoverAccountSectionData(
+                            title: "계정 정보",
+                            email: usage.accountEmail,
+                            plan: usage.accountPlan,
+                            systemIcon: "person.crop.circle"
+                        )
+                    )
+                )
+            )
+        }
+
+        return sections
+    }
+
+    private func antigravityDisplaySections() -> [PopoverDisplaySection] {
+        var sections: [PopoverDisplaySection] = []
+
+        if let primary = antigravityUsage?.primaryWindow {
+            sections.append(
+                PopoverDisplaySection(
+                    id: "antigravity-primary",
+                    kind: .usage,
+                    importance: .primary,
+                    payload: .usage(
+                        PopoverUsageSectionData(
+                            systemIcon: "brain",
+                            title: primary.label,
+                            compactLabel: primary.label,
+                            percentage: primary.usedPercent,
+                            resetAt: primary.resetAtISO,
+                            isWeekly: false,
+                            timeFormatStyle: AppSettings.shared.timeFormat
+                        )
+                    )
+                )
+            )
+        }
+
+        if let secondary = antigravityUsage?.secondaryWindow {
+            sections.append(
+                PopoverDisplaySection(
+                    id: "antigravity-secondary",
+                    kind: .usage,
+                    importance: .primary,
+                    payload: .usage(
+                        PopoverUsageSectionData(
+                            systemIcon: "sparkles",
+                            title: secondary.label,
+                            compactLabel: secondary.label,
+                            percentage: secondary.usedPercent,
+                            resetAt: secondary.resetAtISO,
+                            isWeekly: true,
+                            timeFormatStyle: AppSettings.shared.timeFormat
+                        )
+                    )
+                )
+            )
+        }
+
+        if let tertiary = antigravityUsage?.tertiaryWindow {
+            sections.append(
+                PopoverDisplaySection(
+                    id: "antigravity-tertiary",
+                    kind: .usage,
+                    importance: .primary,
+                    payload: .usage(
+                        PopoverUsageSectionData(
+                            systemIcon: "bolt.horizontal.circle",
+                            title: tertiary.label,
+                            compactLabel: tertiary.label,
+                            percentage: tertiary.usedPercent,
+                            resetAt: tertiary.resetAtISO,
+                            isWeekly: true,
+                            timeFormatStyle: AppSettings.shared.timeFormat
+                        )
+                    )
+                )
+            )
+        }
+
+        if let usage = antigravityUsage,
+           usage.accountEmail != nil || usage.accountPlan != nil {
+            sections.append(
+                PopoverDisplaySection(
+                    id: "antigravity-account",
+                    kind: .account,
+                    importance: .secondary,
+                    payload: .account(
+                        PopoverAccountSectionData(
+                            title: "계정 정보",
+                            email: usage.accountEmail,
+                            plan: usage.accountPlan,
+                            systemIcon: "person.crop.circle"
+                        )
+                    )
+                )
+            )
+        }
+
+        return sections
     }
 
     private func runtimeSummary(

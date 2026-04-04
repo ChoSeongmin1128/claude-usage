@@ -218,11 +218,11 @@ struct PopoverView: View {
                 ProviderBrandIconView(provider: service.providerKind, kind: .popover, size: 15)
                     .frame(width: 18, height: 18)
 
-                if shouldShowWarningDot(for: service) && !isCompact {
+                if shouldShowWarningDot(for: service) {
                     Circle()
                         .fill(Color.orange)
-                        .frame(width: 6, height: 6)
-                        .offset(x: 3, y: -3)
+                        .frame(width: isCompact ? 4 : 6, height: isCompact ? 4 : 6)
+                        .offset(x: isCompact ? 2 : 3, y: isCompact ? -2 : -3)
                 }
             }
             .frame(width: 22, height: 22)
@@ -281,16 +281,6 @@ struct PopoverView: View {
 
     private var isCompact: Bool {
         get {
-            let runtimeKinds = settings.providerSelectionState.runtimeEnabledKinds
-            if runtimeKinds.isEmpty {
-                return settings.isPopoverCompact(for: appProviderKind(for: selectedService))
-            }
-
-            let compactValues = Set(runtimeKinds.map(settings.isPopoverCompact(for:)))
-            if compactValues.count == 1 {
-                return compactValues.first ?? settings.isPopoverCompact(for: appProviderKind(for: selectedService))
-            }
-
             return settings.isPopoverCompact(for: appProviderKind(for: selectedService))
         }
         nonmutating set {
@@ -299,16 +289,11 @@ struct PopoverView: View {
     }
 
     private func setCompactForAllServices(_ compact: Bool) {
-        let runtimeKinds = settings.providerSelectionState.runtimeEnabledKinds
-        let targets = runtimeKinds.isEmpty ? ServiceSelectionHelper.supportedProviderKinds : runtimeKinds
-        for kind in targets where settings.isPopoverCompact(for: kind) != compact {
-            settings.setPopoverCompact(compact, for: kind)
-        }
+        settings.setPopoverCompact(compact, for: appProviderKind(for: selectedService))
     }
 
     private func syncCompactAcrossServicesIfNeeded() {
-        let compact = isCompact
-        setCompactForAllServices(compact)
+        settings.setPopoverCompact(isCompact, for: appProviderKind(for: selectedService))
     }
 
     private var isPinned: Bool {
@@ -409,457 +394,132 @@ struct PopoverView: View {
         viewModel.contentPhase(for: service, settings: settings)
     }
 
-    private enum StatusActionStyle {
-        case bordered
-        case prominent
+    private typealias StatusActionStyle = StatusPanelActionStyle
+
+    private struct StatusPanelConfiguration {
+        let icon: String?
+        let iconColor: Color
+        let showsProgress: Bool
+        let title: String
+        let message: String
+        let actionTitle: String?
+        let actionStyle: StatusActionStyle
+        let action: (() -> Void)?
     }
 
     @ViewBuilder
     private var compactBodyContent: some View {
-        switch contentPhase(for: selectedService) {
-        case .authRequired:
-            compactInlineStatusPanel(
-                icon: "lock.shield",
-                iconColor: .orange,
-                title: "연결 필요",
-                message: "인증이 필요합니다. 설정에서 연결을 다시 확인해 주세요.",
-                actionTitle: "설정 열기",
-                actionStyle: .prominent
-            ) {
-                viewModel.openSettings(for: selectedService)
-            }
-        case .loading:
-            compactInlineStatusPanel(
-                showsProgress: true,
-                title: "불러오는 중",
-                message: "현재 연결 상태를 확인하고 있습니다."
-            )
-        case .error:
-            if let error = serviceError {
-                compactInlineStatusPanel(
-                    icon: "exclamationmark.triangle",
-                    iconColor: .orange,
-                    title: error.isDefinitiveAuthFailure ? "인증 필요" : "조회 실패",
-                    message: error.isDefinitiveAuthFailure ? "연결을 다시 확인해 주세요." : "잠시 후 다시 시도해 주세요.",
-                    actionTitle: error.isDefinitiveAuthFailure ? "설정 열기" : "다시 시도",
-                    actionStyle: error.isDefinitiveAuthFailure ? .prominent : .bordered
-                ) {
-                    if error.isDefinitiveAuthFailure {
-                        viewModel.openSettings(for: selectedService)
-                    } else {
-                        viewModel.refresh()
-                    }
-                }
-            }
-        case .content:
-            switch selectedService {
-            case .claude:
-                compactClaudeContent(usage: claudeUsage)
-            case .codex:
-                compactCodexContent()
-            case .gemini:
-                compactGeminiContent()
-            case .antigravity:
-                compactAntigravityContent()
-            }
-        case .empty:
-            compactInlineStatusPanel(
-                icon: "tray",
-                iconColor: .secondary,
-                title: "데이터 없음",
-                message: "아직 가져온 사용량이 없습니다."
-            )
-        }
+        bodyContent(for: .compact)
     }
 
     @ViewBuilder
     private var standardBodyContent: some View {
+        bodyContent(for: .standard)
+    }
+
+    @ViewBuilder
+    private func bodyContent(for density: PopoverDensity) -> some View {
         switch contentPhase(for: selectedService) {
         case .authRequired:
-            standardInlineStatusPanel(
-                icon: "lock.shield",
-                iconColor: .orange,
-                title: "연결 필요",
-                message: "인증이 필요합니다. 설정에서 연결을 다시 확인해 주세요.",
-                actionTitle: "설정 열기",
-                actionStyle: .prominent
-            ) {
-                viewModel.openSettings(for: selectedService)
-            }
+            statusPanel(
+                density: density,
+                configuration: StatusPanelConfiguration(
+                    icon: "lock.shield",
+                    iconColor: .orange,
+                    showsProgress: false,
+                    title: "연결 필요",
+                    message: "인증이 필요합니다. 설정에서 연결을 다시 확인해 주세요.",
+                    actionTitle: "설정 열기",
+                    actionStyle: .prominent,
+                    action: { viewModel.openSettings(for: selectedService) }
+                )
+            )
         case .loading:
-            standardInlineStatusPanel(
-                showsProgress: true,
-                title: "데이터 로딩 중",
-                message: "현재 연결 상태를 확인하고 있습니다."
+            statusPanel(
+                density: density,
+                configuration: StatusPanelConfiguration(
+                    icon: nil,
+                    iconColor: .secondary,
+                    showsProgress: true,
+                    title: "데이터 로딩 중",
+                    message: "현재 연결 상태를 확인하고 있습니다.",
+                    actionTitle: nil,
+                    actionStyle: .bordered,
+                    action: nil
+                )
             )
         case .error:
             if let error = serviceError {
-                standardInlineStatusPanel(
-                    icon: "exclamationmark.triangle",
-                    iconColor: .orange,
-                    title: error.isDefinitiveAuthFailure ? "인증 필요" : "조회 실패",
-                    message: error.isDefinitiveAuthFailure ? "연결을 다시 확인해 주세요." : "잠시 후 다시 시도해 주세요.",
-                    actionTitle: error.isDefinitiveAuthFailure ? "설정 열기" : "다시 시도",
-                    actionStyle: error.isDefinitiveAuthFailure ? .prominent : .bordered
-                ) {
-                    if error.isDefinitiveAuthFailure {
-                        viewModel.openSettings(for: selectedService)
-                    } else {
-                        viewModel.refresh()
-                    }
-                }
+                statusPanel(
+                    density: density,
+                    configuration: StatusPanelConfiguration(
+                        icon: "exclamationmark.triangle",
+                        iconColor: .orange,
+                        showsProgress: false,
+                        title: error.isDefinitiveAuthFailure ? "인증 필요" : "조회 실패",
+                        message: error.isDefinitiveAuthFailure ? "연결을 다시 확인해 주세요." : "잠시 후 다시 시도해 주세요.",
+                        actionTitle: error.isDefinitiveAuthFailure ? "설정 열기" : "다시 시도",
+                        actionStyle: error.isDefinitiveAuthFailure ? .prominent : .bordered,
+                        action: {
+                            if error.isDefinitiveAuthFailure {
+                                viewModel.openSettings(for: selectedService)
+                            } else {
+                                viewModel.refresh()
+                            }
+                        }
+                    )
+                )
             }
         case .content:
-            switch selectedService {
-            case .claude:
-                standardClaudeContent(usage: claudeUsage)
-            case .codex:
-                standardCodexContent()
-            case .gemini:
-                standardGeminiContent()
-            case .antigravity:
-                standardAntigravityContent()
-            }
+            displaySectionsContent(for: density)
         case .empty:
-            standardInlineStatusPanel(
-                icon: "tray",
-                iconColor: .secondary,
-                title: "데이터 없음",
-                message: "아직 가져온 사용량이 없습니다."
+            statusPanel(
+                density: density,
+                configuration: StatusPanelConfiguration(
+                    icon: "tray",
+                    iconColor: .secondary,
+                    showsProgress: false,
+                    title: "데이터 없음",
+                    message: "아직 가져온 사용량이 없습니다.",
+                    actionTitle: nil,
+                    actionStyle: .bordered,
+                    action: nil
+                )
             )
         }
     }
 
     @ViewBuilder
-    private func standardInlineStatusPanel(
-        icon: String? = nil,
-        iconColor: Color = .secondary,
-        showsProgress: Bool = false,
-        title: String,
-        message: String,
-        actionTitle: String? = nil,
-        actionStyle: StatusActionStyle = .bordered,
-        action: (() -> Void)? = nil
+    private func statusPanel(
+        density: PopoverDensity,
+        configuration: StatusPanelConfiguration
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 10) {
-                statusLeadingIndicator(
-                    compact: false,
-                    icon: icon,
-                    iconColor: iconColor,
-                    showsProgress: showsProgress
-                )
-
-                Text(title)
-                    .font(.title3.weight(.semibold))
-                    .lineLimit(1)
-
-                Spacer(minLength: 12)
-
-                if let actionTitle, let action {
-                    statusActionButton(
-                        title: actionTitle,
-                        compact: false,
-                        style: actionStyle,
-                        action: action
-                    )
-                }
-            }
-
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 4)
+        StatusPanelView(
+            density: density,
+            icon: configuration.icon,
+            iconColor: configuration.iconColor,
+            showsProgress: configuration.showsProgress,
+            title: configuration.title,
+            message: configuration.message,
+            actionTitle: configuration.actionTitle,
+            actionStyle: configuration.actionStyle,
+            action: configuration.action
+        )
     }
 
     @ViewBuilder
-    private func compactInlineStatusPanel(
-        icon: String? = nil,
-        iconColor: Color = .secondary,
-        showsProgress: Bool = false,
-        title: String,
-        message: String,
-        actionTitle: String? = nil,
-        actionStyle: StatusActionStyle = .bordered,
-        action: (() -> Void)? = nil
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .center, spacing: 8) {
-                statusLeadingIndicator(
-                    compact: true,
-                    icon: icon,
-                    iconColor: iconColor,
-                    showsProgress: showsProgress
-                )
-
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-
-                Spacer(minLength: 8)
-
-                if let actionTitle, let action {
-                    statusActionButton(
-                        title: actionTitle,
-                        compact: true,
-                        style: actionStyle,
-                        action: action
-                    )
-                }
-            }
-
-            Text(message)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private func statusLeadingIndicator(
-        compact: Bool,
-        icon: String?,
-        iconColor: Color,
-        showsProgress: Bool
-    ) -> some View {
-        if showsProgress {
-            ProgressView()
-                .controlSize(compact ? .small : .regular)
-                .frame(width: compact ? 14 : 18, height: compact ? 14 : 18, alignment: .center)
-        } else if let icon {
-            Image(systemName: icon)
-                .font(.system(size: compact ? 12 : 15, weight: .semibold))
-                .foregroundStyle(iconColor)
-                .frame(width: compact ? 14 : 18, height: compact ? 14 : 18, alignment: .center)
-        }
-    }
-
-    @ViewBuilder
-    private func statusActionButton(
-        title: String,
-        compact: Bool,
-        style: StatusActionStyle,
-        action: @escaping () -> Void
-    ) -> some View {
-        if style == .prominent {
-            Button(title) {
-                action()
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(compact ? .small : .regular)
+    private func displaySectionsContent(for density: PopoverDensity) -> some View {
+        let sections = viewModel.displaySections(for: selectedService, density: density, settings: settings)
+        if sections.isEmpty {
+            Color.clear
+                .frame(maxWidth: .infinity, minHeight: 1)
         } else {
-            Button(title) {
-                action()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(compact ? .small : .regular)
-        }
-    }
-
-    // MARK: - Standard Content
-
-    @ViewBuilder
-    private func standardContent(usage: ClaudeUsageResponse?) -> some View {
-        let visibleClaudeItems = settings.popoverItems.filter { $0.visible }
-        let visibleCodexItems = ServiceSelectionHelper.isEnabled(.codex, settings: settings) ? settings.codexPopoverItems.filter { $0.visible } : []
-        let orderedIDs = visibleClaudeItems.map(\.id) + visibleCodexItems.map(\.id)
-        VStack(spacing: 12) {
-            ForEach(Array(orderedIDs.enumerated()), id: \.offset) { index, itemID in
-                if index > 0 { Divider() }
-                switch itemID {
-                case "currentSession":
-                    if let usage {
-                        UsageSectionView(
-                            systemIcon: "gauge.medium",
-                            title: "현재 세션",
-                            percentage: usage.fiveHour.utilization,
-                            resetAt: usage.fiveHour.resetsAt,
-                            timeFormatStyle: settings.timeFormat
-                        )
+            VStack(spacing: density.isCompact ? 3 : 12) {
+                ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
+                    if index > 0 && !density.isCompact {
+                        Divider()
                     }
-                case "weeklyLimit":
-                    if let sevenDay = usage?.sevenDay {
-                        UsageSectionView(
-                            systemIcon: "calendar",
-                            title: "주간 한도",
-                            percentage: sevenDay.utilization,
-                            resetAt: sevenDay.resetsAt,
-                            isWeekly: true,
-                            timeFormatStyle: settings.timeFormat
-                        )
-                    }
-                case "modelUsage":
-                    if let sonnet = usage?.sevenDaySonnet {
-                        UsageSectionView(
-                            systemIcon: "bolt.fill",
-                            title: "Sonnet (주간)",
-                            percentage: sonnet.utilization,
-                            resetAt: sonnet.resetsAt,
-                            isWeekly: true,
-                            timeFormatStyle: settings.timeFormat
-                        )
-                    }
-                    if let opus = usage?.sevenDayOpus {
-                        if usage?.sevenDaySonnet != nil { Divider() }
-                        UsageSectionView(
-                            systemIcon: "diamond.fill",
-                            title: "Opus (주간)",
-                            percentage: opus.utilization,
-                            resetAt: opus.resetsAt,
-                            isWeekly: true,
-                            timeFormatStyle: settings.timeFormat
-                        )
-                    }
-                case "overageUsage":
-                    if let overage = viewModel.overage, overage.isEnabled {
-                        OverageUsageView(overage: overage)
-                    }
-                case "codexPrimary":
-                    if let codex = codexUsage, let window = codex.rateLimit?.primaryWindow {
-                        UsageSectionView(
-                            systemIcon: "bubble.left.and.bubble.right",
-                            title: "현재 세션",
-                            percentage: window.utilization,
-                            resetAt: window.resetAtISO,
-                            timeFormatStyle: settings.codexTimeFormat
-                        )
-                    } else {
-                        ProviderStatusRow(title: "현재 세션", error: viewModel.snapshot(for: .codex)?.error)
-                    }
-                case "codexSecondary":
-                    if let codex = codexUsage, let window = codex.rateLimit?.secondaryWindow {
-                        UsageSectionView(
-                            systemIcon: "calendar.badge.clock",
-                            title: "주간 한도",
-                            percentage: window.utilization,
-                            resetAt: window.resetAtISO,
-                            isWeekly: true,
-                            timeFormatStyle: settings.codexTimeFormat
-                        )
-                    } else {
-                        ProviderStatusRow(title: "주간 한도", error: viewModel.snapshot(for: .codex)?.error)
-                    }
-                case "codexCredits":
-                    if let codex = codexUsage, let credits = codex.credits {
-                        CodexCreditsView(credits: credits)
-                    } else {
-                        ProviderStatusRow(title: "Codex 크레딧", error: viewModel.snapshot(for: .codex)?.error)
-                    }
-                default:
-                    EmptyView()
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func standardClaudeContent(usage: ClaudeUsageResponse?) -> some View {
-        let visibleClaudeItems = settings.popoverItems.filter { $0.visible }
-        VStack(spacing: 12) {
-            ForEach(Array(visibleClaudeItems.enumerated()), id: \.offset) { index, item in
-                if index > 0 { Divider() }
-                switch item.id {
-                case "currentSession":
-                    if let usage {
-                        UsageSectionView(
-                            systemIcon: "gauge.medium",
-                            title: "현재 세션",
-                            percentage: usage.fiveHour.utilization,
-                            resetAt: usage.fiveHour.resetsAt,
-                            timeFormatStyle: settings.timeFormat
-                        )
-                    }
-                case "weeklyLimit":
-                    if let sevenDay = usage?.sevenDay {
-                        UsageSectionView(
-                            systemIcon: "calendar",
-                            title: "주간 한도",
-                            percentage: sevenDay.utilization,
-                            resetAt: sevenDay.resetsAt,
-                            isWeekly: true,
-                            timeFormatStyle: settings.timeFormat
-                        )
-                    }
-                case "modelUsage":
-                    if let sonnet = usage?.sevenDaySonnet {
-                        UsageSectionView(
-                            systemIcon: "bolt.fill",
-                            title: "Sonnet (주간)",
-                            percentage: sonnet.utilization,
-                            resetAt: sonnet.resetsAt,
-                            isWeekly: true,
-                            timeFormatStyle: settings.timeFormat
-                        )
-                    }
-                    if let opus = usage?.sevenDayOpus {
-                        if usage?.sevenDaySonnet != nil { Divider() }
-                        UsageSectionView(
-                            systemIcon: "diamond.fill",
-                            title: "Opus (주간)",
-                            percentage: opus.utilization,
-                            resetAt: opus.resetsAt,
-                            isWeekly: true,
-                            timeFormatStyle: settings.timeFormat
-                        )
-                    }
-                case "overageUsage":
-                    if let overage = viewModel.overage, overage.isEnabled {
-                        OverageUsageView(overage: overage)
-                    }
-                default:
-                    EmptyView()
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func standardCodexContent() -> some View {
-        let visibleCodexItems = ServiceSelectionHelper.isEnabled(.codex, settings: settings) ? settings.codexPopoverItems.filter { $0.visible } : []
-        VStack(spacing: 12) {
-            ForEach(Array(visibleCodexItems.enumerated()), id: \.offset) { index, item in
-                if index > 0 { Divider() }
-                switch item.id {
-                case "codexPrimary":
-                    if let codex = codexUsage, let window = codex.rateLimit?.primaryWindow {
-                        UsageSectionView(
-                            systemIcon: "bubble.left.and.bubble.right",
-                            title: "현재 세션",
-                            percentage: window.utilization,
-                            resetAt: window.resetAtISO,
-                            timeFormatStyle: settings.codexTimeFormat
-                        )
-                    } else {
-                        ProviderStatusRow(title: "현재 세션", error: viewModel.snapshot(for: .codex)?.error)
-                    }
-                case "codexSecondary":
-                    if let codex = codexUsage, let window = codex.rateLimit?.secondaryWindow {
-                        UsageSectionView(
-                            systemIcon: "calendar.badge.clock",
-                            title: "주간 한도",
-                            percentage: window.utilization,
-                            resetAt: window.resetAtISO,
-                            isWeekly: true,
-                            timeFormatStyle: settings.codexTimeFormat
-                        )
-                    } else {
-                        ProviderStatusRow(title: "주간 한도", error: viewModel.snapshot(for: .codex)?.error)
-                    }
-                case "codexCredits":
-                    if let codex = codexUsage, let credits = codex.credits {
-                        CodexCreditsView(credits: credits)
-                    } else {
-                        ProviderStatusRow(title: "Codex 크레딧", error: viewModel.snapshot(for: .codex)?.error)
-                    }
-                default:
-                    EmptyView()
+                    PopoverDisplaySectionView(section: section, density: density)
                 }
             }
         }
@@ -880,213 +540,6 @@ struct PopoverView: View {
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(.bottom, 2)
-    }
-
-    // MARK: - Compact Content
-
-    @ViewBuilder
-    private func compactClaudeContent(usage: ClaudeUsageResponse?) -> some View {
-        let visibleClaudeItems = settings.effectiveCompactItems.filter { $0.visible }
-        VStack(spacing: 3) {
-            ForEach(visibleClaudeItems.map(\.id), id: \.self) { itemID in
-                switch itemID {
-                case "currentSession":
-                    if let usage {
-                        CompactUsageRow(label: "현재", percentage: usage.fiveHour.utilization, resetAt: usage.fiveHour.resetsAt, timeFormatStyle: settings.timeFormat)
-                    }
-                case "weeklyLimit":
-                    if let sevenDay = usage?.sevenDay {
-                        CompactUsageRow(label: "주간", percentage: sevenDay.utilization, resetAt: sevenDay.resetsAt, isWeekly: true, timeFormatStyle: settings.timeFormat)
-                    }
-                case "modelUsage":
-                    if let sonnet = usage?.sevenDaySonnet {
-                        CompactUsageRow(label: "소넷", percentage: sonnet.utilization, resetAt: sonnet.resetsAt, isWeekly: true, timeFormatStyle: settings.timeFormat)
-                    }
-                    if let opus = usage?.sevenDayOpus {
-                        CompactUsageRow(label: "Opus", percentage: opus.utilization, resetAt: opus.resetsAt, isWeekly: true, timeFormatStyle: settings.timeFormat)
-                    }
-                case "overageUsage":
-                    if let overage = viewModel.overage, overage.isEnabled {
-                        CompactOverageRow(overage: overage)
-                    }
-                default:
-                    EmptyView()
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func compactCodexContent() -> some View {
-        let visibleCodexItems = settings.effectiveCompactCodexItems.filter { $0.visible }
-        VStack(spacing: 3) {
-            ForEach(visibleCodexItems.map(\.id), id: \.self) { itemID in
-                switch itemID {
-                case "codexPrimary":
-                    if let codex = codexUsage, let window = codex.rateLimit?.primaryWindow {
-                        CompactUsageRow(label: "현재", percentage: window.utilization, resetAt: window.resetAtISO, timeFormatStyle: settings.codexTimeFormat)
-                    }
-                case "codexSecondary":
-                    if let codex = codexUsage, let window = codex.rateLimit?.secondaryWindow {
-                        CompactUsageRow(label: "주간", percentage: window.utilization, resetAt: window.resetAtISO, isWeekly: true, timeFormatStyle: settings.codexTimeFormat)
-                    }
-                case "codexCredits":
-                    if let codex = codexUsage, let credits = codex.credits {
-                        CompactCodexCreditsRow(credits: credits)
-                    }
-                default:
-                    EmptyView()
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func standardGeminiContent() -> some View {
-        VStack(spacing: 12) {
-            if let primary = geminiUsage?.primaryWindow {
-                UsageSectionView(
-                    systemIcon: "sparkles",
-                    title: primary.label,
-                    percentage: primary.usedPercent,
-                    resetAt: primary.resetAtISO,
-                    timeFormatStyle: settings.timeFormat
-                )
-            }
-
-            if let secondary = geminiUsage?.secondaryWindow {
-                Divider()
-                UsageSectionView(
-                    systemIcon: "bolt.horizontal.circle",
-                    title: secondary.label,
-                    percentage: secondary.usedPercent,
-                    resetAt: secondary.resetAtISO,
-                    isWeekly: true,
-                    timeFormatStyle: settings.timeFormat
-                )
-            }
-
-            if let tertiary = geminiUsage?.tertiaryWindow {
-                Divider()
-                UsageSectionView(
-                    systemIcon: "circle.hexagongrid",
-                    title: tertiary.label,
-                    percentage: tertiary.usedPercent,
-                    resetAt: tertiary.resetAtISO,
-                    isWeekly: true,
-                    timeFormatStyle: settings.timeFormat
-                )
-            }
-
-            if let usage = geminiUsage,
-               usage.accountEmail != nil || usage.accountPlan != nil {
-                Divider()
-                VStack(alignment: .leading, spacing: 6) {
-                    Label("계정 정보", systemImage: "person.crop.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if let email = usage.accountEmail {
-                        Text(email)
-                            .font(.subheadline)
-                    }
-                    if let plan = usage.accountPlan {
-                        Text("플랜: \(plan)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func compactGeminiContent() -> some View {
-        VStack(spacing: 3) {
-            if let primary = geminiUsage?.primaryWindow {
-                CompactUsageRow(label: primary.label, percentage: primary.usedPercent, resetAt: primary.resetAtISO, timeFormatStyle: settings.timeFormat)
-            }
-            if let secondary = geminiUsage?.secondaryWindow {
-                CompactUsageRow(label: secondary.label, percentage: secondary.usedPercent, resetAt: secondary.resetAtISO, isWeekly: true, timeFormatStyle: settings.timeFormat)
-            }
-            if let tertiary = geminiUsage?.tertiaryWindow {
-                CompactUsageRow(label: "Lite", percentage: tertiary.usedPercent, resetAt: tertiary.resetAtISO, isWeekly: true, timeFormatStyle: settings.timeFormat)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func standardAntigravityContent() -> some View {
-        VStack(spacing: 12) {
-            if let primary = antigravityUsage?.primaryWindow {
-                UsageSectionView(
-                    systemIcon: "brain",
-                    title: primary.label,
-                    percentage: primary.usedPercent,
-                    resetAt: primary.resetAtISO,
-                    timeFormatStyle: settings.timeFormat
-                )
-            }
-
-            if let secondary = antigravityUsage?.secondaryWindow {
-                Divider()
-                UsageSectionView(
-                    systemIcon: "sparkles",
-                    title: secondary.label,
-                    percentage: secondary.usedPercent,
-                    resetAt: secondary.resetAtISO,
-                    isWeekly: true,
-                    timeFormatStyle: settings.timeFormat
-                )
-            }
-
-            if let tertiary = antigravityUsage?.tertiaryWindow {
-                Divider()
-                UsageSectionView(
-                    systemIcon: "bolt.horizontal.circle",
-                    title: tertiary.label,
-                    percentage: tertiary.usedPercent,
-                    resetAt: tertiary.resetAtISO,
-                    isWeekly: true,
-                    timeFormatStyle: settings.timeFormat
-                )
-            }
-
-            if let usage = antigravityUsage,
-               usage.accountEmail != nil || usage.accountPlan != nil {
-                Divider()
-                VStack(alignment: .leading, spacing: 6) {
-                    Label("계정 정보", systemImage: "person.crop.circle")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if let email = usage.accountEmail {
-                        Text(email)
-                            .font(.subheadline)
-                    }
-                    if let plan = usage.accountPlan {
-                        Text("플랜: \(plan)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func compactAntigravityContent() -> some View {
-        VStack(spacing: 3) {
-            if let primary = antigravityUsage?.primaryWindow {
-                CompactUsageRow(label: primary.label, percentage: primary.usedPercent, resetAt: primary.resetAtISO, timeFormatStyle: settings.timeFormat)
-            }
-            if let secondary = antigravityUsage?.secondaryWindow {
-                CompactUsageRow(label: secondary.label, percentage: secondary.usedPercent, resetAt: secondary.resetAtISO, isWeekly: true, timeFormatStyle: settings.timeFormat)
-            }
-            if let tertiary = antigravityUsage?.tertiaryWindow {
-                CompactUsageRow(label: tertiary.label, percentage: tertiary.usedPercent, resetAt: tertiary.resetAtISO, isWeekly: true, timeFormatStyle: settings.timeFormat)
-            }
-        }
     }
 }
 
@@ -1188,6 +641,184 @@ struct PopoverStateContainer<Content: View>: View {
         content
             .frame(maxWidth: .infinity, minHeight: minHeight, alignment: .topLeading)
             .padding(paddingInsets)
+    }
+}
+
+enum StatusPanelActionStyle: Equatable {
+    case bordered
+    case prominent
+}
+
+struct StatusPanelView: View {
+    let density: PopoverDensity
+    let icon: String?
+    let iconColor: Color
+    let showsProgress: Bool
+    let title: String
+    let message: String
+    let actionTitle: String?
+    let actionStyle: StatusPanelActionStyle
+    let action: (() -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: density.isCompact ? 6 : 10) {
+            HStack(alignment: .center, spacing: density.isCompact ? 8 : 10) {
+                leadingIndicator
+
+                Text(title)
+                    .font(density.isCompact ? .caption.weight(.semibold) : .title3.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(density.isCompact ? 0.85 : 1.0)
+
+                Spacer(minLength: density.isCompact ? 8 : 12)
+
+                if let actionTitle, let action {
+                    actionButton(title: actionTitle, action: action)
+                }
+            }
+
+            Text(message)
+                .font(density.isCompact ? .system(size: 10, weight: .medium) : .subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, density.isCompact ? 0 : 4)
+    }
+
+    @ViewBuilder
+    private var leadingIndicator: some View {
+        if showsProgress {
+            ProgressView()
+                .controlSize(density.isCompact ? .small : .regular)
+                .frame(width: density.isCompact ? 14 : 18, height: density.isCompact ? 14 : 18, alignment: .center)
+        } else if let icon {
+            Image(systemName: icon)
+                .font(.system(size: density.isCompact ? 12 : 15, weight: .semibold))
+                .foregroundStyle(iconColor)
+                .frame(width: density.isCompact ? 14 : 18, height: density.isCompact ? 14 : 18, alignment: .center)
+        }
+    }
+
+    @ViewBuilder
+    private func actionButton(title: String, action: @escaping () -> Void) -> some View {
+        if actionStyle == .prominent {
+            Button(title, action: action)
+                .buttonStyle(.borderedProminent)
+                .controlSize(density.isCompact ? .small : .regular)
+        } else {
+            Button(title, action: action)
+                .buttonStyle(.bordered)
+                .controlSize(density.isCompact ? .small : .regular)
+        }
+    }
+}
+
+struct PopoverDisplaySectionView: View {
+    let section: PopoverDisplaySection
+    let density: PopoverDensity
+
+    var body: some View {
+        switch section.payload {
+        case .usage(let usage):
+            if density.isCompact {
+                CompactUsageRow(
+                    label: usage.compactLabel,
+                    percentage: usage.percentage,
+                    resetAt: usage.resetAt,
+                    isWeekly: usage.isWeekly,
+                    timeFormatStyle: usage.timeFormatStyle
+                )
+            } else {
+                UsageSectionView(
+                    systemIcon: usage.systemIcon,
+                    title: usage.title,
+                    percentage: usage.percentage,
+                    resetAt: usage.resetAt,
+                    isWeekly: usage.isWeekly,
+                    timeFormatStyle: usage.timeFormatStyle
+                )
+            }
+        case .credits(let credits):
+            if density.isCompact {
+                CompactCodexCreditsRow(credits: credits.credits)
+            } else {
+                CodexCreditsView(credits: credits.credits)
+            }
+        case .overage(let overage):
+            if density.isCompact {
+                CompactOverageRow(overage: overage.overage)
+            } else {
+                OverageUsageView(overage: overage.overage)
+            }
+        case .account(let account):
+            AccountSectionView(account: account, density: density)
+        case .status(let status):
+            ProviderStatusSectionView(status: status, density: density)
+        }
+    }
+}
+
+struct AccountSectionView: View {
+    let account: PopoverAccountSectionData
+    let density: PopoverDensity
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: density.isCompact ? 4 : 6) {
+            Label(account.title, systemImage: account.systemIcon)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let email = account.email {
+                Text(email)
+                    .font(density.isCompact ? .caption : .subheadline)
+                    .lineLimit(1)
+            }
+            if let plan = account.plan {
+                Text("플랜: \(plan)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct ProviderStatusSectionView: View {
+    let status: PopoverStatusSectionData
+    let density: PopoverDensity
+
+    var body: some View {
+        if density.isCompact {
+            HStack(spacing: 6) {
+                Text(status.title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text(statusText)
+                    .font(.caption)
+                    .foregroundStyle(statusColor)
+                    .lineLimit(1)
+            }
+            .padding(.vertical, 1)
+        } else {
+            ProviderStatusRow(title: status.title, error: status.error)
+        }
+    }
+
+    private var statusText: String {
+        if let error = status.error {
+            return error.isDefinitiveAuthFailure ? "인증 필요" : "조회 실패"
+        }
+        return "데이터 없음"
+    }
+
+    private var statusColor: Color {
+        if let error = status.error {
+            return error.isDefinitiveAuthFailure ? .orange : .secondary
+        }
+        return .secondary
     }
 }
 
