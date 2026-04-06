@@ -90,14 +90,25 @@ enum MenuBarIconRenderer {
     ///   - color: 채움 색상
     /// - Returns: 메뉴바용 NSImage
     nonisolated static func circularRingIcon(percentage: Double, color: NSColor) -> NSImage {
-        let size: CGFloat = 16
+        let padding: CGFloat = 2  // 그림자를 위한 여유 공간
+        let ringSize: CGFloat = 16
+        let size = ringSize + padding * 2
         let lineWidth: CGFloat = 2.5
         let center = NSPoint(x: size / 2, y: size / 2)
-        let radius = (size - lineWidth) / 2
+        let radius = (ringSize - lineWidth) / 2
 
         let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
             let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             let trackColor: NSColor = isDark ? .white.withAlphaComponent(0.2) : .black.withAlphaComponent(0.12)
+
+            // 밝은/어두운 배경 대응 그림자
+            let shadow = NSShadow()
+            shadow.shadowColor = (isDark ? NSColor.black : NSColor.white).withAlphaComponent(0.8)
+            shadow.shadowOffset = NSSize(width: 0, height: 0)
+            shadow.shadowBlurRadius = 1.5
+
+            NSGraphicsContext.saveGraphicsState()
+            shadow.set()
 
             // 배경 트랙 (빈 원)
             let trackPath = NSBezierPath()
@@ -120,6 +131,7 @@ enum MenuBarIconRenderer {
                 fillPath.stroke()
             }
 
+            NSGraphicsContext.restoreGraphicsState()
             return true
         }
 
@@ -143,13 +155,25 @@ enum MenuBarIconRenderer {
         let innerLineWidth: CGFloat = 2.0
         let innerRadius: CGFloat = 4.5
 
-        let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { _ in
+        let padding: CGFloat = 2
+        let totalSize = size + padding * 2
+        let adjustedCenter = NSPoint(x: totalSize / 2, y: totalSize / 2)
+
+        let image = NSImage(size: NSSize(width: totalSize, height: totalSize), flipped: false) { _ in
             let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             let trackColor: NSColor = isDark ? .white.withAlphaComponent(0.15) : .black.withAlphaComponent(0.08)
 
+            let shadow = NSShadow()
+            shadow.shadowColor = (isDark ? NSColor.black : NSColor.white).withAlphaComponent(0.8)
+            shadow.shadowOffset = NSSize(width: 0, height: 0)
+            shadow.shadowBlurRadius = 1.5
+
+            NSGraphicsContext.saveGraphicsState()
+            shadow.set()
+
             // 바깥 링 트랙
             let outerTrack = NSBezierPath()
-            outerTrack.appendArc(withCenter: center, radius: outerRadius, startAngle: 0, endAngle: 360)
+            outerTrack.appendArc(withCenter: adjustedCenter, radius: outerRadius, startAngle: 0, endAngle: 360)
             outerTrack.lineWidth = outerLineWidth
             trackColor.setStroke()
             outerTrack.stroke()
@@ -159,7 +183,7 @@ enum MenuBarIconRenderer {
             if outerFill > 0 {
                 let endAngle = 90 - (360 * outerFill)
                 let outerArc = NSBezierPath()
-                outerArc.appendArc(withCenter: center, radius: outerRadius, startAngle: 90, endAngle: endAngle, clockwise: true)
+                outerArc.appendArc(withCenter: adjustedCenter, radius: outerRadius, startAngle: 90, endAngle: endAngle, clockwise: true)
                 outerArc.lineWidth = outerLineWidth
                 outerArc.lineCapStyle = .round
                 outerColor.setStroke()
@@ -168,7 +192,7 @@ enum MenuBarIconRenderer {
 
             // 안쪽 링 트랙
             let innerTrack = NSBezierPath()
-            innerTrack.appendArc(withCenter: center, radius: innerRadius, startAngle: 0, endAngle: 360)
+            innerTrack.appendArc(withCenter: adjustedCenter, radius: innerRadius, startAngle: 0, endAngle: 360)
             innerTrack.lineWidth = innerLineWidth
             trackColor.setStroke()
             innerTrack.stroke()
@@ -178,13 +202,14 @@ enum MenuBarIconRenderer {
             if innerFill > 0 {
                 let endAngle = 90 - (360 * innerFill)
                 let innerArc = NSBezierPath()
-                innerArc.appendArc(withCenter: center, radius: innerRadius, startAngle: 90, endAngle: endAngle, clockwise: true)
+                innerArc.appendArc(withCenter: adjustedCenter, radius: innerRadius, startAngle: 90, endAngle: endAngle, clockwise: true)
                 innerArc.lineWidth = innerLineWidth
                 innerArc.lineCapStyle = .round
                 innerColor.setStroke()
                 innerArc.stroke()
             }
 
+            NSGraphicsContext.restoreGraphicsState()
             return true
         }
 

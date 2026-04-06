@@ -15,13 +15,20 @@ extension SettingsView {
         .buttonStyle(.plain)
     }
 
-    func settingsToggleRow(_ title: String, isOn: Binding<Bool>) -> some View {
+    func settingsToggleRow(_ title: String, subtitle: String? = nil, isOn: Binding<Bool>) -> some View {
         HStack(spacing: 12) {
             Button {
                 isOn.wrappedValue.toggle()
             } label: {
-                Text(title)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(.plain)
 

@@ -7,10 +7,11 @@ extension SettingsView {
             Label("공통 표시", systemImage: "paintbrush")
                 .font(.headline)
 
-            settingsToggleRow("메뉴바 보조 텍스트 강조", isOn: $settings.menuBarTextHighContrast)
-            Text("메뉴바의 리셋 시간, 구분자 등을 기본 텍스트와 동일한 색상으로 표시")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            settingsToggleRow(
+                "메뉴바 보조 텍스트 강조",
+                subtitle: "리셋 시간, 구분자 등을 기본 텍스트와 동일한 색상으로 표시합니다",
+                isOn: $settings.menuBarTextHighContrast
+            )
         }
     }
 
@@ -49,7 +50,11 @@ extension SettingsView {
                         .foregroundStyle(.red)
                 }
 
-                settingsToggleRow("자동 새로고침", isOn: $settings.autoRefresh)
+                settingsToggleRow(
+                    "자동 새로고침",
+                    subtitle: "설정된 간격으로 사용량을 자동 조회합니다",
+                    isOn: $settings.autoRefresh
+                )
             }
         }
     }
@@ -59,7 +64,11 @@ extension SettingsView {
             Label("알림", systemImage: "bell")
                 .font(.headline)
 
-            settingsToggleRow("전체 알림 사용", isOn: $settings.notificationsEnabled)
+            settingsToggleRow(
+                "전체 알림 사용",
+                subtitle: "사용량 임계치 도달 시 macOS 알림을 표시합니다",
+                isOn: $settings.notificationsEnabled
+            )
 
             if !settings.notificationsEnabled {
                 Label("전체 알림이 꺼져 있어 Claude/Codex 알림이 모두 중지됩니다.", systemImage: "bell.slash")
@@ -166,8 +175,16 @@ extension SettingsView {
                     }
                 }
 
-                settingsToggleRow("현재 세션 알림", isOn: $settings.alertFiveHourEnabled)
-                settingsToggleRow("주간 세션 알림", isOn: $settings.alertWeeklyEnabled)
+                settingsToggleRow(
+                    "현재 세션 알림",
+                    subtitle: "5시간 세션 사용량에 대한 알림입니다",
+                    isOn: $settings.alertFiveHourEnabled
+                )
+                settingsToggleRow(
+                    "주간 세션 알림",
+                    subtitle: "주간 한도 사용량에 대한 알림입니다",
+                    isOn: $settings.alertWeeklyEnabled
+                )
             }
             .disabled(!settings.notificationsEnabled)
             .opacity(settings.notificationsEnabled ? 1.0 : 0.6)
@@ -185,11 +202,11 @@ extension SettingsView {
             Label("절전 모드", systemImage: "battery.75percent")
                 .font(.headline)
 
-            settingsToggleRow("배터리 사용 시 새로고침 감소", isOn: $settings.reducedRefreshOnBattery)
-
-            Text("배터리 모드에서 새로고침 간격이 최소 60초로 제한됩니다")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            settingsToggleRow(
+                "배터리 사용 시 새로고침 감소",
+                subtitle: "배터리 모드에서 새로고침 간격을 최소 60초로 제한합니다",
+                isOn: $settings.reducedRefreshOnBattery
+            )
         }
     }
 

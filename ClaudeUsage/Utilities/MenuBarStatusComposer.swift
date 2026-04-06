@@ -975,7 +975,18 @@ enum MenuBarStatusComposer {
         return image
     }
 
+    private static func menuBarTextShadow() -> NSShadow {
+        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let shadow = NSShadow()
+        shadow.shadowColor = (isDark ? NSColor.black : NSColor.white).withAlphaComponent(0.9)
+        shadow.shadowOffset = NSSize(width: 0, height: 0)
+        shadow.shadowBlurRadius = 2.0
+        return shadow
+    }
+
     private static func composeElements(_ elements: [MenuBarElement]) -> NSImage {
+        let shadow = menuBarTextShadow()
+
         var totalWidth: CGFloat = 0
         for (index, element) in elements.enumerated() {
             if index > 0 { totalWidth += elementSpacing }
@@ -994,7 +1005,11 @@ enum MenuBarStatusComposer {
                     let y = (menuBarHeight - elementImage.size.height) / 2
                     elementImage.draw(in: NSRect(x: x, y: y, width: elementImage.size.width, height: elementImage.size.height))
                     x += elementImage.size.width
-                } else if let text = element.text, let attributes = element.attributes {
+                } else if let text = element.text, var attributes = element.attributes {
+                    // 밝은/어두운 배경 모두에서 가시성을 위해 텍스트 그림자 적용
+                    if attributes[.shadow] == nil {
+                        attributes[.shadow] = shadow
+                    }
                     let size = (text as NSString).size(withAttributes: attributes)
                     let y = (menuBarHeight - size.height) / 2
                     (text as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attributes)
