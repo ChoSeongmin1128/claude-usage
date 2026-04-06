@@ -322,19 +322,18 @@ struct CompactCodexCreditsRow: View {
     let credits: CodexCredits
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: PopoverLayoutMetrics.compactRowSpacing) {
             Text("크레딧")
-                .font(.caption)
+                .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .frame(minWidth: 34, idealWidth: 42, maxWidth: 56, alignment: .leading)
+                .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
 
             Text(credits.formattedBalance)
                 .font(.system(.caption, design: .monospaced))
                 .fontWeight(.medium)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .frame(minWidth: 48, alignment: .trailing)
-                .layoutPriority(1)
+                .frame(width: PopoverLayoutMetrics.compactRowMeterWidth, alignment: .trailing)
         }
         .frame(
             maxWidth: .infinity,
@@ -378,21 +377,17 @@ struct CompactOverageRow: View {
     let overage: OverageSpendLimitResponse
 
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("추가")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                Text("잔액 \(overage.formattedRemainingCredits)")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                    .truncationMode(.tail)
-            }
-            .layoutPriority(1)
+        HStack(alignment: .center, spacing: PopoverLayoutMetrics.compactRowSpacing) {
+            (Text("추가 사용량")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+            + Text(" \(overage.formattedRemainingCredits)")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary))
+            .lineLimit(1)
+            .minimumScaleFactor(0.72)
+            .truncationMode(.tail)
+            .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
 
             HStack(spacing: 6) {
                 ProgressBarView(
@@ -409,12 +404,12 @@ struct CompactOverageRow: View {
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
             }
-            .frame(minWidth: 88, idealWidth: 110, maxWidth: 140)
+            .frame(width: PopoverLayoutMetrics.compactRowMeterWidth, alignment: .trailing)
         }
         .frame(
             maxWidth: .infinity,
-            minHeight: PopoverLayoutMetrics.compactOverageRowHeight,
-            maxHeight: PopoverLayoutMetrics.compactOverageRowHeight,
+            minHeight: PopoverLayoutMetrics.compactUsageRowHeight,
+            maxHeight: PopoverLayoutMetrics.compactUsageRowHeight,
             alignment: .center
         )
     }

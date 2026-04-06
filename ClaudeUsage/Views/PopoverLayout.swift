@@ -20,7 +20,7 @@ enum PopoverLayoutMetrics {
     static let compactUsageRowHeight: CGFloat = 18
     static let compactCreditsRowHeight: CGFloat = 18
     static let compactStatusRowHeight: CGFloat = 18
-    static let compactOverageRowHeight: CGFloat = 22
+    static let compactOverageRowHeight: CGFloat = compactUsageRowHeight
     static let compactProgressBarHeight: CGFloat = 8
     static let compactStatusPanelHeight: CGFloat = 40
     static let compactInteractiveStatusPanelHeight: CGFloat = 48

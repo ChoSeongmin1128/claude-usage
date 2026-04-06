@@ -12,7 +12,8 @@ struct PopoverView: View {
     @ObservedObject private var settings = AppSettings.shared
 
     var body: some View {
-        let layoutSpec = currentLayoutSpec
+        let layout = viewModel.layoutWithSections(for: selectedService, settings: settings)
+        let layoutSpec = layout.spec
 
         VStack(alignment: .leading, spacing: 0) {
             // 상단 바
@@ -28,9 +29,9 @@ struct PopoverView: View {
             .padding(.bottom, isCompact ? 3 : 6)
 
             if isCompact {
-                compactMainSection(layoutSpec: layoutSpec)
+                compactMainSection(layoutSpec: layoutSpec, sections: layout.sections)
             } else {
-                standardMainContainer(layoutSpec: layoutSpec)
+                standardMainContainer(layoutSpec: layoutSpec, sections: layout.sections)
             }
 
             Divider()
@@ -311,7 +312,7 @@ struct PopoverView: View {
     }
 
     @ViewBuilder
-    private func bodyContent(layoutSpec: PopoverLayoutSpec) -> some View {
+    private func bodyContent(layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection]) -> some View {
         switch layoutSpec.phase {
         case .authRequired:
             statusPanel(
@@ -364,7 +365,7 @@ struct PopoverView: View {
                 )
             }
         case .content:
-            displaySectionsContent(layoutSpec: layoutSpec)
+            displaySectionsContent(layoutSpec: layoutSpec, sections: sections)
         case .empty:
             statusPanel(
                 density: layoutSpec.density,
@@ -401,8 +402,7 @@ struct PopoverView: View {
     }
 
     @ViewBuilder
-    private func displaySectionsContent(layoutSpec: PopoverLayoutSpec) -> some View {
-        let sections = viewModel.displaySections(for: selectedService, density: layoutSpec.density, settings: settings)
+    private func displaySectionsContent(layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection]) -> some View {
         if sections.isEmpty {
             Color.clear
                 .frame(maxWidth: .infinity, minHeight: 1)
@@ -419,38 +419,38 @@ struct PopoverView: View {
     }
 
     @ViewBuilder
-    private func compactMainSection(layoutSpec: PopoverLayoutSpec) -> some View {
+    private func compactMainSection(layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection]) -> some View {
         PopoverStateContainer(layoutSpec: layoutSpec) {
             if layoutSpec.phase == .content {
                 ScrollView(.vertical, showsIndicators: false) {
-                    bodyContent(layoutSpec: layoutSpec)
+                    bodyContent(layoutSpec: layoutSpec, sections: sections)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
                 .scrollIndicators(.never)
             } else {
-                bodyContent(layoutSpec: layoutSpec)
+                bodyContent(layoutSpec: layoutSpec, sections: sections)
             }
         }
         .padding(.bottom, 1)
     }
 
     @ViewBuilder
-    private func standardMainContainer(layoutSpec: PopoverLayoutSpec) -> some View {
+    private func standardMainContainer(layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection]) -> some View {
         if layoutSpec.phase == .content {
             ScrollView(.vertical, showsIndicators: false) {
-                standardMainSection(layoutSpec: layoutSpec)
+                standardMainSection(layoutSpec: layoutSpec, sections: sections)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         } else {
-            standardMainSection(layoutSpec: layoutSpec)
+            standardMainSection(layoutSpec: layoutSpec, sections: sections)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
         }
     }
 
     @ViewBuilder
-    private func standardMainSection(layoutSpec: PopoverLayoutSpec) -> some View {
+    private func standardMainSection(layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection]) -> some View {
         PopoverStateContainer(layoutSpec: layoutSpec) {
-            bodyContent(layoutSpec: layoutSpec)
+            bodyContent(layoutSpec: layoutSpec, sections: sections)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(.bottom, 2)

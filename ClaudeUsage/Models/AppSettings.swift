@@ -135,9 +135,9 @@ struct PopoverItemConfig: Codable, Sendable, Equatable {
     static let defaultItems: [PopoverItemConfig] = defaultClaudeItems
 
     static let defaultCodexItems: [PopoverItemConfig] = [
-        .init(id: "codexPrimary", visible: false),
-        .init(id: "codexSecondary", visible: false),
-        .init(id: "codexCredits", visible: false),
+        .init(id: "codexPrimary", visible: true),
+        .init(id: "codexSecondary", visible: true),
+        .init(id: "codexCredits", visible: true),
     ]
 
     static let supportedClaudeIDs: [String] = defaultClaudeItems.map(\.id)
@@ -1411,11 +1411,13 @@ class AppSettings: ObservableObject {
             self.compactPopoverItems = normalizedClaudeItems
         }
 
-        // Codex popover items: 없으면 기본 숨김 구성 사용
+        // Codex popover items
         let normalizedCodexItems: [PopoverItemConfig]
         if let data = defaults.data(forKey: "codexPopoverItems"),
            let items = try? JSONDecoder().decode([PopoverItemConfig].self, from: data) {
-            normalizedCodexItems = PopoverItemConfig.normalizedCodex(items)
+            let loaded = PopoverItemConfig.normalizedCodex(items)
+            // 기존 기본값(모두 hidden) → 새 기본값(모두 visible) 마이그레이션
+            normalizedCodexItems = loaded.allSatisfy({ !$0.visible }) ? PopoverItemConfig.defaultCodexItems : loaded
         } else {
             normalizedCodexItems = PopoverItemConfig.defaultCodexItems
         }

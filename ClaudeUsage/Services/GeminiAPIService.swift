@@ -503,7 +503,19 @@ actor GeminiAPIService {
         for bucket in buckets {
             guard let modelID = bucket.modelId, let remaining = bucket.remainingFraction else { continue }
             if let existing = quotaByModel[modelID] {
-                if remaining < existing.remaining {
+                // 같은 모델에 여러 quota window가 있을 때 활성 window를 선택:
+                // resetTime이 더 최근인 bucket 우선, 같으면 remaining이 큰 것 우선
+                let existingDate = parseResetDate(existing.resetTime)
+                let newDate = parseResetDate(bucket.resetTime)
+                let shouldReplace: Bool
+                if let ed = existingDate, let nd = newDate {
+                    shouldReplace = nd > ed || (nd == ed && remaining > existing.remaining)
+                } else if newDate != nil {
+                    shouldReplace = true
+                } else {
+                    shouldReplace = remaining > existing.remaining
+                }
+                if shouldReplace {
                     quotaByModel[modelID] = (remaining, bucket.resetTime)
                 }
             } else {
@@ -548,6 +560,15 @@ actor GeminiAPIService {
             secondaryWindow: secondary,
             tertiaryWindow: tertiary
         )
+    }
+
+    private func parseResetDate(_ raw: String?) -> Date? {
+        guard let raw, !raw.isEmpty else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: raw) { return date }
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: raw)
     }
 
     private func clampUsedPercent(fromRemainingFraction remainingFraction: Double) -> Double {

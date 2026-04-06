@@ -1,17 +1,28 @@
 import Foundation
 
 extension PopoverViewModel {
-    func layoutSpec(for service: PopoverService, settings: AppSettings) -> PopoverLayoutSpec {
+    struct LayoutResult {
+        let spec: PopoverLayoutSpec
+        let sections: [PopoverDisplaySection]
+    }
+
+    func layoutWithSections(for service: PopoverService, settings: AppSettings) -> LayoutResult {
         let density: PopoverDensity = settings.isPopoverCompact(for: service.providerKind) ? .compact : .standard
         let phase = contentPhase(for: service, settings: settings)
         let sections = displaySections(for: service, density: density, settings: settings)
-        let rowCount = preferredContentRowCount(for: service, density: density, phase: phase, settings: settings)
-        return PopoverLayoutMetrics.layoutSpec(
+        let hasContent = runtimeServiceState(for: service, settings: settings).hasContent
+        let rowCount = phase == .content ? max(sections.count, hasContent ? 1 : 0) : 0
+        let spec = PopoverLayoutMetrics.layoutSpec(
             density: density,
             phase: phase,
             sections: sections,
             rowCount: rowCount
         )
+        return LayoutResult(spec: spec, sections: sections)
+    }
+
+    func layoutSpec(for service: PopoverService, settings: AppSettings) -> PopoverLayoutSpec {
+        layoutWithSections(for: service, settings: settings).spec
     }
 
     func contentPhase(for service: PopoverService, settings: AppSettings) -> PopoverContentPhase {
@@ -52,19 +63,6 @@ extension PopoverViewModel {
             return sections.filter { $0.importance == .primary }
         }
         return sections
-    }
-
-    private func preferredContentRowCount(
-        for service: PopoverService,
-        density: PopoverDensity,
-        phase: PopoverContentPhase,
-        settings: AppSettings
-    ) -> Int {
-        guard phase == .content else { return 0 }
-
-        let visibleSectionCount = displaySections(for: service, density: density, settings: settings).count
-        let hasContent = runtimeServiceState(for: service, settings: settings).hasContent
-        return max(visibleSectionCount, hasContent ? 1 : 0)
     }
 
     private func claudeDisplaySections(
