@@ -385,11 +385,14 @@ actor AntigravityAPIService {
     }
 
     private func detectListeningPorts(pid: Int, preferredPort: Int?) throws -> [Int] {
+        // App Sandbox에서 lsof Process() 실행이 제한될 수 있으므로
+        // preferredPort(extension_server_port)가 있으면 우선 사용합니다.
+        if let preferredPort {
+            return [preferredPort]
+        }
+
         let lsofCandidates = ["/usr/sbin/lsof", "/usr/bin/lsof"]
         guard let executable = lsofCandidates.first(where: FileManager.default.isExecutableFile(atPath:)) else {
-            if let preferredPort {
-                return [preferredPort]
-            }
             throw APIError.networkError("lsof가 없습니다")
         }
 
@@ -403,18 +406,16 @@ actor AntigravityAPIService {
 
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
             throw APIError.networkError(error.localizedDescription)
         }
 
         let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
         let raw = String(decoding: data, as: UTF8.self)
         let ports = parseListeningPorts(raw)
         guard !ports.isEmpty else {
-            if let preferredPort {
-                return [preferredPort]
-            }
             throw APIError.networkError("Antigravity는 실행 중이지만 아직 listening port를 열지 않았습니다")
         }
         return ports
