@@ -53,15 +53,28 @@ final class AppPopoverCoordinator {
         applyPopoverSizeIfNeeded(size: size, force: false)
     }
 
-    func finalizeSizeAfterPresentation(sizeProvider: @escaping () -> CGSize) {
+    func finalizeSizeAfterPresentation(
+        sizeProvider: @escaping () -> CGSize,
+        completion: (() -> Void)? = nil
+    ) {
         presentationRevision += 1
         let revision = presentationRevision
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            guard self.presentationRevision == revision else { return }
-            guard self.popover.isShown else { return }
+            guard let self else {
+                completion?()
+                return
+            }
+            guard self.presentationRevision == revision else {
+                completion?()
+                return
+            }
+            guard self.popover.isShown else {
+                completion?()
+                return
+            }
             self.popover.contentViewController?.view.layoutSubtreeIfNeeded()
-            self.applyPopoverSizeIfNeeded(size: sizeProvider(), force: true)
+            self.applyPopoverSizeIfNeeded(size: sizeProvider(), force: false)
+            completion?()
         }
     }
 

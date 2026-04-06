@@ -249,6 +249,27 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(events[1].1, .serviceSelection)
     }
 
+    func testSelectServiceSkipsDuplicateSelectionCallbacks() async {
+        let events = await MainActor.run { () -> [PopoverService] in
+            final class SelectionRecorder {
+                var events: [PopoverService] = []
+            }
+
+            let recorder = SelectionRecorder()
+            let viewModel = PopoverViewModel()
+            viewModel.onServiceSelected = { service in
+                recorder.events.append(service)
+            }
+
+            viewModel.selectService(.claude)
+            viewModel.selectService(.gemini)
+            viewModel.selectService(.gemini)
+            return recorder.events
+        }
+
+        XCTAssertEqual(events, [.gemini])
+    }
+
     func testResolveGeminiSummaryStateKeepsRefreshOnlyFirstFetchOutOfReady() async {
         let state = await MainActor.run {
             PopoverViewModel.resolveGeminiSummaryState(

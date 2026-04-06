@@ -94,7 +94,12 @@ extension AppDelegate {
 
     // MARK: - Menu Bar Update
 
-    func updateMenuBar() {
+    func updateMenuBar(force: Bool = false) {
+        if !force && (popover?.isShown == true || isPresentingPopover) {
+            pendingMenuBarRefreshAfterPopoverClose = true
+            return
+        }
+
         let settings = AppSettings.shared
         guard let button = statusItem?.button else { return }
         let highContrast = AppSettings.shared.menuBarTextHighContrast

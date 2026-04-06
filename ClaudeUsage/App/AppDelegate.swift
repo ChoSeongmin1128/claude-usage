@@ -29,6 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var lastObservedProviderStates = AppSettings.shared.providerStates
     var eventMonitor: Any?
     var globalClickMonitor: Any?
+    var isPresentingPopover = false
+    var pendingMenuBarRefreshAfterPopoverClose = false
 
     var popover: NSPopover? { popoverCoordinator.popover }
     var popoverViewModel: PopoverViewModel { popoverCoordinator.viewModel }
