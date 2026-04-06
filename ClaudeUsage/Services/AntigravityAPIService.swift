@@ -158,6 +158,7 @@ actor AntigravityAPIService {
         if let httpsPort = processInfo.httpsServerPort {
             connectPort = httpsPort
             effectiveCsrfToken = processInfo.csrfToken
+            Logger.info("Antigravity: https_server_port=\(httpsPort) csrf=\(processInfo.csrfToken.prefix(12))...")
         } else {
             let listeningPorts = try detectListeningPorts(pid: processInfo.pid, preferredPort: processInfo.extensionPort)
             effectiveCsrfToken = processInfo.csrfToken

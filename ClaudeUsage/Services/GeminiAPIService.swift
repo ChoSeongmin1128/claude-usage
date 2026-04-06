@@ -506,9 +506,19 @@ actor GeminiAPIService {
             throw APIError.parseError
         }
 
+        Logger.info("Gemini API 응답: \(buckets.count)개 bucket")
+        for b in buckets {
+            Logger.info("  bucket: model=\(b.modelId ?? "nil") remaining=\(b.remainingFraction ?? -1) reset=\(b.resetTime ?? "nil")")
+        }
+
         var quotaByModel: [String: (remaining: Double, resetTime: String?)] = [:]
         for bucket in buckets {
             guard let modelID = bucket.modelId, let remaining = bucket.remainingFraction else { continue }
+
+            // resetTime이 에포크(1970)이고 remaining=0인 bucket은 할당되지 않은 모델이므로 무시
+            if remaining == 0, let rt = bucket.resetTime, let d = parseResetDate(rt), d.timeIntervalSince1970 < 86400 {
+                continue
+            }
             if let existing = quotaByModel[modelID] {
                 // 같은 모델에 여러 quota window가 있을 때 활성 window를 선택:
                 // resetTime이 더 최근인 bucket 우선, 같으면 remaining이 큰 것 우선
@@ -541,9 +551,15 @@ actor GeminiAPIService {
             }
             .sorted { $0.modelID < $1.modelID }
 
+        for q in quotas {
+            Logger.info("  parsed: label=\(q.label) model=\(q.modelID) used=\(q.usedPercent)%")
+        }
+
         let primary = quotas.first(where: { isProModel(id: $0.modelID) }) ?? quotas.first
         let secondary = quotas.first(where: { isFlashModel(id: $0.modelID) }) ?? quotas.dropFirst().first
         let tertiary = quotas.first(where: { isFlashLiteModel(id: $0.modelID) })
+
+        Logger.info("Gemini 결과: primary=\(primary?.label ?? "nil")(\(primary?.usedPercent ?? -1)%) secondary=\(secondary?.label ?? "nil")(\(secondary?.usedPercent ?? -1)%) tertiary=\(tertiary?.label ?? "nil")(\(tertiary?.usedPercent ?? -1)%)")
 
         let accountPlan: String? = switch (codeAssistStatus.tier, claims.hostedDomain) {
         case (.standard, _):

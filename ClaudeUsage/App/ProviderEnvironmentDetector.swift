@@ -55,7 +55,7 @@ struct AntigravityEnvironmentSignals: Sendable, Equatable {
 
     var hasRuntimeConnection: Bool {
         guard let process = runningProcess else { return false }
-        return process.csrfToken?.isEmpty == false && process.extensionPort != nil
+        return process.csrfToken?.isEmpty == false && (process.extensionPort != nil || process.httpsServerPort != nil)
     }
 }
 
