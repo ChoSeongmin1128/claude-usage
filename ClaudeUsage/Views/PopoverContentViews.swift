@@ -207,7 +207,7 @@ struct CompactUsageRow: View {
             compactLabelLine
                 .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
 
-            HStack(spacing: 6) {
+            HStack(spacing: 4) {
                 ProgressBarView(
                     percentage: percentage,
                     height: PopoverLayoutMetrics.compactProgressBarHeight
@@ -219,7 +219,7 @@ struct CompactUsageRow: View {
                     .fontWeight(.medium)
                     .foregroundStyle(ColorProvider.statusColor(for: percentage))
                     .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(width: 32, alignment: .trailing)
             }
             .frame(width: PopoverLayoutMetrics.compactRowMeterWidth, alignment: .trailing)
         }
@@ -389,7 +389,7 @@ struct CompactOverageRow: View {
             .truncationMode(.tail)
             .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
 
-            HStack(spacing: 6) {
+            HStack(spacing: 4) {
                 ProgressBarView(
                     percentage: overage.usagePercentage,
                     height: PopoverLayoutMetrics.compactProgressBarHeight,
@@ -402,7 +402,7 @@ struct CompactOverageRow: View {
                     .fontWeight(.medium)
                     .foregroundStyle(.purple)
                     .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(width: 32, alignment: .trailing)
             }
             .frame(width: PopoverLayoutMetrics.compactRowMeterWidth, alignment: .trailing)
         }
