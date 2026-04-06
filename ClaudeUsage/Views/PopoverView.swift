@@ -99,7 +99,7 @@ struct PopoverView: View {
                 .padding(.bottom, 6)
             }
         }
-        .frame(width: layoutSpec.size.width, alignment: .topLeading)
+        .frame(width: layoutSpec.size.width, height: layoutSpec.size.height, alignment: .topLeading)
         .background(Color(NSColor.windowBackgroundColor))
         .onAppear {
             normalizeSelectedServiceIfNeeded()
