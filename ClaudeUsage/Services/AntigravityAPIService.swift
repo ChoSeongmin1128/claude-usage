@@ -12,6 +12,7 @@ actor AntigravityAPIService {
         let pid: Int
         let csrfToken: String
         let extensionPort: Int?
+        let extensionCsrfToken: String?
     }
 
     private struct AntigravityModelQuota {
@@ -148,15 +149,26 @@ actor AntigravityAPIService {
     func fetchUsage() async throws -> AntigravityUsageResponse {
         let processInfo = try detectProcessInfo()
         let listeningPorts = try detectListeningPorts(pid: processInfo.pid, preferredPort: processInfo.extensionPort)
+
+        // extension_server_port를 사용할 때는 extension_server_csrf_token을 써야 합니다.
+        let effectiveCsrfToken: String = {
+            if let extPort = processInfo.extensionPort,
+               listeningPorts.contains(extPort),
+               let extToken = processInfo.extensionCsrfToken, !extToken.isEmpty {
+                return extToken
+            }
+            return processInfo.csrfToken
+        }()
+
         let connectPort = try await resolveConnectPort(
             ports: listeningPorts,
-            csrfToken: processInfo.csrfToken
+            csrfToken: effectiveCsrfToken
         )
 
         let context = RequestContext(
             httpsPort: connectPort,
             httpPort: processInfo.extensionPort,
-            csrfToken: processInfo.csrfToken
+            csrfToken: effectiveCsrfToken
         )
 
         do {
@@ -380,7 +392,8 @@ actor AntigravityAPIService {
         return AntigravityProcessInfo(
             pid: process.pid,
             csrfToken: csrfToken,
-            extensionPort: process.extensionPort
+            extensionPort: process.extensionPort,
+            extensionCsrfToken: process.extensionCsrfToken
         )
     }
 
