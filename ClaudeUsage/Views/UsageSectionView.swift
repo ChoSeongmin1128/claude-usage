@@ -34,7 +34,7 @@ struct UsageSectionView: View {
                         .truncationMode(.tail)
                 }
             }
-            .layoutPriority(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 8) {
                 ProgressBarView(percentage: percentage, height: 8)
