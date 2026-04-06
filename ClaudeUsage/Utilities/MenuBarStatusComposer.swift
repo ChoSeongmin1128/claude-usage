@@ -17,13 +17,14 @@ private struct MenuBarElement {
     let image: NSImage?
     let text: String?
     let attributes: [NSAttributedString.Key: Any]?
+    let needsShadow: Bool
 
     static func image(_ image: NSImage) -> MenuBarElement {
-        MenuBarElement(image: image, text: nil, attributes: nil)
+        MenuBarElement(image: image, text: nil, attributes: nil, needsShadow: false)
     }
 
-    static func text(_ text: String, attributes: [NSAttributedString.Key: Any]) -> MenuBarElement {
-        MenuBarElement(image: nil, text: text, attributes: attributes)
+    static func text(_ text: String, attributes: [NSAttributedString.Key: Any], shadow: Bool = false) -> MenuBarElement {
+        MenuBarElement(image: nil, text: text, attributes: attributes, needsShadow: shadow)
     }
 }
 
@@ -119,9 +120,9 @@ enum MenuBarStatusComposer {
         case .none:
             break
         case .fiveHour:
-            elements.append(.text(displayText(for: fiveHour, showRemaining: showsRemaining(config: config)), attributes: [.font: font, .foregroundColor: fiveHourColor]))
+            elements.append(.text(displayText(for: fiveHour, showRemaining: showsRemaining(config: config)), attributes: [.font: font, .foregroundColor: fiveHourColor], shadow: true))
         case .weekly:
-            elements.append(.text(displayText(for: weekly, showRemaining: showsRemaining(config: config)), attributes: [.font: font, .foregroundColor: weeklyColor]))
+            elements.append(.text(displayText(for: weekly, showRemaining: showsRemaining(config: config)), attributes: [.font: font, .foregroundColor: weeklyColor], shadow: true))
         case .dual:
             elements.append(.image(segmentedPercentageImage(
                 first: displayText(for: fiveHour, showRemaining: showsRemaining(config: config)),
@@ -233,9 +234,9 @@ enum MenuBarStatusComposer {
         case .none:
             break
         case .fiveHour:
-            elements.append(.text(displayText(for: primary, showRemaining: showsRemaining(config: config)), attributes: [.font: font, .foregroundColor: primaryColor]))
+            elements.append(.text(displayText(for: primary, showRemaining: showsRemaining(config: config)), attributes: [.font: font, .foregroundColor: primaryColor], shadow: true))
         case .weekly:
-            elements.append(.text(displayText(for: weekly, showRemaining: showsRemaining(config: config)), attributes: [.font: font, .foregroundColor: weeklyColor]))
+            elements.append(.text(displayText(for: weekly, showRemaining: showsRemaining(config: config)), attributes: [.font: font, .foregroundColor: weeklyColor], shadow: true))
         case .dual:
             elements.append(.image(segmentedPercentageImage(
                 first: displayText(for: primary, showRemaining: showsRemaining(config: config)),
@@ -1006,8 +1007,7 @@ enum MenuBarStatusComposer {
                     elementImage.draw(in: NSRect(x: x, y: y, width: elementImage.size.width, height: elementImage.size.height))
                     x += elementImage.size.width
                 } else if let text = element.text, var attributes = element.attributes {
-                    // 밝은/어두운 배경 모두에서 가시성을 위해 텍스트 그림자 적용
-                    if attributes[.shadow] == nil {
+                    if element.needsShadow && attributes[.shadow] == nil {
                         attributes[.shadow] = shadow
                     }
                     let size = (text as NSString).size(withAttributes: attributes)
