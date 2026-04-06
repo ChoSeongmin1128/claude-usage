@@ -177,7 +177,7 @@ struct PopoverStateContainer<Content: View>: View {
     var body: some View {
         content
             .frame(
-                maxWidth: .infinity,
+                maxWidth: layoutSpec.size.width,
                 minHeight: layoutSpec.bodyContentHeight,
                 maxHeight: layoutSpec.isCompact ? layoutSpec.bodyContentHeight : nil,
                 alignment: .topLeading
