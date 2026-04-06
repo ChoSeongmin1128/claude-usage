@@ -46,7 +46,7 @@ struct UsageSectionView: View {
                     .foregroundStyle(ColorProvider.statusColor(for: percentage))
                     .fixedSize(horizontal: true, vertical: false)
             }
-            .frame(minWidth: 124, idealWidth: 156, maxWidth: 196, alignment: .trailing)
+            .frame(width: 156, alignment: .trailing)
         }
         .padding(.vertical, 2)
     }

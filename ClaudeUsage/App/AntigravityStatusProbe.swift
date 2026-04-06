@@ -7,6 +7,7 @@ struct AntigravityProcessSnapshot: Sendable, Equatable {
     let csrfToken: String?
     let extensionPort: Int?
     let extensionCsrfToken: String?
+    let httpsServerPort: Int?
 }
 
 enum AntigravityStatusProbe {
@@ -20,7 +21,8 @@ enum AntigravityStatusProbe {
                 command: entry.command,
                 csrfToken: extractFlag("--csrf_token", from: entry.command),
                 extensionPort: extractPort("--extension_server_port", from: entry.command),
-                extensionCsrfToken: extractFlag("--extension_server_csrf_token", from: entry.command)
+                extensionCsrfToken: extractFlag("--extension_server_csrf_token", from: entry.command),
+                httpsServerPort: extractPort("--https_server_port", from: entry.command)
             )
         }
         return nil

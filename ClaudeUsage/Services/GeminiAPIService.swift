@@ -91,6 +91,13 @@ actor GeminiAPIService {
     private func resolvedAccessToken(from credentials: OAuthCredentials) async throws -> String {
         var accessToken = credentials.accessToken
         if let expiryDate = credentials.expiryDate, expiryDate <= Date() {
+            // 토큰 만료 → 파일에서 다시 읽어봄 (CLI에서 별도 갱신했을 수 있음)
+            if let reloaded = try? loadCredentials(),
+               let reloadedToken = reloaded.accessToken,
+               let reloadedExpiry = reloaded.expiryDate,
+               reloadedExpiry > Date() {
+                return reloadedToken
+            }
             guard let refreshToken = credentials.refreshToken, !refreshToken.isEmpty else {
                 throw APIError.invalidSessionKey
             }

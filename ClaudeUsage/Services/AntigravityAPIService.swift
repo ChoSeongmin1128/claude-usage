@@ -13,6 +13,7 @@ actor AntigravityAPIService {
         let csrfToken: String
         let extensionPort: Int?
         let extensionCsrfToken: String?
+        let httpsServerPort: Int?
     }
 
     private struct AntigravityModelQuota {
@@ -148,22 +149,23 @@ actor AntigravityAPIService {
 
     func fetchUsage() async throws -> AntigravityUsageResponse {
         let processInfo = try detectProcessInfo()
-        let listeningPorts = try detectListeningPorts(pid: processInfo.pid, preferredPort: processInfo.extensionPort)
 
-        // extension_server_port를 사용할 때는 extension_server_csrf_token을 써야 합니다.
-        let effectiveCsrfToken: String = {
-            if let extPort = processInfo.extensionPort,
-               listeningPorts.contains(extPort),
-               let extToken = processInfo.extensionCsrfToken, !extToken.isEmpty {
-                return extToken
-            }
-            return processInfo.csrfToken
-        }()
+        // 우선순위: https_server_port + csrf_token (language server 직접 연결)
+        // fallback: lsof로 발견한 포트 또는 extension_server_port
+        let connectPort: Int
+        let effectiveCsrfToken: String
 
-        let connectPort = try await resolveConnectPort(
-            ports: listeningPorts,
-            csrfToken: effectiveCsrfToken
-        )
+        if let httpsPort = processInfo.httpsServerPort {
+            connectPort = httpsPort
+            effectiveCsrfToken = processInfo.csrfToken
+        } else {
+            let listeningPorts = try detectListeningPorts(pid: processInfo.pid, preferredPort: processInfo.extensionPort)
+            effectiveCsrfToken = processInfo.csrfToken
+            connectPort = try await resolveConnectPort(
+                ports: listeningPorts,
+                csrfToken: effectiveCsrfToken
+            )
+        }
 
         let context = RequestContext(
             httpsPort: connectPort,
@@ -393,7 +395,8 @@ actor AntigravityAPIService {
             pid: process.pid,
             csrfToken: csrfToken,
             extensionPort: process.extensionPort,
-            extensionCsrfToken: process.extensionCsrfToken
+            extensionCsrfToken: process.extensionCsrfToken,
+            httpsServerPort: process.httpsServerPort
         )
     }
 
