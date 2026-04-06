@@ -8,7 +8,7 @@ protocol ClaudeBrowserCookieImporting {
 final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unchecked Sendable {
     nonisolated func discoverCandidates() -> [ClaudeBrowserSessionCandidate] {
         let fileManager = FileManager.default
-        let home = fileManager.homeDirectoryForCurrentUser
+        let home = fileManager.realHomeDirectory
         let chromeRoot = home.appendingPathComponent("Library/Application Support/Google/Chrome", isDirectory: true)
         guard fileManager.fileExists(atPath: chromeRoot.path) else {
             return []

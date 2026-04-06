@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 
 struct ProviderEnvironmentStatus: Sendable, Equatable {
     let isDetected: Bool
@@ -231,15 +232,15 @@ enum ProviderEnvironmentDetector {
 
     static func antigravitySignals() -> AntigravityEnvironmentSignals {
         let hasLegacyStateDirectory = FileManager.default.fileExists(
-            atPath: FileManager.default.homeDirectoryForCurrentUser
+            atPath: FileManager.default.realHomeDirectory
                 .appendingPathComponent(".gemini/antigravity").path
         )
         let hasHomeStateDirectory = FileManager.default.fileExists(
-            atPath: FileManager.default.homeDirectoryForCurrentUser
+            atPath: FileManager.default.realHomeDirectory
                 .appendingPathComponent(".antigravity").path
         )
         let hasApplicationSupportDirectory = FileManager.default.fileExists(
-            atPath: FileManager.default.homeDirectoryForCurrentUser
+            atPath: FileManager.default.realHomeDirectory
                 .appendingPathComponent("Library/Application Support/Antigravity").path
         )
         let persistedState = antigravityPersistedState()
@@ -258,38 +259,25 @@ enum ProviderEnvironmentDetector {
     }
 
     private static func antigravityPersistedState() -> AntigravityPersistedState {
-        let dbURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/Antigravity/User/globalStorage/state.vscdb")
-        guard FileManager.default.fileExists(atPath: dbURL.path) else {
+        let dbPath = FileManager.default.realHomeDirectory
+            .appendingPathComponent("Library/Application Support/Antigravity/User/globalStorage/state.vscdb").path
+        guard FileManager.default.fileExists(atPath: dbPath) else {
             return AntigravityPersistedState(hasAuthStatus: false, hasOAuthToken: false)
         }
 
-        guard let sqlite3Path = shellBinaryPath(named: "sqlite3") else {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(dbPath, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
             return AntigravityPersistedState(hasAuthStatus: false, hasOAuthToken: false)
         }
+        defer { sqlite3_close(db) }
 
         func hasKey(_ key: String) -> Bool {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: sqlite3Path)
-            process.arguments = [
-                dbURL.path,
-                "SELECT 1 FROM ItemTable WHERE key='\(key.replacingOccurrences(of: "'", with: "''"))' LIMIT 1;"
-            ]
-
-            let output = Pipe()
-            process.standardOutput = output
-            process.standardError = Pipe()
-
-            do {
-                try process.run()
-                process.waitUntilExit()
-            } catch {
-                return false
-            }
-
-            let data = output.fileHandleForReading.readDataToEndOfFile()
-            let result = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            return result == "1"
+            var stmt: OpaquePointer?
+            let sql = "SELECT 1 FROM ItemTable WHERE key=? LIMIT 1"
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return false }
+            defer { sqlite3_finalize(stmt) }
+            sqlite3_bind_text(stmt, 1, (key as NSString).utf8String, -1, nil)
+            return sqlite3_step(stmt) == SQLITE_ROW
         }
 
         return AntigravityPersistedState(
@@ -332,18 +320,19 @@ enum ProviderEnvironmentDetector {
 
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
             return nil
         }
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
         let path = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         return path.isEmpty ? nil : path
     }
 
     private static func binaryCandidateDirectories() -> [String] {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let home = FileManager.default.realHomeDirectory.path
         let envPaths = ProcessInfo.processInfo.environment["PATH"]?
             .split(separator: ":")
             .map(String.init) ?? []
@@ -361,7 +350,7 @@ enum ProviderEnvironmentDetector {
     }
 
     private static func geminiAuthType() -> GeminiAuthType {
-        let settingsURL = FileManager.default.homeDirectoryForCurrentUser
+        let settingsURL = FileManager.default.realHomeDirectory
             .appendingPathComponent(".gemini/settings.json")
 
         guard
@@ -386,7 +375,7 @@ enum ProviderEnvironmentDetector {
     }
 
     private static func geminiCredentialState() -> GeminiCredentialState {
-        let credsURL = FileManager.default.homeDirectoryForCurrentUser
+        let credsURL = FileManager.default.realHomeDirectory
             .appendingPathComponent(".gemini/oauth_creds.json")
         guard
             let data = try? Data(contentsOf: credsURL),

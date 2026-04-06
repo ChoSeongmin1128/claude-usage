@@ -1123,7 +1123,7 @@ actor ClaudeAPIService {
     }
 
     private func readOAuthCredentialFromCredentialFiles() async -> OAuthCredential? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
+        let home = FileManager.default.realHomeDirectory
         let candidates = [
             home.appendingPathComponent(".claude/.credentials.json"),
             home.appendingPathComponent(".claude/credentials.json")

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 struct AntigravityProcessSnapshot: Sendable, Equatable {
@@ -35,24 +36,16 @@ enum AntigravityStatusProbe {
     }
 
     nonisolated static func appProcessRunning() -> Bool {
-        guard let output = try? processListing() else { return false }
-
-        for line in output.split(separator: "\n") {
-            let raw = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !raw.isEmpty else { continue }
-
-            let parts = raw.split(maxSplits: 1, whereSeparator: \.isWhitespace)
-            guard parts.count == 2 else { continue }
-
-            let command = String(parts[1]).lowercased()
-            if command.contains("/applications/antigravity.app/")
-                || command.contains("user-data-dir=/users/")
-                    && command.contains("/library/application support/antigravity")
-            {
-                return true
-            }
+        // App Sandbox에서 ps -ax는 다른 프로세스를 볼 수 없으므로
+        // NSWorkspace API로 GUI 앱 실행 여부를 확인합니다.
+        let apps = NSWorkspace.shared.runningApplications
+        if apps.contains(where: { $0.bundleIdentifier == "com.google.antigravity" }) {
+            return true
         }
-
+        // bundleIdentifier가 다를 수 있으므로 경로로도 확인
+        if apps.contains(where: { $0.bundleURL?.path.contains("Antigravity.app") == true }) {
+            return true
+        }
         return false
     }
 
@@ -102,9 +95,10 @@ enum AntigravityStatusProbe {
         process.standardError = Pipe()
 
         try process.run()
-        process.waitUntilExit()
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+
         return String(decoding: data, as: UTF8.self)
     }
 }

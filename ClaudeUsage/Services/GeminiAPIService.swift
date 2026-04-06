@@ -175,7 +175,7 @@ actor GeminiAPIService {
     }
 
     private func currentAuthType() -> GeminiAuthType {
-        let settingsURL = FileManager.default.homeDirectoryForCurrentUser
+        let settingsURL = FileManager.default.realHomeDirectory
             .appendingPathComponent(".gemini/settings.json")
 
         guard
@@ -192,7 +192,7 @@ actor GeminiAPIService {
     }
 
     private func loadCredentials() throws -> OAuthCredentials {
-        let credsURL = FileManager.default.homeDirectoryForCurrentUser
+        let credsURL = FileManager.default.realHomeDirectory
             .appendingPathComponent(".gemini/oauth_creds.json")
         guard FileManager.default.fileExists(atPath: credsURL.path) else {
             throw APIError.invalidSessionKey
@@ -269,7 +269,7 @@ actor GeminiAPIService {
     }
 
     private func updateStoredCredentials(refreshResponse: [String: Any]) throws {
-        let credsURL = FileManager.default.homeDirectoryForCurrentUser
+        let credsURL = FileManager.default.realHomeDirectory
             .appendingPathComponent(".gemini/oauth_creds.json")
         guard
             let existingData = try? Data(contentsOf: credsURL),
@@ -368,7 +368,7 @@ actor GeminiAPIService {
     }
 
     private func resolvedGeminiBinaryURL() -> URL? {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let home = FileManager.default.realHomeDirectory.path
         let envPaths = ProcessInfo.processInfo.environment["PATH"]?
             .split(separator: ":")
             .map(String.init) ?? []
