@@ -286,12 +286,34 @@ enum ProviderEnvironmentDetector {
         )
     }
 
+    // 바이너리 경로 캐시 — Process() 실행은 비용이 크므로 앱 생명주기 동안 한 번만 수행
+    private static var binaryPathCache: [String: URL?] = [:]
+    private static let binaryPathCacheLock = NSLock()
+
     private static func binaryExists(named name: String) -> Bool {
         resolvedBinaryURL(named: name) != nil
     }
 
     private static func resolvedBinaryURL(named name: String) -> URL? {
+        binaryPathCacheLock.lock()
+        if let cached = binaryPathCache[name] {
+            binaryPathCacheLock.unlock()
+            return cached
+        }
+        binaryPathCacheLock.unlock()
+
+        let result = _resolvedBinaryURL(named: name)
+
+        binaryPathCacheLock.lock()
+        binaryPathCache[name] = result
+        binaryPathCacheLock.unlock()
+
+        return result
+    }
+
+    private static func _resolvedBinaryURL(named name: String) -> URL? {
         let fm = FileManager.default
+        // 파일시스템 검색만으로 빠르게 해결 시도 (Process 실행 없음)
         for directory in binaryCandidateDirectories() {
             let candidate = URL(fileURLWithPath: directory).appendingPathComponent(name)
             if fm.isExecutableFile(atPath: candidate.path) {
@@ -299,6 +321,7 @@ enum ProviderEnvironmentDetector {
             }
         }
 
+        // 파일시스템에서 찾지 못한 경우에만 셸 실행 (비용이 큰 fallback)
         if let shellPath = shellBinaryPath(named: name) {
             let url = URL(fileURLWithPath: shellPath)
             if fm.isExecutableFile(atPath: url.path) {

@@ -1105,18 +1105,22 @@ actor ClaudeAPIService {
             throw APIError.unknownError("security 실행 실패: \(error.localizedDescription)")
         }
 
-        let startedAt = Date()
-        while process.isRunning {
-            if Date().timeIntervalSince(startedAt) >= timeout {
-                process.terminate()
-                process.waitUntilExit()
-                return nil
-            }
-            Thread.sleep(forTimeInterval: 0.05)
+        // 타임아웃 시 프로세스 종료를 위한 워크아이템
+        let timeoutWork = DispatchWorkItem { [weak process] in
+            guard let process, process.isRunning else { return }
+            process.terminate()
         }
+        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWork)
 
+        // readDataToEndOfFile → waitUntilExit 순서로 호출 (pipe 데드락 방지)
         let stdoutData = outputPipe.fileHandleForReading.readDataToEndOfFile()
         let stderrData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        timeoutWork.cancel()
+
+        // 타임아웃에 의해 종료된 경우
+        guard process.terminationReason != .uncaughtSignal else { return nil }
+
         let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         return (process.terminationStatus, stdout, stderr)
