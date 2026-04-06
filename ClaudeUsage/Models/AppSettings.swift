@@ -380,6 +380,9 @@ class AppSettings: ObservableObject {
             }
         }
     }
+    @Published var menuBarActiveServiceSelectionRawValue: String {
+        didSet { defaults.set(menuBarActiveServiceSelectionRawValue, forKey: "menuBarActiveService") }
+    }
     @Published private(set) var runtimeProviderDisplayRevision: Int = 0
     @Published var codexPercentageDisplay: PercentageDisplay {
         didSet { defaults.set(codexPercentageDisplay.rawValue, forKey: "codexPercentageDisplay") }
@@ -476,6 +479,7 @@ class AppSettings: ObservableObject {
         let codexPopoverItems: [PopoverItemConfig]
         let codexCompactPopoverItems: [PopoverItemConfig]
         let providerStates: AppProviderStateCatalog
+        let menuBarActiveServiceRawValue: String
         let runtimeProviderDisplayConfigs: [AppProviderKind: ProviderMenuBarDisplayConfig]
         let providerPopoverPinnedStates: [AppProviderKind: Bool]
         let providerPopoverCompactStates: [AppProviderKind: Bool]
@@ -531,6 +535,7 @@ class AppSettings: ObservableObject {
             codexPopoverItems: codexPopoverItems,
             codexCompactPopoverItems: codexCompactPopoverItems,
             providerStates: providerStates,
+            menuBarActiveServiceRawValue: activeMenuBarServiceRawValue,
             runtimeProviderDisplayConfigs: Dictionary(
                 uniqueKeysWithValues: AppProviderKind.runtimeKinds.compactMap { kind in
                     menuBarDisplayConfig(for: kind).map { (kind, $0) }
@@ -602,6 +607,7 @@ class AppSettings: ObservableObject {
         codexPopoverItems = PopoverItemConfig.normalizedCodex(snapshot.codexPopoverItems)
         codexCompactPopoverItems = PopoverItemConfig.normalizedCodex(snapshot.codexCompactPopoverItems)
         providerStates = snapshot.providerStates
+        menuBarActiveServiceSelectionRawValue = snapshot.menuBarActiveServiceRawValue
         for (kind, config) in snapshot.runtimeProviderDisplayConfigs {
             setProviderShowIcon(config.showIcon, for: kind)
             setMenuBarStyle(config.style, for: kind)
@@ -758,7 +764,10 @@ class AppSettings: ObservableObject {
     }
 
     var activeMenuBarServiceRawValue: String {
-        providerStates.legacyMenuBarActiveService(fallback: "claude")
+        let normalized = PopoverService(
+            rawValue: menuBarActiveServiceSelectionRawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        )?.rawValue
+        return normalized ?? providerStates.legacyMenuBarActiveService(fallback: "claude")
     }
 
     var claudeEnabled: Bool {
@@ -850,6 +859,15 @@ class AppSettings: ObservableObject {
         var catalog = providerStates
         catalog.setActiveProvider(kind)
         providerStates = catalog
+    }
+
+    func setActiveMenuBarService(_ service: PopoverService?) {
+        let fallback = providerStates.legacyMenuBarActiveService(fallback: "claude")
+        let rawValue = service?.rawValue ?? fallback
+        let normalized = PopoverService(rawValue: rawValue)?.rawValue ?? fallback
+        if menuBarActiveServiceSelectionRawValue != normalized {
+            menuBarActiveServiceSelectionRawValue = normalized
+        }
     }
 
     func isPopoverPinned(for kind: AppProviderKind) -> Bool {
@@ -1341,7 +1359,9 @@ class AppSettings: ObservableObject {
         let legacySettingsLastTab = defaults.string(forKey: "settingsLastTab") ?? "common"
         self.settingsLastTab = legacySettingsLastTab
         let storedActiveService = defaults.string(forKey: "menuBarActiveService") ?? "claude"
-        let normalizedActiveService = storedActiveService == "codex" ? "codex" : "claude"
+        let normalizedActiveService = PopoverService(
+            rawValue: storedActiveService.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        )?.rawValue ?? "claude"
         self.claudeSettingsLastTab = defaults.string(forKey: "claudeSettingsLastTab") ?? "auth"
         self.codexSettingsLastTab = defaults.string(forKey: "codexSettingsLastTab") ?? "auth"
 
@@ -1359,6 +1379,7 @@ class AppSettings: ObservableObject {
             )
         }
         self.providerStates = loadedProviderStates
+        self.menuBarActiveServiceSelectionRawValue = normalizedActiveService
         Self.migrateLegacyProviderFieldsIfNeeded(from: loadedProviderStates, defaults: defaults)
         if let data = try? JSONEncoder().encode(loadedProviderStates) {
             defaults.set(data, forKey: "providerStates")

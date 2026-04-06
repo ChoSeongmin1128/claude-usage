@@ -31,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var globalClickMonitor: Any?
     var isPresentingPopover = false
     var pendingMenuBarRefreshAfterPopoverClose = false
+    var lastMenuBarContentSignature: Int?
 
     var popover: NSPopover? { popoverCoordinator.popover }
     var popoverViewModel: PopoverViewModel { popoverCoordinator.viewModel }

@@ -14,13 +14,17 @@ extension AppDelegate {
                 self?.openSettingsForAuth(service: service)
             },
             onServiceSelected: { [weak self] service in
+                guard let self else { return }
                 ServiceSelectionHelper.setActivePopoverService(service, settings: AppSettings.shared)
-                if self?.popover?.isShown == true {
-                    self?.pendingMenuBarRefreshAfterPopoverClose = true
-                } else {
-                    self?.updateMenuBar()
+                self.applyPopoverBehavior(for: service)
+                if self.popover?.isShown == true {
+                    if self.isPopoverPinned(for: service) {
+                        self.stopGlobalClickMonitor()
+                    } else {
+                        self.startGlobalClickMonitor()
+                    }
                 }
-                self?.refreshServiceIfNeededOnTabSwitch(service)
+                self.refreshServiceIfNeededOnTabSwitch(service)
             },
             onLayoutChanged: { [weak self] service, reason in
                 self?.refreshPopoverSizeIfShown(service: service, reason: reason)
@@ -41,33 +45,35 @@ extension AppDelegate {
     }
 
     func toggleUnifiedPopover() {
-        guard let popover, let button = statusItem?.button else { return }
+        guard let button = statusItem?.button else { return }
+        guard let currentPopover = popover else { return }
 
         if !ServiceSelectionHelper.hasAnyEnabledService(settings: AppSettings.shared) {
             showSettingsWindow()
             return
         }
 
-        if popover.isShown {
+        if currentPopover.isShown {
             closePopover()
         } else {
             isPresentingPopover = true
             let service = resolvedPopoverService()
+            PopoverGeometryDiagnostics.resetSession("show service=\(service.rawValue)")
             popoverViewModel.selectService(service)
+            popoverCoordinator.rebuildPopover(for: service)
+            guard let popover = popover else {
+                isPresentingPopover = false
+                return
+            }
             applyPopoverBehavior(for: service)
             updatePopoverViewModel(overage: currentOverage)
+            let initialSize = presentedPopoverSize(for: service, reason: nil, isShown: false)
+            popoverCoordinator.beginWindowDiagnosticsIfNeeded()
+            logPopoverPresentationState("before-show", button: button, requestedSize: initialSize)
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            logPopoverPresentationState("after-show", button: button, requestedSize: initialSize)
+            refreshVisiblePopoverSizeForCurrentState()
             NSApp.activate()
-            button.window?.contentView?.layoutSubtreeIfNeeded()
-            button.layoutSubtreeIfNeeded()
-            let initialSize = preferredPopoverSize(for: service)
-            popoverCoordinator.prepareSizeForPresentation(size: initialSize)
-            popover.show(relativeTo: popoverAnchorRect(for: button), of: button, preferredEdge: .minY)
-            popoverCoordinator.finalizeSizeAfterPresentation(sizeProvider: { [weak self] in
-                guard let self else { return initialSize }
-                return self.preferredPopoverSize(for: self.popoverViewModel.selectedService)
-            }, completion: { [weak self] in
-                self?.isPresentingPopover = false
-            })
             DispatchQueue.main.async { [weak self] in
                 self?.isPresentingPopover = false
             }
@@ -136,7 +142,10 @@ extension AppDelegate {
         case .serviceSelection, .compactToggle:
             break
         }
-        popoverCoordinator.refreshSizeIfShown(size: preferredPopoverSize(for: service))
+        let requestedSize = presentedPopoverSize(for: service, reason: reason, isShown: true)
+        logPopoverPresentationState("refresh-size reason=\(reason.rawValue) service=\(service.rawValue)", requestedSize: requestedSize)
+        popoverCoordinator.refreshSizeIfShown(size: requestedSize)
+        logPopoverPresentationState("after-refresh reason=\(reason.rawValue) service=\(service.rawValue)")
     }
 
     func preferredPopoverSize(for service: PopoverService) -> CGSize {
@@ -145,13 +154,52 @@ extension AppDelegate {
 
     func refreshVisiblePopoverSizeForCurrentState() {
         guard popover?.isShown == true else { return }
-        popoverCoordinator.refreshSizeIfShown(size: preferredPopoverSize(for: popoverViewModel.selectedService))
+        let requestedSize = presentedPopoverSize(for: popoverViewModel.selectedService, reason: nil, isShown: true)
+        popoverCoordinator.refreshSizeIfShown(size: requestedSize)
     }
 
-    func popoverAnchorRect(for button: NSStatusBarButton) -> NSRect {
-        let anchorWidth = min(max(button.bounds.height, 28), button.bounds.width)
-        let anchorX = floor((button.bounds.width - anchorWidth) / 2)
-        return NSRect(x: anchorX, y: button.bounds.minY, width: anchorWidth, height: button.bounds.height)
+    func presentedPopoverSize(
+        for service: PopoverService,
+        reason: PopoverLayoutRefreshReason?,
+        isShown: Bool
+    ) -> CGSize {
+        let fallbackSize = preferredPopoverSize(for: service)
+        let settings = AppSettings.shared
+        let density: PopoverDensity = settings.isPopoverCompact(for: service.providerKind) ? .compact : .standard
+        let phase = popoverViewModel.contentPhase(for: service, settings: settings)
+
+        guard isShown, !density.isCompact, phase == .content,
+              let measuredSize = popoverCoordinator.measuredHostedContentSize() else {
+            return fallbackSize
+        }
+
+        let minimumHeight = PopoverLayoutMetrics.standardPopoverHeight(
+            forBodyHeight: PopoverLayoutMetrics.standardStatusPanelHeight
+        )
+        let maximumHeight = max(minimumHeight, (NSScreen.main?.visibleFrame.height ?? 900) - 100)
+        let targetHeight = min(max(measuredSize.height, minimumHeight), maximumHeight)
+        return CGSize(width: fallbackSize.width, height: targetHeight)
+    }
+
+    func logPopoverPresentationState(
+        _ label: String,
+        button: NSStatusBarButton? = nil,
+        requestedSize: CGSize? = nil
+    ) {
+        let buttonFrame = button.map { NSStringFromRect($0.bounds) } ?? "nil"
+        let buttonWindowFrame = button?.window.map { NSStringFromRect($0.frame) } ?? "nil"
+        let buttonScreenFrame = button.flatMap { button in
+            button.window.map { window in
+                NSStringFromRect(window.convertToScreen(button.convert(button.bounds, to: nil)))
+            }
+        } ?? "nil"
+        let windowFrame = popover?.contentViewController?.view.window.map { NSStringFromRect($0.frame) } ?? "nil"
+        let contentSize = popover.map { "\($0.contentSize.width.rounded())x\($0.contentSize.height.rounded())" } ?? "nil"
+        let requested = requestedSize.map { "\($0.width.rounded())x\($0.height.rounded())" } ?? "nil"
+
+        PopoverGeometryDiagnostics.log(
+            "PopoverGeometry \(label) service=\(popoverViewModel.selectedService.rawValue) shown=\(popover?.isShown == true) requested=\(requested) contentSize=\(contentSize) buttonBounds=\(buttonFrame) buttonWindow=\(buttonWindowFrame) buttonScreen=\(buttonScreenFrame) popoverWindow=\(windowFrame)"
+        )
     }
 
     func startGlobalClickMonitor() {

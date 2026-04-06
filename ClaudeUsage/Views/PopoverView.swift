@@ -30,10 +30,7 @@ struct PopoverView: View {
             if isCompact {
                 compactMainSection(layoutSpec: layoutSpec)
             } else {
-                ScrollView(.vertical, showsIndicators: false) {
-                    standardMainSection(layoutSpec: layoutSpec)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                standardMainContainer(layoutSpec: layoutSpec)
             }
 
             Divider()
@@ -424,9 +421,30 @@ struct PopoverView: View {
     @ViewBuilder
     private func compactMainSection(layoutSpec: PopoverLayoutSpec) -> some View {
         PopoverStateContainer(layoutSpec: layoutSpec) {
-            bodyContent(layoutSpec: layoutSpec)
+            if layoutSpec.phase == .content {
+                ScrollView(.vertical, showsIndicators: false) {
+                    bodyContent(layoutSpec: layoutSpec)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .scrollIndicators(.never)
+            } else {
+                bodyContent(layoutSpec: layoutSpec)
+            }
         }
         .padding(.bottom, 1)
+    }
+
+    @ViewBuilder
+    private func standardMainContainer(layoutSpec: PopoverLayoutSpec) -> some View {
+        if layoutSpec.phase == .content {
+            ScrollView(.vertical, showsIndicators: false) {
+                standardMainSection(layoutSpec: layoutSpec)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        } else {
+            standardMainSection(layoutSpec: layoutSpec)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
     }
 
     @ViewBuilder

@@ -3,6 +3,10 @@ import SwiftUI
 enum PopoverLayoutMetrics {
     static let standardPopoverWidth: CGFloat = 368
     static let compactPopoverWidth: CGFloat = 296
+    static let standardHeaderContainerHeight: CGFloat = 44
+    static let standardFooterContainerHeight: CGFloat = 30
+    static let standardShortcutFooterHeight: CGFloat = 16
+    static let standardMainSectionBottomSpacing: CGFloat = 2
     static let compactHeaderHeight: CGFloat = 30
     static let compactFooterHeight: CGFloat = 31
     static let dividerHeight: CGFloat = 1
@@ -20,8 +24,11 @@ enum PopoverLayoutMetrics {
     static let compactProgressBarHeight: CGFloat = 8
     static let compactStatusPanelHeight: CGFloat = 40
     static let compactInteractiveStatusPanelHeight: CGFloat = 48
+    static let compactFixedContentBodyHeight: CGFloat = compactUsageRowHeight * 3 + compactSectionSpacing * 2
     static let compactMinimumPopoverHeight: CGFloat = 96
     static let compactContentBottomSpacing: CGFloat = 5
+    static let standardStatusPanelHeight: CGFloat = 72
+    static let standardInteractiveStatusPanelHeight: CGFloat = 88
 
     static func preferredPopoverWidth(compact: Bool) -> CGFloat {
         compact ? compactPopoverWidth : standardPopoverWidth
@@ -38,7 +45,7 @@ enum PopoverLayoutMetrics {
         let contentBottomSpacing = density.isCompact ? compactContentBottomSpacing : 0
 
         if density.isCompact {
-            let bodyContentHeight = compactBodyContentHeight(phase: phase, sections: sections)
+            let bodyContentHeight = compactBodyViewportHeight(phase: phase)
             let totalHeight = max(
                 compactMinimumPopoverHeight,
                 compactHeaderHeight
@@ -60,7 +67,7 @@ enum PopoverLayoutMetrics {
             )
         }
 
-        let bodyContentHeight = minimumBodyHeight(compact: false, phase: phase)
+        let bodyContentHeight = standardBodyViewportHeight(phase: phase)
         return PopoverLayoutSpec(
             density: density,
             phase: phase,
@@ -81,26 +88,10 @@ enum PopoverLayoutMetrics {
         rowCount: Int
     ) -> CGFloat {
         if compact {
-            if phase == .content {
-                let contentHeight = compactUsageRowHeight * CGFloat(max(rowCount, 1))
-                    + compactSectionSpacing * CGFloat(max(0, rowCount - 1))
-                return max(
-                    compactMinimumPopoverHeight,
-                    compactHeaderHeight
-                        + compactBodyInsets.top
-                        + contentHeight
-                        + compactBodyInsets.bottom
-                        + compactContentBottomSpacing
-                        + dividerHeight
-                        + compactFooterHeight
-                )
-            }
-            let statusHeight = phase == .authRequired || phase == .error
-                ? compactInteractiveStatusPanelHeight
-                : compactStatusPanelHeight
+            let bodyHeight = compactBodyViewportHeight(phase: phase)
             return compactHeaderHeight
                 + compactBodyInsets.top
-                + statusHeight
+                + bodyHeight
                 + compactBodyInsets.bottom
                 + compactContentBottomSpacing
                 + dividerHeight
@@ -108,8 +99,10 @@ enum PopoverLayoutMetrics {
         }
 
         switch phase {
-        case .authRequired, .loading, .error, .empty:
-            return 216
+        case .authRequired, .error:
+            return standardPopoverHeight(forBodyHeight: standardInteractiveStatusPanelHeight)
+        case .loading, .empty:
+            return standardPopoverHeight(forBodyHeight: standardStatusPanelHeight)
         case .content:
             switch rowCount {
             case ...2:
@@ -122,25 +115,37 @@ enum PopoverLayoutMetrics {
         }
     }
 
-    static func minimumBodyHeight(
-        compact: Bool,
-        phase: PopoverContentPhase
-    ) -> CGFloat {
-        if compact {
-            switch phase {
-            case .content:
-                return 44
-            case .authRequired, .loading, .error, .empty:
-                return 36
-            }
-        }
-
+    static func standardBodyViewportHeight(phase: PopoverContentPhase) -> CGFloat {
         switch phase {
+        case .authRequired, .error:
+            return standardInteractiveStatusPanelHeight
+        case .loading, .empty:
+            return standardStatusPanelHeight
         case .content:
             return 108
-        case .authRequired, .loading, .error, .empty:
-            return 72
         }
+    }
+
+    static func compactBodyViewportHeight(phase: PopoverContentPhase) -> CGFloat {
+        switch phase {
+        case .content:
+            return compactFixedContentBodyHeight
+        case .authRequired, .error:
+            return compactInteractiveStatusPanelHeight
+        case .loading, .empty:
+            return compactStatusPanelHeight
+        }
+    }
+
+    static func standardPopoverHeight(forBodyHeight bodyHeight: CGFloat) -> CGFloat {
+        standardHeaderContainerHeight
+            + standardBodyInsets.top
+            + bodyHeight
+            + standardBodyInsets.bottom
+            + standardMainSectionBottomSpacing
+            + dividerHeight
+            + standardFooterContainerHeight
+            + standardShortcutFooterHeight
     }
 
     static func compactSectionHeight(for kind: PopoverDisplaySectionKind) -> CGFloat {
@@ -158,21 +163,6 @@ enum PopoverLayoutMetrics {
         }
     }
 
-    static func compactBodyContentHeight(
-        phase: PopoverContentPhase,
-        sections: [PopoverDisplaySection]
-    ) -> CGFloat {
-        guard phase == .content else {
-            return phase == .authRequired || phase == .error
-                ? compactInteractiveStatusPanelHeight
-                : compactStatusPanelHeight
-        }
-
-        let sectionHeights = sections.map { compactSectionHeight(for: $0.kind) }
-        guard !sectionHeights.isEmpty else { return 1 }
-        return sectionHeights.reduce(0, +)
-            + compactSectionSpacing * CGFloat(max(0, sectionHeights.count - 1))
-    }
 }
 
 struct PopoverStateContainer<Content: View>: View {

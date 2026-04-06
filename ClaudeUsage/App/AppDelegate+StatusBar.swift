@@ -14,6 +14,7 @@ extension AppDelegate {
         }
         statusItem = nil
         appearanceObservation = nil
+        lastMenuBarContentSignature = nil
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem?.button {
@@ -95,6 +96,9 @@ extension AppDelegate {
     // MARK: - Menu Bar Update
 
     func updateMenuBar(force: Bool = false) {
+        PopoverGeometryDiagnostics.log(
+            "MenuBar update force=\(force) popoverShown=\(popover?.isShown == true) presenting=\(isPresentingPopover)"
+        )
         if !force && (popover?.isShown == true || isPresentingPopover) {
             pendingMenuBarRefreshAfterPopoverClose = true
             return
@@ -202,10 +206,30 @@ extension AppDelegate {
     }
 
     func applyMenuBarContent(_ content: MenuBarRenderedContent, to button: NSStatusBarButton) {
+        let signature = [
+            content.tooltip,
+            NSStringFromSize(content.image.size),
+            String(content.image.tiffRepresentation?.hashValue ?? 0),
+        ].joined(separator: "|").hashValue
+        if lastMenuBarContentSignature == signature {
+            return
+        }
+        lastMenuBarContentSignature = signature
+
         button.image = content.image
         button.imagePosition = .imageOnly
         button.attributedTitle = NSAttributedString(string: "")
         button.toolTip = content.tooltip
+        if PopoverGeometryDiagnostics.isEnabled {
+            let buttonScreenFrame = button.window.map {
+                NSStringFromRect($0.convertToScreen(button.convert(button.bounds, to: nil)))
+            } ?? "nil"
+            let buttonWindowFrame = button.window.map { NSStringFromRect($0.frame) } ?? "nil"
+            let imageSize = NSStringFromSize(content.image.size)
+            PopoverGeometryDiagnostics.log(
+                "MenuBar apply-content imageSize=\(imageSize) buttonScreen=\(buttonScreenFrame) buttonWindow=\(buttonWindowFrame) tooltip=\(content.tooltip)"
+            )
+        }
     }
 
     // MARK: - Keyboard Shortcuts
