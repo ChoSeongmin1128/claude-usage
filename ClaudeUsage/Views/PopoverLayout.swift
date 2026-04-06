@@ -10,7 +10,7 @@ enum PopoverLayoutMetrics {
     static let compactHeaderHeight: CGFloat = 30
     static let compactFooterHeight: CGFloat = 31
     static let dividerHeight: CGFloat = 1
-    static let compactBodyInsets = EdgeInsets(top: 3, leading: 10, bottom: 3, trailing: 10)
+    static let compactBodyInsets = EdgeInsets(top: 6, leading: 10, bottom: 3, trailing: 10)
     static let standardBodyInsets = EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
     static let compactSectionSpacing: CGFloat = 3
     static let standardSectionSpacing: CGFloat = 12

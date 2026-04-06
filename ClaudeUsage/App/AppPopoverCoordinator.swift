@@ -56,7 +56,7 @@ final class AppPopoverCoordinator {
         let popoverView = PopoverView(viewModel: viewModel)
         let hostingController = NSHostingController(rootView: popoverView)
         if #available(macOS 13.0, *) {
-            hostingController.sizingOptions = []
+            hostingController.sizingOptions = [.preferredContentSize]
         }
 
         newPopover.contentViewController = hostingController
@@ -86,8 +86,9 @@ final class AppPopoverCoordinator {
 
         let fitting = contentView.fittingSize
         let preferred = popover.contentViewController?.preferredContentSize ?? .zero
-        // current.width를 포함하지 않음 — 한번 넓어진 popover가 줄어들지 않는 문제 방지
-        let measuredWidth = max(fitting.width, preferred.width)
+        // width는 layoutSpec에서 고정하므로 preferred만 사용. fittingSize.width는 SwiftUI
+        // maxWidth: .infinity에 의해 팽창할 수 있어 신뢰할 수 없음.
+        let measuredWidth = preferred.width > 0 ? preferred.width : fitting.width
         let measuredHeight = fitting.height > 0 ? fitting.height : max(popover.contentSize.height, preferred.height)
 
         guard measuredWidth > 0, measuredHeight > 0 else { return nil }
