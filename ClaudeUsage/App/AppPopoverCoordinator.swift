@@ -85,10 +85,10 @@ final class AppPopoverCoordinator {
         contentView.layoutSubtreeIfNeeded()
 
         let fitting = contentView.fittingSize
-        let current = popover.contentSize
         let preferred = popover.contentViewController?.preferredContentSize ?? .zero
-        let measuredWidth = max(fitting.width, current.width, preferred.width)
-        let measuredHeight = fitting.height > 0 ? fitting.height : max(current.height, preferred.height)
+        // current.width를 포함하지 않음 — 한번 넓어진 popover가 줄어들지 않는 문제 방지
+        let measuredWidth = max(fitting.width, preferred.width)
+        let measuredHeight = fitting.height > 0 ? fitting.height : max(popover.contentSize.height, preferred.height)
 
         guard measuredWidth > 0, measuredHeight > 0 else { return nil }
         return CGSize(width: measuredWidth, height: measuredHeight)
