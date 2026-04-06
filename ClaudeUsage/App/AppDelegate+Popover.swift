@@ -24,6 +24,7 @@ extension AppDelegate {
                         self.startGlobalClickMonitor()
                     }
                 }
+                self.refreshVisiblePopoverSizeForCurrentState()
                 self.refreshServiceIfNeededOnTabSwitch(service)
             },
             onLayoutChanged: { [weak self] service, reason in
