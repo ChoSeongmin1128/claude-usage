@@ -41,9 +41,8 @@ enum MenuBarIconRenderer {
             strokeColor.withAlphaComponent(0.5).setFill()
             capPath.fill()
 
-            // 내부 채움 (남은 양 = 100 - 사용량)
-            let remaining = 100.0 - min(max(percentage, 0), 100)
-            let fillPercent = remaining / 100.0
+            // 내부 채움 (percentage가 직접 fill level을 의미)
+            let fillPercent = min(max(percentage, 0), 100) / 100.0
             let innerRect = NSRect(
                 x: inset,
                 y: inset,
@@ -58,7 +57,8 @@ enum MenuBarIconRenderer {
             // 퍼센트 텍스트 (배터리 내부 중앙, 드롭 섀도우)
             if showPercent {
                 let textColor: NSColor = isDark ? .white : .black
-                let text = String(format: "%.0f", remaining)
+                let displayValue = min(max(percentage, 0), 100)
+                let text = String(format: "%.0f", displayValue)
                 let font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold)
                 let shadow = NSShadow()
                 shadow.shadowColor = (isDark ? NSColor.black : NSColor.white).withAlphaComponent(0.95)
@@ -225,8 +225,7 @@ enum MenuBarIconRenderer {
         capPath.fill()
 
         // 내부 채움
-        let remaining = 100.0 - min(max(percentage, 0), 100)
-        let fillPercent = remaining / 100.0
+        let fillPercent = min(max(percentage, 0), 100) / 100.0
         let innerRect = NSRect(
             x: xOffset + inset,
             y: yOffset + inset,
@@ -241,7 +240,8 @@ enum MenuBarIconRenderer {
         // 퍼센트 텍스트 (드롭 섀도우)
         if showPercent {
             let textColor: NSColor = isDark ? .white : .black
-            let text = String(format: "%.0f", remaining)
+            let displayValue = min(max(percentage, 0), 100)
+            let text = String(format: "%.0f", displayValue)
             let font = NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold)
             let shadow = NSShadow()
             shadow.shadowColor = (isDark ? NSColor.black : NSColor.white).withAlphaComponent(0.95)
@@ -294,11 +294,11 @@ enum MenuBarIconRenderer {
                 strokeColor.withAlphaComponent(0.4).setFill()
                 capPath.fill()
 
-                let remaining = (100.0 - min(max(percentage, 0), 100)) / 100.0
+                let fillPercent = min(max(percentage, 0), 100) / 100.0
                 let innerRect = NSRect(
                     x: inset,
                     y: yOffset + inset,
-                    width: (bodyWidth - inset * 2) * remaining,
+                    width: (bodyWidth - inset * 2) * fillPercent,
                     height: batteryHeight - inset * 2
                 )
                 let innerCorner = max(cornerRadius - inset, 0.5)

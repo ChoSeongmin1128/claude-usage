@@ -869,7 +869,7 @@ enum MenuBarStatusComposer {
             return nil
         case .batteryBar:
             return MenuBarIconRenderer.batteryIcon(
-                percentage: metric.percentage,
+                percentage: circularValue,
                 color: metric.color,
                 showPercent: config.showBatteryPercent
             )
@@ -884,15 +884,15 @@ enum MenuBarStatusComposer {
             )
         case .dualBattery:
             return MenuBarIconRenderer.dualBatteryIcon(
-                topPercent: primary,
-                bottomPercent: secondary,
+                topPercent: outer,
+                bottomPercent: inner,
                 topColor: primaryColor,
                 bottomColor: secondaryColor
             )
         case .sideBySideBattery:
             return MenuBarIconRenderer.sideBySideBatteryIcon(
-                leftPercent: primary,
-                rightPercent: secondary,
+                leftPercent: outer,
+                rightPercent: inner,
                 leftColor: primaryColor,
                 rightColor: secondaryColor,
                 showPercent: config.showBatteryPercent
@@ -915,12 +915,10 @@ enum MenuBarStatusComposer {
 
     private static func showsRemaining(config: ProviderMenuBarDisplayConfig) -> Bool {
         switch config.style {
-        case .batteryBar, .dualBattery, .sideBySideBattery:
-            return true
-        case .circular, .concentricRings:
-            return config.circularDisplayMode == .remaining
         case .none:
             return false
+        default:
+            return config.circularDisplayMode == .remaining
         }
     }
 

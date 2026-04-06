@@ -79,20 +79,23 @@ final class AppPopoverCoordinator {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: workItem)
     }
 
+    /// 고정 너비 기반으로 콘텐츠 높이만 측정합니다.
+    /// width는 layoutSpec에서 결정된 고정값(296/368pt)을 그대로 사용하고,
+    /// fittingSize.width는 하위 뷰의 maxWidth: .infinity에 의해 팽창하므로 무시합니다.
     func measuredHostedContentSize() -> CGSize? {
         guard let contentView = popover.contentViewController?.view else { return nil }
-
         contentView.layoutSubtreeIfNeeded()
 
-        let fitting = contentView.fittingSize
-        let preferred = popover.contentViewController?.preferredContentSize ?? .zero
-        // width는 layoutSpec에서 고정하므로 preferred만 사용. fittingSize.width는 SwiftUI
-        // maxWidth: .infinity에 의해 팽창할 수 있어 신뢰할 수 없음.
-        let measuredWidth = preferred.width > 0 ? preferred.width : fitting.width
-        let measuredHeight = fitting.height > 0 ? fitting.height : max(popover.contentSize.height, preferred.height)
+        let width = popover.contentViewController?.preferredContentSize.width
+            ?? popover.contentSize.width
+        guard width > 0 else { return nil }
 
-        guard measuredWidth > 0, measuredHeight > 0 else { return nil }
-        return CGSize(width: measuredWidth, height: measuredHeight)
+        let fitting = contentView.fittingSize
+        let height = fitting.height > 0 ? fitting.height
+            : popover.contentViewController?.preferredContentSize.height ?? 0
+        guard height > 0 else { return nil }
+
+        return CGSize(width: width, height: height)
     }
 
     func beginWindowDiagnosticsIfNeeded() {

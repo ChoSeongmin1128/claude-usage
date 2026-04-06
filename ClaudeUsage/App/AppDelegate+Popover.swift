@@ -72,13 +72,10 @@ extension AppDelegate {
             popover.contentViewController?.preferredContentSize = initialSize
             popover.contentSize = initialSize
             popoverCoordinator.beginWindowDiagnosticsIfNeeded()
-            Logger.info("Popover show: initialSize=\(Int(initialSize.width))x\(Int(initialSize.height)) contentSize=\(Int(popover.contentSize.width))x\(Int(popover.contentSize.height))")
             logPopoverPresentationState("before-show", button: button, requestedSize: initialSize)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            Logger.info("Popover after-show: contentSize=\(Int(popover.contentSize.width))x\(Int(popover.contentSize.height)) window=\(popover.contentViewController?.view.window.map { NSStringFromRect($0.frame) } ?? "nil")")
             logPopoverPresentationState("after-show", button: button, requestedSize: initialSize)
             refreshVisiblePopoverSizeForCurrentState()
-            Logger.info("Popover after-refresh: contentSize=\(Int(popover.contentSize.width))x\(Int(popover.contentSize.height))")
             NSApp.activate()
             DispatchQueue.main.async { [weak self] in
                 self?.isPresentingPopover = false
