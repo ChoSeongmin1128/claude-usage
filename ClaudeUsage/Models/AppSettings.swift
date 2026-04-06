@@ -29,6 +29,13 @@ enum MenuBarStyle: String, Codable, CaseIterable, Sendable {
     case dualBattery = "dual_battery"
     case sideBySideBattery = "side_by_side_battery"
 
+    var isBatteryStyle: Bool {
+        switch self {
+        case .batteryBar, .dualBattery, .sideBySideBattery: return true
+        case .none, .circular, .concentricRings: return false
+        }
+    }
+
     var displayName: String {
         switch self {
         case .none: return "없음"
@@ -1014,8 +1021,14 @@ class AppSettings: ObservableObject {
         case .codex:
             codexMenuBarStyle = style
         case .gemini, .antigravity:
+            objectWillChange.send()
             defaults.set(style.rawValue, forKey: providerDefaultsKey(kind, suffix: "menuBarStyle"))
             bumpRuntimeProviderDisplayRevision()
+        }
+
+        // 배터리 스타일로 변경 시 circularDisplayMode를 .remaining으로 자동 설정
+        if style.isBatteryStyle {
+            setProviderCircularDisplayMode(.remaining, for: kind)
         }
     }
 

@@ -218,7 +218,7 @@ extension SettingsView {
     }
 
     private var isCodexCircularStyle: Bool {
-        settings.codexMenuBarStyle == .circular || settings.codexMenuBarStyle == .concentricRings
+        settings.codexMenuBarStyle != .none
     }
 
     private var isCodexSingleMetricStyle: Bool {

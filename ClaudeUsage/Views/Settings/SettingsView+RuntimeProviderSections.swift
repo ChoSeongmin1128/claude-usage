@@ -141,7 +141,7 @@ extension SettingsView {
                             .pickerStyle(.radioGroup)
                         }
 
-                        if displayConfig.style == .circular || displayConfig.style == .concentricRings {
+                        if displayConfig.style != .none {
                             Picker("표시 기준:", selection: Binding(
                                 get: { settings.menuBarDisplayConfig(for: provider)?.circularDisplayMode ?? .usage },
                                 set: { settings.setProviderCircularDisplayMode($0, for: provider) }

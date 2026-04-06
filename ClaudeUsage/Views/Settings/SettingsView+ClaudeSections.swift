@@ -1501,7 +1501,7 @@ extension SettingsView {
     }
 
     private var isCircularStyle: Bool {
-        settings.menuBarStyle == .circular || settings.menuBarStyle == .concentricRings
+        settings.menuBarStyle != .none
     }
 
     private var isSingleMetricStyle: Bool {
