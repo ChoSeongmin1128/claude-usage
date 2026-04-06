@@ -200,6 +200,62 @@ final class PopoverViewLayoutTests: XCTestCase {
         XCTAssertEqual(result.1, 133)
     }
 
+    func testStandardShownContentUsesMeasuredHeightInsteadOfFallbackBucket() {
+        let layoutSpec = PopoverLayoutMetrics.layoutSpec(
+            density: .standard,
+            phase: .content,
+            sections: [],
+            rowCount: 2
+        )
+
+        let targetSize = PopoverPresentationPolicy(
+            layoutSpec: layoutSpec,
+            isShown: true,
+            measuredContentSize: CGSize(width: 368, height: 223),
+            screenVisibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 900)
+        ).targetSize()
+
+        XCTAssertEqual(targetSize.width, 368)
+        XCTAssertEqual(targetSize.height, 223)
+    }
+
+    func testStandardInitialContentKeepsFallbackHeightBeforePresentation() {
+        let layoutSpec = PopoverLayoutMetrics.layoutSpec(
+            density: .standard,
+            phase: .content,
+            sections: [],
+            rowCount: 2
+        )
+
+        let targetSize = PopoverPresentationPolicy(
+            layoutSpec: layoutSpec,
+            isShown: false,
+            measuredContentSize: CGSize(width: 368, height: 223),
+            screenVisibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 900)
+        ).targetSize()
+
+        XCTAssertEqual(targetSize.height, 256)
+    }
+
+    func testCompactContentKeepsFixedShellEvenWhenMeasuredHeightIsSmaller() {
+        let layoutSpec = PopoverLayoutMetrics.layoutSpec(
+            density: .compact,
+            phase: .content,
+            sections: [],
+            rowCount: 2
+        )
+
+        let targetSize = PopoverPresentationPolicy(
+            layoutSpec: layoutSpec,
+            isShown: true,
+            measuredContentSize: CGSize(width: 296, height: 112),
+            screenVisibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 900)
+        ).targetSize()
+
+        XCTAssertEqual(targetSize.width, 296)
+        XCTAssertEqual(targetSize.height, 133)
+    }
+
     func testPopoverCompactStateIsSharedAcrossProviders() async {
         let result = await MainActor.run { () -> (Bool, Bool, Bool, Bool) in
             let settings = AppSettings.shared
@@ -359,8 +415,8 @@ final class PopoverViewLayoutTests: XCTestCase {
             settings.setProviderEnabled(true, for: .claude)
 
             let authRequiredWidth = PopoverViewModel()
-                .preferredPopoverSize(for: .claude, settings: settings)
-                .width
+                .layoutSpec(for: .claude, settings: settings)
+                .size.width
 
             let loadingViewModel = PopoverViewModel()
             loadingViewModel.update(
@@ -379,7 +435,7 @@ final class PopoverViewLayoutTests: XCTestCase {
                     )
                 ]
             )
-            let loadingWidth = loadingViewModel.preferredPopoverSize(for: .claude, settings: settings).width
+            let loadingWidth = loadingViewModel.layoutSpec(for: .claude, settings: settings).size.width
 
             let errorViewModel = PopoverViewModel()
             errorViewModel.update(
@@ -398,7 +454,7 @@ final class PopoverViewLayoutTests: XCTestCase {
                     )
                 ]
             )
-            let errorWidth = errorViewModel.preferredPopoverSize(for: .claude, settings: settings).width
+            let errorWidth = errorViewModel.layoutSpec(for: .claude, settings: settings).size.width
 
             let contentViewModel = PopoverViewModel()
             contentViewModel.update(
@@ -417,12 +473,12 @@ final class PopoverViewLayoutTests: XCTestCase {
                     )
                 ]
             )
-            let contentWidth = contentViewModel.preferredPopoverSize(for: .claude, settings: settings).width
+            let contentWidth = contentViewModel.layoutSpec(for: .claude, settings: settings).size.width
 
             settings.setProviderEnabled(false, for: .claude)
             let emptyWidth = PopoverViewModel()
-                .preferredPopoverSize(for: .claude, settings: settings)
-                .width
+                .layoutSpec(for: .claude, settings: settings)
+                .size.width
 
             return (
                 authRequired: authRequiredWidth,

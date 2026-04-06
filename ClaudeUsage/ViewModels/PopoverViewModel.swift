@@ -360,10 +360,6 @@ final class PopoverViewModel: ObservableObject {
         if let overage { self.overage = overage }
     }
 
-    func preferredPopoverSize(for service: PopoverService, settings: AppSettings) -> CGSize {
-        layoutSpec(for: service, settings: settings).size
-    }
-
     private func runtimeSummary(
         for snapshot: RuntimeProviderSnapshot,
         isEnabled: Bool,

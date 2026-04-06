@@ -566,7 +566,7 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(result.1, [.usage, .status, .status])
     }
 
-    func testPreferredPopoverSizeUsesDisplaySectionsForGeminiSecondaryAccount() async {
+    func testLayoutSpecUsesDisplaySectionsForGeminiSecondaryAccount() async {
         let size = await MainActor.run { () -> CGSize in
             let settings = AppSettings.shared
             let snapshot = settings.createSnapshot()
@@ -598,7 +598,7 @@ final class PopoverViewModelTests: XCTestCase {
                 ]
             )
 
-            return viewModel.preferredPopoverSize(for: .gemini, settings: settings)
+            return viewModel.layoutSpec(for: .gemini, settings: settings).size
         }
 
         XCTAssertEqual(size.width, 368)
