@@ -1470,28 +1470,22 @@ extension SettingsView {
                 }
 
                 if isSingleMetricStyle {
-                    Picker("아이콘 기준:", selection: Binding(
-                        get: { settings.iconMetric },
-                        set: { settings.iconMetric = $0 }
-                    )) {
-                        ForEach(IconMetric.allCases, id: \.self) { metric in
-                            Text(metric.displayName).tag(metric)
-                        }
-                    }
-                    .pickerStyle(.radioGroup)
+                    settingsRadioGroup(
+                        "아이콘 기준:",
+                        options: IconMetric.allCases.map { ($0, $0.displayName) },
+                        selection: settings.iconMetric,
+                        onChange: { settings.iconMetric = $0 }
+                    )
                     .padding(.leading, 20)
                 }
 
                 if isCircularStyle {
-                    Picker("표시 기준:", selection: Binding(
-                        get: { settings.circularDisplayMode },
-                        set: { settings.circularDisplayMode = $0 }
-                    )) {
-                        ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
-                            Text(mode.displayName).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.radioGroup)
+                    settingsRadioGroup(
+                        "표시 기준:",
+                        options: CircularDisplayMode.allCases.map { ($0, $0.displayName) },
+                        selection: settings.circularDisplayMode,
+                        onChange: { settings.circularDisplayMode = $0 }
+                    )
                     .padding(.leading, 20)
                 }
 

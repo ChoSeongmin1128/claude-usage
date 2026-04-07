@@ -202,27 +202,21 @@ extension SettingsView {
                     .padding(.leading, 20)
             }
             if isCodexSingleMetricStyle {
-                Picker("아이콘 기준:", selection: Binding(
-                    get: { settings.codexIconMetric },
-                    set: { settings.codexIconMetric = $0 }
-                )) {
-                    ForEach(IconMetric.allCases, id: \.self) { metric in
-                        Text(metric.displayName).tag(metric)
-                    }
-                }
-                .pickerStyle(.radioGroup)
+                settingsRadioGroup(
+                    "아이콘 기준:",
+                    options: IconMetric.allCases.map { ($0, $0.displayName) },
+                    selection: settings.codexIconMetric,
+                    onChange: { settings.codexIconMetric = $0 }
+                )
                 .padding(.leading, 20)
             }
             if isCodexCircularStyle {
-                Picker("표시 기준:", selection: Binding(
-                    get: { settings.codexCircularDisplayMode },
-                    set: { settings.codexCircularDisplayMode = $0 }
-                )) {
-                    ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                .pickerStyle(.radioGroup)
+                settingsRadioGroup(
+                    "표시 기준:",
+                    options: CircularDisplayMode.allCases.map { ($0, $0.displayName) },
+                    selection: settings.codexCircularDisplayMode,
+                    onChange: { settings.codexCircularDisplayMode = $0 }
+                )
                 .padding(.leading, 20)
             }
         }

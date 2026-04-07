@@ -130,27 +130,21 @@ extension SettingsView {
                         }
 
                         if displayConfig.style == .batteryBar || displayConfig.style == .circular {
-                            Picker("아이콘 기준:", selection: Binding(
-                                get: { settings.menuBarDisplayConfig(for: provider)?.iconMetric ?? .fiveHour },
-                                set: { settings.setProviderIconMetric($0, for: provider) }
-                            )) {
-                                ForEach(IconMetric.allCases, id: \.self) { metric in
-                                    Text(metric.displayName).tag(metric)
-                                }
-                            }
-                            .pickerStyle(.radioGroup)
+                            settingsRadioGroup(
+                                "아이콘 기준:",
+                                options: IconMetric.allCases.map { ($0, $0.displayName) },
+                                selection: settings.menuBarDisplayConfig(for: provider)?.iconMetric ?? .fiveHour,
+                                onChange: { settings.setProviderIconMetric($0, for: provider) }
+                            )
                         }
 
                         if displayConfig.style != .none {
-                            Picker("표시 기준:", selection: Binding(
-                                get: { settings.menuBarDisplayConfig(for: provider)?.circularDisplayMode ?? .usage },
-                                set: { settings.setProviderCircularDisplayMode($0, for: provider) }
-                            )) {
-                                ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
-                                    Text(mode.displayName).tag(mode)
-                                }
-                            }
-                            .pickerStyle(.radioGroup)
+                            settingsRadioGroup(
+                                "표시 기준:",
+                                options: CircularDisplayMode.allCases.map { ($0, $0.displayName) },
+                                selection: settings.menuBarDisplayConfig(for: provider)?.circularDisplayMode ?? .usage,
+                                onChange: { settings.setProviderCircularDisplayMode($0, for: provider) }
+                            )
                         }
                     } else {
                         HStack(alignment: .top, spacing: 8) {
