@@ -1402,19 +1402,28 @@ extension SettingsView {
 
             VStack(alignment: .leading, spacing: 8) {
                 settingsToggleRow("Claude 아이콘", isOn: $settings.showClaudeIcon)
-                Picker("퍼센트:", selection: $settings.percentageDisplay) {
+                Picker("퍼센트:", selection: Binding(
+                    get: { settings.percentageDisplay },
+                    set: { settings.percentageDisplay = $0 }
+                )) {
                     ForEach(PercentageDisplay.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
                     }
                 }
-                Picker("리셋 시간:", selection: $settings.resetTimeDisplay) {
+                Picker("리셋 시간:", selection: Binding(
+                    get: { settings.resetTimeDisplay },
+                    set: { settings.resetTimeDisplay = $0 }
+                )) {
                     ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
                     }
                 }
 
                 if settings.resetTimeDisplay != .none {
-                    Picker("시간 형식:", selection: $settings.timeFormat) {
+                    Picker("시간 형식:", selection: Binding(
+                        get: { settings.timeFormat },
+                        set: { settings.timeFormat = $0 }
+                    )) {
                         ForEach(TimeFormatStyle.allCases, id: \.self) { style in
                             Text(style.displayName).tag(style)
                         }
@@ -1423,7 +1432,17 @@ extension SettingsView {
 
                 Divider()
 
-                Picker("아이콘:", selection: $settings.menuBarStyle) {
+                Picker("아이콘:", selection: Binding(
+                    get: { settings.menuBarStyle },
+                    set: { newValue in
+                        settings.menuBarStyle = newValue
+                        if newValue.isBatteryStyle {
+                            settings.circularDisplayMode = .remaining
+                        } else if newValue == .none {
+                            settings.circularDisplayMode = .usage
+                        }
+                    }
+                )) {
                     Text("없음").tag(MenuBarStyle.none)
 
                     Section("개별 세션") {
@@ -1435,13 +1454,6 @@ extension SettingsView {
                         Text("동심원").tag(MenuBarStyle.concentricRings)
                         Text("이중 배터리").tag(MenuBarStyle.dualBattery)
                         Text("좌우 배터리").tag(MenuBarStyle.sideBySideBattery)
-                    }
-                }
-                .onChange(of: settings.menuBarStyle) { _, newValue in
-                    if newValue == .batteryBar || newValue == .dualBattery || newValue == .sideBySideBattery {
-                        settings.circularDisplayMode = .remaining
-                    } else if newValue == .none {
-                        settings.circularDisplayMode = .usage
                     }
                 }
 
@@ -1458,7 +1470,10 @@ extension SettingsView {
                 }
 
                 if isSingleMetricStyle {
-                    Picker("아이콘 기준:", selection: $settings.iconMetric) {
+                    Picker("아이콘 기준:", selection: Binding(
+                        get: { settings.iconMetric },
+                        set: { settings.iconMetric = $0 }
+                    )) {
                         ForEach(IconMetric.allCases, id: \.self) { metric in
                             Text(metric.displayName).tag(metric)
                         }
@@ -1468,7 +1483,10 @@ extension SettingsView {
                 }
 
                 if isCircularStyle {
-                    Picker("표시 기준:", selection: $settings.circularDisplayMode) {
+                    Picker("표시 기준:", selection: Binding(
+                        get: { settings.circularDisplayMode },
+                        set: { settings.circularDisplayMode = $0 }
+                    )) {
                         ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
                             Text(mode.displayName).tag(mode)
                         }

@@ -145,18 +145,27 @@ extension SettingsView {
                 .font(.headline)
 
             settingsToggleRow("Codex 아이콘", isOn: $settings.showCodexIcon)
-            Picker("퍼센트:", selection: $settings.codexPercentageDisplay) {
+            Picker("퍼센트:", selection: Binding(
+                get: { settings.codexPercentageDisplay },
+                set: { settings.codexPercentageDisplay = $0 }
+            )) {
                 ForEach(PercentageDisplay.allCases, id: \.self) { mode in
                     Text(mode.displayName).tag(mode)
                 }
             }
-            Picker("리셋 시간:", selection: $settings.codexResetTimeDisplay) {
+            Picker("리셋 시간:", selection: Binding(
+                get: { settings.codexResetTimeDisplay },
+                set: { settings.codexResetTimeDisplay = $0 }
+            )) {
                 ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
                     Text(mode.displayName).tag(mode)
                 }
             }
             if settings.codexResetTimeDisplay != .none {
-                Picker("시간 형식:", selection: $settings.codexTimeFormat) {
+                Picker("시간 형식:", selection: Binding(
+                    get: { settings.codexTimeFormat },
+                    set: { settings.codexTimeFormat = $0 }
+                )) {
                     ForEach(TimeFormatStyle.allCases, id: \.self) { style in
                         Text(style.displayName).tag(style)
                     }
@@ -165,7 +174,17 @@ extension SettingsView {
 
             Divider()
 
-            Picker("아이콘:", selection: $settings.codexMenuBarStyle) {
+            Picker("아이콘:", selection: Binding(
+                get: { settings.codexMenuBarStyle },
+                set: { newValue in
+                    settings.codexMenuBarStyle = newValue
+                    if newValue.isBatteryStyle {
+                        settings.codexCircularDisplayMode = .remaining
+                    } else if newValue == .none {
+                        settings.codexCircularDisplayMode = .usage
+                    }
+                }
+            )) {
                 Text("없음").tag(MenuBarStyle.none)
                 Section("개별 세션") {
                     Text("배터리바").tag(MenuBarStyle.batteryBar)
@@ -177,20 +196,16 @@ extension SettingsView {
                     Text("좌우 배터리").tag(MenuBarStyle.sideBySideBattery)
                 }
             }
-            .onChange(of: settings.codexMenuBarStyle) { _, newValue in
-                if newValue == .batteryBar || newValue == .dualBattery || newValue == .sideBySideBattery {
-                    settings.codexCircularDisplayMode = .remaining
-                } else if newValue == .none {
-                    settings.codexCircularDisplayMode = .usage
-                }
-            }
 
             if isCodexBatteryWithPercent {
                 settingsToggleRow("배터리 내부 숫자", isOn: $settings.codexShowBatteryPercent)
                     .padding(.leading, 20)
             }
             if isCodexSingleMetricStyle {
-                Picker("아이콘 기준:", selection: $settings.codexIconMetric) {
+                Picker("아이콘 기준:", selection: Binding(
+                    get: { settings.codexIconMetric },
+                    set: { settings.codexIconMetric = $0 }
+                )) {
                     ForEach(IconMetric.allCases, id: \.self) { metric in
                         Text(metric.displayName).tag(metric)
                     }
@@ -199,7 +214,10 @@ extension SettingsView {
                 .padding(.leading, 20)
             }
             if isCodexCircularStyle {
-                Picker("표시 기준:", selection: $settings.codexCircularDisplayMode) {
+                Picker("표시 기준:", selection: Binding(
+                    get: { settings.codexCircularDisplayMode },
+                    set: { settings.codexCircularDisplayMode = $0 }
+                )) {
                     ForEach(CircularDisplayMode.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
                     }
