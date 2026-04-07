@@ -72,8 +72,8 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
         case .gemini:
             return ProviderDescriptor(
                 kind: self,
-                displayName: "Gemini",
-                settingsPanelTitle: "Gemini",
+                displayName: "Gemini CLI",
+                settingsPanelTitle: "Gemini CLI",
                 settingsPanelIconName: "sparkles",
                 brandAssetName: "ProviderGeminiIcon",
                 settingsPanelSummary: "CLI / OAuth",
