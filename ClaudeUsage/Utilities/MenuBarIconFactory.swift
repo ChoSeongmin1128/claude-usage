@@ -3,7 +3,7 @@ import Foundation
 
 enum MenuBarIconFactory {
     static func secondaryTextColor(highContrast: Bool) -> NSColor {
-        highContrast ? NSColor.labelColor : NSColor.secondaryLabelColor.withAlphaComponent(0.95)
+        highContrast ? NSColor.labelColor : NSColor.secondaryLabelColor
     }
 
     static func providerMenuBarIcon(for provider: AppProviderKind, size: NSSize) -> NSImage? {
