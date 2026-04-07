@@ -102,7 +102,7 @@ extension AppDelegate {
                 self?.syncUpdateCheckState(runImmediate: true)
             },
             onMenuBarDisplayChanged: { [weak self] in
-                self?.updateMenuBar()
+                self?.updateMenuBar(force: true)
             },
             onProviderStatesChanged: { [weak self] catalog in
                 guard let self else { return }
