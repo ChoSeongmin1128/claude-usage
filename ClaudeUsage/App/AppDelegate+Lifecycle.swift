@@ -11,6 +11,7 @@ extension AppDelegate {
 
         Logger.info("ClaudeUsage 앱 시작")
 
+        AppLocationChecker.checkAndPromptIfNeeded()
         NotificationManager.shared.requestPermission()
         setupStatusItems()
         setupPopovers()
