@@ -27,8 +27,27 @@ enum AppLocationChecker {
         }
     }
 
-    private static func isInApplicationsFolder() -> Bool {
+    /// App Translocation을 고려한 실제 앱 경로를 반환합니다.
+    private static func originalBundlePath() -> String {
         let bundlePath = Bundle.main.bundlePath
+
+        // App Translocation 감지
+        if bundlePath.contains("/AppTranslocation/") || bundlePath.contains("/private/var/folders/") {
+            // Finder의 원래 경로를 bookmark에서 복원
+            let bundleURL = URL(fileURLWithPath: bundlePath)
+            if let resolved = try? URL(resolvingAliasFileAt: bundleURL, options: [.withoutUI, .withoutMounting]) {
+                let resolvedPath = resolved.path
+                if resolvedPath != bundlePath {
+                    return resolvedPath
+                }
+            }
+        }
+
+        return bundlePath
+    }
+
+    private static func isInApplicationsFolder() -> Bool {
+        let bundlePath = originalBundlePath()
         let applicationsDirectories = [
             "/Applications",
             NSHomeDirectory() + "/Applications",
@@ -37,13 +56,19 @@ enum AppLocationChecker {
     }
 
     private static func moveToApplicationsFolder() {
-        let source = Bundle.main.bundlePath
+        let source = originalBundlePath()
         let appName = (source as NSString).lastPathComponent
         let destination = "/Applications/\(appName)"
 
+        // translocation 상태인데 원본 경로를 못 찾으면 중단
+        let bundlePath = Bundle.main.bundlePath
+        if bundlePath.contains("/AppTranslocation/") && source == bundlePath {
+            showError("macOS가 앱을 임시 위치에서 실행 중입니다.\n먼저 Finder에서 앱을 한 번 이동(예: 바탕화면으로)한 뒤 다시 실행해 주세요.")
+            return
+        }
+
         let fm = FileManager.default
 
-        // 기존 앱이 있으면 제거
         if fm.fileExists(atPath: destination) {
             do {
                 try fm.removeItem(atPath: destination)
@@ -53,11 +78,9 @@ enum AppLocationChecker {
             }
         }
 
-        // 이동 (원본 자동 삭제)
         do {
             try fm.moveItem(atPath: source, toPath: destination)
         } catch {
-            // 이동 실패 시 복사 후 원본 삭제 시도
             do {
                 try fm.copyItem(atPath: source, toPath: destination)
                 try? fm.removeItem(atPath: source)
@@ -67,14 +90,13 @@ enum AppLocationChecker {
             }
         }
 
-        // quarantine 속성 제거 (macOS Gatekeeper 차단 방지)
+        // quarantine 속성 제거
         let xattr = Process()
         xattr.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
         xattr.arguments = ["-dr", "com.apple.quarantine", destination]
         try? xattr.run()
         xattr.waitUntilExit()
 
-        // 새 위치에서 앱 실행
         NSWorkspace.shared.openApplication(
             at: URL(fileURLWithPath: destination),
             configuration: NSWorkspace.OpenConfiguration()
