@@ -53,22 +53,35 @@ enum AppLocationChecker {
             }
         }
 
+        // 이동 (원본 자동 삭제)
         do {
-            try fm.copyItem(atPath: source, toPath: destination)
+            try fm.moveItem(atPath: source, toPath: destination)
         } catch {
-            showError("앱 복사 실패: \(error.localizedDescription)")
-            return
+            // 이동 실패 시 복사 후 원본 삭제 시도
+            do {
+                try fm.copyItem(atPath: source, toPath: destination)
+                try? fm.removeItem(atPath: source)
+            } catch {
+                showError("앱 이동 실패: \(error.localizedDescription)")
+                return
+            }
         }
 
-        // 새 위치에서 앱 재시작
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        task.arguments = ["-n", destination]
-        try? task.run()
+        // quarantine 속성 제거 (macOS Gatekeeper 차단 방지)
+        let xattr = Process()
+        xattr.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+        xattr.arguments = ["-dr", "com.apple.quarantine", destination]
+        try? xattr.run()
+        xattr.waitUntilExit()
 
-        // 현재 앱 종료
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            NSApp.terminate(nil)
+        // 새 위치에서 앱 실행
+        NSWorkspace.shared.openApplication(
+            at: URL(fileURLWithPath: destination),
+            configuration: NSWorkspace.OpenConfiguration()
+        ) { _, _ in
+            DispatchQueue.main.async {
+                NSApp.terminate(nil)
+            }
         }
     }
 
