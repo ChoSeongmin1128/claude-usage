@@ -4,6 +4,12 @@ enum AppLocationChecker {
     private static let suppressionKey = "suppressMoveToApplicationsAlert"
 
     static func checkAndPromptIfNeeded() {
+        // App Translocation 상태면 경로 판단이 불가하므로 건너뜀
+        let bundlePath = Bundle.main.bundlePath
+        if bundlePath.contains("/AppTranslocation/") || bundlePath.hasPrefix("/private/var/folders/") {
+            return
+        }
+
         guard !UserDefaults.standard.bool(forKey: suppressionKey) else { return }
         guard !isInApplicationsFolder() else { return }
 
@@ -90,17 +96,17 @@ enum AppLocationChecker {
             }
         }
 
-        // quarantine 속성 제거 (removexattr C API 사용 — sandbox에서도 동작)
+        // quarantine 속성 제거 (removexattr C API — sandbox에서도 동작)
         removeQuarantineRecursively(at: destination)
 
-        NSWorkspace.shared.openApplication(
-            at: URL(fileURLWithPath: destination),
-            configuration: NSWorkspace.OpenConfiguration()
-        ) { _, _ in
-            DispatchQueue.main.async {
-                NSApp.terminate(nil)
-            }
-        }
+        // 현재 앱 종료 후 새 위치에서 재시작 (지연 실행으로 종료 후 open)
+        let script = "sleep 1 && open \"\(destination)\""
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/sh")
+        task.arguments = ["-c", script]
+        try? task.run()
+
+        NSApp.terminate(nil)
     }
 
     private static func removeQuarantineRecursively(at path: String) {
