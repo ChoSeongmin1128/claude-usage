@@ -90,12 +90,8 @@ enum AppLocationChecker {
             }
         }
 
-        // quarantine 속성 제거
-        let xattr = Process()
-        xattr.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
-        xattr.arguments = ["-dr", "com.apple.quarantine", destination]
-        try? xattr.run()
-        xattr.waitUntilExit()
+        // quarantine 속성 제거 (removexattr C API 사용 — sandbox에서도 동작)
+        removeQuarantineRecursively(at: destination)
 
         NSWorkspace.shared.openApplication(
             at: URL(fileURLWithPath: destination),
@@ -104,6 +100,17 @@ enum AppLocationChecker {
             DispatchQueue.main.async {
                 NSApp.terminate(nil)
             }
+        }
+    }
+
+    private static func removeQuarantineRecursively(at path: String) {
+        removexattr(path, "com.apple.quarantine", XATTR_NOFOLLOW)
+
+        let fm = FileManager.default
+        guard let enumerator = fm.enumerator(atPath: path) else { return }
+        while let relative = enumerator.nextObject() as? String {
+            let full = (path as NSString).appendingPathComponent(relative)
+            removexattr(full, "com.apple.quarantine", XATTR_NOFOLLOW)
         }
     }
 
