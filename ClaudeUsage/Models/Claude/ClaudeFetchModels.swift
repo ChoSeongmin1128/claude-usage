@@ -177,22 +177,12 @@ struct ClaudeNotificationPolicy: Equatable, Sendable {
             return "조직 플랜이지만 추가 사용량이 꺼져 있어 Claude 알림에 관리자 확인 안내를 함께 표시합니다"
         }
 
-        let lowerSubscription = subscriptionType?.lowercased() ?? ""
-        if lowerSubscription.contains("pro") || lowerSubscription.contains("max") {
-            return "개인 플랜으로 보입니다. Claude 알림에는 플랜 한도 확인 안내를 함께 표시합니다"
-        }
-
         return nil
     }
 
     nonisolated var guidanceSuffix: String? {
         if isOrganizationPlan && hasExtraUsageEnabled == false {
             return "관리자에게 추가 사용량 설정을 확인해 주세요"
-        }
-
-        let lowerSubscription = subscriptionType?.lowercased() ?? ""
-        if lowerSubscription.contains("pro") || lowerSubscription.contains("max") {
-            return "플랜 한도도 함께 확인해 주세요"
         }
 
         return nil
