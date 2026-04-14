@@ -96,16 +96,16 @@ struct SetupWizardWindowView: View {
     private var stageSummaryDetail: String {
         switch progress.stage {
         case .credential:
-            return "먼저 권장 경로 하나만 시도하면 됩니다. 다만 이 창에서 웹 로그인과 수동 입력으로 바로 내려갈 수도 있습니다."
+            return "Chrome 가져오기를 먼저 시도해 주세요."
         case .verification:
-            return "자격은 준비됐습니다. 이제 첫 성공 조회만 끝내면 됩니다."
+            return "이제 상태만 확인하면 됩니다."
         case .organization:
             if progress.isAutomaticOrganizationMode {
-                return "자동 선택 모드입니다. 별도 organization을 직접 고르지 않을 거라면 여기서 바로 마무리하면 됩니다."
+                return "자동 선택이면 바로 마무리할 수 있습니다."
             }
-            return "\(progress.organizationSummary) 특정 organization을 직접 고를 때만 이 단계가 필요합니다."
+            return "직접 organization을 고를 때만 이 단계가 필요합니다."
         case .complete:
-            return "Claude 초기 설정이 끝났습니다. 이제 필요할 때 다른 provider를 추가하면 됩니다."
+            return "초기 설정이 끝났습니다."
         }
     }
 
@@ -114,7 +114,7 @@ struct SetupWizardWindowView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("빠른 시작")
                     .font(.title3.weight(.semibold))
-                Text("처음에는 Claude 연결만 안정적으로 끝내면 됩니다. 다른 provider와 세부 설정은 그 뒤에 해도 늦지 않습니다.")
+                Text("먼저 Claude 연결만 끝내면 됩니다.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }

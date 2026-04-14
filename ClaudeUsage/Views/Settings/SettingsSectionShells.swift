@@ -17,7 +17,7 @@ struct ClaudeSetupSectionShell<Content: View>: View {
             Label("인증", systemImage: "key")
                 .font(.headline)
 
-            Text("현재 단계: \(stageText(presentation.progress.stage)) · 다음 행동: \(actionText(presentation.primaryActionKind))")
+            Text("현재 단계: \(stageText(presentation.progress.stage))")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

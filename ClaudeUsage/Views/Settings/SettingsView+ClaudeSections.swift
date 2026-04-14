@@ -197,10 +197,6 @@ extension SettingsView {
                         Text(summary)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                    } else {
-                        Text("문제가 없으면 여기서는 상태 새로고침만 보시면 됩니다.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
 
                     Spacer()
@@ -237,7 +233,7 @@ extension SettingsView {
                         .controlSize(.regular)
                     }
 
-                    Text("기본은 Chrome 가져오기입니다. 다른 방법은 위 경로가 실패할 때만 여는 편이 맞습니다.")
+                    Text("Chrome 가져오기를 먼저 시도해 주세요.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -279,7 +275,7 @@ extension SettingsView {
     private var manualSessionKeySection: some View {
         DisclosureGroup(isExpanded: $isAdvancedAuthExpanded) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Chrome import가 실패했을 때만 이 값을 직접 입력합니다.")
+                Text("필요할 때만 직접 입력해 주세요.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -311,11 +307,11 @@ extension SettingsView {
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.caption, design: .monospaced))
 
-                Text("전체 쿠키 문자열이 아니라 sessionKey 값만 입력하고, 저장 후 적용됩니다.")
+                Text("sessionKey 값만 입력하면 됩니다.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
-                Text("연결 테스트는 저장하지 않습니다. 실제 Keychain 저장은 설정 적용 시점에만 일어나며, 그때 macOS 확인 창이 뜰 수 있습니다.")
+                Text("저장은 설정 적용 시점에만 이뤄집니다.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
@@ -533,18 +529,15 @@ extension SettingsView {
 
     private var advancedAuthCollapsedHint: String? {
         if hasPendingManualSessionKey {
-            return "연결 테스트 후에도 실제 저장은 적용 시점에만 일어납니다."
+            return "저장은 적용 시점에만 이뤄집니다."
         }
         if shouldRecommendCLIOAuth {
-            return "최근 조회는 성공했지만 세션 경로가 불안정할 수 있습니다."
+            return "CLI OAuth 확인이 필요할 수 있습니다."
         }
         if settings.claudeMessagesFallbackPolicy != .off {
-            return "보조 복구와 FAQ는 고급 인증 안쪽에 유지됩니다."
+            return "보조 복구 설정이 켜져 있습니다."
         }
-        if !hasSuccessfulClaudeFetch {
-            return "기본은 Chrome 가져오기입니다. 실패했을 때만 수동 입력을 여는 편이 맞습니다."
-        }
-        return "수동 입력과 복구는 필요할 때만 여는 편이 맞습니다."
+        return nil
     }
 
     var hasSuccessfulClaudeFetch: Bool {

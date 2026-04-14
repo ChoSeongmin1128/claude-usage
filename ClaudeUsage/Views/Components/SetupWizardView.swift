@@ -24,11 +24,11 @@ struct SetupWizardView: View {
         var detail: String {
             switch self {
             case .chromeImport:
-                return "권장 경로입니다. Chrome 로그인 상태에서 sessionKey를 먼저 읽어옵니다."
+                return "Chrome 로그인 상태에서 바로 가져옵니다."
             case .webLogin:
-                return "Chrome 가져오기가 안 되면 내장 로그인 창에서 sessionKey 자동 추출을 시도합니다."
+                return "브라우저 로그인 뒤 다시 시도합니다."
             case .manualSessionKey:
-                return "둘 다 실패했을 때만 고급 설정에서 값만 직접 입력합니다."
+                return "필요할 때만 직접 입력합니다."
             }
         }
 
@@ -91,18 +91,14 @@ struct SetupWizardView: View {
                     }
                     .padding(.top, 6)
                 } label: {
-                    Text("현재 단계가 실패했을 때만 다른 방법 보기")
+                    Text("다른 방법 보기")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
 
             if hasReadyCredential {
-                Text("자격 준비는 끝났습니다. 이제 상태 새로고침이나 첫 성공 조회 확인으로 다음 단계로 넘어가면 됩니다.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else if !isAdvancedExpanded {
-                Text("지금은 현재 단계만 보시면 됩니다. 다른 방법은 실패했을 때만 여는 편이 맞습니다.")
+                Text("이제 상태만 확인하면 됩니다.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -118,7 +114,7 @@ struct SetupWizardView: View {
 
     private var primaryStepDetail: String {
         hasReadyCredential
-            ? "sessionKey 또는 OAuth 자격이 이미 준비되어 있습니다. 이제 첫 성공 조회와 organization 확인만 남았습니다."
+            ? "자격이 준비되었습니다. 이제 조회만 확인하면 됩니다."
             : currentStep.detail
     }
 
@@ -137,24 +133,10 @@ struct SetupWizardView: View {
                 HStack(spacing: 6) {
                     Text(primaryStepTitle)
                         .font(.caption.weight(.semibold))
-                    if !hasReadyCredential {
-                        Text("권장")
-                            .font(.caption2.weight(.medium))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Color.accentColor.opacity(0.14))
-                            .foregroundStyle(Color.accentColor)
-                            .cornerRadius(4)
-                    }
                 }
                 Text(primaryStepDetail)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
-                if !hasReadyCredential {
-                    Text(actionHint(for: currentStep))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
             }
             Spacer(minLength: 0)
         }
@@ -217,16 +199,6 @@ struct SetupWizardView: View {
         }
     }
 
-    private func actionHint(for step: Step) -> String {
-        switch step {
-        case .chromeImport:
-            return "Chrome에서 claude.ai 로그인 상태만 맞춘 뒤 이 경로를 다시 시도하면 됩니다."
-        case .webLogin:
-            return "Chrome 경로가 안 될 때만 여시면 됩니다."
-        case .manualSessionKey:
-            return "앞 경로가 다 실패했을 때만 여는 마지막 수단입니다."
-        }
-    }
 }
 
 private extension SetupWizardView.Step {

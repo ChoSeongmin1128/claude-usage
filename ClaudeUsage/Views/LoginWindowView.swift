@@ -35,9 +35,7 @@ struct LoginWindowView: View {
             Text("권장 경로")
                 .font(.caption)
                 .fontWeight(.semibold)
-            Text("1. 먼저 `Chrome에서 가져오기`만 시도합니다.")
-            Text("2. Chrome 로그인이 안 되어 있을 때만 `Chrome 로그인 열기`를 씁니다.")
-            Text("3. 그래도 실패할 때만 `고급 설정`으로 내려가면 됩니다.")
+            Text("먼저 `Chrome에서 가져오기`를 시도하고, 안 되면 `Chrome 로그인 열기`나 `고급 설정`을 사용해 주세요.")
         }
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -228,7 +226,7 @@ struct LoginWindowView: View {
                 case .success(.importedSessionKey(let key)):
                     self.activateSessionKey(key)
                 case .success(.manualSessionKeyRequired(let message)):
-                    self.statusMessage = "Chrome 로그인 상태를 확인한 뒤 다시 가져오거나, 필요하면 고급 설정으로 이동해 주세요."
+                    self.statusMessage = "Chrome 로그인 후 다시 가져오거나 고급 설정을 사용해 주세요."
                     self.errorMessage = message
                 case .success(.unavailable(let message)):
                     self.errorMessage = message
@@ -244,13 +242,13 @@ struct LoginWindowView: View {
         if let chromeAppURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
             let configuration = NSWorkspace.OpenConfiguration()
             NSWorkspace.shared.open([targetURL], withApplicationAt: chromeAppURL, configuration: configuration)
-            statusMessage = "Chrome에서 claude.ai를 열었습니다. 로그인 후 다시 가져오기를 눌러 주세요."
+            statusMessage = "Chrome에서 claude.ai를 열었습니다. 로그인 후 다시 가져와 주세요."
             errorMessage = nil
             return
         }
 
         NSWorkspace.shared.open(targetURL)
-        statusMessage = "기본 브라우저로 claude.ai를 열었습니다. 로그인 후 다시 가져오기를 눌러 주세요."
+        statusMessage = "브라우저에서 claude.ai를 열었습니다. 로그인 후 다시 가져와 주세요."
         errorMessage = nil
     }
 }

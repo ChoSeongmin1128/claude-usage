@@ -12,7 +12,7 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
         )
 
         XCTAssertTrue(status.isDetected)
-        XCTAssertEqual(status.credentialState, .refreshable)
+        XCTAssertEqual(status.credentialState, ProviderCredentialState.refreshable)
         XCTAssertTrue(status.runtimeReachability)
         XCTAssertEqual(status.summary, "Gemini CLI OAuth 감지 · 액세스 토큰은 갱신이 필요합니다")
     }
@@ -58,7 +58,9 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
                     pid: 42,
                     command: "language_server_macos --csrf_token token",
                     csrfToken: "token",
-                    extensionPort: nil
+                    extensionPort: nil,
+                    extensionCsrfToken: nil,
+                    httpsServerPort: nil
                 ),
                 hasAuthStatus: true,
                 hasOAuthToken: true
@@ -66,7 +68,7 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
         )
 
         XCTAssertTrue(status.isDetected)
-        XCTAssertEqual(status.credentialState, .refreshable)
+        XCTAssertEqual(status.credentialState, ProviderCredentialState.refreshable)
         XCTAssertFalse(status.runtimeReachability)
         XCTAssertTrue(status.summary.contains("연결 준비 중"))
     }

@@ -31,15 +31,9 @@ struct RuntimeProviderAuthSectionView: View {
                 RuntimeProviderPathHintsCard(pathHints: presentation.pathHints)
             }
 
-            HStack(spacing: 8) {
-                Button("환경 다시 읽기", action: onRefreshEnvironment)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-
-                Text("이 화면은 환경 사실만 먼저 보여주고, 실제 사용량은 첫 성공 조회가 내려온 뒤에만 안정 상태로 봅니다.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+            Button("환경 다시 읽기", action: onRefreshEnvironment)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
 
             Text(footnote)
                 .font(.caption)
@@ -135,7 +129,7 @@ private struct RuntimeProviderDetectorCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("감지된 환경 사실")
+            Text("감지 상태")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text(summary)
