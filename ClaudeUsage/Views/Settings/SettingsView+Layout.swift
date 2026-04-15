@@ -49,10 +49,10 @@ extension SettingsView {
             alertPresetTexts = settings.sortedNotificationPresets.map { String($0.threshold) }
             selectedOrganizationID = settings.preferredOrganizationID
             selectedPanel = SettingsProviderPanel(rawValue: settings.settingsLastTab) ?? .common
-            selectedClaudeTab = ClaudeTab(rawValue: settings.providerSettingsLastTab(for: .claude)) ?? .auth
-            selectedCodexTab = CodexTab(rawValue: settings.providerSettingsLastTab(for: .codex)) ?? .auth
-            selectedGeminiTab = RuntimeProviderTab(rawValue: settings.providerSettingsLastTab(for: .gemini)) ?? .auth
-            selectedAntigravityTab = RuntimeProviderTab(rawValue: settings.providerSettingsLastTab(for: .antigravity)) ?? .auth
+            selectedClaudeTab = settings.providerSettingsLastTab(for: .claude)
+            selectedCodexTab = settings.providerSettingsLastTab(for: .codex)
+            selectedGeminiTab = settings.providerSettingsLastTab(for: .gemini)
+            selectedAntigravityTab = settings.providerSettingsLastTab(for: .antigravity)
             loadUsageHealthSnapshot()
             checkCodexAuth()
             refreshUpdateEnginePresentation()
@@ -68,19 +68,19 @@ extension SettingsView {
             }
         }
         .onChange(of: selectedClaudeTab) { _, tab in
-            settings.setProviderSettingsLastTab(tab.rawValue, for: .claude)
-            if tab == .organizations, organizations.isEmpty, !isLoadingOrganizations {
+            settings.setProviderSettingsLastTab(tab, for: .claude)
+            if tab == .overview, organizations.isEmpty, !isLoadingOrganizations {
                 loadOrganizations(forceRefresh: false)
             }
         }
         .onChange(of: selectedCodexTab) { _, tab in
-            settings.setProviderSettingsLastTab(tab.rawValue, for: .codex)
+            settings.setProviderSettingsLastTab(tab, for: .codex)
         }
         .onChange(of: selectedGeminiTab) { _, tab in
-            settings.setProviderSettingsLastTab(tab.rawValue, for: .gemini)
+            settings.setProviderSettingsLastTab(tab, for: .gemini)
         }
         .onChange(of: selectedAntigravityTab) { _, tab in
-            settings.setProviderSettingsLastTab(tab.rawValue, for: .antigravity)
+            settings.setProviderSettingsLastTab(tab, for: .antigravity)
         }
         .onChange(of: settings.updateCheckInterval) { _, _ in
             refreshUpdateEnginePresentation()
@@ -91,9 +91,8 @@ extension SettingsView {
         .onReceive(settings.$shouldRevealClaudeAdvancedAuth.removeDuplicates()) { shouldReveal in
             guard shouldReveal else { return }
             selectedPanel = .claude
-            selectedClaudeTab = .auth
+            selectedClaudeTab = .advanced
             withAnimation(.easeInOut(duration: 0.15)) {
-                isClaudeAdvancedSectionExpanded = true
                 isAdvancedAuthExpanded = true
             }
             settings.shouldRevealClaudeAdvancedAuth = false
@@ -120,29 +119,25 @@ extension SettingsView {
             }
         case .claude:
             switch selectedClaudeTab {
-            case .auth:
-                authSection
+            case .overview:
+                claudeOverviewSection
             case .display:
-                claudeDisplaySection
-            case .status:
-                statusSection
-            case .organizations:
-                organizationSection
-            case .popover:
-                popoverItemsSection
+                claudeDisplayConfigurationSection
             case .alerts:
                 alertSection
+            case .advanced:
+                claudeAdvancedSettingsSection
             }
         case .codex:
             switch selectedCodexTab {
-            case .auth:
-                codexAuthSection
+            case .overview:
+                codexOverviewSection
             case .display:
-                codexDisplaySection
-            case .popover:
-                codexPopoverItemsSection
+                codexDisplayConfigurationSection
             case .alerts:
                 codexAlertSection
+            case .advanced:
+                codexAdvancedSection
             }
         case .gemini:
             runtimeProviderPanel(for: .gemini, tab: selectedGeminiTab)
@@ -232,25 +227,25 @@ extension SettingsView {
                     }
                 }
             case .claude:
-                ForEach(ClaudeTab.allCases) { tab in
+                ForEach(ProviderSettingsTab.allCases) { tab in
                     segmentedTabButton(title: tab.title, isSelected: selectedClaudeTab == tab) {
                         selectedClaudeTab = tab
                     }
                 }
             case .codex:
-                ForEach(CodexTab.allCases) { tab in
+                ForEach(ProviderSettingsTab.allCases) { tab in
                     segmentedTabButton(title: tab.title, isSelected: selectedCodexTab == tab) {
                         selectedCodexTab = tab
                     }
                 }
             case .gemini:
-                ForEach(RuntimeProviderTab.allCases) { tab in
+                ForEach(ProviderSettingsTab.allCases) { tab in
                     segmentedTabButton(title: tab.title, isSelected: selectedGeminiTab == tab) {
                         selectedGeminiTab = tab
                     }
                 }
             case .antigravity:
-                ForEach(RuntimeProviderTab.allCases) { tab in
+                ForEach(ProviderSettingsTab.allCases) { tab in
                     segmentedTabButton(title: tab.title, isSelected: selectedAntigravityTab == tab) {
                         selectedAntigravityTab = tab
                     }

@@ -195,7 +195,7 @@ struct ServiceSelectionHelper {
         service.rawValue
     }
 
-    static func settingsAuthTab() -> String {
-        "auth"
+    static func settingsOverviewTab() -> ProviderSettingsTab {
+        .overview
     }
 }

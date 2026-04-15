@@ -14,7 +14,7 @@ struct ClaudeSetupSectionShell<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("인증", systemImage: "key")
+            Label("Claude 개요", systemImage: "brain")
                 .font(.headline)
 
             Text("현재 단계: \(stageText(presentation.progress.stage))")
@@ -35,25 +35,6 @@ struct ClaudeSetupSectionShell<Content: View>: View {
             return "Organization 확인"
         case .complete:
             return "완료"
-        }
-    }
-
-    private func actionText(_ action: ClaudeSetupPresentation.PrimaryActionKind) -> String {
-        switch action {
-        case .openChrome:
-            return "Chrome 가져오기"
-        case .openWebLogin:
-            return "웹 로그인"
-        case .openAdvancedSettings:
-            return "수동 입력"
-        case .verifyFetch:
-            return "상태 새로고침"
-        case .openOrganizations:
-            return "Organization 열기"
-        case .useAutomaticOrganization:
-            return "자동 선택 유지"
-        case .complete:
-            return "추가 작업 없음"
         }
     }
 }

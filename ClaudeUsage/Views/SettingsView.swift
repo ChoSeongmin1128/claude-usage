@@ -35,16 +35,14 @@ struct SettingsView: View {
     @State var profileMetadata: ClaudeProfileMetadata?
     @State var selectedPanel: SettingsProviderPanel = .common
     @State var selectedCommonTab: CommonTab = .display
-    @State var selectedClaudeTab: ClaudeTab = .auth
-    @State var selectedCodexTab: CodexTab = .auth
-    @State var selectedGeminiTab: RuntimeProviderTab = .auth
-    @State var selectedAntigravityTab: RuntimeProviderTab = .auth
+    @State var selectedClaudeTab: ProviderSettingsTab = .overview
+    @State var selectedCodexTab: ProviderSettingsTab = .overview
+    @State var selectedGeminiTab: ProviderSettingsTab = .overview
+    @State var selectedAntigravityTab: ProviderSettingsTab = .overview
     @State var isAdvancedAuthExpanded = false
-    @State var isClaudeAdvancedSectionExpanded = false
     @State var isAuthFAQExpanded = false
     @State var isAuthDetailsExpanded = false
     @State var isMessagesFallbackExpanded = false
-    @State var isStatusDetailsExpanded = false
     @State var isOrganizationAdvancedExpanded = false
     @State var isTestingMessagesFallback = false
     @State var messagesFallbackStatus: String?
@@ -83,64 +81,6 @@ struct SettingsView: View {
             case .refreshPower: return "갱신/전원"
             case .alerts: return "알림"
             case .app: return "앱"
-            }
-        }
-    }
-
-    enum ClaudeTab: String, CaseIterable, Identifiable {
-        case auth
-        case display
-        case status
-        case organizations
-        case popover
-        case alerts
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .auth: return "인증"
-            case .display: return "표시"
-            case .status: return "상태"
-            case .organizations: return "Organization"
-            case .popover: return "표시 항목"
-            case .alerts: return "알림"
-            }
-        }
-    }
-
-    enum CodexTab: String, CaseIterable, Identifiable {
-        case auth
-        case display
-        case popover
-        case alerts
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .auth: return "인증"
-            case .display: return "표시"
-            case .popover: return "표시 항목"
-            case .alerts: return "알림"
-            }
-        }
-    }
-
-    enum RuntimeProviderTab: String, CaseIterable, Identifiable {
-        case auth
-        case display
-        case popover
-        case alerts
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .auth: return "인증"
-            case .display: return "표시"
-            case .popover: return "동작"
-            case .alerts: return "알림 사용"
             }
         }
     }

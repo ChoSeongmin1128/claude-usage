@@ -3,34 +3,33 @@ import SwiftUI
 
 extension SettingsView {
     @ViewBuilder
-    func runtimeProviderPanel(for provider: AppProviderKind, tab: RuntimeProviderTab) -> some View {
+    func runtimeProviderPanel(for provider: AppProviderKind, tab: ProviderSettingsTab) -> some View {
         switch tab {
-        case .auth:
-            runtimeProviderAuthSection(for: provider)
+        case .overview:
+            runtimeProviderOverviewSection(for: provider)
         case .display:
             runtimeProviderDisplaySection(for: provider)
-        case .popover:
-            runtimeProviderPopoverSection(for: provider)
         case .alerts:
             runtimeProviderAlertsSection(for: provider)
+        case .advanced:
+            runtimeProviderAdvancedSection(for: provider)
         }
     }
 
     @ViewBuilder
-    private func runtimeProviderAuthSection(for provider: AppProviderKind) -> some View {
+    private func runtimeProviderOverviewSection(for provider: AppProviderKind) -> some View {
         let _ = runtimeEnvironmentRefreshTick
         let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: provider)
         if let presentation = RuntimeProviderSettingsPresentation.authPresentation(
             for: provider,
             isEnabled: settings.isProviderEnabled(provider)
         ) {
-            RuntimeProviderAuthSectionView(
+            RuntimeProviderOverviewSectionView(
                 settings: settings,
                 provider: provider,
                 descriptor: descriptor,
                 presentation: presentation,
-                footnote: shellSectionFootnote(for: provider, selectionState: settings.providerSelectionState),
-                onRefreshEnvironment: { runtimeEnvironmentRefreshTick += 1 }
+                hint: runtimeProviderOverviewHint(for: presentation)
             )
         } else {
             RuntimeProviderPanelShell(
@@ -39,7 +38,7 @@ extension SettingsView {
                 summary: descriptor.summary,
                 detail: descriptor.detail
             ) {
-                Text("이 provider의 인증 설정은 아직 별도 presentation을 쓰지 않습니다.")
+                Text("이 provider의 개요 화면은 아직 별도 presentation을 쓰지 않습니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -53,7 +52,7 @@ extension SettingsView {
         RuntimeProviderPanelShell(
             descriptor: descriptor,
             title: "\(descriptor.title) 표시",
-            summary: "메뉴바에 실제로 어떤 형태로 그릴지 정하는 영역입니다."
+            summary: "메뉴바 표시 방식과 팝오버 동작을 함께 정합니다."
         ) {
             if let displayConfig {
                 VStack(alignment: .leading, spacing: 10) {
@@ -159,33 +158,25 @@ extension SettingsView {
                         .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
                         .cornerRadius(8)
                     }
+
+                    Divider()
+
+                    settingsToggleRow(
+                        "간소화 보기",
+                        isOn: Binding(
+                            get: { settings.isPopoverCompact(for: provider) },
+                            set: { settings.setPopoverCompact($0, for: provider) }
+                        )
+                    )
+                    settingsToggleRow(
+                        "팝오버 고정",
+                        isOn: Binding(
+                            get: { settings.isPopoverPinned(for: provider) },
+                            set: { settings.setPopoverPinned($0, for: provider) }
+                        )
+                    )
                 }
             }
-        }
-    }
-
-    @ViewBuilder
-    private func runtimeProviderPopoverSection(for provider: AppProviderKind) -> some View {
-        let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: provider)
-        RuntimeProviderPanelShell(
-            descriptor: descriptor,
-            title: "\(descriptor.title) 팝오버 동작",
-            summary: "간소화 보기는 runtime provider 전체에 함께 적용되고, 팝오버 고정만 이 provider에 개별 적용됩니다."
-        ) {
-            settingsToggleRow(
-                "간소화 보기",
-                isOn: Binding(
-                    get: { settings.isPopoverCompact(for: provider) },
-                    set: { settings.setPopoverCompact($0, for: provider) }
-                )
-            )
-            settingsToggleRow(
-                "팝오버 고정",
-                isOn: Binding(
-                    get: { settings.isPopoverPinned(for: provider) },
-                    set: { settings.setPopoverPinned($0, for: provider) }
-                )
-            )
         }
     }
 
@@ -194,7 +185,7 @@ extension SettingsView {
         let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: provider)
         RuntimeProviderPanelShell(
             descriptor: descriptor,
-            title: "\(descriptor.title) 알림 사용",
+            title: "\(descriptor.title) 알림",
             summary: "임계값 프리셋은 공통 알림에서 한 번만 관리하고, 여기서는 이 provider를 그 알림 대상에 포함할지만 정합니다."
         ) {
             chip(
@@ -211,6 +202,33 @@ extension SettingsView {
                 Label("공통 알림 열기", systemImage: "bell.badge")
             }
             .buttonStyle(.link)
+        }
+    }
+
+    @ViewBuilder
+    private func runtimeProviderAdvancedSection(for provider: AppProviderKind) -> some View {
+        let _ = runtimeEnvironmentRefreshTick
+        let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: provider)
+        if let presentation = RuntimeProviderSettingsPresentation.authPresentation(
+            for: provider,
+            isEnabled: settings.isProviderEnabled(provider)
+        ) {
+            RuntimeProviderAdvancedSectionView(
+                descriptor: descriptor,
+                presentation: presentation,
+                footnote: shellSectionFootnote(for: provider, selectionState: settings.providerSelectionState),
+                onRefreshEnvironment: { runtimeEnvironmentRefreshTick += 1 }
+            )
+        }
+    }
+
+    private func runtimeProviderOverviewHint(for presentation: RuntimeProviderAuthPresentation) -> String? {
+        guard let firstPath = presentation.pathHints.first else { return nil }
+        switch presentation.stage {
+        case .installRequired, .unsupportedConfiguration, .authRequired, .waitingForApp:
+            return "확인 경로: \(firstPath)"
+        case .disabled, .refreshingCredential, .probingRuntime:
+            return nil
         }
     }
 }

@@ -3,9 +3,13 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 extension SettingsView {
+    var codexOverviewSection: some View {
+        codexAuthSection
+    }
+
     var codexAuthSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Codex 인증", systemImage: "bubble.left.and.bubble.right")
+            Label("Codex 개요", systemImage: "bubble.left.and.bubble.right")
                 .font(.headline)
 
             settingsToggleRow(
@@ -41,31 +45,23 @@ extension SettingsView {
                     Spacer()
                 }
 
-                if codexAuthStatus == .notInstalled {
+                if let action = codexPrimaryCommand {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Codex CLI를 먼저 설치하세요:")
+                        Text(action.title)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        codexCommandRow("brew install --cask codex", label: "Homebrew")
-                        codexCommandRow("npm i -g @openai/codex", label: "npm")
-                    }
-                }
-
-                if codexAuthStatus == .notInstalled || codexAuthStatus == .notLoggedIn {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("터미널에서 로그인하세요:")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        codexCommandRow("codex login", label: "로그인")
-                    }
-                }
-
-                if codexAuthStatus == .expired {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("토큰이 만료되었습니다. 다시 로그인하세요:")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        codexCommandRow("codex login", label: "재로그인")
+                        HStack(spacing: 4) {
+                            Text(action.command)
+                                .font(.system(.caption, design: .monospaced))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color(NSColor.controlBackgroundColor))
+                                .cornerRadius(4)
+                            Button("복사") {
+                                copyCodexCommand(action.command)
+                            }
+                            .buttonStyle(.borderless)
+                        }
                     }
                 }
 
@@ -84,6 +80,74 @@ extension SettingsView {
                 }
             }
         }
+    }
+
+    var codexAdvancedSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Codex 고급", systemImage: "wrench.and.screwdriver")
+                .font(.headline)
+
+            Text("설치, 로그인, 재로그인 같은 저빈도 명령은 여기서 확인합니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if codexAuthStatus == .notInstalled {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Codex CLI 설치")
+                        .font(.subheadline.weight(.semibold))
+                    codexCommandRow("brew install --cask codex", label: "Homebrew")
+                    codexCommandRow("npm i -g @openai/codex", label: "npm")
+                }
+            }
+
+            if codexAuthStatus == .notInstalled || codexAuthStatus == .notLoggedIn {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Codex 로그인")
+                        .font(.subheadline.weight(.semibold))
+                    codexCommandRow("codex login", label: "로그인")
+                }
+            }
+
+            if codexAuthStatus == .expired {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Codex 재로그인")
+                        .font(.subheadline.weight(.semibold))
+                    codexCommandRow("codex login", label: "재로그인")
+                }
+            }
+
+            if codexAuthStatus == .authenticated {
+                Text("현재는 추가 설치나 재로그인이 필요하지 않습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    var codexDisplayConfigurationSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            codexDisplaySection
+            Divider()
+            codexPopoverItemsSection
+        }
+    }
+
+    private var codexPrimaryCommand: (title: String, command: String)? {
+        switch codexAuthStatus {
+        case .notInstalled:
+            return ("Codex CLI가 필요합니다.", "brew install --cask codex")
+        case .notLoggedIn:
+            return ("터미널에서 로그인해 주세요.", "codex login")
+        case .expired:
+            return ("토큰이 만료되었습니다. 다시 로그인해 주세요.", "codex login")
+        case .checking, .authenticated:
+            return nil
+        }
+    }
+
+    private func copyCodexCommand(_ command: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
     }
 
     private func codexCommandRow(_ command: String, label: String) -> some View {

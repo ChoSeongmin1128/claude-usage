@@ -101,9 +101,9 @@ struct SetupWizardWindowView: View {
             return "이제 상태만 확인하면 됩니다."
         case .organization:
             if progress.isAutomaticOrganizationMode {
-                return "자동 선택이면 바로 마무리할 수 있습니다."
+                return "\(progress.organizationSummary) 자동 선택이면 바로 마무리할 수 있습니다."
             }
-            return "직접 organization을 고를 때만 이 단계가 필요합니다."
+            return "\(progress.organizationSummary) 직접 organization을 고를 때만 이 단계가 필요합니다."
         case .complete:
             return "초기 설정이 끝났습니다."
         }

@@ -322,7 +322,6 @@ extension SettingsView {
 
     func resetClaudeAuthDisclosureState() {
         guard !settings.shouldRevealClaudeAdvancedAuth else { return }
-        isClaudeAdvancedSectionExpanded = false
         isAdvancedAuthExpanded = false
         isAuthFAQExpanded = false
         isAuthDetailsExpanded = false

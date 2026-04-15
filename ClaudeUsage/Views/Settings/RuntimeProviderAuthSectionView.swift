@@ -1,18 +1,17 @@
 import SwiftUI
 
-struct RuntimeProviderAuthSectionView: View {
+struct RuntimeProviderOverviewSectionView: View {
     @ObservedObject var settings: AppSettings
     let provider: AppProviderKind
     let descriptor: ProviderShellDescriptor
     let presentation: RuntimeProviderAuthPresentation
-    let footnote: String
-    let onRefreshEnvironment: () -> Void
+    let hint: String?
 
     var body: some View {
         RuntimeProviderPanelShell(
             descriptor: descriptor,
-            title: descriptor.title,
-            summary: descriptor.summary,
+            title: "\(descriptor.title) 개요",
+            summary: "현재 상태와 다음 행동만 먼저 보여줍니다.",
             detail: descriptor.detail
         ) {
             SettingsSectionToggleRow(
@@ -25,6 +24,29 @@ struct RuntimeProviderAuthSectionView: View {
 
             RuntimeProviderStageCard(presentation: presentation)
             RuntimeProviderActionCard(presentation: presentation)
+
+            if let hint {
+                Text(hint)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+struct RuntimeProviderAdvancedSectionView: View {
+    let descriptor: ProviderShellDescriptor
+    let presentation: RuntimeProviderAuthPresentation
+    let footnote: String
+    let onRefreshEnvironment: () -> Void
+
+    var body: some View {
+        RuntimeProviderPanelShell(
+            descriptor: descriptor,
+            title: "\(descriptor.title) 고급",
+            summary: "감지 상태와 진단 경로를 확인하는 저빈도 화면입니다.",
+            detail: descriptor.detail
+        ) {
             RuntimeProviderDetectorCard(summary: presentation.detectorSummary)
 
             if !presentation.pathHints.isEmpty {

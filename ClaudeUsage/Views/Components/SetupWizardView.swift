@@ -24,11 +24,11 @@ struct SetupWizardView: View {
         var detail: String {
             switch self {
             case .chromeImport:
-                return "Chrome 로그인 상태에서 바로 가져옵니다."
+                return "권장 경로입니다. Chrome 로그인 상태에서 바로 가져옵니다."
             case .webLogin:
-                return "브라우저 로그인 뒤 다시 시도합니다."
+                return "Chrome 경로가 안 될 때 브라우저 로그인 뒤 다시 시도합니다."
             case .manualSessionKey:
-                return "필요할 때만 직접 입력합니다."
+                return "앞 경로가 안 될 때만 직접 입력합니다."
             }
         }
 
@@ -91,7 +91,7 @@ struct SetupWizardView: View {
                     }
                     .padding(.top, 6)
                 } label: {
-                    Text("다른 방법 보기")
+                    Text("현재 경로가 안 될 때 다른 방법 보기")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -133,6 +133,15 @@ struct SetupWizardView: View {
                 HStack(spacing: 6) {
                     Text(primaryStepTitle)
                         .font(.caption.weight(.semibold))
+                    if !hasReadyCredential && currentStep == .chromeImport {
+                        Text("권장")
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.accentColor.opacity(0.14))
+                            .foregroundStyle(Color.accentColor)
+                            .cornerRadius(4)
+                    }
                 }
                 Text(primaryStepDetail)
                     .font(.caption2)

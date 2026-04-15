@@ -14,7 +14,7 @@ final class SetupCompletionPolicyTests: XCTestCase {
 
         XCTAssertEqual(presentation.progress.stage, .credential)
         XCTAssertEqual(presentation.credentialStep, .chromeImport)
-        XCTAssertEqual(presentation.landingSettingsTab, .auth)
+        XCTAssertEqual(presentation.landingSettingsTab, .overview)
         XCTAssertEqual(presentation.primaryActionKind, .openChrome)
         XCTAssertTrue(presentation.shouldShowWizard)
     }
@@ -30,6 +30,7 @@ final class SetupCompletionPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation.credentialStep, .manualSessionKey)
+        XCTAssertEqual(presentation.landingSettingsTab, .overview)
         XCTAssertEqual(presentation.primaryActionKind, .openAdvancedSettings)
     }
 
@@ -45,7 +46,7 @@ final class SetupCompletionPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation.progress.stage, .organization)
-        XCTAssertEqual(presentation.landingSettingsTab, .organizations)
+        XCTAssertEqual(presentation.landingSettingsTab, .overview)
         XCTAssertEqual(presentation.primaryActionKind, .openOrganizations)
         XCTAssertFalse(presentation.progress.isOrganizationReady)
     }
@@ -60,7 +61,7 @@ final class SetupCompletionPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation.progress.stage, .complete)
-        XCTAssertEqual(presentation.landingSettingsTab, .status)
+        XCTAssertEqual(presentation.landingSettingsTab, .overview)
         XCTAssertEqual(presentation.primaryActionKind, .complete)
         XCTAssertEqual(presentation.organizationSummary, "자동 선택 모드로 바로 사용할 수 있습니다")
         XCTAssertFalse(presentation.shouldShowWizard)

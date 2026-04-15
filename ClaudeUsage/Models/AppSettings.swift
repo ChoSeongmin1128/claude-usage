@@ -911,25 +911,28 @@ class AppSettings: ObservableObject {
         }
     }
 
-    func providerSettingsLastTab(for kind: AppProviderKind) -> String {
+    func providerSettingsLastTab(for kind: AppProviderKind) -> ProviderSettingsTab {
         switch kind {
         case .claude:
-            return claudeSettingsLastTab
+            return ProviderSettingsTab.normalized(rawValue: claudeSettingsLastTab, for: kind)
         case .codex:
-            return codexSettingsLastTab
+            return ProviderSettingsTab.normalized(rawValue: codexSettingsLastTab, for: kind)
         case .gemini, .antigravity:
-            return defaults.string(forKey: "\(kind.rawValue)SettingsLastTab") ?? "auth"
+            return ProviderSettingsTab.normalized(
+                rawValue: defaults.string(forKey: "\(kind.rawValue)SettingsLastTab"),
+                for: kind
+            )
         }
     }
 
-    func setProviderSettingsLastTab(_ tab: String, for kind: AppProviderKind) {
+    func setProviderSettingsLastTab(_ tab: ProviderSettingsTab, for kind: AppProviderKind) {
         switch kind {
         case .claude:
-            claudeSettingsLastTab = tab
+            claudeSettingsLastTab = tab.rawValue
         case .codex:
-            codexSettingsLastTab = tab
+            codexSettingsLastTab = tab.rawValue
         case .gemini, .antigravity:
-            defaults.set(tab, forKey: "\(kind.rawValue)SettingsLastTab")
+            defaults.set(tab.rawValue, forKey: "\(kind.rawValue)SettingsLastTab")
         }
     }
 
@@ -1244,8 +1247,8 @@ class AppSettings: ObservableObject {
         clearRuntimeProviderDefaults(for: .antigravity)
         providerStates = AppProviderStateCatalog.defaultCatalog
         settingsLastTab = "common"
-        claudeSettingsLastTab = "auth"
-        codexSettingsLastTab = "auth"
+        claudeSettingsLastTab = ProviderSettingsTab.overview.rawValue
+        codexSettingsLastTab = ProviderSettingsTab.overview.rawValue
     }
 
     private func clearRuntimeProviderDefaults(for kind: AppProviderKind) {
@@ -1254,6 +1257,7 @@ class AppSettings: ObservableObject {
         [
             "showIcon",
             "alertEnabled",
+            "popoverPinned",
             "menuBarStyle",
             "percentageDisplay",
             "resetTimeDisplay",
@@ -1264,6 +1268,7 @@ class AppSettings: ObservableObject {
         ].forEach { suffix in
             defaults.removeObject(forKey: providerDefaultsKey(kind, suffix: suffix))
         }
+        defaults.removeObject(forKey: "\(kind.rawValue)SettingsLastTab")
         bumpRuntimeProviderDisplayRevision()
     }
 
@@ -1375,8 +1380,12 @@ class AppSettings: ObservableObject {
         let normalizedActiveService = PopoverService(
             rawValue: storedActiveService.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         )?.rawValue ?? "claude"
-        self.claudeSettingsLastTab = defaults.string(forKey: "claudeSettingsLastTab") ?? "auth"
-        self.codexSettingsLastTab = defaults.string(forKey: "codexSettingsLastTab") ?? "auth"
+        self.claudeSettingsLastTab = ProviderSettingsTab
+            .normalized(rawValue: defaults.string(forKey: "claudeSettingsLastTab"), for: .claude)
+            .rawValue
+        self.codexSettingsLastTab = ProviderSettingsTab
+            .normalized(rawValue: defaults.string(forKey: "codexSettingsLastTab"), for: .codex)
+            .rawValue
 
         let persistedProviderStatesData = defaults.data(forKey: "providerStates")
         self.loadedProviderStatesFromDisk = persistedProviderStatesData != nil

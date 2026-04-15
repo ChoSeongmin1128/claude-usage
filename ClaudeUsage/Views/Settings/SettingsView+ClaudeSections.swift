@@ -5,6 +5,10 @@ import UniformTypeIdentifiers
 extension SettingsView {
     // MARK: - 인증 섹션
 
+    var claudeOverviewSection: some View {
+        authSection
+    }
+
     var authSection: some View {
         ClaudeSetupSectionShell(presentation: appliedClaudeSetupPresentation) {
             settingsToggleRow(
@@ -18,13 +22,14 @@ extension SettingsView {
             if settings.isProviderEnabled(.claude) {
                 compactAuthStatusCard
                 authPrimaryActionsCard
-                if shouldShowAdvancedAuthSection {
-                    claudeAdvancedSection
-                } else if shouldOfferAdvancedAuthTeaser {
+                runtimeStatusSummaryCard
+                organizationSection
+                if shouldOfferAdvancedAuthTeaser {
                     VStack(alignment: .leading, spacing: 4) {
                         Button {
                             withAnimation(.easeInOut(duration: 0.15)) {
-                                isClaudeAdvancedSectionExpanded = true
+                                selectedClaudeTab = .advanced
+                                isAdvancedAuthExpanded = true
                             }
                         } label: {
                             HStack {
@@ -56,35 +61,28 @@ extension SettingsView {
         }
     }
 
-    private var claudeAdvancedSection: some View {
-        DisclosureGroup(isExpanded: $isClaudeAdvancedSectionExpanded) {
-            VStack(alignment: .leading, spacing: 12) {
-                manualSessionKeySection
-                if shouldSurfaceRecoveryAndDiagnostics {
-                    recoveryAndHelpSection
-                }
+    var claudeAdvancedSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Claude 고급", systemImage: "wrench.and.screwdriver")
+                .font(.headline)
+
+            Text("수동 입력, 복구, 상세 진단은 필요할 때만 이 탭에서 확인합니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            manualSessionKeySection
+
+            if shouldSurfaceRecoveryAndDiagnostics {
+                recoveryAndHelpSection
             }
-            .padding(.top, 4)
-        } label: {
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    isClaudeAdvancedSectionExpanded.toggle()
-                }
-            } label: {
-                HStack {
-                    Text("문제 해결 및 수동 입력")
-                    Spacer(minLength: 0)
-                    Text(shouldSurfaceRecoveryAndDiagnostics ? "수동 입력 · 복구" : "수동 입력")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .padding(.vertical, 4)
+
+            if !shouldSurfaceRecoveryAndDiagnostics {
+                Text("현재는 추가 복구나 진단이 필요하지 않습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 6)
             }
-            .buttonStyle(.plain)
         }
-        .font(.subheadline)
     }
 
     private var recoveryAndHelpSection: some View {
@@ -164,8 +162,10 @@ extension SettingsView {
                     .buttonStyle(.borderedProminent)
 
                     if shouldShowOrganizationAction {
-                        Button("Organization 열기") {
-                            selectedClaudeTab = .organizations
+                        Button("Organization 보기") {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                isOrganizationAdvancedExpanded = true
+                            }
                         }
                         .buttonStyle(.bordered)
                     }
@@ -223,7 +223,8 @@ extension SettingsView {
 
                         Button {
                             withAnimation(.easeInOut(duration: 0.15)) {
-                                isClaudeAdvancedSectionExpanded = true
+                                selectedClaudeTab = .advanced
+                                isAdvancedAuthExpanded = true
                             }
                         } label: {
                             Text("수동 입력")
@@ -365,35 +366,6 @@ extension SettingsView {
         .font(.subheadline)
     }
 
-    var statusSection: some View {
-        ClaudeOrganizationStatusSectionShell(
-            title: "조회 상태",
-            systemImage: "waveform.path.ecg",
-            summary: hasSuccessfulClaudeFetch
-                ? "최근 조회와 실패 패턴을 같은 기준으로 보여줍니다."
-                : "첫 성공 조회 전에는 연결 검증과 실패 원인을 함께 봅니다."
-        ) {
-            DisclosureGroup(isExpanded: $isStatusDetailsExpanded) {
-                VStack(alignment: .leading, spacing: 12) {
-                    runtimeStatusSummaryCard
-                    usageHealthSection
-                }
-                .padding(.top, 4)
-            } label: {
-                HStack {
-                    Text("상세")
-                        .font(.subheadline.weight(.semibold))
-                    Spacer(minLength: 0)
-                    Text("체크리스트")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-                .contentShape(Rectangle())
-                .padding(.vertical, 4)
-            }
-        }
-    }
-
     private var authChecklistCard: some View {
         let normalizedStoredSessionKey = normalizeSessionKey(storedSessionKey ?? "")
         let hasStoredSessionCredential = !normalizedStoredSessionKey.isEmpty
@@ -499,7 +471,7 @@ extension SettingsView {
     }
 
     var shouldShowAdvancedAuthSection: Bool {
-        isClaudeAdvancedSectionExpanded || hasPendingManualSessionKey
+        selectedClaudeTab == .advanced || hasPendingManualSessionKey
     }
 
     private var shouldOfferAdvancedAuthTeaser: Bool {
@@ -1379,6 +1351,14 @@ extension SettingsView {
                 .padding(.vertical, 6)
                 .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
                 .cornerRadius(6)
+        }
+    }
+
+    var claudeDisplayConfigurationSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            claudeDisplaySection
+            Divider()
+            popoverItemsSection
         }
     }
 
