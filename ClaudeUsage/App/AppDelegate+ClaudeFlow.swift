@@ -68,37 +68,6 @@ extension AppDelegate {
 
     // MARK: - Settings Window
 
-    func syncClaudeSettingsFromWindow() async {
-        let result = await ClaudeSettingsApplyCoordinator.syncStoredCredential(
-            apiService: apiService,
-            preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
-            providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
-        )
-        await MainActor.run {
-            self.applyUsageHealthSnapshot(result.snapshot)
-            if result.shouldStartMonitoring {
-                self.startMonitoring()
-            } else {
-                self.clearClaudePresentationState(
-                    markSetupIncomplete: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
-                )
-                self.updateMenuBar()
-                self.updatePopoverViewModel()
-                self.syncRefreshTimerState()
-                if self.shouldPollRuntimeProviders {
-                    self.refreshAll(force: true)
-                }
-            }
-        }
-        Logger.info("설정 적용 완료")
-    }
-
-    func applySettingsFromWindow() {
-        Task {
-            await syncClaudeSettingsFromWindow()
-        }
-    }
-
     func showSettingsWindow() {
         setupWizardWindowCoordinator.close()
         if setupWizardCredentialStepOverride == .manualSessionKey {
@@ -111,22 +80,7 @@ extension AppDelegate {
 
         applyClaudeSetupLandingTabsIfNeeded()
 
-        let snapshot = AppSettings.shared.createSnapshot()
-
         let settingsView = SettingsView(
-            onSave: { [weak self] in
-                guard let self else { return }
-                self.settingsWindowCoordinator.close(clearSnapshot: true)
-                self.applySettingsFromWindow()
-            },
-            onApply: { [weak self] in
-                guard let self else { return }
-                self.settingsWindowCoordinator.refreshSnapshot(AppSettings.shared.createSnapshot())
-                self.applySettingsFromWindow()
-            },
-            onCancel: { [weak self] in
-                self?.settingsWindowCoordinator.close()
-            },
             onOpenLogin: { [weak self] in
                 self?.settingsWindowCoordinator.close()
                 self?.showLoginWindow(clearCookies: true)
@@ -149,7 +103,6 @@ extension AppDelegate {
                 self.clearClaudePresentationState(markSetupIncomplete: false)
                 self.updateMenuBar()
                 self.updatePopoverViewModel()
-                self.settingsWindowCoordinator.refreshSnapshot(AppSettings.shared.createSnapshot())
                 self.syncRefreshTimerState()
                 if self.shouldPollRuntimeProviders {
                     self.refreshAll(force: true)
@@ -165,7 +118,7 @@ extension AppDelegate {
                 self.updatePopoverViewModel(overage: self.currentOverage)
             }
         )
-        settingsWindowCoordinator.present(rootView: settingsView, snapshot: snapshot)
+        settingsWindowCoordinator.present(rootView: settingsView)
     }
 
     // MARK: - Login Window

@@ -10,7 +10,7 @@ extension SettingsView {
         case .display:
             runtimeProviderDisplaySection(for: provider)
         case .alerts:
-            runtimeProviderAlertsSection(for: provider)
+            runtimeProviderOverviewSection(for: provider)
         case .advanced:
             runtimeProviderAdvancedSection(for: provider)
         }
@@ -177,31 +177,6 @@ extension SettingsView {
                     )
                 }
             }
-        }
-    }
-
-    @ViewBuilder
-    private func runtimeProviderAlertsSection(for provider: AppProviderKind) -> some View {
-        let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: provider)
-        RuntimeProviderPanelShell(
-            descriptor: descriptor,
-            title: "\(descriptor.title) 알림",
-            summary: "임계값 프리셋은 공통 알림에서 한 번만 관리하고, 여기서는 이 provider를 그 알림 대상에 포함할지만 정합니다."
-        ) {
-            chip(
-                title: "현재 상태",
-                value: settings.isProviderAlertEnabled(provider) ? "공통 알림 대상" : "제외됨",
-                color: settings.isProviderAlertEnabled(provider) ? .green : .secondary
-            )
-
-            Button {
-                selectedPanel = .common
-                selectedCommonTab = .alerts
-                settings.settingsLastTab = SettingsProviderPanel.common.rawValue
-            } label: {
-                Label("공통 알림 열기", systemImage: "bell.badge")
-            }
-            .buttonStyle(.link)
         }
     }
 

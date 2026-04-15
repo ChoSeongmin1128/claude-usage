@@ -22,6 +22,8 @@ struct SettingsView: View {
     @State var alertPresetTexts: [String] = []
     @State var draggingItemID: String?
     @State var codexDraggingItemID: String?
+    @State var sessionKeyPersistTask: Task<Void, Never>?
+    @State var organizationPersistTask: Task<Void, Never>?
     @State var compactConfigTab: Int = 0
     @State var codexCompactConfigTab: Int = 0
     @State var selectedOrganizationID: String = ""
@@ -55,9 +57,6 @@ struct SettingsView: View {
     @State var updateCheckResult: String?
     @State var runtimeEnvironmentRefreshTick: Int = 0
 
-    var onSave: (() -> Void)?
-    var onApply: (() -> Void)?
-    var onCancel: (() -> Void)?
     var onOpenLogin: (() -> Void)?
     var onOpenClaudeInChrome: (() -> Void)?
     var onLogout: (() -> Void)?

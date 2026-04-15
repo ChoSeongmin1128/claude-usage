@@ -21,7 +21,7 @@ final class PopoverViewLayoutTests: XCTestCase {
         XCTAssertEqual(PopoverLayoutMetrics.compactUsageRowHeight, 18)
         XCTAssertEqual(PopoverLayoutMetrics.compactCreditsRowHeight, 18)
         XCTAssertEqual(PopoverLayoutMetrics.compactStatusRowHeight, 18)
-        XCTAssertEqual(PopoverLayoutMetrics.compactOverageRowHeight, 22)
+        XCTAssertEqual(PopoverLayoutMetrics.compactOverageRowHeight, 18)
         XCTAssertEqual(PopoverLayoutMetrics.compactProgressBarHeight, 8)
         XCTAssertEqual(PopoverLayoutMetrics.compactContentBottomSpacing, 5)
     }
@@ -58,7 +58,7 @@ final class PopoverViewLayoutTests: XCTestCase {
             let snapshot = settings.createSnapshot()
             defer { settings.restore(from: snapshot) }
 
-            settings.popoverCompact = false
+            settings.setPopoverCompact(false, for: .claude)
             settings.setProviderEnabled(true, for: .claude)
 
             let authRequiredLayout = PopoverViewModel().layoutSpec(for: .claude, settings: settings)
@@ -91,11 +91,11 @@ final class PopoverViewLayoutTests: XCTestCase {
     func testCompactPopoverHeightUsesShorterStatusVariant() {
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .empty, rowCount: 0),
-            113
+            116
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .content, rowCount: 2),
-            133
+            136
         )
     }
 
@@ -109,7 +109,7 @@ final class PopoverViewLayoutTests: XCTestCase {
             let snapshot = settings.createSnapshot()
             defer { settings.restore(from: snapshot) }
 
-            settings.popoverCompact = true
+            settings.setPopoverCompact(true, for: .claude)
             settings.setProviderEnabled(true, for: .claude)
 
             let viewModel = PopoverViewModel()
@@ -136,7 +136,7 @@ final class PopoverViewLayoutTests: XCTestCase {
 
         XCTAssertEqual(result.0, expectedBodyHeight)
         XCTAssertEqual(result.1, 5)
-        XCTAssertEqual(result.2, 133)
+        XCTAssertEqual(result.2, 136)
     }
 
     func testCompactPopoverContentHeightStaysFixedAcrossServices() async {
@@ -146,7 +146,8 @@ final class PopoverViewLayoutTests: XCTestCase {
             defer { settings.restore(from: snapshot) }
 
             settings.separateCompactConfig = true
-            settings.popoverCompact = true
+            settings.setPopoverCompact(true, for: .claude)
+            settings.setPopoverCompact(true, for: .codex)
             settings.setProviderEnabled(true, for: .claude)
             settings.setProviderEnabled(true, for: .codex)
             settings.compactPopoverItems = [
@@ -196,8 +197,8 @@ final class PopoverViewLayoutTests: XCTestCase {
             return (claudeHeight, codexHeight)
         }
 
-        XCTAssertEqual(result.0, 133)
-        XCTAssertEqual(result.1, 133)
+        XCTAssertEqual(result.0, 136)
+        XCTAssertEqual(result.1, 136)
     }
 
     func testStandardShownContentUsesMeasuredHeightInsteadOfFallbackBucket() {
@@ -253,10 +254,10 @@ final class PopoverViewLayoutTests: XCTestCase {
         ).targetSize()
 
         XCTAssertEqual(targetSize.width, 296)
-        XCTAssertEqual(targetSize.height, 133)
+        XCTAssertEqual(targetSize.height, 136)
     }
 
-    func testPopoverCompactStateIsSharedAcrossProviders() async {
+    func testPopoverCompactStateIsIndependentAcrossProviders() async {
         let result = await MainActor.run { () -> (Bool, Bool, Bool, Bool) in
             let settings = AppSettings.shared
             let snapshot = settings.createSnapshot()
@@ -279,8 +280,8 @@ final class PopoverViewLayoutTests: XCTestCase {
         }
 
         XCTAssertTrue(result.0)
-        XCTAssertTrue(result.1)
-        XCTAssertFalse(result.2)
+        XCTAssertFalse(result.1)
+        XCTAssertTrue(result.2)
         XCTAssertFalse(result.3)
     }
 
@@ -325,7 +326,8 @@ final class PopoverViewLayoutTests: XCTestCase {
             defer { settings.restore(from: snapshot) }
 
             settings.separateCompactConfig = true
-            settings.popoverCompact = true
+            settings.setPopoverCompact(true, for: .claude)
+            settings.setPopoverCompact(true, for: .codex)
             settings.setProviderEnabled(true, for: .claude)
             settings.setProviderEnabled(true, for: .codex)
             settings.compactPopoverItems = [
@@ -411,7 +413,7 @@ final class PopoverViewLayoutTests: XCTestCase {
             let snapshot = settings.createSnapshot()
             defer { settings.restore(from: snapshot) }
 
-            settings.popoverCompact = compact
+            settings.setPopoverCompact(compact, for: .claude)
             settings.setProviderEnabled(true, for: .claude)
 
             let authRequiredWidth = PopoverViewModel()

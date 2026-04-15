@@ -115,6 +115,9 @@ extension AppDelegate {
             },
             onClaudeSessionKeyChanged: { [weak self] in
                 self?.handleClaudeSessionKeyChanged()
+            },
+            onPreferredOrganizationChanged: { [weak self] in
+                self?.handlePreferredOrganizationChanged()
             }
         )
     }
@@ -154,6 +157,32 @@ extension AppDelegate {
                     self.updateMenuBar()
                     self.updatePopoverViewModel(overage: self.currentOverage)
                     self.syncRefreshTimerState()
+                }
+            }
+        }
+    }
+
+    func handlePreferredOrganizationChanged() {
+        Task {
+            let preferredOrganizationID = AppSettings.shared.preferredOrganizationID
+            await apiService.updatePreferredOrganizationID(preferredOrganizationID)
+
+            async let snapshotTask = apiService.fetchUsageHealthSnapshot()
+            async let metadataTask = apiService.fetchCachedProfileMetadata()
+            let snapshot = await snapshotTask
+            let cachedProfileMetadata = await metadataTask
+
+            await MainActor.run {
+                self.currentClaudeProfileMetadata = cachedProfileMetadata
+                self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
+                self.applyUsageHealthSnapshot(snapshot)
+
+                if snapshot.runtime.credentialAvailability.hasAnyCredential,
+                   ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
+                    self.refreshUsage(force: true)
+                } else {
+                    self.updateMenuBar()
+                    self.updatePopoverViewModel(overage: self.currentOverage)
                 }
             }
         }

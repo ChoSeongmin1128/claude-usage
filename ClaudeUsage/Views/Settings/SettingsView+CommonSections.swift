@@ -12,6 +12,14 @@ extension SettingsView {
                 subtitle: "리셋 시간, 구분자 등을 기본 텍스트와 동일한 색상으로 표시합니다",
                 isOn: $settings.menuBarTextHighContrast
             )
+
+            Divider()
+
+            settingsToggleRow(
+                "Claude/Codex 기본·간소화 항목 분리",
+                subtitle: "두 provider의 기본 popover 항목과 간소화 popover 항목 순서/표시 여부를 따로 관리합니다",
+                isOn: $settings.separateCompactConfig
+            )
         }
     }
 
@@ -71,7 +79,7 @@ extension SettingsView {
             )
 
             if !settings.notificationsEnabled {
-                Label("전체 알림이 꺼져 있어 Claude/Codex 알림이 모두 중지됩니다.", systemImage: "bell.slash")
+                Label("전체 알림이 꺼져 있어 모든 provider 알림이 중지됩니다.", systemImage: "bell.slash")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -82,7 +90,7 @@ extension SettingsView {
                 Text("Provider 알림")
                     .font(.subheadline.weight(.semibold))
 
-                ForEach(AppProviderKind.runtimeKinds, id: \.self) { provider in
+                ForEach(AppProviderKind.allCases, id: \.self) { provider in
                     settingsToggleRow(
                         "\(provider.displayName) 알림 사용",
                         isOn: Binding(
@@ -92,7 +100,7 @@ extension SettingsView {
                     )
                 }
 
-                Text("퍼센트 프리셋은 모든 runtime provider가 공통으로 사용하고, 여기서는 provider별 발송 여부만 켜고 끕니다.")
+                Text("퍼센트 프리셋은 모든 provider가 공통으로 사용하고, 여기서는 provider별 발송 여부만 켜고 끕니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 

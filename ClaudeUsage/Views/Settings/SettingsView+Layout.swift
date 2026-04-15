@@ -27,15 +27,9 @@ extension SettingsView {
             }
 
             HStack {
+                Spacer()
                 Button("기본값 복원") { resetToDefaults() }
                     .foregroundStyle(.secondary)
-                Spacer()
-                Button("취소") { onCancel?() }
-                    .keyboardShortcut(.cancelAction)
-                Button("적용") { applyChanges() }
-                Button("확인") { confirmChanges() }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
@@ -60,6 +54,14 @@ extension SettingsView {
         .onReceive(NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange)) { _ in
             syncStoredSessionKeyState()
             loadUsageHealthSnapshot()
+        }
+        .onChange(of: sessionKey) { _, _ in
+            testResult = nil
+            lastVerifiedSessionKey = nil
+            scheduleSessionKeyPersistence()
+        }
+        .onChange(of: selectedOrganizationID) { _, _ in
+            schedulePreferredOrganizationPersistence()
         }
         .onChange(of: selectedPanel) { _, panel in
             settings.settingsLastTab = panel.rawValue
@@ -97,6 +99,10 @@ extension SettingsView {
             }
             settings.shouldRevealClaudeAdvancedAuth = false
         }
+        .onDisappear {
+            flushPendingSessionKeyPersistence()
+            flushPendingOrganizationPersistence()
+        }
     }
 
     @ViewBuilder
@@ -124,7 +130,7 @@ extension SettingsView {
             case .display:
                 claudeDisplayConfigurationSection
             case .alerts:
-                alertSection
+                claudeOverviewSection
             case .advanced:
                 claudeAdvancedSettingsSection
             }
@@ -135,7 +141,7 @@ extension SettingsView {
             case .display:
                 codexDisplayConfigurationSection
             case .alerts:
-                codexAlertSection
+                codexOverviewSection
             case .advanced:
                 codexAdvancedSection
             }
@@ -227,25 +233,25 @@ extension SettingsView {
                     }
                 }
             case .claude:
-                ForEach(ProviderSettingsTab.allCases) { tab in
+                ForEach(ProviderSettingsTab.tabs(for: .claude)) { tab in
                     segmentedTabButton(title: tab.title, isSelected: selectedClaudeTab == tab) {
                         selectedClaudeTab = tab
                     }
                 }
             case .codex:
-                ForEach(ProviderSettingsTab.allCases) { tab in
+                ForEach(ProviderSettingsTab.tabs(for: .codex)) { tab in
                     segmentedTabButton(title: tab.title, isSelected: selectedCodexTab == tab) {
                         selectedCodexTab = tab
                     }
                 }
             case .gemini:
-                ForEach(ProviderSettingsTab.allCases) { tab in
+                ForEach(ProviderSettingsTab.tabs(for: .gemini)) { tab in
                     segmentedTabButton(title: tab.title, isSelected: selectedGeminiTab == tab) {
                         selectedGeminiTab = tab
                     }
                 }
             case .antigravity:
-                ForEach(ProviderSettingsTab.allCases) { tab in
+                ForEach(ProviderSettingsTab.tabs(for: .antigravity)) { tab in
                     segmentedTabButton(title: tab.title, isSelected: selectedAntigravityTab == tab) {
                         selectedAntigravityTab = tab
                     }

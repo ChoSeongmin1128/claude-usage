@@ -314,8 +314,6 @@ extension SettingsView {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            settingsToggleRow("기본/간소화 개별 설정", isOn: $settings.separateCompactConfig)
-
             if settings.separateCompactConfig {
                 Picker("", selection: $codexCompactConfigTab) {
                     Text("기본").tag(0)
@@ -385,30 +383,5 @@ extension SettingsView {
         .padding(.vertical, 4)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
         .cornerRadius(6)
-    }
-
-    var codexAlertSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Codex 알림", systemImage: "bell.badge")
-                .font(.headline)
-
-            Text("알림 프리셋과 provider별 발송 여부는 공통 > 알림에서만 관리합니다.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if !settings.notificationsEnabled {
-                Label("전체 알림이 꺼져 있어 실제 알림은 발송되지 않습니다.", systemImage: "bell.slash")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
-
-            Button {
-                selectedPanel = .common
-                selectedCommonTab = .alerts
-            } label: {
-                Label("공통 알림 설정 열기", systemImage: "slider.horizontal.3")
-            }
-            .buttonStyle(.borderless)
-        }
     }
 }

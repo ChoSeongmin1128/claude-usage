@@ -572,7 +572,7 @@ final class PopoverViewModelTests: XCTestCase {
             let snapshot = settings.createSnapshot()
             defer { settings.restore(from: snapshot) }
 
-            settings.popoverCompact = false
+            settings.setPopoverCompact(false, for: .gemini)
             let viewModel = PopoverViewModel()
             let payload = GeminiUsageResponse(
                 accountEmail: "user@example.com",
@@ -605,7 +605,7 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(size.height, 300)
     }
 
-    func testGlobalCompactSettingIgnoresProviderSpecificCompactValues() async {
+    func testProviderSpecificCompactSettingsDoNotMutateGlobalFallback() async {
         let result = await MainActor.run { () -> (Bool, Bool, Bool, Bool, Bool, Bool, Bool) in
             let settings = AppSettings.shared
             let snapshot = settings.createSnapshot()
@@ -613,9 +613,9 @@ final class PopoverViewModelTests: XCTestCase {
 
             settings.popoverCompact = false
             settings.claudePopoverCompact = true
-            settings.codexPopoverCompact = true
+            settings.codexPopoverCompact = false
             UserDefaults.standard.set(true, forKey: "geminiPopoverCompact")
-            UserDefaults.standard.set(true, forKey: "antigravityPopoverCompact")
+            UserDefaults.standard.set(false, forKey: "antigravityPopoverCompact")
 
             let before = (
                 settings.isPopoverCompact(for: .claude),
@@ -637,11 +637,11 @@ final class PopoverViewModelTests: XCTestCase {
             )
         }
 
-        XCTAssertEqual(result.0, false)
+        XCTAssertEqual(result.0, true)
         XCTAssertEqual(result.1, false)
-        XCTAssertEqual(result.2, false)
+        XCTAssertEqual(result.2, true)
         XCTAssertEqual(result.3, false)
-        XCTAssertEqual(result.4, true)
+        XCTAssertEqual(result.4, false)
         XCTAssertEqual(result.5, true)
         XCTAssertEqual(result.6, true)
     }

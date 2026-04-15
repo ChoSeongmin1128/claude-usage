@@ -312,10 +312,6 @@ extension SettingsView {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
-                Text("저장은 설정 적용 시점에만 이뤄집니다.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-
                 if let warning = sessionKeyFormatWarning {
                     Label(warning, systemImage: "exclamationmark.triangle")
                         .font(.caption)
@@ -485,7 +481,7 @@ extension SettingsView {
 
     private var advancedAuthButtonSubtitle: String? {
         if hasPendingManualSessionKey {
-            return "저장 전 수동 입력"
+            return "새 수동 입력"
         }
         if shouldRecommendCLIOAuth {
             return "CLI OAuth 권장"
@@ -501,7 +497,7 @@ extension SettingsView {
 
     private var advancedAuthCollapsedHint: String? {
         if hasPendingManualSessionKey {
-            return "저장은 적용 시점에만 이뤄집니다."
+            return "입력값을 저장 중이거나 현재 세션과 다릅니다."
         }
         if shouldRecommendCLIOAuth {
             return "CLI OAuth 확인이 필요할 수 있습니다."
@@ -1506,8 +1502,6 @@ extension SettingsView {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            settingsToggleRow("기본/간소화 개별 설정", isOn: $settings.separateCompactConfig)
-
             if settings.separateCompactConfig {
                 Picker("", selection: $compactConfigTab) {
                     Text("기본").tag(0)
@@ -1579,31 +1573,6 @@ extension SettingsView {
         .padding(.vertical, 4)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
         .cornerRadius(6)
-    }
-
-    var alertSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Claude 알림", systemImage: "bell.badge")
-                .font(.headline)
-
-            Text("알림 프리셋과 provider별 발송 여부는 공통 > 알림에서만 관리합니다.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if !settings.notificationsEnabled {
-                Label("전체 알림이 꺼져 있어 실제 알림은 발송되지 않습니다.", systemImage: "bell.slash")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
-
-            Button {
-                selectedPanel = .common
-                selectedCommonTab = .alerts
-            } label: {
-                Label("공통 알림 설정 열기", systemImage: "slider.horizontal.3")
-            }
-            .buttonStyle(.borderless)
-        }
     }
 
     var appliedOrganizationValidationChipValue: String {

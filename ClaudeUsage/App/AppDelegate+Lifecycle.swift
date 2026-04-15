@@ -17,9 +17,6 @@ extension AppDelegate {
         setupPopovers()
         setupKeyboardShortcuts()
         bindRuntimeObservers()
-        settingsWindowCoordinator.onRestoreSnapshot = { snapshot in
-            AppSettings.shared.restore(from: snapshot)
-        }
 
         applyInitialRuntimeProviderDetectionIfNeeded()
         bootstrapRefreshState()

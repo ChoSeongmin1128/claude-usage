@@ -9,22 +9,28 @@ final class ProviderSettingsTabTests: XCTestCase {
         XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "organizations", for: .claude), .overview)
         XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "display", for: .claude), .display)
         XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "popover", for: .claude), .display)
-        XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "alerts", for: .claude), .alerts)
+        XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "alerts", for: .claude), .overview)
     }
 
     func testCodexLegacyTabsNormalizeToExpectedTabs() {
         XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "auth", for: .codex), .overview)
         XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "display", for: .codex), .display)
         XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "popover", for: .codex), .display)
-        XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "alerts", for: .codex), .alerts)
+        XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "alerts", for: .codex), .overview)
     }
 
     func testRuntimeProviderLegacyTabsNormalizeToExpectedTabs() {
         XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "auth", for: .gemini), .overview)
         XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "display", for: .gemini), .display)
         XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "popover", for: .gemini), .display)
-        XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "alerts", for: .gemini), .alerts)
+        XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "alerts", for: .gemini), .overview)
         XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "auth", for: .antigravity), .overview)
+    }
+
+    func testProviderTabsExcludeAlertsTab() {
+        XCTAssertEqual(ProviderSettingsTab.tabs(for: .claude), [.overview, .display, .advanced])
+        XCTAssertEqual(ProviderSettingsTab.tabs(for: .codex), [.overview, .display, .advanced])
+        XCTAssertEqual(ProviderSettingsTab.tabs(for: .gemini), [.overview, .display, .advanced])
     }
 
     func testOverviewIsDefaultForUnknownOrMissingValues() {

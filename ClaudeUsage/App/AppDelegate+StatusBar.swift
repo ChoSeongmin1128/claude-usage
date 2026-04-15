@@ -14,7 +14,6 @@ extension AppDelegate {
         }
         statusItem = nil
         appearanceObservation = nil
-        lastMenuBarContentSignature = nil
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem?.button {
@@ -99,10 +98,6 @@ extension AppDelegate {
         PopoverGeometryDiagnostics.log(
             "MenuBar update force=\(force) popoverShown=\(popover?.isShown == true) presenting=\(isPresentingPopover)"
         )
-        if !force && (popover?.isShown == true || isPresentingPopover) {
-            pendingMenuBarRefreshAfterPopoverClose = true
-            return
-        }
 
         let settings = AppSettings.shared
         guard let button = statusItem?.button else { return }
@@ -206,16 +201,6 @@ extension AppDelegate {
     }
 
     func applyMenuBarContent(_ content: MenuBarRenderedContent, to button: NSStatusBarButton) {
-        let signature = [
-            content.tooltip,
-            NSStringFromSize(content.image.size),
-            String(content.image.tiffRepresentation?.hashValue ?? 0),
-        ].joined(separator: "|").hashValue
-        if lastMenuBarContentSignature == signature {
-            return
-        }
-        lastMenuBarContentSignature = signature
-
         button.image = content.image
         button.imagePosition = .imageOnly
         button.attributedTitle = NSAttributedString(string: "")

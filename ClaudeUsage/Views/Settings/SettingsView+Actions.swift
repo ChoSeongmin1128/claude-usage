@@ -2,6 +2,10 @@ import Foundation
 
 extension SettingsView {
     func handleLogoutAction() {
+        sessionKeyPersistTask?.cancel()
+        sessionKeyPersistTask = nil
+        organizationPersistTask?.cancel()
+        organizationPersistTask = nil
         onLogout?()
         storedSessionKey = nil
         lastVerifiedSessionKey = nil
@@ -14,6 +18,10 @@ extension SettingsView {
     }
 
     func syncStoredSessionKeyState() {
+        sessionKeyPersistTask?.cancel()
+        sessionKeyPersistTask = nil
+        organizationPersistTask?.cancel()
+        organizationPersistTask = nil
         if let key = KeychainManager.shared.load() {
             storedSessionKey = key
             sessionKey = key
@@ -40,7 +48,7 @@ extension SettingsView {
                 let _ = try await service.fetchUsage()
                 await MainActor.run {
                     lastVerifiedSessionKey = normalizedKey
-                    testResult = .success("연결 확인됨 · 저장은 적용 시점에 진행됩니다")
+                    testResult = .success("연결 확인됨")
                     isTesting = false
                     loadUsageHealthSnapshot()
                 }
@@ -81,17 +89,38 @@ extension SettingsView {
         }
     }
 
-    func applyChanges() {
-        persistChanges()
-        onApply?()
+    func scheduleSessionKeyPersistence() {
+        sessionKeyPersistTask?.cancel()
+        sessionKeyPersistTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(450))
+            guard !Task.isCancelled else { return }
+            persistSessionKeyImmediately()
+        }
     }
 
-    func confirmChanges() {
-        persistChanges()
-        onSave?()
+    func flushPendingSessionKeyPersistence() {
+        sessionKeyPersistTask?.cancel()
+        sessionKeyPersistTask = nil
+        persistSessionKeyImmediately()
     }
 
-    func persistChanges() {
+    func schedulePreferredOrganizationPersistence() {
+        organizationPersistTask?.cancel()
+        organizationPersistTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            persistPreferredOrganizationSelection()
+            loadUsageHealthSnapshot()
+        }
+    }
+
+    func flushPendingOrganizationPersistence() {
+        organizationPersistTask?.cancel()
+        organizationPersistTask = nil
+        persistPreferredOrganizationSelection()
+    }
+
+    func persistSessionKeyImmediately() {
         let normalizedKey = normalizeSessionKey(sessionKey)
         if normalizedKey != sessionKey {
             sessionKey = normalizedKey
@@ -114,16 +143,16 @@ extension SettingsView {
             lastVerifiedSessionKey = nil
             testResult = nil
         }
+    }
 
-        if let val = TimeInterval(refreshIntervalText), val >= 5, val <= 120 {
-            settings.refreshInterval = val
-        }
-
+    func persistPreferredOrganizationSelection() {
         let normalizedOrganizationID = normalizeOrganizationID(selectedOrganizationID)
         if normalizedOrganizationID != selectedOrganizationID {
             selectedOrganizationID = normalizedOrganizationID
         }
-        settings.preferredOrganizationID = normalizedOrganizationID
+        if settings.preferredOrganizationID != normalizedOrganizationID {
+            settings.preferredOrganizationID = normalizedOrganizationID
+        }
     }
 
     func normalizeSessionKey(_ raw: String) -> String {
@@ -265,6 +294,7 @@ extension SettingsView {
     func loadUsageHealthSnapshot() {
         Task {
             let service = ClaudeAPIService()
+            await service.updatePreferredOrganizationID(settings.preferredOrganizationID)
             async let snapshot = service.fetchUsageHealthSnapshot()
             async let metadata = service.fetchCachedProfileMetadata()
             let resolvedSnapshot = await snapshot

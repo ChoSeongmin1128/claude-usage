@@ -88,14 +88,9 @@ extension AppDelegate {
     }
 
     func closePopover() {
-        let shouldRefreshMenuBar = pendingMenuBarRefreshAfterPopoverClose
         isPresentingPopover = false
         popoverCoordinator.close()
         stopGlobalClickMonitor()
-        pendingMenuBarRefreshAfterPopoverClose = false
-        if shouldRefreshMenuBar {
-            updateMenuBar(force: true)
-        }
     }
 
     func updatePopoverViewModel(overage: OverageSpendLimitResponse? = nil) {

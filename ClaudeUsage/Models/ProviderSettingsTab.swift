@@ -26,7 +26,7 @@ enum ProviderSettingsTab: String, CaseIterable, Identifiable, Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
 
-        if let normalized, let tab = Self(rawValue: normalized) {
+        if let normalized, let tab = Self(rawValue: normalized), tabs(for: kind).contains(tab) {
             return tab
         }
 
@@ -36,7 +36,7 @@ enum ProviderSettingsTab: String, CaseIterable, Identifiable, Sendable {
         case "display", "popover":
             return .display
         case "alerts":
-            return .alerts
+            return .overview
         case "advanced":
             return .advanced
         default:
@@ -44,6 +44,13 @@ enum ProviderSettingsTab: String, CaseIterable, Identifiable, Sendable {
             case .claude, .codex, .gemini, .antigravity:
                 return .overview
             }
+        }
+    }
+
+    static func tabs(for kind: AppProviderKind) -> [Self] {
+        switch kind {
+        case .claude, .codex, .gemini, .antigravity:
+            return [.overview, .display, .advanced]
         }
     }
 }

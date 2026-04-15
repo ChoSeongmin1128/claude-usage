@@ -103,14 +103,14 @@ struct PopoverView: View {
         .background(Color(NSColor.windowBackgroundColor))
         .onAppear {
             normalizeSelectedServiceIfNeeded()
-            syncCompactAcrossServicesIfNeeded()
+            syncCompactForSelectedServiceIfNeeded()
             requestRefreshIfNeededForVisibleService()
         }
         .onChange(of: settings.providerStates) { _, _ in
             normalizeSelectedServiceIfNeeded()
         }
         .onChange(of: viewModel.selectedService) { _, _ in
-            syncCompactAcrossServicesIfNeeded()
+            syncCompactForSelectedServiceIfNeeded()
         }
     }
 
@@ -163,7 +163,7 @@ struct PopoverView: View {
     private func selectService(_ service: PopoverService) {
         guard service != selectedService else { return }
         viewModel.selectService(service)
-        syncCompactAcrossServicesIfNeeded()
+        syncCompactForSelectedServiceIfNeeded()
         viewModel.requestLayoutRefresh(for: service, reason: .serviceSelection)
     }
 
@@ -252,15 +252,15 @@ struct PopoverView: View {
             return settings.isPopoverCompact(for: appProviderKind(for: selectedService))
         }
         nonmutating set {
-            setCompactForAllServices(newValue)
+            setCompactForSelectedService(newValue)
         }
     }
 
-    private func setCompactForAllServices(_ compact: Bool) {
+    private func setCompactForSelectedService(_ compact: Bool) {
         settings.setPopoverCompact(compact, for: appProviderKind(for: selectedService))
     }
 
-    private func syncCompactAcrossServicesIfNeeded() {
+    private func syncCompactForSelectedServiceIfNeeded() {
         settings.setPopoverCompact(isCompact, for: appProviderKind(for: selectedService))
     }
 

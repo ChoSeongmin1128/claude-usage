@@ -329,7 +329,6 @@ class AppSettings: ObservableObject {
     @Published var popoverCompact: Bool {
         didSet {
             defaults.set(popoverCompact, forKey: "popoverCompact")
-            syncLegacyPopoverCompactDefaults(popoverCompact)
         }
     }
     @Published var claudePopoverPinned: Bool {
@@ -595,8 +594,8 @@ class AppSettings: ObservableObject {
         popoverCompact = snapshot.popoverCompact
         claudePopoverPinned = snapshot.claudePopoverPinned
         codexPopoverPinned = snapshot.codexPopoverPinned
-        claudePopoverCompact = snapshot.popoverCompact
-        codexPopoverCompact = snapshot.popoverCompact
+        claudePopoverCompact = snapshot.claudePopoverCompact
+        codexPopoverCompact = snapshot.codexPopoverCompact
         launchAtLogin = snapshot.launchAtLogin
         preferredOrganizationID = snapshot.preferredOrganizationID
         popoverItems = PopoverItemConfig.normalizedClaude(snapshot.popoverItems)
@@ -628,7 +627,9 @@ class AppSettings: ObservableObject {
         for (kind, isPinned) in snapshot.providerPopoverPinnedStates {
             setPopoverPinned(isPinned, for: kind)
         }
-        syncLegacyPopoverCompactDefaults(snapshot.popoverCompact)
+        for (kind, isCompact) in snapshot.providerPopoverCompactStates {
+            setPopoverCompact(isCompact, for: kind)
+        }
         for (kind, isEnabled) in snapshot.providerAlertEnabledStates {
             setProviderAlertEnabled(isEnabled, for: kind)
         }
@@ -895,19 +896,35 @@ class AppSettings: ObservableObject {
         case .codex:
             codexPopoverPinned = isPinned
         case .gemini, .antigravity:
+            objectWillChange.send()
             defaults.set(isPinned, forKey: "\(kind.rawValue)PopoverPinned")
         }
     }
 
     func isPopoverCompact(for kind: AppProviderKind) -> Bool {
-        return popoverCompact
+        switch kind {
+        case .claude:
+            return claudePopoverCompact
+        case .codex:
+            return codexPopoverCompact
+        case .gemini, .antigravity:
+            return defaults.object(forKey: "\(kind.rawValue)PopoverCompact") as? Bool ?? popoverCompact
+        }
     }
 
     func setPopoverCompact(_ isCompact: Bool, for kind: AppProviderKind) {
-        if popoverCompact != isCompact {
-            popoverCompact = isCompact
-        } else {
-            syncLegacyPopoverCompactDefaults(isCompact)
+        switch kind {
+        case .claude:
+            if claudePopoverCompact != isCompact {
+                claudePopoverCompact = isCompact
+            }
+        case .codex:
+            if codexPopoverCompact != isCompact {
+                codexPopoverCompact = isCompact
+            }
+        case .gemini, .antigravity:
+            objectWillChange.send()
+            defaults.set(isCompact, forKey: "\(kind.rawValue)PopoverCompact")
         }
     }
 
@@ -1257,7 +1274,6 @@ class AppSettings: ObservableObject {
         [
             "showIcon",
             "alertEnabled",
-            "popoverPinned",
             "menuBarStyle",
             "percentageDisplay",
             "resetTimeDisplay",
@@ -1268,6 +1284,8 @@ class AppSettings: ObservableObject {
         ].forEach { suffix in
             defaults.removeObject(forKey: providerDefaultsKey(kind, suffix: suffix))
         }
+        defaults.removeObject(forKey: "\(kind.rawValue)PopoverPinned")
+        defaults.removeObject(forKey: "\(kind.rawValue)PopoverCompact")
         defaults.removeObject(forKey: "\(kind.rawValue)SettingsLastTab")
         bumpRuntimeProviderDisplayRevision()
     }
@@ -1352,8 +1370,8 @@ class AppSettings: ObservableObject {
         self.popoverCompact = normalizedCompact
         self.claudePopoverPinned = defaults.object(forKey: "claudePopoverPinned") as? Bool ?? legacyPinned
         self.codexPopoverPinned = defaults.object(forKey: "codexPopoverPinned") as? Bool ?? legacyPinned
-        self.claudePopoverCompact = normalizedCompact
-        self.codexPopoverCompact = normalizedCompact
+        self.claudePopoverCompact = defaults.object(forKey: "claudePopoverCompact") as? Bool ?? normalizedCompact
+        self.codexPopoverCompact = defaults.object(forKey: "codexPopoverCompact") as? Bool ?? normalizedCompact
         // 시스템 상태에서 실제 등록 여부 확인
         let savedLaunchAtLogin = defaults.object(forKey: "launchAtLogin") as? Bool ?? false
         self.launchAtLogin = savedLaunchAtLogin
@@ -1475,18 +1493,11 @@ class AppSettings: ObservableObject {
             defaults.set(normalizedData, forKey: "codexCompactPopoverItems")
         }
 
-        syncLegacyPopoverCompactDefaults(normalizedCompact)
-    }
-
-    private func syncLegacyPopoverCompactDefaults(_ isCompact: Bool) {
-        if claudePopoverCompact != isCompact {
-            claudePopoverCompact = isCompact
-        }
-        if codexPopoverCompact != isCompact {
-            codexPopoverCompact = isCompact
-        }
         for kind in AppProviderKind.runtimeKinds where kind == .gemini || kind == .antigravity {
-            defaults.set(isCompact, forKey: "\(kind.rawValue)PopoverCompact")
+            let key = "\(kind.rawValue)PopoverCompact"
+            if defaults.object(forKey: key) == nil {
+                defaults.set(normalizedCompact, forKey: key)
+            }
         }
     }
 }
