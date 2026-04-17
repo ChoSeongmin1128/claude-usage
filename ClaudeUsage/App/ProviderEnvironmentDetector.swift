@@ -71,6 +71,11 @@ enum ProviderEnvironmentDetector {
     private static var statusCache: [AppProviderKind: CachedStatus] = [:]
     private static let statusCacheLock = NSLock()
     private static let cacheTTL: TimeInterval = 5
+    /// SWR (stale-while-revalidate) 허용 윈도우: TTL 만료 후에도 이 기간 내면
+    /// 캐시 값을 그대로 반환하면서 백그라운드에서만 갱신을 예약.
+    /// UI 클릭 경로가 blocking subprocess 를 절대 기다리지 않게 만드는 핵심.
+    private static let staleAllowance: TimeInterval = 300
+    private static var inflightRefresh: Set<AppProviderKind> = []
 
     static func invalidateCache(for kind: AppProviderKind? = nil) {
         statusCacheLock.lock()
@@ -82,6 +87,8 @@ enum ProviderEnvironmentDetector {
         }
     }
 
+    /// 동기 API (구 버전 호환). cache miss 시 여전히 blocking 이므로 UI
+    /// 경로에서는 절대 사용하지 말고 백그라운드에서만 호출할 것.
     static func status(for kind: AppProviderKind) -> ProviderEnvironmentStatus? {
         let now = Date()
 
@@ -99,6 +106,77 @@ enum ProviderEnvironmentDetector {
         statusCacheLock.unlock()
 
         return result
+    }
+
+    /// 캐시된 값만 반환 (subprocess 호출 절대 없음).
+    /// UI 경로에서 호출해도 즉시 리턴. 캐시가 없으면 nil.
+    static func cachedStatus(for kind: AppProviderKind) -> ProviderEnvironmentStatus? {
+        statusCacheLock.lock()
+        defer { statusCacheLock.unlock() }
+        return statusCache[kind]?.status
+    }
+
+    /// SWR: 캐시가 있으면 즉시 반환. TTL 만료면 백그라운드 갱신 예약 후 그대로
+    /// stale 값 반환. 캐시 자체가 없으면 백그라운드 갱신만 예약하고 nil.
+    /// 메인 스레드는 이 함수로 호출 → subprocess blocking 0ms 보장.
+    static func staleWhileRevalidate(for kind: AppProviderKind) -> ProviderEnvironmentStatus? {
+        let now = Date()
+
+        statusCacheLock.lock()
+        let cached = statusCache[kind]
+        let needsRefresh: Bool = {
+            guard let cached else { return true }
+            return now.timeIntervalSince(cached.cachedAt) >= cacheTTL
+        }()
+        let value = cached?.status
+        let withinStaleWindow = cached.map { now.timeIntervalSince($0.cachedAt) < staleAllowance } ?? false
+        statusCacheLock.unlock()
+
+        if needsRefresh {
+            scheduleBackgroundRefresh(for: kind)
+        }
+
+        // cache miss 거나 stale window 넘으면 nil 반환 (UI 는 "모름" 으로 처리)
+        if cached == nil || !withinStaleWindow {
+            return cached == nil ? nil : value
+        }
+        return value
+    }
+
+    /// 백그라운드에서 실제 subprocess/파일 IO 를 돌려 캐시를 갱신.
+    /// 앱 시작, refresh 틱, 또는 SWR 경로에서 내부 호출로 트리거됨.
+    /// 동일 kind 에 대한 동시 갱신은 inflight 플래그로 중복 차단.
+    nonisolated static func refreshStatusInBackground(for kind: AppProviderKind) {
+        statusCacheLock.lock()
+        if inflightRefresh.contains(kind) {
+            statusCacheLock.unlock()
+            return
+        }
+        inflightRefresh.insert(kind)
+        statusCacheLock.unlock()
+
+        // 백그라운드 큐에서 실행 (nonisolated 전역 큐 디스패치).
+        // _uncachedStatus 는 subprocess/SQLite/파일 IO 를 blocking 으로 수행하지만
+        // UI 스레드 밖이므로 문제 없음.
+        DispatchQueue.global(qos: .utility).async {
+            let result = _uncachedStatus(for: kind)
+            let now = Date()
+            statusCacheLock.lock()
+            statusCache[kind] = CachedStatus(status: result, cachedAt: now)
+            inflightRefresh.remove(kind)
+            statusCacheLock.unlock()
+        }
+    }
+
+    /// 모든 provider 에 대해 백그라운드 갱신 예약 (앱 시작 / refresh 틱에서 호출).
+    nonisolated static func refreshAllInBackground() {
+        for kind in [AppProviderKind.gemini, .antigravity, .codex] {
+            refreshStatusInBackground(for: kind)
+        }
+    }
+
+    private nonisolated static func scheduleBackgroundRefresh(for kind: AppProviderKind) {
+        refreshStatusInBackground(for: kind)
     }
 
     private static func _uncachedStatus(for kind: AppProviderKind) -> ProviderEnvironmentStatus? {
@@ -121,6 +199,22 @@ enum ProviderEnvironmentDetector {
 
     static func canAttemptRefresh(for kind: AppProviderKind) -> Bool {
         status(for: kind)?.canAttemptRefresh ?? false
+    }
+
+    /// UI 경로용. status 의 runtimeReachability 가 true 이거나 credential 이
+    /// usable 이면 "interactive setup 불필요" 로 판정. signals 를 호출하지
+    /// 않아 subprocess blocking 이 없음.
+    /// 캐시가 없어 판정이 불가능하면 false 반환 (= 일단 "설정 불필요").
+    static func requiresInteractiveSetupFromCache(for kind: AppProviderKind) -> Bool {
+        switch kind {
+        case .claude, .codex:
+            return false
+        case .gemini, .antigravity:
+            guard let status = staleWhileRevalidate(for: kind) else { return false }
+            if status.credentialState.hasAnyCredential { return false }
+            if status.runtimeReachability { return false }
+            return true
+        }
     }
 
     static func requiresInteractiveSetup(for kind: AppProviderKind) -> Bool {
