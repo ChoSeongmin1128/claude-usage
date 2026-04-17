@@ -318,7 +318,8 @@ final class PopoverViewModel: ObservableObject {
             return "현재는 설정만 유지하고 있습니다."
         case .gemini, .antigravity:
             if settings.isProviderEnabled(kind) {
-                return ProviderEnvironmentDetector.status(for: kind)?.summary
+                // SwiftUI body 경로 — SWR (blocking 금지)
+                return ProviderEnvironmentDetector.staleWhileRevalidate(for: kind)?.summary
                     ?? baseDetail
                     ?? "자격 또는 로컬 상태를 확인해 주세요."
             }
@@ -371,11 +372,13 @@ final class PopoverViewModel: ObservableObject {
         self.claudeSetupPresentation = setupPresentation
         if let overage { self.overage = overage }
 
-        // 환경 상태 캐시 갱신 — 이 시점에서 블로킹 호출이 안전 (SwiftUI body 밖)
-        self.cachedGeminiEnvStatus = ProviderEnvironmentDetector.status(for: .gemini)
-        self.cachedAntigravityEnvStatus = ProviderEnvironmentDetector.status(for: .antigravity)
-        self.cachedGeminiSignals = ProviderEnvironmentDetector.geminiSignals()
-        self.cachedAntigravitySignals = ProviderEnvironmentDetector.antigravitySignals()
+        // 환경 상태 캐시 갱신 — main thread 에서 실행되므로 blocking 금지.
+        // 읽기는 이미 캐시된 값만 (백그라운드 워밍이 주기적으로 업데이트).
+        self.cachedGeminiEnvStatus = ProviderEnvironmentDetector.cachedStatus(for: .gemini)
+        self.cachedAntigravityEnvStatus = ProviderEnvironmentDetector.cachedStatus(for: .antigravity)
+        // signals 는 대부분 FS/파일 접근이라 빠르지만 Gemini 의 바이너리
+        // lookup 이 최초 1회 /bin/sh 를 호출하므로 백그라운드에서 업데이트.
+        ProviderEnvironmentDetector.refreshAllInBackground()
     }
 
     private func runtimeSummary(
@@ -414,12 +417,13 @@ final class PopoverViewModel: ObservableObject {
         }
         if let error = snapshot.error {
             if shouldSuppressRecoverableError(error, kind: snapshot.kind),
-               let environmentStatus = ProviderEnvironmentDetector.status(for: snapshot.kind) {
+               let environmentStatus = ProviderEnvironmentDetector.staleWhileRevalidate(for: snapshot.kind) {
                 return environmentStatus.summary
             }
             return error.errorDescription ?? "조회 실패"
         }
-        return ProviderEnvironmentDetector.status(for: snapshot.kind)?.summary ?? "데이터를 아직 불러오지 못했습니다"
+        // SwiftUI body 경로 — SWR (blocking 금지)
+        return ProviderEnvironmentDetector.staleWhileRevalidate(for: snapshot.kind)?.summary ?? "데이터를 아직 불러오지 못했습니다"
     }
 
     private func runtimeMeta(for snapshot: RuntimeProviderSnapshot) -> String? {
@@ -613,7 +617,8 @@ final class PopoverViewModel: ObservableObject {
     }
 
     private func shouldSuppressRecoverableError(_ error: APIError, kind: AppProviderKind) -> Bool {
-        guard let status = ProviderEnvironmentDetector.status(for: kind) else {
+        // SwiftUI body 경로 — SWR (blocking 금지)
+        guard let status = ProviderEnvironmentDetector.staleWhileRevalidate(for: kind) else {
             return false
         }
         return Self.shouldSuppressRecoverableError(error, runtimeReachability: status.runtimeReachability)

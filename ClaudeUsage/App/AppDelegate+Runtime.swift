@@ -13,12 +13,13 @@ extension AppDelegate {
     }
 
     func runtimeProviderSnapshot(for service: PopoverService) -> RuntimeProviderSnapshot {
+        // UI 경로에서 호출되므로 blocking 금지. SWR 로 캐시만 참조.
         let environmentStatus: ProviderEnvironmentStatus?
         switch service {
         case .gemini:
-            environmentStatus = ProviderEnvironmentDetector.status(for: .gemini)
+            environmentStatus = ProviderEnvironmentDetector.staleWhileRevalidate(for: .gemini)
         case .antigravity:
-            environmentStatus = ProviderEnvironmentDetector.status(for: .antigravity)
+            environmentStatus = ProviderEnvironmentDetector.staleWhileRevalidate(for: .antigravity)
         case .claude, .codex:
             environmentStatus = nil
         }
@@ -58,6 +59,9 @@ extension AppDelegate {
     func startMonitoring() {
         isLoading = false
         loadingStartedAt = nil
+        // UI 가 뜨기 전에 env 캐시를 먼저 워밍 — 첫 클릭 지연 최소화
+        ProviderEnvironmentDetector.refreshAllInBackground()
+        AntigravityStatusProbe.refreshAllInBackground()
         updateMenuBar()
         updatePopoverViewModel(overage: currentOverage)
         refreshAll(force: true)
@@ -244,6 +248,11 @@ extension AppDelegate {
     // MARK: - API
 
     func refreshAll(force: Bool = false) {
+        // 매 refresh 틱에서 env 상태 캐시도 백그라운드로 갱신.
+        // UI 경로는 SWR 로 캐시만 읽어서 클릭 지연 0 ms 를 유지함.
+        ProviderEnvironmentDetector.refreshAllInBackground()
+        AntigravityStatusProbe.refreshAllInBackground()
+
         var lastRefreshed: [PopoverService: Date] = [:]
         for service in PopoverService.allCases {
             let state = runtimeProviderState(for: service)
@@ -292,7 +301,7 @@ extension AppDelegate {
             RuntimeProviderRefreshCoordinator.clearedState(
                 service: service,
                 isCodexAuthenticated: CodexAuthManager.shared.isAuthenticated,
-                requiresInteractiveSetup: ProviderEnvironmentDetector.requiresInteractiveSetup(for: service.providerKind)
+                requiresInteractiveSetup: ProviderEnvironmentDetector.requiresInteractiveSetupFromCache(for: service.providerKind)
             ),
             for: service
         )

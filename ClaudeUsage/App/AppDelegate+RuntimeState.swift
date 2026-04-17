@@ -336,23 +336,28 @@ extension AppDelegate {
         }
     }
 
+    // ⚠️ 아래 4개 computed property 는 UI 경로(메뉴바 클릭, 우클릭 메뉴,
+    // popover 렌더링)에서 호출되므로 반드시 staleWhileRevalidate 만 사용.
+    // 내부적으로 subprocess 를 돌리는 `.status(for:)` 직접 호출 금지.
+    // 캐시는 앱 시작 및 refresh 틱에서 백그라운드로 미리 갱신됨.
+
     var hasGeminiCredential: Bool {
-        let status = ProviderEnvironmentDetector.status(for: .gemini)
+        let status = ProviderEnvironmentDetector.staleWhileRevalidate(for: .gemini)
         return status?.credentialState.hasAnyCredential ?? false
     }
 
     var hasAntigravityCredential: Bool {
-        let status = ProviderEnvironmentDetector.status(for: .antigravity)
+        let status = ProviderEnvironmentDetector.staleWhileRevalidate(for: .antigravity)
         return status?.credentialState.hasAnyCredential ?? false
     }
 
     var geminiRuntimeReachability: Bool {
-        let status = ProviderEnvironmentDetector.status(for: .gemini)
+        let status = ProviderEnvironmentDetector.staleWhileRevalidate(for: .gemini)
         return status?.runtimeReachability ?? false
     }
 
     var antigravityRuntimeReachability: Bool {
-        let status = ProviderEnvironmentDetector.status(for: .antigravity)
+        let status = ProviderEnvironmentDetector.staleWhileRevalidate(for: .antigravity)
         return status?.runtimeReachability ?? false
     }
 
