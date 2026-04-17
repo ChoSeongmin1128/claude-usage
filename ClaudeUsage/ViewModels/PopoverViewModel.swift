@@ -41,6 +41,12 @@ final class PopoverViewModel: ObservableObject {
     @Published private(set) var claudeSetupPresentation: ClaudeSetupPresentation?
     @Published private(set) var runtimeSnapshots: [PopoverService: RuntimeProviderSnapshot] = [:]
 
+    // ProviderEnvironmentDetector 결과 캐시 — SwiftUI body 렌더링 중 블로킹 호출 방지
+    private var cachedGeminiEnvStatus: ProviderEnvironmentStatus?
+    private var cachedAntigravityEnvStatus: ProviderEnvironmentStatus?
+    private var cachedGeminiSignals = ProviderEnvironmentDetector.geminiSignals()
+    private var cachedAntigravitySignals = ProviderEnvironmentDetector.antigravitySignals()
+
     var onRefreshService: ((PopoverService) -> Void)?
     var onOpenSettingsForService: ((PopoverService) -> Void)?
     var onServiceSelected: ((PopoverService) -> Void)?
@@ -176,11 +182,17 @@ final class PopoverViewModel: ObservableObject {
 
     private func geminiRuntimeServiceState(settings: AppSettings) -> RuntimeServiceState {
         let isEnabled = settings.isProviderEnabled(.gemini)
-        let environmentStatus = ProviderEnvironmentDetector.status(for: .gemini)
-        let signals = ProviderEnvironmentDetector.geminiSignals()
+        let environmentStatus = cachedGeminiEnvStatus
+        let signals = cachedGeminiSignals
         let snapshot = runtimeSnapshots[.gemini]
         let runtimeError = snapshot?.error
-        let requiresInteractiveSetup = ProviderEnvironmentDetector.requiresInteractiveSetup(for: .gemini)
+        let requiresInteractiveSetup: Bool = {
+            if !signals.hasBinary { return signals.credentialState == .missing }
+            switch signals.authType {
+            case .apiKey, .vertexAI: return true
+            case .oauthPersonal, .unknown: return signals.credentialState == .missing
+            }
+        }()
         let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
         let isAuthRequired = isEnabled
             && requiresInteractiveSetup
@@ -210,11 +222,11 @@ final class PopoverViewModel: ObservableObject {
 
     private func antigravityRuntimeServiceState(settings: AppSettings) -> RuntimeServiceState {
         let isEnabled = settings.isProviderEnabled(.antigravity)
-        let environmentStatus = ProviderEnvironmentDetector.status(for: .antigravity)
-        let signals = ProviderEnvironmentDetector.antigravitySignals()
+        let environmentStatus = cachedAntigravityEnvStatus
+        let signals = cachedAntigravitySignals
         let snapshot = runtimeSnapshots[.antigravity]
         let runtimeError = snapshot?.error
-        let requiresInteractiveSetup = ProviderEnvironmentDetector.requiresInteractiveSetup(for: .antigravity)
+        let requiresInteractiveSetup = !signals.hasRuntimeConnection && !signals.hasPersistedAuthState
         let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
         let isAuthRequired = isEnabled
             && requiresInteractiveSetup
@@ -358,6 +370,12 @@ final class PopoverViewModel: ObservableObject {
         self.runtimeSnapshots = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.service, $0) })
         self.claudeSetupPresentation = setupPresentation
         if let overage { self.overage = overage }
+
+        // 환경 상태 캐시 갱신 — 이 시점에서 블로킹 호출이 안전 (SwiftUI body 밖)
+        self.cachedGeminiEnvStatus = ProviderEnvironmentDetector.status(for: .gemini)
+        self.cachedAntigravityEnvStatus = ProviderEnvironmentDetector.status(for: .antigravity)
+        self.cachedGeminiSignals = ProviderEnvironmentDetector.geminiSignals()
+        self.cachedAntigravitySignals = ProviderEnvironmentDetector.antigravitySignals()
     }
 
     private func runtimeSummary(
@@ -448,10 +466,16 @@ final class PopoverViewModel: ObservableObject {
         switch service {
         case .gemini:
             let isEnabled = settings.isProviderEnabled(.gemini)
-            let environmentStatus = ProviderEnvironmentDetector.status(for: .gemini)
-            let signals = ProviderEnvironmentDetector.geminiSignals()
+            let environmentStatus = cachedGeminiEnvStatus
+            let signals = cachedGeminiSignals
             let snapshot = runtimeSnapshots[.gemini]
-            let requiresInteractiveSetup = ProviderEnvironmentDetector.requiresInteractiveSetup(for: .gemini)
+            let requiresInteractiveSetup: Bool = {
+                if !signals.hasBinary { return signals.credentialState == .missing }
+                switch signals.authType {
+                case .apiKey, .vertexAI: return true
+                case .oauthPersonal, .unknown: return signals.credentialState == .missing
+                }
+            }()
             let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
             let isAuthRequired = isEnabled
                 && requiresInteractiveSetup
@@ -467,10 +491,10 @@ final class PopoverViewModel: ObservableObject {
             )
         case .antigravity:
             let isEnabled = settings.isProviderEnabled(.antigravity)
-            let environmentStatus = ProviderEnvironmentDetector.status(for: .antigravity)
-            let signals = ProviderEnvironmentDetector.antigravitySignals()
+            let environmentStatus = cachedAntigravityEnvStatus
+            let signals = cachedAntigravitySignals
             let snapshot = runtimeSnapshots[.antigravity]
-            let requiresInteractiveSetup = ProviderEnvironmentDetector.requiresInteractiveSetup(for: .antigravity)
+            let requiresInteractiveSetup = !signals.hasRuntimeConnection && !signals.hasPersistedAuthState
             let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
             let isAuthRequired = isEnabled
                 && requiresInteractiveSetup

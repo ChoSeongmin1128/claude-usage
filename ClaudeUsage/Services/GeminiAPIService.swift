@@ -409,13 +409,28 @@ actor GeminiAPIService {
     }
 
     private func shellBinaryPath(named name: String) -> String? {
+        // 중요: `-l` (login shell)을 사용하면 사용자의 .zprofile/.zshrc가 실행되며,
+        // 그 안에서 claude CLI가 자동 실행되면 보호 폴더 접근으로 TCC 프롬프트가 뜬다.
+        // non-login, non-interactive 모드 + 명시적 PATH로만 실행한다.
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-lc", "command -v \(name)"]
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "command -v \(name)"]
+
+        let home = FileManager.default.realHomeDirectory.path
+        var env: [String: String] = [
+            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:\(home)/.bun/bin:\(home)/.npm/bin:\(home)/.local/bin:\(home)/bin",
+            "HOME": home,
+            "LANG": "C",
+        ]
+        if let user = ProcessInfo.processInfo.environment["USER"] {
+            env["USER"] = user
+        }
+        process.environment = env
 
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = Pipe()
+        process.standardInput = FileHandle(forReadingAtPath: "/dev/null")
 
         do {
             try process.run()

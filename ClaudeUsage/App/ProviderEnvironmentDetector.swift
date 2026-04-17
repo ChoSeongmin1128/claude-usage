@@ -60,7 +60,48 @@ struct AntigravityEnvironmentSignals: Sendable, Equatable {
 }
 
 enum ProviderEnvironmentDetector {
+
+    // MARK: - Status cache (avoids repeated /bin/ps + SQLite per UI cycle)
+
+    private struct CachedStatus {
+        let status: ProviderEnvironmentStatus?
+        let cachedAt: Date
+    }
+
+    private static var statusCache: [AppProviderKind: CachedStatus] = [:]
+    private static let statusCacheLock = NSLock()
+    private static let cacheTTL: TimeInterval = 5
+
+    static func invalidateCache(for kind: AppProviderKind? = nil) {
+        statusCacheLock.lock()
+        defer { statusCacheLock.unlock() }
+        if let kind {
+            statusCache.removeValue(forKey: kind)
+        } else {
+            statusCache.removeAll()
+        }
+    }
+
     static func status(for kind: AppProviderKind) -> ProviderEnvironmentStatus? {
+        let now = Date()
+
+        statusCacheLock.lock()
+        if let cached = statusCache[kind], now.timeIntervalSince(cached.cachedAt) < cacheTTL {
+            statusCacheLock.unlock()
+            return cached.status
+        }
+        statusCacheLock.unlock()
+
+        let result = _uncachedStatus(for: kind)
+
+        statusCacheLock.lock()
+        statusCache[kind] = CachedStatus(status: result, cachedAt: now)
+        statusCacheLock.unlock()
+
+        return result
+    }
+
+    private static func _uncachedStatus(for kind: AppProviderKind) -> ProviderEnvironmentStatus? {
         switch kind {
         case .claude:
             return nil
@@ -333,13 +374,31 @@ enum ProviderEnvironmentDetector {
     }
 
     private static func shellBinaryPath(named name: String) -> String? {
+        // 중요: `-l` (login shell) 플래그를 절대 사용하지 말 것.
+        // login shell은 사용자의 .zprofile/.zshrc를 소싱하며,
+        // 그 안에서 `claude` 같은 CLI를 자동 실행하면 child process(2.1.112 등)가
+        // Documents/Music 등 macOS 보호 폴더에 접근하면서 TCC 프롬프트를 유발한다.
+        // 따라서 non-login, non-interactive 모드로만 `command -v`를 호출한다.
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-lc", "command -v \(name)"]
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", "command -v \(name)"]
+
+        // 사용자 profile 스크립트에 의존하지 않도록 명시적 최소 PATH 사용
+        let home = FileManager.default.realHomeDirectory.path
+        var env: [String: String] = [
+            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:\(home)/.bun/bin:\(home)/.npm/bin:\(home)/.local/bin:\(home)/bin",
+            "HOME": home,
+            "LANG": "C",
+        ]
+        if let user = ProcessInfo.processInfo.environment["USER"] {
+            env["USER"] = user
+        }
+        process.environment = env
 
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = Pipe()
+        process.standardInput = FileHandle(forReadingAtPath: "/dev/null")
 
         do {
             try process.run()
