@@ -270,11 +270,13 @@ enum ProviderEnvironmentDetector {
         case .claude:
             return nil
         case .codex:
+            // NSLock 기반 캐시를 태우긴 하지만 4번 연달아 호출할 이유가 없음.
+            let authenticated = CodexAuthManager.shared.isAuthenticated
             return ProviderEnvironmentStatus(
-                isDetected: CodexAuthManager.shared.isAuthenticated,
-                credentialState: CodexAuthManager.shared.isAuthenticated ? .usable : .missing,
-                runtimeReachability: CodexAuthManager.shared.isAuthenticated,
-                summary: CodexAuthManager.shared.isAuthenticated ? "CLI/OAuth 인증 감지" : "CLI/OAuth 인증 미감지"
+                isDetected: authenticated,
+                credentialState: authenticated ? .usable : .missing,
+                runtimeReachability: authenticated,
+                summary: authenticated ? "CLI/OAuth 인증 감지" : "CLI/OAuth 인증 미감지"
             )
         case .gemini:
             let signals = (precomputedSignals as? GeminiEnvironmentSignals) ?? geminiSignals()
