@@ -4,9 +4,11 @@ enum AppLocationChecker {
     private static let suppressionKey = "suppressMoveToApplicationsAlert"
 
     static func checkAndPromptIfNeeded() {
-        // App Translocation 상태면 경로 판단이 불가하므로 건너뜀
+        // App Translocation, 임시 경로, DMG 볼륨에서 실행 중이면 건너뜀
         let bundlePath = Bundle.main.bundlePath
-        if bundlePath.contains("/AppTranslocation/") || bundlePath.hasPrefix("/private/var/folders/") {
+        if bundlePath.contains("/AppTranslocation/")
+            || bundlePath.hasPrefix("/private/var/folders/")
+            || bundlePath.hasPrefix("/Volumes/") {
             return
         }
 
