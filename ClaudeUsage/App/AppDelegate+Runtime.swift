@@ -244,11 +244,20 @@ extension AppDelegate {
     // MARK: - API
 
     func refreshAll(force: Bool = false) {
+        var lastRefreshed: [PopoverService: Date] = [:]
+        for service in PopoverService.allCases {
+            let state = runtimeProviderState(for: service)
+            if let lastAt = state.lastSuccessfulAt {
+                lastRefreshed[service] = lastAt
+            }
+        }
+
         let actions = RefreshOrchestration.actionsForRefreshAll(
             supportedServices: ServiceSelectionHelper.supportedPopoverServices,
             refreshableServices: refreshableServices,
             settings: AppSettings.shared,
-            force: force
+            force: force,
+            lastRefreshedAt: lastRefreshed
         )
 
         for action in actions {

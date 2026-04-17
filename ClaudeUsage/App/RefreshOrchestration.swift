@@ -25,9 +25,11 @@ enum RefreshOrchestration {
         supportedServices: [PopoverService],
         refreshableServices: [PopoverService],
         settings: AppSettings,
-        force: Bool
+        force: Bool,
+        lastRefreshedAt: [PopoverService: Date] = [:]
     ) -> [ProviderRuntimeAction] {
-        supportedServices.compactMap { service in
+        let now = Date()
+        return supportedServices.compactMap { service in
             if force,
                service.providerKind.isRuntimeProvider,
                ServiceSelectionHelper.isEnabled(service, settings: settings)
@@ -35,11 +37,19 @@ enum RefreshOrchestration {
                 return .refresh(service: service, force: true)
             }
 
-            if refreshableServices.contains(service) {
-                return .refresh(service: service, force: force)
+            guard refreshableServices.contains(service) else {
+                return nil
             }
 
-            return nil
+            if settings.usePerProviderRefreshIntervals,
+               let lastRefresh = lastRefreshedAt[service] {
+                let interval = settings.effectiveRefreshInterval(for: service)
+                guard now.timeIntervalSince(lastRefresh) >= interval else {
+                    return nil
+                }
+            }
+
+            return .refresh(service: service, force: force)
         }
     }
 
