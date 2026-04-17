@@ -1000,18 +1000,27 @@ actor ClaudeAPIService {
         }
 
         let primaryService = "Claude Code-credentials"
-        if let credentials = try? readKeychainCredentialPayload(serviceName: primaryService),
+        let preflightResult = KeychainAccessPreflight.checkGenericPassword(
+            service: primaryService,
+            account: NSUserName()
+        )
+        if case .interactionRequired = preflightResult {
+            Logger.info("키체인 접근 시 UI 프롬프트 필요 — 파일 기반 인증만 사용")
+            return nil
+        }
+
+        if let credentials = try? await readKeychainCredentialPayload(serviceName: primaryService),
            let credential = await decodeOAuthCredential(from: credentials, sourceDescription: "키체인 서비스: \(primaryService)") {
             cachedOAuthCredential = credential
             return credential.accessToken
         }
 
-        let discoveredServices = getDiscoveredCLIServiceNames().filter { $0 != primaryService }
+        let discoveredServices = await getDiscoveredCLIServiceNames().filter { $0 != primaryService }
         if !discoveredServices.isEmpty {
             Logger.debug("OAuth 토큰 조회: 추가 키체인 서비스 \(discoveredServices.count)개 후보")
         }
         for service in discoveredServices {
-            guard let credentials = try? readKeychainCredentialPayload(serviceName: service),
+            guard let credentials = try? await readKeychainCredentialPayload(serviceName: service),
                   let credential = await decodeOAuthCredential(from: credentials, sourceDescription: "키체인 서비스: \(service)")
             else { continue }
             cachedOAuthCredential = credential
@@ -1022,8 +1031,8 @@ actor ClaudeAPIService {
         return nil
     }
 
-    private func readKeychainCredentialPayload(serviceName: String) throws -> String? {
-        guard let result = try runSecurityCommand(
+    private func readKeychainCredentialPayload(serviceName: String) async throws -> String? {
+        guard let result = try await runSecurityCommand(
             arguments: [
             "find-generic-password",
             "-s", serviceName,
@@ -1054,17 +1063,17 @@ actor ClaudeAPIService {
         return credentials
     }
 
-    private func getDiscoveredCLIServiceNames() -> [String] {
+    private func getDiscoveredCLIServiceNames() async -> [String] {
         if didDiscoverCLIServiceNames {
             return discoveredCLIServiceNames
         }
         didDiscoverCLIServiceNames = true
-        discoveredCLIServiceNames = discoverClaudeCredentialServiceNames()
+        discoveredCLIServiceNames = await discoverClaudeCredentialServiceNames()
         return discoveredCLIServiceNames
     }
 
-    private func discoverClaudeCredentialServiceNames() -> [String] {
-        guard let result = try? runSecurityCommand(arguments: ["dump-keychain"], timeout: 1.0) else {
+    private func discoverClaudeCredentialServiceNames() async -> [String] {
+        guard let result = try? await runSecurityCommand(arguments: ["dump-keychain"], timeout: 1.0) else {
             Logger.debug("키체인 서비스 탐색 타임아웃")
             return []
         }
@@ -1089,7 +1098,7 @@ actor ClaudeAPIService {
         }
     }
 
-    private func runSecurityCommand(arguments: [String], timeout: TimeInterval) throws -> (status: Int32, stdout: String, stderr: String)? {
+    private func runSecurityCommand(arguments: [String], timeout: TimeInterval) async throws -> (status: Int32, stdout: String, stderr: String)? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
         process.arguments = arguments
@@ -1105,25 +1114,69 @@ actor ClaudeAPIService {
             throw APIError.unknownError("security 실행 실패: \(error.localizedDescription)")
         }
 
-        // 타임아웃 시 프로세스 종료를 위한 워크아이템
-        let timeoutWork = DispatchWorkItem { [weak process] in
-            guard let process, process.isRunning else { return }
-            process.terminate()
+        return try await withCheckedThrowingContinuation { continuation in
+            var stdoutData = Data()
+            var stderrData = Data()
+            var resumed = false
+            let lock = NSLock()
+
+            func resumeOnce(with result: Result<(status: Int32, stdout: String, stderr: String)?, Error>) {
+                lock.lock()
+                let shouldResume = !resumed
+                resumed = true
+                lock.unlock()
+                if shouldResume {
+                    continuation.resume(with: result)
+                }
+            }
+
+            // 타임아웃 시 프로세스 종료를 위한 워크아이템
+            let timeoutWork = DispatchWorkItem {
+                if process.isRunning {
+                    process.terminate()
+                }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWork)
+
+            // pipe 데이터를 비동기로 수집
+            outputPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    outputPipe.fileHandleForReading.readabilityHandler = nil
+                } else {
+                    stdoutData.append(data)
+                }
+            }
+
+            errorPipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    errorPipe.fileHandleForReading.readabilityHandler = nil
+                } else {
+                    stderrData.append(data)
+                }
+            }
+
+            process.terminationHandler = { terminatedProcess in
+                timeoutWork.cancel()
+
+                // readabilityHandler가 EOF를 처리할 시간을 확보
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
+                    outputPipe.fileHandleForReading.readabilityHandler = nil
+                    errorPipe.fileHandleForReading.readabilityHandler = nil
+
+                    // 타임아웃에 의해 종료된 경우
+                    guard terminatedProcess.terminationReason != .uncaughtSignal else {
+                        resumeOnce(with: .success(nil))
+                        return
+                    }
+
+                    let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
+                    let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+                    resumeOnce(with: .success((terminatedProcess.terminationStatus, stdout, stderr)))
+                }
+            }
         }
-        DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWork)
-
-        // readDataToEndOfFile → waitUntilExit 순서로 호출 (pipe 데드락 방지)
-        let stdoutData = outputPipe.fileHandleForReading.readDataToEndOfFile()
-        let stderrData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        timeoutWork.cancel()
-
-        // 타임아웃에 의해 종료된 경우
-        guard process.terminationReason != .uncaughtSignal else { return nil }
-
-        let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-        let stderr = String(data: stderrData, encoding: .utf8) ?? ""
-        return (process.terminationStatus, stdout, stderr)
     }
 
     private func readOAuthCredentialFromCredentialFiles() async -> OAuthCredential? {

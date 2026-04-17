@@ -30,6 +30,10 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
     }
 
     nonisolated func attemptImport() throws -> ClaudeBrowserImportOutcome {
+        guard BrowserCookieAccessGate.shouldAttemptChromeAccess() else {
+            return .unavailable(message: "Chrome 쿠키 접근이 일시적으로 차단되어 있습니다.\nKeychain 프롬프트 방지를 위해 6시간 동안 자동 import를 건너뜁니다.\n고급 설정에서 수동 sessionKey를 입력해 주세요.")
+        }
+
         let candidates = self.discoverCandidates()
         guard !candidates.isEmpty else {
             return .unavailable(message: self.manualGuidanceMessage(
