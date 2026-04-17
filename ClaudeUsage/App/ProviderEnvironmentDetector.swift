@@ -98,7 +98,10 @@ enum ProviderEnvironmentDetector {
     /// SWR (stale-while-revalidate) 허용 윈도우: TTL 만료 후에도 이 기간 내면
     /// 캐시 값을 그대로 반환하면서 백그라운드에서만 갱신을 예약.
     /// UI 클릭 경로가 blocking subprocess 를 절대 기다리지 않게 만드는 핵심.
-    private static let staleAllowance: TimeInterval = 300
+    /// 5분은 너무 길어 실제 상태 변화 (로그아웃 등) 가 반영되기 전까지 UI 가
+    /// 잘못된 정보를 보여 줄 위험이 커지므로 2분으로 제한.
+    /// TTL=5s + background warm-up 덕에 실제 체감되는 stale window 는 훨씬 짧다.
+    private static let staleAllowance: TimeInterval = 120
     private static var inflightRefresh: Set<AppProviderKind> = []
 
     // MARK: - Signals cache (antigravitySignals/geminiSignals 결과 캐시)

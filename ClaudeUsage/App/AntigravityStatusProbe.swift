@@ -27,7 +27,9 @@ enum AntigravityStatusProbe {
     private static let cacheTTL: TimeInterval = 2.0
     /// staleWhileRevalidate 가 받아들이는 최대 stale 허용 (이 기간 내면 옛
     /// 값 그대로 반환 + 백그라운드 갱신만 예약).
-    private static let staleAllowance: TimeInterval = 300
+    /// 5분은 실제 앱 실행 상태와 UI 간 괴리가 커지므로 2분으로 제한.
+    /// TTL=2s + background warm-up 으로 체감 stale window 는 훨씬 짧다.
+    private static let staleAllowance: TimeInterval = 120
 
     nonisolated static func invalidateCache() {
         cacheLock.lock()
