@@ -249,27 +249,27 @@ struct PopoverView: View {
 
     private var isCompact: Bool {
         get {
-            return settings.isPopoverCompact(for: appProviderKind(for: selectedService))
+            settings.popoverCompact
         }
         nonmutating set {
-            setCompactForSelectedService(newValue)
+            settings.popoverCompact = newValue
         }
     }
 
     private func setCompactForSelectedService(_ compact: Bool) {
-        settings.setPopoverCompact(compact, for: appProviderKind(for: selectedService))
+        settings.popoverCompact = compact
     }
 
     private func syncCompactForSelectedServiceIfNeeded() {
-        settings.setPopoverCompact(isCompact, for: appProviderKind(for: selectedService))
+        // 전역 설정이므로 동기화 불필요
     }
 
     private var isPinned: Bool {
         get {
-            settings.isPopoverPinned(for: appProviderKind(for: selectedService))
+            settings.popoverPinned
         }
         nonmutating set {
-            settings.setPopoverPinned(newValue, for: appProviderKind(for: selectedService))
+            settings.popoverPinned = newValue
         }
     }
 

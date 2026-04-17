@@ -92,7 +92,7 @@ struct ServiceSelectionHelper {
     }
 
     static func isPinned(_ service: PopoverService, settings: AppSettings) -> Bool {
-        settings.isPopoverPinned(for: providerKind(for: service))
+        settings.popoverPinned
     }
 
     static func canRefresh(

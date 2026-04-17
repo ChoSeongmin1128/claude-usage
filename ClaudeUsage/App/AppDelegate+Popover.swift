@@ -32,7 +32,7 @@ extension AppDelegate {
             },
             onPinChanged: { [weak self] service, isPinned in
                 guard let self else { return }
-                AppSettings.shared.setPopoverPinned(isPinned, for: ServiceSelectionHelper.providerKind(for: service))
+                AppSettings.shared.popoverPinned = isPinned
                 self.applyPopoverBehavior(for: service)
                 if isPinned {
                     self.stopGlobalClickMonitor()
@@ -113,7 +113,7 @@ extension AppDelegate {
     }
 
     func isPopoverPinned(for service: PopoverService) -> Bool {
-        ServiceSelectionHelper.isPinned(service, settings: AppSettings.shared)
+        AppSettings.shared.popoverPinned
     }
 
     func applyPopoverBehavior(for service: PopoverService) {

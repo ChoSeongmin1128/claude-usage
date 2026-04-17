@@ -20,6 +20,19 @@ extension SettingsView {
                 subtitle: "두 provider의 기본 popover 항목과 간소화 popover 항목 순서/표시 여부를 따로 관리합니다",
                 isOn: $settings.separateCompactConfig
             )
+
+            Divider()
+
+            settingsToggleRow(
+                "간소화 보기",
+                subtitle: "팝오버를 간소화된 레이아웃으로 표시합니다",
+                isOn: $settings.popoverCompact
+            )
+            settingsToggleRow(
+                "팝오버 고정",
+                subtitle: "팝오버가 클릭 시 자동으로 닫히지 않도록 고정합니다",
+                isOn: $settings.popoverPinned
+            )
         }
     }
 
