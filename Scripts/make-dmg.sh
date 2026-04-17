@@ -109,8 +109,28 @@ if [[ ! -f "$DMG_PATH" ]]; then
     exit 1
 fi
 
+# DMG 파일 자체의 Finder 아이콘 설정.
+# dmgbuild 의 icon 옵션은 "마운트된 볼륨의 아이콘" 만 바꿉니다. Finder 에
+# 서 .dmg 파일 자체를 표시할 때의 아이콘은 resource fork + FinderInfo
+# HasCustomIcon 비트를 별도로 세팅해야 바뀝니다. 서명 전에 수행.
+if [[ -f "$VOLUME_ICON" ]] && command -v Rez >/dev/null 2>&1 \
+    && command -v DeRez >/dev/null 2>&1 && command -v SetFile >/dev/null 2>&1; then
+    echo "2. DMG 파일 아이콘 설정"
+    ICON_TMP="$(mktemp -d -t claudeusage-icon)"
+    cp "$VOLUME_ICON" "$ICON_TMP/icon.icns"
+    # sips -i 가 icns 파일 자체에 아이콘 리소스를 심음
+    sips -i "$ICON_TMP/icon.icns" >/dev/null
+    # icns 리소스를 DeRez 로 추출
+    DeRez -only icns "$ICON_TMP/icon.icns" > "$ICON_TMP/icon.rsrc"
+    # DMG 에 리소스 append
+    Rez -append "$ICON_TMP/icon.rsrc" -o "$DMG_PATH"
+    # Finder "Has Custom Icon" 비트 ON
+    SetFile -a C "$DMG_PATH"
+    rm -rf "$ICON_TMP"
+fi
+
 if [[ -n "$CERT_HASH" ]]; then
-    echo "2. DMG 서명 ($CERT_HASH)"
+    echo "3. DMG 서명 ($CERT_HASH)"
     codesign --force --timestamp --sign "$CERT_HASH" "$DMG_PATH"
     codesign --verify --verbose=2 "$DMG_PATH" 2>&1 | tail -2
 fi
