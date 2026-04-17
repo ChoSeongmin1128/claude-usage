@@ -20,8 +20,6 @@ struct SettingsView: View {
     @State var refreshIntervalText: String = ""
     @State var showKeyHelp: Bool = false
     @State var alertPresetTexts: [String] = []
-    @State var draggingItemID: String?
-    @State var codexDraggingItemID: String?
     @State var sessionKeyPersistTask: Task<Void, Never>?
     @State var organizationPersistTask: Task<Void, Never>?
     @State var compactConfigTab: Int = 0

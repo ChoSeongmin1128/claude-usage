@@ -1489,90 +1489,15 @@ extension SettingsView {
         settings.menuBarStyle == .batteryBar || settings.menuBarStyle == .circular
     }
 
-    private var isEditingCompact: Bool {
-        settings.separateCompactConfig && compactConfigTab == 1
-    }
-
     var popoverItemsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("표시 항목", systemImage: "list.bullet")
-                .font(.headline)
-
-            Text("항목의 표시 여부와 순서를 설정합니다")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if settings.separateCompactConfig {
-                Picker("", selection: $compactConfigTab) {
-                    Text("기본").tag(0)
-                    Text("간소화").tag(1)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 160)
-            }
-
-            itemsList(isCompact: isEditingCompact)
-        }
-    }
-
-    private func itemsList(isCompact: Bool) -> some View {
-        let items = isCompact ? settings.compactPopoverItems : settings.popoverItems
-
-        return VStack(spacing: 0) {
-            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                VStack(spacing: 0) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "line.3.horizontal")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                            .frame(width: 14)
-
-                        Button {
-                            if isCompact {
-                                settings.compactPopoverItems[index].visible.toggle()
-                            } else {
-                                settings.popoverItems[index].visible.toggle()
-                            }
-                        } label: {
-                            Image(systemName: item.visible ? "eye" : "eye.slash")
-                                .foregroundStyle(item.visible ? .primary : .tertiary)
-                                .font(.system(size: 12))
-                                .frame(width: 16, height: 16)
-                        }
-                        .buttonStyle(.borderless)
-
-                        Text(item.displayName)
-                            .font(.subheadline)
-                            .foregroundStyle(item.visible ? .primary : .tertiary)
-
-                        Spacer()
-                    }
-                    .frame(height: 26)
-                    .padding(.horizontal, 8)
-                    .contentShape(Rectangle())
-
-                    if index < items.count - 1 {
-                        Divider().padding(.horizontal, 8)
-                    }
-                }
-                .background(draggingItemID == item.id ? Color.accentColor.opacity(0.1) : Color.clear)
-                .cornerRadius(4)
-                .onDrag {
-                    draggingItemID = item.id
-                    return NSItemProvider(object: item.id as NSString)
-                }
-                .onDrop(of: [.text], delegate: PopoverItemDropDelegate(
-                    targetID: item.id,
-                    settings: settings,
-                    isCompact: isCompact,
-                    provider: .claude,
-                    draggingItemID: $draggingItemID
-                ))
-            }
-        }
-        .padding(.vertical, 4)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        .cornerRadius(6)
+        PopoverItemsSectionView(
+            settings: settings,
+            service: .claude,
+            title: "표시 항목",
+            systemImage: "list.bullet",
+            subtitle: "항목의 표시 여부와 순서를 설정합니다",
+            compactConfigTab: $compactConfigTab
+        )
     }
 
     var appliedOrganizationValidationChipValue: String {

@@ -8,6 +8,7 @@
 import Foundation
 import Combine
 import ServiceManagement
+import SwiftUI
 
 struct NotificationPreset: Codable, Identifiable, Hashable, Sendable {
     let id: String
@@ -131,74 +132,20 @@ struct PopoverItemConfig: Codable, Sendable, Equatable {
     let id: String
     var visible: Bool
 
-    static let defaultClaudeItems: [PopoverItemConfig] = [
-        .init(id: "currentSession", visible: true),
-        .init(id: "weeklyLimit", visible: true),
-        .init(id: "modelUsage", visible: true),
-        .init(id: "overageUsage", visible: true),
-    ]
-
-    // 하위 호환용 별칭 (기존 코드 경로 유지)
-    static let defaultItems: [PopoverItemConfig] = defaultClaudeItems
-
-    static let defaultCodexItems: [PopoverItemConfig] = [
-        .init(id: "codexPrimary", visible: true),
-        .init(id: "codexSecondary", visible: true),
-        .init(id: "codexCredits", visible: true),
-    ]
-
-    static let supportedClaudeIDs: [String] = defaultClaudeItems.map(\.id)
-    static let supportedCodexIDs: [String] = defaultCodexItems.map(\.id)
-
-    private static func normalized(
-        _ items: [PopoverItemConfig],
-        supportedIDs: [String],
-        defaults: [PopoverItemConfig]
-    ) -> [PopoverItemConfig] {
-        let supported = Set(supportedIDs)
-        let defaultVisible = Dictionary(uniqueKeysWithValues: defaults.map { ($0.id, $0.visible) })
-
-        var seen = Set<String>()
-        var result: [PopoverItemConfig] = []
-        result.reserveCapacity(defaults.count)
-
-        for item in items {
-            guard supported.contains(item.id), !seen.contains(item.id) else { continue }
-            seen.insert(item.id)
-            result.append(item)
-        }
-
-        for id in supportedIDs where !seen.contains(id) {
-            result.append(.init(id: id, visible: defaultVisible[id] ?? true))
-        }
-
-        return result.isEmpty ? defaults : result
+    init(id: String, visible: Bool) {
+        self.id = id
+        self.visible = visible
     }
 
-    static func normalizedClaude(_ items: [PopoverItemConfig]) -> [PopoverItemConfig] {
-        normalized(items, supportedIDs: supportedClaudeIDs, defaults: defaultClaudeItems)
-    }
-
-    static func normalizedCodex(_ items: [PopoverItemConfig]) -> [PopoverItemConfig] {
-        normalized(items, supportedIDs: supportedCodexIDs, defaults: defaultCodexItems)
-    }
-
-    // 하위 호환용 별칭 (기존 코드 경로 유지)
-    static func normalized(_ items: [PopoverItemConfig]) -> [PopoverItemConfig] {
-        normalizedClaude(items)
-    }
-
+    /// Catalog 등록에서 지원하는 모든 항목 ID를 조회해 displayName을 반환합니다.
+    /// provider-specific catalog가 소유권을 가지므로 여기서는 순회만 수행.
     var displayName: String {
-        switch id {
-        case "currentSession": return "현재 세션"
-        case "weeklyLimit": return "주간 한도"
-        case "modelUsage": return "모델별 주간 한도"
-        case "overageUsage": return "추가 사용량"
-        case "codexPrimary": return "Codex 현재"
-        case "codexSecondary": return "Codex 주간"
-        case "codexCredits": return "Codex 크레딧"
-        default: return id
+        for catalog in UsageItemCatalogRegistry.all {
+            if let name = catalog.displayName(for: id) {
+                return name
+            }
         }
+        return id
     }
 }
 
@@ -243,6 +190,163 @@ class AppSettings: ObservableObject {
     private static let providerStateMigrationVersionKey = "providerStateMigrationVersion"
     private static let currentProviderStateMigrationVersion = 1
 
+    // MARK: - Popover items 저장 키
+    // 구 키는 다운그레이드 보호를 위해 dual-write로 유지합니다.
+    // TODO(sunset 3.0.0): 아래 migrateLegacyPopoverItems/persist dual-write 경로를 제거하고
+    //   popoverItems, codexPopoverItems, compactPopoverItems, codexCompactPopoverItems
+    //   구 키 사용처를 완전히 정리합니다.
+    private static let popoverItemsByProviderKey = "popoverItemsV2"
+    private static let compactPopoverItemsByProviderKey = "compactPopoverItemsV2"
+    private static let popoverItemsMigrationVersionKey = "popoverItemsMigrationVersion"
+    private static let currentPopoverItemsMigrationVersion = 2
+    // 구 키 (v1, dual-write 대상)
+    private static let legacyClaudePopoverKey = "popoverItems"
+    private static let legacyClaudeCompactPopoverKey = "compactPopoverItems"
+    private static let legacyCodexPopoverKey = "codexPopoverItems"
+    private static let legacyCodexCompactPopoverKey = "codexCompactPopoverItems"
+
+    static func defaultPopoverItemsDict() -> [String: [PopoverItemConfig]] {
+        var dict: [String: [PopoverItemConfig]] = [:]
+        for service in PopoverService.allCases {
+            let catalog = UsageItemCatalogRegistry.catalog(for: service)
+            dict[service.rawValue] = catalog.defaultItems
+        }
+        return dict
+    }
+
+    /// 저장된 dict를 모든 provider에 대해 정규화.
+    static func normalizedPopoverDict(
+        _ dict: [String: [PopoverItemConfig]],
+        fallback: [String: [PopoverItemConfig]]? = nil
+    ) -> [String: [PopoverItemConfig]] {
+        var result: [String: [PopoverItemConfig]] = [:]
+        for service in PopoverService.allCases {
+            let catalog = UsageItemCatalogRegistry.catalog(for: service)
+            let raw = dict[service.rawValue]
+                ?? fallback?[service.rawValue]
+                ?? catalog.defaultItems
+            result[service.rawValue] = catalog.normalized(raw)
+        }
+        return result
+    }
+
+    /// V2 dict 키 + 구 V1 배열 키에서 통합 로딩.
+    /// - V2가 있으면 V2 우선
+    /// - V2가 없고 V1만 있으면 V1 → dict 변환
+    /// - 둘 다 없으면 기본값
+    static func loadPopoverItemsByProvider(
+        from defaults: UserDefaults
+    ) -> (full: [String: [PopoverItemConfig]], compact: [String: [PopoverItemConfig]]) {
+        let v2Full = decodeDict(defaults.data(forKey: popoverItemsByProviderKey))
+        let v2Compact = decodeDict(defaults.data(forKey: compactPopoverItemsByProviderKey))
+
+        // V1 legacy 배열 로드 (Claude/Codex만 존재)
+        let legacyClaudeFull = decodeArray(defaults.data(forKey: legacyClaudePopoverKey))
+        let legacyClaudeCompact = decodeArray(defaults.data(forKey: legacyClaudeCompactPopoverKey))
+        let legacyCodexFull = decodeArray(defaults.data(forKey: legacyCodexPopoverKey))
+        let legacyCodexCompact = decodeArray(defaults.data(forKey: legacyCodexCompactPopoverKey))
+
+        // showModelUsage/showOverageUsage 초-legacy 마이그레이션
+        let legacyClaudeFullResolved = legacyClaudeFull ?? Self.migrateClaudeLegacyBoolFlags(from: defaults)
+
+        var full: [String: [PopoverItemConfig]] = [:]
+        var compact: [String: [PopoverItemConfig]] = [:]
+
+        for service in PopoverService.allCases {
+            let catalog = UsageItemCatalogRegistry.catalog(for: service)
+            let key = service.rawValue
+
+            // Full
+            let fullCandidate: [PopoverItemConfig]?
+            if let v2 = v2Full?[key] {
+                fullCandidate = v2
+            } else {
+                switch service {
+                case .claude: fullCandidate = legacyClaudeFullResolved
+                case .codex: fullCandidate = legacyCodexFull
+                case .gemini, .antigravity: fullCandidate = nil
+                }
+            }
+            full[key] = catalog.normalized(fullCandidate ?? catalog.defaultItems)
+
+            // Compact
+            let compactCandidate: [PopoverItemConfig]?
+            if let v2c = v2Compact?[key] {
+                compactCandidate = v2c
+            } else {
+                switch service {
+                case .claude: compactCandidate = legacyClaudeCompact
+                case .codex: compactCandidate = legacyCodexCompact
+                case .gemini, .antigravity: compactCandidate = nil
+                }
+            }
+            compact[key] = catalog.normalized(compactCandidate ?? full[key]!)
+        }
+
+        return (full, compact)
+    }
+
+    private static func migrateClaudeLegacyBoolFlags(from defaults: UserDefaults) -> [PopoverItemConfig]? {
+        // showModelUsage/showOverageUsage는 v1 이전 (Claude-only) 배열이 저장되기 전의 bool 토글.
+        // 해당 키들이 하나라도 존재해야 마이그레이션을 시도합니다. 전부 nil이면 기본값 사용.
+        let hasModel = defaults.object(forKey: "showModelUsage") != nil
+        let hasOverage = defaults.object(forKey: "showOverageUsage") != nil
+        guard hasModel || hasOverage else { return nil }
+        let showModel = defaults.object(forKey: "showModelUsage") as? Bool ?? true
+        let showOverage = defaults.object(forKey: "showOverageUsage") as? Bool ?? true
+        return [
+            PopoverItemConfig(id: "currentSession", visible: true),
+            PopoverItemConfig(id: "weeklyLimit", visible: true),
+            PopoverItemConfig(id: "modelUsage", visible: showModel),
+            PopoverItemConfig(id: "overageUsage", visible: showOverage),
+        ]
+    }
+
+    private static func decodeDict(_ data: Data?) -> [String: [PopoverItemConfig]]? {
+        guard let data else { return nil }
+        return try? JSONDecoder().decode([String: [PopoverItemConfig]].self, from: data)
+    }
+
+    private static func decodeArray(_ data: Data?) -> [PopoverItemConfig]? {
+        guard let data else { return nil }
+        return try? JSONDecoder().decode([PopoverItemConfig].self, from: data)
+    }
+
+    /// V2 dict 저장 + Claude/Codex 슬롯은 구 키로도 dual-write (다운그레이드 보호).
+    static func persistPopoverItemsByProvider(
+        _ dict: [String: [PopoverItemConfig]],
+        to defaults: UserDefaults
+    ) {
+        if let data = try? JSONEncoder().encode(dict) {
+            defaults.set(data, forKey: popoverItemsByProviderKey)
+        }
+        if let claude = dict[PopoverService.claude.rawValue],
+           let data = try? JSONEncoder().encode(claude) {
+            defaults.set(data, forKey: legacyClaudePopoverKey)
+        }
+        if let codex = dict[PopoverService.codex.rawValue],
+           let data = try? JSONEncoder().encode(codex) {
+            defaults.set(data, forKey: legacyCodexPopoverKey)
+        }
+    }
+
+    static func persistCompactPopoverItemsByProvider(
+        _ dict: [String: [PopoverItemConfig]],
+        to defaults: UserDefaults
+    ) {
+        if let data = try? JSONEncoder().encode(dict) {
+            defaults.set(data, forKey: compactPopoverItemsByProviderKey)
+        }
+        if let claude = dict[PopoverService.claude.rawValue],
+           let data = try? JSONEncoder().encode(claude) {
+            defaults.set(data, forKey: legacyClaudeCompactPopoverKey)
+        }
+        if let codex = dict[PopoverService.codex.rawValue],
+           let data = try? JSONEncoder().encode(codex) {
+            defaults.set(data, forKey: legacyCodexCompactPopoverKey)
+        }
+    }
+
     private static func normalizedMessagesFallbackThreshold(_ value: Int) -> Int {
         min(max(value, 0), 100)
     }
@@ -270,6 +374,32 @@ class AppSettings: ObservableObject {
     @Published var refreshInterval: TimeInterval {
         didSet { defaults.set(refreshInterval, forKey: "refreshInterval") }
     }
+    @Published var usePerProviderRefreshIntervals: Bool {
+        didSet { defaults.set(usePerProviderRefreshIntervals, forKey: "usePerProviderRefreshIntervals") }
+    }
+    @Published var claudeRefreshInterval: TimeInterval {
+        didSet { defaults.set(claudeRefreshInterval, forKey: "claudeRefreshInterval") }
+    }
+    @Published var codexRefreshInterval: TimeInterval {
+        didSet { defaults.set(codexRefreshInterval, forKey: "codexRefreshInterval") }
+    }
+    @Published var geminiRefreshInterval: TimeInterval {
+        didSet { defaults.set(geminiRefreshInterval, forKey: "geminiRefreshInterval") }
+    }
+    @Published var antigravityRefreshInterval: TimeInterval {
+        didSet { defaults.set(antigravityRefreshInterval, forKey: "antigravityRefreshInterval") }
+    }
+
+    func effectiveRefreshInterval(for service: PopoverService) -> TimeInterval {
+        guard usePerProviderRefreshIntervals else { return refreshInterval }
+        switch service {
+        case .claude: return claudeRefreshInterval
+        case .codex: return codexRefreshInterval
+        case .gemini: return geminiRefreshInterval
+        case .antigravity: return antigravityRefreshInterval
+        }
+    }
+
     @Published var autoRefresh: Bool {
         didSet { defaults.set(autoRefresh, forKey: "autoRefresh") }
     }
@@ -352,11 +482,12 @@ class AppSettings: ObservableObject {
     @Published var preferredOrganizationID: String {
         didSet { defaults.set(preferredOrganizationID, forKey: "preferredOrganizationID") }
     }
-    @Published var popoverItems: [PopoverItemConfig] {
+    /// provider별 팝오버 항목 (키=`PopoverService.rawValue`).
+    /// 저장: `popoverItemsV2` (신규 통합 키). 다운그레이드 보호용으로 구 키
+    /// (`popoverItems`, `codexPopoverItems`)에도 dual-write.
+    @Published var popoverItemsByProvider: [String: [PopoverItemConfig]] {
         didSet {
-            if let data = try? JSONEncoder().encode(popoverItems) {
-                defaults.set(data, forKey: "popoverItems")
-            }
+            Self.persistPopoverItemsByProvider(popoverItemsByProvider, to: defaults)
         }
     }
     @Published var separateCompactConfig: Bool {
@@ -364,16 +495,14 @@ class AppSettings: ObservableObject {
             defaults.set(separateCompactConfig, forKey: "separateCompactConfig")
             if separateCompactConfig {
                 // 분리 모드 전환: 기본 설정을 복사하여 시작
-                compactPopoverItems = popoverItems
-                codexCompactPopoverItems = codexPopoverItems
+                compactPopoverItemsByProvider = popoverItemsByProvider
             }
         }
     }
-    @Published var compactPopoverItems: [PopoverItemConfig] {
+    /// provider별 간소화 팝오버 항목 (키=`PopoverService.rawValue`).
+    @Published var compactPopoverItemsByProvider: [String: [PopoverItemConfig]] {
         didSet {
-            if let data = try? JSONEncoder().encode(compactPopoverItems) {
-                defaults.set(data, forKey: "compactPopoverItems")
-            }
+            Self.persistCompactPopoverItemsByProvider(compactPopoverItemsByProvider, to: defaults)
         }
     }
     @Published var showCodexIcon: Bool {
@@ -414,20 +543,6 @@ class AppSettings: ObservableObject {
     @Published var codexAlertEnabled: Bool {
         didSet { defaults.set(codexAlertEnabled, forKey: "codexAlertEnabled") }
     }
-    @Published var codexPopoverItems: [PopoverItemConfig] {
-        didSet {
-            if let data = try? JSONEncoder().encode(codexPopoverItems) {
-                defaults.set(data, forKey: "codexPopoverItems")
-            }
-        }
-    }
-    @Published var codexCompactPopoverItems: [PopoverItemConfig] {
-        didSet {
-            if let data = try? JSONEncoder().encode(codexCompactPopoverItems) {
-                defaults.set(data, forKey: "codexCompactPopoverItems")
-            }
-        }
-    }
     @Published var settingsLastTab: String {
         didSet { defaults.set(settingsLastTab, forKey: "settingsLastTab") }
     }
@@ -449,6 +564,11 @@ class AppSettings: ObservableObject {
         let circularDisplayMode: CircularDisplayMode
         let iconMetric: IconMetric
         let refreshInterval: TimeInterval
+        let usePerProviderRefreshIntervals: Bool
+        let claudeRefreshInterval: TimeInterval
+        let codexRefreshInterval: TimeInterval
+        let geminiRefreshInterval: TimeInterval
+        let antigravityRefreshInterval: TimeInterval
         let autoRefresh: Bool
         let notificationsEnabled: Bool
         let notificationPresets: [NotificationPreset]
@@ -470,9 +590,9 @@ class AppSettings: ObservableObject {
         let codexPopoverCompact: Bool
         let launchAtLogin: Bool
         let preferredOrganizationID: String
-        let popoverItems: [PopoverItemConfig]
+        let popoverItemsByProvider: [String: [PopoverItemConfig]]
         let separateCompactConfig: Bool
-        let compactPopoverItems: [PopoverItemConfig]
+        let compactPopoverItemsByProvider: [String: [PopoverItemConfig]]
         let showCodexIcon: Bool
         let codexPercentageDisplay: PercentageDisplay
         let codexResetTimeDisplay: ResetTimeDisplay
@@ -482,8 +602,6 @@ class AppSettings: ObservableObject {
         let codexIconMetric: IconMetric
         let codexShowBatteryPercent: Bool
         let codexAlertEnabled: Bool
-        let codexPopoverItems: [PopoverItemConfig]
-        let codexCompactPopoverItems: [PopoverItemConfig]
         let providerStates: AppProviderStateCatalog
         let menuBarActiveServiceRawValue: String
         let runtimeProviderDisplayConfigs: [AppProviderKind: ProviderMenuBarDisplayConfig]
@@ -505,6 +623,11 @@ class AppSettings: ObservableObject {
             circularDisplayMode: circularDisplayMode,
             iconMetric: iconMetric,
             refreshInterval: refreshInterval,
+            usePerProviderRefreshIntervals: usePerProviderRefreshIntervals,
+            claudeRefreshInterval: claudeRefreshInterval,
+            codexRefreshInterval: codexRefreshInterval,
+            geminiRefreshInterval: geminiRefreshInterval,
+            antigravityRefreshInterval: antigravityRefreshInterval,
             autoRefresh: autoRefresh,
             notificationsEnabled: notificationsEnabled,
             notificationPresets: notificationPresets,
@@ -526,9 +649,9 @@ class AppSettings: ObservableObject {
             codexPopoverCompact: codexPopoverCompact,
             launchAtLogin: launchAtLogin,
             preferredOrganizationID: preferredOrganizationID,
-            popoverItems: popoverItems,
+            popoverItemsByProvider: popoverItemsByProvider,
             separateCompactConfig: separateCompactConfig,
-            compactPopoverItems: compactPopoverItems,
+            compactPopoverItemsByProvider: compactPopoverItemsByProvider,
             showCodexIcon: showCodexIcon,
             codexPercentageDisplay: codexPercentageDisplay,
             codexResetTimeDisplay: codexResetTimeDisplay,
@@ -538,8 +661,6 @@ class AppSettings: ObservableObject {
             codexIconMetric: codexIconMetric,
             codexShowBatteryPercent: codexShowBatteryPercent,
             codexAlertEnabled: codexAlertEnabled,
-            codexPopoverItems: codexPopoverItems,
-            codexCompactPopoverItems: codexCompactPopoverItems,
             providerStates: providerStates,
             menuBarActiveServiceRawValue: activeMenuBarServiceRawValue,
             runtimeProviderDisplayConfigs: Dictionary(
@@ -577,6 +698,11 @@ class AppSettings: ObservableObject {
         circularDisplayMode = snapshot.circularDisplayMode
         iconMetric = snapshot.iconMetric
         refreshInterval = snapshot.refreshInterval
+        usePerProviderRefreshIntervals = snapshot.usePerProviderRefreshIntervals
+        claudeRefreshInterval = snapshot.claudeRefreshInterval
+        codexRefreshInterval = snapshot.codexRefreshInterval
+        geminiRefreshInterval = snapshot.geminiRefreshInterval
+        antigravityRefreshInterval = snapshot.antigravityRefreshInterval
         autoRefresh = snapshot.autoRefresh
         notificationsEnabled = snapshot.notificationsEnabled
         notificationPresets = snapshot.notificationPresets
@@ -598,9 +724,12 @@ class AppSettings: ObservableObject {
         codexPopoverCompact = snapshot.codexPopoverCompact
         launchAtLogin = snapshot.launchAtLogin
         preferredOrganizationID = snapshot.preferredOrganizationID
-        popoverItems = PopoverItemConfig.normalizedClaude(snapshot.popoverItems)
+        popoverItemsByProvider = Self.normalizedPopoverDict(snapshot.popoverItemsByProvider)
         separateCompactConfig = snapshot.separateCompactConfig
-        compactPopoverItems = PopoverItemConfig.normalizedClaude(snapshot.compactPopoverItems)
+        compactPopoverItemsByProvider = Self.normalizedPopoverDict(
+            snapshot.compactPopoverItemsByProvider,
+            fallback: snapshot.popoverItemsByProvider
+        )
         showCodexIcon = snapshot.showCodexIcon
         codexPercentageDisplay = snapshot.codexPercentageDisplay
         codexResetTimeDisplay = snapshot.codexResetTimeDisplay
@@ -610,8 +739,6 @@ class AppSettings: ObservableObject {
         codexIconMetric = snapshot.codexIconMetric
         codexShowBatteryPercent = snapshot.codexShowBatteryPercent
         codexAlertEnabled = snapshot.codexAlertEnabled
-        codexPopoverItems = PopoverItemConfig.normalizedCodex(snapshot.codexPopoverItems)
-        codexCompactPopoverItems = PopoverItemConfig.normalizedCodex(snapshot.codexCompactPopoverItems)
         providerStates = snapshot.providerStates
         menuBarActiveServiceSelectionRawValue = snapshot.menuBarActiveServiceRawValue
         for (kind, config) in snapshot.runtimeProviderDisplayConfigs {
@@ -674,13 +801,61 @@ class AppSettings: ObservableObject {
         enabledAlertThresholds
     }
 
-    /// 간소화 모드에서 사용할 항목 배열
-    var effectiveCompactItems: [PopoverItemConfig] {
-        separateCompactConfig ? compactPopoverItems : popoverItems
+    /// provider별 팝오버 항목 (정규화 후).
+    func popoverItems(for service: PopoverService) -> [PopoverItemConfig] {
+        let catalog = UsageItemCatalogRegistry.catalog(for: service)
+        return catalog.normalized(popoverItemsByProvider[service.rawValue] ?? catalog.defaultItems)
     }
 
-    var effectiveCompactCodexItems: [PopoverItemConfig] {
-        separateCompactConfig ? codexCompactPopoverItems : codexPopoverItems
+    /// provider별 간소화 팝오버 항목 (정규화 후).
+    func compactPopoverItems(for service: PopoverService) -> [PopoverItemConfig] {
+        let catalog = UsageItemCatalogRegistry.catalog(for: service)
+        let stored = compactPopoverItemsByProvider[service.rawValue]
+            ?? popoverItemsByProvider[service.rawValue]
+            ?? catalog.defaultItems
+        return catalog.normalized(stored)
+    }
+
+    /// density에 맞춰 실제로 사용할 항목 배열.
+    func effectivePopoverItems(for service: PopoverService, density: PopoverDensity) -> [PopoverItemConfig] {
+        if density == .compact && separateCompactConfig {
+            return compactPopoverItems(for: service)
+        }
+        return popoverItems(for: service)
+    }
+
+    /// provider의 항목 배열 업데이트 (정규화 적용).
+    func setPopoverItems(_ items: [PopoverItemConfig], for service: PopoverService) {
+        let catalog = UsageItemCatalogRegistry.catalog(for: service)
+        var dict = popoverItemsByProvider
+        dict[service.rawValue] = catalog.normalized(items)
+        popoverItemsByProvider = dict
+    }
+
+    /// provider의 간소화 항목 배열 업데이트 (정규화 적용).
+    func setCompactPopoverItems(_ items: [PopoverItemConfig], for service: PopoverService) {
+        let catalog = UsageItemCatalogRegistry.catalog(for: service)
+        var dict = compactPopoverItemsByProvider
+        dict[service.rawValue] = catalog.normalized(items)
+        compactPopoverItemsByProvider = dict
+    }
+
+    /// SwiftUI 바인딩.
+    func popoverItemsBinding(for service: PopoverService, isCompact: Bool) -> Binding<[PopoverItemConfig]> {
+        Binding(
+            get: {
+                isCompact
+                    ? self.compactPopoverItems(for: service)
+                    : self.popoverItems(for: service)
+            },
+            set: { newValue in
+                if isCompact {
+                    self.setCompactPopoverItems(newValue, for: service)
+                } else {
+                    self.setPopoverItems(newValue, for: service)
+                }
+            }
+        )
     }
 
     var enabledProviderKinds: [AppProviderKind] {
@@ -1224,6 +1399,16 @@ class AppSettings: ObservableObject {
         circularDisplayMode = .usage
         iconMetric = .fiveHour
         refreshInterval = 30.0
+        usePerProviderRefreshIntervals = false
+        claudeRefreshInterval = 30.0
+        codexRefreshInterval = 60.0
+        geminiRefreshInterval = 60.0
+        antigravityRefreshInterval = 120.0
+        defaults.removeObject(forKey: "usePerProviderRefreshIntervals")
+        defaults.removeObject(forKey: "claudeRefreshInterval")
+        defaults.removeObject(forKey: "codexRefreshInterval")
+        defaults.removeObject(forKey: "geminiRefreshInterval")
+        defaults.removeObject(forKey: "antigravityRefreshInterval")
         autoRefresh = true
         notificationsEnabled = true
         notificationPresets = Self.defaultNotificationPresets
@@ -1246,9 +1431,9 @@ class AppSettings: ObservableObject {
         codexPopoverCompact = false
         launchAtLogin = false
         preferredOrganizationID = ""
-        popoverItems = PopoverItemConfig.defaultClaudeItems
+        popoverItemsByProvider = Self.defaultPopoverItemsDict()
         separateCompactConfig = false
-        compactPopoverItems = PopoverItemConfig.defaultClaudeItems
+        compactPopoverItemsByProvider = Self.defaultPopoverItemsDict()
         showCodexIcon = true
         codexPercentageDisplay = .fiveHour
         codexResetTimeDisplay = .none
@@ -1258,8 +1443,6 @@ class AppSettings: ObservableObject {
         codexIconMetric = .fiveHour
         codexShowBatteryPercent = true
         codexAlertEnabled = false
-        codexPopoverItems = PopoverItemConfig.defaultCodexItems
-        codexCompactPopoverItems = PopoverItemConfig.defaultCodexItems
         clearRuntimeProviderDefaults(for: .gemini)
         clearRuntimeProviderDefaults(for: .antigravity)
         providerStates = AppProviderStateCatalog.defaultCatalog
@@ -1332,6 +1515,11 @@ class AppSettings: ObservableObject {
         let resolvedTimeFormat = TimeFormatStyle(rawValue: tf) ?? .h24
         self.timeFormat = resolvedTimeFormat
         self.refreshInterval = defaults.object(forKey: "refreshInterval") as? TimeInterval ?? 30.0
+        self.usePerProviderRefreshIntervals = defaults.object(forKey: "usePerProviderRefreshIntervals") as? Bool ?? false
+        self.claudeRefreshInterval = defaults.object(forKey: "claudeRefreshInterval") as? TimeInterval ?? 30.0
+        self.codexRefreshInterval = defaults.object(forKey: "codexRefreshInterval") as? TimeInterval ?? 60.0
+        self.geminiRefreshInterval = defaults.object(forKey: "geminiRefreshInterval") as? TimeInterval ?? 60.0
+        self.antigravityRefreshInterval = defaults.object(forKey: "antigravityRefreshInterval") as? TimeInterval ?? 120.0
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
         let storedAlertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
@@ -1425,72 +1613,17 @@ class AppSettings: ObservableObject {
             defaults.set(data, forKey: "providerStates")
         }
 
-        // Claude popover items: JSON 로드 또는 마이그레이션
-        let loadedClaudeItems: [PopoverItemConfig]
-        if let data = defaults.data(forKey: "popoverItems"),
-           let items = try? JSONDecoder().decode([PopoverItemConfig].self, from: data) {
-            loadedClaudeItems = items
-        } else {
-            // 기존 showModelUsage/showOverageUsage에서 마이그레이션
-            let showModel = defaults.object(forKey: "showModelUsage") as? Bool ?? true
-            let showOverage = defaults.object(forKey: "showOverageUsage") as? Bool ?? true
-            loadedClaudeItems = [
-                .init(id: "currentSession", visible: true),
-                .init(id: "weeklyLimit", visible: true),
-                .init(id: "modelUsage", visible: showModel),
-                .init(id: "overageUsage", visible: showOverage),
-            ]
-        }
-        let normalizedClaudeItems = PopoverItemConfig.normalizedClaude(loadedClaudeItems)
-        self.popoverItems = normalizedClaudeItems
+        // Popover items: V2(dict) 우선, 없으면 V1(provider별 배열) 마이그레이션.
+        // 하위버전 다운그레이드 보호를 위해 구 키는 삭제하지 않고 dual-write로 동기화.
         self.separateCompactConfig = defaults.object(forKey: "separateCompactConfig") as? Bool ?? false
-        if let cData = defaults.data(forKey: "compactPopoverItems"),
-           let cItems = try? JSONDecoder().decode([PopoverItemConfig].self, from: cData) {
-            self.compactPopoverItems = PopoverItemConfig.normalizedClaude(cItems)
-        } else {
-            self.compactPopoverItems = normalizedClaudeItems
-        }
-
-        // Codex popover items
-        let normalizedCodexItems: [PopoverItemConfig]
-        if let data = defaults.data(forKey: "codexPopoverItems"),
-           let items = try? JSONDecoder().decode([PopoverItemConfig].self, from: data) {
-            let loaded = PopoverItemConfig.normalizedCodex(items)
-            // 기존 기본값(모두 hidden) → 새 기본값(모두 visible) 마이그레이션
-            normalizedCodexItems = loaded.allSatisfy({ !$0.visible }) ? PopoverItemConfig.defaultCodexItems : loaded
-        } else {
-            normalizedCodexItems = PopoverItemConfig.defaultCodexItems
-        }
-        self.codexPopoverItems = normalizedCodexItems
-        if let cData = defaults.data(forKey: "codexCompactPopoverItems"),
-           let cItems = try? JSONDecoder().decode([PopoverItemConfig].self, from: cData) {
-            self.codexCompactPopoverItems = PopoverItemConfig.normalizedCodex(cItems)
-        } else {
-            self.codexCompactPopoverItems = normalizedCodexItems
-        }
-
-        // 과거/외부 데이터 정리
-        if normalizedClaudeItems != loadedClaudeItems,
-           let data = try? JSONEncoder().encode(normalizedClaudeItems) {
-            defaults.set(data, forKey: "popoverItems")
-        }
-        if let cData = defaults.data(forKey: "compactPopoverItems"),
-           let cItems = try? JSONDecoder().decode([PopoverItemConfig].self, from: cData),
-           PopoverItemConfig.normalizedClaude(cItems) != cItems,
-           let normalizedData = try? JSONEncoder().encode(PopoverItemConfig.normalizedClaude(cItems)) {
-            defaults.set(normalizedData, forKey: "compactPopoverItems")
-        }
-        if let data = defaults.data(forKey: "codexPopoverItems"),
-           let items = try? JSONDecoder().decode([PopoverItemConfig].self, from: data),
-           PopoverItemConfig.normalizedCodex(items) != items,
-           let normalizedData = try? JSONEncoder().encode(PopoverItemConfig.normalizedCodex(items)) {
-            defaults.set(normalizedData, forKey: "codexPopoverItems")
-        }
-        if let cData = defaults.data(forKey: "codexCompactPopoverItems"),
-           let cItems = try? JSONDecoder().decode([PopoverItemConfig].self, from: cData),
-           PopoverItemConfig.normalizedCodex(cItems) != cItems,
-           let normalizedData = try? JSONEncoder().encode(PopoverItemConfig.normalizedCodex(cItems)) {
-            defaults.set(normalizedData, forKey: "codexCompactPopoverItems")
+        let (loadedFullDict, loadedCompactDict) = Self.loadPopoverItemsByProvider(from: defaults)
+        self.popoverItemsByProvider = loadedFullDict
+        self.compactPopoverItemsByProvider = loadedCompactDict
+        // 마이그레이션 버전 스탬프: 2 = dict 기반 V2로 최소 1회 이주 완료.
+        if defaults.integer(forKey: Self.popoverItemsMigrationVersionKey) < Self.currentPopoverItemsMigrationVersion {
+            Self.persistPopoverItemsByProvider(loadedFullDict, to: defaults)
+            Self.persistCompactPopoverItemsByProvider(loadedCompactDict, to: defaults)
+            defaults.set(Self.currentPopoverItemsMigrationVersion, forKey: Self.popoverItemsMigrationVersionKey)
         }
 
         for kind in AppProviderKind.runtimeKinds where kind == .gemini || kind == .antigravity {
