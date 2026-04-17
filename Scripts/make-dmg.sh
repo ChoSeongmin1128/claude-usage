@@ -34,6 +34,8 @@ APP_PATH="${APP_PATH:?APP_PATH is required}"
 DMG_PATH="${DMG_PATH:?DMG_PATH is required}"
 VOLUME_NAME="${VOLUME_NAME:-Install ClaudeUsage}"
 BACKGROUND_PNG="${BACKGROUND_PNG:-$ROOT_DIR/Scripts/dmg-assets/background.png}"
+# 볼륨 아이콘: 미지정 시 앱 번들의 AppIcon.icns 자동 사용
+VOLUME_ICON="${VOLUME_ICON:-$APP_PATH/Contents/Resources/AppIcon.icns}"
 APP_ICON_X="${APP_ICON_X:-150}"
 APP_ICON_Y="${APP_ICON_Y:-190}"
 APPS_ICON_X="${APPS_ICON_X:-390}"
@@ -81,9 +83,16 @@ if [[ -f "$BACKGROUND_PNG" ]]; then
 else
     echo "   배경 없음 (builtin-arrow 사용)"
 fi
+if [[ -f "$VOLUME_ICON" ]]; then
+    echo "   볼륨 아이콘: $VOLUME_ICON"
+else
+    echo "   볼륨 아이콘 없음 (기본 디스크 아이콘 사용)"
+    VOLUME_ICON=""
+fi
 
 DMG_APP_PATH="$APP_PATH" \
 DMG_BACKGROUND_PNG="$BACKGROUND_PNG" \
+DMG_VOLUME_ICON="$VOLUME_ICON" \
 DMG_WINDOW_W="$WINDOW_W" \
 DMG_WINDOW_H="$WINDOW_H" \
 DMG_APP_ICON_X="$APP_ICON_X" \

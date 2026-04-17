@@ -27,6 +27,10 @@ background_path = os.environ.get("DMG_BACKGROUND_PNG", "")
 if background_path and not os.path.isfile(background_path):
     background_path = ""
 
+volume_icon_path = os.environ.get("DMG_VOLUME_ICON", "")
+if volume_icon_path and not os.path.isfile(volume_icon_path):
+    volume_icon_path = ""
+
 # dmgbuild settings
 # https://dmgbuild.readthedocs.io/en/latest/settings.html
 
@@ -62,6 +66,10 @@ if background_path:
     background = background_path
 else:
     background = "builtin-arrow"
+
+# 볼륨 아이콘 (DMG 파일 자체 + 마운트 시 Finder sidebar 에 표시)
+if volume_icon_path:
+    icon = volume_icon_path
 
 # 내부 자동 라이선스/bless 는 비활성 (우리가 수동 서명)
 license = None
