@@ -159,6 +159,12 @@ enum AntigravityStatusProbe {
             cachedProcessAt = now
             processRefreshInFlight = false
             cacheLock.unlock()
+
+            // SettingsView / PopoverView 가 재렌더를 트리거할 수 있게 노티.
+            NotificationCenter.default.post(
+                name: .providerEnvironmentUpdated,
+                object: AppProviderKind.antigravity
+            )
         }
     }
 
@@ -179,6 +185,11 @@ enum AntigravityStatusProbe {
             cachedAppRunningAt = now
             appRunningRefreshInFlight = false
             cacheLock.unlock()
+
+            NotificationCenter.default.post(
+                name: .providerEnvironmentUpdated,
+                object: AppProviderKind.antigravity
+            )
         }
     }
 

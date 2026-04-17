@@ -44,8 +44,11 @@ final class PopoverViewModel: ObservableObject {
     // ProviderEnvironmentDetector 결과 캐시 — SwiftUI body 렌더링 중 블로킹 호출 방지
     private var cachedGeminiEnvStatus: ProviderEnvironmentStatus?
     private var cachedAntigravityEnvStatus: ProviderEnvironmentStatus?
-    private var cachedGeminiSignals = ProviderEnvironmentDetector.geminiSignals()
-    private var cachedAntigravitySignals = ProviderEnvironmentDetector.antigravitySignals()
+    // 초기값은 cache-only — 콜드 캐시면 nil 로 출발해서 환경 warm-up 후에 채워짐.
+    // VM 생성 시점에 /bin/ps · SQLite · JSON 파싱을 돌리면 첫 popover/메뉴바
+    // 클릭이 1초 가까이 버벅거리므로 여기서는 blocking 을 금지한다.
+    private var cachedGeminiSignals: GeminiEnvironmentSignals?
+    private var cachedAntigravitySignals: AntigravityEnvironmentSignals?
 
     var onRefreshService: ((PopoverService) -> Void)?
     var onOpenSettingsForService: ((PopoverService) -> Void)?
@@ -183,10 +186,14 @@ final class PopoverViewModel: ObservableObject {
     private func geminiRuntimeServiceState(settings: AppSettings) -> RuntimeServiceState {
         let isEnabled = settings.isProviderEnabled(.gemini)
         let environmentStatus = cachedGeminiEnvStatus
-        let signals = cachedGeminiSignals
+        let signalsCached = cachedGeminiSignals
+        let signals = signalsCached ?? .empty
         let snapshot = runtimeSnapshots[.gemini]
         let runtimeError = snapshot?.error
         let requiresInteractiveSetup: Bool = {
+            // 환경 감지 캐시가 아직 없으면 "인증 필요" 판정을 보류 — UI가 잠깐
+            // 엉뚱한 auth prompt 를 띄우는 걸 막는다.
+            guard signalsCached != nil else { return false }
             if !signals.hasBinary { return signals.credentialState == .missing }
             switch signals.authType {
             case .apiKey, .vertexAI: return true
@@ -223,10 +230,15 @@ final class PopoverViewModel: ObservableObject {
     private func antigravityRuntimeServiceState(settings: AppSettings) -> RuntimeServiceState {
         let isEnabled = settings.isProviderEnabled(.antigravity)
         let environmentStatus = cachedAntigravityEnvStatus
-        let signals = cachedAntigravitySignals
+        let signalsCached = cachedAntigravitySignals
+        let signals = signalsCached ?? .empty
         let snapshot = runtimeSnapshots[.antigravity]
         let runtimeError = snapshot?.error
-        let requiresInteractiveSetup = !signals.hasRuntimeConnection && !signals.hasPersistedAuthState
+        // 캐시 cold 상태에서는 auth prompt 를 보류 — warm-up 끝나면 정확한 상태로 전환.
+        let requiresInteractiveSetup: Bool = {
+            guard signalsCached != nil else { return false }
+            return !signals.hasRuntimeConnection && !signals.hasPersistedAuthState
+        }()
         let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
         let isAuthRequired = isEnabled
             && requiresInteractiveSetup
@@ -376,6 +388,10 @@ final class PopoverViewModel: ObservableObject {
         // 읽기는 이미 캐시된 값만 (백그라운드 워밍이 주기적으로 업데이트).
         self.cachedGeminiEnvStatus = ProviderEnvironmentDetector.cachedStatus(for: .gemini)
         self.cachedAntigravityEnvStatus = ProviderEnvironmentDetector.cachedStatus(for: .antigravity)
+        // signals 도 캐시된 값만. 콜드 캐시면 nil → 백그라운드 warm-up 으로
+        // 채워진 뒤 다음 update() 에서 반영됨.
+        self.cachedGeminiSignals = ProviderEnvironmentDetector.cachedGeminiSignals()
+        self.cachedAntigravitySignals = ProviderEnvironmentDetector.cachedAntigravitySignals()
         // signals 는 대부분 FS/파일 접근이라 빠르지만 Gemini 의 바이너리
         // lookup 이 최초 1회 /bin/sh 를 호출하므로 백그라운드에서 업데이트.
         ProviderEnvironmentDetector.refreshAllInBackground()
@@ -471,9 +487,11 @@ final class PopoverViewModel: ObservableObject {
         case .gemini:
             let isEnabled = settings.isProviderEnabled(.gemini)
             let environmentStatus = cachedGeminiEnvStatus
-            let signals = cachedGeminiSignals
+            let signalsCached = cachedGeminiSignals
+            let signals = signalsCached ?? .empty
             let snapshot = runtimeSnapshots[.gemini]
             let requiresInteractiveSetup: Bool = {
+                guard signalsCached != nil else { return false }
                 if !signals.hasBinary { return signals.credentialState == .missing }
                 switch signals.authType {
                 case .apiKey, .vertexAI: return true
@@ -496,9 +514,13 @@ final class PopoverViewModel: ObservableObject {
         case .antigravity:
             let isEnabled = settings.isProviderEnabled(.antigravity)
             let environmentStatus = cachedAntigravityEnvStatus
-            let signals = cachedAntigravitySignals
+            let signalsCached = cachedAntigravitySignals
+            let signals = signalsCached ?? .empty
             let snapshot = runtimeSnapshots[.antigravity]
-            let requiresInteractiveSetup = !signals.hasRuntimeConnection && !signals.hasPersistedAuthState
+            let requiresInteractiveSetup: Bool = {
+                guard signalsCached != nil else { return false }
+                return !signals.hasRuntimeConnection && !signals.hasPersistedAuthState
+            }()
             let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
             let isAuthRequired = isEnabled
                 && requiresInteractiveSetup

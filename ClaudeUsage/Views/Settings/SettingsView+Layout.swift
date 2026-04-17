@@ -50,10 +50,19 @@ extension SettingsView {
             loadUsageHealthSnapshot()
             checkCodexAuth()
             refreshUpdateEnginePresentation()
+            // Settings 창이 뜬 순간부터 백그라운드에서 환경 감지 warm-up.
+            // UI 스레드는 블로킹되지 않고, warm-up 완료 시 Notification 로 재렌더.
+            ProviderEnvironmentDetector.refreshAllInBackground()
+            AntigravityStatusProbe.refreshAllInBackground()
         }
         .onReceive(NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange)) { _ in
             syncStoredSessionKeyState()
             loadUsageHealthSnapshot()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .providerEnvironmentUpdated)) { _ in
+            // 백그라운드 환경 감지 결과가 들어왔을 때 SettingsView 를 재렌더.
+            // 각 패널의 runtimeEnvironmentRefreshTick 읽기가 dependency 를 만듦.
+            runtimeEnvironmentRefreshTick &+= 1
         }
         .onChange(of: sessionKey) { _, _ in
             testResult = nil
@@ -68,6 +77,18 @@ extension SettingsView {
             if panel == .codex {
                 checkCodexAuth()
             }
+            // 패널 자체가 .gemini / .antigravity 로 바뀌는 경우 background warm-up.
+            switch panel {
+            case .gemini:
+                ProviderEnvironmentDetector.refreshStatusInBackground(for: .gemini)
+                ProviderEnvironmentDetector.refreshGeminiSignalsInBackground()
+            case .antigravity:
+                ProviderEnvironmentDetector.refreshStatusInBackground(for: .antigravity)
+                ProviderEnvironmentDetector.refreshAntigravitySignalsInBackground()
+                AntigravityStatusProbe.refreshAllInBackground()
+            default:
+                break
+            }
         }
         .onChange(of: selectedClaudeTab) { _, tab in
             settings.setProviderSettingsLastTab(tab, for: .claude)
@@ -80,9 +101,17 @@ extension SettingsView {
         }
         .onChange(of: selectedGeminiTab) { _, tab in
             settings.setProviderSettingsLastTab(tab, for: .gemini)
+            // 탭 전환 시 환경 정보가 오래됐을 수 있으므로 백그라운드 갱신 예약.
+            ProviderEnvironmentDetector.refreshStatusInBackground(for: .gemini)
+            ProviderEnvironmentDetector.refreshGeminiSignalsInBackground()
         }
         .onChange(of: selectedAntigravityTab) { _, tab in
             settings.setProviderSettingsLastTab(tab, for: .antigravity)
+            // Antigravity 는 /bin/ps · NSWorkspace · SQLite 를 건드리므로
+            // 탭 전환 직전에 background warm-up 을 걸어서 UI 블로킹을 막는다.
+            ProviderEnvironmentDetector.refreshStatusInBackground(for: .antigravity)
+            ProviderEnvironmentDetector.refreshAntigravitySignalsInBackground()
+            AntigravityStatusProbe.refreshAllInBackground()
         }
         .onChange(of: settings.updateCheckInterval) { _, _ in
             refreshUpdateEnginePresentation()

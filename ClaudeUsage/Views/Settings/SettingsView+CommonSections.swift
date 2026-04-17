@@ -497,12 +497,12 @@ extension SettingsView {
             case .codex:
                 return CodexAuthManager.shared.isAuthenticated ? "활성" : "인증 필요"
             case .gemini:
-                if ProviderEnvironmentDetector.requiresInteractiveSetup(for: .gemini) {
+                if ProviderEnvironmentDetector.requiresInteractiveSetupFromCache(for: .gemini) {
                     return "로그인 필요"
                 }
                 return "활성"
             case .antigravity:
-                if ProviderEnvironmentDetector.requiresInteractiveSetup(for: .antigravity) {
+                if ProviderEnvironmentDetector.requiresInteractiveSetupFromCache(for: .antigravity) {
                     return "앱 실행 필요"
                 }
                 return "활성"
@@ -519,7 +519,8 @@ extension SettingsView {
             return "활성화하면 메뉴바와 조회 경로에 바로 연결됩니다."
         }
 
-        let environmentStatus = ProviderEnvironmentDetector.status(for: provider)
+        // UI 경로 — SWR 로 캐시만 읽고 blocking 없이 리턴.
+        let environmentStatus = ProviderEnvironmentDetector.staleWhileRevalidate(for: provider)
 
         if selectionState.shellEnabledKinds.contains(provider) {
             if let environmentStatus, environmentStatus.isDetected {

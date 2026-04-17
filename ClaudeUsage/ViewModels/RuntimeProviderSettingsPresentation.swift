@@ -37,23 +37,90 @@ struct RuntimeProviderAuthPresentation: Sendable, Equatable {
 }
 
 enum RuntimeProviderSettingsPresentation {
+    /// UI 경로용 — cache-only. 캐시 miss 면 "환경 확인 중" presentation 리턴 +
+    /// 백그라운드 warm-up. warm-up 끝나면 `.providerEnvironmentUpdated` 노티로
+    /// SettingsView 가 재렌더.
     static func authPresentation(for provider: AppProviderKind, isEnabled: Bool) -> RuntimeProviderAuthPresentation? {
         switch provider {
         case .gemini:
+            let environmentStatus = ProviderEnvironmentDetector.staleWhileRevalidate(for: .gemini)
+            guard let signals = ProviderEnvironmentDetector.cachedGeminiSignals() else {
+                return makeProbingFallback(provider: .gemini, isEnabled: isEnabled, environmentStatus: environmentStatus)
+            }
             return makeGemini(
                 isEnabled: isEnabled,
-                environmentStatus: ProviderEnvironmentDetector.status(for: .gemini),
-                signals: ProviderEnvironmentDetector.geminiSignals()
+                environmentStatus: environmentStatus,
+                signals: signals
             )
         case .antigravity:
+            let environmentStatus = ProviderEnvironmentDetector.staleWhileRevalidate(for: .antigravity)
+            guard let signals = ProviderEnvironmentDetector.cachedAntigravitySignals() else {
+                return makeProbingFallback(provider: .antigravity, isEnabled: isEnabled, environmentStatus: environmentStatus)
+            }
             return makeAntigravity(
                 isEnabled: isEnabled,
-                environmentStatus: ProviderEnvironmentDetector.status(for: .antigravity),
-                signals: ProviderEnvironmentDetector.antigravitySignals()
+                environmentStatus: environmentStatus,
+                signals: signals
             )
         case .claude, .codex:
             return nil
         }
+    }
+
+    /// 캐시가 아직 없을 때 보여 줄 임시 "환경 읽는 중" 상태.
+    /// 이 상태에서는 signals 가 없으므로 기본 힌트만 제공.
+    private static func makeProbingFallback(
+        provider: AppProviderKind,
+        isEnabled: Bool,
+        environmentStatus: ProviderEnvironmentStatus?
+    ) -> RuntimeProviderAuthPresentation {
+        let providerName: String = {
+            switch provider {
+            case .gemini: return "Gemini"
+            case .antigravity: return "Antigravity"
+            default: return "provider"
+            }
+        }()
+        let pathHints: [String] = {
+            switch provider {
+            case .gemini: return geminiPathHints
+            case .antigravity: return antigravityPathHints
+            default: return []
+            }
+        }()
+        let detectorSummary = environmentStatus?.summary ?? "\(providerName) 환경 상태를 아직 읽지 못했습니다"
+
+        if !isEnabled {
+            return .init(
+                stage: .disabled,
+                badgeTitle: "비활성",
+                badgeTone: .secondary,
+                summary: "\(providerName) provider를 켜야 상태 확인을 시작합니다",
+                primaryActionTitle: "먼저 provider 활성화",
+                primaryActionDetail: "활성화 후 환경을 다시 읽습니다.",
+                detectorSummary: detectorSummary,
+                steps: [
+                    .init(title: "활성화", detail: "\(providerName) provider를 켭니다."),
+                    .init(title: "환경 확인", detail: "첫 환경 감지를 기다립니다."),
+                ],
+                pathHints: pathHints
+            )
+        }
+
+        return .init(
+            stage: .probingRuntime,
+            badgeTitle: "환경 읽는 중",
+            badgeTone: .blue,
+            summary: "\(providerName) 환경을 백그라운드에서 확인하는 중입니다",
+            primaryActionTitle: "잠시 대기",
+            primaryActionDetail: "확인이 끝나면 상태가 자동으로 갱신됩니다.",
+            detectorSummary: detectorSummary,
+            steps: [
+                .init(title: "환경 감지", detail: "CLI · 앱 · 로그인 상태를 백그라운드에서 확인합니다."),
+                .init(title: "자동 갱신", detail: "결과가 들어오면 화면이 바로 갱신됩니다."),
+            ],
+            pathHints: pathHints
+        )
     }
 
     static func makeGemini(

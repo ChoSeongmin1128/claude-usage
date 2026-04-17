@@ -57,6 +57,30 @@ struct AntigravityEnvironmentSignals: Sendable, Equatable {
         guard let process = runningProcess else { return false }
         return process.csrfToken?.isEmpty == false && (process.extensionPort != nil || process.httpsServerPort != nil)
     }
+
+    /// cache-miss fallback. 실제 감지 전까지 "정보 없음" 을 의미.
+    static let empty = AntigravityEnvironmentSignals(
+        hasStateDirectory: false,
+        appRunning: false,
+        runningProcess: nil,
+        hasAuthStatus: false,
+        hasOAuthToken: false
+    )
+}
+
+extension GeminiEnvironmentSignals {
+    /// cache-miss fallback. 실제 감지 전까지 "정보 없음" 을 의미.
+    static let empty = GeminiEnvironmentSignals(
+        hasBinary: false,
+        authType: .unknown,
+        credentialState: .missing
+    )
+}
+
+extension Notification.Name {
+    /// 백그라운드 환경 감지/갱신이 끝났을 때 브로드캐스트.
+    /// SettingsView / PopoverView 가 subscribe 해서 재렌더를 트리거.
+    static let providerEnvironmentUpdated = Notification.Name("com.claudeusage.providerEnvironmentUpdated")
 }
 
 enum ProviderEnvironmentDetector {
@@ -77,14 +101,44 @@ enum ProviderEnvironmentDetector {
     private static let staleAllowance: TimeInterval = 300
     private static var inflightRefresh: Set<AppProviderKind> = []
 
+    // MARK: - Signals cache (antigravitySignals/geminiSignals 결과 캐시)
+    // SQLite · JSON 파싱 · 파일 IO 를 포함해서 blocking 비용이 있으므로
+    // UI 경로용 cachedAntigravitySignals/cachedGeminiSignals 에서 재활용.
+
+    private struct CachedAntigravitySignals {
+        let signals: AntigravityEnvironmentSignals
+        let cachedAt: Date
+    }
+
+    private struct CachedGeminiSignals {
+        let signals: GeminiEnvironmentSignals
+        let cachedAt: Date
+    }
+
+    private static var cachedAntigravitySignalsValue: CachedAntigravitySignals?
+    private static var cachedGeminiSignalsValue: CachedGeminiSignals?
+    private static let signalsCacheLock = NSLock()
+    private static let signalsCacheTTL: TimeInterval = 5
+    private static var antigravitySignalsInflight = false
+    private static var geminiSignalsInflight = false
+
     static func invalidateCache(for kind: AppProviderKind? = nil) {
         statusCacheLock.lock()
-        defer { statusCacheLock.unlock() }
         if let kind {
             statusCache.removeValue(forKey: kind)
         } else {
             statusCache.removeAll()
         }
+        statusCacheLock.unlock()
+
+        signalsCacheLock.lock()
+        if kind == nil || kind == .antigravity {
+            cachedAntigravitySignalsValue = nil
+        }
+        if kind == nil || kind == .gemini {
+            cachedGeminiSignalsValue = nil
+        }
+        signalsCacheLock.unlock()
     }
 
     /// 동기 API (구 버전 호환). cache miss 시 여전히 blocking 이므로 UI
@@ -159,12 +213,41 @@ enum ProviderEnvironmentDetector {
         // _uncachedStatus 는 subprocess/SQLite/파일 IO 를 blocking 으로 수행하지만
         // UI 스레드 밖이므로 문제 없음.
         DispatchQueue.global(qos: .utility).async {
-            let result = _uncachedStatus(for: kind)
+            // status 가 signals 를 내부에서 쓰므로 signals 캐시도 함께 갱신됨
+            // (아래 _uncachedStatus → *Signals() 경로는 blocking 이지만 백그라운드).
+            let signalsResult = backgroundWarmSignals(for: kind)
+            let result = _uncachedStatus(for: kind, precomputedSignals: signalsResult)
             let now = Date()
             statusCacheLock.lock()
             statusCache[kind] = CachedStatus(status: result, cachedAt: now)
             inflightRefresh.remove(kind)
             statusCacheLock.unlock()
+
+            NotificationCenter.default.post(
+                name: .providerEnvironmentUpdated,
+                object: kind
+            )
+        }
+    }
+
+    /// 백그라운드에서 antigravity/gemini signals 를 계산해 signals 캐시까지 채움.
+    /// claude/codex 는 해당 없음 → nil 반환.
+    private nonisolated static func backgroundWarmSignals(for kind: AppProviderKind) -> Any? {
+        switch kind {
+        case .antigravity:
+            let signals = uncachedAntigravitySignals()
+            signalsCacheLock.lock()
+            cachedAntigravitySignalsValue = CachedAntigravitySignals(signals: signals, cachedAt: Date())
+            signalsCacheLock.unlock()
+            return signals
+        case .gemini:
+            let signals = uncachedGeminiSignals()
+            signalsCacheLock.lock()
+            cachedGeminiSignalsValue = CachedGeminiSignals(signals: signals, cachedAt: Date())
+            signalsCacheLock.unlock()
+            return signals
+        case .claude, .codex:
+            return nil
         }
     }
 
@@ -179,7 +262,10 @@ enum ProviderEnvironmentDetector {
         refreshStatusInBackground(for: kind)
     }
 
-    private static func _uncachedStatus(for kind: AppProviderKind) -> ProviderEnvironmentStatus? {
+    private static func _uncachedStatus(
+        for kind: AppProviderKind,
+        precomputedSignals: Any? = nil
+    ) -> ProviderEnvironmentStatus? {
         switch kind {
         case .claude:
             return nil
@@ -191,9 +277,90 @@ enum ProviderEnvironmentDetector {
                 summary: CodexAuthManager.shared.isAuthenticated ? "CLI/OAuth 인증 감지" : "CLI/OAuth 인증 미감지"
             )
         case .gemini:
-            return interpretGemini(signals: geminiSignals())
+            let signals = (precomputedSignals as? GeminiEnvironmentSignals) ?? geminiSignals()
+            return interpretGemini(signals: signals)
         case .antigravity:
-            return interpretAntigravity(signals: antigravitySignals())
+            let signals = (precomputedSignals as? AntigravityEnvironmentSignals) ?? antigravitySignals()
+            return interpretAntigravity(signals: signals)
+        }
+    }
+
+    // MARK: - Cached signals (UI-path friendly)
+
+    /// 캐시된 signals 만 반환. 캐시 miss 면 nil + 백그라운드 warm-up 예약.
+    /// UI 메인 스레드는 이것만 호출해서 /bin/ps · SQLite · JSON 파싱 blocking
+    /// 을 회피.
+    static func cachedAntigravitySignals() -> AntigravityEnvironmentSignals? {
+        let now = Date()
+        signalsCacheLock.lock()
+        let cached = cachedAntigravitySignalsValue
+        let needsRefresh = cached.map { now.timeIntervalSince($0.cachedAt) >= signalsCacheTTL } ?? true
+        signalsCacheLock.unlock()
+
+        if needsRefresh {
+            refreshAntigravitySignalsInBackground()
+        }
+        return cached?.signals
+    }
+
+    static func cachedGeminiSignals() -> GeminiEnvironmentSignals? {
+        let now = Date()
+        signalsCacheLock.lock()
+        let cached = cachedGeminiSignalsValue
+        let needsRefresh = cached.map { now.timeIntervalSince($0.cachedAt) >= signalsCacheTTL } ?? true
+        signalsCacheLock.unlock()
+
+        if needsRefresh {
+            refreshGeminiSignalsInBackground()
+        }
+        return cached?.signals
+    }
+
+    nonisolated static func refreshAntigravitySignalsInBackground() {
+        signalsCacheLock.lock()
+        if antigravitySignalsInflight {
+            signalsCacheLock.unlock()
+            return
+        }
+        antigravitySignalsInflight = true
+        signalsCacheLock.unlock()
+
+        DispatchQueue.global(qos: .utility).async {
+            let signals = uncachedAntigravitySignals()
+            let now = Date()
+            signalsCacheLock.lock()
+            cachedAntigravitySignalsValue = CachedAntigravitySignals(signals: signals, cachedAt: now)
+            antigravitySignalsInflight = false
+            signalsCacheLock.unlock()
+
+            NotificationCenter.default.post(
+                name: .providerEnvironmentUpdated,
+                object: AppProviderKind.antigravity
+            )
+        }
+    }
+
+    nonisolated static func refreshGeminiSignalsInBackground() {
+        signalsCacheLock.lock()
+        if geminiSignalsInflight {
+            signalsCacheLock.unlock()
+            return
+        }
+        geminiSignalsInflight = true
+        signalsCacheLock.unlock()
+
+        DispatchQueue.global(qos: .utility).async {
+            let signals = uncachedGeminiSignals()
+            let now = Date()
+            signalsCacheLock.lock()
+            cachedGeminiSignalsValue = CachedGeminiSignals(signals: signals, cachedAt: now)
+            geminiSignalsInflight = false
+            signalsCacheLock.unlock()
+
+            NotificationCenter.default.post(
+                name: .providerEnvironmentUpdated,
+                object: AppProviderKind.gemini
+            )
         }
     }
 
@@ -365,7 +532,17 @@ enum ProviderEnvironmentDetector {
         }
     }
 
+    /// Blocking. 백그라운드 경로 전용 — UI 메인 스레드에서 호출하지 말 것.
+    /// /bin/ps · NSWorkspace · SQLite · 파일 IO 를 모두 포함.
     static func antigravitySignals() -> AntigravityEnvironmentSignals {
+        let signals = uncachedAntigravitySignals()
+        signalsCacheLock.lock()
+        cachedAntigravitySignalsValue = CachedAntigravitySignals(signals: signals, cachedAt: Date())
+        signalsCacheLock.unlock()
+        return signals
+    }
+
+    private static func uncachedAntigravitySignals() -> AntigravityEnvironmentSignals {
         let hasLegacyStateDirectory = FileManager.default.fileExists(
             atPath: FileManager.default.realHomeDirectory
                 .appendingPathComponent(".gemini/antigravity").path
@@ -542,7 +719,17 @@ enum ProviderEnvironmentDetector {
         return GeminiAuthType(rawValue: selectedType) ?? .unknown
     }
 
+    /// Blocking. 백그라운드 경로 전용.
+    /// CLI 탐색 + JSON 파싱 포함.
     static func geminiSignals() -> GeminiEnvironmentSignals {
+        let signals = uncachedGeminiSignals()
+        signalsCacheLock.lock()
+        cachedGeminiSignalsValue = CachedGeminiSignals(signals: signals, cachedAt: Date())
+        signalsCacheLock.unlock()
+        return signals
+    }
+
+    private static func uncachedGeminiSignals() -> GeminiEnvironmentSignals {
         GeminiEnvironmentSignals(
             hasBinary: binaryExists(named: "gemini"),
             authType: geminiAuthType(),
