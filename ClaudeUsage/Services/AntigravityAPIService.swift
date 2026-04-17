@@ -149,24 +149,30 @@ actor AntigravityAPIService {
 
     func fetchUsage() async throws -> AntigravityUsageResponse {
         let processInfo = try detectProcessInfo()
+        let effectiveCsrfToken = processInfo.csrfToken
 
-        // 우선순위: https_server_port + csrf_token (language server 직접 연결)
-        // fallback: lsof로 발견한 포트 또는 extension_server_port
-        let connectPort: Int
-        let effectiveCsrfToken: String
+        Logger.info("[Antigravity] process pid=\(processInfo.pid) httpsHint=\(processInfo.httpsServerPort.map(String.init) ?? "-") extHint=\(processInfo.extensionPort.map(String.init) ?? "-")")
 
-        if let httpsPort = processInfo.httpsServerPort {
-            connectPort = httpsPort
-            effectiveCsrfToken = processInfo.csrfToken
-            Logger.info("Antigravity: https_server_port=\(httpsPort) csrf=\(processInfo.csrfToken.prefix(12))...")
-        } else {
-            let listeningPorts = try detectListeningPorts(pid: processInfo.pid, preferredPort: processInfo.extensionPort)
-            effectiveCsrfToken = processInfo.csrfToken
-            connectPort = try await resolveConnectPort(
-                ports: listeningPorts,
-                csrfToken: effectiveCsrfToken
-            )
+        // CodexBar 방식: 프로세스 플래그(https_server_port/extension_server_port)와 lsof 결과를
+        // 모두 합친 후보 포트 리스트를 만들고, 각 포트에 GetUnleashData probe로 working 포트를 찾음.
+        // https_server_port만 쓰는 shortcut은 해당 포트가 닫혔을 때 전체 실패하므로 제거.
+        var candidatePorts: [Int] = []
+        if let https = processInfo.httpsServerPort { candidatePorts.append(https) }
+        if let ext = processInfo.extensionPort { candidatePorts.append(ext) }
+
+        // lsof로 실제 LISTEN 포트를 전부 수집 (실패해도 위의 hint만으로 시도)
+        let lsofPorts = (try? await detectListeningPortsAsync(pid: processInfo.pid)) ?? []
+        candidatePorts.append(contentsOf: lsofPorts)
+        candidatePorts = uniqueOrdered(candidatePorts)
+        Logger.info("[Antigravity] candidate ports = \(candidatePorts)")
+
+        guard !candidatePorts.isEmpty else {
+            AntigravityStatusProbe.invalidateCache()
+            throw APIError.networkError("Antigravity connect 포트를 찾지 못했습니다. 잠시 후 다시 시도해주세요")
         }
+
+        let connectPort = try await resolveConnectPort(ports: candidatePorts, csrfToken: effectiveCsrfToken)
+        Logger.info("[Antigravity] selected working port = \(connectPort)")
 
         let context = RequestContext(
             httpsPort: connectPort,
@@ -181,11 +187,13 @@ actor AntigravityAPIService {
                 context: context
             )
             return try parseUserStatusResponse(response)
-        } catch let apiError as APIError {
-            if apiError.isDefinitiveAuthFailure {
-                throw apiError
-            }
+        } catch let apiError as APIError where apiError.isDefinitiveAuthFailure {
+            // 401/403: 세션 만료. 캐시 날리고 다음 호출에서 재감지.
+            AntigravityStatusProbe.invalidateCache()
+            Logger.warning("[Antigravity] auth failure — cache invalidated")
+            throw apiError
         } catch {
+            Logger.warning("[Antigravity] GetUserStatus 실패: \(error.localizedDescription). GetCommandModelConfigs fallback")
             let response = try await makeRequest(
                 path: commandModelConfigPath,
                 body: defaultRequestBody(),
@@ -193,13 +201,15 @@ actor AntigravityAPIService {
             )
             return try parseCommandModelResponse(response)
         }
+    }
 
-        let response = try await makeRequest(
-            path: commandModelConfigPath,
-            body: defaultRequestBody(),
-            context: context
-        )
-        return try parseCommandModelResponse(response)
+    private func uniqueOrdered(_ values: [Int]) -> [Int] {
+        var seen = Set<Int>()
+        var result: [Int] = []
+        for v in values where seen.insert(v).inserted {
+            result.append(v)
+        }
+        return result
     }
 
     func fetchUsageWithRetry(maxAttempts: Int = 3) async throws -> AntigravityUsageResponse {
@@ -210,6 +220,7 @@ actor AntigravityAPIService {
                 return try await fetchUsage()
             } catch let error as APIError {
                 if error.isDefinitiveAuthFailure {
+                    // 이미 fetchUsage 내에서 cache invalidate됨
                     throw error
                 }
                 lastError = error
@@ -218,7 +229,10 @@ actor AntigravityAPIService {
             }
 
             if attempt < maxAttempts {
-                let delay = UInt64(pow(2.0, Double(attempt - 1)) * 1_000_000_000)
+                // 재시도 전 프로세스 정보를 강제로 재탐지 — 포트/CSRF가 바뀌었을 가능성
+                AntigravityStatusProbe.invalidateCache()
+                Logger.info("[Antigravity] attempt \(attempt) 실패, cache invalidate 후 재시도")
+                let delay = UInt64(pow(2.0, Double(attempt - 1)) * 500_000_000) // 0.5s, 1s
                 try await Task.sleep(nanoseconds: delay)
             }
         }
@@ -401,41 +415,92 @@ actor AntigravityAPIService {
         )
     }
 
-    private func detectListeningPorts(pid: Int, preferredPort: Int?) throws -> [Int] {
-        // App Sandbox에서 lsof Process() 실행이 제한될 수 있으므로
-        // preferredPort(extension_server_port)가 있으면 우선 사용합니다.
-        if let preferredPort {
-            return [preferredPort]
-        }
-
+    /// App Sandbox 제거 후 lsof를 항상 실행합니다. CodexBar와 동일 전략.
+    /// 결과가 비어있어도 throw하지 않고 빈 배열을 반환하도록 조정했습니다 —
+    /// 호출자가 프로세스 플래그 힌트와 병합해서 사용하도록.
+    private func detectListeningPortsAsync(pid: Int) async throws -> [Int] {
         let lsofCandidates = ["/usr/sbin/lsof", "/usr/bin/lsof"]
         guard let executable = lsofCandidates.first(where: FileManager.default.isExecutableFile(atPath:)) else {
-            throw APIError.networkError("lsof가 없습니다")
+            Logger.warning("[Antigravity] lsof 바이너리 없음")
+            return []
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = ["-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", String(pid)]
-
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-        } catch {
-            throw APIError.networkError(error.localizedDescription)
-        }
-
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        let raw = String(decoding: data, as: UTF8.self)
-        let ports = parseListeningPorts(raw)
-        guard !ports.isEmpty else {
-            throw APIError.networkError("Antigravity는 실행 중이지만 아직 listening port를 열지 않았습니다")
-        }
+        let output = try await runSubprocessAsync(
+            executable: executable,
+            arguments: ["-nP", "-iTCP", "-sTCP:LISTEN", "-a", "-p", String(pid)],
+            timeout: 3.0,
+            label: "antigravity-lsof"
+        )
+        let ports = parseListeningPorts(output)
+        Logger.info("[Antigravity] lsof 발견 포트 = \(ports)")
         return ports
+    }
+
+    /// `Process` 호출을 termination handler 기반 async로 래핑합니다.
+    /// waitUntilExit()의 main thread RunLoop 재진입 이슈를 회피하고 timeout을 강제합니다.
+    private func runSubprocessAsync(
+        executable: String,
+        arguments: [String],
+        timeout: TimeInterval,
+        label: String
+    ) async throws -> String {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = arguments
+            process.standardInput = FileHandle(forReadingAtPath: "/dev/null")
+            let stdout = Pipe()
+            let stderr = Pipe()
+            process.standardOutput = stdout
+            process.standardError = stderr
+
+            // 동시에 여러 번 resume되지 않도록 보호
+            let lock = NSLock()
+            var finished = false
+            func resume(_ action: () -> Void) {
+                lock.lock()
+                defer { lock.unlock() }
+                guard !finished else { return }
+                finished = true
+                action()
+            }
+
+            process.terminationHandler = { proc in
+                let data = stdout.fileHandleForReading.readDataToEndOfFile()
+                let text = String(data: data, encoding: .utf8) ?? ""
+                if proc.terminationStatus == 0 {
+                    resume { continuation.resume(returning: text) }
+                } else {
+                    let errData = stderr.fileHandleForReading.readDataToEndOfFile()
+                    let errText = String(data: errData, encoding: .utf8) ?? ""
+                    resume {
+                        continuation.resume(throwing: APIError.networkError(
+                            "\(label) exit=\(proc.terminationStatus) stderr=\(errText.prefix(200))"
+                        ))
+                    }
+                }
+            }
+
+            do {
+                try process.run()
+            } catch {
+                resume { continuation.resume(throwing: APIError.networkError("\(label) 실행 실패: \(error.localizedDescription)")) }
+                return
+            }
+
+            // timeout watchdog
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                lock.lock()
+                let alreadyFinished = finished
+                lock.unlock()
+                guard !alreadyFinished else { return }
+                if process.isRunning {
+                    Logger.warning("[Antigravity] \(label) 타임아웃(\(timeout)s) — terminate")
+                    process.terminate()
+                }
+                resume { continuation.resume(throwing: APIError.networkError("\(label) 타임아웃")) }
+            }
+        }
     }
 
     private func parseListeningPorts(_ output: String) -> [Int] {
@@ -457,6 +522,9 @@ actor AntigravityAPIService {
                 return port
             }
         }
+        // 모든 포트 probe 실패 — 프로세스 정보가 stale할 가능성이 높음
+        AntigravityStatusProbe.invalidateCache()
+        Logger.warning("[Antigravity] 모든 후보 포트 probe 실패 \(ports) — 캐시 무효화")
         throw APIError.networkError("Antigravity connect 포트를 찾지 못했습니다. 잠시 후 다시 시도해주세요")
     }
 
@@ -469,7 +537,13 @@ actor AntigravityAPIService {
             do {
                 _ = try await makeRequest(path: userStatusPath, body: defaultRequestBody(), context: context)
                 return true
+            } catch let apiError as APIError where apiError.isDefinitiveAuthFailure {
+                // 401/403은 "포트는 살아있지만 토큰이 stale"한 상황.
+                // working 포트로 인정하고 상위에서 auth 에러로 처리하도록 한다.
+                Logger.info("[Antigravity] port \(port) 응답 있음(auth 실패) — 포트는 OK")
+                return true
             } catch {
+                Logger.debug("[Antigravity] port \(port) probe 실패: \(error.localizedDescription)")
                 return false
             }
         }
@@ -579,10 +653,14 @@ actor AntigravityAPIService {
         case 200:
             return data
         case 401, 403:
+            // 세션/토큰 만료: 호출자가 cache invalidate 할 수 있도록 isDefinitiveAuthFailure로 분류됨
+            Logger.warning("[Antigravity] HTTP \(httpResponse.statusCode) — session/token expired (\(scheme)://127.0.0.1:\(port)\(path))")
             throw APIError.invalidSessionKey
         case 429:
+            Logger.warning("[Antigravity] HTTP 429 rate limited (\(scheme)://127.0.0.1:\(port)\(path))")
             throw APIError.rateLimited(retryAfter: nil)
         default:
+            Logger.warning("[Antigravity] HTTP \(httpResponse.statusCode) (\(scheme)://127.0.0.1:\(port)\(path))")
             throw APIError.serverError(httpResponse.statusCode)
         }
     }
