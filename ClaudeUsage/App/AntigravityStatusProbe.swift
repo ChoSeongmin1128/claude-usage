@@ -237,7 +237,9 @@ enum AntigravityStatusProbe {
 
     /// /bin/ps를 사용해 language_server 프로세스를 찾습니다.
     /// App Sandbox 제거 후 /bin/ps로 전환 (기존 sysctl 방식 대체).
-    /// hang 방지를 위해 3초 타임아웃을 강제합니다.
+    /// hang 방지를 위해 1초 타임아웃 (ps 는 실측 50~100ms).
+    /// 이전 버전은 `Thread.sleep(0.02)` 로 최대 150회 polling 했는데, 이를
+    /// `DispatchSemaphore` + `terminationHandler` 조합으로 단일 wait 로 대체.
     private nonisolated static func listProcesses() -> [ProcessEntry] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/ps")
@@ -248,6 +250,11 @@ enum AntigravityStatusProbe {
         process.standardError = FileHandle.nullDevice
         process.standardInput = FileHandle(forReadingAtPath: "/dev/null")
 
+        let exitSemaphore = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            exitSemaphore.signal()
+        }
+
         do {
             try process.run()
         } catch {
@@ -255,19 +262,12 @@ enum AntigravityStatusProbe {
             return []
         }
 
-        // 3초 타임아웃 (ps는 보통 수십ms)
-        let deadline = Date().addingTimeInterval(3.0)
-        while process.isRunning && Date() < deadline {
-            Thread.sleep(forTimeInterval: 0.02)
-        }
-        if process.isRunning {
+        // 1초 내 정상 종료 대기. 넘어가면 SIGTERM 후 추가 500ms 여유.
+        if exitSemaphore.wait(timeout: .now() + 1.0) == .timedOut {
             Logger.warning("[Antigravity] /bin/ps 타임아웃 — 강제 종료")
             process.terminate()
-            // 종료 대기 500ms
-            let killDeadline = Date().addingTimeInterval(0.5)
-            while process.isRunning && Date() < killDeadline {
-                Thread.sleep(forTimeInterval: 0.02)
-            }
+            // terminate 후에도 terminationHandler 가 결국 fire 하므로 재대기.
+            _ = exitSemaphore.wait(timeout: .now() + 0.5)
             return []
         }
 
