@@ -1,13 +1,10 @@
 import Foundation
 
 extension FileManager {
-    /// App Sandbox 환경에서도 실제 사용자 홈 디렉토리를 반환합니다.
-    /// Sandbox에서 `homeDirectoryForCurrentUser`는 컨테이너 경로를 반환하므로
-    /// `~/.gemini/` 등 사용자 설정 파일에 접근할 때 이 프로퍼티를 사용합니다.
+    /// 실제 사용자 홈 디렉토리를 반환합니다.
+    /// App Sandbox가 비활성화된 환경에서는 `homeDirectoryForCurrentUser`가
+    /// 실제 홈 경로를 반환하므로 별도의 우회 로직이 불필요합니다.
     nonisolated var realHomeDirectory: URL {
-        if let pw = getpwuid(getuid()), let dir = pw.pointee.pw_dir {
-            return URL(fileURLWithPath: String(cString: dir))
-        }
-        return homeDirectoryForCurrentUser
+        homeDirectoryForCurrentUser
     }
 }
