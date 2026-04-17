@@ -48,17 +48,24 @@ extension AppDelegate {
             return
         }
 
-        var detectedKinds: [AppProviderKind] = []
+        // 초기 감지는 /bin/sh + SQLite + /bin/ps 를 동기로 돌리는데, 이를
+        // applicationDidFinishLaunching 중 main thread 에서 수행하면 launch 가
+        // 지연된다. 결과는 로그 용도라 순서에 의존하지 않으므로 background 로
+        // 옮기고, 실패/미감지 시에도 플래그만 세워 다음 런치에서 반복 시도를 막는다.
+        let flagKey = Self.initialRuntimeProviderDetectionKey
+        DispatchQueue.global(qos: .utility).async {
+            var detectedKinds: [AppProviderKind] = []
+            for kind in [AppProviderKind.gemini, .antigravity] {
+                guard ProviderEnvironmentDetector.status(for: kind)?.isDetected == true else { continue }
+                detectedKinds.append(kind)
+            }
 
-        for kind in [AppProviderKind.gemini, .antigravity] {
-            guard ProviderEnvironmentDetector.status(for: kind)?.isDetected == true else { continue }
-            detectedKinds.append(kind)
-        }
+            // UserDefaults 는 thread-safe (Apple 문서화) 이므로 백그라운드에서 직접 기록.
+            UserDefaults.standard.set(true, forKey: flagKey)
 
-        defaults.set(true, forKey: Self.initialRuntimeProviderDetectionKey)
-
-        if !detectedKinds.isEmpty {
-            Logger.info("초기 runtime provider 감지 완료(자동 활성화 없음): \(detectedKinds.map(\.rawValue).joined(separator: ", "))")
+            if !detectedKinds.isEmpty {
+                Logger.info("초기 runtime provider 감지 완료(자동 활성화 없음): \(detectedKinds.map(\.rawValue).joined(separator: ", "))")
+            }
         }
     }
 
