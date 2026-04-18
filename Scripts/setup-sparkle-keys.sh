@@ -62,6 +62,18 @@ done
 
 # 기본 피드 URL: GitHub Pages appcast URL 을 추정
 if [[ -z "$DEFAULT_FEED_URL" ]]; then
+    if command -v gh >/dev/null 2>&1; then
+        NAME_WITH_OWNER="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+    else
+        NAME_WITH_OWNER=""
+    fi
+
+    if [[ "$NAME_WITH_OWNER" =~ ^([^/]+)/([^/]+)$ ]]; then
+        OWNER="${BASH_REMATCH[1]}"
+        REPO="${BASH_REMATCH[2]}"
+        OWNER_LOWER="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
+        DEFAULT_FEED_URL="https://$OWNER_LOWER.github.io/$REPO/appcast.xml"
+    else
     REMOTE_URL="$(git -C "$ROOT_DIR" config --get remote.origin.url 2>/dev/null || echo "")"
     if [[ "$REMOTE_URL" =~ github\.com[:/](.+)/(.+?)(\.git)?$ ]]; then
         OWNER="${BASH_REMATCH[1]}"
@@ -70,6 +82,7 @@ if [[ -z "$DEFAULT_FEED_URL" ]]; then
         DEFAULT_FEED_URL="https://$OWNER_LOWER.github.io/$REPO/appcast.xml"
     else
         DEFAULT_FEED_URL="https://REPLACE_ME/appcast.xml"
+    fi
     fi
 fi
 

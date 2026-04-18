@@ -113,6 +113,18 @@ expand_tag_placeholder() {
 }
 
 derive_repo_download_base_url() {
+    local owner_and_repo=""
+    if command -v gh >/dev/null 2>&1; then
+        owner_and_repo="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+    fi
+
+    if [[ "$owner_and_repo" =~ ^([^/]+)/([^/]+)$ ]]; then
+        local owner="${BASH_REMATCH[1]}"
+        local repo="${BASH_REMATCH[2]}"
+        printf 'https://github.com/%s/%s/releases/download/%s\n' "$owner" "$repo" "$TAG"
+        return 0
+    fi
+
     local remote_url
     remote_url="$(git -C "$ROOT_DIR" config --get remote.origin.url 2>/dev/null || echo "")"
     if [[ "$remote_url" =~ github\.com[:/](.+)/(.+?)(\.git)?$ ]]; then
@@ -121,6 +133,7 @@ derive_repo_download_base_url() {
         printf 'https://github.com/%s/%s/releases/download/%s\n' "$owner" "$repo" "$TAG"
         return 0
     fi
+
     return 1
 }
 
