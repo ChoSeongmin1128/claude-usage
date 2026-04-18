@@ -163,10 +163,7 @@ enum AntigravityStatusProbe {
             cacheLock.unlock()
 
             // SettingsView / PopoverView 가 재렌더를 트리거할 수 있게 노티.
-            NotificationCenter.default.post(
-                name: .providerEnvironmentUpdated,
-                object: AppProviderKind.antigravity
-            )
+            postProviderEnvironmentUpdated()
         }
     }
 
@@ -188,16 +185,22 @@ enum AntigravityStatusProbe {
             appRunningRefreshInFlight = false
             cacheLock.unlock()
 
-            NotificationCenter.default.post(
-                name: .providerEnvironmentUpdated,
-                object: AppProviderKind.antigravity
-            )
+            postProviderEnvironmentUpdated()
         }
     }
 
     nonisolated static func refreshAllInBackground() {
         refreshRunningProcessInBackground()
         refreshAppRunningInBackground()
+    }
+
+    private nonisolated static func postProviderEnvironmentUpdated() {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .providerEnvironmentUpdated,
+                object: AppProviderKind.antigravity
+            )
+        }
     }
 
     // MARK: - Actual work (subprocess + NSWorkspace)
