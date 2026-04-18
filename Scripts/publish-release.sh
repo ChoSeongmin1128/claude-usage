@@ -4,14 +4,15 @@
 #
 # 사용:
 #   Scripts/publish-release.sh vX.Y.Z [--draft] [--prerelease] [--notes "릴리스 노트"]
+#                                   [--feed-url URL] [--download-base-url URL]
+#                                   [--skip-appcast-asset]
 #
 # 수행:
 #   1. 태그 유효성 확인 (vX.Y.Z 형식 + 미사용 태그)
 #   2. build/release/ 에 DMG 와 ZIP 이 준비돼있는지 확인
-#   3. Sparkle generate_appcast 로 appcast.xml 생성 (Sparkle SPM artifact 사용)
+#   3. Sparkle appcast 생성 (feed URL 과 download base URL 을 분리 처리)
 #   4. git tag 생성 + push
-#   5. gh release create 로 DMG + ZIP + appcast.xml 업로드
-#   6. Sparkle 경로 설정된 경우 appcast 에 SUFeedURL 일치 확인
+#   5. gh release create 로 DMG + ZIP (+ 선택적으로 appcast.xml) 업로드
 #
 # 전제:
 #   - Scripts/build-notarize-release.sh 이 성공적으로 완료돼 DMG/ZIP 존재
@@ -31,16 +32,28 @@ TAG=""
 DRAFT=0
 PRERELEASE=0
 NOTES=""
+FEED_URL_OVERRIDE=""
+DOWNLOAD_BASE_URL_OVERRIDE=""
+SKIP_APPCAST_ASSET=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --draft) DRAFT=1; shift ;;
         --prerelease) PRERELEASE=1; shift ;;
+        --skip-appcast-asset) SKIP_APPCAST_ASSET=1; shift ;;
         --notes) NOTES="$2"; shift 2 ;;
+        --feed-url) FEED_URL_OVERRIDE="$2"; shift 2 ;;
+        --download-base-url) DOWNLOAD_BASE_URL_OVERRIDE="$2"; shift 2 ;;
         -h|--help)
             cat <<USAGE
 사용법:
     $0 vX.Y.Z [--draft] [--prerelease] [--notes "릴리스 노트"]
+               [--feed-url URL] [--download-base-url URL]
+               [--skip-appcast-asset]
+
+비고:
+    - feed URL 과 download base URL 은 서로 다른 호스트를 가리켜도 됩니다.
+    - appcast.xml 을 GitHub Pages 같은 별도 채널에 배포한다면 --skip-appcast-asset 을 권장합니다.
 USAGE
             exit 0
             ;;
@@ -54,9 +67,83 @@ if [[ -z "$TAG" ]]; then
     exit 2
 fi
 
-if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9\.]+)?$ ]]; then
+if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9\.]+)?$ ]]; then
     echo "태그 형식이 올바르지 않습니다 (vX.Y.Z[-suffix]): $TAG" >&2
     exit 2
+fi
+
+extract_xcconfig_value() {
+    local file="$1"
+    local key="$2"
+    [[ -f "$file" ]] || return 0
+    awk -F '=' -v target="$key" '
+        $1 ~ "^[[:space:]]*"target"[[:space:]]*$" {
+            value=$2
+            sub(/^[[:space:]]+/, "", value)
+            sub(/[[:space:]]+$/, "", value)
+            sub(/^"/, "", value)
+            sub(/"$/, "", value)
+            gsub(/\$\(SPARKLE_URL_SLASH\)/, "/", value)
+            gsub(/\$\(URL_SLASH\)/, "/", value)
+            print value
+            exit
+        }
+    ' "$file"
+}
+
+is_placeholder_value() {
+    local value="${1,,}"
+    [[ -z "$value" ]] && return 0
+    [[ "$value" == *"change_me"* ]] && return 0
+    [[ "$value" == *"placeholder"* ]] && return 0
+    [[ "$value" == *"replace_with"* ]] && return 0
+    [[ "$value" == *"example.com"* ]] && return 0
+    [[ "$value" == *'$('* ]] && return 0
+    return 1
+}
+
+expand_tag_placeholder() {
+    local value="$1"
+    if [[ "$value" == *"__TAG__"* ]]; then
+        printf '%s\n' "${value//__TAG__/$TAG}"
+        return 0
+    fi
+    printf '%s\n' "$value"
+}
+
+derive_repo_download_base_url() {
+    local remote_url
+    remote_url="$(git -C "$ROOT_DIR" config --get remote.origin.url 2>/dev/null || echo "")"
+    if [[ "$remote_url" =~ github\.com[:/](.+)/(.+?)(\.git)?$ ]]; then
+        local owner="${BASH_REMATCH[1]}"
+        local repo="${BASH_REMATCH[2]}"
+        printf 'https://github.com/%s/%s/releases/download/%s\n' "$owner" "$repo" "$TAG"
+        return 0
+    fi
+    return 1
+}
+
+derive_download_base_url_from_feed_url() {
+    local feed_url="$1"
+    if is_placeholder_value "$feed_url"; then
+        return 0
+    fi
+    if [[ "$feed_url" =~ ^(https://github\.com/[^/]+/[^/]+)/releases/latest/download/appcast\.xml$ ]]; then
+        printf '%s/releases/download/%s\n' "${BASH_REMATCH[1]}" "$TAG"
+        return 0
+    fi
+    printf '%s\n' "${feed_url%/appcast.xml}"
+}
+
+FEED_URL="${FEED_URL_OVERRIDE:-${SU_FEED_URL:-$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SUFeedURL")}}"
+DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL_OVERRIDE:-${DOWNLOAD_BASE_URL:-$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SPARKLE_DOWNLOAD_BASE_URL")}}"
+DOWNLOAD_BASE_URL="$(expand_tag_placeholder "$DOWNLOAD_BASE_URL")"
+
+if [[ -z "$DOWNLOAD_BASE_URL" ]]; then
+    DOWNLOAD_BASE_URL="$(derive_repo_download_base_url || true)"
+fi
+if [[ -z "$DOWNLOAD_BASE_URL" ]]; then
+    DOWNLOAD_BASE_URL="$(derive_download_base_url_from_feed_url "$FEED_URL")"
 fi
 
 echo "ClaudeUsage 릴리스 게시: $TAG"
@@ -92,59 +179,23 @@ for f in "$DMG_PATH" "$ZIP_PATH"; do
     fi
 done
 
-# 2) Sparkle generate_appcast 경로 확보
-echo
-echo "1. generate_appcast 탐색"
-GEN_APPCAST=""
-for c in \
-    "$HOME/Library/Developer/Xcode/DerivedData/ClaudeUsage"*/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_appcast
-do
-    if [[ -x "$c" ]]; then
-        GEN_APPCAST="$c"
-        break
-    fi
-done
-
-if [[ -z "$GEN_APPCAST" ]] && command -v generate_appcast >/dev/null 2>&1; then
-    GEN_APPCAST="$(command -v generate_appcast)"
-fi
-
-if [[ -z "$GEN_APPCAST" ]]; then
-    echo "generate_appcast 를 찾지 못했습니다." >&2
-    echo "Xcode 에서 한 번 빌드 후 재시도하거나 Sparkle 을 PATH 에 설치해 주세요." >&2
+if [[ -z "$DOWNLOAD_BASE_URL" ]]; then
+    echo "유효한 download base URL 을 찾지 못했습니다." >&2
+    echo "--download-base-url, DOWNLOAD_BASE_URL, SPARKLE_DOWNLOAD_BASE_URL 중 하나를 제공해 주세요." >&2
     exit 1
 fi
-echo "   $GEN_APPCAST"
 
-# 3) appcast 생성용 스테이징 디렉토리 구성
 echo
-echo "2. appcast 생성"
-STAGE_DIR="$(mktemp -d -t claudeusage-appcast)"
-trap 'rm -rf "$STAGE_DIR"' EXIT
+echo "1. appcast 생성"
+echo "   feed url: ${FEED_URL:-<미설정>}"
+echo "   download base url: $DOWNLOAD_BASE_URL"
 
-cp "$ZIP_PATH" "$STAGE_DIR/"
-
-# SUFeedURL 에서 download-url-prefix 추론
-FEED_URL="$(awk -F '=' '/^[[:space:]]*SUFeedURL[[:space:]]*=/ { sub(/^[[:space:]]+/,"",$2); sub(/[[:space:]]+$/,"",$2); print $2; exit }' "$LOCAL_XC_CONFIG_PATH" 2>/dev/null || true)"
-URL_PREFIX=""
+GEN_ARGS=(--download-base-url "$DOWNLOAD_BASE_URL" --tag "$TAG")
 if [[ -n "$FEED_URL" ]]; then
-    # GitHub Releases URL 규약: https://github.com/OWNER/REPO/releases/latest/download/appcast.xml
-    # → 각 아티팩트는 같은 디렉토리 (이 태그 release 의 download/) 에 업로드됨
-    if [[ "$FEED_URL" =~ ^(https://github\.com/[^/]+/[^/]+)/releases/latest/download/ ]]; then
-        REPO_BASE="${BASH_REMATCH[1]}"
-        URL_PREFIX="$REPO_BASE/releases/download/$TAG/"
-    else
-        URL_PREFIX="$(dirname "$FEED_URL")/"
-    fi
-    echo "   download URL prefix: $URL_PREFIX"
+    GEN_ARGS+=(--feed-url "$FEED_URL")
 fi
 
-# generate_appcast 호출 (SUFeedURL 기반 prefix 있으면 전달)
-if [[ -n "$URL_PREFIX" ]]; then
-    "$GEN_APPCAST" --download-url-prefix "$URL_PREFIX" -o "$APPCAST_PATH" "$STAGE_DIR"
-else
-    "$GEN_APPCAST" -o "$APPCAST_PATH" "$STAGE_DIR"
-fi
+"$ROOT_DIR/Scripts/generate-sparkle-appcast.sh" "${GEN_ARGS[@]}"
 
 if [[ ! -f "$APPCAST_PATH" ]]; then
     echo "appcast.xml 생성 실패" >&2
@@ -152,15 +203,15 @@ if [[ ! -f "$APPCAST_PATH" ]]; then
 fi
 echo "   생성됨: $APPCAST_PATH"
 
-# 4) git tag + push
+# 2) git tag + push
 echo
-echo "3. git tag 생성 + push"
+echo "2. git tag 생성 + push"
 git -C "$ROOT_DIR" tag -a "$TAG" -m "Release $TAG"
 git -C "$ROOT_DIR" push origin "$TAG"
 
-# 5) GitHub Release 생성 + 아티팩트 업로드
+# 3) GitHub Release 생성 + 아티팩트 업로드
 echo
-echo "4. GitHub Release 생성 + 업로드"
+echo "3. GitHub Release 생성 + 업로드"
 
 GH_FLAGS=()
 [[ "$DRAFT" == "1" ]] && GH_FLAGS+=(--draft)
@@ -171,21 +222,31 @@ else
     GH_FLAGS+=(--generate-notes)
 fi
 
+ASSETS=("$DMG_PATH" "$ZIP_PATH")
+if [[ "$SKIP_APPCAST_ASSET" != "1" ]]; then
+    ASSETS+=("$APPCAST_PATH")
+fi
+
 gh release create "$TAG" \
     --title "$TAG" \
     "${GH_FLAGS[@]}" \
-    "$DMG_PATH" \
-    "$ZIP_PATH" \
-    "$APPCAST_PATH"
+    "${ASSETS[@]}"
 
 echo
 cat <<EOF
 완료
-    tag:      $TAG
-    dmg:      $DMG_PATH
-    zip:      $ZIP_PATH
-    appcast:  $APPCAST_PATH
-    URL:      $(gh release view "$TAG" --json url -q .url 2>/dev/null || echo "?")
+    tag:                $TAG
+    dmg:                $DMG_PATH
+    zip:                $ZIP_PATH
+    appcast:            $APPCAST_PATH
+    feed url:           ${FEED_URL:-<미설정>}
+    download base url:  $DOWNLOAD_BASE_URL
+    URL:                $(gh release view "$TAG" --json url -q .url 2>/dev/null || echo "?")
 
-Sparkle 클라이언트가 SUFeedURL ($FEED_URL) 을 폴링해 자동 업데이트를 감지합니다.
 EOF
+
+if [[ "$SKIP_APPCAST_ASSET" == "1" ]]; then
+    echo "appcast.xml 은 Release asset 으로 업로드하지 않았습니다. 별도 feed 경로에 배포해 주세요."
+else
+    echo "appcast.xml 을 Release asset 으로도 업로드했습니다. feed 경로가 별도라면 해당 경로에는 따로 배포해야 합니다."
+fi

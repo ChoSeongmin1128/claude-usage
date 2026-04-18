@@ -44,6 +44,10 @@ extract_xcconfig_value() {
             value=$2
             sub(/^[[:space:]]+/, "", value)
             sub(/[[:space:]]+$/, "", value)
+            sub(/^"/, "", value)
+            sub(/"$/, "", value)
+            gsub(/\$\(SPARKLE_URL_SLASH\)/, "/", value)
+            gsub(/\$\(URL_SLASH\)/, "/", value)
             print value
             exit
         }

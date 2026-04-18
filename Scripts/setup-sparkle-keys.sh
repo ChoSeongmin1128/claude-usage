@@ -48,7 +48,7 @@ while [[ $# -gt 0 ]]; do
 
 옵션:
     --force            기존 키/xcconfig 를 경고 없이 덮어쓰기
-    --feed-url URL     SUFeedURL 기본값 (기본: GitHub Releases URL)
+    --feed-url URL     SUFeedURL 기본값 (기본: GitHub Pages appcast URL)
     --notary-profile N NOTARY_PROFILE 기본값 (기본: $DEFAULT_NOTARY_PROFILE)
 USAGE
             exit 0
@@ -60,13 +60,14 @@ USAGE
     esac
 done
 
-# 기본 피드 URL: GitHub Releases "latest" URL 을 추정
+# 기본 피드 URL: GitHub Pages appcast URL 을 추정
 if [[ -z "$DEFAULT_FEED_URL" ]]; then
     REMOTE_URL="$(git -C "$ROOT_DIR" config --get remote.origin.url 2>/dev/null || echo "")"
     if [[ "$REMOTE_URL" =~ github\.com[:/](.+)/(.+?)(\.git)?$ ]]; then
         OWNER="${BASH_REMATCH[1]}"
         REPO="${BASH_REMATCH[2]}"
-        DEFAULT_FEED_URL="https://github.com/$OWNER/$REPO/releases/latest/download/appcast.xml"
+        OWNER_LOWER="${OWNER,,}"
+        DEFAULT_FEED_URL="https://$OWNER_LOWER.github.io/$REPO/appcast.xml"
     else
         DEFAULT_FEED_URL="https://REPLACE_ME/appcast.xml"
     fi
@@ -117,20 +118,24 @@ echo
 # 2) 키 생성 또는 기존 공개키 추출
 echo "2. ED25519 키 생성"
 
+extract_public_key() {
+    local output="$1"
+    echo "$output" | grep -E '^[A-Za-z0-9+/=]{40,}$' | tail -n1 | tr -d '[:space:]'
+}
+
 PUBLIC_KEY=""
-EXISTING_OUTPUT=""
-# generate_keys 는 기존 키가 있으면 stderr 에 "This machine ..." 라인을 출력
-if ! EXISTING_OUTPUT="$("$GEN_KEYS" -p 2>&1)"; then
-    echo "   공개키 추출 실패:" >&2
+EXISTING_OUTPUT="$("$GEN_KEYS" -p 2>&1 || true)"
+PUBLIC_KEY="$(extract_public_key "$EXISTING_OUTPUT")"
+
+HAS_EXISTING_KEY=0
+if [[ -n "$PUBLIC_KEY" ]]; then
+    HAS_EXISTING_KEY=1
+elif [[ -n "$EXISTING_OUTPUT" && "$EXISTING_OUTPUT" != *"No existing signing key found"* ]]; then
+    echo "   기존 공개키 확인 실패:" >&2
     echo "$EXISTING_OUTPUT" >&2
 fi
 
-if [[ -n "$EXISTING_OUTPUT" && "$EXISTING_OUTPUT" != *"Error"* ]]; then
-    # generate_keys -p 는 기존 공개키만 stdout 에 출력
-    PUBLIC_KEY="$(echo "$EXISTING_OUTPUT" | tail -n1 | tr -d '[:space:]')"
-fi
-
-if [[ -z "$PUBLIC_KEY" || "$FORCE" == "1" ]]; then
+if [[ "$HAS_EXISTING_KEY" == "0" || "$FORCE" == "1" ]]; then
     if [[ "$FORCE" == "1" ]]; then
         echo "   --force 플래그: 새 키 생성"
     else
@@ -138,7 +143,7 @@ if [[ -z "$PUBLIC_KEY" || "$FORCE" == "1" ]]; then
     fi
     # 키 생성 (공개키를 stdout 마지막 줄로 출력)
     GEN_OUTPUT="$("$GEN_KEYS" 2>&1)"
-    PUBLIC_KEY="$(echo "$GEN_OUTPUT" | grep -E '^[A-Za-z0-9+/=]{40,}$' | tail -n1 | tr -d '[:space:]')"
+    PUBLIC_KEY="$(extract_public_key "$GEN_OUTPUT")"
 else
     echo "   기존 키 사용 (키체인에 보관됨)"
 fi
@@ -160,7 +165,8 @@ write_xcconfig() {
 // Sparkle release local overrides (gitignored).
 // setup-sparkle-keys.sh 가 자동 생성했습니다. 수동 편집해도 됩니다.
 
-SUFeedURL = $DEFAULT_FEED_URL
+SPARKLE_URL_SLASH = /
+SUFeedURL = ${DEFAULT_FEED_URL/\/\//\$(SPARKLE_URL_SLASH)\$(SPARKLE_URL_SLASH)}
 SUPublicEDKey = $PUBLIC_KEY
 NOTARY_PROFILE = $DEFAULT_NOTARY_PROFILE
 EOF
