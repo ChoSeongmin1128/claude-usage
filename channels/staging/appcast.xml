@@ -8,7 +8,7 @@
             <sparkle:version>20001</sparkle:version>
             <sparkle:shortVersionString>2.0.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.1-staging.2/ClaudeUsage.zip" length="3512969" type="application/octet-stream" sparkle:edSignature="NP2YfEUzwp9zibWGpijdSsq9/CoyUe1pbFQSdd5vN8NQ+ZLUdUzRbCUOsW3VbEn4bKwM1ZZz6laf3y3tyZN5AQ=="/>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.1-staging.3/ClaudeUsage.zip" length="3514861" type="application/octet-stream" sparkle:edSignature="4P3GnwUc1qxTUnYM8PKIMiQjLY4LKLTKwyxJjxRUNYYIW42yIpl0/zEpRom2Ris07aMNYWH6oSo0X6X0IOpFCg=="/>
         </item>
     </channel>
 </rss>
