@@ -299,6 +299,10 @@ actor GeminiAPIService {
 
         let updatedData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted])
         try updatedData.write(to: credsURL, options: .atomic)
+        // `.atomic` 쓰기는 임시 파일 → rename 방식이라 원본의 0o600 권한이 umask 기반
+        // 기본값(보통 0o644)으로 초기화될 수 있음. Gemini CLI 가 만든 token 파일은
+        // 600 으로 유지해야 다른 사용자/프로세스가 못 읽으므로 명시적 복원.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: credsURL.path)
     }
 
     private func extractOAuthClientCredentials() -> OAuthClientCredentials? {
