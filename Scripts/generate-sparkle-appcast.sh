@@ -160,8 +160,19 @@ if [[ "$ZIP_COUNT" == "0" ]]; then
   exit 1
 fi
 
+STAGING_DIR="$(mktemp -d)"
+cleanup() {
+  rm -rf "$STAGING_DIR"
+}
+trap cleanup EXIT
+
+find "$ARTIFACTS_DIR" -maxdepth 1 -name '*.zip' -print0 | while IFS= read -r -d '' zip_path; do
+  cp "$zip_path" "$STAGING_DIR/"
+done
+
 echo "- generate_appcast: $GEN_APPCAST"
 echo "- artifacts: $ARTIFACTS_DIR"
+echo "- staged zip dir: $STAGING_DIR"
 echo "- output: $APPCAST_OUTPUT"
 if [[ -n "$FEED_URL" ]]; then
   echo "- feed url: $FEED_URL"
@@ -171,7 +182,7 @@ echo "- download base url: $DOWNLOAD_URL_PREFIX"
 "$GEN_APPCAST" \
   --download-url-prefix "$DOWNLOAD_URL_PREFIX" \
   -o "$APPCAST_OUTPUT" \
-  "$ARTIFACTS_DIR"
+  "$STAGING_DIR"
 
 echo
 echo "완료: $APPCAST_OUTPUT"
