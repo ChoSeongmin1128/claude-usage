@@ -11,13 +11,13 @@ import AppKit
 import Sparkle
 #endif
 
-struct UpdateInfo {
+struct UpdateInfo: Sendable, Equatable {
     let version: String
     let downloadURL: URL
     let releaseNotes: String
 }
 
-struct UpdateEngineStatus {
+struct UpdateEngineStatus: Sendable, Equatable {
     let modeSummary: String
     let sparkleIntegrated: Bool
     let feedConfigured: Bool
@@ -37,16 +37,40 @@ struct UpdateEngineStatus {
         }
         return items
     }
+
+    func replacing(modeSummary: String) -> UpdateEngineStatus {
+        UpdateEngineStatus(
+            modeSummary: modeSummary,
+            sparkleIntegrated: sparkleIntegrated,
+            feedConfigured: feedConfigured,
+            publicKeyConfigured: publicKeyConfigured
+        )
+    }
 }
 
 private enum UpdateEngineMessages {
     nonisolated static let githubFallback = "Sparkle는 통합되었지만 유효한 appcast/feed 또는 공개키가 없어 GitHub Release 엔진을 사용 중입니다"
-    nonisolated static let sparkleInteractiveReady = "Sparkle 앱내 확인이 준비되었고, 자동 확인 주기는 앱 타이머가 계속 관리합니다"
-    nonisolated static let sparkleInteractiveOnlyError = "Sparkle 엔진은 앱 내부 확인만 지원합니다"
+    nonisolated static let sparkleSchedulerReady = "Sparkle 자동 확인/자동 다운로드가 준비되었고, 앱 타이머 대신 Sparkle 스케줄러를 사용합니다"
     nonisolated static let sparkleInteractiveStarted = "Sparkle 업데이트 확인을 시작했습니다"
+    nonisolated static let updateSessionInProgress = "업데이트 세션이 이미 진행 중입니다"
+    nonisolated static let downloadCancelled = "업데이트 다운로드를 취소했습니다"
+
+    nonisolated static func sparkleSchedulerReadyMessage(usingFeedOverride: Bool) -> String {
+        if usingFeedOverride {
+            return "Sparkle 자동 확인/자동 다운로드가 준비되었고, feed override 경로를 사용합니다"
+        }
+        return sparkleSchedulerReady
+    }
 }
 
-enum UpdateCheckResult {
+private enum UpdateSessionOrigin: Sendable {
+    case probe
+    case interactive
+    case background
+    case scheduled
+}
+
+enum UpdateCheckResult: Sendable {
     case available(UpdateInfo)
     case upToDate
     case error(String)
@@ -59,10 +83,12 @@ protocol AppUpdateEngine {
     func usesExternalScheduler() async -> Bool
     func supportsInteractiveCheck() async -> Bool
     func performInteractiveCheck() async -> String?
+    func synchronizeScheduler(interval: UpdateCheckInterval, runImmediate: Bool) async
+    func installPreparedUpdate() async -> Bool
     func configurationStatus() async -> UpdateEngineStatus
 }
 
-struct GitHubReleaseUpdateEngine: AppUpdateEngine {
+final class GitHubReleaseUpdateEngine: AppUpdateEngine {
     private let repoOwner = "ChoSeongmin1128"
     private let repoName = "claude-usage"
     private let modeDescription: String
@@ -76,8 +102,15 @@ struct GitHubReleaseUpdateEngine: AppUpdateEngine {
     }
 
     func checkForUpdates() async -> UpdateCheckResult {
+        await publishEngineMetadata()
+        await MainActor.run {
+            UpdateRuntimeState.shared.beginChecking()
+        }
+
         let urlString = "https://api.github.com/repos/\(repoOwner)/\(repoName)/releases/latest"
-        guard let url = URL(string: urlString) else { return .error("잘못된 URL") }
+        guard let url = URL(string: urlString) else {
+            return await finishCheck(result: .error("잘못된 URL"))
+        }
 
         var request = URLRequest(url: url)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
@@ -87,20 +120,20 @@ struct GitHubReleaseUpdateEngine: AppUpdateEngine {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
-                return .error("응답 없음")
+                return await finishCheck(result: .error("응답 없음"))
             }
 
             guard httpResponse.statusCode == 200 else {
                 let code = httpResponse.statusCode
                 let msg = code == 403 ? "요청 한도 초과 (잠시 후 재시도)" : "HTTP \(code)"
                 Logger.warning("업데이트 확인 실패: HTTP \(code)")
-                return .error(msg)
+                return await finishCheck(result: .error(msg))
             }
 
             guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let tagName = json["tag_name"] as? String,
                   let assets = json["assets"] as? [[String: Any]] else {
-                return .error("응답 파싱 실패")
+                return await finishCheck(result: .error("응답 파싱 실패"))
             }
 
             let remoteVersion = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
@@ -108,23 +141,28 @@ struct GitHubReleaseUpdateEngine: AppUpdateEngine {
 
             guard remoteVersion.compare(currentVersion, options: .numeric) == .orderedDescending else {
                 Logger.info("최신 버전 사용 중: \(currentVersion)")
-                return .upToDate
+                return await finishCheck(result: .upToDate)
             }
 
             guard let zipAsset = assets.first(where: { ($0["name"] as? String)?.hasSuffix(".zip") == true }),
                   let downloadURLString = zipAsset["browser_download_url"] as? String,
                   let downloadURL = URL(string: downloadURLString) else {
                 Logger.warning("업데이트 zip 에셋을 찾을 수 없음")
-                return .error("다운로드 파일 없음")
+                return await finishCheck(result: .error("다운로드 파일 없음"))
             }
 
             let releaseNotes = json["body"] as? String ?? ""
+            let update = UpdateInfo(
+                version: remoteVersion,
+                downloadURL: downloadURL,
+                releaseNotes: releaseNotes
+            )
 
             Logger.info("새 버전 발견: \(remoteVersion) (현재: \(currentVersion))")
-            return .available(UpdateInfo(version: remoteVersion, downloadURL: downloadURL, releaseNotes: releaseNotes))
+            return await finishCheck(result: .available(update))
         } catch {
             Logger.error("업데이트 확인 오류: \(error.localizedDescription)")
-            return .error(error.localizedDescription)
+            return await finishCheck(result: .error(error.localizedDescription))
         }
     }
 
@@ -138,26 +176,73 @@ struct GitHubReleaseUpdateEngine: AppUpdateEngine {
 
     func performInteractiveCheck() async -> String? { nil }
 
+    func synchronizeScheduler(interval: UpdateCheckInterval, runImmediate: Bool) async {
+        await publishEngineMetadata()
+
+        await MainActor.run {
+            if let delay = interval.timerInterval {
+                UpdateRuntimeState.shared.setNextScheduledCheck(after: delay)
+            } else {
+                UpdateRuntimeState.shared.clearScheduledCheck()
+            }
+        }
+    }
+
+    func installPreparedUpdate() async -> Bool {
+        false
+    }
+
     func configurationStatus() async -> UpdateEngineStatus {
-        UpdateEngineStatus(
-            modeSummary: modeDescription,
-            sparkleIntegrated: false,
-            feedConfigured: false,
-            publicKeyConfigured: false
-        )
+        currentConfigurationStatus()
+    }
+
+    private func currentConfigurationStatus() -> UpdateEngineStatus {
+        UpdateConfigurationInspector.currentStatus()
+            .replacing(modeSummary: modeDescription)
+    }
+
+    private func publishEngineMetadata() async {
+        let engineStatus = currentConfigurationStatus()
+        await MainActor.run {
+            UpdateRuntimeState.shared.applyEngineMetadata(
+                modeSummary: modeDescription,
+                engineStatus: engineStatus,
+                supportsInteractive: false,
+                usesExternalScheduler: false
+            )
+        }
+    }
+
+    private func finishCheck(result: UpdateCheckResult) async -> UpdateCheckResult {
+        await MainActor.run {
+            switch result {
+            case .available(let update):
+                UpdateRuntimeState.shared.markUpdateAvailable(update)
+            case .upToDate:
+                UpdateRuntimeState.shared.markUpToDate()
+            case .error(let message):
+                UpdateRuntimeState.shared.markFailed(message: message)
+            }
+        }
+
+        return result
     }
 }
 
 #if canImport(Sparkle)
 @MainActor
-final class SparkleUpdateEngine: NSObject, AppUpdateEngine {
+final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, SPUStandardUserDriverDelegate {
     private lazy var updaterController = SPUStandardUpdaterController(
         startingUpdater: true,
-        updaterDelegate: nil,
-        userDriverDelegate: nil
+        updaterDelegate: self,
+        userDriverDelegate: self
     )
 
     private let feedURL: URL?
+    private var activeSessionOrigin: UpdateSessionOrigin?
+    private var pendingCheckContinuation: CheckedContinuation<UpdateCheckResult, Never>?
+    private var lastCycleResult: UpdateCheckResult?
+    private var postponedInstallHandler: (() -> Void)?
 
     static func makeIfConfigured() -> SparkleUpdateEngine? {
         guard let feedURL = UpdateConfigurationInspector.configuredFeedURL(),
@@ -173,33 +258,308 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine {
     }
 
     func modeSummary() async -> String {
-        UpdateEngineMessages.sparkleInteractiveReady
+        UpdateEngineMessages.sparkleSchedulerReadyMessage(usingFeedOverride: UpdateConfigurationInspector.usesFeedOverride())
     }
 
     func checkForUpdates() async -> UpdateCheckResult {
-        .error(UpdateEngineMessages.sparkleInteractiveOnlyError)
+        publishEngineMetadata()
+
+        if updater.sessionInProgress {
+            return .error(UpdateEngineMessages.updateSessionInProgress)
+        }
+
+        activeSessionOrigin = .probe
+        lastCycleResult = nil
+        UpdateRuntimeState.shared.beginChecking()
+
+        return await withCheckedContinuation { continuation in
+            pendingCheckContinuation = continuation
+            updater.checkForUpdateInformation()
+        }
     }
 
     func latestDownloadURL() async -> URL {
-        URL(string: "https://github.com/ChoSeongmin1128/claude-usage/releases/latest")!
+        if let update = UpdateRuntimeState.shared.latestKnownUpdate {
+            return update.downloadURL
+        }
+        return URL(string: "https://github.com/ChoSeongmin1128/claude-usage/releases/latest")!
     }
 
-    func usesExternalScheduler() async -> Bool { false }
+    func usesExternalScheduler() async -> Bool { true }
 
     func supportsInteractiveCheck() async -> Bool { true }
 
     func performInteractiveCheck() async -> String? {
+        publishEngineMetadata()
+        activeSessionOrigin = .interactive
+        lastCycleResult = nil
         updaterController.checkForUpdates(nil)
         return UpdateEngineMessages.sparkleInteractiveStarted
     }
 
+    func synchronizeScheduler(interval: UpdateCheckInterval, runImmediate: Bool) async {
+        switch interval {
+        case .off:
+            updater.automaticallyChecksForUpdates = false
+            updater.automaticallyDownloadsUpdates = false
+            UpdateRuntimeState.shared.clearScheduledCheck()
+        case .onLaunch:
+            updater.automaticallyChecksForUpdates = false
+            updater.automaticallyDownloadsUpdates = true
+            UpdateRuntimeState.shared.clearScheduledCheck()
+        case .hourly:
+            updater.automaticallyChecksForUpdates = true
+            updater.updateCheckInterval = 3600
+            updater.automaticallyDownloadsUpdates = true
+        }
+
+        publishEngineMetadata()
+
+        if interval != .off, runImmediate {
+            beginBackgroundCheck(origin: .background)
+        }
+    }
+
+    func installPreparedUpdate() async -> Bool {
+        guard let handler = postponedInstallHandler else { return false }
+
+        let version = UpdateRuntimeState.shared.latestKnownUpdate?.version ?? "?"
+        postponedInstallHandler = nil
+        UpdateRuntimeState.shared.markInstalling(version: version)
+        handler()
+        return true
+    }
+
     func configurationStatus() async -> UpdateEngineStatus {
-        UpdateEngineStatus(
-            modeSummary: UpdateEngineMessages.sparkleInteractiveReady,
-            sparkleIntegrated: true,
-            feedConfigured: true,
-            publicKeyConfigured: true
+        Self.sparkleConfigurationStatus()
+    }
+
+    private var updater: SPUUpdater {
+        updaterController.updater
+    }
+
+    private static func sparkleConfigurationStatus() -> UpdateEngineStatus {
+        UpdateConfigurationInspector.currentStatus().replacing(
+            modeSummary: UpdateEngineMessages.sparkleSchedulerReadyMessage(
+                usingFeedOverride: UpdateConfigurationInspector.usesFeedOverride()
+            )
         )
+    }
+
+    private func publishEngineMetadata() {
+        UpdateRuntimeState.shared.applyEngineMetadata(
+            modeSummary: UpdateEngineMessages.sparkleSchedulerReadyMessage(
+                usingFeedOverride: UpdateConfigurationInspector.usesFeedOverride()
+            ),
+            engineStatus: Self.sparkleConfigurationStatus(),
+            supportsInteractive: true,
+            usesExternalScheduler: true
+        )
+    }
+
+    private func beginBackgroundCheck(origin: UpdateSessionOrigin) {
+        guard updater.sessionInProgress == false else { return }
+
+        activeSessionOrigin = origin
+        lastCycleResult = nil
+        UpdateRuntimeState.shared.beginChecking()
+        updater.checkForUpdatesInBackground()
+    }
+
+    private func updateInfo(for item: SUAppcastItem) -> UpdateInfo {
+        let downloadURL = item.fileURL ?? item.infoURL ?? feedURL ?? URL(string: "https://github.com/ChoSeongmin1128/claude-usage/releases/latest")!
+        let releaseNotes = item.itemDescription ?? item.releaseNotesURL?.absoluteString ?? ""
+
+        return UpdateInfo(
+            version: item.displayVersionString,
+            downloadURL: downloadURL,
+            releaseNotes: releaseNotes
+        )
+    }
+
+    private func resumePendingCheckIfNeeded(with result: UpdateCheckResult) {
+        guard let continuation = pendingCheckContinuation else { return }
+        pendingCheckContinuation = nil
+        continuation.resume(returning: result)
+    }
+
+    private func defaultResult(for error: Error?) -> UpdateCheckResult {
+        if let error {
+            let nsError = error as NSError
+            if nsError.code == 1001 {
+                return .upToDate
+            }
+            return .error(error.localizedDescription)
+        }
+
+        return lastCycleResult ?? .upToDate
+    }
+
+    private func shouldDeferPreparedInstall() -> Bool {
+        switch activeSessionOrigin ?? .scheduled {
+        case .interactive, .probe:
+            return false
+        case .background, .scheduled:
+            return true
+        }
+    }
+
+    func feedURLString(for updater: SPUUpdater) -> String? {
+        feedURL?.absoluteString
+    }
+
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        if activeSessionOrigin == nil {
+            activeSessionOrigin = .scheduled
+        }
+
+        let update = updateInfo(for: item)
+        UpdateRuntimeState.shared.markUpdateAvailable(update)
+
+        let result = UpdateCheckResult.available(update)
+        lastCycleResult = result
+        resumePendingCheckIfNeeded(with: result)
+    }
+
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
+        let result = defaultResult(for: error)
+        lastCycleResult = result
+
+        switch result {
+        case .available(let update):
+            UpdateRuntimeState.shared.markUpdateAvailable(update)
+        case .upToDate:
+            UpdateRuntimeState.shared.markUpToDate()
+        case .error(let message):
+            UpdateRuntimeState.shared.markFailed(message: message)
+        }
+
+        resumePendingCheckIfNeeded(with: result)
+    }
+
+    func updater(_ updater: SPUUpdater, willDownloadUpdate item: SUAppcastItem, with request: NSMutableURLRequest) {
+        if activeSessionOrigin == nil {
+            activeSessionOrigin = .scheduled
+        }
+
+        let update = updateInfo(for: item)
+        UpdateRuntimeState.shared.markDownloading(update)
+    }
+
+    func updater(_ updater: SPUUpdater, didDownloadUpdate item: SUAppcastItem) {
+        let update = updateInfo(for: item)
+        UpdateRuntimeState.shared.markDownloading(update, message: "v\(update.version) 다운로드 완료, 설치 준비 중")
+    }
+
+    func updater(_ updater: SPUUpdater, failedToDownloadUpdate item: SUAppcastItem, error: Error) {
+        postponedInstallHandler = nil
+        let message = error.localizedDescription
+        lastCycleResult = .error(message)
+        UpdateRuntimeState.shared.markFailed(message: message)
+        resumePendingCheckIfNeeded(with: .error(message))
+    }
+
+    func userDidCancelDownload(_ updater: SPUUpdater) {
+        postponedInstallHandler = nil
+        lastCycleResult = .error(UpdateEngineMessages.downloadCancelled)
+        UpdateRuntimeState.shared.markFailed(message: UpdateEngineMessages.downloadCancelled)
+        resumePendingCheckIfNeeded(with: .error(UpdateEngineMessages.downloadCancelled))
+    }
+
+    func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+        let update = updateInfo(for: item)
+        UpdateRuntimeState.shared.markInstalling(version: update.version)
+    }
+
+    func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem, untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
+        guard shouldDeferPreparedInstall() else { return false }
+
+        let update = updateInfo(for: item)
+        postponedInstallHandler = installHandler
+        UpdateRuntimeState.shared.markReadyToInstall(update, installHandler: installHandler)
+        return true
+    }
+
+    func updater(_ updater: SPUUpdater, willScheduleUpdateCheckAfterDelay delay: TimeInterval) {
+        UpdateRuntimeState.shared.setNextScheduledCheck(after: delay)
+    }
+
+    func updaterWillNotScheduleUpdateCheck(_ updater: SPUUpdater) {
+        UpdateRuntimeState.shared.clearScheduledCheck()
+    }
+
+    func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
+        if (error as NSError).code == 1001 {
+            return
+        }
+
+        postponedInstallHandler = nil
+        lastCycleResult = .error(error.localizedDescription)
+        UpdateRuntimeState.shared.markFailed(message: error.localizedDescription)
+        resumePendingCheckIfNeeded(with: .error(error.localizedDescription))
+    }
+
+    func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
+        let result = defaultResult(for: error)
+
+        if case .checking = UpdateRuntimeState.shared.phase {
+            switch result {
+            case .available(let update):
+                UpdateRuntimeState.shared.markUpdateAvailable(update)
+            case .upToDate:
+                UpdateRuntimeState.shared.markUpToDate()
+            case .error(let message):
+                UpdateRuntimeState.shared.markFailed(message: message)
+            }
+        }
+
+        resumePendingCheckIfNeeded(with: result)
+
+        if case .readyToInstall = UpdateRuntimeState.shared.phase {
+            return
+        }
+        activeSessionOrigin = nil
+        lastCycleResult = nil
+    }
+
+    func standardUserDriverShouldHandleShowingScheduledUpdate(_ update: SUAppcastItem, andInImmediateFocus immediateFocus: Bool) -> Bool {
+        // 예약 업데이트는 Sparkle 기본 경고창 대신 popover header의 커스텀 버튼으로만 노출합니다.
+        false
+    }
+
+    func standardUserDriverWillHandleShowingUpdate(_ handleShowingUpdate: Bool, forUpdate update: SUAppcastItem, state: SPUUserUpdateState) {
+        guard !handleShowingUpdate, !state.userInitiated else { return }
+
+        let updateInfo = updateInfo(for: update)
+        switch state.stage {
+        case .notDownloaded:
+            UpdateRuntimeState.shared.markUpdateAvailable(
+                updateInfo,
+                message: "v\(updateInfo.version) 업데이트를 자동으로 준비 중"
+            )
+        case .downloaded:
+            if case .readyToInstall = UpdateRuntimeState.shared.phase {
+                break
+            }
+            UpdateRuntimeState.shared.markDownloading(
+                updateInfo,
+                message: "v\(updateInfo.version) 다운로드 완료, 설치 준비 중"
+            )
+        case .installing:
+            UpdateRuntimeState.shared.markInstalling(version: updateInfo.version)
+        @unknown default:
+            break
+        }
+    }
+
+    func standardUserDriverDidReceiveUserAttention(forUpdate update: SUAppcastItem) {
+        // 예약 업데이트는 자체 UI로 주의를 끌지 않으므로 별도 후처리는 하지 않습니다.
+    }
+
+    func standardUserDriverWillFinishUpdateSession() {
+        if case .error = UpdateRuntimeState.shared.phase {
+            UpdateRuntimeState.shared.clearTransientError()
+        }
     }
 }
 #endif
@@ -211,7 +571,7 @@ enum UpdateConfigurationInspector {
         let publicKeyConfigured = configuredValue(for: "SUPublicEDKey") != nil
         let summary: String
         if feedConfigured && publicKeyConfigured {
-            summary = UpdateEngineMessages.sparkleInteractiveReady
+            summary = UpdateEngineMessages.sparkleSchedulerReadyMessage(usingFeedOverride: usesFeedOverride())
         } else {
             summary = UpdateEngineMessages.githubFallback
         }
@@ -233,6 +593,9 @@ enum UpdateConfigurationInspector {
 
     #if canImport(Sparkle)
     nonisolated static func configuredValue(for key: String) -> String? {
+        if key == "SUFeedURL", let overrideValue = configuredFeedURLOverrideValue() {
+            return overrideValue
+        }
         guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -241,6 +604,28 @@ enum UpdateConfigurationInspector {
         let blockedPlaceholders = ["change_me", "placeholder", "your_public_key", "your_feed_url", "example.com/appcast.xml"]
         guard !blockedPlaceholders.contains(where: { lowered.contains($0) }) else { return nil }
         return trimmed
+    }
+
+    nonisolated static func usesFeedOverride() -> Bool {
+        configuredFeedURLOverrideValue() != nil
+    }
+
+    nonisolated private static func configuredFeedURLOverrideValue() -> String? {
+        let environmentOverride = ProcessInfo.processInfo.environment["CLAUDEUSAGE_UPDATE_FEED_URL_OVERRIDE"]
+        let defaultsOverride = UserDefaults.standard.string(forKey: "UpdateFeedURLOverride")
+
+        for candidate in [environmentOverride, defaultsOverride] {
+            guard let candidate else { continue }
+            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            guard !trimmed.contains("$("), !trimmed.contains("${") else { continue }
+            let lowered = trimmed.lowercased()
+            let blockedPlaceholders = ["change_me", "placeholder", "your_feed_url", "example.com/appcast.xml"]
+            guard !blockedPlaceholders.contains(where: { lowered.contains($0) }) else { continue }
+            return trimmed
+        }
+
+        return nil
     }
 
     nonisolated static func configuredFeedURL() -> URL? {
@@ -320,6 +705,40 @@ actor UpdateService {
     func performInteractiveCheck() async -> String? {
         let engine = await resolvedEngine()
         return await engine.performInteractiveCheck()
+    }
+
+    func performUserInitiatedCheck() async {
+        let engine = await resolvedEngine()
+
+        if await engine.supportsInteractiveCheck() {
+            if let message = await engine.performInteractiveCheck() {
+                await MainActor.run {
+                    UpdateRuntimeState.shared.markInteractiveCheckStarted(message: message)
+                }
+            }
+            return
+        }
+
+        _ = await engine.checkForUpdates()
+    }
+
+    func performScheduledCheck() async {
+        _ = await checkForUpdates()
+    }
+
+    func synchronizeScheduler(interval: UpdateCheckInterval, runImmediate: Bool) async {
+        let engine = await resolvedEngine()
+        await engine.synchronizeScheduler(interval: interval, runImmediate: runImmediate)
+    }
+
+    func configureAutomaticChecks(interval: UpdateCheckInterval, runImmediate: Bool) async -> Bool {
+        await synchronizeScheduler(interval: interval, runImmediate: runImmediate)
+        return await usesExternalScheduler()
+    }
+
+    func installPreparedUpdate() async -> Bool {
+        let engine = await resolvedEngine()
+        return await engine.installPreparedUpdate()
     }
 
     func currentEngineStatus() async -> UpdateEngineStatus {

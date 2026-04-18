@@ -11,6 +11,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var settings = AppSettings.shared
+    @ObservedObject var updateRuntimeState = UpdateRuntimeState.shared
     @StateObject var settingsViewModel = SettingsViewModel()
     @State var sessionKey: String = ""
     @State var storedSessionKey: String?
@@ -47,12 +48,7 @@ struct SettingsView: View {
     @State var isTestingMessagesFallback = false
     @State var messagesFallbackStatus: String?
     @State var codexAuthStatus: CodexAuthStatus = .checking
-    @State var updateModeSummary: String = "업데이트 엔진 확인 중"
-    @State var updateEngineStatus: UpdateEngineStatus?
-    @State var supportsInteractiveUpdates = false
     @State var isUpdateGuidanceExpanded = false
-    @State var isCheckingUpdate = false
-    @State var updateCheckResult: String?
     @State var runtimeEnvironmentRefreshTick: Int = 0
 
     var onOpenLogin: (() -> Void)?

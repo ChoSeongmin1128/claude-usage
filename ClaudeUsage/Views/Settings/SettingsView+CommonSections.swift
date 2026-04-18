@@ -232,20 +232,11 @@ extension SettingsView {
     }
 
     func refreshUpdateEnginePresentation() {
-        Task {
-            let modeSummary = await UpdateService.shared.currentModeSummary()
-            let engineStatus = await UpdateService.shared.currentEngineStatus()
-            let supportsInteractive = await UpdateService.shared.supportsInteractiveCheck()
-            await MainActor.run {
-                updateModeSummary = modeSummary
-                updateEngineStatus = engineStatus
-                supportsInteractiveUpdates = supportsInteractive
-            }
-        }
+        updateRuntimeState.refreshEngineStatus()
     }
 
     var updateSection: some View {
-        UpdateDiagnosticsSectionShell(updateModeSummary: updateModeSummary) {
+        UpdateDiagnosticsSectionShell(updateModeSummary: updateRuntimeState.modeSummary) {
             Picker("자동 확인", selection: $settings.updateCheckInterval) {
                 ForEach(UpdateCheckInterval.allCases, id: \.self) { interval in
                     Text(interval.displayName).tag(interval)
@@ -253,194 +244,186 @@ extension SettingsView {
             }
             .pickerStyle(.segmented)
 
-            if supportsInteractiveUpdates {
-                Text("현재 빌드는 Sparkle 앱내 확인을 지원하지만, 자동 확인 주기는 앱이 계속 관리합니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             HStack {
-                let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
-                Text("현재 버전: v\(version)")
+                Text("현재 버전: \(updateRuntimeState.currentVersionText)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Spacer()
-
-                if isCheckingUpdate {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Button(supportsInteractiveUpdates ? "Sparkle로 확인" : "지금 확인") {
-                        isCheckingUpdate = true
-                        updateCheckResult = nil
-                        Task {
-                            if supportsInteractiveUpdates {
-                                let message = await UpdateService.shared.performInteractiveCheck()
-                                await MainActor.run {
-                                    isCheckingUpdate = false
-                                    updateCheckResult = message ?? "Sparkle 업데이트 확인을 시작했습니다"
-                                }
-                                refreshUpdateEnginePresentation()
-                            } else {
-                                let result = await UpdateService.shared.checkForUpdates()
-                                await MainActor.run {
-                                    isCheckingUpdate = false
-                                    switch result {
-                                    case .available(let info):
-                                        updateCheckResult = "v\(info.version) 업데이트 가능"
-                                        AppSettings.shared.availableUpdate = info
-                                    case .upToDate:
-                                        updateCheckResult = "최신 버전입니다"
-                                        AppSettings.shared.availableUpdate = nil
-                                    case .error(let msg):
-                                        updateCheckResult = "확인 실패: \(msg)"
-                                    }
-                                }
-                                refreshUpdateEnginePresentation()
-                            }
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            }
-
-            if let updateEngineStatus {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        chip(
-                            title: "엔진",
-                            value: updateEngineChipValue,
-                            color: updateEngineChipColor
-                        )
-                        chip(
-                            title: "appcast",
-                            value: updateEngineStatus.feedConfigured ? "준비됨" : "미설정",
-                            color: updateEngineStatus.feedConfigured ? .green : .orange
-                        )
-                        chip(
-                            title: "공개키",
-                            value: updateEngineStatus.publicKeyConfigured ? "준비됨" : "미설정",
-                            color: updateEngineStatus.publicKeyConfigured ? .green : .orange
-                        )
-                    }
-
-                    Text(updateReadinessSummary(updateEngineStatus))
+                if let lastCheckedAt = updateRuntimeState.lastCheckedAt {
+                    Text("마지막 확인 \(shortRelativeTimestamp(lastCheckedAt))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                .padding(10)
-                .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
-                .cornerRadius(8)
 
-                if !updateEngineStatus.usesSparkleReadyPath {
-                    DisclosureGroup(isExpanded: $isUpdateGuidanceExpanded) {
-                        VStack(alignment: .leading, spacing: 6) {
+                Spacer()
+
+                if updateRuntimeState.isChecking {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Button("지금 확인") {
+                        updateRuntimeState.checkNow()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(!updateRuntimeState.canCheckNow)
+
+                    if updateRuntimeState.showsPrimaryAction {
+                        Button(updateRuntimeState.primaryActionTitle) {
+                            updateRuntimeState.performPrimaryAction()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(!updateRuntimeState.isPrimaryActionEnabled)
+                    }
+                }
+            }
+
+            updateStatusCard
+
+            DisclosureGroup(isExpanded: $isUpdateGuidanceExpanded) {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let updateEngineStatus = updateRuntimeState.engineStatus {
+                        HStack(spacing: 8) {
+                            chip(
+                                title: "엔진",
+                                value: updateEngineChipValue,
+                                color: updateEngineChipColor
+                            )
+                            chip(
+                                title: "appcast",
+                                value: updateEngineStatus.feedConfigured ? "준비됨" : "미설정",
+                                color: updateEngineStatus.feedConfigured ? .green : .orange
+                            )
+                            chip(
+                                title: "공개키",
+                                value: updateEngineStatus.publicKeyConfigured ? "준비됨" : "미설정",
+                                color: updateEngineStatus.publicKeyConfigured ? .green : .orange
+                            )
+                            chip(
+                                title: "스케줄러",
+                                value: updateRuntimeState.usesExternalScheduler ? "외부" : "앱 내부",
+                                color: updateRuntimeState.usesExternalScheduler ? .blue : .secondary
+                            )
+                        }
+
+                        Text(updateReadinessSummary(updateEngineStatus))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        if !updateEngineStatus.usesSparkleReadyPath {
                             if !updateEngineStatus.missingSparkleRequirements.isEmpty {
                                 Text("아직 필요한 항목: \(updateEngineStatus.missingSparkleRequirements.joined(separator: ", "))")
                                     .font(.caption2)
                                     .foregroundStyle(.orange)
                             }
 
-                            Text("1. release xcconfig에서 `SUFeedURL`, `SUPublicEDKey`를 채웁니다.")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Text("2. `Scripts/build-notarize-release.sh`로 notarized ZIP을 만듭니다.")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Text("3. `Scripts/generate-sparkle-appcast.sh`로 appcast.xml을 생성하고 함께 배포합니다.")
+                            Text("release xcconfig의 `SUFeedURL`과 `SUPublicEDKey`가 준비되면 Sparkle 기본 경로로 승격됩니다.")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
-                        .padding(.top, 4)
-                    } label: {
-                        Text("Sparkle 전환 다음 단계 보기")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
                 }
-            }
-
-            if let result = updateCheckResult {
-                HStack {
-                    Text(result)
-                        .font(.caption)
-                        .foregroundStyle(result.contains("가능") ? .orange : result.contains("실패") ? .red : .green)
-                    if result.contains("가능") && !supportsInteractiveUpdates {
-                        Button("다운로드") {
-                            Task {
-                                let url = await UpdateService.shared.latestDownloadURL()
-                                NSWorkspace.shared.open(url)
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                    }
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("업데이트 설치 가이드")
+                .padding(.top, 6)
+            } label: {
+                Text("고급 진단")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                if supportsInteractiveUpdates {
-                    Text("1. 'Sparkle로 확인'을 누르면 앱 내부에서 업데이트 확인을 시작합니다.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text("2. 새 버전이 있으면 Sparkle 설치 안내가 열리고, 없으면 조용히 유지됩니다.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text("3. appcast/feed가 아직 설정되지 않은 빌드에서는 GitHub Release 엔진으로 자동 fallback됩니다.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("1. '다운로드'를 눌러 최신 앱을 받습니다.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text("2. 실행 중인 ClaudeUsage를 완전히 종료합니다.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text("3. 기존 앱 파일을 새 앱으로 교체(덮어쓰기)합니다.")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    Text("4. 다시 실행합니다. 최초 실행에서 차단되면 시스템 설정 > 개인정보 보호 및 보안 > 그래도 열기를 선택하세요.")
-                        .font(.caption2)
+            }
+        }
+    }
+
+    private var updateStatusCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(updateRuntimeState.statusTitle)
+                        .font(.subheadline.weight(.semibold))
+                    Text(updateRuntimeState.statusSummary)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 6) {
+                    chip(title: "현재", value: updateRuntimeState.currentVersionText, color: .secondary)
+                    chip(title: "경로", value: updateEngineChipValue, color: updateEngineChipColor)
+                    if let update = updateRuntimeState.latestKnownUpdate {
+                        chip(title: "새 버전", value: "v\(update.version)", color: .blue)
+                    }
+                }
             }
-            .padding(10)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-            .cornerRadius(8)
+
+            if let detail = updateRuntimeState.statusDetail {
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+
+            if let releaseNotesPreview = updateRuntimeState.releaseNotesPreview {
+                Divider()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("릴리즈 노트 미리보기")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(releaseNotesPreview)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                }
+            }
         }
+        .padding(12)
+        .background(updateStatusColor.opacity(0.12))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(updateStatusColor.opacity(0.22), lineWidth: 1)
+        )
+        .cornerRadius(10)
     }
 
     private var updateEngineChipValue: String {
-        guard let updateEngineStatus else {
+        guard let updateEngineStatus = updateRuntimeState.engineStatus else {
             return "확인 중"
         }
         if updateEngineStatus.usesSparkleReadyPath {
-            return "Sparkle 확인 가능"
+            return "Sparkle"
         }
         if updateEngineStatus.sparkleIntegrated {
-            return "GitHub fallback"
+            return "GitHub 보조"
         }
-        return "GitHub 전용"
+        return "GitHub"
     }
 
     private var updateEngineChipColor: Color {
-        guard let updateEngineStatus else {
+        guard let updateEngineStatus = updateRuntimeState.engineStatus else {
             return .secondary
         }
         return updateEngineStatus.usesSparkleReadyPath ? .blue : .orange
     }
 
+    private var updateStatusColor: Color {
+        switch updateRuntimeState.tone {
+        case .accent:
+            return .blue
+        case .positive:
+            return .green
+        case .caution:
+            return .orange
+        case .destructive:
+            return .red
+        case .secondary:
+            return .secondary
+        }
+    }
+
     private func updateReadinessSummary(_ status: UpdateEngineStatus) -> String {
         if status.usesSparkleReadyPath {
-            return "현재 빌드는 Sparkle 앱내 확인을 지원하고, 자동 확인 주기는 앱 설정을 계속 사용합니다."
+            return "현재 빌드는 Sparkle 경로를 사용할 수 있습니다."
         }
         if status.sparkleIntegrated {
-            return "Sparkle 패키지는 포함됐지만 appcast 또는 공개키가 없어 아직 GitHub fallback을 사용합니다."
+            return "Sparkle 패키지는 포함됐지만 appcast 또는 공개키가 아직 부족해 GitHub 보조 경로를 유지합니다."
         }
         return "현재 빌드는 GitHub Release 수동 다운로드 경로를 사용합니다."
     }

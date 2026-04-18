@@ -41,6 +41,9 @@ final class PopoverViewModel: ObservableObject {
     @Published private(set) var claudeSetupPresentation: ClaudeSetupPresentation?
     @Published private(set) var runtimeSnapshots: [PopoverService: RuntimeProviderSnapshot] = [:]
 
+    private let updateRuntimeState: UpdateRuntimeState
+    private var cancellables = Set<AnyCancellable>()
+
     // ProviderEnvironmentDetector 결과 캐시 — SwiftUI body 렌더링 중 블로킹 호출 방지
     private var cachedGeminiEnvStatus: ProviderEnvironmentStatus?
     private var cachedAntigravityEnvStatus: ProviderEnvironmentStatus?
@@ -55,6 +58,16 @@ final class PopoverViewModel: ObservableObject {
     var onServiceSelected: ((PopoverService) -> Void)?
     var onPinChanged: ((PopoverService, Bool) -> Void)?
     var onLayoutChanged: ((PopoverService, PopoverLayoutRefreshReason) -> Void)?
+
+    init(updateRuntimeState: UpdateRuntimeState = .shared) {
+        self.updateRuntimeState = updateRuntimeState
+        updateRuntimeState.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+        updateRuntimeState.bootstrapIfNeeded()
+    }
 
     func snapshot(for service: PopoverService) -> RuntimeProviderSnapshot? {
         runtimeSnapshots[service]
@@ -116,6 +129,22 @@ final class PopoverViewModel: ObservableObject {
             let url = await UpdateService.shared.latestDownloadURL()
             NSWorkspace.shared.open(url)
         }
+    }
+
+    var shouldShowUpdateButton: Bool {
+        updateRuntimeState.showsPopoverButton
+    }
+
+    var updateButtonSymbolName: String {
+        updateRuntimeState.popoverButtonSymbolName
+    }
+
+    var updateButtonHelpText: String {
+        updateRuntimeState.popoverButtonHelpText
+    }
+
+    func performUpdatePrimaryAction() {
+        updateRuntimeState.performPrimaryAction()
     }
 
     func providerShellCards(settings: AppSettings) -> [ProviderShellCard] {

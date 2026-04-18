@@ -49,7 +49,7 @@ extension SettingsView {
             selectedAntigravityTab = settings.providerSettingsLastTab(for: .antigravity)
             loadUsageHealthSnapshot()
             checkCodexAuth()
-            refreshUpdateEnginePresentation()
+            updateRuntimeState.bootstrapIfNeeded()
             // Settings 창이 뜬 순간부터 백그라운드에서 환경 감지 warm-up.
             // UI 스레드는 블로킹되지 않고, warm-up 완료 시 Notification 로 재렌더.
             ProviderEnvironmentDetector.refreshAllInBackground()
@@ -114,7 +114,7 @@ extension SettingsView {
             AntigravityStatusProbe.refreshAllInBackground()
         }
         .onChange(of: settings.updateCheckInterval) { _, _ in
-            refreshUpdateEnginePresentation()
+            updateRuntimeState.refreshEngineStatus()
         }
         .onChange(of: settings.providerStates) { _, _ in
             checkCodexAuth()

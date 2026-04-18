@@ -103,24 +103,17 @@ extension AppDelegate {
 
     func checkForUpdates() {
         Task {
-            let result = await UpdateService.shared.checkForUpdates()
-            await MainActor.run {
-                switch result {
-                case .available(let update):
-                    AppSettings.shared.availableUpdate = update
-                case .upToDate:
-                    AppSettings.shared.availableUpdate = nil
-                case .error:
-                    break
-                }
-            }
+            await UpdateService.shared.performScheduledCheck()
         }
     }
 
     func syncUpdateCheckState(runImmediate: Bool = false) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let usesExternalScheduler = await UpdateService.shared.usesExternalScheduler()
+            let usesExternalScheduler = await UpdateService.shared.configureAutomaticChecks(
+                interval: AppSettings.shared.updateCheckInterval,
+                runImmediate: runImmediate
+            )
 
             if usesExternalScheduler {
                 self.updateCoordinator.invalidate()

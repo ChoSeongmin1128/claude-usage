@@ -119,6 +119,17 @@ struct PopoverView: View {
     @ViewBuilder
     private var headerUtilityControls: some View {
         HStack(spacing: 10) {
+            if viewModel.shouldShowUpdateButton {
+                Button(action: { viewModel.performUpdatePrimaryAction() }) {
+                    Image(systemName: viewModel.updateButtonSymbolName)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.blue)
+                        .frame(width: 14, height: 14)
+                }
+                .buttonStyle(.borderless)
+                .help(viewModel.updateButtonHelpText)
+            }
+
             Button(action: { viewModel.refresh() }) {
                 Group {
                     if currentServiceLoading {
