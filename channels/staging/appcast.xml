@@ -1,0 +1,14 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>ClaudeUsage</title>
+        <item>
+            <title>2.0.1</title>
+            <pubDate>Sat, 18 Apr 2026 21:36:41 +0900</pubDate>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>2.0.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.1-staging.1/ClaudeUsage.zip" length="3508688" type="application/octet-stream" sparkle:edSignature="FNzVedHEHF5CBG3LvOyMRXY/GOry0pQrPdC3AJTkkYcIQyrh+wZ8bS8qWR1SkbWCHqXxtbvya8F91uDz+1zODQ=="/>
+        </item>
+    </channel>
+</rss>
