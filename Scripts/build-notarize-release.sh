@@ -55,7 +55,8 @@ extract_xcconfig_value() {
 }
 
 is_placeholder_value() {
-    local value="${1,,}"
+    local value
+    value="$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')"
     [[ -z "$value" ]] && return 0
     [[ "$value" == *"change_me"* ]] && return 0
     [[ "$value" == *"placeholder"* ]] && return 0

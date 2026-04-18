@@ -66,7 +66,7 @@ if [[ -z "$DEFAULT_FEED_URL" ]]; then
     if [[ "$REMOTE_URL" =~ github\.com[:/](.+)/(.+?)(\.git)?$ ]]; then
         OWNER="${BASH_REMATCH[1]}"
         REPO="${BASH_REMATCH[2]}"
-        OWNER_LOWER="${OWNER,,}"
+        OWNER_LOWER="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
         DEFAULT_FEED_URL="https://$OWNER_LOWER.github.io/$REPO/appcast.xml"
     else
         DEFAULT_FEED_URL="https://REPLACE_ME/appcast.xml"
