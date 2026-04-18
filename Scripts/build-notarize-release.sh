@@ -33,6 +33,7 @@ PROJECT_PATH="${PROJECT_PATH:-$ROOT_DIR/ClaudeUsage.xcodeproj}"
 XC_CONFIG_PATH="${XC_CONFIG_PATH:-$ROOT_DIR/Config/Release.xcconfig}"
 LOCAL_XC_CONFIG_PATH="${LOCAL_XC_CONFIG_PATH:-$ROOT_DIR/Config/Sparkle.release.local.xcconfig}"
 MAKE_DMG_SCRIPT="$ROOT_DIR/Scripts/make-dmg.sh"
+ENTITLEMENTS_PATH="${ENTITLEMENTS_PATH:-$ROOT_DIR/ClaudeUsage/ClaudeUsage.entitlements}"
 SKIP_DMG="${SKIP_DMG:-0}"
 
 extract_xcconfig_value() {
@@ -81,6 +82,11 @@ fi
 
 if [[ ! -f "$XC_CONFIG_PATH" ]]; then
     echo "release xcconfig를 찾지 못했습니다: $XC_CONFIG_PATH" >&2
+    exit 1
+fi
+
+if [[ ! -f "$ENTITLEMENTS_PATH" ]]; then
+    echo "entitlements 파일을 찾지 못했습니다: $ENTITLEMENTS_PATH" >&2
     exit 1
 fi
 
@@ -137,30 +143,53 @@ if [[ ! -d "$APP_PATH" ]]; then
     exit 1
 fi
 
-# ── 2. 앱 notarization 용 ZIP ────────────────────────────────
+# ── 2. Sparkle helper 재서명 ────────────────────────────────
 
 echo
-echo "2. 앱 notarization ZIP 생성"
+echo "2. Sparkle helper 재서명"
+SPARKLE_FW="$APP_PATH/Contents/Frameworks/Sparkle.framework"
+if [[ -d "$SPARKLE_FW" ]]; then
+    codesign --force --options runtime --timestamp --sign "$CERT_HASH" \
+        "$SPARKLE_FW/Versions/B/XPCServices/Downloader.xpc"
+    codesign --force --options runtime --timestamp --sign "$CERT_HASH" \
+        "$SPARKLE_FW/Versions/B/XPCServices/Installer.xpc"
+    codesign --force --options runtime --timestamp --sign "$CERT_HASH" \
+        "$SPARKLE_FW/Versions/B/Autoupdate"
+    codesign --force --options runtime --timestamp --sign "$CERT_HASH" \
+        "$SPARKLE_FW/Versions/B/Updater.app"
+    codesign --force --options runtime --timestamp --sign "$CERT_HASH" \
+        "$SPARKLE_FW"
+fi
+
+codesign --force --options runtime --timestamp \
+    --entitlements "$ENTITLEMENTS_PATH" \
+    --sign "$CERT_HASH" \
+    "$APP_PATH"
+
+# ── 3. 앱 notarization 용 ZIP ────────────────────────────────
+
+echo
+echo "3. 앱 notarization ZIP 생성"
 ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
 
-# ── 3. 앱 notarize ──────────────────────────────────────────
+# ── 4. 앱 notarize ──────────────────────────────────────────
 
 echo
-echo "3. 앱 notarization 제출 (--wait)"
+echo "4. 앱 notarization 제출 (--wait)"
 xcrun notarytool submit "$ZIP_PATH" \
     --keychain-profile "$NOTARY_PROFILE" \
     --wait
 
-# ── 4. 앱 staple ────────────────────────────────────────────
+# ── 5. 앱 staple ────────────────────────────────────────────
 
 echo
-echo "4. 앱 staple 적용"
+echo "5. 앱 staple 적용"
 xcrun stapler staple "$APP_PATH"
 
-# ── 5. stapled ZIP 재생성 ──────────────────────────────────
+# ── 6. stapled ZIP 재생성 ──────────────────────────────────
 
 echo
-echo "5. stapled ZIP 재생성"
+echo "6. stapled ZIP 재생성"
 rm -f "$ZIP_PATH"
 ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
 
@@ -177,33 +206,33 @@ EOF
     exit 0
 fi
 
-# ── 6. DMG 생성 + 서명 ──────────────────────────────────────
+# ── 7. DMG 생성 + 서명 ──────────────────────────────────────
 
 echo
-echo "6. 설치용 DMG 생성"
+echo "7. 설치용 DMG 생성"
 APP_PATH="$APP_PATH" \
 DMG_PATH="$DMG_PATH" \
 CERT_HASH="$CERT_HASH" \
 "$MAKE_DMG_SCRIPT"
 
-# ── 7. DMG notarize ────────────────────────────────────────
+# ── 8. DMG notarize ────────────────────────────────────────
 
 echo
-echo "7. DMG notarization 제출 (--wait)"
+echo "8. DMG notarization 제출 (--wait)"
 xcrun notarytool submit "$DMG_PATH" \
     --keychain-profile "$NOTARY_PROFILE" \
     --wait
 
-# ── 8. DMG staple ──────────────────────────────────────────
+# ── 9. DMG staple ──────────────────────────────────────────
 
 echo
-echo "8. DMG staple 적용"
+echo "9. DMG staple 적용"
 xcrun stapler staple "$DMG_PATH"
 
-# ── 9. 최종 Gatekeeper 검증 ────────────────────────────────
+# ── 10. 최종 Gatekeeper 검증 ────────────────────────────────
 
 echo
-echo "9. Gatekeeper 최종 검증"
+echo "10. Gatekeeper 최종 검증"
 spctl -a -t open --context context:primary-signature -v "$DMG_PATH" 2>&1 | tail -3 || true
 
 DMG_SIZE_BYTES=$(stat -f%z "$DMG_PATH")
