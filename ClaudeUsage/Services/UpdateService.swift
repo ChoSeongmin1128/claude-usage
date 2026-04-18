@@ -233,16 +233,20 @@ final class GitHubReleaseUpdateEngine: AppUpdateEngine {
 @MainActor
 final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, SPUStandardUserDriverDelegate {
     private lazy var updaterController = SPUStandardUpdaterController(
-        startingUpdater: true,
+        // feed override / 자동 확인 설정을 먼저 맞춘 뒤 updater 를 시작해야
+        // 첫 scheduled cycle 이 잘못된 기본 appcast 를 보지 않습니다.
+        startingUpdater: false,
         updaterDelegate: self,
         userDriverDelegate: self
     )
 
-    private let feedURL: URL?
+    private let preferredFeedURL: URL?
     private var activeSessionOrigin: UpdateSessionOrigin?
     private var pendingCheckContinuation: CheckedContinuation<UpdateCheckResult, Never>?
     private var lastCycleResult: UpdateCheckResult?
     private var postponedInstallHandler: (() -> Void)?
+    private var appliedFeedOverrideURL: URL?
+    private var hasStartedUpdater = false
 
     static func makeIfConfigured() -> SparkleUpdateEngine? {
         guard let feedURL = UpdateConfigurationInspector.configuredFeedURL(),
@@ -254,7 +258,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     }
 
     init(feedURL: URL?) {
-        self.feedURL = feedURL
+        self.preferredFeedURL = feedURL
     }
 
     func modeSummary() async -> String {
@@ -262,6 +266,8 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     }
 
     func checkForUpdates() async -> UpdateCheckResult {
+        synchronizeFeedConfiguration(resetCycle: false)
+        ensureUpdaterStartedIfNeeded()
         publishEngineMetadata()
 
         if updater.sessionInProgress {
@@ -290,6 +296,8 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     func supportsInteractiveCheck() async -> Bool { true }
 
     func performInteractiveCheck() async -> String? {
+        synchronizeFeedConfiguration(resetCycle: false)
+        ensureUpdaterStartedIfNeeded()
         publishEngineMetadata()
         activeSessionOrigin = .interactive
         lastCycleResult = nil
@@ -298,6 +306,8 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     }
 
     func synchronizeScheduler(interval: UpdateCheckInterval, runImmediate: Bool) async {
+        synchronizeFeedConfiguration(resetCycle: false)
+
         switch interval {
         case .off:
             updater.automaticallyChecksForUpdates = false
@@ -313,6 +323,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
             updater.automaticallyDownloadsUpdates = true
         }
 
+        ensureUpdaterStartedIfNeeded()
         publishEngineMetadata()
 
         if interval != .off, runImmediate {
@@ -347,6 +358,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     }
 
     private func publishEngineMetadata() {
+        synchronizeFeedConfiguration(resetCycle: false)
         UpdateRuntimeState.shared.applyEngineMetadata(
             modeSummary: UpdateEngineMessages.sparkleSchedulerReadyMessage(
                 usingFeedOverride: UpdateConfigurationInspector.usesFeedOverride()
@@ -358,6 +370,8 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     }
 
     private func beginBackgroundCheck(origin: UpdateSessionOrigin) {
+        synchronizeFeedConfiguration(resetCycle: false)
+        ensureUpdaterStartedIfNeeded()
         guard updater.sessionInProgress == false else { return }
 
         activeSessionOrigin = origin
@@ -367,7 +381,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     }
 
     private func updateInfo(for item: SUAppcastItem) -> UpdateInfo {
-        let downloadURL = item.fileURL ?? item.infoURL ?? feedURL ?? URL(string: "https://github.com/ChoSeongmin1128/claude-usage/releases/latest")!
+        let downloadURL = item.fileURL ?? item.infoURL ?? preferredFeedURL ?? URL(string: "https://github.com/ChoSeongmin1128/claude-usage/releases/latest")!
         let releaseNotes = item.itemDescription ?? item.releaseNotesURL?.absoluteString ?? ""
 
         return UpdateInfo(
@@ -404,8 +418,55 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
         }
     }
 
+    private func synchronizeFeedConfiguration(resetCycle: Bool) {
+        let usesOverride = UpdateConfigurationInspector.usesFeedOverride()
+        let resolvedFeedURL = UpdateConfigurationInspector.configuredFeedURL() ?? preferredFeedURL
+        let defaults = UserDefaults.standard
+        let persistedFeedOverride = defaults.string(forKey: "SUFeedURL")
+
+        guard let resolvedFeedURL else {
+            return
+        }
+
+        if usesOverride {
+            guard appliedFeedOverrideURL != resolvedFeedURL || persistedFeedOverride != resolvedFeedURL.absoluteString else {
+                return
+            }
+
+            defaults.set(resolvedFeedURL.absoluteString, forKey: "SUFeedURL")
+            appliedFeedOverrideURL = resolvedFeedURL
+            Logger.info("Sparkle feed override 적용: \(resolvedFeedURL.absoluteString)")
+
+            if resetCycle {
+                updater.resetUpdateCycle()
+            }
+            return
+        }
+
+        guard appliedFeedOverrideURL != nil || persistedFeedOverride != nil else {
+            return
+        }
+
+        defaults.removeObject(forKey: "SUFeedURL")
+        appliedFeedOverrideURL = nil
+        if let persistedFeedOverride {
+            Logger.info("Sparkle 사용자 기본 feed override 해제: \(persistedFeedOverride)")
+        }
+
+        if resetCycle {
+            updater.resetUpdateCycle()
+        }
+    }
+
+    private func ensureUpdaterStartedIfNeeded() {
+        guard !hasStartedUpdater else { return }
+        updaterController.startUpdater()
+        hasStartedUpdater = true
+    }
+
     func feedURLString(for updater: SPUUpdater) -> String? {
-        feedURL?.absoluteString
+        let configuredFeedURL = UpdateConfigurationInspector.configuredFeedURL() ?? preferredFeedURL
+        return configuredFeedURL?.absoluteString
     }
 
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
@@ -637,6 +698,12 @@ enum UpdateConfigurationInspector {
         }
         return feedURL
     }
+
+    nonisolated static func engineConfigurationSignature() -> String {
+        let feedURL = configuredFeedURL()?.absoluteString ?? "nil"
+        let publicKey = configuredValue(for: "SUPublicEDKey") ?? "nil"
+        return "\(feedURL)|\(publicKey)"
+    }
     #endif
 }
 
@@ -662,18 +729,32 @@ actor UpdateService {
     static let shared = UpdateService()
 
     private var engine: (any AppUpdateEngine)?
+    private var engineConfigurationSignature: String?
 
     init(engine: (any AppUpdateEngine)? = nil) {
         self.engine = engine
+        #if canImport(Sparkle)
+        self.engineConfigurationSignature = engine.map { _ in UpdateConfigurationInspector.engineConfigurationSignature() }
+        #endif
     }
 
     private func resolvedEngine() async -> any AppUpdateEngine {
+        #if canImport(Sparkle)
+        let currentConfigurationSignature = UpdateConfigurationInspector.engineConfigurationSignature()
+        if let engine, engineConfigurationSignature == currentConfigurationSignature {
+            return engine
+        }
+        #else
         if let engine {
             return engine
         }
+        #endif
 
         let resolved = await UpdateEngineFactory.makeDefaultEngine()
         engine = resolved
+        #if canImport(Sparkle)
+        engineConfigurationSignature = currentConfigurationSignature
+        #endif
         return resolved
     }
 
