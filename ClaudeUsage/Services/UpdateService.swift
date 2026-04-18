@@ -509,7 +509,10 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
 
     func updater(_ updater: SPUUpdater, didDownloadUpdate item: SUAppcastItem) {
         let update = updateInfo(for: item)
-        UpdateRuntimeState.shared.markDownloading(update, message: "v\(update.version) 다운로드 완료, 설치 준비 중")
+        UpdateRuntimeState.shared.markDownloadedReady(
+            update,
+            message: "v\(update.version) 다운로드 완료, 설치 버튼에서 이어서 진행할 수 있습니다"
+        )
     }
 
     func updater(_ updater: SPUUpdater, failedToDownloadUpdate item: SUAppcastItem, error: Error) {
@@ -599,13 +602,15 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
                 message: "v\(updateInfo.version) 업데이트를 자동으로 준비 중"
             )
         case .downloaded:
-            if case .readyToInstall = UpdateRuntimeState.shared.phase {
+            switch UpdateRuntimeState.shared.phase {
+            case .readyToInstall, .downloaded:
                 break
+            default:
+                UpdateRuntimeState.shared.markDownloadedReady(
+                    updateInfo,
+                    message: "v\(updateInfo.version) 다운로드 완료, 설치 버튼에서 이어서 진행할 수 있습니다"
+                )
             }
-            UpdateRuntimeState.shared.markDownloading(
-                updateInfo,
-                message: "v\(updateInfo.version) 다운로드 완료, 설치 준비 중"
-            )
         case .installing:
             UpdateRuntimeState.shared.markInstalling(version: updateInfo.version)
         @unknown default:
