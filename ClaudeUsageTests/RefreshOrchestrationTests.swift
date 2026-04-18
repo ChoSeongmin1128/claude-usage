@@ -521,17 +521,28 @@ final class PopoverViewModelTests: XCTestCase {
     }
 
     func testDisplaySectionsKeepCodexVisibleItemsAcrossDensitiesWhenCompactConfigShared() async {
-        let result = await MainActor.run { () -> ([String], [PopoverDisplaySectionKind]) in
+        let result = await MainActor.run { () -> ([String], [String], [PopoverDisplaySectionKind]) in
             let settings = AppSettings.shared
             let snapshot = settings.createSnapshot()
             defer { settings.restore(from: snapshot) }
 
             settings.separateCompactConfig = false
-            settings.codexPopoverItems = PopoverItemConfig.normalizedCodex([
-                .init(id: "codexPrimary", visible: true),
-                .init(id: "codexSecondary", visible: true),
-                .init(id: "codexCredits", visible: true),
-            ])
+            settings.setPopoverItems(
+                makePopoverItems(
+                    ("codexPrimary", true),
+                    ("codexSecondary", true),
+                    ("codexCredits", true)
+                ),
+                for: .codex
+            )
+            settings.setCompactPopoverItems(
+                makePopoverItems(
+                    ("codexPrimary", true),
+                    ("codexSecondary", false),
+                    ("codexCredits", false)
+                ),
+                for: .codex
+            )
 
             let viewModel = PopoverViewModel()
             viewModel.update(
@@ -555,6 +566,7 @@ final class PopoverViewModelTests: XCTestCase {
             let compactSections = viewModel.displaySections(for: .codex, density: .compact, settings: settings)
             return (
                 standardSections.map(\.id),
+                compactSections.map(\.id),
                 compactSections.map(\.kind)
             )
         }
@@ -563,7 +575,65 @@ final class PopoverViewModelTests: XCTestCase {
             result.0,
             ["codexPrimary", "codexSecondary-status", "codexCredits-status"]
         )
-        XCTAssertEqual(result.1, [.usage, .status, .status])
+        XCTAssertEqual(result.1, result.0)
+        XCTAssertEqual(result.2, [.usage, .status, .status])
+    }
+
+    func testDisplaySectionsUseProviderCompactConfigWhenSeparated() async {
+        let result = await MainActor.run { () -> ([String], [String]) in
+            let settings = AppSettings.shared
+            let snapshot = settings.createSnapshot()
+            defer { settings.restore(from: snapshot) }
+
+            settings.separateCompactConfig = true
+            settings.setPopoverItems(
+                makePopoverItems(
+                    ("codexPrimary", true),
+                    ("codexSecondary", true),
+                    ("codexCredits", true)
+                ),
+                for: .codex
+            )
+            settings.setCompactPopoverItems(
+                makePopoverItems(
+                    ("codexPrimary", false),
+                    ("codexSecondary", true),
+                    ("codexCredits", false)
+                ),
+                for: .codex
+            )
+
+            let viewModel = PopoverViewModel()
+            viewModel.update(
+                snapshots: [
+                    RuntimeProviderSnapshot(
+                        service: .codex,
+                        payload: .codex(makeCodexUsageResponse(primary: 42, secondary: nil, creditsBalance: nil)),
+                        error: nil,
+                        isLoading: false,
+                        lastUpdated: Date(),
+                        nextRefreshAllowedAt: nil,
+                        credentialState: .usable,
+                        isDetected: true,
+                        canAttemptRefresh: true,
+                        hasAuthError: false
+                    )
+                ]
+            )
+
+            let standardSections = viewModel.displaySections(for: .codex, density: .standard, settings: settings)
+            let compactSections = viewModel.displaySections(for: .codex, density: .compact, settings: settings)
+            return (
+                standardSections.map(\.id),
+                compactSections.map(\.id)
+            )
+        }
+
+        XCTAssertEqual(
+            result.0,
+            ["codexPrimary", "codexSecondary-status", "codexCredits-status"]
+        )
+        XCTAssertEqual(result.1, ["codexSecondary-status"])
     }
 
     func testLayoutSpecUsesDisplaySectionsForGeminiSecondaryAccount() async {
@@ -572,7 +642,7 @@ final class PopoverViewModelTests: XCTestCase {
             let snapshot = settings.createSnapshot()
             defer { settings.restore(from: snapshot) }
 
-            settings.setPopoverCompact(false, for: .gemini)
+            settings.popoverCompact = false
             let viewModel = PopoverViewModel()
             let payload = GeminiUsageResponse(
                 accountEmail: "user@example.com",
@@ -690,4 +760,8 @@ private func makeCodexUsageResponse(
 
     let data = try! JSONSerialization.data(withJSONObject: payload)
     return try! JSONDecoder().decode(CodexUsageResponse.self, from: data)
+}
+
+private func makePopoverItems(_ items: (String, Bool)...) -> [PopoverItemConfig] {
+    items.map { PopoverItemConfig(id: $0.0, visible: $0.1) }
 }

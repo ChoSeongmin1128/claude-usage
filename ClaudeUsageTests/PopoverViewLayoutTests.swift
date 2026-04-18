@@ -58,7 +58,7 @@ final class PopoverViewLayoutTests: XCTestCase {
             let snapshot = settings.createSnapshot()
             defer { settings.restore(from: snapshot) }
 
-            settings.setPopoverCompact(false, for: .claude)
+            settings.popoverCompact = false
             settings.setProviderEnabled(true, for: .claude)
 
             let authRequiredLayout = PopoverViewModel().layoutSpec(for: .claude, settings: settings)
@@ -109,7 +109,7 @@ final class PopoverViewLayoutTests: XCTestCase {
             let snapshot = settings.createSnapshot()
             defer { settings.restore(from: snapshot) }
 
-            settings.setPopoverCompact(true, for: .claude)
+            settings.popoverCompact = true
             settings.setProviderEnabled(true, for: .claude)
 
             let viewModel = PopoverViewModel()
@@ -145,22 +145,27 @@ final class PopoverViewLayoutTests: XCTestCase {
             let snapshot = settings.createSnapshot()
             defer { settings.restore(from: snapshot) }
 
+            settings.popoverCompact = true
             settings.separateCompactConfig = true
-            settings.setPopoverCompact(true, for: .claude)
-            settings.setPopoverCompact(true, for: .codex)
             settings.setProviderEnabled(true, for: .claude)
             settings.setProviderEnabled(true, for: .codex)
-            settings.compactPopoverItems = [
-                .init(id: "currentSession", visible: true),
-                .init(id: "weeklyLimit", visible: true),
-                .init(id: "modelUsage", visible: true),
-                .init(id: "overageUsage", visible: false),
-            ]
-            settings.codexCompactPopoverItems = [
-                .init(id: "codexPrimary", visible: true),
-                .init(id: "codexSecondary", visible: true),
-                .init(id: "codexCredits", visible: false),
-            ]
+            settings.setCompactPopoverItems(
+                makePopoverItems(
+                    ("currentSession", true),
+                    ("weeklyLimit", true),
+                    ("modelUsage", true),
+                    ("overageUsage", false)
+                ),
+                for: .claude
+            )
+            settings.setCompactPopoverItems(
+                makePopoverItems(
+                    ("codexPrimary", true),
+                    ("codexSecondary", true),
+                    ("codexCredits", false)
+                ),
+                for: .codex
+            )
 
             let viewModel = PopoverViewModel()
             viewModel.update(
@@ -325,22 +330,27 @@ final class PopoverViewLayoutTests: XCTestCase {
             let snapshot = settings.createSnapshot()
             defer { settings.restore(from: snapshot) }
 
+            settings.popoverCompact = true
             settings.separateCompactConfig = true
-            settings.setPopoverCompact(true, for: .claude)
-            settings.setPopoverCompact(true, for: .codex)
             settings.setProviderEnabled(true, for: .claude)
             settings.setProviderEnabled(true, for: .codex)
-            settings.compactPopoverItems = [
-                .init(id: "currentSession", visible: true),
-                .init(id: "weeklyLimit", visible: true),
-                .init(id: "modelUsage", visible: true),
-                .init(id: "overageUsage", visible: false),
-            ]
-            settings.codexCompactPopoverItems = [
-                .init(id: "codexPrimary", visible: true),
-                .init(id: "codexSecondary", visible: true),
-                .init(id: "codexCredits", visible: false),
-            ]
+            settings.setCompactPopoverItems(
+                makePopoverItems(
+                    ("currentSession", true),
+                    ("weeklyLimit", true),
+                    ("modelUsage", true),
+                    ("overageUsage", false)
+                ),
+                for: .claude
+            )
+            settings.setCompactPopoverItems(
+                makePopoverItems(
+                    ("codexPrimary", true),
+                    ("codexSecondary", true),
+                    ("codexCredits", false)
+                ),
+                for: .codex
+            )
 
             let viewModel = PopoverViewModel()
             viewModel.update(
@@ -413,7 +423,7 @@ final class PopoverViewLayoutTests: XCTestCase {
             let snapshot = settings.createSnapshot()
             defer { settings.restore(from: snapshot) }
 
-            settings.setPopoverCompact(compact, for: .claude)
+            settings.popoverCompact = compact
             settings.setProviderEnabled(true, for: .claude)
 
             let authRequiredWidth = PopoverViewModel()
@@ -533,4 +543,8 @@ private let layoutTestCodexTwoRowPayload: RuntimeProviderPayload = .codex(
 private func decodeCodexUsageResponse(_ json: String) -> CodexUsageResponse {
     let data = Data(json.utf8)
     return try! JSONDecoder().decode(CodexUsageResponse.self, from: data)
+}
+
+private func makePopoverItems(_ items: (String, Bool)...) -> [PopoverItemConfig] {
+    items.map { PopoverItemConfig(id: $0.0, visible: $0.1) }
 }
