@@ -92,8 +92,6 @@ enum ProviderEnvironmentDetector {
         let cachedAt: Date
     }
 
-    private static var statusCache: [AppProviderKind: CachedStatus] = [:]
-    private static let statusCacheLock = NSLock()
     private static let cacheTTL: TimeInterval = 5
     /// SWR (stale-while-revalidate) 허용 윈도우: TTL 만료 후에도 이 기간 내면
     /// 캐시 값을 그대로 반환하면서 백그라운드에서만 갱신을 예약.
@@ -102,8 +100,6 @@ enum ProviderEnvironmentDetector {
     /// 잘못된 정보를 보여 줄 위험이 커지므로 2분으로 제한.
     /// TTL=5s + background warm-up 덕에 실제 체감되는 stale window 는 훨씬 짧다.
     private static let staleAllowance: TimeInterval = 120
-    private static var inflightRefresh: Set<AppProviderKind> = []
-
     // MARK: - Signals cache (antigravitySignals/geminiSignals 결과 캐시)
     // SQLite · JSON 파싱 · 파일 IO 를 포함해서 blocking 비용이 있으므로
     // UI 경로용 cachedAntigravitySignals/cachedGeminiSignals 에서 재활용.
@@ -118,30 +114,177 @@ enum ProviderEnvironmentDetector {
         let cachedAt: Date
     }
 
-    private static var cachedAntigravitySignalsValue: CachedAntigravitySignals?
-    private static var cachedGeminiSignalsValue: CachedGeminiSignals?
-    private static let signalsCacheLock = NSLock()
     private static let signalsCacheTTL: TimeInterval = 5
-    private static var antigravitySignalsInflight = false
-    private static var geminiSignalsInflight = false
+    private nonisolated static let stateStore = MutableStateStore()
+
+    private final class MutableStateStore: @unchecked Sendable {
+        private let statusCacheLock = NSLock()
+        private nonisolated(unsafe) var statusCache: [AppProviderKind: CachedStatus] = [:]
+        private nonisolated(unsafe) var inflightRefresh: Set<AppProviderKind> = []
+
+        private let signalsCacheLock = NSLock()
+        private nonisolated(unsafe) var cachedAntigravitySignalsValue: CachedAntigravitySignals?
+        private nonisolated(unsafe) var cachedGeminiSignalsValue: CachedGeminiSignals?
+        private nonisolated(unsafe) var antigravitySignalsInflight = false
+        private nonisolated(unsafe) var geminiSignalsInflight = false
+        private let binaryPathCacheLock = NSLock()
+        private nonisolated(unsafe) var binaryPathCache: [String: URL?] = [:]
+
+        nonisolated func invalidateCache(for kind: AppProviderKind?) {
+            statusCacheLock.lock()
+            if let kind {
+                statusCache.removeValue(forKey: kind)
+            } else {
+                statusCache.removeAll()
+            }
+            statusCacheLock.unlock()
+
+            signalsCacheLock.lock()
+            if kind == nil || kind == .antigravity {
+                cachedAntigravitySignalsValue = nil
+            }
+            if kind == nil || kind == .gemini {
+                cachedGeminiSignalsValue = nil
+            }
+            signalsCacheLock.unlock()
+        }
+
+        nonisolated func freshStatus(for kind: AppProviderKind, now: Date, ttl: TimeInterval) -> ProviderEnvironmentStatus? {
+            statusCacheLock.lock()
+            defer { statusCacheLock.unlock() }
+
+            guard let cached = statusCache[kind], now.timeIntervalSince(cached.cachedAt) < ttl else {
+                return nil
+            }
+            return cached.status
+        }
+
+        nonisolated func cachedStatus(for kind: AppProviderKind) -> ProviderEnvironmentStatus? {
+            statusCacheLock.lock()
+            defer { statusCacheLock.unlock() }
+            return statusCache[kind]?.status
+        }
+
+        nonisolated func staleStatusSnapshot(
+            for kind: AppProviderKind,
+            now: Date,
+            ttl: TimeInterval,
+            staleAllowance: TimeInterval
+        ) -> (status: ProviderEnvironmentStatus?, isMissing: Bool, needsRefresh: Bool, withinStaleWindow: Bool) {
+            statusCacheLock.lock()
+            defer { statusCacheLock.unlock() }
+
+            let cached = statusCache[kind]
+            let needsRefresh = cached.map { now.timeIntervalSince($0.cachedAt) >= ttl } ?? true
+            let withinStaleWindow = cached.map { now.timeIntervalSince($0.cachedAt) < staleAllowance } ?? false
+            return (cached?.status, cached == nil, needsRefresh, withinStaleWindow)
+        }
+
+        nonisolated func storeStatus(_ status: ProviderEnvironmentStatus?, for kind: AppProviderKind, cachedAt: Date) {
+            statusCacheLock.lock()
+            statusCache[kind] = CachedStatus(status: status, cachedAt: cachedAt)
+            statusCacheLock.unlock()
+        }
+
+        nonisolated func beginStatusRefresh(for kind: AppProviderKind) -> Bool {
+            statusCacheLock.lock()
+            defer { statusCacheLock.unlock() }
+
+            if inflightRefresh.contains(kind) {
+                return false
+            }
+            inflightRefresh.insert(kind)
+            return true
+        }
+
+        nonisolated func endStatusRefresh(_ status: ProviderEnvironmentStatus?, for kind: AppProviderKind, cachedAt: Date) {
+            statusCacheLock.lock()
+            statusCache[kind] = CachedStatus(status: status, cachedAt: cachedAt)
+            inflightRefresh.remove(kind)
+            statusCacheLock.unlock()
+        }
+
+        nonisolated func cachedAntigravitySignals(now: Date, ttl: TimeInterval) -> (signals: AntigravityEnvironmentSignals?, needsRefresh: Bool) {
+            signalsCacheLock.lock()
+            defer { signalsCacheLock.unlock() }
+
+            let cached = cachedAntigravitySignalsValue
+            let needsRefresh = cached.map { now.timeIntervalSince($0.cachedAt) >= ttl } ?? true
+            return (cached?.signals, needsRefresh)
+        }
+
+        nonisolated func cachedGeminiSignals(now: Date, ttl: TimeInterval) -> (signals: GeminiEnvironmentSignals?, needsRefresh: Bool) {
+            signalsCacheLock.lock()
+            defer { signalsCacheLock.unlock() }
+
+            let cached = cachedGeminiSignalsValue
+            let needsRefresh = cached.map { now.timeIntervalSince($0.cachedAt) >= ttl } ?? true
+            return (cached?.signals, needsRefresh)
+        }
+
+        nonisolated func storeAntigravitySignals(_ signals: AntigravityEnvironmentSignals, cachedAt: Date) {
+            signalsCacheLock.lock()
+            cachedAntigravitySignalsValue = CachedAntigravitySignals(signals: signals, cachedAt: cachedAt)
+            signalsCacheLock.unlock()
+        }
+
+        nonisolated func storeGeminiSignals(_ signals: GeminiEnvironmentSignals, cachedAt: Date) {
+            signalsCacheLock.lock()
+            cachedGeminiSignalsValue = CachedGeminiSignals(signals: signals, cachedAt: cachedAt)
+            signalsCacheLock.unlock()
+        }
+
+        nonisolated func beginAntigravitySignalsRefresh() -> Bool {
+            signalsCacheLock.lock()
+            defer { signalsCacheLock.unlock() }
+
+            if antigravitySignalsInflight {
+                return false
+            }
+            antigravitySignalsInflight = true
+            return true
+        }
+
+        nonisolated func endAntigravitySignalsRefresh(_ signals: AntigravityEnvironmentSignals, cachedAt: Date) {
+            signalsCacheLock.lock()
+            cachedAntigravitySignalsValue = CachedAntigravitySignals(signals: signals, cachedAt: cachedAt)
+            antigravitySignalsInflight = false
+            signalsCacheLock.unlock()
+        }
+
+        nonisolated func beginGeminiSignalsRefresh() -> Bool {
+            signalsCacheLock.lock()
+            defer { signalsCacheLock.unlock() }
+
+            if geminiSignalsInflight {
+                return false
+            }
+            geminiSignalsInflight = true
+            return true
+        }
+
+        nonisolated func endGeminiSignalsRefresh(_ signals: GeminiEnvironmentSignals, cachedAt: Date) {
+            signalsCacheLock.lock()
+            cachedGeminiSignalsValue = CachedGeminiSignals(signals: signals, cachedAt: cachedAt)
+            geminiSignalsInflight = false
+            signalsCacheLock.unlock()
+        }
+
+        nonisolated func cachedBinaryURL(named name: String) -> URL?? {
+            binaryPathCacheLock.lock()
+            defer { binaryPathCacheLock.unlock() }
+            return binaryPathCache[name]
+        }
+
+        nonisolated func storeBinaryURL(_ url: URL?, for name: String) {
+            binaryPathCacheLock.lock()
+            binaryPathCache[name] = url
+            binaryPathCacheLock.unlock()
+        }
+    }
 
     static func invalidateCache(for kind: AppProviderKind? = nil) {
-        statusCacheLock.lock()
-        if let kind {
-            statusCache.removeValue(forKey: kind)
-        } else {
-            statusCache.removeAll()
-        }
-        statusCacheLock.unlock()
-
-        signalsCacheLock.lock()
-        if kind == nil || kind == .antigravity {
-            cachedAntigravitySignalsValue = nil
-        }
-        if kind == nil || kind == .gemini {
-            cachedGeminiSignalsValue = nil
-        }
-        signalsCacheLock.unlock()
+        stateStore.invalidateCache(for: kind)
     }
 
     /// 동기 API (구 버전 호환). cache miss 시 여전히 blocking 이므로 UI
@@ -149,18 +292,12 @@ enum ProviderEnvironmentDetector {
     static func status(for kind: AppProviderKind) -> ProviderEnvironmentStatus? {
         let now = Date()
 
-        statusCacheLock.lock()
-        if let cached = statusCache[kind], now.timeIntervalSince(cached.cachedAt) < cacheTTL {
-            statusCacheLock.unlock()
-            return cached.status
+        if let cached = stateStore.freshStatus(for: kind, now: now, ttl: cacheTTL) {
+            return cached
         }
-        statusCacheLock.unlock()
 
         let result = _uncachedStatus(for: kind)
-
-        statusCacheLock.lock()
-        statusCache[kind] = CachedStatus(status: result, cachedAt: now)
-        statusCacheLock.unlock()
+        stateStore.storeStatus(result, for: kind, cachedAt: now)
 
         return result
     }
@@ -168,9 +305,7 @@ enum ProviderEnvironmentDetector {
     /// 캐시된 값만 반환 (subprocess 호출 절대 없음).
     /// UI 경로에서 호출해도 즉시 리턴. 캐시가 없으면 nil.
     static func cachedStatus(for kind: AppProviderKind) -> ProviderEnvironmentStatus? {
-        statusCacheLock.lock()
-        defer { statusCacheLock.unlock() }
-        return statusCache[kind]?.status
+        stateStore.cachedStatus(for: kind)
     }
 
     /// SWR: 캐시가 있으면 즉시 반환. TTL 만료면 백그라운드 갱신 예약 후 그대로
@@ -179,38 +314,40 @@ enum ProviderEnvironmentDetector {
     static func staleWhileRevalidate(for kind: AppProviderKind) -> ProviderEnvironmentStatus? {
         let now = Date()
 
-        statusCacheLock.lock()
-        let cached = statusCache[kind]
-        let needsRefresh: Bool = {
-            guard let cached else { return true }
-            return now.timeIntervalSince(cached.cachedAt) >= cacheTTL
-        }()
-        let value = cached?.status
-        let withinStaleWindow = cached.map { now.timeIntervalSince($0.cachedAt) < staleAllowance } ?? false
-        statusCacheLock.unlock()
+        let snapshot = stateStore.staleStatusSnapshot(
+            for: kind,
+            now: now,
+            ttl: cacheTTL,
+            staleAllowance: staleAllowance
+        )
 
-        if needsRefresh {
+        if snapshot.needsRefresh {
             scheduleBackgroundRefresh(for: kind)
         }
 
         // cache miss 거나 stale window 넘으면 nil 반환 (UI 는 "모름" 으로 처리)
-        if cached == nil || !withinStaleWindow {
-            return cached == nil ? nil : value
+        if snapshot.isMissing || !snapshot.withinStaleWindow {
+            return snapshot.isMissing ? nil : snapshot.status
         }
-        return value
+        return snapshot.status
+    }
+
+    private nonisolated static func postProviderEnvironmentUpdated(for kind: AppProviderKind) {
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: .providerEnvironmentUpdated,
+                object: kind
+            )
+        }
     }
 
     /// 백그라운드에서 실제 subprocess/파일 IO 를 돌려 캐시를 갱신.
     /// 앱 시작, refresh 틱, 또는 SWR 경로에서 내부 호출로 트리거됨.
     /// 동일 kind 에 대한 동시 갱신은 inflight 플래그로 중복 차단.
     nonisolated static func refreshStatusInBackground(for kind: AppProviderKind) {
-        statusCacheLock.lock()
-        if inflightRefresh.contains(kind) {
-            statusCacheLock.unlock()
+        if !stateStore.beginStatusRefresh(for: kind) {
             return
         }
-        inflightRefresh.insert(kind)
-        statusCacheLock.unlock()
 
         // 백그라운드 큐에서 실행 (nonisolated 전역 큐 디스패치).
         // _uncachedStatus 는 subprocess/SQLite/파일 IO 를 blocking 으로 수행하지만
@@ -220,16 +357,9 @@ enum ProviderEnvironmentDetector {
             // (아래 _uncachedStatus → *Signals() 경로는 blocking 이지만 백그라운드).
             let signalsResult = backgroundWarmSignals(for: kind)
             let result = _uncachedStatus(for: kind, precomputedSignals: signalsResult)
-            let now = Date()
-            statusCacheLock.lock()
-            statusCache[kind] = CachedStatus(status: result, cachedAt: now)
-            inflightRefresh.remove(kind)
-            statusCacheLock.unlock()
+            stateStore.endStatusRefresh(result, for: kind, cachedAt: Date())
 
-            NotificationCenter.default.post(
-                name: .providerEnvironmentUpdated,
-                object: kind
-            )
+            postProviderEnvironmentUpdated(for: kind)
         }
     }
 
@@ -239,15 +369,11 @@ enum ProviderEnvironmentDetector {
         switch kind {
         case .antigravity:
             let signals = uncachedAntigravitySignals()
-            signalsCacheLock.lock()
-            cachedAntigravitySignalsValue = CachedAntigravitySignals(signals: signals, cachedAt: Date())
-            signalsCacheLock.unlock()
+            stateStore.storeAntigravitySignals(signals, cachedAt: Date())
             return signals
         case .gemini:
             let signals = uncachedGeminiSignals()
-            signalsCacheLock.lock()
-            cachedGeminiSignalsValue = CachedGeminiSignals(signals: signals, cachedAt: Date())
-            signalsCacheLock.unlock()
+            stateStore.storeGeminiSignals(signals, cachedAt: Date())
             return signals
         case .claude, .codex:
             return nil
@@ -296,76 +422,46 @@ enum ProviderEnvironmentDetector {
     /// UI 메인 스레드는 이것만 호출해서 /bin/ps · SQLite · JSON 파싱 blocking
     /// 을 회피.
     static func cachedAntigravitySignals() -> AntigravityEnvironmentSignals? {
-        let now = Date()
-        signalsCacheLock.lock()
-        let cached = cachedAntigravitySignalsValue
-        let needsRefresh = cached.map { now.timeIntervalSince($0.cachedAt) >= signalsCacheTTL } ?? true
-        signalsCacheLock.unlock()
+        let cached = stateStore.cachedAntigravitySignals(now: Date(), ttl: signalsCacheTTL)
 
-        if needsRefresh {
+        if cached.needsRefresh {
             refreshAntigravitySignalsInBackground()
         }
-        return cached?.signals
+        return cached.signals
     }
 
     static func cachedGeminiSignals() -> GeminiEnvironmentSignals? {
-        let now = Date()
-        signalsCacheLock.lock()
-        let cached = cachedGeminiSignalsValue
-        let needsRefresh = cached.map { now.timeIntervalSince($0.cachedAt) >= signalsCacheTTL } ?? true
-        signalsCacheLock.unlock()
+        let cached = stateStore.cachedGeminiSignals(now: Date(), ttl: signalsCacheTTL)
 
-        if needsRefresh {
+        if cached.needsRefresh {
             refreshGeminiSignalsInBackground()
         }
-        return cached?.signals
+        return cached.signals
     }
 
     nonisolated static func refreshAntigravitySignalsInBackground() {
-        signalsCacheLock.lock()
-        if antigravitySignalsInflight {
-            signalsCacheLock.unlock()
+        if !stateStore.beginAntigravitySignalsRefresh() {
             return
         }
-        antigravitySignalsInflight = true
-        signalsCacheLock.unlock()
 
         DispatchQueue.global(qos: .utility).async {
             let signals = uncachedAntigravitySignals()
-            let now = Date()
-            signalsCacheLock.lock()
-            cachedAntigravitySignalsValue = CachedAntigravitySignals(signals: signals, cachedAt: now)
-            antigravitySignalsInflight = false
-            signalsCacheLock.unlock()
+            stateStore.endAntigravitySignalsRefresh(signals, cachedAt: Date())
 
-            NotificationCenter.default.post(
-                name: .providerEnvironmentUpdated,
-                object: AppProviderKind.antigravity
-            )
+            postProviderEnvironmentUpdated(for: .antigravity)
         }
     }
 
     nonisolated static func refreshGeminiSignalsInBackground() {
-        signalsCacheLock.lock()
-        if geminiSignalsInflight {
-            signalsCacheLock.unlock()
+        if !stateStore.beginGeminiSignalsRefresh() {
             return
         }
-        geminiSignalsInflight = true
-        signalsCacheLock.unlock()
 
         DispatchQueue.global(qos: .utility).async {
             let signals = uncachedGeminiSignals()
-            let now = Date()
-            signalsCacheLock.lock()
-            cachedGeminiSignalsValue = CachedGeminiSignals(signals: signals, cachedAt: now)
-            geminiSignalsInflight = false
-            signalsCacheLock.unlock()
+            stateStore.endGeminiSignalsRefresh(signals, cachedAt: Date())
 
-            NotificationCenter.default.post(
-                name: .providerEnvironmentUpdated,
-                object: AppProviderKind.gemini
-            )
+            postProviderEnvironmentUpdated(for: .gemini)
         }
     }
 
@@ -541,13 +637,11 @@ enum ProviderEnvironmentDetector {
     /// /bin/ps · NSWorkspace · SQLite · 파일 IO 를 모두 포함.
     static func antigravitySignals() -> AntigravityEnvironmentSignals {
         let signals = uncachedAntigravitySignals()
-        signalsCacheLock.lock()
-        cachedAntigravitySignalsValue = CachedAntigravitySignals(signals: signals, cachedAt: Date())
-        signalsCacheLock.unlock()
+        stateStore.storeAntigravitySignals(signals, cachedAt: Date())
         return signals
     }
 
-    private static func uncachedAntigravitySignals() -> AntigravityEnvironmentSignals {
+    private nonisolated static func uncachedAntigravitySignals() -> AntigravityEnvironmentSignals {
         let hasLegacyStateDirectory = FileManager.default.fileExists(
             atPath: FileManager.default.realHomeDirectory
                 .appendingPathComponent(".gemini/antigravity").path
@@ -575,7 +669,7 @@ enum ProviderEnvironmentDetector {
         let hasOAuthToken: Bool
     }
 
-    private static func antigravityPersistedState() -> AntigravityPersistedState {
+    private nonisolated static func antigravityPersistedState() -> AntigravityPersistedState {
         let dbPath = FileManager.default.realHomeDirectory
             .appendingPathComponent("Library/Application Support/Antigravity/User/globalStorage/state.vscdb").path
         guard FileManager.default.fileExists(atPath: dbPath) else {
@@ -604,31 +698,22 @@ enum ProviderEnvironmentDetector {
     }
 
     // 바이너리 경로 캐시 — Process() 실행은 비용이 크므로 앱 생명주기 동안 한 번만 수행
-    private static var binaryPathCache: [String: URL?] = [:]
-    private static let binaryPathCacheLock = NSLock()
-
-    private static func binaryExists(named name: String) -> Bool {
+    private nonisolated static func binaryExists(named name: String) -> Bool {
         resolvedBinaryURL(named: name) != nil
     }
 
-    private static func resolvedBinaryURL(named name: String) -> URL? {
-        binaryPathCacheLock.lock()
-        if let cached = binaryPathCache[name] {
-            binaryPathCacheLock.unlock()
+    private nonisolated static func resolvedBinaryURL(named name: String) -> URL? {
+        if let cached = stateStore.cachedBinaryURL(named: name) {
             return cached
         }
-        binaryPathCacheLock.unlock()
 
         let result = _resolvedBinaryURL(named: name)
-
-        binaryPathCacheLock.lock()
-        binaryPathCache[name] = result
-        binaryPathCacheLock.unlock()
+        stateStore.storeBinaryURL(result, for: name)
 
         return result
     }
 
-    private static func _resolvedBinaryURL(named name: String) -> URL? {
+    private nonisolated static func _resolvedBinaryURL(named name: String) -> URL? {
         let fm = FileManager.default
         // 파일시스템 검색만으로 빠르게 해결 시도 (Process 실행 없음)
         for directory in binaryCandidateDirectories() {
@@ -649,7 +734,7 @@ enum ProviderEnvironmentDetector {
         return nil
     }
 
-    private static func shellBinaryPath(named name: String) -> String? {
+    private nonisolated static func shellBinaryPath(named name: String) -> String? {
         // 중요: `-l` (login shell) 플래그를 절대 사용하지 말 것.
         // login shell은 사용자의 .zprofile/.zshrc를 소싱하며,
         // 그 안에서 `claude` 같은 CLI를 자동 실행하면 child process(2.1.112 등)가
@@ -689,7 +774,7 @@ enum ProviderEnvironmentDetector {
         return path.isEmpty ? nil : path
     }
 
-    private static func binaryCandidateDirectories() -> [String] {
+    private nonisolated static func binaryCandidateDirectories() -> [String] {
         let home = FileManager.default.realHomeDirectory.path
         let envPaths = ProcessInfo.processInfo.environment["PATH"]?
             .split(separator: ":")
@@ -707,7 +792,7 @@ enum ProviderEnvironmentDetector {
         return Array(Set(envPaths + fallbackPaths))
     }
 
-    private static func geminiAuthType() -> GeminiAuthType {
+    private nonisolated static func geminiAuthType() -> GeminiAuthType {
         let settingsURL = FileManager.default.realHomeDirectory
             .appendingPathComponent(".gemini/settings.json")
 
@@ -728,13 +813,11 @@ enum ProviderEnvironmentDetector {
     /// CLI 탐색 + JSON 파싱 포함.
     static func geminiSignals() -> GeminiEnvironmentSignals {
         let signals = uncachedGeminiSignals()
-        signalsCacheLock.lock()
-        cachedGeminiSignalsValue = CachedGeminiSignals(signals: signals, cachedAt: Date())
-        signalsCacheLock.unlock()
+        stateStore.storeGeminiSignals(signals, cachedAt: Date())
         return signals
     }
 
-    private static func uncachedGeminiSignals() -> GeminiEnvironmentSignals {
+    private nonisolated static func uncachedGeminiSignals() -> GeminiEnvironmentSignals {
         GeminiEnvironmentSignals(
             hasBinary: binaryExists(named: "gemini"),
             authType: geminiAuthType(),
@@ -742,7 +825,7 @@ enum ProviderEnvironmentDetector {
         )
     }
 
-    private static func geminiCredentialState() -> GeminiCredentialState {
+    private nonisolated static func geminiCredentialState() -> GeminiCredentialState {
         let credsURL = FileManager.default.realHomeDirectory
             .appendingPathComponent(".gemini/oauth_creds.json")
         guard
