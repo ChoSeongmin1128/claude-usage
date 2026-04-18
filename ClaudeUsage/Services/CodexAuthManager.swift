@@ -27,8 +27,12 @@ final class CodexAuthManager {
 
     /// 실제 홈 디렉토리 (샌드박스 컨테이너가 아닌 /Users/xxx)
     private let authJsonPath: String = {
-        let pw = getpwuid(getuid())!
-        let realHome = String(cString: pw.pointee.pw_dir)
+        let realHome: String
+        if let pw = getpwuid(getuid()) {
+            realHome = String(cString: pw.pointee.pw_dir)
+        } else {
+            realHome = NSHomeDirectory()
+        }
         return "\(realHome)/.codex/auth.json"
     }()
 
