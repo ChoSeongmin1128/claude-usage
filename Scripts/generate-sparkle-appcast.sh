@@ -97,6 +97,55 @@ find_sparkle_binary() {
   return 1
 }
 
+attach_signatures_to_appcast() {
+  local appcast_path="$1"
+  local archives_dir="$2"
+  local sign_update_bin="$3"
+
+  python3 - "$appcast_path" "$archives_dir" "$sign_update_bin" <<'PY'
+import os
+import re
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+
+appcast_path, archives_dir, sign_update_bin = sys.argv[1:4]
+sparkle_namespace = "http://www.andymatuschak.org/xml-namespaces/sparkle"
+signature_key = f"{{{sparkle_namespace}}}edSignature"
+
+ET.register_namespace("sparkle", sparkle_namespace)
+tree = ET.parse(appcast_path)
+root = tree.getroot()
+updated = False
+
+for enclosure in root.findall(".//enclosure"):
+    url = enclosure.get("url", "")
+    archive_name = os.path.basename(url)
+    archive_path = os.path.join(archives_dir, archive_name)
+    if not archive_name or not os.path.isfile(archive_path):
+        continue
+
+    command_output = subprocess.check_output([sign_update_bin, archive_path], text=True).strip()
+    signature_match = re.search(r'sparkle:edSignature="([^"]+)"', command_output)
+    length_match = re.search(r'length="([^"]+)"', command_output)
+    if not signature_match or not length_match:
+        raise SystemExit(f"sign_update 출력에서 서명 정보를 찾지 못했습니다: {archive_name}")
+
+    signature = signature_match.group(1)
+    length = length_match.group(1)
+
+    if enclosure.get(signature_key) != signature:
+        enclosure.set(signature_key, signature)
+        updated = True
+    if enclosure.get("length") != length:
+        enclosure.set("length", length)
+        updated = True
+
+if updated:
+    tree.write(appcast_path, encoding="utf-8", xml_declaration=True)
+PY
+}
+
 derive_download_base_url_from_feed_url() {
   local feed_url="$1"
   if is_placeholder_value "$feed_url"; then
@@ -154,6 +203,13 @@ if [[ -z "$GEN_APPCAST" ]]; then
   exit 1
 fi
 
+SIGN_UPDATE="$(find_sparkle_binary sign_update || true)"
+if [[ -z "$SIGN_UPDATE" ]]; then
+  echo "sign_update 명령어를 찾지 못했습니다." >&2
+  echo "Sparkle 서명 정보를 appcast에 주입할 수 없으니 설정을 확인해 주세요." >&2
+  exit 1
+fi
+
 ZIP_COUNT="$(find "$ARTIFACTS_DIR" -maxdepth 1 -name '*.zip' | wc -l | tr -d ' ')"
 if [[ "$ZIP_COUNT" == "0" ]]; then
   echo "appcast에 포함할 ZIP 산출물이 없습니다: $ARTIFACTS_DIR" >&2
@@ -171,6 +227,7 @@ find "$ARTIFACTS_DIR" -maxdepth 1 -name '*.zip' -print0 | while IFS= read -r -d 
 done
 
 echo "- generate_appcast: $GEN_APPCAST"
+echo "- sign_update: $SIGN_UPDATE"
 echo "- artifacts: $ARTIFACTS_DIR"
 echo "- staged zip dir: $STAGING_DIR"
 echo "- output: $APPCAST_OUTPUT"
@@ -183,6 +240,8 @@ echo "- download base url: $DOWNLOAD_URL_PREFIX"
   --download-url-prefix "$DOWNLOAD_URL_PREFIX" \
   -o "$APPCAST_OUTPUT" \
   "$STAGING_DIR"
+
+attach_signatures_to_appcast "$APPCAST_OUTPUT" "$STAGING_DIR" "$SIGN_UPDATE"
 
 echo
 echo "완료: $APPCAST_OUTPUT"
