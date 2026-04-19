@@ -1,4 +1,4 @@
-<?xml version="1.0" standalone="yes"?>
+<?xml version='1.0' encoding='utf-8'?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>ClaudeUsage</title>
@@ -8,7 +8,7 @@
             <sparkle:version>20001</sparkle:version>
             <sparkle:shortVersionString>2.0.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.1-staging.3/ClaudeUsage.zip" length="3514861" type="application/octet-stream" sparkle:edSignature="4P3GnwUc1qxTUnYM8PKIMiQjLY4LKLTKwyxJjxRUNYYIW42yIpl0/zEpRom2Ris07aMNYWH6oSo0X6X0IOpFCg=="/>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.1-staging.5/ClaudeUsage.zip" length="3515320" type="application/octet-stream" sparkle:edSignature="jRa/u6Ra7M5pAaFoZNtPg00EW9yZMD/M/kXFo/nvvrNaN1zoRBSVvTnlJS1iXxeZbViWksdPzW9YQX7sAmZPCw==" />
         </item>
     </channel>
 </rss>
