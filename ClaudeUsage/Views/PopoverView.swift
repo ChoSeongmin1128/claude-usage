@@ -124,9 +124,10 @@ struct PopoverView: View {
                     Image(systemName: viewModel.updateButtonSymbolName)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(.blue)
-                        .frame(width: 14, height: 14)
+                        .frame(width: 22, height: 14)
                 }
                 .buttonStyle(.borderless)
+                .contentShape(Rectangle())
                 .help(viewModel.updateButtonHelpText)
             }
 

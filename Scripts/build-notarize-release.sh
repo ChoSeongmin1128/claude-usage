@@ -35,6 +35,15 @@ LOCAL_XC_CONFIG_PATH="${LOCAL_XC_CONFIG_PATH:-$ROOT_DIR/Config/Sparkle.release.l
 MAKE_DMG_SCRIPT="$ROOT_DIR/Scripts/make-dmg.sh"
 ENTITLEMENTS_PATH="${ENTITLEMENTS_PATH:-$ROOT_DIR/ClaudeUsage/ClaudeUsage.entitlements}"
 SKIP_DMG="${SKIP_DMG:-0}"
+EFFECTIVE_XC_CONFIG_PATH="$XC_CONFIG_PATH"
+TEMP_XC_CONFIG_PATH=""
+
+cleanup() {
+    if [[ -n "$TEMP_XC_CONFIG_PATH" && -f "$TEMP_XC_CONFIG_PATH" ]]; then
+        rm -f "$TEMP_XC_CONFIG_PATH"
+    fi
+}
+trap cleanup EXIT
 
 extract_xcconfig_value() {
     local file="$1"
@@ -66,6 +75,11 @@ is_placeholder_value() {
     [[ "$value" == *"example.com"* ]] && return 0
     [[ "$value" == *'$('* ]] && return 0
     return 1
+}
+
+xcconfig_url_literal() {
+    local value="$1"
+    printf '%s\n' "${value/\/\//\$(SPARKLE_URL_SLASH)\$(SPARKLE_URL_SLASH)}"
 }
 
 NOTARY_PROFILE="${NOTARY_PROFILE:-$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "NOTARY_PROFILE")}"
@@ -126,6 +140,19 @@ fi
 mkdir -p "$BUILD_DIR"
 rm -rf "$ARCHIVE_PATH" "$ZIP_PATH" "$DMG_PATH"
 
+if [[ -n "${SU_FEED_URL:-}" || -n "${SU_PUBLIC_ED_KEY:-}" ]]; then
+    TEMP_XC_CONFIG_PATH="$(mktemp "$BUILD_DIR/release-override.XXXXXX").xcconfig"
+    cat > "$TEMP_XC_CONFIG_PATH" <<EOF
+#include "$XC_CONFIG_PATH"
+SPARKLE_URL_SLASH = /
+SUFeedURL = $(xcconfig_url_literal "$FEED_URL")
+SUPublicEDKey = $PUBLIC_KEY
+EOF
+    EFFECTIVE_XC_CONFIG_PATH="$TEMP_XC_CONFIG_PATH"
+    echo "빌드용 임시 xcconfig override 생성: $TEMP_XC_CONFIG_PATH"
+    echo "  - SUFeedURL: $FEED_URL"
+fi
+
 # ── 1. Xcode archive ────────────────────────────────────────
 
 echo
@@ -134,7 +161,7 @@ xcodebuild \
     -project "$PROJECT_PATH" \
     -scheme "$SCHEME" \
     -configuration "$CONFIGURATION" \
-    -xcconfig "$XC_CONFIG_PATH" \
+    -xcconfig "$EFFECTIVE_XC_CONFIG_PATH" \
     -archivePath "$ARCHIVE_PATH" \
     archive
 

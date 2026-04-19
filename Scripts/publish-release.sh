@@ -153,6 +153,12 @@ FEED_URL="${FEED_URL_OVERRIDE:-${SU_FEED_URL:-$(extract_xcconfig_value "$LOCAL_X
 DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL_OVERRIDE:-${DOWNLOAD_BASE_URL:-$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SPARKLE_DOWNLOAD_BASE_URL")}}"
 DOWNLOAD_BASE_URL="$(expand_tag_placeholder "$DOWNLOAD_BASE_URL")"
 
+if [[ "$PRERELEASE" == "1" && -z "${FEED_URL_OVERRIDE:-}" && -z "${SU_FEED_URL:-}" ]]; then
+    echo "prerelease 게시에는 staging feed를 명시적으로 넘겨야 합니다." >&2
+    echo "--feed-url 또는 SU_FEED_URL 로 appcast 경로를 지정해 주세요." >&2
+    exit 1
+fi
+
 if [[ -z "$DOWNLOAD_BASE_URL" ]]; then
     DOWNLOAD_BASE_URL="$(derive_repo_download_base_url || true)"
 fi
