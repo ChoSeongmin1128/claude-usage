@@ -49,9 +49,10 @@ extract_xcconfig_value() {
     local file="$1"
     local key="$2"
     [[ -f "$file" ]] || return 0
-    awk -F '=' -v target="$key" '
-        $1 ~ "^[[:space:]]*"target"[[:space:]]*$" {
-            value=$2
+    awk -v target="$key" '
+        $0 ~ "^[[:space:]]*"target"[[:space:]]*=" {
+            value=$0
+            sub("^[[:space:]]*" target "[[:space:]]*=[[:space:]]*", "", value)
             sub(/^[[:space:]]+/, "", value)
             sub(/[[:space:]]+$/, "", value)
             sub(/^"/, "", value)
@@ -169,6 +170,8 @@ if [[ ! -d "$APP_PATH" ]]; then
     echo "archive 안에서 앱을 찾지 못했습니다: $APP_PATH" >&2
     exit 1
 fi
+
+/usr/libexec/PlistBuddy -c "Set :SUPublicEDKey $PUBLIC_KEY" "$APP_PATH/Contents/Info.plist"
 
 # ── 2. Sparkle helper 재서명 ────────────────────────────────
 
