@@ -67,9 +67,7 @@ final class CodexAuthManager {
     /// 현재 유효한 액세스 토큰 반환.
     /// 호출 빈도가 높아도 in-memory 캐시 + mtime 체크로 비용이 작다.
     func getToken() -> CodexAuthToken? {
-        lock.lock()
-        let refreshed = refreshedToken
-        lock.unlock()
+        let refreshed = withCacheLock { refreshedToken }
 
         // 1순위: 갱신된 토큰 캐시 (미만료)
         if let refreshed, !refreshed.isExpired {
@@ -97,10 +95,10 @@ final class CodexAuthManager {
 
     /// 캐시 초기화 (refresh 토큰 캐시 + auth.json 파싱 캐시 모두).
     func clearCache() {
-        lock.lock()
-        refreshedToken = nil
-        authJsonCache = nil
-        lock.unlock()
+        withCacheLock {
+            refreshedToken = nil
+            authJsonCache = nil
+        }
         Logger.info("Codex 토큰 캐시 초기화")
     }
 
@@ -143,11 +141,8 @@ final class CodexAuthManager {
             let expiresAt = Date().addingTimeInterval(expiresIn)
 
             let newToken = CodexAuthToken(accessToken: accessToken, refreshToken: newRefreshToken, expiresAt: expiresAt)
-            lock.lock()
-            refreshedToken = newToken
             // CLI 가 auth.json 을 동시에 갱신했을 수 있으므로 파싱 캐시도 무효화.
-            authJsonCache = nil
-            lock.unlock()
+            setRefreshedToken(newToken)
             Logger.info("Codex 토큰 갱신 성공")
             return newToken
         } catch {
@@ -164,23 +159,32 @@ final class CodexAuthManager {
         let currentMtime = fileModificationDate(atPath: authJsonPath)
         let now = Date()
 
-        lock.lock()
-        if let cache = authJsonCache {
+        if let cache = withCacheLock({ authJsonCache }) {
             let freshEnough = now.timeIntervalSince(cache.cachedAt) < Self.authJsonCacheTTL
             let fileUnchanged = cache.fileMtime == currentMtime
             if freshEnough && fileUnchanged {
-                let value = cache.token
-                lock.unlock()
-                return value
+                return cache.token
             }
         }
-        lock.unlock()
 
         let parsed = parseAuthJson()
-        lock.lock()
-        authJsonCache = CachedAuthJson(token: parsed, fileMtime: currentMtime, cachedAt: now)
-        lock.unlock()
+        withCacheLock {
+            authJsonCache = CachedAuthJson(token: parsed, fileMtime: currentMtime, cachedAt: now)
+        }
         return parsed
+    }
+
+    private func withCacheLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+
+    private func setRefreshedToken(_ token: CodexAuthToken?) {
+        withCacheLock {
+            refreshedToken = token
+            authJsonCache = nil
+        }
     }
 
     private func fileModificationDate(atPath path: String) -> Date? {

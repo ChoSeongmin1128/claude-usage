@@ -15,8 +15,12 @@
 #  10. 최종 Gatekeeper 검증
 #
 # 전제:
-#   Config/Sparkle.release.local.xcconfig 에 SUFeedURL, SUPublicEDKey,
-#   NOTARY_PROFILE 이 유효하게 채워져 있어야 합니다.
+#   Config/Sparkle.release.local.xcconfig 에 SUFeedURL, SUPublicEDKey 가
+#   유효하게 채워져 있어야 합니다.
+#   공증 자격 증명은 아래 우선순위로 찾습니다.
+#     1. NOTARY_KEY_PATH / NOTARY_KEY_ID / NOTARY_ISSUER
+#     2. NOTARY_APPLE_ID / NOTARY_PASSWORD / NOTARY_TEAM_ID
+#     3. Config/Sparkle.release.local.xcconfig 의 NOTARY_PROFILE
 #   Scripts/setup-sparkle-keys.sh 로 1회성 세팅 가능.
 #   RELEASE_CHANNEL=prod|staging 을 주면 해당 채널 feed URL 을 빌드에
 #   강제로 주입합니다.
@@ -145,13 +149,16 @@ derive_default_feed_url_for_channel() {
 }
 
 NOTARY_PROFILE="${NOTARY_PROFILE:-$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "NOTARY_PROFILE")}"
+NOTARY_APPLE_ID="${NOTARY_APPLE_ID:-${APPLE_ID:-}}"
+NOTARY_PASSWORD="${NOTARY_PASSWORD:-${APPLE_PASSWORD:-}}"
+NOTARY_TEAM_ID="${NOTARY_TEAM_ID:-${APPLE_TEAM_ID:-}}"
+NOTARY_KEY_PATH="${NOTARY_KEY_PATH:-}"
+NOTARY_KEY_ID="${NOTARY_KEY_ID:-}"
+NOTARY_ISSUER="${NOTARY_ISSUER:-}"
+NOTARY_SUBMIT_ARGS=()
+NOTARY_AUTH_DESCRIPTION=""
 CERT_HASH="${CERT_HASH:-9A12730390B85461D1A98C907C61A7AA265EE214}"
 RELEASE_CHANNEL="${RELEASE_CHANNEL:-}"
-
-echo "ClaudeUsage release 산출물 빌드 + notarization + DMG 를 시작합니다"
-if [[ -n "$RELEASE_CHANNEL" ]]; then
-    echo "  - release channel: $RELEASE_CHANNEL"
-fi
 
 # ── 사전 검증 ────────────────────────────────────────────────
 
@@ -194,11 +201,42 @@ if is_placeholder_value "$PUBLIC_KEY"; then
     exit 1
 fi
 
-if [[ -z "$NOTARY_PROFILE" ]] || is_placeholder_value "$NOTARY_PROFILE"; then
-    echo "유효한 NOTARY_PROFILE 을 찾지 못했습니다." >&2
-    echo "xcrun notarytool store-credentials <profile> 를 먼저 실행해 주세요." >&2
+if [[ -n "$NOTARY_KEY_PATH$NOTARY_KEY_ID$NOTARY_ISSUER" ]]; then
+    if [[ -z "$NOTARY_KEY_PATH" || -z "$NOTARY_KEY_ID" || -z "$NOTARY_ISSUER" ]]; then
+        echo "App Store Connect API key 공증을 쓰려면 NOTARY_KEY_PATH, NOTARY_KEY_ID, NOTARY_ISSUER 를 모두 지정해야 합니다." >&2
+        exit 1
+    fi
+    NOTARY_SUBMIT_ARGS=(
+        --key "$NOTARY_KEY_PATH"
+        --key-id "$NOTARY_KEY_ID"
+        --issuer "$NOTARY_ISSUER"
+    )
+    NOTARY_AUTH_DESCRIPTION="App Store Connect API key"
+elif [[ -n "$NOTARY_APPLE_ID$NOTARY_PASSWORD$NOTARY_TEAM_ID" ]]; then
+    if [[ -z "$NOTARY_APPLE_ID" || -z "$NOTARY_PASSWORD" || -z "$NOTARY_TEAM_ID" ]]; then
+        echo "Apple ID 공증을 쓰려면 NOTARY_APPLE_ID, NOTARY_PASSWORD, NOTARY_TEAM_ID 를 모두 지정해야 합니다." >&2
+        exit 1
+    fi
+    NOTARY_SUBMIT_ARGS=(
+        --apple-id "$NOTARY_APPLE_ID"
+        --password "$NOTARY_PASSWORD"
+        --team-id "$NOTARY_TEAM_ID"
+    )
+    NOTARY_AUTH_DESCRIPTION="Apple ID 환경 변수"
+elif [[ -n "$NOTARY_PROFILE" ]] && ! is_placeholder_value "$NOTARY_PROFILE"; then
+    NOTARY_SUBMIT_ARGS=(--keychain-profile "$NOTARY_PROFILE")
+    NOTARY_AUTH_DESCRIPTION="keychain profile: $NOTARY_PROFILE"
+else
+    echo "유효한 공증 자격 증명을 찾지 못했습니다." >&2
+    echo "NOTARY_APPLE_ID/NOTARY_PASSWORD/NOTARY_TEAM_ID 또는 NOTARY_PROFILE 을 확인해 주세요." >&2
     exit 1
 fi
+
+echo "ClaudeUsage release 산출물 빌드 + notarization + DMG 를 시작합니다"
+if [[ -n "$RELEASE_CHANNEL" ]]; then
+    echo "  - release channel: $RELEASE_CHANNEL"
+fi
+echo "  - notary auth: $NOTARY_AUTH_DESCRIPTION"
 
 for bin in xcodebuild xcrun hdiutil codesign; do
     command -v "$bin" >/dev/null 2>&1 || {
@@ -284,7 +322,7 @@ ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
 echo
 echo "4. 앱 notarization 제출 (--wait)"
 xcrun notarytool submit "$ZIP_PATH" \
-    --keychain-profile "$NOTARY_PROFILE" \
+    "${NOTARY_SUBMIT_ARGS[@]}" \
     --wait
 
 # ── 5. 앱 staple ────────────────────────────────────────────
@@ -327,7 +365,7 @@ CERT_HASH="$CERT_HASH" \
 echo
 echo "8. DMG notarization 제출 (--wait)"
 xcrun notarytool submit "$DMG_PATH" \
-    --keychain-profile "$NOTARY_PROFILE" \
+    "${NOTARY_SUBMIT_ARGS[@]}" \
     --wait
 
 # ── 9. DMG staple ──────────────────────────────────────────

@@ -130,9 +130,7 @@ extension AppDelegate {
     }
 
     func openSettingsForAuth(service: PopoverService) {
-        let kind = ServiceSelectionHelper.providerKind(for: service)
         AppSettings.shared.settingsLastTab = ServiceSelectionHelper.settingsRootTab(for: service)
-        AppSettings.shared.setProviderSettingsLastTab(ServiceSelectionHelper.settingsOverviewTab(), for: kind)
         showSettingsWindow()
     }
 

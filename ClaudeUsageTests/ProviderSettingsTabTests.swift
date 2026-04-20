@@ -41,27 +41,4 @@ final class ProviderSettingsTabTests: XCTestCase {
         XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: nil, for: .claude), .overview)
         XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "unknown", for: .codex), .overview)
     }
-
-    func testResetToDefaultsClearsLegacyRuntimeProviderStoredTabsBackToOverview() {
-        let settings = AppSettings.shared
-        let snapshot = settings.createSnapshot()
-        let previousGeminiTab = settings.providerSettingsLastTab(for: .gemini)
-        let previousAntigravityTab = settings.providerSettingsLastTab(for: .antigravity)
-        defer {
-            settings.restore(from: snapshot)
-            settings.setProviderSettingsLastTab(previousGeminiTab, for: .gemini)
-            settings.setProviderSettingsLastTab(previousAntigravityTab, for: .antigravity)
-        }
-
-        UserDefaults.standard.set("advanced", forKey: "geminiSettingsLastTab")
-        UserDefaults.standard.set("display", forKey: "antigravitySettingsLastTab")
-        settings.resetToDefaults()
-
-        XCTAssertEqual(settings.providerSettingsLastTab(for: .gemini), .overview)
-        XCTAssertEqual(settings.providerSettingsLastTab(for: .antigravity), .overview)
-    }
-
-    func testSettingsOverviewTabUsesUnifiedOverviewDestination() {
-        XCTAssertEqual(ServiceSelectionHelper.settingsOverviewTab(), .overview)
-    }
 }

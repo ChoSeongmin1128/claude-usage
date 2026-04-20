@@ -546,12 +546,6 @@ class AppSettings: ObservableObject {
     @Published var settingsLastTab: String {
         didSet { defaults.set(settingsLastTab, forKey: "settingsLastTab") }
     }
-    @Published var claudeSettingsLastTab: String {
-        didSet { defaults.set(claudeSettingsLastTab, forKey: "claudeSettingsLastTab") }
-    }
-    @Published var codexSettingsLastTab: String {
-        didSet { defaults.set(codexSettingsLastTab, forKey: "codexSettingsLastTab") }
-    }
 
     // MARK: - Snapshot
 
@@ -609,8 +603,6 @@ class AppSettings: ObservableObject {
         let providerPopoverCompactStates: [AppProviderKind: Bool]
         let providerAlertEnabledStates: [AppProviderKind: Bool]
         let settingsLastTab: String
-        let claudeSettingsLastTab: String
-        let codexSettingsLastTab: String
     }
 
     func createSnapshot() -> Snapshot {
@@ -683,9 +675,7 @@ class AppSettings: ObservableObject {
                     (kind, isProviderAlertEnabled(kind))
                 }
             ),
-            settingsLastTab: settingsLastTab,
-            claudeSettingsLastTab: claudeSettingsLastTab,
-            codexSettingsLastTab: codexSettingsLastTab
+            settingsLastTab: settingsLastTab
         )
     }
 
@@ -761,8 +751,6 @@ class AppSettings: ObservableObject {
             setProviderAlertEnabled(isEnabled, for: kind)
         }
         settingsLastTab = snapshot.settingsLastTab
-        claudeSettingsLastTab = snapshot.claudeSettingsLastTab
-        codexSettingsLastTab = snapshot.codexSettingsLastTab
     }
 
     private static func migrateLegacyProviderFieldsIfNeeded(from catalog: AppProviderStateCatalog, defaults: UserDefaults) {
@@ -1103,31 +1091,6 @@ class AppSettings: ObservableObject {
         }
     }
 
-    func providerSettingsLastTab(for kind: AppProviderKind) -> ProviderSettingsTab {
-        switch kind {
-        case .claude:
-            return ProviderSettingsTab.normalized(rawValue: claudeSettingsLastTab, for: kind)
-        case .codex:
-            return ProviderSettingsTab.normalized(rawValue: codexSettingsLastTab, for: kind)
-        case .gemini, .antigravity:
-            return ProviderSettingsTab.normalized(
-                rawValue: defaults.string(forKey: "\(kind.rawValue)SettingsLastTab"),
-                for: kind
-            )
-        }
-    }
-
-    func setProviderSettingsLastTab(_ tab: ProviderSettingsTab, for kind: AppProviderKind) {
-        switch kind {
-        case .claude:
-            claudeSettingsLastTab = tab.rawValue
-        case .codex:
-            codexSettingsLastTab = tab.rawValue
-        case .gemini, .antigravity:
-            defaults.set(tab.rawValue, forKey: "\(kind.rawValue)SettingsLastTab")
-        }
-    }
-
     func menuBarDisplayConfig(for kind: AppProviderKind) -> ProviderMenuBarDisplayConfig? {
         switch kind {
         case .claude:
@@ -1447,8 +1410,6 @@ class AppSettings: ObservableObject {
         clearRuntimeProviderDefaults(for: .antigravity)
         providerStates = AppProviderStateCatalog.defaultCatalog
         settingsLastTab = "common"
-        claudeSettingsLastTab = ProviderSettingsTab.overview.rawValue
-        codexSettingsLastTab = ProviderSettingsTab.overview.rawValue
     }
 
     private func clearRuntimeProviderDefaults(for kind: AppProviderKind) {
@@ -1586,12 +1547,6 @@ class AppSettings: ObservableObject {
         let normalizedActiveService = PopoverService(
             rawValue: storedActiveService.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         )?.rawValue ?? "claude"
-        self.claudeSettingsLastTab = ProviderSettingsTab
-            .normalized(rawValue: defaults.string(forKey: "claudeSettingsLastTab"), for: .claude)
-            .rawValue
-        self.codexSettingsLastTab = ProviderSettingsTab
-            .normalized(rawValue: defaults.string(forKey: "codexSettingsLastTab"), for: .codex)
-            .rawValue
 
         let persistedProviderStatesData = defaults.data(forKey: "providerStates")
         self.loadedProviderStatesFromDisk = persistedProviderStatesData != nil

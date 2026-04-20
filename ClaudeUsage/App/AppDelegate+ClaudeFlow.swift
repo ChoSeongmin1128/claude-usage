@@ -55,7 +55,6 @@ extension AppDelegate {
         guard shouldShowStandaloneSetupWizard else { return }
 
         AppSettings.shared.settingsLastTab = "claude"
-        AppSettings.shared.claudeSettingsLastTab = claudeSetupPresentation.landingSettingsTab.rawValue
     }
 
     func clearClaudePresentationState(markSetupIncomplete: Bool) {
@@ -188,7 +187,6 @@ extension AppDelegate {
                 },
                 onOpenAdvancedSettings: { [weak self] in
                     AppSettings.shared.settingsLastTab = "claude"
-                    AppSettings.shared.claudeSettingsLastTab = ProviderSettingsTab.overview.rawValue
                     AppSettings.shared.shouldRevealClaudeAdvancedAuth = true
                     self?.loginWindowCoordinator.close()
                     self?.showSettingsWindow()
@@ -228,14 +226,12 @@ extension AppDelegate {
             onOpenAdvancedSettings: { [weak self] in
                 self?.setupWizardCredentialStepOverride = nil
                 AppSettings.shared.settingsLastTab = "claude"
-                AppSettings.shared.claudeSettingsLastTab = ProviderSettingsTab.overview.rawValue
                 AppSettings.shared.shouldRevealClaudeAdvancedAuth = true
                 self?.setupWizardWindowCoordinator.close()
                 self?.showSettingsWindow()
             },
             onOpenOrganizations: { [weak self] in
                 AppSettings.shared.settingsLastTab = "claude"
-                AppSettings.shared.claudeSettingsLastTab = ProviderSettingsTab.overview.rawValue
                 self?.setupWizardWindowCoordinator.close()
                 self?.showSettingsWindow()
             },

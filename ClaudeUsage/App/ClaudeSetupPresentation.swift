@@ -14,7 +14,6 @@ struct ClaudeSetupPresentation: Equatable, Sendable {
     let progress: SetupCompletionPolicy.WizardProgress
     let credentialStep: SetupWizardView.Step
     let shouldShowWizard: Bool
-    let landingSettingsTab: ProviderSettingsTab
     let primaryActionKind: PrimaryActionKind
     let organizationSummary: String
 }

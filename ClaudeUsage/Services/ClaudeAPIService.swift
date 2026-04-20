@@ -1099,6 +1099,37 @@ actor ClaudeAPIService {
     }
 
     private func runSecurityCommand(arguments: [String], timeout: TimeInterval) async throws -> (status: Int32, stdout: String, stderr: String)? {
+        final class LockedDataBuffer: @unchecked Sendable {
+            private let lock = NSLock()
+            private var storage = Data()
+
+            func append(_ data: Data) {
+                lock.lock()
+                storage.append(data)
+                lock.unlock()
+            }
+
+            func stringValue() -> String {
+                lock.lock()
+                let snapshot = storage
+                lock.unlock()
+                return String(data: snapshot, encoding: .utf8) ?? ""
+            }
+        }
+
+        final class ContinuationGate: @unchecked Sendable {
+            private let lock = NSLock()
+            private var resumed = false
+
+            func resume(_ action: () -> Void) {
+                lock.lock()
+                defer { lock.unlock() }
+                guard !resumed else { return }
+                resumed = true
+                action()
+            }
+        }
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
         process.arguments = arguments
@@ -1115,17 +1146,12 @@ actor ClaudeAPIService {
         }
 
         return try await withCheckedThrowingContinuation { continuation in
-            var stdoutData = Data()
-            var stderrData = Data()
-            var resumed = false
-            let lock = NSLock()
+            let stdoutBuffer = LockedDataBuffer()
+            let stderrBuffer = LockedDataBuffer()
+            let gate = ContinuationGate()
 
             func resumeOnce(with result: Result<(status: Int32, stdout: String, stderr: String)?, Error>) {
-                lock.lock()
-                let shouldResume = !resumed
-                resumed = true
-                lock.unlock()
-                if shouldResume {
+                gate.resume {
                     continuation.resume(with: result)
                 }
             }
@@ -1144,7 +1170,7 @@ actor ClaudeAPIService {
                 if data.isEmpty {
                     outputPipe.fileHandleForReading.readabilityHandler = nil
                 } else {
-                    stdoutData.append(data)
+                    stdoutBuffer.append(data)
                 }
             }
 
@@ -1153,7 +1179,7 @@ actor ClaudeAPIService {
                 if data.isEmpty {
                     errorPipe.fileHandleForReading.readabilityHandler = nil
                 } else {
-                    stderrData.append(data)
+                    stderrBuffer.append(data)
                 }
             }
 
@@ -1171,8 +1197,8 @@ actor ClaudeAPIService {
                         return
                     }
 
-                    let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
-                    let stderr = String(data: stderrData, encoding: .utf8) ?? ""
+                    let stdout = stdoutBuffer.stringValue()
+                    let stderr = stderrBuffer.stringValue()
                     resumeOnce(with: .success((terminatedProcess.terminationStatus, stdout, stderr)))
                 }
             }

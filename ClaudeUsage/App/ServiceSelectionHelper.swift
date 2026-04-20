@@ -194,8 +194,4 @@ struct ServiceSelectionHelper {
     static func settingsRootTab(for service: PopoverService) -> String {
         service.rawValue
     }
-
-    static func settingsOverviewTab() -> ProviderSettingsTab {
-        .overview
-    }
 }

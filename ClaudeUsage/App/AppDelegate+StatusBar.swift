@@ -45,7 +45,6 @@ extension AppDelegate {
             runtimeServices: ServiceSelectionHelper.supportedPopoverServices,
             refreshableServiceSet: Set(refreshableServices),
             actions: StatusContextMenuActions(
-                target: self,
                 refreshAll: #selector(refreshClicked),
                 settings: #selector(settingsClicked),
                 openUsage: #selector(openUsagePage),
@@ -55,10 +54,22 @@ extension AppDelegate {
                 changeProviderStyle: #selector(changeProviderStyleClicked(_:))
             )
         )
+        applyContextMenuTarget(self, to: menu)
 
         statusItem?.menu = menu
         statusItem?.button?.performClick(nil)
         statusItem?.menu = nil
+    }
+
+    private func applyContextMenuTarget(_ target: AppDelegate, to menu: NSMenu) {
+        for item in menu.items {
+            if item.action != nil {
+                item.target = target
+            }
+            if let submenu = item.submenu {
+                applyContextMenuTarget(target, to: submenu)
+            }
+        }
     }
 
     @objc func changeProviderStyleClicked(_ sender: NSMenuItem) {

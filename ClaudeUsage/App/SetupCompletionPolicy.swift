@@ -86,12 +86,10 @@ enum SetupCompletionPolicy {
             credentialStepOverride: credentialStepOverride
         )
 
-        let landingSettingsTab: ProviderSettingsTab
         let primaryActionKind: ClaudeSetupPresentation.PrimaryActionKind
 
         switch progress.stage {
         case .credential:
-            landingSettingsTab = .overview
             switch credentialStep {
             case .chromeImport:
                 primaryActionKind = .openChrome
@@ -101,13 +99,10 @@ enum SetupCompletionPolicy {
                 primaryActionKind = .openAdvancedSettings
             }
         case .verification:
-            landingSettingsTab = .overview
             primaryActionKind = .verifyFetch
         case .organization:
-            landingSettingsTab = .overview
             primaryActionKind = progress.isAutomaticOrganizationMode ? .useAutomaticOrganization : .openOrganizations
         case .complete:
-            landingSettingsTab = .overview
             primaryActionKind = .complete
         }
 
@@ -115,7 +110,6 @@ enum SetupCompletionPolicy {
             progress: progress,
             credentialStep: credentialStep,
             shouldShowWizard: progress.stage != .complete,
-            landingSettingsTab: landingSettingsTab,
             primaryActionKind: primaryActionKind,
             organizationSummary: progress.organizationSummary
         )
