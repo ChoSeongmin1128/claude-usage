@@ -18,8 +18,8 @@
 #   Config/Sparkle.release.local.xcconfig 에 SUFeedURL, SUPublicEDKey,
 #   NOTARY_PROFILE 이 유효하게 채워져 있어야 합니다.
 #   Scripts/setup-sparkle-keys.sh 로 1회성 세팅 가능.
-#   staging 빌드는 RELEASE_CHANNEL=staging 또는 SU_FEED_URL 로 채널을
-#   명시하는 편이 안전합니다.
+#   RELEASE_CHANNEL=prod|staging 을 주면 해당 채널 feed URL 을 빌드에
+#   강제로 주입합니다.
 
 set -euo pipefail
 
@@ -96,7 +96,22 @@ validate_release_channel() {
 }
 
 derive_repo_pages_base_url() {
+    local name_with_owner=""
     local remote_url
+
+    if command -v gh >/dev/null 2>&1; then
+        name_with_owner="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+    fi
+
+    if [[ "$name_with_owner" =~ ^([^/]+)/([^/]+)$ ]]; then
+        local owner="${BASH_REMATCH[1]}"
+        local repo="${BASH_REMATCH[2]}"
+        local owner_lower
+        owner_lower="$(printf '%s' "$owner" | tr '[:upper:]' '[:lower:]')"
+        printf 'https://%s.github.io/%s\n' "$owner_lower" "$repo"
+        return 0
+    fi
+
     remote_url="$(git -C "$ROOT_DIR" config --get remote.origin.url 2>/dev/null || echo "")"
     if [[ "$remote_url" =~ github\.com[:/](.+)/(.+?)(\.git)?$ ]]; then
         local owner="${BASH_REMATCH[1]}"
@@ -104,6 +119,16 @@ derive_repo_pages_base_url() {
         local owner_lower
         owner_lower="$(printf '%s' "$owner" | tr '[:upper:]' '[:lower:]')"
         printf 'https://%s.github.io/%s\n' "$owner_lower" "$repo"
+        return 0
+    fi
+
+    if [[ "$remote_url" =~ ^[^@]+@[^:]+:([^/]+)/(.+?)(\.git)?$ ]]; then
+        local owner="${BASH_REMATCH[1]}"
+        local repo="${BASH_REMATCH[2]}"
+        local owner_lower
+        owner_lower="$(printf '%s' "$owner" | tr '[:upper:]' '[:lower:]')"
+        printf 'https://%s.github.io/%s\n' "$owner_lower" "$repo"
+        return 0
     fi
 }
 
@@ -148,13 +173,14 @@ fi
 validate_release_channel "$RELEASE_CHANNEL"
 
 CONFIGURED_FEED_URL="$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SUFeedURL")"
+CONFIGURED_PUBLIC_KEY="$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SUPublicEDKey")"
 DERIVED_FEED_URL=""
 if [[ -n "$RELEASE_CHANNEL" ]]; then
     DERIVED_FEED_URL="$(derive_default_feed_url_for_channel "$RELEASE_CHANNEL" || true)"
 fi
 
 FEED_URL="${SU_FEED_URL:-${DERIVED_FEED_URL:-$CONFIGURED_FEED_URL}}"
-PUBLIC_KEY="${SU_PUBLIC_ED_KEY:-$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SUPublicEDKey")}"
+PUBLIC_KEY="${SU_PUBLIC_ED_KEY:-$CONFIGURED_PUBLIC_KEY}"
 
 if is_placeholder_value "$FEED_URL"; then
     echo "유효한 SUFeedURL 을 찾지 못했습니다." >&2
@@ -189,7 +215,7 @@ fi
 mkdir -p "$BUILD_DIR"
 rm -rf "$ARCHIVE_PATH" "$ZIP_PATH" "$DMG_PATH"
 
-if [[ -n "${SU_FEED_URL:-}" || -n "${SU_PUBLIC_ED_KEY:-}" ]]; then
+if [[ -n "$RELEASE_CHANNEL" || -n "${SU_FEED_URL:-}" || -n "${SU_PUBLIC_ED_KEY:-}" ]]; then
     TEMP_XC_CONFIG_PATH="$(mktemp "$BUILD_DIR/release-override.XXXXXX").xcconfig"
     cat > "$TEMP_XC_CONFIG_PATH" <<EOF
 #include "$XC_CONFIG_PATH"
@@ -199,6 +225,9 @@ SUPublicEDKey = $PUBLIC_KEY
 EOF
     EFFECTIVE_XC_CONFIG_PATH="$TEMP_XC_CONFIG_PATH"
     echo "빌드용 임시 xcconfig override 생성: $TEMP_XC_CONFIG_PATH"
+    if [[ -n "$RELEASE_CHANNEL" ]]; then
+        echo "  - RELEASE_CHANNEL 강제 적용: $RELEASE_CHANNEL"
+    fi
     echo "  - SUFeedURL: $FEED_URL"
 fi
 
