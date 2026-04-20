@@ -15,7 +15,7 @@ struct RuntimeProviderOverviewSectionView: View {
             detail: descriptor.detail
         ) {
             SettingsSectionToggleRow(
-                title: "\(descriptor.title) provider 활성화",
+                title: "\(descriptor.title) 사용",
                 isOn: Binding(
                     get: { settings.isProviderEnabled(provider) },
                     set: { settings.setProviderEnabled($0, for: provider) }
@@ -37,29 +37,31 @@ struct RuntimeProviderOverviewSectionView: View {
 struct RuntimeProviderAdvancedSectionView: View {
     let descriptor: ProviderShellDescriptor
     let presentation: RuntimeProviderAuthPresentation
-    let footnote: String
     let onRefreshEnvironment: () -> Void
 
     var body: some View {
         RuntimeProviderPanelShell(
             descriptor: descriptor,
-            title: "\(descriptor.title) 고급",
-            summary: "감지 상태와 진단 경로를 확인하는 저빈도 화면입니다.",
+            title: "\(descriptor.title) 문제 해결",
+            summary: "문제가 있을 때만 상태와 다음 행동을 보여줍니다.",
             detail: descriptor.detail
         ) {
-            RuntimeProviderDetectorCard(summary: presentation.detectorSummary)
+            RuntimeProviderTroubleshootingCard(
+                summary: presentation.summary,
+                detail: presentation.primaryActionDetail
+            )
 
-            if !presentation.pathHints.isEmpty {
-                RuntimeProviderPathHintsCard(pathHints: presentation.pathHints)
+            HStack(spacing: 8) {
+                Button("다시 확인", action: onRefreshEnvironment)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+                if presentation.stage == .authRequired || presentation.stage == .unsupportedConfiguration {
+                    Text("로그인이나 설정을 마친 뒤 다시 확인해 주세요.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-
-            Button("환경 다시 읽기", action: onRefreshEnvironment)
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-            Text(footnote)
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 }
@@ -98,27 +100,6 @@ private struct RuntimeProviderStageCard: View {
 
             Text(presentation.summary)
                 .font(.subheadline.weight(.semibold))
-
-            if !presentation.steps.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(presentation.steps) { step in
-                        HStack(alignment: .top, spacing: 8) {
-                            Image(systemName: "circle.fill")
-                                .font(.system(size: 5))
-                                .foregroundStyle(.secondary)
-                                .padding(.top, 5)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(step.title)
-                                    .font(.caption.weight(.semibold))
-                                Text(step.detail)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer(minLength: 0)
-                        }
-                    }
-                }
-            }
         }
         .padding(12)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
@@ -131,7 +112,7 @@ private struct RuntimeProviderActionCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("다음 행동")
+            Text("지금 할 일")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text(presentation.primaryActionTitle)
@@ -146,39 +127,20 @@ private struct RuntimeProviderActionCard: View {
     }
 }
 
-private struct RuntimeProviderDetectorCard: View {
+private struct RuntimeProviderTroubleshootingCard: View {
     let summary: String
+    let detail: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("감지 상태")
+            Text("현재 상태")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text(summary)
+                .font(.caption.weight(.semibold))
+            Text(detail)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-        }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
-        .cornerRadius(8)
-    }
-}
-
-private struct RuntimeProviderPathHintsCard: View {
-    let pathHints: [String]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("확인할 경로")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            ForEach(pathHints, id: \.self) { path in
-                Text(path)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
         }
         .padding(12)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.45))

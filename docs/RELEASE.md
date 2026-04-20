@@ -44,14 +44,20 @@ xcrun notarytool store-credentials "ClaudeUsage" \
 - Sparkle SPM artifact 에서 `generate_keys` 를 찾아 ED25519 키쌍 생성 (개인키는 macOS 키체인에 자동 보관)
 - 공개키 출력
 - `Config/Sparkle.release.local.xcconfig` 자동 작성:
-  - `SUFeedURL` = GitHub remote 에서 `https://github.com/OWNER/REPO/releases/latest/download/appcast.xml` 로 추정
+  - `SUFeedURL` = 기본적으로 GitHub Pages `prod` 채널 (`https://OWNER.github.io/REPO/appcast.xml`) 로 추정
   - `SUPublicEDKey` = 방금 생성한 공개키
   - `NOTARY_PROFILE` = "ClaudeUsage"
 - `.gitignore` 에 로컬 xcconfig 규칙 추가
 
 키가 이미 있다면 공개키만 재사용하고 새로 생성하지 않습니다. 강제 재생성은 `--force` 플래그.
 
-SUFeedURL 을 수동으로 바꾸려면 스크립트 실행 후 xcconfig 를 직접 편집하거나 `--feed-url URL` 로 지정:
+staging 채널을 기본값으로 쓰고 싶다면:
+
+```bash
+./Scripts/setup-sparkle-keys.sh --channel staging
+```
+
+SUFeedURL 을 직접 정하고 싶다면 스크립트 실행 후 xcconfig 를 편집하거나 `--feed-url URL` 로 지정:
 
 ```bash
 ./Scripts/setup-sparkle-keys.sh --feed-url https://my-server.com/appcast.xml
@@ -121,13 +127,16 @@ swift Scripts/dmg-assets/generate-background.swift Scripts/dmg-assets/background
 1. 태그 형식/중복 검증
 2. `build/release/` 에 DMG + ZIP 존재 확인
 3. Sparkle `generate_appcast` 로 `appcast.xml` 생성
-   - SUFeedURL 이 GitHub `releases/latest/download/` 형식이면 `releases/download/<TAG>/` 를 prefix 로 주입
+   - 다운로드 URL prefix 는 `--download-base-url`, `SPARKLE_DOWNLOAD_BASE_URL`, 또는 저장소의 `releases/download/<TAG>` 추론값을 사용
+   - `SUFeedURL` 은 Sparkle 클라이언트가 읽을 feed 위치로만 사용하며, GitHub Pages 채널 URL이어도 됩니다
 4. `git tag` + `git push origin <TAG>`
 5. `gh release create` 로 DMG + ZIP + appcast.xml 업로드
+6. feed URL 이 GitHub Pages 채널이면 [publish-pages-appcast.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/publish-pages-appcast.sh) 로 `gh-pages` 브랜치의 appcast도 함께 갱신
 
 옵션:
 - `--draft` — 초안으로 생성 (공개 전 수동 승인)
 - `--prerelease` — pre-release 표시
+- `--channel prod|staging` — 기본 채널 지정 (미지정 시 stable=prod, prerelease=staging)
 - `--notes "..."` — 릴리스 노트 직접 지정 (미지정 시 `--generate-notes`)
 
 예:
@@ -141,17 +150,23 @@ swift Scripts/dmg-assets/generate-background.swift Scripts/dmg-assets/background
 ## 자동 업데이트 동작
 
 Sparkle 이 클라이언트 앱에서 하는 일:
-1. `SUFeedURL` (= GitHub latest download URL) 을 주기적으로 폴링
+1. `SUFeedURL` (= GitHub Pages channel URL) 을 주기적으로 폴링
 2. `appcast.xml` 파싱 → 현재 설치 버전과 비교
 3. 새 버전이 있으면 `ClaudeUsage.zip` 다운로드
 4. `SUPublicEDKey` 로 ED25519 서명 검증
 5. 사용자에게 설치 프롬프트 → `XPCServices/Installer.xpc` 가 교체 설치
 
-SUFeedURL 을 GitHub `releases/latest/download/appcast.xml` 로 두면 새 태그가 올라올 때마다 Sparkle 이 자동으로 최신 appcast 를 읽습니다.
+권장 feed 구조:
+
+- `prod`: `https://OWNER.github.io/REPO/appcast.xml`
+- `staging`: `https://OWNER.github.io/REPO/channels/staging/appcast.xml`
+
+`gh-pages` 브랜치는 위 appcast를 배포하는 정적 브랜치입니다. 코드용 `stg` 브랜치와는 역할이 다릅니다.
 
 ### 업데이트 채널 분리
 
-베타 채널이 필요하면 별도 `appcast-beta.xml` 을 생성해서 별도 `SUFeedURL` 로 베타 빌드에만 꽂습니다 (xcconfig 분리).
+staging 빌드는 `RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh` 또는 `SU_FEED_URL` 로 채널을 고정하세요.
+stable/prod 릴리스는 root `appcast.xml` 을 기본 채널로 유지하고, staging 은 `/channels/staging/appcast.xml` 로 분리합니다.
 
 ---
 
@@ -209,6 +224,7 @@ Xcode 에서 한 번 Release 빌드를 돌리면 Sparkle SPM artifact 가 `~/Lib
 릴리스마다:
 - [ ] 버전 bump 커밋 + push
 - [ ] `./Scripts/build-notarize-release.sh`
-- [ ] `./Scripts/publish-release.sh vX.Y.Z`
-- [ ] GitHub Release 페이지에서 appcast URL 확인
+- [ ] stable 이면 `./Scripts/publish-release.sh vX.Y.Z --channel prod`
+- [ ] staging 이면 `./Scripts/publish-release.sh vX.Y.Z --prerelease --channel staging`
+- [ ] `gh-pages` 의 `appcast.xml` / `channels/staging/appcast.xml` 확인
 - [ ] 별도 Mac 에서 앱 실행 후 "업데이트 확인" 눌러 Sparkle 경로 검증

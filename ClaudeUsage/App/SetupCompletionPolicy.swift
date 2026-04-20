@@ -182,14 +182,14 @@ enum SetupCompletionPolicy {
 
         guard let cachedOrganizationID = cachedMetadata?.organizationUUID?.trimmingCharacters(in: .whitespacesAndNewlines),
               !cachedOrganizationID.isEmpty else {
-            return "직접 선택 사용 중 · 아직 계정 확인 전"
+            return "직접 선택 사용 중 · 아직 확인 전"
         }
 
         if cachedOrganizationID == preferredID {
-            return "직접 선택 사용 중 · 저장된 계정과 일치"
+            return "직접 선택 사용 중 · 확인됨"
         }
 
-        return "직접 선택 사용 중 · 저장된 계정과 다름"
+        return "직접 선택 사용 중 · 다시 확인 필요"
     }
 
     static func resolveWizardProgress(
@@ -207,13 +207,13 @@ enum SetupCompletionPolicy {
         let isAutomaticOrganizationMode = preferredID.isEmpty
         let organizationSummary: String
         if !hasSuccessfulFetch {
-            organizationSummary = "첫 성공 조회 후 organization 상태를 확인합니다"
+            organizationSummary = "먼저 사용량 확인이 끝나면 조직 상태를 확인합니다"
         } else if isAutomaticOrganizationMode {
-            organizationSummary = "자동 선택 모드로 바로 사용할 수 있습니다"
+            organizationSummary = "자동 선택으로 바로 사용할 수 있습니다"
         } else if organizationReady {
-            organizationSummary = "선택한 organization이 검증되었습니다"
+            organizationSummary = "선택한 조직이 확인되었습니다"
         } else {
-            organizationSummary = "선택한 organization을 설정에서 다시 확인해야 합니다"
+            organizationSummary = "선택한 조직을 다시 확인해 주세요"
         }
 
         return WizardProgress(

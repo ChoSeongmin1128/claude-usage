@@ -5,7 +5,8 @@
 # 사용:
 #   Scripts/publish-release.sh vX.Y.Z [--draft] [--prerelease] [--notes "릴리스 노트"]
 #                                   [--feed-url URL] [--download-base-url URL]
-#                                   [--skip-appcast-asset]
+#                                   [--channel prod|staging]
+#                                   [--skip-appcast-asset] [--skip-pages-publish]
 #
 # 수행:
 #   1. 태그 유효성 확인 (vX.Y.Z 형식 + 미사용 태그)
@@ -13,6 +14,7 @@
 #   3. Sparkle appcast 생성 (feed URL 과 download base URL 을 분리 처리)
 #   4. git tag 생성 + push
 #   5. gh release create 로 DMG + ZIP (+ 선택적으로 appcast.xml) 업로드
+#   6. feed URL 이 GitHub Pages 채널이면 gh-pages 브랜치도 함께 갱신
 #
 # 전제:
 #   - Scripts/build-notarize-release.sh 이 성공적으로 완료돼 DMG/ZIP 존재
@@ -35,25 +37,32 @@ NOTES=""
 FEED_URL_OVERRIDE=""
 DOWNLOAD_BASE_URL_OVERRIDE=""
 SKIP_APPCAST_ASSET=0
+SKIP_PAGES_PUBLISH=0
+CHANNEL=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --draft) DRAFT=1; shift ;;
         --prerelease) PRERELEASE=1; shift ;;
         --skip-appcast-asset) SKIP_APPCAST_ASSET=1; shift ;;
+        --skip-pages-publish) SKIP_PAGES_PUBLISH=1; shift ;;
         --notes) NOTES="$2"; shift 2 ;;
         --feed-url) FEED_URL_OVERRIDE="$2"; shift 2 ;;
         --download-base-url) DOWNLOAD_BASE_URL_OVERRIDE="$2"; shift 2 ;;
+        --channel) CHANNEL="$2"; shift 2 ;;
         -h|--help)
             cat <<USAGE
 사용법:
     $0 vX.Y.Z [--draft] [--prerelease] [--notes "릴리스 노트"]
                [--feed-url URL] [--download-base-url URL]
-               [--skip-appcast-asset]
+               [--channel prod|staging]
+               [--skip-appcast-asset] [--skip-pages-publish]
 
 비고:
     - feed URL 과 download base URL 은 서로 다른 호스트를 가리켜도 됩니다.
+    - channel 기본값은 stable 릴리스는 prod, prerelease 는 staging 입니다.
     - appcast.xml 을 GitHub Pages 같은 별도 채널에 배포한다면 --skip-appcast-asset 을 권장합니다.
+    - feed URL 이 GitHub Pages 채널이면 gh-pages 브랜치 게시를 자동 시도합니다.
 USAGE
             exit 0
             ;;
@@ -104,6 +113,16 @@ is_placeholder_value() {
     return 1
 }
 
+validate_channel() {
+    case "${1:-}" in
+        prod|staging) ;;
+        *)
+            echo "지원하지 않는 채널입니다: ${1:-<empty>} (prod 또는 staging만 허용)" >&2
+            exit 2
+            ;;
+    esac
+}
+
 expand_tag_placeholder() {
     local value="$1"
     if [[ "$value" == *"__TAG__"* ]]; then
@@ -138,6 +157,55 @@ derive_repo_download_base_url() {
     return 1
 }
 
+derive_repo_pages_base_url() {
+    local owner_and_repo=""
+    if command -v gh >/dev/null 2>&1; then
+        owner_and_repo="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+    fi
+
+    if [[ "$owner_and_repo" =~ ^([^/]+)/([^/]+)$ ]]; then
+        local owner="${BASH_REMATCH[1]}"
+        local repo="${BASH_REMATCH[2]}"
+        local owner_lower
+        owner_lower="$(printf '%s' "$owner" | tr '[:upper:]' '[:lower:]')"
+        printf 'https://%s.github.io/%s\n' "$owner_lower" "$repo"
+        return 0
+    fi
+
+    local remote_url
+    remote_url="$(git -C "$ROOT_DIR" config --get remote.origin.url 2>/dev/null || echo "")"
+    if [[ "$remote_url" =~ github\.com[:/](.+)/(.+?)(\.git)?$ ]]; then
+        local owner="${BASH_REMATCH[1]}"
+        local repo="${BASH_REMATCH[2]}"
+        local owner_lower
+        owner_lower="$(printf '%s' "$owner" | tr '[:upper:]' '[:lower:]')"
+        printf 'https://%s.github.io/%s\n' "$owner_lower" "$repo"
+        return 0
+    fi
+
+    return 1
+}
+
+derive_default_feed_url_for_channel() {
+    local channel="$1"
+    local base_url
+    base_url="$(derive_repo_pages_base_url || true)"
+    [[ -n "$base_url" ]] || return 0
+
+    case "$channel" in
+        prod) printf '%s/appcast.xml\n' "$base_url" ;;
+        staging) printf '%s/channels/staging/appcast.xml\n' "$base_url" ;;
+    esac
+}
+
+is_github_pages_feed_url() {
+    local feed_url="$1"
+    local base_url
+    base_url="$(derive_repo_pages_base_url || true)"
+    [[ -n "$base_url" ]] || return 1
+    [[ "$feed_url" == "$base_url"/appcast.xml || "$feed_url" == "$base_url"/channels/*/appcast.xml ]]
+}
+
 derive_download_base_url_from_feed_url() {
     local feed_url="$1"
     if is_placeholder_value "$feed_url"; then
@@ -150,15 +218,20 @@ derive_download_base_url_from_feed_url() {
     printf '%s\n' "${feed_url%/appcast.xml}"
 }
 
-FEED_URL="${FEED_URL_OVERRIDE:-${SU_FEED_URL:-$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SUFeedURL")}}"
+if [[ -z "$CHANNEL" ]]; then
+    if [[ "$PRERELEASE" == "1" ]]; then
+        CHANNEL="staging"
+    else
+        CHANNEL="prod"
+    fi
+fi
+validate_channel "$CHANNEL"
+
+CONFIGURED_FEED_URL="$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SUFeedURL")"
+DERIVED_FEED_URL="$(derive_default_feed_url_for_channel "$CHANNEL" || true)"
+FEED_URL="${FEED_URL_OVERRIDE:-${SU_FEED_URL:-${DERIVED_FEED_URL:-$CONFIGURED_FEED_URL}}}"
 DOWNLOAD_BASE_URL="${DOWNLOAD_BASE_URL_OVERRIDE:-${DOWNLOAD_BASE_URL:-$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SPARKLE_DOWNLOAD_BASE_URL")}}"
 DOWNLOAD_BASE_URL="$(expand_tag_placeholder "$DOWNLOAD_BASE_URL")"
-
-if [[ "$PRERELEASE" == "1" && -z "${FEED_URL_OVERRIDE:-}" && -z "${SU_FEED_URL:-}" ]]; then
-    echo "prerelease 게시에는 staging feed를 명시적으로 넘겨야 합니다." >&2
-    echo "--feed-url 또는 SU_FEED_URL 로 appcast 경로를 지정해 주세요." >&2
-    exit 1
-fi
 
 if [[ -z "$DOWNLOAD_BASE_URL" ]]; then
     DOWNLOAD_BASE_URL="$(derive_repo_download_base_url || true)"
@@ -208,6 +281,7 @@ fi
 
 echo
 echo "1. appcast 생성"
+echo "   channel: $CHANNEL"
 echo "   feed url: ${FEED_URL:-<미설정>}"
 echo "   download base url: $DOWNLOAD_BASE_URL"
 
@@ -253,6 +327,22 @@ gh release create "$TAG" \
     "${GH_FLAGS[@]}" \
     "${ASSETS[@]}"
 
+# 4) GitHub Pages channel appcast 게시
+echo
+echo "4. GitHub Pages channel appcast 게시"
+if [[ "$SKIP_PAGES_PUBLISH" == "1" ]]; then
+    echo "   --skip-pages-publish 지정으로 건너뜁니다."
+elif [[ -z "$FEED_URL" ]]; then
+    echo "   feed URL 이 없어 건너뜁니다."
+elif is_github_pages_feed_url "$FEED_URL"; then
+    "$ROOT_DIR/Scripts/publish-pages-appcast.sh" \
+        --feed-url "$FEED_URL" \
+        --channel "$CHANNEL" \
+        --tag "$TAG"
+else
+    echo "   GitHub Pages feed가 아니라서 건너뜁니다: $FEED_URL"
+fi
+
 echo
 cat <<EOF
 완료
@@ -260,6 +350,7 @@ cat <<EOF
     dmg:                $DMG_PATH
     zip:                $ZIP_PATH
     appcast:            $APPCAST_PATH
+    channel:            $CHANNEL
     feed url:           ${FEED_URL:-<미설정>}
     download base url:  $DOWNLOAD_BASE_URL
     URL:                $(gh release view "$TAG" --json url -q .url 2>/dev/null || echo "?")

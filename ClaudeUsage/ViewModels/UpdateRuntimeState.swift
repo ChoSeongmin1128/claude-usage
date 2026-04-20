@@ -80,7 +80,7 @@ final class UpdateRuntimeState: ObservableObject {
         case .checking:
             return "업데이트 확인 중"
         case .interactiveCheckStarted:
-            return "Sparkle 확인 창을 열었습니다"
+            return "설치 확인 창을 열었습니다"
         case .updateAvailable(let version):
             return "v\(version) 업데이트 가능"
         case .downloading(let version):
@@ -108,7 +108,7 @@ final class UpdateRuntimeState: ObservableObject {
         case .checking:
             return "현재 버전과 업데이트 채널을 비교하고 있습니다."
         case .interactiveCheckStarted:
-            return "사용자 확인용 Sparkle UI가 이어서 설치 여부를 안내합니다."
+            return "열린 확인 창에서 설치를 이어서 진행할 수 있습니다."
         case .updateAvailable:
             if engineStatus?.usesSparkleReadyPath == true {
                 return "새 버전이 감지됐습니다. 자동 다운로드가 진행되면 설치 준비 상태로 전환됩니다."
@@ -121,16 +121,16 @@ final class UpdateRuntimeState: ObservableObject {
         case .readyToInstall:
             return "다운로드와 검증이 끝났습니다. 원할 때 바로 설치를 적용할 수 있습니다."
         case .installing:
-            return "Sparkle 설치 프로세스로 전환했습니다. 앱이 재시작되면 새 버전이 적용됩니다."
+            return "설치를 진행 중입니다. 앱이 다시 열리면 새 버전이 적용됩니다."
         case .upToDate:
             return lastCheckMessage ?? "현재 설치본이 최신 버전입니다."
         case .error(let message):
             return message
         case .idle:
             if engineStatus?.usesSparkleReadyPath == true {
-                return "새 버전이 감지되면 Sparkle 자동 업데이트 경로가 동작합니다."
+                return "새 버전이 있으면 자동으로 내려받고 준비되면 알려드립니다."
             }
-            return "현재 빌드는 아직 GitHub Release 수동 다운로드 보조 경로를 함께 사용합니다."
+            return "새 버전이 있으면 다운로드 페이지로 안내합니다."
         }
     }
 
@@ -145,12 +145,9 @@ final class UpdateRuntimeState: ObservableObject {
         case .installing:
             return "설치 중에는 잠시 후 앱이 다시 실행될 수 있습니다."
         case .interactiveCheckStarted:
-            return "수동 확인은 Sparkle 표준 창이 담당합니다."
+            return "열린 확인 창에서 설치 여부를 선택해 주세요."
         default:
-            if let engineStatus, !engineStatus.usesSparkleReadyPath {
-                return "appcast 또는 공개키 준비 상태에 따라 Sparkle 대신 GitHub Release ZIP 경로로 내려갑니다."
-            }
-            return modeSummary
+            return nil
         }
     }
 

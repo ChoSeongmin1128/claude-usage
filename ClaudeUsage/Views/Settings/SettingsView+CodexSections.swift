@@ -9,11 +9,11 @@ extension SettingsView {
 
     var codexAuthSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Codex 개요", systemImage: "bubble.left.and.bubble.right")
+            Label("Codex 사용", systemImage: "bubble.left.and.bubble.right")
                 .font(.headline)
 
             settingsToggleRow(
-                "Codex 모니터링 활성화",
+                "Codex 사용",
                 isOn: Binding(
                     get: { settings.isProviderEnabled(.codex) },
                     set: { settings.setProviderEnabled($0, for: .codex) }
@@ -21,61 +21,20 @@ extension SettingsView {
             )
 
             if settings.isProviderEnabled(.codex) {
-                HStack(spacing: 8) {
-                    switch codexAuthStatus {
-                    case .checking:
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("확인 중...")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    case .authenticated:
-                        Label("연결됨 (auth.json)", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                    case .expired:
-                        Label("토큰 만료됨", systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                    case .notInstalled:
-                        Label("Codex CLI 미설치", systemImage: "xmark.circle.fill")
-                            .foregroundStyle(.red)
-                    case .notLoggedIn:
-                        Label("로그인 필요", systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                    }
-                    Spacer()
-                }
-
-                if let action = codexPrimaryCommand {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(action.title)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        HStack(spacing: 4) {
-                            Text(action.command)
-                                .font(.system(.caption, design: .monospaced))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color(NSColor.controlBackgroundColor))
-                                .cornerRadius(4)
-                            Button("복사") {
-                                copyCodexCommand(action.command)
-                            }
-                            .buttonStyle(.borderless)
-                        }
-                    }
-                }
+                codexStatusCard
+                codexActionCard
 
                 HStack(spacing: 8) {
-                    Button("인증 상태 새로고침") {
+                    Button("다시 확인") {
                         checkCodexAuth()
                     }
+                    .buttonStyle(.bordered)
 
-                    if codexAuthStatus == .authenticated {
-                        Button("Codex 로그아웃") {
-                            onCodexLogout?()
-                            checkCodexAuth()
+                    if shouldShowCodexTroubleshootingShortcut {
+                        Button("문제 해결 보기") {
+                            selectedCodexTab = .advanced
                         }
-                        .foregroundStyle(.red)
+                        .buttonStyle(.bordered)
                     }
                 }
             }
@@ -84,40 +43,47 @@ extension SettingsView {
 
     var codexAdvancedSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Codex 고급", systemImage: "wrench.and.screwdriver")
+            Label("Codex 문제 해결", systemImage: "wrench.and.screwdriver")
                 .font(.headline)
 
-            Text("설치, 로그인, 재로그인 같은 저빈도 명령은 여기서 확인합니다.")
+            Text("설치나 로그인이 안 될 때만 아래 안내를 따라 해 주세요.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             if codexAuthStatus == .notInstalled {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Codex CLI 설치")
-                        .font(.subheadline.weight(.semibold))
-                    codexCommandRow("brew install --cask codex", label: "Homebrew")
-                    codexCommandRow("npm i -g @openai/codex", label: "npm")
-                }
+                codexInstructionCard(
+                    title: "설치",
+                    message: "터미널에서 Codex를 설치한 뒤 다시 확인해 주세요.",
+                    command: "brew install --cask codex"
+                )
             }
 
             if codexAuthStatus == .notInstalled || codexAuthStatus == .notLoggedIn {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Codex 로그인")
-                        .font(.subheadline.weight(.semibold))
-                    codexCommandRow("codex login", label: "로그인")
-                }
+                codexInstructionCard(
+                    title: "로그인",
+                    message: "터미널에서 로그인만 마치면 바로 확인할 수 있습니다.",
+                    command: "codex login"
+                )
             }
 
             if codexAuthStatus == .expired {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Codex 재로그인")
-                        .font(.subheadline.weight(.semibold))
-                    codexCommandRow("codex login", label: "재로그인")
-                }
+                codexInstructionCard(
+                    title: "다시 로그인",
+                    message: "로그인이 만료되었습니다. 다시 로그인해 주세요.",
+                    command: "codex login"
+                )
             }
 
             if codexAuthStatus == .authenticated {
-                Text("현재는 추가 설치나 재로그인이 필요하지 않습니다.")
+                Button("Codex 로그아웃") {
+                    onCodexLogout?()
+                    checkCodexAuth()
+                }
+                .foregroundStyle(.red)
+            }
+
+            if codexAuthStatus == .authenticated {
+                Text("지금은 추가 조치가 필요하지 않습니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -125,24 +91,126 @@ extension SettingsView {
     }
 
     var codexDisplayConfigurationSection: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            codexDisplaySection
-            Divider()
-            codexPopoverItemsSection
+        codexDisplaySection
+    }
+
+    private var codexStatusTitle: String {
+        switch codexAuthStatus {
+        case .checking:
+            return "상태를 확인하는 중입니다"
+        case .authenticated:
+            return "로그인되어 바로 사용할 수 있습니다"
+        case .notInstalled:
+            return "Codex를 먼저 설치해야 합니다"
+        case .notLoggedIn:
+            return "Codex 로그인이 필요합니다"
+        case .expired:
+            return "로그인이 만료되어 다시 확인이 필요합니다"
         }
     }
 
-    private var codexPrimaryCommand: (title: String, command: String)? {
+    private var codexStatusTone: Color {
         switch codexAuthStatus {
+        case .checking:
+            return .blue
+        case .authenticated:
+            return .green
+        case .expired, .notLoggedIn:
+            return .orange
         case .notInstalled:
-            return ("Codex CLI가 필요합니다.", "brew install --cask codex")
-        case .notLoggedIn:
-            return ("터미널에서 로그인해 주세요.", "codex login")
-        case .expired:
-            return ("토큰이 만료되었습니다. 다시 로그인해 주세요.", "codex login")
-        case .checking, .authenticated:
-            return nil
+            return .red
         }
+    }
+
+    private var codexStatusBadgeTitle: String {
+        switch codexAuthStatus {
+        case .checking:
+            return "확인 중"
+        case .authenticated:
+            return "로그인됨"
+        case .expired:
+            return "다시 로그인"
+        case .notInstalled:
+            return "설치 필요"
+        case .notLoggedIn:
+            return "로그인 필요"
+        }
+    }
+
+    private var codexActionTitle: String {
+        switch codexAuthStatus {
+        case .checking, .authenticated:
+            return "필요하면 다시 확인하기"
+        case .notInstalled:
+            return "Codex 설치하기"
+        case .notLoggedIn, .expired:
+            return "Codex 로그인하기"
+        }
+    }
+
+    private var codexActionDetail: String {
+        switch codexAuthStatus {
+        case .checking:
+            return "잠시 뒤 상태가 바뀌는지 확인해 주세요."
+        case .authenticated:
+            return "지금은 추가 작업 없이 사용하시면 됩니다."
+        case .notInstalled:
+            return "문제 해결 탭에서 설치 명령 한 줄만 실행하시면 됩니다."
+        case .notLoggedIn:
+            return "문제 해결 탭에서 로그인 명령 한 줄만 실행하시면 됩니다."
+        case .expired:
+            return "문제 해결 탭에서 다시 로그인해 주세요."
+        }
+    }
+
+    private var shouldShowCodexTroubleshootingShortcut: Bool {
+        switch codexAuthStatus {
+        case .checking, .authenticated:
+            return false
+        case .expired, .notInstalled, .notLoggedIn:
+            return true
+        }
+    }
+
+    private var codexStatusCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Text(codexStatusBadgeTitle)
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(codexStatusTone.opacity(0.16))
+                    .foregroundStyle(codexStatusTone)
+                    .cornerRadius(6)
+                Spacer(minLength: 0)
+                if codexAuthStatus == .checking {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+
+            Text(codexStatusTitle)
+                .font(.subheadline.weight(.semibold))
+        }
+        .padding(12)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .cornerRadius(8)
+    }
+
+    private var codexActionCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("지금 할 일")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(codexActionTitle)
+                .font(.subheadline.weight(.semibold))
+            Text(codexActionDetail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+        .cornerRadius(8)
     }
 
     private func copyCodexCommand(_ command: String) {
@@ -150,24 +218,33 @@ extension SettingsView {
         NSPasteboard.general.setString(command, forType: .string)
     }
 
-    private func codexCommandRow(_ command: String, label: String) -> some View {
-        HStack(spacing: 4) {
-            Text(command)
-                .font(.system(.caption, design: .monospaced))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color(NSColor.controlBackgroundColor))
-                .cornerRadius(4)
-            Button {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(command, forType: .string)
-            } label: {
-                Image(systemName: "doc.on.doc")
-                    .font(.caption)
+    private func codexInstructionCard(title: String, message: String, command: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text("아래 한 줄만 실행해 주세요.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Text(command)
+                    .font(.system(.caption, design: .monospaced))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .cornerRadius(4)
+                Button("복사") {
+                    copyCodexCommand(command)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
-            .buttonStyle(.borderless)
-            .help("\(label) 명령어 복사")
         }
+        .padding(12)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+        .cornerRadius(8)
     }
 
     func checkCodexAuth() {
@@ -205,7 +282,7 @@ extension SettingsView {
 
     var codexDisplaySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Codex 표시", systemImage: "slider.horizontal.3")
+            Label("Codex 표시", systemImage: "paintbrush")
                 .font(.headline)
 
             settingsToggleRow("Codex 아이콘", isOn: $settings.showCodexIcon)
@@ -236,79 +313,23 @@ extension SettingsView {
                 }
             }
 
-            Divider()
-
-            Picker("아이콘:", selection: Binding(
-                get: { settings.codexMenuBarStyle },
-                set: { newValue in
-                    settings.codexMenuBarStyle = newValue
-                    if newValue.isBatteryStyle {
-                        settings.codexCircularDisplayMode = .remaining
-                    } else if newValue == .none {
-                        settings.codexCircularDisplayMode = .usage
-                    }
-                }
+            Picker("표시 모양", selection: Binding(
+                get: { SimplifiedMenuBarAppearance(style: settings.codexMenuBarStyle) },
+                set: { settings.setMenuBarStyle($0.menuBarStyle, for: .codex) }
             )) {
-                Text("없음").tag(MenuBarStyle.none)
-                Section("개별 세션") {
-                    Text("배터리바").tag(MenuBarStyle.batteryBar)
-                    Text("원형").tag(MenuBarStyle.circular)
-                }
-                Section("동시 표시 (현재 세션 + 주간)") {
-                    Text("동심원").tag(MenuBarStyle.concentricRings)
-                    Text("이중 배터리").tag(MenuBarStyle.dualBattery)
-                    Text("좌우 배터리").tag(MenuBarStyle.sideBySideBattery)
+                ForEach(SimplifiedMenuBarAppearance.allCases) { appearance in
+                    Text(appearance.displayName).tag(appearance)
                 }
             }
+            .pickerStyle(.segmented)
 
-            if isCodexBatteryWithPercent {
-                settingsToggleRow("배터리 내부 숫자", isOn: $settings.codexShowBatteryPercent)
-                    .padding(.leading, 20)
-            }
-            if isCodexSingleMetricStyle {
-                settingsRadioGroup(
-                    "아이콘 기준:",
-                    options: IconMetric.allCases.map { ($0, $0.displayName) },
-                    selection: settings.codexIconMetric,
-                    onChange: { settings.codexIconMetric = $0 }
-                )
-                .padding(.leading, 20)
-            }
-            if isCodexCircularStyle {
-                settingsRadioGroup(
-                    "표시 기준:",
-                    options: CircularDisplayMode.allCases.map { ($0, $0.displayName) },
-                    selection: settings.codexCircularDisplayMode,
-                    onChange: { settings.codexCircularDisplayMode = $0 }
-                )
-                .padding(.leading, 20)
-            }
+            Text(SimplifiedMenuBarAppearance(style: settings.codexMenuBarStyle).summary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Text("팝오버 항목 순서와 세부 구성은 기본 구성을 사용합니다.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
-    }
-
-    private var isCodexBatteryWithPercent: Bool {
-        switch settings.codexMenuBarStyle {
-        case .batteryBar, .dualBattery, .sideBySideBattery: return true
-        default: return false
-        }
-    }
-
-    private var isCodexCircularStyle: Bool {
-        settings.codexMenuBarStyle != .none
-    }
-
-    private var isCodexSingleMetricStyle: Bool {
-        settings.codexMenuBarStyle == .batteryBar || settings.codexMenuBarStyle == .circular
-    }
-
-    var codexPopoverItemsSection: some View {
-        PopoverItemsSectionView(
-            settings: settings,
-            service: .codex,
-            title: "Codex 표시 항목",
-            systemImage: "list.bullet.indent",
-            subtitle: "Codex 항목의 표시 여부와 순서를 설정합니다",
-            compactConfigTab: $codexCompactConfigTab
-        )
     }
 }

@@ -14,10 +14,10 @@ struct ClaudeSetupSectionShell<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Claude 개요", systemImage: "brain")
+            Label("Claude 사용", systemImage: "brain")
                 .font(.headline)
 
-            Text("현재 단계: \(stageText(presentation.progress.stage))")
+            Text(shellSummary(for: presentation.progress.stage))
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -25,16 +25,16 @@ struct ClaudeSetupSectionShell<Content: View>: View {
         }
     }
 
-    private func stageText(_ stage: SetupCompletionPolicy.WizardStage) -> String {
+    private func shellSummary(for stage: SetupCompletionPolicy.WizardStage) -> String {
         switch stage {
         case .credential:
-            return "자격 준비"
+            return "로그인만 마치면 바로 사용할 수 있습니다."
         case .verification:
-            return "연결 검증"
+            return "연결 확인만 끝나면 사용할 수 있습니다."
         case .organization:
-            return "Organization 확인"
+            return "필요하면 조직만 고르면 됩니다."
         case .complete:
-            return "완료"
+            return "지금 필요한 상태와 다음 행동만 보여줍니다."
         }
     }
 }
@@ -101,12 +101,6 @@ struct RuntimeProviderPanelShell<Content: View>: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            if let detail {
-                Text(detail)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-
             content
         }
     }
@@ -128,10 +122,6 @@ struct UpdateDiagnosticsSectionShell<Content: View>: View {
         VStack(alignment: .leading, spacing: 12) {
             Label("업데이트", systemImage: "arrow.triangle.2.circlepath")
                 .font(.headline)
-
-            Text(updateModeSummary)
-                .font(.caption)
-                .foregroundStyle(.secondary)
 
             content
         }

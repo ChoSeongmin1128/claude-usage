@@ -1,6 +1,58 @@
 import AppKit
 import SwiftUI
 
+enum SimplifiedMenuBarAppearance: String, CaseIterable, Identifiable {
+    case textOnly
+    case simple
+    case detailed
+
+    var id: Self { self }
+
+    init(style: MenuBarStyle) {
+        switch style {
+        case .none:
+            self = .textOnly
+        case .batteryBar, .circular:
+            self = .simple
+        case .concentricRings, .dualBattery, .sideBySideBattery:
+            self = .detailed
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .textOnly:
+            return "텍스트만"
+        case .simple:
+            return "간단히"
+        case .detailed:
+            return "자세히"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .textOnly:
+            return "아이콘 없이 텍스트만 보여줍니다."
+        case .simple:
+            return "현재 상태를 한눈에 보는 단순한 아이콘을 함께 보여줍니다."
+        case .detailed:
+            return "현재 세션과 주간 정보를 함께 보여줍니다."
+        }
+    }
+
+    var menuBarStyle: MenuBarStyle {
+        switch self {
+        case .textOnly:
+            return .none
+        case .simple:
+            return .batteryBar
+        case .detailed:
+            return .concentricRings
+        }
+    }
+}
+
 extension SettingsView {
     @ViewBuilder
     func runtimeProviderPanel(for provider: AppProviderKind, tab: ProviderSettingsTab) -> some View {
@@ -9,8 +61,6 @@ extension SettingsView {
             runtimeProviderOverviewSection(for: provider)
         case .display:
             runtimeProviderDisplaySection(for: provider)
-        case .alerts:
-            runtimeProviderOverviewSection(for: provider)
         case .advanced:
             runtimeProviderAdvancedSection(for: provider)
         }
@@ -38,7 +88,7 @@ extension SettingsView {
                 summary: descriptor.summary,
                 detail: descriptor.detail
             ) {
-                Text("이 provider의 개요 화면은 아직 별도 presentation을 쓰지 않습니다.")
+                Text("이 서비스의 안내 화면은 아직 준비 중입니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -52,7 +102,7 @@ extension SettingsView {
         RuntimeProviderPanelShell(
             descriptor: descriptor,
             title: "\(descriptor.title) 표시",
-            summary: "메뉴바 표시 방식과 팝오버 동작을 함께 정합니다."
+            summary: "메뉴바에 무엇을 보여줄지만 간단히 정합니다."
         ) {
             if let displayConfig {
                 VStack(alignment: .leading, spacing: 10) {
@@ -102,55 +152,29 @@ extension SettingsView {
                             }
                         }
 
-                        Picker("아이콘:", selection: Binding(
-                            get: { settings.menuBarDisplayConfig(for: provider)?.style ?? .none },
-                            set: { settings.setMenuBarStyle($0, for: provider) }
-                        )) {
-                            Text("없음").tag(MenuBarStyle.none)
-                            Section("개별 기준") {
-                                Text("배터리바").tag(MenuBarStyle.batteryBar)
-                                Text("원형").tag(MenuBarStyle.circular)
-                            }
-                            Section("동시 표시") {
-                                Text("동심원").tag(MenuBarStyle.concentricRings)
-                                Text("이중 배터리").tag(MenuBarStyle.dualBattery)
-                                Text("좌우 배터리").tag(MenuBarStyle.sideBySideBattery)
-                            }
-                        }
-
-                        if displayConfig.style == .batteryBar || displayConfig.style == .sideBySideBattery {
-                            settingsToggleRow(
-                                "배터리 내부 숫자",
-                                isOn: Binding(
-                                    get: { settings.menuBarDisplayConfig(for: provider)?.showBatteryPercent ?? true },
-                                    set: { settings.setProviderShowBatteryPercent($0, for: provider) }
+                        Picker("표시 모양", selection: Binding(
+                            get: {
+                                SimplifiedMenuBarAppearance(
+                                    style: settings.menuBarDisplayConfig(for: provider)?.style ?? .none
                                 )
-                            )
+                            },
+                            set: { settings.setMenuBarStyle($0.menuBarStyle, for: provider) }
+                        )) {
+                            ForEach(SimplifiedMenuBarAppearance.allCases) { appearance in
+                                Text(appearance.displayName).tag(appearance)
+                            }
                         }
+                        .pickerStyle(.segmented)
 
-                        if displayConfig.style == .batteryBar || displayConfig.style == .circular {
-                            settingsRadioGroup(
-                                "아이콘 기준:",
-                                options: IconMetric.allCases.map { ($0, $0.displayName) },
-                                selection: settings.menuBarDisplayConfig(for: provider)?.iconMetric ?? .fiveHour,
-                                onChange: { settings.setProviderIconMetric($0, for: provider) }
-                            )
-                        }
-
-                        if displayConfig.style != .none {
-                            settingsRadioGroup(
-                                "표시 기준:",
-                                options: CircularDisplayMode.allCases.map { ($0, $0.displayName) },
-                                selection: settings.menuBarDisplayConfig(for: provider)?.circularDisplayMode ?? .usage,
-                                onChange: { settings.setProviderCircularDisplayMode($0, for: provider) }
-                            )
-                        }
+                        Text(SimplifiedMenuBarAppearance(style: displayConfig.style).summary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     } else {
                         HStack(alignment: .top, spacing: 8) {
                             Image(systemName: "eye.slash")
                                 .foregroundStyle(.secondary)
                                 .padding(.top, 1)
-                            Text("이 provider는 활성화되어 있어도 popover와 새로고침에만 참여하고, 메뉴바에는 표시하지 않습니다.")
+                            Text("메뉴바에는 표시하지 않고, 팝오버에서만 보여줍니다.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -158,7 +182,6 @@ extension SettingsView {
                         .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
                         .cornerRadius(8)
                     }
-
                 }
             }
         }
@@ -175,19 +198,12 @@ extension SettingsView {
             RuntimeProviderAdvancedSectionView(
                 descriptor: descriptor,
                 presentation: presentation,
-                footnote: shellSectionFootnote(for: provider, selectionState: settings.providerSelectionState),
                 onRefreshEnvironment: { runtimeEnvironmentRefreshTick += 1 }
             )
         }
     }
 
     private func runtimeProviderOverviewHint(for presentation: RuntimeProviderAuthPresentation) -> String? {
-        guard let firstPath = presentation.pathHints.first else { return nil }
-        switch presentation.stage {
-        case .installRequired, .unsupportedConfiguration, .authRequired, .waitingForApp:
-            return "확인 경로: \(firstPath)"
-        case .disabled, .refreshingCredential, .probingRuntime:
-            return nil
-        }
+        nil
     }
 }

@@ -12,9 +12,8 @@ extension SettingsView {
         sessionKey = ""
         testResult = nil
         organizations = []
-        organizationPreviews = []
         organizationOAuthFallbackSummary = nil
-        organizationMessage = "로그아웃되었습니다. 다시 로그인하거나 세션 키를 입력해 주세요."
+        organizationMessage = "로그아웃되었습니다. 다시 로그인하거나 브라우저 로그인 값을 입력해 주세요."
     }
 
     func syncStoredSessionKeyState() {
@@ -57,32 +56,6 @@ extension SettingsView {
                     lastVerifiedSessionKey = nil
                     testResult = .failure(error.localizedDescription)
                     isTesting = false
-                    loadUsageHealthSnapshot()
-                }
-            }
-        }
-    }
-
-    func runMessagesFallbackTest() {
-        guard !isTestingMessagesFallback else { return }
-        isTestingMessagesFallback = true
-        messagesFallbackStatus = nil
-
-        Task {
-            do {
-                let service = ClaudeAPIService()
-                let usage = try await service.fetchUsageUsingMessagesFallback()
-                let fiveHour = String(format: "%.0f%%", usage.fiveHour.utilization)
-                let weekly = String(format: "%.0f%%", usage.sevenDay?.utilization ?? 0)
-                await MainActor.run {
-                    messagesFallbackStatus = "현재 \(fiveHour) · 주간 \(weekly)"
-                    isTestingMessagesFallback = false
-                    loadUsageHealthSnapshot()
-                }
-            } catch {
-                await MainActor.run {
-                    messagesFallbackStatus = "실패: \(error.localizedDescription)"
-                    isTestingMessagesFallback = false
                     loadUsageHealthSnapshot()
                 }
             }
@@ -193,14 +166,13 @@ extension SettingsView {
 
         guard !normalizedKey.isEmpty else {
             organizationMessage = hasOAuthCredential
-                ? "세션 키가 없어 organization 목록은 건너뜁니다. 현재는 OAuth 기준 organization 상태만 확인할 수 있습니다."
-                : "세션 키가 없어 organization 목록을 불러올 수 없습니다."
+                ? "브라우저 로그인 값이 없어 조직 목록은 건너뜁니다. 지금은 Claude Code 로그인 기준 상태만 확인할 수 있습니다."
+                : "브라우저 로그인 값이 없어 조직 목록을 불러올 수 없습니다."
             loadUsageHealthSnapshot()
             return
         }
 
         isLoadingOrganizations = true
-        isLoadingOrganizationPreviews = false
         organizationMessage = nil
         organizationOAuthFallbackSummary = nil
 
@@ -212,13 +184,10 @@ extension SettingsView {
                 let cachedOrganizations = await service.cachedOrganizationsForDisplay()
                 if !cachedOrganizations.isEmpty {
                     await MainActor.run {
-                        let cachedIDs = Set(cachedOrganizations.map(\.id))
                         organizations = cachedOrganizations
-                        organizationPreviews = organizationPreviews.filter { cachedIDs.contains($0.id) }
                         isLoadingOrganizations = false
-                        isLoadingOrganizationPreviews = false
                         organizationOAuthFallbackSummary = nil
-                        organizationMessage = "캐시된 organization \(cachedOrganizations.count)개를 표시합니다. 변경 시 강제 새로고침을 눌러주세요."
+                        organizationMessage = "저장된 조직 \(cachedOrganizations.count)개를 표시합니다. 바뀌었으면 강제 새로고침을 눌러 주세요."
                         loadUsageHealthSnapshot()
                     }
                     return
@@ -231,7 +200,7 @@ extension SettingsView {
                 resolvedOrganizations = await service.cachedOrganizationsForDisplay()
                 await MainActor.run {
                     if !resolvedOrganizations.isEmpty {
-                        organizationMessage = "organization 목록 조회 실패로 캐시 목록을 표시합니다."
+                        organizationMessage = "조직 목록을 불러오지 못해 저장된 목록을 대신 표시합니다."
                     }
                 }
             }
@@ -239,7 +208,6 @@ extension SettingsView {
             await MainActor.run {
                 organizations = resolvedOrganizations
                 isLoadingOrganizations = false
-                organizationPreviews = []
                 organizationOAuthFallbackSummary = nil
             }
 
@@ -247,15 +215,15 @@ extension SettingsView {
                 do {
                     let fallbackUsage = try await service.fetchUsage()
                     await MainActor.run {
-                        organizationMessage = "organization 목록 조회 실패로 OAuth 기준 사용량만 표시합니다."
+                        organizationMessage = "조직 목록을 불러오지 못해 Claude Code 로그인 기준 사용량만 표시합니다."
                         let fiveHour = String(format: "%.0f%%", fallbackUsage.fiveHour.utilization)
                         let weekly = String(format: "%.0f%%", fallbackUsage.sevenDay?.utilization ?? 0)
-                        organizationOAuthFallbackSummary = "OAuth 기준: 현재 \(fiveHour) · 주간 \(weekly)"
+                        organizationOAuthFallbackSummary = "Claude Code 로그인 기준: 현재 \(fiveHour) · 주간 \(weekly)"
                     }
                 } catch {
                     await MainActor.run {
                         organizationOAuthFallbackSummary = nil
-                        organizationMessage = "organization 목록 조회 실패: \(error.localizedDescription)"
+                        organizationMessage = "조직 목록을 불러오지 못했습니다: \(error.localizedDescription)"
                     }
                 }
                 await MainActor.run {
@@ -265,27 +233,13 @@ extension SettingsView {
             }
 
             await MainActor.run {
-                isLoadingOrganizationPreviews = true
-                organizationMessage = "organization \(resolvedOrganizations.count)개 목록을 불러왔습니다. 상세 조회 중..."
-            }
-
-            let previews = await service.fetchOrganizationPreviews(for: resolvedOrganizations)
-            await MainActor.run {
-                organizationPreviews = previews
-                isLoadingOrganizationPreviews = false
-
-                let exists = selectedOrganizationID.isEmpty || previews.contains { $0.id == selectedOrganizationID }
+                let exists = selectedOrganizationID.isEmpty || resolvedOrganizations.contains { $0.id == selectedOrganizationID }
                 if !exists {
-                    organizationMessage = "현재 선택한 organization이 목록에 없어 자동 선택으로 동작합니다."
+                    organizationMessage = "현재 선택한 조직이 목록에 없어 자동 선택으로 동작합니다."
                     return
                 }
 
-                let failedCount = previews.filter { $0.usageErrorMessage != nil }.count
-                if failedCount > 0 {
-                    organizationMessage = "organization \(previews.count)개 중 \(failedCount)개는 상세 조회에 실패했습니다."
-                } else {
-                    organizationMessage = "organization \(previews.count)개의 상세를 불러왔습니다."
-                }
+                organizationMessage = "조직 \(resolvedOrganizations.count)개를 불러왔습니다."
                 loadUsageHealthSnapshot()
             }
         }
@@ -306,20 +260,6 @@ extension SettingsView {
         }
     }
 
-    func formattedMetadataDate(_ date: Date?) -> String? {
-        guard let date else { return nil }
-        return date.formatted(date: .abbreviated, time: .omitted)
-    }
-
-    func formattedTimestamp(_ date: Date?) -> String {
-        guard let date else { return "기록 없음" }
-        let absolute = date.formatted(date: .abbreviated, time: .shortened)
-        let relativeFormatter = RelativeDateTimeFormatter()
-        relativeFormatter.unitsStyle = .short
-        let relative = relativeFormatter.localizedString(for: date, relativeTo: Date())
-        return "\(absolute) (\(relative))"
-    }
-
     func shortRelativeTimestamp(_ date: Date?) -> String {
         guard let date else { return "기록 없음" }
         let relativeFormatter = RelativeDateTimeFormatter()
@@ -327,48 +267,19 @@ extension SettingsView {
         return relativeFormatter.localizedString(for: date, relativeTo: Date())
     }
 
-    func updateNotificationPreset(id: String, mutate: (inout NotificationPreset) -> Void) {
-        guard let index = settings.notificationPresets.firstIndex(where: { $0.id == id }) else { return }
-        var presets = settings.notificationPresets
-        mutate(&presets[index])
-        settings.notificationPresets = presets
-        alertPresetTexts = settings.sortedNotificationPresets.map { String($0.threshold) }
-    }
-
-    func removeNotificationPreset(id: String) {
-        guard settings.notificationPresets.count > 1 else { return }
-        settings.notificationPresets.removeAll { $0.id == id }
-        alertPresetTexts = settings.sortedNotificationPresets.map { String($0.threshold) }
-    }
-
-    func addNotificationPreset() {
-        let existing = Set(settings.notificationPresets.map(\.threshold))
-        let candidates = [50, 60, 70, 75, 80, 85, 90, 95, 100]
-        let next = candidates.first(where: { !existing.contains($0) })
-            ?? min((settings.notificationPresets.map(\.threshold).max() ?? 90) + 5, 100)
-        settings.notificationPresets.append(NotificationPreset(threshold: next, isEnabled: true))
-        alertPresetTexts = settings.sortedNotificationPresets.map { String($0.threshold) }
-    }
-
     func resetClaudeAuthDisclosureState() {
         guard !settings.shouldRevealClaudeAdvancedAuth else { return }
         isAdvancedAuthExpanded = false
-        isAuthFAQExpanded = false
-        isAuthDetailsExpanded = false
-        isMessagesFallbackExpanded = false
+        isOrganizationAdvancedExpanded = false
     }
 
     func resetToDefaults() {
         settings.resetToDefaults()
         refreshIntervalText = String(Int(settings.refreshInterval))
-        alertPresetTexts = settings.sortedNotificationPresets.map { String($0.threshold) }
         selectedOrganizationID = settings.preferredOrganizationID
-        organizationPreviews = []
-        isLoadingOrganizationPreviews = false
         organizationMessage = nil
         organizationOAuthFallbackSummary = nil
-        codexCompactConfigTab = 0
-        compactConfigTab = 0
+        isOrganizationAdvancedExpanded = false
         checkCodexAuth()
     }
 }

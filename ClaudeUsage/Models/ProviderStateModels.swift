@@ -42,8 +42,8 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 settingsPanelTitle: "Claude",
                 settingsPanelIconName: "brain",
                 brandAssetName: "ProviderClaudeIcon",
-                settingsPanelSummary: "메인 usage 경로",
-                settingsPanelDetail: "세션키와 OAuth를 함께 유지합니다.",
+                settingsPanelSummary: "기본 서비스",
+                settingsPanelDetail: "브라우저 로그인이나 Claude Code 로그인으로 연결할 수 있습니다.",
                 settingsComingSoonMessage: nil,
                 capabilities: ProviderCapabilities(
                     runtimeService: .claude,
@@ -59,8 +59,8 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 settingsPanelTitle: "Codex",
                 settingsPanelIconName: "bubble.left.and.bubble.right",
                 brandAssetName: "ProviderCodexIcon",
-                settingsPanelSummary: "CLI / OAuth",
-                settingsPanelDetail: "Codex는 별도 셸과 표시 규칙을 유지합니다.",
+                settingsPanelSummary: "Codex 사용량",
+                settingsPanelDetail: "로그인하면 메뉴바에서 바로 확인할 수 있습니다.",
                 settingsComingSoonMessage: nil,
                 capabilities: ProviderCapabilities(
                     runtimeService: .codex,
@@ -76,8 +76,8 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 settingsPanelTitle: "Gemini CLI",
                 settingsPanelIconName: "sparkles",
                 brandAssetName: "ProviderGeminiIcon",
-                settingsPanelSummary: "CLI / OAuth",
-                settingsPanelDetail: "Gemini CLI의 OAuth 자격을 읽어 quota를 직접 조회합니다.",
+                settingsPanelSummary: "Gemini CLI 로그인",
+                settingsPanelDetail: "Gemini CLI 로그인 상태로 사용량을 확인합니다.",
                 settingsComingSoonMessage: nil,
                 capabilities: ProviderCapabilities(
                     runtimeService: .gemini,
@@ -93,8 +93,8 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 settingsPanelTitle: "Antigravity",
                 settingsPanelIconName: "antenna.radiowaves.left.and.right",
                 brandAssetName: "ProviderAntigravityIcon",
-                settingsPanelSummary: "로컬 language server",
-                settingsPanelDetail: "Antigravity의 로컬 language server에 직접 연결해 Claude/Gemini quota를 읽습니다.",
+                settingsPanelSummary: "앱 연결",
+                settingsPanelDetail: "Antigravity 앱이 열려 있으면 사용량을 확인합니다.",
                 settingsComingSoonMessage: nil,
                 capabilities: ProviderCapabilities(
                     runtimeService: .antigravity,

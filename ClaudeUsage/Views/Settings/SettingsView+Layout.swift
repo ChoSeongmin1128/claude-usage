@@ -40,7 +40,6 @@ extension SettingsView {
             syncStoredSessionKeyState()
             testResult = nil
             refreshIntervalText = String(Int(settings.refreshInterval))
-            alertPresetTexts = settings.sortedNotificationPresets.map { String($0.threshold) }
             selectedOrganizationID = settings.preferredOrganizationID
             selectedPanel = SettingsProviderPanel(rawValue: settings.settingsLastTab) ?? .common
             selectedClaudeTab = settings.providerSettingsLastTab(for: .claude)
@@ -139,18 +138,20 @@ extension SettingsView {
         switch selectedPanel {
         case .common:
             switch selectedCommonTab {
+            case .services:
+                commonServicesSection
             case .display:
                 commonDisplaySection
-            case .refreshPower:
-                refreshSection
-                Divider()
-                powerSection
             case .alerts:
                 commonAlertSection
             case .app:
+                refreshSection
+                Divider()
+                powerSection
+                Divider()
                 updateSection
                 Divider()
-                generalSection
+                appPreferencesSection
             }
         case .claude:
             switch selectedClaudeTab {
@@ -158,8 +159,6 @@ extension SettingsView {
                 claudeOverviewSection
             case .display:
                 claudeDisplayConfigurationSection
-            case .alerts:
-                claudeOverviewSection
             case .advanced:
                 claudeAdvancedSettingsSection
             }
@@ -169,8 +168,6 @@ extension SettingsView {
                 codexOverviewSection
             case .display:
                 codexDisplayConfigurationSection
-            case .alerts:
-                codexOverviewSection
             case .advanced:
                 codexAdvancedSection
             }

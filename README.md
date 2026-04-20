@@ -37,7 +37,7 @@
 - `Messages header fallback` 수동/자동 보조 복구
 - `Claude Code CLI OAuth` 안내와 상태 표시
 - Sparkle 패키지 통합 + appcast 미설정 시 GitHub Release fallback
-- notarization용 release 스크립트 골격 추가
+- notarization + GitHub Release / Pages appcast 게시 스크립트 정리
 - Claude 인증 탭의 단계형 빠른 시작 wizard
 - provider별 refresh/backoff/loading/error 상태를 runtime catalog로 통합
 - `Gemini`, `Antigravity`의 `감지됨 / 갱신 가능 / 연결 가능 / 첫 성공 조회` 상태 분리
@@ -116,8 +116,13 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
 - `appcast(feed)`와 `공개키`가 준비되지 않은 개발 빌드에서는 `GitHub Release fallback`으로 동작합니다.
 - 설정 화면의 `업데이트` 섹션에서 지금 빌드가 `Sparkle 통합`, `appcast 준비`, `공개키 준비` 중 어디까지 와 있는지 직접 볼 수 있습니다.
 - 릴리즈 산출물은 [build-notarize-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/build-notarize-release.sh) 로 `archive -> zip -> notarize -> staple -> stapled zip 재생성` 흐름을 실행할 수 있습니다.
-- Sparkle 채널용 appcast는 [generate-sparkle-appcast.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/generate-sparkle-appcast.sh) 로 생성할 수 있고, `DOWNLOAD_BASE_URL` 을 주지 않으면 `SUFeedURL` 의 디렉토리에서 유도합니다.
-- Release 빌드는 [Release.xcconfig](/Users/seongmin/Personal/ClaudeUsage/Config/Release.xcconfig) 를 기본으로 읽고, 로컬 비밀값은 `Config/Sparkle.release.local.xcconfig` 에서 덮어씁니다. 이 로컬 파일에는 `SUFeedURL`, `SUPublicEDKey`, `NOTARY_PROFILE` 을 함께 둘 수 있습니다.
+- Sparkle 채널용 appcast는 [generate-sparkle-appcast.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/generate-sparkle-appcast.sh) 로 생성합니다.
+- GitHub Pages 채널 구조는 다음을 기준으로 합니다.
+  - `prod`: `https://OWNER.github.io/REPO/appcast.xml`
+  - `staging`: `https://OWNER.github.io/REPO/channels/staging/appcast.xml`
+- `gh-pages` 브랜치는 코드 브랜치가 아니라 위 appcast를 배포하는 정적 호스팅 브랜치입니다.
+- [publish-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/publish-release.sh) 는 stable 릴리스면 `prod`, prerelease 면 `staging` 채널을 기본값으로 잡고, GitHub Release 업로드 뒤 `gh-pages` 채널 appcast도 같이 갱신합니다.
+- Release 빌드는 [Release.xcconfig](/Users/seongmin/Personal/ClaudeUsage/Config/Release.xcconfig) 를 기본으로 읽고, 로컬 비밀값은 `Config/Sparkle.release.local.xcconfig` 에서 덮어씁니다. 이 로컬 파일에는 보통 `prod` feed, `SUPublicEDKey`, `NOTARY_PROFILE` 을 둡니다. staging 빌드는 `RELEASE_CHANNEL=staging` 또는 `SU_FEED_URL` 로 명시적으로 채널을 고정하는 편이 안전합니다.
 
 ## 보조 사용량 복구
 
@@ -204,6 +209,16 @@ ClaudeUsage/
 └── Views/                  # Settings, Popover, Login, usage components
 ```
 
+## 브랜치와 채널
+
+- 현재 원격 코드 브랜치는 `main`, `dev`, `codex-v2-integration` 이고, `gh-pages` 는 정적 배포 브랜치입니다.
+- `gh-pages` 는 Sparkle appcast / Pages 용 브랜치라서, `stg` 역할로 보면 안 됩니다.
+- 운영 기준으로는 아래 역할 분리가 더 자연스럽습니다.
+  - `main`: stable/prod 코드
+  - `dev`: 일상 개발 브랜치
+  - `stg` 또는 release candidate 브랜치: 필요하면 별도로 운용
+  - `gh-pages`: appcast 배포 브랜치
+
 ## 기술/설계 메모
 
 - Swift 5
@@ -226,6 +241,7 @@ ClaudeUsage/
 - 작업 계획: [WORK_PLAN.md](WORK_PLAN.md)
 - 구조 분석: [docs/2026-04-01-architecture-review.md](docs/2026-04-01-architecture-review.md)
 - 인증/소스 설명: [docs/authentication-and-sources.md](docs/authentication-and-sources.md)
+- 배포 가이드: [docs/RELEASE.md](docs/RELEASE.md)
 - Apple Developer / 업데이트: [apple-developer-update.md](apple-developer-update.md)
 
 ## 라이선스

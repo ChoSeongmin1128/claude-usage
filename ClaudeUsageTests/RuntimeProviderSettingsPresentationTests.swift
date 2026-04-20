@@ -20,7 +20,7 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
 
         XCTAssertEqual(presentation.stage, .refreshingCredential)
         XCTAssertEqual(presentation.badgeTitle, "갱신 필요")
-        XCTAssertEqual(presentation.summary, "토큰을 갱신한 뒤 다시 확인합니다")
+        XCTAssertEqual(presentation.summary, "로그인 정보를 새로 고치는 중입니다")
     }
 
     func testGeminiMissingBinaryDoesNotLookReadyEvenWhenCredentialExists() {
@@ -41,7 +41,7 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
 
         XCTAssertEqual(presentation.stage, .installRequired)
         XCTAssertEqual(presentation.badgeTitle, "설치 필요")
-        XCTAssertTrue(presentation.primaryActionDetail.contains("Gemini CLI"))
+        XCTAssertTrue(presentation.primaryActionDetail.contains("Gemini"))
     }
 
     func testAntigravityPersistedAuthWithoutRunningAppStaysWaitingForApp() {
@@ -64,7 +64,7 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
 
         XCTAssertEqual(presentation.stage, .waitingForApp)
         XCTAssertEqual(presentation.badgeTitle, "앱 필요")
-        XCTAssertTrue(presentation.summary.contains("실행 중이 아닙니다"))
+        XCTAssertTrue(presentation.summary.contains("열려 있지 않습니다"))
     }
 
     func testAntigravityRuntimeConnectionUsesProbingStage() {
@@ -97,3 +97,59 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
         XCTAssertTrue(presentation.primaryActionDetail.contains("사용량"))
     }
 }
+
+#if canImport(Sparkle)
+final class SparkleUpdateResultInterpreterTests: XCTestCase {
+    func testNoUpdateOnLatestVersionBecomesUpToDate() {
+        let error = NSError(
+            domain: "SUSparkleErrorDomain",
+            code: 1001,
+            userInfo: ["SUNoUpdateFoundReason": 1]
+        )
+
+        let result = SparkleUpdateResultInterpreter.resolve(error: error, fallback: nil)
+
+        guard case .upToDate(let message) = result else {
+            return XCTFail("Expected upToDate result")
+        }
+        XCTAssertEqual(message, "현재 설치본이 최신 버전입니다")
+    }
+
+    func testNoUpdateWhenAppIsNewerThanFeedStillBecomesUpToDate() {
+        let error = NSError(
+            domain: "SUSparkleErrorDomain",
+            code: 1001,
+            userInfo: ["SUNoUpdateFoundReason": 2]
+        )
+
+        let result = SparkleUpdateResultInterpreter.resolve(error: error, fallback: nil)
+
+        guard case .upToDate(let message) = result else {
+            return XCTFail("Expected upToDate result")
+        }
+        XCTAssertEqual(message, "현재 설치본이 업데이트 채널보다 새 버전입니다")
+    }
+
+    func testDiskImageExecutionShowsActionableError() {
+        let error = NSError(domain: "SUSparkleErrorDomain", code: 1003)
+
+        let result = SparkleUpdateResultInterpreter.resolve(error: error, fallback: nil)
+
+        guard case .error(let message) = result else {
+            return XCTFail("Expected error result")
+        }
+        XCTAssertTrue(message.contains("응용 프로그램 폴더"))
+    }
+
+    func testAppcastFailureShowsChannelHint() {
+        let error = NSError(domain: "SUSparkleErrorDomain", code: 1002)
+
+        let result = SparkleUpdateResultInterpreter.resolve(error: error, fallback: nil)
+
+        guard case .error(let message) = result else {
+            return XCTFail("Expected error result")
+        }
+        XCTAssertTrue(message.contains("staging appcast"))
+    }
+}
+#endif

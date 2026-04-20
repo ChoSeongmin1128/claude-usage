@@ -18,6 +18,8 @@
 #   Config/Sparkle.release.local.xcconfig 에 SUFeedURL, SUPublicEDKey,
 #   NOTARY_PROFILE 이 유효하게 채워져 있어야 합니다.
 #   Scripts/setup-sparkle-keys.sh 로 1회성 세팅 가능.
+#   staging 빌드는 RELEASE_CHANNEL=staging 또는 SU_FEED_URL 로 채널을
+#   명시하는 편이 안전합니다.
 
 set -euo pipefail
 
@@ -83,10 +85,48 @@ xcconfig_url_literal() {
     printf '%s\n' "${value/\/\//\$(SPARKLE_URL_SLASH)\$(SPARKLE_URL_SLASH)}"
 }
 
+validate_release_channel() {
+    case "${1:-}" in
+        ""|prod|staging) ;;
+        *)
+            echo "지원하지 않는 RELEASE_CHANNEL 입니다: ${1:-<empty>} (prod 또는 staging만 허용)" >&2
+            exit 2
+            ;;
+    esac
+}
+
+derive_repo_pages_base_url() {
+    local remote_url
+    remote_url="$(git -C "$ROOT_DIR" config --get remote.origin.url 2>/dev/null || echo "")"
+    if [[ "$remote_url" =~ github\.com[:/](.+)/(.+?)(\.git)?$ ]]; then
+        local owner="${BASH_REMATCH[1]}"
+        local repo="${BASH_REMATCH[2]}"
+        local owner_lower
+        owner_lower="$(printf '%s' "$owner" | tr '[:upper:]' '[:lower:]')"
+        printf 'https://%s.github.io/%s\n' "$owner_lower" "$repo"
+    fi
+}
+
+derive_default_feed_url_for_channel() {
+    local channel="$1"
+    local base_url
+    base_url="$(derive_repo_pages_base_url || true)"
+    [[ -n "$base_url" ]] || return 0
+
+    case "$channel" in
+        prod) printf '%s/appcast.xml\n' "$base_url" ;;
+        staging) printf '%s/channels/staging/appcast.xml\n' "$base_url" ;;
+    esac
+}
+
 NOTARY_PROFILE="${NOTARY_PROFILE:-$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "NOTARY_PROFILE")}"
 CERT_HASH="${CERT_HASH:-9A12730390B85461D1A98C907C61A7AA265EE214}"
+RELEASE_CHANNEL="${RELEASE_CHANNEL:-}"
 
 echo "ClaudeUsage release 산출물 빌드 + notarization + DMG 를 시작합니다"
+if [[ -n "$RELEASE_CHANNEL" ]]; then
+    echo "  - release channel: $RELEASE_CHANNEL"
+fi
 
 # ── 사전 검증 ────────────────────────────────────────────────
 
@@ -105,7 +145,15 @@ if [[ ! -f "$ENTITLEMENTS_PATH" ]]; then
     exit 1
 fi
 
-FEED_URL="${SU_FEED_URL:-$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SUFeedURL")}"
+validate_release_channel "$RELEASE_CHANNEL"
+
+CONFIGURED_FEED_URL="$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SUFeedURL")"
+DERIVED_FEED_URL=""
+if [[ -n "$RELEASE_CHANNEL" ]]; then
+    DERIVED_FEED_URL="$(derive_default_feed_url_for_channel "$RELEASE_CHANNEL" || true)"
+fi
+
+FEED_URL="${SU_FEED_URL:-${DERIVED_FEED_URL:-$CONFIGURED_FEED_URL}}"
 PUBLIC_KEY="${SU_PUBLIC_ED_KEY:-$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SUPublicEDKey")}"
 
 if is_placeholder_value "$FEED_URL"; then

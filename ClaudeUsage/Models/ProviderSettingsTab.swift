@@ -3,7 +3,6 @@ import Foundation
 enum ProviderSettingsTab: String, CaseIterable, Identifiable, Sendable {
     case overview
     case display
-    case alerts
     case advanced
 
     var id: String { rawValue }
@@ -14,10 +13,8 @@ enum ProviderSettingsTab: String, CaseIterable, Identifiable, Sendable {
             return "개요"
         case .display:
             return "표시"
-        case .alerts:
-            return "알림"
         case .advanced:
-            return "고급"
+            return "문제 해결"
         }
     }
 

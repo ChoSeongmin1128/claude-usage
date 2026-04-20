@@ -1,24 +1,27 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-04-03 (106차)
+최종 갱신: 2026-04-20 (107차)
 
 이 문서는 현재 레포의 실행 계획 문서입니다. 계획이 바뀌거나 조사 결과가 추가될 때마다 이 파일을 갱신합니다.
 
 ## 0. 이번 배치 요약
 
 - 완료
-- `RuntimeProviderRefreshCoordinator` 를 추가해 runtime refresh/backoff/loading/error 처리의 공통 경로를 만들었습니다.
-- `ClaudeSetupPresentation` 을 추가했고, `AppDelegate` 와 `SettingsView` 는 Claude setup 상태를 이 policy 출력 기준으로 읽기 시작했습니다.
-- `ProviderEnvironmentDetector` 는 `GeminiEnvironmentSignals`, `AntigravityEnvironmentSignals` 와 순수 `interpret*` 함수로 분리했습니다.
-- `SettingsView` 는 Claude pending/applied 상태를 개별 bool 계산보다 `ClaudeSetupPresentation` 기준으로 읽도록 정리했습니다.
-- `ClaudeUsageTests` 타깃과 shared scheme를 추가했고, `SetupCompletionPolicy`, `ClaudeSourcePlanner`, `RefreshOrchestration`, `ProviderEnvironmentDetector` 테스트 17개를 붙였습니다.
+- `UpdateService` 는 Sparkle 오류를 그대로 실패로 뿌리지 않고, `최신 상태`, `DMG/Translocation 실행`, `feed/appcast 장애`를 구분해 해석하도록 보강했습니다.
+- `SparkleUpdateResultInterpreterTests` 를 추가해 주요 분기를 단위 테스트로 검증했습니다.
+- 릴리스 스크립트는 `prod/staging` 채널을 명시적으로 다루도록 정리했습니다.
+- [setup-sparkle-keys.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/setup-sparkle-keys.sh), [build-notarize-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/build-notarize-release.sh), [publish-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/publish-release.sh) 는 이제 `prod` root feed와 `staging` channel feed를 기본 규칙으로 이해합니다.
+- [publish-pages-appcast.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/publish-pages-appcast.sh) 를 추가해 `gh-pages` 브랜치에 `appcast.xml` 을 게시하는 경로를 분리했습니다.
+- `README.md`, [docs/RELEASE.md](/Users/seongmin/Personal/ClaudeUsage/docs/RELEASE.md), [apple-developer-update.md](/Users/seongmin/Personal/ClaudeUsage/apple-developer-update.md) 를 현재 채널 전략 기준으로 갱신했습니다.
 - 검증
-- `Debug` 빌드 통과
-- `build-for-testing` 통과
-- `xcrun xctest .../ClaudeUsageTests.xctest` 통과
+- `xcodebuild -scheme ClaudeUsage -configuration Debug -destination 'platform=macOS' test -only-testing:ClaudeUsageTests/SparkleUpdateResultInterpreterTests` 통과
+- `bash -n` 으로 릴리스 관련 스크립트 문법 검증 통과
+- 현재 확인된 운영 이슈
+- 2026-04-20 기준 원격 `gh-pages` 는 `/channels/staging/appcast.xml` 만 게시하고 있고 root `/appcast.xml` 은 아직 없습니다.
+- 따라서 production feed(`https://choseongmin1128.github.io/claude-usage/appcast.xml`)를 보는 설치본은 현재 업데이트 확인이 404로 실패합니다.
 - 남은 외부 의존성
-- `Sparkle` 실제 readiness는 여전히 `SUFeedURL`, `SUPublicEDKey`, `NOTARY_PROFILE` 같은 외부 자격값 주입이 필요합니다.
-- `xcodebuild test` 는 이 메뉴바 앱의 macOS host runner 특성 때문에 CLI에서 대기할 수 있습니다. 현재 자동화 검증은 `build-for-testing + xctest` 경로를 기준으로 봅니다.
+- 첫 stable/prod appcast 를 `gh-pages` root 에 backfill 해야 합니다.
+- 코드 브랜치는 여전히 `main`, `dev`, `codex-v2-integration` 만 있고, `stg` 브랜치는 아직 없습니다.
 
 ## 1. 현재 판단
 

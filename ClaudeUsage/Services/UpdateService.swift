@@ -49,16 +49,13 @@ struct UpdateEngineStatus: Sendable, Equatable {
 }
 
 private enum UpdateEngineMessages {
-    nonisolated static let githubFallback = "Sparkle는 통합되었지만 유효한 appcast/feed 또는 공개키가 없어 GitHub Release 엔진을 사용 중입니다"
-    nonisolated static let sparkleSchedulerReady = "Sparkle 자동 확인/자동 다운로드가 준비되었고, 앱 타이머 대신 Sparkle 스케줄러를 사용합니다"
-    nonisolated static let sparkleInteractiveStarted = "Sparkle 업데이트 확인을 시작했습니다"
-    nonisolated static let updateSessionInProgress = "업데이트 세션이 이미 진행 중입니다"
+    nonisolated static let githubFallback = "새 버전이 있으면 다운로드 페이지로 안내합니다"
+    nonisolated static let sparkleSchedulerReady = "새 버전이 있으면 자동으로 내려받고 준비되면 알려드립니다"
+    nonisolated static let sparkleInteractiveStarted = "업데이트 확인 창을 열었습니다"
+    nonisolated static let updateSessionInProgress = "이미 업데이트를 확인하고 있습니다"
     nonisolated static let downloadCancelled = "업데이트 다운로드를 취소했습니다"
 
     nonisolated static func sparkleSchedulerReadyMessage(usingFeedOverride: Bool) -> String {
-        if usingFeedOverride {
-            return "Sparkle 자동 확인/자동 다운로드가 준비되었고, feed override 경로를 사용합니다"
-        }
         return sparkleSchedulerReady
     }
 }
@@ -72,7 +69,7 @@ private enum UpdateSessionOrigin: Sendable {
 
 enum UpdateCheckResult: Sendable {
     case available(UpdateInfo)
-    case upToDate
+    case upToDate(message: String?)
     case error(String)
 }
 
@@ -141,7 +138,7 @@ final class GitHubReleaseUpdateEngine: AppUpdateEngine {
 
             guard remoteVersion.compare(currentVersion, options: .numeric) == .orderedDescending else {
                 Logger.info("최신 버전 사용 중: \(currentVersion)")
-                return await finishCheck(result: .upToDate)
+                return await finishCheck(result: .upToDate(message: nil))
             }
 
             guard let zipAsset = assets.first(where: { ($0["name"] as? String)?.hasSuffix(".zip") == true }),
@@ -218,8 +215,8 @@ final class GitHubReleaseUpdateEngine: AppUpdateEngine {
             switch result {
             case .available(let update):
                 UpdateRuntimeState.shared.markUpdateAvailable(update)
-            case .upToDate:
-                UpdateRuntimeState.shared.markUpToDate()
+            case .upToDate(let message):
+                UpdateRuntimeState.shared.markUpToDate(message: message ?? "최신 버전입니다")
             case .error(let message):
                 UpdateRuntimeState.shared.markFailed(message: message)
             }
@@ -230,6 +227,83 @@ final class GitHubReleaseUpdateEngine: AppUpdateEngine {
 }
 
 #if canImport(Sparkle)
+enum SparkleUpdateResultInterpreter {
+    // Sparkle's NSError codes from SUErrors.h are not all surfaced as Swift symbols,
+    // so we mirror the stable raw values we actually need here.
+    private enum ErrorCode {
+        static let insecureFeedURL = 3
+        static let invalidFeedURL = 4
+        static let appcastParse = 1000
+        static let noUpdate = 1001
+        static let appcast = 1002
+        static let runningFromDiskImage = 1003
+        static let runningTranslocated = 1005
+        static let download = 2001
+    }
+
+    private enum NoUpdateReason {
+        static let onLatestVersion = 1
+        static let onNewerThanLatestVersion = 2
+        static let systemIsTooOld = 3
+        static let systemIsTooNew = 4
+    }
+
+    static func resolve(error: Error?, fallback: UpdateCheckResult?) -> UpdateCheckResult {
+        guard let error else {
+            return fallback ?? .upToDate(message: nil)
+        }
+
+        let nsError = error as NSError
+        Logger.warning("Sparkle 업데이트 확인 종료: domain=\(nsError.domain) code=\(nsError.code) description=\(nsError.localizedDescription)")
+
+        if isNoUpdateError(nsError) {
+            return .upToDate(message: upToDateMessage(for: nsError))
+        }
+
+        return .error(userFacingMessage(for: nsError) ?? nsError.localizedDescription)
+    }
+
+    static func isNoUpdateError(_ error: NSError) -> Bool {
+        if error.domain == SUSparkleErrorDomain, error.code == ErrorCode.noUpdate {
+            return true
+        }
+
+        return error.userInfo[SPUNoUpdateFoundReasonKey] != nil
+    }
+
+    private static func upToDateMessage(for error: NSError) -> String {
+        let reasonValue = (error.userInfo[SPUNoUpdateFoundReasonKey] as? NSNumber)?.intValue
+
+        switch reasonValue {
+        case NoUpdateReason.onLatestVersion:
+            return "현재 설치본이 최신 버전입니다"
+        case NoUpdateReason.onNewerThanLatestVersion:
+            return "현재 설치본이 업데이트 채널보다 새 버전입니다"
+        case NoUpdateReason.systemIsTooOld:
+            return "현재 macOS 버전에서 설치할 수 있는 업데이트가 없습니다"
+        case NoUpdateReason.systemIsTooNew:
+            return "현재 macOS 버전에 맞는 업데이트가 아직 없습니다"
+        default:
+            return "현재 설치본이 최신 버전입니다"
+        }
+    }
+
+    private static func userFacingMessage(for error: NSError) -> String? {
+        guard error.domain == SUSparkleErrorDomain else { return nil }
+
+        switch error.code {
+        case ErrorCode.runningFromDiskImage, ErrorCode.runningTranslocated:
+            return "다운로드한 위치에서 실행 중이라 업데이트할 수 없습니다. 응용 프로그램 폴더로 옮긴 뒤 다시 열어 주세요"
+        case ErrorCode.appcastParse, ErrorCode.appcast, ErrorCode.download:
+            return "업데이트 채널에 연결하지 못했습니다. staging appcast와 다운로드 경로를 확인해 주세요"
+        case ErrorCode.insecureFeedURL, ErrorCode.invalidFeedURL:
+            return "업데이트 채널 주소가 올바르지 않습니다"
+        default:
+            return nil
+        }
+    }
+}
+
 @MainActor
 final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, SPUStandardUserDriverDelegate {
     private lazy var updaterController = SPUStandardUpdaterController(
@@ -398,15 +472,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     }
 
     private func defaultResult(for error: Error?) -> UpdateCheckResult {
-        if let error {
-            let nsError = error as NSError
-            if nsError.code == 1001 {
-                return .upToDate
-            }
-            return .error(error.localizedDescription)
-        }
-
-        return lastCycleResult ?? .upToDate
+        SparkleUpdateResultInterpreter.resolve(error: error, fallback: lastCycleResult)
     }
 
     private func shouldDeferPreparedInstall() -> Bool {
@@ -489,8 +555,8 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
         switch result {
         case .available(let update):
             UpdateRuntimeState.shared.markUpdateAvailable(update)
-        case .upToDate:
-            UpdateRuntimeState.shared.markUpToDate()
+        case .upToDate(let message):
+            UpdateRuntimeState.shared.markUpToDate(message: message ?? "최신 버전입니다")
         case .error(let message):
             UpdateRuntimeState.shared.markFailed(message: message)
         }
@@ -553,14 +619,24 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     }
 
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
-        if (error as NSError).code == 1001 {
+        if SparkleUpdateResultInterpreter.isNoUpdateError(error as NSError) {
             return
         }
 
         postponedInstallHandler = nil
-        lastCycleResult = .error(error.localizedDescription)
-        UpdateRuntimeState.shared.markFailed(message: error.localizedDescription)
-        resumePendingCheckIfNeeded(with: .error(error.localizedDescription))
+        let result = SparkleUpdateResultInterpreter.resolve(error: error, fallback: lastCycleResult)
+        lastCycleResult = result
+
+        switch result {
+        case .available(let update):
+            UpdateRuntimeState.shared.markUpdateAvailable(update)
+        case .upToDate(let message):
+            UpdateRuntimeState.shared.markUpToDate(message: message ?? "최신 버전입니다")
+        case .error(let message):
+            UpdateRuntimeState.shared.markFailed(message: message)
+        }
+
+        resumePendingCheckIfNeeded(with: result)
     }
 
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
@@ -570,8 +646,8 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
             switch result {
             case .available(let update):
                 UpdateRuntimeState.shared.markUpdateAvailable(update)
-            case .upToDate:
-                UpdateRuntimeState.shared.markUpToDate()
+            case .upToDate(let message):
+                UpdateRuntimeState.shared.markUpToDate(message: message ?? "최신 버전입니다")
             case .error(let message):
                 UpdateRuntimeState.shared.markFailed(message: message)
             }

@@ -26,6 +26,7 @@ EXAMPLE_XCCONFIG="$ROOT_DIR/Config/Sparkle.release.example.xcconfig"
 FORCE=0
 DEFAULT_FEED_URL=""
 DEFAULT_NOTARY_PROFILE="ClaudeUsage"
+CHANNEL="prod"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -37,6 +38,10 @@ while [[ $# -gt 0 ]]; do
             DEFAULT_FEED_URL="$2"
             shift 2
             ;;
+        --channel)
+            CHANNEL="$2"
+            shift 2
+            ;;
         --notary-profile)
             DEFAULT_NOTARY_PROFILE="$2"
             shift 2
@@ -44,11 +49,12 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             cat <<USAGE
 사용법:
-    $0 [--force] [--feed-url URL] [--notary-profile NAME]
+    $0 [--force] [--feed-url URL] [--channel prod|staging] [--notary-profile NAME]
 
 옵션:
     --force            기존 키/xcconfig 를 경고 없이 덮어쓰기
-    --feed-url URL     SUFeedURL 기본값 (기본: GitHub Pages appcast URL)
+    --feed-url URL     SUFeedURL 기본값 (기본: GitHub Pages 채널 URL)
+    --channel NAME     기본 feed 채널 (prod 또는 staging, 기본: $CHANNEL)
     --notary-profile N NOTARY_PROFILE 기본값 (기본: $DEFAULT_NOTARY_PROFILE)
 USAGE
             exit 0
@@ -60,30 +66,67 @@ USAGE
     esac
 done
 
-# 기본 피드 URL: GitHub Pages appcast URL 을 추정
-if [[ -z "$DEFAULT_FEED_URL" ]]; then
+validate_channel() {
+    case "${1:-}" in
+        prod|staging) ;;
+        *)
+            echo "지원하지 않는 채널입니다: ${1:-<empty>} (prod 또는 staging만 허용)" >&2
+            exit 2
+            ;;
+    esac
+}
+
+derive_repo_pages_base_url() {
+    local name_with_owner=""
+    local remote_url=""
+
     if command -v gh >/dev/null 2>&1; then
-        NAME_WITH_OWNER="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
-    else
-        NAME_WITH_OWNER=""
+        name_with_owner="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
     fi
 
-    if [[ "$NAME_WITH_OWNER" =~ ^([^/]+)/([^/]+)$ ]]; then
-        OWNER="${BASH_REMATCH[1]}"
-        REPO="${BASH_REMATCH[2]}"
-        OWNER_LOWER="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
-        DEFAULT_FEED_URL="https://$OWNER_LOWER.github.io/$REPO/appcast.xml"
-    else
-    REMOTE_URL="$(git -C "$ROOT_DIR" config --get remote.origin.url 2>/dev/null || echo "")"
-    if [[ "$REMOTE_URL" =~ github\.com[:/](.+)/(.+?)(\.git)?$ ]]; then
-        OWNER="${BASH_REMATCH[1]}"
-        REPO="${BASH_REMATCH[2]}"
-        OWNER_LOWER="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
-        DEFAULT_FEED_URL="https://$OWNER_LOWER.github.io/$REPO/appcast.xml"
-    else
-        DEFAULT_FEED_URL="https://REPLACE_ME/appcast.xml"
+    if [[ "$name_with_owner" =~ ^([^/]+)/([^/]+)$ ]]; then
+        local owner="${BASH_REMATCH[1]}"
+        local repo="${BASH_REMATCH[2]}"
+        local owner_lower
+        owner_lower="$(printf '%s' "$owner" | tr '[:upper:]' '[:lower:]')"
+        printf 'https://%s.github.io/%s\n' "$owner_lower" "$repo"
+        return 0
     fi
+
+    remote_url="$(git -C "$ROOT_DIR" config --get remote.origin.url 2>/dev/null || echo "")"
+    if [[ "$remote_url" =~ github\.com[:/](.+)/(.+?)(\.git)?$ ]]; then
+        local owner="${BASH_REMATCH[1]}"
+        local repo="${BASH_REMATCH[2]}"
+        local owner_lower
+        owner_lower="$(printf '%s' "$owner" | tr '[:upper:]' '[:lower:]')"
+        printf 'https://%s.github.io/%s\n' "$owner_lower" "$repo"
     fi
+}
+
+derive_default_feed_url_for_channel() {
+    local channel="$1"
+    local base_url
+    base_url="$(derive_repo_pages_base_url || true)"
+
+    if [[ -z "$base_url" ]]; then
+        case "$channel" in
+            prod) printf 'https://REPLACE_ME/appcast.xml\n' ;;
+            staging) printf 'https://REPLACE_ME/channels/staging/appcast.xml\n' ;;
+        esac
+        return 0
+    fi
+
+    case "$channel" in
+        prod) printf '%s/appcast.xml\n' "$base_url" ;;
+        staging) printf '%s/channels/staging/appcast.xml\n' "$base_url" ;;
+    esac
+}
+
+validate_channel "$CHANNEL"
+
+# 기본 피드 URL: GitHub Pages 채널 URL 을 추정
+if [[ -z "$DEFAULT_FEED_URL" ]]; then
+    DEFAULT_FEED_URL="$(derive_default_feed_url_for_channel "$CHANNEL")"
 fi
 
 echo "ClaudeUsage Sparkle 자격 부트스트랩"
