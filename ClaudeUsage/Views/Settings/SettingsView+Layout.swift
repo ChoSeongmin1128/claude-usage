@@ -11,10 +11,6 @@ extension SettingsView {
                 Divider()
 
                 VStack(spacing: 0) {
-                    panelTabBar
-
-                    Divider()
-
                     ScrollView {
                         VStack(alignment: .leading, spacing: 20) {
                             panelContent
@@ -39,13 +35,8 @@ extension SettingsView {
             resetClaudeAuthDisclosureState()
             syncStoredSessionKeyState()
             testResult = nil
-            refreshIntervalText = String(Int(settings.refreshInterval))
             selectedOrganizationID = settings.preferredOrganizationID
             selectedPanel = SettingsProviderPanel(rawValue: settings.settingsLastTab) ?? .common
-            selectedClaudeTab = settings.providerSettingsLastTab(for: .claude)
-            selectedCodexTab = settings.providerSettingsLastTab(for: .codex)
-            selectedGeminiTab = settings.providerSettingsLastTab(for: .gemini)
-            selectedAntigravityTab = settings.providerSettingsLastTab(for: .antigravity)
             loadUsageHealthSnapshot()
             checkCodexAuth()
             updateRuntimeState.bootstrapIfNeeded()
@@ -89,29 +80,6 @@ extension SettingsView {
                 break
             }
         }
-        .onChange(of: selectedClaudeTab) { _, tab in
-            settings.setProviderSettingsLastTab(tab, for: .claude)
-            if tab == .overview, organizations.isEmpty, !isLoadingOrganizations {
-                loadOrganizations(forceRefresh: false)
-            }
-        }
-        .onChange(of: selectedCodexTab) { _, tab in
-            settings.setProviderSettingsLastTab(tab, for: .codex)
-        }
-        .onChange(of: selectedGeminiTab) { _, tab in
-            settings.setProviderSettingsLastTab(tab, for: .gemini)
-            // 탭 전환 시 환경 정보가 오래됐을 수 있으므로 백그라운드 갱신 예약.
-            ProviderEnvironmentDetector.refreshStatusInBackground(for: .gemini)
-            ProviderEnvironmentDetector.refreshGeminiSignalsInBackground()
-        }
-        .onChange(of: selectedAntigravityTab) { _, tab in
-            settings.setProviderSettingsLastTab(tab, for: .antigravity)
-            // Antigravity 는 /bin/ps · NSWorkspace · SQLite 를 건드리므로
-            // 탭 전환 직전에 background warm-up 을 걸어서 UI 블로킹을 막는다.
-            ProviderEnvironmentDetector.refreshStatusInBackground(for: .antigravity)
-            ProviderEnvironmentDetector.refreshAntigravitySignalsInBackground()
-            AntigravityStatusProbe.refreshAllInBackground()
-        }
         .onChange(of: settings.updateCheckInterval) { _, _ in
             updateRuntimeState.refreshEngineStatus()
         }
@@ -121,7 +89,6 @@ extension SettingsView {
         .onReceive(settings.$shouldRevealClaudeAdvancedAuth.removeDuplicates()) { shouldReveal in
             guard shouldReveal else { return }
             selectedPanel = .claude
-            selectedClaudeTab = .advanced
             withAnimation(.easeInOut(duration: 0.15)) {
                 isAdvancedAuthExpanded = true
             }
@@ -137,60 +104,28 @@ extension SettingsView {
     private var panelContent: some View {
         switch selectedPanel {
         case .common:
-            switch selectedCommonTab {
-            case .services:
-                commonServicesSection
-            case .display:
-                commonDisplaySection
-            case .alerts:
-                commonAlertSection
-            case .app:
-                refreshSection
-                Divider()
-                powerSection
-                Divider()
-                updateSection
-                Divider()
-                appPreferencesSection
-            }
+            commonServicesSection
+            Divider()
+            commonAlertSection
+            Divider()
+            refreshSection
+            Divider()
+            updateSection
+            Divider()
+            appPreferencesSection
         case .claude:
-            switch selectedClaudeTab {
-            case .overview:
-                claudeOverviewSection
-            case .display:
-                claudeDisplayConfigurationSection
-            case .advanced:
-                claudeAdvancedSettingsSection
-            }
+            claudeOverviewSection
         case .codex:
-            switch selectedCodexTab {
-            case .overview:
-                codexOverviewSection
-            case .display:
-                codexDisplayConfigurationSection
-            case .advanced:
-                codexAdvancedSection
-            }
+            codexOverviewSection
         case .gemini:
-            runtimeProviderPanel(for: .gemini, tab: selectedGeminiTab)
+            runtimeProviderPanel(for: .gemini)
         case .antigravity:
-            runtimeProviderPanel(for: .antigravity, tab: selectedAntigravityTab)
+            runtimeProviderPanel(for: .antigravity)
         }
     }
 
     private var contentIdentity: String {
-        switch selectedPanel {
-        case .common:
-            return "common-\(selectedCommonTab.rawValue)"
-        case .claude:
-            return "claude-\(selectedClaudeTab.rawValue)"
-        case .codex:
-            return "codex-\(selectedCodexTab.rawValue)"
-        case .gemini:
-            return "gemini-\(selectedGeminiTab.rawValue)"
-        case .antigravity:
-            return "antigravity-\(selectedAntigravityTab.rawValue)"
-        }
+        "\(selectedPanel.rawValue)-panel"
     }
 
     private var sidebar: some View {
@@ -212,23 +147,8 @@ extension SettingsView {
                             Image(systemName: panel.icon)
                                 .frame(width: 16)
                         }
-                        VStack(alignment: .leading, spacing: 1) {
-                            HStack(spacing: 4) {
-                                Text(panel.title)
-                                    .font(.subheadline)
-                                if let badge = panel.availability.badgeTitle {
-                                    Text(badge)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            if let detail = panel.availability.detailMessage {
-                                Text(detail)
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
+                        Text(panel.title)
+                            .font(.subheadline)
                         Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 10)
@@ -246,47 +166,5 @@ extension SettingsView {
         .padding(12)
         .frame(width: 156)
         .background(Color(NSColor.windowBackgroundColor))
-    }
-
-    @ViewBuilder
-    private var panelTabBar: some View {
-        HStack(spacing: 8) {
-            switch selectedPanel {
-            case .common:
-                ForEach(CommonTab.allCases) { tab in
-                    segmentedTabButton(title: tab.title, isSelected: selectedCommonTab == tab) {
-                        selectedCommonTab = tab
-                    }
-                }
-            case .claude:
-                ForEach(ProviderSettingsTab.tabs(for: .claude)) { tab in
-                    segmentedTabButton(title: tab.title, isSelected: selectedClaudeTab == tab) {
-                        selectedClaudeTab = tab
-                    }
-                }
-            case .codex:
-                ForEach(ProviderSettingsTab.tabs(for: .codex)) { tab in
-                    segmentedTabButton(title: tab.title, isSelected: selectedCodexTab == tab) {
-                        selectedCodexTab = tab
-                    }
-                }
-            case .gemini:
-                ForEach(ProviderSettingsTab.tabs(for: .gemini)) { tab in
-                    segmentedTabButton(title: tab.title, isSelected: selectedGeminiTab == tab) {
-                        selectedGeminiTab = tab
-                    }
-                }
-            case .antigravity:
-                ForEach(ProviderSettingsTab.tabs(for: .antigravity)) { tab in
-                    segmentedTabButton(title: tab.title, isSelected: selectedAntigravityTab == tab) {
-                        selectedAntigravityTab = tab
-                    }
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 14)
-        .padding(.bottom, 10)
     }
 }

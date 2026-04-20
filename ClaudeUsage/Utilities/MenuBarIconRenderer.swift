@@ -149,7 +149,6 @@ enum MenuBarIconRenderer {
         innerColor: NSColor
     ) -> NSImage {
         let size: CGFloat = 18
-        let center = NSPoint(x: size / 2, y: size / 2)
         let outerLineWidth: CGFloat = 2.5
         let outerRadius: CGFloat = (size - outerLineWidth) / 2
         let innerLineWidth: CGFloat = 2.0

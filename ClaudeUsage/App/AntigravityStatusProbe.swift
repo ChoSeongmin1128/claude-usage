@@ -14,22 +14,22 @@ enum AntigravityStatusProbe {
 
     // MARK: - Cache
 
-    private static let cacheLock = NSLock()
-    private static var cachedProcess: AntigravityProcessSnapshot??  // nil = not cached, .some(nil) = cached as "not running"
-    private static var cachedProcessAt: Date?
-    private static var cachedAppRunning: Bool?
-    private static var cachedAppRunningAt: Date?
-    private static var processRefreshInFlight = false
-    private static var appRunningRefreshInFlight = false
+    nonisolated private static let cacheLock = NSLock()
+    nonisolated(unsafe) private static var cachedProcess: AntigravityProcessSnapshot??  // nil = not cached, .some(nil) = cached as "not running"
+    nonisolated(unsafe) private static var cachedProcessAt: Date?
+    nonisolated(unsafe) private static var cachedAppRunning: Bool?
+    nonisolated(unsafe) private static var cachedAppRunningAt: Date?
+    nonisolated(unsafe) private static var processRefreshInFlight = false
+    nonisolated(unsafe) private static var appRunningRefreshInFlight = false
     // Antigravity language server는 재시작 시 csrf/port가 바뀌는데 5초 캐시
     // 동안 stale 토큰으로 연속 실패하는 문제가 있어 TTL 은 2초. UI 경로는
     // staleWhileRevalidate* 로만 호출해 blocking 을 피함.
-    private static let cacheTTL: TimeInterval = 2.0
+    nonisolated private static let cacheTTL: TimeInterval = 2.0
     /// staleWhileRevalidate 가 받아들이는 최대 stale 허용 (이 기간 내면 옛
     /// 값 그대로 반환 + 백그라운드 갱신만 예약).
     /// 5분은 실제 앱 실행 상태와 UI 간 괴리가 커지므로 2분으로 제한.
     /// TTL=2s + background warm-up 으로 체감 stale window 는 훨씬 짧다.
-    private static let staleAllowance: TimeInterval = 120
+    nonisolated private static let staleAllowance: TimeInterval = 120
 
     nonisolated static func invalidateCache() {
         cacheLock.lock()

@@ -175,14 +175,6 @@ final class GitHubReleaseUpdateEngine: AppUpdateEngine {
 
     func synchronizeScheduler(interval: UpdateCheckInterval, runImmediate: Bool) async {
         await publishEngineMetadata()
-
-        await MainActor.run {
-            if let delay = interval.timerInterval {
-                UpdateRuntimeState.shared.setNextScheduledCheck(after: delay)
-            } else {
-                UpdateRuntimeState.shared.clearScheduledCheck()
-            }
-        }
     }
 
     func installPreparedUpdate() async -> Bool {
@@ -201,12 +193,7 @@ final class GitHubReleaseUpdateEngine: AppUpdateEngine {
     private func publishEngineMetadata() async {
         let engineStatus = currentConfigurationStatus()
         await MainActor.run {
-            UpdateRuntimeState.shared.applyEngineMetadata(
-                modeSummary: modeDescription,
-                engineStatus: engineStatus,
-                supportsInteractive: false,
-                usesExternalScheduler: false
-            )
+            UpdateRuntimeState.shared.applyEngineStatus(engineStatus)
         }
     }
 
@@ -386,11 +373,9 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
         case .off:
             updater.automaticallyChecksForUpdates = false
             updater.automaticallyDownloadsUpdates = false
-            UpdateRuntimeState.shared.clearScheduledCheck()
         case .onLaunch:
             updater.automaticallyChecksForUpdates = false
             updater.automaticallyDownloadsUpdates = true
-            UpdateRuntimeState.shared.clearScheduledCheck()
         case .hourly:
             updater.automaticallyChecksForUpdates = true
             updater.updateCheckInterval = 3600
@@ -433,14 +418,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
 
     private func publishEngineMetadata() {
         synchronizeFeedConfiguration(resetCycle: false)
-        UpdateRuntimeState.shared.applyEngineMetadata(
-            modeSummary: UpdateEngineMessages.sparkleSchedulerReadyMessage(
-                usingFeedOverride: UpdateConfigurationInspector.usesFeedOverride()
-            ),
-            engineStatus: Self.sparkleConfigurationStatus(),
-            supportsInteractive: true,
-            usesExternalScheduler: true
-        )
+        UpdateRuntimeState.shared.applyEngineStatus(Self.sparkleConfigurationStatus())
     }
 
     private func beginBackgroundCheck(origin: UpdateSessionOrigin) {
@@ -610,13 +588,9 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
         return true
     }
 
-    func updater(_ updater: SPUUpdater, willScheduleUpdateCheckAfterDelay delay: TimeInterval) {
-        UpdateRuntimeState.shared.setNextScheduledCheck(after: delay)
-    }
+    func updater(_ updater: SPUUpdater, willScheduleUpdateCheckAfterDelay delay: TimeInterval) { }
 
-    func updaterWillNotScheduleUpdateCheck(_ updater: SPUUpdater) {
-        UpdateRuntimeState.shared.clearScheduledCheck()
-    }
+    func updaterWillNotScheduleUpdateCheck(_ updater: SPUUpdater) { }
 
     func updater(_ updater: SPUUpdater, didAbortWithError error: Error) {
         if SparkleUpdateResultInterpreter.isNoUpdateError(error as NSError) {

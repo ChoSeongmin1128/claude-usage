@@ -17,7 +17,6 @@ struct SettingsView: View {
     @State var lastVerifiedSessionKey: String?
     @State var testResult: TestResult?
     @State var isTesting: Bool = false
-    @State var refreshIntervalText: String = ""
     @State var sessionKeyPersistTask: Task<Void, Never>?
     @State var organizationPersistTask: Task<Void, Never>?
     @State var selectedOrganizationID: String = ""
@@ -28,11 +27,6 @@ struct SettingsView: View {
     @State var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
     @State var profileMetadata: ClaudeProfileMetadata?
     @State var selectedPanel: SettingsProviderPanel = .common
-    @State var selectedCommonTab: CommonTab = .services
-    @State var selectedClaudeTab: ProviderSettingsTab = .overview
-    @State var selectedCodexTab: ProviderSettingsTab = .overview
-    @State var selectedGeminiTab: ProviderSettingsTab = .overview
-    @State var selectedAntigravityTab: ProviderSettingsTab = .overview
     @State var isAdvancedAuthExpanded = false
     @State var isOrganizationAdvancedExpanded = false
     @State var codexAuthStatus: CodexAuthStatus = .checking
@@ -45,24 +39,6 @@ struct SettingsView: View {
     enum TestResult {
         case success(String)
         case failure(String)
-    }
-
-    enum CommonTab: String, CaseIterable, Identifiable {
-        case services
-        case display
-        case alerts
-        case app
-
-        var id: String { rawValue }
-
-        var title: String {
-            switch self {
-            case .services: return "서비스"
-            case .display: return "표시"
-            case .alerts: return "알림"
-            case .app: return "앱"
-            }
-        }
     }
 
     enum CodexAuthStatus {

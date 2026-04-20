@@ -10,7 +10,7 @@ enum KeychainAccessPreflight {
         case failure(Int)
     }
 
-    static func checkGenericPassword(service: String, account: String?) -> Outcome {
+    nonisolated static func checkGenericPassword(service: String, account: String?) -> Outcome {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

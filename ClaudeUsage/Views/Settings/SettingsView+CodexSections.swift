@@ -1,6 +1,4 @@
-import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 extension SettingsView {
     var codexOverviewSection: some View {
@@ -30,68 +28,16 @@ extension SettingsView {
                     }
                     .buttonStyle(.bordered)
 
-                    if shouldShowCodexTroubleshootingShortcut {
-                        Button("문제 해결 보기") {
-                            selectedCodexTab = .advanced
+                    if codexAuthStatus == .authenticated {
+                        Button("로그아웃") {
+                            onCodexLogout?()
+                            checkCodexAuth()
                         }
                         .buttonStyle(.bordered)
                     }
                 }
             }
         }
-    }
-
-    var codexAdvancedSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Codex 문제 해결", systemImage: "wrench.and.screwdriver")
-                .font(.headline)
-
-            Text("설치나 로그인이 안 될 때만 아래 안내를 따라 해 주세요.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if codexAuthStatus == .notInstalled {
-                codexInstructionCard(
-                    title: "설치",
-                    message: "터미널에서 Codex를 설치한 뒤 다시 확인해 주세요.",
-                    command: "brew install --cask codex"
-                )
-            }
-
-            if codexAuthStatus == .notInstalled || codexAuthStatus == .notLoggedIn {
-                codexInstructionCard(
-                    title: "로그인",
-                    message: "터미널에서 로그인만 마치면 바로 확인할 수 있습니다.",
-                    command: "codex login"
-                )
-            }
-
-            if codexAuthStatus == .expired {
-                codexInstructionCard(
-                    title: "다시 로그인",
-                    message: "로그인이 만료되었습니다. 다시 로그인해 주세요.",
-                    command: "codex login"
-                )
-            }
-
-            if codexAuthStatus == .authenticated {
-                Button("Codex 로그아웃") {
-                    onCodexLogout?()
-                    checkCodexAuth()
-                }
-                .foregroundStyle(.red)
-            }
-
-            if codexAuthStatus == .authenticated {
-                Text("지금은 추가 조치가 필요하지 않습니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    var codexDisplayConfigurationSection: some View {
-        codexDisplaySection
     }
 
     private var codexStatusTitle: String {
@@ -155,20 +101,11 @@ extension SettingsView {
         case .authenticated:
             return "지금은 추가 작업 없이 사용하시면 됩니다."
         case .notInstalled:
-            return "문제 해결 탭에서 설치 명령 한 줄만 실행하시면 됩니다."
+            return "터미널에서 설치 명령 한 줄만 실행하시면 됩니다."
         case .notLoggedIn:
-            return "문제 해결 탭에서 로그인 명령 한 줄만 실행하시면 됩니다."
+            return "터미널에서 로그인만 마치면 바로 확인할 수 있습니다."
         case .expired:
-            return "문제 해결 탭에서 다시 로그인해 주세요."
-        }
-    }
-
-    private var shouldShowCodexTroubleshootingShortcut: Bool {
-        switch codexAuthStatus {
-        case .checking, .authenticated:
-            return false
-        case .expired, .notInstalled, .notLoggedIn:
-            return true
+            return "터미널에서 다시 로그인해 주세요."
         }
     }
 
@@ -213,40 +150,6 @@ extension SettingsView {
         .cornerRadius(8)
     }
 
-    private func copyCodexCommand(_ command: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(command, forType: .string)
-    }
-
-    private func codexInstructionCard(title: String, message: String, command: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text("아래 한 줄만 실행해 주세요.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            HStack(spacing: 8) {
-                Text(command)
-                    .font(.system(.caption, design: .monospaced))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color(NSColor.controlBackgroundColor))
-                    .cornerRadius(4)
-                Button("복사") {
-                    copyCodexCommand(command)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
-        }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
-        .cornerRadius(8)
-    }
-
     func checkCodexAuth() {
         if !settings.isProviderEnabled(.codex) {
             codexAuthStatus = .notLoggedIn
@@ -278,58 +181,5 @@ extension SettingsView {
             }()
 
         codexAuthStatus = codexInstalled ? .notLoggedIn : .notInstalled
-    }
-
-    var codexDisplaySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Codex 표시", systemImage: "paintbrush")
-                .font(.headline)
-
-            settingsToggleRow("Codex 아이콘", isOn: $settings.showCodexIcon)
-            Picker("퍼센트:", selection: Binding(
-                get: { settings.codexPercentageDisplay },
-                set: { settings.codexPercentageDisplay = $0 }
-            )) {
-                ForEach(PercentageDisplay.allCases, id: \.self) { mode in
-                    Text(mode.displayName).tag(mode)
-                }
-            }
-            Picker("리셋 시간:", selection: Binding(
-                get: { settings.codexResetTimeDisplay },
-                set: { settings.codexResetTimeDisplay = $0 }
-            )) {
-                ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
-                    Text(mode.displayName).tag(mode)
-                }
-            }
-            if settings.codexResetTimeDisplay != .none {
-                Picker("시간 형식:", selection: Binding(
-                    get: { settings.codexTimeFormat },
-                    set: { settings.codexTimeFormat = $0 }
-                )) {
-                    ForEach(TimeFormatStyle.allCases, id: \.self) { style in
-                        Text(style.displayName).tag(style)
-                    }
-                }
-            }
-
-            Picker("표시 모양", selection: Binding(
-                get: { SimplifiedMenuBarAppearance(style: settings.codexMenuBarStyle) },
-                set: { settings.setMenuBarStyle($0.menuBarStyle, for: .codex) }
-            )) {
-                ForEach(SimplifiedMenuBarAppearance.allCases) { appearance in
-                    Text(appearance.displayName).tag(appearance)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            Text(SimplifiedMenuBarAppearance(style: settings.codexMenuBarStyle).summary)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Text("팝오버 항목 순서와 세부 구성은 기본 구성을 사용합니다.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
     }
 }

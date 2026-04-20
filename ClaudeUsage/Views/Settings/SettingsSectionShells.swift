@@ -105,25 +105,3 @@ struct RuntimeProviderPanelShell<Content: View>: View {
         }
     }
 }
-
-struct UpdateDiagnosticsSectionShell<Content: View>: View {
-    let updateModeSummary: String
-    private let content: Content
-
-    init(
-        updateModeSummary: String,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.updateModeSummary = updateModeSummary
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("업데이트", systemImage: "arrow.triangle.2.circlepath")
-                .font(.headline)
-
-            content
-        }
-    }
-}

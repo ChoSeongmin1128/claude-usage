@@ -27,25 +27,19 @@ final class UpdateRuntimeState: ObservableObject {
 
     static let shared = UpdateRuntimeState()
 
-    @Published private(set) var modeSummary: String = "업데이트 엔진 확인 중"
     @Published private(set) var engineStatus: UpdateEngineStatus?
-    @Published private(set) var supportsInteractiveUpdates = false
-    @Published private(set) var usesExternalScheduler = false
     @Published private(set) var phase: Phase = .idle
-    @Published private(set) var lastCheckedAt: Date?
-    @Published private(set) var nextScheduledCheckAt: Date?
     @Published private(set) var latestKnownUpdate: UpdateInfo?
     @Published private(set) var lastCheckMessage: String?
-    @Published private(set) var lastErrorMessage: String?
 
     private let settings: AppSettings
     private var installHandler: (() -> Void)?
     private var didBootstrap = false
 
-    init(settings: AppSettings = .shared) {
-        self.settings = settings
-        self.latestKnownUpdate = settings.availableUpdate
-        if let update = settings.availableUpdate {
+    init(settings: AppSettings? = nil) {
+        self.settings = settings ?? .shared
+        self.latestKnownUpdate = self.settings.availableUpdate
+        if let update = self.settings.availableUpdate {
             self.phase = .updateAvailable(version: update.version)
             self.lastCheckMessage = "v\(update.version) 업데이트 가능"
         }
@@ -134,37 +128,9 @@ final class UpdateRuntimeState: ObservableObject {
         }
     }
 
-    var statusDetail: String? {
-        switch phase {
-        case .readyToInstall:
-            return "popover header의 파란 버튼이나 아래 기본 액션으로 바로 설치를 적용할 수 있습니다."
-        case .downloaded:
-            return "popover header의 파란 버튼이나 아래 기본 액션으로 Sparkle 설치 화면을 바로 열 수 있습니다."
-        case .downloading:
-            return "다운로드 중에는 새 업데이트 확인을 다시 실행하지 않습니다."
-        case .installing:
-            return "설치 중에는 잠시 후 앱이 다시 실행될 수 있습니다."
-        case .interactiveCheckStarted:
-            return "열린 확인 창에서 설치 여부를 선택해 주세요."
-        default:
-            return nil
-        }
-    }
-
     var currentVersionText: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
         return "v\(version)"
-    }
-
-    var releaseNotesPreview: String? {
-        guard let releaseNotes = latestKnownUpdate?.releaseNotes else { return nil }
-        let plain = Self.stripMarkup(from: releaseNotes)
-        let lines = plain
-            .split(whereSeparator: { $0.isNewline })
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-        guard !lines.isEmpty else { return nil }
-        return lines.prefix(3).joined(separator: "\n")
     }
 
     var showsPopoverButton: Bool {
@@ -256,17 +222,9 @@ final class UpdateRuntimeState: ObservableObject {
 
     func refreshEngineStatus() {
         Task {
-            let modeSummary = await UpdateService.shared.currentModeSummary()
             let engineStatus = await UpdateService.shared.currentEngineStatus()
-            let supportsInteractive = await UpdateService.shared.supportsInteractiveCheck()
-            let usesExternalScheduler = await UpdateService.shared.usesExternalScheduler()
             await MainActor.run {
-                self.applyEngineMetadata(
-                    modeSummary: modeSummary,
-                    engineStatus: engineStatus,
-                    supportsInteractive: supportsInteractive,
-                    usesExternalScheduler: usesExternalScheduler
-                )
+                self.engineStatus = engineStatus
             }
         }
     }
@@ -285,7 +243,6 @@ final class UpdateRuntimeState: ObservableObject {
             self.installHandler = nil
             phase = .installing(version: version)
             lastCheckMessage = "v\(version) 설치 적용 중"
-            lastErrorMessage = nil
             installHandler()
         case .downloaded:
             checkNow()
@@ -307,30 +264,19 @@ final class UpdateRuntimeState: ObservableObject {
         }
     }
 
-    func applyEngineMetadata(
-        modeSummary: String,
-        engineStatus: UpdateEngineStatus,
-        supportsInteractive: Bool,
-        usesExternalScheduler: Bool
-    ) {
-        self.modeSummary = modeSummary
+    func applyEngineStatus(_ engineStatus: UpdateEngineStatus) {
         self.engineStatus = engineStatus
-        self.supportsInteractiveUpdates = supportsInteractive
-        self.usesExternalScheduler = usesExternalScheduler
     }
 
     func beginChecking(message: String? = nil) {
         phase = .checking
         lastCheckMessage = message
-        lastErrorMessage = nil
         installHandler = nil
     }
 
     func markInteractiveCheckStarted(message: String) {
         phase = .interactiveCheckStarted
-        lastCheckedAt = Date()
         lastCheckMessage = message
-        lastErrorMessage = nil
         installHandler = nil
     }
 
@@ -338,9 +284,7 @@ final class UpdateRuntimeState: ObservableObject {
         latestKnownUpdate = update
         settings.availableUpdate = update
         phase = .updateAvailable(version: update.version)
-        lastCheckedAt = Date()
         lastCheckMessage = message ?? "v\(update.version) 업데이트 가능"
-        lastErrorMessage = nil
         installHandler = nil
     }
 
@@ -348,18 +292,14 @@ final class UpdateRuntimeState: ObservableObject {
         latestKnownUpdate = update
         settings.availableUpdate = update
         phase = .downloading(version: update.version)
-        lastCheckedAt = Date()
         lastCheckMessage = message ?? "v\(update.version) 다운로드 중"
-        lastErrorMessage = nil
     }
 
     func markDownloadedReady(_ update: UpdateInfo, message: String? = nil) {
         latestKnownUpdate = update
         settings.availableUpdate = update
         phase = .downloaded(version: update.version)
-        lastCheckedAt = Date()
         lastCheckMessage = message ?? "v\(update.version) 다운로드 완료"
-        lastErrorMessage = nil
         installHandler = nil
     }
 
@@ -368,31 +308,24 @@ final class UpdateRuntimeState: ObservableObject {
         settings.availableUpdate = update
         self.installHandler = installHandler
         phase = .readyToInstall(version: update.version)
-        lastCheckedAt = Date()
         lastCheckMessage = "v\(update.version) 설치 준비 완료"
-        lastErrorMessage = nil
     }
 
     func markInstalling(version: String) {
         phase = .installing(version: version)
         lastCheckMessage = "v\(version) 설치 적용 중"
-        lastErrorMessage = nil
     }
 
     func markUpToDate(message: String = "최신 버전입니다") {
         latestKnownUpdate = nil
         settings.availableUpdate = nil
         phase = .upToDate
-        lastCheckedAt = Date()
         lastCheckMessage = message
-        lastErrorMessage = nil
         installHandler = nil
     }
 
     func markFailed(message: String) {
         phase = .error(message: message)
-        lastCheckedAt = Date()
-        lastErrorMessage = message
         if latestKnownUpdate == nil {
             lastCheckMessage = nil
         }
@@ -403,27 +336,5 @@ final class UpdateRuntimeState: ObservableObject {
         if case .error = phase, latestKnownUpdate == nil {
             phase = .idle
         }
-        lastErrorMessage = nil
-    }
-
-    func setNextScheduledCheck(after delay: TimeInterval) {
-        nextScheduledCheckAt = Date().addingTimeInterval(delay)
-    }
-
-    func clearScheduledCheck() {
-        nextScheduledCheckAt = nil
-    }
-
-    private static func stripMarkup(from text: String) -> String {
-        let withoutTags = text.replacingOccurrences(
-            of: "<[^>]+>",
-            with: " ",
-            options: .regularExpression
-        )
-        return withoutTags
-            .replacingOccurrences(of: "&nbsp;", with: " ")
-            .replacingOccurrences(of: "&amp;", with: "&")
-            .replacingOccurrences(of: "&lt;", with: "<")
-            .replacingOccurrences(of: "&gt;", with: ">")
     }
 }

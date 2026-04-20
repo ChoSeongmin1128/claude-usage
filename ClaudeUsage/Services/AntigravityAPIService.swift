@@ -1,6 +1,25 @@
 import Foundation
 
 actor AntigravityAPIService {
+    private final class ContinuationGate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var finished = false
+
+        func resume(_ action: () -> Void) {
+            lock.lock()
+            defer { lock.unlock() }
+            guard !finished else { return }
+            finished = true
+            action()
+        }
+
+        func hasFinished() -> Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return finished
+        }
+    }
+
     private enum AntigravityModelFamily {
         case claude
         case geminiPro
@@ -455,25 +474,17 @@ actor AntigravityAPIService {
             process.standardError = stderr
 
             // 동시에 여러 번 resume되지 않도록 보호
-            let lock = NSLock()
-            var finished = false
-            func resume(_ action: () -> Void) {
-                lock.lock()
-                defer { lock.unlock() }
-                guard !finished else { return }
-                finished = true
-                action()
-            }
+            let gate = ContinuationGate()
 
             process.terminationHandler = { proc in
                 let data = stdout.fileHandleForReading.readDataToEndOfFile()
                 let text = String(data: data, encoding: .utf8) ?? ""
                 if proc.terminationStatus == 0 {
-                    resume { continuation.resume(returning: text) }
+                    gate.resume { continuation.resume(returning: text) }
                 } else {
                     let errData = stderr.fileHandleForReading.readDataToEndOfFile()
                     let errText = String(data: errData, encoding: .utf8) ?? ""
-                    resume {
+                    gate.resume {
                         continuation.resume(throwing: APIError.networkError(
                             "\(label) exit=\(proc.terminationStatus) stderr=\(errText.prefix(200))"
                         ))
@@ -484,21 +495,18 @@ actor AntigravityAPIService {
             do {
                 try process.run()
             } catch {
-                resume { continuation.resume(throwing: APIError.networkError("\(label) 실행 실패: \(error.localizedDescription)")) }
+                gate.resume { continuation.resume(throwing: APIError.networkError("\(label) 실행 실패: \(error.localizedDescription)")) }
                 return
             }
 
             // timeout watchdog
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
-                lock.lock()
-                let alreadyFinished = finished
-                lock.unlock()
-                guard !alreadyFinished else { return }
+                guard !gate.hasFinished() else { return }
                 if process.isRunning {
                     Logger.warning("[Antigravity] \(label) 타임아웃(\(timeout)s) — terminate")
                     process.terminate()
                 }
-                resume { continuation.resume(throwing: APIError.networkError("\(label) 타임아웃")) }
+                gate.resume { continuation.resume(throwing: APIError.networkError("\(label) 타임아웃")) }
             }
         }
     }

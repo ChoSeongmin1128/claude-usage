@@ -59,14 +59,14 @@ final class PopoverViewModel: ObservableObject {
     var onPinChanged: ((PopoverService, Bool) -> Void)?
     var onLayoutChanged: ((PopoverService, PopoverLayoutRefreshReason) -> Void)?
 
-    init(updateRuntimeState: UpdateRuntimeState = .shared) {
-        self.updateRuntimeState = updateRuntimeState
-        updateRuntimeState.objectWillChange
+    init(updateRuntimeState: UpdateRuntimeState? = nil) {
+        self.updateRuntimeState = updateRuntimeState ?? UpdateRuntimeState.shared
+        self.updateRuntimeState.objectWillChange
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
-        updateRuntimeState.bootstrapIfNeeded()
+        self.updateRuntimeState.bootstrapIfNeeded()
     }
 
     func snapshot(for service: PopoverService) -> RuntimeProviderSnapshot? {

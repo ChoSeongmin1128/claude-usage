@@ -29,31 +29,6 @@ extension SettingsView {
         }
     }
 
-    var commonDisplaySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("표시", systemImage: "paintbrush")
-                .font(.headline)
-
-            settingsToggleRow(
-                "리셋 시간 선명하게 보기",
-                subtitle: "리셋 시간과 구분자를 더 또렷하게 표시합니다",
-                isOn: $settings.menuBarTextHighContrast
-            )
-
-            Divider()
-
-            settingsToggleRow(
-                "간소화 보기",
-                subtitle: "팝오버를 더 간단한 레이아웃으로 보여줍니다",
-                isOn: $settings.popoverCompact
-            )
-
-            Text("표시 항목 순서와 세부 구성은 기본 구성을 사용합니다.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
     var refreshSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("사용량 확인", systemImage: "arrow.clockwise")
@@ -65,17 +40,9 @@ extension SettingsView {
                 isOn: $settings.autoRefresh
             )
 
-            if settings.autoRefresh {
-                Picker("확인 간격", selection: refreshIntervalSelection) {
-                    ForEach(refreshIntervalOptions, id: \.self) { interval in
-                        Text("\(Int(interval))초").tag(interval)
-                    }
-                }
-
-                Text("필요할 때는 수동으로 다시 확인할 수 있습니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Text("확인 간격은 기본값을 사용하고, 필요할 때는 메뉴에서 직접 다시 확인하시면 됩니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -127,25 +94,15 @@ extension SettingsView {
         }
     }
 
-    var powerSection: some View {
+    var updateSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("배터리 사용 중", systemImage: "battery.75percent")
+            Label("업데이트", systemImage: "arrow.down.circle")
                 .font(.headline)
 
-            settingsToggleRow(
-                "배터리 사용 시 새로고침 감소",
-                subtitle: "배터리로 사용할 때 새로고침 간격을 최소 60초로 유지합니다",
-                isOn: $settings.reducedRefreshOnBattery
-            )
-        }
-    }
+            Text("자동 확인 여부와 지금 확인만 관리하시면 됩니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
-    func refreshUpdateEnginePresentation() {
-        updateRuntimeState.refreshEngineStatus()
-    }
-
-    var updateSection: some View {
-        UpdateDiagnosticsSectionShell(updateModeSummary: updateRuntimeState.modeSummary) {
             Picker("자동 확인", selection: $settings.updateCheckInterval) {
                 ForEach(UpdateCheckInterval.allCases, id: \.self) { interval in
                     Text(interval.displayName).tag(interval)
@@ -153,16 +110,10 @@ extension SettingsView {
             }
             .pickerStyle(.segmented)
 
-            HStack {
-                Text("현재 버전: \(updateRuntimeState.currentVersionText)")
+            HStack(alignment: .center, spacing: 12) {
+                Text("현재 버전 \(updateRuntimeState.currentVersionText)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-
-                if let lastCheckedAt = updateRuntimeState.lastCheckedAt {
-                    Text("마지막 확인 \(shortRelativeTimestamp(lastCheckedAt))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
 
                 Spacer()
 
@@ -188,46 +139,24 @@ extension SettingsView {
                 }
             }
 
-            updateStatusCard
-        }
-    }
-
-    private var updateStatusCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(updateRuntimeState.statusTitle)
-                .font(.subheadline.weight(.semibold))
             Text(updateRuntimeState.statusSummary)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-        }
-        .padding(12)
-        .background(updateStatusColor.opacity(0.12))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(updateStatusColor.opacity(0.22), lineWidth: 1)
-        )
-        .cornerRadius(10)
-    }
-
-    private var updateStatusColor: Color {
-        switch updateRuntimeState.tone {
-        case .accent:
-            return .blue
-        case .positive:
-            return .green
-        case .caution:
-            return .orange
-        case .destructive:
-            return .red
-        case .secondary:
-            return .secondary
         }
     }
 
     var appPreferencesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("앱 시작", systemImage: "gearshape.2")
+            Label("앱", systemImage: "gearshape.2")
                 .font(.headline)
+
+            settingsToggleRow(
+                "간소화 보기",
+                subtitle: "팝오버를 더 간단한 레이아웃으로 보여줍니다",
+                isOn: $settings.popoverCompact
+            )
+
+            Divider()
 
             settingsToggleRow("로그인 시 자동 시작", isOn: $settings.launchAtLogin)
 
@@ -235,31 +164,6 @@ extension SettingsView {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
-    }
-
-    private var refreshIntervalOptions: [TimeInterval] {
-        let defaults: [TimeInterval] = [15, 30, 60, 120]
-        let current = max(5, min(120, Double(Int(settings.refreshInterval.rounded()))))
-        if defaults.contains(current) {
-            return defaults
-        }
-        return (defaults + [current]).sorted()
-    }
-
-    private var refreshIntervalSelection: Binding<TimeInterval> {
-        Binding(
-            get: {
-                let current = max(5, min(120, Double(Int(settings.refreshInterval.rounded()))))
-                if refreshIntervalOptions.contains(current) {
-                    return current
-                }
-                return 30
-            },
-            set: { newValue in
-                settings.refreshInterval = newValue
-                refreshIntervalText = String(Int(newValue))
-            }
-        )
     }
 
     private func providerToggleSubtitle(for provider: AppProviderKind) -> String {

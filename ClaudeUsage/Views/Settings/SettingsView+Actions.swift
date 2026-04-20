@@ -260,13 +260,6 @@ extension SettingsView {
         }
     }
 
-    func shortRelativeTimestamp(_ date: Date?) -> String {
-        guard let date else { return "기록 없음" }
-        let relativeFormatter = RelativeDateTimeFormatter()
-        relativeFormatter.unitsStyle = .short
-        return relativeFormatter.localizedString(for: date, relativeTo: Date())
-    }
-
     func resetClaudeAuthDisclosureState() {
         guard !settings.shouldRevealClaudeAdvancedAuth else { return }
         isAdvancedAuthExpanded = false
@@ -275,7 +268,6 @@ extension SettingsView {
 
     func resetToDefaults() {
         settings.resetToDefaults()
-        refreshIntervalText = String(Int(settings.refreshInterval))
         selectedOrganizationID = settings.preferredOrganizationID
         organizationMessage = nil
         organizationOAuthFallbackSummary = nil

@@ -7,13 +7,13 @@ enum BrowserCookieAccessGate {
         var deniedUntil: Date?
     }
 
-    private static let lock = OSAllocatedUnfairLock<State>(initialState: State())
-    private static let defaultsKey = "browserCookieAccessDeniedUntil"
-    private static let cooldownInterval: TimeInterval = 60 * 60 * 6 // 6시간
+    nonisolated private static let lock = OSAllocatedUnfairLock<State>(initialState: State())
+    nonisolated private static let defaultsKey = "browserCookieAccessDeniedUntil"
+    nonisolated private static let cooldownInterval: TimeInterval = 60 * 60 * 6 // 6시간
 
     /// Chrome 쿠키 접근을 시도해도 되는지 확인합니다.
     /// Keychain 프롬프트가 필요한 경우 6시간 쿨다운을 설정하고 false를 반환합니다.
-    static func shouldAttemptChromeAccess(now: Date = Date()) -> Bool {
+    nonisolated static func shouldAttemptChromeAccess(now: Date = Date()) -> Bool {
         lock.withLock { state in
             loadIfNeeded(&state)
 
@@ -41,7 +41,7 @@ enum BrowserCookieAccessGate {
     }
 
     /// 접근 거부를 기록합니다 (외부에서 SecItem 오류 감지 시).
-    static func recordDenied(now: Date = Date()) {
+    nonisolated static func recordDenied(now: Date = Date()) {
         lock.withLock { state in
             loadIfNeeded(&state)
             state.deniedUntil = now.addingTimeInterval(cooldownInterval)
@@ -52,13 +52,13 @@ enum BrowserCookieAccessGate {
 
     // MARK: - Chrome Safe Storage preflight
 
-    private static let safeStorageLabels: [(service: String, account: String)] = [
+    nonisolated private static let safeStorageLabels: [(service: String, account: String)] = [
         ("Chrome Safe Storage", "Chrome"),
         ("Chromium Safe Storage", "Chromium"),
         ("Google Chrome Safe Storage", "Chrome"),
     ]
 
-    private static func chromeSafeStorageRequiresInteraction() -> Bool {
+    private nonisolated static func chromeSafeStorageRequiresInteraction() -> Bool {
         for label in safeStorageLabels {
             switch KeychainAccessPreflight.checkGenericPassword(
                 service: label.service,
@@ -77,7 +77,7 @@ enum BrowserCookieAccessGate {
 
     // MARK: - Persistence
 
-    private static func loadIfNeeded(_ state: inout State) {
+    private nonisolated static func loadIfNeeded(_ state: inout State) {
         guard !state.loaded else { return }
         state.loaded = true
         if let timestamp = UserDefaults.standard.object(forKey: defaultsKey) as? Double {
@@ -85,7 +85,7 @@ enum BrowserCookieAccessGate {
         }
     }
 
-    private static func persist(_ state: State) {
+    private nonisolated static func persist(_ state: State) {
         if let deniedUntil = state.deniedUntil {
             UserDefaults.standard.set(deniedUntil.timeIntervalSince1970, forKey: defaultsKey)
         } else {

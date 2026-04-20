@@ -24,32 +24,13 @@ extension SettingsView {
                 if shouldShowOrganizationSection {
                     organizationSection
                 }
-                if shouldOfferAdvancedAuthTeaser {
+                if shouldShowManualInputSection {
                     VStack(alignment: .leading, spacing: 4) {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedClaudeTab = .advanced
-                                isAdvancedAuthExpanded = true
-                            }
-                        } label: {
-                            HStack {
-                                Text("수동 입력 및 추가 도움말 보기")
-                                    .font(.caption)
-                                Spacer(minLength: 0)
-                                if let subtitle = advancedAuthButtonSubtitle {
-                                    Text(subtitle)
-                                        .font(.caption2)
-                                        .foregroundStyle(.tertiary)
-                                }
-                            }
-                        }
-                        .buttonStyle(.borderless)
+                        Text("자동 가져오기가 계속 안 될 때만 직접 입력을 여시면 됩니다.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
 
-                        if let hint = advancedAuthCollapsedHint {
-                            Text(hint)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
+                        manualSessionKeySection
                     }
                 }
             } else {
@@ -58,107 +39,6 @@ extension SettingsView {
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 6)
             }
-        }
-    }
-
-    var claudeAdvancedSettingsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Claude 문제 해결", systemImage: "wrench.and.screwdriver")
-                .font(.headline)
-
-            Text("자동 로그인이나 가져오기가 잘 안 될 때만 아래 순서대로 확인해 주세요.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if shouldSurfaceRecoveryAndDiagnostics {
-                recoveryAndHelpSection
-            }
-
-            manualSessionKeySection
-
-            if !shouldSurfaceRecoveryAndDiagnostics {
-                Text("지금은 추가 조치가 필요하지 않습니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 6)
-            }
-        }
-    }
-
-    private var recoveryAndHelpSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            recoveryTipsCard
-            recoveryActionButtons
-        }
-    }
-
-    private var recoveryTipsCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("먼저 이렇게 해보세요")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            recoveryTipRow("웹 로그인이나 Chrome 가져오기를 먼저 다시 시도합니다.")
-
-            if shouldRecommendCLIOAuth {
-                recoveryTipRow("브라우저 로그인만 불안정하면 Claude Code 로그인을 다시 준비합니다.")
-            }
-
-            if !hasSuccessfulClaudeFetch {
-                recoveryTipRow("로그인 후 상태 새로고침으로 다시 확인합니다.")
-            }
-        }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
-        .cornerRadius(8)
-    }
-
-    private var recoveryActionButtons: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("바로 할 수 있는 작업")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if hasReadyClaudeCredential {
-                HStack(spacing: 8) {
-                    Button("상태 새로고침") {
-                        loadUsageHealthSnapshot()
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button("다시 로그인") {
-                        onOpenLogin?()
-                    }
-                    .buttonStyle(.bordered)
-                }
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    Button(action: { onOpenClaudeInChrome?() }) {
-                        Label("Chrome에서 가져오기", systemImage: "globe")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button(action: { onOpenLogin?() }) {
-                        Label("웹 로그인 열기", systemImage: "person.crop.circle")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-        }
-    }
-
-    private func recoveryTipRow(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "circle.fill")
-                .font(.system(size: 5))
-                .foregroundStyle(.secondary)
-                .padding(.top, 5)
-            Text(text)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
         }
     }
 
@@ -265,18 +145,6 @@ extension SettingsView {
                     HStack(spacing: 8) {
                         Button(action: { onOpenLogin?() }) {
                             Label("웹 로그인 열기", systemImage: "person.crop.circle")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.regular)
-
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedClaudeTab = .advanced
-                                isAdvancedAuthExpanded = true
-                            }
-                        } label: {
-                            Text("수동 입력")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
@@ -406,10 +274,6 @@ extension SettingsView {
         )
     }
 
-    private var shouldSurfaceRecoveryAndDiagnostics: Bool {
-        !hasSuccessfulClaudeFetch || !hasReadyClaudeCredential || hasPendingManualSessionKey
-    }
-
     private var hasPendingManualSessionKey: Bool {
         let normalized = normalizeSessionKey(sessionKey)
         guard !normalized.isEmpty else { return false }
@@ -417,39 +281,11 @@ extension SettingsView {
     }
 
     var shouldShowAdvancedAuthSection: Bool {
-        selectedClaudeTab == .advanced || hasPendingManualSessionKey
+        isAdvancedAuthExpanded || hasPendingManualSessionKey || settings.shouldRevealClaudeAdvancedAuth
     }
 
-    private var shouldOfferAdvancedAuthTeaser: Bool {
+    private var shouldShowManualInputSection: Bool {
         shouldShowAdvancedAuthSection
-            || !hasSuccessfulClaudeFetch
-            || !hasReadyClaudeCredential
-    }
-
-    private var advancedAuthButtonSubtitle: String? {
-        if hasPendingManualSessionKey {
-            return "입력 중"
-        }
-        if !hasReadyClaudeCredential {
-            return "마지막 수단"
-        }
-        if !hasSuccessfulClaudeFetch {
-            return "확인 필요"
-        }
-        return nil
-    }
-
-    private var advancedAuthCollapsedHint: String? {
-        if hasPendingManualSessionKey {
-            return "저장 전 입력값이 있습니다."
-        }
-        if !hasReadyClaudeCredential {
-            return "자동 가져오기가 안 될 때만 사용합니다."
-        }
-        if !hasSuccessfulClaudeFetch {
-            return "로그인 후에도 확인이 안 되면 여기를 보시면 됩니다."
-        }
-        return nil
     }
 
     var hasSuccessfulClaudeFetch: Bool {
@@ -462,17 +298,6 @@ extension SettingsView {
 
     var claudeNotificationPolicySummary: String? {
         SetupCompletionPolicy.notificationPolicy(from: profileMetadata)?.summaryLine
-    }
-
-    private var shouldRecommendCLIOAuth: Bool {
-        guard let snapshot = usageHealthSnapshot else { return false }
-        return snapshot.session.isUnstable
-            || (snapshot.runtime.credentialAvailability.sessionCredentialAvailable
-                && !snapshot.runtime.credentialAvailability.oauthCredentialAvailable)
-    }
-
-    private var appliedOrganizationChecklistDetail: String {
-        appliedClaudeSetupPresentation.organizationSummary
     }
 
     private func authSummaryLine(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> String {
@@ -489,10 +314,6 @@ extension SettingsView {
            snapshot.oauth.lastFailureAt != nil,
            snapshot.oauth.lastSuccessAt == nil {
             return "Claude Code 로그인은 보이지만 아직 제대로 확인되지 않았습니다. 필요하면 `claude login`을 다시 진행해 주세요."
-        }
-
-        if shouldRecommendCLIOAuth {
-            return "최근 조회는 성공했지만 브라우저 로그인 경로가 불안정할 수 있습니다."
         }
 
         if snapshot.runtime.credentialAvailability.oauthCredentialAvailable {
@@ -733,66 +554,6 @@ extension SettingsView {
                 .padding(.vertical, 6)
                 .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
                 .cornerRadius(6)
-        }
-    }
-
-    var claudeDisplayConfigurationSection: some View {
-        claudeDisplaySection
-    }
-
-    var claudeDisplaySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Claude 표시", systemImage: "paintbrush")
-                .font(.headline)
-
-            VStack(alignment: .leading, spacing: 8) {
-                settingsToggleRow("Claude 아이콘", isOn: $settings.showClaudeIcon)
-                Picker("퍼센트:", selection: Binding(
-                    get: { settings.percentageDisplay },
-                    set: { settings.percentageDisplay = $0 }
-                )) {
-                    ForEach(PercentageDisplay.allCases, id: \.self) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                Picker("리셋 시간:", selection: Binding(
-                    get: { settings.resetTimeDisplay },
-                    set: { settings.resetTimeDisplay = $0 }
-                )) {
-                    ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-
-                if settings.resetTimeDisplay != .none {
-                    Picker("시간 형식:", selection: Binding(
-                        get: { settings.timeFormat },
-                        set: { settings.timeFormat = $0 }
-                    )) {
-                        ForEach(TimeFormatStyle.allCases, id: \.self) { style in
-                            Text(style.displayName).tag(style)
-                        }
-                    }
-                }
-
-                Picker("표시 모양", selection: Binding(
-                    get: { SimplifiedMenuBarAppearance(style: settings.menuBarStyle) },
-                    set: { settings.setMenuBarStyle($0.menuBarStyle, for: .claude) }
-                )) {
-                    ForEach(SimplifiedMenuBarAppearance.allCases) { appearance in
-                        Text(appearance.displayName).tag(appearance)
-                    }
-                }
-                .pickerStyle(.segmented)
-
-                Text(SimplifiedMenuBarAppearance(style: settings.menuBarStyle).summary)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Text("팝오버 항목 순서와 세부 구성은 기본 구성을 사용합니다.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 
