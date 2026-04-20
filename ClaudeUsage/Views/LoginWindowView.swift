@@ -1,28 +1,48 @@
-//
-//  LoginWindowView.swift
-//  ClaudeUsage
-//
-//  Claude 로그인 윈도우 컨테이너
-//
-
+import AppKit
 import SwiftUI
 
 struct LoginWindowView: View {
+    private let chromeImporter = ClaudeChromeCookieImportService()
+
     @State private var isLoading = false
+    @State private var isImportingFromChrome = false
+    @State private var isActivatingSession = false
     @State private var errorMessage: String?
     @State private var statusMessage: String?
     @State private var loginSuccess = false
     @State private var clearTrigger: Int
 
     var clearOnOpen: Bool
-    var onSessionKeyFound: (String) -> Void
+    var onSessionKeyFound: (String) async throws -> Void
+    var onOpenAdvancedSettings: () -> Void
     var onCancel: () -> Void
 
-    init(clearOnOpen: Bool = false, onSessionKeyFound: @escaping (String) -> Void, onCancel: @escaping () -> Void) {
+    init(
+        clearOnOpen: Bool = false,
+        onSessionKeyFound: @escaping (String) async throws -> Void,
+        onOpenAdvancedSettings: @escaping () -> Void,
+        onCancel: @escaping () -> Void
+    ) {
         self.clearOnOpen = clearOnOpen
         self._clearTrigger = State(initialValue: clearOnOpen ? 1 : 0)
         self.onSessionKeyFound = onSessionKeyFound
+        self.onOpenAdvancedSettings = onOpenAdvancedSettings
         self.onCancel = onCancel
+    }
+
+    private var guidanceCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("권장 경로")
+                .font(.caption)
+                .fontWeight(.semibold)
+            Text("먼저 `Chrome에서 가져오기`를 시도하고, 안 되면 `Chrome 로그인 열기`나 `고급 설정`을 사용해 주세요.")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.55))
+        .cornerRadius(8)
     }
 
     var body: some View {
@@ -35,6 +55,18 @@ struct LoginWindowView: View {
                     Text("로딩 중...")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                } else if isImportingFromChrome {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Chrome에서 가져오는 중...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if isActivatingSession {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("세션 키 저장 및 반영 중...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 } else if let status = statusMessage, !loginSuccess {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
@@ -44,13 +76,14 @@ struct LoginWindowView: View {
                 }
                 Spacer()
                 if loginSuccess {
-                    Label("세션 키 추출 완료!", systemImage: "checkmark.circle.fill")
+                    Label("세션 반영 완료", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                         .font(.callout.bold())
                 } else {
                     Button(action: {
                         clearTrigger += 1
                         loginSuccess = false
+                        isActivatingSession = false
                         statusMessage = "쿠키 초기화됨"
                     }) {
                         Label("초기화", systemImage: "arrow.counterclockwise")
@@ -64,12 +97,21 @@ struct LoginWindowView: View {
             .padding(.vertical, 8)
             .background(.bar)
 
+            guidanceCard
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+
             if let error = errorMessage {
                 HStack {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(.orange)
                     Spacer()
+                    Button("고급 설정") {
+                        onOpenAdvancedSettings()
+                    }
+                    .font(.caption)
+                    .buttonStyle(.borderless)
                     Button("닫기") { errorMessage = nil }
                         .font(.caption)
                         .buttonStyle(.borderless)
@@ -83,9 +125,7 @@ struct LoginWindowView: View {
             ZStack {
                 LoginWebView(
                     onSessionKeyFound: { key in
-                        loginSuccess = true
-                        statusMessage = nil
-                        onSessionKeyFound(key)
+                        activateSessionKey(key)
                     },
                     onLoadingChanged: { loading in
                         isLoading = loading
@@ -104,9 +144,9 @@ struct LoginWindowView: View {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 48))
                             .foregroundStyle(.green)
-                        Text("세션 키를 성공적으로 가져왔습니다")
+                        Text("세션 반영 완료")
                             .font(.headline)
-                        Text("이 창은 자동으로 닫힙니다")
+                        Text("저장과 동기화까지 끝났습니다")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -119,16 +159,96 @@ struct LoginWindowView: View {
 
             // 하단 바
             HStack {
-                Text("claude.ai에 로그인하면 세션 키가 자동으로 추출됩니다")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Button("Chrome에서 가져오기") {
+                    importFromChrome()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isLoading || isImportingFromChrome || isActivatingSession || loginSuccess)
                 Spacer()
+                Button("Chrome 로그인 열기") {
+                    openChromeForClaude()
+                }
+                .disabled(isLoading || isImportingFromChrome || isActivatingSession || loginSuccess)
+                Button("고급 설정") {
+                    onOpenAdvancedSettings()
+                }
+                .disabled(isLoading || isImportingFromChrome || isActivatingSession || loginSuccess)
                 Button("취소") { onCancel() }
+                    .disabled(isActivatingSession)
                     .keyboardShortcut(.cancelAction)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
         }
         .frame(width: 800, height: 700)
+    }
+
+    private func activateSessionKey(_ key: String) {
+        errorMessage = nil
+        statusMessage = "세션 키를 확인했습니다"
+        isActivatingSession = true
+
+        Task {
+            do {
+                try await onSessionKeyFound(key)
+                await MainActor.run {
+                    self.isActivatingSession = false
+                    self.loginSuccess = true
+                    self.statusMessage = "세션 키 저장과 반영이 완료됐습니다"
+                }
+            } catch {
+                await MainActor.run {
+                    self.isActivatingSession = false
+                    self.loginSuccess = false
+                    self.statusMessage = "세션 키 저장 또는 반영에 실패했습니다"
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func importFromChrome() {
+        errorMessage = nil
+        statusMessage = "Chrome 프로필과 쿠키를 확인하는 중..."
+        isImportingFromChrome = true
+
+        Task.detached(priority: .userInitiated) {
+            let outcome: Result<ClaudeBrowserImportOutcome, Error>
+            do {
+                outcome = .success(try self.chromeImporter.attemptImport())
+            } catch {
+                outcome = .failure(error)
+            }
+
+            await MainActor.run {
+                self.isImportingFromChrome = false
+                switch outcome {
+                case .success(.importedSessionKey(let key)):
+                    self.activateSessionKey(key)
+                case .success(.manualSessionKeyRequired(let message)):
+                    self.statusMessage = "Chrome 로그인 후 다시 가져오거나 고급 설정을 사용해 주세요."
+                    self.errorMessage = message
+                case .success(.unavailable(let message)):
+                    self.errorMessage = message
+                case .failure(let error):
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func openChromeForClaude() {
+        let targetURL = URL(string: "https://claude.ai/settings/usage")!
+        if let chromeAppURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
+            let configuration = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.open([targetURL], withApplicationAt: chromeAppURL, configuration: configuration)
+            statusMessage = "Chrome에서 claude.ai를 열었습니다. 로그인 후 다시 가져와 주세요."
+            errorMessage = nil
+            return
+        }
+
+        NSWorkspace.shared.open(targetURL)
+        statusMessage = "브라우저에서 claude.ai를 열었습니다. 로그인 후 다시 가져와 주세요."
+        errorMessage = nil
     }
 }

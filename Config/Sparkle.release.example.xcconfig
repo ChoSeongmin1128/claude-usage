@@ -1,0 +1,16 @@
+// Copy to a real xcconfig that is only applied to signed release builds.
+// Do not commit the real public feed or release signing details if you do not want them in git.
+// Runtime Sparkle readiness uses SUFeedURL + SUPublicEDKey.
+// 권장 feed 구조:
+//   - prod:    https://OWNER.github.io/REPO/appcast.xml
+//   - staging: https://OWNER.github.io/REPO/channels/staging/appcast.xml
+// build-notarize-release.sh also reads NOTARY_PROFILE from here when the environment variable is unset.
+// Scripts/generate-sparkle-appcast.sh / Scripts/publish-release.sh 는
+// 선택적으로 SPARKLE_DOWNLOAD_BASE_URL 을 읽어 appcast enclosure URL 을 만듭니다.
+// __TAG__ 템플릿은 publish-release.sh 와 generate-sparkle-appcast.sh --tag 에서 치환됩니다.
+
+SPARKLE_URL_SLASH = /
+SUFeedURL = https:$(SPARKLE_URL_SLASH)$(SPARKLE_URL_SLASH)OWNER.github.io/REPO/appcast.xml
+SUPublicEDKey = REPLACE_WITH_SPARKLE_PUBLIC_KEY
+NOTARY_PROFILE = REPLACE_WITH_NOTARY_PROFILE
+SPARKLE_DOWNLOAD_BASE_URL = https:$(SPARKLE_URL_SLASH)$(SPARKLE_URL_SLASH)github.com/OWNER/REPO/releases/download/__TAG__

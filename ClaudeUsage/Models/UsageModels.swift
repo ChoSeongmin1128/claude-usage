@@ -28,6 +28,18 @@ struct ClaudeUsageResponse: Codable, Sendable {
         sevenDaySonnet = try container.decodeIfPresent(UsageWindow.self, forKey: .sevenDaySonnet)
         sevenDayOpus = try container.decodeIfPresent(UsageWindow.self, forKey: .sevenDayOpus)
     }
+
+    nonisolated init(
+        fiveHour: UsageWindow,
+        sevenDay: UsageWindow?,
+        sevenDaySonnet: UsageWindow? = nil,
+        sevenDayOpus: UsageWindow? = nil)
+    {
+        self.fiveHour = fiveHour
+        self.sevenDay = sevenDay
+        self.sevenDaySonnet = sevenDaySonnet
+        self.sevenDayOpus = sevenDayOpus
+    }
 }
 
 /// 개별 사용량 윈도우 (5시간, 주간, Sonnet, Opus)
@@ -71,6 +83,11 @@ struct UsageWindow: Codable, Sendable {
         } else {
             utilization = 0
         }
+    }
+
+    nonisolated init(utilization: Double, resetsAt: String?) {
+        self.utilization = utilization
+        self.resetsAt = resetsAt
     }
 
     nonisolated private static func isoString(fromUnixSeconds seconds: Double) -> String {

@@ -20,20 +20,40 @@ struct CodexAuthToken: Codable, Sendable {
     }
 }
 
-class CodexAuthManager {
+final class CodexAuthManager {
     static let shared = CodexAuthManager()
 
     private let refreshTokenClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 
     /// 실제 홈 디렉토리 (샌드박스 컨테이너가 아닌 /Users/xxx)
     private let authJsonPath: String = {
-        let pw = getpwuid(getuid())!
-        let realHome = String(cString: pw.pointee.pw_dir)
+        let realHome: String
+        if let pw = getpwuid(getuid()) {
+            realHome = String(cString: pw.pointee.pw_dir)
+        } else {
+            realHome = NSHomeDirectory()
+        }
         return "\(realHome)/.codex/auth.json"
     }()
 
-    /// 갱신된 토큰 캐시 (auth.json은 읽기 전용, 갱신 결과는 메모리에)
+    // MARK: - Thread-safe caches
+    //
+    // 기존에는 매 isAuthenticated / getToken 호출마다 ~/.codex/auth.json 을
+    // Data(contentsOf:) + JSONSerialization 으로 동기 파싱했다. UI body /
+    // settings 렌더 사이클에 수 차례 호출되어 main thread 를 낭비하고, 동시에
+    // refreshedToken 쓰기 (async refreshAccessToken) 와 읽기 (UI) 간 race 도
+    // 있었다. → NSLock + 60s TTL in-memory 캐시 + file mtime 기반 무효화.
+
+    private let lock = NSLock()
     private var refreshedToken: CodexAuthToken?
+
+    private struct CachedAuthJson {
+        let token: CodexAuthToken?
+        let fileMtime: Date?
+        let cachedAt: Date
+    }
+    private var authJsonCache: CachedAuthJson?
+    private static let authJsonCacheTTL: TimeInterval = 60
 
     private init() {
         // 이전 웹 로그인 방식의 잔여 데이터 정리
@@ -44,27 +64,28 @@ class CodexAuthManager {
 
     // MARK: - Token Access
 
-    /// 현재 유효한 액세스 토큰 반환
+    /// 현재 유효한 액세스 토큰 반환.
+    /// 호출 빈도가 높아도 in-memory 캐시 + mtime 체크로 비용이 작다.
     func getToken() -> CodexAuthToken? {
+        lock.lock()
+        let refreshed = refreshedToken
+        lock.unlock()
+
         // 1순위: 갱신된 토큰 캐시 (미만료)
-        if let cached = refreshedToken, !cached.isExpired {
-            return cached
+        if let refreshed, !refreshed.isExpired {
+            return refreshed
         }
 
-        // 2순위: auth.json
+        // 2순위: auth.json (in-memory cache hit 시 blocking 없음)
         if let authJsonToken = loadAuthJsonToken() {
             return authJsonToken
         }
 
-        // 3순위: 만료된 캐시 토큰 (갱신 시도용)
-        if let cached = refreshedToken {
-            return cached
-        }
-
-        return nil
+        // 3순위: 만료된 캐시 토큰 (refresh 시도용)
+        return refreshed
     }
 
-    /// auth.json 파일 존재 여부
+    /// auth.json 파일 존재 여부. `FileManager.fileExists` 는 stat 한 번이라 가볍다.
     var authJsonExists: Bool {
         FileManager.default.fileExists(atPath: authJsonPath)
     }
@@ -74,9 +95,12 @@ class CodexAuthManager {
         getToken() != nil
     }
 
-    /// 캐시 초기화
+    /// 캐시 초기화 (refresh 토큰 캐시 + auth.json 파싱 캐시 모두).
     func clearCache() {
+        lock.lock()
         refreshedToken = nil
+        authJsonCache = nil
+        lock.unlock()
         Logger.info("Codex 토큰 캐시 초기화")
     }
 
@@ -119,7 +143,11 @@ class CodexAuthManager {
             let expiresAt = Date().addingTimeInterval(expiresIn)
 
             let newToken = CodexAuthToken(accessToken: accessToken, refreshToken: newRefreshToken, expiresAt: expiresAt)
+            lock.lock()
             refreshedToken = newToken
+            // CLI 가 auth.json 을 동시에 갱신했을 수 있으므로 파싱 캐시도 무효화.
+            authJsonCache = nil
+            lock.unlock()
             Logger.info("Codex 토큰 갱신 성공")
             return newToken
         } catch {
@@ -130,7 +158,36 @@ class CodexAuthManager {
 
     // MARK: - Private
 
+    /// auth.json 파싱 결과 반환. mtime 이 동일하면서 캐시 TTL 안쪽이면 파싱 skip.
+    /// 외부에서 CLI 로 로그인 / 로그아웃 하면 mtime 이 바뀌므로 즉시 반영됨.
     private func loadAuthJsonToken() -> CodexAuthToken? {
+        let currentMtime = fileModificationDate(atPath: authJsonPath)
+        let now = Date()
+
+        lock.lock()
+        if let cache = authJsonCache {
+            let freshEnough = now.timeIntervalSince(cache.cachedAt) < Self.authJsonCacheTTL
+            let fileUnchanged = cache.fileMtime == currentMtime
+            if freshEnough && fileUnchanged {
+                let value = cache.token
+                lock.unlock()
+                return value
+            }
+        }
+        lock.unlock()
+
+        let parsed = parseAuthJson()
+        lock.lock()
+        authJsonCache = CachedAuthJson(token: parsed, fileMtime: currentMtime, cachedAt: now)
+        lock.unlock()
+        return parsed
+    }
+
+    private func fileModificationDate(atPath path: String) -> Date? {
+        (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+    }
+
+    private func parseAuthJson() -> CodexAuthToken? {
         guard let data = try? Data(contentsOf: URL(fileURLWithPath: authJsonPath)),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil

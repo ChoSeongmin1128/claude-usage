@@ -60,20 +60,24 @@ extension APIError: LocalizedError {
 
     nonisolated var isTemporaryFailure: Bool {
         switch self {
-        case .rateLimited(_), .cloudflareBlocked(_), .networkError:
+        case .rateLimited(_), .cloudflareBlocked(_), .networkError, .parseError:
             return true
         case .serverError(let code):
             return code >= 500
-        case .invalidSessionKey, .parseError, .unknownError:
+        case .invalidSessionKey, .unknownError:
             return false
         }
     }
 
     nonisolated var isDefinitiveAuthFailure: Bool {
-        if case .invalidSessionKey = self {
+        switch self {
+        case .invalidSessionKey:
             return true
+        case .serverError(let code):
+            return code == 401 || code == 403
+        case .rateLimited, .cloudflareBlocked, .networkError, .parseError, .unknownError:
+            return false
         }
-        return false
     }
 
     private static func formatRetryAfter(_ seconds: Int) -> String {
