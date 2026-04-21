@@ -1184,9 +1184,11 @@ class AppSettings: ObservableObject {
             bumpRuntimeProviderDisplayRevision()
         }
 
-        // 배터리 스타일로 변경 시 circularDisplayMode를 .remaining으로 자동 설정
+        // 배터리 스타일은 남은 사용량 표시가 자연스럽고, 스타일을 끄면 기본 사용량 기준으로 되돌립니다.
         if style.isBatteryStyle {
             setProviderCircularDisplayMode(.remaining, for: kind)
+        } else if style == .none {
+            setProviderCircularDisplayMode(.usage, for: kind)
         }
     }
 
