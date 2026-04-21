@@ -115,12 +115,20 @@ extension SettingsView {
             appPreferencesSection
         case .claude:
             claudeOverviewSection
+            Divider()
+            providerMenuBarDisplaySection(for: .claude)
         case .codex:
             codexOverviewSection
+            Divider()
+            providerMenuBarDisplaySection(for: .codex)
         case .gemini:
             runtimeProviderPanel(for: .gemini)
+            Divider()
+            providerMenuBarDisplaySection(for: .gemini)
         case .antigravity:
             runtimeProviderPanel(for: .antigravity)
+            Divider()
+            providerMenuBarDisplaySection(for: .antigravity)
         }
     }
 

@@ -25,12 +25,9 @@ extension SettingsView {
             RuntimeProviderPanelShell(
                 descriptor: descriptor,
                 title: descriptor.title,
-                summary: descriptor.summary,
                 detail: descriptor.detail
             ) {
-                Text("이 서비스의 안내 화면은 아직 준비 중입니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                EmptyView()
             }
         }
     }

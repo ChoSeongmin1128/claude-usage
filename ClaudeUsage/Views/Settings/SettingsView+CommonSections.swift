@@ -7,10 +7,6 @@ extension SettingsView {
             Label("서비스", systemImage: "square.stack.3d.up")
                 .font(.headline)
 
-            Text("필요한 서비스만 켜 두시면 됩니다.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
             VStack(alignment: .leading, spacing: 8) {
                 Text("서비스 사용")
                     .font(.subheadline.weight(.semibold))
@@ -39,10 +35,6 @@ extension SettingsView {
                 subtitle: "주기적으로 사용량을 다시 확인합니다",
                 isOn: $settings.autoRefresh
             )
-
-            Text("확인 간격은 기본값을 사용하고, 필요할 때는 메뉴에서 직접 다시 확인하시면 됩니다.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -79,9 +71,6 @@ extension SettingsView {
                     )
                 }
 
-                Text("필요한 서비스만 알림을 켜 두시면 됩니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
             .disabled(!settings.notificationsEnabled)
             .opacity(settings.notificationsEnabled ? 1.0 : 0.6)
@@ -98,10 +87,6 @@ extension SettingsView {
         VStack(alignment: .leading, spacing: 12) {
             Label("업데이트", systemImage: "arrow.down.circle")
                 .font(.headline)
-
-            Text("자동 확인 여부와 지금 확인만 관리하시면 됩니다.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
 
             Picker("자동 확인", selection: $settings.updateCheckInterval) {
                 ForEach(UpdateCheckInterval.allCases, id: \.self) { interval in

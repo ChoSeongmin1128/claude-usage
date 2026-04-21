@@ -1,6 +1,53 @@
 import SwiftUI
 
 extension SettingsView {
+    @ViewBuilder
+    func providerMenuBarDisplaySection(for provider: AppProviderKind) -> some View {
+        if let displayConfig = settings.menuBarDisplayConfig(for: provider) {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("표시", systemImage: "slider.horizontal.3")
+                    .font(.headline)
+
+                settingsToggleRow(
+                    "아이콘 표시",
+                    isOn: Binding(
+                        get: { settings.menuBarDisplayConfig(for: provider)?.showIcon ?? true },
+                        set: { settings.setProviderShowIcon($0, for: provider) }
+                    )
+                )
+
+                Picker("퍼센트", selection: Binding(
+                    get: { settings.menuBarDisplayConfig(for: provider)?.percentageDisplay ?? .fiveHour },
+                    set: { settings.setProviderPercentageDisplay($0, for: provider) }
+                )) {
+                    ForEach(PercentageDisplay.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+
+                Picker("리셋 시간", selection: Binding(
+                    get: { settings.menuBarDisplayConfig(for: provider)?.resetTimeDisplay ?? .none },
+                    set: { settings.setProviderResetTimeDisplay($0, for: provider) }
+                )) {
+                    ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+
+                if displayConfig.resetTimeDisplay != .none {
+                    Picker("시간 형식", selection: Binding(
+                        get: { settings.menuBarDisplayConfig(for: provider)?.timeFormat ?? .h24 },
+                        set: { settings.setProviderTimeFormat($0, for: provider) }
+                    )) {
+                        ForEach(TimeFormatStyle.allCases, id: \.self) { style in
+                            Text(style.displayName).tag(style)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     func segmentedTabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)

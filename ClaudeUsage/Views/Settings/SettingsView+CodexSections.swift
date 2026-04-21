@@ -85,27 +85,29 @@ extension SettingsView {
 
     private var codexActionTitle: String {
         switch codexAuthStatus {
-        case .checking, .authenticated:
-            return "필요하면 다시 확인하기"
+        case .checking:
+            return "확인 중"
+        case .authenticated:
+            return "로그인 완료"
         case .notInstalled:
-            return "Codex 설치하기"
+            return "Codex 설치"
         case .notLoggedIn, .expired:
-            return "Codex 로그인하기"
+            return "Codex 로그인"
         }
     }
 
-    private var codexActionDetail: String {
+    private var codexActionDetail: String? {
         switch codexAuthStatus {
         case .checking:
-            return "잠시 뒤 상태가 바뀌는지 확인해 주세요."
+            return nil
         case .authenticated:
-            return "지금은 추가 작업 없이 사용하시면 됩니다."
+            return nil
         case .notInstalled:
-            return "터미널에서 설치 명령 한 줄만 실행하시면 됩니다."
+            return "설치 후 다시 확인"
         case .notLoggedIn:
-            return "터미널에서 로그인만 마치면 바로 확인할 수 있습니다."
+            return "로그인 후 다시 확인"
         case .expired:
-            return "터미널에서 다시 로그인해 주세요."
+            return "다시 로그인 후 확인"
         }
     }
 
@@ -136,14 +138,13 @@ extension SettingsView {
 
     private var codexActionCard: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("지금 할 일")
-                .font(.caption)
-                .foregroundStyle(.secondary)
             Text(codexActionTitle)
                 .font(.subheadline.weight(.semibold))
-            Text(codexActionDetail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if let codexActionDetail {
+                Text(codexActionDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(12)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.45))

@@ -25,13 +25,7 @@ extension SettingsView {
                     organizationSection
                 }
                 if shouldShowManualInputSection {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("자동 가져오기가 계속 안 될 때만 직접 입력을 여시면 됩니다.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-
-                        manualSessionKeySection
-                    }
+                    manualSessionKeySection
                 }
             } else {
                 Text("Claude 사용이 꺼져 있습니다. 켜면 메뉴바와 사용량 확인이 다시 동작합니다.")
@@ -44,12 +38,7 @@ extension SettingsView {
 
     private var compactAuthStatusCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionCardHeader(
-                title: "현재 인증 상태",
-                subtitle: appliedClaudeSetupPresentation.progress.stage == .complete
-                    ? "지금 필요한 상태와 다음 행동만 보여줍니다"
-                    : "처음 필요한 행동만 먼저 보여줍니다"
-            )
+            sectionCardHeader(title: "현재 인증 상태")
 
             if let snapshot = usageHealthSnapshot {
                 VStack(alignment: .leading, spacing: 8) {
@@ -150,10 +139,6 @@ extension SettingsView {
                         .buttonStyle(.bordered)
                         .controlSize(.regular)
                     }
-
-                    Text("먼저 Chrome 로그인 가져오기를 시도해 주세요.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -388,8 +373,7 @@ extension SettingsView {
     var organizationSection: some View {
         ClaudeOrganizationStatusSectionShell(
             title: "조직 선택",
-            systemImage: "building.2",
-            summary: "기본은 자동 선택입니다. 여러 조직을 직접 구분해서 볼 때만 여기서 고르면 됩니다."
+            systemImage: "building.2"
         ) {
             organizationModeSummaryCard
             if shouldShowOrganizationAdvancedControls {

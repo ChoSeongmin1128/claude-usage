@@ -10,7 +10,6 @@ struct RuntimeProviderOverviewSectionView: View {
         RuntimeProviderPanelShell(
             descriptor: descriptor,
             title: "\(descriptor.title) 개요",
-            summary: "현재 상태와 다음 행동만 먼저 보여줍니다.",
             detail: descriptor.detail
         ) {
             SettingsSectionToggleRow(
@@ -73,9 +72,6 @@ private struct RuntimeProviderActionCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("지금 할 일")
-                .font(.caption)
-                .foregroundStyle(.secondary)
             Text(presentation.primaryActionTitle)
                 .font(.subheadline.weight(.semibold))
             Text(presentation.primaryActionDetail)
