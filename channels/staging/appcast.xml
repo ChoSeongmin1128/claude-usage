@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<?xml version='1.0' encoding='utf-8'?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>ClaudeUsage</title>
@@ -8,7 +8,15 @@
             <sparkle:version>20001</sparkle:version>
             <sparkle:shortVersionString>2.0.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.1-staging.9/ClaudeUsage.zip" length="3049516" type="application/octet-stream" sparkle:edSignature="zR6V3DqhiHvzXB5IDpZ3pPmV/dD0yqA5wDXtd2XQe50p/cpMg+NscHQEbdDTlK7LQfuxy/Z0oPOWmhQzD7bMCQ=="/>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.1-staging.10/ClaudeUsage.zip" length="3062695" type="application/octet-stream" sparkle:edSignature="eDtcwPFfD9l2hfGHjd954wUGZHlli/b8U8Db395qCxGm+SaZihxsBTypks7h+x8b+OkjnLt4q+HRgluBF8KACg==" />
+        </item>
+        <item>
+            <title>2.0.0</title>
+            <pubDate>Tue, 21 Apr 2026 04:28:22 +0900</pubDate>
+            <sparkle:version>20000</sparkle:version>
+            <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.0-staging.3/ClaudeUsage.zip" length="3062695" type="application/octet-stream" sparkle:edSignature="eDtcwPFfD9l2hfGHjd954wUGZHlli/b8U8Db395qCxGm+SaZihxsBTypks7h+x8b+OkjnLt4q+HRgluBF8KACg==" />
         </item>
     </channel>
 </rss>
