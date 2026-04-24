@@ -38,6 +38,19 @@ extension SettingsView {
         }
     }
 
+    var commonDisplaySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("메뉴바", systemImage: "menubar.rectangle")
+                .font(.headline)
+
+            settingsToggleRow(
+                "보조 텍스트 강조",
+                subtitle: "리셋 시간과 구분자를 기본 텍스트 색상으로 표시합니다",
+                isOn: $settings.menuBarTextHighContrast
+            )
+        }
+    }
+
     var commonAlertSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("알림", systemImage: "bell")

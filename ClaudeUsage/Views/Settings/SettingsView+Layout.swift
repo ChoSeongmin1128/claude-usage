@@ -106,6 +106,8 @@ extension SettingsView {
         case .common:
             commonServicesSection
             Divider()
+            commonDisplaySection
+            Divider()
             commonAlertSection
             Divider()
             refreshSection
