@@ -140,10 +140,15 @@ extension AppDelegate {
 
     func refreshSystemStatus() {
         Task {
-            let status = await ClaudeStatusService.shared.fetchStatus()
+            async let claudeStatus = ClaudeStatusService.shared.fetchStatus()
+            async let codexStatus = OpenAIStatusService.shared.fetchCodexStatus()
+            let statuses = await (claude: claudeStatus, codex: codexStatus)
+
             await MainActor.run {
-                self.systemStatus = status
-                self.popoverViewModel.systemStatus = status
+                self.setProviderSystemStatus(statuses.claude, for: .claude)
+                self.setProviderSystemStatus(statuses.codex, for: .codex)
+                self.popoverViewModel.systemStatus = statuses.claude
+                self.updateMenuBar()
             }
         }
     }

@@ -9,6 +9,7 @@ final class AppRuntimeStateFacade {
     var currentClaudeProfileMetadata: ClaudeProfileMetadata?
     var lastOverageFetchAt: Date?
     var systemStatus: ClaudeSystemStatus?
+    var providerSystemStatuses: [AppProviderKind: ProviderSystemStatus] = [:]
     var setupWizardCredentialStepOverride: SetupWizardView.Step?
     var claudeCredentialAvailability = ClaudeCredentialAvailability(
         sessionCredentialAvailable: false,
@@ -101,5 +102,24 @@ final class AppRuntimeStateFacade {
         currentClaudeProfileMetadata = nil
         currentClaudeNotificationPolicy = nil
         lastOverageFetchAt = nil
+    }
+
+    func systemStatus(for kind: AppProviderKind) -> ProviderSystemStatus? {
+        if kind == .claude {
+            return providerSystemStatuses[.claude] ?? systemStatus
+        }
+        return providerSystemStatuses[kind]
+    }
+
+    func setSystemStatus(_ status: ProviderSystemStatus?, for kind: AppProviderKind) {
+        if let status {
+            providerSystemStatuses[kind] = status
+        } else {
+            providerSystemStatuses.removeValue(forKey: kind)
+        }
+
+        if kind == .claude {
+            systemStatus = status
+        }
     }
 }

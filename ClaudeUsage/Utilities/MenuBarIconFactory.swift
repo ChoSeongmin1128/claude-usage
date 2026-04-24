@@ -21,6 +21,53 @@ enum MenuBarIconFactory {
         return nil
     }
 
+    static func badgedIcon(_ base: NSImage, indicator: StatusIndicator) -> NSImage {
+        guard indicator != .none else { return base }
+
+        let size = base.size
+        let badgeDiameter: CGFloat = indicator == .critical ? 8 : 7
+        let badgeRect = NSRect(
+            x: max(0, size.width - badgeDiameter),
+            y: max(0, size.height - badgeDiameter),
+            width: badgeDiameter,
+            height: badgeDiameter
+        )
+        let badgeColor: NSColor = indicator == .minor ? .systemOrange : .systemRed
+
+        let image = NSImage(size: size, flipped: false) { rect in
+            base.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
+
+            let isDark = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let outlineColor = (isDark ? NSColor.black : NSColor.white).withAlphaComponent(0.92)
+            let outlinePath = NSBezierPath(ovalIn: badgeRect.insetBy(dx: -1, dy: -1))
+            outlineColor.setFill()
+            outlinePath.fill()
+
+            let badgePath = NSBezierPath(ovalIn: badgeRect)
+            badgeColor.setFill()
+            badgePath.fill()
+
+            if indicator == .critical {
+                let text = "!"
+                let font = NSFont.systemFont(ofSize: 6, weight: .bold)
+                let attrs: [NSAttributedString.Key: Any] = [
+                    .font: font,
+                    .foregroundColor: NSColor.white,
+                ]
+                let textSize = (text as NSString).size(withAttributes: attrs)
+                let point = NSPoint(
+                    x: badgeRect.midX - textSize.width / 2,
+                    y: badgeRect.midY - textSize.height / 2
+                )
+                (text as NSString).draw(at: point, withAttributes: attrs)
+            }
+
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
+
     private static func fittedIcon(_ source: NSImage, size: NSSize) -> NSImage {
         let image = NSImage(size: size)
         image.lockFocus()

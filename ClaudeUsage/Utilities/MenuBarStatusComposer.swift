@@ -42,6 +42,7 @@ struct MenuBarProviderSnapshot {
     let icon: NSImage?
     let styleIcon: NSImage?
     let resetText: String?
+    let systemStatus: ProviderSystemStatus?
 }
 
 enum MenuBarStatusComposer {
@@ -77,7 +78,8 @@ enum MenuBarStatusComposer {
         hasAuthError: Bool,
         hasCredential: Bool,
         secondaryColor: NSColor,
-        icon: NSImage?
+        icon: NSImage?,
+        systemStatus: ProviderSystemStatus? = nil
     ) -> MenuBarRenderedContent {
         if !hasCredential {
             return iconWithStatusContent(
@@ -162,7 +164,8 @@ enum MenuBarStatusComposer {
         hasAuthError: Bool,
         hasCredential: Bool,
         secondaryColor: NSColor,
-        icon: NSImage?
+        icon: NSImage?,
+        systemStatus: ProviderSystemStatus? = nil
     ) -> MenuBarProviderSnapshot {
         let status = claudeStatus(
             config: config,
@@ -179,7 +182,8 @@ enum MenuBarStatusComposer {
             tooltip: status.tooltip,
             icon: config.showIcon ? icon : nil,
             styleIcon: styleIcon(usage: usage, config: config),
-            resetText: resetText(usage: usage, config: config)
+            resetText: resetText(usage: usage, config: config),
+            systemStatus: systemStatus
         )
     }
 
@@ -273,7 +277,8 @@ enum MenuBarStatusComposer {
         hasAuthError: Bool,
         isAuthenticated: Bool,
         secondaryColor: NSColor,
-        icon: NSImage?
+        icon: NSImage?,
+        systemStatus: ProviderSystemStatus? = nil
     ) -> MenuBarProviderSnapshot {
         let status = codexStatus(
             config: config,
@@ -290,7 +295,8 @@ enum MenuBarStatusComposer {
             tooltip: status.tooltip,
             icon: config.showIcon ? icon : nil,
             styleIcon: styleIcon(usage: usage, config: config),
-            resetText: resetText(usage: usage, config: config)
+            resetText: resetText(usage: usage, config: config),
+            systemStatus: systemStatus
         )
     }
 
@@ -301,7 +307,8 @@ enum MenuBarStatusComposer {
         hasAuthError: Bool,
         hasCredential: Bool,
         secondaryColor: NSColor,
-        icon: NSImage?
+        icon: NSImage?,
+        systemStatus: ProviderSystemStatus? = nil
     ) -> MenuBarProviderSnapshot {
         let status = geminiStatus(
             config: config,
@@ -318,7 +325,8 @@ enum MenuBarStatusComposer {
             tooltip: status.tooltip,
             icon: config.showIcon ? icon : nil,
             styleIcon: styleIcon(usage: usage, config: config),
-            resetText: resetText(usage: usage, config: config)
+            resetText: resetText(usage: usage, config: config),
+            systemStatus: systemStatus
         )
     }
 
@@ -329,7 +337,8 @@ enum MenuBarStatusComposer {
         hasAuthError: Bool,
         hasCredential: Bool,
         secondaryColor: NSColor,
-        icon: NSImage?
+        icon: NSImage?,
+        systemStatus: ProviderSystemStatus? = nil
     ) -> MenuBarProviderSnapshot {
         let status = antigravityStatus(
             config: config,
@@ -346,7 +355,8 @@ enum MenuBarStatusComposer {
             tooltip: status.tooltip,
             icon: config.showIcon ? icon : nil,
             styleIcon: styleIcon(usage: usage, config: config),
-            resetText: resetText(usage: usage, config: config)
+            resetText: resetText(usage: usage, config: config),
+            systemStatus: systemStatus
         )
     }
 
@@ -450,7 +460,7 @@ enum MenuBarStatusComposer {
         }
         return MenuBarRenderedContent(
             image: composeElements(elements),
-            tooltip: providerTooltipPrefix(for: snapshot.kind, value: snapshot.tooltip)
+            tooltip: providerTooltip(for: snapshot)
         )
     }
 
@@ -478,7 +488,7 @@ enum MenuBarStatusComposer {
             return rendered
         }
         let tooltip = resolvedSnapshots
-            .map { providerTooltipPrefix(for: $0.kind, value: $0.tooltip) }
+            .map(providerTooltip(for:))
             .joined(separator: " / ")
         return MenuBarRenderedContent(
             image: composeElements(elements.isEmpty ? [statusDot(color: secondaryColor)] : elements),
@@ -495,7 +505,8 @@ enum MenuBarStatusComposer {
     ) -> [MenuBarElement] {
         var elements: [MenuBarElement] = []
         if let icon = snapshot.icon {
-            elements.append(.image(icon))
+            let renderedIcon = statusBadgedIcon(icon, for: snapshot)
+            elements.append(.image(renderedIcon))
         }
         if !snapshot.text.isEmpty {
             elements.append(.text(snapshot.text, attributes: [.font: valueFont, .foregroundColor: snapshot.color]))
@@ -506,11 +517,36 @@ enum MenuBarStatusComposer {
         if includeResetText, let resetText = snapshot.resetText {
             elements.append(.text(resetText, attributes: [.font: resetFont, .foregroundColor: secondaryColor]))
         }
+        if snapshot.icon == nil, let status = snapshot.systemStatus, status.hasIssue {
+            elements.append(statusDot(color: statusBadgeColor(for: status.effectiveIndicator)))
+        }
         return elements
     }
 
-    private static func providerTooltipPrefix(for kind: AppProviderKind, value: String) -> String {
-        "\(kind.displayName): \(value)"
+    nonisolated private static func providerTooltip(for snapshot: MenuBarProviderSnapshot) -> String {
+        let base = "\(snapshot.kind.displayName): \(snapshot.tooltip)"
+        guard let status = snapshot.systemStatus, status.hasIssue else {
+            return base
+        }
+        return "\(base)\n\(snapshot.kind.displayName) 상태: \(status.menuBarSummary)"
+    }
+
+    private static func statusBadgedIcon(_ icon: NSImage, for snapshot: MenuBarProviderSnapshot) -> NSImage {
+        guard let status = snapshot.systemStatus, status.hasIssue else {
+            return icon
+        }
+        return MenuBarIconFactory.badgedIcon(icon, indicator: status.effectiveIndicator)
+    }
+
+    private static func statusBadgeColor(for indicator: StatusIndicator) -> NSColor {
+        switch indicator {
+        case .none:
+            return .clear
+        case .minor:
+            return .systemOrange
+        case .major, .critical:
+            return .systemRed
+        }
     }
 
     private static func claudeStatus(
@@ -977,7 +1013,7 @@ enum MenuBarStatusComposer {
     }
 
     private static func menuBarTextShadow() -> NSShadow {
-        let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let isDark = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         let shadow = NSShadow()
         shadow.shadowColor = (isDark ? NSColor.black : NSColor.white).withAlphaComponent(0.9)
         shadow.shadowOffset = NSSize(width: 0, height: 0)

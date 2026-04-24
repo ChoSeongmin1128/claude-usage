@@ -173,7 +173,8 @@ extension AppDelegate {
                 hasAuthError: runtimeSnapshot.hasAuthError,
                 hasCredential: runtimeSnapshot.hasCredential,
                 secondaryColor: secondaryColor,
-                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .claude, size: iconSize) : nil
+                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .claude, size: iconSize) : nil,
+                systemStatus: providerSystemStatus(for: .claude)
             )
         case .codex:
             guard let config = AppSettings.shared.menuBarDisplayConfig(for: .codex) else { return nil }
@@ -184,7 +185,8 @@ extension AppDelegate {
                 hasAuthError: runtimeSnapshot.hasAuthError,
                 isAuthenticated: runtimeSnapshot.hasCredential,
                 secondaryColor: secondaryColor,
-                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .codex, size: iconSize) : nil
+                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .codex, size: iconSize) : nil,
+                systemStatus: providerSystemStatus(for: .codex)
             )
         case .gemini:
             guard let config = AppSettings.shared.menuBarDisplayConfig(for: .gemini) else { return nil }
@@ -195,7 +197,8 @@ extension AppDelegate {
                 hasAuthError: runtimeSnapshot.hasAuthError,
                 hasCredential: runtimeSnapshot.hasCredential,
                 secondaryColor: secondaryColor,
-                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .gemini, size: iconSize) : nil
+                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .gemini, size: iconSize) : nil,
+                systemStatus: providerSystemStatus(for: .gemini)
             )
         case .antigravity:
             guard let config = AppSettings.shared.menuBarDisplayConfig(for: .antigravity) else { return nil }
@@ -206,7 +209,8 @@ extension AppDelegate {
                 hasAuthError: runtimeSnapshot.hasAuthError,
                 hasCredential: runtimeSnapshot.hasCredential,
                 secondaryColor: secondaryColor,
-                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .antigravity, size: iconSize) : nil
+                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .antigravity, size: iconSize) : nil,
+                systemStatus: providerSystemStatus(for: .antigravity)
             )
         }
     }

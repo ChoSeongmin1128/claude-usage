@@ -59,7 +59,15 @@ extension AppDelegate {
 
     var systemStatus: ClaudeSystemStatus? {
         get { withRuntimeState { $0.systemStatus } }
-        set { withRuntimeState { $0.systemStatus = newValue } }
+        set { withRuntimeState { $0.setSystemStatus(newValue, for: .claude) } }
+    }
+
+    func providerSystemStatus(for kind: AppProviderKind) -> ProviderSystemStatus? {
+        withRuntimeState { $0.systemStatus(for: kind) }
+    }
+
+    func setProviderSystemStatus(_ status: ProviderSystemStatus?, for kind: AppProviderKind) {
+        withRuntimeState { $0.setSystemStatus(status, for: kind) }
     }
 
     var setupWizardCredentialStepOverride: SetupWizardView.Step? {
