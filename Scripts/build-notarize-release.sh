@@ -51,6 +51,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
+create_app_zip() {
+    # AppleDouble files break Gatekeeper after ZIP-based installs.
+    COPYFILE_DISABLE=1 ditto -c -k --norsrc --noextattr --keepParent "$APP_PATH" "$ZIP_PATH"
+}
+
 extract_xcconfig_value() {
     local file="$1"
     local key="$2"
@@ -315,7 +320,7 @@ codesign --force --options runtime --timestamp \
 
 echo
 echo "3. 앱 notarization ZIP 생성"
-ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
+create_app_zip
 
 # ── 4. 앱 notarize ──────────────────────────────────────────
 
@@ -336,7 +341,7 @@ xcrun stapler staple "$APP_PATH"
 echo
 echo "6. stapled ZIP 재생성"
 rm -f "$ZIP_PATH"
-ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
+create_app_zip
 
 if [[ "$SKIP_DMG" == "1" ]]; then
     echo
