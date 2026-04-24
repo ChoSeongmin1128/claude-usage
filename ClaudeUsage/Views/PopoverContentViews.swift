@@ -1,4 +1,6 @@
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum StatusPanelActionStyle: Equatable {
     case bordered
@@ -256,6 +258,168 @@ struct CompactUsageRow: View {
             return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: timeFormatStyle) ?? "--"
         }
         return TimeFormatter.formatResetTime(from: resetAt, style: timeFormatStyle, includeDateIfNotToday: false) ?? "--"
+    }
+}
+
+enum PopoverDisplayEditorMode: String, CaseIterable, Identifiable {
+    case standard
+    case compact
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .standard:
+            return "일반 보기"
+        case .compact:
+            return "간소화 보기"
+        }
+    }
+
+    var isCompact: Bool {
+        self == .compact
+    }
+}
+
+struct PopoverDisplayEditorView: View {
+    @ObservedObject var settings: AppSettings
+    let service: PopoverService
+    @Binding var selectedMode: PopoverDisplayEditorMode
+    @State private var draggingItemID: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Picker("", selection: modeSelection) {
+                ForEach(PopoverDisplayEditorMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            itemsList(isCompact: selectedMode.isCompact)
+        }
+        .padding(12)
+        .frame(width: 280)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+    }
+
+    private var modeSelection: Binding<PopoverDisplayEditorMode> {
+        Binding(
+            get: { selectedMode },
+            set: { newMode in
+                if newMode.isCompact && !settings.separateCompactConfig {
+                    settings.separateCompactConfig = true
+                }
+                selectedMode = newMode
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func itemsList(isCompact: Bool) -> some View {
+        let items = isCompact
+            ? settings.compactPopoverItems(for: service)
+            : settings.popoverItems(for: service)
+
+        VStack(spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                VStack(spacing: 0) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "line.3.horizontal")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 14)
+
+                        Button {
+                            var updated = items
+                            updated[index].visible.toggle()
+                            applyItems(updated, isCompact: isCompact)
+                        } label: {
+                            Image(systemName: item.visible ? "eye" : "eye.slash")
+                                .foregroundStyle(item.visible ? .primary : .tertiary)
+                                .font(.system(size: 12))
+                                .frame(width: 16, height: 16)
+                        }
+                        .buttonStyle(.borderless)
+                        .help(item.visible ? "숨기기" : "보이기")
+
+                        Text(item.displayName)
+                            .font(.subheadline)
+                            .foregroundStyle(item.visible ? .primary : .tertiary)
+
+                        Spacer()
+                    }
+                    .frame(height: 26)
+                    .padding(.horizontal, 8)
+                    .contentShape(Rectangle())
+
+                    if index < items.count - 1 {
+                        Divider().padding(.horizontal, 8)
+                    }
+                }
+                .background(draggingItemID == item.id ? Color.accentColor.opacity(0.1) : Color.clear)
+                .cornerRadius(4)
+                .onDrag {
+                    draggingItemID = item.id
+                    return NSItemProvider(object: item.id as NSString)
+                }
+                .onDrop(of: [UTType.text], delegate: PopoverItemDropDelegate(
+                    targetID: item.id,
+                    settings: settings,
+                    isCompact: isCompact,
+                    service: service,
+                    draggingItemID: $draggingItemID
+                ))
+            }
+        }
+        .padding(.vertical, 4)
+        .background(Color(NSColor.windowBackgroundColor).opacity(0.6))
+        .cornerRadius(6)
+    }
+
+    private func applyItems(_ items: [PopoverItemConfig], isCompact: Bool) {
+        if isCompact {
+            settings.setCompactPopoverItems(items, for: service)
+        } else {
+            settings.setPopoverItems(items, for: service)
+        }
+    }
+}
+
+private struct PopoverItemDropDelegate: DropDelegate {
+    let targetID: String
+    let settings: AppSettings
+    let isCompact: Bool
+    let service: PopoverService
+    @Binding var draggingItemID: String?
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggingItemID = nil
+        return true
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let draggingID = draggingItemID, draggingID != targetID else { return }
+
+        var items = isCompact
+            ? settings.compactPopoverItems(for: service)
+            : settings.popoverItems(for: service)
+        guard let fromIndex = items.firstIndex(where: { $0.id == draggingID }),
+              let toIndex = items.firstIndex(where: { $0.id == targetID }) else { return }
+
+        withAnimation(.easeInOut(duration: 0.15)) {
+            let offset = toIndex > fromIndex ? toIndex + 1 : toIndex
+            items.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: offset)
+            if isCompact {
+                settings.setCompactPopoverItems(items, for: service)
+            } else {
+                settings.setPopoverItems(items, for: service)
+            }
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
     }
 }
 

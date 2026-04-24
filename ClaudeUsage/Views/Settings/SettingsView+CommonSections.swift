@@ -135,14 +135,6 @@ extension SettingsView {
             Label("앱", systemImage: "gearshape.2")
                 .font(.headline)
 
-            settingsToggleRow(
-                "간소화 보기",
-                subtitle: "팝오버를 더 간단한 레이아웃으로 보여줍니다",
-                isOn: $settings.popoverCompact
-            )
-
-            Divider()
-
             settingsToggleRow("로그인 시 자동 시작", isOn: $settings.launchAtLogin)
 
             Text("시스템 설정 → 일반 → 로그인 항목에서도 관리할 수 있습니다")

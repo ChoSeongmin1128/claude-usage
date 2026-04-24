@@ -10,6 +10,8 @@ import SwiftUI
 struct PopoverView: View {
     @ObservedObject var viewModel: PopoverViewModel
     @ObservedObject private var settings = AppSettings.shared
+    @State private var isDisplayEditorPresented = false
+    @State private var displayEditorMode: PopoverDisplayEditorMode = .standard
 
     var body: some View {
         let layout = viewModel.layoutWithSections(for: selectedService, settings: settings)
@@ -64,6 +66,26 @@ struct PopoverView: View {
                 Spacer()
 
                 Button {
+                    displayEditorMode = isCompact ? .compact : .standard
+                    isDisplayEditorPresented.toggle()
+                } label: {
+                    HStack(spacing: 2) {
+                        Image(systemName: "slider.horizontal.3")
+                        if !isCompact { Text("표시") }
+                    }
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+                .help("표시 항목 편집")
+                .popover(isPresented: $isDisplayEditorPresented, arrowEdge: .bottom) {
+                    PopoverDisplayEditorView(
+                        settings: settings,
+                        service: selectedService,
+                        selectedMode: $displayEditorMode
+                    )
+                }
+
+                Button {
                     viewModel.openSettings()
                 } label: {
                     HStack(spacing: 2) {
@@ -111,6 +133,7 @@ struct PopoverView: View {
         }
         .onChange(of: viewModel.selectedService) { _, _ in
             syncCompactForSelectedServiceIfNeeded()
+            isDisplayEditorPresented = false
         }
     }
 
@@ -150,13 +173,14 @@ struct PopoverView: View {
                 withAnimation(.easeInOut(duration: 0.15)) {
                     isCompact.toggle()
                 }
+                displayEditorMode = isCompact ? .compact : .standard
                 viewModel.requestLayoutRefresh(reason: .compactToggle)
             } label: {
                 Image(systemName: isCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
                     .font(.system(size: 12))
             }
             .buttonStyle(.borderless)
-            .help(isCompact ? "기본 보기" : "간소화")
+            .help(isCompact ? "일반 보기" : "간소화 보기")
 
             Button {
                 isPinned.toggle()
@@ -266,10 +290,6 @@ struct PopoverView: View {
         nonmutating set {
             settings.popoverCompact = newValue
         }
-    }
-
-    private func setCompactForSelectedService(_ compact: Bool) {
-        settings.popoverCompact = compact
     }
 
     private func syncCompactForSelectedServiceIfNeeded() {

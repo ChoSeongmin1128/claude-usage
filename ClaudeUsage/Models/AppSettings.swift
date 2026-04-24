@@ -493,7 +493,7 @@ class AppSettings: ObservableObject {
     @Published var separateCompactConfig: Bool {
         didSet {
             defaults.set(separateCompactConfig, forKey: "separateCompactConfig")
-            if separateCompactConfig {
+            if separateCompactConfig && oldValue == false && compactPopoverItemsByProvider == popoverItemsByProvider {
                 // 분리 모드 전환: 기본 설정을 복사하여 시작
                 compactPopoverItemsByProvider = popoverItemsByProvider
             }

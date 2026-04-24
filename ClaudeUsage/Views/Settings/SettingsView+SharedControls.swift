@@ -101,23 +101,6 @@ extension SettingsView {
                     }
                 }
 
-                Divider()
-
-                settingsToggleRow(
-                    "간소화 보기",
-                    isOn: Binding(
-                        get: { settings.isPopoverCompact(for: provider) },
-                        set: { settings.setPopoverCompact($0, for: provider) }
-                    )
-                )
-
-                settingsToggleRow(
-                    "팝오버 고정",
-                    isOn: Binding(
-                        get: { settings.isPopoverPinned(for: provider) },
-                        set: { settings.setPopoverPinned($0, for: provider) }
-                    )
-                )
             }
         }
     }
