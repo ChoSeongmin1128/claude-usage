@@ -106,16 +106,10 @@ extension UsageWindow {
         Int(utilization)
     }
 
-    /// 리셋 시간을 Date로 변환
+    /// 갱신 예상 시간을 Date로 변환
     nonisolated var resetDate: Date? {
         guard let resetsAt = resetsAt else { return nil }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: resetsAt) {
-            return date
-        }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: resetsAt)
+        return TimeFormatter.parseISO8601(resetsAt)
     }
 }
 

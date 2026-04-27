@@ -11,7 +11,7 @@
 - 사용자가 원할 때 다른 provider를 추가 활성화
 - `Web(sessionKey/cookie)`와 `OAuth`를 함께 다루는 Claude 중심 인증 구조
 - `ClaudeSetupPresentation + RuntimeProviderSnapshot` 기반의 공통 setup/runtime truth
-- 메뉴바에서 퍼센트, 리셋 시간, 아이콘 스타일을 조합해 빠르게 상태 확인
+- 메뉴바에서 퍼센트, 갱신 예상 시간, 아이콘 스타일을 조합해 빠르게 상태 확인
 - 팝오버에서 상세 사용량, 인증 상태, 경로 상태, organization 상태 확인
 
 ## 구현된 핵심 기능

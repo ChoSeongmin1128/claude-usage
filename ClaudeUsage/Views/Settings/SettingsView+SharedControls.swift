@@ -36,7 +36,7 @@ extension SettingsView {
                         }
                     }
 
-                    Picker("리셋 시간", selection: Binding(
+                    Picker("갱신 시간", selection: Binding(
                         get: { settings.menuBarDisplayConfig(for: provider)?.resetTimeDisplay ?? .none },
                         set: { settings.setProviderResetTimeDisplay($0, for: provider) }
                     )) {

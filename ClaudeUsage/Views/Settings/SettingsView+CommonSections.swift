@@ -45,7 +45,7 @@ extension SettingsView {
 
             settingsToggleRow(
                 "보조 텍스트 강조",
-                subtitle: "리셋 시간과 구분자를 기본 텍스트 색상으로 표시합니다",
+                subtitle: "갱신 시각과 구분자를 기본 텍스트 색상으로 표시합니다",
                 isOn: $settings.menuBarTextHighContrast
             )
         }

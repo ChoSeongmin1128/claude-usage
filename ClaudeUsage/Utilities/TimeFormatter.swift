@@ -10,7 +10,7 @@ import Foundation
 enum TimeFormatter {
     /// ISO 8601 날짜 문자열 파싱 (마이크로초 포함)
     /// 예: "2026-02-11T09:59:59.892268+00:00"
-    nonisolated private static func parseISO8601(_ string: String) -> Date? {
+    nonisolated static func parseISO8601(_ string: String) -> Date? {
         // 1차: fractionalSeconds 포함 시도
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -64,7 +64,7 @@ enum TimeFormatter {
         return string
     }
 
-    /// 리셋 시간까지 남은 시간을 한국어로 포맷
+    /// 갱신 예상 시각까지 남은 시간을 한국어로 포맷
     nonisolated static func formatRelativeTime(from resetAt: String) -> String {
         guard let resetDate = parseISO8601(resetAt) else {
             Logger.warning("날짜 파싱 실패: \(resetAt)")
@@ -74,7 +74,7 @@ enum TimeFormatter {
         return formatRelativeTime(until: resetDate)
     }
 
-    /// 리셋 시각을 시간 포맷에 맞게 반환
+    /// 갱신 예상 시각을 시간 포맷에 맞게 반환
     /// 오늘이 아닌 경우 날짜+요일 포함 (예: "2/14(금) 18:34")
     nonisolated static func formatResetTime(from resetAt: String, style: TimeFormatStyle = .h24, includeDateIfNotToday: Bool = true) -> String? {
         guard let resetDate = parseISO8601(resetAt) else { return nil }
@@ -112,7 +112,7 @@ enum TimeFormatter {
         return String(format: "%dh %02dm", hours, minutes)
     }
 
-    /// 주간 리셋 시간 포맷 (1일 이상이면 분 단위 생략)
+    /// 주간 갱신 예상 시각 포맷 (1일 이상이면 분 단위 생략)
     nonisolated static func formatResetTimeWeekly(from resetAt: String, style: TimeFormatStyle = .h24, includeDateIfNotToday: Bool = true) -> String? {
         guard let resetDate = parseISO8601(resetAt) else { return nil }
 
@@ -143,24 +143,27 @@ enum TimeFormatter {
         }
     }
 
-    /// 남은 시간 + 리셋 시각을 결합한 포맷 (현재 세션용: 항상 시각만)
-    /// 예: "2시간 34분 후 리셋 (18:34)" 또는 "2시간 34분 후 리셋 (6:34 PM)"
+    /// 남은 시간 + 갱신 예상 시각을 결합한 포맷 (현재 세션용: 항상 시각만)
+    /// 예: "갱신 예상: 2시간 34분 후 (18:34)" 또는 "갱신 예상: 2시간 34분 후 (6:34 PM)"
     nonisolated static func formatRelativeTimeWithClock(from resetAt: String, style: TimeFormatStyle = .h24) -> String {
         let relative = formatRelativeTime(from: resetAt)
+        if relative == "곧 갱신" || relative == "시간 정보 없음" {
+            return "갱신 예상: \(relative)"
+        }
         // remaining 스타일이면 괄호 안에 24시간 시각 표시 (중복 방지)
         let clockStyle: TimeFormatStyle = style == .remaining ? .h24 : style
         // 현재 세션은 5시간 윈도우이므로 날짜 없이 시각만 표시
         if let clock = formatResetTime(from: resetAt, style: clockStyle, includeDateIfNotToday: false) {
-            return "\(relative) (\(clock))"
+            return "갱신 예상: \(relative) (\(clock))"
         }
-        return relative
+        return "갱신 예상: \(relative)"
     }
 
     /// 주간 세션용: 1일 이상이면 분 단위 생략한 결합 포맷
-    /// 예: "2일 3시간 후 리셋 (2/14(금))" — 1일 이내면 기본과 동일
+    /// 예: "갱신 예상: 2일 3시간 후 (2/14(금))" — 1일 이내면 기본과 동일
     nonisolated static func formatRelativeTimeWithClockWeekly(from resetAt: String, style: TimeFormatStyle = .h24) -> String {
         guard let resetDate = parseISO8601(resetAt) else {
-            return formatRelativeTime(from: resetAt)
+            return "갱신 예상: \(formatRelativeTime(from: resetAt))"
         }
 
         let interval = resetDate.timeIntervalSince(Date())
@@ -176,16 +179,16 @@ enum TimeFormatter {
 
         let relative: String
         if hours > 0 {
-            relative = "\(days)일 \(hours)시간 후 리셋"
+            relative = "\(days)일 \(hours)시간 후"
         } else {
-            relative = "\(days)일 후 리셋"
+            relative = "\(days)일 후"
         }
 
         let clockStyle: TimeFormatStyle = style == .remaining ? .h24 : style
         if let clock = formatResetTimeWeekly(from: resetAt, style: clockStyle) {
-            return "\(relative) (\(clock))"
+            return "갱신 예상: \(relative) (\(clock))"
         }
-        return relative
+        return "갱신 예상: \(relative)"
     }
 
     /// Date 기반 상대 시간 포맷 (30초 기준 반올림)
@@ -194,7 +197,7 @@ enum TimeFormatter {
         let rawInterval = date.timeIntervalSince(now)
 
         if rawInterval <= 0 {
-            return "곧 리셋"
+            return "곧 갱신"
         }
 
         // 30초 기준 반올림: 30초 이상이면 1분으로 올림
@@ -209,22 +212,22 @@ enum TimeFormatter {
 
         if days > 0 {
             if hours > 0 {
-                return "\(days)일 \(hours)시간 후 리셋"
+                return "\(days)일 \(hours)시간 후"
             }
-            return "\(days)일 후 리셋"
+            return "\(days)일 후"
         }
 
         if hours > 0 {
             if minutes > 0 {
-                return "\(hours)시간 \(minutes)분 후 리셋"
+                return "\(hours)시간 \(minutes)분 후"
             }
-            return "\(hours)시간 후 리셋"
+            return "\(hours)시간 후"
         }
 
         if minutes > 0 {
-            return "\(minutes)분 후 리셋"
+            return "\(minutes)분 후"
         }
 
-        return "곧 리셋"
+        return "곧 갱신"
     }
 }

@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import UserNotifications
 
 enum SessionType: String {
     case fiveHour
@@ -57,7 +56,7 @@ enum SessionType: String {
     }
 }
 
-class NotificationManager {
+final class NotificationManager {
     static let shared = NotificationManager()
 
     private enum ThresholdPresentationMode {
@@ -78,18 +77,16 @@ class NotificationManager {
         .antigravityTertiary: SessionTracker(),
     ]
 
-    private init() {}
+    private let deliverer: NotificationDelivering
+
+    init(deliverer: NotificationDelivering = UserNotificationDeliverer()) {
+        self.deliverer = deliverer
+    }
 
     // MARK: - Permission
 
     func requestPermission() {
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
-            if granted {
-                Logger.info("알림 권한 허용됨")
-            } else {
-                Logger.warning("알림 권한 거부됨: \(error?.localizedDescription ?? "")")
-            }
-        }
+        deliverer.requestPermission()
     }
 
     // MARK: - Threshold Check
@@ -128,101 +125,63 @@ class NotificationManager {
             }
         }()
         let normalizedClaudePolicy = claudePolicy?.isFreshEnoughForNotifications == true ? claudePolicy : nil
-        let thresholdMode: ThresholdPresentationMode = settings.alertRemainingMode ? .remaining : .used
-
-        // 첫 번째 호출: 현재 상태만 기록, 알림 보내지 않음
-        if tracker.isFirstCheck {
-            tracker.isFirstCheck = false
-            tracker.lastResetAt = resetAt
-
-            for threshold in thresholds where percentage >= Double(threshold) {
-                if shouldSuppressThreshold(
-                    threshold,
-                    session: session,
-                    claudePolicy: normalizedClaudePolicy
-                ) {
-                    continue
-                }
-                tracker.alertedThresholds.insert(threshold)
-            }
-
-            Logger.info("\(session.displayName) 첫 실행 기록: \(Int(percentage))%")
-            return
-        }
-
         let serviceName = session.providerName
-
-        // 리셋 감지: 5분 이상 차이나야 실제 리셋으로 판단
-        if let resetAt = resetAt, let lastReset = tracker.lastResetAt, isActualReset(from: lastReset, to: resetAt) {
-            Logger.info("\(session.displayName) 세션 리셋 감지")
-            tracker.alertedThresholds.removeAll()
-            tracker.lastResetAt = resetAt
-
-            sendNotification(
-                title: "\(serviceName) 세션 리셋",
-                body: "\(session.displayName) 세션이 리셋되었습니다"
-            )
-            return
-        }
-
-        tracker.lastResetAt = resetAt
-
-        // 임계값 알림 (높은 순서대로, 한 번에 하나만)
-        for threshold in thresholds.reversed() {
-            if shouldSuppressThreshold(
-                threshold,
+        let thresholdMode: ThresholdPresentationMode = settings.alertRemainingMode ? .remaining : .used
+        let effectiveThresholds = thresholds.filter {
+            !shouldSuppressThreshold(
+                $0,
                 session: session,
                 claudePolicy: normalizedClaudePolicy
-            ) {
-                continue
-            }
-            if percentage >= Double(threshold) && !tracker.alertedThresholds.contains(threshold) {
-                let title = thresholdAlertTitle(
-                    serviceName: serviceName,
+            )
+        }
+        let decision = UsageWindowAlertPolicy.evaluate(
+            previousPercentage: tracker.lastPercentage,
+            currentPercentage: percentage,
+            resetAt: resetAt,
+            thresholds: effectiveThresholds,
+            alertedThresholds: tracker.alertedThresholds,
+            isFirstCheck: tracker.isFirstCheck
+        )
+
+        if tracker.isFirstCheck {
+            Logger.info("\(session.displayName) 첫 실행 기록: \(Int(percentage))%")
+        } else if resetAt != tracker.lastResetAt {
+            Logger.debug(
+                "\(session.displayName) 갱신 예상 시각 변경: \(tracker.lastResetAt ?? "nil") -> \(resetAt ?? "nil")"
+            )
+        }
+
+        tracker.isFirstCheck = false
+        tracker.lastPercentage = percentage
+        tracker.lastResetAt = resetAt
+        tracker.alertedThresholds = decision.alertedThresholds
+
+        if let threshold = decision.thresholdToAlert {
+            let title = thresholdAlertTitle(
+                serviceName: serviceName,
+                threshold: threshold,
+                presentationMode: thresholdMode)
+            let guidanceSuffix = (session == .fiveHour || session == .weekly)
+                ? normalizedClaudePolicy?.guidanceSuffix(
                     threshold: threshold,
-                    presentationMode: thresholdMode)
-                let guidanceSuffix = (session == .fiveHour || session == .weekly)
-                    ? normalizedClaudePolicy?.guidanceSuffix(
-                        threshold: threshold,
-                        alertRemainingMode: settings.alertRemainingMode)
-                    : nil
-                let body = thresholdAlertBody(
-                    session: session,
-                    threshold: threshold,
-                    presentationMode: thresholdMode,
-                    guidanceSuffix: guidanceSuffix)
-                sendNotification(
-                    title: title,
-                    body: body
-                )
-                tracker.alertedThresholds.insert(threshold)
-                break
-            }
+                    alertRemainingMode: settings.alertRemainingMode)
+                : nil
+            let body = thresholdAlertBody(
+                session: session,
+                threshold: threshold,
+                presentationMode: thresholdMode,
+                guidanceSuffix: guidanceSuffix)
+            sendNotification(title: title, body: body)
         }
     }
 
     // MARK: - Private
 
-    private class SessionTracker {
+    private final class SessionTracker {
         var alertedThresholds: Set<Int> = []
+        var lastPercentage: Double?
         var lastResetAt: String?
         var isFirstCheck = true
-    }
-
-    private func isActualReset(from oldResetAt: String, to newResetAt: String) -> Bool {
-        let parse: (String) -> Date? = { str in
-            let fmt = ISO8601DateFormatter()
-            fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let d = fmt.date(from: str) { return d }
-            fmt.formatOptions = [.withInternetDateTime]
-            return fmt.date(from: str)
-        }
-
-        guard let oldDate = parse(oldResetAt), let newDate = parse(newResetAt) else {
-            return oldResetAt != newResetAt
-        }
-
-        return abs(newDate.timeIntervalSince(oldDate)) > 300
     }
 
     private func shouldSuppressThreshold(
@@ -287,23 +246,7 @@ class NotificationManager {
     // MARK: - Send Notification
 
     private func sendNotification(title: String, body: String) {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-
-        let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
-            content: content,
-            trigger: nil
-        )
-
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                Logger.error("알림 발송 실패: \(error)")
-            } else {
-                Logger.info("알림 발송: \(title) - \(body)")
-            }
-        }
+        deliverer.deliver(title: title, body: body)
     }
+
 }
