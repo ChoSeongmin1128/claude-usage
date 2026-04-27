@@ -25,6 +25,7 @@ enum PopoverLayoutMetrics {
     static let compactStatusPanelHeight: CGFloat = 40
     static let compactInteractiveStatusPanelHeight: CGFloat = 48
     static let compactFixedContentBodyHeight: CGFloat = compactUsageRowHeight * 3 + compactSectionSpacing * 2
+    static let compactMaximumVisibleRows = 3
     static let compactMinimumPopoverHeight: CGFloat = 96
     static let compactContentBottomSpacing: CGFloat = 5
     static let standardStatusPanelHeight: CGFloat = 72
@@ -45,7 +46,7 @@ enum PopoverLayoutMetrics {
         let contentBottomSpacing = density.isCompact ? compactContentBottomSpacing : 0
 
         if density.isCompact {
-            let bodyContentHeight = compactBodyViewportHeight(phase: phase)
+            let bodyContentHeight = compactBodyViewportHeight(phase: phase, rowCount: rowCount)
             let totalHeight = max(
                 compactMinimumPopoverHeight,
                 compactHeaderHeight
@@ -88,14 +89,17 @@ enum PopoverLayoutMetrics {
         rowCount: Int
     ) -> CGFloat {
         if compact {
-            let bodyHeight = compactBodyViewportHeight(phase: phase)
-            return compactHeaderHeight
+            let bodyHeight = compactBodyViewportHeight(phase: phase, rowCount: rowCount)
+            return max(
+                compactMinimumPopoverHeight,
+                compactHeaderHeight
                 + compactBodyInsets.top
                 + bodyHeight
                 + compactBodyInsets.bottom
                 + compactContentBottomSpacing
                 + dividerHeight
                 + compactFooterHeight
+            )
         }
 
         switch phase {
@@ -126,15 +130,21 @@ enum PopoverLayoutMetrics {
         }
     }
 
-    static func compactBodyViewportHeight(phase: PopoverContentPhase) -> CGFloat {
+    static func compactBodyViewportHeight(phase: PopoverContentPhase, rowCount: Int = compactMaximumVisibleRows) -> CGFloat {
         switch phase {
         case .content:
-            return compactFixedContentBodyHeight
+            return compactContentBodyHeight(rowCount: rowCount)
         case .authRequired, .error:
             return compactInteractiveStatusPanelHeight
         case .loading, .empty:
             return compactStatusPanelHeight
         }
+    }
+
+    static func compactContentBodyHeight(rowCount: Int) -> CGFloat {
+        let visibleRows = min(max(rowCount, 1), compactMaximumVisibleRows)
+        return compactUsageRowHeight * CGFloat(visibleRows)
+            + compactSectionSpacing * CGFloat(max(visibleRows - 1, 0))
     }
 
     static func standardPopoverHeight(forBodyHeight bodyHeight: CGFloat) -> CGFloat {
