@@ -119,18 +119,26 @@ extension SettingsView {
             claudeOverviewSection
             Divider()
             providerMenuBarDisplaySection(for: .claude)
+            Divider()
+            providerPopoverDisplaySection(for: .claude)
         case .codex:
             codexOverviewSection
             Divider()
             providerMenuBarDisplaySection(for: .codex)
+            Divider()
+            providerPopoverDisplaySection(for: .codex)
         case .gemini:
             runtimeProviderPanel(for: .gemini)
             Divider()
             providerMenuBarDisplaySection(for: .gemini)
+            Divider()
+            providerPopoverDisplaySection(for: .gemini)
         case .antigravity:
             runtimeProviderPanel(for: .antigravity)
             Divider()
             providerMenuBarDisplaySection(for: .antigravity)
+            Divider()
+            providerPopoverDisplaySection(for: .antigravity)
         }
     }
 

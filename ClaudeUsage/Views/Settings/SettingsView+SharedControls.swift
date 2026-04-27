@@ -5,7 +5,7 @@ extension SettingsView {
     func providerMenuBarDisplaySection(for provider: AppProviderKind) -> some View {
         if let displayConfig = settings.menuBarDisplayConfig(for: provider) {
             VStack(alignment: .leading, spacing: 12) {
-                Label("표시", systemImage: "slider.horizontal.3")
+                Label("메뉴바 표시", systemImage: "slider.horizontal.3")
                     .font(.headline)
 
                 if provider == .gemini || provider == .antigravity {
@@ -105,6 +105,17 @@ extension SettingsView {
         }
     }
 
+    @ViewBuilder
+    func providerPopoverDisplaySection(for provider: AppProviderKind) -> some View {
+        if let service = provider.runtimeService {
+            ProviderPopoverDisplaySection(
+                settings: settings,
+                provider: provider,
+                service: service
+            )
+        }
+    }
+
     func segmentedTabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
@@ -181,5 +192,54 @@ extension SettingsView {
         .background(color.opacity(0.16))
         .foregroundStyle(color)
         .cornerRadius(6)
+    }
+}
+
+private struct ProviderPopoverDisplaySection: View {
+    @ObservedObject var settings: AppSettings
+    let provider: AppProviderKind
+    let service: PopoverService
+    @State private var selectedMode: PopoverDisplayEditorMode = .standard
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("팝오버 표시 항목", systemImage: "list.bullet.rectangle")
+                .font(.headline)
+
+            Text("\(provider.displayName) 팝오버에서 일반/간소화 보기별 항목과 순서를 정합니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Picker("", selection: modeSelection) {
+                ForEach(PopoverDisplayEditorMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 360, alignment: .leading)
+
+            PopoverDisplayItemsListView(
+                settings: settings,
+                service: service,
+                isCompact: selectedMode.isCompact
+            )
+            .frame(maxWidth: 420, alignment: .leading)
+
+            Text("눈 아이콘으로 표시 여부를 바꾸고, 항목을 드래그해 순서를 조정합니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var modeSelection: Binding<PopoverDisplayEditorMode> {
+        Binding(
+            get: { selectedMode },
+            set: { newMode in
+                if newMode.isCompact && !settings.separateCompactConfig {
+                    settings.separateCompactConfig = true
+                }
+                selectedMode = newMode
+            }
+        )
     }
 }

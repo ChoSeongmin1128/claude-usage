@@ -285,7 +285,6 @@ struct PopoverDisplayEditorView: View {
     @ObservedObject var settings: AppSettings
     let service: PopoverService
     @Binding var selectedMode: PopoverDisplayEditorMode
-    @State private var draggingItemID: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -296,7 +295,11 @@ struct PopoverDisplayEditorView: View {
             }
             .pickerStyle(.segmented)
 
-            itemsList(isCompact: selectedMode.isCompact)
+            PopoverDisplayItemsListView(
+                settings: settings,
+                service: service,
+                isCompact: selectedMode.isCompact
+            )
         }
         .padding(12)
         .frame(width: 280)
@@ -314,13 +317,21 @@ struct PopoverDisplayEditorView: View {
             }
         )
     }
+}
 
-    @ViewBuilder
-    private func itemsList(isCompact: Bool) -> some View {
-        let items = isCompact
+struct PopoverDisplayItemsListView: View {
+    @ObservedObject var settings: AppSettings
+    let service: PopoverService
+    let isCompact: Bool
+    @State private var draggingItemID: String?
+
+    private var items: [PopoverItemConfig] {
+        isCompact
             ? settings.compactPopoverItems(for: service)
             : settings.popoverItems(for: service)
+    }
 
+    var body: some View {
         VStack(spacing: 0) {
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 VStack(spacing: 0) {
