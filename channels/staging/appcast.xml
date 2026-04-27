@@ -1,22 +1,14 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<?xml version="1.0" standalone="yes"?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>ClaudeUsage</title>
         <item>
-            <title>2.0.1</title>
-            <pubDate>Sat, 18 Apr 2026 22:05:55 +0900</pubDate>
-            <sparkle:version>20001</sparkle:version>
-            <sparkle:shortVersionString>2.0.1</sparkle:shortVersionString>
+            <title>2.0.5</title>
+            <pubDate>Mon, 27 Apr 2026 10:42:21 +0900</pubDate>
+            <sparkle:version>20005</sparkle:version>
+            <sparkle:shortVersionString>2.0.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.1-staging.11/ClaudeUsage.zip" length="3086142" type="application/octet-stream" sparkle:edSignature="iITuIefCFwskgluiSRuZkOxF56jHIYkQaUHBzoxwwwmWR0bJoVDF6PRXtkTxxqp3r3k1dkMJIXwiICdTKBlgAg=="/>
-        </item>
-        <item>
-            <title>2.0.0</title>
-            <pubDate>Tue, 21 Apr 2026 04:28:22 +0900</pubDate>
-            <sparkle:version>20000</sparkle:version>
-            <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.4-staging/ClaudeUsage.zip" length="3086142" type="application/octet-stream" sparkle:edSignature="iITuIefCFwskgluiSRuZkOxF56jHIYkQaUHBzoxwwwmWR0bJoVDF6PRXtkTxxqp3r3k1dkMJIXwiICdTKBlgAg=="/>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.5-staging/ClaudeUsage.zip" length="3103528" type="application/octet-stream" sparkle:edSignature="Jqgyv3+V1I2cGMVa9E8VxBmyudXc3YWFhF5iuvX7mwHQATYEx4u/5QyFu/G/qUbv4eg6ZOjbJ/O5Jt9iXihxAw=="/>
         </item>
     </channel>
 </rss>
