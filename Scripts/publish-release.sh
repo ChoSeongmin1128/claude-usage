@@ -335,7 +335,7 @@ if [[ "$SKIP_PAGES_PUBLISH" == "1" ]]; then
 elif [[ -z "$FEED_URL" ]]; then
     echo "   feed URL 이 없어 건너뜁니다."
 elif is_github_pages_feed_url "$FEED_URL"; then
-    "$ROOT_DIR/Scripts/publish-pages-appcast.sh" \
+    APPCAST_SOURCE="$APPCAST_PATH" "$ROOT_DIR/Scripts/publish-pages-appcast.sh" \
         --feed-url "$FEED_URL" \
         --channel "$CHANNEL" \
         --tag "$TAG"
