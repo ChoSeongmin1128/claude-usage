@@ -81,9 +81,7 @@ extension SettingsView {
 
                     if shouldShowOrganizationAction {
                         Button("조직 선택") {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                isOrganizationAdvancedExpanded = true
-                            }
+                            revealOrganizationControls()
                         }
                         .buttonStyle(.bordered)
                     }
@@ -148,13 +146,11 @@ extension SettingsView {
     }
 
     private var shouldShowOrganizationAction: Bool {
-        guard hasSuccessfulClaudeFetch else { return false }
-        return appliedClaudeSetupPresentation.primaryActionKind == .openOrganizations
-            || appliedClaudeSetupPresentation.progress.stage == .organization
+        hasReadyClaudeCredential
     }
 
     private var shouldShowOrganizationSection: Bool {
-        shouldShowOrganizationAction
+        hasReadyClaudeCredential
             || !appliedPreferredOrganizationID.isEmpty
             || hasPendingOrganizationChange
             || isOrganizationAdvancedExpanded
@@ -449,8 +445,12 @@ extension SettingsView {
 
             HStack(spacing: 8) {
                 Button(shouldShowOrganizationAdvancedControls ? "선택 닫기" : "직접 선택") {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        isOrganizationAdvancedExpanded.toggle()
+                    if shouldShowOrganizationAdvancedControls {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            isOrganizationAdvancedExpanded = false
+                        }
+                    } else {
+                        revealOrganizationControls()
                     }
                 }
                 .buttonStyle(.bordered)
@@ -471,6 +471,15 @@ extension SettingsView {
         .padding(10)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
         .cornerRadius(8)
+    }
+
+    private func revealOrganizationControls() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isOrganizationAdvancedExpanded = true
+        }
+        if organizations.isEmpty && !isLoadingOrganizations {
+            loadOrganizations(forceRefresh: false)
+        }
     }
 
     private var organizationLoadActions: some View {
