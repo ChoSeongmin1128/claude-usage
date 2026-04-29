@@ -3,12 +3,20 @@
     <channel>
         <title>ClaudeUsage</title>
         <item>
+            <title>2.0.7</title>
+            <pubDate>Wed, 29 Apr 2026 19:05:15 +0900</pubDate>
+            <sparkle:version>20007</sparkle:version>
+            <sparkle:shortVersionString>2.0.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.7-staging/ClaudeUsage.zip" length="3124152" type="application/octet-stream" sparkle:edSignature="2/NsQO4IdJjlnbAy9qCVqAz5U7aOYBSIlJgx5HFhiaiOVtu1GaFgYamyLi4+aHmrnfr+Du1OTl7+4D88xrC6BQ==" />
+        </item>
+        <item>
             <title>2.0.6</title>
             <pubDate>Wed, 29 Apr 2026 17:51:12 +0900</pubDate>
             <sparkle:version>20006</sparkle:version>
             <sparkle:shortVersionString>2.0.6</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.6-staging/ClaudeUsage.zip" length="3102827" type="application/octet-stream" sparkle:edSignature="Jr/G8mup19ReEZZ2flEb14uN8ZVPTRyaJfRUTLt2pRJR9x74DF27Pkrr217Z1wYRnaZYsvd3PX858/uGU1iwAg==" />
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.6/ClaudeUsage.zip" length="3124152" type="application/octet-stream" sparkle:edSignature="2/NsQO4IdJjlnbAy9qCVqAz5U7aOYBSIlJgx5HFhiaiOVtu1GaFgYamyLi4+aHmrnfr+Du1OTl7+4D88xrC6BQ==" />
         </item>
         <item>
             <title>2.0.1</title>
@@ -16,15 +24,7 @@
             <sparkle:version>20001</sparkle:version>
             <sparkle:shortVersionString>2.0.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.1-staging.11/ClaudeUsage.zip" length="3102827" type="application/octet-stream" sparkle:edSignature="Jr/G8mup19ReEZZ2flEb14uN8ZVPTRyaJfRUTLt2pRJR9x74DF27Pkrr217Z1wYRnaZYsvd3PX858/uGU1iwAg==" />
-        </item>
-        <item>
-            <title>2.0.0</title>
-            <pubDate>Tue, 21 Apr 2026 04:28:22 +0900</pubDate>
-            <sparkle:version>20000</sparkle:version>
-            <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.4-staging/ClaudeUsage.zip" length="3102827" type="application/octet-stream" sparkle:edSignature="Jr/G8mup19ReEZZ2flEb14uN8ZVPTRyaJfRUTLt2pRJR9x74DF27Pkrr217Z1wYRnaZYsvd3PX858/uGU1iwAg==" />
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.1-staging.11/ClaudeUsage.zip" length="3124152" type="application/octet-stream" sparkle:edSignature="2/NsQO4IdJjlnbAy9qCVqAz5U7aOYBSIlJgx5HFhiaiOVtu1GaFgYamyLi4+aHmrnfr+Du1OTl7+4D88xrC6BQ==" />
         </item>
     </channel>
 </rss>
