@@ -419,7 +419,7 @@ extension SettingsView {
             }
 
             if appliedPreferredOrganizationID.isEmpty {
-                Text("자동으로 가장 알맞은 조직을 사용합니다.")
+                Text("자동으로 추가 사용량이 켜진 조직을 우선 사용합니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
@@ -510,7 +510,7 @@ extension SettingsView {
                     Text("현재 선택된 조직").tag(selectedOrganizationID)
                 }
                 ForEach(organizations, id: \.id) { org in
-                    Text(org.displayName).tag(org.id)
+                    Text(organizationPickerLabel(for: org)).tag(org.id)
                 }
             }
             .labelsHidden()
@@ -520,6 +520,28 @@ extension SettingsView {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private func organizationPickerLabel(for organization: ClaudeAPIService.OrganizationSummary) -> String {
+        guard let preview = organizationPreviews[organization.id] else {
+            return organization.displayName
+        }
+
+        if preview.overageEnabled == true,
+           let used = preview.overageUsed,
+           let limit = preview.overageLimit {
+            return "\(organization.displayName) · 추가 사용량 \(formatCurrency(used)) / \(formatCurrency(limit))"
+        }
+
+        if preview.overageEnabled == false {
+            return "\(organization.displayName) · 추가 사용량 꺼짐"
+        }
+
+        return organization.displayName
+    }
+
+    private func formatCurrency(_ value: Double) -> String {
+        String(format: "$%.2f", value)
     }
 
     @ViewBuilder

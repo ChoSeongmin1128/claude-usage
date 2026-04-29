@@ -21,6 +21,7 @@ struct SettingsView: View {
     @State var organizationPersistTask: Task<Void, Never>?
     @State var selectedOrganizationID: String = ""
     @State var organizations: [ClaudeAPIService.OrganizationSummary] = []
+    @State var organizationPreviews: [String: ClaudeAPIService.OrganizationPreview] = [:]
     @State var isLoadingOrganizations = false
     @State var organizationMessage: String?
     @State var organizationOAuthFallbackSummary: String?

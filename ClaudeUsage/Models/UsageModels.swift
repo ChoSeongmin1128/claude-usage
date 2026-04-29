@@ -138,7 +138,7 @@ extension ClaudeUsageResponse {
 // MARK: - 추가 사용량 (Extra Usage / Overage)
 
 /// 추가 사용량 API 응답 (금액은 센트 단위로 수신)
-struct OverageSpendLimitResponse: Codable, Sendable {
+struct OverageSpendLimitResponse: Codable, Sendable, Equatable {
     let monthlyCreditLimitCents: Double  // 월별 한도 (센트)
     let usedCreditsCents: Double         // 사용한 금액 (센트)
     let isEnabled: Bool                  // Extra Usage 활성 여부

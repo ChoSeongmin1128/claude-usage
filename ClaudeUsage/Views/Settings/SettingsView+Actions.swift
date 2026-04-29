@@ -12,6 +12,7 @@ extension SettingsView {
         sessionKey = ""
         testResult = nil
         organizations = []
+        organizationPreviews = [:]
         organizationOAuthFallbackSummary = nil
         organizationMessage = "로그아웃되었습니다. 다시 로그인하거나 브라우저 로그인 값을 입력해 주세요."
     }
@@ -185,10 +186,15 @@ extension SettingsView {
                 if !cachedOrganizations.isEmpty {
                     await MainActor.run {
                         organizations = cachedOrganizations
+                        organizationPreviews = [:]
                         isLoadingOrganizations = false
                         organizationOAuthFallbackSummary = nil
                         organizationMessage = "저장된 조직 \(cachedOrganizations.count)개를 표시합니다. 바뀌었으면 강제 새로고침을 눌러 주세요."
                         loadUsageHealthSnapshot()
+                    }
+                    let previews = await service.fetchOrganizationPreviews(for: cachedOrganizations)
+                    await MainActor.run {
+                        organizationPreviews = Dictionary(uniqueKeysWithValues: previews.map { ($0.id, $0) })
                     }
                     return
                 }
@@ -207,6 +213,7 @@ extension SettingsView {
 
             await MainActor.run {
                 organizations = resolvedOrganizations
+                organizationPreviews = [:]
                 isLoadingOrganizations = false
                 organizationOAuthFallbackSummary = nil
             }
@@ -232,14 +239,22 @@ extension SettingsView {
                 return
             }
 
+            let previews = await service.fetchOrganizationPreviews(for: resolvedOrganizations)
+            let overageEnabledCount = previews.filter { $0.overageEnabled == true }.count
+
             await MainActor.run {
+                organizationPreviews = Dictionary(uniqueKeysWithValues: previews.map { ($0.id, $0) })
                 let exists = selectedOrganizationID.isEmpty || resolvedOrganizations.contains { $0.id == selectedOrganizationID }
                 if !exists {
                     organizationMessage = "현재 선택한 조직이 목록에 없어 자동 선택으로 동작합니다."
                     return
                 }
 
-                organizationMessage = "조직 \(resolvedOrganizations.count)개를 불러왔습니다."
+                if overageEnabledCount > 0 {
+                    organizationMessage = "조직 \(resolvedOrganizations.count)개를 불러왔습니다. 추가 사용량 활성 조직 \(overageEnabledCount)개가 있습니다."
+                } else {
+                    organizationMessage = "조직 \(resolvedOrganizations.count)개를 불러왔습니다."
+                }
                 loadUsageHealthSnapshot()
             }
         }

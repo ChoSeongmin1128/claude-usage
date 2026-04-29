@@ -28,6 +28,7 @@ actor ClaudeAPIService {
         let organization: OrganizationSummary
         let fiveHourPercentage: Double?
         let weeklyPercentage: Double?
+        let overageEnabled: Bool?
         let overageUsed: Double?
         let overageLimit: Double?
         let usageErrorMessage: String?
@@ -407,6 +408,7 @@ actor ClaudeAPIService {
 
         for organization in targets {
             var usage: ClaudeUsageResponse?
+            var overage: OverageSpendLimitResponse?
             var usageErrorMessage: String?
             do {
                 usage = try await fetchUsageWithSessionKey(sessionKey, organizationID: organization.id)
@@ -429,13 +431,20 @@ actor ClaudeAPIService {
                 usageErrorMessage = error.localizedDescription
             }
 
+            do {
+                overage = try await fetchOverageSpendLimitWithSessionKey(sessionKey, organizationID: organization.id)
+            } catch {
+                Logger.debug("Organization 추가 사용량 미리보기 실패(\(organization.id)): \(error.localizedDescription)")
+            }
+
             previews.append(
                 OrganizationPreview(
                     organization: organization,
                     fiveHourPercentage: usage?.fiveHour.utilization,
                     weeklyPercentage: usage?.sevenDay?.utilization,
-                    overageUsed: nil,
-                    overageLimit: nil,
+                    overageEnabled: overage?.isEnabled,
+                    overageUsed: overage?.isEnabled == true ? overage?.usedCredits : nil,
+                    overageLimit: overage?.isEnabled == true ? overage?.monthlyCreditLimit : nil,
                     usageErrorMessage: usageErrorMessage
                 )
             )
@@ -542,13 +551,7 @@ actor ClaudeAPIService {
             let trimmed = jsonString.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed == "null" || trimmed.isEmpty {
                 Logger.info("추가 사용량 응답이 null로 반환됨 → 비활성 상태로 처리")
-                return OverageSpendLimitResponse(
-                    monthlyCreditLimitCents: 0,
-                    usedCreditsCents: 0,
-                    isEnabled: false,
-                    outOfCredits: false,
-                    currency: "USD"
-                )
+                return disabledOverageSpendLimitResponse()
             }
         }
 
@@ -594,10 +597,46 @@ actor ClaudeAPIService {
             Logger.warning("선호 Organization ID 미발견(\(preferredOrganizationID)) → 첫 organization으로 대체")
         }
 
-        let selected = organizations[0]
+        let selected = await selectAutomaticOrganization(organizations, sessionKey: sessionKey) ?? organizations[0]
         Logger.info("Organization ID 선택: \(selected.id) (총 \(organizations.count)개)")
         cachedOrganizationID = selected.id
         return selected.id
+    }
+
+    private func selectAutomaticOrganization(
+        _ organizations: [OrganizationSummary],
+        sessionKey: String
+    ) async -> OrganizationSummary? {
+        guard organizations.count > 1 else {
+            return organizations.first
+        }
+
+        var candidates: [ClaudeOverageOrganizationCandidate] = []
+        candidates.reserveCapacity(organizations.count)
+
+        for organization in organizations {
+            do {
+                let overage = try await fetchOverageSpendLimitWithSessionKey(sessionKey, organizationID: organization.id)
+                candidates.append(
+                    ClaudeOverageOrganizationCandidate(
+                        organizationID: organization.id,
+                        overage: overage
+                    )
+                )
+            } catch {
+                Logger.debug("자동 Organization 추가 사용량 확인 실패(\(organization.id)): \(error.localizedDescription)")
+            }
+        }
+
+        guard let selectedCandidate = ClaudeOverageOrganizationSelectionPolicy.selectBest(from: candidates),
+              let selected = organizations.first(where: { $0.id == selectedCandidate.organizationID }) else {
+            return organizations.first
+        }
+
+        if selectedCandidate.overage.isEnabled {
+            Logger.info("추가 사용량 활성 Organization 자동 선택: \(selected.id)")
+        }
+        return selected
     }
 
     private func fetchOrganizationsWithSessionKey(_ sessionKey: String) async throws -> [OrganizationSummary] {
@@ -683,6 +722,16 @@ actor ClaudeAPIService {
         }
 
         return cache.organizations
+    }
+
+    private func disabledOverageSpendLimitResponse() -> OverageSpendLimitResponse {
+        OverageSpendLimitResponse(
+            monthlyCreditLimitCents: 0,
+            usedCreditsCents: 0,
+            isEnabled: false,
+            outOfCredits: false,
+            currency: "USD"
+        )
     }
 
     /// 재시도 로직을 포함한 사용량 가져오기
