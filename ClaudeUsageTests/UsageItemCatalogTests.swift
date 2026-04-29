@@ -45,6 +45,43 @@ final class UsageItemCatalogTests: XCTestCase {
         XCTAssertEqual(usageTitles(from: sections), ["Sonnet (주간)", "Opus (주간)"])
     }
 
+    func testClaudeOverageSectionIsShownWhenExtraUsageEnabled() {
+        let catalog = ClaudeItemCatalog()
+        let section = catalog.section(
+            for: "overageUsage",
+            context: makeContext(
+                claudeOverage: OverageSpendLimitResponse(
+                    monthlyCreditLimitCents: 10_000,
+                    usedCreditsCents: 2_500,
+                    isEnabled: true,
+                    outOfCredits: false,
+                    currency: "USD"
+                )
+            )
+        )
+
+        XCTAssertEqual(section?.id, "overageUsage")
+        XCTAssertEqual(section?.kind, .overage)
+    }
+
+    func testClaudeOverageSectionIsHiddenWhenExtraUsageDisabled() {
+        let catalog = ClaudeItemCatalog()
+        let section = catalog.section(
+            for: "overageUsage",
+            context: makeContext(
+                claudeOverage: OverageSpendLimitResponse(
+                    monthlyCreditLimitCents: 0,
+                    usedCreditsCents: 0,
+                    isEnabled: false,
+                    outOfCredits: false,
+                    currency: "USD"
+                )
+            )
+        )
+
+        XCTAssertNil(section)
+    }
+
     func testCodexCatalogFallsBackToStatusSectionsWhenPayloadMissing() {
         let catalog = CodexItemCatalog()
         let sections = catalog.sections(

@@ -118,7 +118,17 @@ final class PopoverViewLayoutTests: XCTestCase {
             defer { settings.restore(from: snapshot) }
 
             settings.popoverCompact = true
+            settings.separateCompactConfig = true
             settings.setProviderEnabled(true, for: .claude)
+            settings.setCompactPopoverItems(
+                makePopoverItems(
+                    ("currentSession", true),
+                    ("weeklyLimit", true),
+                    ("modelUsage", false),
+                    ("overageUsage", false)
+                ),
+                for: .claude
+            )
 
             let viewModel = PopoverViewModel()
             viewModel.update(

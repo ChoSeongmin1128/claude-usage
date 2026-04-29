@@ -506,12 +506,8 @@ actor ClaudeAPIService {
             throw APIError.invalidSessionKey
         }
 
-        if shouldPreferOAuthNow() {
-            let remaining = max(1, Int(ceil((preferOAuthUntil ?? Date()).timeIntervalSinceNow)))
-            Logger.debug("추가 사용량 조회 스킵: OAuth 우선 경로 유지 중(\(remaining)초)")
-            throw APIError.rateLimited(retryAfter: remaining)
-        }
-
+        // 추가 사용량 API는 현재 브라우저 세션 경로만 지원합니다.
+        // 일반 사용량 조회가 OAuth를 우선하더라도, 유효한 세션키가 있으면 이 조회는 시도해야 합니다.
         if let cooldownError = currentSessionPathCooldownError() {
             Logger.debug("추가 사용량 조회 스킵: 세션키 경로 쿨다운 중(\(cooldownError.localizedDescription))")
             throw cooldownError

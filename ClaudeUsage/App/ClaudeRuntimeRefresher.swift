@@ -15,7 +15,17 @@ enum ClaudeRuntimeRefresher {
     ) async throws -> ClaudeRuntimeRefreshSuccess {
         let usage = try await apiService.fetchUsageWithRetry()
         let shouldFetchOverage = shouldRefreshOverage(lastFetchedAt: lastOverageFetchAt)
-        let overage = shouldFetchOverage ? (try? await apiService.fetchOverageSpendLimit()) : nil
+        let overage: OverageSpendLimitResponse?
+        if shouldFetchOverage {
+            do {
+                overage = try await apiService.fetchOverageSpendLimit()
+            } catch {
+                Logger.debug("추가 사용량 조회 실패: \(error.localizedDescription)")
+                overage = nil
+            }
+        } else {
+            overage = nil
+        }
 
         return ClaudeRuntimeRefreshSuccess(
             usage: usage,
