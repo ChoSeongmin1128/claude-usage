@@ -110,6 +110,44 @@ final class AppInstallLocationPolicyTests: XCTestCase {
         XCTAssertNil(source)
     }
 
+    func testDiskImageSourceCanMatchMountedAppByBundleIdentifier() throws {
+        let source = AppInstallLocationPolicy.diskImageSource(
+            forAppNamed: "ClaudeUsage.app",
+            bundleIdentifier: "com.example.ClaudeUsage",
+            hdiutilInfoPlistData: try makeHdiutilInfoPlistData(
+                imagePath: "/Users/tester/Downloads/ClaudeUsage.dmg",
+                mountPoint: "/Volumes/ClaudeUsage"
+            )
+        ) { candidatePath in
+            candidatePath == "/Volumes/ClaudeUsage/ClaudeUsage.app"
+                ? "com.example.ClaudeUsage"
+                : nil
+        }
+
+        XCTAssertEqual(
+            source,
+            AppDiskImageSource(
+                imagePath: "/Users/tester/Downloads/ClaudeUsage.dmg",
+                mountPoint: "/Volumes/ClaudeUsage"
+            )
+        )
+    }
+
+    func testDiskImageSourceRejectsMountedAppWithDifferentBundleIdentifier() throws {
+        let source = AppInstallLocationPolicy.diskImageSource(
+            forAppNamed: "ClaudeUsage.app",
+            bundleIdentifier: "com.example.ClaudeUsage",
+            hdiutilInfoPlistData: try makeHdiutilInfoPlistData(
+                imagePath: "/Users/tester/Downloads/ClaudeUsage.dmg",
+                mountPoint: "/Volumes/ClaudeUsage"
+            )
+        ) { _ in
+            "com.example.Other"
+        }
+
+        XCTAssertNil(source)
+    }
+
     func testDiskImageSourceIgnoresMalformedHdiutilOutput() {
         let source = AppInstallLocationPolicy.diskImageSource(
             for: "/Volumes/ClaudeUsage/ClaudeUsage.app",

@@ -46,6 +46,11 @@ enum AppLocationChecker {
         let sourceAssessment = AppInstallLocationPolicy.assess(bundlePath: source)
         let sourceDiskImage = mountedDiskImageSource(for: source)
             ?? mountedDiskImageSource(for: assessment.bundlePath)
+            ?? mountedDiskImageSourceForTranslocatedApp(
+                appName: (source as NSString).lastPathComponent,
+                sourceAssessment: sourceAssessment,
+                runtimeAssessment: assessment
+            )
         let appName = (source as NSString).lastPathComponent
         let destinationCandidates = [
             "/Applications/\(appName)",
@@ -158,6 +163,44 @@ enum AppLocationChecker {
             return AppInstallLocationPolicy.diskImageSource(for: bundlePath, hdiutilInfoPlistData: data)
         } catch {
             Logger.warning("DMG 원본 조회 실패: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private static func mountedDiskImageSourceForTranslocatedApp(
+        appName: String,
+        sourceAssessment: AppInstallLocationAssessment,
+        runtimeAssessment: AppInstallLocationAssessment
+    ) -> AppDiskImageSource? {
+        guard sourceAssessment.kind == .appTranslocation
+            || sourceAssessment.kind == .temporary
+            || runtimeAssessment.kind == .appTranslocation
+            || runtimeAssessment.kind == .temporary
+        else {
+            return nil
+        }
+
+        let process = Process()
+        let outputPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+        process.arguments = ["info", "-plist"]
+        process.standardOutput = outputPipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            return AppInstallLocationPolicy.diskImageSource(
+                forAppNamed: appName,
+                bundleIdentifier: Bundle.main.bundleIdentifier,
+                hdiutilInfoPlistData: data
+            ) { candidatePath in
+                Bundle(url: URL(fileURLWithPath: candidatePath))?.bundleIdentifier
+            }
+        } catch {
+            Logger.warning("Translocation DMG 원본 조회 실패: \(error.localizedDescription)")
             return nil
         }
     }

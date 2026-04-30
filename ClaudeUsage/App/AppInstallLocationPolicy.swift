@@ -99,6 +99,46 @@ enum AppInstallLocationPolicy {
         for bundlePath: String,
         hdiutilInfoPlistData: Data
     ) -> AppDiskImageSource? {
+        let sources = diskImageSources(hdiutilInfoPlistData: hdiutilInfoPlistData)
+        guard
+            !sources.isEmpty
+        else {
+            return nil
+        }
+
+        let normalizedBundlePath = normalizedPath(bundlePath)
+        let candidates = sources.filter { source in
+            let normalizedMountPoint = normalizedPath(source.mountPoint)
+            return normalizedBundlePath == normalizedMountPoint
+                || normalizedBundlePath.hasPrefix(normalizedMountPoint + "/")
+        }
+
+        return candidates.max { $0.mountPoint.count < $1.mountPoint.count }
+    }
+
+    nonisolated static func diskImageSource(
+        forAppNamed appName: String,
+        bundleIdentifier: String?,
+        hdiutilInfoPlistData: Data,
+        bundleIdentifierAtPath: (String) -> String?
+    ) -> AppDiskImageSource? {
+        let normalizedAppName = (appName as NSString).lastPathComponent
+        guard !normalizedAppName.isEmpty else { return nil }
+
+        let expectedIdentifier = bundleIdentifier?.isEmpty == false ? bundleIdentifier : nil
+        let candidates = diskImageSources(hdiutilInfoPlistData: hdiutilInfoPlistData).filter { source in
+            let candidatePath = normalizedPath((source.mountPoint as NSString).appendingPathComponent(normalizedAppName))
+            guard let candidateIdentifier = bundleIdentifierAtPath(candidatePath) else { return false }
+            guard let expectedIdentifier else { return true }
+            return candidateIdentifier == expectedIdentifier
+        }
+
+        return candidates.max { $0.mountPoint.count < $1.mountPoint.count }
+    }
+
+    private nonisolated static func diskImageSources(
+        hdiutilInfoPlistData: Data
+    ) -> [AppDiskImageSource] {
         guard
             let plist = try? PropertyListSerialization.propertyList(
                 from: hdiutilInfoPlistData,
@@ -108,34 +148,23 @@ enum AppInstallLocationPolicy {
             let root = plist as? [String: Any],
             let images = root["images"] as? [[String: Any]]
         else {
-            return nil
+            return []
         }
 
-        let normalizedBundlePath = normalizedPath(bundlePath)
-        let candidates = images.compactMap { image -> AppDiskImageSource? in
+        return images.flatMap { image -> [AppDiskImageSource] in
             guard
                 let imagePath = image["image-path"] as? String,
                 imagePath.lowercased().hasSuffix(".dmg"),
                 let entities = image["system-entities"] as? [[String: Any]]
             else {
-                return nil
+                return []
             }
 
-            for entity in entities {
-                guard let mountPoint = entity["mount-point"] as? String else { continue }
-                let normalizedMountPoint = normalizedPath(mountPoint)
-                guard normalizedBundlePath == normalizedMountPoint
-                    || normalizedBundlePath.hasPrefix(normalizedMountPoint + "/")
-                else {
-                    continue
-                }
+            return entities.compactMap { entity -> AppDiskImageSource? in
+                guard let mountPoint = entity["mount-point"] as? String else { return nil }
                 return AppDiskImageSource(imagePath: imagePath, mountPoint: mountPoint)
             }
-
-            return nil
         }
-
-        return candidates.max { $0.mountPoint.count < $1.mountPoint.count }
     }
 
     private nonisolated static func normalizedPath(_ path: String) -> String {
