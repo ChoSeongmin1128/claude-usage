@@ -65,4 +65,65 @@ final class AppInstallLocationPolicyTests: XCTestCase {
             XCTAssertFalse(assessment.locationDescription.contains("/"))
         }
     }
+
+    func testDiskImageSourceMatchesMountedVolume() throws {
+        let source = AppInstallLocationPolicy.diskImageSource(
+            for: "/Volumes/ClaudeUsage/ClaudeUsage.app",
+            hdiutilInfoPlistData: try makeHdiutilInfoPlistData(
+                imagePath: "/Users/tester/Downloads/ClaudeUsage.dmg",
+                mountPoint: "/Volumes/ClaudeUsage"
+            )
+        )
+
+        XCTAssertEqual(
+            source,
+            AppDiskImageSource(
+                imagePath: "/Users/tester/Downloads/ClaudeUsage.dmg",
+                mountPoint: "/Volumes/ClaudeUsage"
+            )
+        )
+    }
+
+    func testDiskImageSourceReturnsNilForUnmatchedVolume() throws {
+        let source = AppInstallLocationPolicy.diskImageSource(
+            for: "/Users/tester/Downloads/ClaudeUsage.app",
+            hdiutilInfoPlistData: try makeHdiutilInfoPlistData(
+                imagePath: "/Users/tester/Downloads/ClaudeUsage.dmg",
+                mountPoint: "/Volumes/ClaudeUsage"
+            )
+        )
+
+        XCTAssertNil(source)
+    }
+
+    func testDiskImageSourceIgnoresMalformedHdiutilOutput() {
+        let source = AppInstallLocationPolicy.diskImageSource(
+            for: "/Volumes/ClaudeUsage/ClaudeUsage.app",
+            hdiutilInfoPlistData: Data("not plist".utf8)
+        )
+
+        XCTAssertNil(source)
+    }
+
+    private func makeHdiutilInfoPlistData(
+        imagePath: String,
+        mountPoint: String
+    ) throws -> Data {
+        let plist: [String: Any] = [
+            "images": [
+                [
+                    "image-path": imagePath,
+                    "system-entities": [
+                        ["dev-entry": "/dev/disk4"],
+                        [
+                            "dev-entry": "/dev/disk4s1",
+                            "mount-point": mountPoint,
+                        ],
+                    ],
+                ],
+            ],
+        ]
+
+        return try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+    }
 }

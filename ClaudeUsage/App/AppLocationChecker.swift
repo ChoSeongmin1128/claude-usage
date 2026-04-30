@@ -43,6 +43,8 @@ enum AppLocationChecker {
 
     private static func moveToApplicationsFolder(from assessment: AppInstallLocationAssessment) {
         let source = originalBundlePath()
+        let sourceDiskImage = mountedDiskImageSource(for: source)
+            ?? mountedDiskImageSource(for: assessment.bundlePath)
         let appName = (source as NSString).lastPathComponent
         let destinationCandidates = [
             "/Applications/\(appName)",
@@ -52,7 +54,7 @@ enum AppLocationChecker {
         for destination in destinationCandidates {
             do {
                 try copyAppBundleSafely(from: source, to: destination)
-                launchMovedApp(at: destination)
+                launchMovedApp(at: destination, sourceDiskImage: sourceDiskImage)
                 return
             } catch {
                 Logger.warning("앱 이동 실패(\(destination)): \(error.localizedDescription)")
@@ -97,7 +99,7 @@ enum AppLocationChecker {
         }
     }
 
-    private static func launchMovedApp(at destination: String) {
+    private static func launchMovedApp(at destination: String, sourceDiskImage: AppDiskImageSource?) {
         let configuration = NSWorkspace.OpenConfiguration()
         NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: destination), configuration: configuration) { _, error in
             DispatchQueue.main.async {
@@ -106,8 +108,56 @@ enum AppLocationChecker {
                     showError("새 위치로 복사했지만 실행하지 못했습니다. 현재 앱은 계속 실행됩니다.\n\nApplications 폴더에서 ClaudeUsage.app을 직접 열어 주세요.")
                     return
                 }
+                promptToTrashSourceDiskImageIfNeeded(sourceDiskImage)
                 NSApp.terminate(nil)
             }
+        }
+    }
+
+    private static func mountedDiskImageSource(for bundlePath: String) -> AppDiskImageSource? {
+        let process = Process()
+        let outputPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+        process.arguments = ["info", "-plist"]
+        process.standardOutput = outputPipe
+        process.standardError = Pipe()
+
+        do {
+            try process.run()
+            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+            return AppInstallLocationPolicy.diskImageSource(for: bundlePath, hdiutilInfoPlistData: data)
+        } catch {
+            Logger.warning("DMG 원본 조회 실패: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    private static func promptToTrashSourceDiskImageIfNeeded(_ sourceDiskImage: AppDiskImageSource?) {
+        guard let sourceDiskImage else { return }
+
+        let imageURL = URL(fileURLWithPath: sourceDiskImage.imagePath)
+        guard FileManager.default.fileExists(atPath: imageURL.path) else { return }
+
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.messageText = "설치 DMG를 휴지통으로 이동할까요?"
+        alert.informativeText = "앱은 Applications 폴더로 이동했습니다. 다운로드한 설치 파일은 더 이상 필요하지 않습니다."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "휴지통으로 이동")
+        alert.addButton(withTitle: "그대로 두기")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        do {
+            var trashedURL: NSURL?
+            try FileManager.default.trashItem(at: imageURL, resultingItemURL: &trashedURL)
+            Logger.info("설치 DMG 휴지통 이동 완료")
+        } catch {
+            Logger.warning("설치 DMG 휴지통 이동 실패: \(error.localizedDescription)")
+            showCleanupError()
         }
     }
 
@@ -126,6 +176,14 @@ enum AppLocationChecker {
         let alert = NSAlert()
         alert.messageText = "이동 실패"
         alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.runModal()
+    }
+
+    private static func showCleanupError() {
+        let alert = NSAlert()
+        alert.messageText = "설치 파일 정리 실패"
+        alert.informativeText = "앱은 정상적으로 이동했습니다. 설치 DMG는 Finder에서 직접 휴지통으로 이동해 주세요."
         alert.alertStyle = .warning
         alert.runModal()
     }

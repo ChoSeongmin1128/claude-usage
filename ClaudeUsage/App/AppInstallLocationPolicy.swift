@@ -42,6 +42,11 @@ struct AppInstallLocationAssessment: Equatable, Sendable {
     }
 }
 
+struct AppDiskImageSource: Equatable, Sendable {
+    let imagePath: String
+    let mountPoint: String
+}
+
 enum AppInstallLocationPolicy {
     nonisolated static func currentAssessment() -> AppInstallLocationAssessment {
         assess(bundlePath: Bundle.main.bundlePath)
@@ -74,5 +79,56 @@ enum AppInstallLocationPolicy {
         }
 
         return AppInstallLocationAssessment(bundlePath: bundlePath, kind: kind)
+    }
+
+    nonisolated static func diskImageSource(
+        for bundlePath: String,
+        hdiutilInfoPlistData: Data
+    ) -> AppDiskImageSource? {
+        guard
+            let plist = try? PropertyListSerialization.propertyList(
+                from: hdiutilInfoPlistData,
+                options: [],
+                format: nil
+            ),
+            let root = plist as? [String: Any],
+            let images = root["images"] as? [[String: Any]]
+        else {
+            return nil
+        }
+
+        let normalizedBundlePath = normalizedPath(bundlePath)
+        let candidates = images.compactMap { image -> AppDiskImageSource? in
+            guard
+                let imagePath = image["image-path"] as? String,
+                imagePath.lowercased().hasSuffix(".dmg"),
+                let entities = image["system-entities"] as? [[String: Any]]
+            else {
+                return nil
+            }
+
+            for entity in entities {
+                guard let mountPoint = entity["mount-point"] as? String else { continue }
+                let normalizedMountPoint = normalizedPath(mountPoint)
+                guard normalizedBundlePath == normalizedMountPoint
+                    || normalizedBundlePath.hasPrefix(normalizedMountPoint + "/")
+                else {
+                    continue
+                }
+                return AppDiskImageSource(imagePath: imagePath, mountPoint: mountPoint)
+            }
+
+            return nil
+        }
+
+        return candidates.max { $0.mountPoint.count < $1.mountPoint.count }
+    }
+
+    private nonisolated static func normalizedPath(_ path: String) -> String {
+        var normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+        while normalized.count > 1, normalized.hasSuffix("/") {
+            normalized.removeLast()
+        }
+        return normalized
     }
 }
