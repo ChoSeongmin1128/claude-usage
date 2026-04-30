@@ -157,6 +157,55 @@ final class AppInstallLocationPolicyTests: XCTestCase {
         XCTAssertNil(source)
     }
 
+    func testRunningApplicationPolicySelectsOnlySiblingProcesses() {
+        let runningApplications = [
+            AppRunningApplicationSnapshot(
+                processIdentifier: 100,
+                bundleIdentifier: "com.seongmin.ClaudeUsage",
+                isTerminated: false
+            ),
+            AppRunningApplicationSnapshot(
+                processIdentifier: 101,
+                bundleIdentifier: "com.seongmin.ClaudeUsage",
+                isTerminated: false
+            ),
+            AppRunningApplicationSnapshot(
+                processIdentifier: 102,
+                bundleIdentifier: "com.example.Other",
+                isTerminated: false
+            ),
+            AppRunningApplicationSnapshot(
+                processIdentifier: 103,
+                bundleIdentifier: "com.seongmin.ClaudeUsage",
+                isTerminated: true
+            ),
+        ]
+
+        let selected = AppInstallRunningApplicationPolicy.siblingApplicationsToTerminate(
+            currentBundleIdentifier: "com.seongmin.ClaudeUsage",
+            currentProcessIdentifier: 100,
+            runningApplications: runningApplications
+        )
+
+        XCTAssertEqual(selected.map(\.processIdentifier), [101])
+    }
+
+    func testRunningApplicationPolicyDoesNothingWithoutBundleIdentifier() {
+        let selected = AppInstallRunningApplicationPolicy.siblingApplicationsToTerminate(
+            currentBundleIdentifier: nil,
+            currentProcessIdentifier: 100,
+            runningApplications: [
+                AppRunningApplicationSnapshot(
+                    processIdentifier: 101,
+                    bundleIdentifier: "com.seongmin.ClaudeUsage",
+                    isTerminated: false
+                ),
+            ]
+        )
+
+        XCTAssertTrue(selected.isEmpty)
+    }
+
     private func makeHdiutilInfoPlistData(
         imagePath: String,
         mountPoint: String

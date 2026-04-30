@@ -60,6 +60,8 @@ enum AppLocationChecker {
             "\(NSHomeDirectory())/Applications/\(appName)",
         ]
 
+        guard terminateSiblingApplicationsBeforeMoveIfNeeded() else { return }
+
         for destination in destinationCandidates {
             do {
                 try installAppBundleSafely(
@@ -219,6 +221,60 @@ enum AppLocationChecker {
         let appName = (assessment.bundlePath as NSString).lastPathComponent
         guard let sourceDiskImage = mountedDiskImageSourceForAppBundle(appName: appName) else { return }
         promptToTrashSourceDiskImageIfNeeded(sourceDiskImage)
+    }
+
+    private static func terminateSiblingApplicationsBeforeMoveIfNeeded() -> Bool {
+        let applications = siblingRunningApplications()
+        guard !applications.isEmpty else { return true }
+
+        NSApp.activate(ignoringOtherApps: true)
+
+        let alert = NSAlert()
+        alert.messageText = "실행 중인 ClaudeUsage를 종료할까요?"
+        alert.informativeText = "이미 실행 중인 앱을 닫은 뒤 Applications 폴더로 이동해야 중복 실행과 업데이트 문제가 생기지 않습니다."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "종료하고 이동")
+        alert.addButton(withTitle: "취소")
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+
+        let targetProcessIDs = Set(applications.map(\.processIdentifier))
+        for application in applications {
+            if !application.terminate() {
+                Logger.warning("기존 앱 종료 요청 실패: pid=\(application.processIdentifier)")
+            }
+        }
+
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            let stillRunning = siblingRunningApplications().filter { targetProcessIDs.contains($0.processIdentifier) }
+            if stillRunning.isEmpty {
+                return true
+            }
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.1))
+        }
+
+        showError("기존 ClaudeUsage를 종료하지 못해 이동을 중단했습니다.\n\n실행 중인 ClaudeUsage를 종료한 뒤 다시 시도해 주세요.")
+        return false
+    }
+
+    private static func siblingRunningApplications() -> [NSRunningApplication] {
+        let snapshots = NSWorkspace.shared.runningApplications.map { application in
+            AppRunningApplicationSnapshot(
+                processIdentifier: application.processIdentifier,
+                bundleIdentifier: application.bundleIdentifier,
+                isTerminated: application.isTerminated
+            )
+        }
+        let targetProcessIDs = Set(
+            AppInstallRunningApplicationPolicy.siblingApplicationsToTerminate(
+                currentBundleIdentifier: Bundle.main.bundleIdentifier,
+                currentProcessIdentifier: ProcessInfo.processInfo.processIdentifier,
+                runningApplications: snapshots
+            ).map(\.processIdentifier)
+        )
+        guard !targetProcessIDs.isEmpty else { return [] }
+        return NSWorkspace.shared.runningApplications.filter { targetProcessIDs.contains($0.processIdentifier) }
     }
 
     private static func promptToTrashSourceDiskImageIfNeeded(_ sourceDiskImage: AppDiskImageSource?) {

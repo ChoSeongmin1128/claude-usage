@@ -61,6 +61,12 @@ struct AppDiskImageSource: Equatable, Sendable {
     let mountPoint: String
 }
 
+struct AppRunningApplicationSnapshot: Equatable, Sendable {
+    let processIdentifier: pid_t
+    let bundleIdentifier: String?
+    let isTerminated: Bool
+}
+
 enum AppInstallLocationPolicy {
     nonisolated static func currentAssessment() -> AppInstallLocationAssessment {
         assess(bundlePath: Bundle.main.bundlePath)
@@ -173,5 +179,20 @@ enum AppInstallLocationPolicy {
             normalized.removeLast()
         }
         return normalized
+    }
+}
+
+enum AppInstallRunningApplicationPolicy {
+    nonisolated static func siblingApplicationsToTerminate(
+        currentBundleIdentifier: String?,
+        currentProcessIdentifier: pid_t,
+        runningApplications: [AppRunningApplicationSnapshot]
+    ) -> [AppRunningApplicationSnapshot] {
+        guard let currentBundleIdentifier, !currentBundleIdentifier.isEmpty else { return [] }
+        return runningApplications.filter { application in
+            application.bundleIdentifier == currentBundleIdentifier
+                && application.processIdentifier != currentProcessIdentifier
+                && !application.isTerminated
+        }
     }
 }
