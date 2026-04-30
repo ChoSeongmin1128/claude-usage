@@ -290,7 +290,8 @@ if [[ -n "$FEED_URL" ]]; then
     GEN_ARGS+=(--feed-url "$FEED_URL")
 fi
 
-"$ROOT_DIR/Scripts/generate-sparkle-appcast.sh" "${GEN_ARGS[@]}"
+ARTIFACTS_DIR="$BUILD_DIR" APPCAST_OUTPUT="$APPCAST_PATH" \
+    "$ROOT_DIR/Scripts/generate-sparkle-appcast.sh" "${GEN_ARGS[@]}"
 
 if [[ ! -f "$APPCAST_PATH" ]]; then
     echo "appcast.xml 생성 실패" >&2
