@@ -237,6 +237,12 @@ if [[ -n "$FEED_URL" ]]; then
 fi
 echo "- download base url: $DOWNLOAD_URL_PREFIX"
 
+# generate_appcast는 기존 output을 읽어 과거 item을 유지할 수 있습니다.
+# ClaudeUsage.zip 파일명이 릴리스마다 같기 때문에 과거 item을 유지하면 현재 ZIP의
+# length/signature가 과거 item에도 주입됩니다. 채널 appcast는 최신 릴리스 1개만
+# 생성해 잘못된 과거 enclosure 오염을 막습니다.
+rm -f "$APPCAST_OUTPUT"
+
 "$GEN_APPCAST" \
   --download-url-prefix "$DOWNLOAD_URL_PREFIX" \
   -o "$APPCAST_OUTPUT" \

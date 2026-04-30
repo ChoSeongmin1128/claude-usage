@@ -12,7 +12,7 @@ extension AppDelegate {
 
         // 비메인 스레드 fallback — MainActor-isolated async 컨텍스트에서는 호출하지 말 것
         // (DispatchQueue.main.sync + MainActor = 데드락 가능)
-        assert(false, "withRuntimeState가 비메인 스레드에서 호출됨 — 호출 경로를 확인하세요")
+        Logger.warning("withRuntimeState가 비메인 스레드에서 호출됨 — main queue로 동기 전환")
         return DispatchQueue.main.sync {
             MainActor.assumeIsolated {
                 body(runtimeState)

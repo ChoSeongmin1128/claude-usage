@@ -60,7 +60,7 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 settingsPanelIconName: "bubble.left.and.bubble.right",
                 brandAssetName: "ProviderCodexIcon",
                 settingsPanelSummary: "Codex 사용량",
-                settingsPanelDetail: "로그인하면 메뉴바에서 바로 확인할 수 있습니다.",
+                settingsPanelDetail: "터미널에서 codex login으로 로그인하면 메뉴바에서 바로 확인할 수 있습니다.",
                 settingsComingSoonMessage: nil,
                 capabilities: ProviderCapabilities(
                     runtimeService: .codex,

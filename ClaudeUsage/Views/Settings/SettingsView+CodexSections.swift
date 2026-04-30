@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 extension SettingsView {
@@ -40,19 +41,12 @@ extension SettingsView {
         }
     }
 
+    private var codexPresentation: CodexAuthPresentation {
+        CodexAuthPresentation.resolve(for: codexAuthStatus)
+    }
+
     private var codexStatusTitle: String {
-        switch codexAuthStatus {
-        case .checking:
-            return "상태를 확인하는 중입니다"
-        case .authenticated:
-            return "로그인되어 바로 사용할 수 있습니다"
-        case .notInstalled:
-            return "Codex를 먼저 설치해야 합니다"
-        case .notLoggedIn:
-            return "Codex 로그인이 필요합니다"
-        case .expired:
-            return "로그인이 만료되어 다시 확인이 필요합니다"
-        }
+        codexPresentation.statusTitle
     }
 
     private var codexStatusTone: Color {
@@ -69,46 +63,15 @@ extension SettingsView {
     }
 
     private var codexStatusBadgeTitle: String {
-        switch codexAuthStatus {
-        case .checking:
-            return "확인 중"
-        case .authenticated:
-            return "로그인됨"
-        case .expired:
-            return "다시 로그인"
-        case .notInstalled:
-            return "설치 필요"
-        case .notLoggedIn:
-            return "로그인 필요"
-        }
+        codexPresentation.statusBadgeTitle
     }
 
     private var codexActionTitle: String {
-        switch codexAuthStatus {
-        case .checking:
-            return "확인 중"
-        case .authenticated:
-            return "로그인 완료"
-        case .notInstalled:
-            return "Codex 설치"
-        case .notLoggedIn, .expired:
-            return "Codex 로그인"
-        }
+        codexPresentation.actionTitle
     }
 
     private var codexActionDetail: String? {
-        switch codexAuthStatus {
-        case .checking:
-            return nil
-        case .authenticated:
-            return nil
-        case .notInstalled:
-            return "설치 후 다시 확인"
-        case .notLoggedIn:
-            return "로그인 후 다시 확인"
-        case .expired:
-            return "다시 로그인 후 확인"
-        }
+        codexPresentation.actionDetail
     }
 
     private var codexStatusCard: some View {
@@ -145,10 +108,33 @@ extension SettingsView {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if let command = codexPresentation.command {
+                HStack(spacing: 8) {
+                    Text(command)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Color(NSColor.textBackgroundColor).opacity(0.65))
+                        .cornerRadius(6)
+
+                    Button("명령 복사") {
+                        copyCodexCommand(command)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                .padding(.top, 2)
+            }
         }
         .padding(12)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
         .cornerRadius(8)
+    }
+
+    private func copyCodexCommand(_ command: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
     }
 
     func checkCodexAuth() {

@@ -3,6 +3,14 @@ import XCTest
 
 @MainActor
 final class AppSettingsTests: XCTestCase {
+    func testRefreshIntervalNormalizationClampsInvalidValues() {
+        XCTAssertEqual(AppSettings.normalizedRefreshInterval(.nan), 30)
+        XCTAssertEqual(AppSettings.normalizedRefreshInterval(0), AppSettings.minimumRefreshInterval)
+        XCTAssertEqual(AppSettings.normalizedRefreshInterval(5), AppSettings.minimumRefreshInterval)
+        XCTAssertEqual(AppSettings.normalizedRefreshInterval(7200), AppSettings.maximumRefreshInterval)
+        XCTAssertEqual(AppSettings.normalizedRefreshInterval(60), 60)
+    }
+
     func testSetPopoverItemsNormalizesDuplicatesAndUnsupportedEntries() {
         let settings = AppSettings.shared
         let snapshot = settings.createSnapshot()

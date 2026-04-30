@@ -105,7 +105,7 @@ final class UpdateRuntimeState: ObservableObject {
             return "열린 확인 창에서 설치를 이어서 진행할 수 있습니다."
         case .updateAvailable:
             if engineStatus?.usesSparkleReadyPath == true {
-                return "새 버전이 감지됐습니다. 자동 다운로드가 진행되면 설치 준비 상태로 전환됩니다."
+                return "새 버전이 감지됐습니다. 설치는 사용자가 직접 확인을 눌렀을 때만 진행합니다."
             }
             return "새 버전을 내려받아 기존 앱을 교체 설치할 수 있습니다."
         case .downloading:
@@ -122,7 +122,7 @@ final class UpdateRuntimeState: ObservableObject {
             return message
         case .idle:
             if engineStatus?.usesSparkleReadyPath == true {
-                return "새 버전이 있으면 자동으로 내려받고 준비되면 알려드립니다."
+                return "새 버전이 있으면 알려드리고 설치는 직접 시작합니다."
             }
             return "새 버전이 있으면 다운로드 페이지로 안내합니다."
         }

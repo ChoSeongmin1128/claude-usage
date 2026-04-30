@@ -8,6 +8,66 @@
 import AppKit
 import SwiftUI
 
+enum CodexAuthStatus {
+    case checking
+    case authenticated
+    case notInstalled
+    case notLoggedIn
+    case expired
+}
+
+struct CodexAuthPresentation: Equatable {
+    let statusTitle: String
+    let statusBadgeTitle: String
+    let actionTitle: String
+    let actionDetail: String?
+    let command: String?
+
+    static func resolve(for status: CodexAuthStatus) -> CodexAuthPresentation {
+        switch status {
+        case .checking:
+            return CodexAuthPresentation(
+                statusTitle: "상태를 확인하는 중입니다",
+                statusBadgeTitle: "확인 중",
+                actionTitle: "확인 중",
+                actionDetail: nil,
+                command: nil
+            )
+        case .authenticated:
+            return CodexAuthPresentation(
+                statusTitle: "로그인되어 바로 사용할 수 있습니다",
+                statusBadgeTitle: "로그인됨",
+                actionTitle: "로그인 완료",
+                actionDetail: nil,
+                command: nil
+            )
+        case .notInstalled:
+            return CodexAuthPresentation(
+                statusTitle: "Codex CLI를 먼저 설치해야 합니다",
+                statusBadgeTitle: "설치 필요",
+                actionTitle: "Codex CLI 설치 후 로그인",
+                actionDetail: "터미널에서 codex 명령이 인식되는지 확인한 뒤 `codex login`을 실행하세요.",
+                command: "codex login"
+            )
+        case .notLoggedIn:
+            return CodexAuthPresentation(
+                statusTitle: "터미널에서 Codex 로그인이 필요합니다",
+                statusBadgeTitle: "로그인 필요",
+                actionTitle: "Codex 로그인",
+                actionDetail: "터미널을 열고 `codex login`을 실행한 뒤 다시 확인하세요.",
+                command: "codex login"
+            )
+        case .expired:
+            return CodexAuthPresentation(
+                statusTitle: "Codex 로그인이 만료되었습니다",
+                statusBadgeTitle: "다시 로그인",
+                actionTitle: "Codex 다시 로그인",
+                actionDetail: "터미널에서 `codex login`을 다시 실행한 뒤 다시 확인하세요.",
+                command: "codex login"
+            )
+        }
+    }
+}
 
 struct SettingsView: View {
     @ObservedObject var settings = AppSettings.shared
@@ -42,13 +102,6 @@ struct SettingsView: View {
         case failure(String)
     }
 
-    enum CodexAuthStatus {
-        case checking
-        case authenticated
-        case notInstalled
-        case notLoggedIn
-        case expired
-    }
     var sessionKeyFormatWarning: String? {
         guard !sessionKey.isEmpty else { return nil }
         let normalized = normalizeSessionKey(sessionKey)

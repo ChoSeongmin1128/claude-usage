@@ -50,7 +50,7 @@ struct UpdateEngineStatus: Sendable, Equatable {
 
 private enum UpdateEngineMessages {
     nonisolated static let githubFallback = "새 버전이 있으면 다운로드 페이지로 안내합니다"
-    nonisolated static let sparkleSchedulerReady = "새 버전이 있으면 자동으로 내려받고 준비되면 알려드립니다"
+    nonisolated static let sparkleSchedulerReady = "새 버전이 있으면 알려드리고 설치는 직접 시작합니다"
     nonisolated static let sparkleInteractiveStarted = "업데이트 확인 창을 열었습니다"
     nonisolated static let updateSessionInProgress = "이미 업데이트를 확인하고 있습니다"
     nonisolated static let downloadCancelled = "업데이트 다운로드를 취소했습니다"
@@ -357,6 +357,11 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     func supportsInteractiveCheck() async -> Bool { true }
 
     func performInteractiveCheck() async -> String? {
+        guard AppInstallLocationPolicy.currentAssessment().isStableInstall else {
+            UpdateRuntimeState.shared.markFailed(message: "Applications 폴더로 이동한 뒤 업데이트를 확인할 수 있습니다")
+            return nil
+        }
+
         synchronizeFeedConfiguration(resetCycle: false)
         ensureUpdaterStartedIfNeeded()
         publishEngineMetadata()
@@ -375,11 +380,11 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
             updater.automaticallyDownloadsUpdates = false
         case .onLaunch:
             updater.automaticallyChecksForUpdates = false
-            updater.automaticallyDownloadsUpdates = true
+            updater.automaticallyDownloadsUpdates = false
         case .hourly:
             updater.automaticallyChecksForUpdates = true
             updater.updateCheckInterval = 3600
-            updater.automaticallyDownloadsUpdates = true
+            updater.automaticallyDownloadsUpdates = false
         }
 
         ensureUpdaterStartedIfNeeded()
@@ -391,6 +396,11 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     }
 
     func installPreparedUpdate() async -> Bool {
+        guard AppInstallLocationPolicy.currentAssessment().isStableInstall else {
+            UpdateRuntimeState.shared.markFailed(message: "Applications 폴더로 이동한 뒤 업데이트를 설치할 수 있습니다")
+            return false
+        }
+
         guard let handler = postponedInstallHandler else { return false }
 
         let version = UpdateRuntimeState.shared.latestKnownUpdate?.version ?? "?"

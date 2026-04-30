@@ -9,9 +9,9 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>SUAllowsAutomaticUpdates</key>
-	<true/>
+	<false/>
 	<key>SUAutomaticallyUpdate</key>
-	<true/>
+	<false/>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>

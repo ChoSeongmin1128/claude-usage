@@ -20,16 +20,17 @@ final class RefreshScheduler {
             return stop()
         }
 
-        if timer != nil, activeInterval == interval {
+        let normalizedInterval = AppSettings.normalizedRefreshInterval(interval)
+        if timer != nil, activeInterval == normalizedInterval {
             return .unchanged
         }
 
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
+        timer = Timer.scheduledTimer(withTimeInterval: normalizedInterval, repeats: true) { _ in
             onTick()
         }
-        activeInterval = interval
-        return .started(interval)
+        activeInterval = normalizedInterval
+        return .started(normalizedInterval)
     }
 
     @discardableResult

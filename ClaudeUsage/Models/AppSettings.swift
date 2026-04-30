@@ -187,6 +187,8 @@ enum ClaudeMessagesFallbackPolicy: String, Codable, CaseIterable, Sendable {
 
 class AppSettings: ObservableObject {
     static let shared = AppSettings()
+    nonisolated static let minimumRefreshInterval: TimeInterval = 15
+    nonisolated static let maximumRefreshInterval: TimeInterval = 3600
     private static let providerStateMigrationVersionKey = "providerStateMigrationVersion"
     private static let currentProviderStateMigrationVersion = 1
 
@@ -372,31 +374,66 @@ class AppSettings: ObservableObject {
         didSet { defaults.set(timeFormat.rawValue, forKey: "timeFormat") }
     }
     @Published var refreshInterval: TimeInterval {
-        didSet { defaults.set(refreshInterval, forKey: "refreshInterval") }
+        didSet {
+            let normalized = Self.normalizedRefreshInterval(refreshInterval)
+            guard refreshInterval == normalized else {
+                refreshInterval = normalized
+                return
+            }
+            defaults.set(refreshInterval, forKey: "refreshInterval")
+        }
     }
     @Published var usePerProviderRefreshIntervals: Bool {
         didSet { defaults.set(usePerProviderRefreshIntervals, forKey: "usePerProviderRefreshIntervals") }
     }
     @Published var claudeRefreshInterval: TimeInterval {
-        didSet { defaults.set(claudeRefreshInterval, forKey: "claudeRefreshInterval") }
+        didSet {
+            let normalized = Self.normalizedRefreshInterval(claudeRefreshInterval)
+            guard claudeRefreshInterval == normalized else {
+                claudeRefreshInterval = normalized
+                return
+            }
+            defaults.set(claudeRefreshInterval, forKey: "claudeRefreshInterval")
+        }
     }
     @Published var codexRefreshInterval: TimeInterval {
-        didSet { defaults.set(codexRefreshInterval, forKey: "codexRefreshInterval") }
+        didSet {
+            let normalized = Self.normalizedRefreshInterval(codexRefreshInterval)
+            guard codexRefreshInterval == normalized else {
+                codexRefreshInterval = normalized
+                return
+            }
+            defaults.set(codexRefreshInterval, forKey: "codexRefreshInterval")
+        }
     }
     @Published var geminiRefreshInterval: TimeInterval {
-        didSet { defaults.set(geminiRefreshInterval, forKey: "geminiRefreshInterval") }
+        didSet {
+            let normalized = Self.normalizedRefreshInterval(geminiRefreshInterval)
+            guard geminiRefreshInterval == normalized else {
+                geminiRefreshInterval = normalized
+                return
+            }
+            defaults.set(geminiRefreshInterval, forKey: "geminiRefreshInterval")
+        }
     }
     @Published var antigravityRefreshInterval: TimeInterval {
-        didSet { defaults.set(antigravityRefreshInterval, forKey: "antigravityRefreshInterval") }
+        didSet {
+            let normalized = Self.normalizedRefreshInterval(antigravityRefreshInterval)
+            guard antigravityRefreshInterval == normalized else {
+                antigravityRefreshInterval = normalized
+                return
+            }
+            defaults.set(antigravityRefreshInterval, forKey: "antigravityRefreshInterval")
+        }
     }
 
     func effectiveRefreshInterval(for service: PopoverService) -> TimeInterval {
-        guard usePerProviderRefreshIntervals else { return refreshInterval }
+        guard usePerProviderRefreshIntervals else { return Self.normalizedRefreshInterval(refreshInterval) }
         switch service {
-        case .claude: return claudeRefreshInterval
-        case .codex: return codexRefreshInterval
-        case .gemini: return geminiRefreshInterval
-        case .antigravity: return antigravityRefreshInterval
+        case .claude: return Self.normalizedRefreshInterval(claudeRefreshInterval)
+        case .codex: return Self.normalizedRefreshInterval(codexRefreshInterval)
+        case .gemini: return Self.normalizedRefreshInterval(geminiRefreshInterval)
+        case .antigravity: return Self.normalizedRefreshInterval(antigravityRefreshInterval)
         }
     }
 
@@ -545,6 +582,14 @@ class AppSettings: ObservableObject {
     }
     @Published var settingsLastTab: String {
         didSet { defaults.set(settingsLastTab, forKey: "settingsLastTab") }
+    }
+
+    nonisolated static func normalizedRefreshInterval(
+        _ interval: TimeInterval,
+        fallback: TimeInterval = 30
+    ) -> TimeInterval {
+        guard interval.isFinite else { return fallback }
+        return min(max(interval, minimumRefreshInterval), maximumRefreshInterval)
     }
 
     // MARK: - Snapshot
@@ -1477,12 +1522,12 @@ class AppSettings: ObservableObject {
         let tf = defaults.string(forKey: "timeFormat") ?? TimeFormatStyle.h24.rawValue
         let resolvedTimeFormat = TimeFormatStyle(rawValue: tf) ?? .h24
         self.timeFormat = resolvedTimeFormat
-        self.refreshInterval = defaults.object(forKey: "refreshInterval") as? TimeInterval ?? 30.0
+        self.refreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "refreshInterval") as? TimeInterval ?? 30.0)
         self.usePerProviderRefreshIntervals = defaults.object(forKey: "usePerProviderRefreshIntervals") as? Bool ?? false
-        self.claudeRefreshInterval = defaults.object(forKey: "claudeRefreshInterval") as? TimeInterval ?? 30.0
-        self.codexRefreshInterval = defaults.object(forKey: "codexRefreshInterval") as? TimeInterval ?? 60.0
-        self.geminiRefreshInterval = defaults.object(forKey: "geminiRefreshInterval") as? TimeInterval ?? 60.0
-        self.antigravityRefreshInterval = defaults.object(forKey: "antigravityRefreshInterval") as? TimeInterval ?? 120.0
+        self.claudeRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "claudeRefreshInterval") as? TimeInterval ?? 30.0)
+        self.codexRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "codexRefreshInterval") as? TimeInterval ?? 60.0)
+        self.geminiRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "geminiRefreshInterval") as? TimeInterval ?? 60.0)
+        self.antigravityRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "antigravityRefreshInterval") as? TimeInterval ?? 120.0)
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
         let storedAlertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
