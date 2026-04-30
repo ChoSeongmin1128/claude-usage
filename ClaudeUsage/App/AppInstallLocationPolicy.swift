@@ -10,6 +10,11 @@ enum AppInstallLocationKind: String, Sendable {
     case other
 }
 
+enum AppInstallTransferStrategy: Equatable, Sendable {
+    case moveSource
+    case copySource
+}
+
 struct AppInstallLocationAssessment: Equatable, Sendable {
     let bundlePath: String
     let kind: AppInstallLocationKind
@@ -20,6 +25,15 @@ struct AppInstallLocationAssessment: Equatable, Sendable {
 
     nonisolated var requiresMovePrompt: Bool {
         !isStableInstall
+    }
+
+    nonisolated var preferredTransferStrategy: AppInstallTransferStrategy {
+        switch kind {
+        case .downloads, .other:
+            return .moveSource
+        case .applications, .userApplications, .diskImageVolume, .appTranslocation, .temporary:
+            return .copySource
+        }
     }
 
     nonisolated var locationDescription: String {

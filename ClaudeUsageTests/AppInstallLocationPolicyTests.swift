@@ -31,6 +31,7 @@ final class AppInstallLocationPolicyTests: XCTestCase {
 
         XCTAssertEqual(assessment.kind, .diskImageVolume)
         XCTAssertTrue(assessment.requiresMovePrompt)
+        XCTAssertEqual(assessment.preferredTransferStrategy, .copySource)
     }
 
     func testTranslocationPathRequiresMovePrompt() {
@@ -41,6 +42,7 @@ final class AppInstallLocationPolicyTests: XCTestCase {
 
         XCTAssertEqual(assessment.kind, .appTranslocation)
         XCTAssertTrue(assessment.requiresMovePrompt)
+        XCTAssertEqual(assessment.preferredTransferStrategy, .copySource)
     }
 
     func testDownloadsPathRequiresMovePrompt() {
@@ -51,6 +53,18 @@ final class AppInstallLocationPolicyTests: XCTestCase {
 
         XCTAssertEqual(assessment.kind, .downloads)
         XCTAssertTrue(assessment.requiresMovePrompt)
+        XCTAssertEqual(assessment.preferredTransferStrategy, .moveSource)
+    }
+
+    func testOtherWritableLocationsMoveSourceInsteadOfLeavingDuplicateApp() {
+        let assessment = AppInstallLocationPolicy.assess(
+            bundlePath: "/Users/tester/Desktop/ClaudeUsage.app",
+            homeDirectory: "/Users/tester"
+        )
+
+        XCTAssertEqual(assessment.kind, .other)
+        XCTAssertTrue(assessment.requiresMovePrompt)
+        XCTAssertEqual(assessment.preferredTransferStrategy, .moveSource)
     }
 
     func testUnstableLocationDescriptionsDoNotExposeRawPaths() {

@@ -65,8 +65,27 @@ iOSInjectionProject/
 # macOS
 .DS_Store
 
-# Local release artifact
+# Local release artifacts
 ClaudeUsage.zip
+ClaudeUsage.dmg
+*.dmg
+*.pkg
+*.xcarchive
+*.notarylog
 
 # Local Sparkle release overrides
 Config/Sparkle.release.local.xcconfig
+Config/*.local.xcconfig
+
+# Local secrets / personal machine config
+.env
+.env.*
+*.local
+*.local.*
+*.secret
+*.secrets
+secrets/
+*.p8
+AuthKey_*.p8
+*.p12
+*.mobileprovision

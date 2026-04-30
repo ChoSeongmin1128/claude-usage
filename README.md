@@ -115,14 +115,16 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
 - `NOTARY_PROFILE` 은 런타임 readiness가 아니라 release 스크립트 실행 전제입니다.
 - `appcast(feed)`와 `공개키`가 준비되지 않은 개발 빌드에서는 `GitHub Release fallback`으로 동작합니다.
 - 설정 화면의 `업데이트` 섹션에서 지금 빌드가 `Sparkle 통합`, `appcast 준비`, `공개키 준비` 중 어디까지 와 있는지 직접 볼 수 있습니다.
-- 릴리즈 산출물은 [build-notarize-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/build-notarize-release.sh) 로 `archive -> zip -> notarize -> staple -> stapled zip 재생성` 흐름을 실행할 수 있습니다.
-- Sparkle 채널용 appcast는 [generate-sparkle-appcast.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/generate-sparkle-appcast.sh) 로 생성합니다.
+- 릴리즈 산출물은 [build-notarize-release.sh](Scripts/build-notarize-release.sh) 로 `archive -> zip -> notarize -> staple -> DMG 생성/공증` 흐름을 실행할 수 있습니다.
+- Sparkle 채널용 appcast는 [generate-sparkle-appcast.sh](Scripts/generate-sparkle-appcast.sh) 로 생성합니다.
 - GitHub Pages 채널 구조는 다음을 기준으로 합니다.
-  - `prod`: `https://OWNER.github.io/REPO/appcast.xml`
-  - `staging`: `https://OWNER.github.io/REPO/channels/staging/appcast.xml`
+  - `prod`: `https://choseongmin1128.github.io/claude-usage/appcast.xml`
+  - `staging`: `https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml`
 - `gh-pages` 브랜치는 코드 브랜치가 아니라 위 appcast를 배포하는 정적 호스팅 브랜치입니다.
-- [publish-release.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/publish-release.sh) 는 stable 릴리스면 `prod`, prerelease 면 `staging` 채널을 기본값으로 잡고, GitHub Release 업로드 뒤 `gh-pages` 채널 appcast도 같이 갱신합니다.
-- Release 빌드는 [Release.xcconfig](/Users/seongmin/Personal/ClaudeUsage/Config/Release.xcconfig) 를 기본으로 읽고, 로컬 비밀값은 `Config/Sparkle.release.local.xcconfig` 에서 덮어씁니다. 이 로컬 파일에는 보통 `prod` feed, `SUPublicEDKey`, `NOTARY_PROFILE` 을 둡니다. staging 빌드는 `RELEASE_CHANNEL=staging` 또는 `SU_FEED_URL` 로 명시적으로 채널을 고정하는 편이 안전합니다.
+- 현재 원격 코드 브랜치는 `main` 기준이고, `dev`/`stg` 코드 브랜치는 운용하지 않습니다. staging은 `vX.Y.Z-staging` prerelease와 staging appcast channel로 처리합니다.
+- [publish-release.sh](Scripts/publish-release.sh) 는 stable 릴리스면 `prod`, prerelease 면 `staging` 채널을 기본값으로 잡고, GitHub Release 업로드 뒤 `gh-pages` 채널 appcast도 같이 갱신합니다.
+- Release 빌드는 [Release.xcconfig](Config/Release.xcconfig) 를 기본으로 읽고, 로컬 비밀값은 `Config/Sparkle.release.local.xcconfig` 에서 덮어씁니다. 이 로컬 파일은 git에 올리지 않습니다.
+- 배포/계정/브랜치 운영 규칙은 [프로젝트 작업 방식](docs/PROJECT_WORKFLOW.md) 문서가 기준입니다.
 
 ## 보조 사용량 복구
 
@@ -142,8 +144,8 @@ Claude는 `Messages header fallback` 기반 보조 사용량 복구를 지원합
 
 ### 릴리즈 다운로드
 
-1. [ClaudeUsage.zip 다운로드](https://github.com/ChoSeongmin1128/claude-usage/releases/latest/download/ClaudeUsage.zip)
-2. 압축 해제 후 `ClaudeUsage.app`을 원하는 위치로 이동
+1. [ClaudeUsage.dmg 다운로드](https://github.com/ChoSeongmin1128/claude-usage/releases/latest/download/ClaudeUsage.dmg)
+2. DMG를 열고 `ClaudeUsage.app`을 `Applications`로 이동
 3. 처음 실행 시 우클릭 → 열기, 또는 시스템 설정 → 개인정보 보호 및 보안 → `그래도 열기`
 
 ### 소스에서 빌드
@@ -194,7 +196,11 @@ xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -configuration Deb
 - `RefreshOrchestration` / `RuntimeProviderRefreshCoordinator`
 - `ProviderEnvironmentDetector` signal 해석
 
-CLI 기준으로는 `build-for-testing` 과 테스트 번들 직접 실행이 가장 안정적입니다. 이 앱은 메뉴바 앱 특성 때문에 `xcodebuild test` 가 macOS host runner에서 대기할 수 있으므로, 자동화에서는 테스트 번들 실행 경로를 우선 쓰는 편이 안전합니다.
+현재 기본 검증 명령은 아래와 같습니다.
+
+```bash
+xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -destination 'platform=macOS' test
+```
 
 ## 프로젝트 구조
 
@@ -211,13 +217,11 @@ ClaudeUsage/
 
 ## 브랜치와 채널
 
-- 현재 원격 코드 브랜치는 `main`, `dev`, `codex-v2-integration` 이고, `gh-pages` 는 정적 배포 브랜치입니다.
+- 현재 원격 코드 브랜치는 `main` 기준입니다.
 - `gh-pages` 는 Sparkle appcast / Pages 용 브랜치라서, `stg` 역할로 보면 안 됩니다.
-- 운영 기준으로는 아래 역할 분리가 더 자연스럽습니다.
-  - `main`: stable/prod 코드
-  - `dev`: 일상 개발 브랜치
-  - `stg` 또는 release candidate 브랜치: 필요하면 별도로 운용
-  - `gh-pages`: appcast 배포 브랜치
+- staging은 브랜치가 아니라 release channel입니다. `main`의 최신 릴리스 후보를 `vX.Y.Z-staging` prerelease와 `/channels/staging/appcast.xml` 로 게시합니다.
+- prod는 staging 검증이 끝난 버전만 `vX.Y.Z` stable release와 root `/appcast.xml` 로 게시합니다.
+- 세부 절차와 `gh auth switch` 계정 기준은 [프로젝트 작업 방식](docs/PROJECT_WORKFLOW.md)을 따릅니다.
 
 ## 기술/설계 메모
 
@@ -241,6 +245,7 @@ ClaudeUsage/
 - 작업 계획: [WORK_PLAN.md](WORK_PLAN.md)
 - 구조 분석: [docs/2026-04-01-architecture-review.md](docs/2026-04-01-architecture-review.md)
 - 인증/소스 설명: [docs/authentication-and-sources.md](docs/authentication-and-sources.md)
+- 프로젝트 작업 방식: [docs/PROJECT_WORKFLOW.md](docs/PROJECT_WORKFLOW.md)
 - 배포 가이드: [docs/RELEASE.md](docs/RELEASE.md)
 - Apple Developer / 업데이트: [apple-developer-update.md](apple-developer-update.md)
 

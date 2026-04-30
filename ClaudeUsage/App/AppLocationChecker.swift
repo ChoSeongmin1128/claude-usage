@@ -43,6 +43,7 @@ enum AppLocationChecker {
 
     private static func moveToApplicationsFolder(from assessment: AppInstallLocationAssessment) {
         let source = originalBundlePath()
+        let sourceAssessment = AppInstallLocationPolicy.assess(bundlePath: source)
         let sourceDiskImage = mountedDiskImageSource(for: source)
             ?? mountedDiskImageSource(for: assessment.bundlePath)
         let appName = (source as NSString).lastPathComponent
@@ -53,7 +54,11 @@ enum AppLocationChecker {
 
         for destination in destinationCandidates {
             do {
-                try copyAppBundleSafely(from: source, to: destination)
+                try installAppBundleSafely(
+                    from: source,
+                    to: destination,
+                    strategy: sourceAssessment.preferredTransferStrategy
+                )
                 launchMovedApp(at: destination, sourceDiskImage: sourceDiskImage)
                 return
             } catch {
@@ -63,13 +68,20 @@ enum AppLocationChecker {
 
         showError(
             "자동 이동에 실패했습니다. 현재 앱은 계속 실행됩니다.\n\n"
-                + "Finder에서 ClaudeUsage.app을 Applications 폴더로 직접 옮겨 주세요."
+                + "기존 앱이 열려 있다면 종료한 뒤 다시 시도하거나, Finder에서 ClaudeUsage.app을 Applications 폴더로 직접 옮겨 주세요."
         )
     }
 
-    private static func copyAppBundleSafely(from source: String, to destination: String) throws {
+    private static func installAppBundleSafely(
+        from source: String,
+        to destination: String,
+        strategy: AppInstallTransferStrategy
+    ) throws {
         let fm = FileManager.default
-        let destinationURL = URL(fileURLWithPath: destination)
+        let sourceURL = URL(fileURLWithPath: source).standardizedFileURL
+        let destinationURL = URL(fileURLWithPath: destination).standardizedFileURL
+        guard sourceURL.path != destinationURL.path else { return }
+
         let destinationDirectory = destinationURL.deletingLastPathComponent()
         try fm.createDirectory(at: destinationDirectory, withIntermediateDirectories: true)
 
@@ -77,23 +89,36 @@ enum AppLocationChecker {
         let backupURL = destinationDirectory.appendingPathComponent(".\(destinationURL.lastPathComponent).backup.\(UUID().uuidString)")
 
         try? fm.removeItem(at: tempURL)
-        try fm.copyItem(at: URL(fileURLWithPath: source), to: tempURL)
+        switch strategy {
+        case .moveSource:
+            try fm.moveItem(at: sourceURL, to: tempURL)
+        case .copySource:
+            try fm.copyItem(at: sourceURL, to: tempURL)
+        }
         removeQuarantineRecursively(at: tempURL.path)
 
         var didCreateBackup = false
+        var tempContainsInstallCandidate = true
         do {
             if fm.fileExists(atPath: destinationURL.path) {
                 try fm.moveItem(at: destinationURL, to: backupURL)
                 didCreateBackup = true
             }
             try fm.moveItem(at: tempURL, to: destinationURL)
+            tempContainsInstallCandidate = false
             if didCreateBackup {
                 try? fm.removeItem(at: backupURL)
             }
         } catch {
-            try? fm.removeItem(at: tempURL)
             if didCreateBackup, !fm.fileExists(atPath: destinationURL.path), fm.fileExists(atPath: backupURL.path) {
                 try? fm.moveItem(at: backupURL, to: destinationURL)
+            }
+            if strategy == .moveSource, tempContainsInstallCandidate, !fm.fileExists(atPath: sourceURL.path) {
+                try? fm.moveItem(at: tempURL, to: sourceURL)
+                tempContainsInstallCandidate = false
+            }
+            if tempContainsInstallCandidate {
+                try? fm.removeItem(at: tempURL)
             }
             throw error
         }
@@ -101,11 +126,14 @@ enum AppLocationChecker {
 
     private static func launchMovedApp(at destination: String, sourceDiskImage: AppDiskImageSource?) {
         let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        configuration.createsNewApplicationInstance = true
+        configuration.allowsRunningApplicationSubstitution = false
         NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: destination), configuration: configuration) { _, error in
             DispatchQueue.main.async {
                 if let error {
                     Logger.warning("새 위치 앱 실행 실패: \(error.localizedDescription)")
-                    showError("새 위치로 복사했지만 실행하지 못했습니다. 현재 앱은 계속 실행됩니다.\n\nApplications 폴더에서 ClaudeUsage.app을 직접 열어 주세요.")
+                    showError("새 위치로 이동했지만 실행하지 못했습니다. 현재 앱은 계속 실행됩니다.\n\nApplications 폴더에서 ClaudeUsage.app을 직접 열어 주세요.")
                     return
                 }
                 promptToTrashSourceDiskImageIfNeeded(sourceDiskImage)

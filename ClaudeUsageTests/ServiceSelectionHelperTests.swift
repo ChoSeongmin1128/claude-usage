@@ -56,10 +56,10 @@ final class ServiceSelectionHelperTests: XCTestCase {
         let snapshot = settings.createSnapshot()
         defer { settings.restore(from: snapshot) }
 
-        settings.setProviderEnabled(true, for: .claude)
-        settings.setProviderEnabled(true, for: .codex)
-        settings.setProviderMenuBarVisible(false, for: .claude)
-        settings.setProviderMenuBarVisible(false, for: .codex)
+        AppProviderKind.runtimeKinds.forEach {
+            settings.setProviderEnabled(true, for: $0)
+            settings.setProviderMenuBarVisible(false, for: $0)
+        }
 
         XCTAssertNil(ServiceSelectionHelper.resolvedMenuBarService(settings: settings))
     }

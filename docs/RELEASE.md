@@ -2,13 +2,43 @@
 
 ## 개요
 
-배포는 세 단계로 구성됩니다.
+배포는 네 단계로 구성됩니다.
 
-1. **1회성 세팅** — Sparkle 키 + notarization 자격 등록
-2. **릴리스 빌드** — archive → notarize → staple → DMG 생성/서명/공증
-3. **게시** — git tag + GitHub Release 업로드 + Sparkle appcast 발행
+1. **계정/원격 확인** — GitHub CLI active 계정과 repository 확인
+2. **1회성 세팅** — Sparkle 키 + notarization 자격 등록
+3. **릴리스 빌드** — archive → notarize → staple → DMG 생성/서명/공증
+4. **게시** — git tag + GitHub Release 업로드 + Sparkle appcast 발행
 
 스크립트는 모두 `Scripts/` 에 있고 독립 실행 가능합니다.
+
+---
+
+## 0. 계정/브랜치 기준
+
+현재 운영 기준:
+
+- 코드 브랜치: `main`
+- staging: 코드 브랜치가 아니라 `vX.Y.Z-staging` prerelease + `/channels/staging/appcast.xml` channel
+- prod: staging 검증 후 `vX.Y.Z` stable release + root `/appcast.xml` channel
+- `gh-pages`: appcast 정적 호스팅 브랜치이며 수동 코드 작업 대상이 아님
+
+릴리스 전에 GitHub CLI 계정과 원격을 확인합니다.
+
+```bash
+gh auth status
+gh auth switch --hostname github.com --user ChoSeongmin1128
+gh repo view --json nameWithOwner -q .nameWithOwner
+git remote -v
+```
+
+정상 기준:
+
+- `gh repo view`: `ChoSeongmin1128/claude-usage`
+- `origin`: `git@github-seongmin:ChoSeongmin1128/claude-usage.git`
+
+개인 SSH 설정, Apple ID, app-specific password, notarization key, local xcconfig는 저장소에 커밋하지 않습니다. 자세한 작업 방식은 [PROJECT_WORKFLOW.md](PROJECT_WORKFLOW.md)를 기준으로 합니다.
+
+배포 후 평소 작업 계정으로 되돌려야 하는 환경이면 `gh auth switch --hostname github.com --user nathan-glorang` 를 실행합니다.
 
 ---
 
@@ -22,7 +52,7 @@ Apple ID 또는 App Store Connect API 키 중 하나:
 # 옵션 A: Apple ID + app-specific password
 xcrun notarytool store-credentials "ClaudeUsage" \
     --apple-id "YOUR@EMAIL" \
-    --team-id "5YG4V2PLZV"
+    --team-id "YOUR_TEAM_ID"
 # 프롬프트에서 app-specific password 입력
 
 # 옵션 B: App Store Connect API key (.p8 파일)
@@ -44,7 +74,7 @@ xcrun notarytool store-credentials "ClaudeUsage" \
 - Sparkle SPM artifact 에서 `generate_keys` 를 찾아 ED25519 키쌍 생성 (개인키는 macOS 키체인에 자동 보관)
 - 공개키 출력
 - `Config/Sparkle.release.local.xcconfig` 자동 작성:
-  - `SUFeedURL` = 기본적으로 GitHub Pages `prod` 채널 (`https://OWNER.github.io/REPO/appcast.xml`) 로 추정
+  - `SUFeedURL` = 기본적으로 GitHub Pages `prod` 채널 (`https://choseongmin1128.github.io/claude-usage/appcast.xml`) 로 추정
   - `SUPublicEDKey` = 방금 생성한 공개키
   - `NOTARY_PROFILE` = "ClaudeUsage"
 - `.gitignore` 에 로컬 xcconfig 규칙 추가
@@ -119,7 +149,7 @@ swift Scripts/dmg-assets/generate-background.swift Scripts/dmg-assets/background
 
 ```bash
 # working tree 가 clean 하고 HEAD 가 릴리스 대상 커밋일 때
-./Scripts/publish-release.sh v0.5.0
+./Scripts/publish-release.sh vX.Y.Z
 ```
 
 수행 단계:
@@ -131,7 +161,7 @@ swift Scripts/dmg-assets/generate-background.swift Scripts/dmg-assets/background
    - `SUFeedURL` 은 Sparkle 클라이언트가 읽을 feed 위치로만 사용하며, GitHub Pages 채널 URL이어도 됩니다
 4. `git tag` + `git push origin <TAG>`
 5. `gh release create` 로 DMG + ZIP + appcast.xml 업로드
-6. feed URL 이 GitHub Pages 채널이면 [publish-pages-appcast.sh](/Users/seongmin/Personal/ClaudeUsage/Scripts/publish-pages-appcast.sh) 로 `gh-pages` 브랜치의 appcast도 함께 갱신
+6. feed URL 이 GitHub Pages 채널이면 [publish-pages-appcast.sh](../Scripts/publish-pages-appcast.sh) 로 `gh-pages` 브랜치의 appcast도 함께 갱신
 
 옵션:
 - `--draft` — 초안으로 생성 (공개 전 수동 승인)
@@ -139,10 +169,18 @@ swift Scripts/dmg-assets/generate-background.swift Scripts/dmg-assets/background
 - `--channel prod|staging` — 기본 채널 지정 (미지정 시 stable=prod, prerelease=staging)
 - `--notes "..."` — 릴리스 노트 직접 지정 (미지정 시 `--generate-notes`)
 
-예:
+staging 예:
 
 ```bash
-./Scripts/publish-release.sh v0.5.0 --draft --notes "provider 통합 + DMG UI 개선"
+RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh
+./Scripts/publish-release.sh vX.Y.Z-staging --prerelease --channel staging --notes "릴리스 요약"
+```
+
+prod 예:
+
+```bash
+./Scripts/build-notarize-release.sh
+./Scripts/publish-release.sh vX.Y.Z --channel prod --notes "릴리스 요약"
 ```
 
 ---
@@ -158,10 +196,10 @@ Sparkle 이 클라이언트 앱에서 하는 일:
 
 권장 feed 구조:
 
-- `prod`: `https://OWNER.github.io/REPO/appcast.xml`
-- `staging`: `https://OWNER.github.io/REPO/channels/staging/appcast.xml`
+- `prod`: `https://choseongmin1128.github.io/claude-usage/appcast.xml`
+- `staging`: `https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml`
 
-`gh-pages` 브랜치는 위 appcast를 배포하는 정적 브랜치입니다. 코드용 `stg` 브랜치와는 역할이 다릅니다.
+`gh-pages` 브랜치는 위 appcast를 배포하는 정적 브랜치입니다. 코드용 `stg` 브랜치와는 역할이 다릅니다. 현재는 별도 `stg` 코드 브랜치를 운용하지 않고, `main`에서 staging channel을 먼저 게시한 뒤 검증 완료분만 prod channel로 게시합니다.
 
 ### 업데이트 채널 분리
 
@@ -216,15 +254,24 @@ Xcode 에서 한 번 Release 빌드를 돌리면 Sparkle SPM artifact 가 `~/Lib
 
 ## 체크리스트 요약
 
+릴리스 전:
+- [ ] `gh auth switch --hostname github.com --user ChoSeongmin1128`
+- [ ] `gh repo view --json nameWithOwner -q .nameWithOwner` 가 `ChoSeongmin1128/claude-usage` 출력
+- [ ] `git remote -v` 가 `git@github-seongmin:ChoSeongmin1128/claude-usage.git` 기준
+- [ ] working tree clean
+
 1회성:
 - [ ] `xcrun notarytool store-credentials ClaudeUsage ...`
 - [ ] `./Scripts/setup-sparkle-keys.sh`
 - [ ] `pipx install dmgbuild` / `brew install gh`
 
 릴리스마다:
+- [ ] `xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -destination 'platform=macOS' test`
 - [ ] 버전 bump 커밋 + push
-- [ ] `./Scripts/build-notarize-release.sh`
+- [ ] staging 이면 `RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh`
+- [ ] prod 이면 `./Scripts/build-notarize-release.sh`
 - [ ] stable 이면 `./Scripts/publish-release.sh vX.Y.Z --channel prod`
 - [ ] staging 이면 `./Scripts/publish-release.sh vX.Y.Z --prerelease --channel staging`
 - [ ] `gh-pages` 의 `appcast.xml` / `channels/staging/appcast.xml` 확인
 - [ ] 별도 Mac 에서 앱 실행 후 "업데이트 확인" 눌러 Sparkle 경로 검증
+- [ ] 필요 시 `gh auth switch --hostname github.com --user nathan-glorang` 로 평소 작업 계정 복구
