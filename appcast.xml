@@ -1,30 +1,14 @@
-<?xml version='1.0' encoding='utf-8'?>
+<?xml version="1.0" standalone="yes"?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>ClaudeUsage</title>
         <item>
-            <title>2.0.7</title>
-            <pubDate>Wed, 29 Apr 2026 19:05:15 +0900</pubDate>
-            <sparkle:version>20007</sparkle:version>
-            <sparkle:shortVersionString>2.0.7</sparkle:shortVersionString>
+            <title>2.0.9</title>
+            <pubDate>Thu, 30 Apr 2026 13:47:59 +0900</pubDate>
+            <sparkle:version>20009</sparkle:version>
+            <sparkle:shortVersionString>2.0.9</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.7/ClaudeUsage.zip" length="3124159" type="application/octet-stream" sparkle:edSignature="mFIpimVYsuTBzpUOjgYb20N9Ny3dV3jKwF9kxILqkzfVy4+m4ufHbwfkfcvR7KwuTEQeZeIHOMbAFkYH4vjfBA==" />
-        </item>
-        <item>
-            <title>2.0.6</title>
-            <pubDate>Wed, 29 Apr 2026 17:51:12 +0900</pubDate>
-            <sparkle:version>20006</sparkle:version>
-            <sparkle:shortVersionString>2.0.6</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.6/ClaudeUsage.zip" length="3124159" type="application/octet-stream" sparkle:edSignature="mFIpimVYsuTBzpUOjgYb20N9Ny3dV3jKwF9kxILqkzfVy4+m4ufHbwfkfcvR7KwuTEQeZeIHOMbAFkYH4vjfBA==" />
-        </item>
-        <item>
-            <title>2.0.1</title>
-            <pubDate>Sat, 18 Apr 2026 22:05:55 +0900</pubDate>
-            <sparkle:version>20001</sparkle:version>
-            <sparkle:shortVersionString>2.0.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.1-staging.11/ClaudeUsage.zip" length="3124159" type="application/octet-stream" sparkle:edSignature="mFIpimVYsuTBzpUOjgYb20N9Ny3dV3jKwF9kxILqkzfVy4+m4ufHbwfkfcvR7KwuTEQeZeIHOMbAFkYH4vjfBA==" />
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.0.9/ClaudeUsage.zip" length="3144907" type="application/octet-stream" sparkle:edSignature="8tNoHz8xYoQT4MVbxKT3fE8Er7zqL6SG22/vITc06GRVaVNT3ok152R7N1RJXnZq+aYS/PoG8+eOzsG3tYDFBQ=="/>
         </item>
     </channel>
 </rss>
