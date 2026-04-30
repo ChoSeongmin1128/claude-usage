@@ -16,6 +16,7 @@ final class CodexAuthPresentationTests: XCTestCase {
 
         XCTAssertEqual(presentation.command, "codex login")
         XCTAssertTrue(presentation.statusBadgeTitle.contains("다시 로그인"))
+        XCTAssertTrue(presentation.statusTitle.contains("갱신하지 못했습니다"))
         XCTAssertTrue(presentation.actionDetail?.contains("다시 실행") == true)
     }
 
@@ -24,5 +25,96 @@ final class CodexAuthPresentationTests: XCTestCase {
 
         XCTAssertNil(presentation.command)
         XCTAssertNil(presentation.actionDetail)
+    }
+
+    func testExpiredTokenWithRefreshTokenBecomesAuthenticatedWhenRefreshSucceeds() async {
+        let expiredToken = CodexAuthToken(
+            accessToken: "expired",
+            refreshToken: "refresh",
+            expiresAt: Date(timeIntervalSinceNow: -60)
+        )
+        let refreshedToken = CodexAuthToken(
+            accessToken: "fresh",
+            refreshToken: "refresh",
+            expiresAt: Date(timeIntervalSinceNow: 3600)
+        )
+
+        let status = await CodexAuthStatusResolver.resolve(
+            isProviderEnabled: true,
+            authJsonExists: true,
+            token: expiredToken,
+            isCodexInstalled: { false },
+            refreshAccessToken: { refreshToken in
+                XCTAssertEqual(refreshToken, "refresh")
+                return refreshedToken
+            }
+        )
+
+        XCTAssertEqual(status, .authenticated)
+    }
+
+    func testExpiredTokenWithRefreshTokenStaysExpiredWhenRefreshFails() async {
+        let expiredToken = CodexAuthToken(
+            accessToken: "expired",
+            refreshToken: "refresh",
+            expiresAt: Date(timeIntervalSinceNow: -60)
+        )
+
+        let status = await CodexAuthStatusResolver.resolve(
+            isProviderEnabled: true,
+            authJsonExists: true,
+            token: expiredToken,
+            isCodexInstalled: { false },
+            refreshAccessToken: { _ in nil }
+        )
+
+        XCTAssertEqual(status, .expired)
+    }
+
+    func testExpiredTokenWithoutRefreshTokenDoesNotAttemptRefresh() async {
+        let expiredToken = CodexAuthToken(
+            accessToken: "expired",
+            refreshToken: nil,
+            expiresAt: Date(timeIntervalSinceNow: -60)
+        )
+        var refreshCalled = false
+
+        let status = await CodexAuthStatusResolver.resolve(
+            isProviderEnabled: true,
+            authJsonExists: true,
+            token: expiredToken,
+            isCodexInstalled: { false },
+            refreshAccessToken: { _ in
+                refreshCalled = true
+                return nil
+            }
+        )
+
+        XCTAssertEqual(status, .expired)
+        XCTAssertFalse(refreshCalled)
+        XCTAssertFalse(expiredToken.isUsableOrRefreshable)
+    }
+
+    func testExpiredTokenWithRefreshTokenIsRefreshable() {
+        let expiredToken = CodexAuthToken(
+            accessToken: "expired",
+            refreshToken: "refresh",
+            expiresAt: Date(timeIntervalSinceNow: -60)
+        )
+
+        XCTAssertTrue(expiredToken.hasRefreshToken)
+        XCTAssertTrue(expiredToken.isUsableOrRefreshable)
+    }
+
+    func testMissingAuthJsonUsesInstalledState() async {
+        let status = await CodexAuthStatusResolver.resolve(
+            isProviderEnabled: true,
+            authJsonExists: false,
+            token: nil,
+            isCodexInstalled: { true },
+            refreshAccessToken: { _ in nil }
+        )
+
+        XCTAssertEqual(status, .notLoggedIn)
     }
 }

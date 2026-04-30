@@ -8,7 +8,7 @@
 import AppKit
 import SwiftUI
 
-enum CodexAuthStatus {
+enum CodexAuthStatus: Equatable {
     case checking
     case authenticated
     case notInstalled
@@ -59,13 +59,43 @@ struct CodexAuthPresentation: Equatable {
             )
         case .expired:
             return CodexAuthPresentation(
-                statusTitle: "Codex 로그인이 만료되었습니다",
+                statusTitle: "Codex 로그인을 갱신하지 못했습니다",
                 statusBadgeTitle: "다시 로그인",
                 actionTitle: "Codex 다시 로그인",
                 actionDetail: "터미널에서 `codex login`을 다시 실행한 뒤 다시 확인하세요.",
                 command: "codex login"
             )
         }
+    }
+}
+
+enum CodexAuthStatusResolver {
+    static func resolve(
+        isProviderEnabled: Bool,
+        authJsonExists: Bool,
+        token: CodexAuthToken?,
+        isCodexInstalled: () -> Bool,
+        refreshAccessToken: (String) async -> CodexAuthToken?
+    ) async -> CodexAuthStatus {
+        guard isProviderEnabled else { return .notLoggedIn }
+
+        guard authJsonExists else {
+            return isCodexInstalled() ? .notLoggedIn : .notInstalled
+        }
+
+        guard let token else { return .notLoggedIn }
+        guard token.isExpired else { return .authenticated }
+
+        guard let refreshToken = token.refreshToken, token.hasRefreshToken else {
+            return .expired
+        }
+
+        if let refreshedToken = await refreshAccessToken(refreshToken),
+           !refreshedToken.isExpired {
+            return .authenticated
+        }
+
+        return .expired
     }
 }
 
@@ -91,6 +121,7 @@ struct SettingsView: View {
     @State var isAdvancedAuthExpanded = false
     @State var isOrganizationAdvancedExpanded = false
     @State var codexAuthStatus: CodexAuthStatus = .checking
+    @State var codexAuthCheckTask: Task<Void, Never>?
     @State var runtimeEnvironmentRefreshTick: Int = 0
 
     var onOpenLogin: (() -> Void)?

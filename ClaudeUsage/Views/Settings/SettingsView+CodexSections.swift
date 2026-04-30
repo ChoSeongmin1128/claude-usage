@@ -138,20 +138,37 @@ extension SettingsView {
     }
 
     func checkCodexAuth() {
-        if !settings.isProviderEnabled(.codex) {
+        codexAuthCheckTask?.cancel()
+
+        let isProviderEnabled = settings.isProviderEnabled(.codex)
+        guard isProviderEnabled else {
             codexAuthStatus = .notLoggedIn
             return
         }
 
-        if CodexAuthManager.shared.authJsonExists {
-            if let token = CodexAuthManager.shared.getToken() {
-                codexAuthStatus = token.isExpired ? .expired : .authenticated
-            } else {
-                codexAuthStatus = .notLoggedIn
-            }
-            return
-        }
+        codexAuthStatus = .checking
+        codexAuthCheckTask = Task {
+            let authJsonExists = CodexAuthManager.shared.authJsonExists
+            let token = CodexAuthManager.shared.getToken()
+            let status = await CodexAuthStatusResolver.resolve(
+                isProviderEnabled: isProviderEnabled,
+                authJsonExists: authJsonExists,
+                token: token,
+                isCodexInstalled: Self.isCodexInstalled,
+                refreshAccessToken: { refreshToken in
+                    await CodexAuthManager.shared.refreshAccessToken(using: refreshToken)
+                }
+            )
 
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                codexAuthStatus = status
+            }
+        }
+    }
+
+    private static func isCodexInstalled() -> Bool {
         let codexInstalled = FileManager.default.isExecutableFile(atPath: "/usr/local/bin/codex")
             || FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/codex")
             || FileManager.default.isExecutableFile(atPath: "\(NSHomeDirectory())/.npm-global/bin/codex")
@@ -167,6 +184,6 @@ extension SettingsView {
                 return process.terminationStatus == 0
             }()
 
-        codexAuthStatus = codexInstalled ? .notLoggedIn : .notInstalled
+        return codexInstalled
     }
 }

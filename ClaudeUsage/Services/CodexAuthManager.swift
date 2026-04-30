@@ -18,6 +18,15 @@ struct CodexAuthToken: Codable, Sendable {
         guard let expiresAt = expiresAt else { return false }
         return Date() >= expiresAt.addingTimeInterval(-300) // 5분 전부터 만료 취급
     }
+
+    nonisolated var hasRefreshToken: Bool {
+        guard let refreshToken else { return false }
+        return !refreshToken.isEmpty
+    }
+
+    nonisolated var isUsableOrRefreshable: Bool {
+        !isExpired || hasRefreshToken
+    }
 }
 
 final class CodexAuthManager {
@@ -90,7 +99,7 @@ final class CodexAuthManager {
 
     /// 인증 상태 확인
     var isAuthenticated: Bool {
-        getToken() != nil
+        getToken()?.isUsableOrRefreshable == true
     }
 
     /// 캐시 초기화 (refresh 토큰 캐시 + auth.json 파싱 캐시 모두).

@@ -95,6 +95,7 @@ extension SettingsView {
             settings.shouldRevealClaudeAdvancedAuth = false
         }
         .onDisappear {
+            codexAuthCheckTask?.cancel()
             flushPendingSessionKeyPersistence()
             flushPendingOrganizationPersistence()
         }
