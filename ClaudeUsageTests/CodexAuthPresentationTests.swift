@@ -1,6 +1,7 @@
 import XCTest
 @testable import ClaudeUsage
 
+@MainActor
 final class CodexAuthPresentationTests: XCTestCase {
     func testNotLoggedInTellsUserToRunCodexLoginInTerminal() {
         let presentation = CodexAuthPresentation.resolve(for: .notLoggedIn)

@@ -95,11 +95,11 @@ final class PopoverViewLayoutTests: XCTestCase {
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .content, rowCount: 1),
-            96
+            136
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .content, rowCount: 2),
-            115
+            136
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .content, rowCount: 3),
@@ -111,7 +111,7 @@ final class PopoverViewLayoutTests: XCTestCase {
         )
     }
 
-    func testCompactLayoutSpecShrinksToVisibleRowsUpToThreeRows() async {
+    func testCompactLayoutSpecKeepsThreeRowViewportForContent() async {
         let result = await MainActor.run { () -> (CGFloat, CGFloat, CGFloat) in
             let settings = AppSettings.shared
             let snapshot = settings.createSnapshot()
@@ -152,12 +152,12 @@ final class PopoverViewLayoutTests: XCTestCase {
             return (layoutSpec.bodyContentHeight, layoutSpec.contentBottomSpacing, layoutSpec.size.height)
         }
 
-        XCTAssertEqual(result.0, 39)
+        XCTAssertEqual(result.0, PopoverLayoutMetrics.compactFixedContentBodyHeight)
         XCTAssertEqual(result.1, 5)
-        XCTAssertEqual(result.2, 115)
+        XCTAssertEqual(result.2, 136)
     }
 
-    func testCompactPopoverContentHeightShrinksForTwoRowsAndCapsAtThreeRows() async {
+    func testCompactPopoverContentHeightStaysStableAcrossVisibleRowCounts() async {
         let result = await MainActor.run { () -> (CGFloat, CGFloat) in
             let settings = AppSettings.shared
             let snapshot = settings.createSnapshot()
@@ -221,7 +221,7 @@ final class PopoverViewLayoutTests: XCTestCase {
         }
 
         XCTAssertEqual(result.0, 136)
-        XCTAssertEqual(result.1, 115)
+        XCTAssertEqual(result.1, 136)
     }
 
     func testStandardShownContentUsesMeasuredHeightInsteadOfFallbackBucket() {
@@ -277,35 +277,26 @@ final class PopoverViewLayoutTests: XCTestCase {
         ).targetSize()
 
         XCTAssertEqual(targetSize.width, 296)
-        XCTAssertEqual(targetSize.height, 115)
+        XCTAssertEqual(targetSize.height, 136)
     }
 
-    func testPopoverCompactStateIsIndependentAcrossProviders() async {
-        let result = await MainActor.run { () -> (Bool, Bool, Bool, Bool) in
+    func testPopoverCompactStateIsGlobalAcrossProviders() async {
+        let result = await MainActor.run { () -> (Bool, Bool) in
             let settings = AppSettings.shared
             let snapshot = settings.createSnapshot()
             defer { settings.restore(from: snapshot) }
 
-            settings.setPopoverCompact(true, for: .claude)
-            let claudeAfterClaudeToggle = settings.isPopoverCompact(for: .claude)
-            let codexAfterClaudeToggle = settings.isPopoverCompact(for: .codex)
+            settings.popoverCompact = true
+            let enabled = settings.popoverCompact
 
-            settings.setPopoverCompact(false, for: .codex)
-            let claudeAfterCodexToggle = settings.isPopoverCompact(for: .claude)
-            let codexAfterCodexToggle = settings.isPopoverCompact(for: .codex)
+            settings.popoverCompact = false
+            let disabled = settings.popoverCompact
 
-            return (
-                claudeAfterClaudeToggle,
-                codexAfterClaudeToggle,
-                claudeAfterCodexToggle,
-                codexAfterCodexToggle
-            )
+            return (enabled, disabled)
         }
 
         XCTAssertTrue(result.0)
         XCTAssertFalse(result.1)
-        XCTAssertTrue(result.2)
-        XCTAssertFalse(result.3)
     }
 
     func testMenuBarServiceIsIndependentFromActivePopoverSelectionState() async {
@@ -338,7 +329,7 @@ final class PopoverViewLayoutTests: XCTestCase {
         XCTAssertEqual(services.3, .codex)
     }
 
-    func testCompactPopoverContentHeightUsesVisibleRowCountWithoutSessionLock() async {
+    func testCompactPopoverContentHeightUsesThreeRowSessionLock() async {
         let expectedMaximumBodyHeight = await MainActor.run {
             PopoverLayoutMetrics.compactFixedContentBodyHeight
         }
@@ -406,7 +397,7 @@ final class PopoverViewLayoutTests: XCTestCase {
         }
 
         XCTAssertEqual(result.0, expectedMaximumBodyHeight)
-        XCTAssertEqual(result.1, 39)
+        XCTAssertEqual(result.1, expectedMaximumBodyHeight)
     }
 
     func testStandardWidthStaysFixedAcrossAllPopoverPhases() async {

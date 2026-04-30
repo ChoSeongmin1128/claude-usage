@@ -511,14 +511,14 @@ enum ProviderEnvironmentDetector {
                 isDetected: false,
                 credentialState: .missing,
                 runtimeReachability: false,
-                summary: signals.hasBinary ? "Gemini CLI 감지됨 · 현재 인증 방식은 API 키입니다" : "Gemini CLI 미설치"
+                summary: signals.hasBinary ? "현재 로그인 방식은 지원하지 않습니다" : "Gemini CLI 설치 필요"
             )
         case .vertexAI:
             return ProviderEnvironmentStatus(
                 isDetected: false,
                 credentialState: .missing,
                 runtimeReachability: false,
-                summary: signals.hasBinary ? "Gemini CLI 감지됨 · 현재 인증 방식은 Vertex AI입니다" : "Gemini CLI 미설치"
+                summary: signals.hasBinary ? "현재 로그인 방식은 지원하지 않습니다" : "Gemini CLI 설치 필요"
             )
         case .oauthPersonal, .unknown:
             break
@@ -530,42 +530,42 @@ enum ProviderEnvironmentDetector {
                 isDetected: true,
                 credentialState: .usable,
                 runtimeReachability: true,
-                summary: "Gemini CLI OAuth 감지"
+                summary: "Gemini 로그인 확인됨"
             )
         case (true, .refreshOnly):
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .refreshable,
                 runtimeReachability: true,
-                summary: "Gemini CLI OAuth 감지 · 액세스 토큰은 갱신이 필요합니다"
+                summary: "Gemini 로그인 정보를 갱신하고 있습니다"
             )
         case (true, .missing):
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .missing,
                 runtimeReachability: false,
-                summary: "Gemini CLI 감지됨 · 로그인 필요"
+                summary: "Gemini 로그인 필요"
             )
         case (false, .usable):
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .usable,
                 runtimeReachability: false,
-                summary: "Gemini OAuth 자격 감지 · CLI 설치 경로를 확인하세요"
+                summary: "Gemini 설치를 확인해 주세요"
             )
         case (false, .refreshOnly):
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .refreshable,
                 runtimeReachability: false,
-                summary: "Gemini OAuth 자격 감지 · CLI 설치 경로를 확인하세요"
+                summary: "Gemini 설치를 확인해 주세요"
             )
         case (false, .missing):
             return ProviderEnvironmentStatus(
                 isDetected: false,
                 credentialState: .missing,
                 runtimeReachability: false,
-                summary: "Gemini CLI 미설치"
+                summary: "Gemini CLI 설치 필요"
             )
         }
     }
@@ -577,58 +577,56 @@ enum ProviderEnvironmentDetector {
                 isDetected: true,
                 credentialState: .refreshable,
                 runtimeReachability: true,
-                summary: "Antigravity quota 서버 감지 · 조회를 시도할 수 있습니다"
+                summary: "Antigravity 연결 확인됨"
             )
         case let (.some(process), true, _, _) where process.csrfToken != nil:
-            let portSuffix = process.extensionPort.map { " · 포트 \($0)" } ?? ""
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .refreshable,
                 runtimeReachability: false,
-                summary: "Antigravity 인증 상태 감지 · quota 서버 연결 준비 중\(portSuffix)"
+                summary: "Antigravity 연결 준비 중"
             )
-        case let (.some(process), _, _, _):
-            let portSuffix = process.extensionPort.map { " · 포트 \($0)" } ?? ""
+        case (.some(_), _, _, _):
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .unknown,
                 runtimeReachability: false,
-                summary: "Antigravity quota 서버 감지 · 연결 토큰 확인 중\(portSuffix)"
+                summary: "Antigravity 연결 확인 중"
             )
         case (nil, true, true, _):
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .unknown,
                 runtimeReachability: false,
-                summary: "Antigravity 앱과 인증 상태 감지 · quota 서버 연결 준비 중"
+                summary: "Antigravity 연결 준비 중"
             )
         case (nil, true, false, _):
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .unknown,
                 runtimeReachability: false,
-                summary: "Antigravity 인증 상태 감지 · 앱을 실행하면 조회를 시작합니다"
+                summary: "Antigravity 앱을 실행하면 조회를 시작합니다"
             )
         case (nil, false, true, _):
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .unknown,
                 runtimeReachability: false,
-                summary: "Antigravity 앱 실행 중 · 로그인 또는 quota 서버 초기화를 기다리는 중입니다"
+                summary: "Antigravity 앱에서 로그인을 확인해 주세요"
             )
         case (nil, false, false, true):
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .unknown,
                 runtimeReachability: false,
-                summary: "Antigravity 로컬 상태 감지 · 앱 실행이 필요합니다"
+                summary: "Antigravity 앱 실행 필요"
             )
         case (nil, false, false, false):
             return ProviderEnvironmentStatus(
                 isDetected: false,
                 credentialState: .missing,
                 runtimeReachability: false,
-                summary: "Antigravity 상태 미감지"
+                summary: "Antigravity 앱 실행 필요"
             )
         }
     }

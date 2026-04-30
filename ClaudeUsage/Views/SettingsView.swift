@@ -123,6 +123,7 @@ struct SettingsView: View {
     @State var codexAuthStatus: CodexAuthStatus = .checking
     @State var codexAuthCheckTask: Task<Void, Never>?
     @State var runtimeEnvironmentRefreshTick: Int = 0
+    @State var expandedCustomMenuBarProviders: Set<AppProviderKind> = []
 
     var onOpenLogin: (() -> Void)?
     var onOpenClaudeInChrome: (() -> Void)?

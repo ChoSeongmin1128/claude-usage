@@ -298,3 +298,66 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
     let circularDisplayMode: CircularDisplayMode
     let iconMetric: IconMetric
 }
+
+enum ProviderMenuBarDisplayPreset: String, CaseIterable, Identifiable, Sendable, Equatable {
+    case basic
+    case battery
+    case dual
+    case custom
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .basic:
+            return "기본"
+        case .battery:
+            return "배터리"
+        case .dual:
+            return "두 한도"
+        case .custom:
+            return "직접 설정"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .basic:
+            return "아이콘과 현재 사용률만 표시합니다."
+        case .battery:
+            return "아이콘과 배터리 형태로 남은 사용량을 표시합니다."
+        case .dual:
+            return "현재 한도와 보조 한도를 함께 표시합니다."
+        case .custom:
+            return "표시 항목을 직접 조정합니다."
+        }
+    }
+
+    static func resolved(for config: ProviderMenuBarDisplayConfig) -> Self {
+        if config.showIcon,
+           config.style == .none,
+           config.percentageDisplay == .fiveHour,
+           config.resetTimeDisplay == .none {
+            return .basic
+        }
+
+        if config.showIcon,
+           config.style == .batteryBar,
+           config.percentageDisplay == .none,
+           config.resetTimeDisplay == .none,
+           config.showBatteryPercent,
+           config.iconMetric == .fiveHour,
+           config.circularDisplayMode == .remaining {
+            return .battery
+        }
+
+        if config.showIcon,
+           config.style == .none,
+           config.percentageDisplay == .dual,
+           config.resetTimeDisplay == .none {
+            return .dual
+        }
+
+        return .custom
+    }
+}

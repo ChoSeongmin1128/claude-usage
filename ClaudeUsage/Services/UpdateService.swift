@@ -50,7 +50,7 @@ struct UpdateEngineStatus: Sendable, Equatable {
 
 private enum UpdateEngineMessages {
     nonisolated static let githubFallback = "새 버전이 있으면 다운로드 페이지로 안내합니다"
-    nonisolated static let sparkleSchedulerReady = "새 버전이 있으면 알려드리고 설치는 직접 시작합니다"
+    nonisolated static let sparkleSchedulerReady = "새 버전이 있으면 알려드립니다. 설치는 사용자가 직접 시작합니다"
     nonisolated static let sparkleInteractiveStarted = "업데이트 확인 창을 열었습니다"
     nonisolated static let updateSessionInProgress = "이미 업데이트를 확인하고 있습니다"
     nonisolated static let downloadCancelled = "업데이트 다운로드를 취소했습니다"
@@ -90,7 +90,7 @@ final class GitHubReleaseUpdateEngine: AppUpdateEngine {
     private let repoName = "claude-usage"
     private let modeDescription: String
 
-    init(modeDescription: String = "현재는 GitHub Release 수동 다운로드 엔진을 사용 중입니다") {
+    init(modeDescription: String = "새 버전이 있으면 다운로드 페이지로 안내합니다") {
         self.modeDescription = modeDescription
     }
 
@@ -282,7 +282,7 @@ enum SparkleUpdateResultInterpreter {
         case ErrorCode.runningFromDiskImage, ErrorCode.runningTranslocated:
             return "다운로드한 위치에서 실행 중이라 업데이트할 수 없습니다. 응용 프로그램 폴더로 옮긴 뒤 다시 열어 주세요"
         case ErrorCode.appcastParse, ErrorCode.appcast, ErrorCode.download:
-            return "업데이트 채널에 연결하지 못했습니다. staging appcast와 다운로드 경로를 확인해 주세요"
+            return "업데이트 정보를 확인하지 못했습니다. 잠시 후 다시 시도하거나 다운로드 페이지에서 설치해 주세요"
         case ErrorCode.insecureFeedURL, ErrorCode.invalidFeedURL:
             return "업데이트 채널 주소가 올바르지 않습니다"
         default:
@@ -709,7 +709,7 @@ enum UpdateConfigurationInspector {
         )
         #else
         return UpdateEngineStatus(
-            modeSummary: "현재는 GitHub Release 수동 다운로드 엔진을 사용 중입니다",
+            modeSummary: UpdateEngineMessages.githubFallback,
             sparkleIntegrated: false,
             feedConfigured: false,
             publicKeyConfigured: false

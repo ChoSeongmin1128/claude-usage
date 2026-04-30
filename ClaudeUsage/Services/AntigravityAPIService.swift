@@ -187,7 +187,7 @@ actor AntigravityAPIService {
 
         guard !candidatePorts.isEmpty else {
             AntigravityStatusProbe.invalidateCache()
-            throw APIError.networkError("Antigravity connect 포트를 찾지 못했습니다. 잠시 후 다시 시도해주세요")
+            throw APIError.networkError("Antigravity 앱 연결을 확인하지 못했습니다. 앱을 다시 열고 잠시 후 다시 시도해 주세요")
         }
 
         let connectPort = try await resolveConnectPort(ports: candidatePorts, csrfToken: effectiveCsrfToken)
@@ -533,7 +533,7 @@ actor AntigravityAPIService {
         // 모든 포트 probe 실패 — 프로세스 정보가 stale할 가능성이 높음
         AntigravityStatusProbe.invalidateCache()
         Logger.warning("[Antigravity] 모든 후보 포트 probe 실패 \(ports) — 캐시 무효화")
-        throw APIError.networkError("Antigravity connect 포트를 찾지 못했습니다. 잠시 후 다시 시도해주세요")
+        throw APIError.networkError("Antigravity 앱 연결을 확인하지 못했습니다. 앱을 다시 열고 잠시 후 다시 시도해 주세요")
     }
 
     private func isWorkingConnectPort(port: Int, csrfToken: String) async -> Bool {

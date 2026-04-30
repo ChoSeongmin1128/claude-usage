@@ -594,7 +594,7 @@ final class PopoverViewModel: ObservableObject {
             return .init(phase: .backoff, summary: "약 \(remainingSeconds)초 후 다시 시도")
         }
         if environmentStatus?.credentialState == .refreshable, environmentStatus?.runtimeReachability == true {
-            return .init(phase: .refreshingCredential, summary: "토큰 갱신 후 연결 확인 중")
+            return .init(phase: .refreshingCredential, summary: "로그인 갱신 후 연결 확인 중")
         }
         if environmentStatus?.runtimeReachability == true {
             return .init(phase: .probingRuntime, summary: "연결 확인 중")
@@ -640,7 +640,7 @@ final class PopoverViewModel: ObservableObject {
             return .init(phase: .backoff, summary: "약 \(remainingSeconds)초 후 다시 시도")
         }
         if signals.hasRuntimeConnection {
-            return .init(phase: .probingRuntime, summary: "quota 서버 연결 확인 중")
+            return .init(phase: .probingRuntime, summary: "앱 연결 확인 중")
         }
         if signals.hasPersistedAuthState {
             return .init(phase: .waitingForApp, summary: "앱 실행 후 연결 확인 중")

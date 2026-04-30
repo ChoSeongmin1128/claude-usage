@@ -498,18 +498,6 @@ class AppSettings: ObservableObject {
             defaults.set(popoverCompact, forKey: "popoverCompact")
         }
     }
-    @Published var claudePopoverPinned: Bool {
-        didSet { defaults.set(claudePopoverPinned, forKey: "claudePopoverPinned") }
-    }
-    @Published var codexPopoverPinned: Bool {
-        didSet { defaults.set(codexPopoverPinned, forKey: "codexPopoverPinned") }
-    }
-    @Published var claudePopoverCompact: Bool {
-        didSet { defaults.set(claudePopoverCompact, forKey: "claudePopoverCompact") }
-    }
-    @Published var codexPopoverCompact: Bool {
-        didSet { defaults.set(codexPopoverCompact, forKey: "codexPopoverCompact") }
-    }
     @Published var launchAtLogin: Bool {
         didSet {
             defaults.set(launchAtLogin, forKey: "launchAtLogin")
@@ -623,10 +611,6 @@ class AppSettings: ObservableObject {
         let alertWeeklyEnabled: Bool
         let popoverPinned: Bool
         let popoverCompact: Bool
-        let claudePopoverPinned: Bool
-        let codexPopoverPinned: Bool
-        let claudePopoverCompact: Bool
-        let codexPopoverCompact: Bool
         let launchAtLogin: Bool
         let preferredOrganizationID: String
         let popoverItemsByProvider: [String: [PopoverItemConfig]]
@@ -644,8 +628,6 @@ class AppSettings: ObservableObject {
         let providerStates: AppProviderStateCatalog
         let menuBarActiveServiceRawValue: String
         let runtimeProviderDisplayConfigs: [AppProviderKind: ProviderMenuBarDisplayConfig]
-        let providerPopoverPinnedStates: [AppProviderKind: Bool]
-        let providerPopoverCompactStates: [AppProviderKind: Bool]
         let providerAlertEnabledStates: [AppProviderKind: Bool]
         let settingsLastTab: String
     }
@@ -680,10 +662,6 @@ class AppSettings: ObservableObject {
             alertWeeklyEnabled: alertWeeklyEnabled,
             popoverPinned: popoverPinned,
             popoverCompact: popoverCompact,
-            claudePopoverPinned: claudePopoverPinned,
-            codexPopoverPinned: codexPopoverPinned,
-            claudePopoverCompact: claudePopoverCompact,
-            codexPopoverCompact: codexPopoverCompact,
             launchAtLogin: launchAtLogin,
             preferredOrganizationID: preferredOrganizationID,
             popoverItemsByProvider: popoverItemsByProvider,
@@ -703,16 +681,6 @@ class AppSettings: ObservableObject {
             runtimeProviderDisplayConfigs: Dictionary(
                 uniqueKeysWithValues: AppProviderKind.runtimeKinds.compactMap { kind in
                     menuBarDisplayConfig(for: kind).map { (kind, $0) }
-                }
-            ),
-            providerPopoverPinnedStates: Dictionary(
-                uniqueKeysWithValues: AppProviderKind.runtimeKinds.map { kind in
-                    (kind, isPopoverPinned(for: kind))
-                }
-            ),
-            providerPopoverCompactStates: Dictionary(
-                uniqueKeysWithValues: AppProviderKind.runtimeKinds.map { kind in
-                    (kind, isPopoverCompact(for: kind))
                 }
             ),
             providerAlertEnabledStates: Dictionary(
@@ -753,10 +721,6 @@ class AppSettings: ObservableObject {
         alertWeeklyEnabled = snapshot.alertWeeklyEnabled
         popoverPinned = snapshot.popoverPinned
         popoverCompact = snapshot.popoverCompact
-        claudePopoverPinned = snapshot.claudePopoverPinned
-        codexPopoverPinned = snapshot.codexPopoverPinned
-        claudePopoverCompact = snapshot.claudePopoverCompact
-        codexPopoverCompact = snapshot.codexPopoverCompact
         launchAtLogin = snapshot.launchAtLogin
         preferredOrganizationID = snapshot.preferredOrganizationID
         popoverItemsByProvider = Self.normalizedPopoverDict(snapshot.popoverItemsByProvider)
@@ -785,12 +749,6 @@ class AppSettings: ObservableObject {
             setProviderTimeFormat(config.timeFormat, for: kind)
             setProviderCircularDisplayMode(config.circularDisplayMode, for: kind)
             setProviderIconMetric(config.iconMetric, for: kind)
-        }
-        for (kind, isPinned) in snapshot.providerPopoverPinnedStates {
-            setPopoverPinned(isPinned, for: kind)
-        }
-        for (kind, isCompact) in snapshot.providerPopoverCompactStates {
-            setPopoverCompact(isCompact, for: kind)
         }
         for (kind, isEnabled) in snapshot.providerAlertEnabledStates {
             setProviderAlertEnabled(isEnabled, for: kind)
@@ -1061,7 +1019,7 @@ class AppSettings: ObservableObject {
 
     func setProviderMenuBarVisible(_ visible: Bool, for kind: AppProviderKind) {
         if visible {
-            applyMinimalVisiblePreset(force: true, for: kind)
+            applyMenuBarDisplayPreset(.basic, for: kind)
             return
         }
 
@@ -1069,6 +1027,36 @@ class AppSettings: ObservableObject {
         setProviderPercentageDisplay(.none, for: kind)
         setProviderResetTimeDisplay(.none, for: kind)
         setMenuBarStyle(.none, for: kind)
+    }
+
+    func menuBarDisplayPreset(for kind: AppProviderKind) -> ProviderMenuBarDisplayPreset {
+        guard let config = menuBarDisplayConfig(for: kind) else { return .custom }
+        return ProviderMenuBarDisplayPreset.resolved(for: config)
+    }
+
+    func applyMenuBarDisplayPreset(_ preset: ProviderMenuBarDisplayPreset, for kind: AppProviderKind) {
+        switch preset {
+        case .basic:
+            setProviderShowIcon(true, for: kind)
+            setProviderPercentageDisplay(.fiveHour, for: kind)
+            setProviderResetTimeDisplay(.none, for: kind)
+            setMenuBarStyle(.none, for: kind)
+        case .battery:
+            setProviderShowIcon(true, for: kind)
+            setProviderPercentageDisplay(.none, for: kind)
+            setProviderResetTimeDisplay(.none, for: kind)
+            setMenuBarStyle(.batteryBar, for: kind)
+            setProviderShowBatteryPercent(true, for: kind)
+            setProviderIconMetric(.fiveHour, for: kind)
+            setProviderCircularDisplayMode(.remaining, for: kind)
+        case .dual:
+            setProviderShowIcon(true, for: kind)
+            setProviderPercentageDisplay(.dual, for: kind)
+            setProviderResetTimeDisplay(.none, for: kind)
+            setMenuBarStyle(.none, for: kind)
+        case .custom:
+            break
+        }
     }
 
     func setActiveProvider(_ kind: AppProviderKind?) {
@@ -1083,56 +1071,6 @@ class AppSettings: ObservableObject {
         let normalized = PopoverService(rawValue: rawValue)?.rawValue ?? fallback
         if menuBarActiveServiceSelectionRawValue != normalized {
             menuBarActiveServiceSelectionRawValue = normalized
-        }
-    }
-
-    func isPopoverPinned(for kind: AppProviderKind) -> Bool {
-        switch kind {
-        case .claude:
-            return claudePopoverPinned
-        case .codex:
-            return codexPopoverPinned
-        case .gemini, .antigravity:
-            return defaults.object(forKey: "\(kind.rawValue)PopoverPinned") as? Bool ?? popoverPinned
-        }
-    }
-
-    func setPopoverPinned(_ isPinned: Bool, for kind: AppProviderKind) {
-        switch kind {
-        case .claude:
-            claudePopoverPinned = isPinned
-        case .codex:
-            codexPopoverPinned = isPinned
-        case .gemini, .antigravity:
-            objectWillChange.send()
-            defaults.set(isPinned, forKey: "\(kind.rawValue)PopoverPinned")
-        }
-    }
-
-    func isPopoverCompact(for kind: AppProviderKind) -> Bool {
-        switch kind {
-        case .claude:
-            return claudePopoverCompact
-        case .codex:
-            return codexPopoverCompact
-        case .gemini, .antigravity:
-            return defaults.object(forKey: "\(kind.rawValue)PopoverCompact") as? Bool ?? popoverCompact
-        }
-    }
-
-    func setPopoverCompact(_ isCompact: Bool, for kind: AppProviderKind) {
-        switch kind {
-        case .claude:
-            if claudePopoverCompact != isCompact {
-                claudePopoverCompact = isCompact
-            }
-        case .codex:
-            if codexPopoverCompact != isCompact {
-                codexPopoverCompact = isCompact
-            }
-        case .gemini, .antigravity:
-            objectWillChange.send()
-            defaults.set(isCompact, forKey: "\(kind.rawValue)PopoverCompact")
         }
     }
 
@@ -1358,10 +1296,7 @@ class AppSettings: ObservableObject {
         if !force, let config = menuBarDisplayConfig(for: kind), isMenuBarConfigVisible(config) {
             return
         }
-        setProviderShowIcon(true, for: kind)
-        setProviderPercentageDisplay(.fiveHour, for: kind)
-        setProviderResetTimeDisplay(.none, for: kind)
-        setMenuBarStyle(.none, for: kind)
+        applyMenuBarDisplayPreset(.basic, for: kind)
     }
 
     private func providerBoolDefault(_ fallback: Bool, for kind: AppProviderKind, suffix: String) -> Bool {
@@ -1435,10 +1370,6 @@ class AppSettings: ObservableObject {
         alertWeeklyEnabled = false
         popoverPinned = false
         popoverCompact = false
-        claudePopoverPinned = false
-        codexPopoverPinned = false
-        claudePopoverCompact = false
-        codexPopoverCompact = false
         launchAtLogin = false
         preferredOrganizationID = ""
         popoverItemsByProvider = Self.defaultPopoverItemsDict()
@@ -1555,19 +1486,12 @@ class AppSettings: ObservableObject {
         self.claudeMessagesFallbackAutoDisableBelowPercent = Self.normalizedMessagesFallbackThreshold(storedFallbackThreshold)
         self.alertFiveHourEnabled = defaults.object(forKey: "alertFiveHourEnabled") as? Bool ?? true
         self.alertWeeklyEnabled = defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false
-        let legacyPinned = defaults.object(forKey: "popoverPinned") as? Bool ?? false
-        let normalizedCompact = (defaults.object(forKey: "popoverCompact") as? Bool)
-            ?? (defaults.object(forKey: "claudePopoverCompact") as? Bool)
-            ?? (defaults.object(forKey: "codexPopoverCompact") as? Bool)
-            ?? (defaults.object(forKey: "\(AppProviderKind.gemini.rawValue)PopoverCompact") as? Bool)
-            ?? (defaults.object(forKey: "\(AppProviderKind.antigravity.rawValue)PopoverCompact") as? Bool)
-            ?? false
+        let legacyPinned = Self.normalizedGlobalPopoverPinned(from: defaults)
+        let normalizedCompact = Self.normalizedGlobalPopoverCompact(from: defaults)
         self.popoverPinned = legacyPinned
         self.popoverCompact = normalizedCompact
-        self.claudePopoverPinned = defaults.object(forKey: "claudePopoverPinned") as? Bool ?? legacyPinned
-        self.codexPopoverPinned = defaults.object(forKey: "codexPopoverPinned") as? Bool ?? legacyPinned
-        self.claudePopoverCompact = defaults.object(forKey: "claudePopoverCompact") as? Bool ?? normalizedCompact
-        self.codexPopoverCompact = defaults.object(forKey: "codexPopoverCompact") as? Bool ?? normalizedCompact
+        defaults.set(legacyPinned, forKey: "popoverPinned")
+        defaults.set(normalizedCompact, forKey: "popoverCompact")
         // 시스템 상태에서 실제 등록 여부 확인
         let savedLaunchAtLogin = defaults.object(forKey: "launchAtLogin") as? Bool ?? false
         self.launchAtLogin = savedLaunchAtLogin
@@ -1628,11 +1552,23 @@ class AppSettings: ObservableObject {
             defaults.set(Self.currentPopoverItemsMigrationVersion, forKey: Self.popoverItemsMigrationVersionKey)
         }
 
-        for kind in AppProviderKind.runtimeKinds where kind == .gemini || kind == .antigravity {
-            let key = "\(kind.rawValue)PopoverCompact"
-            if defaults.object(forKey: key) == nil {
-                defaults.set(normalizedCompact, forKey: key)
-            }
-        }
+    }
+
+    static func normalizedGlobalPopoverPinned(from defaults: UserDefaults) -> Bool {
+        (defaults.object(forKey: "popoverPinned") as? Bool)
+            ?? (defaults.object(forKey: "claudePopoverPinned") as? Bool)
+            ?? (defaults.object(forKey: "codexPopoverPinned") as? Bool)
+            ?? (defaults.object(forKey: "\(AppProviderKind.gemini.rawValue)PopoverPinned") as? Bool)
+            ?? (defaults.object(forKey: "\(AppProviderKind.antigravity.rawValue)PopoverPinned") as? Bool)
+            ?? false
+    }
+
+    static func normalizedGlobalPopoverCompact(from defaults: UserDefaults) -> Bool {
+        (defaults.object(forKey: "popoverCompact") as? Bool)
+            ?? (defaults.object(forKey: "claudePopoverCompact") as? Bool)
+            ?? (defaults.object(forKey: "codexPopoverCompact") as? Bool)
+            ?? (defaults.object(forKey: "\(AppProviderKind.gemini.rawValue)PopoverCompact") as? Bool)
+            ?? (defaults.object(forKey: "\(AppProviderKind.antigravity.rawValue)PopoverCompact") as? Bool)
+            ?? false
     }
 }

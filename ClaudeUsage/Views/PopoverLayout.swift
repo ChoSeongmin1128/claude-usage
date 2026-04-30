@@ -142,9 +142,7 @@ enum PopoverLayoutMetrics {
     }
 
     static func compactContentBodyHeight(rowCount: Int) -> CGFloat {
-        let visibleRows = min(max(rowCount, 1), compactMaximumVisibleRows)
-        return compactUsageRowHeight * CGFloat(visibleRows)
-            + compactSectionSpacing * CGFloat(max(visibleRows - 1, 0))
+        compactFixedContentBodyHeight
     }
 
     static func standardPopoverHeight(forBodyHeight bodyHeight: CGFloat) -> CGFloat {

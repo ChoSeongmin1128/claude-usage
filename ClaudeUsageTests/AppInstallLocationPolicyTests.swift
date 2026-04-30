@@ -52,4 +52,17 @@ final class AppInstallLocationPolicyTests: XCTestCase {
         XCTAssertEqual(assessment.kind, .downloads)
         XCTAssertTrue(assessment.requiresMovePrompt)
     }
+
+    func testUnstableLocationDescriptionsDoNotExposeRawPaths() {
+        let assessments = [
+            AppInstallLocationPolicy.assess(bundlePath: "/Volumes/ClaudeUsage/ClaudeUsage.app", homeDirectory: "/Users/tester"),
+            AppInstallLocationPolicy.assess(bundlePath: "/private/var/folders/x/AppTranslocation/ClaudeUsage.app", homeDirectory: "/Users/tester"),
+            AppInstallLocationPolicy.assess(bundlePath: "/Users/tester/Downloads/ClaudeUsage.app", homeDirectory: "/Users/tester"),
+        ]
+
+        for assessment in assessments {
+            XCTAssertTrue(assessment.requiresMovePrompt)
+            XCTAssertFalse(assessment.locationDescription.contains("/"))
+        }
+    }
 }

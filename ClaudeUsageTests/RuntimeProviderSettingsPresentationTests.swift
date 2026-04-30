@@ -9,7 +9,7 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
                 isDetected: true,
                 credentialState: ProviderCredentialState.refreshable,
                 runtimeReachability: true,
-                summary: "Gemini CLI OAuth 감지 · 액세스 토큰은 갱신이 필요합니다"
+                summary: "Gemini 로그인 정보를 갱신하고 있습니다"
             ),
             signals: GeminiEnvironmentSignals(
                 hasBinary: true,
@@ -30,7 +30,7 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
                 isDetected: true,
                 credentialState: .usable,
                 runtimeReachability: false,
-                summary: "Gemini OAuth 자격 감지 · CLI 설치 경로를 확인하세요"
+                summary: "Gemini 설치를 확인해 주세요"
             ),
             signals: GeminiEnvironmentSignals(
                 hasBinary: false,
@@ -41,7 +41,8 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
 
         XCTAssertEqual(presentation.stage, .installRequired)
         XCTAssertEqual(presentation.badgeTitle, "설치 필요")
-        XCTAssertTrue(presentation.primaryActionDetail.contains("Gemini"))
+        XCTAssertTrue(presentation.nextStepDetail.contains("Gemini"))
+        XCTAssertNil(presentation.availableAction)
     }
 
     func testAntigravityPersistedAuthWithoutRunningAppStaysWaitingForApp() {
@@ -51,7 +52,7 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
                 isDetected: true,
                 credentialState: .unknown,
                 runtimeReachability: false,
-                summary: "Antigravity 인증 상태 감지 · 앱을 실행하면 조회를 시작합니다"
+                summary: "Antigravity 앱을 실행하면 조회를 시작합니다"
             ),
             signals: AntigravityEnvironmentSignals(
                 hasStateDirectory: true,
@@ -65,6 +66,7 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.stage, .waitingForApp)
         XCTAssertEqual(presentation.badgeTitle, "앱 필요")
         XCTAssertTrue(presentation.summary.contains("열려 있지 않습니다"))
+        XCTAssertEqual(presentation.availableAction, .openAntigravityApp)
     }
 
     func testAntigravityRuntimeConnectionUsesProbingStage() {
@@ -74,7 +76,7 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
                 isDetected: true,
                 credentialState: ProviderCredentialState.refreshable,
                 runtimeReachability: true,
-                summary: "Antigravity quota 서버 감지 · 조회를 시도할 수 있습니다"
+                summary: "Antigravity 연결 확인됨"
             ),
             signals: AntigravityEnvironmentSignals(
                 hasStateDirectory: true,
@@ -94,7 +96,8 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
 
         XCTAssertEqual(presentation.stage, RuntimeProviderAuthStage.probingRuntime)
         XCTAssertEqual(presentation.badgeTitle, "연결 확인 중")
-        XCTAssertTrue(presentation.primaryActionDetail.contains("사용량"))
+        XCTAssertTrue(presentation.nextStepDetail.contains("사용량"))
+        XCTAssertNil(presentation.availableAction)
     }
 }
 
@@ -141,7 +144,7 @@ final class SparkleUpdateResultInterpreterTests: XCTestCase {
         XCTAssertTrue(message.contains("응용 프로그램 폴더"))
     }
 
-    func testAppcastFailureShowsChannelHint() {
+    func testAppcastFailureShowsUserFacingRetryHint() {
         let error = NSError(domain: "SUSparkleErrorDomain", code: 1002)
 
         let result = SparkleUpdateResultInterpreter.resolve(error: error, fallback: nil)
@@ -149,7 +152,79 @@ final class SparkleUpdateResultInterpreterTests: XCTestCase {
         guard case .error(let message) = result else {
             return XCTFail("Expected error result")
         }
-        XCTAssertTrue(message.contains("staging appcast"))
+        XCTAssertTrue(message.contains("업데이트 정보를 확인하지 못했습니다"))
+        XCTAssertFalse(message.contains("appcast"))
     }
 }
 #endif
+
+final class PublicCopySanityTests: XCTestCase {
+    func testNormalUserFacingCopyDoesNotExposeInternalImplementationTerms() {
+        let geminiStatus = ProviderEnvironmentDetector.interpretGemini(
+            signals: GeminiEnvironmentSignals(
+                hasBinary: true,
+                authType: .oauthPersonal,
+                credentialState: .refreshOnly
+            )
+        )
+        let antigravityStatus = ProviderEnvironmentDetector.interpretAntigravity(
+            signals: AntigravityEnvironmentSignals(
+                hasStateDirectory: true,
+                appRunning: true,
+                runningProcess: AntigravityProcessSnapshot(
+                    pid: 42,
+                    command: "language_server_macos --csrf_token token",
+                    csrfToken: "token",
+                    extensionPort: nil,
+                    extensionCsrfToken: nil,
+                    httpsServerPort: nil
+                ),
+                hasAuthStatus: true,
+                hasOAuthToken: true
+            )
+        )
+        let geminiPresentation = RuntimeProviderSettingsPresentation.makeGemini(
+            isEnabled: true,
+            environmentStatus: geminiStatus,
+            signals: GeminiEnvironmentSignals(
+                hasBinary: false,
+                authType: .oauthPersonal,
+                credentialState: .usable
+            )
+        )
+
+        assertNoInternalTerms(in: [
+            geminiStatus.summary,
+            antigravityStatus.summary,
+            geminiPresentation.summary,
+            geminiPresentation.nextStepTitle,
+            geminiPresentation.nextStepDetail,
+        ])
+    }
+
+    private func assertNoInternalTerms(in strings: [String], file: StaticString = #filePath, line: UInt = #line) {
+        let blockedTerms = [
+            "Sparkle",
+            "appcast",
+            "refresh token",
+            "refresh_token",
+            "액세스 토큰",
+            "quota 서버",
+            "포트",
+            "실행 경로",
+            "OAuth 자격",
+            "엔진",
+        ]
+
+        for text in strings {
+            for term in blockedTerms {
+                XCTAssertFalse(
+                    text.localizedCaseInsensitiveContains(term),
+                    "Blocked term '\(term)' found in '\(text)'",
+                    file: file,
+                    line: line
+                )
+            }
+        }
+    }
+}

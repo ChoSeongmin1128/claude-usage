@@ -459,6 +459,20 @@ struct PopoverView: View {
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
                 .scrollIndicators(.never)
+                .overlay(alignment: .bottom) {
+                    if sections.count > PopoverLayoutMetrics.compactMaximumVisibleRows {
+                        LinearGradient(
+                            colors: [
+                                Color.clear,
+                                Color(NSColor.windowBackgroundColor).opacity(0.72),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(height: 14)
+                        .allowsHitTesting(false)
+                    }
+                }
             } else {
                 bodyContent(layoutSpec: layoutSpec, sections: sections)
             }

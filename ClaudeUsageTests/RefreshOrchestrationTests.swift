@@ -289,7 +289,7 @@ final class PopoverViewModelTests: XCTestCase {
                     isDetected: true,
                     credentialState: .refreshable,
                     runtimeReachability: true,
-                    summary: "Gemini CLI OAuth 감지 · 액세스 토큰은 갱신이 필요합니다"
+                    summary: "Gemini 로그인 정보를 갱신하고 있습니다"
                 ),
                 signals: GeminiEnvironmentSignals(
                     hasBinary: true,
@@ -303,7 +303,7 @@ final class PopoverViewModelTests: XCTestCase {
         let (phase, summary) = await MainActor.run { (state.phase, state.summary) }
 
         XCTAssertEqual(phase, .refreshingCredential)
-        XCTAssertEqual(summary, "토큰 갱신 후 연결 확인 중")
+        XCTAssertEqual(summary, "로그인 갱신 후 연결 확인 중")
     }
 
     func testResolveGeminiSummaryStatePrefersBackoffBeforeReadyPromotion() async {
@@ -325,7 +325,7 @@ final class PopoverViewModelTests: XCTestCase {
                     isDetected: true,
                     credentialState: .refreshable,
                     runtimeReachability: true,
-                    summary: "Gemini CLI OAuth 감지 · 액세스 토큰은 갱신이 필요합니다"
+                    summary: "Gemini 로그인 정보를 갱신하고 있습니다"
                 ),
                 signals: GeminiEnvironmentSignals(
                     hasBinary: true,
@@ -675,45 +675,25 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(size.height, 300)
     }
 
-    func testProviderSpecificCompactSettingsDoNotMutateGlobalFallback() async {
-        let result = await MainActor.run { () -> (Bool, Bool, Bool, Bool, Bool, Bool, Bool) in
+    func testGlobalCompactSettingDrivesAllProviderLayouts() async {
+        let result = await MainActor.run { () -> (PopoverDensity, PopoverDensity) in
             let settings = AppSettings.shared
             let snapshot = settings.createSnapshot()
             defer { settings.restore(from: snapshot) }
 
-            settings.popoverCompact = false
-            settings.claudePopoverCompact = true
-            settings.codexPopoverCompact = false
-            UserDefaults.standard.set(true, forKey: "geminiPopoverCompact")
-            UserDefaults.standard.set(false, forKey: "antigravityPopoverCompact")
+            settings.popoverCompact = true
+            settings.setProviderEnabled(true, for: .claude)
+            settings.setProviderEnabled(true, for: .codex)
 
-            let before = (
-                settings.isPopoverCompact(for: .claude),
-                settings.isPopoverCompact(for: .codex),
-                settings.isPopoverCompact(for: .gemini),
-                settings.isPopoverCompact(for: .antigravity)
-            )
-
-            settings.setPopoverCompact(true, for: .codex)
-
+            let viewModel = PopoverViewModel()
             return (
-                before.0,
-                before.1,
-                before.2,
-                before.3,
-                settings.popoverCompact,
-                settings.claudePopoverCompact,
-                settings.codexPopoverCompact
+                viewModel.layoutSpec(for: .claude, settings: settings).density,
+                viewModel.layoutSpec(for: .codex, settings: settings).density
             )
         }
 
-        XCTAssertEqual(result.0, true)
-        XCTAssertEqual(result.1, false)
-        XCTAssertEqual(result.2, true)
-        XCTAssertEqual(result.3, false)
-        XCTAssertEqual(result.4, false)
-        XCTAssertEqual(result.5, true)
-        XCTAssertEqual(result.6, true)
+        XCTAssertEqual(result.0, .compact)
+        XCTAssertEqual(result.1, .compact)
     }
 }
 

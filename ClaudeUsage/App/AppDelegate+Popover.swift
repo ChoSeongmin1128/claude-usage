@@ -16,9 +16,9 @@ extension AppDelegate {
             onServiceSelected: { [weak self] service in
                 guard let self else { return }
                 ServiceSelectionHelper.setActivePopoverService(service, settings: AppSettings.shared)
-                self.applyPopoverBehavior(for: service)
+                self.applyPopoverBehavior()
                 if self.popover?.isShown == true {
-                    if self.isPopoverPinned(for: service) {
+                    if self.isPopoverPinned {
                         self.stopGlobalClickMonitor()
                     } else {
                         self.startGlobalClickMonitor()
@@ -30,10 +30,10 @@ extension AppDelegate {
             onLayoutChanged: { [weak self] service, reason in
                 self?.refreshPopoverSizeIfShown(service: service, reason: reason)
             },
-            onPinChanged: { [weak self] service, isPinned in
+            onPinChanged: { [weak self] _, isPinned in
                 guard let self else { return }
                 AppSettings.shared.popoverPinned = isPinned
-                self.applyPopoverBehavior(for: service)
+                self.applyPopoverBehavior()
                 if isPinned {
                     self.stopGlobalClickMonitor()
                 } else if self.popover?.isShown == true {
@@ -42,7 +42,7 @@ extension AppDelegate {
             }
         )
 
-        applyPopoverBehavior(for: popoverViewModel.selectedService)
+        applyPopoverBehavior()
     }
 
     func toggleUnifiedPopover() {
@@ -66,7 +66,7 @@ extension AppDelegate {
                 isPresentingPopover = false
                 return
             }
-            applyPopoverBehavior(for: service)
+            applyPopoverBehavior()
             updatePopoverViewModel(overage: currentOverage)
             let initialSize = presentedPopoverSize(for: service, isShown: false)
             // show() 전에 크기를 명시적으로 설정하여 fittingSize에 의한 확장 방지
@@ -81,7 +81,7 @@ extension AppDelegate {
             DispatchQueue.main.async { [weak self] in
                 self?.isPresentingPopover = false
             }
-            if !isPopoverPinned(for: service) {
+            if !isPopoverPinned {
                 startGlobalClickMonitor()
             }
         }
@@ -112,12 +112,12 @@ extension AppDelegate {
         ServiceSelectionHelper.resolvedMenuBarService(settings: AppSettings.shared)
     }
 
-    func isPopoverPinned(for service: PopoverService) -> Bool {
+    var isPopoverPinned: Bool {
         AppSettings.shared.popoverPinned
     }
 
-    func applyPopoverBehavior(for service: PopoverService) {
-        popover?.behavior = isPopoverPinned(for: service) ? .applicationDefined : .transient
+    func applyPopoverBehavior() {
+        popover?.behavior = isPopoverPinned ? .applicationDefined : .transient
     }
 
     func refreshServiceIfNeededOnTabSwitch(_ service: PopoverService) {

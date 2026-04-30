@@ -305,7 +305,7 @@ extension SettingsView {
             return "브라우저 로그인 값으로 최근 조회가 성공했습니다."
         }
 
-        return "자격 준비 상태를 다시 확인해 주세요."
+        return "로그인 상태를 다시 확인해 주세요."
     }
 
     private func oauthStatusChip(

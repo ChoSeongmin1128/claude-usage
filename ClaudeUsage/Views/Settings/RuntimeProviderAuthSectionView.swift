@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct RuntimeProviderOverviewSectionView: View {
@@ -21,7 +22,11 @@ struct RuntimeProviderOverviewSectionView: View {
             )
 
             RuntimeProviderStageCard(presentation: presentation)
-            RuntimeProviderActionCard(presentation: presentation)
+            RuntimeProviderNextStepCard(
+                settings: settings,
+                provider: provider,
+                presentation: presentation
+            )
         }
     }
 }
@@ -67,20 +72,41 @@ private struct RuntimeProviderStageCard: View {
     }
 }
 
-private struct RuntimeProviderActionCard: View {
+private struct RuntimeProviderNextStepCard: View {
+    @ObservedObject var settings: AppSettings
+    let provider: AppProviderKind
     let presentation: RuntimeProviderAuthPresentation
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(presentation.primaryActionTitle)
+            Text(presentation.nextStepTitle)
                 .font(.subheadline.weight(.semibold))
-            Text(presentation.primaryActionDetail)
+            Text(presentation.nextStepDetail)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            if let action = presentation.availableAction {
+                Button(presentation.nextStepTitle) {
+                    perform(action)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .padding(.top, 4)
+            }
         }
         .padding(12)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
         .cornerRadius(8)
+    }
+
+    private func perform(_ action: RuntimeProviderAuthPresentation.AvailableAction) {
+        switch action {
+        case .enableService:
+            settings.setProviderEnabled(true, for: provider)
+        case .openAntigravityApp:
+            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.antigravity") {
+                NSWorkspace.shared.openApplication(at: appURL, configuration: NSWorkspace.OpenConfiguration())
+            }
+        }
     }
 }
 

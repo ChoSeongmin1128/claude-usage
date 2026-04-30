@@ -49,7 +49,6 @@ enum AppLocationChecker {
             "\(NSHomeDirectory())/Applications/\(appName)",
         ]
 
-        var errors: [String] = []
         for destination in destinationCandidates {
             do {
                 try copyAppBundleSafely(from: source, to: destination)
@@ -57,15 +56,12 @@ enum AppLocationChecker {
                 return
             } catch {
                 Logger.warning("앱 이동 실패(\(destination)): \(error.localizedDescription)")
-                errors.append("\((destination as NSString).deletingLastPathComponent): \(error.localizedDescription)")
             }
         }
 
         showError(
-            "현재 위치: \(assessment.locationDescription)\n"
-                + "자동 이동에 실패했습니다. 현재 앱은 계속 실행됩니다.\n\n"
-                + errors.joined(separator: "\n")
-                + "\n\nDMG 창 또는 Finder에서 ClaudeUsage.app을 Applications 폴더로 직접 옮겨 주세요."
+            "자동 이동에 실패했습니다. 현재 앱은 계속 실행됩니다.\n\n"
+                + "Finder에서 ClaudeUsage.app을 Applications 폴더로 직접 옮겨 주세요."
         )
     }
 
@@ -106,7 +102,8 @@ enum AppLocationChecker {
         NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: destination), configuration: configuration) { _, error in
             DispatchQueue.main.async {
                 if let error {
-                    showError("새 위치로 복사했지만 실행하지 못했습니다. 현재 앱은 계속 실행됩니다.\n\(error.localizedDescription)")
+                    Logger.warning("새 위치 앱 실행 실패: \(error.localizedDescription)")
+                    showError("새 위치로 복사했지만 실행하지 못했습니다. 현재 앱은 계속 실행됩니다.\n\nApplications 폴더에서 ClaudeUsage.app을 직접 열어 주세요.")
                     return
                 }
                 NSApp.terminate(nil)

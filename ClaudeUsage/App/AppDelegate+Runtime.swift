@@ -195,7 +195,7 @@ extension AppDelegate {
     func handleProviderStateTransition(from previous: AppProviderStateCatalog, to current: AppProviderStateCatalog) {
         let resolvedService = resolvedPopoverService()
         popoverViewModel.selectedService = resolvedService
-        applyPopoverBehavior(for: resolvedService)
+        applyPopoverBehavior()
 
         for kind in ServiceSelectionHelper.supportedProviderKinds {
             let previousEnabled = previous.state(for: kind).isEnabled

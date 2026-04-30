@@ -14,7 +14,7 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
         XCTAssertTrue(status.isDetected)
         XCTAssertEqual(status.credentialState, ProviderCredentialState.refreshable)
         XCTAssertTrue(status.runtimeReachability)
-        XCTAssertEqual(status.summary, "Gemini CLI OAuth 감지 · 액세스 토큰은 갱신이 필요합니다")
+        XCTAssertEqual(status.summary, "Gemini 로그인 정보를 갱신하고 있습니다")
     }
 
     func testInterpretGeminiTreatsApiKeyModeAsUnsupportedInteractiveSetup() {
@@ -29,7 +29,7 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
         XCTAssertFalse(status.isDetected)
         XCTAssertEqual(status.credentialState, .missing)
         XCTAssertFalse(status.runtimeReachability)
-        XCTAssertTrue(status.summary.contains("API 키"))
+        XCTAssertEqual(status.summary, "현재 로그인 방식은 지원하지 않습니다")
     }
 
     func testInterpretAntigravitySeparatesPersistedAuthFromRuntimeReachability() {
@@ -46,7 +46,7 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
         XCTAssertTrue(status.isDetected)
         XCTAssertEqual(status.credentialState, .unknown)
         XCTAssertFalse(status.runtimeReachability)
-        XCTAssertEqual(status.summary, "Antigravity 인증 상태 감지 · 앱을 실행하면 조회를 시작합니다")
+        XCTAssertEqual(status.summary, "Antigravity 앱을 실행하면 조회를 시작합니다")
     }
 
     func testInterpretAntigravityRequiresCsrfAndPortForReachability() {
@@ -71,5 +71,6 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
         XCTAssertEqual(status.credentialState, ProviderCredentialState.refreshable)
         XCTAssertFalse(status.runtimeReachability)
         XCTAssertTrue(status.summary.contains("연결 준비 중"))
+        XCTAssertFalse(status.summary.contains("포트"))
     }
 }

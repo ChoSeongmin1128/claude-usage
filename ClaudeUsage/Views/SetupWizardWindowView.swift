@@ -17,7 +17,7 @@ struct SetupWizardWindowView: View {
         [
             (
                 "자격 준비",
-                progress.hasReadyCredential ? "세션키 또는 OAuth 자격을 감지했습니다" : "Chrome 가져오기 또는 웹 로그인부터 진행해야 합니다",
+                progress.hasReadyCredential ? "로그인 정보를 확인했습니다" : "Chrome 가져오기 또는 웹 로그인부터 진행해야 합니다",
                 progress.hasReadyCredential
             ),
             (
