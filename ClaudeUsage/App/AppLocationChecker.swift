@@ -5,7 +5,10 @@ enum AppLocationChecker {
     static func checkAndPromptIfNeeded() {
         let assessment = AppInstallLocationPolicy.currentAssessment()
         Logger.info("앱 실행 위치: \(assessment.bundlePath) (\(assessment.kind.rawValue))")
-        guard assessment.requiresMovePrompt else { return }
+        guard assessment.requiresMovePrompt else {
+            promptToTrashMountedInstallerDiskImageForStableInstallIfNeeded(assessment)
+            return
+        }
 
         let alert = NSAlert()
         alert.messageText = "Applications 폴더로 이동할까요?"
@@ -180,6 +183,10 @@ enum AppLocationChecker {
             return nil
         }
 
+        return mountedDiskImageSourceForAppBundle(appName: appName)
+    }
+
+    private static func mountedDiskImageSourceForAppBundle(appName: String) -> AppDiskImageSource? {
         let process = Process()
         let outputPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
@@ -200,9 +207,18 @@ enum AppLocationChecker {
                 Bundle(url: URL(fileURLWithPath: candidatePath))?.bundleIdentifier
             }
         } catch {
-            Logger.warning("Translocation DMG 원본 조회 실패: \(error.localizedDescription)")
+            Logger.warning("DMG 설치 파일 조회 실패: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    private static func promptToTrashMountedInstallerDiskImageForStableInstallIfNeeded(
+        _ assessment: AppInstallLocationAssessment
+    ) {
+        guard assessment.isStableInstall else { return }
+        let appName = (assessment.bundlePath as NSString).lastPathComponent
+        guard let sourceDiskImage = mountedDiskImageSourceForAppBundle(appName: appName) else { return }
+        promptToTrashSourceDiskImageIfNeeded(sourceDiskImage)
     }
 
     private static func promptToTrashSourceDiskImageIfNeeded(_ sourceDiskImage: AppDiskImageSource?) {
