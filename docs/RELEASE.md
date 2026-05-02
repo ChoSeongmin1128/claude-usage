@@ -105,7 +105,11 @@ SUFeedURL 을 직접 정하고 싶다면 스크립트 실행 후 xcconfig 를 �
 ## 2. 릴리스 빌드 (버전마다)
 
 ```bash
-./Scripts/build-notarize-release.sh
+# staging
+RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh
+
+# prod
+RELEASE_CHANNEL=prod ./Scripts/build-notarize-release.sh
 ```
 
 수행 단계:
@@ -179,7 +183,7 @@ RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh
 prod 예:
 
 ```bash
-./Scripts/build-notarize-release.sh
+RELEASE_CHANNEL=prod ./Scripts/build-notarize-release.sh
 ./Scripts/publish-release.sh vX.Y.Z --channel prod --notes "릴리스 요약"
 ```
 
@@ -204,7 +208,7 @@ Sparkle 이 클라이언트 앱에서 하는 일:
 ### 업데이트 채널 분리
 
 staging 빌드는 `RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh` 또는 `SU_FEED_URL` 로 채널을 고정하세요.
-stable/prod 릴리스는 root `appcast.xml` 을 기본 채널로 유지하고, staging 은 `/channels/staging/appcast.xml` 로 분리합니다.
+stable/prod 릴리스는 `RELEASE_CHANNEL=prod ./Scripts/build-notarize-release.sh` 로 root `appcast.xml` 을 명시합니다. staging 과 prod 는 앱에 들어가는 `SUFeedURL` 이 다르므로 staging 산출물을 prod에 재사용하지 않습니다.
 
 ---
 
@@ -269,9 +273,10 @@ Xcode 에서 한 번 Release 빌드를 돌리면 Sparkle SPM artifact 가 `~/Lib
 - [ ] `xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -destination 'platform=macOS' test`
 - [ ] 버전 bump 커밋 + push
 - [ ] staging 이면 `RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh`
-- [ ] prod 이면 `./Scripts/build-notarize-release.sh`
+- [ ] prod 이면 `RELEASE_CHANNEL=prod ./Scripts/build-notarize-release.sh`
+- [ ] `PlistBuddy` 로 `SUFeedURL` 이 의도한 채널인지 확인
 - [ ] stable 이면 `./Scripts/publish-release.sh vX.Y.Z --channel prod`
-- [ ] staging 이면 `./Scripts/publish-release.sh vX.Y.Z --prerelease --channel staging`
+- [ ] staging 이면 `./Scripts/publish-release.sh vX.Y.Z-staging --prerelease --channel staging`
 - [ ] `gh-pages` 의 `appcast.xml` / `channels/staging/appcast.xml` 확인
 - [ ] 별도 Mac 에서 앱 실행 후 "업데이트 확인" 눌러 Sparkle 경로 검증
 - [ ] 필요 시 `gh auth switch --hostname github.com --user nathan-glorang` 로 평소 작업 계정 복구

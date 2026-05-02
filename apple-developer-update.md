@@ -1,6 +1,6 @@
 # Apple Developer 기반 배포/업데이트 전략
 
-최종 갱신: 2026-04-30
+최종 갱신: 2026-05-02
 
 ## 1. 현재 결론
 
@@ -37,10 +37,10 @@
 - prod: `https://choseongmin1128.github.io/claude-usage/appcast.xml`
 - staging: `https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml`
 
-2026-04-30 직접 확인 기준:
+2026-05-02 직접 확인 기준:
 
-- prod feed는 `2.0.9`를 가리킵니다.
-- staging feed는 `2.0.12`를 가리킵니다.
+- prod feed는 `2.0.15` (`sparkle:version` `20015`) 를 가리킵니다.
+- staging feed는 `2.0.15` (`sparkle:version` `20015`) 를 가리킵니다.
 - 원격 코드 브랜치는 `main` 기준이며, 별도 `dev`/`stg` 브랜치는 없습니다.
 
 ## 4. 업데이트 동작
@@ -56,7 +56,8 @@
 ## 5. 운영 원칙
 
 - staging은 `RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh` 로 빌드하고 `vX.Y.Z-staging` prerelease로 게시합니다.
-- prod는 staging 검증 완료 후 `./Scripts/build-notarize-release.sh` 와 `vX.Y.Z` stable release로 게시합니다.
+- prod는 staging 검증 완료 후 `RELEASE_CHANNEL=prod ./Scripts/build-notarize-release.sh` 와 `vX.Y.Z` stable release로 게시합니다.
+- staging과 prod는 앱에 들어가는 `SUFeedURL` 이 다르므로 같은 커밋이어도 산출물을 각각 다시 빌드합니다.
 - `gh-pages`는 직접 편집하지 않고, [publish-release.sh](Scripts/publish-release.sh)가 호출하는 [publish-pages-appcast.sh](Scripts/publish-pages-appcast.sh)를 통해 갱신합니다.
 - GitHub CLI active 계정은 배포 전에 `gh auth switch --hostname github.com --user ChoSeongmin1128` 로 맞춥니다.
 - `Config/Sparkle.release.local.xcconfig`, Apple notarization key, SSH alias 설정, 로컬 DMG/ZIP 산출물은 저장소에 올리지 않습니다.

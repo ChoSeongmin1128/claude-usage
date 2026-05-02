@@ -1,6 +1,6 @@
 # ClaudeUsage 프로젝트 작업 방식
 
-최종 갱신: 2026-04-30
+최종 갱신: 2026-05-02
 
 ## 현재 기준
 
@@ -9,6 +9,7 @@
 - `gh-pages` 는 Sparkle appcast와 GitHub Pages 정적 파일을 올리는 배포 산출물 브랜치입니다. 코드 작업이나 스테이징 검증 브랜치로 쓰지 않습니다.
 - staging은 브랜치가 아니라 release channel입니다. 최신 `main` 커밋을 prerelease로 빌드해 `channels/staging/appcast.xml` 에 게시합니다.
 - prod는 staging 검증이 끝난 버전만 stable release로 게시합니다.
+- 2026-05-02 확인 기준 최신 prod/staging feed는 모두 `2.0.15` (`sparkle:version` `20015`) 입니다.
 
 ## 브랜치와 채널
 
@@ -95,15 +96,15 @@ cp build/release/ClaudeUsage.dmg ~/Downloads/ClaudeUsage-X.Y.Z-staging.dmg
 
 ## Prod 배포 절차
 
-prod는 staging에서 같은 코드/동작 검증이 끝난 뒤에만 진행합니다.
+prod는 staging에서 같은 코드/동작 검증이 끝난 뒤에만 진행합니다. staging 산출물을 그대로 재사용하지 말고 prod feed URL이 들어간 release build를 다시 만듭니다.
 
 ```bash
 xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -destination 'platform=macOS' test
 git push origin main
-./Scripts/build-notarize-release.sh
+RELEASE_CHANNEL=prod ./Scripts/build-notarize-release.sh
 ./Scripts/publish-release.sh vX.Y.Z --channel prod --notes "릴리스 요약"
 curl -fsSL https://choseongmin1128.github.io/claude-usage/appcast.xml | sed -n '1,40p'
-gh release view vX.Y.Z --json tagName,isPrerelease,isLatest,url
+gh release view vX.Y.Z --json tagName,isPrerelease,url
 ```
 
 prod release는 prerelease로 만들지 않습니다. prod appcast는 root `appcast.xml` 을 갱신합니다.
@@ -116,5 +117,11 @@ prod release는 prerelease로 만들지 않습니다. prod appcast는 root `appc
 - GitHub Release에 `ClaudeUsage.zip`, `ClaudeUsage.dmg`, `appcast.xml` 업로드
 - Pages appcast의 `sparkle:shortVersionString` 과 `sparkle:version` 이 의도한 버전
 - staging/prod 앱에서 업데이트 확인이 각 채널 feed를 봄
+- release app 안의 `SUFeedURL` 이 의도한 채널 URL인지 확인
+
+```bash
+/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' \
+  build/release/ClaudeUsage.xcarchive/Products/Applications/ClaudeUsage.app/Contents/Info.plist
+```
 
 GitHub Pages는 cache 때문에 feed 반영이 몇 분 늦을 수 있습니다. 의심되면 `git show origin/gh-pages:appcast.xml` 또는 `git show origin/gh-pages:channels/staging/appcast.xml` 로 브랜치 내용과 Pages 응답을 분리해서 확인합니다.

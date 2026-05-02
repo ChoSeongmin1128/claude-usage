@@ -38,6 +38,9 @@
 - `Claude Code CLI OAuth` 안내와 상태 표시
 - Sparkle 패키지 통합 + appcast 미설정 시 GitHub Release fallback
 - notarization + GitHub Release / Pages appcast 게시 스크립트 정리
+- DMG/Downloads 실행 시 Applications 이동 안내
+- 설치 후 남은 DMG 휴지통 이동 안내
+- 기존 설치본 실행 중 이동 시 중복 실행 방지
 - Claude 인증 탭의 단계형 빠른 시작 wizard
 - provider별 refresh/backoff/loading/error 상태를 runtime catalog로 통합
 - `Gemini`, `Antigravity`의 `감지됨 / 갱신 가능 / 연결 가능 / 첫 성공 조회` 상태 분리
@@ -114,6 +117,8 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
 - 여기서 `Sparkle 준비됨`의 기준은 `유효한 SUFeedURL + 유효한 SUPublicEDKey` 입니다.
 - `NOTARY_PROFILE` 은 런타임 readiness가 아니라 release 스크립트 실행 전제입니다.
 - `appcast(feed)`와 `공개키`가 준비되지 않은 개발 빌드에서는 `GitHub Release fallback`으로 동작합니다.
+- release build는 채널별 `SUFeedURL` 을 앱에 넣기 때문에 staging 산출물을 prod에 그대로 재사용하지 않습니다.
+- 2026-05-02 확인 기준 prod/staging appcast는 모두 `2.0.15` (`sparkle:version` `20015`) 를 가리킵니다.
 - 설정 화면의 `업데이트` 섹션에서 지금 빌드가 `Sparkle 통합`, `appcast 준비`, `공개키 준비` 중 어디까지 와 있는지 직접 볼 수 있습니다.
 - 릴리즈 산출물은 [build-notarize-release.sh](Scripts/build-notarize-release.sh) 로 `archive -> zip -> notarize -> staple -> DMG 생성/공증` 흐름을 실행할 수 있습니다.
 - Sparkle 채널용 appcast는 [generate-sparkle-appcast.sh](Scripts/generate-sparkle-appcast.sh) 로 생성합니다.
@@ -147,6 +152,10 @@ Claude는 `Messages header fallback` 기반 보조 사용량 복구를 지원합
 1. [ClaudeUsage.dmg 다운로드](https://github.com/ChoSeongmin1128/claude-usage/releases/latest/download/ClaudeUsage.dmg)
 2. DMG를 열고 `ClaudeUsage.app`을 `Applications`로 이동
 3. 처음 실행 시 우클릭 → 열기, 또는 시스템 설정 → 개인정보 보호 및 보안 → `그래도 열기`
+
+DMG, Downloads, App Translocation 같은 불안정한 위치에서 실행하면 앱이 `Applications` 폴더로 이동할지 묻습니다. 앱 안의 이동 버튼을 사용하면 기존 설치본이 실행 중인지 먼저 확인하고, 중복 실행을 막기 위해 기존 앱 종료를 요청한 뒤 이동합니다. Finder에서 DMG의 앱을 직접 끌어다 놓는 경우에는 macOS 파일 복사만 일어나므로 새 앱이 자동 실행되지는 않습니다.
+
+앱이 `Applications`에서 정상 실행되고 설치 DMG가 아직 마운트되어 있으면, 설치 파일을 휴지통으로 이동할지 묻습니다. DMG가 이미 언마운트되었거나 삭제된 경우에는 이 안내가 뜨지 않습니다.
 
 ### 소스에서 빌드
 
@@ -195,6 +204,12 @@ xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -configuration Deb
 - `ClaudeSourcePlanner`
 - `RefreshOrchestration` / `RuntimeProviderRefreshCoordinator`
 - `ProviderEnvironmentDetector` signal 해석
+- `UsageWindowAlertPolicy` 임계값 알림 정책
+- `NotificationManager` 알림 발송 판단
+- `TimeFormatter` 갱신 예상 시각 포맷
+- `UpdateRuntimeState` 사용자 표시 문구
+- 설치 위치 / DMG 정리 정책
+- popover layout 안정성 정책
 
 현재 기본 검증 명령은 아래와 같습니다.
 
@@ -233,9 +248,8 @@ ClaudeUsage/
 
 ## 현재 한계
 
-- Sparkle 패키지는 이미 통합됐지만, 현재 구현은 `앱 내부 Sparkle 확인 + GitHub Release fallback` 기준입니다.
-- appcast/feed와 공개키가 없는 개발 빌드에서는 GitHub Release 엔진으로 fallback됩니다.
-- `Sparkle 준비됨`은 `feed + 공개키` 기준이고, notarization 계정 프로필은 배포 스크립트 전제이므로 설정 화면의 readiness와 별개입니다.
+- release build는 Sparkle appcast를 기준으로 업데이트합니다. 개발 빌드는 appcast/feed와 공개키가 없으면 GitHub Release 엔진으로 fallback됩니다.
+- `Sparkle 준비됨`은 `feed + 공개키` 기준이고, notarization 계정 프로필은 배포 스크립트 전제이므로 런타임 readiness와 별개입니다.
 - 메뉴바와 refresh 경로는 runtime-capable provider 기준으로 많이 정리됐지만, 일부 내부 구조는 여전히 `Claude/Codex` 중심 흔적이 남아 있습니다.
 - `Gemini`, `Antigravity`는 런타임 연결은 됐지만 provider별 UX, 오류 문구, 환경 안내는 Claude보다 덜 다듬어져 있습니다.
 - first-run onboarding과 권한 설명은 아직 더 다듬어야 합니다.
@@ -243,7 +257,6 @@ ClaudeUsage/
 ## 문서
 
 - 작업 계획: [WORK_PLAN.md](WORK_PLAN.md)
-- 구조 분석: [docs/2026-04-01-architecture-review.md](docs/2026-04-01-architecture-review.md)
 - 인증/소스 설명: [docs/authentication-and-sources.md](docs/authentication-and-sources.md)
 - 프로젝트 작업 방식: [docs/PROJECT_WORKFLOW.md](docs/PROJECT_WORKFLOW.md)
 - 배포 가이드: [docs/RELEASE.md](docs/RELEASE.md)
