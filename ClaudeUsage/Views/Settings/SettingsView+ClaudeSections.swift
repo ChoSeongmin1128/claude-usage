@@ -229,9 +229,9 @@ extension SettingsView {
 
             if isActive {
                 chip(title: "", value: "현재 사용 중", color: .green)
-            } else {
-                Button("사용") {
-                    setActiveClaudeAccount(account)
+            } else if let action = presentation.switchAction {
+                Button(action.title) {
+                    handleClaudeAccountAction(action, account: account)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
@@ -300,7 +300,7 @@ extension SettingsView {
             isActive: isActive,
             organizations: organizations
         )
-        let secondaryActions = presentation.availableActions.filter { $0 != .use }
+        let managementActions = presentation.managementActions
         return VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 12) {
                 Image(systemName: presentation.systemImage)
@@ -335,9 +335,9 @@ extension SettingsView {
                         accountDetailRow(row)
                     }
 
-                    if !secondaryActions.isEmpty {
+                    if !managementActions.isEmpty {
                         HStack(spacing: 8) {
-                            ForEach(secondaryActions, id: \.self) { action in
+                            ForEach(managementActions, id: \.self) { action in
                                 Button(action.title) {
                                     handleClaudeAccountAction(action, account: account)
                                 }

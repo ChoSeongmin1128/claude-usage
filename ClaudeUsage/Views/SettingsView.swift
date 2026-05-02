@@ -108,6 +108,8 @@ struct SettingsView: View {
     @State var testResult: TestResult?
     @State var isTesting: Bool = false
     @State var organizationPersistTask: Task<Void, Never>?
+    @State var organizationLoadTask: Task<Void, Never>?
+    @State var organizationLoadToken: UUID?
     @State var selectedOrganizationID: String = ""
     @State var organizations: [ClaudeAPIService.OrganizationSummary] = []
     @State var organizationPreviews: [String: ClaudeAPIService.OrganizationPreview] = [:]

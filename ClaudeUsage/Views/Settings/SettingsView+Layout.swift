@@ -103,6 +103,7 @@ extension SettingsView {
         }
         .onDisappear {
             codexAuthCheckTask?.cancel()
+            cancelOrganizationLoad()
             flushPendingOrganizationPersistence()
         }
     }

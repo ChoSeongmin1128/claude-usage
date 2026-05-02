@@ -22,7 +22,8 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.secondaryLine, "Work Org")
         XCTAssertEqual(presentation.statusText, "최근 조회 성공")
         XCTAssertEqual(presentation.statusTone, .success)
-        XCTAssertEqual(presentation.availableActions, [.use, .deleteWebSession])
+        XCTAssertEqual(presentation.switchAction, .use)
+        XCTAssertEqual(presentation.managementActions, [.deleteWebSession])
         XCTAssertEqual(presentation.systemImage, "globe")
         XCTAssertEqual(
             presentation.detailRows,
@@ -56,7 +57,8 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.primaryTitle, "Chrome Nathan · nathan@glorang.com")
         XCTAssertEqual(presentation.secondaryLine, "Glorang")
         XCTAssertEqual(presentation.statusText, "최근 조회 성공")
-        XCTAssertEqual(presentation.availableActions, [.deleteWebSession])
+        XCTAssertNil(presentation.switchAction)
+        XCTAssertEqual(presentation.managementActions, [.deleteWebSession])
         XCTAssertEqual(
             presentation.detailRows,
             [
@@ -82,7 +84,8 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         XCTAssertNil(presentation.secondaryLine)
         XCTAssertEqual(presentation.statusText, "확인 전")
         XCTAssertEqual(presentation.statusTone, .neutral)
-        XCTAssertEqual(presentation.availableActions, [.use, .showClaudeCodeLoginGuidance])
+        XCTAssertEqual(presentation.switchAction, .use)
+        XCTAssertEqual(presentation.managementActions, [.showClaudeCodeLoginGuidance])
         XCTAssertEqual(presentation.systemImage, "terminal")
         XCTAssertEqual(
             presentation.detailRows,

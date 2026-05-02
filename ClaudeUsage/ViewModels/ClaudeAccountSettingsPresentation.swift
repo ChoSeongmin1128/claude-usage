@@ -33,7 +33,8 @@ struct ClaudeAccountSettingsPresentation: Equatable {
     let secondaryLine: String?
     let statusText: String
     let statusTone: ClaudeAccountStatusTone
-    let availableActions: [ClaudeAccountSettingsAction]
+    let switchAction: ClaudeAccountSettingsAction?
+    let managementActions: [ClaudeAccountSettingsAction]
     let systemImage: String
     let detailRows: [ClaudeAccountSettingsDetailRow]
 
@@ -46,16 +47,14 @@ struct ClaudeAccountSettingsPresentation: Equatable {
         let source = sourceDescription(for: account)
         let detailRows = detailRows(for: account, organization: organization, source: source)
         let status = statusPresentation(for: account.lastValidationState)
-        var actions: [ClaudeAccountSettingsAction] = []
+        let switchAction: ClaudeAccountSettingsAction? = isActive ? nil : .use
+        var managementActions: [ClaudeAccountSettingsAction] = []
 
-        if !isActive {
-            actions.append(.use)
-        }
         switch account.kind {
         case .webSession:
-            actions.append(.deleteWebSession)
+            managementActions.append(.deleteWebSession)
         case .claudeCodeExternal:
-            actions.append(.showClaudeCodeLoginGuidance)
+            managementActions.append(.showClaudeCodeLoginGuidance)
         }
 
         return ClaudeAccountSettingsPresentation(
@@ -63,7 +62,8 @@ struct ClaudeAccountSettingsPresentation: Equatable {
             secondaryLine: organization,
             statusText: status.text,
             statusTone: status.tone,
-            availableActions: actions,
+            switchAction: switchAction,
+            managementActions: managementActions,
             systemImage: account.kind == .webSession ? "globe" : "terminal",
             detailRows: detailRows
         )
