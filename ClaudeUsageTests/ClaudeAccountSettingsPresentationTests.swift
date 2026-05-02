@@ -69,6 +69,41 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         )
     }
 
+    func testInactiveAccountDoesNotUseActiveAccountOrganizationLookup() {
+        let account = ClaudeAccount(
+            id: "personal-web",
+            kind: .webSession,
+            displayName: "Chrome 성민",
+            identity: ClaudeAccountIdentity(
+                email: "joseongmin0127@gmail.com",
+                organizationName: "joseongmin0127@gmail.com's Organization",
+                organizationID: "org-personal"
+            ),
+            source: .chromeProfile,
+            sourceDetail: "성민 · joseongmin0127@gmail.com",
+            preferredOrganizationID: "org-personal",
+            lastValidationState: .verified
+        )
+        let activeAccountOrganization = ClaudeAPIService.OrganizationSummary(
+            id: "org-personal",
+            name: "Glorang"
+        )
+
+        let presentation = ClaudeAccountSettingsPresentation.resolve(
+            account: account,
+            isActive: false,
+            organizations: [activeAccountOrganization]
+        )
+
+        XCTAssertEqual(presentation.secondaryLine, "joseongmin0127@gmail.com's Organization")
+        XCTAssertTrue(presentation.detailRows.contains(
+            ClaudeAccountSettingsDetailRow(
+                title: "조직",
+                value: "joseongmin0127@gmail.com's Organization"
+            )
+        ))
+    }
+
     func testClaudeCodePresentationIsReadOnlyCliCandidate() {
         let account = ClaudeAccount(
             id: "cli",

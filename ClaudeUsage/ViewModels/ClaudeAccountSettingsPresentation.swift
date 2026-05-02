@@ -43,7 +43,10 @@ struct ClaudeAccountSettingsPresentation: Equatable {
         isActive: Bool = false,
         organizations: [ClaudeAPIService.OrganizationSummary] = []
     ) -> ClaudeAccountSettingsPresentation {
-        let organization = organizationLabel(for: account, organizations: organizations)
+        let organization = organizationLabel(
+            for: account,
+            organizations: isActive ? organizations : []
+        )
         let source = sourceDescription(for: account)
         let detailRows = detailRows(for: account, organization: organization, source: source)
         let status = statusPresentation(for: account.lastValidationState)
