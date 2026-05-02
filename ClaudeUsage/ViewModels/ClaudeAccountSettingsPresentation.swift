@@ -23,14 +23,19 @@ enum ClaudeAccountStatusTone: Equatable {
     case warning
 }
 
+struct ClaudeAccountSettingsDetailRow: Equatable, Hashable {
+    let title: String
+    let value: String
+}
+
 struct ClaudeAccountSettingsPresentation: Equatable {
     let primaryTitle: String
     let secondaryLine: String?
-    let sourceBadge: String
     let statusText: String
     let statusTone: ClaudeAccountStatusTone
     let availableActions: [ClaudeAccountSettingsAction]
     let systemImage: String
+    let detailRows: [ClaudeAccountSettingsDetailRow]
 
     static func resolve(
         account: ClaudeAccount,
@@ -39,7 +44,7 @@ struct ClaudeAccountSettingsPresentation: Equatable {
     ) -> ClaudeAccountSettingsPresentation {
         let organization = organizationLabel(for: account, organizations: organizations)
         let source = sourceDescription(for: account)
-        let secondaryLine = nilIfEmpty([organization, source].compactMap(\.self).joined(separator: " · "))
+        let detailRows = detailRows(for: account, organization: organization, source: source)
         let status = statusPresentation(for: account.lastValidationState)
         var actions: [ClaudeAccountSettingsAction] = []
 
@@ -55,12 +60,12 @@ struct ClaudeAccountSettingsPresentation: Equatable {
 
         return ClaudeAccountSettingsPresentation(
             primaryTitle: primaryTitle(for: account),
-            secondaryLine: secondaryLine,
-            sourceBadge: sourceBadge(for: account),
+            secondaryLine: organization,
             statusText: status.text,
             statusTone: status.tone,
             availableActions: actions,
-            systemImage: account.kind == .webSession ? "globe" : "terminal"
+            systemImage: account.kind == .webSession ? "globe" : "terminal",
+            detailRows: detailRows
         )
     }
 
@@ -88,26 +93,6 @@ struct ClaudeAccountSettingsPresentation: Equatable {
                 return displayName
             }
             return "현재 터미널 Claude Code 계정"
-        }
-    }
-
-    private static func sourceBadge(for account: ClaudeAccount) -> String {
-        switch account.kind {
-        case .webSession:
-            switch account.source {
-            case .chromeProfile:
-                return "Chrome"
-            case .embeddedWebLogin:
-                return "앱 로그인"
-            case .manualInput:
-                return "수동"
-            case .legacyMigration:
-                return "기존 로그인"
-            case .claudeCodeCLI, .none:
-                return "브라우저"
-            }
-        case .claudeCodeExternal:
-            return "Claude Code"
         }
     }
 
@@ -161,7 +146,7 @@ struct ClaudeAccountSettingsPresentation: Equatable {
             return shortOrganizationID(organizationID)
         }
 
-        return account.kind == .webSession ? "조직 확인 전" : nil
+        return nil
     }
 
     private static func statusPresentation(
@@ -210,6 +195,34 @@ struct ClaudeAccountSettingsPresentation: Equatable {
         let profilePart = sourceDetail.components(separatedBy: "·").first?
             .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         return nilIfEmpty(profilePart) ?? meaningfulDisplayName(for: account)
+    }
+
+    private static func detailRows(
+        for account: ClaudeAccount,
+        organization: String?,
+        source: String?
+    ) -> [ClaudeAccountSettingsDetailRow] {
+        var rows: [ClaudeAccountSettingsDetailRow] = []
+
+        if let organization {
+            rows.append(ClaudeAccountSettingsDetailRow(title: "조직", value: organization))
+        } else if account.kind == .webSession {
+            rows.append(ClaudeAccountSettingsDetailRow(title: "조직", value: "확인 전"))
+        }
+
+        if let source {
+            let title = account.source == .chromeProfile ? "Chrome 프로필" : "로그인 방식"
+            rows.append(ClaudeAccountSettingsDetailRow(title: title, value: source))
+        }
+
+        if let organizationID = nilIfEmpty(account.identity.organizationID ?? account.preferredOrganizationID) {
+            let shortID = shortOrganizationID(organizationID)
+            if shortID != organization {
+                rows.append(ClaudeAccountSettingsDetailRow(title: "조직 ID", value: shortID))
+            }
+        }
+
+        return rows
     }
 
     private static func emailFromSourceDetail(_ sourceDetail: String?) -> String? {

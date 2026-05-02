@@ -19,12 +19,19 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         let presentation = ClaudeAccountSettingsPresentation.resolve(account: account)
 
         XCTAssertEqual(presentation.primaryTitle, "work@example.com")
-        XCTAssertEqual(presentation.secondaryLine, "Work Org · 앱에서 로그인")
-        XCTAssertEqual(presentation.sourceBadge, "앱 로그인")
+        XCTAssertEqual(presentation.secondaryLine, "Work Org")
         XCTAssertEqual(presentation.statusText, "최근 조회 성공")
         XCTAssertEqual(presentation.statusTone, .success)
         XCTAssertEqual(presentation.availableActions, [.use, .deleteWebSession])
         XCTAssertEqual(presentation.systemImage, "globe")
+        XCTAssertEqual(
+            presentation.detailRows,
+            [
+                ClaudeAccountSettingsDetailRow(title: "조직", value: "Work Org"),
+                ClaudeAccountSettingsDetailRow(title: "로그인 방식", value: "앱에서 로그인"),
+                ClaudeAccountSettingsDetailRow(title: "조직 ID", value: "org-work"),
+            ]
+        )
     }
 
     func testChromeProfilePresentationPrefersReadableProfileEmailAndOrganizationName() {
@@ -47,10 +54,17 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation.primaryTitle, "Chrome Nathan · nathan@glorang.com")
-        XCTAssertEqual(presentation.secondaryLine, "Glorang · Nathan (Profile 2)")
-        XCTAssertEqual(presentation.sourceBadge, "Chrome")
+        XCTAssertEqual(presentation.secondaryLine, "Glorang")
         XCTAssertEqual(presentation.statusText, "최근 조회 성공")
         XCTAssertEqual(presentation.availableActions, [.deleteWebSession])
+        XCTAssertEqual(
+            presentation.detailRows,
+            [
+                ClaudeAccountSettingsDetailRow(title: "조직", value: "Glorang"),
+                ClaudeAccountSettingsDetailRow(title: "Chrome 프로필", value: "Nathan (Profile 2)"),
+                ClaudeAccountSettingsDetailRow(title: "조직 ID", value: "org-company"),
+            ]
+        )
     }
 
     func testClaudeCodePresentationIsReadOnlyCliCandidate() {
@@ -65,12 +79,15 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         let presentation = ClaudeAccountSettingsPresentation.resolve(account: account)
 
         XCTAssertEqual(presentation.primaryTitle, "max")
-        XCTAssertEqual(presentation.secondaryLine, "터미널 Claude Code")
-        XCTAssertEqual(presentation.sourceBadge, "Claude Code")
+        XCTAssertNil(presentation.secondaryLine)
         XCTAssertEqual(presentation.statusText, "확인 전")
         XCTAssertEqual(presentation.statusTone, .neutral)
         XCTAssertEqual(presentation.availableActions, [.use, .showClaudeCodeLoginGuidance])
         XCTAssertEqual(presentation.systemImage, "terminal")
+        XCTAssertEqual(
+            presentation.detailRows,
+            [ClaudeAccountSettingsDetailRow(title: "로그인 방식", value: "터미널 Claude Code")]
+        )
     }
 
     func testOrganizationIDIsShortenedWhenNameIsUnavailable() {
@@ -85,7 +102,14 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         let presentation = ClaudeAccountSettingsPresentation.resolve(account: account)
 
         XCTAssertEqual(presentation.primaryTitle, "저장된 Claude 계정")
-        XCTAssertEqual(presentation.secondaryLine, "efa005dc... · 앱에서 로그인")
+        XCTAssertEqual(presentation.secondaryLine, "efa005dc...")
+        XCTAssertEqual(
+            presentation.detailRows,
+            [
+                ClaudeAccountSettingsDetailRow(title: "조직", value: "efa005dc..."),
+                ClaudeAccountSettingsDetailRow(title: "로그인 방식", value: "앱에서 로그인"),
+            ]
+        )
     }
 
     func testDefaultAccountPresentationDoesNotExposeDiagnosticLabels() {
@@ -103,7 +127,6 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         let userFacingTexts = [
             presentation.primaryTitle,
             presentation.secondaryLine ?? "",
-            presentation.sourceBadge,
             presentation.statusText,
         ]
 
@@ -112,6 +135,11 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
             XCTAssertFalse(text.contains("출처:"))
             XCTAssertFalse(text.contains("현재 사용 경로"))
             XCTAssertFalse(text.contains("감지됨"))
+            XCTAssertFalse(text.contains("Profile 2"))
         }
+
+        XCTAssertTrue(presentation.detailRows.contains(
+            ClaudeAccountSettingsDetailRow(title: "Chrome 프로필", value: "Nathan (Profile 2)")
+        ))
     }
 }

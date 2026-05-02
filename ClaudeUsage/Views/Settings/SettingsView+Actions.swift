@@ -12,13 +12,13 @@ extension SettingsView {
         testResult = nil
         organizations = []
         organizationPreviews = [:]
-        organizationMessage = hasOAuthCredential
+        claudeAccountMessage = hasOAuthCredential
             ? "브라우저 로그인 값은 삭제했습니다. Claude Code 로그인이 감지되어 있으면 계속 사용할 수 있습니다."
             : "브라우저 로그인 값은 삭제했습니다. 다시 가져오거나 Claude Code 로그인을 사용해 주세요."
     }
 
     func showClaudeCodeLoginGuidance() {
-        organizationMessage = "Claude Code 로그인을 다시 진행하려면 터미널에서 `claude login`을 실행한 뒤 사용량 새로고침을 눌러 주세요."
+        claudeAccountMessage = "Claude Code 로그인을 다시 진행하려면 터미널에서 `claude login`을 실행한 뒤 사용량 새로고침을 눌러 주세요."
     }
 
     func syncStoredSessionKeyState() {
@@ -40,6 +40,9 @@ extension SettingsView {
         let state = ClaudeAccountStore.shared.state()
         claudeAccounts = state.accounts
         activeClaudeAccountID = state.activeAccountID
+        if state.accounts.isEmpty {
+            isClaudeAccountManagementExpanded = false
+        }
     }
 
     func testConnection() {
@@ -158,7 +161,8 @@ extension SettingsView {
         selectedOrganizationID = appliedPreferredOrganizationID
         organizations = []
         organizationPreviews = [:]
-        organizationMessage = "현재 사용 계정을 \(account.displayName)으로 변경했습니다. 사용량을 다시 조회합니다."
+        claudeAccountMessage = "현재 사용 계정을 \(account.displayName)으로 변경했습니다. 사용량을 다시 조회합니다."
+        isClaudeAccountManagementExpanded = false
         loadUsageHealthSnapshot()
     }
 
@@ -170,7 +174,10 @@ extension SettingsView {
         selectedOrganizationID = appliedPreferredOrganizationID
         organizations = []
         organizationPreviews = [:]
-        organizationMessage = "브라우저 계정을 삭제했습니다. 외부 Claude Code 로그인은 변경하지 않았습니다."
+        claudeAccountMessage = "브라우저 계정을 삭제했습니다. 외부 Claude Code 로그인은 변경하지 않았습니다."
+        if claudeAccounts.isEmpty {
+            isClaudeAccountManagementExpanded = false
+        }
         loadUsageHealthSnapshot()
     }
 
@@ -335,6 +342,7 @@ extension SettingsView {
 
     func resetClaudeAuthDisclosureState() {
         guard !settings.shouldRevealClaudeAdvancedAuth else { return }
+        isClaudeAccountManagementExpanded = false
         isAdvancedAuthExpanded = false
         isOrganizationAdvancedExpanded = false
     }
@@ -342,7 +350,9 @@ extension SettingsView {
     func resetToDefaults() {
         settings.resetToDefaults()
         selectedOrganizationID = activeClaudePreferredOrganizationID()
+        claudeAccountMessage = nil
         organizationMessage = nil
+        isClaudeAccountManagementExpanded = false
         isOrganizationAdvancedExpanded = false
         checkCodexAuth()
     }

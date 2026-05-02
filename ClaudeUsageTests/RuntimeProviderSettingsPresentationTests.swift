@@ -212,7 +212,6 @@ final class PublicCopySanityTests: XCTestCase {
             geminiPresentation.nextStepDetail,
             claudeAccountPresentation.primaryTitle,
             claudeAccountPresentation.secondaryLine ?? "",
-            claudeAccountPresentation.sourceBadge,
             claudeAccountPresentation.statusText,
         ])
     }
