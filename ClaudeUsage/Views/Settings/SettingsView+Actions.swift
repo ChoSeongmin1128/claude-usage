@@ -41,7 +41,10 @@ extension SettingsView {
         claudeAccounts = state.accounts
         activeClaudeAccountID = state.activeAccountID
         if state.accounts.isEmpty {
+            isClaudeAccountSwitcherExpanded = false
             isClaudeAccountManagementExpanded = false
+        } else if state.accounts.count <= 1 {
+            isClaudeAccountSwitcherExpanded = false
         }
     }
 
@@ -162,6 +165,7 @@ extension SettingsView {
         organizations = []
         organizationPreviews = [:]
         claudeAccountMessage = "현재 사용 계정을 \(account.displayName)으로 변경했습니다. 사용량을 다시 조회합니다."
+        isClaudeAccountSwitcherExpanded = false
         isClaudeAccountManagementExpanded = false
         loadUsageHealthSnapshot()
     }
@@ -175,6 +179,9 @@ extension SettingsView {
         organizations = []
         organizationPreviews = [:]
         claudeAccountMessage = "브라우저 계정을 삭제했습니다. 외부 Claude Code 로그인은 변경하지 않았습니다."
+        if claudeAccounts.count <= 1 {
+            isClaudeAccountSwitcherExpanded = false
+        }
         if claudeAccounts.isEmpty {
             isClaudeAccountManagementExpanded = false
         }
@@ -342,6 +349,7 @@ extension SettingsView {
 
     func resetClaudeAuthDisclosureState() {
         guard !settings.shouldRevealClaudeAdvancedAuth else { return }
+        isClaudeAccountSwitcherExpanded = false
         isClaudeAccountManagementExpanded = false
         isAdvancedAuthExpanded = false
         isOrganizationAdvancedExpanded = false
@@ -352,6 +360,7 @@ extension SettingsView {
         selectedOrganizationID = activeClaudePreferredOrganizationID()
         claudeAccountMessage = nil
         organizationMessage = nil
+        isClaudeAccountSwitcherExpanded = false
         isClaudeAccountManagementExpanded = false
         isOrganizationAdvancedExpanded = false
         checkCodexAuth()

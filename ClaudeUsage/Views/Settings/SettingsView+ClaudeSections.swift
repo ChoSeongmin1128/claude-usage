@@ -20,6 +20,9 @@ extension SettingsView {
 
             if settings.isProviderEnabled(.claude) {
                 claudeAccountSection
+                if shouldShowClaudeAccountSwitcherSection {
+                    claudeAccountSwitcherSection
+                }
                 if shouldShowOrganizationSection {
                     organizationSection
                 }
@@ -86,8 +89,17 @@ extension SettingsView {
                     }
                     .buttonStyle(.borderedProminent)
 
+                    if shouldShowClaudeAccountSwitcherButton {
+                        Button(isClaudeAccountSwitcherExpanded ? "변경 닫기" : "계정 변경") {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                isClaudeAccountSwitcherExpanded.toggle()
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
                     if shouldShowClaudeAccountManagementSection {
-                        Button(claudeAccounts.count > 1 ? "계정 변경" : "계정 관리") {
+                        Button("계정 관리") {
                             withAnimation(.easeInOut(duration: 0.15)) {
                                 isClaudeAccountManagementExpanded.toggle()
                             }
@@ -149,6 +161,14 @@ extension SettingsView {
         !claudeAccounts.isEmpty
     }
 
+    private var shouldShowClaudeAccountSwitcherButton: Bool {
+        claudeAccounts.count > 1
+    }
+
+    private var shouldShowClaudeAccountSwitcherSection: Bool {
+        shouldShowClaudeAccountSwitcherButton && isClaudeAccountSwitcherExpanded
+    }
+
     @ViewBuilder
     private var accountMessageView: some View {
         if let message = claudeAccountMessage {
@@ -157,6 +177,69 @@ extension SettingsView {
                 .foregroundStyle(message.contains("실패") || message.contains("필요") ? .orange : .secondary)
                 .lineLimit(2)
         }
+    }
+
+    private var claudeAccountSwitcherSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionCardHeader(
+                title: "계정 변경",
+                subtitle: "이번 조회에 사용할 Claude 계정을 선택합니다"
+            )
+
+            VStack(spacing: 8) {
+                ForEach(claudeAccounts) { account in
+                    claudeAccountSwitchRow(account)
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
+        .cornerRadius(8)
+    }
+
+    private func claudeAccountSwitchRow(_ account: ClaudeAccount) -> some View {
+        let isActive = account.id == activeClaudeAccountID
+        let presentation = ClaudeAccountSettingsPresentation.resolve(
+            account: account,
+            isActive: isActive,
+            organizations: organizations
+        )
+
+        return HStack(alignment: .center, spacing: 12) {
+            Image(systemName: presentation.systemImage)
+                .foregroundStyle(isActive ? Color.accentColor : .secondary)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(presentation.primaryTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+
+                if let secondaryLine = presentation.secondaryLine {
+                    Text(secondaryLine)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            chip(title: "", value: presentation.statusText, color: color(for: presentation.statusTone))
+
+            if isActive {
+                chip(title: "", value: "현재 사용 중", color: .green)
+            } else {
+                Button("사용") {
+                    setActiveClaudeAccount(account)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+        }
+        .padding(10)
+        .background(isActive ? Color.accentColor.opacity(0.08) : Color(NSColor.windowBackgroundColor).opacity(0.35))
+        .cornerRadius(8)
     }
 
     private var claudeAccountManagementSection: some View {
@@ -189,8 +272,8 @@ extension SettingsView {
     private var connectedClaudeAccountsCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionCardHeader(
-                title: "연결된 계정",
-                subtitle: "한 번 연결한 계정은 여기에서 다시 선택할 수 있습니다"
+                title: "계정 상세",
+                subtitle: "삭제, 다시 로그인 안내, Chrome 프로필 같은 상세 정보만 확인합니다"
             )
 
             if claudeAccounts.isEmpty {
@@ -243,12 +326,6 @@ extension SettingsView {
 
                 if isActive {
                     chip(title: "", value: "현재 사용 중", color: .green)
-                } else {
-                    Button("사용") {
-                        handleClaudeAccountAction(.use, account: account)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
                 }
             }
 
