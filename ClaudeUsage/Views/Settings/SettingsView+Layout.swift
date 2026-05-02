@@ -57,7 +57,6 @@ extension SettingsView {
         .onChange(of: sessionKey) { _, _ in
             testResult = nil
             lastVerifiedSessionKey = nil
-            scheduleSessionKeyPersistence()
         }
         .onChange(of: selectedOrganizationID) { _, _ in
             schedulePreferredOrganizationPersistence()
@@ -96,7 +95,6 @@ extension SettingsView {
         }
         .onDisappear {
             codexAuthCheckTask?.cancel()
-            flushPendingSessionKeyPersistence()
             flushPendingOrganizationPersistence()
         }
     }

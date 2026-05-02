@@ -1,12 +1,12 @@
 import Foundation
 
 extension SettingsView {
-    func handleLogoutAction() {
-        sessionKeyPersistTask?.cancel()
-        sessionKeyPersistTask = nil
+    func handleClearBrowserSessionAction() {
         organizationPersistTask?.cancel()
         organizationPersistTask = nil
-        onLogout?()
+        settings.preferredOrganizationID = ""
+        selectedOrganizationID = ""
+        onClearBrowserSession?()
         storedSessionKey = nil
         lastVerifiedSessionKey = nil
         sessionKey = ""
@@ -14,12 +14,21 @@ extension SettingsView {
         organizations = []
         organizationPreviews = [:]
         organizationOAuthFallbackSummary = nil
-        organizationMessage = "로그아웃되었습니다. 다시 로그인하거나 브라우저 로그인 값을 입력해 주세요."
+        organizationMessage = hasOAuthCredential
+            ? "브라우저 로그인 값은 삭제했습니다. Claude Code 로그인이 감지되어 있으면 계속 사용할 수 있습니다."
+            : "브라우저 로그인 값은 삭제했습니다. 다시 가져오거나 Claude Code 로그인을 사용해 주세요."
+    }
+
+    func handleDisableClaudeProviderAction() {
+        settings.setProviderEnabled(false, for: .claude)
+        organizationMessage = "Claude 연결을 껐습니다. 외부 Claude Code 로그인 정보는 변경하지 않았습니다."
+    }
+
+    func showClaudeCodeLoginGuidance() {
+        organizationMessage = "Claude Code 로그인을 다시 진행하려면 터미널에서 `claude login`을 실행한 뒤 상태 새로고침을 눌러 주세요."
     }
 
     func syncStoredSessionKeyState() {
-        sessionKeyPersistTask?.cancel()
-        sessionKeyPersistTask = nil
         organizationPersistTask?.cancel()
         organizationPersistTask = nil
         if let key = KeychainManager.shared.load() {
@@ -45,10 +54,10 @@ extension SettingsView {
             do {
                 let service = ClaudeAPIService(sessionKey: normalizedKey)
                 await service.updatePreferredOrganizationID(normalizeOrganizationID(selectedOrganizationID))
-                let _ = try await service.fetchUsage()
+                let _ = try await service.validateCurrentSessionUsage()
                 await MainActor.run {
                     lastVerifiedSessionKey = normalizedKey
-                    testResult = .success("연결 확인됨")
+                    testResult = .success("연결 확인됨. 저장을 눌러 반영하세요.")
                     isTesting = false
                     loadUsageHealthSnapshot()
                 }
@@ -61,21 +70,6 @@ extension SettingsView {
                 }
             }
         }
-    }
-
-    func scheduleSessionKeyPersistence() {
-        sessionKeyPersistTask?.cancel()
-        sessionKeyPersistTask = Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(450))
-            guard !Task.isCancelled else { return }
-            persistSessionKeyImmediately()
-        }
-    }
-
-    func flushPendingSessionKeyPersistence() {
-        sessionKeyPersistTask?.cancel()
-        sessionKeyPersistTask = nil
-        persistSessionKeyImmediately()
     }
 
     func schedulePreferredOrganizationPersistence() {
@@ -94,28 +88,32 @@ extension SettingsView {
         persistPreferredOrganizationSelection()
     }
 
-    func persistSessionKeyImmediately() {
+    func saveVerifiedSessionKey() {
         let normalizedKey = normalizeSessionKey(sessionKey)
         if normalizedKey != sessionKey {
             sessionKey = normalizedKey
         }
 
-        if !normalizedKey.isEmpty {
-            let existingKey = normalizeSessionKey(storedSessionKey ?? "")
-            if existingKey != normalizedKey {
-                do {
-                    try KeychainManager.shared.save(normalizedKey)
-                    storedSessionKey = normalizedKey
-                    lastVerifiedSessionKey = normalizedKey
-                } catch {
-                    Logger.error("세션 키 저장 실패: \(error)")
-                }
-            }
-        } else {
-            try? KeychainManager.shared.delete()
-            storedSessionKey = nil
-            lastVerifiedSessionKey = nil
-            testResult = nil
+        guard !normalizedKey.isEmpty,
+              normalizedKey == lastVerifiedSessionKey else {
+            testResult = .failure("저장 전에 연결 테스트를 먼저 완료해 주세요.")
+            return
+        }
+
+        let existingKey = normalizeSessionKey(storedSessionKey ?? "")
+        guard existingKey != normalizedKey else {
+            testResult = .success("이미 저장된 브라우저 로그인 값입니다.")
+            return
+        }
+
+        do {
+            try KeychainManager.shared.save(normalizedKey)
+            storedSessionKey = normalizedKey
+            testResult = .success("브라우저 로그인 값을 저장했습니다.")
+            loadUsageHealthSnapshot()
+        } catch {
+            testResult = .failure(error.localizedDescription)
+            Logger.error("세션 키 저장 실패: \(error)")
         }
     }
 

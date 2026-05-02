@@ -24,6 +24,13 @@ enum ClaudeSourcePreference: String, CaseIterable, Sendable {
     case recentSuccess = "recent_success"
 }
 
+enum ClaudeCredentialValidationState: String, Sendable, Equatable {
+    case unavailable
+    case detected
+    case verified
+    case failed
+}
+
 struct ClaudeMessagesHeaderFallbackPolicy: Equatable, Sendable {
     var isEnabled: Bool
     var allowAutomaticFallback: Bool
@@ -50,6 +57,8 @@ struct ClaudeFetchContext: Equatable, Sendable {
     var sourcePreference: ClaudeSourcePreference
     var webSessionAvailable: Bool
     var oauthAvailable: Bool
+    var webSessionValidationState: ClaudeCredentialValidationState
+    var oauthValidationState: ClaudeCredentialValidationState
     var recentSuccessfulSource: ClaudeUsageSource?
     var currentUsagePercent: Double?
     var fallbackPolicy: ClaudeMessagesHeaderFallbackPolicy
@@ -58,6 +67,8 @@ struct ClaudeFetchContext: Equatable, Sendable {
         sourcePreference: ClaudeSourcePreference = .auto,
         webSessionAvailable: Bool,
         oauthAvailable: Bool,
+        webSessionValidationState: ClaudeCredentialValidationState? = nil,
+        oauthValidationState: ClaudeCredentialValidationState? = nil,
         recentSuccessfulSource: ClaudeUsageSource? = nil,
         currentUsagePercent: Double? = nil,
         fallbackPolicy: ClaudeMessagesHeaderFallbackPolicy = .init())
@@ -65,6 +76,8 @@ struct ClaudeFetchContext: Equatable, Sendable {
         self.sourcePreference = sourcePreference
         self.webSessionAvailable = webSessionAvailable
         self.oauthAvailable = oauthAvailable
+        self.webSessionValidationState = webSessionValidationState ?? (webSessionAvailable ? .detected : .unavailable)
+        self.oauthValidationState = oauthValidationState ?? (oauthAvailable ? .detected : .unavailable)
         self.recentSuccessfulSource = recentSuccessfulSource
         self.currentUsagePercent = currentUsagePercent
         self.fallbackPolicy = fallbackPolicy

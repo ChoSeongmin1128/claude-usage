@@ -87,27 +87,26 @@ extension AppDelegate {
             onOpenClaudeInChrome: { [weak self] in
                 self?.openClaudeUsageInChrome()
             },
-            onLogout: { [weak self] in
+            onClearBrowserSession: { [weak self] in
                 guard let self else { return }
                 Task {
-                    let result = await ClaudeSettingsApplyCoordinator.logout(
+                    let result = await ClaudeSettingsApplyCoordinator.deleteBrowserSession(
                         apiService: self.apiService,
-                        preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
+                        preferredOrganizationID: "",
                         providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
                     )
                     await MainActor.run {
                         self.applyUsageHealthSnapshot(result.snapshot)
+                        if !result.snapshot.runtime.credentialAvailability.hasAnyCredential {
+                            self.clearClaudePresentationState(markSetupIncomplete: false)
+                        }
+                        self.updateMenuBar()
+                        self.updatePopoverViewModel(overage: self.currentOverage)
+                        self.syncRefreshTimerState()
                     }
                 }
-                self.clearClaudePresentationState(markSetupIncomplete: false)
-                self.updateMenuBar()
-                self.updatePopoverViewModel()
-                self.syncRefreshTimerState()
-                if self.shouldPollRuntimeProviders {
-                    self.refreshAll(force: true)
-                }
                 self.clearWebSessionData()
-                Logger.info("로그아웃 완료")
+                Logger.info("브라우저 로그인 값 삭제 완료")
             },
             onCodexLogout: { [weak self] in
                 guard let self else { return }

@@ -3,7 +3,7 @@ import LocalAuthentication
 import Security
 
 enum KeychainAccessPreflight {
-    enum Outcome {
+    enum Outcome: Sendable {
         case allowed
         case interactionRequired
         case notFound

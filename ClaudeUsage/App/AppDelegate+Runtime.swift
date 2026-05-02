@@ -131,9 +131,12 @@ extension AppDelegate {
             let preferredOrganizationID = AppSettings.shared.preferredOrganizationID
             await apiService.updatePreferredOrganizationID(preferredOrganizationID)
 
+            let hasStoredSessionKey: Bool
             if let sessionKey = KeychainManager.shared.load(), !sessionKey.isEmpty {
+                hasStoredSessionKey = true
                 await apiService.updateSessionKey(sessionKey)
             } else {
+                hasStoredSessionKey = false
                 await apiService.clearSession()
             }
 
@@ -149,13 +152,18 @@ extension AppDelegate {
                 self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
                 self.applyUsageHealthSnapshot(snapshot)
 
-                if snapshot.runtime.credentialAvailability.hasAnyCredential {
+                if hasStoredSessionKey,
+                   snapshot.runtime.credentialAvailability.sessionCredentialAvailable {
                     if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
                         self.refreshUsage(force: true)
                     } else {
                         self.updateMenuBar()
                         self.updatePopoverViewModel(overage: self.currentOverage)
                     }
+                } else if snapshot.runtime.credentialAvailability.hasAnyCredential {
+                    self.updateMenuBar()
+                    self.updatePopoverViewModel(overage: self.currentOverage)
+                    self.syncRefreshTimerState()
                 } else {
                     self.clearClaudePresentationState(markSetupIncomplete: false)
                     self.updateMenuBar()

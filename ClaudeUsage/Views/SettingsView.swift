@@ -107,7 +107,6 @@ struct SettingsView: View {
     @State var lastVerifiedSessionKey: String?
     @State var testResult: TestResult?
     @State var isTesting: Bool = false
-    @State var sessionKeyPersistTask: Task<Void, Never>?
     @State var organizationPersistTask: Task<Void, Never>?
     @State var selectedOrganizationID: String = ""
     @State var organizations: [ClaudeAPIService.OrganizationSummary] = []
@@ -127,9 +126,9 @@ struct SettingsView: View {
 
     var onOpenLogin: (() -> Void)?
     var onOpenClaudeInChrome: (() -> Void)?
-    var onLogout: (() -> Void)?
+    var onClearBrowserSession: (() -> Void)?
     var onCodexLogout: (() -> Void)?
-    enum TestResult {
+    enum TestResult: Equatable {
         case success(String)
         case failure(String)
     }

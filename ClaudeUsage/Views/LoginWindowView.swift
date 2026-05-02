@@ -64,7 +64,7 @@ struct LoginWindowView: View {
                 } else if isActivatingSession {
                     ProgressView()
                         .controlSize(.small)
-                    Text("세션 키 저장 및 반영 중...")
+                    Text("Claude 사용량 조회를 확인하는 중...")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else if let status = statusMessage, !loginSuccess {
@@ -76,7 +76,7 @@ struct LoginWindowView: View {
                 }
                 Spacer()
                 if loginSuccess {
-                    Label("세션 반영 완료", systemImage: "checkmark.circle.fill")
+                    Label("사용량 조회 확인됨", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                         .font(.callout.bold())
                 } else {
@@ -144,9 +144,9 @@ struct LoginWindowView: View {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 48))
                             .foregroundStyle(.green)
-                        Text("세션 반영 완료")
+                        Text("Claude 사용량 조회 확인됨")
                             .font(.headline)
-                        Text("저장과 동기화까지 끝났습니다")
+                        Text("실제 조회가 성공해 브라우저 로그인 값을 저장했습니다")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -185,7 +185,7 @@ struct LoginWindowView: View {
 
     private func activateSessionKey(_ key: String) {
         errorMessage = nil
-        statusMessage = "세션 키를 확인했습니다"
+        statusMessage = "브라우저 로그인 값을 확인했습니다"
         isActivatingSession = true
 
         Task {
@@ -194,13 +194,13 @@ struct LoginWindowView: View {
                 await MainActor.run {
                     self.isActivatingSession = false
                     self.loginSuccess = true
-                    self.statusMessage = "세션 키 저장과 반영이 완료됐습니다"
+                    self.statusMessage = "Claude 사용량 조회가 확인됐습니다"
                 }
             } catch {
                 await MainActor.run {
                     self.isActivatingSession = false
                     self.loginSuccess = false
-                    self.statusMessage = "세션 키 저장 또는 반영에 실패했습니다"
+                    self.statusMessage = "Claude 사용량 조회에 실패했습니다"
                     self.errorMessage = error.localizedDescription
                 }
             }

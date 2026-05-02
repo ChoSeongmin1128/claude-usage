@@ -58,6 +58,8 @@ extension SettingsView {
                     Text(authSummaryLine(snapshot))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    sourceStatusRows(snapshot)
                 }
             } else {
                 Text("인증 상태를 아직 불러오지 못했습니다. 먼저 가져오기 또는 로그인부터 진행하시면 됩니다.")
@@ -86,7 +88,7 @@ extension SettingsView {
                         .buttonStyle(.bordered)
                     }
 
-                    Button("다시 로그인") { onOpenLogin?() }
+                    Button("브라우저 로그인 다시 가져오기") { onOpenLogin?() }
                         .buttonStyle(.bordered)
                 }
 
@@ -117,7 +119,13 @@ extension SettingsView {
 
                     Spacer()
 
-                    Button("로그아웃") { handleLogoutAction() }
+                    Button("브라우저 로그인 값 삭제") { handleClearBrowserSessionAction() }
+                        .disabled(!(usageHealthSnapshot?.runtime.credentialAvailability.sessionCredentialAvailable ?? false))
+
+                    Button("Claude Code 다시 로그인 안내") { showClaudeCodeLoginGuidance() }
+                        .disabled(!(usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false))
+
+                    Button("Claude 연결 끄기") { handleDisableClaudeProviderAction() }
                         .foregroundStyle(.red)
                 }
             } else {
@@ -146,11 +154,11 @@ extension SettingsView {
     }
 
     private var shouldShowOrganizationAction: Bool {
-        hasReadyClaudeCredential
+        hasSessionCredentialAvailable
     }
 
     private var shouldShowOrganizationSection: Bool {
-        hasReadyClaudeCredential
+        hasSessionCredentialAvailable
             || !appliedPreferredOrganizationID.isEmpty
             || hasPendingOrganizationChange
             || isOrganizationAdvancedExpanded
@@ -171,7 +179,7 @@ extension SettingsView {
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.caption, design: .monospaced))
 
-                Text("로그인 값만 붙여넣고 연결 테스트를 눌러 확인하세요.")
+                Text("로그인 값만 붙여넣고 연결 테스트를 통과한 뒤 저장하세요. 입력만으로는 저장되지 않습니다.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
 
@@ -184,6 +192,9 @@ extension SettingsView {
                 HStack {
                     Button("연결 테스트") { testConnection() }
                         .disabled(sessionKey.isEmpty || isTesting)
+
+                    Button("저장") { saveVerifiedSessionKey() }
+                        .disabled(!canSaveVerifiedSessionKey)
 
                     if isTesting {
                         ProgressView()
@@ -202,6 +213,12 @@ extension SettingsView {
                                 .font(.caption)
                                 .lineLimit(1)
                         }
+                    }
+
+                    if hasPendingManualSessionKey && testResult == nil {
+                        Label("저장되지 않은 입력", systemImage: "pencil")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -261,6 +278,13 @@ extension SettingsView {
         return normalized != normalizeSessionKey(storedSessionKey ?? "")
     }
 
+    private var canSaveVerifiedSessionKey: Bool {
+        let normalized = normalizeSessionKey(sessionKey)
+        guard !normalized.isEmpty else { return false }
+        guard normalized == lastVerifiedSessionKey else { return false }
+        return normalized != normalizeSessionKey(storedSessionKey ?? "")
+    }
+
     var shouldShowAdvancedAuthSection: Bool {
         isAdvancedAuthExpanded || hasPendingManualSessionKey || settings.shouldRevealClaudeAdvancedAuth
     }
@@ -277,35 +301,43 @@ extension SettingsView {
         usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false
     }
 
+    var hasSessionCredentialAvailable: Bool {
+        !(normalizeSessionKey(storedSessionKey ?? "").isEmpty)
+            || (usageHealthSnapshot?.runtime.credentialAvailability.sessionCredentialAvailable ?? false)
+    }
+
     var claudeNotificationPolicySummary: String? {
         SetupCompletionPolicy.notificationPolicy(from: profileMetadata)?.summaryLine
     }
 
     private func authSummaryLine(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> String {
-        if !hasSuccessfulClaudeFetch {
-            return "아직 성공 조회가 없습니다. 먼저 가져오기 또는 로그인 후 상태 새로고침이 필요합니다."
+        let availability = snapshot.runtime.credentialAvailability
+
+        if !availability.hasAnyCredential {
+            return "로그인 정보가 없습니다. Chrome 로그인 가져오기 또는 Claude Code 로그인이 필요합니다."
         }
 
-        if snapshot.runtime.credentialAvailability.oauthCredentialAvailable,
-           snapshot.oauth.lastSuccessAt != nil {
-            return "Claude Code 로그인이 최근 정상적으로 확인됐고 조회도 성공했습니다."
+        if snapshot.runtime.sessionValidationState == .failed {
+            return "브라우저 로그인 값 확인이 필요합니다. 다시 가져오거나 삭제 후 Claude Code 로그인을 사용하세요."
         }
 
-        if snapshot.runtime.credentialAvailability.oauthCredentialAvailable,
-           snapshot.oauth.lastFailureAt != nil,
-           snapshot.oauth.lastSuccessAt == nil {
-            return "Claude Code 로그인은 보이지만 아직 제대로 확인되지 않았습니다. 필요하면 `claude login`을 다시 진행해 주세요."
+        if snapshot.runtime.oauthValidationState == .failed {
+            return "Claude Code 로그인 갱신이 필요합니다. 터미널에서 `claude login`을 다시 실행해 주세요."
         }
 
-        if snapshot.runtime.credentialAvailability.oauthCredentialAvailable {
-            return "Claude Code 로그인이 확인됐습니다. 필요하면 테스트로 실제 동작을 확인해 보세요."
+        if snapshot.runtime.oauthValidationState == .verified {
+            return "Claude Code 로그인으로 최근 사용량 조회가 성공했습니다."
         }
 
-        if snapshot.runtime.credentialAvailability.sessionCredentialAvailable {
+        if snapshot.runtime.sessionValidationState == .verified {
             return "브라우저 로그인 값으로 최근 조회가 성공했습니다."
         }
 
-        return "로그인 상태를 다시 확인해 주세요."
+        if availability.oauthCredentialAvailable {
+            return "Claude Code 로그인이 감지됐습니다. 상태 새로고침으로 실제 조회를 확인하세요."
+        }
+
+        return "브라우저 로그인 값이 저장되어 있습니다. 상태 새로고침으로 실제 조회를 확인하세요."
     }
 
     private func oauthStatusChip(
@@ -322,6 +354,64 @@ extension SettingsView {
         }
 
         return ("감지됨", .blue)
+    }
+
+    private func sourceStatusRows(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            sourceStatusRow(
+                title: "브라우저 로그인",
+                value: validationStatusLabel(snapshot.runtime.sessionValidationState),
+                color: validationStatusColor(snapshot.runtime.sessionValidationState)
+            )
+            sourceStatusRow(
+                title: "Claude Code 로그인",
+                value: validationStatusLabel(snapshot.runtime.oauthValidationState),
+                color: validationStatusColor(snapshot.runtime.oauthValidationState)
+            )
+            sourceStatusRow(
+                title: "현재 사용 경로",
+                value: compactRuntimePathLabel(snapshot),
+                color: runtimePathColor(snapshot.runtime.activePath)
+            )
+        }
+        .font(.caption2)
+    }
+
+    private func sourceStatusRow(title: String, value: String, color: Color) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+            Text(title)
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 8)
+            Text(value)
+                .foregroundStyle(color)
+        }
+    }
+
+    private func validationStatusLabel(_ state: ClaudeCredentialValidationState) -> String {
+        switch state {
+        case .unavailable:
+            return "없음"
+        case .detected:
+            return "감지됨"
+        case .verified:
+            return "최근 조회 성공"
+        case .failed:
+            return "확인 필요"
+        }
+    }
+
+    private func validationStatusColor(_ state: ClaudeCredentialValidationState) -> Color {
+        switch state {
+        case .unavailable:
+            return .secondary
+        case .detected, .verified:
+            return .green
+        case .failed:
+            return .orange
+        }
     }
 
     private func sectionCardHeader(title: String, subtitle: String? = nil) -> some View {

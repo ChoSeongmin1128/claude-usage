@@ -32,6 +32,10 @@ struct ClaudeSourcePlanner {
     }
 
     private nonisolated func autoOrder(for context: ClaudeFetchContext) -> [ClaudeUsageSource] {
+        if context.webSessionValidationState == .failed,
+           context.oauthAvailable {
+            return [.oauth, .webSession]
+        }
         if let recentSuccessfulSource = context.recentSuccessfulSource,
            recentSuccessfulSource != .messagesHeaderFallback
         {
@@ -44,6 +48,18 @@ struct ClaudeSourcePlanner {
         guard let recentSuccessfulSource = context.recentSuccessfulSource,
               recentSuccessfulSource != .messagesHeaderFallback
         else {
+            return [.webSession, .oauth]
+        }
+
+        if recentSuccessfulSource == .webSession,
+           context.webSessionValidationState == .failed,
+           context.oauthAvailable {
+            return [.oauth, .webSession]
+        }
+
+        if recentSuccessfulSource == .oauth,
+           context.oauthValidationState == .failed,
+           context.webSessionAvailable {
             return [.webSession, .oauth]
         }
 

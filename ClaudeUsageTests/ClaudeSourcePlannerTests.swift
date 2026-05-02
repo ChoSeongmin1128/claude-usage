@@ -53,4 +53,54 @@ final class ClaudeSourcePlannerTests: XCTestCase {
         XCTAssertEqual(plan.preferredPrimarySource, .oauth)
         XCTAssertFalse(plan.shouldAttemptAutomaticFallback)
     }
+
+    func testFailedWebSessionPrioritizesDetectedOAuth() {
+        let planner = ClaudeSourcePlanner()
+        let context = ClaudeFetchContext(
+            sourcePreference: .auto,
+            webSessionAvailable: true,
+            oauthAvailable: true,
+            webSessionValidationState: .failed,
+            oauthValidationState: .detected,
+            recentSuccessfulSource: .webSession
+        )
+
+        let plan = planner.makePlan(from: context)
+
+        XCTAssertEqual(plan.primaryCandidates.map(\.source), [.oauth, .webSession])
+        XCTAssertEqual(plan.preferredPrimarySource, .oauth)
+    }
+
+    func testRecentSuccessSourceIsNotPreferredWhenCredentialUnavailable() {
+        let planner = ClaudeSourcePlanner()
+        let context = ClaudeFetchContext(
+            sourcePreference: .recentSuccess,
+            webSessionAvailable: false,
+            oauthAvailable: true,
+            recentSuccessfulSource: .webSession
+        )
+
+        let plan = planner.makePlan(from: context)
+
+        XCTAssertEqual(plan.primaryCandidates.map(\.source), [.webSession, .oauth])
+        XCTAssertEqual(plan.preferredPrimarySource, .oauth)
+    }
+
+    func testMessagesFallbackIsNeverPrimaryCandidate() {
+        let planner = ClaudeSourcePlanner()
+        let context = ClaudeFetchContext(
+            sourcePreference: .auto,
+            webSessionAvailable: false,
+            oauthAvailable: true,
+            recentSuccessfulSource: .messagesHeaderFallback,
+            currentUsagePercent: 90,
+            fallbackPolicy: .init(isEnabled: true, allowAutomaticFallback: true, minimumUsagePercent: 20)
+        )
+
+        let plan = planner.makePlan(from: context)
+
+        XCTAssertFalse(plan.primaryCandidates.map(\.source).contains(.messagesHeaderFallback))
+        XCTAssertEqual(plan.fallbackSource, .messagesHeaderFallback)
+        XCTAssertTrue(plan.shouldAttemptAutomaticFallback)
+    }
 }
