@@ -144,6 +144,45 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertFalse(AppSettings.normalizedGlobalPopoverCompact(from: defaults))
     }
 
+    func testLegacyWindowedAccountPopoverDefaultMigratesToHidden() throws {
+        let suiteName = "ClaudeUsageTests.windowedAccountMigration.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            return XCTFail("테스트 UserDefaults suite를 만들지 못했습니다")
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let oldGeminiDefaults = [
+            PopoverItemConfig(id: "geminiPrimary", visible: true),
+            PopoverItemConfig(id: "geminiSecondary", visible: true),
+            PopoverItemConfig(id: "geminiTertiary", visible: true),
+            PopoverItemConfig(id: "geminiAccount", visible: true),
+        ]
+        let oldAntigravityDefaults = [
+            PopoverItemConfig(id: "antigravityPrimary", visible: true),
+            PopoverItemConfig(id: "antigravitySecondary", visible: true),
+            PopoverItemConfig(id: "antigravityTertiary", visible: true),
+            PopoverItemConfig(id: "antigravityAccount", visible: true),
+        ]
+        let dict = [
+            "gemini": oldGeminiDefaults,
+            "antigravity": oldAntigravityDefaults,
+        ]
+        let data = try JSONEncoder().encode(dict)
+        defaults.set(data, forKey: "popoverItemsV2")
+        defaults.set(2, forKey: "popoverItemsMigrationVersion")
+
+        let loaded = AppSettings.loadPopoverItemsByProvider(from: defaults)
+
+        XCTAssertEqual(
+            loaded.full["gemini"]?.first(where: { $0.id == "geminiAccount" })?.visible,
+            false
+        )
+        XCTAssertEqual(
+            loaded.full["antigravity"]?.first(where: { $0.id == "antigravityAccount" })?.visible,
+            false
+        )
+    }
+
     func testSetMenuBarStyleBatteryVariantForcesRemainingCircularMode() {
         let settings = AppSettings.shared
         let snapshot = settings.createSnapshot()

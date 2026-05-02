@@ -15,6 +15,14 @@ enum ClaudeAccountKind: String, Codable, CaseIterable, Sendable {
     }
 }
 
+enum ClaudeAccountSource: String, Codable, Sendable, Equatable {
+    case chromeProfile = "chrome_profile"
+    case embeddedWebLogin = "embedded_web_login"
+    case manualInput = "manual_input"
+    case legacyMigration = "legacy_migration"
+    case claudeCodeCLI = "claude_code_cli"
+}
+
 struct ClaudeAccountIdentity: Codable, Equatable, Sendable {
     var email: String?
     var organizationName: String?
@@ -60,6 +68,8 @@ struct ClaudeAccount: Codable, Identifiable, Equatable, Sendable {
     var kind: ClaudeAccountKind
     var displayName: String
     var identity: ClaudeAccountIdentity
+    var source: ClaudeAccountSource?
+    var sourceDetail: String?
     var preferredOrganizationID: String
     var createdAt: Date
     var lastUsedAt: Date
@@ -70,6 +80,8 @@ struct ClaudeAccount: Codable, Identifiable, Equatable, Sendable {
         kind: ClaudeAccountKind,
         displayName: String,
         identity: ClaudeAccountIdentity = ClaudeAccountIdentity(),
+        source: ClaudeAccountSource? = nil,
+        sourceDetail: String? = nil,
         preferredOrganizationID: String = "",
         createdAt: Date = Date(),
         lastUsedAt: Date = Date(),
@@ -81,6 +93,8 @@ struct ClaudeAccount: Codable, Identifiable, Equatable, Sendable {
             ? kind.displayName
             : displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         self.identity = identity
+        self.source = source
+        self.sourceDetail = sourceDetail?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         self.preferredOrganizationID = preferredOrganizationID.trimmingCharacters(in: .whitespacesAndNewlines)
         self.createdAt = createdAt
         self.lastUsedAt = lastUsedAt
@@ -100,6 +114,8 @@ struct ClaudeAccount: Codable, Identifiable, Equatable, Sendable {
             && lhs.kind == rhs.kind
             && lhs.displayName == rhs.displayName
             && lhs.identity == rhs.identity
+            && lhs.source == rhs.source
+            && lhs.sourceDetail == rhs.sourceDetail
             && lhs.preferredOrganizationID == rhs.preferredOrganizationID
             && lhs.createdAt == rhs.createdAt
             && lhs.lastUsedAt == rhs.lastUsedAt
@@ -196,6 +212,8 @@ final class ClaudeAccountStore: @unchecked Sendable {
         preferredOrganizationID: String? = nil,
         identity: ClaudeAccountIdentity = ClaudeAccountIdentity(),
         displayName: String? = nil,
+        source: ClaudeAccountSource? = nil,
+        sourceDetail: String? = nil,
         lastValidationState: ClaudeCredentialValidationState = .detected,
         setActive: Bool = true
     ) -> ClaudeAccount {
@@ -218,6 +236,9 @@ final class ClaudeAccountStore: @unchecked Sendable {
         )
         let requestedDisplayName = displayName?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedSourceDetail = sourceDetail?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
 
         let account: ClaudeAccount
         if let index = accounts.firstIndex(where: { $0.id == accountID }) {
@@ -231,6 +252,8 @@ final class ClaudeAccountStore: @unchecked Sendable {
             }
             accounts[index].displayName = resolvedDisplayName
             accounts[index].identity = resolvedIdentity
+            accounts[index].source = source ?? accounts[index].source ?? .embeddedWebLogin
+            accounts[index].sourceDetail = requestedSourceDetail ?? accounts[index].sourceDetail
             accounts[index].preferredOrganizationID = resolvedPreferredOrganizationID
             accounts[index].lastUsedAt = now
             accounts[index].lastValidationState = lastValidationState
@@ -249,6 +272,8 @@ final class ClaudeAccountStore: @unchecked Sendable {
                 kind: .webSession,
                 displayName: resolvedDisplayName,
                 identity: resolvedIdentity,
+                source: source ?? .embeddedWebLogin,
+                sourceDetail: requestedSourceDetail,
                 preferredOrganizationID: resolvedPreferredOrganizationID,
                 createdAt: now,
                 lastUsedAt: now,
@@ -289,6 +314,10 @@ final class ClaudeAccountStore: @unchecked Sendable {
                 accounts[index].identity = identity
                 didChange = true
             }
+            if accounts[index].source != .claudeCodeCLI {
+                accounts[index].source = .claudeCodeCLI
+                didChange = true
+            }
             if accounts[index].lastValidationState != validationState {
                 accounts[index].lastValidationState = validationState
                 didChange = true
@@ -300,6 +329,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
                 kind: .claudeCodeExternal,
                 displayName: resolvedDisplayName,
                 identity: identity,
+                source: .claudeCodeCLI,
                 lastUsedAt: now,
                 lastValidationState: validationState
             )
@@ -350,6 +380,18 @@ final class ClaudeAccountStore: @unchecked Sendable {
         updateAccount(id: accountID) { account in
             guard account.kind == .webSession else { return }
             account.preferredOrganizationID = organizationID.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+    }
+
+    nonisolated func mergeIdentity(_ identity: ClaudeAccountIdentity, for accountID: String) {
+        updateAccount(id: accountID) { account in
+            account.identity = ClaudeAccountIdentity(
+                email: identity.email ?? account.identity.email,
+                organizationName: identity.organizationName ?? account.identity.organizationName,
+                organizationID: identity.organizationID ?? account.identity.organizationID,
+                planLabel: identity.planLabel ?? account.identity.planLabel,
+                fingerprint: identity.fingerprint ?? account.identity.fingerprint
+            )
         }
     }
 
@@ -408,6 +450,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
                     kind: .webSession,
                     displayName: "브라우저 계정",
                     identity: ClaudeAccountIdentity(fingerprint: fingerprint),
+                    source: .legacyMigration,
                     preferredOrganizationID: preferredOrganizationID
                 )
             )
@@ -494,5 +537,11 @@ final class ClaudeAccountStore: @unchecked Sendable {
             && lhs.organizationID == rhs.organizationID
             && lhs.planLabel == rhs.planLabel
             && lhs.fingerprint == rhs.fingerprint
+    }
+}
+
+private extension String {
+    nonisolated var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

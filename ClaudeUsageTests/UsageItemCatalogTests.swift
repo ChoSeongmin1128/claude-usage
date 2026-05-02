@@ -127,10 +127,38 @@ final class UsageItemCatalogTests: XCTestCase {
         XCTAssertEqual(statusTitles(from: sections), ["현재 세션", "주간 한도", "Codex 크레딧"])
     }
 
-    func testGeminiCatalogSkipsMissingWindowsAndIncludesAccountWhenAvailable() {
+    func testGeminiCatalogSkipsAccountInfoByDefault() {
         let catalog = GeminiItemCatalog()
         let sections = catalog.sections(
             from: catalog.defaultItems,
+            context: makeContext(
+                geminiUsage: GeminiUsageResponse(
+                    accountEmail: "user@example.com",
+                    accountPlan: "Gemini Advanced",
+                    primaryWindow: GeminiUsageWindow(
+                        label: "Pro",
+                        modelID: "gemini-pro",
+                        usedPercent: 24,
+                        resetAtISO: nil
+                    ),
+                    secondaryWindow: nil,
+                    tertiaryWindow: nil
+                )
+            )
+        )
+
+        XCTAssertEqual(sections.map(\.id), ["geminiPrimary"])
+        XCTAssertEqual(sections.map(\.kind), [.usage])
+        XCTAssertTrue(accountEmails(from: sections).isEmpty)
+    }
+
+    func testGeminiCatalogIncludesAccountInfoWhenUserEnablesItem() {
+        let catalog = GeminiItemCatalog()
+        let sections = catalog.sections(
+            from: [
+                PopoverItemConfig(id: "geminiPrimary", visible: true),
+                PopoverItemConfig(id: "geminiAccount", visible: true),
+            ],
             context: makeContext(
                 geminiUsage: GeminiUsageResponse(
                     accountEmail: "user@example.com",

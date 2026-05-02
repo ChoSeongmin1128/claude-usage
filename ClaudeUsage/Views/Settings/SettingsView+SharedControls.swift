@@ -163,6 +163,32 @@ extension SettingsView {
         }
     }
 
+    func providerAlertSection(for provider: AppProviderKind) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("알림", systemImage: "bell")
+                .font(.headline)
+
+            settingsToggleRow(
+                "\(provider.displayName) 알림",
+                subtitle: settings.notificationsEnabled
+                    ? "이 서비스의 사용량 기준 알림을 표시합니다"
+                    : "공통 알림이 꺼져 있어 이 설정도 적용되지 않습니다",
+                isOn: Binding(
+                    get: { settings.isProviderAlertEnabled(provider) },
+                    set: { settings.setProviderAlertEnabled($0, for: provider) }
+                )
+            )
+            .disabled(!settings.notificationsEnabled)
+            .opacity(settings.notificationsEnabled ? 1.0 : 0.6)
+
+            if !settings.notificationsEnabled {
+                Label("공통 설정에서 전체 알림을 먼저 켜야 합니다.", systemImage: "bell.slash")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+        }
+    }
+
     func segmentedTabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)

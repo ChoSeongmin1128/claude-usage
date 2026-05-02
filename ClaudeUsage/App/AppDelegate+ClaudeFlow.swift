@@ -145,7 +145,7 @@ extension AppDelegate {
 
             let loginView = LoginWindowView(
                 clearOnOpen: clearCookies,
-                onSessionKeyFound: { [weak self] key, displayName in
+                onSessionKeyFound: { [weak self] key, displayName, source, sourceDetail in
                     guard let self else { return }
 
                     await MainActor.run {
@@ -165,7 +165,9 @@ extension AppDelegate {
                             apiService: self.apiService,
                             preferredOrganizationID: self.activeClaudePreferredOrganizationID,
                             providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared),
-                            displayName: displayName
+                            displayName: displayName,
+                            source: source,
+                            sourceDetail: sourceDetail
                         )
                         await MainActor.run {
                             self.applyUsageHealthSnapshot(result.snapshot)

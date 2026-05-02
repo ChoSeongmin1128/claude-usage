@@ -47,6 +47,7 @@ final class ClaudeAccountStoreTests: XCTestCase {
         XCTAssertEqual(state.accounts.count, 1)
         let account = try XCTUnwrap(state.activeAccount)
         XCTAssertEqual(account.kind, .webSession)
+        XCTAssertEqual(account.source, .legacyMigration)
         XCTAssertEqual(account.preferredOrganizationID, preferredOrganizationID)
         XCTAssertEqual(account.identity.fingerprint, ClaudeAccountStore.fingerprint(for: legacySession))
         XCTAssertNil(try vault.loadString(account: ClaudeKeychainStore.defaultAccount))
@@ -87,6 +88,7 @@ final class ClaudeAccountStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(store.activeAccount()?.id, cliAccount.id)
+        XCTAssertEqual(cliAccount.source, .claudeCodeCLI)
 
         _ = store.upsertWebSessionAccount(
             sessionKey: "sk-ant-company-session",
@@ -104,6 +106,33 @@ final class ClaudeAccountStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(store.activeAccount()?.id, activeWeb?.id)
+    }
+
+    func testWebSessionSourceAndDetailAreStoredAndPreservedAcrossValidationUpdates() {
+        let store = makeStore()
+
+        let account = store.upsertWebSessionAccount(
+            sessionKey: "sk-ant-company-session",
+            preferredOrganizationID: "org-company",
+            displayName: "Chrome Profile 2",
+            source: .chromeProfile,
+            sourceDetail: "Profile 2",
+            lastValidationState: .verified
+        )
+
+        XCTAssertEqual(account.source, .chromeProfile)
+        XCTAssertEqual(account.sourceDetail, "Profile 2")
+
+        _ = store.upsertWebSessionAccount(
+            sessionKey: "sk-ant-company-session",
+            identity: ClaudeAccountIdentity(email: "company@example.com"),
+            lastValidationState: .verified
+        )
+
+        let updated = store.accounts().first(where: { $0.id == account.id })
+        XCTAssertEqual(updated?.source, .chromeProfile)
+        XCTAssertEqual(updated?.sourceDetail, "Profile 2")
+        XCTAssertEqual(updated?.identity.email, "company@example.com")
     }
 
     func testPreferredOrganizationUpdatesOnlyTargetAccount() {

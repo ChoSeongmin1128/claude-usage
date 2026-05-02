@@ -47,6 +47,22 @@ final class KeychainManager: @unchecked Sendable {
     }
 
     nonisolated func save(_ sessionKey: String, preferredOrganizationID: String?, displayName: String?) throws {
+        try save(
+            sessionKey,
+            preferredOrganizationID: preferredOrganizationID,
+            displayName: displayName,
+            source: .embeddedWebLogin,
+            sourceDetail: nil
+        )
+    }
+
+    nonisolated func save(
+        _ sessionKey: String,
+        preferredOrganizationID: String?,
+        displayName: String?,
+        source: ClaudeAccountSource?,
+        sourceDetail: String?
+    ) throws {
         guard !sessionKey.isEmpty else {
             throw KeychainError.invalidData
         }
@@ -58,6 +74,8 @@ final class KeychainManager: @unchecked Sendable {
             sessionKey: sessionKey,
             preferredOrganizationID: preferredOrganizationID,
             displayName: displayName,
+            source: source,
+            sourceDetail: sourceDetail,
             lastValidationState: .verified,
             setActive: true
         )

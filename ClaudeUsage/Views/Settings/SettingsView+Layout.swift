@@ -113,39 +113,43 @@ extension SettingsView {
         case .common:
             commonServicesSection
             Divider()
-            commonDisplaySection
-            Divider()
             commonAlertSection
-            Divider()
-            refreshSection
             Divider()
             updateSection
             Divider()
-            appPreferencesSection
+            commonDisplaySection
         case .claude:
             claudeOverviewSection
             Divider()
             providerMenuBarDisplaySection(for: .claude)
             Divider()
             providerPopoverDisplaySection(for: .claude)
+            Divider()
+            providerAlertSection(for: .claude)
         case .codex:
             codexOverviewSection
             Divider()
             providerMenuBarDisplaySection(for: .codex)
             Divider()
             providerPopoverDisplaySection(for: .codex)
+            Divider()
+            providerAlertSection(for: .codex)
         case .gemini:
             runtimeProviderPanel(for: .gemini)
             Divider()
             providerMenuBarDisplaySection(for: .gemini)
             Divider()
             providerPopoverDisplaySection(for: .gemini)
+            Divider()
+            providerAlertSection(for: .gemini)
         case .antigravity:
             runtimeProviderPanel(for: .antigravity)
             Divider()
             providerMenuBarDisplaySection(for: .antigravity)
             Divider()
             providerPopoverDisplaySection(for: .antigravity)
+            Divider()
+            providerAlertSection(for: .antigravity)
         }
     }
 

@@ -200,7 +200,7 @@ class AppSettings: ObservableObject {
     private static let popoverItemsByProviderKey = "popoverItemsV2"
     private static let compactPopoverItemsByProviderKey = "compactPopoverItemsV2"
     private static let popoverItemsMigrationVersionKey = "popoverItemsMigrationVersion"
-    private static let currentPopoverItemsMigrationVersion = 2
+    private static let currentPopoverItemsMigrationVersion = 3
     // 구 키 (v1, dual-write 대상)
     private static let legacyClaudePopoverKey = "popoverItems"
     private static let legacyClaudeCompactPopoverKey = "compactPopoverItems"
@@ -254,6 +254,8 @@ class AppSettings: ObservableObject {
         var full: [String: [PopoverItemConfig]] = [:]
         var compact: [String: [PopoverItemConfig]] = [:]
 
+        let migrationVersion = defaults.integer(forKey: Self.popoverItemsMigrationVersionKey)
+
         for service in PopoverService.allCases {
             let catalog = UsageItemCatalogRegistry.catalog(for: service)
             let key = service.rawValue
@@ -269,7 +271,12 @@ class AppSettings: ObservableObject {
                 case .gemini, .antigravity: fullCandidate = nil
                 }
             }
-            full[key] = catalog.normalized(fullCandidate ?? catalog.defaultItems)
+            let rawFull = fullCandidate ?? catalog.defaultItems
+            full[key] = hideWindowedAccountInfoForOldDefaultIfNeeded(
+                catalog.normalized(rawFull),
+                service: service,
+                migrationVersion: migrationVersion
+            )
 
             // Compact
             let compactCandidate: [PopoverItemConfig]?
@@ -282,10 +289,36 @@ class AppSettings: ObservableObject {
                 case .gemini, .antigravity: compactCandidate = nil
                 }
             }
-            compact[key] = catalog.normalized(compactCandidate ?? full[key]!)
+            let rawCompact = compactCandidate ?? full[key]!
+            compact[key] = hideWindowedAccountInfoForOldDefaultIfNeeded(
+                catalog.normalized(rawCompact),
+                service: service,
+                migrationVersion: migrationVersion
+            )
         }
 
         return (full, compact)
+    }
+
+    private static func hideWindowedAccountInfoForOldDefaultIfNeeded(
+        _ items: [PopoverItemConfig],
+        service: PopoverService,
+        migrationVersion: Int
+    ) -> [PopoverItemConfig] {
+        guard migrationVersion < 3,
+              service == .gemini || service == .antigravity else {
+            return items
+        }
+
+        let accountItemID = "\(service.rawValue)Account"
+        guard items.contains(where: { $0.id == accountItemID && $0.visible }),
+              items.allSatisfy(\.visible) else {
+            return items
+        }
+
+        return items.map { item in
+            item.id == accountItemID ? PopoverItemConfig(id: item.id, visible: false) : item
+        }
     }
 
     private static func migrateClaudeLegacyBoolFlags(from defaults: UserDefaults) -> [PopoverItemConfig]? {
@@ -1545,7 +1578,7 @@ class AppSettings: ObservableObject {
         let (loadedFullDict, loadedCompactDict) = Self.loadPopoverItemsByProvider(from: defaults)
         self.popoverItemsByProvider = loadedFullDict
         self.compactPopoverItemsByProvider = loadedCompactDict
-        // 마이그레이션 버전 스탬프: 2 = dict 기반 V2로 최소 1회 이주 완료.
+        // 마이그레이션 버전 스탬프: 3 = dict 기반 V2 + 계정 정보 기본 숨김 적용 완료.
         if defaults.integer(forKey: Self.popoverItemsMigrationVersionKey) < Self.currentPopoverItemsMigrationVersion {
             Self.persistPopoverItemsByProvider(loadedFullDict, to: defaults)
             Self.persistCompactPopoverItemsByProvider(loadedCompactDict, to: defaults)

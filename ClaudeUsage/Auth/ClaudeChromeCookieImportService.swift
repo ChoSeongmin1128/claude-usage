@@ -71,7 +71,7 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
         }
 
         if importedSessions.count == 1, let first = importedSessions.first {
-            return .importedSessionKey(first.sessionKey)
+            return .importedSession(first)
         }
 
         if importedSessions.count > 1 {

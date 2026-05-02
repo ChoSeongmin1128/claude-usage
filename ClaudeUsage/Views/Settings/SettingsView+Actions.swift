@@ -115,7 +115,10 @@ extension SettingsView {
         do {
             try KeychainManager.shared.save(
                 normalizedKey,
-                preferredOrganizationID: normalizeOrganizationID(selectedOrganizationID)
+                preferredOrganizationID: normalizeOrganizationID(selectedOrganizationID),
+                displayName: nil,
+                source: .manualInput,
+                sourceDetail: nil
             )
             syncClaudeAccountsState()
             storedSessionKey = normalizedKey
@@ -134,6 +137,15 @@ extension SettingsView {
         }
         guard let activeClaudeAccountID else { return }
         ClaudeAccountStore.shared.updatePreferredOrganizationID(normalizedOrganizationID, for: activeClaudeAccountID)
+        if let organization = organizations.first(where: { $0.id == normalizedOrganizationID }) {
+            ClaudeAccountStore.shared.mergeIdentity(
+                ClaudeAccountIdentity(
+                    organizationName: organization.name,
+                    organizationID: organization.id
+                ),
+                for: activeClaudeAccountID
+            )
+        }
         syncClaudeAccountsState()
     }
 
@@ -298,13 +310,18 @@ extension SettingsView {
             await service.reloadActiveAccount()
             async let snapshot = service.fetchUsageHealthSnapshot()
             async let metadata = service.fetchCachedProfileMetadata()
+            async let cachedOrganizations = service.cachedOrganizationsForDisplay()
             let resolvedSnapshot = await snapshot
             let resolvedMetadata = await metadata
+            let resolvedCachedOrganizations = await cachedOrganizations
             await MainActor.run {
                 usageHealthSnapshot = resolvedSnapshot
                 profileMetadata = resolvedMetadata
                 claudeAccounts = resolvedSnapshot.accounts
                 activeClaudeAccountID = resolvedSnapshot.activeAccountID
+                if organizations.isEmpty && !resolvedCachedOrganizations.isEmpty {
+                    organizations = resolvedCachedOrganizations
+                }
             }
         }
     }

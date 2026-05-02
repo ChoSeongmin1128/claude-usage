@@ -481,7 +481,7 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(phase, .error)
     }
 
-    func testDisplaySectionsHideSecondaryGeminiAccountInCompact() async {
+    func testDisplaySectionsHideGeminiAccountByDefault() async {
         let result = await MainActor.run { () -> ([PopoverDisplaySection], [PopoverDisplaySection]) in
             let viewModel = PopoverViewModel()
             let payload = GeminiUsageResponse(
@@ -514,8 +514,8 @@ final class PopoverViewModelTests: XCTestCase {
             )
         }
 
-        XCTAssertEqual(result.0.count, 3)
-        XCTAssertEqual(result.0.map(\.kind), [.usage, .usage, .account])
+        XCTAssertEqual(result.0.count, 2)
+        XCTAssertEqual(result.0.map(\.kind), [.usage, .usage])
         XCTAssertEqual(result.1.count, 2)
         XCTAssertEqual(result.1.map(\.kind), [.usage, .usage])
     }
@@ -636,7 +636,7 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(result.1, ["codexSecondary-status"])
     }
 
-    func testLayoutSpecUsesDisplaySectionsForGeminiSecondaryAccount() async {
+    func testLayoutSpecUsesDisplaySectionsForGeminiSecondaryWindow() async {
         let size = await MainActor.run { () -> CGSize in
             let settings = AppSettings.shared
             let snapshot = settings.createSnapshot()
@@ -672,7 +672,7 @@ final class PopoverViewModelTests: XCTestCase {
         }
 
         XCTAssertEqual(size.width, 368)
-        XCTAssertEqual(size.height, 300)
+        XCTAssertEqual(size.height, 256)
     }
 
     func testGlobalCompactSettingDrivesAllProviderLayouts() async {

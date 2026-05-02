@@ -5,6 +5,13 @@ protocol ClaudeSessionKeyStoring: Sendable {
     func save(_ sessionKey: String) throws
     func save(_ sessionKey: String, preferredOrganizationID: String?) throws
     func save(_ sessionKey: String, preferredOrganizationID: String?, displayName: String?) throws
+    func save(
+        _ sessionKey: String,
+        preferredOrganizationID: String?,
+        displayName: String?,
+        source: ClaudeAccountSource?,
+        sourceDetail: String?
+    ) throws
     func delete() throws
 }
 
@@ -17,6 +24,16 @@ extension ClaudeSessionKeyStoring {
 
     func save(_ sessionKey: String, preferredOrganizationID: String?, displayName: String?) throws {
         try save(sessionKey, preferredOrganizationID: preferredOrganizationID)
+    }
+
+    func save(
+        _ sessionKey: String,
+        preferredOrganizationID: String?,
+        displayName: String?,
+        source: ClaudeAccountSource?,
+        sourceDetail: String?
+    ) throws {
+        try save(sessionKey, preferredOrganizationID: preferredOrganizationID, displayName: displayName)
     }
 }
 
@@ -71,6 +88,8 @@ enum ClaudeSettingsApplyCoordinator {
         preferredOrganizationID: String,
         providerEnabled: Bool,
         displayName: String? = nil,
+        source: ClaudeAccountSource? = .embeddedWebLogin,
+        sourceDetail: String? = nil,
         keychain: any ClaudeSessionKeyStoring = KeychainManager.shared
     ) async throws -> ClaudeSettingsApplyResult {
         let previousKey = keychain.load()
@@ -88,7 +107,9 @@ enum ClaudeSettingsApplyCoordinator {
             try keychain.save(
                 key,
                 preferredOrganizationID: preferredOrganizationID,
-                displayName: displayName
+                displayName: displayName,
+                source: source,
+                sourceDetail: sourceDetail
             )
         } catch {
             await restorePreviousSessionKey(previousKey, apiService: apiService)

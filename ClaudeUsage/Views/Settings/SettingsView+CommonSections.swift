@@ -4,49 +4,19 @@ import SwiftUI
 extension SettingsView {
     var commonServicesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("서비스", systemImage: "square.stack.3d.up")
-                .font(.headline)
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("서비스 사용")
-                    .font(.subheadline.weight(.semibold))
-
-                ForEach(AppProviderKind.allCases, id: \.self) { provider in
-                    settingsToggleRow(
-                        "\(provider.displayName) 사용",
-                        subtitle: providerToggleSubtitle(for: provider),
-                        isOn: Binding(
-                            get: { settings.isProviderEnabled(provider) },
-                            set: { settings.setProviderEnabled($0, for: provider) }
-                        )
-                    )
-                }
-            }
-        }
-    }
-
-    var refreshSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("사용량 확인", systemImage: "arrow.clockwise")
+            Label("앱 동작", systemImage: "gearshape")
                 .font(.headline)
 
             settingsToggleRow(
-                "자동 새로고침",
+                "사용량 자동 확인",
                 subtitle: "주기적으로 사용량을 다시 확인합니다",
                 isOn: $settings.autoRefresh
             )
-        }
-    }
-
-    var commonDisplaySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("메뉴바", systemImage: "menubar.rectangle")
-                .font(.headline)
 
             settingsToggleRow(
-                "보조 텍스트 강조",
-                subtitle: "갱신 시각과 구분자를 기본 텍스트 색상으로 표시합니다",
-                isOn: $settings.menuBarTextHighContrast
+                "로그인 시 자동 시작",
+                subtitle: "시스템 설정 → 일반 → 로그인 항목에서도 관리할 수 있습니다",
+                isOn: $settings.launchAtLogin
             )
         }
     }
@@ -68,29 +38,7 @@ extension SettingsView {
                     .foregroundStyle(.orange)
             }
 
-            Divider()
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("서비스별 알림")
-                    .font(.subheadline.weight(.semibold))
-
-                ForEach(AppProviderKind.allCases, id: \.self) { provider in
-                    settingsToggleRow(
-                        "\(provider.displayName) 알림 사용",
-                        isOn: Binding(
-                            get: { settings.isProviderAlertEnabled(provider) },
-                            set: { settings.setProviderAlertEnabled($0, for: provider) }
-                        )
-                    )
-                }
-
-            }
-            .disabled(!settings.notificationsEnabled)
-            .opacity(settings.notificationsEnabled ? 1.0 : 0.6)
-
-            Divider()
-
-            Text("시스템 설정 → 알림 → ClaudeUsage에서 알림을 허용해야 합니다.")
+            Text("서비스별 알림은 각 서비스 화면에서 조정합니다. 시스템 설정 → 알림 → ClaudeUsage에서도 알림 허용이 필요합니다.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
@@ -143,29 +91,16 @@ extension SettingsView {
         }
     }
 
-    var appPreferencesSection: some View {
+    var commonDisplaySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("앱", systemImage: "gearshape.2")
+            Label("고급 표시", systemImage: "menubar.rectangle")
                 .font(.headline)
 
-            settingsToggleRow("로그인 시 자동 시작", isOn: $settings.launchAtLogin)
-
-            Text("시스템 설정 → 일반 → 로그인 항목에서도 관리할 수 있습니다")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private func providerToggleSubtitle(for provider: AppProviderKind) -> String {
-        switch provider {
-        case .claude:
-            return "Claude 사용량을 표시합니다"
-        case .codex:
-            return "Codex 사용량을 표시합니다"
-        case .gemini:
-            return "Gemini 사용량을 표시합니다"
-        case .antigravity:
-            return "Antigravity 사용량을 표시합니다"
+            settingsToggleRow(
+                "보조 텍스트 강조",
+                subtitle: "갱신 시각과 구분자를 기본 텍스트 색상으로 표시합니다",
+                isOn: $settings.menuBarTextHighContrast
+            )
         }
     }
 

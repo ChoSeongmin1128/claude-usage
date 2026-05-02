@@ -725,7 +725,7 @@ actor ClaudeAPIService {
            let preferred = organizations.first(where: { $0.id == preferredOrganizationID }) {
             Logger.info("선호 Organization ID 사용: \(preferred.id)")
             cachedOrganizationID = preferred.id
-            await rememberActiveOrganizationID(preferred.id)
+            await rememberActiveOrganization(preferred)
             return preferred.id
         }
 
@@ -736,16 +736,24 @@ actor ClaudeAPIService {
         let selected = await selectAutomaticOrganization(organizations, sessionKey: sessionKey) ?? organizations[0]
         Logger.info("Organization ID 선택: \(selected.id) (총 \(organizations.count)개)")
         cachedOrganizationID = selected.id
-        await rememberActiveOrganizationID(selected.id)
+        await rememberActiveOrganization(selected)
         return selected.id
     }
 
-    private func rememberActiveOrganizationID(_ organizationID: String) async {
-        guard activeAccount?.kind == .webSession else { return }
+    private func rememberActiveOrganization(_ organization: OrganizationSummary) async {
+        guard let activeAccount, activeAccount.kind == .webSession else { return }
         var metadata = await profileMetadataStore.load() ?? ClaudeProfileMetadata()
-        metadata.organizationUUID = organizationID
+        metadata.organizationUUID = organization.id
         metadata.lastUpdatedAt = Date()
         await profileMetadataStore.save(metadata)
+        accountStore.mergeIdentity(
+            ClaudeAccountIdentity(
+                organizationName: organization.name,
+                organizationID: organization.id
+            ),
+            for: activeAccount.id
+        )
+        self.activeAccount = accountStore.activeAccount()
     }
 
     private func selectAutomaticOrganization(

@@ -2,16 +2,22 @@ import Foundation
 
 struct ClaudeAccountSettingsPresentation: Equatable {
     let title: String
-    let accountLine: String
-    let detailLine: String
+    let identifierLine: String
+    let sourceLine: String
+    let organizationLine: String?
     let statusLine: String
     let systemImage: String
 
-    static func resolve(account: ClaudeAccount) -> ClaudeAccountSettingsPresentation {
+    static func resolve(
+        account: ClaudeAccount,
+        organizations: [ClaudeAPIService.OrganizationSummary] = [],
+        previews: [String: ClaudeAPIService.OrganizationPreview] = [:]
+    ) -> ClaudeAccountSettingsPresentation {
         ClaudeAccountSettingsPresentation(
-            title: title(for: account.kind),
-            accountLine: "계정: \(accountLabel(for: account))",
-            detailLine: detailLine(for: account.kind),
+            title: title(for: account),
+            identifierLine: "식별: \(identifierLabel(for: account))",
+            sourceLine: "출처: \(sourceLabel(for: account))",
+            organizationLine: organizationLine(for: account, organizations: organizations, previews: previews),
             statusLine: "상태: \(statusLabel(for: account.lastValidationState))",
             systemImage: account.kind == .webSession ? "globe" : "terminal"
         )
@@ -30,28 +36,52 @@ struct ClaudeAccountSettingsPresentation: Equatable {
         }
     }
 
-    private static func title(for kind: ClaudeAccountKind) -> String {
-        switch kind {
+    private static func title(for account: ClaudeAccount) -> String {
+        switch account.kind {
         case .webSession:
-            return "브라우저에서 가져온 로그인"
+            switch account.source {
+            case .chromeProfile:
+                return "Chrome 프로필 로그인"
+            case .embeddedWebLogin:
+                return "앱내 웹 로그인"
+            case .manualInput:
+                return "수동 입력 로그인"
+            case .legacyMigration:
+                return "기존 브라우저 로그인"
+            case .claudeCodeCLI, .none:
+                return "브라우저 로그인"
+            }
         case .claudeCodeExternal:
             return "터미널 Claude Code 로그인"
         }
     }
 
-    private static func detailLine(for kind: ClaudeAccountKind) -> String {
-        switch kind {
+    private static func sourceLabel(for account: ClaudeAccount) -> String {
+        switch account.kind {
         case .webSession:
-            return "Chrome 가져오기 또는 앱내 웹 로그인으로 저장한 로그인입니다"
+            switch account.source {
+            case .chromeProfile:
+                if let detail = account.sourceDetail, !detail.isEmpty {
+                    return "Chrome 프로필 \(detail)"
+                }
+                return "Chrome 프로필"
+            case .embeddedWebLogin:
+                return "앱내 웹 로그인"
+            case .manualInput:
+                return "고급 설정 수동 입력"
+            case .legacyMigration:
+                return "업데이트 전 저장된 브라우저 로그인"
+            case .claudeCodeCLI, .none:
+                return "브라우저 로그인"
+            }
         case .claudeCodeExternal:
-            return "터미널의 Claude Code 로그인 상태를 읽기만 합니다"
+            return "터미널 Claude Code CLI"
         }
     }
 
-    private static func accountLabel(for account: ClaudeAccount) -> String {
+    private static func identifierLabel(for account: ClaudeAccount) -> String {
         let labels = [
             account.identity.email,
-            account.identity.organizationName,
             account.identity.planLabel,
             meaningfulDisplayName(for: account),
         ]
@@ -69,10 +99,71 @@ struct ClaudeAccountSettingsPresentation: Equatable {
 
         switch account.kind {
         case .webSession:
+            if account.source == .chromeProfile, let detail = account.sourceDetail {
+                return "Chrome 프로필 \(detail)"
+            }
             return "저장된 브라우저 로그인"
         case .claudeCodeExternal:
             return "현재 Claude Code CLI 로그인"
         }
+    }
+
+    private static func organizationLine(
+        for account: ClaudeAccount,
+        organizations: [ClaudeAPIService.OrganizationSummary],
+        previews: [String: ClaudeAPIService.OrganizationPreview]
+    ) -> String? {
+        let organizationID = [
+            Optional(account.preferredOrganizationID),
+            account.identity.organizationID,
+        ]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .first(where: { !$0.isEmpty })
+
+        if let organizationID,
+           let organization = organizations.first(where: { $0.id == organizationID }) {
+            return "조직: \(organizationLabel(for: organization, preview: previews[organization.id]))"
+        }
+
+        if let organizationName = account.identity.organizationName {
+            return "조직: \(organizationName)"
+        }
+
+        if let organizationID, !organizationID.isEmpty {
+            return "조직: \(shortOrganizationID(organizationID))"
+        }
+
+        return "조직: 확인 전"
+    }
+
+    private static func organizationLabel(
+        for organization: ClaudeAPIService.OrganizationSummary,
+        preview: ClaudeAPIService.OrganizationPreview?
+    ) -> String {
+        var label = organization.displayName
+        guard let preview else { return label }
+
+        if preview.overageEnabled == true {
+            if let used = preview.overageUsed,
+               let limit = preview.overageLimit {
+                label += " · 추가 사용량 \(formatCurrency(used)) / \(formatCurrency(limit))"
+            } else {
+                label += " · 추가 사용량 켜짐"
+            }
+        } else if preview.overageEnabled == false {
+            label += " · 추가 사용량 꺼짐"
+        }
+
+        return label
+    }
+
+    private static func shortOrganizationID(_ id: String) -> String {
+        if id.count <= 12 { return id }
+        return "\(id.prefix(8))..."
+    }
+
+    private static func formatCurrency(_ value: Double) -> String {
+        String(format: "$%.2f", value)
     }
 
     private static func meaningfulDisplayName(for account: ClaudeAccount) -> String? {
@@ -81,7 +172,14 @@ struct ClaudeAccountSettingsPresentation: Equatable {
 
         switch account.kind {
         case .webSession:
-            return ["브라우저 계정", ClaudeAccountKind.webSession.displayName].contains(value) ? nil : value
+            let genericValues = ["브라우저 계정", ClaudeAccountKind.webSession.displayName]
+            if genericValues.contains(value) { return nil }
+            if account.source == .chromeProfile,
+               let detail = account.sourceDetail,
+               value == "Chrome \(detail)" {
+                return nil
+            }
+            return value
         case .claudeCodeExternal:
             return ["Claude Code 계정", ClaudeAccountKind.claudeCodeExternal.displayName].contains(value) ? nil : value
         }

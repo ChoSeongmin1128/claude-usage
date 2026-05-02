@@ -12,11 +12,17 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
             apiService: service,
             preferredOrganizationID: "org-company",
             providerEnabled: true,
+            displayName: "Chrome Profile 2",
+            source: .chromeProfile,
+            sourceDetail: "Profile 2",
             keychain: keychain
         )
 
         XCTAssertEqual(keychain.savedValues, ["new-session"])
         XCTAssertEqual(keychain.savedPreferredOrganizationIDs, ["org-company"])
+        XCTAssertEqual(keychain.savedDisplayNames, ["Chrome Profile 2"])
+        XCTAssertEqual(keychain.savedSources, [.chromeProfile])
+        XCTAssertEqual(keychain.savedSourceDetails, ["Profile 2"])
         let validatedSessionKeys = await service.validatedSessionKeysSnapshot()
         let currentSessionKey = await service.currentSessionKeySnapshot()
         XCTAssertEqual(validatedSessionKeys, ["new-session"])
@@ -80,6 +86,8 @@ private final class FakeClaudeSessionKeyStore: ClaudeSessionKeyStoring, @uncheck
     private(set) var savedValues: [String] = []
     private(set) var savedPreferredOrganizationIDs: [String?] = []
     private(set) var savedDisplayNames: [String?] = []
+    private(set) var savedSources: [ClaudeAccountSource?] = []
+    private(set) var savedSourceDetails: [String?] = []
     private(set) var didDelete = false
 
     init(initialValue: String? = nil) {
@@ -108,11 +116,29 @@ private final class FakeClaudeSessionKeyStore: ClaudeSessionKeyStoring, @uncheck
     }
 
     func save(_ sessionKey: String, preferredOrganizationID: String?, displayName: String?) throws {
+        try save(
+            sessionKey,
+            preferredOrganizationID: preferredOrganizationID,
+            displayName: displayName,
+            source: nil,
+            sourceDetail: nil
+        )
+    }
+
+    func save(
+        _ sessionKey: String,
+        preferredOrganizationID: String?,
+        displayName: String?,
+        source: ClaudeAccountSource?,
+        sourceDetail: String?
+    ) throws {
         lock.lock()
         value = sessionKey
         savedValues.append(sessionKey)
         savedPreferredOrganizationIDs.append(preferredOrganizationID)
         savedDisplayNames.append(displayName)
+        savedSources.append(source)
+        savedSourceDetails.append(sourceDetail)
         lock.unlock()
     }
 

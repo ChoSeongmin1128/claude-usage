@@ -97,7 +97,11 @@ extension SettingsView {
 
     private func claudeAccountRow(_ account: ClaudeAccount) -> some View {
         let isActive = account.id == activeClaudeAccountID
-        let presentation = ClaudeAccountSettingsPresentation.resolve(account: account)
+        let presentation = ClaudeAccountSettingsPresentation.resolve(
+            account: account,
+            organizations: organizations,
+            previews: organizationPreviews
+        )
         return HStack(alignment: .center, spacing: 10) {
             Image(systemName: presentation.systemImage)
                 .foregroundStyle(isActive ? Color.accentColor : .secondary)
@@ -111,11 +115,21 @@ extension SettingsView {
                         chip(title: "현재", value: "사용 중", color: .green)
                     }
                 }
-                Text(presentation.accountLine)
+                Text(presentation.identifierLine)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Text("\(presentation.detailLine) · \(presentation.statusLine)")
+                Text(presentation.sourceLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                if let organizationLine = presentation.organizationLine {
+                    Text(organizationLine)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                Text(presentation.statusLine)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

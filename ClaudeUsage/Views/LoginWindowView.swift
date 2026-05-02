@@ -14,13 +14,13 @@ struct LoginWindowView: View {
     @State private var chromeSessionCandidates: [ClaudeBrowserImportedSession] = []
 
     var clearOnOpen: Bool
-    var onSessionKeyFound: (String, String?) async throws -> Void
+    var onSessionKeyFound: (String, String?, ClaudeAccountSource?, String?) async throws -> Void
     var onOpenAdvancedSettings: () -> Void
     var onCancel: () -> Void
 
     init(
         clearOnOpen: Bool = false,
-        onSessionKeyFound: @escaping (String, String?) async throws -> Void,
+        onSessionKeyFound: @escaping (String, String?, ClaudeAccountSource?, String?) async throws -> Void,
         onOpenAdvancedSettings: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
@@ -141,7 +141,9 @@ struct LoginWindowView: View {
                                 chromeSessionCandidates = []
                                 activateSessionKey(
                                     candidate.sessionKey,
-                                    displayName: "Chrome \(candidate.profileName)"
+                                    displayName: "Chrome \(candidate.profileName)",
+                                    source: .chromeProfile,
+                                    sourceDetail: candidate.profileName
                                 )
                             }
                             .controlSize(.small)
@@ -157,7 +159,7 @@ struct LoginWindowView: View {
             ZStack {
                 LoginWebView(
                     onSessionKeyFound: { key in
-                        activateSessionKey(key)
+                        activateSessionKey(key, source: .embeddedWebLogin)
                     },
                     onLoadingChanged: { loading in
                         isLoading = loading
@@ -215,14 +217,19 @@ struct LoginWindowView: View {
         .frame(width: 800, height: 700)
     }
 
-    private func activateSessionKey(_ key: String, displayName: String? = nil) {
+    private func activateSessionKey(
+        _ key: String,
+        displayName: String? = nil,
+        source: ClaudeAccountSource? = .embeddedWebLogin,
+        sourceDetail: String? = nil
+    ) {
         errorMessage = nil
         statusMessage = "브라우저 로그인 값을 확인했습니다"
         isActivatingSession = true
 
         Task {
             do {
-                try await onSessionKeyFound(key, displayName)
+                try await onSessionKeyFound(key, displayName, source, sourceDetail)
                 await MainActor.run {
                     self.isActivatingSession = false
                     self.loginSuccess = true
@@ -256,8 +263,13 @@ struct LoginWindowView: View {
             await MainActor.run {
                 self.isImportingFromChrome = false
                 switch outcome {
-                case .success(.importedSessionKey(let key)):
-                    self.activateSessionKey(key)
+                case .success(.importedSession(let session)):
+                    self.activateSessionKey(
+                        session.sessionKey,
+                        displayName: "Chrome \(session.profileName)",
+                        source: .chromeProfile,
+                        sourceDetail: session.profileName
+                    )
                 case .success(.importedSessionCandidates(let candidates)):
                     self.statusMessage = "Chrome에서 \(candidates.count)개 로그인 후보를 찾았습니다."
                     self.chromeSessionCandidates = candidates

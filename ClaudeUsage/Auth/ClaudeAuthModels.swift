@@ -56,7 +56,7 @@ struct ClaudeBrowserSessionCandidate: Codable, Sendable, Equatable {
 }
 
 enum ClaudeBrowserImportOutcome: Sendable, Equatable {
-    case importedSessionKey(String)
+    case importedSession(ClaudeBrowserImportedSession)
     case importedSessionCandidates([ClaudeBrowserImportedSession])
     case manualSessionKeyRequired(message: String)
     case unavailable(message: String)

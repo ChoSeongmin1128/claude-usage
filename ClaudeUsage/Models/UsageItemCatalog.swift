@@ -344,7 +344,7 @@ private func windowedDefaults(prefix: String) -> [PopoverItemConfig] {
         PopoverItemConfig(id: "\(prefix)Primary", visible: true),
         PopoverItemConfig(id: "\(prefix)Secondary", visible: true),
         PopoverItemConfig(id: "\(prefix)Tertiary", visible: true),
-        PopoverItemConfig(id: "\(prefix)Account", visible: true),
+        PopoverItemConfig(id: "\(prefix)Account", visible: false),
     ]
 }
 
