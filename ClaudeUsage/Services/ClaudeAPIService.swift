@@ -86,6 +86,29 @@ actor ClaudeAPIService {
         let session: AuthPathHealthSnapshot
         let oauth: AuthPathHealthSnapshot
         let runtime: RuntimeAuthSnapshot
+        let accounts: [ClaudeAccount]
+        let activeAccountID: String?
+
+        init(
+            lastOverallSuccessAt: Date?,
+            session: AuthPathHealthSnapshot,
+            oauth: AuthPathHealthSnapshot,
+            runtime: RuntimeAuthSnapshot,
+            accounts: [ClaudeAccount] = [],
+            activeAccountID: String? = nil
+        ) {
+            self.lastOverallSuccessAt = lastOverallSuccessAt
+            self.session = session
+            self.oauth = oauth
+            self.runtime = runtime
+            self.accounts = accounts
+            self.activeAccountID = activeAccountID
+        }
+
+        var activeAccount: ClaudeAccount? {
+            guard let activeAccountID else { return nil }
+            return accounts.first(where: { $0.id == activeAccountID })
+        }
     }
 
     private enum AuthFetchPath: String, Codable {
@@ -144,23 +167,25 @@ actor ClaudeAPIService {
     }
 
     private var sessionKey: String?
+    private let accountStore: ClaudeAccountStore
+    private let usesStoredActiveAccount: Bool
+    private var activeAccount: ClaudeAccount?
     private let baseURL = "https://claude.ai/api"
     private var cachedOrganizationID: String?
     private var preferredOrganizationID: String?
-    private var preferOAuthUntil: Date?
-    private let oauthPreferDuration: TimeInterval = 10 * 60
     private var sessionPathCooldownUntil: Date?
     private var sessionPathCooldownReason: APIError?
     private var sessionPathLimitStrike = 0
     private let requestTimeout: TimeInterval = 20
     private let sourcePlanner = ClaudeSourcePlanner()
     private let messagesHeaderFallbackFetcher = ClaudeMessagesHeaderFallbackFetcher()
-    private let profileMetadataStore: ClaudeProfileMetadataStore
-    private let oauthCredentialReader: ClaudeCodeCredentialReader
-    private let organizationCacheDefaultsKey = "ClaudeUsage.cachedOrganizations.v1"
+    private var profileMetadataStore: ClaudeProfileMetadataStore
+    private let oauthProfileMetadataStore: ClaudeProfileMetadataStore
+    private var oauthCredentialReader: ClaudeCodeCredentialReader
     private let organizationCacheTTL: TimeInterval = 7 * 24 * 60 * 60
-    private static let authPathHealthDefaultsKey = "ClaudeUsage.authPathHealth.v1"
-    private var authPathHealthStore = ClaudeAPIService.loadAuthPathHealthStore()
+    private static let authPathHealthDefaultsKeyPrefix = "ClaudeUsage.authPathHealth.v1"
+    private static let organizationCacheDefaultsKeyPrefix = "ClaudeUsage.cachedOrganizations.v1"
+    private var authPathHealthStore = AuthPathHealthStore()
     private var lastKnownUsagePercent: Double?
     private var lastSuccessfulUsageSource: ClaudeUsageSource?
 
@@ -174,18 +199,74 @@ actor ClaudeAPIService {
 
     /// Keychain에서 자동으로 세션 키를 로드하는 기본 생성자
     init() {
-        let profileMetadataStore = ClaudeProfileMetadataStore()
+        self.accountStore = ClaudeAccountStore.shared
+        self.usesStoredActiveAccount = true
+        self.accountStore.ensureLegacyMigrationIfNeeded()
+        let activeAccount = self.accountStore.activeAccount()
+        let profileMetadataStore = ClaudeProfileMetadataStore(accountID: activeAccount?.id)
+        let oauthProfileMetadataStore = ClaudeProfileMetadataStore(accountID: ClaudeAccountStore.claudeCodeExternalAccountID)
         self.profileMetadataStore = profileMetadataStore
-        self.oauthCredentialReader = ClaudeCodeCredentialReader(profileMetadataStore: profileMetadataStore)
-        self.sessionKey = KeychainManager.shared.load()
+        self.oauthProfileMetadataStore = oauthProfileMetadataStore
+        self.oauthCredentialReader = ClaudeCodeCredentialReader(profileMetadataStore: oauthProfileMetadataStore)
+        self.activeAccount = activeAccount
+        self.authPathHealthStore = Self.loadAuthPathHealthStore(for: activeAccount?.id)
+        self.sessionKey = activeAccount?.kind == .webSession
+            ? activeAccount.flatMap { KeychainManager.shared.load(for: $0.id) }
+            : nil
+        self.preferredOrganizationID = activeAccount?.kind == .webSession
+            ? Self.normalizeOrganizationID(activeAccount?.preferredOrganizationID)
+            : nil
     }
 
     /// 특정 세션 키로 초기화 (연결 테스트용)
     init(sessionKey: String) {
+        self.accountStore = ClaudeAccountStore.shared
+        self.usesStoredActiveAccount = false
         let profileMetadataStore = ClaudeProfileMetadataStore()
+        let oauthProfileMetadataStore = ClaudeProfileMetadataStore(accountID: ClaudeAccountStore.claudeCodeExternalAccountID)
         self.profileMetadataStore = profileMetadataStore
-        self.oauthCredentialReader = ClaudeCodeCredentialReader(profileMetadataStore: profileMetadataStore)
+        self.oauthProfileMetadataStore = oauthProfileMetadataStore
+        self.oauthCredentialReader = ClaudeCodeCredentialReader(profileMetadataStore: nil)
         self.sessionKey = sessionKey
+        self.activeAccount = nil
+        self.authPathHealthStore = Self.loadAuthPathHealthStore(for: nil)
+    }
+
+    func reloadActiveAccount() {
+        guard usesStoredActiveAccount else { return }
+        accountStore.ensureLegacyMigrationIfNeeded()
+        let nextAccount = accountStore.activeAccount()
+        guard nextAccount?.id != activeAccount?.id else {
+            if nextAccount?.kind == .webSession {
+                sessionKey = nextAccount.flatMap { KeychainManager.shared.load(for: $0.id) }
+                preferredOrganizationID = Self.normalizeOrganizationID(nextAccount?.preferredOrganizationID)
+            } else {
+                sessionKey = nil
+                preferredOrganizationID = nil
+            }
+            return
+        }
+
+        activeAccount = nextAccount
+        profileMetadataStore = ClaudeProfileMetadataStore(accountID: nextAccount?.id)
+        authPathHealthStore = Self.loadAuthPathHealthStore(for: nextAccount?.id)
+        cachedOrganizationID = nil
+        lastKnownUsagePercent = nil
+        lastSuccessfulUsageSource = nil
+        resetSessionPathCooldown()
+
+        if nextAccount?.kind == .webSession {
+            sessionKey = nextAccount.flatMap { KeychainManager.shared.load(for: $0.id) }
+            preferredOrganizationID = Self.normalizeOrganizationID(nextAccount?.preferredOrganizationID)
+        } else {
+            sessionKey = nil
+            preferredOrganizationID = nil
+        }
+    }
+
+    func currentActiveAccountID() -> String? {
+        reloadActiveAccount()
+        return activeAccount?.id
     }
 
     // MARK: - Session Key Management
@@ -195,7 +276,6 @@ actor ClaudeAPIService {
         let previousFingerprint = currentSessionFingerprint()
         self.sessionKey = key
         self.cachedOrganizationID = nil  // 캐시 초기화
-        self.preferOAuthUntil = nil
         self.sessionPathCooldownUntil = nil
         self.sessionPathCooldownReason = nil
         self.sessionPathLimitStrike = 0
@@ -208,7 +288,6 @@ actor ClaudeAPIService {
     func clearSession() {
         self.sessionKey = nil
         self.cachedOrganizationID = nil
-        self.preferOAuthUntil = nil
         self.sessionPathCooldownUntil = nil
         self.sessionPathCooldownReason = nil
         self.sessionPathLimitStrike = 0
@@ -222,6 +301,12 @@ actor ClaudeAPIService {
         }
         preferredOrganizationID = normalized
         cachedOrganizationID = nil
+        if usesStoredActiveAccount,
+           let activeAccount,
+           activeAccount.kind == .webSession {
+            accountStore.updatePreferredOrganizationID(normalized ?? "", for: activeAccount.id)
+            self.activeAccount = accountStore.activeAccount()
+        }
         Logger.info("선호 Organization ID 업데이트: \(normalized ?? "자동 선택")")
     }
 
@@ -232,17 +317,44 @@ actor ClaudeAPIService {
     }
 
     func fetchUsageHealthSnapshot() async -> UsageHealthSnapshot {
-        let oauthCredentialAvailable = (try? await readSystemOAuthAccessToken()) != nil
+        reloadActiveAccount()
+        let oauthCredentialAvailable: Bool
+        if usesStoredActiveAccount {
+            oauthCredentialAvailable = (try? await readSystemOAuthAccessToken()) != nil
+        } else {
+            oauthCredentialAvailable = false
+        }
+        if usesStoredActiveAccount, oauthCredentialAvailable {
+            _ = accountStore.upsertClaudeCodeExternalAccount(
+                identity: await claudeCodeAccountIdentity(),
+                validationState: validationState(for: .oauth, credentialAvailable: true),
+                setActiveIfMissing: true
+            )
+            reloadActiveAccount()
+        }
+        let state = usesStoredActiveAccount
+            ? accountStore.state()
+            : ClaudeAccountState(accounts: [], activeAccountID: nil)
         return UsageHealthSnapshot(
             lastOverallSuccessAt: authPathHealthStore.lastOverallSuccessAt,
             session: makeAuthPathSnapshot(for: .session),
             oauth: makeAuthPathSnapshot(for: .oauth),
-            runtime: makeRuntimeAuthSnapshot(oauthCredentialAvailable: oauthCredentialAvailable)
+            runtime: makeRuntimeAuthSnapshot(oauthCredentialAvailable: oauthCredentialAvailable),
+            accounts: state.accounts,
+            activeAccountID: state.activeAccountID
         )
     }
 
     func fetchCachedProfileMetadata() async -> ClaudeProfileMetadata? {
         await profileMetadataStore.load()
+    }
+
+    private func claudeCodeAccountIdentity() async -> ClaudeAccountIdentity {
+        let metadata = await oauthProfileMetadataStore.load()
+        return ClaudeAccountIdentity(
+            organizationID: metadata?.organizationUUID,
+            planLabel: metadata?.subscriptionType ?? metadata?.rateLimitTier
+        )
     }
 
     // MARK: - Public API
@@ -257,20 +369,42 @@ actor ClaudeAPIService {
 
     /// 사용량 데이터 가져오기
     func fetchUsage() async throws -> ClaudeUsageResponse {
+        reloadActiveAccount()
         Logger.info("사용량 데이터 요청 시작")
+        let oauthAccessToken = try await readSystemOAuthAccessToken()
+        if usesStoredActiveAccount,
+           activeAccount?.id == nil,
+           oauthAccessToken != nil {
+            _ = accountStore.upsertClaudeCodeExternalAccount(
+                identity: await claudeCodeAccountIdentity(),
+                validationState: .detected,
+                setActiveIfMissing: true
+            )
+            reloadActiveAccount()
+        }
+
+        let activeKind: ClaudeAccountKind? = {
+            if usesStoredActiveAccount {
+                return activeAccount?.kind
+            }
+            return .webSession
+        }()
+
         let normalizedSessionKey: String? = {
+            guard activeKind == .webSession else { return nil }
             guard let sessionKey, !sessionKey.isEmpty else { return nil }
             return sessionKey
         }()
         let sessionCooldownError = normalizedSessionKey != nil ? currentSessionPathCooldownError() : nil
-        let oauthAccessToken = try await readSystemOAuthAccessToken()
+        let accountScopedOAuthToken = activeKind == .claudeCodeExternal ? oauthAccessToken : nil
         let context = ClaudeFetchContext(
-            sourcePreference: sourcePreference(sessionCooldownError: sessionCooldownError, oauthAccessToken: oauthAccessToken),
+            accountKind: activeKind,
+            sourcePreference: .auto,
             webSessionAvailable: normalizedSessionKey != nil && sessionCooldownError == nil,
-            oauthAvailable: oauthAccessToken != nil,
+            oauthAvailable: accountScopedOAuthToken != nil,
             webSessionValidationState: validationState(for: .session, credentialAvailable: normalizedSessionKey != nil && sessionCooldownError == nil),
-            oauthValidationState: validationState(for: .oauth, credentialAvailable: oauthAccessToken != nil),
-            recentSuccessfulSource: effectiveRecentSuccessfulSource(),
+            oauthValidationState: validationState(for: .oauth, credentialAvailable: accountScopedOAuthToken != nil),
+            recentSuccessfulSource: nil,
             currentUsagePercent: lastKnownUsagePercent,
             fallbackPolicy: await currentMessagesFallbackPolicy())
         let plan = sourcePlanner.makePlan(from: context)
@@ -290,37 +424,33 @@ actor ClaudeAPIService {
                 }
                 do {
                     let usage = try await fetchUsageWithSessionKey(sessionKey)
-                    preferOAuthUntil = nil
                     resetSessionPathCooldown()
                     rememberSuccessfulUsage(usage, source: .webSession)
                     return usage
                 } catch let apiError as APIError {
                     sourceErrors[.webSession] = apiError
+                    markActiveAccountValidationFailed()
                     Logger.warning("세션키 경로 실패: \(apiError.localizedDescription)")
                 } catch {
                     let apiError = APIError.unknownError(error.localizedDescription)
                     sourceErrors[.webSession] = apiError
+                    markActiveAccountValidationFailed()
                     Logger.warning("세션키 경로 실패: \(error.localizedDescription)")
                 }
 
             case .oauth:
-                guard let oauthAccessToken else {
+                guard let oauthAccessToken = accountScopedOAuthToken else {
                     sourceErrors[.oauth] = .unknownError("Claude Code OAuth 토큰을 찾을 수 없습니다")
                     continue
                 }
 
                 do {
                     let usage = try await fetchUsageViaOAuth(accessToken: oauthAccessToken)
-                    if let sessionPathError = sourceErrors[.webSession],
-                       shouldPreferOAuthAfter(error: sessionPathError)
-                    {
-                        let duration = oauthPreferDuration(after: sessionPathError)
-                        preferOAuthUntil = Date().addingTimeInterval(duration)
-                    }
                     rememberSuccessfulUsage(usage, source: .oauth)
                     return usage
                 } catch let apiError as APIError {
                     sourceErrors[.oauth] = apiError
+                    markActiveAccountValidationFailed()
                     Logger.warning("OAuth 경로 실패: \(apiError.localizedDescription)")
 
                     if plan.shouldAttemptAutomaticFallback {
@@ -339,6 +469,7 @@ actor ClaudeAPIService {
                 } catch {
                     let apiError = APIError.unknownError(error.localizedDescription)
                     sourceErrors[.oauth] = apiError
+                    markActiveAccountValidationFailed()
                     Logger.warning("OAuth 경로 실패: \(error.localizedDescription)")
                 }
 
@@ -358,6 +489,10 @@ actor ClaudeAPIService {
 
     /// 현재 세션 키 기준 organization 목록 조회 (설정 UI 용도)
     func fetchOrganizations() async throws -> [OrganizationSummary] {
+        reloadActiveAccount()
+        guard !usesStoredActiveAccount || activeAccount?.kind == .webSession else {
+            throw APIError.invalidSessionKey
+        }
         guard let sessionKey, !sessionKey.isEmpty else {
             throw APIError.invalidSessionKey
         }
@@ -382,6 +517,10 @@ actor ClaudeAPIService {
 
     /// 현재 세션 키 기준 organization별 사용량 미리보기 조회 (설정 UI 용도)
     func fetchOrganizationPreviews(maxOrganizations: Int = 8) async throws -> [OrganizationPreview] {
+        reloadActiveAccount()
+        guard !usesStoredActiveAccount || activeAccount?.kind == .webSession else {
+            throw APIError.invalidSessionKey
+        }
         guard let sessionKey, !sessionKey.isEmpty else {
             throw APIError.invalidSessionKey
         }
@@ -392,6 +531,10 @@ actor ClaudeAPIService {
 
     /// 전달된 organization 목록 기준으로 미리보기 조회 (목록/상세 분리 로딩용)
     func fetchOrganizationPreviews(for organizations: [OrganizationSummary], maxOrganizations: Int = 8) async -> [OrganizationPreview] {
+        reloadActiveAccount()
+        guard !usesStoredActiveAccount || activeAccount?.kind == .webSession else {
+            return []
+        }
         guard let sessionKey, !sessionKey.isEmpty else {
             return []
         }
@@ -407,7 +550,6 @@ actor ClaudeAPIService {
         let targets = Array(organizations.prefix(max(1, maxOrganizations)))
         var previews: [OrganizationPreview] = []
         previews.reserveCapacity(targets.count)
-        var oauthFallbackUsage: ClaudeUsageResponse?
 
         for organization in targets {
             var usage: ClaudeUsageResponse?
@@ -416,20 +558,7 @@ actor ClaudeAPIService {
             do {
                 usage = try await fetchUsageWithSessionKey(sessionKey, organizationID: organization.id)
             } catch let apiError as APIError {
-                // 임시 장애 시 OAuth usage를 1회 조회해 최소 비교 정보는 유지
-                if apiError.isTemporaryFailure {
-                    if oauthFallbackUsage == nil {
-                        oauthFallbackUsage = try? await fetchUsageViaOAuth()
-                    }
-                    if let oauthFallbackUsage {
-                        usage = oauthFallbackUsage
-                        usageErrorMessage = "세션 제한으로 OAuth 기준 값을 표시 중"
-                    } else {
-                        usageErrorMessage = apiError.localizedDescription
-                    }
-                } else {
-                    usageErrorMessage = apiError.localizedDescription
-                }
+                usageErrorMessage = apiError.localizedDescription
             } catch {
                 usageErrorMessage = error.localizedDescription
             }
@@ -514,12 +643,15 @@ actor ClaudeAPIService {
 
     /// 추가 사용량(Extra Usage) 정보 가져오기
     func fetchOverageSpendLimit() async throws -> OverageSpendLimitResponse {
+        reloadActiveAccount()
+        guard !usesStoredActiveAccount || activeAccount?.kind == .webSession else {
+            throw APIError.invalidSessionKey
+        }
         guard let sessionKey = sessionKey, !sessionKey.isEmpty else {
             throw APIError.invalidSessionKey
         }
 
-        // 추가 사용량 API는 현재 브라우저 세션 경로만 지원합니다.
-        // 일반 사용량 조회가 OAuth를 우선하더라도, 유효한 세션키가 있으면 이 조회는 시도해야 합니다.
+        // 추가 사용량 API는 브라우저 로그인 계정에서만 지원합니다.
         if let cooldownError = currentSessionPathCooldownError() {
             Logger.debug("추가 사용량 조회 스킵: 세션키 경로 쿨다운 중(\(cooldownError.localizedDescription))")
             throw cooldownError
@@ -593,6 +725,7 @@ actor ClaudeAPIService {
            let preferred = organizations.first(where: { $0.id == preferredOrganizationID }) {
             Logger.info("선호 Organization ID 사용: \(preferred.id)")
             cachedOrganizationID = preferred.id
+            await rememberActiveOrganizationID(preferred.id)
             return preferred.id
         }
 
@@ -603,7 +736,16 @@ actor ClaudeAPIService {
         let selected = await selectAutomaticOrganization(organizations, sessionKey: sessionKey) ?? organizations[0]
         Logger.info("Organization ID 선택: \(selected.id) (총 \(organizations.count)개)")
         cachedOrganizationID = selected.id
+        await rememberActiveOrganizationID(selected.id)
         return selected.id
+    }
+
+    private func rememberActiveOrganizationID(_ organizationID: String) async {
+        guard activeAccount?.kind == .webSession else { return }
+        var metadata = await profileMetadataStore.load() ?? ClaudeProfileMetadata()
+        metadata.organizationUUID = organizationID
+        metadata.lastUpdatedAt = Date()
+        await profileMetadataStore.save(metadata)
     }
 
     private func selectAutomaticOrganization(
@@ -701,11 +843,11 @@ actor ClaudeAPIService {
             sessionFingerprint: currentSessionFingerprint()
         )
         guard let data = try? JSONEncoder().encode(cache) else { return }
-        UserDefaults.standard.set(data, forKey: organizationCacheDefaultsKey)
+        UserDefaults.standard.set(data, forKey: organizationCacheDefaultsKey())
     }
 
     private func loadCachedOrganizations() -> [OrganizationSummary]? {
-        guard let data = UserDefaults.standard.data(forKey: organizationCacheDefaultsKey),
+        guard let data = UserDefaults.standard.data(forKey: organizationCacheDefaultsKey()),
               let cache = try? JSONDecoder().decode(OrganizationCache.self, from: data) else {
             return nil
         }
@@ -728,7 +870,14 @@ actor ClaudeAPIService {
     }
 
     private func clearCachedOrganizations() {
-        UserDefaults.standard.removeObject(forKey: organizationCacheDefaultsKey)
+        UserDefaults.standard.removeObject(forKey: organizationCacheDefaultsKey())
+    }
+
+    private func organizationCacheDefaultsKey() -> String {
+        guard let accountID = activeAccount?.id else {
+            return "\(Self.organizationCacheDefaultsKeyPrefix).ephemeral"
+        }
+        return "\(Self.organizationCacheDefaultsKeyPrefix).\(accountID)"
     }
 
     private func disabledOverageSpendLimitResponse() -> OverageSpendLimitResponse {
@@ -779,6 +928,10 @@ actor ClaudeAPIService {
     }
 
     func fetchUsageUsingMessagesFallback() async throws -> ClaudeUsageResponse {
+        reloadActiveAccount()
+        guard !usesStoredActiveAccount || activeAccount?.kind == .claudeCodeExternal else {
+            throw APIError.unknownError("보조 사용량 복구는 Claude Code 계정에서만 사용할 수 있습니다")
+        }
         guard let accessToken = try await readSystemOAuthAccessToken() else {
             throw APIError.unknownError("Claude Code OAuth 토큰을 찾을 수 없습니다")
         }
@@ -947,31 +1100,6 @@ actor ClaudeAPIService {
                body.contains("attention required")
     }
 
-    private func shouldPreferOAuthNow() -> Bool {
-        guard let until = preferOAuthUntil else { return false }
-        return until > Date()
-    }
-
-    private func shouldPreferOAuthAfter(error: APIError) -> Bool {
-        switch error {
-        case .rateLimited(_), .cloudflareBlocked(_):
-            return true
-        case .networkError, .serverError, .invalidSessionKey, .parseError, .unknownError:
-            return false
-        }
-    }
-
-    private func oauthPreferDuration(after error: APIError) -> TimeInterval {
-        switch error {
-        case .rateLimited(let retryAfter):
-            return max(oauthPreferDuration, TimeInterval(max(0, retryAfter ?? 0)))
-        case .cloudflareBlocked(let retryAfter):
-            return max(oauthPreferDuration, TimeInterval(max(0, retryAfter ?? 0)))
-        case .networkError, .serverError, .invalidSessionKey, .parseError, .unknownError:
-            return oauthPreferDuration
-        }
-    }
-
     private func data(for originalRequest: URLRequest) async throws -> (Data, URLResponse) {
         var request = originalRequest
         request.timeoutInterval = requestTimeout
@@ -1043,37 +1171,9 @@ actor ClaudeAPIService {
         try await oauthCredentialReader.readAccessToken()
     }
 
-    private func sourcePreference(sessionCooldownError: APIError?, oauthAccessToken: String?) -> ClaudeSourcePreference {
-        guard oauthAccessToken != nil else { return .auto }
-        if shouldPreferOAuthNow() || sessionCooldownError != nil {
-            return .oauth
-        }
-        return .auto
-    }
-
     private func currentMessagesFallbackPolicy() async -> ClaudeMessagesHeaderFallbackPolicy {
         await MainActor.run {
             SetupCompletionPolicy.messagesFallbackPolicy(from: AppSettings.shared)
-        }
-    }
-
-    private func effectiveRecentSuccessfulSource() -> ClaudeUsageSource? {
-        if let lastSuccessfulUsageSource,
-           lastSuccessfulUsageSource != .messagesHeaderFallback {
-            return lastSuccessfulUsageSource
-        }
-
-        let sessionSuccess = authPathHealthStore.session.lastSuccessAt
-        let oauthSuccess = authPathHealthStore.oauth.lastSuccessAt
-        switch (sessionSuccess, oauthSuccess) {
-        case let (.some(session), .some(oauth)):
-            return oauth > session ? .oauth : .webSession
-        case (.some, nil):
-            return .webSession
-        case (nil, .some):
-            return .oauth
-        case (nil, nil):
-            return nil
         }
     }
 
@@ -1110,7 +1210,20 @@ actor ClaudeAPIService {
         if source != .messagesHeaderFallback {
             lastSuccessfulUsageSource = source
         }
+        markActiveAccountVerified()
         recordOverallUsageSuccess()
+    }
+
+    private func markActiveAccountVerified() {
+        guard usesStoredActiveAccount, let activeAccount else { return }
+        accountStore.updateValidationState(.verified, for: activeAccount.id)
+        self.activeAccount = accountStore.activeAccount()
+    }
+
+    private func markActiveAccountValidationFailed() {
+        guard usesStoredActiveAccount, let activeAccount else { return }
+        accountStore.updateValidationState(.failed, for: activeAccount.id)
+        self.activeAccount = accountStore.activeAccount()
     }
 
     private func recordOverallUsageSuccess() {
@@ -1161,46 +1274,31 @@ actor ClaudeAPIService {
 
     private func makeRuntimeAuthSnapshot(oauthCredentialAvailable: Bool) -> RuntimeAuthSnapshot {
         let now = Date()
-        let hasSessionCredential = hasSessionKey()
-        let sessionState = authPathState(for: .session)
-        let oauthState = authPathState(for: .oauth)
+        let hasSessionCredential = activeAccount?.kind == .webSession && hasSessionKey()
+        let hasOAuthCredential = activeAccount?.kind == .claudeCodeExternal && oauthCredentialAvailable
         let credentialAvailability = ClaudeCredentialAvailability(
             sessionCredentialAvailable: hasSessionCredential,
-            oauthCredentialAvailable: oauthCredentialAvailable
+            oauthCredentialAvailable: hasOAuthCredential || oauthCredentialAvailable
         )
         let sessionCooldownRemaining: Int? = {
             guard let until = sessionPathCooldownUntil else { return nil }
             let remaining = Int(ceil(until.timeIntervalSince(now)))
             return remaining > 0 ? remaining : nil
         }()
-        let oauthPreferredRemaining: Int? = {
-            guard let until = preferOAuthUntil else { return nil }
-            let remaining = Int(ceil(until.timeIntervalSince(now)))
-            return remaining > 0 ? remaining : nil
-        }()
+        let oauthPreferredRemaining: Int? = nil
 
         let activePath: RuntimeAuthSnapshot.ActivePath = {
-            if !hasSessionCredential {
-                // 세션 키가 없더라도 현재 사용할 OAuth 자격이 실제로 있을 때만 OAuth 경로로 표기한다.
-                if oauthCredentialAvailable {
-                    return .oauthFallback
-                }
+            guard let activeAccount else {
+                if oauthCredentialAvailable { return .oauthFallback }
                 return .unauthenticated
             }
-            if let oauthPreferredRemaining, oauthPreferredRemaining > 0, oauthCredentialAvailable {
-                return .oauthPreferred
+
+            switch activeAccount.kind {
+            case .webSession:
+                return hasSessionCredential ? .sessionPrimary : .unauthenticated
+            case .claudeCodeExternal:
+                return oauthCredentialAvailable ? .oauthPreferred : .unauthenticated
             }
-            if let sessionCooldownRemaining, sessionCooldownRemaining > 0, oauthCredentialAvailable {
-                return .oauthFallback
-            }
-            // 최근 실제 성공 경로가 OAuth여도 현재 자격이 없으면 세션 경로를 유지한다.
-            if let sessionSuccess = sessionState.lastSuccessAt,
-               let oauthSuccess = oauthState.lastSuccessAt,
-               oauthCredentialAvailable,
-               oauthSuccess > sessionSuccess {
-                return .oauthFallback
-            }
-            return .sessionPrimary
         }()
 
         return RuntimeAuthSnapshot(
@@ -1253,15 +1351,26 @@ actor ClaudeAPIService {
 
     private func persistAuthPathHealthStore() {
         guard let data = try? JSONEncoder().encode(authPathHealthStore) else { return }
-        UserDefaults.standard.set(data, forKey: Self.authPathHealthDefaultsKey)
+        UserDefaults.standard.set(data, forKey: authPathHealthDefaultsKey())
     }
 
-    private static func loadAuthPathHealthStore() -> AuthPathHealthStore {
-        guard let data = UserDefaults.standard.data(forKey: Self.authPathHealthDefaultsKey),
+    private func authPathHealthDefaultsKey() -> String {
+        Self.authPathHealthDefaultsKey(for: activeAccount?.id)
+    }
+
+    private static func loadAuthPathHealthStore(for accountID: String?) -> AuthPathHealthStore {
+        guard let data = UserDefaults.standard.data(forKey: Self.authPathHealthDefaultsKey(for: accountID)),
               let decoded = try? JSONDecoder().decode(AuthPathHealthStore.self, from: data) else {
             return AuthPathHealthStore()
         }
         return decoded
+    }
+
+    private static func authPathHealthDefaultsKey(for accountID: String?) -> String {
+        guard let accountID else {
+            return "\(Self.authPathHealthDefaultsKeyPrefix).ephemeral"
+        }
+        return "\(Self.authPathHealthDefaultsKeyPrefix).\(accountID)"
     }
 
     private static func normalizeOrganizationID(_ raw: String?) -> String? {

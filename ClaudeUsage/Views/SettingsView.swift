@@ -113,9 +113,10 @@ struct SettingsView: View {
     @State var organizationPreviews: [String: ClaudeAPIService.OrganizationPreview] = [:]
     @State var isLoadingOrganizations = false
     @State var organizationMessage: String?
-    @State var organizationOAuthFallbackSummary: String?
     @State var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
     @State var profileMetadata: ClaudeProfileMetadata?
+    @State var claudeAccounts: [ClaudeAccount] = []
+    @State var activeClaudeAccountID: String?
     @State var selectedPanel: SettingsProviderPanel = .common
     @State var isAdvancedAuthExpanded = false
     @State var isOrganizationAdvancedExpanded = false

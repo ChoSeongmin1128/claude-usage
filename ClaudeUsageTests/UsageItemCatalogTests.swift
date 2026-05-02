@@ -20,6 +20,7 @@ final class UsageItemCatalogTests: XCTestCase {
             [
                 PopoverItemConfig(id: "weeklyLimit", visible: false),
                 PopoverItemConfig(id: "currentSession", visible: true),
+                PopoverItemConfig(id: "activeAccount", visible: true),
                 PopoverItemConfig(id: "modelUsage", visible: true),
                 PopoverItemConfig(id: "overageUsage", visible: true),
             ]
@@ -62,6 +63,19 @@ final class UsageItemCatalogTests: XCTestCase {
 
         XCTAssertEqual(section?.id, "overageUsage")
         XCTAssertEqual(section?.kind, .overage)
+    }
+
+    func testClaudeOverageSummaryDoesNotInferBalanceFromMonthlyLimit() {
+        let overage = OverageSpendLimitResponse(
+            monthlyCreditLimitCents: 10_000,
+            usedCreditsCents: 0,
+            isEnabled: true,
+            outOfCredits: false,
+            currency: "USD"
+        )
+
+        XCTAssertEqual(overage.formattedUsageLimitSummary, "$0.00 사용 / $100.00 한도")
+        XCTAssertFalse(overage.formattedUsageLimitSummary.contains("잔액"))
     }
 
     func testClaudeOverageSectionIsHiddenWhenExtraUsageDisabled() {
@@ -137,6 +151,8 @@ private func makeContext(
         settings: AppSettings.shared,
         claudeUsage: claudeUsage,
         claudeOverage: claudeOverage,
+        claudeAccounts: [],
+        activeClaudeAccountID: nil,
         codexUsage: codexUsage,
         codexError: codexError,
         geminiUsage: geminiUsage,

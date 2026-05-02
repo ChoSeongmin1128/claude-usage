@@ -152,7 +152,11 @@ final class PopoverViewLayoutTests: XCTestCase {
             return (layoutSpec.bodyContentHeight, layoutSpec.contentBottomSpacing, layoutSpec.size.height)
         }
 
-        XCTAssertEqual(result.0, PopoverLayoutMetrics.compactFixedContentBodyHeight)
+        let expectedBodyHeight = await MainActor.run {
+            PopoverLayoutMetrics.compactFixedContentBodyHeight
+        }
+
+        XCTAssertEqual(result.0, expectedBodyHeight)
         XCTAssertEqual(result.1, 5)
         XCTAssertEqual(result.2, 136)
     }

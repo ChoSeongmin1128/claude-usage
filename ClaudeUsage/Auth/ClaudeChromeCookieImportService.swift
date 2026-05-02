@@ -31,17 +31,19 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
 
     nonisolated func attemptImport() throws -> ClaudeBrowserImportOutcome {
         guard BrowserCookieAccessGate.shouldAttemptChromeAccess() else {
-            return .unavailable(message: "Chrome 쿠키 접근이 일시적으로 차단되어 있습니다.\nKeychain 프롬프트 방지를 위해 6시간 동안 자동 import를 건너뜁니다.\n고급 설정에서 수동 sessionKey를 입력해 주세요.")
+            return .unavailable(message: "Chrome에서 자동으로 가져오기를 잠시 사용할 수 없습니다.\nChrome에서 Claude에 로그인한 뒤 다시 시도하거나, 고급 설정에서 직접 입력해 주세요.")
         }
 
         let candidates = self.discoverCandidates()
         guard !candidates.isEmpty else {
             return .unavailable(message: self.manualGuidanceMessage(
                 discoveredProfiles: [],
-                failureDetails: ["Chrome 프로필이나 Cookies DB를 찾지 못했습니다."]))
+                failureDetails: ["Chrome 프로필을 찾지 못했습니다."]))
         }
 
         var failureDetails: [String] = []
+        var importedSessions: [ClaudeBrowserImportedSession] = []
+        var seenFingerprints = Set<String>()
         for candidate in candidates {
             do {
                 let records = try ClaudeChromiumCookieReader.readCookies(
@@ -50,13 +52,30 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
                     localStateURL: candidate.localStatePath)
 
                 if let sessionKey = Self.findSessionKey(in: records) {
-                    return .importedSessionKey(sessionKey)
+                    let fingerprint = ClaudeAccountStore.fingerprint(for: sessionKey)
+                    if seenFingerprints.insert(fingerprint).inserted {
+                        importedSessions.append(
+                            ClaudeBrowserImportedSession(
+                                profileName: candidate.profileName,
+                                sessionKey: sessionKey
+                            )
+                        )
+                    }
+                    continue
                 }
 
-                failureDetails.append("\(candidate.profileName): claude.ai sessionKey 쿠키를 찾지 못했습니다.")
+                failureDetails.append("\(candidate.profileName): Claude 로그인 정보를 찾지 못했습니다.")
             } catch {
                 failureDetails.append("\(candidate.profileName): \(error.localizedDescription)")
             }
+        }
+
+        if importedSessions.count == 1, let first = importedSessions.first {
+            return .importedSessionKey(first.sessionKey)
+        }
+
+        if importedSessions.count > 1 {
+            return .importedSessionCandidates(importedSessions)
         }
 
         return .manualSessionKeyRequired(message: self.manualGuidanceMessage(
@@ -197,24 +216,23 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
 
     private nonisolated func manualGuidanceMessage(discoveredProfiles: [String], failureDetails: [String]) -> String {
         let profileLine = discoveredProfiles.isEmpty
-            ? "Chrome 프로필이나 Cookies DB를 찾지 못했습니다."
-            : "탐지된 프로필: \(discoveredProfiles.joined(separator: ", "))"
+            ? "Chrome 프로필을 찾지 못했습니다."
+            : "확인한 프로필: \(discoveredProfiles.joined(separator: ", "))"
 
         var sections: [String] = [
-            "Chrome 자동 import에서 claude.ai sessionKey를 찾지 못했습니다.",
+            "Chrome에서 Claude 로그인 정보를 찾지 못했습니다.",
             profileLine,
             "확인 순서:",
             "1. Chrome에서 claude.ai에 로그인되어 있는지 확인",
             "2. 실제 사용 중인 프로필이 위 목록에 포함되는지 확인",
-            "3. 계속 실패하면 고급 설정에서 수동 sessionKey를 입력"
+            "3. 계속 실패하면 고급 설정에서 브라우저 로그인 값을 직접 입력"
         ]
 
         if !failureDetails.isEmpty {
-            sections.append("실패 요약:")
-            sections.append(contentsOf: failureDetails.prefix(3).map { "   - \($0)" })
+            Logger.debug("Chrome 가져오기 실패 요약: \(failureDetails.prefix(3).joined(separator: " / "))")
+            sections.append("가져오기에 실패한 프로필: \(failureDetails.count)개")
         }
 
-        sections.append("sessionKey는 공백 없는 긴 토큰 형태입니다.")
         return sections.joined(separator: "\n")
     }
 }

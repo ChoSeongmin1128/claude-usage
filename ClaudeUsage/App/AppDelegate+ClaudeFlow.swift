@@ -44,11 +44,15 @@ extension AppDelegate {
         SetupCompletionPolicy.resolvePresentation(
             hasReadyCredential: hasReadyClaudeCredential,
             hasSuccessfulFetch: hasSuccessfulClaudeFetch,
-            preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
+            preferredOrganizationID: activeClaudePreferredOrganizationID,
             cachedMetadata: currentClaudeProfileMetadata,
             hasChromeApp: hasChromeApp,
             credentialStepOverride: setupWizardCredentialStepOverride
         )
+    }
+
+    private var activeClaudePreferredOrganizationID: String {
+        ClaudeAccountStore.shared.activeWebAccount()?.preferredOrganizationID ?? ""
     }
 
     func applyClaudeSetupLandingTabsIfNeeded() {
@@ -141,7 +145,7 @@ extension AppDelegate {
 
             let loginView = LoginWindowView(
                 clearOnOpen: clearCookies,
-                onSessionKeyFound: { [weak self] key in
+                onSessionKeyFound: { [weak self] key, displayName in
                     guard let self else { return }
 
                     await MainActor.run {
@@ -159,8 +163,9 @@ extension AppDelegate {
                         let result = try await ClaudeSettingsApplyCoordinator.activateSessionKey(
                             key,
                             apiService: self.apiService,
-                            preferredOrganizationID: AppSettings.shared.preferredOrganizationID,
-                            providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
+                            preferredOrganizationID: self.activeClaudePreferredOrganizationID,
+                            providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared),
+                            displayName: displayName
                         )
                         await MainActor.run {
                             self.applyUsageHealthSnapshot(result.snapshot)
@@ -236,8 +241,8 @@ extension AppDelegate {
             },
             onUseAutomaticOrganization: { [weak self] in
                 guard let self else { return }
-                AppSettings.shared.preferredOrganizationID = ""
                 Task {
+                    await self.apiService.reloadActiveAccount()
                     await self.apiService.updatePreferredOrganizationID("")
                     let snapshot = await self.apiService.fetchUsageHealthSnapshot()
                     let cachedMetadata = await self.apiService.fetchCachedProfileMetadata()
@@ -274,8 +279,6 @@ extension AppDelegate {
     func clearWebSessionData(completion: (() -> Void)? = nil) {
         let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
         WKWebsiteDataStore.default().removeData(ofTypes: dataTypes, modifiedSince: .distantPast) {
-            let cookieStorage = HTTPCookieStorage.shared
-            cookieStorage.cookies?.forEach { cookieStorage.deleteCookie($0) }
             URLCache.shared.removeAllCachedResponses()
             Logger.info("웹 데이터 삭제 완료")
             completion?()

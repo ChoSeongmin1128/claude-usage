@@ -19,6 +19,7 @@ extension SettingsView {
             )
 
             if settings.isProviderEnabled(.claude) {
+                claudeAccountSection
                 compactAuthStatusCard
                 authPrimaryActionsCard
                 if shouldShowOrganizationSection {
@@ -70,6 +71,70 @@ extension SettingsView {
         .padding(12)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
         .cornerRadius(8)
+    }
+
+    private var claudeAccountSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionCardHeader(title: "계정", subtitle: "현재 조회에 사용할 Claude 계정만 선택합니다")
+
+            if claudeAccounts.isEmpty {
+                Text("저장된 계정이 없습니다. Chrome에서 가져오기 또는 웹 로그인을 먼저 진행해 주세요.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(claudeAccounts) { account in
+                    claudeAccountRow(account)
+                }
+            }
+        }
+        .padding(12)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .cornerRadius(8)
+    }
+
+    private func claudeAccountRow(_ account: ClaudeAccount) -> some View {
+        let isActive = account.id == activeClaudeAccountID
+        return HStack(alignment: .center, spacing: 10) {
+            Image(systemName: account.kind == .webSession ? "globe" : "terminal")
+                .foregroundStyle(isActive ? Color.accentColor : .secondary)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(account.displayName)
+                        .font(.subheadline.weight(.semibold))
+                    if isActive {
+                        chip(title: "현재", value: "사용 중", color: .green)
+                    }
+                }
+                Text("\(account.kind.displayName) · \(claudeAccountStatusLabel(account))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            if !isActive {
+                Button("사용") {
+                    setActiveClaudeAccount(account)
+                }
+                .controlSize(.small)
+            }
+
+            if account.kind == .webSession {
+                Button("삭제") {
+                    deleteClaudeWebAccount(account)
+                }
+                .controlSize(.small)
+            } else {
+                Button("로그인 안내") {
+                    showClaudeCodeLoginGuidance()
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     private var authPrimaryActionsCard: some View {
@@ -247,12 +312,13 @@ extension SettingsView {
     }
 
     var appliedPreferredOrganizationID: String {
-        normalizeOrganizationID(settings.preferredOrganizationID)
+        normalizeOrganizationID(activeClaudePreferredOrganizationID())
     }
 
     private var hasClaudeCredentialInput: Bool {
         SetupCompletionPolicy.hasReadyCredential(
-            sessionCredentialAvailable: !(normalizeSessionKey(storedSessionKey ?? "").isEmpty)
+            sessionCredentialAvailable: activeClaudeWebAccount() != nil
+                && !(normalizeSessionKey(storedSessionKey ?? "").isEmpty)
                 || (usageHealthSnapshot?.runtime.credentialAvailability.sessionCredentialAvailable ?? false),
             oauthCredentialAvailable: usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false
         )
@@ -302,7 +368,8 @@ extension SettingsView {
     }
 
     var hasSessionCredentialAvailable: Bool {
-        !(normalizeSessionKey(storedSessionKey ?? "").isEmpty)
+        activeClaudeWebAccount() != nil
+            && !(normalizeSessionKey(storedSessionKey ?? "").isEmpty)
             || (usageHealthSnapshot?.runtime.credentialAvailability.sessionCredentialAvailable ?? false)
     }
 
@@ -649,16 +716,6 @@ extension SettingsView {
             Text(message)
                 .font(.caption)
                 .foregroundStyle(message.contains("실패") || message.contains("없음") ? .orange : .secondary)
-        }
-
-        if let oauthSummary = organizationOAuthFallbackSummary {
-            Text(oauthSummary)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
-                .cornerRadius(6)
         }
     }
 

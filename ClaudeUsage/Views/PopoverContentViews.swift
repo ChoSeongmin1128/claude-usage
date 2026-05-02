@@ -538,7 +538,7 @@ struct OverageUsageView: View {
                     .fixedSize(horizontal: true, vertical: false)
             }
 
-            Text("\(overage.formattedUsedCredits) 사용 / \(overage.formattedCreditLimit) 한도 (잔액 \(overage.formattedRemainingCredits))")
+            Text(overage.formattedUsageLimitSummary)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -553,16 +553,13 @@ struct CompactOverageRow: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: PopoverLayoutMetrics.compactRowSpacing) {
-            (Text("추가 사용량")
+            Text("추가 사용량")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.primary)
-            + Text(" \(overage.formattedRemainingCredits)")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(.secondary))
-            .lineLimit(1)
-            .minimumScaleFactor(0.72)
-            .truncationMode(.tail)
-            .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .truncationMode(.tail)
+                .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
 
             HStack(spacing: 4) {
                 ProgressBarView(

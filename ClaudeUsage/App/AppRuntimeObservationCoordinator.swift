@@ -11,8 +11,7 @@ final class AppRuntimeObservationCoordinator {
         onMenuBarDisplayChanged: @escaping () -> Void,
         onProviderStatesChanged: @escaping (AppProviderStateCatalog) -> Void,
         onPowerStateChanged: @escaping () -> Void,
-        onClaudeSessionKeyChanged: @escaping () -> Void,
-        onPreferredOrganizationChanged: @escaping () -> Void
+        onClaudeSessionKeyChanged: @escaping () -> Void
     ) {
         cancelAll()
 
@@ -51,12 +50,6 @@ final class AppRuntimeObservationCoordinator {
         NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange)
             .receive(on: RunLoop.main)
             .sink { _ in onClaudeSessionKeyChanged() }
-            .store(in: &cancellables)
-
-        AppSettings.shared.$preferredOrganizationID
-            .dropFirst()
-            .receive(on: RunLoop.main)
-            .sink { _ in onPreferredOrganizationChanged() }
             .store(in: &cancellables)
     }
 

@@ -4,7 +4,6 @@ extension SettingsView {
     func handleClearBrowserSessionAction() {
         organizationPersistTask?.cancel()
         organizationPersistTask = nil
-        settings.preferredOrganizationID = ""
         selectedOrganizationID = ""
         onClearBrowserSession?()
         storedSessionKey = nil
@@ -13,7 +12,6 @@ extension SettingsView {
         testResult = nil
         organizations = []
         organizationPreviews = [:]
-        organizationOAuthFallbackSummary = nil
         organizationMessage = hasOAuthCredential
             ? "브라우저 로그인 값은 삭제했습니다. Claude Code 로그인이 감지되어 있으면 계속 사용할 수 있습니다."
             : "브라우저 로그인 값은 삭제했습니다. 다시 가져오거나 Claude Code 로그인을 사용해 주세요."
@@ -31,7 +29,9 @@ extension SettingsView {
     func syncStoredSessionKeyState() {
         organizationPersistTask?.cancel()
         organizationPersistTask = nil
-        if let key = KeychainManager.shared.load() {
+        ClaudeAccountStore.shared.ensureLegacyMigrationIfNeeded()
+        if let account = ClaudeAccountStore.shared.activeWebAccount(),
+           let key = KeychainManager.shared.load(for: account.id) {
             storedSessionKey = key
             sessionKey = key
         } else {
@@ -39,6 +39,12 @@ extension SettingsView {
             sessionKey = ""
         }
         lastVerifiedSessionKey = nil
+    }
+
+    func syncClaudeAccountsState() {
+        let state = ClaudeAccountStore.shared.state()
+        claudeAccounts = state.accounts
+        activeClaudeAccountID = state.activeAccountID
     }
 
     func testConnection() {
@@ -107,7 +113,11 @@ extension SettingsView {
         }
 
         do {
-            try KeychainManager.shared.save(normalizedKey)
+            try KeychainManager.shared.save(
+                normalizedKey,
+                preferredOrganizationID: normalizeOrganizationID(selectedOrganizationID)
+            )
+            syncClaudeAccountsState()
             storedSessionKey = normalizedKey
             testResult = .success("브라우저 로그인 값을 저장했습니다.")
             loadUsageHealthSnapshot()
@@ -122,8 +132,63 @@ extension SettingsView {
         if normalizedOrganizationID != selectedOrganizationID {
             selectedOrganizationID = normalizedOrganizationID
         }
-        if settings.preferredOrganizationID != normalizedOrganizationID {
-            settings.preferredOrganizationID = normalizedOrganizationID
+        guard let activeClaudeAccountID else { return }
+        ClaudeAccountStore.shared.updatePreferredOrganizationID(normalizedOrganizationID, for: activeClaudeAccountID)
+        syncClaudeAccountsState()
+    }
+
+    func setActiveClaudeAccount(_ account: ClaudeAccount) {
+        ClaudeAccountStore.shared.setActiveAccountID(account.id)
+        syncClaudeAccountsState()
+        syncStoredSessionKeyState()
+        selectedOrganizationID = appliedPreferredOrganizationID
+        organizations = []
+        organizationPreviews = [:]
+        organizationMessage = "현재 사용 계정을 \(account.displayName)으로 변경했습니다."
+        loadUsageHealthSnapshot()
+    }
+
+    func deleteClaudeWebAccount(_ account: ClaudeAccount) {
+        guard account.kind == .webSession else { return }
+        ClaudeAccountStore.shared.deleteAccount(id: account.id)
+        syncClaudeAccountsState()
+        syncStoredSessionKeyState()
+        selectedOrganizationID = appliedPreferredOrganizationID
+        organizations = []
+        organizationPreviews = [:]
+        organizationMessage = "브라우저 계정을 삭제했습니다. 외부 Claude Code 로그인은 변경하지 않았습니다."
+        loadUsageHealthSnapshot()
+    }
+
+    func activeClaudeAccount() -> ClaudeAccount? {
+        guard let activeClaudeAccountID else { return nil }
+        return claudeAccounts.first(where: { $0.id == activeClaudeAccountID })
+    }
+
+    func activeClaudeWebAccount() -> ClaudeAccount? {
+        guard let account = activeClaudeAccount(), account.kind == .webSession else { return nil }
+        return account
+    }
+
+    func activeClaudeWebSessionKey() -> String? {
+        guard let account = activeClaudeWebAccount() else { return nil }
+        return KeychainManager.shared.load(for: account.id)
+    }
+
+    func activeClaudePreferredOrganizationID() -> String {
+        activeClaudeWebAccount()?.preferredOrganizationID ?? ""
+    }
+
+    func claudeAccountStatusLabel(_ account: ClaudeAccount) -> String {
+        switch account.lastValidationState {
+        case .unavailable:
+            return "확인 전"
+        case .detected:
+            return "감지됨"
+        case .verified:
+            return "최근 조회 성공"
+        case .failed:
+            return "확인 필요"
         }
     }
 
@@ -157,23 +222,20 @@ extension SettingsView {
             if !sessionKey.isEmpty {
                 return normalizeSessionKey(sessionKey)
             }
-            if let storedSessionKey, !storedSessionKey.isEmpty {
+            if let storedSessionKey = activeClaudeWebSessionKey(), !storedSessionKey.isEmpty {
                 return normalizeSessionKey(storedSessionKey)
             }
             return ""
         }()
 
         guard !normalizedKey.isEmpty else {
-            organizationMessage = hasOAuthCredential
-                ? "브라우저 로그인 값이 없어 조직 목록은 건너뜁니다. 지금은 Claude Code 로그인 기준 상태만 확인할 수 있습니다."
-                : "브라우저 로그인 값이 없어 조직 목록을 불러올 수 없습니다."
+            organizationMessage = "조직 선택은 브라우저 계정에서만 사용할 수 있습니다."
             loadUsageHealthSnapshot()
             return
         }
 
         isLoadingOrganizations = true
         organizationMessage = nil
-        organizationOAuthFallbackSummary = nil
 
         Task {
             let service = ClaudeAPIService(sessionKey: normalizedKey)
@@ -186,7 +248,6 @@ extension SettingsView {
                         organizations = cachedOrganizations
                         organizationPreviews = [:]
                         isLoadingOrganizations = false
-                        organizationOAuthFallbackSummary = nil
                         organizationMessage = "저장된 조직 \(cachedOrganizations.count)개를 표시합니다. 바뀌었으면 강제 새로고침을 눌러 주세요."
                         loadUsageHealthSnapshot()
                     }
@@ -213,25 +274,11 @@ extension SettingsView {
                 organizations = resolvedOrganizations
                 organizationPreviews = [:]
                 isLoadingOrganizations = false
-                organizationOAuthFallbackSummary = nil
             }
 
             guard !resolvedOrganizations.isEmpty else {
-                do {
-                    let fallbackUsage = try await service.fetchUsage()
-                    await MainActor.run {
-                        organizationMessage = "조직 목록을 불러오지 못해 Claude Code 로그인 기준 사용량만 표시합니다."
-                        let fiveHour = String(format: "%.0f%%", fallbackUsage.fiveHour.utilization)
-                        let weekly = String(format: "%.0f%%", fallbackUsage.sevenDay?.utilization ?? 0)
-                        organizationOAuthFallbackSummary = "Claude Code 로그인 기준: 현재 \(fiveHour) · 주간 \(weekly)"
-                    }
-                } catch {
-                    await MainActor.run {
-                        organizationOAuthFallbackSummary = nil
-                        organizationMessage = "조직 목록을 불러오지 못했습니다: \(error.localizedDescription)"
-                    }
-                }
                 await MainActor.run {
+                    organizationMessage = "조직 목록을 불러오지 못했습니다. 브라우저 로그인 값을 다시 확인해 주세요."
                     loadUsageHealthSnapshot()
                 }
                 return
@@ -261,7 +308,7 @@ extension SettingsView {
     func loadUsageHealthSnapshot() {
         Task {
             let service = ClaudeAPIService()
-            await service.updatePreferredOrganizationID(settings.preferredOrganizationID)
+            await service.reloadActiveAccount()
             async let snapshot = service.fetchUsageHealthSnapshot()
             async let metadata = service.fetchCachedProfileMetadata()
             let resolvedSnapshot = await snapshot
@@ -269,6 +316,8 @@ extension SettingsView {
             await MainActor.run {
                 usageHealthSnapshot = resolvedSnapshot
                 profileMetadata = resolvedMetadata
+                claudeAccounts = resolvedSnapshot.accounts
+                activeClaudeAccountID = resolvedSnapshot.activeAccountID
             }
         }
     }
@@ -281,9 +330,8 @@ extension SettingsView {
 
     func resetToDefaults() {
         settings.resetToDefaults()
-        selectedOrganizationID = settings.preferredOrganizationID
+        selectedOrganizationID = activeClaudePreferredOrganizationID()
         organizationMessage = nil
-        organizationOAuthFallbackSummary = nil
         isOrganizationAdvancedExpanded = false
         checkCodexAuth()
     }

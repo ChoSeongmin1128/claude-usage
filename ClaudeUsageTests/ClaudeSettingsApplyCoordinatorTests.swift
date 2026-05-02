@@ -10,16 +10,19 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
         let result = try await ClaudeSettingsApplyCoordinator.activateSessionKey(
             "new-session",
             apiService: service,
-            preferredOrganizationID: "",
+            preferredOrganizationID: "org-company",
             providerEnabled: true,
             keychain: keychain
         )
 
         XCTAssertEqual(keychain.savedValues, ["new-session"])
+        XCTAssertEqual(keychain.savedPreferredOrganizationIDs, ["org-company"])
         let validatedSessionKeys = await service.validatedSessionKeysSnapshot()
         let currentSessionKey = await service.currentSessionKeySnapshot()
         XCTAssertEqual(validatedSessionKeys, ["new-session"])
         XCTAssertEqual(currentSessionKey, "new-session")
+        let preferredOrganizationID = await service.preferredOrganizationIDSnapshot()
+        XCTAssertEqual(preferredOrganizationID, "org-company")
         XCTAssertTrue(result.shouldStartMonitoring)
     }
 
@@ -75,6 +78,8 @@ private final class FakeClaudeSessionKeyStore: ClaudeSessionKeyStoring, @uncheck
     private let lock = NSLock()
     private var value: String?
     private(set) var savedValues: [String] = []
+    private(set) var savedPreferredOrganizationIDs: [String?] = []
+    private(set) var savedDisplayNames: [String?] = []
     private(set) var didDelete = false
 
     init(initialValue: String? = nil) {
@@ -95,6 +100,19 @@ private final class FakeClaudeSessionKeyStore: ClaudeSessionKeyStoring, @uncheck
         lock.lock()
         value = sessionKey
         savedValues.append(sessionKey)
+        lock.unlock()
+    }
+
+    func save(_ sessionKey: String, preferredOrganizationID: String?) throws {
+        try save(sessionKey, preferredOrganizationID: preferredOrganizationID, displayName: nil)
+    }
+
+    func save(_ sessionKey: String, preferredOrganizationID: String?, displayName: String?) throws {
+        lock.lock()
+        value = sessionKey
+        savedValues.append(sessionKey)
+        savedPreferredOrganizationIDs.append(preferredOrganizationID)
+        savedDisplayNames.append(displayName)
         lock.unlock()
     }
 
@@ -127,6 +145,10 @@ private actor FakeClaudeSettingsService: ClaudeSettingsApplyingService {
 
     func validatedSessionKeysSnapshot() -> [String] {
         validatedSessionKeys
+    }
+
+    func preferredOrganizationIDSnapshot() -> String {
+        preferredOrganizationID
     }
 
     func updatePreferredOrganizationID(_ id: String) {

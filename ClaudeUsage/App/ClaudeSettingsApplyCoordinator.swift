@@ -3,10 +3,22 @@ import Foundation
 protocol ClaudeSessionKeyStoring: Sendable {
     func load() -> String?
     func save(_ sessionKey: String) throws
+    func save(_ sessionKey: String, preferredOrganizationID: String?) throws
+    func save(_ sessionKey: String, preferredOrganizationID: String?, displayName: String?) throws
     func delete() throws
 }
 
 extension KeychainManager: ClaudeSessionKeyStoring {}
+
+extension ClaudeSessionKeyStoring {
+    func save(_ sessionKey: String, preferredOrganizationID: String?) throws {
+        try save(sessionKey)
+    }
+
+    func save(_ sessionKey: String, preferredOrganizationID: String?, displayName: String?) throws {
+        try save(sessionKey, preferredOrganizationID: preferredOrganizationID)
+    }
+}
 
 protocol ClaudeSettingsApplyingService: Sendable {
     func updatePreferredOrganizationID(_ id: String) async
@@ -58,6 +70,7 @@ enum ClaudeSettingsApplyCoordinator {
         apiService: any ClaudeSettingsApplyingService,
         preferredOrganizationID: String,
         providerEnabled: Bool,
+        displayName: String? = nil,
         keychain: any ClaudeSessionKeyStoring = KeychainManager.shared
     ) async throws -> ClaudeSettingsApplyResult {
         let previousKey = keychain.load()
@@ -72,7 +85,11 @@ enum ClaudeSettingsApplyCoordinator {
         }
 
         do {
-            try keychain.save(key)
+            try keychain.save(
+                key,
+                preferredOrganizationID: preferredOrganizationID,
+                displayName: displayName
+            )
         } catch {
             await restorePreviousSessionKey(previousKey, apiService: apiService)
             throw error

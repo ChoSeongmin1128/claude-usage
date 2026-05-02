@@ -57,6 +57,19 @@ struct ClaudeBrowserSessionCandidate: Codable, Sendable, Equatable {
 
 enum ClaudeBrowserImportOutcome: Sendable, Equatable {
     case importedSessionKey(String)
+    case importedSessionCandidates([ClaudeBrowserImportedSession])
     case manualSessionKeyRequired(message: String)
     case unavailable(message: String)
+}
+
+struct ClaudeBrowserImportedSession: Sendable, Equatable, Identifiable {
+    let id: String
+    let profileName: String
+    let sessionKey: String
+
+    nonisolated init(profileName: String, sessionKey: String) {
+        self.profileName = profileName
+        self.sessionKey = sessionKey
+        self.id = "\(profileName)-\(ClaudeAccountStore.fingerprint(for: sessionKey).prefix(12))"
+    }
 }

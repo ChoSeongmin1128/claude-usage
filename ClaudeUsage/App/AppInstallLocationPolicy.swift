@@ -13,6 +13,15 @@ enum AppInstallLocationKind: String, Sendable {
 enum AppInstallTransferStrategy: Equatable, Sendable {
     case moveSource
     case copySource
+
+    nonisolated static func == (lhs: AppInstallTransferStrategy, rhs: AppInstallTransferStrategy) -> Bool {
+        switch (lhs, rhs) {
+        case (.moveSource, .moveSource), (.copySource, .copySource):
+            return true
+        case (.moveSource, .copySource), (.copySource, .moveSource):
+            return false
+        }
+    }
 }
 
 struct AppInstallLocationAssessment: Equatable, Sendable {

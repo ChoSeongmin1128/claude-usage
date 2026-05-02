@@ -9,7 +9,9 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         let reader = ClaudeCodeCredentialReader(
             homeDirectory: home,
             preflightChecker: { _, _ in .allowed },
-            securityCommandRunner: runner.run(arguments:timeout:)
+            securityCommandRunner: { arguments, timeout in
+                try await runner.run(arguments: arguments, timeout: timeout)
+            }
         )
 
         let token = try await reader.readAccessToken()
@@ -31,7 +33,9 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         let reader = ClaudeCodeCredentialReader(
             homeDirectory: home,
             preflightChecker: { _, _ in .allowed },
-            securityCommandRunner: runner.run(arguments:timeout:)
+            securityCommandRunner: { arguments, timeout in
+                try await runner.run(arguments: arguments, timeout: timeout)
+            }
         )
 
         let token = try await reader.readAccessToken()
@@ -66,7 +70,9 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         let reader = ClaudeCodeCredentialReader(
             homeDirectory: home,
             preflightChecker: { _, _ in .allowed },
-            securityCommandRunner: runner.run(arguments:timeout:)
+            securityCommandRunner: { arguments, timeout in
+                try await runner.run(arguments: arguments, timeout: timeout)
+            }
         )
 
         let token = try await reader.readAccessToken()
@@ -81,7 +87,9 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         let reader = ClaudeCodeCredentialReader(
             homeDirectory: home,
             preflightChecker: { _, _ in .allowed },
-            securityCommandRunner: runner.run(arguments:timeout:)
+            securityCommandRunner: { arguments, timeout in
+                try await runner.run(arguments: arguments, timeout: timeout)
+            }
         )
 
         let token = try await reader.readAccessToken()
@@ -129,9 +137,13 @@ private final class CommandRunnerStub: @unchecked Sendable {
     }
 
     func run(arguments: [String], timeout: TimeInterval) async throws -> ClaudeCodeSecurityCommandResult? {
+        recordCall(arguments)
+        return handler(arguments, timeout)
+    }
+
+    private func recordCall(_ arguments: [String]) {
         lock.lock()
         recordedCalls.append(arguments)
         lock.unlock()
-        return handler(arguments, timeout)
     }
 }

@@ -24,7 +24,7 @@ enum ClaudeSourcePreference: String, CaseIterable, Sendable {
     case recentSuccess = "recent_success"
 }
 
-enum ClaudeCredentialValidationState: String, Sendable, Equatable {
+enum ClaudeCredentialValidationState: String, Codable, Sendable, Equatable {
     case unavailable
     case detected
     case verified
@@ -54,6 +54,7 @@ struct ClaudeMessagesHeaderFallbackPolicy: Equatable, Sendable {
 }
 
 struct ClaudeFetchContext: Equatable, Sendable {
+    var accountKind: ClaudeAccountKind?
     var sourcePreference: ClaudeSourcePreference
     var webSessionAvailable: Bool
     var oauthAvailable: Bool
@@ -64,6 +65,7 @@ struct ClaudeFetchContext: Equatable, Sendable {
     var fallbackPolicy: ClaudeMessagesHeaderFallbackPolicy
 
     nonisolated init(
+        accountKind: ClaudeAccountKind? = nil,
         sourcePreference: ClaudeSourcePreference = .auto,
         webSessionAvailable: Bool,
         oauthAvailable: Bool,
@@ -73,6 +75,7 @@ struct ClaudeFetchContext: Equatable, Sendable {
         currentUsagePercent: Double? = nil,
         fallbackPolicy: ClaudeMessagesHeaderFallbackPolicy = .init())
     {
+        self.accountKind = accountKind
         self.sourcePreference = sourcePreference
         self.webSessionAvailable = webSessionAvailable
         self.oauthAvailable = oauthAvailable

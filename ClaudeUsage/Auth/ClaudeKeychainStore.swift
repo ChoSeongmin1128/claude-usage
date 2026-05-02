@@ -22,24 +22,28 @@ enum ClaudeKeychainStoreError: Error, LocalizedError, Sendable {
 }
 
 final class ClaudeKeychainStore: @unchecked Sendable {
-    static let shared = ClaudeKeychainStore()
+    nonisolated static let shared = ClaudeKeychainStore()
+    nonisolated static let defaultAccount = "claude-session-key"
 
     private let service = Bundle.main.bundleIdentifier ?? "ClaudeUsage"
-    private let account = "claude-session-key"
 
     private nonisolated init() {}
 
-    nonisolated func saveString(_ value: String) throws {
+    nonisolated static func accountName(for accountID: String) -> String {
+        "\(defaultAccount).\(accountID)"
+    }
+
+    nonisolated func saveString(_ value: String, account: String = ClaudeKeychainStore.defaultAccount) throws {
         guard !value.isEmpty else {
             throw ClaudeKeychainStoreError.invalidValue
         }
 
         let data = Data(value.utf8)
-        let query = self.baseQuery()
+        let query = self.baseQuery(account: account)
         let attributes: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: self.service,
-            kSecAttrAccount as String: self.account,
+            kSecAttrAccount as String: account,
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
@@ -74,8 +78,8 @@ final class ClaudeKeychainStore: @unchecked Sendable {
         }
     }
 
-    nonisolated func loadString() throws -> String? {
-        var query = self.baseQuery()
+    nonisolated func loadString(account: String = ClaudeKeychainStore.defaultAccount) throws -> String? {
+        var query = self.baseQuery(account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
@@ -92,8 +96,8 @@ final class ClaudeKeychainStore: @unchecked Sendable {
         }
     }
 
-    nonisolated func delete() throws {
-        let status = SecItemDelete(self.baseQuery() as CFDictionary)
+    nonisolated func delete(account: String = ClaudeKeychainStore.defaultAccount) throws {
+        let status = SecItemDelete(self.baseQuery(account: account) as CFDictionary)
         switch status {
         case errSecSuccess, errSecItemNotFound:
             return
@@ -102,11 +106,13 @@ final class ClaudeKeychainStore: @unchecked Sendable {
         }
     }
 
-    private nonisolated func baseQuery() -> [String: Any] {
+    private nonisolated func baseQuery(account: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: self.service,
-            kSecAttrAccount as String: self.account,
+            kSecAttrAccount as String: account,
         ]
     }
 }
+
+extension ClaudeKeychainStore: ClaudeSessionKeyVault {}

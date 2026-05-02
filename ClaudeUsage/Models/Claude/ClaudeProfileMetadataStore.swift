@@ -40,15 +40,21 @@ actor ClaudeProfileMetadataStore {
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    init(fileURL: URL? = nil) {
+    init(fileURL: URL? = nil, accountID: String? = nil) {
         if let fileURL {
             self.fileURL = fileURL
         } else {
             let baseURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
                 ?? FileManager.default.temporaryDirectory
+            let filename: String
+            if let accountID, !accountID.isEmpty {
+                filename = "claude-profile-metadata.\(accountID).json"
+            } else {
+                filename = "claude-profile-metadata.json"
+            }
             self.fileURL = baseURL
                 .appendingPathComponent("ClaudeUsage", isDirectory: true)
-                .appendingPathComponent("claude-profile-metadata.json", isDirectory: false)
+                .appendingPathComponent(filename, isDirectory: false)
         }
     }
 

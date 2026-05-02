@@ -12,6 +12,10 @@ struct ClaudeSourcePlanner {
     }
 
     private nonisolated func primaryCandidates(for context: ClaudeFetchContext) -> [ClaudeSourceCandidate] {
+        if let accountKind = context.accountKind {
+            return accountScopedCandidates(for: accountKind, context: context)
+        }
+
         let orderedSources: [ClaudeUsageSource] = switch context.sourcePreference {
         case .auto:
             self.autoOrder(for: context)
@@ -29,6 +33,25 @@ struct ClaudeSourcePlanner {
                 isAvailable: self.isAvailable(source, in: context),
                 reason: self.reason(for: source, context: context))
         }
+    }
+
+    private nonisolated func accountScopedCandidates(
+        for accountKind: ClaudeAccountKind,
+        context: ClaudeFetchContext
+    ) -> [ClaudeSourceCandidate] {
+        let source: ClaudeUsageSource = switch accountKind {
+        case .webSession:
+            .webSession
+        case .claudeCodeExternal:
+            .oauth
+        }
+
+        return [
+            ClaudeSourceCandidate(
+                source: source,
+                isAvailable: self.isAvailable(source, in: context),
+                reason: "active-account-\(accountKind.rawValue)")
+        ]
     }
 
     private nonisolated func autoOrder(for context: ClaudeFetchContext) -> [ClaudeUsageSource] {

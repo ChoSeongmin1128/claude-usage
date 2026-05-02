@@ -82,6 +82,8 @@ extension PopoverViewModel {
             settings: settings,
             claudeUsage: claudeUsage,
             claudeOverage: overage,
+            claudeAccounts: usageHealthSnapshot?.accounts ?? [],
+            activeClaudeAccountID: usageHealthSnapshot?.activeAccountID,
             codexUsage: codexUsage,
             codexError: snapshot(for: .codex)?.error,
             geminiUsage: geminiUsage,

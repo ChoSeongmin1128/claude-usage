@@ -11,15 +11,16 @@ struct LoginWindowView: View {
     @State private var statusMessage: String?
     @State private var loginSuccess = false
     @State private var clearTrigger: Int
+    @State private var chromeSessionCandidates: [ClaudeBrowserImportedSession] = []
 
     var clearOnOpen: Bool
-    var onSessionKeyFound: (String) async throws -> Void
+    var onSessionKeyFound: (String, String?) async throws -> Void
     var onOpenAdvancedSettings: () -> Void
     var onCancel: () -> Void
 
     init(
         clearOnOpen: Bool = false,
-        onSessionKeyFound: @escaping (String) async throws -> Void,
+        onSessionKeyFound: @escaping (String, String?) async throws -> Void,
         onOpenAdvancedSettings: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
@@ -84,7 +85,7 @@ struct LoginWindowView: View {
                         clearTrigger += 1
                         loginSuccess = false
                         isActivatingSession = false
-                        statusMessage = "쿠키 초기화됨"
+                        statusMessage = "로그인 상태를 새로 시작합니다"
                     }) {
                         Label("초기화", systemImage: "arrow.counterclockwise")
                             .font(.caption)
@@ -119,6 +120,37 @@ struct LoginWindowView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(Color.orange.opacity(0.1))
+            }
+
+            if !chromeSessionCandidates.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Chrome에서 여러 Claude 로그인을 찾았습니다")
+                        .font(.subheadline.weight(.semibold))
+                    Text("현재 앱에서 사용할 계정을 선택하면 실제 사용량 조회를 확인한 뒤 저장합니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    ForEach(chromeSessionCandidates) { candidate in
+                        HStack {
+                            Image(systemName: "person.crop.circle")
+                                .foregroundStyle(.secondary)
+                            Text(candidate.profileName)
+                                .font(.subheadline)
+                            Spacer()
+                            Button("이 계정 사용") {
+                                chromeSessionCandidates = []
+                                activateSessionKey(
+                                    candidate.sessionKey,
+                                    displayName: "Chrome \(candidate.profileName)"
+                                )
+                            }
+                            .controlSize(.small)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color(NSColor.controlBackgroundColor).opacity(0.55))
             }
 
             // 웹뷰
@@ -183,14 +215,14 @@ struct LoginWindowView: View {
         .frame(width: 800, height: 700)
     }
 
-    private func activateSessionKey(_ key: String) {
+    private func activateSessionKey(_ key: String, displayName: String? = nil) {
         errorMessage = nil
         statusMessage = "브라우저 로그인 값을 확인했습니다"
         isActivatingSession = true
 
         Task {
             do {
-                try await onSessionKeyFound(key)
+                try await onSessionKeyFound(key, displayName)
                 await MainActor.run {
                     self.isActivatingSession = false
                     self.loginSuccess = true
@@ -209,7 +241,8 @@ struct LoginWindowView: View {
 
     private func importFromChrome() {
         errorMessage = nil
-        statusMessage = "Chrome 프로필과 쿠키를 확인하는 중..."
+        statusMessage = "Chrome 로그인 상태를 확인하는 중..."
+        chromeSessionCandidates = []
         isImportingFromChrome = true
 
         Task.detached(priority: .userInitiated) {
@@ -225,6 +258,9 @@ struct LoginWindowView: View {
                 switch outcome {
                 case .success(.importedSessionKey(let key)):
                     self.activateSessionKey(key)
+                case .success(.importedSessionCandidates(let candidates)):
+                    self.statusMessage = "Chrome에서 \(candidates.count)개 로그인 후보를 찾았습니다."
+                    self.chromeSessionCandidates = candidates
                 case .success(.manualSessionKeyRequired(let message)):
                     self.statusMessage = "Chrome 로그인 후 다시 가져오거나 고급 설정을 사용해 주세요."
                     self.errorMessage = message

@@ -35,7 +35,8 @@ extension SettingsView {
             resetClaudeAuthDisclosureState()
             syncStoredSessionKeyState()
             testResult = nil
-            selectedOrganizationID = settings.preferredOrganizationID
+            syncClaudeAccountsState()
+            selectedOrganizationID = appliedPreferredOrganizationID
             selectedPanel = SettingsProviderPanel(rawValue: settings.settingsLastTab) ?? .common
             loadUsageHealthSnapshot()
             checkCodexAuth()
@@ -47,6 +48,13 @@ extension SettingsView {
         }
         .onReceive(NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange)) { _ in
             syncStoredSessionKeyState()
+            syncClaudeAccountsState()
+            selectedOrganizationID = appliedPreferredOrganizationID
+            loadUsageHealthSnapshot()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .claudeAccountsDidChange)) { _ in
+            syncClaudeAccountsState()
+            selectedOrganizationID = appliedPreferredOrganizationID
             loadUsageHealthSnapshot()
         }
         .onReceive(NotificationCenter.default.publisher(for: .providerEnvironmentUpdated)) { _ in

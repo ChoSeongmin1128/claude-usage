@@ -7,6 +7,7 @@ final class AppRuntimeStateFacade {
     var currentOverage: OverageSpendLimitResponse?
     var currentClaudeNotificationPolicy: ClaudeNotificationPolicy?
     var currentClaudeProfileMetadata: ClaudeProfileMetadata?
+    var activeClaudeAccountID: String?
     var lastOverageFetchAt: Date?
     var systemStatus: ClaudeSystemStatus?
     var providerSystemStatuses: [AppProviderKind: ProviderSystemStatus] = [:]
@@ -92,6 +93,11 @@ final class AppRuntimeStateFacade {
     @discardableResult
     func applyClaudeUsageHealthSnapshot(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> Bool {
         let previousCredentialAvailability = claudeCredentialAvailability.hasAnyCredential
+        if activeClaudeAccountID != snapshot.activeAccountID {
+            currentOverage = nil
+            lastOverageFetchAt = nil
+        }
+        activeClaudeAccountID = snapshot.activeAccountID
         claudeCredentialAvailability = snapshot.runtime.credentialAvailability
         return previousCredentialAvailability != claudeCredentialAvailability.hasAnyCredential
     }
@@ -101,6 +107,7 @@ final class AppRuntimeStateFacade {
         currentOverage = nil
         currentClaudeProfileMetadata = nil
         currentClaudeNotificationPolicy = nil
+        activeClaudeAccountID = nil
         lastOverageFetchAt = nil
     }
 

@@ -82,7 +82,6 @@ final class LoginWebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
         let isPopupWebView = (webView == popupWebView)
 
         checkCookiesFromStore(webView: webView)
-        checkSharedCookieStorage(source: "didFinish")
         handleAuthenticatedPage(webView: webView, isPopupWebView: isPopupWebView)
     }
 
@@ -125,8 +124,6 @@ final class LoginWebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
             loginDetected = true
             self.report(.loginDetected)
         }
-
-        checkSharedCookieStorage(source: "authenticated")
 
         if !isPopupWebView,
            !usageProbeTriggered,
@@ -211,13 +208,6 @@ final class LoginWebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
         }
     }
 
-    private func checkSharedCookieStorage(source: String) {
-        guard !sessionKeyExtracted else { return }
-        let cookies = HTTPCookieStorage.shared.cookies ?? []
-        guard !cookies.isEmpty else { return }
-        self.scanCookies(cookies, source: source)
-    }
-
     private func extractViaJavaScript(webView: WKWebView) {
         guard !sessionKeyExtracted else { return }
 
@@ -294,7 +284,6 @@ final class LoginWebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 guard let self = self, !self.sessionKeyExtracted else { return }
                 self.checkCookiesFromStore(webView: webView)
-                self.checkSharedCookieStorage(source: "retry")
                 self.extractViaJavaScript(webView: webView)
                 self.extractFromHTML(webView: webView)
                 self.extractFromWebStorage(webView: webView)
@@ -306,7 +295,6 @@ final class LoginWebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
             guard let self = self, !self.sessionKeyExtracted else { return }
             self.checkCookiesFromStore(webView: webView)
-            self.checkSharedCookieStorage(source: "post-login")
             self.extractViaJavaScript(webView: webView)
             self.extractFromWebStorage(webView: webView)
         }

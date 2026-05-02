@@ -219,13 +219,8 @@ extension OverageSpendLimitResponse {
         String(format: "$%.2f", monthlyCreditLimit)
     }
 
-    /// 잔액
-    nonisolated var remainingCredits: Double {
-        max(0, monthlyCreditLimit - usedCredits)
-    }
-
-    /// 통화 포맷된 잔액
-    nonisolated var formattedRemainingCredits: String {
-        String(format: "$%.2f", remainingCredits)
+    /// Claude API가 확정적으로 제공하는 추가 사용량 값만 표시합니다.
+    nonisolated var formattedUsageLimitSummary: String {
+        "\(formattedUsedCredits) 사용 / \(formattedCreditLimit) 한도"
     }
 }

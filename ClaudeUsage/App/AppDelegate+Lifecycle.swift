@@ -71,7 +71,7 @@ extension AppDelegate {
 
     func bootstrapRefreshState() {
         Task {
-            await apiService.updatePreferredOrganizationID(AppSettings.shared.preferredOrganizationID)
+            await apiService.reloadActiveAccount()
             let snapshot = await apiService.fetchUsageHealthSnapshot()
             let cachedProfileMetadata = await apiService.fetchCachedProfileMetadata()
             await MainActor.run {

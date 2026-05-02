@@ -19,9 +19,8 @@ struct LoginWebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
-        // Google/Cloudflare 등 외부 인증 플로우 호환성을 위해 기본 스토어 사용
-        // (필요 시 clearTrigger로 명시 초기화)
-        config.websiteDataStore = .default()
+        // 앱내 로그인은 외부 브라우저/CLI 계정과 섞이지 않도록 창 단위 임시 세션만 사용합니다.
+        config.websiteDataStore = .nonPersistent()
 
         let prefs = WKWebpagePreferences()
         prefs.allowsContentJavaScript = true
@@ -52,8 +51,6 @@ struct LoginWebView: NSViewRepresentable {
         let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
         dataStore.fetchDataRecords(ofTypes: dataTypes) { records in
             dataStore.removeData(ofTypes: dataTypes, for: records) {
-                let cookieStorage = HTTPCookieStorage.shared
-                cookieStorage.cookies?.forEach { cookieStorage.deleteCookie($0) }
                 URLCache.shared.removeAllCachedResponses()
                 DispatchQueue.main.async {
                     if let url = URL(string: "https://claude.ai/login") {

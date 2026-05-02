@@ -119,26 +119,13 @@ extension AppDelegate {
             },
             onClaudeSessionKeyChanged: { [weak self] in
                 self?.handleClaudeSessionKeyChanged()
-            },
-            onPreferredOrganizationChanged: { [weak self] in
-                self?.handlePreferredOrganizationChanged()
             }
         )
     }
 
     func handleClaudeSessionKeyChanged() {
         Task {
-            let preferredOrganizationID = AppSettings.shared.preferredOrganizationID
-            await apiService.updatePreferredOrganizationID(preferredOrganizationID)
-
-            let hasStoredSessionKey: Bool
-            if let sessionKey = KeychainManager.shared.load(), !sessionKey.isEmpty {
-                hasStoredSessionKey = true
-                await apiService.updateSessionKey(sessionKey)
-            } else {
-                hasStoredSessionKey = false
-                await apiService.clearSession()
-            }
+            await apiService.reloadActiveAccount()
 
             async let snapshotTask = apiService.fetchUsageHealthSnapshot()
             async let metadataTask = apiService.fetchCachedProfileMetadata()
@@ -152,49 +139,18 @@ extension AppDelegate {
                 self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
                 self.applyUsageHealthSnapshot(snapshot)
 
-                if hasStoredSessionKey,
-                   snapshot.runtime.credentialAvailability.sessionCredentialAvailable {
+                if snapshot.runtime.credentialAvailability.hasAnyCredential {
                     if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
                         self.refreshUsage(force: true)
                     } else {
                         self.updateMenuBar()
                         self.updatePopoverViewModel(overage: self.currentOverage)
                     }
-                } else if snapshot.runtime.credentialAvailability.hasAnyCredential {
-                    self.updateMenuBar()
-                    self.updatePopoverViewModel(overage: self.currentOverage)
-                    self.syncRefreshTimerState()
                 } else {
                     self.clearClaudePresentationState(markSetupIncomplete: false)
                     self.updateMenuBar()
                     self.updatePopoverViewModel(overage: self.currentOverage)
                     self.syncRefreshTimerState()
-                }
-            }
-        }
-    }
-
-    func handlePreferredOrganizationChanged() {
-        Task {
-            let preferredOrganizationID = AppSettings.shared.preferredOrganizationID
-            await apiService.updatePreferredOrganizationID(preferredOrganizationID)
-
-            async let snapshotTask = apiService.fetchUsageHealthSnapshot()
-            async let metadataTask = apiService.fetchCachedProfileMetadata()
-            let snapshot = await snapshotTask
-            let cachedProfileMetadata = await metadataTask
-
-            await MainActor.run {
-                self.currentClaudeProfileMetadata = cachedProfileMetadata
-                self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
-                self.applyUsageHealthSnapshot(snapshot)
-
-                if snapshot.runtime.credentialAvailability.hasAnyCredential,
-                   ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
-                    self.refreshUsage(force: true)
-                } else {
-                    self.updateMenuBar()
-                    self.updatePopoverViewModel(overage: self.currentOverage)
                 }
             }
         }
@@ -362,6 +318,7 @@ extension AppDelegate {
         guard prepareRefresh(for: .claude, force: force) else { return }
 
         Task {
+            let requestAccountID = await apiService.currentActiveAccountID()
             do {
                 Logger.debug("사용량 갱신 시작")
                 let result = try await ClaudeRuntimeRefresher.refresh(
@@ -369,8 +326,14 @@ extension AppDelegate {
                     lastOverageFetchAt: self.lastOverageFetchAt
                 )
                 let cachedProfileMetadata = await self.apiService.fetchCachedProfileMetadata()
+                let responseAccountID = await self.apiService.currentActiveAccountID()
 
                 await MainActor.run {
+                    guard requestAccountID == responseAccountID else {
+                        Logger.info("Claude 계정 전환 중 도착한 이전 조회 결과 무시")
+                        self.syncUsageHealthSnapshotToUI()
+                        return
+                    }
                     self.currentClaudeProfileMetadata = cachedProfileMetadata
                     self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
                     if let fetchedOverage = result.overage {

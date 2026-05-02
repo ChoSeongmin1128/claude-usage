@@ -103,4 +103,39 @@ final class ClaudeSourcePlannerTests: XCTestCase {
         XCTAssertEqual(plan.fallbackSource, .messagesHeaderFallback)
         XCTAssertTrue(plan.shouldAttemptAutomaticFallback)
     }
+
+    func testWebAccountDoesNotFallbackToOAuthWhenWebSessionFails() {
+        let planner = ClaudeSourcePlanner()
+        let context = ClaudeFetchContext(
+            accountKind: .webSession,
+            sourcePreference: .auto,
+            webSessionAvailable: false,
+            oauthAvailable: true,
+            webSessionValidationState: .failed,
+            oauthValidationState: .detected
+        )
+
+        let plan = planner.makePlan(from: context)
+
+        XCTAssertEqual(plan.primaryCandidates.map(\.source), [.webSession])
+        XCTAssertNil(plan.preferredPrimarySource)
+    }
+
+    func testClaudeCodeAccountDoesNotFallbackToWebSession() {
+        let planner = ClaudeSourcePlanner()
+        let context = ClaudeFetchContext(
+            accountKind: .claudeCodeExternal,
+            sourcePreference: .recentSuccess,
+            webSessionAvailable: true,
+            oauthAvailable: false,
+            webSessionValidationState: .verified,
+            oauthValidationState: .failed,
+            recentSuccessfulSource: .webSession
+        )
+
+        let plan = planner.makePlan(from: context)
+
+        XCTAssertEqual(plan.primaryCandidates.map(\.source), [.oauth])
+        XCTAssertNil(plan.preferredPrimarySource)
+    }
 }

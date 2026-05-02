@@ -15,9 +15,9 @@ struct SetupWizardView: View {
             case .chromeImport:
                 return "Chrome 가져오기"
             case .webLogin:
-                return "웹 로그인 추출"
+                return "웹 로그인"
             case .manualSessionKey:
-                return "수동 sessionKey"
+                return "수동 입력"
             }
         }
 
