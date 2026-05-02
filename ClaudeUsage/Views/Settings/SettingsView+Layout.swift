@@ -165,35 +165,56 @@ extension SettingsView {
                 .padding(.top, 4)
 
             ForEach(SettingsProviderRegistry.sidebarPanels) { panel in
-                Button {
-                    selectedPanel = panel.panel
-                } label: {
-                    HStack(spacing: 8) {
-                        if let provider = panel.providerKind {
-                            ProviderBrandIconView(provider: provider, kind: .settings, size: 16)
-                                .frame(width: 16)
-                        } else {
-                            Image(systemName: panel.icon)
-                                .frame(width: 16)
-                        }
-                        Text(panel.title)
-                            .font(.subheadline)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
-                    .background(selectedPanel == panel.panel ? Color.accentColor.opacity(0.16) : Color.clear)
-                    .foregroundStyle(selectedPanel == panel.panel ? Color.accentColor : .primary)
-                    .cornerRadius(8)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
+                sidebarRow(panel)
             }
 
             Spacer()
         }
         .padding(12)
-        .frame(width: 156)
+        .frame(width: 190)
         .background(Color(NSColor.windowBackgroundColor))
+    }
+
+    private func sidebarRow(_ panel: SettingsProviderPanelDescriptor) -> some View {
+        HStack(spacing: 6) {
+            Button {
+                selectedPanel = panel.panel
+            } label: {
+                HStack(spacing: 8) {
+                    if let provider = panel.providerKind {
+                        ProviderBrandIconView(provider: provider, kind: .settings, size: 16)
+                            .frame(width: 16)
+                    } else {
+                        Image(systemName: panel.icon)
+                            .frame(width: 16)
+                    }
+                    Text(panel.title)
+                        .font(.subheadline)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(selectedPanel == panel.panel ? Color.accentColor : .primary)
+
+            if let provider = panel.providerKind {
+                Toggle("", isOn: providerEnabledBinding(for: provider))
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .labelsHidden()
+                    .help(settings.isProviderEnabled(provider) ? "\(provider.displayName) 사용 중" : "\(provider.displayName) 사용 안 함")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(selectedPanel == panel.panel ? Color.accentColor.opacity(0.16) : Color.clear)
+        .cornerRadius(8)
+    }
+
+    private func providerEnabledBinding(for provider: AppProviderKind) -> Binding<Bool> {
+        Binding(
+            get: { settings.isProviderEnabled(provider) },
+            set: { settings.setProviderEnabled($0, for: provider) }
+        )
     }
 }

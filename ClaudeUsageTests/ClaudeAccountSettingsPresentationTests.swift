@@ -74,7 +74,7 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.title, "터미널 Claude Code 로그인")
         XCTAssertEqual(presentation.identifierLine, "식별: max")
         XCTAssertEqual(presentation.sourceLine, "출처: 터미널 Claude Code CLI")
-        XCTAssertEqual(presentation.organizationLine, "조직: 확인 전")
+        XCTAssertNil(presentation.organizationLine)
         XCTAssertEqual(presentation.statusLine, "상태: 감지됨")
         XCTAssertEqual(presentation.systemImage, "terminal")
     }

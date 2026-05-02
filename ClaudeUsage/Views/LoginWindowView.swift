@@ -134,16 +134,22 @@ struct LoginWindowView: View {
                         HStack {
                             Image(systemName: "person.crop.circle")
                                 .foregroundStyle(.secondary)
-                            Text(candidate.profileName)
-                                .font(.subheadline)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(candidate.readableProfileName)
+                                    .font(.subheadline)
+                                Text(candidate.sourceDetail)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
                             Spacer()
                             Button("이 계정 사용") {
                                 chromeSessionCandidates = []
                                 activateSessionKey(
                                     candidate.sessionKey,
-                                    displayName: "Chrome \(candidate.profileName)",
+                                    displayName: candidate.displayName,
                                     source: .chromeProfile,
-                                    sourceDetail: candidate.profileName
+                                    sourceDetail: candidate.sourceDetail
                                 )
                             }
                             .controlSize(.small)
@@ -266,9 +272,9 @@ struct LoginWindowView: View {
                 case .success(.importedSession(let session)):
                     self.activateSessionKey(
                         session.sessionKey,
-                        displayName: "Chrome \(session.profileName)",
+                        displayName: session.displayName,
                         source: .chromeProfile,
-                        sourceDetail: session.profileName
+                        sourceDetail: session.sourceDetail
                     )
                 case .success(.importedSessionCandidates(let candidates)):
                     self.statusMessage = "Chrome에서 \(candidates.count)개 로그인 후보를 찾았습니다."

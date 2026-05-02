@@ -188,6 +188,7 @@ actor ClaudeAPIService {
     private var authPathHealthStore = AuthPathHealthStore()
     private var lastKnownUsagePercent: Double?
     private var lastSuccessfulUsageSource: ClaudeUsageSource?
+    private var lastResolvedSessionOrganization: OrganizationSummary?
 
     private struct OrganizationCache: Codable {
         let savedAt: Date
@@ -251,6 +252,7 @@ actor ClaudeAPIService {
         profileMetadataStore = ClaudeProfileMetadataStore(accountID: nextAccount?.id)
         authPathHealthStore = Self.loadAuthPathHealthStore(for: nextAccount?.id)
         cachedOrganizationID = nil
+        lastResolvedSessionOrganization = nil
         lastKnownUsagePercent = nil
         lastSuccessfulUsageSource = nil
         resetSessionPathCooldown()
@@ -276,6 +278,7 @@ actor ClaudeAPIService {
         let previousFingerprint = currentSessionFingerprint()
         self.sessionKey = key
         self.cachedOrganizationID = nil  // 캐시 초기화
+        self.lastResolvedSessionOrganization = nil
         self.sessionPathCooldownUntil = nil
         self.sessionPathCooldownReason = nil
         self.sessionPathLimitStrike = 0
@@ -288,6 +291,7 @@ actor ClaudeAPIService {
     func clearSession() {
         self.sessionKey = nil
         self.cachedOrganizationID = nil
+        self.lastResolvedSessionOrganization = nil
         self.sessionPathCooldownUntil = nil
         self.sessionPathCooldownReason = nil
         self.sessionPathLimitStrike = 0
@@ -327,7 +331,7 @@ actor ClaudeAPIService {
         if usesStoredActiveAccount, oauthCredentialAvailable {
             _ = accountStore.upsertClaudeCodeExternalAccount(
                 identity: await claudeCodeAccountIdentity(),
-                validationState: validationState(for: .oauth, credentialAvailable: true),
+                validationState: stableClaudeCodeValidationState(credentialAvailable: true),
                 setActiveIfMissing: true
             )
             reloadActiveAccount()
@@ -367,6 +371,10 @@ actor ClaudeAPIService {
         return try await fetchUsageWithSessionKey(sessionKey)
     }
 
+    func resolvedSessionOrganizationForLastValidation() async -> OrganizationSummary? {
+        lastResolvedSessionOrganization
+    }
+
     /// 사용량 데이터 가져오기
     func fetchUsage() async throws -> ClaudeUsageResponse {
         reloadActiveAccount()
@@ -377,7 +385,7 @@ actor ClaudeAPIService {
            oauthAccessToken != nil {
             _ = accountStore.upsertClaudeCodeExternalAccount(
                 identity: await claudeCodeAccountIdentity(),
-                validationState: .detected,
+                validationState: stableClaudeCodeValidationState(credentialAvailable: true),
                 setActiveIfMissing: true
             )
             reloadActiveAccount()
@@ -725,6 +733,7 @@ actor ClaudeAPIService {
            let preferred = organizations.first(where: { $0.id == preferredOrganizationID }) {
             Logger.info("선호 Organization ID 사용: \(preferred.id)")
             cachedOrganizationID = preferred.id
+            lastResolvedSessionOrganization = preferred
             await rememberActiveOrganization(preferred)
             return preferred.id
         }
@@ -736,6 +745,7 @@ actor ClaudeAPIService {
         let selected = await selectAutomaticOrganization(organizations, sessionKey: sessionKey) ?? organizations[0]
         Logger.info("Organization ID 선택: \(selected.id) (총 \(organizations.count)개)")
         cachedOrganizationID = selected.id
+        lastResolvedSessionOrganization = selected
         await rememberActiveOrganization(selected)
         return selected.id
     }
@@ -1313,10 +1323,27 @@ actor ClaudeAPIService {
             activePath: activePath,
             credentialAvailability: credentialAvailability,
             sessionValidationState: validationState(for: .session, credentialAvailable: hasSessionCredential),
-            oauthValidationState: validationState(for: .oauth, credentialAvailable: oauthCredentialAvailable),
+            oauthValidationState: stableClaudeCodeValidationState(credentialAvailable: oauthCredentialAvailable),
             sessionCooldownRemaining: sessionCooldownRemaining,
             oauthPreferredRemaining: oauthPreferredRemaining
         )
+    }
+
+    private func stableClaudeCodeValidationState(
+        credentialAvailable: Bool
+    ) -> ClaudeCredentialValidationState {
+        let measured = validationState(for: .oauth, credentialAvailable: credentialAvailable)
+        guard measured == .detected else { return measured }
+        guard let existing = accountStore.accounts().first(where: { $0.id == ClaudeAccountStore.claudeCodeExternalAccountID })?.lastValidationState else {
+            return measured
+        }
+
+        switch existing {
+        case .verified, .failed:
+            return existing
+        case .unavailable, .detected:
+            return measured
+        }
     }
 
     private func validationState(

@@ -21,6 +21,7 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
         XCTAssertEqual(keychain.savedValues, ["new-session"])
         XCTAssertEqual(keychain.savedPreferredOrganizationIDs, ["org-company"])
         XCTAssertEqual(keychain.savedDisplayNames, ["Chrome Profile 2"])
+        XCTAssertEqual(keychain.savedIdentities, [nil])
         XCTAssertEqual(keychain.savedSources, [.chromeProfile])
         XCTAssertEqual(keychain.savedSourceDetails, ["Profile 2"])
         let validatedSessionKeys = await service.validatedSessionKeysSnapshot()
@@ -30,6 +31,28 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
         let preferredOrganizationID = await service.preferredOrganizationIDSnapshot()
         XCTAssertEqual(preferredOrganizationID, "org-company")
         XCTAssertTrue(result.shouldStartMonitoring)
+    }
+
+    func testActivateSessionKeySavesResolvedOrganizationWhenPreferredOrganizationIsAutomatic() async throws {
+        let keychain = FakeClaudeSessionKeyStore()
+        let service = FakeClaudeSettingsService()
+        await service.setResolvedOrganization(
+            ClaudeAPIService.OrganizationSummary(id: "org-glorang", name: "Glorang")
+        )
+
+        _ = try await ClaudeSettingsApplyCoordinator.activateSessionKey(
+            "new-session",
+            apiService: service,
+            preferredOrganizationID: "",
+            providerEnabled: true,
+            keychain: keychain
+        )
+
+        XCTAssertEqual(keychain.savedPreferredOrganizationIDs, ["org-glorang"])
+        XCTAssertEqual(
+            keychain.savedIdentities,
+            [ClaudeAccountIdentity(organizationName: "Glorang", organizationID: "org-glorang")]
+        )
     }
 
     func testActivateSessionKeyDoesNotSaveWhenSessionUsageValidationFails() async {
@@ -86,6 +109,7 @@ private final class FakeClaudeSessionKeyStore: ClaudeSessionKeyStoring, @uncheck
     private(set) var savedValues: [String] = []
     private(set) var savedPreferredOrganizationIDs: [String?] = []
     private(set) var savedDisplayNames: [String?] = []
+    private(set) var savedIdentities: [ClaudeAccountIdentity?] = []
     private(set) var savedSources: [ClaudeAccountSource?] = []
     private(set) var savedSourceDetails: [String?] = []
     private(set) var didDelete = false
@@ -120,6 +144,7 @@ private final class FakeClaudeSessionKeyStore: ClaudeSessionKeyStoring, @uncheck
             sessionKey,
             preferredOrganizationID: preferredOrganizationID,
             displayName: displayName,
+            identity: nil,
             source: nil,
             sourceDetail: nil
         )
@@ -129,6 +154,7 @@ private final class FakeClaudeSessionKeyStore: ClaudeSessionKeyStoring, @uncheck
         _ sessionKey: String,
         preferredOrganizationID: String?,
         displayName: String?,
+        identity: ClaudeAccountIdentity?,
         source: ClaudeAccountSource?,
         sourceDetail: String?
     ) throws {
@@ -137,9 +163,27 @@ private final class FakeClaudeSessionKeyStore: ClaudeSessionKeyStoring, @uncheck
         savedValues.append(sessionKey)
         savedPreferredOrganizationIDs.append(preferredOrganizationID)
         savedDisplayNames.append(displayName)
+        savedIdentities.append(identity)
         savedSources.append(source)
         savedSourceDetails.append(sourceDetail)
         lock.unlock()
+    }
+
+    func save(
+        _ sessionKey: String,
+        preferredOrganizationID: String?,
+        displayName: String?,
+        source: ClaudeAccountSource?,
+        sourceDetail: String?
+    ) throws {
+        try save(
+            sessionKey,
+            preferredOrganizationID: preferredOrganizationID,
+            displayName: displayName,
+            identity: nil,
+            source: source,
+            sourceDetail: sourceDetail
+        )
     }
 
     func delete() throws {
@@ -156,6 +200,7 @@ private actor FakeClaudeSettingsService: ClaudeSettingsApplyingService {
     private var validationError: Error?
     private var oauthAvailable: Bool
     private var preferredOrganizationID = ""
+    private var resolvedOrganization: ClaudeAPIService.OrganizationSummary?
 
     init(oauthAvailable: Bool = false) {
         self.oauthAvailable = oauthAvailable
@@ -163,6 +208,10 @@ private actor FakeClaudeSettingsService: ClaudeSettingsApplyingService {
 
     func setValidationError(_ error: Error?) {
         validationError = error
+    }
+
+    func setResolvedOrganization(_ organization: ClaudeAPIService.OrganizationSummary?) {
+        resolvedOrganization = organization
     }
 
     func currentSessionKeySnapshot() -> String? {
@@ -198,6 +247,10 @@ private actor FakeClaudeSettingsService: ClaudeSettingsApplyingService {
             fiveHour: UsageWindow(utilization: 10, resetsAt: nil),
             sevenDay: nil
         )
+    }
+
+    func resolvedSessionOrganizationForLastValidation() async -> ClaudeAPIService.OrganizationSummary? {
+        resolvedOrganization
     }
 
     func fetchUsageHealthSnapshot() -> ClaudeAPIService.UsageHealthSnapshot {

@@ -6,6 +6,12 @@ protocol ClaudeBrowserCookieImporting {
 }
 
 final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unchecked Sendable {
+    private struct ChromeProfileDescriptor: Sendable, Equatable {
+        let profileName: String
+        let displayName: String?
+        let accountEmail: String?
+    }
+
     nonisolated func discoverCandidates() -> [ClaudeBrowserSessionCandidate] {
         let fileManager = FileManager.default
         let home = fileManager.realHomeDirectory
@@ -17,12 +23,14 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
         let localState = chromeRoot.appendingPathComponent("Local State", isDirectory: false)
         let localStatePath = fileManager.fileExists(atPath: localState.path) ? localState : nil
 
-        return self.discoverChromeProfileNames(in: chromeRoot, localStateURL: localStatePath).compactMap { profileName in
-            let profileDirectory = chromeRoot.appendingPathComponent(profileName, isDirectory: true)
+        return self.discoverChromeProfiles(in: chromeRoot, localStateURL: localStatePath).compactMap { profile in
+            let profileDirectory = chromeRoot.appendingPathComponent(profile.profileName, isDirectory: true)
             guard let cookiesPath = self.resolveCookieDatabasePath(for: profileDirectory) else { return nil }
             return ClaudeBrowserSessionCandidate(
                 family: .chrome,
-                profileName: profileName,
+                profileName: profile.profileName,
+                profileDisplayName: profile.displayName,
+                accountEmail: profile.accountEmail,
                 cookiesPath: cookiesPath,
                 localStatePath: localStatePath,
                 supportsAutomaticImport: true)
@@ -57,6 +65,8 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
                         importedSessions.append(
                             ClaudeBrowserImportedSession(
                                 profileName: candidate.profileName,
+                                profileDisplayName: candidate.profileDisplayName,
+                                accountEmail: candidate.accountEmail,
                                 sessionKey: sessionKey
                             )
                         )
@@ -64,9 +74,9 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
                     continue
                 }
 
-                failureDetails.append("\(candidate.profileName): Claude 로그인 정보를 찾지 못했습니다.")
+                failureDetails.append("\(candidate.sourceDetail): Claude 로그인 정보를 찾지 못했습니다.")
             } catch {
-                failureDetails.append("\(candidate.profileName): \(error.localizedDescription)")
+                failureDetails.append("\(candidate.sourceDetail): \(error.localizedDescription)")
             }
         }
 
@@ -79,23 +89,28 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
         }
 
         return .manualSessionKeyRequired(message: self.manualGuidanceMessage(
-            discoveredProfiles: candidates.map(\.profileName),
+            discoveredProfiles: candidates.map(\.sourceDetail),
             failureDetails: failureDetails))
     }
 
-    private nonisolated func discoverChromeProfileNames(in chromeRoot: URL, localStateURL: URL?) -> [String] {
+    private nonisolated func discoverChromeProfiles(in chromeRoot: URL, localStateURL: URL?) -> [ChromeProfileDescriptor] {
         let fileManager = FileManager.default
-        let localStateProfiles = self.profileNames(fromLocalState: localStateURL)
+        let localStateProfiles = self.profileDescriptors(fromLocalState: localStateURL)
         let contents = (try? fileManager.contentsOfDirectory(
             at: chromeRoot,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles])) ?? []
 
-        let scannedProfiles = contents.compactMap { url -> (name: String, rank: Int)? in
+        let scannedProfiles = contents.compactMap { url -> (descriptor: ChromeProfileDescriptor, rank: Int)? in
             let name = url.lastPathComponent
             guard self.isChromeProfileDirectory(name, at: url) else { return nil }
+            let descriptor = ChromeProfileDescriptor(
+                profileName: name,
+                displayName: nil,
+                accountEmail: nil
+            )
             if name == "Default" {
-                return (name, 0)
+                return (descriptor, 0)
             }
 
             let prefix = "Profile "
@@ -105,28 +120,28 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
                 return nil
             }
 
-            return (name, number)
+            return (descriptor, number)
         }
 
         let orderedScannedProfiles = scannedProfiles
             .sorted { lhs, rhs in
                 if lhs.rank == rhs.rank {
-                    return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+                    return lhs.descriptor.profileName.localizedStandardCompare(rhs.descriptor.profileName) == .orderedAscending
                 }
                 return lhs.rank < rhs.rank
             }
-            .map(\.name)
+            .map(\.descriptor)
 
-        var orderedProfiles: [String] = []
-        for profile in localStateProfiles + orderedScannedProfiles where !orderedProfiles.contains(profile) {
-            let profileDirectory = chromeRoot.appendingPathComponent(profile, isDirectory: true)
+        var orderedProfiles: [ChromeProfileDescriptor] = []
+        for profile in localStateProfiles + orderedScannedProfiles where !orderedProfiles.contains(where: { $0.profileName == profile.profileName }) {
+            let profileDirectory = chromeRoot.appendingPathComponent(profile.profileName, isDirectory: true)
             guard self.resolveCookieDatabasePath(for: profileDirectory) != nil else { continue }
             orderedProfiles.append(profile)
         }
         return orderedProfiles
     }
 
-    private nonisolated func profileNames(fromLocalState localStateURL: URL?) -> [String] {
+    private nonisolated func profileDescriptors(fromLocalState localStateURL: URL?) -> [ChromeProfileDescriptor] {
         guard let localStateURL,
               let data = try? Data(contentsOf: localStateURL),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -139,7 +154,26 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
             if lhs == "Default" { return true }
             if rhs == "Default" { return false }
             return lhs.localizedStandardCompare(rhs) == .orderedAscending
+        }.map { profileName in
+            let info = infoCache[profileName] as? [String: Any]
+            return ChromeProfileDescriptor(
+                profileName: profileName,
+                displayName: self.firstNonEmptyString(in: info, keys: ["name", "shortcut_name", "gaia_name"]),
+                accountEmail: self.firstNonEmptyString(in: info, keys: ["user_name", "email", "gaia_email"])
+            )
         }
+    }
+
+    private nonisolated func firstNonEmptyString(in dictionary: [String: Any]?, keys: [String]) -> String? {
+        guard let dictionary else { return nil }
+        for key in keys {
+            guard let value = dictionary[key] as? String else { continue }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
     }
 
     private nonisolated func isChromeProfileDirectory(_ name: String, at url: URL) -> Bool {

@@ -100,13 +100,20 @@ extension AppDelegate {
                         providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
                     )
                     await MainActor.run {
+                        self.resetClaudeRuntimeAfterAccountBoundaryChange()
                         self.applyUsageHealthSnapshot(result.snapshot)
-                        if !result.snapshot.runtime.credentialAvailability.hasAnyCredential {
+                        if result.shouldStartMonitoring {
+                            self.startMonitoring()
+                        } else if !result.snapshot.runtime.credentialAvailability.hasAnyCredential {
                             self.clearClaudePresentationState(markSetupIncomplete: false)
+                            self.updateMenuBar()
+                            self.updatePopoverViewModel(overage: self.currentOverage)
+                            self.syncRefreshTimerState()
+                        } else {
+                            self.updateMenuBar()
+                            self.updatePopoverViewModel(overage: self.currentOverage)
+                            self.syncRefreshTimerState()
                         }
-                        self.updateMenuBar()
-                        self.updatePopoverViewModel(overage: self.currentOverage)
-                        self.syncRefreshTimerState()
                     }
                 }
                 self.clearWebSessionData()

@@ -281,6 +281,15 @@ extension AppDelegate {
         setRuntimeProviderState(RuntimeProviderState(), for: service)
     }
 
+    func resetClaudeRuntimeAfterAccountBoundaryChange() {
+        currentOverage = nil
+        lastOverageFetchAt = nil
+        popoverViewModel.nextUsageRetryAt = nil
+        setRuntimeProviderState(RuntimeProviderState(), for: .claude)
+        syncRuntimePresentation(overage: nil)
+        syncUsageHealthSnapshotToUI()
+    }
+
     func prepareRefresh(
         for service: PopoverService,
         force: Bool,
@@ -331,7 +340,7 @@ extension AppDelegate {
                 await MainActor.run {
                     guard requestAccountID == responseAccountID else {
                         Logger.info("Claude 계정 전환 중 도착한 이전 조회 결과 무시")
-                        self.syncUsageHealthSnapshotToUI()
+                        self.resetClaudeRuntimeAfterAccountBoundaryChange()
                         return
                     }
                     self.currentClaudeProfileMetadata = cachedProfileMetadata
@@ -368,8 +377,14 @@ extension AppDelegate {
                 }
             } catch let error as APIError {
                 Logger.error("API 에러: \(error.errorDescription ?? "")")
+                let responseAccountID = await self.apiService.currentActiveAccountID()
 
                 await MainActor.run {
+                    guard requestAccountID == responseAccountID else {
+                        Logger.info("Claude 계정 전환 중 도착한 이전 조회 실패 무시")
+                        self.resetClaudeRuntimeAfterAccountBoundaryChange()
+                        return
+                    }
                     var state = self.runtimeProviderState(for: .claude)
                     let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
                         state: &state,
@@ -388,7 +403,13 @@ extension AppDelegate {
                 Logger.error("예상치 못한 에러: \(error)")
 
                 let apiError = APIError.unknownError(error.localizedDescription)
+                let responseAccountID = await self.apiService.currentActiveAccountID()
                 await MainActor.run {
+                    guard requestAccountID == responseAccountID else {
+                        Logger.info("Claude 계정 전환 중 도착한 이전 조회 실패 무시")
+                        self.resetClaudeRuntimeAfterAccountBoundaryChange()
+                        return
+                    }
                     var state = self.runtimeProviderState(for: .claude)
                     let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
                         state: &state,

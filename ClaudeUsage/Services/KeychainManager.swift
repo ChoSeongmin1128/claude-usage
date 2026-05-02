@@ -63,6 +63,24 @@ final class KeychainManager: @unchecked Sendable {
         source: ClaudeAccountSource?,
         sourceDetail: String?
     ) throws {
+        try save(
+            sessionKey,
+            preferredOrganizationID: preferredOrganizationID,
+            displayName: displayName,
+            identity: nil,
+            source: source,
+            sourceDetail: sourceDetail
+        )
+    }
+
+    nonisolated func save(
+        _ sessionKey: String,
+        preferredOrganizationID: String?,
+        displayName: String?,
+        identity: ClaudeAccountIdentity?,
+        source: ClaudeAccountSource?,
+        sourceDetail: String?
+    ) throws {
         guard !sessionKey.isEmpty else {
             throw KeychainError.invalidData
         }
@@ -73,6 +91,7 @@ final class KeychainManager: @unchecked Sendable {
         _ = ClaudeAccountStore.shared.upsertWebSessionAccount(
             sessionKey: sessionKey,
             preferredOrganizationID: preferredOrganizationID,
+            identity: identity ?? ClaudeAccountIdentity(),
             displayName: displayName,
             source: source,
             sourceDetail: sourceDetail,

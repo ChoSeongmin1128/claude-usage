@@ -133,6 +133,10 @@ struct ClaudeAccountSettingsPresentation: Equatable {
             return "조직: \(shortOrganizationID(organizationID))"
         }
 
+        if account.kind == .claudeCodeExternal {
+            return nil
+        }
+
         return "조직: 확인 전"
     }
 

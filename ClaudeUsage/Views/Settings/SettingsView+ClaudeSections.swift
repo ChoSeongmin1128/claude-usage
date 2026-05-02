@@ -406,16 +406,30 @@ extension SettingsView {
             return "로그인 정보가 없습니다. Chrome 로그인 가져오기 또는 Claude Code 로그인이 필요합니다."
         }
 
-        if snapshot.runtime.sessionValidationState == .failed {
-            return "브라우저 로그인 값 확인이 필요합니다. 다시 가져오거나 삭제 후 Claude Code 로그인을 사용하세요."
-        }
-
-        if snapshot.runtime.oauthValidationState == .failed {
-            return "Claude Code 로그인 갱신이 필요합니다. 터미널에서 `claude login`을 다시 실행해 주세요."
-        }
-
-        if snapshot.runtime.oauthValidationState == .verified {
-            return "Claude Code 로그인으로 최근 사용량 조회가 성공했습니다."
+        switch snapshot.runtime.activePath {
+        case .sessionPrimary:
+            if snapshot.runtime.sessionValidationState == .failed {
+                return "브라우저 로그인 값 확인이 필요합니다. 다시 가져오거나 삭제 후 Claude Code 로그인을 사용하세요."
+            }
+            if snapshot.runtime.sessionValidationState == .verified {
+                return "브라우저 로그인 값으로 최근 조회가 성공했습니다."
+            }
+            return "브라우저 로그인 값이 저장되어 있습니다. 상태 새로고침으로 실제 조회를 확인하세요."
+        case .oauthPreferred, .oauthFallback:
+            if snapshot.runtime.oauthValidationState == .failed {
+                return "Claude Code 로그인 갱신이 필요합니다. 터미널에서 `claude login`을 다시 실행해 주세요."
+            }
+            if snapshot.runtime.oauthValidationState == .verified {
+                return "Claude Code 로그인으로 최근 사용량 조회가 성공했습니다."
+            }
+            return "Claude Code 로그인이 감지됐습니다. 상태 새로고침으로 실제 조회를 확인하세요."
+        case .unauthenticated:
+            if snapshot.runtime.sessionValidationState == .failed {
+                return "브라우저 로그인 값 확인이 필요합니다. 다시 가져오거나 삭제 후 다른 로그인 경로를 사용하세요."
+            }
+            if snapshot.runtime.oauthValidationState == .failed {
+                return "Claude Code 로그인 갱신이 필요합니다. 터미널에서 `claude login`을 다시 실행해 주세요."
+            }
         }
 
         if snapshot.runtime.sessionValidationState == .verified {
@@ -434,11 +448,11 @@ extension SettingsView {
     ) -> (value: String, color: Color)? {
         guard snapshot.runtime.credentialAvailability.oauthCredentialAvailable else { return nil }
 
-        if snapshot.oauth.lastSuccessAt != nil {
+        if snapshot.runtime.oauthValidationState == .verified {
             return ("검증됨", .blue)
         }
 
-        if snapshot.oauth.lastFailureAt != nil {
+        if snapshot.runtime.oauthValidationState == .failed {
             return ("확인 필요", .orange)
         }
 

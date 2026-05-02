@@ -9,6 +9,7 @@ protocol ClaudeSessionKeyStoring: Sendable {
         _ sessionKey: String,
         preferredOrganizationID: String?,
         displayName: String?,
+        identity: ClaudeAccountIdentity?,
         source: ClaudeAccountSource?,
         sourceDetail: String?
     ) throws
@@ -33,7 +34,14 @@ extension ClaudeSessionKeyStoring {
         source: ClaudeAccountSource?,
         sourceDetail: String?
     ) throws {
-        try save(sessionKey, preferredOrganizationID: preferredOrganizationID, displayName: displayName)
+        try save(
+            sessionKey,
+            preferredOrganizationID: preferredOrganizationID,
+            displayName: displayName,
+            identity: nil,
+            source: source,
+            sourceDetail: sourceDetail
+        )
     }
 }
 
@@ -42,11 +50,18 @@ protocol ClaudeSettingsApplyingService: Sendable {
     func updateSessionKey(_ key: String) async
     func clearSession() async
     func validateCurrentSessionUsage() async throws -> ClaudeUsageResponse
+    func resolvedSessionOrganizationForLastValidation() async -> ClaudeAPIService.OrganizationSummary?
     func fetchUsageHealthSnapshot() async -> ClaudeAPIService.UsageHealthSnapshot
     func fetchCachedProfileMetadata() async -> ClaudeProfileMetadata?
 }
 
 extension ClaudeAPIService: ClaudeSettingsApplyingService {}
+
+extension ClaudeSettingsApplyingService {
+    func resolvedSessionOrganizationForLastValidation() async -> ClaudeAPIService.OrganizationSummary? {
+        nil
+    }
+}
 
 struct ClaudeSettingsApplyResult {
     let snapshot: ClaudeAPIService.UsageHealthSnapshot
@@ -103,11 +118,24 @@ enum ClaudeSettingsApplyCoordinator {
             throw error
         }
 
+        let resolvedOrganization = await apiService.resolvedSessionOrganizationForLastValidation()
+        let normalizedPreferredOrganizationID = normalizeOrganizationID(preferredOrganizationID)
+        let resolvedPreferredOrganizationID = normalizedPreferredOrganizationID.isEmpty
+            ? (resolvedOrganization?.id ?? normalizedPreferredOrganizationID)
+            : normalizedPreferredOrganizationID
+        let identity = resolvedOrganization.map {
+            ClaudeAccountIdentity(
+                organizationName: $0.name,
+                organizationID: $0.id
+            )
+        }
+
         do {
             try keychain.save(
                 key,
-                preferredOrganizationID: preferredOrganizationID,
+                preferredOrganizationID: resolvedPreferredOrganizationID,
                 displayName: displayName,
+                identity: identity,
                 source: source,
                 sourceDetail: sourceDetail
             )
@@ -145,6 +173,10 @@ enum ClaudeSettingsApplyCoordinator {
             shouldStartMonitoring: providerEnabled && snapshot.runtime.credentialAvailability.oauthCredentialAvailable,
             shouldMarkSetupComplete: false
         )
+    }
+
+    private static func normalizeOrganizationID(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func restorePreviousSessionKey(
