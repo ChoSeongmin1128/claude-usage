@@ -179,19 +179,6 @@ extension SettingsView {
         activeClaudeWebAccount()?.preferredOrganizationID ?? ""
     }
 
-    func claudeAccountStatusLabel(_ account: ClaudeAccount) -> String {
-        switch account.lastValidationState {
-        case .unavailable:
-            return "확인 전"
-        case .detected:
-            return "감지됨"
-        case .verified:
-            return "최근 조회 성공"
-        case .failed:
-            return "확인 필요"
-        }
-    }
-
     func normalizeSessionKey(_ raw: String) -> String {
         var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 

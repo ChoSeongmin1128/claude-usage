@@ -75,7 +75,10 @@ extension SettingsView {
 
     private var claudeAccountSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionCardHeader(title: "계정", subtitle: "현재 조회에 사용할 Claude 계정만 선택합니다")
+            sectionCardHeader(
+                title: "계정",
+                subtitle: "브라우저 로그인과 터미널 Claude Code 로그인 중 조회에 사용할 하나를 선택합니다"
+            )
 
             if claudeAccounts.isEmpty {
                 Text("저장된 계정이 없습니다. Chrome에서 가져오기 또는 웹 로그인을 먼저 진행해 주세요.")
@@ -94,20 +97,25 @@ extension SettingsView {
 
     private func claudeAccountRow(_ account: ClaudeAccount) -> some View {
         let isActive = account.id == activeClaudeAccountID
+        let presentation = ClaudeAccountSettingsPresentation.resolve(account: account)
         return HStack(alignment: .center, spacing: 10) {
-            Image(systemName: account.kind == .webSession ? "globe" : "terminal")
+            Image(systemName: presentation.systemImage)
                 .foregroundStyle(isActive ? Color.accentColor : .secondary)
                 .frame(width: 16)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(account.displayName)
+                    Text(presentation.title)
                         .font(.subheadline.weight(.semibold))
                     if isActive {
                         chip(title: "현재", value: "사용 중", color: .green)
                     }
                 }
-                Text("\(account.kind.displayName) · \(claudeAccountStatusLabel(account))")
+                Text(presentation.accountLine)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Text("\(presentation.detailLine) · \(presentation.statusLine)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
