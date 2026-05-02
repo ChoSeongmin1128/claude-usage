@@ -20,10 +20,26 @@ final class UsageItemCatalogTests: XCTestCase {
             [
                 PopoverItemConfig(id: "weeklyLimit", visible: false),
                 PopoverItemConfig(id: "currentSession", visible: true),
-                PopoverItemConfig(id: "activeAccount", visible: true),
                 PopoverItemConfig(id: "modelUsage", visible: true),
                 PopoverItemConfig(id: "overageUsage", visible: true),
             ]
+        )
+    }
+
+    func testClaudeCatalogRemovesLegacyActiveAccountPopoverItem() {
+        let catalog = ClaudeItemCatalog()
+
+        let normalized = catalog.normalized(
+            [
+                PopoverItemConfig(id: "activeAccount", visible: true),
+                PopoverItemConfig(id: "currentSession", visible: true),
+            ]
+        )
+
+        XCTAssertFalse(normalized.contains { $0.id == "activeAccount" })
+        XCTAssertEqual(
+            normalized.map(\.id),
+            ["currentSession", "weeklyLimit", "modelUsage", "overageUsage"]
         )
     }
 

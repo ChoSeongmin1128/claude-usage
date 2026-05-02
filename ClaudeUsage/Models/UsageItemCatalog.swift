@@ -100,7 +100,6 @@ struct ClaudeItemCatalog: UsageItemCatalog {
     let providerID = PopoverService.claude.rawValue
 
     let defaultItems: [PopoverItemConfig] = [
-        PopoverItemConfig(id: "activeAccount", visible: true),
         PopoverItemConfig(id: "currentSession", visible: true),
         PopoverItemConfig(id: "weeklyLimit", visible: true),
         PopoverItemConfig(id: "modelUsage", visible: true),
@@ -109,7 +108,6 @@ struct ClaudeItemCatalog: UsageItemCatalog {
 
     func displayName(for itemID: String) -> String? {
         switch itemID {
-        case "activeAccount": return "현재 계정"
         case "currentSession": return "현재 세션"
         case "weeklyLimit": return "주간 한도"
         case "modelUsage": return "모델별 주간 한도"
@@ -120,26 +118,6 @@ struct ClaudeItemCatalog: UsageItemCatalog {
 
     func section(for itemID: String, context: UsageItemContext) -> PopoverDisplaySection? {
         switch itemID {
-        case "activeAccount":
-            guard context.claudeAccounts.count > 1,
-                  let activeID = context.activeClaudeAccountID,
-                  let account = context.claudeAccounts.first(where: { $0.id == activeID }) else {
-                return nil
-            }
-            return PopoverDisplaySection(
-                id: "activeAccount",
-                kind: .account,
-                importance: .secondary,
-                payload: .account(
-                    PopoverAccountSectionData(
-                        title: "현재 계정",
-                        email: account.displayName,
-                        plan: account.kind.displayName,
-                        systemIcon: account.kind == .webSession ? "globe" : "terminal"
-                    )
-                )
-            )
-
         case "currentSession":
             guard let usage = context.claudeUsage else { return nil }
             return PopoverDisplaySection(

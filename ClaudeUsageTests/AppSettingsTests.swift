@@ -31,7 +31,6 @@ final class AppSettingsTests: XCTestCase {
             [
                 PopoverItemConfig(id: "weeklyLimit", visible: false),
                 PopoverItemConfig(id: "currentSession", visible: true),
-                PopoverItemConfig(id: "activeAccount", visible: true),
                 PopoverItemConfig(id: "modelUsage", visible: true),
                 PopoverItemConfig(id: "overageUsage", visible: true),
             ]
