@@ -2,7 +2,7 @@ import XCTest
 @testable import ClaudeUsage
 
 final class ClaudeAccountSettingsPresentationTests: XCTestCase {
-    func testWebSessionPresentationExplainsBrowserLoginSource() {
+    func testWebSessionPresentationUsesHumanAccountLabel() {
         let account = ClaudeAccount(
             id: "web",
             kind: .webSession,
@@ -18,49 +18,42 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
 
         let presentation = ClaudeAccountSettingsPresentation.resolve(account: account)
 
-        XCTAssertEqual(presentation.title, "앱내 웹 로그인")
-        XCTAssertEqual(presentation.identifierLine, "식별: work@example.com")
-        XCTAssertEqual(presentation.sourceLine, "출처: 앱내 웹 로그인")
-        XCTAssertEqual(presentation.organizationLine, "조직: Work Org")
-        XCTAssertEqual(presentation.statusLine, "상태: 최근 조회 성공")
+        XCTAssertEqual(presentation.primaryTitle, "work@example.com")
+        XCTAssertEqual(presentation.secondaryLine, "Work Org · 앱에서 로그인")
+        XCTAssertEqual(presentation.sourceBadge, "앱 로그인")
+        XCTAssertEqual(presentation.statusText, "최근 조회 성공")
+        XCTAssertEqual(presentation.statusTone, .success)
+        XCTAssertEqual(presentation.availableActions, [.use, .deleteWebSession])
         XCTAssertEqual(presentation.systemImage, "globe")
     }
 
-    func testChromeProfilePresentationUsesProfileAndOrganizationPreview() {
+    func testChromeProfilePresentationPrefersReadableProfileEmailAndOrganizationName() {
         let account = ClaudeAccount(
             id: "web",
             kind: .webSession,
-            displayName: "Chrome Profile 2",
+            displayName: "Chrome Nathan",
             identity: ClaudeAccountIdentity(organizationID: "org-company"),
             source: .chromeProfile,
-            sourceDetail: "Profile 2",
+            sourceDetail: "Nathan (Profile 2) · nathan@glorang.com",
             preferredOrganizationID: "org-company",
             lastValidationState: .verified
         )
-        let organization = ClaudeAPIService.OrganizationSummary(id: "org-company", name: "Company")
-        let preview = ClaudeAPIService.OrganizationPreview(
-            organization: organization,
-            fiveHourPercentage: 10,
-            weeklyPercentage: 20,
-            overageEnabled: true,
-            overageUsed: 3,
-            overageLimit: 100,
-            usageErrorMessage: nil
-        )
+        let organization = ClaudeAPIService.OrganizationSummary(id: "org-company", name: "Glorang")
 
         let presentation = ClaudeAccountSettingsPresentation.resolve(
             account: account,
-            organizations: [organization],
-            previews: [organization.id: preview]
+            isActive: true,
+            organizations: [organization]
         )
 
-        XCTAssertEqual(presentation.title, "Chrome 프로필 로그인")
-        XCTAssertEqual(presentation.identifierLine, "식별: Chrome 프로필 Profile 2")
-        XCTAssertEqual(presentation.sourceLine, "출처: Chrome 프로필 Profile 2")
-        XCTAssertEqual(presentation.organizationLine, "조직: Company (org-company) · 추가 사용량 $3.00 / $100.00")
+        XCTAssertEqual(presentation.primaryTitle, "Chrome Nathan · nathan@glorang.com")
+        XCTAssertEqual(presentation.secondaryLine, "Glorang · Chrome Nathan")
+        XCTAssertEqual(presentation.sourceBadge, "Chrome")
+        XCTAssertEqual(presentation.statusText, "최근 조회 성공")
+        XCTAssertEqual(presentation.availableActions, [.deleteWebSession])
     }
 
-    func testClaudeCodePresentationExplainsTerminalCliSource() {
+    func testClaudeCodePresentationIsReadOnlyCliCandidate() {
         let account = ClaudeAccount(
             id: "cli",
             kind: .claudeCodeExternal,
@@ -71,33 +64,54 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
 
         let presentation = ClaudeAccountSettingsPresentation.resolve(account: account)
 
-        XCTAssertEqual(presentation.title, "터미널 Claude Code 로그인")
-        XCTAssertEqual(presentation.identifierLine, "식별: max")
-        XCTAssertEqual(presentation.sourceLine, "출처: 터미널 Claude Code CLI")
-        XCTAssertNil(presentation.organizationLine)
-        XCTAssertEqual(presentation.statusLine, "상태: 감지됨")
+        XCTAssertEqual(presentation.primaryTitle, "max")
+        XCTAssertEqual(presentation.secondaryLine, "터미널 Claude Code")
+        XCTAssertEqual(presentation.sourceBadge, "Claude Code")
+        XCTAssertEqual(presentation.statusText, "확인 전")
+        XCTAssertEqual(presentation.statusTone, .neutral)
+        XCTAssertEqual(presentation.availableActions, [.use, .showClaudeCodeLoginGuidance])
         XCTAssertEqual(presentation.systemImage, "terminal")
     }
 
-    func testGenericDisplayNameFallsBackToMeaningfulAccountLabel() {
-        let browserAccount = ClaudeAccount(
+    func testOrganizationIDIsShortenedWhenNameIsUnavailable() {
+        let account = ClaudeAccount(
             id: "web",
             kind: .webSession,
-            displayName: "브라우저 계정"
-        )
-        let cliAccount = ClaudeAccount(
-            id: "cli",
-            kind: .claudeCodeExternal,
-            displayName: "Claude Code 로그인"
+            displayName: "브라우저 계정",
+            identity: ClaudeAccountIdentity(organizationID: "efa005dc-8c5f-4fd2-ab83-af6e4d063690"),
+            source: .embeddedWebLogin
         )
 
-        XCTAssertEqual(
-            ClaudeAccountSettingsPresentation.resolve(account: browserAccount).identifierLine,
-            "식별: 저장된 브라우저 로그인"
+        let presentation = ClaudeAccountSettingsPresentation.resolve(account: account)
+
+        XCTAssertEqual(presentation.primaryTitle, "저장된 Claude 계정")
+        XCTAssertEqual(presentation.secondaryLine, "efa005dc... · 앱에서 로그인")
+    }
+
+    func testDefaultAccountPresentationDoesNotExposeDiagnosticLabels() {
+        let account = ClaudeAccount(
+            id: "web",
+            kind: .webSession,
+            displayName: "Chrome Nathan",
+            identity: ClaudeAccountIdentity(organizationName: "Glorang"),
+            source: .chromeProfile,
+            sourceDetail: "Nathan (Profile 2) · nathan@glorang.com",
+            lastValidationState: .detected
         )
-        XCTAssertEqual(
-            ClaudeAccountSettingsPresentation.resolve(account: cliAccount).identifierLine,
-            "식별: 현재 Claude Code CLI 로그인"
-        )
+
+        let presentation = ClaudeAccountSettingsPresentation.resolve(account: account)
+        let userFacingTexts = [
+            presentation.primaryTitle,
+            presentation.secondaryLine ?? "",
+            presentation.sourceBadge,
+            presentation.statusText,
+        ]
+
+        for text in userFacingTexts {
+            XCTAssertFalse(text.contains("식별:"))
+            XCTAssertFalse(text.contains("출처:"))
+            XCTAssertFalse(text.contains("현재 사용 경로"))
+            XCTAssertFalse(text.contains("감지됨"))
+        }
     }
 }

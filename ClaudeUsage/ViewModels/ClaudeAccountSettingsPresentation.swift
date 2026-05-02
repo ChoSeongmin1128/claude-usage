@@ -1,117 +1,145 @@
 import Foundation
 
+enum ClaudeAccountSettingsAction: String, Equatable, Hashable {
+    case use
+    case deleteWebSession
+    case showClaudeCodeLoginGuidance
+
+    var title: String {
+        switch self {
+        case .use:
+            return "사용"
+        case .deleteWebSession:
+            return "삭제"
+        case .showClaudeCodeLoginGuidance:
+            return "다시 로그인 안내"
+        }
+    }
+}
+
+enum ClaudeAccountStatusTone: Equatable {
+    case neutral
+    case success
+    case warning
+}
+
 struct ClaudeAccountSettingsPresentation: Equatable {
-    let title: String
-    let identifierLine: String
-    let sourceLine: String
-    let organizationLine: String?
-    let statusLine: String
+    let primaryTitle: String
+    let secondaryLine: String?
+    let sourceBadge: String
+    let statusText: String
+    let statusTone: ClaudeAccountStatusTone
+    let availableActions: [ClaudeAccountSettingsAction]
     let systemImage: String
 
     static func resolve(
         account: ClaudeAccount,
-        organizations: [ClaudeAPIService.OrganizationSummary] = [],
-        previews: [String: ClaudeAPIService.OrganizationPreview] = [:]
+        isActive: Bool = false,
+        organizations: [ClaudeAPIService.OrganizationSummary] = []
     ) -> ClaudeAccountSettingsPresentation {
-        ClaudeAccountSettingsPresentation(
-            title: title(for: account),
-            identifierLine: "식별: \(identifierLabel(for: account))",
-            sourceLine: "출처: \(sourceLabel(for: account))",
-            organizationLine: organizationLine(for: account, organizations: organizations, previews: previews),
-            statusLine: "상태: \(statusLabel(for: account.lastValidationState))",
+        let organization = organizationLabel(for: account, organizations: organizations)
+        let source = sourceDescription(for: account)
+        let secondaryLine = nilIfEmpty([organization, source].compactMap(\.self).joined(separator: " · "))
+        let status = statusPresentation(for: account.lastValidationState)
+        var actions: [ClaudeAccountSettingsAction] = []
+
+        if !isActive {
+            actions.append(.use)
+        }
+        switch account.kind {
+        case .webSession:
+            actions.append(.deleteWebSession)
+        case .claudeCodeExternal:
+            actions.append(.showClaudeCodeLoginGuidance)
+        }
+
+        return ClaudeAccountSettingsPresentation(
+            primaryTitle: primaryTitle(for: account),
+            secondaryLine: secondaryLine,
+            sourceBadge: sourceBadge(for: account),
+            statusText: status.text,
+            statusTone: status.tone,
+            availableActions: actions,
             systemImage: account.kind == .webSession ? "globe" : "terminal"
         )
     }
 
-    static func statusLabel(for state: ClaudeCredentialValidationState) -> String {
-        switch state {
-        case .unavailable:
-            return "확인 전"
-        case .detected:
-            return "감지됨"
-        case .verified:
-            return "최근 조회 성공"
-        case .failed:
-            return "확인 필요"
+    private static func primaryTitle(for account: ClaudeAccount) -> String {
+        let email = account.identity.email ?? emailFromSourceDetail(account.sourceDetail)
+        let displayName = meaningfulDisplayName(for: account)
+
+        switch account.kind {
+        case .webSession:
+            if account.source == .chromeProfile, let displayName, let email {
+                return "\(displayName) · \(email)"
+            }
+            if let email {
+                return email
+            }
+            if let displayName {
+                return displayName
+            }
+            return "저장된 Claude 계정"
+        case .claudeCodeExternal:
+            if let email {
+                return email
+            }
+            if let displayName {
+                return displayName
+            }
+            return "현재 터미널 Claude Code 계정"
         }
     }
 
-    private static func title(for account: ClaudeAccount) -> String {
+    private static func sourceBadge(for account: ClaudeAccount) -> String {
         switch account.kind {
         case .webSession:
             switch account.source {
             case .chromeProfile:
-                return "Chrome 프로필 로그인"
+                return "Chrome"
             case .embeddedWebLogin:
-                return "앱내 웹 로그인"
+                return "앱 로그인"
             case .manualInput:
-                return "수동 입력 로그인"
+                return "수동"
             case .legacyMigration:
-                return "기존 브라우저 로그인"
+                return "기존 로그인"
             case .claudeCodeCLI, .none:
-                return "브라우저 로그인"
+                return "브라우저"
             }
         case .claudeCodeExternal:
-            return "터미널 Claude Code 로그인"
+            return "Claude Code"
         }
     }
 
-    private static func sourceLabel(for account: ClaudeAccount) -> String {
+    private static func sourceDescription(for account: ClaudeAccount) -> String? {
         switch account.kind {
         case .webSession:
             switch account.source {
             case .chromeProfile:
-                if let detail = account.sourceDetail, !detail.isEmpty {
-                    return "Chrome 프로필 \(detail)"
+                if let displayName = meaningfulDisplayName(for: account) {
+                    return displayName
+                }
+                if let profileName = readableChromeProfileName(from: account.sourceDetail) {
+                    return "Chrome \(profileName)"
                 }
                 return "Chrome 프로필"
             case .embeddedWebLogin:
-                return "앱내 웹 로그인"
+                return "앱에서 로그인"
             case .manualInput:
-                return "고급 설정 수동 입력"
+                return "수동 입력"
             case .legacyMigration:
-                return "업데이트 전 저장된 브라우저 로그인"
+                return "이전 버전에서 가져온 로그인"
             case .claudeCodeCLI, .none:
                 return "브라우저 로그인"
             }
         case .claudeCodeExternal:
-            return "터미널 Claude Code CLI"
+            return "터미널 Claude Code"
         }
     }
 
-    private static func identifierLabel(for account: ClaudeAccount) -> String {
-        let labels = [
-            account.identity.email,
-            account.identity.planLabel,
-            meaningfulDisplayName(for: account),
-        ]
-        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-        .filter { !$0.isEmpty }
-
-        var uniqueLabels: [String] = []
-        for label in labels where !uniqueLabels.contains(label) {
-            uniqueLabels.append(label)
-        }
-
-        if !uniqueLabels.isEmpty {
-            return uniqueLabels.joined(separator: " · ")
-        }
-
-        switch account.kind {
-        case .webSession:
-            if account.source == .chromeProfile, let detail = account.sourceDetail {
-                return "Chrome 프로필 \(detail)"
-            }
-            return "저장된 브라우저 로그인"
-        case .claudeCodeExternal:
-            return "현재 Claude Code CLI 로그인"
-        }
-    }
-
-    private static func organizationLine(
+    private static func organizationLabel(
         for account: ClaudeAccount,
-        organizations: [ClaudeAPIService.OrganizationSummary],
-        previews: [String: ClaudeAPIService.OrganizationPreview]
+        organizations: [ClaudeAPIService.OrganizationSummary]
     ) -> String? {
         let organizationID = [
             Optional(account.preferredOrganizationID),
@@ -122,52 +150,31 @@ struct ClaudeAccountSettingsPresentation: Equatable {
 
         if let organizationID,
            let organization = organizations.first(where: { $0.id == organizationID }) {
-            return "조직: \(organizationLabel(for: organization, preview: previews[organization.id]))"
+            return nilIfEmpty(organization.name) ?? shortOrganizationID(organization.id)
         }
 
         if let organizationName = account.identity.organizationName {
-            return "조직: \(organizationName)"
+            return organizationName
         }
 
         if let organizationID, !organizationID.isEmpty {
-            return "조직: \(shortOrganizationID(organizationID))"
+            return shortOrganizationID(organizationID)
         }
 
-        if account.kind == .claudeCodeExternal {
-            return nil
+        return account.kind == .webSession ? "조직 확인 전" : nil
+    }
+
+    private static func statusPresentation(
+        for state: ClaudeCredentialValidationState
+    ) -> (text: String, tone: ClaudeAccountStatusTone) {
+        switch state {
+        case .verified:
+            return ("최근 조회 성공", .success)
+        case .failed:
+            return ("확인 필요", .warning)
+        case .unavailable, .detected:
+            return ("확인 전", .neutral)
         }
-
-        return "조직: 확인 전"
-    }
-
-    private static func organizationLabel(
-        for organization: ClaudeAPIService.OrganizationSummary,
-        preview: ClaudeAPIService.OrganizationPreview?
-    ) -> String {
-        var label = organization.displayName
-        guard let preview else { return label }
-
-        if preview.overageEnabled == true {
-            if let used = preview.overageUsed,
-               let limit = preview.overageLimit {
-                label += " · 추가 사용량 \(formatCurrency(used)) / \(formatCurrency(limit))"
-            } else {
-                label += " · 추가 사용량 켜짐"
-            }
-        } else if preview.overageEnabled == false {
-            label += " · 추가 사용량 꺼짐"
-        }
-
-        return label
-    }
-
-    private static func shortOrganizationID(_ id: String) -> String {
-        if id.count <= 12 { return id }
-        return "\(id.prefix(8))..."
-    }
-
-    private static func formatCurrency(_ value: Double) -> String {
-        String(format: "$%.2f", value)
     }
 
     private static func meaningfulDisplayName(for account: ClaudeAccount) -> String? {
@@ -177,15 +184,46 @@ struct ClaudeAccountSettingsPresentation: Equatable {
         switch account.kind {
         case .webSession:
             let genericValues = ["브라우저 계정", ClaudeAccountKind.webSession.displayName]
-            if genericValues.contains(value) { return nil }
-            if account.source == .chromeProfile,
-               let detail = account.sourceDetail,
-               value == "Chrome \(detail)" {
-                return nil
-            }
-            return value
+            return genericValues.contains(value) ? nil : value
         case .claudeCodeExternal:
             return ["Claude Code 계정", ClaudeAccountKind.claudeCodeExternal.displayName].contains(value) ? nil : value
         }
+    }
+
+    private static func readableChromeProfileName(from sourceDetail: String?) -> String? {
+        guard let sourceDetail = nilIfEmpty(sourceDetail) else { return nil }
+        let profilePart = sourceDetail.components(separatedBy: "·").first?
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        guard var profilePart, !profilePart.isEmpty else { return nil }
+
+        if let range = profilePart.range(of: #" \([^)]+\)"#, options: String.CompareOptions.regularExpression) {
+            profilePart.removeSubrange(range)
+        }
+
+        return nilIfEmpty(profilePart.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines))
+    }
+
+    private static func emailFromSourceDetail(_ sourceDetail: String?) -> String? {
+        guard let sourceDetail else { return nil }
+        let separators = CharacterSet.whitespacesAndNewlines
+            .union(CharacterSet(charactersIn: "·,;()<>[]"))
+        let email = sourceDetail
+            .components(separatedBy: separators)
+            .map { $0.trimmingCharacters(in: CharacterSet.punctuationCharacters) }
+            .first { token in
+                token.contains("@") && token.contains(".")
+            }
+        return nilIfEmpty(email)
+    }
+
+    private static func shortOrganizationID(_ id: String) -> String {
+        if id.count <= 12 { return id }
+        return "\(id.prefix(8))..."
+    }
+
+    private static func nilIfEmpty(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

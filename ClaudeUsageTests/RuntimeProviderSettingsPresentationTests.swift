@@ -192,6 +192,17 @@ final class PublicCopySanityTests: XCTestCase {
                 credentialState: .usable
             )
         )
+        let claudeAccountPresentation = ClaudeAccountSettingsPresentation.resolve(
+            account: ClaudeAccount(
+                id: "web",
+                kind: .webSession,
+                displayName: "Chrome Nathan",
+                identity: ClaudeAccountIdentity(organizationName: "Glorang"),
+                source: .chromeProfile,
+                sourceDetail: "Nathan (Profile 2) · nathan@glorang.com",
+                lastValidationState: .detected
+            )
+        )
 
         assertNoInternalTerms(in: [
             geminiStatus.summary,
@@ -199,6 +210,10 @@ final class PublicCopySanityTests: XCTestCase {
             geminiPresentation.summary,
             geminiPresentation.nextStepTitle,
             geminiPresentation.nextStepDetail,
+            claudeAccountPresentation.primaryTitle,
+            claudeAccountPresentation.secondaryLine ?? "",
+            claudeAccountPresentation.sourceBadge,
+            claudeAccountPresentation.statusText,
         ])
     }
 
@@ -214,6 +229,10 @@ final class PublicCopySanityTests: XCTestCase {
             "실행 경로",
             "OAuth 자격",
             "엔진",
+            "식별:",
+            "출처:",
+            "현재 사용 경로",
+            "감지됨",
         ]
 
         for text in strings {

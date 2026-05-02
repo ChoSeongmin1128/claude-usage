@@ -94,6 +94,7 @@ final class AppRuntimeStateFacade {
     func applyClaudeUsageHealthSnapshot(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> Bool {
         let previousCredentialAvailability = claudeCredentialAvailability.hasAnyCredential
         if activeClaudeAccountID != snapshot.activeAccountID {
+            runtimeStateCatalog[.claude] = RuntimeProviderState()
             currentOverage = nil
             lastOverageFetchAt = nil
         }

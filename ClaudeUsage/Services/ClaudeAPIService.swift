@@ -15,12 +15,47 @@ actor ClaudeAPIService {
     struct OrganizationSummary: Sendable, Equatable, Identifiable, Codable {
         let id: String
         let name: String?
+        let planLabel: String?
+        let billingType: String?
+        let rateLimitTier: String?
+
+        nonisolated init(
+            id: String,
+            name: String?,
+            planLabel: String? = nil,
+            billingType: String? = nil,
+            rateLimitTier: String? = nil
+        ) {
+            self.id = id
+            self.name = Self.normalized(name)
+            self.planLabel = Self.normalized(planLabel)
+            self.billingType = Self.normalized(billingType)
+            self.rateLimitTier = Self.normalized(rateLimitTier)
+        }
 
         var displayName: String {
             if let name, !name.isEmpty {
                 return "\(name) (\(id))"
             }
             return id
+        }
+
+        var hasTeamPlanSignal: Bool {
+            let values = [planLabel, billingType, rateLimitTier]
+                .compactMap { $0?.lowercased() }
+            return values.contains { value in
+                value.contains("team")
+                    || value.contains("enterprise")
+                    || value.contains("business")
+                    || value.contains("organization")
+                    || value.contains("org")
+            }
+        }
+
+        private nonisolated static func normalized(_ value: String?) -> String? {
+            guard let value else { return nil }
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
         }
     }
 
@@ -739,7 +774,7 @@ actor ClaudeAPIService {
         }
 
         if let preferredOrganizationID {
-            Logger.warning("선호 Organization ID 미발견(\(preferredOrganizationID)) → 첫 organization으로 대체")
+            Logger.warning("선호 Organization ID 미발견(\(preferredOrganizationID)) → 자동 선택으로 대체")
         }
 
         let selected = await selectAutomaticOrganization(organizations, sessionKey: sessionKey) ?? organizations[0]
@@ -774,29 +809,27 @@ actor ClaudeAPIService {
             return organizations.first
         }
 
-        var candidates: [ClaudeOverageOrganizationCandidate] = []
+        var candidates: [ClaudeAutomaticOrganizationCandidate] = []
         candidates.reserveCapacity(organizations.count)
 
         for organization in organizations {
+            var overage: OverageSpendLimitResponse?
             do {
-                let overage = try await fetchOverageSpendLimitWithSessionKey(sessionKey, organizationID: organization.id)
-                candidates.append(
-                    ClaudeOverageOrganizationCandidate(
-                        organizationID: organization.id,
-                        overage: overage
-                    )
-                )
+                overage = try await fetchOverageSpendLimitWithSessionKey(sessionKey, organizationID: organization.id)
             } catch {
                 Logger.debug("자동 Organization 추가 사용량 확인 실패(\(organization.id)): \(error.localizedDescription)")
             }
+            candidates.append(ClaudeAutomaticOrganizationCandidate(organization: organization, overage: overage))
         }
 
-        guard let selectedCandidate = ClaudeOverageOrganizationSelectionPolicy.selectBest(from: candidates),
-              let selected = organizations.first(where: { $0.id == selectedCandidate.organizationID }) else {
+        guard let selectedCandidate = ClaudeAutomaticOrganizationSelectionPolicy.selectBest(from: candidates) else {
             return organizations.first
         }
 
-        if selectedCandidate.overage.isEnabled {
+        let selected = selectedCandidate.organization
+        if selected.hasTeamPlanSignal {
+            Logger.info("팀/조직 플랜 Organization 자동 선택: \(selected.id)")
+        } else if selectedCandidate.overage?.isEnabled == true {
             Logger.info("추가 사용량 활성 Organization 자동 선택: \(selected.id)")
         }
         return selected
@@ -831,12 +864,33 @@ actor ClaudeAPIService {
                 throw APIError.parseError
             }
 
+            func firstNonEmptyString(_ values: Any?...) -> String? {
+                values.compactMap { $0 as? String }
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .first(where: { !$0.isEmpty })
+            }
+
             let organizations = json.compactMap { org -> OrganizationSummary? in
                 guard let uuid = org["uuid"] as? String, !uuid.isEmpty else { return nil }
-                let name = (org["name"] as? String) ??
-                           (org["display_name"] as? String) ??
-                           (org["company_name"] as? String)
-                return OrganizationSummary(id: uuid, name: name)
+                let name = firstNonEmptyString(
+                    org["name"],
+                    org["display_name"],
+                    org["company_name"])
+                let planLabel = firstNonEmptyString(
+                    org["plan"],
+                    org["plan_label"],
+                    org["planLabel"],
+                    org["subscription_type"],
+                    org["subscriptionType"])
+                let billingType = firstNonEmptyString(org["billing_type"], org["billingType"])
+                let rateLimitTier = firstNonEmptyString(org["rate_limit_tier"], org["rateLimitTier"])
+                return OrganizationSummary(
+                    id: uuid,
+                    name: name,
+                    planLabel: planLabel,
+                    billingType: billingType,
+                    rateLimitTier: rateLimitTier
+                )
             }
 
             if organizations.isEmpty {

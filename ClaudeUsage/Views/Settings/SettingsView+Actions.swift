@@ -17,11 +17,6 @@ extension SettingsView {
             : "브라우저 로그인 값은 삭제했습니다. 다시 가져오거나 Claude Code 로그인을 사용해 주세요."
     }
 
-    func handleDisableClaudeProviderAction() {
-        settings.setProviderEnabled(false, for: .claude)
-        organizationMessage = "Claude 연결을 껐습니다. 외부 Claude Code 로그인 정보는 변경하지 않았습니다."
-    }
-
     func showClaudeCodeLoginGuidance() {
         organizationMessage = "Claude Code 로그인을 다시 진행하려면 터미널에서 `claude login`을 실행한 뒤 사용량 새로고침을 눌러 주세요."
     }
@@ -164,7 +159,7 @@ extension SettingsView {
         organizations = []
         organizationPreviews = [:]
         organizationMessage = "현재 사용 계정을 \(account.displayName)으로 변경했습니다. 사용량을 다시 조회합니다."
-        refreshClaudeUsageFromSettings()
+        loadUsageHealthSnapshot()
     }
 
     func deleteClaudeWebAccount(_ account: ClaudeAccount) {

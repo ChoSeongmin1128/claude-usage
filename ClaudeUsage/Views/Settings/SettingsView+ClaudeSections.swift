@@ -20,11 +20,11 @@ extension SettingsView {
 
             if settings.isProviderEnabled(.claude) {
                 claudeAccountSection
-                compactAuthStatusCard
-                authPrimaryActionsCard
                 if shouldShowOrganizationSection {
                     organizationSection
                 }
+                accountAddCard
+                advancedClaudeDiagnosticsSection
                 if shouldShowManualInputSection {
                     manualSessionKeySection
                 }
@@ -37,33 +37,77 @@ extension SettingsView {
         }
     }
 
-    private var compactAuthStatusCard: some View {
+    private var claudeAccountSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionCardHeader(title: "현재 인증 상태")
+            currentClaudeAccountCard
+            connectedClaudeAccountsCard
+        }
+    }
 
-            if let snapshot = usageHealthSnapshot {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 6) {
-                        chip(
-                            title: "사용 중",
-                            value: compactRuntimePathLabel(snapshot),
-                            color: runtimePathColor(snapshot.runtime.activePath)
-                        )
-                        if let oauthChip = oauthStatusChip(snapshot) {
-                            chip(title: "Claude Code", value: oauthChip.value, color: oauthChip.color)
-                        } else if snapshot.runtime.credentialAvailability.sessionCredentialAvailable {
-                            chip(title: "브라우저", value: "준비됨", color: .green)
+    private var currentClaudeAccountCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionCardHeader(
+                title: "현재 사용 계정",
+                subtitle: "이 계정의 Claude 사용량만 조회합니다"
+            )
+
+            if let account = activeClaudeAccount() {
+                let presentation = ClaudeAccountSettingsPresentation.resolve(
+                    account: account,
+                    isActive: true,
+                    organizations: organizations
+                )
+
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: presentation.systemImage)
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 18)
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Text(presentation.primaryTitle)
+                                .font(.headline)
+                                .lineLimit(1)
+                            chip(title: "현재", value: "사용 중", color: .green)
+                        }
+
+                        if let secondaryLine = presentation.secondaryLine {
+                            Text(secondaryLine)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+
+                        HStack(spacing: 6) {
+                            chip(title: "", value: presentation.sourceBadge, color: .secondary)
+                            chip(
+                                title: "",
+                                value: presentation.statusText,
+                                color: color(for: presentation.statusTone)
+                            )
                         }
                     }
 
-                    Text(authSummaryLine(snapshot))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                }
 
-                    sourceStatusRows(snapshot)
+                HStack(spacing: 8) {
+                    Button("사용량 새로고침") {
+                        refreshClaudeUsageFromSettings()
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    if account.kind == .webSession {
+                        Button("조직 변경") {
+                            revealOrganizationControls()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    Spacer(minLength: 0)
                 }
             } else {
-                Text("인증 상태를 아직 불러오지 못했습니다. 먼저 가져오기 또는 로그인부터 진행하시면 됩니다.")
+                Text("아직 선택된 Claude 계정이 없습니다. 아래에서 Chrome 로그인 가져오기 또는 앱에서 로그인을 진행해 주세요.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -73,20 +117,22 @@ extension SettingsView {
         .cornerRadius(8)
     }
 
-    private var claudeAccountSection: some View {
+    private var connectedClaudeAccountsCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionCardHeader(
-                title: "계정",
-                subtitle: "브라우저 로그인과 터미널 Claude Code 로그인 중 조회에 사용할 하나를 선택합니다"
+                title: "연결된 계정",
+                subtitle: "한 번 연결한 계정은 여기에서 다시 선택할 수 있습니다"
             )
 
             if claudeAccounts.isEmpty {
-                Text("저장된 계정이 없습니다. Chrome에서 가져오기 또는 웹 로그인을 먼저 진행해 주세요.")
+                Text("연결된 계정이 없습니다.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(claudeAccounts) { account in
-                    claudeAccountRow(account)
+                VStack(spacing: 8) {
+                    ForEach(claudeAccounts) { account in
+                        claudeAccountRow(account)
+                    }
                 }
             }
         }
@@ -99,139 +145,102 @@ extension SettingsView {
         let isActive = account.id == activeClaudeAccountID
         let presentation = ClaudeAccountSettingsPresentation.resolve(
             account: account,
-            organizations: organizations,
-            previews: organizationPreviews
+            isActive: isActive,
+            organizations: organizations
         )
-        return HStack(alignment: .center, spacing: 10) {
+        return HStack(alignment: .center, spacing: 12) {
             Image(systemName: presentation.systemImage)
                 .foregroundStyle(isActive ? Color.accentColor : .secondary)
-                .frame(width: 16)
+                .frame(width: 18)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
-                    Text(presentation.title)
+                    Text(presentation.primaryTitle)
                         .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
                     if isActive {
-                        chip(title: "현재", value: "사용 중", color: .green)
+                        chip(title: "", value: "현재 사용 중", color: .green)
                     }
                 }
-                Text(presentation.identifierLine)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Text(presentation.sourceLine)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                if let organizationLine = presentation.organizationLine {
-                    Text(organizationLine)
+
+                if let secondaryLine = presentation.secondaryLine {
+                    Text(secondaryLine)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                Text(presentation.statusLine)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+
+                HStack(spacing: 6) {
+                    chip(title: "", value: presentation.sourceBadge, color: .secondary)
+                    chip(title: "", value: presentation.statusText, color: color(for: presentation.statusTone))
+                }
             }
 
             Spacer(minLength: 8)
 
-            if !isActive {
-                Button("사용") {
-                    setActiveClaudeAccount(account)
-                }
-                .controlSize(.small)
-            }
-
-            if account.kind == .webSession {
-                Button("삭제") {
-                    deleteClaudeWebAccount(account)
-                }
-                .controlSize(.small)
-            } else {
-                Button("로그인 안내") {
-                    showClaudeCodeLoginGuidance()
+            ForEach(presentation.availableActions, id: \.self) { action in
+                Button(action.title) {
+                    handleClaudeAccountAction(action, account: account)
                 }
                 .controlSize(.small)
             }
         }
-        .padding(.vertical, 4)
+        .padding(10)
+        .background(isActive ? Color.accentColor.opacity(0.08) : Color(NSColor.windowBackgroundColor).opacity(0.35))
+        .cornerRadius(8)
     }
 
-    private var authPrimaryActionsCard: some View {
+    private var accountAddCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if hasReadyClaudeCredential {
-                HStack(spacing: 8) {
-                    Button("사용량 새로고침") {
-                        refreshClaudeUsageFromSettings()
-                    }
-                    .buttonStyle(.borderedProminent)
+            sectionCardHeader(
+                title: "계정 추가",
+                subtitle: "새 Claude 계정을 연결하거나 마지막 수단으로 직접 입력합니다"
+            )
 
-                    if shouldShowOrganizationAction {
-                        Button("조직 선택") {
-                            revealOrganizationControls()
-                        }
-                        .buttonStyle(.bordered)
-                    }
-
-                    Button("브라우저 로그인 다시 가져오기") { onOpenLogin?() }
-                        .buttonStyle(.bordered)
+            HStack(spacing: 8) {
+                Button(action: { onOpenClaudeInChrome?() }) {
+                    Label("Chrome에서 가져오기", systemImage: "globe")
+                        .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.borderedProminent)
 
-                HStack(spacing: 8) {
-                    if isTesting {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("연결 상태를 확인하고 있습니다")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } else if let result = testResult {
-                        switch result {
-                        case .success:
-                            Label("최근 연결 확인됨", systemImage: "checkmark.circle.fill")
-                                .font(.caption)
-                                .foregroundStyle(.green)
-                        case .failure(let msg):
-                            Label(msg, systemImage: "exclamationmark.triangle.fill")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                                .lineLimit(2)
-                        }
-                    } else if let summary = claudeNotificationPolicySummary {
-                        Text(summary)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    Button("브라우저 로그인 값 삭제") { handleClearBrowserSessionAction() }
-                        .disabled(!(usageHealthSnapshot?.runtime.credentialAvailability.sessionCredentialAvailable ?? false))
-
-                    Button("Claude Code 다시 로그인 안내") { showClaudeCodeLoginGuidance() }
-                        .disabled(!(usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false))
-
-                    Button("Claude 연결 끄기") { handleDisableClaudeProviderAction() }
-                        .foregroundStyle(.red)
+                Button(action: { onOpenLogin?() }) {
+                    Label("앱에서 로그인", systemImage: "person.crop.circle")
+                        .frame(maxWidth: .infinity)
                 }
-            } else {
-                VStack(alignment: .leading, spacing: 8) {
-                    Button(action: { onOpenClaudeInChrome?() }) {
-                        Label("Chrome 로그인 가져오기", systemImage: "globe")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+                .buttonStyle(.bordered)
 
-                    HStack(spacing: 8) {
-                        Button(action: { onOpenLogin?() }) {
-                            Label("웹 로그인 열기", systemImage: "person.crop.circle")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.regular)
+                Button("고급: 직접 입력") {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        isAdvancedAuthExpanded.toggle()
                     }
+                }
+                .buttonStyle(.bordered)
+            }
+
+            HStack(spacing: 8) {
+                if isTesting {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("연결 상태를 확인하고 있습니다")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if let result = testResult {
+                    switch result {
+                    case .success:
+                        Label("최근 연결 확인됨", systemImage: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    case .failure(let msg):
+                        Label(msg, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .lineLimit(2)
+                    }
+                } else if let summary = claudeNotificationPolicySummary {
+                    Text(summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
@@ -240,16 +249,63 @@ extension SettingsView {
         .cornerRadius(8)
     }
 
-    private var shouldShowOrganizationAction: Bool {
-        hasSessionCredentialAvailable
+    private var advancedClaudeDiagnosticsSection: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 8) {
+                if let snapshot = usageHealthSnapshot {
+                    Text(authSummaryLine(snapshot))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    sourceStatusRows(snapshot)
+                } else {
+                    Text("인증 상태를 아직 불러오지 못했습니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 8) {
+                    Button("브라우저 로그인 값 삭제") { handleClearBrowserSessionAction() }
+                        .disabled(!(usageHealthSnapshot?.runtime.credentialAvailability.sessionCredentialAvailable ?? false))
+
+                    Button("Claude Code 다시 로그인 안내") { showClaudeCodeLoginGuidance() }
+                        .disabled(!(usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false))
+                }
+            }
+            .padding(.top, 6)
+        } label: {
+            Text("고급 진단")
+                .font(.subheadline)
+        }
+        .padding(12)
+        .background(Color(NSColor.controlBackgroundColor).opacity(0.35))
+        .cornerRadius(8)
+    }
+
+    private func handleClaudeAccountAction(_ action: ClaudeAccountSettingsAction, account: ClaudeAccount) {
+        switch action {
+        case .use:
+            setActiveClaudeAccount(account)
+        case .deleteWebSession:
+            deleteClaudeWebAccount(account)
+        case .showClaudeCodeLoginGuidance:
+            showClaudeCodeLoginGuidance()
+        }
+    }
+
+    private func color(for tone: ClaudeAccountStatusTone) -> Color {
+        switch tone {
+        case .neutral:
+            return .secondary
+        case .success:
+            return .green
+        case .warning:
+            return .orange
+        }
     }
 
     private var shouldShowOrganizationSection: Bool {
-        hasSessionCredentialAvailable
-            || !appliedPreferredOrganizationID.isEmpty
+        (activeClaudeWebAccount() != nil && isOrganizationAdvancedExpanded)
             || hasPendingOrganizationChange
-            || isOrganizationAdvancedExpanded
-            || organizations.count > 1
     }
 
     private var manualSessionKeySection: some View {
@@ -441,22 +497,6 @@ extension SettingsView {
         }
 
         return "브라우저 로그인 값이 저장되어 있습니다. 사용량 새로고침으로 실제 조회를 확인하세요."
-    }
-
-    private func oauthStatusChip(
-        _ snapshot: ClaudeAPIService.UsageHealthSnapshot
-    ) -> (value: String, color: Color)? {
-        guard snapshot.runtime.credentialAvailability.oauthCredentialAvailable else { return nil }
-
-        if snapshot.runtime.oauthValidationState == .verified {
-            return ("검증됨", .blue)
-        }
-
-        if snapshot.runtime.oauthValidationState == .failed {
-            return ("확인 필요", .orange)
-        }
-
-        return ("감지됨", .blue)
     }
 
     private func sourceStatusRows(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> some View {
