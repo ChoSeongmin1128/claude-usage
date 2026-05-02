@@ -116,8 +116,8 @@ struct ClaudeAccountSettingsPresentation: Equatable {
         case .webSession:
             switch account.source {
             case .chromeProfile:
-                if let displayName = meaningfulDisplayName(for: account) {
-                    return displayName
+                if let source = chromeProfileSourceDescription(for: account) {
+                    return source
                 }
                 if let profileName = readableChromeProfileName(from: account.sourceDetail) {
                     return "Chrome \(profileName)"
@@ -201,6 +201,15 @@ struct ClaudeAccountSettingsPresentation: Equatable {
         }
 
         return nilIfEmpty(profilePart.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines))
+    }
+
+    private static func chromeProfileSourceDescription(for account: ClaudeAccount) -> String? {
+        guard let sourceDetail = nilIfEmpty(account.sourceDetail) else {
+            return meaningfulDisplayName(for: account)
+        }
+        let profilePart = sourceDetail.components(separatedBy: "·").first?
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        return nilIfEmpty(profilePart) ?? meaningfulDisplayName(for: account)
     }
 
     private static func emailFromSourceDetail(_ sourceDetail: String?) -> String? {

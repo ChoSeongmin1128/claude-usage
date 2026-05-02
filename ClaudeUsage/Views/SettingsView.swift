@@ -126,7 +126,7 @@ struct SettingsView: View {
     @State var expandedCustomMenuBarProviders: Set<AppProviderKind> = []
 
     var onOpenLogin: (() -> Void)?
-    var onOpenClaudeInChrome: (() -> Void)?
+    var onImportClaudeFromChrome: (() -> Void)?
     var onClearBrowserSession: (() -> Void)?
     var onRefreshClaudeUsage: (() -> Void)?
     var onCodexLogout: (() -> Void)?

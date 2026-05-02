@@ -198,7 +198,7 @@ extension SettingsView {
             )
 
             HStack(spacing: 8) {
-                Button(action: { onOpenClaudeInChrome?() }) {
+                Button(action: { onImportClaudeFromChrome?() }) {
                     Label("Chrome에서 가져오기", systemImage: "globe")
                         .frame(maxWidth: .infinity)
                 }

@@ -47,7 +47,7 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation.primaryTitle, "Chrome Nathan · nathan@glorang.com")
-        XCTAssertEqual(presentation.secondaryLine, "Glorang · Chrome Nathan")
+        XCTAssertEqual(presentation.secondaryLine, "Glorang · Nathan (Profile 2)")
         XCTAssertEqual(presentation.sourceBadge, "Chrome")
         XCTAssertEqual(presentation.statusText, "최근 조회 성공")
         XCTAssertEqual(presentation.availableActions, [.deleteWebSession])

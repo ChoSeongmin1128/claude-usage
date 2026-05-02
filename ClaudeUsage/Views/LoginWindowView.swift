@@ -12,19 +12,23 @@ struct LoginWindowView: View {
     @State private var loginSuccess = false
     @State private var clearTrigger: Int
     @State private var chromeSessionCandidates: [ClaudeBrowserImportedSession] = []
+    @State private var didStartChromeImportOnOpen = false
 
     var clearOnOpen: Bool
+    var startChromeImportOnOpen: Bool
     var onSessionKeyFound: (String, String?, ClaudeAccountSource?, String?) async throws -> Void
     var onOpenAdvancedSettings: () -> Void
     var onCancel: () -> Void
 
     init(
         clearOnOpen: Bool = false,
+        startChromeImportOnOpen: Bool = false,
         onSessionKeyFound: @escaping (String, String?, ClaudeAccountSource?, String?) async throws -> Void,
         onOpenAdvancedSettings: @escaping () -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.clearOnOpen = clearOnOpen
+        self.startChromeImportOnOpen = startChromeImportOnOpen
         self._clearTrigger = State(initialValue: clearOnOpen ? 1 : 0)
         self.onSessionKeyFound = onSessionKeyFound
         self.onOpenAdvancedSettings = onOpenAdvancedSettings
@@ -221,6 +225,11 @@ struct LoginWindowView: View {
             .padding(.vertical, 8)
         }
         .frame(width: 800, height: 700)
+        .onAppear {
+            guard startChromeImportOnOpen, !didStartChromeImportOnOpen else { return }
+            didStartChromeImportOnOpen = true
+            importFromChrome()
+        }
     }
 
     private func activateSessionKey(

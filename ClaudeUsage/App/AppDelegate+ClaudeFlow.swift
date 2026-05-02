@@ -88,8 +88,9 @@ extension AppDelegate {
                 self?.settingsWindowCoordinator.close()
                 self?.showLoginWindow(clearCookies: true)
             },
-            onOpenClaudeInChrome: { [weak self] in
-                self?.openClaudeUsageInChrome()
+            onImportClaudeFromChrome: { [weak self] in
+                self?.settingsWindowCoordinator.close()
+                self?.showLoginWindow(startChromeImportOnOpen: true)
             },
             onClearBrowserSession: { [weak self] in
                 guard let self else { return }
@@ -137,11 +138,11 @@ extension AppDelegate {
 
     // MARK: - Login Window
 
-    func showLoginWindow(clearCookies: Bool = false) {
+    func showLoginWindow(clearCookies: Bool = false, startChromeImportOnOpen: Bool = false) {
         setupWizardWindowCoordinator.close()
 
         if loginWindowCoordinator.focusIfVisible() {
-            if clearCookies {
+            if clearCookies || startChromeImportOnOpen {
                 loginWindowCoordinator.close()
             } else {
                 return
@@ -157,6 +158,7 @@ extension AppDelegate {
 
             let loginView = LoginWindowView(
                 clearOnOpen: clearCookies,
+                startChromeImportOnOpen: startChromeImportOnOpen,
                 onSessionKeyFound: { [weak self] key, displayName, source, sourceDetail in
                     guard let self else { return }
 
