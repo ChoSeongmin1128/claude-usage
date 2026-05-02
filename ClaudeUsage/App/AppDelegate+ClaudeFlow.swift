@@ -119,6 +119,11 @@ extension AppDelegate {
                 self.clearWebSessionData()
                 Logger.info("브라우저 로그인 값 삭제 완료")
             },
+            onRefreshClaudeUsage: { [weak self] in
+                guard let self else { return }
+                self.syncUsageHealthSnapshotToUI()
+                self.refreshUsage(force: true)
+            },
             onCodexLogout: { [weak self] in
                 guard let self else { return }
                 CodexAuthManager.shared.clearCache()

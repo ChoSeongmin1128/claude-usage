@@ -46,18 +46,18 @@ extension SettingsView {
             ProviderEnvironmentDetector.refreshAllInBackground()
             AntigravityStatusProbe.refreshAllInBackground()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange).receive(on: RunLoop.main)) { _ in
             syncStoredSessionKeyState()
             syncClaudeAccountsState()
             selectedOrganizationID = appliedPreferredOrganizationID
             loadUsageHealthSnapshot()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .claudeAccountsDidChange)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .claudeAccountsDidChange).receive(on: RunLoop.main)) { _ in
             syncClaudeAccountsState()
             selectedOrganizationID = appliedPreferredOrganizationID
             loadUsageHealthSnapshot()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .providerEnvironmentUpdated)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .providerEnvironmentUpdated).receive(on: RunLoop.main)) { _ in
             // 백그라운드 환경 감지 결과가 들어왔을 때 SettingsView 를 재렌더.
             // 각 패널의 runtimeEnvironmentRefreshTick 읽기가 dependency 를 만듦.
             runtimeEnvironmentRefreshTick &+= 1

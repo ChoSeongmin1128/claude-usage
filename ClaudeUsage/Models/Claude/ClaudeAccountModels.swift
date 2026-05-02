@@ -201,9 +201,10 @@ final class ClaudeAccountStore: @unchecked Sendable {
         if let index = accounts.firstIndex(where: { $0.id == id }) {
             accounts[index].lastUsedAt = Date()
         }
+        let activeAccountChanged = state.activeAccountID != id
         saveRaw(accounts: accounts, activeAccountID: id)
         lock.unlock()
-        postAccountNotifications()
+        postAccountNotifications(credentialBoundaryChanged: activeAccountChanged)
     }
 
     @discardableResult
@@ -285,7 +286,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
         let activeID = setActive ? accountID : (state.activeAccountID ?? accountID)
         saveRaw(accounts: accounts, activeAccountID: activeID)
         lock.unlock()
-        postAccountNotifications()
+        postAccountNotifications(credentialBoundaryChanged: true)
         return account
     }
 
@@ -347,7 +348,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
         }
         saveRaw(accounts: accounts, activeAccountID: activeID)
         lock.unlock()
-        postAccountNotifications()
+        postAccountNotifications(credentialBoundaryChanged: activeID != state.activeAccountID)
         return account
     }
 
@@ -373,7 +374,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
         if removed.kind == .webSession {
             try? keychainVault.delete(account: ClaudeKeychainStore.accountName(for: removed.id))
         }
-        postAccountNotifications()
+        postAccountNotifications(credentialBoundaryChanged: state.activeAccountID == id)
     }
 
     nonisolated func updatePreferredOrganizationID(_ organizationID: String, for accountID: String) {
@@ -485,7 +486,12 @@ final class ClaudeAccountStore: @unchecked Sendable {
             lock.unlock()
             return
         }
+        let previousAccount = state.accounts[index]
         update(&state.accounts[index])
+        guard state.accounts[index] != previousAccount else {
+            lock.unlock()
+            return
+        }
         saveRaw(accounts: state.accounts, activeAccountID: state.activeAccountID)
         lock.unlock()
         postAccountNotifications()
@@ -524,11 +530,24 @@ final class ClaudeAccountStore: @unchecked Sendable {
         }
     }
 
-    private nonisolated func postAccountNotifications() {
+    private nonisolated func postAccountNotifications(credentialBoundaryChanged: Bool = false) {
         guard postsNotifications else { return }
+
+        if Thread.isMainThread {
+            Self.postAccountNotificationsOnCurrentThread(credentialBoundaryChanged: credentialBoundaryChanged)
+        } else {
+            DispatchQueue.main.async {
+                Self.postAccountNotificationsOnCurrentThread(credentialBoundaryChanged: credentialBoundaryChanged)
+            }
+        }
+    }
+
+    private nonisolated static func postAccountNotificationsOnCurrentThread(credentialBoundaryChanged: Bool) {
         NotificationCenter.default.post(name: .claudeAccountsDidChange, object: nil)
         NotificationCenter.default.post(name: .claudeAccountDidChange, object: nil)
-        NotificationCenter.default.post(name: .claudeSessionKeyDidChange, object: nil)
+        if credentialBoundaryChanged {
+            NotificationCenter.default.post(name: .claudeSessionKeyDidChange, object: nil)
+        }
     }
 
     private nonisolated static func identity(_ lhs: ClaudeAccountIdentity, equals rhs: ClaudeAccountIdentity) -> Bool {

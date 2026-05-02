@@ -128,6 +128,7 @@ struct SettingsView: View {
     var onOpenLogin: (() -> Void)?
     var onOpenClaudeInChrome: (() -> Void)?
     var onClearBrowserSession: (() -> Void)?
+    var onRefreshClaudeUsage: (() -> Void)?
     var onCodexLogout: (() -> Void)?
     enum TestResult: Equatable {
         case success(String)

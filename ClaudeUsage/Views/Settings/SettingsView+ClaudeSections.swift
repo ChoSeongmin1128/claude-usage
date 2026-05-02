@@ -163,8 +163,8 @@ extension SettingsView {
         VStack(alignment: .leading, spacing: 10) {
             if hasReadyClaudeCredential {
                 HStack(spacing: 8) {
-                    Button("상태 새로고침") {
-                        loadUsageHealthSnapshot()
+                    Button("사용량 새로고침") {
+                        refreshClaudeUsageFromSettings()
                     }
                     .buttonStyle(.borderedProminent)
 
@@ -414,7 +414,7 @@ extension SettingsView {
             if snapshot.runtime.sessionValidationState == .verified {
                 return "브라우저 로그인 값으로 최근 조회가 성공했습니다."
             }
-            return "브라우저 로그인 값이 저장되어 있습니다. 상태 새로고침으로 실제 조회를 확인하세요."
+            return "브라우저 로그인 값이 저장되어 있습니다. 사용량 새로고침으로 실제 조회를 확인하세요."
         case .oauthPreferred, .oauthFallback:
             if snapshot.runtime.oauthValidationState == .failed {
                 return "Claude Code 로그인 갱신이 필요합니다. 터미널에서 `claude login`을 다시 실행해 주세요."
@@ -422,7 +422,7 @@ extension SettingsView {
             if snapshot.runtime.oauthValidationState == .verified {
                 return "Claude Code 로그인으로 최근 사용량 조회가 성공했습니다."
             }
-            return "Claude Code 로그인이 감지됐습니다. 상태 새로고침으로 실제 조회를 확인하세요."
+            return "Claude Code 로그인이 감지됐습니다. 사용량 새로고침으로 실제 조회를 확인하세요."
         case .unauthenticated:
             if snapshot.runtime.sessionValidationState == .failed {
                 return "브라우저 로그인 값 확인이 필요합니다. 다시 가져오거나 삭제 후 다른 로그인 경로를 사용하세요."
@@ -437,10 +437,10 @@ extension SettingsView {
         }
 
         if availability.oauthCredentialAvailable {
-            return "Claude Code 로그인이 감지됐습니다. 상태 새로고침으로 실제 조회를 확인하세요."
+            return "Claude Code 로그인이 감지됐습니다. 사용량 새로고침으로 실제 조회를 확인하세요."
         }
 
-        return "브라우저 로그인 값이 저장되어 있습니다. 상태 새로고침으로 실제 조회를 확인하세요."
+        return "브라우저 로그인 값이 저장되어 있습니다. 사용량 새로고침으로 실제 조회를 확인하세요."
     }
 
     private func oauthStatusChip(

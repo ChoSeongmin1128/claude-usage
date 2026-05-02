@@ -23,7 +23,7 @@ extension SettingsView {
     }
 
     func showClaudeCodeLoginGuidance() {
-        organizationMessage = "Claude Code 로그인을 다시 진행하려면 터미널에서 `claude login`을 실행한 뒤 상태 새로고침을 눌러 주세요."
+        organizationMessage = "Claude Code 로그인을 다시 진행하려면 터미널에서 `claude login`을 실행한 뒤 사용량 새로고침을 눌러 주세요."
     }
 
     func syncStoredSessionKeyState() {
@@ -83,15 +83,19 @@ extension SettingsView {
         organizationPersistTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
-            persistPreferredOrganizationSelection()
-            loadUsageHealthSnapshot()
+            if persistPreferredOrganizationSelection() {
+                organizationMessage = "조직을 변경했습니다. 사용량을 다시 조회합니다."
+                refreshClaudeUsageFromSettings()
+            } else {
+                loadUsageHealthSnapshot()
+            }
         }
     }
 
     func flushPendingOrganizationPersistence() {
         organizationPersistTask?.cancel()
         organizationPersistTask = nil
-        persistPreferredOrganizationSelection()
+        _ = persistPreferredOrganizationSelection()
     }
 
     func saveVerifiedSessionKey() {
@@ -130,12 +134,14 @@ extension SettingsView {
         }
     }
 
-    func persistPreferredOrganizationSelection() {
+    @discardableResult
+    func persistPreferredOrganizationSelection() -> Bool {
         let normalizedOrganizationID = normalizeOrganizationID(selectedOrganizationID)
         if normalizedOrganizationID != selectedOrganizationID {
             selectedOrganizationID = normalizedOrganizationID
         }
-        guard let activeClaudeAccountID else { return }
+        guard let activeClaudeAccountID else { return false }
+        let previousOrganizationID = activeClaudeAccount()?.preferredOrganizationID ?? ""
         ClaudeAccountStore.shared.updatePreferredOrganizationID(normalizedOrganizationID, for: activeClaudeAccountID)
         if let organization = organizations.first(where: { $0.id == normalizedOrganizationID }) {
             ClaudeAccountStore.shared.mergeIdentity(
@@ -147,6 +153,7 @@ extension SettingsView {
             )
         }
         syncClaudeAccountsState()
+        return previousOrganizationID != normalizedOrganizationID
     }
 
     func setActiveClaudeAccount(_ account: ClaudeAccount) {
@@ -156,8 +163,8 @@ extension SettingsView {
         selectedOrganizationID = appliedPreferredOrganizationID
         organizations = []
         organizationPreviews = [:]
-        organizationMessage = "현재 사용 계정을 \(account.displayName)으로 변경했습니다."
-        loadUsageHealthSnapshot()
+        organizationMessage = "현재 사용 계정을 \(account.displayName)으로 변경했습니다. 사용량을 다시 조회합니다."
+        refreshClaudeUsageFromSettings()
     }
 
     func deleteClaudeWebAccount(_ account: ClaudeAccount) {
@@ -324,6 +331,11 @@ extension SettingsView {
                 }
             }
         }
+    }
+
+    func refreshClaudeUsageFromSettings() {
+        loadUsageHealthSnapshot()
+        onRefreshClaudeUsage?()
     }
 
     func resetClaudeAuthDisclosureState() {
