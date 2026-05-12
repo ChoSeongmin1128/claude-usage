@@ -81,6 +81,8 @@ extension SettingsView {
 
         Task {
             do {
+                // ad-hoc 인스턴스로 keychain 저장 없이 일회성 검증만 수행.
+                // 영구 저장은 검증 통과 후 saveVerifiedSessionKey() 가 담당한다.
                 let service = ClaudeAPIService(sessionKey: normalizedKey)
                 await service.updatePreferredOrganizationID(normalizeOrganizationID(selectedOrganizationID))
                 let _ = try await service.validateCurrentSessionUsage()

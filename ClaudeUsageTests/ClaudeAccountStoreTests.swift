@@ -147,6 +147,49 @@ final class ClaudeAccountStoreTests: XCTestCase {
         XCTAssertEqual(accounts[second.id]?.preferredOrganizationID, "org-b")
     }
 
+    func testUpdatingPreferredOrganizationPostsAccountsDidChangeNotification() {
+        // ClaudeAccountStore 가 단일 진실의 출처임을 보장하려면, store 변경이
+        // .claudeAccountsDidChange 알림으로 외부에 전파되어야 한다.
+        // ClaudeAPIService 의 in-memory 캐시 자동 무효화는 이 알림에 의존한다.
+        let store = ClaudeAccountStore(defaults: defaults, keychainVault: vault, postsNotifications: true)
+        Self.retainedObjects.append(store)
+        let account = store.upsertWebSessionAccount(sessionKey: "sk-ant-x", preferredOrganizationID: "org-a")
+
+        let observed = expectation(description: ".claudeAccountsDidChange posted")
+        let token = NotificationCenter.default.addObserver(
+            forName: .claudeAccountsDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in observed.fulfill() }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        store.updatePreferredOrganizationID("org-b", for: account.id)
+
+        wait(for: [observed], timeout: 1.0)
+    }
+
+    func testUpdatingPreferredOrganizationToSameValueDoesNotPostNotification() {
+        // 멱등 호출(같은 값 재저장)에서는 알림이 발행되지 않아야 한다.
+        // 이는 ClaudeAPIService 가 불필요하게 캐시를 비우고 fetch 를 재트리거하는
+        // 폭주를 방지한다.
+        let store = ClaudeAccountStore(defaults: defaults, keychainVault: vault, postsNotifications: true)
+        Self.retainedObjects.append(store)
+        let account = store.upsertWebSessionAccount(sessionKey: "sk-ant-x", preferredOrganizationID: "org-a")
+
+        let unwanted = expectation(description: "no notification")
+        unwanted.isInverted = true
+        let token = NotificationCenter.default.addObserver(
+            forName: .claudeAccountsDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in unwanted.fulfill() }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        store.updatePreferredOrganizationID("org-a", for: account.id)
+
+        wait(for: [unwanted], timeout: 0.3)
+    }
+
     func testUpsertingExistingWebSessionWithoutPreferredOrganizationKeepsExistingSelection() {
         let store = makeStore()
         let account = store.upsertWebSessionAccount(

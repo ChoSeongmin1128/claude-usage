@@ -224,6 +224,7 @@ actor ClaudeAPIService {
     private var lastKnownUsagePercent: Double?
     private var lastSuccessfulUsageSource: ClaudeUsageSource?
     private var lastResolvedSessionOrganization: OrganizationSummary?
+    private let accountStoreObserver = ClaudeAccountStoreNotificationObserver()
 
     private struct OrganizationCache: Codable {
         let savedAt: Date
@@ -252,6 +253,15 @@ actor ClaudeAPIService {
         self.preferredOrganizationID = activeAccount?.kind == .webSession
             ? Self.normalizeOrganizationID(activeAccount?.preferredOrganizationID)
             : nil
+        // ClaudeAccountStore 변경(계정 전환, 조직 선택 변경 등)을 받아 in-memory
+        // 캐시를 자동 무효화한다. UI/Coordinator 가 store 만 갱신해도 다음 fetch 가
+        // 곧바로 새 선택을 반영하도록 만드는 게 목적.
+        accountStoreObserver.start { [weak self] in
+            guard let self else { return }
+            Task { [weak self] in
+                await self?.reloadActiveAccount()
+            }
+        }
     }
 
     /// 특정 세션 키로 초기화 (연결 테스트용)
@@ -273,6 +283,9 @@ actor ClaudeAPIService {
         accountStore.ensureLegacyMigrationIfNeeded()
         let nextAccount = accountStore.activeAccount()
         guard nextAccount?.id != activeAccount?.id else {
+            // 같은 계정 안에서 organization 선택만 바뀐 경우에도 in-memory 캐시를
+            // 함께 무효화해야 다음 사용량 조회가 새 organization 으로 나간다.
+            let previousPreferredOrganizationID = preferredOrganizationID
             if nextAccount?.kind == .webSession {
                 sessionKey = nextAccount.flatMap { KeychainManager.shared.load(for: $0.id) }
                 preferredOrganizationID = Self.normalizeOrganizationID(nextAccount?.preferredOrganizationID)
@@ -280,6 +293,11 @@ actor ClaudeAPIService {
                 sessionKey = nil
                 preferredOrganizationID = nil
             }
+            if previousPreferredOrganizationID != preferredOrganizationID {
+                cachedOrganizationID = nil
+                lastResolvedSessionOrganization = nil
+            }
+            activeAccount = nextAccount
             return
         }
 
@@ -333,6 +351,11 @@ actor ClaudeAPIService {
         self.clearCachedOrganizations()
     }
 
+    /// In-memory 임시 선호 organization 설정. 영구 저장은 하지 않는다.
+    /// - 사용 시점: 새 sessionKey 검증, ad-hoc `ClaudeAPIService(sessionKey:)` 인스턴스,
+    ///   서비스가 곧 한 번 호출할 fetch 의 대상 organization 을 일회성으로 강제할 때.
+    /// - 영구 저장은 `ClaudeAccountStore.updatePreferredOrganizationID(_:for:)` 로 하고,
+    ///   그 변경은 `.claudeAccountsDidChange` 알림을 통해 이 서비스 인스턴스에 반영된다.
     func updatePreferredOrganizationID(_ id: String) {
         let normalized = Self.normalizeOrganizationID(id)
         if preferredOrganizationID == normalized {
@@ -340,13 +363,8 @@ actor ClaudeAPIService {
         }
         preferredOrganizationID = normalized
         cachedOrganizationID = nil
-        if usesStoredActiveAccount,
-           let activeAccount,
-           activeAccount.kind == .webSession {
-            accountStore.updatePreferredOrganizationID(normalized ?? "", for: activeAccount.id)
-            self.activeAccount = accountStore.activeAccount()
-        }
-        Logger.info("선호 Organization ID 업데이트: \(normalized ?? "자동 선택")")
+        lastResolvedSessionOrganization = nil
+        Logger.info("선호 Organization ID 임시 업데이트: \(normalized ?? "자동 선택")")
     }
 
     /// 세션 키가 설정되어 있는지 확인

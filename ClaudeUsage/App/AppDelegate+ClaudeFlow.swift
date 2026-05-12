@@ -258,8 +258,13 @@ extension AppDelegate {
             onUseAutomaticOrganization: { [weak self] in
                 guard let self else { return }
                 Task {
+                    // 자동 선택으로 되돌릴 때는 store(단일 진실의 출처)를 비우고,
+                    // service 의 in-memory 캐시는 store 알림 + reloadActiveAccount 가
+                    // 자동으로 동기화하도록 둔다.
+                    if let activeWebAccountID = ClaudeAccountStore.shared.activeWebAccount()?.id {
+                        ClaudeAccountStore.shared.updatePreferredOrganizationID("", for: activeWebAccountID)
+                    }
                     await self.apiService.reloadActiveAccount()
-                    await self.apiService.updatePreferredOrganizationID("")
                     let snapshot = await self.apiService.fetchUsageHealthSnapshot()
                     let cachedMetadata = await self.apiService.fetchCachedProfileMetadata()
                     await MainActor.run {

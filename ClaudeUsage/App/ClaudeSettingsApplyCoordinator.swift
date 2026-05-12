@@ -76,8 +76,10 @@ enum ClaudeSettingsApplyCoordinator {
         providerEnabled: Bool,
         keychain: any ClaudeSessionKeyStoring = KeychainManager.shared
     ) async -> ClaudeSettingsApplyResult {
-        await apiService.updatePreferredOrganizationID(preferredOrganizationID)
-
+        // 선호 organization 은 ClaudeAccountStore 가 단일 진실의 출처이고, store
+        // 변경 알림(.claudeAccountsDidChange) + 뒤따르는 reloadActiveAccount() 호출이
+        // service in-memory 캐시를 자동으로 동기화한다. 여기서 service 에 별도로
+        // 알릴 필요는 없다.
         if let key = keychain.load(), !key.isEmpty {
             await apiService.updateSessionKey(key)
         } else {
@@ -108,6 +110,9 @@ enum ClaudeSettingsApplyCoordinator {
         keychain: any ClaudeSessionKeyStoring = KeychainManager.shared
     ) async throws -> ClaudeSettingsApplyResult {
         let previousKey = keychain.load()
+        // 검증 fetch 가 어느 organization 으로 향할지 강제하기 위한 일회성
+        // in-memory 설정. 영구 저장은 keychain.save(... preferredOrganizationID:)
+        // 및 ClaudeAccountStore 가 담당한다.
         await apiService.updatePreferredOrganizationID(preferredOrganizationID)
         await apiService.updateSessionKey(key)
 
@@ -164,7 +169,9 @@ enum ClaudeSettingsApplyCoordinator {
         keychain: any ClaudeSessionKeyStoring = KeychainManager.shared
     ) async -> ClaudeSettingsApplyResult {
         try? keychain.delete()
-        await apiService.updatePreferredOrganizationID(preferredOrganizationID)
+        // preferredOrganizationID 는 store 에서 이미 갱신됐다고 가정한다.
+        // clearSession() 이 in-memory 캐시(cachedOrganizationID, sessionKey 등)를 비우고,
+        // store 알림을 통해 활성 계정 변경/조직 변경이 반영된다.
         await apiService.clearSession()
 
         let snapshot = await apiService.fetchUsageHealthSnapshot()
