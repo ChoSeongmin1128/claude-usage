@@ -12,6 +12,10 @@
 #   VOLUME_NAME     : 마운트 볼륨 이름 (기본 "Install ClaudeUsage")
 #   BACKGROUND_PNG  : 배경 이미지 (기본 Scripts/dmg-assets/background.png)
 #   CERT_HASH       : Developer ID 인증서 SHA-1 해시 (선택)
+#                     보통 build-notarize-release.sh 가 keychain 에서 자동 탐색해
+#                     export 한 값을 그대로 받습니다. 수동 호출 시에는 직접
+#                     `security find-identity -v -p codesigning` 의 해당 라인을
+#                     붙여 넣으면 됩니다.
 #   APP_ICON_X/Y    : 앱 아이콘 좌표 (기본 150, 190)
 #   APPS_ICON_X/Y   : Applications alias 좌표 (기본 390, 190)
 #   WINDOW_W/H      : 창 크기 (기본 540, 380)
@@ -22,7 +26,8 @@
 # 호출 예:
 #   APP_PATH=/path/to/ClaudeUsage.app \
 #   DMG_PATH=/path/to/ClaudeUsage.dmg \
-#   CERT_HASH=9A12730390B85461D1A98C907C61A7AA265EE214 \
+#   CERT_HASH=$(security find-identity -v -p codesigning \
+#       | awk '/Developer ID Application/ {print $2; exit}') \
 #   Scripts/make-dmg.sh
 
 set -euo pipefail

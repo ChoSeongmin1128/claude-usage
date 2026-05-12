@@ -162,8 +162,52 @@ NOTARY_KEY_ID="${NOTARY_KEY_ID:-}"
 NOTARY_ISSUER="${NOTARY_ISSUER:-}"
 NOTARY_SUBMIT_ARGS=()
 NOTARY_AUTH_DESCRIPTION=""
-CERT_HASH="${CERT_HASH:-9A12730390B85461D1A98C907C61A7AA265EE214}"
+CERT_HASH="${CERT_HASH:-}"
 RELEASE_CHANNEL="${RELEASE_CHANNEL:-}"
+
+# CERT_HASH 가 비어 있으면 keychain 에서 Developer ID Application 인증서를 자동
+# 탐색한다. DEVELOPMENT_TEAM 이 설정돼 있으면 해당 팀(예: "5YG4V2PLZV")으로
+# 필터링한다. 후보가 여러 개여서 모호하면 silent 자동 선택을 거부하고 명시적
+# 지정을 요구한다.
+detect_developer_id_certificate() {
+    local team_filter="${1:-}"
+    local matches
+    matches="$(security find-identity -v -p codesigning 2>/dev/null \
+        | awk -v team="$team_filter" '
+            /Developer ID Application/ {
+                if (team == "" || $0 ~ "\\(" team "\\)") print $2
+            }
+        ')"
+    [[ -z "$matches" ]] && return 1
+    local count
+    count=$(printf '%s\n' "$matches" | grep -c .)
+    [[ "$count" -gt 1 ]] && return 2
+    printf '%s\n' "$matches"
+}
+
+if [[ -z "$CERT_HASH" ]]; then
+    detected=""
+    detect_rc=0
+    detected=$(detect_developer_id_certificate "${DEVELOPMENT_TEAM:-}") || detect_rc=$?
+    case "$detect_rc" in
+        0)
+            CERT_HASH="$detected"
+            echo "코드서명 인증서 자동 탐색: $CERT_HASH"
+            ;;
+        1)
+            echo "Developer ID Application 인증서를 keychain 에서 찾지 못했습니다." >&2
+            echo "Xcode > Settings > Accounts 에서 발급받거나 CERT_HASH 환경변수로 지정하세요." >&2
+            exit 1
+            ;;
+        2)
+            echo "Developer ID Application 인증서가 여러 개 있어 자동 선택이 모호합니다:" >&2
+            security find-identity -v -p codesigning | grep "Developer ID Application" >&2
+            echo "DEVELOPMENT_TEAM 또는 CERT_HASH 환경변수로 사용할 인증서를 명시해 주세요." >&2
+            exit 1
+            ;;
+    esac
+fi
+export CERT_HASH
 
 # ── 사전 검증 ────────────────────────────────────────────────
 
