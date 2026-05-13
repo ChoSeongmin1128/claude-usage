@@ -13,9 +13,30 @@ struct CodexAuthToken: Codable, Sendable {
     let accessToken: String
     let refreshToken: String?
     let expiresAt: Date?
+    /// 응답에 `tokens.expires_at` 가 명시적으로 있었는지. 없으면 `last_refresh + N일`
+    /// 같은 휴리스틱은 가정만이므로 만료 판단을 보류한다(CLI 처럼 access_token 살아있다고 간주).
+    /// 사용 패턴: 실제 401 받았을 때만 refresh 시도, 그 외에는 access_token 그대로 사용.
+    let expiresAtIsExplicit: Bool
+
+    nonisolated init(
+        accessToken: String,
+        refreshToken: String? = nil,
+        expiresAt: Date? = nil,
+        expiresAtIsExplicit: Bool = false
+    ) {
+        self.accessToken = accessToken
+        self.refreshToken = refreshToken
+        self.expiresAt = expiresAt
+        self.expiresAtIsExplicit = expiresAtIsExplicit
+    }
 
     nonisolated var isExpired: Bool {
-        guard let expiresAt = expiresAt else { return false }
+        // [A] 보수화: expires_at 가 응답에 명시적으로 있을 때만 그 시각 기준으로 만료 판단.
+        // 응답에 없으면 우리가 추측(last_refresh + 8일)으로 만료를 단정짓지 않는다.
+        // 이유: ChatGPT OAuth access_token 의 실제 수명은 last_refresh 기준 휴리스틱과
+        // 다를 수 있고, 사용자의 CLI 가 같은 토큰을 잘 쓰는 한 우리도 그대로 써야 안전하다.
+        // 진짜 만료(401) 는 API 호출 시점에 판단한다.
+        guard let expiresAt, expiresAtIsExplicit else { return false }
         return Date() >= expiresAt.addingTimeInterval(-300) // 5분 전부터 만료 취급
     }
 
@@ -166,10 +187,15 @@ final class CodexAuthManager {
             // 서버가 새 refresh_token 을 안 주면 기존 값을 유지 (CodexBar 와 동일).
             let newRefreshToken = (json["refresh_token"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? refreshToken
             let newIdToken = json["id_token"] as? String
-            let expiresIn = json["expires_in"] as? TimeInterval ?? 3600
+            // refresh 응답의 expires_in 은 명시적 만료 시각의 근거가 됨.
+            let expiresIn = (json["expires_in"] as? TimeInterval) ?? 3600
             let expiresAt = Date().addingTimeInterval(expiresIn)
 
-            let newToken = CodexAuthToken(accessToken: accessToken, refreshToken: newRefreshToken, expiresAt: expiresAt)
+            let newToken = CodexAuthToken(
+                accessToken: accessToken,
+                refreshToken: newRefreshToken,
+                expiresAt: expiresAt,
+                expiresAtIsExplicit: true)
             // 1) in-memory cache 갱신 + 파싱 캐시 무효화
             setRefreshedToken(newToken)
             // 2) 영구 저장: 다음 부팅에서도 새 refresh_token 사용 → reused 에러 방지
@@ -307,31 +333,27 @@ final class CodexAuthManager {
 
         let refreshToken = tokens["refresh_token"] as? String
 
-        // expiresAt: last_refresh 기반 (8일) 또는 expires_at 직접 지정
-        var expiresAt: Date?
-        if let lastRefreshStr = json["last_refresh"] as? String {
+        // [A] 만료 시각: 응답에 명시된 `tokens.expires_at` 가 있을 때만 그것 그대로 사용.
+        // `last_refresh + 8일` 휴리스틱은 제거 — 우리가 만료라고 추정해 refresh 호출했다가
+        // OAuth refresh_token rotation 정책으로 RT 가 reused 되는 사고를 방지.
+        // 사용자의 codex CLI 가 같은 access_token 으로 잘 동작하는 한 우리도 그대로 사용.
+        var explicitExpiresAt: Date?
+        if let expiresAtStr = tokens["expires_at"] as? String {
             let formatter = ISO8601DateFormatter()
             formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let lastRefresh = formatter.date(from: lastRefreshStr) {
-                expiresAt = lastRefresh.addingTimeInterval(8 * 24 * 60 * 60) // 8일
-            } else {
+            explicitExpiresAt = formatter.date(from: expiresAtStr)
+            if explicitExpiresAt == nil {
                 formatter.formatOptions = [.withInternetDateTime]
-                if let lastRefresh = formatter.date(from: lastRefreshStr) {
-                    expiresAt = lastRefresh.addingTimeInterval(8 * 24 * 60 * 60)
-                }
-            }
-        } else if let expiresAtStr = tokens["expires_at"] as? String {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            expiresAt = formatter.date(from: expiresAtStr)
-            if expiresAt == nil {
-                formatter.formatOptions = [.withInternetDateTime]
-                expiresAt = formatter.date(from: expiresAtStr)
+                explicitExpiresAt = formatter.date(from: expiresAtStr)
             }
         } else if let expiresAtTimestamp = tokens["expires_at"] as? Double {
-            expiresAt = Date(timeIntervalSince1970: expiresAtTimestamp)
+            explicitExpiresAt = Date(timeIntervalSince1970: expiresAtTimestamp)
         }
 
-        return CodexAuthToken(accessToken: accessToken, refreshToken: refreshToken, expiresAt: expiresAt)
+        return CodexAuthToken(
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            expiresAt: explicitExpiresAt,
+            expiresAtIsExplicit: explicitExpiresAt != nil)
     }
 }

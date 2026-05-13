@@ -70,13 +70,21 @@ struct CodexAuthPresentation: Equatable {
 }
 
 enum CodexAuthStatusResolver {
+    /// **[C] Refresh 자동 호출 제거**:
+    /// 이전에는 만료(또는 만료 추정) 시 status 조회 자체가 `refreshAccessToken` 콜백을 호출했다.
+    /// 이로 인해 사용자가 설정 UI 에 들어가는 것만으로도 OAuth refresh_token 을 한 번 소비했고,
+    /// 새 토큰이 in-memory 에 머무는 동안 process 가 종료되면 다음 부팅 시 옛 RT 로 재시도 →
+    /// `refresh_token_reused` 에러를 사용자에게 노출했다.
+    ///
+    /// 새 정책: status 는 read-only. 토큰이 만료(명시 expires_at 기준)됐어도 refresh 시도하지 않고
+    /// `.expired` 그대로 반환해 사용자에게 `codex login` 안내. refresh 는 명시적 사용자 행동
+    /// (사용량 새로고침 등) 의 부산물로만 일어나도록 호출자가 결정.
     static func resolve(
         isProviderEnabled: Bool,
         authJsonExists: Bool,
         token: CodexAuthToken?,
-        isCodexInstalled: () -> Bool,
-        refreshAccessToken: (String) async -> CodexAuthToken?
-    ) async -> CodexAuthStatus {
+        isCodexInstalled: () -> Bool
+    ) -> CodexAuthStatus {
         guard isProviderEnabled else { return .notLoggedIn }
 
         guard authJsonExists else {
@@ -84,17 +92,7 @@ enum CodexAuthStatusResolver {
         }
 
         guard let token else { return .notLoggedIn }
-        guard token.isExpired else { return .authenticated }
-
-        guard let refreshToken = token.refreshToken, token.hasRefreshToken else {
-            return .expired
-        }
-
-        if let refreshedToken = await refreshAccessToken(refreshToken),
-           !refreshedToken.isExpired {
-            return .authenticated
-        }
-
+        if !token.isExpired { return .authenticated }
         return .expired
     }
 }

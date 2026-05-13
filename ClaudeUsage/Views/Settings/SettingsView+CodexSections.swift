@@ -150,14 +150,14 @@ extension SettingsView {
         codexAuthCheckTask = Task {
             let authJsonExists = CodexAuthManager.shared.authJsonExists
             let token = CodexAuthManager.shared.getToken()
-            let status = await CodexAuthStatusResolver.resolve(
+            // [C] status 조회는 read-only — refresh 시도하지 않는다.
+            // 사용자가 설정 UI 진입한 것만으로 RT 가 소비되어 다음 부팅 시 reused 에러로 이어지는
+            // 회귀를 막는다. 만료된 경우 사용자에게 `codex login` 안내 (.expired).
+            let status = CodexAuthStatusResolver.resolve(
                 isProviderEnabled: isProviderEnabled,
                 authJsonExists: authJsonExists,
                 token: token,
-                isCodexInstalled: Self.isCodexInstalled,
-                refreshAccessToken: { refreshToken in
-                    await CodexAuthManager.shared.refreshAccessToken(using: refreshToken)
-                }
+                isCodexInstalled: Self.isCodexInstalled
             )
 
             guard !Task.isCancelled else { return }
