@@ -113,17 +113,27 @@ final class CodexAuthManager {
 
     // MARK: - Token Refresh
 
-    /// 토큰 갱신
+    /// 토큰 갱신.
+    ///
+    /// **OAuth refresh_token rotation 정책 대응**:
+    /// OpenAI 의 OAuth 서버는 한 번 쓴 refresh_token 을 invalidate 한다.
+    /// 우리 앱이 새 토큰을 받고도 auth.json 에 write-back 하지 않으면, 다음 부팅 시
+    /// 같은 옛 refresh_token 으로 또 호출 → 401 `refresh_token_reused` → expired UI.
+    /// 동시에 codex CLI 와도 토큰이 어긋나 CLI 까지 다시 로그인해야 한다.
+    /// → 응답 성공 시 새 토큰을 **반드시 auth.json 에 atomic write-back** 한다.
     func refreshAccessToken(using refreshToken: String) async -> CodexAuthToken? {
         let url = URL(string: "https://auth.openai.com/oauth/token")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
+        // CodexBar 와 동일한 페이로드 (`scope` 포함) — 일부 OAuth provider 가 scope 누락 요청을
+        // 거부하는 케이스가 있어 안전한 default 로 채워 둔다.
         let body: [String: String] = [
             "grant_type": "refresh_token",
             "client_id": refreshTokenClientID,
             "refresh_token": refreshToken,
+            "scope": "openid profile email",
         ]
 
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
@@ -133,30 +143,102 @@ final class CodexAuthManager {
 
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse,
-                  (200...299).contains(httpResponse.statusCode) else {
-                Logger.error("Codex 토큰 갱신 실패: HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)")
+            guard let httpResponse = response as? HTTPURLResponse else {
+                Logger.error("Codex 토큰 갱신: 응답이 HTTP 가 아님")
+                return nil
+            }
+
+            guard (200...299).contains(httpResponse.statusCode) else {
+                // 사용자 안내 메시지에 도움이 되도록 에러 코드를 상세히 로깅한다.
+                let codeDescription = Self.refreshErrorCode(from: data) ?? "unknown"
+                Logger.error("Codex 토큰 갱신 실패: HTTP \(httpResponse.statusCode) (\(codeDescription))")
                 return nil
             }
 
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let accessToken = json["access_token"] as? String else {
+                  let accessToken = json["access_token"] as? String,
+                  !accessToken.isEmpty
+            else {
                 Logger.error("Codex 토큰 갱신 응답 파싱 실패")
                 return nil
             }
 
-            let newRefreshToken = json["refresh_token"] as? String ?? refreshToken
+            // 서버가 새 refresh_token 을 안 주면 기존 값을 유지 (CodexBar 와 동일).
+            let newRefreshToken = (json["refresh_token"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? refreshToken
+            let newIdToken = json["id_token"] as? String
             let expiresIn = json["expires_in"] as? TimeInterval ?? 3600
             let expiresAt = Date().addingTimeInterval(expiresIn)
 
             let newToken = CodexAuthToken(accessToken: accessToken, refreshToken: newRefreshToken, expiresAt: expiresAt)
-            // CLI 가 auth.json 을 동시에 갱신했을 수 있으므로 파싱 캐시도 무효화.
+            // 1) in-memory cache 갱신 + 파싱 캐시 무효화
             setRefreshedToken(newToken)
-            Logger.info("Codex 토큰 갱신 성공")
+            // 2) 영구 저장: 다음 부팅에서도 새 refresh_token 사용 → reused 에러 방지
+            //    write 실패해도 in-memory 캐시는 살아있어 현재 세션은 정상.
+            persistRefreshedTokenToAuthJson(
+                accessToken: accessToken,
+                refreshToken: newRefreshToken,
+                idToken: newIdToken
+            )
+            Logger.info("Codex 토큰 갱신 성공 (auth.json write-back 시도)")
             return newToken
         } catch {
             Logger.error("Codex 토큰 갱신 네트워크 에러: \(error.localizedDescription)")
             return nil
+        }
+    }
+
+    /// refresh 응답 본문에서 OAuth 에러 코드를 짧게 추출. 로깅/진단용.
+    private static func refreshErrorCode(from data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        if let nested = json["error"] as? [String: Any] {
+            if let code = nested["code"] as? String { return code }
+            if let type = nested["type"] as? String { return type }
+            if let message = nested["message"] as? String { return message }
+        }
+        if let value = json["error"] as? String { return value }
+        return nil
+    }
+
+    /// 새 토큰을 `~/.codex/auth.json` 에 atomic write-back.
+    /// CLI 가 이미 auth.json 을 가지고 있는 환경에서도 race 를 최소화하려고
+    /// (a) 기존 JSON 을 읽어 tokens / last_refresh 만 교체 (b) 임시 파일에 쓴 뒤 rename.
+    /// FileManager 의 `.atomic` 옵션이 macOS 에서 rename 기반이라 안전하다.
+    private func persistRefreshedTokenToAuthJson(
+        accessToken: String,
+        refreshToken: String,
+        idToken: String?
+    ) {
+        let url = URL(fileURLWithPath: authJsonPath)
+        var json: [String: Any] = [:]
+        if let data = try? Data(contentsOf: url),
+           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        {
+            json = existing
+        }
+
+        var tokens: [String: Any] = (json["tokens"] as? [String: Any]) ?? [:]
+        tokens["access_token"] = accessToken
+        tokens["refresh_token"] = refreshToken
+        if let idToken, !idToken.isEmpty {
+            tokens["id_token"] = idToken
+        }
+        json["tokens"] = tokens
+
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        json["last_refresh"] = isoFormatter.string(from: Date())
+
+        guard let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) else {
+            Logger.error("Codex auth.json 직렬화 실패 — in-memory 캐시만 유지됨")
+            return
+        }
+
+        do {
+            let directory = url.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try data.write(to: url, options: [.atomic])
+        } catch {
+            Logger.error("Codex auth.json write-back 실패: \(error.localizedDescription) — in-memory 캐시만 유지됨")
         }
     }
 
