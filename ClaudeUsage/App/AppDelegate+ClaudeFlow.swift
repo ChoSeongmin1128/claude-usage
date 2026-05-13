@@ -192,7 +192,8 @@ extension AppDelegate {
                                 self.updateMenuBar()
                                 self.updatePopoverViewModel(overage: self.currentOverage)
                             }
-                            self.loginWindowCoordinator.close()
+                            // wizard 의 success step 이 사용자에게 결과를 보여줄 시간을 확보하기 위해
+                            // 즉시 close 하지 않는다. 사용자가 "완료" 버튼을 누르면 onCancel → close.
                         }
                         Logger.info("로그인 완료, 모니터링 시작")
                     } catch {
@@ -204,6 +205,16 @@ extension AppDelegate {
                         }
                         throw error
                     }
+                },
+                onActivateCLI: { [weak self] in
+                    guard let self else {
+                        throw APIError.unknownError("앱 상태가 유효하지 않습니다")
+                    }
+                    return try await self.activateClaudeCodeCLI()
+                },
+                onLoadCLIPreview: { [weak self] in
+                    guard let self else { return nil }
+                    return await self.loadClaudeCodeCLIPreview()
                 },
                 onOpenAdvancedSettings: { [weak self] in
                     AppSettings.shared.settingsLastTab = "claude"
@@ -315,5 +326,89 @@ extension AppDelegate {
         }
 
         NSWorkspace.shared.open(targetURL)
+    }
+
+    // MARK: - LoginWindow CLI Bridge
+
+    /// 로그인 윈도우 Step 1 의 "Claude Code 로그인 사용" 카드 미리보기.
+    /// 토큰이 없거나 만료 + refresh 불가면 nil → 카드가 disabled 상태로 표시된다.
+    /// 빠르게 응답해야 하므로 메타데이터(file cache)만 읽고 네트워크는 안 친다.
+    @MainActor
+    func loadClaudeCodeCLIPreview() async -> LoginWindowView.CLIPreview? {
+        guard await apiService.peekClaudeCodeCredentialAvailable() else { return nil }
+        let metadata = await apiService.fetchCachedClaudeCodeProfileMetadata()
+        // 이전에 CLI 활성화 경험이 있으면 store 의 identity 에 email/조직 이름이 있을 수 있다.
+        let existing = ClaudeAccountStore.shared.accounts()
+            .first(where: { $0.id == ClaudeAccountStore.claudeCodeExternalAccountID })
+        return LoginWindowView.CLIPreview(
+            email: existing?.identity.email,
+            organizationName: existing?.identity.organizationName,
+            planLabel: metadata?.subscriptionType ?? metadata?.rateLimitTier
+        )
+    }
+
+    /// 로그인 윈도우의 "Claude Code 로그인 사용" 카드 활성화 액션.
+    /// 1) CLI external account 를 active 로 강제 전환 (이미 있으면 setActiveAccountID 만)
+    /// 2) 사용량 fetch 로 검증
+    /// 3) 성공 요약을 wizard 에 반환 (이메일/조직/플랜 표시)
+    @MainActor
+    func activateClaudeCodeCLI() async throws -> LoginWindowView.ActivationSummary {
+        let store = ClaudeAccountStore.shared
+        // 1. CLI external account 등록을 보장하고 active 로 설정.
+        //    OAuth credential 자체는 fetchUsage 가 첫 호출에서 자체적으로 검사하므로 여기서는
+        //    "최소 1개의 CLI 계정이 store 에 존재" 만 보장한다.
+        _ = store.upsertClaudeCodeExternalAccount(
+            identity: ClaudeAccountIdentity(),
+            validationState: .detected,
+            setActiveIfMissing: false
+        )
+        store.setActiveAccountID(ClaudeAccountStore.claudeCodeExternalAccountID)
+
+        // 2. 검증: 실제 사용량 호출. 실패하면 throw → wizard 가 .failure step 으로.
+        currentError = nil
+        hasAuthError = false
+        if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
+            isLoading = true
+            loadingStartedAt = Date()
+        }
+        updateMenuBar()
+        updatePopoverViewModel(overage: currentOverage)
+
+        await apiService.reloadActiveAccount()
+        do {
+            let usage = try await apiService.fetchUsage()
+            // OAuth profile 도 함께 가져와 store identity / metadata 를 채운다.
+            // 실패해도 사용량 자체는 정상이므로 silent return.
+            await apiService.refreshClaudeCodeAccountProfile()
+            let snapshot = await apiService.fetchUsageHealthSnapshot()
+            applyUsageHealthSnapshot(snapshot)
+            hasAuthError = false
+            if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared), hasRefreshableService {
+                startMonitoring()
+            } else {
+                updateMenuBar()
+                updatePopoverViewModel(overage: currentOverage)
+            }
+            Logger.info("Claude Code CLI 활성화 성공 (5시간 utilization=\(usage.fiveHour.utilization))")
+
+            // 3. 사용자에게 보여줄 요약 라인 구성. (refresh 후의 최신 identity 사용)
+            let activeAccount = ClaudeAccountStore.shared.activeAccount()
+            let metadata = await apiService.fetchCachedClaudeCodeProfileMetadata()
+            let email = activeAccount?.identity.email
+            let organizationName = activeAccount?.identity.organizationName
+            let plan = metadata?.subscriptionType ?? metadata?.rateLimitTier
+            let detailParts = [email, organizationName, plan].compactMap { $0?.isEmpty == false ? $0 : nil }
+            return LoginWindowView.ActivationSummary(
+                title: "Claude Code 로그인을 연결했습니다",
+                detail: detailParts.isEmpty ? nil : detailParts.joined(separator: " · "),
+                methodLabel: "Claude Code CLI"
+            )
+        } catch {
+            isLoading = false
+            loadingStartedAt = nil
+            updateMenuBar()
+            updatePopoverViewModel(overage: currentOverage)
+            throw error
+        }
     }
 }

@@ -33,11 +33,20 @@ actor ClaudeAPIService {
             self.rateLimitTier = Self.normalized(rateLimitTier)
         }
 
+        /// UI 표시용 라벨. UUID 를 노출하지 않는다 — 사용자에게 UUID 는 노이즈일 뿐
+        /// 디버그용으로 봐야 한다면 `idSuffixLabel` 을 별도 호출하면 된다.
         var displayName: String {
             if let name, !name.isEmpty {
-                return "\(name) (\(id))"
+                return name
             }
-            return id
+            return idSuffixLabel
+        }
+
+        /// 같은 이름의 조직이 여러 개인 경우 분간하기 위한 짧은 ID 꼬리표 (앞 8자).
+        /// 일반 표시에서는 사용하지 않고, 동일 name 충돌 시에만 호출하는 게 안전.
+        var idSuffixLabel: String {
+            let trimmed = id.replacingOccurrences(of: "-", with: "")
+            return "조직 \(String(trimmed.prefix(8)))"
         }
 
         var hasTeamPlanSignal: Bool {
@@ -406,6 +415,128 @@ actor ClaudeAPIService {
         await profileMetadataStore.load()
     }
 
+    /// 로그인 윈도우 카드 미리보기 등 가벼운 UI 결정 용도. 부작용 없이 OAuth credential
+    /// 의 존재만 확인한다. `fetchUsageHealthSnapshot` 은 reloadActiveAccount / upsert /
+    /// 상태 저장 등 다양한 부작용이 있어 미리보기 용도로는 부담이 크다.
+    func peekClaudeCodeCredentialAvailable() async -> Bool {
+        (try? await readSystemOAuthAccessToken()) != nil
+    }
+
+    /// CLI external account 가 store 에 있다면 그 cached profile metadata 를 반환.
+    /// 로그인 윈도우 미리보기에서 organizationUUID / planLabel 표시에 사용.
+    func fetchCachedClaudeCodeProfileMetadata() async -> ClaudeProfileMetadata? {
+        await oauthProfileMetadataStore.load()
+    }
+
+    /// `/api/oauth/profile` 응답을 그대로 모델링한 가벼운 DTO.
+    /// 외부에서 view 로 노출되기 전 ClaudeAccountIdentity / ClaudeProfileMetadata 로 매핑된다.
+    struct ClaudeOAuthProfileResponse: Decodable, Sendable {
+        struct Account: Decodable, Sendable {
+            let uuid: String?
+            let email: String?
+            let fullName: String?
+            let displayName: String?
+            let hasClaudeMax: Bool?
+            let hasClaudePro: Bool?
+
+            enum CodingKeys: String, CodingKey {
+                case uuid
+                case email
+                case fullName = "full_name"
+                case displayName = "display_name"
+                case hasClaudeMax = "has_claude_max"
+                case hasClaudePro = "has_claude_pro"
+            }
+        }
+        struct Organization: Decodable, Sendable {
+            let uuid: String?
+            let name: String?
+            let organizationType: String?
+            let billingType: String?
+            let rateLimitTier: String?
+            let hasExtraUsageEnabled: Bool?
+
+            enum CodingKeys: String, CodingKey {
+                case uuid
+                case name
+                case organizationType = "organization_type"
+                case billingType = "billing_type"
+                case rateLimitTier = "rate_limit_tier"
+                case hasExtraUsageEnabled = "has_extra_usage_enabled"
+            }
+        }
+        let account: Account?
+        let organization: Organization?
+    }
+
+    /// OAuth 자격으로 `/api/oauth/profile` 호출. 사용량 호출과 같은 401 retry 정책을 공유한다.
+    func fetchOAuthProfile() async throws -> ClaudeOAuthProfileResponse {
+        guard let accessToken = try await readSystemOAuthAccessToken() else {
+            throw APIError.unknownError("Claude Code OAuth 토큰을 찾을 수 없습니다")
+        }
+        return try await performOAuthProfileRequest(accessToken: accessToken, allowRefreshRetry: true)
+    }
+
+    private func performOAuthProfileRequest(
+        accessToken: String,
+        allowRefreshRetry: Bool
+    ) async throws -> ClaudeOAuthProfileResponse {
+        guard let url = URL(string: "https://api.anthropic.com/api/oauth/profile") else {
+            throw APIError.unknownError("OAuth profile endpoint URL 생성 실패")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("claude-code/2.1.5", forHTTPHeaderField: "User-Agent")
+        request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
+
+        let (data, response) = try await data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.unknownError("Invalid OAuth profile HTTP response")
+        }
+        if !(200...299).contains(http.statusCode) {
+            // fetchUsageViaOAuth 와 동일 정책: 401 시 1회 refresh + retry
+            if http.statusCode == 401, allowRefreshRetry,
+               let newToken = await oauthCredentialReader.forceRefreshAccessToken(),
+               newToken != accessToken
+            {
+                return try await performOAuthProfileRequest(accessToken: newToken, allowRefreshRetry: false)
+            }
+            throw classifyHTTPError(statusCode: http.statusCode, data: data, response: http)
+        }
+        do {
+            return try JSONDecoder().decode(ClaudeOAuthProfileResponse.self, from: data)
+        } catch {
+            throw APIError.parseError
+        }
+    }
+
+    /// OAuth profile 응답을 가져와 CLI external account 의 identity 와 profile metadata 를 동기화한다.
+    /// 실패해도 silent return — 사용자가 사용량 자체는 계속 볼 수 있어야 하기 때문.
+    /// 호출 시점: CLI 활성화 직후, 또는 사용량 OAuth 성공 후 identity 가 비어 있는 경우.
+    func refreshClaudeCodeAccountProfile() async {
+        guard let profile = try? await fetchOAuthProfile() else { return }
+        let identity = ClaudeAccountIdentity(
+            email: profile.account?.email,
+            organizationName: profile.organization?.name,
+            organizationID: profile.organization?.uuid,
+            planLabel: profile.organization?.organizationType ?? profile.organization?.rateLimitTier
+        )
+        accountStore.mergeIdentity(identity, for: ClaudeAccountStore.claudeCodeExternalAccountID)
+
+        var metadata = ClaudeProfileMetadata(
+            organizationUUID: profile.organization?.uuid,
+            subscriptionType: profile.organization?.organizationType,
+            rateLimitTier: profile.organization?.rateLimitTier,
+            hasExtraUsageEnabled: profile.organization?.hasExtraUsageEnabled,
+            billingType: profile.organization?.billingType
+        )
+        metadata.lastUpdatedAt = Date()
+        await oauthProfileMetadataStore.save(metadata)
+        Logger.info("Claude Code OAuth profile 동기화 (email=\(profile.account?.email ?? "?"), org=\(profile.organization?.name ?? "?"))")
+    }
+
     private func claudeCodeAccountIdentity() async -> ClaudeAccountIdentity {
         let metadata = await oauthProfileMetadataStore.load()
         return ClaudeAccountIdentity(
@@ -599,6 +730,17 @@ actor ClaudeAPIService {
                 do {
                     let usage = try await fetchUsageViaOAuth(accessToken: oauthAccessToken)
                     rememberSuccessfulUsage(usage, source: .oauth)
+                    // CLI external account 의 identity 가 비어 있으면 백그라운드로
+                    // OAuth profile 을 가져와 email/조직 정보를 채운다. 실패해도 사용량 자체는
+                    // 정상이므로 silent. 한 번 채워지면 다음부터는 이 분기 안 탐.
+                    let needsProfileSync = accountStore.accounts()
+                        .first(where: { $0.id == ClaudeAccountStore.claudeCodeExternalAccountID })?
+                        .identity.email == nil
+                    if needsProfileSync {
+                        Task { [weak self] in
+                            await self?.refreshClaudeCodeAccountProfile()
+                        }
+                    }
                     return usage
                 } catch let apiError as APIError {
                     sourceErrors[.oauth] = apiError

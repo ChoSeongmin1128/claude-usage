@@ -16,13 +16,15 @@ final class AppPopoverCoordinator {
         onOpenSettingsForService: @escaping (PopoverService) -> Void,
         onServiceSelected: @escaping (PopoverService) -> Void,
         onLayoutChanged: @escaping (PopoverService, PopoverLayoutRefreshReason) -> Void,
-        onPinChanged: @escaping (PopoverService, Bool) -> Void
+        onPinChanged: @escaping (PopoverService, Bool) -> Void,
+        onStartClaudeLogin: (() -> Void)? = nil
     ) {
         viewModel.onRefreshService = onRefreshService
         viewModel.onOpenSettingsForService = onOpenSettingsForService
         viewModel.onServiceSelected = onServiceSelected
         viewModel.onLayoutChanged = onLayoutChanged
         viewModel.onPinChanged = onPinChanged
+        viewModel.onStartClaudeLogin = onStartClaudeLogin
         viewModel.selectedService = initialService
 
         rebuildPopover(for: initialService)

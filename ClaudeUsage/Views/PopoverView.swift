@@ -347,19 +347,26 @@ struct PopoverView: View {
     private func bodyContent(layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection]) -> some View {
         switch layoutSpec.phase {
         case .authRequired:
-            statusPanel(
-                density: layoutSpec.density,
-                configuration: StatusPanelConfiguration(
-                    icon: "lock.shield",
-                    iconColor: .orange,
-                    showsProgress: false,
-                    title: "연결 필요",
-                    message: "인증이 필요합니다. 설정에서 연결을 다시 확인해 주세요.",
-                    actionTitle: "설정 열기",
-                    actionStyle: .prominent,
-                    action: { viewModel.openSettings(for: selectedService) }
+            if selectedService == .claude {
+                // Claude 는 첫 인상이 결정적인 Peak-End 구간. 사용자가 클릭 한 번에
+                // wizard 로 가도록 "Claude 로그인 시작" 을 prominent action 으로 노출하고,
+                // "설정 열기" 는 보조로 둔다. 메시지도 어떤 옵션이 있는지 짧게 안내.
+                claudeUnauthenticatedPanel(density: layoutSpec.density)
+            } else {
+                statusPanel(
+                    density: layoutSpec.density,
+                    configuration: StatusPanelConfiguration(
+                        icon: "lock.shield",
+                        iconColor: .orange,
+                        showsProgress: false,
+                        title: "연결 필요",
+                        message: "인증이 필요합니다. 설정에서 연결을 다시 확인해 주세요.",
+                        actionTitle: "설정 열기",
+                        actionStyle: .prominent,
+                        action: { viewModel.openSettings(for: selectedService) }
+                    )
                 )
-            )
+            }
         case .loading:
             statusPanel(
                 density: layoutSpec.density,
@@ -431,6 +438,39 @@ struct PopoverView: View {
             actionStyle: configuration.actionStyle,
             action: configuration.action
         )
+    }
+
+    /// Claude 미인증 상태 전용 패널. 일반 statusPanel 은 단일 액션만 지원하므로
+    /// "로그인 시작 (prominent) + 설정 열기 (보조)" 두 버튼을 같이 노출하려고 별도로 구성.
+    /// 첫 사용자가 메뉴바에서 한 번의 클릭으로 로그인 wizard 에 도달하게 한다.
+    @ViewBuilder
+    private func claudeUnauthenticatedPanel(density: PopoverDensity) -> some View {
+        VStack(spacing: density == .compact ? 8 : 12) {
+            Image(systemName: "person.badge.key")
+                .font(.system(size: density == .compact ? 28 : 36))
+                .foregroundStyle(.orange)
+            Text("Claude 로그인이 필요합니다")
+                .font(density == .compact ? .subheadline.weight(.semibold) : .headline)
+            Text("Chrome 프로필에 저장된 로그인이나 Claude Code 인증을 그대로 사용할 수 있습니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button("Claude 로그인 시작") {
+                    viewModel.startClaudeLogin()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(density == .compact ? .small : .regular)
+                Button("설정 열기") {
+                    viewModel.openSettings(for: .claude)
+                }
+                .controlSize(density == .compact ? .small : .regular)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, density == .compact ? 12 : 18)
     }
 
     @ViewBuilder

@@ -39,6 +39,11 @@ extension AppDelegate {
                 } else if self.popover?.isShown == true {
                     self.startGlobalClickMonitor()
                 }
+            },
+            onStartClaudeLogin: { [weak self] in
+                // 팝오버 미인증 상태에서 "Claude 로그인 시작" 클릭. 팝오버 닫고 wizard 첫 화면(방법 선택)으로.
+                self?.closePopover()
+                self?.showLoginWindow()
             }
         )
 

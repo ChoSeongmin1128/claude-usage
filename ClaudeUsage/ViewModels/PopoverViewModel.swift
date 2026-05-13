@@ -58,6 +58,9 @@ final class PopoverViewModel: ObservableObject {
     var onServiceSelected: ((PopoverService) -> Void)?
     var onPinChanged: ((PopoverService, Bool) -> Void)?
     var onLayoutChanged: ((PopoverService, PopoverLayoutRefreshReason) -> Void)?
+    /// 팝오버의 미인증 상태에서 사용자가 한 번에 wizard 로그인 윈도우로 갈 수 있게 하는 콜백.
+    /// 기본 동작: AppDelegate.showLoginWindow(startChromeImportOnOpen: true).
+    var onStartClaudeLogin: (() -> Void)?
 
     init(updateRuntimeState: UpdateRuntimeState? = nil) {
         self.updateRuntimeState = updateRuntimeState ?? UpdateRuntimeState.shared
@@ -103,6 +106,16 @@ final class PopoverViewModel: ObservableObject {
 
     func openSettings(for service: PopoverService) {
         self.onOpenSettingsForService?(service)
+    }
+
+    /// 팝오버 미인증 카드의 "Claude 로그인 시작" 버튼이 호출. 콜백이 등록되지 않은 경우
+    /// (예: provider 가 Claude 가 아닌 경우)에는 안전한 fallback 으로 설정 창을 연다.
+    func startClaudeLogin() {
+        if let onStartClaudeLogin {
+            onStartClaudeLogin()
+        } else {
+            openSettings(for: .claude)
+        }
     }
 
     func selectService(_ service: PopoverService) {

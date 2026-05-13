@@ -20,9 +20,7 @@ extension SettingsView {
 
             if settings.isProviderEnabled(.claude) {
                 claudeAccountSection
-                if shouldShowClaudeAccountSwitcherSection {
-                    claudeAccountSwitcherSection
-                }
+                // 「계정 변경」 별도 섹션은 제거. 「계정 관리」 펼침 안에서 통합 행으로 처리.
                 if shouldShowOrganizationSection {
                     organizationSection
                 }
@@ -37,6 +35,15 @@ extension SettingsView {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.vertical, 6)
+            }
+        }
+        // 행동 결과 메시지를 toast 처럼 자동 dismiss. 사용자가 X 로 닫으면 task 가 다시 시작되며
+        // nil 상태에서는 조기 종료. 다른 메시지로 바뀌면 새 6초 카운트가 시작된다.
+        .task(id: claudeAccountMessage) {
+            guard claudeAccountMessage != nil else { return }
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            if !Task.isCancelled {
+                claudeAccountMessage = nil
             }
         }
     }
@@ -89,17 +96,10 @@ extension SettingsView {
                     }
                     .buttonStyle(.borderedProminent)
 
-                    if shouldShowClaudeAccountSwitcherButton {
-                        Button(isClaudeAccountSwitcherExpanded ? "변경 닫기" : "계정 변경") {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                isClaudeAccountSwitcherExpanded.toggle()
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                    }
-
                     if shouldShowClaudeAccountManagementSection {
-                        Button("계정 관리") {
+                        // 「계정 변경」 은 별도 버튼이 아니라 「계정 관리」 펼침 안의
+                        // 각 계정 행에서 직접 [사용] 버튼으로 처리한다 (Hick's Law).
+                        Button(isClaudeAccountManagementExpanded ? "계정 관리 닫기" : "계정 관리") {
                             withAnimation(.easeInOut(duration: 0.15)) {
                                 isClaudeAccountManagementExpanded.toggle()
                             }
@@ -161,85 +161,27 @@ extension SettingsView {
         !claudeAccounts.isEmpty
     }
 
-    private var shouldShowClaudeAccountSwitcherButton: Bool {
-        claudeAccounts.count > 1
-    }
-
-    private var shouldShowClaudeAccountSwitcherSection: Bool {
-        shouldShowClaudeAccountSwitcherButton && isClaudeAccountSwitcherExpanded
-    }
-
     @ViewBuilder
     private var accountMessageView: some View {
         if let message = claudeAccountMessage {
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(message.contains("실패") || message.contains("필요") ? .orange : .secondary)
-                .lineLimit(2)
-        }
-    }
-
-    private var claudeAccountSwitcherSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionCardHeader(
-                title: "계정 변경",
-                subtitle: "이번 조회에 사용할 Claude 계정을 선택합니다"
-            )
-
-            VStack(spacing: 8) {
-                ForEach(claudeAccounts) { account in
-                    claudeAccountSwitchRow(account)
-                }
-            }
-        }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
-        .cornerRadius(8)
-    }
-
-    private func claudeAccountSwitchRow(_ account: ClaudeAccount) -> some View {
-        let isActive = account.id == activeClaudeAccountID
-        let presentation = ClaudeAccountSettingsPresentation.resolve(
-            account: account,
-            isActive: isActive,
-            organizations: organizations
-        )
-
-        return HStack(alignment: .center, spacing: 12) {
-            Image(systemName: presentation.systemImage)
-                .foregroundStyle(isActive ? Color.accentColor : .secondary)
-                .frame(width: 18)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(presentation.primaryTitle)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-
-                if let secondaryLine = presentation.secondaryLine {
-                    Text(secondaryLine)
-                        .font(.caption)
+            // 메시지는 행동 결과(toast 비슷)이므로 영구 노출하지 않는다.
+            // - X 버튼으로 명시적 닫기
+            // - authSection 의 .task(id:) 로 일정 시간 후 자동 dismiss
+            HStack(alignment: .top, spacing: 6) {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(message.contains("실패") || message.contains("필요") ? .orange : .secondary)
+                    .lineLimit(2)
+                Spacer(minLength: 8)
+                Button(action: { claudeAccountMessage = nil }) {
+                    Image(systemName: "xmark")
+                        .font(.caption2)
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
                 }
-            }
-
-            Spacer(minLength: 8)
-
-            chip(title: "", value: presentation.statusText, color: color(for: presentation.statusTone))
-
-            if isActive {
-                chip(title: "", value: "현재 사용 중", color: .green)
-            } else if let action = presentation.switchAction {
-                Button(action.title) {
-                    handleClaudeAccountAction(action, account: account)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+                .buttonStyle(.borderless)
+                .help("이 안내 닫기")
             }
         }
-        .padding(10)
-        .background(isActive ? Color.accentColor.opacity(0.08) : Color(NSColor.windowBackgroundColor).opacity(0.35))
-        .cornerRadius(8)
     }
 
     private var claudeAccountManagementSection: some View {
@@ -272,8 +214,8 @@ extension SettingsView {
     private var connectedClaudeAccountsCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionCardHeader(
-                title: "계정 상세",
-                subtitle: "삭제, 다시 로그인 안내, Chrome 프로필 같은 상세 정보만 확인합니다"
+                title: "연결된 계정",
+                subtitle: "사용할 계정을 선택하거나 상세 정보·삭제·재로그인을 진행합니다"
             )
 
             if claudeAccounts.isEmpty {
@@ -326,6 +268,13 @@ extension SettingsView {
 
                 if isActive {
                     chip(title: "", value: "현재 사용 중", color: .green)
+                } else if let switchAction = presentation.switchAction {
+                    // 별도 「계정 변경」 디스클로저 없이 같은 행에서 한 번에 활성화. (Hick's Law)
+                    Button(switchAction.title) {
+                        handleClaudeAccountAction(switchAction, account: account)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
                 }
             }
 
@@ -806,17 +755,28 @@ extension SettingsView {
             title: "조직 선택",
             systemImage: "building.2"
         ) {
-            organizationModeSummaryCard
-            if shouldShowOrganizationAdvancedControls {
-                organizationLoadActions
-                organizationTargetPicker
+            organizationCurrentStatus
+            if organizations.count <= 1 && !hasPendingOrganizationChange {
+                // 조직이 0~1 개면 picker 자체가 무의미. 안내 + 조직 1개일 때는 그 이름 표시.
+                organizationSingleOrEmptyHint
+            } else {
+                organizationPickerInline
+            }
+            if hasPendingOrganizationChange {
+                organizationPendingFootnote
             }
             organizationMessages
         }
     }
 
-    private var shouldShowOrganizationAdvancedControls: Bool {
-        isOrganizationAdvancedExpanded || hasPendingOrganizationChange
+    /// 조직 변경 섹션을 펼치고 필요 시 lazy 로드. 계정 카드 「조직 변경」 버튼에서 호출.
+    private func revealOrganizationControls() {
+        withAnimation(.easeInOut(duration: 0.15)) {
+            isOrganizationAdvancedExpanded = true
+        }
+        if organizations.isEmpty && !isLoadingOrganizations {
+            loadOrganizations(forceRefresh: false)
+        }
     }
 
     private var pendingOrganizationID: String {
@@ -835,135 +795,120 @@ extension SettingsView {
         pendingOrganizationID.isEmpty ? "자동 선택" : "직접 선택"
     }
 
-    private var organizationModeSummaryCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("현재")
+    /// 현재 상태 한 줄 + 자동 ↔ 직접 토글 1개. 「선택 닫기」 같은 메타 버튼은 제거.
+    /// 사용자가 한눈에 "지금 모드가 뭐고 어떻게 바꾸지?" 알 수 있게.
+    private var organizationCurrentStatus: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            chip(
+                title: "현재",
+                value: currentOrganizationModeLabel,
+                color: appliedPreferredOrganizationID.isEmpty ? .green : .blue
+            )
+            if let activeOrgLabel = currentlyAppliedOrganizationLabel {
+                Text(activeOrgLabel)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                chip(
-                    title: "모드",
-                    value: currentOrganizationModeLabel,
-                    color: appliedPreferredOrganizationID.isEmpty ? .green : .blue
-                )
-                Spacer(minLength: 0)
+                    .lineLimit(1)
             }
-
-            if appliedPreferredOrganizationID.isEmpty {
-                Text("자동으로 추가 사용량이 켜진 조직을 우선 사용합니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("직접 고른 조직으로 사용합니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if hasPendingOrganizationChange {
-                Divider()
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text("변경 예정")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    chip(
-                        title: "모드",
-                        value: pendingOrganizationModeLabel,
-                        color: pendingOrganizationID.isEmpty ? .green : .orange
-                    )
-                    Spacer(minLength: 0)
-                }
-
-                Text(pendingOrganizationID.isEmpty ? "자동 선택으로 되돌릴 예정입니다." : "직접 선택으로 바꿀 예정입니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            HStack(spacing: 8) {
-                Button(shouldShowOrganizationAdvancedControls ? "선택 닫기" : "직접 선택") {
-                    if shouldShowOrganizationAdvancedControls {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            isOrganizationAdvancedExpanded = false
-                        }
-                    } else {
-                        revealOrganizationControls()
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-
-                if !pendingOrganizationID.isEmpty {
-                    Button("자동 선택으로 되돌리기") {
-                        selectedOrganizationID = ""
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            isOrganizationAdvancedExpanded = false
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                }
-            }
-        }
-        .padding(10)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
-        .cornerRadius(8)
-    }
-
-    private func revealOrganizationControls() {
-        withAnimation(.easeInOut(duration: 0.15)) {
-            isOrganizationAdvancedExpanded = true
-        }
-        if organizations.isEmpty && !isLoadingOrganizations {
-            loadOrganizations(forceRefresh: false)
-        }
-    }
-
-    private var organizationLoadActions: some View {
-        HStack(spacing: 8) {
-            Button("목록 불러오기") { loadOrganizations(forceRefresh: false) }
-                .disabled(isLoadingOrganizations)
-            Button("다시 불러오기") { loadOrganizations(forceRefresh: true) }
-                .disabled(isLoadingOrganizations)
+            Spacer(minLength: 0)
             if isLoadingOrganizations {
-                ProgressView()
+                ProgressView().controlSize(.small)
+            } else {
+                Button("목록 새로고침") { loadOrganizations(forceRefresh: true) }
                     .controlSize(.small)
+                    .buttonStyle(.borderless)
             }
-            if !organizations.isEmpty {
-                Text("\(organizations.count)개")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        }
+        .onAppear {
+            // 조직 섹션이 보이면 lazy 로드. 사용자가 명시 액션 안 해도 picker 가 채워져 있게.
+            if organizations.isEmpty && !isLoadingOrganizations {
+                loadOrganizations(forceRefresh: false)
             }
-            Spacer()
-            Button("자동 선택") {
-                selectedOrganizationID = ""
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    isOrganizationAdvancedExpanded = false
-                }
-            }
-            .disabled(selectedOrganizationID.isEmpty)
         }
     }
 
-    private var organizationTargetPicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("직접 선택")
-                .font(.subheadline.weight(.semibold))
+    @ViewBuilder
+    private var organizationSingleOrEmptyHint: some View {
+        if organizations.isEmpty {
+            Text("조직 목록을 아직 불러오지 못했습니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else if let only = organizations.first {
+            HStack(spacing: 8) {
+                Image(systemName: "building.2")
+                    .foregroundStyle(.secondary)
+                Text(only.displayName)
+                    .font(.subheadline)
+                Spacer(minLength: 0)
+                Text("조직이 하나뿐이라 별도 선택이 필요 없습니다.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
 
-            Picker("조회 대상", selection: $selectedOrganizationID) {
+    private var organizationPickerInline: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Picker(selection: $selectedOrganizationID) {
                 Text("자동 선택").tag("")
-                if !selectedOrganizationID.isEmpty && !organizations.contains(where: { $0.id == selectedOrganizationID }) {
+                if !selectedOrganizationID.isEmpty,
+                   !organizations.contains(where: { $0.id == selectedOrganizationID })
+                {
                     Text("현재 선택된 조직").tag(selectedOrganizationID)
                 }
                 ForEach(organizations, id: \.id) { org in
                     Text(organizationPickerLabel(for: org)).tag(org.id)
                 }
+            } label: {
+                Text("조직")
             }
             .labelsHidden()
             .disabled(organizations.isEmpty)
 
-            Text("조직이 하나면 그대로 두시는 편이 낫습니다.")
+            if !selectedOrganizationID.isEmpty {
+                Button("자동 선택으로 되돌리기") {
+                    selectedOrganizationID = ""
+                }
+                .controlSize(.small)
+                .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var organizationPendingFootnote: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "arrow.right.circle")
+                .foregroundStyle(.orange)
+            Text("변경 예정: ")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            Text(pendingOrganizationModeLabel)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(pendingOrganizationID.isEmpty ? .green : .orange)
+            if !pendingOrganizationID.isEmpty,
+               let label = label(for: pendingOrganizationID)
+            {
+                Text("· \(label)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
         }
+    }
+
+    private var currentlyAppliedOrganizationLabel: String? {
+        let id = appliedPreferredOrganizationID
+        if id.isEmpty { return nil }
+        return label(for: id)
+    }
+
+    private func label(for organizationID: String) -> String? {
+        if let match = organizations.first(where: { $0.id == organizationID }) {
+            return match.displayName
+        }
+        return nil
     }
 
     private func organizationPickerLabel(for organization: ClaudeAPIService.OrganizationSummary) -> String {
