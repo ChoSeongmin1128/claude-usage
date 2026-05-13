@@ -444,6 +444,27 @@ extension SettingsView {
                         .foregroundStyle(.secondary)
                 }
 
+                Divider()
+                    .padding(.vertical, 2)
+
+                // Claude Code 로그인을 우선 시도 — 사용자의 활성 계정이 브라우저 로그인이어도
+                // OAuth 토큰이 있으면 OAuth 부터 시도. OAuth 실패 시 브라우저 로그인 으로 폴백.
+                Toggle(isOn: Binding(
+                    get: { settings.claudePreferOAuth },
+                    set: { settings.claudePreferOAuth = $0 }
+                )) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Claude Code 로그인을 먼저 시도")
+                            .font(.subheadline)
+                        Text("브라우저 로그인이 활성이어도 Claude Code OAuth 가 있으면 그걸 먼저 사용합니다. OAuth 실패 시 브라우저 로그인으로 자동 폴백.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .toggleStyle(.switch)
+                .disabled(!(usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false))
+
                 HStack(spacing: 8) {
                     Button("브라우저 로그인 값 삭제") { handleClearBrowserSessionAction() }
                         .disabled(!(usageHealthSnapshot?.runtime.credentialAvailability.sessionCredentialAvailable ?? false))

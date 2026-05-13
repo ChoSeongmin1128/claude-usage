@@ -414,6 +414,61 @@ actor ClaudeAPIService {
         )
     }
 
+    /// 일회성 OAuth-aware 자동 복구. UserDefaults 플래그로 1회만 동작.
+    /// 사용자가 직접 추가/선택한 web 계정(chromeProfile, embeddedWebLogin, manualInput)
+    /// 은 건드리지 않고, 레거시 자동 마이그레이션 결과면서 동작 불가 상태인 경우에만 전환.
+    nonisolated static let oauthAwareMigrationVersionKey = "ClaudeUsage.oauthAwareMigrationVersion"
+    nonisolated static let oauthAwareMigrationCurrentVersion = 1
+
+    /// 자동 전환 결정의 핵심 룰을 단위 테스트 가능한 pure function 으로 분리.
+    /// 단순한 입력만 받고 store/keychain 접근 없음 → caller 가 책임지고 데이터 준비.
+    nonisolated static func shouldAutoSwitchActiveToCLIForBrokenLegacyMigration(
+        activeAccount: ClaudeAccount?,
+        oauthCredentialAvailable: Bool,
+        sessionKeyMissing: Bool
+    ) -> Bool {
+        guard oauthCredentialAvailable else { return false }
+        guard let active = activeAccount,
+              active.kind == .webSession,
+              active.source == .legacyMigration
+        else {
+            return false
+        }
+        return sessionKeyMissing || active.lastValidationState == .failed
+    }
+
+    private func runOAuthAwareLegacyMigrationIfNeeded() async {
+        let defaults = UserDefaults.standard
+        let currentVersion = defaults.integer(forKey: Self.oauthAwareMigrationVersionKey)
+        guard currentVersion < Self.oauthAwareMigrationCurrentVersion else { return }
+
+        defer {
+            defaults.set(Self.oauthAwareMigrationCurrentVersion, forKey: Self.oauthAwareMigrationVersionKey)
+        }
+
+        let active = activeAccount
+        let sessionKeyMissing: Bool = {
+            guard let active else { return true }
+            let storedKey = KeychainManager.shared.load(for: active.id)
+            return (storedKey ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }()
+
+        guard Self.shouldAutoSwitchActiveToCLIForBrokenLegacyMigration(
+            activeAccount: active,
+            oauthCredentialAvailable: true,  // caller 가 OAuth 토큰 검증 후 진입
+            sessionKeyMissing: sessionKeyMissing
+        ) else { return }
+
+        Logger.info("OAuth-aware migration v\(Self.oauthAwareMigrationCurrentVersion): legacy web 활성+손상 → CLI active 전환 (\(active?.id ?? "?"))")
+        _ = accountStore.upsertClaudeCodeExternalAccount(
+            identity: await claudeCodeAccountIdentity(),
+            validationState: stableClaudeCodeValidationState(credentialAvailable: true),
+            setActiveIfMissing: false
+        )
+        accountStore.setActiveAccountID(ClaudeAccountStore.claudeCodeExternalAccountID)
+        reloadActiveAccount()
+    }
+
     // MARK: - Public API
 
     /// 브라우저 sessionKey만 검증합니다. OAuth fallback은 의도적으로 사용하지 않습니다.
@@ -433,15 +488,23 @@ actor ClaudeAPIService {
         reloadActiveAccount()
         Logger.info("사용량 데이터 요청 시작")
         let oauthAccessToken = try await readSystemOAuthAccessToken()
-        if usesStoredActiveAccount,
-           activeAccount?.id == nil,
-           oauthAccessToken != nil {
+        // OAuth credential 이 발견되면 활성 계정 유무와 무관하게 CLI external account 를
+        // 항상 store 에 등록한다. 등록만 하고 activeIfMissing 으로만 active 결정 →
+        // 사용자가 다른 web 계정을 명시 선택한 경우 그 선택을 존중하지만,
+        // 설정 UI 의 계정 목록과 health snapshot 에서 CLI 계정이 항상 보이도록 보장.
+        if usesStoredActiveAccount, oauthAccessToken != nil {
             _ = accountStore.upsertClaudeCodeExternalAccount(
                 identity: await claudeCodeAccountIdentity(),
                 validationState: stableClaudeCodeValidationState(credentialAvailable: true),
                 setActiveIfMissing: true
             )
             reloadActiveAccount()
+            // v2.1.1 → 다음 버전 업데이트 사각지대 대응:
+            // 활성 계정이 레거시 자동 마이그레이션 web 인데 sessionKey 자체가 손상되었거나
+            // 직전 검증이 .failed 라면, 사용자 명시 선택이 아니므로 한 번에 한해
+            // CLI external 을 active 로 자동 전환한다. 사용자가 직접 추가/선택한 web
+            // 계정에는 영향 없음. UserDefaults 마이그레이션 플래그로 1회만 동작.
+            await runOAuthAwareLegacyMigrationIfNeeded()
         }
 
         let activeKind: ClaudeAccountKind? = {
@@ -457,17 +520,45 @@ actor ClaudeAPIService {
             return sessionKey
         }()
         let sessionCooldownError = normalizedSessionKey != nil ? currentSessionPathCooldownError() : nil
-        let accountScopedOAuthToken = activeKind == .claudeCodeExternal ? oauthAccessToken : nil
+        // 활성 계정이 web 일 때, 그 web 계정이 사용자가 명시 선택/추가한 결과인지 판별.
+        // 레거시 자동 마이그레이션(`source == .legacyMigration`) 결과면 사용자 의지가
+        // 아직 표명되지 않은 상태이므로 OAuth 폴백을 허용한다. (planner 가 사용)
+        let webSessionExplicitlySelected: Bool = {
+            guard activeKind == .webSession, let source = activeAccount?.source else {
+                return true
+            }
+            return source != .legacyMigration
+        }()
+        // 사용자가 "Claude Code OAuth 우선 시도" 토글을 켰는지 main actor 에서 한 번 읽는다.
+        // 이 값이 true 면 web 활성이어도 OAuth 가 primary 후보로 시도된다.
+        let preferOAuth = await MainActor.run { AppSettings.shared.claudePreferOAuth }
+        // OAuth 토큰을 어떤 경우에 fetch context 에 노출할지 결정.
+        // - 활성=CLI: 항상 OAuth 가 primary
+        // - 활성=web + 레거시 마이그레이션: OAuth 를 secondary fallback 으로 노출
+        // - 활성=web + 사용자 설정 preferOAuth=true: OAuth 를 primary 후보로 노출
+        // - 그 외 (명시 선택된 web): OAuth 노출 안 함 → 사용자 의도 존중
+        let oauthTokenForFetch: String? = {
+            guard let token = oauthAccessToken else { return nil }
+            if activeKind == .claudeCodeExternal { return token }
+            if activeKind == .webSession {
+                if !webSessionExplicitlySelected { return token }
+                if preferOAuth { return token }
+            }
+            return nil
+        }()
         let context = ClaudeFetchContext(
             accountKind: activeKind,
             sourcePreference: .auto,
             webSessionAvailable: normalizedSessionKey != nil && sessionCooldownError == nil,
-            oauthAvailable: accountScopedOAuthToken != nil,
+            oauthAvailable: oauthTokenForFetch != nil,
             webSessionValidationState: validationState(for: .session, credentialAvailable: normalizedSessionKey != nil && sessionCooldownError == nil),
-            oauthValidationState: validationState(for: .oauth, credentialAvailable: accountScopedOAuthToken != nil),
+            oauthValidationState: validationState(for: .oauth, credentialAvailable: oauthTokenForFetch != nil),
             recentSuccessfulSource: nil,
             currentUsagePercent: lastKnownUsagePercent,
-            fallbackPolicy: await currentMessagesFallbackPolicy())
+            fallbackPolicy: await currentMessagesFallbackPolicy(),
+            webSessionExplicitlySelected: webSessionExplicitlySelected,
+            preferOAuthOverActiveAccount: preferOAuth)
+        let accountScopedOAuthToken = oauthTokenForFetch
         let plan = sourcePlanner.makePlan(from: context)
         var sourceErrors: [ClaudeUsageSource: APIError] = [:]
 
@@ -1216,6 +1307,25 @@ actor ClaudeAPIService {
     }
 
     private func fetchUsageViaOAuth(accessToken: String) async throws -> ClaudeUsageResponse {
+        // 첫 시도: 주어진 access token 으로 호출.
+        // 401 (unauthorized) 가 오면 토큰이 만료되었을 가능성이 높으므로
+        // refresh 를 1회 강제 시도하고 새 토큰으로 재호출한다. 같은 단일 fetchUsage 흐름
+        // 안에서만 retry 하므로 무한 루프 위험 없음.
+        do {
+            return try await performOAuthUsageRequest(accessToken: accessToken)
+        } catch let firstError as APIError {
+            guard case .invalidSessionKey = firstError else { throw firstError }
+            guard let refreshedToken = await oauthCredentialReader.forceRefreshAccessToken(),
+                  refreshedToken != accessToken
+            else {
+                throw firstError
+            }
+            Logger.info("OAuth 토큰 401 → refresh 성공, 재시도")
+            return try await performOAuthUsageRequest(accessToken: refreshedToken)
+        }
+    }
+
+    private func performOAuthUsageRequest(accessToken: String) async throws -> ClaudeUsageResponse {
         recordPathAttempt(.oauth)
 
         guard let url = URL(string: "https://api.anthropic.com/api/oauth/usage") else {

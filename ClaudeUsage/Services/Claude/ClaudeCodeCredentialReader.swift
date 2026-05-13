@@ -2,11 +2,39 @@ import Foundation
 
 struct ClaudeCodeOAuthCredential: Equatable, Sendable {
     let accessToken: String
+    let refreshToken: String?
     let expiresAt: Date?
+    /// 어디서 읽혔는지를 식별. refresh 결과를 적절한 위치에 다시 쓸지 결정할 때 사용.
+    /// 현재는 정보 용도(in-memory 캐시만 유지)지만 추후 파일 갱신 등 확장 여지.
+    let source: Source
+
+    enum Source: Equatable, Sendable {
+        case file(URL)
+        case keychain(service: String)
+        case refreshed
+    }
+
+    nonisolated init(
+        accessToken: String,
+        refreshToken: String? = nil,
+        expiresAt: Date? = nil,
+        source: Source = .refreshed
+    ) {
+        self.accessToken = accessToken
+        self.refreshToken = refreshToken
+        self.expiresAt = expiresAt
+        self.source = source
+    }
 
     nonisolated var isExpired: Bool {
         guard let expiresAt else { return false }
         return Date() >= expiresAt.addingTimeInterval(-300)
+    }
+
+    /// access token 이 만료되어도 refresh token 으로 갱신 가능한 상태인가.
+    nonisolated var canAttemptRefresh: Bool {
+        guard let refreshToken else { return false }
+        return !refreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
@@ -24,6 +52,7 @@ actor ClaudeCodeCredentialReader {
     private let profileMetadataStore: ClaudeProfileMetadataStore?
     private let preflightChecker: PreflightChecker
     private let securityCommandRunner: SecurityCommandRunner
+    private let tokenRefresher: ClaudeOAuthTokenRefresher
     private var discoveredServiceNames: [String] = []
     private var didDiscoverServiceNames = false
     private var cachedCredential: ClaudeCodeOAuthCredential?
@@ -31,6 +60,7 @@ actor ClaudeCodeCredentialReader {
     init(
         homeDirectory: URL = FileManager.default.realHomeDirectory,
         profileMetadataStore: ClaudeProfileMetadataStore? = nil,
+        tokenRefresher: ClaudeOAuthTokenRefresher = ClaudeOAuthTokenRefresher(),
         preflightChecker: @escaping PreflightChecker = { service, account in
             KeychainAccessPreflight.checkGenericPassword(service: service, account: account)
         },
@@ -40,6 +70,7 @@ actor ClaudeCodeCredentialReader {
     ) {
         self.homeDirectory = homeDirectory
         self.profileMetadataStore = profileMetadataStore
+        self.tokenRefresher = tokenRefresher
         self.preflightChecker = preflightChecker
         self.securityCommandRunner = securityCommandRunner
     }
@@ -48,15 +79,44 @@ actor ClaudeCodeCredentialReader {
         try await readCredential()?.accessToken
     }
 
+    /// 401 등으로 캐시된 토큰이 거부됐을 때 외부에서 호출해 즉시 refresh 를 시도하게 한다.
+    /// 성공하면 새 access token, 실패하면 nil (caller 가 적절히 폴백).
+    func forceRefreshAccessToken() async -> String? {
+        let credential: ClaudeCodeOAuthCredential?
+        if let cached = cachedCredential {
+            credential = cached
+        } else {
+            credential = try? await readCredential()
+        }
+        guard let credential, credential.canAttemptRefresh else { return nil }
+        do {
+            let refreshed = try await tokenRefresher.refresh(credential)
+            cachedCredential = refreshed
+            return refreshed.accessToken
+        } catch {
+            Logger.warning("OAuth refresh 강제 시도 실패: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     func readCredential() async throws -> ClaudeCodeOAuthCredential? {
         if let cachedCredential, !cachedCredential.isExpired {
             return cachedCredential
         }
+        // 캐시는 만료됐지만 refresh token 이 살아있으면 refresh 한 번 시도.
+        if let cached = cachedCredential, cached.canAttemptRefresh {
+            if let refreshed = await attemptRefresh(of: cached) {
+                cachedCredential = refreshed
+                return refreshed
+            }
+        }
         cachedCredential = nil
 
         if let credential = await readCredentialFromFiles() {
-            cachedCredential = credential
-            return credential
+            if let usable = await ensureUsable(credential) {
+                cachedCredential = usable
+                return usable
+            }
         }
 
         let primaryService = "Claude Code-credentials"
@@ -67,9 +127,14 @@ actor ClaudeCodeCredentialReader {
         }
 
         if let payload = try? await readKeychainPayload(serviceName: primaryService),
-           let credential = await decodeCredential(from: payload, sourceDescription: "키체인 서비스: \(primaryService)") {
-            cachedCredential = credential
-            return credential
+           let credential = await decodeCredential(
+               from: payload,
+               source: .keychain(service: primaryService),
+               sourceDescription: "키체인 서비스: \(primaryService)"),
+           let usable = await ensureUsable(credential)
+        {
+            cachedCredential = usable
+            return usable
         }
 
         let discoveredServices = await getDiscoveredServiceNames().filter { $0 != primaryService }
@@ -78,14 +143,37 @@ actor ClaudeCodeCredentialReader {
         }
         for service in discoveredServices {
             guard let payload = try? await readKeychainPayload(serviceName: service),
-                  let credential = await decodeCredential(from: payload, sourceDescription: "키체인 서비스: \(service)")
+                  let credential = await decodeCredential(
+                      from: payload,
+                      source: .keychain(service: service),
+                      sourceDescription: "키체인 서비스: \(service)"),
+                  let usable = await ensureUsable(credential)
             else { continue }
-            cachedCredential = credential
-            return credential
+            cachedCredential = usable
+            return usable
         }
 
         Logger.warning("OAuth 토큰 조회 실패 (파일/키체인 모두 실패)")
         return nil
+    }
+
+    /// decodeCredential 단계에서 expired 토큰도 반환되므로(refresh 가능 여부 판단을 위해)
+    /// 이 단계에서 만료 토큰이면 refresh 시도해 정상 토큰을 반환한다.
+    /// refresh 가 불가/실패면 nil 을 돌려 caller 가 다른 source 로 폴백하도록 한다.
+    private func ensureUsable(_ credential: ClaudeCodeOAuthCredential) async -> ClaudeCodeOAuthCredential? {
+        if !credential.isExpired { return credential }
+        return await attemptRefresh(of: credential)
+    }
+
+    private func attemptRefresh(of credential: ClaudeCodeOAuthCredential) async -> ClaudeCodeOAuthCredential? {
+        guard credential.canAttemptRefresh else { return nil }
+        do {
+            let refreshed = try await tokenRefresher.refresh(credential)
+            return refreshed
+        } catch {
+            Logger.warning("OAuth refresh 실패: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     private func readCredentialFromFiles() async -> ClaudeCodeOAuthCredential? {
@@ -99,7 +187,11 @@ actor ClaudeCodeCredentialReader {
                   let text = String(data: data, encoding: .utf8),
                   !text.isEmpty else { continue }
 
-            if let credential = await decodeCredential(from: text, sourceDescription: "파일: \(fileURL.lastPathComponent)") {
+            if let credential = await decodeCredential(
+                from: text,
+                source: .file(fileURL),
+                sourceDescription: "파일: \(fileURL.lastPathComponent)")
+            {
                 return credential
             }
         }
@@ -168,8 +260,12 @@ actor ClaudeCodeCredentialReader {
         }
     }
 
-    private func decodeCredential(from credentialsText: String, sourceDescription: String) async -> ClaudeCodeOAuthCredential? {
-        guard let credential = parseCredential(from: credentialsText) else {
+    private func decodeCredential(
+        from credentialsText: String,
+        source: ClaudeCodeOAuthCredential.Source,
+        sourceDescription: String
+    ) async -> ClaudeCodeOAuthCredential? {
+        guard let credential = parseCredential(from: credentialsText, source: source) else {
             return nil
         }
 
@@ -178,6 +274,12 @@ actor ClaudeCodeCredentialReader {
         }
 
         if credential.isExpired {
+            // 만료된 토큰이라도 refresh 가능하면 caller 가 refresh 를 시도할 수 있도록 반환한다.
+            // refresh token 이 없을 때만 nil 처리해 caller 가 즉시 폴백하게 한다.
+            if credential.canAttemptRefresh {
+                Logger.info("OAuth access token 만료 — refresh 시도 가능 (\(sourceDescription))")
+                return credential
+            }
             Logger.warning("OAuth 토큰이 만료되어 건너뜀 (\(sourceDescription))")
             return nil
         }
@@ -186,19 +288,31 @@ actor ClaudeCodeCredentialReader {
         return credential
     }
 
-    private func parseCredential(from credentialsText: String) -> ClaudeCodeOAuthCredential? {
+    private func parseCredential(
+        from credentialsText: String,
+        source: ClaudeCodeOAuthCredential.Source
+    ) -> ClaudeCodeOAuthCredential? {
         if let data = credentialsText.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let oauth = json["claudeAiOauth"] as? [String: Any] {
             let token = firstNonEmptyString(oauth["accessToken"], json["accessToken"])
+            let refreshToken = firstNonEmptyString(oauth["refreshToken"], json["refreshToken"])
             let expiresAt = firstDateValue(oauth["expiresAt"], json["expiresAt"])
             if let token, !token.isEmpty {
-                return ClaudeCodeOAuthCredential(accessToken: token, expiresAt: expiresAt)
+                return ClaudeCodeOAuthCredential(
+                    accessToken: token,
+                    refreshToken: refreshToken,
+                    expiresAt: expiresAt,
+                    source: source)
             }
         }
 
         if let token = extractAccessTokenByRegex(from: credentialsText) {
-            return ClaudeCodeOAuthCredential(accessToken: token, expiresAt: nil)
+            return ClaudeCodeOAuthCredential(
+                accessToken: token,
+                refreshToken: nil,
+                expiresAt: nil,
+                source: source)
         }
         return nil
     }

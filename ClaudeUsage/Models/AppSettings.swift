@@ -511,6 +511,12 @@ class AppSettings: ObservableObject {
     @Published var claudeMessagesFallbackAutoDisableBelowPercent: Int {
         didSet { defaults.set(claudeMessagesFallbackAutoDisableBelowPercent, forKey: "claudeMessagesFallbackAutoDisableBelowPercent") }
     }
+    /// 사용자가 브라우저 로그인(web)을 활성 계정으로 둔 상태라도 Claude Code OAuth 가
+    /// 사용 가능하면 OAuth 경로를 우선 시도할지 결정. 기본 false → 활성 계정 = 진실의 출처.
+    /// true 면 web 활성이어도 planner 가 `[.oauth, .webSession]` 순으로 후보를 만든다.
+    @Published var claudePreferOAuth: Bool {
+        didSet { defaults.set(claudePreferOAuth, forKey: "claudePreferOAuth") }
+    }
     @Published var alertFiveHourEnabled: Bool {
         didSet { defaults.set(alertFiveHourEnabled, forKey: "alertFiveHourEnabled") }
     }
@@ -640,6 +646,7 @@ class AppSettings: ObservableObject {
         let claudeAlertEnabled: Bool
         let claudeMessagesFallbackPolicy: ClaudeMessagesFallbackPolicy
         let claudeMessagesFallbackAutoDisableBelowPercent: Int
+        let claudePreferOAuth: Bool
         let alertFiveHourEnabled: Bool
         let alertWeeklyEnabled: Bool
         let popoverPinned: Bool
@@ -691,6 +698,7 @@ class AppSettings: ObservableObject {
             claudeAlertEnabled: claudeAlertEnabled,
             claudeMessagesFallbackPolicy: claudeMessagesFallbackPolicy,
             claudeMessagesFallbackAutoDisableBelowPercent: claudeMessagesFallbackAutoDisableBelowPercent,
+            claudePreferOAuth: claudePreferOAuth,
             alertFiveHourEnabled: alertFiveHourEnabled,
             alertWeeklyEnabled: alertWeeklyEnabled,
             popoverPinned: popoverPinned,
@@ -750,6 +758,7 @@ class AppSettings: ObservableObject {
         claudeAlertEnabled = snapshot.claudeAlertEnabled
         claudeMessagesFallbackPolicy = snapshot.claudeMessagesFallbackPolicy
         claudeMessagesFallbackAutoDisableBelowPercent = Self.normalizedMessagesFallbackThreshold(snapshot.claudeMessagesFallbackAutoDisableBelowPercent)
+        claudePreferOAuth = snapshot.claudePreferOAuth
         alertFiveHourEnabled = snapshot.alertFiveHourEnabled
         alertWeeklyEnabled = snapshot.alertWeeklyEnabled
         popoverPinned = snapshot.popoverPinned
@@ -1399,6 +1408,7 @@ class AppSettings: ObservableObject {
         claudeAlertEnabled = true
         claudeMessagesFallbackPolicy = .off
         claudeMessagesFallbackAutoDisableBelowPercent = Self.normalizedMessagesFallbackThreshold(20)
+        claudePreferOAuth = false
         alertFiveHourEnabled = true
         alertWeeklyEnabled = false
         popoverPinned = false
@@ -1517,6 +1527,11 @@ class AppSettings: ObservableObject {
         self.claudeMessagesFallbackPolicy = ClaudeMessagesFallbackPolicy(rawValue: fallbackPolicyRaw) ?? .off
         let storedFallbackThreshold = defaults.object(forKey: "claudeMessagesFallbackAutoDisableBelowPercent") as? Int ?? 20
         self.claudeMessagesFallbackAutoDisableBelowPercent = Self.normalizedMessagesFallbackThreshold(storedFallbackThreshold)
+        if let storedPreferOAuth = defaults.object(forKey: "claudePreferOAuth") as? Bool {
+            self.claudePreferOAuth = storedPreferOAuth
+        } else {
+            self.claudePreferOAuth = false
+        }
         self.alertFiveHourEnabled = defaults.object(forKey: "alertFiveHourEnabled") as? Bool ?? true
         self.alertWeeklyEnabled = defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false
         let legacyPinned = Self.normalizedGlobalPopoverPinned(from: defaults)
