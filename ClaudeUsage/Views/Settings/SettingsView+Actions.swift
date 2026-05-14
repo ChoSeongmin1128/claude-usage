@@ -12,12 +12,14 @@ extension SettingsView {
         sessionKey = ""
         testResult = nil
         claudeAccountMessage = hasOAuthCredential
-            ? "브라우저 로그인 값은 삭제했습니다. Claude Code 로그인이 감지되어 있으면 계속 사용할 수 있습니다."
-            : "브라우저 로그인 값은 삭제했습니다. 다시 가져오거나 Claude Code 로그인을 사용해 주세요."
+            ? "브라우저 로그인 값은 삭제했습니다. Claude.ai 에서 다시 로그인해 주세요."
+            : "브라우저 로그인 값은 삭제했습니다. Claude.ai 에서 다시 로그인해 주세요."
     }
 
     func showClaudeCodeLoginGuidance() {
-        claudeAccountMessage = "Claude Code 로그인을 다시 진행하려면 터미널에서 `claude login`을 실행한 뒤 사용량 새로고침을 눌러 주세요."
+        // v2.2.0: Claude Code CLI 경로(/api/oauth/usage) 비활성화. CLI 재로그인 안내 대신
+        // Claude.ai 로그인으로 전환을 권장한다.
+        claudeAccountMessage = "Claude Code CLI 경로는 v2.2.0 부터 사용량 조회에 사용되지 않습니다. Claude.ai 로그인으로 전환해 주세요."
     }
 
     func syncStoredSessionKeyState() {

@@ -616,26 +616,21 @@ extension SettingsView {
         switch snapshot.runtime.activePath {
         case .sessionPrimary:
             if snapshot.runtime.sessionValidationState == .failed {
-                return "브라우저 로그인 값 확인이 필요합니다. 다시 가져오거나 삭제 후 Claude Code 로그인을 사용하세요."
+                return "브라우저 로그인 값 확인이 필요합니다. Claude.ai 에서 다시 로그인해 주세요."
             }
             if snapshot.runtime.sessionValidationState == .verified {
                 return "브라우저 로그인 값으로 최근 조회가 성공했습니다."
             }
             return "브라우저 로그인 값이 저장되어 있습니다. 사용량 새로고침으로 실제 조회를 확인하세요."
         case .oauthPreferred, .oauthFallback:
-            if snapshot.runtime.oauthValidationState == .failed {
-                return "Claude Code 로그인 갱신이 필요합니다. 터미널에서 `claude login`을 다시 실행해 주세요."
-            }
-            if snapshot.runtime.oauthValidationState == .verified {
-                return "Claude Code 로그인으로 최근 사용량 조회가 성공했습니다."
-            }
-            return "Claude Code 로그인이 감지됐습니다. 사용량 새로고침으로 실제 조회를 확인하세요."
+            // v2.2.0: OAuth 경로는 비활성. 이 분기는 호출되지 않아야 하지만 방어적으로 Claude.ai 전환 안내.
+            return "Claude Code CLI 경로는 v2.2.0 부터 사용량 조회에 사용되지 않습니다. Claude.ai 로그인으로 전환해 주세요."
         case .unauthenticated:
             if snapshot.runtime.sessionValidationState == .failed {
-                return "브라우저 로그인 값 확인이 필요합니다. 다시 가져오거나 삭제 후 다른 로그인 경로를 사용하세요."
+                return "브라우저 로그인 값 확인이 필요합니다. Claude.ai 에서 다시 로그인해 주세요."
             }
             if snapshot.runtime.oauthValidationState == .failed {
-                return "Claude Code 로그인 갱신이 필요합니다. 터미널에서 `claude login`을 다시 실행해 주세요."
+                return "Claude Code CLI 경로는 v2.2.0 부터 사용량 조회에 사용되지 않습니다. Claude.ai 로그인으로 전환해 주세요."
             }
         }
 
@@ -644,7 +639,8 @@ extension SettingsView {
         }
 
         if availability.oauthCredentialAvailable {
-            return "Claude Code 로그인이 감지됐습니다. 사용량 새로고침으로 실제 조회를 확인하세요."
+            // OAuth 토큰이 keychain 에 있어도 v2.2.0 부터는 호출하지 않는다.
+            return "Claude Code CLI 경로는 v2.2.0 부터 사용량 조회에 사용되지 않습니다. Claude.ai 로그인으로 전환해 주세요."
         }
 
         return "브라우저 로그인 값이 저장되어 있습니다. 사용량 새로고침으로 실제 조회를 확인하세요."

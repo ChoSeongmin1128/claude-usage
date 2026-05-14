@@ -256,18 +256,10 @@ struct LoginWindowView: View {
                     action: { startChromeImport() }
                 )
 
-                methodCard(
-                    icon: "terminal",
-                    iconTint: .purple,
-                    title: "Claude Code 로그인 사용",
-                    subtitle: cliCardSubtitle,
-                    badge: cliPreview != nil ? "감지됨" : nil,
-                    isEnabled: cliPreview != nil,
-                    disabledReason: cliPreview == nil
-                        ? "터미널에서 `claude login` 을 먼저 실행해 주세요."
-                        : nil,
-                    action: { startCLIActivation() }
-                )
+                // v2.2.0: "Claude Code 로그인 사용" 카드는 의도적으로 제거.
+                // /api/oauth/usage 경로 비활성화에 따라 CLI OAuth 자격으로 로그인해도
+                // 사용량 조회가 안 되므로 옵션 자체를 노출하지 않는다. CLI 사용자도
+                // Claude.ai 로그인으로 통일.
 
                 methodCard(
                     icon: "key.horizontal",

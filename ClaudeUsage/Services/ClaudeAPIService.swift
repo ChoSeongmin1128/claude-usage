@@ -569,6 +569,12 @@ actor ClaudeAPIService {
     }
 
     private func runOAuthAwareLegacyMigrationIfNeeded() async {
+        // v2.2.0: OAuth 경로 비활성. legacy web session 이 손상되더라도 CLI external 계정으로
+        // 자동 전환하면 사용자가 OAuth 안내 카드만 보게 되어 마찰만 늘어난다. 그러므로
+        // 이 migration 자체를 skip — 손상 안내는 Claude.ai 재로그인 경로로 통일된다.
+        let oauthCallsDisabled = true
+        if oauthCallsDisabled { return }
+
         let defaults = UserDefaults.standard
         let currentVersion = defaults.integer(forKey: Self.oauthAwareMigrationVersionKey)
         guard currentVersion < Self.oauthAwareMigrationCurrentVersion else { return }
