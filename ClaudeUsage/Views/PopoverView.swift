@@ -383,23 +383,18 @@ struct PopoverView: View {
             )
         case .error:
             if let error = serviceError {
+                let presentation = errorPresentation(for: error, service: selectedService)
                 statusPanel(
                     density: layoutSpec.density,
                     configuration: StatusPanelConfiguration(
                         icon: "exclamationmark.triangle",
                         iconColor: .orange,
                         showsProgress: false,
-                        title: error.isDefinitiveAuthFailure ? "인증 필요" : "조회 실패",
-                        message: error.isDefinitiveAuthFailure ? "연결을 다시 확인해 주세요." : "잠시 후 다시 시도해 주세요.",
-                        actionTitle: error.isDefinitiveAuthFailure ? "설정 열기" : "다시 시도",
-                        actionStyle: error.isDefinitiveAuthFailure ? .prominent : .bordered,
-                        action: {
-                            if error.isDefinitiveAuthFailure {
-                                viewModel.openSettings(for: selectedService)
-                            } else {
-                                viewModel.refresh()
-                            }
-                        }
+                        title: presentation.title,
+                        message: presentation.message,
+                        actionTitle: presentation.actionTitle,
+                        actionStyle: presentation.actionStyle,
+                        action: presentation.action
                     )
                 )
             }
@@ -438,6 +433,120 @@ struct PopoverView: View {
             actionStyle: configuration.actionStyle,
             action: configuration.action
         )
+    }
+
+    /// Provider + 에러 종류에 따라 정확한 안내 + 적절한 action 을 결정.
+    /// 이전 "인증 필요" / "연결을 다시 확인해 주세요" 같은 모호한 메시지를 대체.
+    private struct ErrorPresentation {
+        let title: String
+        let message: String
+        let actionTitle: String?
+        let actionStyle: StatusPanelActionStyle
+        let action: (() -> Void)?
+    }
+
+    private func errorPresentation(for error: APIError, service: PopoverService) -> ErrorPresentation {
+        switch error {
+        case .invalidSessionKey:
+            return authReauthPresentation(service: service)
+
+        case .cloudflareBlocked(let retryAfter):
+            let suffix = retryAfter.map { " (약 \($0)초 후)" } ?? ""
+            return ErrorPresentation(
+                title: "일시 차단됨",
+                message: "Cloudflare 가 잠시 호출을 차단했습니다\(suffix). 잠시 후 자동 재시도됩니다.",
+                actionTitle: "지금 다시 시도",
+                actionStyle: .bordered,
+                action: { viewModel.refresh() }
+            )
+
+        case .rateLimited(let retryAfter):
+            let suffix = retryAfter.map { " (\($0)초 후 재시도)" } ?? ""
+            return ErrorPresentation(
+                title: "API 한도 초과",
+                message: "잠시 호출을 멈추는 게 좋습니다\(suffix).",
+                actionTitle: "지금 다시 시도",
+                actionStyle: .bordered,
+                action: { viewModel.refresh() }
+            )
+
+        case .networkError(let detail):
+            return ErrorPresentation(
+                title: "네트워크 오류",
+                message: "인터넷 연결을 확인해 주세요. (\(detail))",
+                actionTitle: "다시 시도",
+                actionStyle: .bordered,
+                action: { viewModel.refresh() }
+            )
+
+        case .parseError:
+            return ErrorPresentation(
+                title: "응답 형식 변경",
+                message: "응답 형식이 우리 앱이 알고 있는 것과 달라 파싱하지 못했습니다. 앱 업데이트가 있는지 확인해 보세요.",
+                actionTitle: "다시 시도",
+                actionStyle: .bordered,
+                action: { viewModel.refresh() }
+            )
+
+        case .serverError(let code):
+            return ErrorPresentation(
+                title: "서버 오류",
+                message: "원격 서버가 HTTP \(code) 로 응답했습니다. 잠시 후 다시 시도해 주세요.",
+                actionTitle: "다시 시도",
+                actionStyle: .bordered,
+                action: { viewModel.refresh() }
+            )
+
+        case .unknownError(let detail):
+            return ErrorPresentation(
+                title: "조회 실패",
+                message: detail.isEmpty ? "원인을 파악하지 못했습니다." : detail,
+                actionTitle: "다시 시도",
+                actionStyle: .bordered,
+                action: { viewModel.refresh() }
+            )
+        }
+    }
+
+    /// Provider 별 인증 만료/거부 안내. 사용자에게 정확한 행동(어떤 명령 어디서 실행)을 알려준다.
+    private func authReauthPresentation(service: PopoverService) -> ErrorPresentation {
+        switch service {
+        case .claude:
+            // Claude 의 인증은 두 갈래 — 브라우저 sessionKey 또는 Claude Code OAuth.
+            // 어느 쪽이 만료됐는지 viewModel 의 health snapshot 에서 추론할 수 있지만, 가장
+            // 안전한 안내: wizard 진입(메뉴바 한 번 클릭) 또는 터미널 `claude /login` 양방향.
+            return ErrorPresentation(
+                title: "Claude 로그인 만료",
+                message: "두 가지 방법 중 하나로 다시 연결해 주세요:\n1) 메뉴바에서 'Claude 로그인 시작'\n2) 터미널에서 `claude /login`",
+                actionTitle: "Claude 로그인 시작",
+                actionStyle: .prominent,
+                action: { viewModel.startClaudeLogin() }
+            )
+        case .codex:
+            return ErrorPresentation(
+                title: "Codex 로그인 만료",
+                message: "터미널에서 `codex login` 을 다시 실행한 뒤 사용량 새로고침을 눌러 주세요.",
+                actionTitle: "설정 열기",
+                actionStyle: .prominent,
+                action: { viewModel.openSettings(for: .codex) }
+            )
+        case .gemini:
+            return ErrorPresentation(
+                title: "Gemini 로그인 필요",
+                message: "Gemini CLI 로그인 후 사용량 새로고침을 눌러 주세요.",
+                actionTitle: "설정 열기",
+                actionStyle: .prominent,
+                action: { viewModel.openSettings(for: .gemini) }
+            )
+        case .antigravity:
+            return ErrorPresentation(
+                title: "Antigravity 연결 필요",
+                message: "Antigravity 인증을 다시 확인해 주세요.",
+                actionTitle: "설정 열기",
+                actionStyle: .prominent,
+                action: { viewModel.openSettings(for: .antigravity) }
+            )
+        }
     }
 
     /// Claude 미인증 상태 전용 패널. 일반 statusPanel 은 단일 액션만 지원하므로
