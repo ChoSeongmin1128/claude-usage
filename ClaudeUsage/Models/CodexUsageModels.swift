@@ -26,6 +26,13 @@ struct CodexUsageResponse: Codable, Sendable {
         rateLimit = try container.decodeIfPresent(CodexRateLimit.self, forKey: .rateLimit)
         credits = try container.decodeIfPresent(CodexCredits.self, forKey: .credits)
     }
+
+    /// CLI fallback 등 비-네트워크 데이터 소스에서 직접 모델을 생성할 때 사용하는 raw 생성자.
+    nonisolated init(planType: String?, rateLimit: CodexRateLimit?, credits: CodexCredits?) {
+        self.planType = planType
+        self.rateLimit = rateLimit
+        self.credits = credits
+    }
 }
 
 /// Codex 사용량 윈도우 (5시간/7일)
@@ -42,6 +49,11 @@ struct CodexRateLimit: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         primaryWindow = try container.decodeIfPresent(CodexUsageWindow.self, forKey: .primaryWindow)
         secondaryWindow = try container.decodeIfPresent(CodexUsageWindow.self, forKey: .secondaryWindow)
+    }
+
+    nonisolated init(primaryWindow: CodexUsageWindow?, secondaryWindow: CodexUsageWindow?) {
+        self.primaryWindow = primaryWindow
+        self.secondaryWindow = secondaryWindow
     }
 }
 
@@ -77,6 +89,12 @@ struct CodexUsageWindow: Codable, Sendable {
         }
 
         limitWindowSeconds = try container.decodeIfPresent(Int.self, forKey: .limitWindowSeconds)
+    }
+
+    nonisolated init(usedPercent: Double, resetAt: Double?, limitWindowSeconds: Int?) {
+        self.usedPercent = usedPercent
+        self.resetAt = resetAt
+        self.limitWindowSeconds = limitWindowSeconds
     }
 
     /// Unix timestamp → ISO 8601 문자열 (기존 TimeFormatter 재사용용)
@@ -130,6 +148,12 @@ struct CodexCredits: Codable, Sendable {
         } else {
             balance = nil
         }
+    }
+
+    nonisolated init(hasCredits: Bool, unlimited: Bool, balance: Double?) {
+        self.hasCredits = hasCredits
+        self.unlimited = unlimited
+        self.balance = balance
     }
 
     /// 포맷된 잔액
