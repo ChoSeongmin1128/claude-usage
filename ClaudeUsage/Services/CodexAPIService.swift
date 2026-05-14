@@ -44,39 +44,8 @@ actor CodexAPIService {
 
     // MARK: - Public API
 
-    /// 사용량 데이터 가져오기.
-    /// 1순위: OAuth Bearer 토큰으로 ChatGPT backend `/wham/usage` 호출 (CodexBar 방식)
-    /// 2순위(fallback): codex CLI 를 PTY 로 띄워 `/status` 슬래시 명령 캡처 + 파싱
-    ///
-    /// CLI fallback 이 필요한 이유:
-    /// - OAuth refresh_token 이 rotation 으로 reused 되거나 access_token 이 진짜 만료된 경우
-    ///   OAuth path 가 어떤 방법으로도 살아나지 못한다. 사용자 CLI 는 자체 토큰 관리로
-    ///   계속 동작하므로, 그 CLI 를 활용해 사용량을 가져온다.
-    /// - 이 fallback 은 OAuth 가 죽었을 때만 발동하고 정상 path 에서는 영향 없음.
+    /// 사용량 데이터 가져오기 (OAuth Bearer 토큰, CodexBar 방식)
     func fetchUsage() async throws -> CodexUsageResponse {
-        do {
-            return try await fetchUsageViaOAuth()
-        } catch let error as APIError {
-            // OAuth path 실패 — CLI fallback 시도 가치가 있는 케이스만 시도.
-            // 네트워크 오류 / 서버 오류 / 인증 오류 모두 CLI 로 우회 가능. 파싱 오류도 동일.
-            switch error {
-            case .invalidSessionKey, .serverError, .networkError, .parseError, .rateLimited, .cloudflareBlocked, .unknownError:
-                if let usage = await fetchUsageViaCLI() {
-                    Logger.info("Codex OAuth 실패 → CLI fallback 으로 사용량 수신")
-                    return usage
-                }
-                throw error
-            }
-        } catch {
-            if let usage = await fetchUsageViaCLI() {
-                Logger.info("Codex OAuth 실패(\(error.localizedDescription)) → CLI fallback 성공")
-                return usage
-            }
-            throw error
-        }
-    }
-
-    private func fetchUsageViaOAuth() async throws -> CodexUsageResponse {
         // 토큰 갱신 확인
         let storedToken = await MainActor.run { CodexAuthManager.shared.getToken() }
         if let token = storedToken, token.isExpired {
@@ -95,7 +64,7 @@ actor CodexAPIService {
             throw APIError.invalidSessionKey
         }
 
-        Logger.info("Codex 사용량 데이터 요청 시작 (OAuth)")
+        Logger.info("Codex 사용량 데이터 요청 시작")
 
         let url = URL(string: "\(baseURL)/wham/usage")!
         var request = URLRequest(url: url)
@@ -141,18 +110,6 @@ actor CodexAPIService {
         } catch {
             Logger.error("Codex JSON 파싱 실패: \(error)")
             throw APIError.parseError
-        }
-    }
-
-    /// CLI fallback. codex 바이너리를 PTY 로 띄워 `/status` 슬래시 명령 응답을 캡처/파싱.
-    /// CLI 가 설치 안 됐거나 응답 파싱 실패면 nil → caller 가 원래 에러 throw.
-    private func fetchUsageViaCLI() async -> CodexUsageResponse? {
-        do {
-            let snapshot = try await CodexStatusProbe().fetch()
-            return CodexCLIStatusMapper.mapToUsageResponse(snapshot)
-        } catch {
-            Logger.warning("Codex CLI fallback 실패: \(error.localizedDescription)")
-            return nil
         }
     }
 
