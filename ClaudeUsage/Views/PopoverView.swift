@@ -554,16 +554,14 @@ struct PopoverView: View {
         return "\(seconds)초 후"
     }
 
-    /// Provider 별 인증 만료/거부 안내. 사용자에게 정확한 행동(어떤 명령 어디서 실행)을 알려준다.
+    /// Provider 별 인증 만료/거부 안내. 사용자에게 정확한 행동(어떤 버튼을 누르면 되는지)을 알려준다.
     private func authReauthPresentation(service: PopoverService) -> ErrorPresentation {
         switch service {
         case .claude:
-            // Claude 의 인증은 두 갈래 — 브라우저 sessionKey 또는 Claude Code OAuth.
-            // 어느 쪽이 만료됐는지 viewModel 의 health snapshot 에서 추론할 수 있지만, 가장
-            // 안전한 안내: wizard 진입(메뉴바 한 번 클릭) 또는 터미널 `claude /login` 양방향.
+            // v2.2.0: CLI OAuth 경로 비활성. 인증 만료 시 Claude.ai 로그인으로 통일 안내.
             return ErrorPresentation(
                 title: "Claude 로그인 만료",
-                message: "두 가지 방법 중 하나로 다시 연결해 주세요:\n1) 메뉴바에서 'Claude 로그인 시작'\n2) 터미널에서 `claude /login`",
+                message: "Claude.ai 로그인이 만료됐습니다. 메뉴바의 'Claude 로그인 시작' 으로 다시 연결해 주세요.",
                 actionTitle: "Claude 로그인 시작",
                 actionStyle: .prominent,
                 action: { viewModel.startClaudeLogin() }

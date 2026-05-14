@@ -291,7 +291,9 @@ struct LoginWindowView: View {
             return "\(line) · 터미널 인증을 그대로 사용합니다"
         }
         if cliPreview != nil {
-            return "터미널의 `claude login` 인증을 그대로 사용합니다"
+            // v2.2.0 부터 위저드 카드 자체를 노출하지 않아 이 분기는 dead path —
+            // 정확성 차원에서 표현만 정정. CLI 로그인은 `claude auth login` 이 정확.
+            return "터미널의 `claude auth login` 인증을 그대로 사용합니다"
         }
         if !didLoadCLIPreview {
             return "Claude Code 인증 정보를 찾는 중..."
