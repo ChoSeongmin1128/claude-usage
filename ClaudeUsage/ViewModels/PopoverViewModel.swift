@@ -58,6 +58,29 @@ final class PopoverViewModel: ObservableObject {
     var onServiceSelected: ((PopoverService) -> Void)?
     var onPinChanged: ((PopoverService, Bool) -> Void)?
     var onLayoutChanged: ((PopoverService, PopoverLayoutRefreshReason) -> Void)?
+
+    /// 수동 새로고침 throttle. 마지막 호출 시각을 service 별로 기록해 5초 이내 재호출을 무시한다.
+    /// 사용자가 "조회 실패" 카드를 보고 빠르게 연타하는 패턴이 가장 자주 한도를 침범하므로,
+    /// 자동 새로고침 주기(30초) 와 별개로 수동 호출에만 floor 를 적용한다.
+    private var lastManualRefreshAt: [PopoverService: Date] = [:]
+    /// 마지막 클릭이 throttle 로 막혔는지 — UI 가 "잠시 기다려 주세요" 표시 등에 사용 가능.
+    @Published private(set) var lastManualRefreshThrottledUntil: Date?
+    /// 클릭 즉시 spinner 가 돌도록 보장하는 짧은 윈도우 (외부 isLoading 토글 지연 보완).
+    /// 사용자가 새로고침 버튼을 눌렀을 때 "눌렸나?" 라는 불확실성이 가장 큰 UX 손해이므로,
+    /// 최소 0.5초간 spinner 를 강제로 보여 즉각 시각 피드백을 보장한다.
+    @Published private(set) var manualRefreshSpinnerUntil: Date?
+    private static let manualRefreshThrottleSeconds: TimeInterval = 5
+    private static let manualRefreshSpinnerMinDuration: TimeInterval = 0.5
+
+    /// 클릭 즉시 spinner 가 활성 상태인지 — PopoverView 가 ProgressView 강제 표시에 사용.
+    nonisolated var isManualRefreshSpinnerActive: Bool {
+        // nonisolated 라 직접 published state 접근 불가 — 메인 actor hop 없이도 동작하도록
+        // until 시각만 비교. UI 가 frequent 하게 호출하지만 stale read 위험 없음 (시각 비교).
+        MainActor.assumeIsolated {
+            guard let until = manualRefreshSpinnerUntil else { return false }
+            return Date() < until
+        }
+    }
     /// 팝오버의 미인증 상태에서 사용자가 한 번에 wizard 로그인 윈도우로 갈 수 있게 하는 콜백.
     /// 기본 동작: AppDelegate.showLoginWindow(startChromeImportOnOpen: true).
     var onStartClaudeLogin: (() -> Void)?
@@ -93,11 +116,31 @@ final class PopoverViewModel: ObservableObject {
     }
 
     func refresh() {
-        self.onRefreshService?(self.selectedService)
+        self.refresh(service: self.selectedService)
     }
 
     func refresh(service: PopoverService) {
+        let now = Date()
+        if let last = lastManualRefreshAt[service],
+           now.timeIntervalSince(last) < Self.manualRefreshThrottleSeconds {
+            // 직전 호출 후 N초 미만 — 사용자가 연타한 케이스. 호출 자체를 막아 한도 침범 예방.
+            let unblockedAt = last.addingTimeInterval(Self.manualRefreshThrottleSeconds)
+            lastManualRefreshThrottledUntil = unblockedAt
+            return
+        }
+        lastManualRefreshAt[service] = now
+        lastManualRefreshThrottledUntil = nil
+        // 클릭 즉시 시각 피드백: 외부 isLoading 이 토글되기 전이라도 spinner 를 보여준다.
+        let spinnerTarget = now.addingTimeInterval(Self.manualRefreshSpinnerMinDuration)
+        manualRefreshSpinnerUntil = spinnerTarget
         self.onRefreshService?(service)
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.manualRefreshSpinnerMinDuration * 1_000_000_000))
+            guard let self else { return }
+            if self.manualRefreshSpinnerUntil == spinnerTarget {
+                self.manualRefreshSpinnerUntil = nil
+            }
+        }
     }
 
     func openSettings() {

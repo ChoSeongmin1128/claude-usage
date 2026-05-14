@@ -677,19 +677,26 @@ actor ClaudeAPIService {
             }
             return nil
         }()
+        // v2.2.0: Claude CLI OAuth (`/api/oauth/usage`) 경로 비활성화.
+        //   - 토큰별 rate limit (사용자가 본 2500초 대기) 우회
+        //   - refresh_token rotation trap 회피
+        // SourcePlanner 에 oauth 후보가 들어가지 않도록 oauthAvailable 을 false 로 강제한다.
+        // 코드 자체는 보존 — 정책이 바뀌면 이 한 줄을 되돌리면 즉시 활성화 가능.
+        let oauthCallsDisabled = true
+        let effectiveOAuthAvailable = oauthCallsDisabled ? false : (oauthTokenForFetch != nil)
         let context = ClaudeFetchContext(
             accountKind: activeKind,
             sourcePreference: .auto,
             webSessionAvailable: normalizedSessionKey != nil && sessionCooldownError == nil,
-            oauthAvailable: oauthTokenForFetch != nil,
+            oauthAvailable: effectiveOAuthAvailable,
             webSessionValidationState: validationState(for: .session, credentialAvailable: normalizedSessionKey != nil && sessionCooldownError == nil),
-            oauthValidationState: validationState(for: .oauth, credentialAvailable: oauthTokenForFetch != nil),
+            oauthValidationState: validationState(for: .oauth, credentialAvailable: effectiveOAuthAvailable),
             recentSuccessfulSource: nil,
             currentUsagePercent: lastKnownUsagePercent,
             fallbackPolicy: await currentMessagesFallbackPolicy(),
             webSessionExplicitlySelected: webSessionExplicitlySelected,
             preferOAuthOverActiveAccount: preferOAuth)
-        let accountScopedOAuthToken = oauthTokenForFetch
+        let accountScopedOAuthToken = oauthCallsDisabled ? nil : oauthTokenForFetch
         let plan = sourcePlanner.makePlan(from: context)
         var sourceErrors: [ClaudeUsageSource: APIError] = [:]
 
@@ -777,6 +784,12 @@ actor ClaudeAPIService {
         }
         if let sessionError = sourceErrors[.webSession] {
             throw sessionError
+        }
+        // v2.2.0: CLI OAuth-only 계정이고 sessionKey 가 없으면 "에러" 가 아니라
+        // "Claude.ai 로그인으로 전환 권장" 안내로 분기한다. UI 가 이 케이스를 받아
+        // 빨간 에러 카드 대신 친절 안내 카드를 표시한다.
+        if activeKind == .claudeCodeExternal, normalizedSessionKey == nil {
+            throw APIError.claudeOAuthPathRetired
         }
         throw APIError.invalidSessionKey
     }
@@ -1240,7 +1253,7 @@ actor ClaudeAPIService {
                     switch apiError {
                     case .rateLimited(_), .cloudflareBlocked(_):
                         throw apiError
-                    case .invalidSessionKey, .codexReauthRequired, .networkError, .parseError, .serverError, .unknownError:
+                    case .invalidSessionKey, .codexReauthRequired, .claudeOAuthPathRetired, .networkError, .parseError, .serverError, .unknownError:
                         break
                     }
                 }

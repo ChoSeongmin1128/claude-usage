@@ -254,7 +254,9 @@ struct PopoverView: View {
     }
 
     private var currentServiceLoading: Bool {
-        serviceLoading(for: selectedService)
+        // 외부 runtime isLoading + 수동 새로고침 직후의 강제 spinner 윈도우.
+        // 후자는 사용자가 새로고침 버튼 누른 즉시 ProgressView 가 돌도록 보장한다.
+        serviceLoading(for: selectedService) || viewModel.isManualRefreshSpinnerActive
     }
 
     private var availableServices: [PopoverService] {
@@ -449,6 +451,18 @@ struct PopoverView: View {
         switch error {
         case .invalidSessionKey:
             return authReauthPresentation(service: service)
+
+        case .claudeOAuthPathRetired:
+            // v2.2.0: Claude CLI OAuth (`/api/oauth/usage`) 경로가 비활성화됐다.
+            // 사용자가 본 "2500초 대기" 문제의 근본 원인이라 호출 자체를 끊었고,
+            // 대신 더 안정적인 Claude.ai 로그인으로 전환을 권장하는 친절 카드를 노출한다.
+            return ErrorPresentation(
+                title: "Claude.ai 로그인 권장",
+                message: "Claude Code CLI 경로는 조회 한도 문제가 잦아 v2.2.0 부터 비활성화됐습니다. Claude.ai 로그인으로 전환하면 한도 여유가 훨씬 크고 더 안정적입니다.",
+                actionTitle: "Claude.ai 로그인 시작",
+                actionStyle: .prominent,
+                action: { viewModel.startClaudeLogin() }
+            )
 
         case .codexReauthRequired(let reason):
             // refresh_token 이 영구 무효화 — 일반 "토큰 만료" 와 달리 자동 회복 불가.
