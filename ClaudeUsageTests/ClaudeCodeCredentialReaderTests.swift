@@ -2,10 +2,18 @@ import XCTest
 @testable import ClaudeUsage
 
 final class ClaudeCodeCredentialReaderTests: XCTestCase {
-    func testCredentialFileIsPreferredBeforeKeychain() async throws {
+    func testCredentialFileIsPreferredAfterRefreshedCacheMiss() async throws {
+        // 새 흐름: 우리 앱 refresh 캐시 keychain → 파일 → CLI primary keychain → discovered.
+        // 캐시가 없으면(status 44) 파일을 사용해야 한다.
         let home = try makeTemporaryHome()
         try writeCredentialFile(home: home, token: "file-token")
-        let runner = CommandRunnerStub { _, _ in nil }
+        let runner = CommandRunnerStub { arguments, _ in
+            // refresh 캐시는 비어 있음 (Item not found)
+            if arguments.contains("ClaudeUsage.Claude Code-credentials-refreshed") {
+                return ClaudeCodeSecurityCommandResult(status: 44, stdout: "", stderr: "")
+            }
+            return nil
+        }
         let reader = ClaudeCodeCredentialReader(
             homeDirectory: home,
             preflightChecker: { _, _ in .allowed },
@@ -17,12 +25,17 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         let token = try await reader.readAccessToken()
 
         XCTAssertEqual(token, "file-token")
-        XCTAssertTrue(runner.calls.isEmpty)
+        // 캐시 keychain 1회만 시도 후 파일 발견 → CLI primary 까지 안 감.
+        XCTAssertEqual(runner.calls.count, 1)
+        XCTAssertEqual(Array(runner.calls[0].prefix(3)), ["find-generic-password", "-s", "ClaudeUsage.Claude Code-credentials-refreshed"])
     }
 
-    func testPrimaryKeychainServiceIsUsedWhenFileIsMissing() async throws {
+    func testPrimaryKeychainServiceIsUsedWhenRefreshedCacheAndFileAreMissing() async throws {
         let home = try makeTemporaryHome()
         let runner = CommandRunnerStub { arguments, _ in
+            if arguments.contains("ClaudeUsage.Claude Code-credentials-refreshed") {
+                return ClaudeCodeSecurityCommandResult(status: 44, stdout: "", stderr: "")
+            }
             guard arguments.contains("Claude Code-credentials") else { return nil }
             return ClaudeCodeSecurityCommandResult(
                 status: 0,
@@ -41,8 +54,9 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         let token = try await reader.readAccessToken()
 
         XCTAssertEqual(token, "primary-token")
-        XCTAssertEqual(runner.calls.count, 1)
-        XCTAssertEqual(Array(runner.calls[0].prefix(3)), ["find-generic-password", "-s", "Claude Code-credentials"])
+        XCTAssertEqual(runner.calls.count, 2)
+        XCTAssertEqual(Array(runner.calls[0].prefix(3)), ["find-generic-password", "-s", "ClaudeUsage.Claude Code-credentials-refreshed"])
+        XCTAssertEqual(Array(runner.calls[1].prefix(3)), ["find-generic-password", "-s", "Claude Code-credentials"])
     }
 
     func testDiscoveredHashedKeychainServiceIsUsedWhenPrimaryIsMissing() async throws {

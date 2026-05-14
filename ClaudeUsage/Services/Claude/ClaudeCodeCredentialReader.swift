@@ -48,6 +48,13 @@ actor ClaudeCodeCredentialReader {
     typealias PreflightChecker = @Sendable (_ service: String, _ account: String?) -> KeychainAccessPreflight.Outcome
     typealias SecurityCommandRunner = @Sendable (_ arguments: [String], _ timeout: TimeInterval) async throws -> ClaudeCodeSecurityCommandResult?
 
+    /// 우리 앱 전용 refresh 캐시 keychain item.
+    /// Anthropic CLI 가 관리하는 `Claude Code-credentials` 항목과는 별도로,
+    /// 우리 앱이 refresh 한 새 access/refresh token 을 영구 저장해 다음 부팅 시
+    /// 옛 RT 로 호출하지 않게 한다 (refresh_token_reused 함정 방지).
+    /// CLI 의 keychain item 은 절대 수정하지 않아 CLI 동작에 영향 없음.
+    private static let refreshedCacheKeychainService = "ClaudeUsage.Claude Code-credentials-refreshed"
+
     private let homeDirectory: URL
     private let profileMetadataStore: ClaudeProfileMetadataStore?
     private let preflightChecker: PreflightChecker
@@ -92,7 +99,15 @@ actor ClaudeCodeCredentialReader {
         do {
             let refreshed = try await tokenRefresher.refresh(credential)
             cachedCredential = refreshed
+            // 영구 저장: 다음 부팅 시 옛 RT 로 호출하지 않도록 우리 캐시 keychain 에 write-back.
+            await persistRefreshedCredentialToKeychain(refreshed)
             return refreshed.accessToken
+        } catch ClaudeOAuthTokenRefresher.RefreshError.invalidGrant {
+            // RT 가 서버에서 invalidate 됨 — 우리 캐시도 의미 없으므로 지운다.
+            // 다음 readCredential 호출 시 파일/CLI keychain 으로 자연 폴백.
+            await deleteRefreshedCredentialFromKeychain()
+            Logger.warning("OAuth refresh invalid_grant — 캐시 삭제 후 file/CLI fallback")
+            return nil
         } catch {
             Logger.warning("OAuth refresh 강제 시도 실패: \(error.localizedDescription)")
             return nil
@@ -111,6 +126,21 @@ actor ClaudeCodeCredentialReader {
             }
         }
         cachedCredential = nil
+
+        // 1순위: 우리 앱의 refresh 캐시 keychain item.
+        // 이전 세션에서 refresh 성공으로 얻은 가장 최신 RT 가 여기 있다면 그것 우선 사용.
+        // Anthropic CLI 의 keychain item 은 옛 RT 일 가능성이 높아 (이미 우리가 사용해서
+        // invalidate 됐을 수 있음) 우리 캐시를 먼저 시도하는 게 안전하다.
+        if let payload = try? await readKeychainPayload(serviceName: Self.refreshedCacheKeychainService),
+           let credential = await decodeCredential(
+               from: payload,
+               source: .keychain(service: Self.refreshedCacheKeychainService),
+               sourceDescription: "우리 앱 refresh 캐시"),
+           let usable = await ensureUsable(credential)
+        {
+            cachedCredential = usable
+            return usable
+        }
 
         if let credential = await readCredentialFromFiles() {
             if let usable = await ensureUsable(credential) {
@@ -169,11 +199,66 @@ actor ClaudeCodeCredentialReader {
         guard credential.canAttemptRefresh else { return nil }
         do {
             let refreshed = try await tokenRefresher.refresh(credential)
+            // 영구 저장: 다음 부팅 시 옛 RT 로 호출하지 않게 한다.
+            await persistRefreshedCredentialToKeychain(refreshed)
             return refreshed
+        } catch ClaudeOAuthTokenRefresher.RefreshError.invalidGrant {
+            // 캐시가 만료된 RT 의 invalidate 일 수 있으므로 캐시 삭제 후 nil 반환.
+            // caller 가 file/CLI keychain 으로 폴백한다.
+            await deleteRefreshedCredentialFromKeychain()
+            Logger.warning("OAuth refresh invalid_grant — 캐시 삭제 후 file/CLI fallback")
+            return nil
         } catch {
             Logger.warning("OAuth refresh 실패: \(error.localizedDescription)")
             return nil
         }
+    }
+
+    /// 우리 앱 전용 캐시 keychain item 에 새 credential 을 atomic write-back.
+    /// Anthropic CLI 의 `Claude Code-credentials` 는 절대 건드리지 않는다.
+    /// 실패해도 in-memory cache 는 살아있어 현재 세션은 정상.
+    private func persistRefreshedCredentialToKeychain(_ credential: ClaudeCodeOAuthCredential) async {
+        let payload = Self.serializeCredentialAsAuthJSON(credential)
+        let arguments: [String] = [
+            "add-generic-password",
+            "-U",                                // update (없으면 추가, 있으면 갱신)
+            "-s", Self.refreshedCacheKeychainService,
+            "-a", NSUserName(),
+            "-T", "",                            // 모든 앱 접근 허용 안 함 (우리 앱만)
+            "-w", payload
+        ]
+        _ = try? await securityCommandRunner(arguments, 2.5)
+    }
+
+    private func deleteRefreshedCredentialFromKeychain() async {
+        _ = try? await securityCommandRunner(
+            [
+                "delete-generic-password",
+                "-s", Self.refreshedCacheKeychainService,
+                "-a", NSUserName()
+            ],
+            2.0
+        )
+    }
+
+    /// `~/.claude/.credentials.json` 과 호환되는 JSON 으로 직렬화.
+    /// 이렇게 하면 기존 parseCredential 이 그대로 디코딩할 수 있어 read 측 코드 변경 불필요.
+    private static func serializeCredentialAsAuthJSON(_ credential: ClaudeCodeOAuthCredential) -> String {
+        var inner: [String: Any] = ["accessToken": credential.accessToken]
+        if let refreshToken = credential.refreshToken, !refreshToken.isEmpty {
+            inner["refreshToken"] = refreshToken
+        }
+        if let expiresAt = credential.expiresAt {
+            // CLI 호환 ms timestamp
+            inner["expiresAt"] = Int(expiresAt.timeIntervalSince1970 * 1000)
+        }
+        let payload: [String: Any] = ["claudeAiOauth": inner]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+              let string = String(data: data, encoding: .utf8)
+        else {
+            return "{}"
+        }
+        return string
     }
 
     private func readCredentialFromFiles() async -> ClaudeCodeOAuthCredential? {
