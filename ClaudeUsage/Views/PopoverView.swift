@@ -451,20 +451,21 @@ struct PopoverView: View {
             return authReauthPresentation(service: service)
 
         case .cloudflareBlocked(let retryAfter):
-            let suffix = retryAfter.map { " (약 \($0)초 후)" } ?? ""
             return ErrorPresentation(
                 title: "일시 차단됨",
-                message: "Cloudflare 가 잠시 호출을 차단했습니다\(suffix). 잠시 후 자동 재시도됩니다.",
+                message: "Cloudflare 가 잠시 호출을 차단했습니다. \(Self.formatRetryDuration(retryAfter)) 자동 재시도합니다.",
                 actionTitle: "지금 다시 시도",
                 actionStyle: .bordered,
                 action: { viewModel.refresh() }
             )
 
         case .rateLimited(let retryAfter):
-            let suffix = retryAfter.map { " (\($0)초 후 재시도)" } ?? ""
+            // Anthropic / Cloudflare 가 보내는 HTTP 429 + Retry-After 헤더.
+            // 사용자가 어떤 행동을 더 자주 했다기보다, 사용량/조회 빈도가 서버 정책에 닿은 경우.
+            // 분/시간 단위로 변환해 "2400초" 같은 노이즈 대신 "40분 후" 로 보여준다.
             return ErrorPresentation(
-                title: "API 한도 초과",
-                message: "잠시 호출을 멈추는 게 좋습니다\(suffix).",
+                title: "조회 한도 도달",
+                message: "Anthropic 이 잠시 사용량 조회를 제한했습니다. \(Self.formatRetryDuration(retryAfter)) 자동 재시도합니다.",
                 actionTitle: "지금 다시 시도",
                 actionStyle: .bordered,
                 action: { viewModel.refresh() }
@@ -506,6 +507,26 @@ struct PopoverView: View {
                 action: { viewModel.refresh() }
             )
         }
+    }
+
+    /// Retry-After 초 단위 값을 사용자 친화 시간 표현으로 변환.
+    /// "2400초 후" 같은 노이즈 대신 "약 40분 후" 처럼 보여준다.
+    /// retryAfter 가 nil 이면 그냥 "잠시 후" 라고 표시.
+    private static func formatRetryDuration(_ seconds: Int?) -> String {
+        guard let seconds, seconds > 0 else { return "잠시 후" }
+        if seconds >= 3600 {
+            let hours = seconds / 3600
+            let minutes = (seconds % 3600) / 60
+            if minutes > 0 {
+                return "약 \(hours)시간 \(minutes)분 후"
+            }
+            return "약 \(hours)시간 후"
+        }
+        if seconds >= 60 {
+            let minutes = (seconds + 30) / 60  // 반올림
+            return "약 \(minutes)분 후"
+        }
+        return "\(seconds)초 후"
     }
 
     /// Provider 별 인증 만료/거부 안내. 사용자에게 정확한 행동(어떤 명령 어디서 실행)을 알려준다.
