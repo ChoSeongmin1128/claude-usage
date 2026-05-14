@@ -50,6 +50,20 @@ struct CodexAuthToken: Codable, Sendable {
     }
 }
 
+/// OAuth refresh 결과.
+///
+/// 종전에는 `CodexAuthToken?` 만 반환했다. 호출자는 `nil` 만으로 "영구 실패(재로그인 필요)"인지
+/// "일시 실패(재시도 가능)"인지 구분하지 못해 사용자에게 동일한 "갱신 실패" 메시지만 노출했다.
+/// → codex-lb 의 `PERMANENT_FAILURE_CODES` 패턴을 차용해 분기한다.
+enum CodexRefreshResult: Sendable {
+    case success(CodexAuthToken)
+    /// refresh_token 이 영구 무효화. 사용자가 `codex login` 으로 재로그인해야 한다.
+    /// 예: `refresh_token_reused`, `invalid_grant`, `invalid_client`, `unauthorized_client`.
+    case permanentFailure(reason: String)
+    /// 네트워크/일시 서버 오류. 다음 주기에서 재시도하면 회복될 수 있다.
+    case transientFailure(reason: String)
+}
+
 final class CodexAuthManager {
     static let shared = CodexAuthManager()
 
@@ -142,7 +156,7 @@ final class CodexAuthManager {
     /// 같은 옛 refresh_token 으로 또 호출 → 401 `refresh_token_reused` → expired UI.
     /// 동시에 codex CLI 와도 토큰이 어긋나 CLI 까지 다시 로그인해야 한다.
     /// → 응답 성공 시 새 토큰을 **반드시 auth.json 에 atomic write-back** 한다.
-    func refreshAccessToken(using refreshToken: String) async -> CodexAuthToken? {
+    func refreshAccessToken(using refreshToken: String) async -> CodexRefreshResult {
         let url = URL(string: "https://auth.openai.com/oauth/token")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -158,7 +172,7 @@ final class CodexAuthManager {
         ]
 
         guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
-            return nil
+            return .transientFailure(reason: "request body serialization failed")
         }
         request.httpBody = bodyData
 
@@ -166,14 +180,17 @@ final class CodexAuthManager {
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
                 Logger.error("Codex 토큰 갱신: 응답이 HTTP 가 아님")
-                return nil
+                return .transientFailure(reason: "non-HTTP response")
             }
 
             guard (200...299).contains(httpResponse.statusCode) else {
-                // 사용자 안내 메시지에 도움이 되도록 에러 코드를 상세히 로깅한다.
-                let codeDescription = Self.refreshErrorCode(from: data) ?? "unknown"
+                let errorCode = Self.refreshErrorCode(from: data)
+                let codeDescription = errorCode ?? "unknown"
                 Logger.error("Codex 토큰 갱신 실패: HTTP \(httpResponse.statusCode) (\(codeDescription))")
-                return nil
+                if Self.isPermanentRefreshError(code: errorCode) {
+                    return .permanentFailure(reason: codeDescription)
+                }
+                return .transientFailure(reason: "HTTP \(httpResponse.statusCode) (\(codeDescription))")
             }
 
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -181,7 +198,7 @@ final class CodexAuthManager {
                   !accessToken.isEmpty
             else {
                 Logger.error("Codex 토큰 갱신 응답 파싱 실패")
-                return nil
+                return .transientFailure(reason: "response parse failure")
             }
 
             // 서버가 새 refresh_token 을 안 주면 기존 값을 유지 (CodexBar 와 동일).
@@ -206,10 +223,10 @@ final class CodexAuthManager {
                 idToken: newIdToken
             )
             Logger.info("Codex 토큰 갱신 성공 (auth.json write-back 시도)")
-            return newToken
+            return .success(newToken)
         } catch {
             Logger.error("Codex 토큰 갱신 네트워크 에러: \(error.localizedDescription)")
-            return nil
+            return .transientFailure(reason: error.localizedDescription)
         }
     }
 
@@ -223,6 +240,20 @@ final class CodexAuthManager {
         }
         if let value = json["error"] as? String { return value }
         return nil
+    }
+
+    /// codex-lb 의 `PERMANENT_FAILURE_CODES` 패턴.
+    /// 이 코드들은 RT 가 영구 무효화된 상태라 재시도해도 해결 안 되며, 사용자 재로그인 필요.
+    private static let permanentRefreshErrorCodes: Set<String> = [
+        "refresh_token_reused",
+        "invalid_grant",
+        "invalid_client",
+        "unauthorized_client",
+    ]
+
+    private static func isPermanentRefreshError(code: String?) -> Bool {
+        guard let code else { return false }
+        return permanentRefreshErrorCodes.contains(code)
     }
 
     /// 새 토큰을 `~/.codex/auth.json` 에 atomic write-back.

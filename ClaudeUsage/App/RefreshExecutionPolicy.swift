@@ -45,7 +45,7 @@ enum RefreshExecutionPolicy {
                 return 10
             case .serverError(let statusCode):
                 return statusCode >= 500 ? 20 : 10
-            case .invalidSessionKey, .parseError, .unknownError:
+            case .invalidSessionKey, .codexReauthRequired, .parseError, .unknownError:
                 return 0
             }
         }()

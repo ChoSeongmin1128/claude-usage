@@ -22,8 +22,11 @@ actor CodexAPIService {
         self.accessToken = token
     }
 
-    /// 현재 토큰 갱신 시도
-    func refreshTokenIfNeeded() async -> Bool {
+    /// 현재 토큰 갱신 시도.
+    ///
+    /// - Returns: 토큰을 사용할 수 있는 상태가 됐는지 (`true`), 일시 실패 (`false`).
+    /// - Throws: `APIError.codexReauthRequired` — refresh_token 이 영구 무효화돼 재로그인 필요.
+    func refreshTokenIfNeeded() async throws -> Bool {
         let currentToken = await MainActor.run { CodexAuthManager.shared.getToken() }
         guard let currentToken else { return false }
 
@@ -34,22 +37,26 @@ actor CodexAPIService {
 
         guard let refreshToken = currentToken.refreshToken else { return false }
 
-        if let newToken = await CodexAuthManager.shared.refreshAccessToken(using: refreshToken) {
+        let result = await CodexAuthManager.shared.refreshAccessToken(using: refreshToken)
+        switch result {
+        case .success(let newToken):
             self.accessToken = newToken.accessToken
             return true
+        case .permanentFailure(let reason):
+            throw APIError.codexReauthRequired(reason: reason)
+        case .transientFailure:
+            return false
         }
-
-        return false
     }
 
     // MARK: - Public API
 
     /// 사용량 데이터 가져오기 (OAuth Bearer 토큰, CodexBar 방식)
     func fetchUsage() async throws -> CodexUsageResponse {
-        // 토큰 갱신 확인
+        // 토큰 갱신 확인. permanent 실패는 refreshTokenIfNeeded 가 .codexReauthRequired throw.
         let storedToken = await MainActor.run { CodexAuthManager.shared.getToken() }
         if let token = storedToken, token.isExpired {
-            let refreshed = await refreshTokenIfNeeded()
+            let refreshed = try await refreshTokenIfNeeded()
             if !refreshed {
                 throw APIError.invalidSessionKey
             }
@@ -121,9 +128,14 @@ actor CodexAPIService {
             do {
                 return try await fetchUsage()
             } catch {
-                // 인증 에러는 재시도 없이 즉시 throw
-                if let apiError = error as? APIError, case .invalidSessionKey = apiError {
-                    throw error
+                // 인증 에러(영구) 는 재시도 없이 즉시 throw
+                if let apiError = error as? APIError {
+                    switch apiError {
+                    case .invalidSessionKey, .codexReauthRequired:
+                        throw error
+                    default:
+                        break
+                    }
                 }
 
                 lastError = error

@@ -879,6 +879,17 @@ actor ClaudeAPIService {
         return previews
     }
 
+    /// claude.ai 웹 sessionKey 요청 공통 헤더.
+    /// Cloudflare 가 default `CFNetwork` UA 를 봇으로 분류하는 케이스를 피하려
+    /// Safari UA + Referer/Origin 까지 같이 세팅한다 (Hamed/Claude-Usage-Tracker 와 동일 패턴).
+    private nonisolated func applyClaudeWebHeaders(to request: inout URLRequest, sessionKey: String) {
+        request.setValue("sessionKey=\(sessionKey)", forHTTPHeaderField: "Cookie")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15", forHTTPHeaderField: "User-Agent")
+        request.setValue("https://claude.ai", forHTTPHeaderField: "Referer")
+        request.setValue("https://claude.ai", forHTTPHeaderField: "Origin")
+    }
+
     private func fetchUsageWithSessionKey(_ sessionKey: String) async throws -> ClaudeUsageResponse {
         let orgID = try await getOrganizationID()
         return try await fetchUsageWithSessionKey(sessionKey, organizationID: orgID)
@@ -890,8 +901,7 @@ actor ClaudeAPIService {
         let url = URL(string: "\(baseURL)/organizations/\(orgID)/usage")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue("sessionKey=\(sessionKey)", forHTTPHeaderField: "Cookie")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        applyClaudeWebHeaders(to: &request, sessionKey: sessionKey)
 
         Logger.debug("API 요청: \(url.absoluteString)")
 
@@ -959,8 +969,7 @@ actor ClaudeAPIService {
         let url = URL(string: "\(baseURL)/organizations/\(orgID)/overage_spend_limit")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue("sessionKey=\(sessionKey)", forHTTPHeaderField: "Cookie")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        applyClaudeWebHeaders(to: &request, sessionKey: sessionKey)
 
         Logger.debug("Overage API 요청: \(url.absoluteString)")
 
@@ -1095,8 +1104,7 @@ actor ClaudeAPIService {
         let url = URL(string: "\(baseURL)/organizations")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue("sessionKey=\(sessionKey)", forHTTPHeaderField: "Cookie")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        applyClaudeWebHeaders(to: &request, sessionKey: sessionKey)
 
         let (data, response) = try await data(for: request)
 
@@ -1232,7 +1240,7 @@ actor ClaudeAPIService {
                     switch apiError {
                     case .rateLimited(_), .cloudflareBlocked(_):
                         throw apiError
-                    case .invalidSessionKey, .networkError, .parseError, .serverError, .unknownError:
+                    case .invalidSessionKey, .codexReauthRequired, .networkError, .parseError, .serverError, .unknownError:
                         break
                     }
                 }

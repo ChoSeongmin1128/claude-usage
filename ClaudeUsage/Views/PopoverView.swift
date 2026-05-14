@@ -450,6 +450,17 @@ struct PopoverView: View {
         case .invalidSessionKey:
             return authReauthPresentation(service: service)
 
+        case .codexReauthRequired(let reason):
+            // refresh_token 이 영구 무효화 — 일반 "토큰 만료" 와 달리 자동 회복 불가.
+            // 사용자에게 명확히 "다시 로그인이 필요하다" 고 알리고, OAuth 응답 코드도 같이 노출(디버깅용).
+            return ErrorPresentation(
+                title: "Codex 재로그인 필요",
+                message: "Codex 토큰이 영구 무효화되어 자동 갱신이 더 이상 동작하지 않습니다. 터미널에서 `codex login` 을 다시 실행한 뒤 새로고침해 주세요. (\(reason))",
+                actionTitle: "설정 열기",
+                actionStyle: .prominent,
+                action: { viewModel.openSettings(for: .codex) }
+            )
+
         case .cloudflareBlocked(let retryAfter):
             return ErrorPresentation(
                 title: "일시 차단됨",
