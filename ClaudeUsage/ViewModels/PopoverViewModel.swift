@@ -322,13 +322,10 @@ final class PopoverViewModel: ObservableObject {
         // 캐시 cold 상태에서는 auth prompt 를 보류 — warm-up 끝나면 정확한 상태로 전환.
         let requiresInteractiveSetup: Bool = {
             guard signalsCached != nil else { return false }
-            switch settings.antigravityUsageDataSource {
-            case .googleOAuth:
-                return !signals.hasOAuthCredential
-            case .localIDE, .auto:
-                return !signals.hasRuntimeConnection
-                    && !signals.hasCredentialRelevant(to: settings.antigravityUsageDataSource)
-            }
+            return AntigravitySetupPolicy.requiresInteractiveSetup(
+                dataSource: settings.antigravityUsageDataSource,
+                signals: signals
+            )
         }()
         let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
         let isAuthRequired = isEnabled
@@ -615,13 +612,10 @@ final class PopoverViewModel: ObservableObject {
             let dataSource = settings.antigravityUsageDataSource
             let requiresInteractiveSetup: Bool = {
                 guard signalsCached != nil else { return false }
-                switch dataSource {
-                case .googleOAuth:
-                    return !signals.hasOAuthCredential
-                case .localIDE, .auto:
-                    return !signals.hasRuntimeConnection
-                        && !signals.hasCredentialRelevant(to: dataSource)
-                }
+                return AntigravitySetupPolicy.requiresInteractiveSetup(
+                    dataSource: dataSource,
+                    signals: signals
+                )
             }()
             let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
             let isAuthRequired = isEnabled

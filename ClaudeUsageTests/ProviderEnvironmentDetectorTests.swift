@@ -78,6 +78,40 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
         XCTAssertFalse(oauthSignals.hasCredentialRelevant(to: .localIDE))
     }
 
+    func testAntigravitySetupPolicyTreatsRuntimeConnectionAsGoogleOAuthFallbackReady() {
+        let runtimeSignals = AntigravityEnvironmentSignals(
+            hasStateDirectory: true,
+            appRunning: true,
+            runningProcess: AntigravityProcessSnapshot(
+                pid: 42,
+                command: "language_server_macos --csrf_token token",
+                csrfToken: "token",
+                extensionPort: nil,
+                extensionCsrfToken: nil,
+                httpsServerPort: nil,
+                cloudCodeEndpoint: "https://daily-cloudcode-pa.googleapis.com"
+            ),
+            hasAuthStatus: true,
+            hasOAuthToken: false
+        )
+        let noRuntimeSignals = AntigravityEnvironmentSignals(
+            hasStateDirectory: true,
+            appRunning: false,
+            runningProcess: nil,
+            hasAuthStatus: true,
+            hasOAuthToken: false
+        )
+
+        XCTAssertFalse(AntigravitySetupPolicy.requiresInteractiveSetup(
+            dataSource: .googleOAuth,
+            signals: runtimeSignals
+        ))
+        XCTAssertTrue(AntigravitySetupPolicy.requiresInteractiveSetup(
+            dataSource: .googleOAuth,
+            signals: noRuntimeSignals
+        ))
+    }
+
     func testInterpretAntigravityAcceptsCsrfOnlyRuntimeForReachability() {
         let status = ProviderEnvironmentDetector.interpretAntigravity(
             signals: AntigravityEnvironmentSignals(

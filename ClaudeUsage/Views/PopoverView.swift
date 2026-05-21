@@ -594,7 +594,7 @@ struct PopoverView: View {
         case .antigravity:
             return ErrorPresentation(
                 title: "Antigravity 연결 필요",
-                message: "Antigravity 인증을 다시 확인해 주세요.",
+                message: "Antigravity 연결 토큰이 만료됐거나 Google OAuth 연결을 갱신할 수 없습니다. Antigravity 앱을 다시 열고, 계속 실패하면 설정에서 Google OAuth를 다시 연결해 주세요.",
                 actionTitle: "설정 열기",
                 actionStyle: .prominent,
                 action: { viewModel.openSettings(for: .antigravity) }

@@ -718,7 +718,9 @@ enum MenuBarStatusComposer {
                 return MenuBarProviderStatus(
                     text: hasAuthError ? "연결" : "오류",
                     color: .systemOrange,
-                    tooltip: error.errorDescription ?? "조회 오류"
+                    tooltip: hasAuthError
+                        ? "Antigravity 연결이 만료됐습니다. 앱을 다시 열거나 설정에서 Google OAuth를 다시 연결하세요."
+                        : (error.errorDescription ?? "조회 오류")
                 )
             }
             return MenuBarProviderStatus(text: "…", color: secondaryColor, tooltip: "로딩 중")

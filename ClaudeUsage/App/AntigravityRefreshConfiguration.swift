@@ -32,3 +32,17 @@ struct AntigravityRefreshConfiguration: Sendable, Equatable {
         )
     }
 }
+
+enum AntigravitySetupPolicy {
+    static func requiresInteractiveSetup(
+        dataSource: AntigravityUsageDataSource,
+        signals: AntigravityEnvironmentSignals
+    ) -> Bool {
+        switch dataSource {
+        case .googleOAuth:
+            return !signals.hasOAuthCredential && !signals.hasRuntimeConnection
+        case .localIDE, .auto:
+            return !signals.hasRuntimeConnection && !signals.hasCredentialRelevant(to: dataSource)
+        }
+    }
+}

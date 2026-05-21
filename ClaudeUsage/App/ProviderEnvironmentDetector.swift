@@ -594,12 +594,10 @@ enum ProviderEnvironmentDetector {
         case .antigravity:
             let dataSource = AppSettings.shared.antigravityUsageDataSource
             if let signals = cachedAntigravitySignals() {
-                switch dataSource {
-                case .googleOAuth:
-                    return !signals.hasOAuthCredential && !signals.hasRuntimeConnection
-                case .localIDE, .auto:
-                    return !signals.hasRuntimeConnection && !signals.hasCredentialRelevant(to: dataSource)
-                }
+                return AntigravitySetupPolicy.requiresInteractiveSetup(
+                    dataSource: dataSource,
+                    signals: signals
+                )
             }
             guard let status = staleWhileRevalidate(for: kind) else { return false }
             if status.credentialState.hasAnyCredential { return false }
@@ -623,13 +621,10 @@ enum ProviderEnvironmentDetector {
             }
         case .antigravity:
             let signals = antigravitySignals()
-            switch AppSettings.shared.antigravityUsageDataSource {
-            case .googleOAuth:
-                return !signals.hasOAuthCredential && !signals.hasRuntimeConnection
-            case .localIDE, .auto:
-                return !signals.hasRuntimeConnection
-                    && !signals.hasCredentialRelevant(to: AppSettings.shared.antigravityUsageDataSource)
-            }
+            return AntigravitySetupPolicy.requiresInteractiveSetup(
+                dataSource: AppSettings.shared.antigravityUsageDataSource,
+                signals: signals
+            )
         }
     }
 

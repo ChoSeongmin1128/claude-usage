@@ -41,4 +41,31 @@ final class MenuBarStatusComposerTests: XCTestCase {
         XCTAssertNil(snapshot.styleIcon)
         XCTAssertNil(snapshot.resetText)
     }
+
+    func testAntigravityAuthErrorTooltipDoesNotExposeGenericSessionKeyCopy() {
+        let snapshot = MenuBarStatusComposer.antigravitySnapshot(
+            config: ProviderMenuBarDisplayConfig(
+                kind: .antigravity,
+                showIcon: false,
+                style: .batteryBar,
+                percentageDisplay: .dual,
+                showBatteryPercent: true,
+                resetTimeDisplay: .dual,
+                timeFormat: .remaining,
+                circularDisplayMode: .usage,
+                iconMetric: .fiveHour
+            ),
+            usage: nil,
+            error: .invalidSessionKey,
+            hasAuthError: true,
+            hasCredential: true,
+            secondaryColor: .secondaryLabelColor,
+            icon: nil
+        )
+
+        XCTAssertEqual(snapshot.text, "연결")
+        XCTAssertTrue(snapshot.tooltip.contains("Antigravity"))
+        XCTAssertTrue(snapshot.tooltip.contains("Google OAuth"))
+        XCTAssertFalse(snapshot.tooltip.contains("세션 키"))
+    }
 }
