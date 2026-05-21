@@ -80,4 +80,17 @@ final class AntigravityStatusProbeTests: XCTestCase {
         XCTAssertEqual(AntigravityStatusProbe.extractPort("--https_server_port", from: command), 61662)
         XCTAssertEqual(AntigravityStatusProbe.extractPort("--extension_server_port", from: command), 61663)
     }
+
+    func testCloudCodeEndpointParsingAcceptsAntigravityTwoDailyEndpoint() {
+        let command = """
+        /Applications/Antigravity.app/Contents/Resources/bin/language_server --standalone \
+        --csrf_token token --app_data_dir antigravity \
+        --cloud_code_endpoint https://daily-cloudcode-pa.googleapis.com
+        """
+
+        XCTAssertEqual(
+            AntigravityStatusProbe.extractCloudCodeEndpoint(from: command),
+            "https://daily-cloudcode-pa.googleapis.com"
+        )
+    }
 }

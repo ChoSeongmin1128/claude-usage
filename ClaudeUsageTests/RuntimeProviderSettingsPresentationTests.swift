@@ -177,6 +177,38 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
         XCTAssertNil(presentation.availableAction)
     }
 
+    func testAntigravityGoogleOAuthModeUsesRuntimeConnectionWhenAvailable() {
+        let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
+            isEnabled: true,
+            environmentStatus: ProviderEnvironmentStatus(
+                isDetected: true,
+                credentialState: .refreshable,
+                runtimeReachability: true,
+                summary: "Antigravity 연결 확인됨"
+            ),
+            signals: AntigravityEnvironmentSignals(
+                hasStateDirectory: true,
+                appRunning: true,
+                runningProcess: AntigravityProcessSnapshot(
+                    pid: 1234,
+                    command: "language_server --csrf_token token",
+                    csrfToken: "token",
+                    extensionPort: nil,
+                    extensionCsrfToken: nil,
+                    httpsServerPort: nil,
+                    cloudCodeEndpoint: "https://daily-cloudcode-pa.googleapis.com"
+                ),
+                hasAuthStatus: true,
+                hasOAuthToken: false
+            ),
+            dataSource: .googleOAuth
+        )
+
+        XCTAssertEqual(presentation.stage, .probingRuntime)
+        XCTAssertEqual(presentation.badgeTitle, "연결 확인 중")
+        XCTAssertTrue(presentation.summary.contains("앱 연결"))
+    }
+
     func testAntigravityCLIRemoteModePromptsOAuthInsteadOfOpeningApp() {
         let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
             isEnabled: true,
@@ -315,7 +347,8 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
                     csrfToken: "token",
                     extensionPort: 54377,
                     extensionCsrfToken: nil,
-                    httpsServerPort: nil
+                    httpsServerPort: nil,
+                    cloudCodeEndpoint: nil
                 ),
                 hasAuthStatus: true,
                 hasOAuthToken: false
@@ -405,7 +438,8 @@ final class PublicCopySanityTests: XCTestCase {
                     csrfToken: "token",
                     extensionPort: nil,
                     extensionCsrfToken: nil,
-                    httpsServerPort: nil
+                    httpsServerPort: nil,
+                    cloudCodeEndpoint: nil
                 ),
                 hasAuthStatus: true,
                 hasOAuthToken: true

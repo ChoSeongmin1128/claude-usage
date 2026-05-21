@@ -235,6 +235,22 @@ enum RuntimeProviderSettingsPresentation {
             )
         }
 
+        let hasRelevantPersistedAuthState = signals.hasCredentialRelevant(to: dataSource)
+
+        if signals.hasRuntimeConnection {
+            return .init(
+                stage: .probingRuntime,
+                badgeTitle: "연결 확인 중",
+                badgeTone: .blue,
+                summary: dataSource == .googleOAuth
+                    ? "OAuth 연결은 없지만 앱 연결로 사용량을 불러오는 중입니다"
+                    : "앱 연결은 확인됐고 사용량을 불러오는 중입니다",
+                nextStepTitle: "앱을 켜 둔 채 기다리기",
+                nextStepDetail: "첫 사용량이 들어오면 화면이 바뀝니다.",
+                availableAction: nil
+            )
+        }
+
         if dataSource == .googleOAuth {
             return .init(
                 stage: .authRequired,
@@ -247,20 +263,6 @@ enum RuntimeProviderSettingsPresentation {
                     : "원격 quota 조회에는 Google OAuth 연결이 필요합니다",
                 nextStepTitle: "Google OAuth 연결",
                 nextStepDetail: "앱 로그인 흔적과 별개로 ClaudeUsage가 사용할 Google OAuth 연결을 추가해야 합니다.",
-                availableAction: nil
-            )
-        }
-
-        let hasRelevantPersistedAuthState = signals.hasCredentialRelevant(to: dataSource)
-
-        if signals.hasRuntimeConnection {
-            return .init(
-                stage: .probingRuntime,
-                badgeTitle: "연결 확인 중",
-                badgeTone: .blue,
-                summary: "앱 연결은 확인됐고 사용량을 불러오는 중입니다",
-                nextStepTitle: "앱을 켜 둔 채 기다리기",
-                nextStepDetail: "첫 사용량이 들어오면 화면이 바뀝니다.",
                 availableAction: nil
             )
         }

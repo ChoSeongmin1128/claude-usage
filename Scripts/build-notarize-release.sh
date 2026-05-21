@@ -45,11 +45,15 @@ SKIP_DMG="${SKIP_DMG:-0}"
 RELEASE_DISTRIBUTION="${RELEASE_DISTRIBUTION:-notarized}"
 EFFECTIVE_XC_CONFIG_PATH="$XC_CONFIG_PATH"
 TEMP_XC_CONFIG_PATH=""
+TEMP_XC_CONFIG_DIR=""
 TEMP_NOTARY_KEY_PATH=""
 
 cleanup() {
     if [[ -n "$TEMP_XC_CONFIG_PATH" && -f "$TEMP_XC_CONFIG_PATH" ]]; then
         rm -f "$TEMP_XC_CONFIG_PATH"
+    fi
+    if [[ -n "$TEMP_XC_CONFIG_DIR" && -d "$TEMP_XC_CONFIG_DIR" ]]; then
+        rmdir "$TEMP_XC_CONFIG_DIR" 2>/dev/null || true
     fi
     if [[ -n "$TEMP_NOTARY_KEY_PATH" && -f "$TEMP_NOTARY_KEY_PATH" ]]; then
         rm -f "$TEMP_NOTARY_KEY_PATH"
@@ -404,7 +408,8 @@ mkdir -p "$BUILD_DIR"
 rm -rf "$ARCHIVE_PATH" "$ZIP_PATH" "$DMG_PATH"
 
 if [[ -n "$RELEASE_CHANNEL" || -n "${SU_FEED_URL:-}" || -n "${SU_PUBLIC_ED_KEY:-}" ]]; then
-    TEMP_XC_CONFIG_PATH="$(mktemp "$BUILD_DIR/release-override.XXXXXX").xcconfig"
+    TEMP_XC_CONFIG_DIR="$(mktemp -d "$BUILD_DIR/release-override.XXXXXX")"
+    TEMP_XC_CONFIG_PATH="$TEMP_XC_CONFIG_DIR/release-override.xcconfig"
     cat > "$TEMP_XC_CONFIG_PATH" <<EOF
 #include "$XC_CONFIG_PATH"
 SPARKLE_URL_SLASH = /

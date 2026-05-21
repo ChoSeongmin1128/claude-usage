@@ -743,6 +743,14 @@ final class PopoverViewModel: ObservableObject {
                     : "OAuth 원격 조회 준비"
             )
         }
+        if signals.hasRuntimeConnection {
+            return .init(
+                phase: .probingRuntime,
+                summary: dataSource == .googleOAuth
+                    ? "OAuth 없음 · 앱 연결로 조회 준비"
+                    : "앱 연결 확인 중"
+            )
+        }
         if dataSource == .googleOAuth {
             return .init(
                 phase: .authRequired,
@@ -752,9 +760,6 @@ final class PopoverViewModel: ObservableObject {
                     ? "CLI 감지 · OAuth 연결 필요"
                     : "OAuth 연결 필요"
             )
-        }
-        if signals.hasRuntimeConnection {
-            return .init(phase: .probingRuntime, summary: "앱 연결 확인 중")
         }
         let hasRelevantPersistedAuthState = signals.hasCredentialRelevant(to: dataSource)
         if hasRelevantPersistedAuthState {

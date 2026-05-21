@@ -376,8 +376,9 @@ extension AppDelegate {
         case .localIDE:
             return status?.runtimeReachability ?? false
         case .googleOAuth:
-            return ProviderEnvironmentDetector.cachedAntigravitySignals()?.hasOAuthCredential
-                ?? AntigravityOAuthCredentialProbe.current().hasCredential
+            return (status?.runtimeReachability ?? false)
+                || (ProviderEnvironmentDetector.cachedAntigravitySignals()?.hasOAuthCredential
+                    ?? AntigravityOAuthCredentialProbe.current().hasCredential)
         case .auto:
             return status?.canAttemptRefresh ?? false
         }

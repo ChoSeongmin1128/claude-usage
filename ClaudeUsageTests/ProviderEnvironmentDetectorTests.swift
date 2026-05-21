@@ -89,7 +89,8 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
                     csrfToken: "token",
                     extensionPort: nil,
                     extensionCsrfToken: nil,
-                    httpsServerPort: nil
+                    httpsServerPort: nil,
+                    cloudCodeEndpoint: nil
                 ),
                 hasAuthStatus: true,
                 hasOAuthToken: true

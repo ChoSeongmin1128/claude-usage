@@ -596,7 +596,7 @@ enum ProviderEnvironmentDetector {
             if let signals = cachedAntigravitySignals() {
                 switch dataSource {
                 case .googleOAuth:
-                    return !signals.hasOAuthCredential
+                    return !signals.hasOAuthCredential && !signals.hasRuntimeConnection
                 case .localIDE, .auto:
                     return !signals.hasRuntimeConnection && !signals.hasCredentialRelevant(to: dataSource)
                 }
@@ -625,7 +625,7 @@ enum ProviderEnvironmentDetector {
             let signals = antigravitySignals()
             switch AppSettings.shared.antigravityUsageDataSource {
             case .googleOAuth:
-                return !signals.hasOAuthCredential
+                return !signals.hasOAuthCredential && !signals.hasRuntimeConnection
             case .localIDE, .auto:
                 return !signals.hasRuntimeConnection
                     && !signals.hasCredentialRelevant(to: AppSettings.shared.antigravityUsageDataSource)

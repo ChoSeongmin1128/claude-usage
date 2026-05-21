@@ -11,11 +11,29 @@ private nonisolated struct URLSessionAntigravityRemoteUsageHTTPClient: Antigravi
 }
 
 actor AntigravityRemoteUsageService {
-    private static let baseURL = "https://cloudcode-pa.googleapis.com"
-    private static let loadCodeAssistEndpoint = URL(string: "\(baseURL)/v1internal:loadCodeAssist")!
-    private static let onboardUserEndpoint = URL(string: "\(baseURL)/v1internal:onboardUser")!
-    private static let fetchAvailableModelsEndpoint = URL(string: "\(baseURL)/v1internal:fetchAvailableModels")!
-    private static let retrieveUserQuotaEndpoint = URL(string: "\(baseURL)/v1internal:retrieveUserQuota")!
+    private struct EndpointSet: Sendable, Equatable {
+        let baseURL: URL
+
+        var loadCodeAssistEndpoint: URL { endpoint(path: "/v1internal:loadCodeAssist") }
+        var onboardUserEndpoint: URL { endpoint(path: "/v1internal:onboardUser") }
+        var fetchAvailableModelsEndpoint: URL { endpoint(path: "/v1internal:fetchAvailableModels") }
+        var retrieveUserQuotaEndpoint: URL { endpoint(path: "/v1internal:retrieveUserQuota") }
+
+        private func endpoint(path: String) -> URL {
+            var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
+            components.path = path
+            components.query = nil
+            components.fragment = nil
+            return components.url!
+        }
+    }
+
+    private static let defaultBaseURL = URL(string: "https://daily-cloudcode-pa.googleapis.com")!
+    private static let legacyBaseURL = URL(string: "https://cloudcode-pa.googleapis.com")!
+    private static let allowedRemoteHosts: Set<String> = [
+        "daily-cloudcode-pa.googleapis.com",
+        "cloudcode-pa.googleapis.com",
+    ]
     private static let refreshSafetyWindow: TimeInterval = 60
 
     private let requestTimeout: TimeInterval = 20
@@ -23,6 +41,7 @@ actor AntigravityRemoteUsageService {
     private let credentialProvider: (@Sendable () throws -> AntigravityOAuthCredentials)?
     private let credentialProviderLabel: String
     private let oauthClientProvider: @Sendable () -> AntigravityOAuthClient?
+    private let endpointBaseURLProvider: @Sendable () -> [URL]
 
     init(
         httpClient: any AntigravityRemoteUsageHTTPClient = URLSessionAntigravityRemoteUsageHTTPClient(),
@@ -30,12 +49,18 @@ actor AntigravityRemoteUsageService {
         credentialProviderLabel: String = "test",
         oauthClientProvider: @escaping @Sendable () -> AntigravityOAuthClient? = {
             AntigravityOAuthConfig.resolvedClient()
+        },
+        endpointBaseURLProvider: @escaping @Sendable () -> [URL] = {
+            AntigravityRemoteUsageService.defaultEndpointBaseURLCandidates(
+                runningProcess: AntigravityStatusProbe.cachedRunningProcess()
+            )
         }
     ) {
         self.httpClient = httpClient
         self.credentialProvider = credentialProvider
         self.credentialProviderLabel = credentialProviderLabel
         self.oauthClientProvider = oauthClientProvider
+        self.endpointBaseURLProvider = endpointBaseURLProvider
     }
 
     private struct CredentialSource {
@@ -99,6 +124,38 @@ actor AntigravityRemoteUsageService {
         }
     }
 
+    nonisolated static func defaultEndpointBaseURLCandidates(
+        runningProcess: AntigravityProcessSnapshot? = AntigravityStatusProbe.runningProcess()
+    ) -> [URL] {
+        uniqueEndpointBaseURLs([
+            normalizedAllowedBaseURL(runningProcess?.cloudCodeEndpoint),
+            defaultBaseURL,
+            legacyBaseURL,
+        ].compactMap { $0 })
+    }
+
+    nonisolated private static func normalizedAllowedBaseURL(_ rawValue: String?) -> URL? {
+        guard let rawValue = rawValue?.trimmedNonEmpty,
+              let url = URL(string: rawValue),
+              url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(),
+              allowedRemoteHosts.contains(host)
+        else {
+            return nil
+        }
+        return URL(string: "https://\(host)")
+    }
+
+    nonisolated private static func uniqueEndpointBaseURLs(_ urls: [URL]) -> [URL] {
+        var seen: Set<String> = []
+        var result: [URL] = []
+        for url in urls {
+            guard let host = url.host?.lowercased(), seen.insert(host).inserted else { continue }
+            result.append(url)
+        }
+        return result
+    }
+
     private func fetchUsage(
         credentials initialCredentials: AntigravityOAuthCredentials,
         accessToken: String,
@@ -106,27 +163,50 @@ actor AntigravityRemoteUsageService {
     ) async throws -> AntigravityUsageResponse {
         var credentials = initialCredentials
         let claims = AntigravityRemoteUsageParsing.claims(from: credentials)
-        let codeAssist = try await loadCodeAssist(accessToken: accessToken)
-        let projectID = try await resolveProjectID(
-            accessToken: accessToken,
-            storedProjectID: credentials.projectID?.trimmedNonEmpty,
-            initialResponse: codeAssist
-        )
+        let endpoints = endpointBaseURLProvider().map(EndpointSet.init(baseURL:))
+        var lastError: Error?
 
-        if let projectID, credentials.projectID?.trimmedNonEmpty != projectID {
-            credentials.projectID = projectID
-            persistIfOwned(credentials, sourceStore: source.store)
+        for endpointSet in endpoints {
+            do {
+                let codeAssist = try await loadCodeAssist(
+                    accessToken: accessToken,
+                    endpointSet: endpointSet
+                )
+                let projectID = try await resolveProjectID(
+                    accessToken: accessToken,
+                    storedProjectID: credentials.projectID?.trimmedNonEmpty,
+                    initialResponse: codeAssist,
+                    endpointSet: endpointSet
+                )
+
+                if let projectID, credentials.projectID?.trimmedNonEmpty != projectID {
+                    credentials.projectID = projectID
+                    persistIfOwned(credentials, sourceStore: source.store)
+                }
+
+                let quotas = try await fetchModelQuotas(
+                    accessToken: accessToken,
+                    projectID: projectID,
+                    endpointSet: endpointSet
+                )
+
+                Logger.info("[Antigravity] remote usage fetched via \(source.label) endpoint=\(endpointSet.baseURL.host ?? "-")")
+                return AntigravityUsageMapper.buildResponse(
+                    quotas: quotas,
+                    accountEmail: claims.email ?? credentials.email?.trimmedNonEmpty,
+                    accountPlan: AntigravityRemoteUsageParsing.plan(from: codeAssist, claims: claims),
+                    source: .googleOAuth
+                )
+            } catch {
+                lastError = error
+                guard shouldTryNextEndpoint(after: error) else {
+                    throw error
+                }
+                Logger.info("[Antigravity] remote endpoint \(endpointSet.baseURL.host ?? "-") 조회 실패, 다음 endpoint 시도: \(error.localizedDescription)")
+            }
         }
 
-        let quotas = try await fetchModelQuotas(accessToken: accessToken, projectID: projectID)
-
-        Logger.info("[Antigravity] remote usage fetched via \(source.label)")
-        return AntigravityUsageMapper.buildResponse(
-            quotas: quotas,
-            accountEmail: claims.email ?? credentials.email?.trimmedNonEmpty,
-            accountPlan: AntigravityRemoteUsageParsing.plan(from: codeAssist, claims: claims),
-            source: .googleOAuth
-        )
+        throw lastError ?? APIError.networkError("Antigravity 원격 endpoint가 없습니다")
     }
 
     func fetchUsageWithRetry(maxAttempts: Int = 2) async throws -> AntigravityUsageResponse {
@@ -329,7 +409,10 @@ actor AntigravityRemoteUsageService {
         }
     }
 
-    private func loadCodeAssist(accessToken: String) async throws -> AntigravityCodeAssistResponse {
+    private func loadCodeAssist(
+        accessToken: String,
+        endpointSet: EndpointSet
+    ) async throws -> AntigravityCodeAssistResponse {
         let body: [String: Any] = [
             "metadata": [
                 "ideType": "ANTIGRAVITY",
@@ -338,7 +421,7 @@ actor AntigravityRemoteUsageService {
             ],
         ]
         return try await sendRequest(
-            endpoint: Self.loadCodeAssistEndpoint,
+            endpoint: endpointSet.loadCodeAssistEndpoint,
             accessToken: accessToken,
             body: body
         )
@@ -347,7 +430,8 @@ actor AntigravityRemoteUsageService {
     private func resolveProjectID(
         accessToken: String,
         storedProjectID: String?,
-        initialResponse: AntigravityCodeAssistResponse
+        initialResponse: AntigravityCodeAssistResponse,
+        endpointSet: EndpointSet
     ) async throws -> String? {
         if let storedProjectID {
             return storedProjectID
@@ -370,7 +454,7 @@ actor AntigravityRemoteUsageService {
 
         do {
             let onboard: AntigravityOnboardResponse = try await sendRequest(
-                endpoint: Self.onboardUserEndpoint,
+                endpoint: endpointSet.onboardUserEndpoint,
                 accessToken: accessToken,
                 body: onboardBody
             )
@@ -383,7 +467,10 @@ actor AntigravityRemoteUsageService {
 
         for _ in 0..<5 {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
-            let refreshed = try await loadCodeAssist(accessToken: accessToken)
+            let refreshed = try await loadCodeAssist(
+                accessToken: accessToken,
+                endpointSet: endpointSet
+            )
             if let projectID = refreshed.projectID {
                 return projectID
             }
@@ -391,10 +478,14 @@ actor AntigravityRemoteUsageService {
         return nil
     }
 
-    private func fetchModelQuotas(accessToken: String, projectID: String?) async throws -> [AntigravityModelQuota] {
+    private func fetchModelQuotas(
+        accessToken: String,
+        projectID: String?,
+        endpointSet: EndpointSet
+    ) async throws -> [AntigravityModelQuota] {
         do {
             let response: AntigravityFetchAvailableModelsResponse = try await sendRequest(
-                endpoint: Self.fetchAvailableModelsEndpoint,
+                endpoint: endpointSet.fetchAvailableModelsEndpoint,
                 accessToken: accessToken,
                 body: AntigravityRemoteUsageParsing.projectBody(projectID)
             )
@@ -404,6 +495,7 @@ actor AntigravityRemoteUsageService {
                 return try await retrieveUserQuotaFallback(
                     accessToken: accessToken,
                     projectID: projectID,
+                    endpointSet: endpointSet,
                     permissionDeniedFallback: quotas
                 )
             }
@@ -416,6 +508,7 @@ actor AntigravityRemoteUsageService {
             return try await retrieveUserQuotaFallback(
                 accessToken: accessToken,
                 projectID: projectID,
+                endpointSet: endpointSet,
                 permissionDeniedFallback: []
             )
         }
@@ -424,11 +517,12 @@ actor AntigravityRemoteUsageService {
     private func retrieveUserQuotaFallback(
         accessToken: String,
         projectID: String?,
+        endpointSet: EndpointSet,
         permissionDeniedFallback: [AntigravityModelQuota]
     ) async throws -> [AntigravityModelQuota] {
         do {
             let response: AntigravityRetrieveUserQuotaResponse = try await sendRequest(
-                endpoint: Self.retrieveUserQuotaEndpoint,
+                endpoint: endpointSet.retrieveUserQuotaEndpoint,
                 accessToken: accessToken,
                 body: AntigravityRemoteUsageParsing.projectBody(projectID)
             )
@@ -439,6 +533,25 @@ actor AntigravityRemoteUsageService {
             }
             Logger.info("[Antigravity] 원격 quota endpoint 권한 없음: \(quotaError.localizedDescription)")
             return permissionDeniedFallback
+        }
+    }
+
+    private func shouldTryNextEndpoint(after error: Error) -> Bool {
+        guard let apiError = error as? APIError else {
+            return true
+        }
+        switch apiError {
+        case .invalidSessionKey, .rateLimited:
+            return false
+        case .codexReauthRequired,
+             .claudeOAuthPathRetired,
+             .cloudflareBlocked,
+             .networkError,
+             .permissionDenied,
+             .parseError,
+             .serverError,
+             .unknownError:
+            return true
         }
     }
 

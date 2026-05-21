@@ -437,6 +437,53 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(summary, "OAuth 연결 필요")
     }
 
+    func testResolveAntigravitySummaryStateGoogleOAuthModeUsesRuntimeConnectionWhenAvailable() async {
+        let state = await MainActor.run {
+            PopoverViewModel.resolveAntigravitySummaryState(
+                snapshot: RuntimeProviderSnapshot(
+                    service: .antigravity,
+                    payload: nil,
+                    error: nil,
+                    isLoading: false,
+                    lastUpdated: nil,
+                    nextRefreshAllowedAt: nil,
+                    credentialState: .refreshable,
+                    isDetected: true,
+                    canAttemptRefresh: true,
+                    hasAuthError: false
+                ),
+                environmentStatus: ProviderEnvironmentStatus(
+                    isDetected: true,
+                    credentialState: .refreshable,
+                    runtimeReachability: true,
+                    summary: "Antigravity 연결 확인됨"
+                ),
+                signals: AntigravityEnvironmentSignals(
+                    hasStateDirectory: true,
+                    appRunning: true,
+                    runningProcess: AntigravityProcessSnapshot(
+                        pid: 42,
+                        command: "language_server --csrf_token token",
+                        csrfToken: "token",
+                        extensionPort: nil,
+                        extensionCsrfToken: nil,
+                        httpsServerPort: nil,
+                        cloudCodeEndpoint: "https://daily-cloudcode-pa.googleapis.com"
+                    ),
+                    hasAuthStatus: true,
+                    hasOAuthToken: false
+                ),
+                isEnabled: true,
+                isAuthRequired: false,
+                dataSource: .googleOAuth
+            )
+        }
+        let (phase, summary) = await MainActor.run { (state.phase, state.summary) }
+
+        XCTAssertEqual(phase, .probingRuntime)
+        XCTAssertEqual(summary, "OAuth 없음 · 앱 연결로 조회 준비")
+    }
+
     func testResolveAntigravitySummaryStateShowsOAuthReconnectWhenStoredCredentialIsRejected() async {
         let state = await MainActor.run {
             PopoverViewModel.resolveAntigravitySummaryState(

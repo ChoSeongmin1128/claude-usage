@@ -81,6 +81,76 @@ final class AntigravityRemoteUsageServiceTests: XCTestCase {
         XCTAssertEqual(usage.tertiaryPercentage, 20, accuracy: 0.001)
     }
 
+    func testFetchUsageFallsBackFromDailyEndpointToLegacyEndpointWhenUnavailable() async throws {
+        let client = FakeAntigravityRemoteHTTPClient()
+        await client.enqueue(
+            path: "/v1internal:loadCodeAssist",
+            statusCode: 500,
+            json: "{}"
+        )
+        await client.enqueue(
+            path: "/v1internal:loadCodeAssist",
+            statusCode: 200,
+            json: """
+            {
+              "planInfo": { "planType": "Paid" },
+              "cloudaicompanionProject": { "projectId": "project-legacy" }
+            }
+            """
+        )
+        await client.enqueue(
+            path: "/v1internal:fetchAvailableModels",
+            statusCode: 200,
+            json: """
+            {
+              "models": {
+                "claude-sonnet-4-5": {
+                  "displayName": "Claude Sonnet 4.5",
+                  "quotaInfo": {
+                    "remainingFraction": 0.25,
+                    "resetTime": "2026-05-21T00:00:00Z"
+                  }
+                }
+              }
+            }
+            """
+        )
+
+        let service = AntigravityRemoteUsageService(
+            httpClient: client,
+            credentialProvider: {
+                AntigravityOAuthCredentials(
+                    accessToken: "access-token",
+                    refreshToken: nil,
+                    expiryDate: Date(timeIntervalSinceNow: 3_600),
+                    email: "nathan@example.com"
+                )
+            },
+            credentialProviderLabel: "unit-test",
+            endpointBaseURLProvider: {
+                [
+                    URL(string: "https://daily-cloudcode-pa.googleapis.com")!,
+                    URL(string: "https://cloudcode-pa.googleapis.com")!,
+                ]
+            }
+        )
+
+        let usage = try await service.fetchUsage()
+        let requests = await client.recordedRequests()
+
+        XCTAssertEqual(requests.map(\.host), [
+            "daily-cloudcode-pa.googleapis.com",
+            "cloudcode-pa.googleapis.com",
+            "cloudcode-pa.googleapis.com",
+        ])
+        XCTAssertEqual(requests.map(\.path), [
+            "/v1internal:loadCodeAssist",
+            "/v1internal:loadCodeAssist",
+            "/v1internal:fetchAvailableModels",
+        ])
+        XCTAssertEqual(usage.primaryPercentage, 75, accuracy: 0.001)
+    }
+
     func testFetchUsageAllowsIdentityOnlyResponseWhenQuotaModelsAreEmptyAndQuotaFallbackIsPermissionDenied() async throws {
         let client = FakeAntigravityRemoteHTTPClient()
         await client.enqueue(
@@ -676,7 +746,10 @@ final class AntigravityRemoteUsageServiceTests: XCTestCase {
                     projectID: "stored-project"
                 )
             },
-            credentialProviderLabel: "unit-test"
+            credentialProviderLabel: "unit-test",
+            endpointBaseURLProvider: {
+                [URL(string: "https://daily-cloudcode-pa.googleapis.com")!]
+            }
         )
 
         do {
@@ -716,6 +789,7 @@ private actor FakeAntigravityRemoteHTTPClient: AntigravityRemoteUsageHTTPClient 
         let path = url.path
         requests.append(RecordedRequest(
             path: path,
+            host: url.host,
             headers: request.allHTTPHeaderFields ?? [:],
             bodyData: request.httpBody
         ))
@@ -746,6 +820,7 @@ private actor FakeAntigravityRemoteHTTPClient: AntigravityRemoteUsageHTTPClient 
 
 private struct RecordedRequest: Sendable {
     let path: String
+    let host: String?
     let headers: [String: String]
     let bodyData: Data?
 }

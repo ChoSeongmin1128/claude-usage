@@ -8,6 +8,7 @@ nonisolated struct AntigravityProcessSnapshot: Sendable, Equatable {
     let extensionPort: Int?
     let extensionCsrfToken: String?
     let httpsServerPort: Int?
+    let cloudCodeEndpoint: String?
 }
 
 enum AntigravityStatusProbe {
@@ -224,7 +225,8 @@ enum AntigravityStatusProbe {
             csrfToken: extractFlag("--csrf_token", from: entry.command),
             extensionPort: extractPort("--extension_server_port", from: entry.command),
             extensionCsrfToken: extractFlag("--extension_server_csrf_token", from: entry.command),
-            httpsServerPort: extractPort("--https_server_port", from: entry.command)
+            httpsServerPort: extractPort("--https_server_port", from: entry.command),
+            cloudCodeEndpoint: extractCloudCodeEndpoint(from: entry.command)
         )
     }
 
@@ -354,5 +356,9 @@ enum AntigravityStatusProbe {
               (1...65_535).contains(port)
         else { return nil }
         return port
+    }
+
+    nonisolated static func extractCloudCodeEndpoint(from command: String) -> String? {
+        extractFlag("--cloud_code_endpoint", from: command)
     }
 }

@@ -38,6 +38,24 @@ final class AntigravityRuntimeRefresherTests: XCTestCase {
         XCTAssertEqual(remoteCallCount, 1)
     }
 
+    func testGoogleOAuthSourceFallsBackToLocalWhenRemoteCredentialIsMissing() async throws {
+        let local = ScriptedAntigravityUsageFetcher(results: [.success(Self.usage(source: .localIDE, percent: 12))])
+        let remote = ScriptedAntigravityUsageFetcher(results: [.failure(APIError.invalidSessionKey)])
+
+        let usage = try await AntigravityRuntimeRefresher.refresh(
+            apiService: local,
+            remoteService: remote,
+            dataSource: .googleOAuth
+        )
+
+        XCTAssertEqual(usage.source, .localIDE)
+        XCTAssertEqual(usage.primaryPercentage, 12)
+        let localCallCount = await local.callCount()
+        let remoteCallCount = await remote.callCount()
+        XCTAssertEqual(localCallCount, 1)
+        XCTAssertEqual(remoteCallCount, 1)
+    }
+
     func testAutoSourceKeepsLocalResultWhenLocalSucceeds() async throws {
         let local = ScriptedAntigravityUsageFetcher(results: [.success(Self.usage(source: .localIDE, percent: 33))])
         let remote = ScriptedAntigravityUsageFetcher(results: [.success(Self.usage(source: .googleOAuth, percent: 88))])
