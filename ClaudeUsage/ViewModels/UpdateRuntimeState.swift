@@ -179,6 +179,8 @@ final class UpdateRuntimeState: ObservableObject {
         switch phase {
         case .readyToInstall:
             return "지금 설치"
+        case .installing:
+            return "재실행"
         case .downloaded:
             return "설치 준비 중"
         case .downloading:
@@ -196,7 +198,7 @@ final class UpdateRuntimeState: ObservableObject {
 
     nonisolated static func shouldShowPrimaryAction(phase: Phase, engineStatus: UpdateEngineStatus?) -> Bool {
         switch phase {
-        case .readyToInstall, .downloading:
+        case .readyToInstall, .downloading, .installing:
             return true
         case .updateAvailable:
             return engineStatus?.usesSparkleReadyPath != true
@@ -207,7 +209,7 @@ final class UpdateRuntimeState: ObservableObject {
 
     var isPrimaryActionEnabled: Bool {
         switch phase {
-        case .downloading, .installing:
+        case .downloading:
             return false
         default:
             return true
@@ -250,6 +252,8 @@ final class UpdateRuntimeState: ObservableObject {
             Task {
                 await UpdateService.shared.installPreparedUpdate()
             }
+        case .installing:
+            NSApplication.shared.terminate(nil)
         case .updateAvailable:
             if let update = latestKnownUpdate {
                 NSWorkspace.shared.open(update.downloadURL)

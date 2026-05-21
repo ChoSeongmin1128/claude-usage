@@ -41,6 +41,11 @@ extension AppDelegate {
         stopGlobalClickMonitor()
     }
 
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        Logger.info("ClaudeUsage 앱 종료 요청 수락")
+        return .terminateNow
+    }
+
     func migrateLegacyAntigravityOAuthCredentialIfNeeded() {
         DispatchQueue.global(qos: .utility).async {
             do {

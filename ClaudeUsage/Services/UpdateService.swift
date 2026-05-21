@@ -309,7 +309,8 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     private var activeSessionOrigin: UpdateSessionOrigin?
     private var pendingCheckContinuation: CheckedContinuation<UpdateCheckResult, Never>?
     private var lastCycleResult: UpdateCheckResult?
-    private var postponedInstallHandler: (() -> Void)?
+    private var preparedInstallHandler: (() -> Void)?
+    private var installRequestInProgress = false
     private var appliedFeedOverrideURL: URL?
     private var hasStartedUpdater = false
 
@@ -405,15 +406,21 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
             return false
         }
 
-        guard let handler = postponedInstallHandler else {
+        guard let handler = preparedInstallHandler else {
             UpdateRuntimeState.shared.markFailed(message: "설치 준비가 만료되었습니다. 업데이트를 다시 확인해 주세요")
             return false
         }
 
         let version = UpdateRuntimeState.shared.latestKnownUpdate?.version ?? "?"
-        postponedInstallHandler = nil
+        guard !installRequestInProgress else {
+            requestApplicationTerminationIfInstallerIsWaiting()
+            return true
+        }
+
+        installRequestInProgress = true
         UpdateRuntimeState.shared.markInstalling(version: version)
         handler()
+        requestApplicationTerminationIfInstallerIsWaiting()
         return true
     }
 
@@ -471,12 +478,11 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
         SparkleUpdateResultInterpreter.resolve(error: error, fallback: lastCycleResult)
     }
 
-    private func shouldDeferPreparedInstall() -> Bool {
-        switch activeSessionOrigin ?? .scheduled {
-        case .interactive:
-            return false
-        case .background, .scheduled:
-            return true
+    private func requestApplicationTerminationIfInstallerIsWaiting() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
+            guard case .installing = UpdateRuntimeState.shared.phase else { return }
+            Logger.info("Sparkle 업데이트 설치를 위해 앱 종료를 직접 요청합니다")
+            NSApplication.shared.terminate(nil)
         }
     }
 
@@ -578,7 +584,8 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     }
 
     func updater(_ updater: SPUUpdater, failedToDownloadUpdate item: SUAppcastItem, error: Error) {
-        postponedInstallHandler = nil
+        preparedInstallHandler = nil
+        installRequestInProgress = false
         let message = error.localizedDescription
         lastCycleResult = .error(message)
         UpdateRuntimeState.shared.markFailed(message: message)
@@ -586,7 +593,8 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     }
 
     func userDidCancelDownload(_ updater: SPUUpdater) {
-        postponedInstallHandler = nil
+        preparedInstallHandler = nil
+        installRequestInProgress = false
         lastCycleResult = .error(UpdateEngineMessages.downloadCancelled)
         UpdateRuntimeState.shared.markFailed(message: UpdateEngineMessages.downloadCancelled)
         resumePendingCheckIfNeeded(with: .error(UpdateEngineMessages.downloadCancelled))
@@ -597,13 +605,24 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
         UpdateRuntimeState.shared.markInstalling(version: update.version)
     }
 
-    func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem, untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
-        guard shouldDeferPreparedInstall() else { return false }
-
+    func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
         let update = updateInfo(for: item)
-        postponedInstallHandler = installHandler
+        preparedInstallHandler = immediateInstallHandler
+        installRequestInProgress = false
         UpdateRuntimeState.shared.markReadyToInstall(update)
         return true
+    }
+
+    func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem, untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
+        false
+    }
+
+    func updaterShouldRelaunchApplication(_ updater: SPUUpdater) -> Bool {
+        true
+    }
+
+    func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
+        Logger.info("Sparkle 업데이트 설치 후 앱 재실행을 시작합니다")
     }
 
     func updater(_ updater: SPUUpdater, willScheduleUpdateCheckAfterDelay delay: TimeInterval) { }
@@ -615,7 +634,8 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
             return
         }
 
-        postponedInstallHandler = nil
+        preparedInstallHandler = nil
+        installRequestInProgress = false
         let result = SparkleUpdateResultInterpreter.resolve(error: error, fallback: lastCycleResult)
         lastCycleResult = result
 

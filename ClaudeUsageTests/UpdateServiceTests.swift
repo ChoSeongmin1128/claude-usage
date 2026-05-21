@@ -80,6 +80,12 @@ final class UpdateRuntimeStateTests: XCTestCase {
                 engineStatus: sparkleReady
             )
         )
+        XCTAssertTrue(
+            UpdateRuntimeState.shouldShowPrimaryAction(
+                phase: .installing(version: "9.9.9"),
+                engineStatus: sparkleReady
+            )
+        )
         XCTAssertFalse(
             UpdateRuntimeState.shouldShowPrimaryAction(
                 phase: .updateAvailable(version: "9.9.9"),
