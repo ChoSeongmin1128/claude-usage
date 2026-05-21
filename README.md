@@ -120,6 +120,7 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
 ## 현재 업데이트 상태
 
 - 현재 앱은 `Sparkle 패키지`를 이미 포함합니다.
+
 - 현재 구현은 `Sparkle 백그라운드 다운로드/설치 준비 + GitHub Release fallback` 구조입니다.
 - 여기서 `Sparkle 준비됨`의 기준은 `유효한 SUFeedURL + 유효한 SUPublicEDKey` 입니다.
 - Sparkle 준비 경로에서는 업데이트 확인을 끌 수 없고 30분마다 자동 확인합니다.
