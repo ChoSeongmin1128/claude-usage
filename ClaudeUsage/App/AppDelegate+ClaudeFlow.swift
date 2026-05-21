@@ -125,12 +125,18 @@ extension AppDelegate {
                 self.syncUsageHealthSnapshotToUI()
                 self.refreshUsage(force: true)
             },
+            onRefreshAntigravityUsage: { [weak self] in
+                self?.refreshAntigravityUsageAfterConfigurationChange()
+            },
             onCodexLogout: { [weak self] in
                 guard let self else { return }
                 CodexAuthManager.shared.clearCache()
                 self.setRuntimeProviderState(RuntimeProviderState(), for: .codex)
                 self.updateMenuBar()
                 self.updatePopoverViewModel(overage: self.currentOverage)
+            },
+            antigravityLastUsageSource: { [weak self] in
+                self?.runtimeProviderState(for: .antigravity).antigravityUsage?.source
             }
         )
         settingsWindowCoordinator.present(rootView: settingsView)

@@ -33,7 +33,6 @@ final class UpdateRuntimeState: ObservableObject {
     @Published private(set) var lastCheckMessage: String?
 
     private let settings: AppSettings
-    private var installHandler: (() -> Void)?
     private var didBootstrap = false
 
     init(settings: AppSettings? = nil) {
@@ -105,13 +104,13 @@ final class UpdateRuntimeState: ObservableObject {
             return "열린 확인 창에서 설치를 이어서 진행할 수 있습니다."
         case .updateAvailable:
             if engineStatus?.usesSparkleReadyPath == true {
-                return "새 버전이 있습니다. 설치는 사용자가 직접 시작할 때만 진행합니다."
+                return "새 버전을 백그라운드에서 내려받고 검증할 준비를 하고 있습니다."
             }
             return "새 버전을 내려받아 기존 앱을 교체 설치할 수 있습니다."
         case .downloading:
             return "새 버전을 백그라운드에서 내려받고 있습니다."
         case .downloaded:
-            return "다운로드와 검증이 끝났습니다. 버튼을 눌러 설치 화면을 바로 열 수 있습니다."
+            return "다운로드와 검증이 끝났습니다. 설치 적용 준비를 마무리하고 있습니다."
         case .readyToInstall:
             return "다운로드와 검증이 끝났습니다. 원할 때 바로 설치를 적용할 수 있습니다."
         case .installing:
@@ -122,7 +121,7 @@ final class UpdateRuntimeState: ObservableObject {
             return message
         case .idle:
             if engineStatus?.usesSparkleReadyPath == true {
-                return "새 버전이 있으면 알려드립니다. 설치는 사용자가 직접 시작합니다."
+                return "30분마다 새 버전을 확인합니다. 새 버전이 있으면 자동으로 준비합니다."
             }
             return "새 버전이 있으면 다운로드 페이지로 안내합니다."
         }
@@ -134,9 +133,13 @@ final class UpdateRuntimeState: ObservableObject {
     }
 
     var showsPopoverButton: Bool {
+        Self.shouldShowPopoverButton(phase: phase, engineStatus: engineStatus)
+    }
+
+    nonisolated static func shouldShowPopoverButton(phase: Phase, engineStatus: UpdateEngineStatus?) -> Bool {
         guard engineStatus?.usesSparkleReadyPath == true else { return false }
         switch phase {
-        case .downloaded, .readyToInstall:
+        case .readyToInstall:
             return true
         default:
             return false
@@ -174,8 +177,10 @@ final class UpdateRuntimeState: ObservableObject {
 
     var primaryActionTitle: String {
         switch phase {
-        case .downloaded, .readyToInstall:
+        case .readyToInstall:
             return "지금 설치"
+        case .downloaded:
+            return "설치 준비 중"
         case .downloading:
             return "다운로드 중"
         case .updateAvailable:
@@ -186,8 +191,12 @@ final class UpdateRuntimeState: ObservableObject {
     }
 
     var showsPrimaryAction: Bool {
+        Self.shouldShowPrimaryAction(phase: phase, engineStatus: engineStatus)
+    }
+
+    nonisolated static func shouldShowPrimaryAction(phase: Phase, engineStatus: UpdateEngineStatus?) -> Bool {
         switch phase {
-        case .downloaded, .readyToInstall, .downloading:
+        case .readyToInstall, .downloading:
             return true
         case .updateAvailable:
             return engineStatus?.usesSparkleReadyPath != true
@@ -238,14 +247,9 @@ final class UpdateRuntimeState: ObservableObject {
     func performPrimaryAction() {
         switch phase {
         case .readyToInstall:
-            guard let installHandler else { return }
-            let version = latestKnownUpdate?.version ?? "?"
-            self.installHandler = nil
-            phase = .installing(version: version)
-            lastCheckMessage = "v\(version) 설치 적용 중"
-            installHandler()
-        case .downloaded:
-            checkNow()
+            Task {
+                await UpdateService.shared.installPreparedUpdate()
+            }
         case .updateAvailable:
             if let update = latestKnownUpdate {
                 NSWorkspace.shared.open(update.downloadURL)
@@ -271,13 +275,11 @@ final class UpdateRuntimeState: ObservableObject {
     func beginChecking(message: String? = nil) {
         phase = .checking
         lastCheckMessage = message
-        installHandler = nil
     }
 
     func markInteractiveCheckStarted(message: String) {
         phase = .interactiveCheckStarted
         lastCheckMessage = message
-        installHandler = nil
     }
 
     func markUpdateAvailable(_ update: UpdateInfo, message: String? = nil) {
@@ -285,7 +287,6 @@ final class UpdateRuntimeState: ObservableObject {
         settings.availableUpdate = update
         phase = .updateAvailable(version: update.version)
         lastCheckMessage = message ?? "v\(update.version) 업데이트 가능"
-        installHandler = nil
     }
 
     func markDownloading(_ update: UpdateInfo, message: String? = nil) {
@@ -300,13 +301,11 @@ final class UpdateRuntimeState: ObservableObject {
         settings.availableUpdate = update
         phase = .downloaded(version: update.version)
         lastCheckMessage = message ?? "v\(update.version) 다운로드 완료"
-        installHandler = nil
     }
 
-    func markReadyToInstall(_ update: UpdateInfo, installHandler: @escaping () -> Void) {
+    func markReadyToInstall(_ update: UpdateInfo) {
         latestKnownUpdate = update
         settings.availableUpdate = update
-        self.installHandler = installHandler
         phase = .readyToInstall(version: update.version)
         lastCheckMessage = "v\(update.version) 설치 준비 완료"
     }
@@ -321,7 +320,6 @@ final class UpdateRuntimeState: ObservableObject {
         settings.availableUpdate = nil
         phase = .upToDate
         lastCheckMessage = message
-        installHandler = nil
     }
 
     func markFailed(message: String) {
@@ -329,7 +327,6 @@ final class UpdateRuntimeState: ObservableObject {
         if latestKnownUpdate == nil {
             lastCheckMessage = nil
         }
-        installHandler = nil
     }
 
     func clearTransientError() {

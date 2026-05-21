@@ -25,7 +25,7 @@ EXAMPLE_XCCONFIG="$ROOT_DIR/Config/Sparkle.release.example.xcconfig"
 
 FORCE=0
 DEFAULT_FEED_URL=""
-DEFAULT_NOTARY_PROFILE="ClaudeUsage"
+DEFAULT_NOTARY_PROFILE="ClaudeUsageNotary"
 CHANNEL="prod"
 
 while [[ $# -gt 0 ]]; do

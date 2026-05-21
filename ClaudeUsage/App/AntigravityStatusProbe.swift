@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-struct AntigravityProcessSnapshot: Sendable, Equatable {
+nonisolated struct AntigravityProcessSnapshot: Sendable, Equatable {
     let pid: Int
     let command: String
     let csrfToken: String?
@@ -206,20 +206,26 @@ enum AntigravityStatusProbe {
     // MARK: - Actual work (subprocess + NSWorkspace)
 
     private nonisolated static func performProcessLookup() -> AntigravityProcessSnapshot? {
-        for entry in listProcesses() {
-            guard entry.command.contains("language_server_macos"),
-                  isAntigravityCommand(entry.command) else { continue }
+        let matches = listProcesses()
+            .filter { isAntigravityLanguageServerCommand($0.command) }
+            .sorted { lhs, rhs in
+                let lhsPriority = antigravityProcessPriority(lhs.command)
+                let rhsPriority = antigravityProcessPriority(rhs.command)
+                if lhsPriority != rhsPriority {
+                    return lhsPriority < rhsPriority
+                }
+                return lhs.pid < rhs.pid
+            }
 
-            return AntigravityProcessSnapshot(
-                pid: entry.pid,
-                command: entry.command,
-                csrfToken: extractFlag("--csrf_token", from: entry.command),
-                extensionPort: extractPort("--extension_server_port", from: entry.command),
-                extensionCsrfToken: extractFlag("--extension_server_csrf_token", from: entry.command),
-                httpsServerPort: extractPort("--https_server_port", from: entry.command)
-            )
-        }
-        return nil
+        guard let entry = matches.first else { return nil }
+        return AntigravityProcessSnapshot(
+            pid: entry.pid,
+            command: entry.command,
+            csrfToken: extractFlag("--csrf_token", from: entry.command),
+            extensionPort: extractPort("--extension_server_port", from: entry.command),
+            extensionCsrfToken: extractFlag("--extension_server_csrf_token", from: entry.command),
+            httpsServerPort: extractPort("--https_server_port", from: entry.command)
+        )
     }
 
     private nonisolated static func performAppRunningCheck() -> Bool {
@@ -296,18 +302,41 @@ enum AntigravityStatusProbe {
 
     // MARK: - Command parsing
 
+    nonisolated static func isAntigravityLanguageServerCommand(_ command: String) -> Bool {
+        let lowerCommand = command.lowercased()
+        return isLanguageServerCommand(lowerCommand) && isAntigravityCommand(lowerCommand)
+    }
+
+    private nonisolated static func isLanguageServerCommand(_ lowerCommand: String) -> Bool {
+        // Antigravity 2.0 renamed the binary to `language_server`; older builds used
+        // `language_server_macos` and some local builds include an arch suffix.
+        let pattern = #"(^|/)language_server(_macos(_[a-z0-9]+)?)?(\s|$)"#
+        return lowerCommand.range(of: pattern, options: .regularExpression) != nil
+    }
+
     private nonisolated static func isAntigravityCommand(_ command: String) -> Bool {
         if command.contains("--app_data_dir") && command.localizedCaseInsensitiveContains("antigravity") {
             return true
         }
 
-        if command.localizedCaseInsensitiveContains("/antigravity/")
-            || command.localizedCaseInsensitiveContains("\\antigravity\\")
-        {
+        if command.localizedCaseInsensitiveContains("/antigravity/") {
             return true
         }
 
         return false
+    }
+
+    nonisolated static func antigravityProcessPriority(_ command: String) -> Int {
+        let lowerCommand = command.lowercased()
+        if lowerCommand.localizedCaseInsensitiveContains("/antigravity.app/")
+            || extractFlag("--override_ide_name", from: lowerCommand) == "antigravity"
+            || extractFlag("--subclient_type", from: lowerCommand) == "hub"
+            || extractFlag("--app_data_dir", from: lowerCommand) == "antigravity"
+        {
+            return 0
+        }
+
+        return 1
     }
 
     private nonisolated static func extractFlag(_ flag: String, from command: String) -> String? {
@@ -319,8 +348,11 @@ enum AntigravityStatusProbe {
         return String(command[tokenRange])
     }
 
-    private nonisolated static func extractPort(_ flag: String, from command: String) -> Int? {
-        guard let raw = extractFlag(flag, from: command) else { return nil }
-        return Int(raw)
+    nonisolated static func extractPort(_ flag: String, from command: String) -> Int? {
+        guard let raw = extractFlag(flag, from: command),
+              let port = Int(raw),
+              (1...65_535).contains(port)
+        else { return nil }
+        return port
     }
 }

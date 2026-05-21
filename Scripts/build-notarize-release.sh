@@ -4,23 +4,24 @@
 #
 # 단계:
 #   1. Xcode archive
-#   2. notarization 용 ZIP 생성
-#   3. 앱 notarization (xcrun notarytool submit --wait)
-#   4. 앱 staple
-#   5. 스테이플된 앱으로 ZIP 재생성
-#   6. Scripts/make-dmg.sh 호출해 설치용 DMG 생성
-#   7. DMG 서명 (make-dmg.sh 내부에서 처리)
-#   8. DMG notarization
-#   9. DMG staple
-#  10. 최종 Gatekeeper 검증
+#   2. Developer ID 서명
+#   3. ZIP 생성
+#   4. notarized 배포면 앱 notarization + staple + ZIP 재생성
+#   5. Scripts/make-dmg.sh 호출해 설치용 DMG 생성/서명
+#   6. notarized 배포면 DMG notarization + staple + Gatekeeper 검증
+#      internal 배포면 codesign 검증 후 공증 없음 경고 출력
 #
 # 전제:
 #   Config/Sparkle.release.local.xcconfig 에 SUFeedURL, SUPublicEDKey 가
 #   유효하게 채워져 있어야 합니다.
-#   공증 자격 증명은 아래 우선순위로 찾습니다.
+#   RELEASE_DISTRIBUTION=notarized|internal 로 배포 기준을 고릅니다.
+#   기본값은 notarized 입니다. internal 은 사내 배포용 signed-only 산출물이며
+#   Apple notarization 제출과 staple 을 수행하지 않습니다.
+#   공증 자격 증명은 notarized 배포에서만 아래 우선순위로 찾습니다.
 #     1. NOTARY_KEY_PATH / NOTARY_KEY_ID / NOTARY_ISSUER
-#     2. NOTARY_APPLE_ID / NOTARY_PASSWORD / NOTARY_TEAM_ID
-#     3. Config/Sparkle.release.local.xcconfig 의 NOTARY_PROFILE
+#     2. APP_STORE_CONNECT_API_KEY_P8 / APP_STORE_CONNECT_KEY_ID / APP_STORE_CONNECT_ISSUER_ID
+#     3. NOTARY_APPLE_ID / NOTARY_PASSWORD / NOTARY_TEAM_ID
+#     4. Config/Sparkle.release.local.xcconfig 의 NOTARY_PROFILE
 #   Scripts/setup-sparkle-keys.sh 로 1회성 세팅 가능.
 #   RELEASE_CHANNEL=prod|staging 을 주면 해당 채널 feed URL 을 빌드에
 #   강제로 주입합니다.
@@ -41,12 +42,17 @@ LOCAL_XC_CONFIG_PATH="${LOCAL_XC_CONFIG_PATH:-$ROOT_DIR/Config/Sparkle.release.l
 MAKE_DMG_SCRIPT="$ROOT_DIR/Scripts/make-dmg.sh"
 ENTITLEMENTS_PATH="${ENTITLEMENTS_PATH:-$ROOT_DIR/ClaudeUsage/ClaudeUsage.entitlements}"
 SKIP_DMG="${SKIP_DMG:-0}"
+RELEASE_DISTRIBUTION="${RELEASE_DISTRIBUTION:-notarized}"
 EFFECTIVE_XC_CONFIG_PATH="$XC_CONFIG_PATH"
 TEMP_XC_CONFIG_PATH=""
+TEMP_NOTARY_KEY_PATH=""
 
 cleanup() {
     if [[ -n "$TEMP_XC_CONFIG_PATH" && -f "$TEMP_XC_CONFIG_PATH" ]]; then
         rm -f "$TEMP_XC_CONFIG_PATH"
+    fi
+    if [[ -n "$TEMP_NOTARY_KEY_PATH" && -f "$TEMP_NOTARY_KEY_PATH" ]]; then
+        rm -f "$TEMP_NOTARY_KEY_PATH"
     fi
 }
 trap cleanup EXIT
@@ -54,6 +60,63 @@ trap cleanup EXIT
 create_app_zip() {
     # AppleDouble files break Gatekeeper after ZIP-based installs.
     COPYFILE_DISABLE=1 ditto -c -k --norsrc --noextattr --keepParent "$APP_PATH" "$ZIP_PATH"
+}
+
+preflight_notary_credentials() {
+    echo
+    echo "공증 자격 증명 사전 확인"
+    local output
+    if ! output="$(xcrun notarytool history \
+        "${NOTARY_SUBMIT_ARGS[@]}" \
+        --output-format json \
+        --no-progress 2>&1 >/dev/null)"; then
+        if [[ -n "${output:-}" ]]; then
+            printf '%s\n' "$output" >&2
+        fi
+        echo "공증 자격 증명이 유효하지 않아 archive 전에 중단합니다." >&2
+        local printed_recovery=0
+        if [[ "$output" == *"HTTP status code: 401"* || "$output" == *"Invalid credentials"* ]]; then
+            case "$NOTARY_AUTH_DESCRIPTION" in
+                keychain\ profile:*)
+                    local profile="${NOTARY_AUTH_DESCRIPTION#keychain profile: }"
+                    local recovery_profile="$profile"
+                    if security find-generic-password -s "$profile" -a "claude-session-key" >/dev/null 2>&1; then
+                        echo "keychain profile \"$profile\" 이름이 ClaudeUsage 앱 세션 Keychain 항목과 충돌합니다." >&2
+                        echo "현재 발견된 항목은 공증용 Apple ID/App Store Connect 자격이 아니라 앱의 claude-session-key 입니다." >&2
+                        recovery_profile="ClaudeUsageNotary"
+                        echo "NOTARY_PROFILE 을 \"$recovery_profile\" 같은 별도 이름으로 바꾸고 공증 자격을 새로 저장해야 합니다." >&2
+                    else
+                        echo "현재 keychain profile \"$profile\" 은 존재하지만 Apple 서버가 인증을 거부했습니다." >&2
+                        echo "Apple ID, team ID, 또는 app-specific password 를 새 값으로 다시 저장해야 합니다." >&2
+                    fi
+                    echo "복구:" >&2
+                    echo "  Config/Sparkle.release.local.xcconfig 의 NOTARY_PROFILE 을 \"$recovery_profile\" 로 설정" >&2
+                    echo "  xcrun notarytool store-credentials \"$recovery_profile\" --apple-id YOUR@EMAIL --team-id YOUR_TEAM_ID" >&2
+                    echo "  xcrun notarytool history --keychain-profile \"$recovery_profile\"" >&2
+                    printed_recovery=1
+                    ;;
+                "Apple ID 환경 변수")
+                    echo "NOTARY_APPLE_ID/NOTARY_PASSWORD/NOTARY_TEAM_ID 조합이 Apple 서버에서 거부됐습니다." >&2
+                    echo "NOTARY_PASSWORD 는 Apple ID 일반 비밀번호가 아니라 appleid.apple.com 의 app-specific password 여야 합니다." >&2
+                    ;;
+                App\ Store\ Connect\ API\ key*)
+                    echo "NOTARY_KEY_PATH/NOTARY_KEY_ID/NOTARY_ISSUER 조합이 Apple 서버에서 거부됐습니다." >&2
+                    echo "또는 APP_STORE_CONNECT_API_KEY_P8/APP_STORE_CONNECT_KEY_ID/APP_STORE_CONNECT_ISSUER_ID 조합을 확인해 주세요." >&2
+                    echo ".p8 key, key id, issuer id 가 같은 App Store Connect API key 에 속하는지 확인해 주세요." >&2
+                    ;;
+            esac
+        fi
+        if [[ "$printed_recovery" -eq 0 && "$NOTARY_AUTH_DESCRIPTION" == keychain\ profile:* ]]; then
+            local profile="${NOTARY_AUTH_DESCRIPTION#keychain profile: }"
+            echo "복구 예시: xcrun notarytool store-credentials \"$profile\" --apple-id YOUR@EMAIL --team-id YOUR_TEAM_ID" >&2
+        fi
+        if [[ "$NOTARY_AUTH_DESCRIPTION" == App\ Store\ Connect\ API\ key* ]]; then
+            echo ".p8 key, key id, issuer id 가 같은 App Store Connect API key 에 속하는지 확인해 주세요." >&2
+        fi
+        echo "App Store Connect API key를 쓰려면 NOTARY_KEY_PATH/NOTARY_KEY_ID/NOTARY_ISSUER 또는 APP_STORE_CONNECT_* 환경 변수를 지정하세요." >&2
+        echo "자세한 절차는 docs/RELEASE.md 의 notarytool store-credentials 섹션을 확인해 주세요." >&2
+        exit 1
+    fi
 }
 
 extract_xcconfig_value() {
@@ -99,6 +162,16 @@ validate_release_channel() {
         ""|prod|staging) ;;
         *)
             echo "지원하지 않는 RELEASE_CHANNEL 입니다: ${1:-<empty>} (prod 또는 staging만 허용)" >&2
+            exit 2
+            ;;
+    esac
+}
+
+validate_release_distribution() {
+    case "${1:-}" in
+        notarized|internal) ;;
+        *)
+            echo "지원하지 않는 RELEASE_DISTRIBUTION 입니다: ${1:-<empty>} (notarized 또는 internal만 허용)" >&2
             exit 2
             ;;
     esac
@@ -160,6 +233,9 @@ NOTARY_TEAM_ID="${NOTARY_TEAM_ID:-${APPLE_TEAM_ID:-}}"
 NOTARY_KEY_PATH="${NOTARY_KEY_PATH:-}"
 NOTARY_KEY_ID="${NOTARY_KEY_ID:-}"
 NOTARY_ISSUER="${NOTARY_ISSUER:-}"
+APP_STORE_CONNECT_API_KEY_P8="${APP_STORE_CONNECT_API_KEY_P8:-}"
+APP_STORE_CONNECT_KEY_ID="${APP_STORE_CONNECT_KEY_ID:-}"
+APP_STORE_CONNECT_ISSUER_ID="${APP_STORE_CONNECT_ISSUER_ID:-}"
 NOTARY_SUBMIT_ARGS=()
 NOTARY_AUTH_DESCRIPTION=""
 CERT_HASH="${CERT_HASH:-}"
@@ -227,6 +303,7 @@ if [[ ! -f "$ENTITLEMENTS_PATH" ]]; then
 fi
 
 validate_release_channel "$RELEASE_CHANNEL"
+validate_release_distribution "$RELEASE_DISTRIBUTION"
 
 CONFIGURED_FEED_URL="$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SUFeedURL")"
 CONFIGURED_PUBLIC_KEY="$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SUPublicEDKey")"
@@ -250,38 +327,58 @@ if is_placeholder_value "$PUBLIC_KEY"; then
     exit 1
 fi
 
-if [[ -n "$NOTARY_KEY_PATH$NOTARY_KEY_ID$NOTARY_ISSUER" ]]; then
-    if [[ -z "$NOTARY_KEY_PATH" || -z "$NOTARY_KEY_ID" || -z "$NOTARY_ISSUER" ]]; then
-        echo "App Store Connect API key 공증을 쓰려면 NOTARY_KEY_PATH, NOTARY_KEY_ID, NOTARY_ISSUER 를 모두 지정해야 합니다." >&2
+if [[ "$RELEASE_DISTRIBUTION" == "notarized" ]]; then
+    if [[ -n "$NOTARY_KEY_PATH$NOTARY_KEY_ID$NOTARY_ISSUER" ]]; then
+        if [[ -z "$NOTARY_KEY_PATH" || -z "$NOTARY_KEY_ID" || -z "$NOTARY_ISSUER" ]]; then
+            echo "App Store Connect API key 공증을 쓰려면 NOTARY_KEY_PATH, NOTARY_KEY_ID, NOTARY_ISSUER 를 모두 지정해야 합니다." >&2
+            exit 1
+        fi
+        NOTARY_SUBMIT_ARGS=(
+            --key "$NOTARY_KEY_PATH"
+            --key-id "$NOTARY_KEY_ID"
+            --issuer "$NOTARY_ISSUER"
+        )
+        NOTARY_AUTH_DESCRIPTION="App Store Connect API key"
+    elif [[ -n "$APP_STORE_CONNECT_API_KEY_P8$APP_STORE_CONNECT_KEY_ID$APP_STORE_CONNECT_ISSUER_ID" ]]; then
+        if [[ -z "$APP_STORE_CONNECT_API_KEY_P8" || -z "$APP_STORE_CONNECT_KEY_ID" || -z "$APP_STORE_CONNECT_ISSUER_ID" ]]; then
+            echo "CodexBar식 App Store Connect API key 공증을 쓰려면 APP_STORE_CONNECT_API_KEY_P8, APP_STORE_CONNECT_KEY_ID, APP_STORE_CONNECT_ISSUER_ID 를 모두 지정해야 합니다." >&2
+            exit 1
+        fi
+        TEMP_NOTARY_KEY_PATH="$(mktemp "${TMPDIR:-/tmp}/claudeusage-asc-key.XXXXXX")"
+        printf '%s' "$APP_STORE_CONNECT_API_KEY_P8" | sed 's/\\n/\
+/g' > "$TEMP_NOTARY_KEY_PATH"
+        chmod 600 "$TEMP_NOTARY_KEY_PATH"
+        NOTARY_SUBMIT_ARGS=(
+            --key "$TEMP_NOTARY_KEY_PATH"
+            --key-id "$APP_STORE_CONNECT_KEY_ID"
+            --issuer "$APP_STORE_CONNECT_ISSUER_ID"
+        )
+        NOTARY_AUTH_DESCRIPTION="App Store Connect API key 환경 변수"
+    elif [[ -n "$NOTARY_APPLE_ID$NOTARY_PASSWORD$NOTARY_TEAM_ID" ]]; then
+        if [[ -z "$NOTARY_APPLE_ID" || -z "$NOTARY_PASSWORD" || -z "$NOTARY_TEAM_ID" ]]; then
+            echo "Apple ID 공증을 쓰려면 NOTARY_APPLE_ID, NOTARY_PASSWORD, NOTARY_TEAM_ID 를 모두 지정해야 합니다." >&2
+            exit 1
+        fi
+        NOTARY_SUBMIT_ARGS=(
+            --apple-id "$NOTARY_APPLE_ID"
+            --password "$NOTARY_PASSWORD"
+            --team-id "$NOTARY_TEAM_ID"
+        )
+        NOTARY_AUTH_DESCRIPTION="Apple ID 환경 변수"
+    elif [[ -n "$NOTARY_PROFILE" ]] && ! is_placeholder_value "$NOTARY_PROFILE"; then
+        NOTARY_SUBMIT_ARGS=(--keychain-profile "$NOTARY_PROFILE")
+        NOTARY_AUTH_DESCRIPTION="keychain profile: $NOTARY_PROFILE"
+    else
+        echo "유효한 공증 자격 증명을 찾지 못했습니다." >&2
+        echo "NOTARY_KEY_PATH/NOTARY_KEY_ID/NOTARY_ISSUER, APP_STORE_CONNECT_*, NOTARY_APPLE_ID/NOTARY_PASSWORD/NOTARY_TEAM_ID 또는 NOTARY_PROFILE 을 확인해 주세요." >&2
         exit 1
     fi
-    NOTARY_SUBMIT_ARGS=(
-        --key "$NOTARY_KEY_PATH"
-        --key-id "$NOTARY_KEY_ID"
-        --issuer "$NOTARY_ISSUER"
-    )
-    NOTARY_AUTH_DESCRIPTION="App Store Connect API key"
-elif [[ -n "$NOTARY_APPLE_ID$NOTARY_PASSWORD$NOTARY_TEAM_ID" ]]; then
-    if [[ -z "$NOTARY_APPLE_ID" || -z "$NOTARY_PASSWORD" || -z "$NOTARY_TEAM_ID" ]]; then
-        echo "Apple ID 공증을 쓰려면 NOTARY_APPLE_ID, NOTARY_PASSWORD, NOTARY_TEAM_ID 를 모두 지정해야 합니다." >&2
-        exit 1
-    fi
-    NOTARY_SUBMIT_ARGS=(
-        --apple-id "$NOTARY_APPLE_ID"
-        --password "$NOTARY_PASSWORD"
-        --team-id "$NOTARY_TEAM_ID"
-    )
-    NOTARY_AUTH_DESCRIPTION="Apple ID 환경 변수"
-elif [[ -n "$NOTARY_PROFILE" ]] && ! is_placeholder_value "$NOTARY_PROFILE"; then
-    NOTARY_SUBMIT_ARGS=(--keychain-profile "$NOTARY_PROFILE")
-    NOTARY_AUTH_DESCRIPTION="keychain profile: $NOTARY_PROFILE"
 else
-    echo "유효한 공증 자격 증명을 찾지 못했습니다." >&2
-    echo "NOTARY_APPLE_ID/NOTARY_PASSWORD/NOTARY_TEAM_ID 또는 NOTARY_PROFILE 을 확인해 주세요." >&2
-    exit 1
+    NOTARY_AUTH_DESCRIPTION="disabled (internal signed-only distribution)"
 fi
 
-echo "ClaudeUsage release 산출물 빌드 + notarization + DMG 를 시작합니다"
+echo "ClaudeUsage release 산출물 빌드를 시작합니다"
+echo "  - distribution: $RELEASE_DISTRIBUTION"
 if [[ -n "$RELEASE_CHANNEL" ]]; then
     echo "  - release channel: $RELEASE_CHANNEL"
 fi
@@ -293,6 +390,10 @@ for bin in xcodebuild xcrun hdiutil codesign; do
         exit 1
     }
 done
+
+if [[ "$RELEASE_DISTRIBUTION" == "notarized" ]]; then
+    preflight_notary_credentials
+fi
 
 if [[ "$SKIP_DMG" != "1" && ! -x "$MAKE_DMG_SCRIPT" ]]; then
     echo "make-dmg.sh 를 찾지 못했습니다: $MAKE_DMG_SCRIPT" >&2
@@ -360,37 +461,46 @@ codesign --force --options runtime --timestamp \
     --sign "$CERT_HASH" \
     "$APP_PATH"
 
-# ── 3. 앱 notarization 용 ZIP ────────────────────────────────
+# ── 3. 앱 ZIP 생성 ──────────────────────────────────────────
 
 echo
-echo "3. 앱 notarization ZIP 생성"
+echo "3. 앱 ZIP 생성"
 create_app_zip
 
-# ── 4. 앱 notarize ──────────────────────────────────────────
+if [[ "$RELEASE_DISTRIBUTION" == "notarized" ]]; then
+    # ── 4. 앱 notarize ──────────────────────────────────────
 
-echo
-echo "4. 앱 notarization 제출 (--wait)"
-xcrun notarytool submit "$ZIP_PATH" \
-    "${NOTARY_SUBMIT_ARGS[@]}" \
-    --wait
+    echo
+    echo "4. 앱 notarization 제출 (--wait)"
+    xcrun notarytool submit "$ZIP_PATH" \
+        "${NOTARY_SUBMIT_ARGS[@]}" \
+        --wait
 
-# ── 5. 앱 staple ────────────────────────────────────────────
+    # ── 5. 앱 staple ────────────────────────────────────────
 
-echo
-echo "5. 앱 staple 적용"
-xcrun stapler staple "$APP_PATH"
+    echo
+    echo "5. 앱 staple 적용"
+    xcrun stapler staple "$APP_PATH"
+    xcrun stapler validate "$APP_PATH"
+    spctl --assess --type execute --verbose=4 "$APP_PATH"
 
-# ── 6. stapled ZIP 재생성 ──────────────────────────────────
+    # ── 6. stapled ZIP 재생성 ──────────────────────────────
 
-echo
-echo "6. stapled ZIP 재생성"
-rm -f "$ZIP_PATH"
-create_app_zip
+    echo
+    echo "6. stapled ZIP 재생성"
+    rm -f "$ZIP_PATH"
+    create_app_zip
+else
+    echo
+    echo "4. 내부 배포용 앱 서명 검증"
+    codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+    echo "   notarization/staple 단계는 RELEASE_DISTRIBUTION=internal 로 건너뜁니다."
+fi
 
 if [[ "$SKIP_DMG" == "1" ]]; then
     echo
     cat <<EOF
-완료 (ZIP 만)
+완료 (ZIP 만, distribution=$RELEASE_DISTRIBUTION)
     archive: $ARCHIVE_PATH
     app:     $APP_PATH
     zip:     $ZIP_PATH
@@ -409,25 +519,35 @@ DMG_PATH="$DMG_PATH" \
 CERT_HASH="$CERT_HASH" \
 "$MAKE_DMG_SCRIPT"
 
-# ── 8. DMG notarize ────────────────────────────────────────
+if [[ "$RELEASE_DISTRIBUTION" == "notarized" ]]; then
+    # ── 8. DMG notarize ────────────────────────────────────
 
-echo
-echo "8. DMG notarization 제출 (--wait)"
-xcrun notarytool submit "$DMG_PATH" \
-    "${NOTARY_SUBMIT_ARGS[@]}" \
-    --wait
+    echo
+    echo "8. DMG notarization 제출 (--wait)"
+    xcrun notarytool submit "$DMG_PATH" \
+        "${NOTARY_SUBMIT_ARGS[@]}" \
+        --wait
 
-# ── 9. DMG staple ──────────────────────────────────────────
+    # ── 9. DMG staple ──────────────────────────────────────
 
-echo
-echo "9. DMG staple 적용"
-xcrun stapler staple "$DMG_PATH"
+    echo
+    echo "9. DMG staple 적용"
+    xcrun stapler staple "$DMG_PATH"
+    xcrun stapler validate "$DMG_PATH"
 
-# ── 10. 최종 Gatekeeper 검증 ────────────────────────────────
+    # ── 10. 최종 Gatekeeper 검증 ────────────────────────────
 
-echo
-echo "10. Gatekeeper 최종 검증"
-spctl -a -t open --context context:primary-signature -v "$DMG_PATH" 2>&1 | tail -3 || true
+    echo
+    echo "10. Gatekeeper 최종 검증"
+    spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG_PATH"
+else
+    echo
+    echo "8. 내부 배포용 DMG 서명 검증"
+    codesign --verify --verbose=2 "$DMG_PATH"
+    echo "   Gatekeeper 참고 검증:"
+    spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG_PATH" || true
+    echo "   내부 배포 모드는 Apple notarization 이 없으므로 다운로드 quarantine 경로에서는 macOS가 경고하거나 차단할 수 있습니다."
+fi
 
 DMG_SIZE_BYTES=$(stat -f%z "$DMG_PATH")
 DMG_SIZE_MB=$(awk -v b="$DMG_SIZE_BYTES" 'BEGIN { printf "%.2f", b / 1024 / 1024 }')
@@ -439,6 +559,7 @@ cat <<EOF
     app:     $APP_PATH
     zip:     $ZIP_PATH  (Sparkle appcast 다운로드용)
     dmg:     $DMG_PATH  (${DMG_SIZE_MB}MB, 설치 배포용)
+    distribution: $RELEASE_DISTRIBUTION
 
 다음 단계
     1. Scripts/publish-release.sh vX.Y.Z 로 GitHub Release + appcast 게시

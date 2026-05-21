@@ -9,9 +9,9 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>SUAllowsAutomaticUpdates</key>
-	<false/>
+	<true/>
 	<key>SUAutomaticallyUpdate</key>
-	<false/>
+	<true/>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUFeedURL</key>
@@ -19,6 +19,6 @@
 	<key>SUPublicEDKey</key>
 	<string>$(SUPublicEDKey)</string>
 	<key>SUScheduledCheckInterval</key>
-	<integer>3600</integer>
+	<integer>1800</integer>
 </dict>
 </plist>

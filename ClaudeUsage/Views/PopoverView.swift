@@ -505,6 +505,15 @@ struct PopoverView: View {
                 action: { viewModel.refresh() }
             )
 
+        case .permissionDenied(let detail):
+            return ErrorPresentation(
+                title: "조회 권한 없음",
+                message: detail.isEmpty ? "이 계정으로 해당 사용량 API를 호출할 권한이 없습니다." : detail,
+                actionTitle: "설정 열기",
+                actionStyle: .bordered,
+                action: { viewModel.openSettings(for: service) }
+            )
+
         case .parseError:
             return ErrorPresentation(
                 title: "응답 형식 변경",

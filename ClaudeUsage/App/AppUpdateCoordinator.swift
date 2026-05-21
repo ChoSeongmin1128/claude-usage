@@ -12,7 +12,7 @@ final class AppUpdateCoordinator {
         timer?.invalidate()
         timer = nil
 
-        if interval != .off, runImmediate {
+        if runImmediate {
             performCheck()
         }
 

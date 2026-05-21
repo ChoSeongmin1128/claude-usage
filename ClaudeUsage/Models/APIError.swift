@@ -20,6 +20,7 @@ enum APIError: Error, Sendable {
     case rateLimited(retryAfter: Int? = nil)
     case cloudflareBlocked(retryAfter: Int? = nil)
     case networkError(String)
+    case permissionDenied(String)
     case parseError
     case serverError(Int)
     case unknownError(String)
@@ -54,6 +55,9 @@ extension APIError: LocalizedError {
         case .networkError(let message):
             return "네트워크 연결 실패: \(message)"
 
+        case .permissionDenied(let message):
+            return message.isEmpty ? "요청 권한이 없습니다" : "요청 권한이 없습니다: \(message)"
+
         case .parseError:
             return "응답 데이터 파싱 실패"
 
@@ -77,7 +81,7 @@ extension APIError: LocalizedError {
             return true
         case .serverError(let code):
             return code >= 500
-        case .invalidSessionKey, .codexReauthRequired, .claudeOAuthPathRetired, .unknownError:
+        case .invalidSessionKey, .codexReauthRequired, .claudeOAuthPathRetired, .permissionDenied, .unknownError:
             return false
         }
     }
@@ -88,9 +92,16 @@ extension APIError: LocalizedError {
             return true
         case .serverError(let code):
             return code == 401 || code == 403
-        case .rateLimited, .cloudflareBlocked, .networkError, .parseError, .unknownError:
+        case .rateLimited, .cloudflareBlocked, .networkError, .permissionDenied, .parseError, .unknownError:
             return false
         }
+    }
+
+    nonisolated var isPermissionDenied: Bool {
+        if case .permissionDenied = self {
+            return true
+        }
+        return false
     }
 
     private static func formatRetryAfter(_ seconds: Int) -> String {

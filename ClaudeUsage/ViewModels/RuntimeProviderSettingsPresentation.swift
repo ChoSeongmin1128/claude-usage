@@ -33,6 +33,19 @@ struct RuntimeProviderAuthPresentation: Sendable, Equatable {
 }
 
 enum RuntimeProviderSettingsPresentation {
+    static func antigravityResolvedSourceDetail(
+        configuredSource: AntigravityUsageDataSource,
+        lastResolvedSource: AntigravityUsageDataSource?
+    ) -> String? {
+        guard configuredSource == .auto,
+              let lastResolvedSource,
+              lastResolvedSource != .auto
+        else {
+            return nil
+        }
+        return "최근 조회 경로: \(lastResolvedSource.displayName)"
+    }
+
     static func authPresentation(for provider: AppProviderKind, isEnabled: Bool) -> RuntimeProviderAuthPresentation? {
         switch provider {
         case .gemini:
@@ -53,7 +66,8 @@ enum RuntimeProviderSettingsPresentation {
             return makeAntigravity(
                 isEnabled: isEnabled,
                 environmentStatus: environmentStatus,
-                signals: signals
+                signals: signals,
+                dataSource: AppSettings.shared.antigravityUsageDataSource
             )
         case .claude, .codex:
             return nil
@@ -190,7 +204,8 @@ enum RuntimeProviderSettingsPresentation {
     static func makeAntigravity(
         isEnabled: Bool,
         environmentStatus: ProviderEnvironmentStatus?,
-        signals: AntigravityEnvironmentSignals
+        signals: AntigravityEnvironmentSignals,
+        dataSource: AntigravityUsageDataSource = .auto
     ) -> RuntimeProviderAuthPresentation {
         guard isEnabled else {
             return .init(
@@ -204,6 +219,40 @@ enum RuntimeProviderSettingsPresentation {
             )
         }
 
+        if signals.hasOAuthCredential && dataSource != .localIDE {
+            return .init(
+                stage: .probingRuntime,
+                badgeTitle: "OAuth 연결",
+                badgeTone: .blue,
+                summary: signals.hasBrokenCLICommand
+                    ? "Google OAuth로 원격 사용량을 확인할 수 있습니다. CLI 명령은 복구가 필요합니다"
+                    : signals.hasCLISurface
+                    ? "Google OAuth로 Antigravity 원격 quota를 확인할 수 있습니다"
+                    : "Google OAuth로 원격 사용량을 확인할 수 있습니다",
+                nextStepTitle: "사용량 조회 대기",
+                nextStepDetail: "앱이 닫혀 있어도 다음 갱신에서 원격 quota API를 조회합니다.",
+                availableAction: nil
+            )
+        }
+
+        if dataSource == .googleOAuth {
+            return .init(
+                stage: .authRequired,
+                badgeTitle: "OAuth 필요",
+                badgeTone: .red,
+                summary: signals.hasBrokenCLICommand
+                    ? "CLI 명령 복구와 Google OAuth 연결이 필요합니다"
+                    : signals.hasCLISurface
+                    ? "Antigravity 원격 quota 조회에는 Google OAuth 연결이 필요합니다"
+                    : "원격 quota 조회에는 Google OAuth 연결이 필요합니다",
+                nextStepTitle: "Google OAuth 연결",
+                nextStepDetail: "앱 로그인 흔적과 별개로 ClaudeUsage가 사용할 Google OAuth 연결을 추가해야 합니다.",
+                availableAction: nil
+            )
+        }
+
+        let hasRelevantPersistedAuthState = signals.hasCredentialRelevant(to: dataSource)
+
         if signals.hasRuntimeConnection {
             return .init(
                 stage: .probingRuntime,
@@ -216,7 +265,7 @@ enum RuntimeProviderSettingsPresentation {
             )
         }
 
-        if signals.appRunning && signals.hasPersistedAuthState {
+        if signals.appRunning && hasRelevantPersistedAuthState {
             return .init(
                 stage: .waitingForApp,
                 badgeTitle: "연결 준비",
@@ -228,7 +277,7 @@ enum RuntimeProviderSettingsPresentation {
             )
         }
 
-        if signals.hasPersistedAuthState {
+        if hasRelevantPersistedAuthState {
             return .init(
                 stage: .waitingForApp,
                 badgeTitle: "앱 필요",
@@ -237,6 +286,24 @@ enum RuntimeProviderSettingsPresentation {
                 nextStepTitle: "Antigravity 앱 열기",
                 nextStepDetail: "앱을 실행한 뒤 다시 확인해 주세요.",
                 availableAction: .openAntigravityApp
+            )
+        }
+
+        if signals.hasCLISurface && dataSource != .localIDE {
+            return .init(
+                stage: .authRequired,
+                badgeTitle: signals.hasBrokenCLICommand ? "CLI 복구" : (signals.hasCLIBinary ? "CLI 감지" : "CLI 설정"),
+                badgeTone: signals.hasBrokenCLICommand ? .red : .orange,
+                summary: signals.hasBrokenCLICommand
+                    ? "agy 명령은 감지됐지만 현재 실행 대상이 없습니다"
+                    : signals.hasCLIBinary
+                    ? "CLI는 감지됐고 원격 사용량에는 Google OAuth 연결이 필요합니다"
+                    : "CLI 설정은 감지됐고 원격 사용량에는 Google OAuth 연결이 필요합니다",
+                nextStepTitle: signals.hasBrokenCLICommand ? "CLI 재설치 후 Google OAuth 연결" : "Google OAuth 연결",
+                nextStepDetail: signals.hasBrokenCLICommand
+                    ? "PATH의 agy 래퍼가 없는 대상 파일을 가리킵니다. Antigravity 2.0 또는 CLI를 다시 설치한 뒤 OAuth를 연결해 주세요."
+                    : "CLI 사용량은 같은 Antigravity quota에 반영되지만 ClaudeUsage는 별도 OAuth 연결로 원격 사용량을 조회합니다.",
+                availableAction: nil
             )
         }
 

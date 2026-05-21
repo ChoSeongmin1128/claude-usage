@@ -150,24 +150,26 @@ struct PopoverItemConfig: Codable, Sendable, Equatable {
 }
 
 enum UpdateCheckInterval: String, Codable, CaseIterable, Sendable {
+    case automatic = "automatic"
+    // Legacy persisted values. Runtime scheduling normalizes every value to `automatic`.
     case off = "off"
     case onLaunch = "on_launch"
     case hourly = "hourly"
 
+    nonisolated static let allCases: [UpdateCheckInterval] = [.automatic]
+    nonisolated static let enforced: UpdateCheckInterval = .automatic
+    nonisolated static let enforcedTimerInterval: TimeInterval = 1800
+
     var displayName: String {
-        switch self {
-        case .off: return "끄기"
-        case .onLaunch: return "앱 시작 시"
-        case .hourly: return "1시간마다"
-        }
+        "30분마다"
+    }
+
+    var normalizedForAutomaticChecks: UpdateCheckInterval {
+        .enforced
     }
 
     var timerInterval: TimeInterval? {
-        switch self {
-        case .off: return nil
-        case .onLaunch: return nil
-        case .hourly: return 3600
-        }
+        Self.enforcedTimerInterval
     }
 }
 
@@ -459,6 +461,9 @@ class AppSettings: ObservableObject {
             defaults.set(antigravityRefreshInterval, forKey: "antigravityRefreshInterval")
         }
     }
+    @Published var antigravityUsageDataSource: AntigravityUsageDataSource {
+        didSet { defaults.set(antigravityUsageDataSource.rawValue, forKey: "antigravityUsageDataSource") }
+    }
 
     func effectiveRefreshInterval(for service: PopoverService) -> TimeInterval {
         guard usePerProviderRefreshIntervals else { return Self.normalizedRefreshInterval(refreshInterval) }
@@ -524,7 +529,7 @@ class AppSettings: ObservableObject {
         didSet { defaults.set(alertWeeklyEnabled, forKey: "alertWeeklyEnabled") }
     }
     @Published var updateCheckInterval: UpdateCheckInterval {
-        didSet { defaults.set(updateCheckInterval.rawValue, forKey: "updateCheckInterval") }
+        didSet { defaults.set(updateCheckInterval.normalizedForAutomaticChecks.rawValue, forKey: "updateCheckInterval") }
     }
     // 런타임 전용 (UserDefaults 저장 안함)
     @Published var availableUpdate: UpdateInfo?
@@ -635,6 +640,7 @@ class AppSettings: ObservableObject {
         let codexRefreshInterval: TimeInterval
         let geminiRefreshInterval: TimeInterval
         let antigravityRefreshInterval: TimeInterval
+        let antigravityUsageDataSource: AntigravityUsageDataSource
         let autoRefresh: Bool
         let notificationsEnabled: Bool
         let notificationPresets: [NotificationPreset]
@@ -687,6 +693,7 @@ class AppSettings: ObservableObject {
             codexRefreshInterval: codexRefreshInterval,
             geminiRefreshInterval: geminiRefreshInterval,
             antigravityRefreshInterval: antigravityRefreshInterval,
+            antigravityUsageDataSource: antigravityUsageDataSource,
             autoRefresh: autoRefresh,
             notificationsEnabled: notificationsEnabled,
             notificationPresets: notificationPresets,
@@ -747,6 +754,7 @@ class AppSettings: ObservableObject {
         codexRefreshInterval = snapshot.codexRefreshInterval
         geminiRefreshInterval = snapshot.geminiRefreshInterval
         antigravityRefreshInterval = snapshot.antigravityRefreshInterval
+        antigravityUsageDataSource = snapshot.antigravityUsageDataSource
         autoRefresh = snapshot.autoRefresh
         notificationsEnabled = snapshot.notificationsEnabled
         notificationPresets = snapshot.notificationPresets
@@ -754,7 +762,7 @@ class AppSettings: ObservableObject {
         reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
         showClaudeIcon = snapshot.showClaudeIcon
         menuBarTextHighContrast = snapshot.menuBarTextHighContrast
-        updateCheckInterval = snapshot.updateCheckInterval
+        updateCheckInterval = snapshot.updateCheckInterval.normalizedForAutomaticChecks
         claudeAlertEnabled = snapshot.claudeAlertEnabled
         claudeMessagesFallbackPolicy = snapshot.claudeMessagesFallbackPolicy
         claudeMessagesFallbackAutoDisableBelowPercent = Self.normalizedMessagesFallbackThreshold(snapshot.claudeMessagesFallbackAutoDisableBelowPercent)
@@ -1391,11 +1399,13 @@ class AppSettings: ObservableObject {
         codexRefreshInterval = 60.0
         geminiRefreshInterval = 60.0
         antigravityRefreshInterval = 120.0
+        antigravityUsageDataSource = .auto
         defaults.removeObject(forKey: "usePerProviderRefreshIntervals")
         defaults.removeObject(forKey: "claudeRefreshInterval")
         defaults.removeObject(forKey: "codexRefreshInterval")
         defaults.removeObject(forKey: "geminiRefreshInterval")
         defaults.removeObject(forKey: "antigravityRefreshInterval")
+        defaults.removeObject(forKey: "antigravityUsageDataSource")
         autoRefresh = true
         notificationsEnabled = true
         notificationPresets = Self.defaultNotificationPresets
@@ -1404,7 +1414,7 @@ class AppSettings: ObservableObject {
         defaults.removeObject(forKey: "hasCompletedSetupWizard")
         showClaudeIcon = true
         menuBarTextHighContrast = false
-        updateCheckInterval = .hourly
+        updateCheckInterval = .enforced
         claudeAlertEnabled = true
         claudeMessagesFallbackPolicy = .off
         claudeMessagesFallbackAutoDisableBelowPercent = Self.normalizedMessagesFallbackThreshold(20)
@@ -1502,6 +1512,9 @@ class AppSettings: ObservableObject {
         self.codexRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "codexRefreshInterval") as? TimeInterval ?? 60.0)
         self.geminiRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "geminiRefreshInterval") as? TimeInterval ?? 60.0)
         self.antigravityRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "antigravityRefreshInterval") as? TimeInterval ?? 120.0)
+        let antigravityDataSourceRaw = defaults.string(forKey: "antigravityUsageDataSource")
+            ?? AntigravityUsageDataSource.auto.rawValue
+        self.antigravityUsageDataSource = AntigravityUsageDataSource(rawValue: antigravityDataSourceRaw) ?? .auto
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
         let storedAlertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
@@ -1515,8 +1528,12 @@ class AppSettings: ObservableObject {
         self.showClaudeIcon = defaults.object(forKey: "showClaudeIcon") as? Bool ?? true
         let storedClaudeEnabled = defaults.object(forKey: "claudeEnabled") as? Bool ?? true
         self.menuBarTextHighContrast = defaults.object(forKey: "menuBarTextHighContrast") as? Bool ?? false
-        let uci = defaults.string(forKey: "updateCheckInterval") ?? UpdateCheckInterval.hourly.rawValue
-        self.updateCheckInterval = UpdateCheckInterval(rawValue: uci) ?? .hourly
+        let uci = defaults.string(forKey: "updateCheckInterval") ?? UpdateCheckInterval.enforced.rawValue
+        let resolvedUpdateInterval = UpdateCheckInterval(rawValue: uci)?.normalizedForAutomaticChecks ?? .enforced
+        self.updateCheckInterval = resolvedUpdateInterval
+        if uci != resolvedUpdateInterval.rawValue {
+            defaults.set(resolvedUpdateInterval.rawValue, forKey: "updateCheckInterval")
+        }
         if let storedClaudeAlertEnabled = defaults.object(forKey: "claudeAlertEnabled") as? Bool {
             self.claudeAlertEnabled = storedClaudeAlertEnabled
         } else {

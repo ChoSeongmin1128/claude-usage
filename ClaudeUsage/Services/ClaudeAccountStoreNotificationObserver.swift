@@ -10,7 +10,7 @@
 
 import Foundation
 
-final class ClaudeAccountStoreNotificationObserver: @unchecked Sendable {
+nonisolated final class ClaudeAccountStoreNotificationObserver: @unchecked Sendable {
     private let lock = NSLock()
     private var token: NSObjectProtocol?
 

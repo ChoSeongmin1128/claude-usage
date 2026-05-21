@@ -322,7 +322,13 @@ final class PopoverViewModel: ObservableObject {
         // 캐시 cold 상태에서는 auth prompt 를 보류 — warm-up 끝나면 정확한 상태로 전환.
         let requiresInteractiveSetup: Bool = {
             guard signalsCached != nil else { return false }
-            return !signals.hasRuntimeConnection && !signals.hasPersistedAuthState
+            switch settings.antigravityUsageDataSource {
+            case .googleOAuth:
+                return !signals.hasOAuthCredential
+            case .localIDE, .auto:
+                return !signals.hasRuntimeConnection
+                    && !signals.hasCredentialRelevant(to: settings.antigravityUsageDataSource)
+            }
         }()
         let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
         let isAuthRequired = isEnabled
@@ -335,7 +341,8 @@ final class PopoverViewModel: ObservableObject {
             environmentStatus: environmentStatus,
             signals: signals,
             isEnabled: isEnabled,
-            isAuthRequired: isAuthRequired
+            isAuthRequired: isAuthRequired,
+            dataSource: settings.antigravityUsageDataSource
         )
 
         return RuntimeServiceState(
@@ -504,6 +511,9 @@ final class PopoverViewModel: ObservableObject {
             return "Pro \(Int(usage.primaryPercentage.rounded()))% · Flash \(Int(usage.secondaryPercentage.rounded()))%\(tertiary)"
         }
         if let usage = snapshot.antigravityUsage {
+            guard usage.hasUsageWindows else {
+                return "\(usage.source.displayName) · quota 정보 없음"
+            }
             let tertiary = usage.tertiaryWindow.map { " · Flash \(Int($0.usedPercent.rounded()))%" } ?? ""
             return "Claude \(Int(usage.primaryPercentage.rounded()))% · Pro \(Int(usage.secondaryPercentage.rounded()))%\(tertiary)"
         }
@@ -602,9 +612,16 @@ final class PopoverViewModel: ObservableObject {
             let signalsCached = cachedAntigravitySignals
             let signals = signalsCached ?? .empty
             let snapshot = runtimeSnapshots[.antigravity]
+            let dataSource = settings.antigravityUsageDataSource
             let requiresInteractiveSetup: Bool = {
                 guard signalsCached != nil else { return false }
-                return !signals.hasRuntimeConnection && !signals.hasPersistedAuthState
+                switch dataSource {
+                case .googleOAuth:
+                    return !signals.hasOAuthCredential
+                case .localIDE, .auto:
+                    return !signals.hasRuntimeConnection
+                        && !signals.hasCredentialRelevant(to: dataSource)
+                }
             }()
             let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
             let isAuthRequired = isEnabled
@@ -617,7 +634,8 @@ final class PopoverViewModel: ObservableObject {
                 environmentStatus: environmentStatus,
                 signals: signals,
                 isEnabled: isEnabled,
-                isAuthRequired: isAuthRequired
+                isAuthRequired: isAuthRequired,
+                dataSource: dataSource
             )
         case .claude, .codex:
             return nil
@@ -675,15 +693,22 @@ final class PopoverViewModel: ObservableObject {
         environmentStatus: ProviderEnvironmentStatus?,
         signals: AntigravityEnvironmentSignals,
         isEnabled: Bool,
-        isAuthRequired: Bool
+        isAuthRequired: Bool,
+        dataSource: AntigravityUsageDataSource = .auto
     ) -> LocalProviderSummaryState {
         if !isEnabled {
             return .init(phase: .disabled, summary: "비활성화됨")
         }
         if let usage = snapshot?.antigravityUsage {
+            guard usage.hasUsageWindows else {
+                return .init(
+                    phase: .ready,
+                    summary: "\(usage.source.displayName) · quota 정보 없음"
+                )
+            }
             return .init(
                 phase: .ready,
-                summary: "Claude \(Int(usage.primaryPercentage.rounded()))% · Pro \(Int(usage.secondaryPercentage.rounded()))%"
+                summary: "\(usage.source.displayName) · Claude \(Int(usage.primaryPercentage.rounded()))% · Pro \(Int(usage.secondaryPercentage.rounded()))%"
             )
         }
         if snapshot?.isLoading == true {
@@ -695,20 +720,65 @@ final class PopoverViewModel: ObservableObject {
         {
             return .init(phase: .backoff, summary: "약 \(remainingSeconds)초 후 다시 시도")
         }
-        if signals.hasRuntimeConnection {
-            return .init(phase: .probingRuntime, summary: "앱 연결 확인 중")
-        }
-        if signals.hasPersistedAuthState {
-            return .init(phase: .waitingForApp, summary: "앱 실행 후 연결 확인 중")
-        }
         if let error = snapshot?.error, !shouldSuppressRecoverableError(error, runtimeReachability: environmentStatus?.runtimeReachability ?? false) {
             if error.isDefinitiveAuthFailure || snapshot?.fetchState == .authFailure || isAuthRequired {
-                return .init(phase: .authRequired, summary: environmentStatus?.summary ?? "앱 실행 또는 인증이 필요합니다")
+                return .init(
+                    phase: .authRequired,
+                    summary: antigravityAuthRequiredSummary(
+                        dataSource: dataSource,
+                        signals: signals,
+                        environmentStatus: environmentStatus
+                    )
+                )
             }
             return .init(phase: .temporaryError, summary: error.errorDescription ?? "일시 조회 실패")
         }
+        if signals.hasOAuthCredential && dataSource != .localIDE {
+            return .init(
+                phase: .probingRuntime,
+                summary: signals.hasBrokenCLICommand
+                    ? "OAuth 원격 조회 준비 · CLI 복구 필요"
+                    : signals.hasCLISurface
+                    ? "OAuth 원격 조회 준비 · CLI 감지"
+                    : "OAuth 원격 조회 준비"
+            )
+        }
+        if dataSource == .googleOAuth {
+            return .init(
+                phase: .authRequired,
+                summary: signals.hasBrokenCLICommand
+                    ? "CLI 복구 필요 · OAuth 연결 필요"
+                    : signals.hasCLISurface
+                    ? "CLI 감지 · OAuth 연결 필요"
+                    : "OAuth 연결 필요"
+            )
+        }
+        if signals.hasRuntimeConnection {
+            return .init(phase: .probingRuntime, summary: "앱 연결 확인 중")
+        }
+        let hasRelevantPersistedAuthState = signals.hasCredentialRelevant(to: dataSource)
+        if hasRelevantPersistedAuthState {
+            return .init(phase: .waitingForApp, summary: "앱 실행 후 연결 확인 중")
+        }
+        if signals.hasCLISurface && dataSource != .localIDE {
+            return .init(
+                phase: .authRequired,
+                summary: signals.hasBrokenCLICommand
+                    ? "CLI 복구 필요 · OAuth 연결 필요"
+                    : signals.hasCLIBinary
+                    ? "CLI 감지 · OAuth 연결 필요"
+                    : "CLI 설정 감지 · OAuth 연결 필요"
+            )
+        }
         if snapshot?.fetchState == .authFailure || isAuthRequired {
-            return .init(phase: .authRequired, summary: environmentStatus?.summary ?? "앱 실행 또는 인증이 필요합니다")
+            return .init(
+                phase: .authRequired,
+                summary: antigravityAuthRequiredSummary(
+                    dataSource: dataSource,
+                    signals: signals,
+                    environmentStatus: environmentStatus
+                )
+            )
         }
         if signals.appRunning && !signals.hasPersistedAuthState {
             return .init(phase: .authRequired, summary: environmentStatus?.summary ?? "앱 실행 또는 인증이 필요합니다")
@@ -717,6 +787,17 @@ final class PopoverViewModel: ObservableObject {
             return .init(phase: .waitingForApp, summary: environmentStatus?.summary ?? "앱 실행 후 연결 확인 중")
         }
         return .init(phase: .authRequired, summary: environmentStatus?.summary ?? "앱 실행 또는 인증이 필요합니다")
+    }
+
+    private static func antigravityAuthRequiredSummary(
+        dataSource: AntigravityUsageDataSource,
+        signals: AntigravityEnvironmentSignals,
+        environmentStatus: ProviderEnvironmentStatus?
+    ) -> String {
+        if dataSource == .googleOAuth || (dataSource == .auto && signals.hasOAuthCredential) {
+            return "OAuth 다시 연결 필요"
+        }
+        return environmentStatus?.summary ?? "앱 실행 또는 인증이 필요합니다"
     }
 
     private static func shouldSuppressRecoverableError(_ error: APIError, runtimeReachability: Bool) -> Bool {

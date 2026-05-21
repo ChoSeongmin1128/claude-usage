@@ -128,6 +128,7 @@ struct RuntimeProviderRefreshContext: Sendable, Equatable {
     let isCodexAuthenticated: Bool
     let geminiRuntimeReachability: Bool
     let antigravityRuntimeReachability: Bool
+    let antigravityRefreshReachability: Bool
 }
 
 struct RuntimeProviderDescriptor: Sendable, Equatable {
@@ -147,7 +148,7 @@ struct RuntimeProviderDescriptor: Sendable, Equatable {
         case .gemini:
             return context.geminiRuntimeReachability
         case .antigravity:
-            return context.antigravityRuntimeReachability
+            return context.antigravityRefreshReachability
         }
     }
 }

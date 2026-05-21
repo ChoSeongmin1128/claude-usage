@@ -40,6 +40,7 @@ extension SettingsView {
             selectedPanel = SettingsProviderPanel(rawValue: settings.settingsLastTab) ?? .common
             loadUsageHealthSnapshot()
             checkCodexAuth()
+            antigravityOAuthSettings.refreshAccounts()
             updateRuntimeState.bootstrapIfNeeded()
             // Settings 창이 뜬 순간부터 백그라운드에서 환경 감지 warm-up.
             // UI 스레드는 블로킹되지 않고, warm-up 완료 시 Notification 로 재렌더.
@@ -62,6 +63,10 @@ extension SettingsView {
             // 각 패널의 runtimeEnvironmentRefreshTick 읽기가 dependency 를 만듦.
             runtimeEnvironmentRefreshTick &+= 1
         }
+        .onReceive(NotificationCenter.default.publisher(for: .runtimeProviderStateUpdated).receive(on: RunLoop.main)) { notification in
+            guard notification.object as? PopoverService == .antigravity else { return }
+            runtimeEnvironmentRefreshTick &+= 1
+        }
         .onChange(of: sessionKey) { _, _ in
             testResult = nil
             lastVerifiedSessionKey = nil
@@ -80,6 +85,7 @@ extension SettingsView {
                 ProviderEnvironmentDetector.refreshStatusInBackground(for: .gemini)
                 ProviderEnvironmentDetector.refreshGeminiSignalsInBackground()
             case .antigravity:
+                antigravityOAuthSettings.refreshAccounts()
                 ProviderEnvironmentDetector.refreshStatusInBackground(for: .antigravity)
                 ProviderEnvironmentDetector.refreshAntigravitySignalsInBackground()
                 AntigravityStatusProbe.refreshAllInBackground()
@@ -103,6 +109,7 @@ extension SettingsView {
         }
         .onDisappear {
             codexAuthCheckTask?.cancel()
+            antigravityOAuthSettings.cancelLogin()
             cancelOrganizationLoad()
             flushPendingOrganizationPersistence()
         }

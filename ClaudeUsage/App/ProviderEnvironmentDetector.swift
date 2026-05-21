@@ -1,25 +1,40 @@
 import Foundation
 import SQLite3
 
-struct ProviderEnvironmentStatus: Sendable, Equatable {
+nonisolated struct ProviderEnvironmentStatus: Sendable, Equatable {
     let isDetected: Bool
     let credentialState: ProviderCredentialState
     let runtimeReachability: Bool
+    let refreshReachability: Bool
     let summary: String
 
+    init(
+        isDetected: Bool,
+        credentialState: ProviderCredentialState,
+        runtimeReachability: Bool,
+        refreshReachability: Bool? = nil,
+        summary: String
+    ) {
+        self.isDetected = isDetected
+        self.credentialState = credentialState
+        self.runtimeReachability = runtimeReachability
+        self.refreshReachability = refreshReachability ?? runtimeReachability
+        self.summary = summary
+    }
+
     var canAttemptRefresh: Bool {
-        runtimeReachability
+        refreshReachability
     }
 }
 
-enum GeminiAuthType: String, Sendable, Equatable {
+nonisolated enum GeminiAuthType: String, Sendable, Equatable {
     case oauthPersonal = "oauth-personal"
     case apiKey = "api-key"
     case vertexAI = "vertex-ai"
     case unknown
 }
 
-enum GeminiCredentialState: Sendable, Equatable {
+nonisolated enum GeminiCredentialState: Sendable, Equatable {
     case usable
     case refreshOnly
     case missing
@@ -36,31 +51,124 @@ enum GeminiCredentialState: Sendable, Equatable {
     }
 }
 
-struct GeminiEnvironmentSignals: Sendable, Equatable {
+nonisolated struct GeminiEnvironmentSignals: Sendable, Equatable {
     let hasBinary: Bool
     let authType: GeminiAuthType
     let credentialState: GeminiCredentialState
 }
 
-struct AntigravityEnvironmentSignals: Sendable, Equatable {
+nonisolated struct AntigravityCLIBinaryStatus: Sendable, Equatable {
+    enum Kind: String, Sendable, Equatable {
+        case missing
+        case runnable
+        case broken
+    }
+
+    let kind: Kind
+    let path: String?
+    let brokenTarget: String?
+
+    var isRunnable: Bool {
+        kind == .runnable
+    }
+
+    var isBroken: Bool {
+        kind == .broken
+    }
+
+    static let missing = AntigravityCLIBinaryStatus(kind: .missing, path: nil, brokenTarget: nil)
+
+    static func runnable(path: String?) -> AntigravityCLIBinaryStatus {
+        AntigravityCLIBinaryStatus(kind: .runnable, path: path, brokenTarget: nil)
+    }
+
+    static func broken(path: String?, target: String?) -> AntigravityCLIBinaryStatus {
+        AntigravityCLIBinaryStatus(kind: .broken, path: path, brokenTarget: target)
+    }
+}
+
+nonisolated struct AntigravityEnvironmentSignals: Sendable, Equatable {
     let hasStateDirectory: Bool
+    let hasCLIBinary: Bool
+    let cliBinaryStatus: AntigravityCLIBinaryStatus
+    let hasCLIStateDirectory: Bool
+    let hasCLISettingsFile: Bool
     let appRunning: Bool
     let runningProcess: AntigravityProcessSnapshot?
     let hasAuthStatus: Bool
     let hasOAuthToken: Bool
+    let oauthCredentialStatus: AntigravityOAuthCredentialStatus
+
+    init(
+        hasStateDirectory: Bool,
+        hasCLIBinary: Bool = false,
+        cliBinaryStatus: AntigravityCLIBinaryStatus? = nil,
+        hasCLIStateDirectory: Bool = false,
+        hasCLISettingsFile: Bool = false,
+        appRunning: Bool,
+        runningProcess: AntigravityProcessSnapshot?,
+        hasAuthStatus: Bool,
+        hasOAuthToken: Bool,
+        oauthCredentialStatus: AntigravityOAuthCredentialStatus = AntigravityOAuthCredentialStatus(
+            hasCredential: false,
+            email: nil,
+            sourceDescription: nil
+        )
+    ) {
+        let effectiveCLIStatus = cliBinaryStatus ?? (hasCLIBinary ? .runnable(path: nil) : .missing)
+        self.hasStateDirectory = hasStateDirectory
+        self.hasCLIBinary = effectiveCLIStatus.isRunnable
+        self.cliBinaryStatus = effectiveCLIStatus
+        self.hasCLIStateDirectory = hasCLIStateDirectory
+        self.hasCLISettingsFile = hasCLISettingsFile
+        self.appRunning = appRunning
+        self.runningProcess = runningProcess
+        self.hasAuthStatus = hasAuthStatus
+        self.hasOAuthToken = hasOAuthToken
+        self.oauthCredentialStatus = oauthCredentialStatus
+    }
 
     var hasPersistedAuthState: Bool {
+        hasAppPersistedAuthState || hasOAuthCredential
+    }
+
+    var hasAppPersistedAuthState: Bool {
         hasAuthStatus || hasOAuthToken
+    }
+
+    var hasOAuthCredential: Bool {
+        oauthCredentialStatus.hasCredential
+    }
+
+    var hasCLISurface: Bool {
+        hasCLIBinary || cliBinaryStatus.isBroken || hasCLIStateDirectory || hasCLISettingsFile
+    }
+
+    var hasBrokenCLICommand: Bool {
+        cliBinaryStatus.isBroken
     }
 
     var hasRuntimeConnection: Bool {
         guard let process = runningProcess else { return false }
-        return process.csrfToken?.isEmpty == false && (process.extensionPort != nil || process.httpsServerPort != nil)
+        return process.csrfToken?.isEmpty == false
+    }
+
+    func hasCredentialRelevant(to dataSource: AntigravityUsageDataSource) -> Bool {
+        switch dataSource {
+        case .localIDE:
+            return hasAppPersistedAuthState
+        case .googleOAuth:
+            return hasOAuthCredential
+        case .auto:
+            return hasPersistedAuthState
+        }
     }
 
     /// cache-miss fallback. 실제 감지 전까지 "정보 없음" 을 의미.
     static let empty = AntigravityEnvironmentSignals(
         hasStateDirectory: false,
+        hasCLIBinary: false,
+        hasCLIStateDirectory: false,
         appRunning: false,
         runningProcess: nil,
         hasAuthStatus: false,
@@ -81,6 +189,7 @@ extension Notification.Name {
     /// 백그라운드 환경 감지/갱신이 끝났을 때 브로드캐스트.
     /// SettingsView / PopoverView 가 subscribe 해서 재렌더를 트리거.
     static let providerEnvironmentUpdated = Notification.Name("com.claudeusage.providerEnvironmentUpdated")
+    static let runtimeProviderStateUpdated = Notification.Name("com.claudeusage.runtimeProviderStateUpdated")
 }
 
 enum ProviderEnvironmentDetector {
@@ -477,10 +586,24 @@ enum ProviderEnvironmentDetector {
         switch kind {
         case .claude, .codex:
             return false
-        case .gemini, .antigravity:
+        case .gemini:
             guard let status = staleWhileRevalidate(for: kind) else { return false }
             if status.credentialState.hasAnyCredential { return false }
             if status.runtimeReachability { return false }
+            return true
+        case .antigravity:
+            let dataSource = AppSettings.shared.antigravityUsageDataSource
+            if let signals = cachedAntigravitySignals() {
+                switch dataSource {
+                case .googleOAuth:
+                    return !signals.hasOAuthCredential
+                case .localIDE, .auto:
+                    return !signals.hasRuntimeConnection && !signals.hasCredentialRelevant(to: dataSource)
+                }
+            }
+            guard let status = staleWhileRevalidate(for: kind) else { return false }
+            if status.credentialState.hasAnyCredential { return false }
+            if status.canAttemptRefresh { return false }
             return true
         }
     }
@@ -500,7 +623,13 @@ enum ProviderEnvironmentDetector {
             }
         case .antigravity:
             let signals = antigravitySignals()
-            return !signals.hasRuntimeConnection && !signals.hasPersistedAuthState
+            switch AppSettings.shared.antigravityUsageDataSource {
+            case .googleOAuth:
+                return !signals.hasOAuthCredential
+            case .localIDE, .auto:
+                return !signals.hasRuntimeConnection
+                    && !signals.hasCredentialRelevant(to: AppSettings.shared.antigravityUsageDataSource)
+            }
         }
     }
 
@@ -571,57 +700,77 @@ enum ProviderEnvironmentDetector {
     }
 
     static func interpretAntigravity(signals: AntigravityEnvironmentSignals) -> ProviderEnvironmentStatus {
-        switch (signals.runningProcess, signals.hasPersistedAuthState, signals.appRunning, signals.hasStateDirectory) {
-        case let (.some(process), _, _, _) where process.csrfToken != nil && process.extensionPort != nil:
+        switch (
+            signals.runningProcess,
+            signals.hasPersistedAuthState,
+            signals.appRunning,
+            signals.hasStateDirectory,
+            signals.hasCLISurface
+        ) {
+        case let (.some(process), _, _, _, _) where process.csrfToken?.isEmpty == false:
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .refreshable,
                 runtimeReachability: true,
                 summary: "Antigravity 연결 확인됨"
             )
-        case let (.some(process), true, _, _) where process.csrfToken != nil:
-            return ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .refreshable,
-                runtimeReachability: false,
-                summary: "Antigravity 연결 준비 중"
-            )
-        case (.some(_), _, _, _):
+        case (.some(_), _, _, _, _):
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .unknown,
                 runtimeReachability: false,
                 summary: "Antigravity 연결 확인 중"
             )
-        case (nil, true, true, _):
+        case (nil, true, _, _, _) where signals.hasOAuthCredential:
+            return ProviderEnvironmentStatus(
+                isDetected: true,
+                credentialState: .usable,
+                runtimeReachability: false,
+                refreshReachability: true,
+                summary: signals.hasBrokenCLICommand
+                    ? "Antigravity OAuth 연결 확인됨 · CLI 복구 필요"
+                    : signals.hasCLISurface
+                    ? "Antigravity OAuth 연결 확인됨 · CLI 감지"
+                    : "Antigravity OAuth 연결 확인됨"
+            )
+        case (nil, true, true, _, _):
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .unknown,
                 runtimeReachability: false,
                 summary: "Antigravity 연결 준비 중"
             )
-        case (nil, true, false, _):
+        case (nil, true, false, _, _):
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .unknown,
                 runtimeReachability: false,
                 summary: "Antigravity 앱을 실행하면 조회를 시작합니다"
             )
-        case (nil, false, true, _):
+        case (nil, false, true, _, _):
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .unknown,
                 runtimeReachability: false,
                 summary: "Antigravity 앱에서 로그인을 확인해 주세요"
             )
-        case (nil, false, false, true):
+        case (nil, false, false, true, _):
             return ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .unknown,
                 runtimeReachability: false,
                 summary: "Antigravity 앱 실행 필요"
             )
-        case (nil, false, false, false):
+        case (nil, false, false, false, true):
+            return ProviderEnvironmentStatus(
+                isDetected: true,
+                credentialState: .missing,
+                runtimeReachability: false,
+                summary: signals.hasBrokenCLICommand
+                    ? "Antigravity CLI 복구 필요 · OAuth 연결 필요"
+                    : "Antigravity CLI 감지됨 · OAuth 연결 필요"
+            )
+        case (nil, false, false, false, false):
             return ProviderEnvironmentStatus(
                 isDetected: false,
                 credentialState: .missing,
@@ -648,17 +797,127 @@ enum ProviderEnvironmentDetector {
             atPath: FileManager.default.realHomeDirectory
                 .appendingPathComponent(".antigravity").path
         )
+        let hasCLIStateDirectory = FileManager.default.fileExists(
+            atPath: FileManager.default.realHomeDirectory
+                .appendingPathComponent(".gemini/antigravity-cli").path
+        )
         let hasApplicationSupportDirectory = FileManager.default.fileExists(
             atPath: FileManager.default.realHomeDirectory
                 .appendingPathComponent("Library/Application Support/Antigravity").path
         )
         let persistedState = antigravityPersistedState()
+        let cliBinaryStatus = antigravityCLIBinaryStatus()
         return AntigravityEnvironmentSignals(
             hasStateDirectory: hasLegacyStateDirectory || hasHomeStateDirectory || hasApplicationSupportDirectory,
+            cliBinaryStatus: cliBinaryStatus,
+            hasCLIStateDirectory: hasCLIStateDirectory,
+            hasCLISettingsFile: antigravityCLISettingsFileExists(),
             appRunning: AntigravityStatusProbe.appProcessRunning(),
             runningProcess: AntigravityStatusProbe.runningProcess(),
             hasAuthStatus: persistedState.hasAuthStatus,
-            hasOAuthToken: persistedState.hasOAuthToken
+            hasOAuthToken: persistedState.hasOAuthToken,
+            oauthCredentialStatus: AntigravityOAuthCredentialProbe.current()
+        )
+    }
+
+    private nonisolated static func antigravityCLIBinaryStatus() -> AntigravityCLIBinaryStatus {
+        // The current official Unix installer writes `agy`; older IDE shell
+        // integrations have used `antigravity`, so keep both as install
+        // surface signals without treating either as a credential source.
+        var firstBrokenStatus: AntigravityCLIBinaryStatus?
+        for name in ["agy", "antigravity"] {
+            guard let url = resolvedBinaryURL(named: name) else { continue }
+            let status = antigravityCLIStatus(for: url)
+            if status.isRunnable {
+                return status
+            }
+            if status.isBroken, firstBrokenStatus == nil {
+                firstBrokenStatus = status
+            }
+        }
+        return firstBrokenStatus ?? .missing
+    }
+
+    nonisolated static func antigravityCLIStatus(for url: URL, fileManager: FileManager = .default) -> AntigravityCLIBinaryStatus {
+        let path = url.path
+        guard fileManager.fileExists(atPath: path) else {
+            return .broken(path: path, target: nil)
+        }
+        guard fileManager.isExecutableFile(atPath: path) else {
+            return .broken(path: path, target: nil)
+        }
+
+        if let symlinkTarget = resolvedSymlinkTarget(for: url, fileManager: fileManager) {
+            guard fileManager.fileExists(atPath: symlinkTarget),
+                  fileManager.isExecutableFile(atPath: symlinkTarget) else {
+                return .broken(path: path, target: symlinkTarget)
+            }
+            return .runnable(path: path)
+        }
+
+        if let shellTarget = shellExecTarget(from: url, fileManager: fileManager) {
+            guard fileManager.fileExists(atPath: shellTarget),
+                  fileManager.isExecutableFile(atPath: shellTarget) else {
+                return .broken(path: path, target: shellTarget)
+            }
+        }
+
+        return .runnable(path: path)
+    }
+
+    private nonisolated static func resolvedSymlinkTarget(for url: URL, fileManager: FileManager) -> String? {
+        guard let target = try? fileManager.destinationOfSymbolicLink(atPath: url.path) else {
+            return nil
+        }
+        if target.hasPrefix("/") {
+            return target
+        }
+        return url.deletingLastPathComponent().appendingPathComponent(target).standardizedFileURL.path
+    }
+
+    private nonisolated static func shellExecTarget(from url: URL, fileManager: FileManager) -> String? {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: url.path),
+              let fileSize = attributes[.size] as? NSNumber,
+              fileSize.intValue <= 64 * 1024,
+              let data = try? Data(contentsOf: url),
+              data.starts(with: Data("#!".utf8)),
+              let text = String(data: data, encoding: .utf8)
+        else {
+            return nil
+        }
+
+        for line in text.split(separator: "\n", omittingEmptySubsequences: true).prefix(8) {
+            let trimmed = String(line).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.hasPrefix("exec ") else { continue }
+            let rest = trimmed.dropFirst(5).trimmingCharacters(in: .whitespacesAndNewlines)
+            if let quoted = firstQuotedAbsolutePath(in: rest) {
+                return quoted
+            }
+            if let first = rest.split(separator: " ").first, first.hasPrefix("/") {
+                return String(first)
+            }
+        }
+        return nil
+    }
+
+    private nonisolated static func firstQuotedAbsolutePath(in text: String) -> String? {
+        for quote in ["'", "\""] {
+            guard text.hasPrefix(quote),
+                  let end = text.dropFirst().firstIndex(of: Character(quote)) else {
+                continue
+            }
+            let value = String(text[text.index(after: text.startIndex)..<end])
+            if value.hasPrefix("/") {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private nonisolated static func antigravityCLISettingsFileExists() -> Bool {
+        FileManager.default.fileExists(
+            atPath: FileManager.default.realHomeDirectory
+                .appendingPathComponent(".gemini/antigravity-cli/settings.json").path
         )
     }
 

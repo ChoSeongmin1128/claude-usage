@@ -93,8 +93,8 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 settingsPanelTitle: "Antigravity",
                 settingsPanelIconName: "antenna.radiowaves.left.and.right",
                 brandAssetName: "ProviderAntigravityIcon",
-                settingsPanelSummary: "앱 연결",
-                settingsPanelDetail: "Antigravity 앱이 열려 있으면 사용량을 확인합니다.",
+                settingsPanelSummary: "앱 연결 또는 Google OAuth",
+                settingsPanelDetail: "Antigravity 앱 로컬 API와 Google OAuth 원격 quota API 중 선택해 사용량을 확인합니다.",
                 settingsComingSoonMessage: nil,
                 capabilities: ProviderCapabilities(
                     runtimeService: .antigravity,

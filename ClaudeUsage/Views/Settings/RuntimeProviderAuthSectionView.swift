@@ -110,7 +110,7 @@ private struct RuntimeProviderNextStepCard: View {
     }
 }
 
-private struct RuntimeProviderBadgeView: View {
+struct RuntimeProviderBadgeView: View {
     let title: String
     let tone: RuntimeProviderAuthPresentation.BadgeTone
 

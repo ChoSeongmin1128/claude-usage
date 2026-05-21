@@ -6,7 +6,7 @@
 
 1. **계정/원격 확인** — GitHub CLI active 계정과 repository 확인
 2. **1회성 세팅** — Sparkle 키 + notarization 자격 등록
-3. **릴리스 빌드** — archive → notarize → staple → DMG 생성/서명/공증
+3. **릴리스 빌드** — notarized 배포 또는 signed-only 내부 배포 산출물 생성
 4. **게시** — git tag + GitHub Release 업로드 + Sparkle appcast 발행
 
 스크립트는 모두 `Scripts/` 에 있고 독립 실행 가능합니다.
@@ -50,19 +50,34 @@ Apple ID 또는 App Store Connect API 키 중 하나:
 
 ```bash
 # 옵션 A: Apple ID + app-specific password
-xcrun notarytool store-credentials "ClaudeUsage" \
+xcrun notarytool store-credentials "ClaudeUsageNotary" \
     --apple-id "YOUR@EMAIL" \
     --team-id "YOUR_TEAM_ID"
 # 프롬프트에서 app-specific password 입력
 
 # 옵션 B: App Store Connect API key (.p8 파일)
-xcrun notarytool store-credentials "ClaudeUsage" \
+xcrun notarytool store-credentials "ClaudeUsageNotary" \
     --key /path/to/AuthKey_XXXX.p8 \
     --key-id XXXXXXXXXX \
     --issuer xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
 
-키체인 프로파일 이름 `ClaudeUsage` 는 이후 스크립트 전체에서 사용됩니다.
+키체인 프로파일 이름 `ClaudeUsageNotary` 는 이후 스크립트 전체에서 사용됩니다.
+앱이 자체 세션 저장에 쓰는 `ClaudeUsage` Keychain 서비스명과 혼동되지 않도록,
+공증 프로필에는 별도 이름을 사용합니다.
+
+키체인 프로파일을 쓰지 않고 CodexBar처럼 CI/로컬 환경 변수로만 넘기려면
+아래 세 값을 모두 지정합니다. `APP_STORE_CONNECT_API_KEY_P8` 는 `.p8` 파일
+내용 전체이며, `\n` 이스케이프가 들어간 한 줄 값도 허용합니다.
+
+```bash
+APP_STORE_CONNECT_API_KEY_P8="$(cat /path/to/AuthKey_XXXX.p8)" \
+APP_STORE_CONNECT_KEY_ID="XXXXXXXXXX" \
+APP_STORE_CONNECT_ISSUER_ID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
+RELEASE_CHANNEL=prod \
+BUILD_DIR="$HOME/Downloads/ClaudeUsage-release-$(date +%Y%m%d-%H%M)" \
+./Scripts/build-notarize-release.sh
+```
 
 ### 1.2 Sparkle 키 + 로컬 xcconfig 생성
 
@@ -76,7 +91,7 @@ xcrun notarytool store-credentials "ClaudeUsage" \
 - `Config/Sparkle.release.local.xcconfig` 자동 작성:
   - `SUFeedURL` = 기본적으로 GitHub Pages `prod` 채널 (`https://choseongmin1128.github.io/claude-usage/appcast.xml`) 로 추정
   - `SUPublicEDKey` = 방금 생성한 공개키
-  - `NOTARY_PROFILE` = "ClaudeUsage"
+  - `NOTARY_PROFILE` = "ClaudeUsageNotary"
 - `.gitignore` 에 로컬 xcconfig 규칙 추가
 
 키가 이미 있다면 공개키만 재사용하고 새로 생성하지 않습니다. 강제 재생성은 `--force` 플래그.
@@ -104,29 +119,48 @@ SUFeedURL 을 직접 정하고 싶다면 스크립트 실행 후 xcconfig 를 �
 
 ## 2. 릴리스 빌드 (버전마다)
 
+배포 기준은 `RELEASE_DISTRIBUTION` 으로 고릅니다.
+
+- `notarized` 기본값: Developer ID 서명, Apple notarization, staple, Gatekeeper 검증까지 수행합니다. 웹/공개 다운로드 또는 일반 사용자 배포 기준입니다.
+- `internal`: 사내 배포용 signed-only DMG 를 만듭니다. Developer ID 서명과 codesign 검증은 수행하지만 Apple notarization 과 staple 은 건너뜁니다. 다운로드 quarantine 경로에서는 macOS Gatekeeper 경고나 차단이 나올 수 있습니다.
+
 ```bash
 # staging
 RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh
 
 # prod
 RELEASE_CHANNEL=prod ./Scripts/build-notarize-release.sh
+
+# signed-only 사내 배포
+RELEASE_DISTRIBUTION=internal \
+BUILD_DIR="$HOME/Downloads/ClaudeUsage-internal-$(date +%Y%m%d-%H%M)" \
+./Scripts/build-notarize-release.sh
 ```
 
-수행 단계:
+notarized 수행 단계:
 
 1. Xcode archive (`build/release/ClaudeUsage.xcarchive`)
 2. 앱을 ZIP 으로 감싸 notarytool 제출 (`--wait`)
-3. stapler 로 앱에 티켓 부착
+3. stapler 로 앱에 티켓 부착 후 `stapler validate` / `spctl --type execute` 검증
 4. stapled ZIP 재생성 (Sparkle appcast 다운로드 대상)
 5. `Scripts/make-dmg.sh` 호출 → `dmgbuild` 로 UI DMG 생성 + Developer ID 서명
 6. DMG notarization 제출 (`--wait`)
-7. DMG 에 티켓 부착
-8. `spctl -a -t open` 최종 검증
+7. DMG 에 티켓 부착 후 `stapler validate`
+8. `spctl --type open --context context:primary-signature` 최종 검증
 
 산출물:
 - `build/release/ClaudeUsage.xcarchive/Products/Applications/ClaudeUsage.app` (스테이플됨)
 - `build/release/ClaudeUsage.zip` (Sparkle 용)
 - `build/release/ClaudeUsage.dmg` (설치 배포용)
+
+internal 수행 단계:
+
+1. Xcode archive
+2. Sparkle helper 와 앱을 Developer ID 로 재서명
+3. signed-only ZIP 생성
+4. `codesign --verify --deep --strict` 로 앱 검증
+5. `Scripts/make-dmg.sh` 호출 → `dmgbuild` 로 UI DMG 생성 + Developer ID 서명
+6. `codesign --verify` 로 DMG 검증, `spctl` 은 참고 결과로만 출력
 
 빠른 로컬 테스트로 DMG 를 건너뛰려면:
 
@@ -192,11 +226,11 @@ RELEASE_CHANNEL=prod ./Scripts/build-notarize-release.sh
 ## 자동 업데이트 동작
 
 Sparkle 이 클라이언트 앱에서 하는 일:
-1. `SUFeedURL` (= GitHub Pages channel URL) 을 주기적으로 폴링
+1. `SUFeedURL` (= GitHub Pages channel URL) 을 30분마다 폴링
 2. `appcast.xml` 파싱 → 현재 설치 버전과 비교
 3. 새 버전이 있으면 `ClaudeUsage.zip` 다운로드
 4. `SUPublicEDKey` 로 ED25519 서명 검증
-5. 사용자에게 설치 프롬프트 → `XPCServices/Installer.xpc` 가 교체 설치
+5. popover 설치 버튼을 누르면 `XPCServices/Installer.xpc` 가 교체 설치
 
 권장 feed 구조:
 
@@ -221,8 +255,49 @@ notarytool 자격이 키체인에서 지워졌거나 잠겨있습니다.
 ```bash
 security unlock-keychain ~/Library/Keychains/login.keychain-db
 # 또는 자격 재등록
-xcrun notarytool store-credentials "ClaudeUsage" --apple-id ... --team-id ...
+xcrun notarytool store-credentials "ClaudeUsageNotary" --apple-id ... --team-id ...
 ```
+
+### "HTTP status code: 401. Invalid credentials"
+
+`ClaudeUsageNotary` notarytool keychain profile 은 존재하지만 Apple ID, team ID,
+또는 app-specific password 가 더 이상 유효하지 않은 상태입니다.
+`Scripts/build-notarize-release.sh` 는 archive 전에 `notarytool history` 로
+공증 자격을 사전 검증하므로, 이 오류가 나면 새 산출물은 만들어지지 않습니다.
+
+`keychain profile "ClaudeUsage" 이름이 ClaudeUsage 앱 세션 Keychain 항목과 충돌합니다`
+메시지가 함께 나오면, 로컬 `Config/Sparkle.release.local.xcconfig` 가 예전 기본값
+`NOTARY_PROFILE = ClaudeUsage` 를 가리키는 상태입니다. 이 이름은 앱의 기존
+세션 Keychain 서비스명과 충돌하므로 `NOTARY_PROFILE = ClaudeUsageNotary` 로
+바꾼 뒤 아래 복구 명령을 실행합니다.
+
+복구:
+
+```bash
+xcrun notarytool store-credentials "ClaudeUsageNotary" \
+    --apple-id "YOUR@EMAIL" \
+    --team-id "5YG4V2PLZV"
+# 프롬프트에서 appleid.apple.com 에서 새로 발급한 app-specific password 입력
+
+xcrun notarytool history --keychain-profile "ClaudeUsageNotary"
+```
+
+환경변수로 우회하려면 세 값을 모두 지정해야 합니다.
+
+```bash
+NOTARY_APPLE_ID="YOUR@EMAIL" \
+NOTARY_PASSWORD="APP_SPECIFIC_PASSWORD" \
+NOTARY_TEAM_ID="5YG4V2PLZV" \
+RELEASE_CHANNEL=prod \
+BUILD_DIR="$HOME/Downloads/ClaudeUsage-release-$(date +%Y%m%d-%H%M)" \
+./Scripts/build-notarize-release.sh
+```
+
+App Store Connect API key 를 쓰는 경우에는 `NOTARY_KEY_PATH`,
+`NOTARY_KEY_ID`, `NOTARY_ISSUER` 를 모두 지정하거나, CodexBar와 같은
+`APP_STORE_CONNECT_API_KEY_P8`, `APP_STORE_CONNECT_KEY_ID`,
+`APP_STORE_CONNECT_ISSUER_ID` 조합을 지정합니다. 후자는 스크립트가 임시
+`.p8` 파일로 변환해 `notarytool` 에 넘기고 종료 시 삭제합니다.
 
 ### "SUFeedURL 을 찾지 못했습니다"
 
@@ -244,8 +319,8 @@ hdiutil detach "/Volumes/Install ClaudeUsage" -force 2>/dev/null
 `--wait` 는 최대 3시간 대기합니다. 체크:
 
 ```bash
-xcrun notarytool history --keychain-profile "ClaudeUsage"
-xcrun notarytool log <submission-id> --keychain-profile "ClaudeUsage"
+xcrun notarytool history --keychain-profile "ClaudeUsageNotary"
+xcrun notarytool log <submission-id> --keychain-profile "ClaudeUsageNotary"
 ```
 
 대부분의 실패 원인은 hardened runtime 비활성이거나 entitlements 누락.
@@ -265,7 +340,7 @@ Xcode 에서 한 번 Release 빌드를 돌리면 Sparkle SPM artifact 가 `~/Lib
 - [ ] working tree clean
 
 1회성:
-- [ ] `xcrun notarytool store-credentials ClaudeUsage ...`
+- [ ] `xcrun notarytool store-credentials ClaudeUsageNotary ...`
 - [ ] `./Scripts/setup-sparkle-keys.sh`
 - [ ] `pipx install dmgbuild` / `brew install gh`
 

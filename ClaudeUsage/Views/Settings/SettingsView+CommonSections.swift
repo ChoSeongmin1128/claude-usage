@@ -49,12 +49,9 @@ extension SettingsView {
             Label("업데이트", systemImage: "arrow.down.circle")
                 .font(.headline)
 
-            Picker("자동 확인", selection: $settings.updateCheckInterval) {
-                ForEach(UpdateCheckInterval.allCases, id: \.self) { interval in
-                    Text(interval.displayName).tag(interval)
-                }
-            }
-            .pickerStyle(.segmented)
+            Label("30분마다 자동 확인", systemImage: "clock.arrow.circlepath")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             HStack(alignment: .center, spacing: 12) {
                 Text("현재 버전 \(updateRuntimeState.currentVersionText)")

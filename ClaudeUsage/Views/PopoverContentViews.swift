@@ -184,14 +184,14 @@ struct ProviderStatusSectionView: View {
 
     private var statusText: String {
         if let error = status.error {
-            return error.isDefinitiveAuthFailure ? "인증 필요" : "조회 실패"
+            return error.compactStatusText
         }
         return "데이터 없음"
     }
 
     private var statusColor: Color {
         if let error = status.error {
-            return error.isDefinitiveAuthFailure ? .orange : .secondary
+            return error.compactStatusColor
         }
         return .secondary
     }
@@ -454,16 +454,32 @@ struct ProviderStatusRow: View {
 
     private var statusText: String {
         if let error {
-            return error.isDefinitiveAuthFailure ? "인증 필요" : "조회 실패"
+            return error.compactStatusText
         }
         return "데이터 없음"
     }
 
     private var statusColor: Color {
         if let error {
-            return error.isDefinitiveAuthFailure ? .orange : .secondary
+            return error.compactStatusColor
         }
         return .secondary
+    }
+}
+
+private extension APIError {
+    var compactStatusText: String {
+        if isDefinitiveAuthFailure {
+            return "인증 필요"
+        }
+        if isPermissionDenied {
+            return "권한 없음"
+        }
+        return "조회 실패"
+    }
+
+    var compactStatusColor: Color {
+        (isDefinitiveAuthFailure || isPermissionDenied) ? .orange : .secondary
     }
 }
 

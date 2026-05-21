@@ -127,12 +127,15 @@ struct SettingsView: View {
     @State var codexAuthCheckTask: Task<Void, Never>?
     @State var runtimeEnvironmentRefreshTick: Int = 0
     @State var expandedCustomMenuBarProviders: Set<AppProviderKind> = []
+    @StateObject var antigravityOAuthSettings = AntigravityOAuthSettingsViewModel()
 
     var onOpenLogin: (() -> Void)?
     var onImportClaudeFromChrome: (() -> Void)?
     var onClearBrowserSession: (() -> Void)?
     var onRefreshClaudeUsage: (() -> Void)?
+    var onRefreshAntigravityUsage: (() -> Void)?
     var onCodexLogout: (() -> Void)?
+    var antigravityLastUsageSource: (() -> AntigravityUsageDataSource?)?
     enum TestResult: Equatable {
         case success(String)
         case failure(String)

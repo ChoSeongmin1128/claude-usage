@@ -23,11 +23,11 @@ struct UpdateEngineStatus: Sendable, Equatable {
     let feedConfigured: Bool
     let publicKeyConfigured: Bool
 
-    var usesSparkleReadyPath: Bool {
+    nonisolated var usesSparkleReadyPath: Bool {
         sparkleIntegrated && feedConfigured && publicKeyConfigured
     }
 
-    var missingSparkleRequirements: [String] {
+    nonisolated var missingSparkleRequirements: [String] {
         var items: [String] = []
         if !feedConfigured {
             items.append("appcast")
@@ -38,7 +38,7 @@ struct UpdateEngineStatus: Sendable, Equatable {
         return items
     }
 
-    func replacing(modeSummary: String) -> UpdateEngineStatus {
+    nonisolated func replacing(modeSummary: String) -> UpdateEngineStatus {
         UpdateEngineStatus(
             modeSummary: modeSummary,
             sparkleIntegrated: sparkleIntegrated,
@@ -50,7 +50,7 @@ struct UpdateEngineStatus: Sendable, Equatable {
 
 private enum UpdateEngineMessages {
     nonisolated static let githubFallback = "새 버전이 있으면 다운로드 페이지로 안내합니다"
-    nonisolated static let sparkleSchedulerReady = "새 버전이 있으면 알려드립니다. 설치는 사용자가 직접 시작합니다"
+    nonisolated static let sparkleSchedulerReady = "30분마다 새 버전을 확인하고, 있으면 자동으로 준비합니다"
     nonisolated static let sparkleInteractiveStarted = "업데이트 확인 창을 열었습니다"
     nonisolated static let updateSessionInProgress = "이미 업데이트를 확인하고 있습니다"
     nonisolated static let downloadCancelled = "업데이트 다운로드를 취소했습니다"
@@ -61,7 +61,6 @@ private enum UpdateEngineMessages {
 }
 
 private enum UpdateSessionOrigin: Sendable {
-    case probe
     case interactive
     case background
     case scheduled
@@ -80,6 +79,7 @@ protocol AppUpdateEngine {
     func usesExternalScheduler() async -> Bool
     func supportsInteractiveCheck() async -> Bool
     func performInteractiveCheck() async -> String?
+    func presentPreparedUpdate() async -> Bool
     func synchronizeScheduler(interval: UpdateCheckInterval, runImmediate: Bool) async
     func installPreparedUpdate() async -> Bool
     func configurationStatus() async -> UpdateEngineStatus
@@ -172,6 +172,10 @@ final class GitHubReleaseUpdateEngine: AppUpdateEngine {
     func supportsInteractiveCheck() async -> Bool { false }
 
     func performInteractiveCheck() async -> String? { nil }
+
+    func presentPreparedUpdate() async -> Bool {
+        false
+    }
 
     func synchronizeScheduler(interval: UpdateCheckInterval, runImmediate: Bool) async {
         await publishEngineMetadata()
@@ -335,13 +339,14 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
             return .error(UpdateEngineMessages.updateSessionInProgress)
         }
 
-        activeSessionOrigin = .probe
+        activeSessionOrigin = .background
         lastCycleResult = nil
-        UpdateRuntimeState.shared.beginChecking()
+        updater.automaticallyDownloadsUpdates = true
+        UpdateRuntimeState.shared.beginChecking(message: "새 버전이 있으면 자동으로 준비합니다")
 
         return await withCheckedContinuation { continuation in
             pendingCheckContinuation = continuation
-            updater.checkForUpdateInformation()
+            updater.checkForUpdatesInBackground()
         }
     }
 
@@ -354,7 +359,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
 
     func usesExternalScheduler() async -> Bool { true }
 
-    func supportsInteractiveCheck() async -> Bool { true }
+    func supportsInteractiveCheck() async -> Bool { false }
 
     func performInteractiveCheck() async -> String? {
         guard AppInstallLocationPolicy.currentAssessment().isStableInstall else {
@@ -371,26 +376,25 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
         return UpdateEngineMessages.sparkleInteractiveStarted
     }
 
+    func presentPreparedUpdate() async -> Bool {
+        guard let message = await performInteractiveCheck() else {
+            return false
+        }
+        UpdateRuntimeState.shared.markInteractiveCheckStarted(message: message)
+        return true
+    }
+
     func synchronizeScheduler(interval: UpdateCheckInterval, runImmediate: Bool) async {
         synchronizeFeedConfiguration(resetCycle: false)
 
-        switch interval {
-        case .off:
-            updater.automaticallyChecksForUpdates = false
-            updater.automaticallyDownloadsUpdates = false
-        case .onLaunch:
-            updater.automaticallyChecksForUpdates = false
-            updater.automaticallyDownloadsUpdates = false
-        case .hourly:
-            updater.automaticallyChecksForUpdates = true
-            updater.updateCheckInterval = 3600
-            updater.automaticallyDownloadsUpdates = false
-        }
+        updater.automaticallyChecksForUpdates = true
+        updater.updateCheckInterval = UpdateCheckInterval.enforcedTimerInterval
+        updater.automaticallyDownloadsUpdates = true
 
         ensureUpdaterStartedIfNeeded()
         publishEngineMetadata()
 
-        if interval != .off, runImmediate {
+        if runImmediate {
             beginBackgroundCheck(origin: .background)
         }
     }
@@ -401,7 +405,10 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
             return false
         }
 
-        guard let handler = postponedInstallHandler else { return false }
+        guard let handler = postponedInstallHandler else {
+            UpdateRuntimeState.shared.markFailed(message: "설치 준비가 만료되었습니다. 업데이트를 다시 확인해 주세요")
+            return false
+        }
 
         let version = UpdateRuntimeState.shared.latestKnownUpdate?.version ?? "?"
         postponedInstallHandler = nil
@@ -438,6 +445,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
 
         activeSessionOrigin = origin
         lastCycleResult = nil
+        updater.automaticallyDownloadsUpdates = true
         UpdateRuntimeState.shared.beginChecking()
         updater.checkForUpdatesInBackground()
     }
@@ -465,7 +473,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
 
     private func shouldDeferPreparedInstall() -> Bool {
         switch activeSessionOrigin ?? .scheduled {
-        case .interactive, .probe:
+        case .interactive:
             return false
         case .background, .scheduled:
             return true
@@ -565,7 +573,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
         let update = updateInfo(for: item)
         UpdateRuntimeState.shared.markDownloadedReady(
             update,
-            message: "v\(update.version) 다운로드 완료, 설치 버튼에서 이어서 진행할 수 있습니다"
+            message: "v\(update.version) 다운로드 완료, 설치 적용 준비 중"
         )
     }
 
@@ -594,7 +602,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
 
         let update = updateInfo(for: item)
         postponedInstallHandler = installHandler
-        UpdateRuntimeState.shared.markReadyToInstall(update, installHandler: installHandler)
+        UpdateRuntimeState.shared.markReadyToInstall(update)
         return true
     }
 
@@ -668,7 +676,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
             default:
                 UpdateRuntimeState.shared.markDownloadedReady(
                     updateInfo,
-                    message: "v\(updateInfo.version) 다운로드 완료, 설치 버튼에서 이어서 진행할 수 있습니다"
+                    message: "v\(updateInfo.version) 다운로드 완료, 설치 적용 준비 중"
                 )
             }
         case .installing:
@@ -851,6 +859,11 @@ actor UpdateService {
     func performInteractiveCheck() async -> String? {
         let engine = await resolvedEngine()
         return await engine.performInteractiveCheck()
+    }
+
+    func presentPreparedUpdate() async -> Bool {
+        let engine = await resolvedEngine()
+        return await engine.presentPreparedUpdate()
     }
 
     func performUserInitiatedCheck() async {

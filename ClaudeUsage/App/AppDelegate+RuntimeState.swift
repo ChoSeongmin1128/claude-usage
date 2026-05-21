@@ -26,6 +26,7 @@ extension AppDelegate {
 
     func setRuntimeProviderState(_ state: RuntimeProviderState, for service: PopoverService) {
         withRuntimeState { $0[service] = state }
+        NotificationCenter.default.post(name: .runtimeProviderStateUpdated, object: service)
     }
 
     func updateRuntimeProviderState(
@@ -369,6 +370,19 @@ extension AppDelegate {
         return status?.runtimeReachability ?? false
     }
 
+    var antigravityRefreshReachability: Bool {
+        let status = ProviderEnvironmentDetector.staleWhileRevalidate(for: .antigravity)
+        switch AppSettings.shared.antigravityUsageDataSource {
+        case .localIDE:
+            return status?.runtimeReachability ?? false
+        case .googleOAuth:
+            return ProviderEnvironmentDetector.cachedAntigravitySignals()?.hasOAuthCredential
+                ?? AntigravityOAuthCredentialProbe.current().hasCredential
+        case .auto:
+            return status?.canAttemptRefresh ?? false
+        }
+    }
+
     var refreshableServices: [PopoverService] {
         ServiceSelectionHelper.refreshableServices(
             selectionState: AppSettings.shared.providerSelectionState,
@@ -376,7 +390,8 @@ extension AppDelegate {
             hasClaudeOAuthCredential: claudeCredentialAvailability.oauthCredentialAvailable,
             isCodexAuthenticated: CodexAuthManager.shared.isAuthenticated,
             geminiRuntimeReachability: geminiRuntimeReachability,
-            antigravityRuntimeReachability: antigravityRuntimeReachability
+            antigravityRuntimeReachability: antigravityRuntimeReachability,
+            antigravityRefreshReachability: antigravityRefreshReachability
         )
     }
 

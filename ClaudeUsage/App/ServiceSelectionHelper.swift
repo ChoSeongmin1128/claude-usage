@@ -102,7 +102,8 @@ struct ServiceSelectionHelper {
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool,
         geminiRuntimeReachability: Bool,
-        antigravityRuntimeReachability: Bool
+        antigravityRuntimeReachability: Bool,
+        antigravityRefreshReachability: Bool? = nil
     ) -> Bool {
         guard selectionState.runtimeEnabledKinds.contains(providerKind(for: service)) else { return false }
         let context = RuntimeProviderRefreshContext(
@@ -110,7 +111,8 @@ struct ServiceSelectionHelper {
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
             isCodexAuthenticated: isCodexAuthenticated,
             geminiRuntimeReachability: geminiRuntimeReachability,
-            antigravityRuntimeReachability: antigravityRuntimeReachability
+            antigravityRuntimeReachability: antigravityRuntimeReachability,
+            antigravityRefreshReachability: antigravityRefreshReachability ?? antigravityRuntimeReachability
         )
         guard let descriptor = RuntimeProviderRegistry.descriptor(for: service) else { return false }
         return descriptor.isRefreshable(using: context)
@@ -122,7 +124,8 @@ struct ServiceSelectionHelper {
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool,
         geminiRuntimeReachability: Bool,
-        antigravityRuntimeReachability: Bool
+        antigravityRuntimeReachability: Bool,
+        antigravityRefreshReachability: Bool? = nil
     ) -> [PopoverService] {
         selectionState.runtimeEnabledKinds.compactMap(service(for:)).filter {
             canRefresh(
@@ -132,7 +135,8 @@ struct ServiceSelectionHelper {
                 hasClaudeOAuthCredential: hasClaudeOAuthCredential,
                 isCodexAuthenticated: isCodexAuthenticated,
                 geminiRuntimeReachability: geminiRuntimeReachability,
-                antigravityRuntimeReachability: antigravityRuntimeReachability
+                antigravityRuntimeReachability: antigravityRuntimeReachability,
+                antigravityRefreshReachability: antigravityRefreshReachability
             )
         }
     }
@@ -143,7 +147,8 @@ struct ServiceSelectionHelper {
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool,
         geminiRuntimeReachability: Bool,
-        antigravityRuntimeReachability: Bool
+        antigravityRuntimeReachability: Bool,
+        antigravityRefreshReachability: Bool? = nil
     ) -> [PopoverService] {
         refreshableServices(
             selectionState: settings.providerSelectionState,
@@ -151,7 +156,8 @@ struct ServiceSelectionHelper {
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
             isCodexAuthenticated: isCodexAuthenticated,
             geminiRuntimeReachability: geminiRuntimeReachability,
-            antigravityRuntimeReachability: antigravityRuntimeReachability
+            antigravityRuntimeReachability: antigravityRuntimeReachability,
+            antigravityRefreshReachability: antigravityRefreshReachability
         )
     }
 
@@ -161,7 +167,8 @@ struct ServiceSelectionHelper {
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool,
         geminiRuntimeReachability: Bool,
-        antigravityRuntimeReachability: Bool
+        antigravityRuntimeReachability: Bool,
+        antigravityRefreshReachability: Bool? = nil
     ) -> Bool {
         !refreshableServices(
             selectionState: selectionState,
@@ -169,7 +176,8 @@ struct ServiceSelectionHelper {
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
             isCodexAuthenticated: isCodexAuthenticated,
             geminiRuntimeReachability: geminiRuntimeReachability,
-            antigravityRuntimeReachability: antigravityRuntimeReachability
+            antigravityRuntimeReachability: antigravityRuntimeReachability,
+            antigravityRefreshReachability: antigravityRefreshReachability
         ).isEmpty
     }
 
@@ -179,7 +187,8 @@ struct ServiceSelectionHelper {
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool,
         geminiRuntimeReachability: Bool,
-        antigravityRuntimeReachability: Bool
+        antigravityRuntimeReachability: Bool,
+        antigravityRefreshReachability: Bool? = nil
     ) -> Bool {
         hasRefreshableService(
             selectionState: settings.providerSelectionState,
@@ -187,7 +196,8 @@ struct ServiceSelectionHelper {
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
             isCodexAuthenticated: isCodexAuthenticated,
             geminiRuntimeReachability: geminiRuntimeReachability,
-            antigravityRuntimeReachability: antigravityRuntimeReachability
+            antigravityRuntimeReachability: antigravityRuntimeReachability,
+            antigravityRefreshReachability: antigravityRefreshReachability
         )
     }
 

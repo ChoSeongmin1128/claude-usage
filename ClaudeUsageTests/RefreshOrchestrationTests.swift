@@ -229,6 +229,260 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertTrue(events.isEmpty)
     }
 
+    func testResolveAntigravitySummaryStateTreatsCLIAsOAuthSetupNeed() {
+        let state = PopoverViewModel.resolveAntigravitySummaryState(
+            snapshot: RuntimeProviderSnapshot(
+                service: .antigravity,
+                payload: nil,
+                error: nil,
+                isLoading: false,
+                lastUpdated: nil,
+                nextRefreshAllowedAt: nil,
+                credentialState: .missing,
+                isDetected: true,
+                canAttemptRefresh: false,
+                hasAuthError: false
+            ),
+            environmentStatus: ProviderEnvironmentStatus(
+                isDetected: true,
+                credentialState: .missing,
+                runtimeReachability: false,
+                summary: "Antigravity CLI 감지됨 · OAuth 연결 필요"
+            ),
+            signals: AntigravityEnvironmentSignals(
+                hasStateDirectory: false,
+                hasCLIBinary: true,
+                appRunning: false,
+                runningProcess: nil,
+                hasAuthStatus: false,
+                hasOAuthToken: false
+            ),
+            isEnabled: true,
+            isAuthRequired: false,
+            dataSource: .auto
+        )
+
+        XCTAssertEqual(state.phase, .authRequired)
+        XCTAssertEqual(state.summary, "CLI 감지 · OAuth 연결 필요")
+    }
+
+    func testResolveAntigravitySummaryStateTreatsBrokenCLIAsRepairNeed() {
+        let state = PopoverViewModel.resolveAntigravitySummaryState(
+            snapshot: RuntimeProviderSnapshot(
+                service: .antigravity,
+                payload: nil,
+                error: nil,
+                isLoading: false,
+                lastUpdated: nil,
+                nextRefreshAllowedAt: nil,
+                credentialState: .missing,
+                isDetected: true,
+                canAttemptRefresh: false,
+                hasAuthError: false
+            ),
+            environmentStatus: ProviderEnvironmentStatus(
+                isDetected: true,
+                credentialState: .missing,
+                runtimeReachability: false,
+                summary: "Antigravity CLI 복구 필요 · OAuth 연결 필요"
+            ),
+            signals: AntigravityEnvironmentSignals(
+                hasStateDirectory: false,
+                cliBinaryStatus: .broken(
+                    path: "/opt/homebrew/bin/agy",
+                    target: "/Applications/Antigravity.app/Contents/Resources/app/bin/antigravity"
+                ),
+                appRunning: false,
+                runningProcess: nil,
+                hasAuthStatus: false,
+                hasOAuthToken: false
+            ),
+            isEnabled: true,
+            isAuthRequired: false,
+            dataSource: .auto
+        )
+
+        XCTAssertEqual(state.phase, .authRequired)
+        XCTAssertEqual(state.summary, "CLI 복구 필요 · OAuth 연결 필요")
+    }
+
+    func testResolveAntigravitySummaryStateDoesNotClaimCLIIncludedWhenOAuthReadyButCLIIsBroken() {
+        let state = PopoverViewModel.resolveAntigravitySummaryState(
+            snapshot: RuntimeProviderSnapshot(
+                service: .antigravity,
+                payload: nil,
+                error: nil,
+                isLoading: false,
+                lastUpdated: nil,
+                nextRefreshAllowedAt: nil,
+                credentialState: .usable,
+                isDetected: true,
+                canAttemptRefresh: true,
+                hasAuthError: false
+            ),
+            environmentStatus: ProviderEnvironmentStatus(
+                isDetected: true,
+                credentialState: .usable,
+                runtimeReachability: false,
+                refreshReachability: true,
+                summary: "Antigravity OAuth 연결 확인됨 · CLI 복구 필요"
+            ),
+            signals: AntigravityEnvironmentSignals(
+                hasStateDirectory: false,
+                cliBinaryStatus: .broken(
+                    path: "/opt/homebrew/bin/agy",
+                    target: "/Applications/Antigravity.app/Contents/Resources/app/bin/antigravity"
+                ),
+                appRunning: false,
+                runningProcess: nil,
+                hasAuthStatus: false,
+                hasOAuthToken: false,
+                oauthCredentialStatus: AntigravityOAuthCredentialStatus(
+                    hasCredential: true,
+                    email: "nathan@example.com",
+                    sourceDescription: "ClaudeUsage OAuth"
+                )
+            ),
+            isEnabled: true,
+            isAuthRequired: false,
+            dataSource: .auto
+        )
+
+        XCTAssertEqual(state.phase, .probingRuntime)
+        XCTAssertEqual(state.summary, "OAuth 원격 조회 준비 · CLI 복구 필요")
+    }
+
+    func testResolveAntigravitySummaryStateDoesNotClaimSeparateCLIUsageSourceWhenOAuthReady() {
+        let state = PopoverViewModel.resolveAntigravitySummaryState(
+            snapshot: RuntimeProviderSnapshot(
+                service: .antigravity,
+                payload: nil,
+                error: nil,
+                isLoading: false,
+                lastUpdated: nil,
+                nextRefreshAllowedAt: nil,
+                credentialState: .usable,
+                isDetected: true,
+                canAttemptRefresh: true,
+                hasAuthError: false
+            ),
+            environmentStatus: ProviderEnvironmentStatus(
+                isDetected: true,
+                credentialState: .usable,
+                runtimeReachability: false,
+                refreshReachability: true,
+                summary: "Antigravity OAuth 연결 확인됨 · CLI 감지"
+            ),
+            signals: AntigravityEnvironmentSignals(
+                hasStateDirectory: false,
+                hasCLIBinary: true,
+                hasCLISettingsFile: true,
+                appRunning: false,
+                runningProcess: nil,
+                hasAuthStatus: false,
+                hasOAuthToken: false,
+                oauthCredentialStatus: AntigravityOAuthCredentialStatus(
+                    hasCredential: true,
+                    email: "nathan@example.com",
+                    sourceDescription: "ClaudeUsage OAuth"
+                )
+            ),
+            isEnabled: true,
+            isAuthRequired: false,
+            dataSource: .auto
+        )
+
+        XCTAssertEqual(state.phase, .probingRuntime)
+        XCTAssertEqual(state.summary, "OAuth 원격 조회 준비 · CLI 감지")
+        XCTAssertFalse(state.summary.contains("CLI 포함"))
+        XCTAssertFalse(state.summary.contains("CLI 사용량 포함"))
+    }
+
+    func testResolveAntigravitySummaryStateGoogleOAuthModeIgnoresAppPersistedAuth() async {
+        let state = await MainActor.run {
+            PopoverViewModel.resolveAntigravitySummaryState(
+                snapshot: RuntimeProviderSnapshot(
+                    service: .antigravity,
+                    payload: nil,
+                    error: nil,
+                    isLoading: false,
+                    lastUpdated: nil,
+                    nextRefreshAllowedAt: nil,
+                    credentialState: .unknown,
+                    isDetected: true,
+                    canAttemptRefresh: false,
+                    hasAuthError: false
+                ),
+                environmentStatus: ProviderEnvironmentStatus(
+                    isDetected: true,
+                    credentialState: .unknown,
+                    runtimeReachability: false,
+                    summary: "Antigravity 인증 상태 감지 · 앱을 실행하면 조회를 시작합니다"
+                ),
+                signals: AntigravityEnvironmentSignals(
+                    hasStateDirectory: true,
+                    appRunning: false,
+                    runningProcess: nil,
+                    hasAuthStatus: true,
+                    hasOAuthToken: false
+                ),
+                isEnabled: true,
+                isAuthRequired: false,
+                dataSource: .googleOAuth
+            )
+        }
+        let (phase, summary) = await MainActor.run { (state.phase, state.summary) }
+
+        XCTAssertEqual(phase, .authRequired)
+        XCTAssertEqual(summary, "OAuth 연결 필요")
+    }
+
+    func testResolveAntigravitySummaryStateShowsOAuthReconnectWhenStoredCredentialIsRejected() async {
+        let state = await MainActor.run {
+            PopoverViewModel.resolveAntigravitySummaryState(
+                snapshot: RuntimeProviderSnapshot(
+                    service: .antigravity,
+                    payload: nil,
+                    error: .invalidSessionKey,
+                    isLoading: false,
+                    lastUpdated: nil,
+                    nextRefreshAllowedAt: nil,
+                    credentialState: .usable,
+                    isDetected: true,
+                    canAttemptRefresh: true,
+                    hasAuthError: true
+                ),
+                environmentStatus: ProviderEnvironmentStatus(
+                    isDetected: true,
+                    credentialState: .usable,
+                    runtimeReachability: false,
+                    refreshReachability: true,
+                    summary: "Antigravity OAuth 연결 확인됨"
+                ),
+                signals: AntigravityEnvironmentSignals(
+                    hasStateDirectory: false,
+                    hasCLIBinary: true,
+                    appRunning: false,
+                    runningProcess: nil,
+                    hasAuthStatus: false,
+                    hasOAuthToken: false,
+                    oauthCredentialStatus: AntigravityOAuthCredentialStatus(
+                        hasCredential: true,
+                        email: "nathan@example.com",
+                        sourceDescription: "ClaudeUsage OAuth"
+                    )
+                ),
+                isEnabled: true,
+                isAuthRequired: false,
+                dataSource: .googleOAuth
+            )
+        }
+        let (phase, summary) = await MainActor.run { (state.phase, state.summary) }
+
+        XCTAssertEqual(phase, .authRequired)
+        XCTAssertEqual(summary, "OAuth 다시 연결 필요")
+    }
+
     func testRequestLayoutRefreshEmitsOnlyExplicitReasons() async {
         let events = await MainActor.run { () -> [(PopoverService, PopoverLayoutRefreshReason)] in
             let recorder = LayoutEventRecorder()

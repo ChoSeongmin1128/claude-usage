@@ -550,6 +550,9 @@ actor ClaudeAPIService {
     /// 은 건드리지 않고, 레거시 자동 마이그레이션 결과면서 동작 불가 상태인 경우에만 전환.
     nonisolated static let oauthAwareMigrationVersionKey = "ClaudeUsage.oauthAwareMigrationVersion"
     nonisolated static let oauthAwareMigrationCurrentVersion = 1
+    nonisolated private static var claudeOAuthUsageCallsEnabled: Bool {
+        ProcessInfo.processInfo.environment["CLAUDE_USAGE_ENABLE_CLAUDE_OAUTH_USAGE"] == "1"
+    }
 
     /// 자동 전환 결정의 핵심 룰을 단위 테스트 가능한 pure function 으로 분리.
     /// 단순한 입력만 받고 store/keychain 접근 없음 → caller 가 책임지고 데이터 준비.
@@ -572,8 +575,7 @@ actor ClaudeAPIService {
         // v2.2.0: OAuth 경로 비활성. legacy web session 이 손상되더라도 CLI external 계정으로
         // 자동 전환하면 사용자가 OAuth 안내 카드만 보게 되어 마찰만 늘어난다. 그러므로
         // 이 migration 자체를 skip — 손상 안내는 Claude.ai 재로그인 경로로 통일된다.
-        let oauthCallsDisabled = true
-        if oauthCallsDisabled { return }
+        guard Self.claudeOAuthUsageCallsEnabled else { return }
 
         let defaults = UserDefaults.standard
         let currentVersion = defaults.integer(forKey: Self.oauthAwareMigrationVersionKey)
@@ -687,9 +689,8 @@ actor ClaudeAPIService {
         //   - 토큰별 rate limit (사용자가 본 2500초 대기) 우회
         //   - refresh_token rotation trap 회피
         // SourcePlanner 에 oauth 후보가 들어가지 않도록 oauthAvailable 을 false 로 강제한다.
-        // 코드 자체는 보존 — 정책이 바뀌면 이 한 줄을 되돌리면 즉시 활성화 가능.
-        let oauthCallsDisabled = true
-        let effectiveOAuthAvailable = oauthCallsDisabled ? false : (oauthTokenForFetch != nil)
+        // 로컬 검증용 override 는 명시 환경변수에서만 허용한다.
+        let effectiveOAuthAvailable = Self.claudeOAuthUsageCallsEnabled && oauthTokenForFetch != nil
         let context = ClaudeFetchContext(
             accountKind: activeKind,
             sourcePreference: .auto,
@@ -702,7 +703,7 @@ actor ClaudeAPIService {
             fallbackPolicy: await currentMessagesFallbackPolicy(),
             webSessionExplicitlySelected: webSessionExplicitlySelected,
             preferOAuthOverActiveAccount: preferOAuth)
-        let accountScopedOAuthToken = oauthCallsDisabled ? nil : oauthTokenForFetch
+        let accountScopedOAuthToken = Self.claudeOAuthUsageCallsEnabled ? oauthTokenForFetch : nil
         let plan = sourcePlanner.makePlan(from: context)
         var sourceErrors: [ClaudeUsageSource: APIError] = [:]
 
@@ -1257,7 +1258,7 @@ actor ClaudeAPIService {
                 // 제한/차단류는 같은 사이클 재시도로 더 악화될 수 있어 즉시 종료
                 if let apiError = error as? APIError {
                     switch apiError {
-                    case .rateLimited(_), .cloudflareBlocked(_):
+                    case .rateLimited(_), .cloudflareBlocked(_), .permissionDenied:
                         throw apiError
                     case .invalidSessionKey, .codexReauthRequired, .claudeOAuthPathRetired, .networkError, .parseError, .serverError, .unknownError:
                         break

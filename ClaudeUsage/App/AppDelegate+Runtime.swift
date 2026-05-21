@@ -568,14 +568,34 @@ extension AppDelegate {
         }
     }
 
+    func refreshAntigravityUsageAfterConfigurationChange() {
+        setRuntimeProviderState(RuntimeProviderState(), for: .antigravity)
+        syncRuntimePresentation(overage: currentOverage)
+        refreshAntigravityUsage(force: true)
+    }
+
     func refreshAntigravityUsage(force: Bool = false) {
         guard ServiceSelectionHelper.isEnabled(.antigravity, settings: AppSettings.shared) else { return }
         guard prepareRefresh(for: .antigravity, force: force, respectBackoffWithoutPayload: false) else { return }
+        let requestDataSource = AppSettings.shared.antigravityUsageDataSource
+        let requestConfiguration = AntigravityRefreshConfiguration.current(dataSource: requestDataSource)
+        let requestLoadingStartedAt = runtimeProviderState(for: .antigravity).loadingStartedAt
 
         Task {
             do {
-                let usage = try await AntigravityRuntimeRefresher.refresh(apiService: antigravityAPIService)
+                let usage = try await AntigravityRuntimeRefresher.refresh(
+                    apiService: antigravityAPIService,
+                    remoteService: antigravityRemoteUsageService,
+                    dataSource: requestDataSource
+                )
                 await MainActor.run {
+                    guard self.shouldApplyAntigravityRefreshResult(
+                        requestConfiguration: requestConfiguration,
+                        requestLoadingStartedAt: requestLoadingStartedAt
+                    ) else {
+                        return
+                    }
+
                     var state = self.runtimeProviderState(for: .antigravity)
                     RuntimeProviderRefreshCoordinator.applySuccess(
                         state: &state,
@@ -604,6 +624,13 @@ extension AppDelegate {
                 }
             } catch let error as APIError {
                 await MainActor.run {
+                    guard self.shouldApplyAntigravityRefreshResult(
+                        requestConfiguration: requestConfiguration,
+                        requestLoadingStartedAt: requestLoadingStartedAt
+                    ) else {
+                        return
+                    }
+
                     var state = self.runtimeProviderState(for: .antigravity)
                     let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
                         state: &state,
@@ -619,6 +646,13 @@ extension AppDelegate {
             } catch {
                 let wrapped = APIError.unknownError(error.localizedDescription)
                 await MainActor.run {
+                    guard self.shouldApplyAntigravityRefreshResult(
+                        requestConfiguration: requestConfiguration,
+                        requestLoadingStartedAt: requestLoadingStartedAt
+                    ) else {
+                        return
+                    }
+
                     var state = self.runtimeProviderState(for: .antigravity)
                     let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
                         state: &state,
@@ -633,5 +667,24 @@ extension AppDelegate {
                 }
             }
         }
+    }
+
+    private func shouldApplyAntigravityRefreshResult(
+        requestConfiguration: AntigravityRefreshConfiguration,
+        requestLoadingStartedAt: Date?
+    ) -> Bool {
+        let currentConfiguration = AntigravityRefreshConfiguration.current()
+        guard currentConfiguration != requestConfiguration else {
+            return true
+        }
+
+        var state = runtimeProviderState(for: .antigravity)
+        if state.isLoading, state.loadingStartedAt == requestLoadingStartedAt {
+            state = RuntimeProviderState()
+            setRuntimeProviderState(state, for: .antigravity)
+            syncRuntimePresentation(overage: currentOverage)
+        }
+        Logger.info("[Antigravity] 설정이 바뀐 뒤 도착한 이전 사용량 응답을 무시했습니다.")
+        return false
     }
 }

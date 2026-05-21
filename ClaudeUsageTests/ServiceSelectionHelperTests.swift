@@ -82,4 +82,25 @@ final class ServiceSelectionHelperTests: XCTestCase {
 
         XCTAssertEqual(services, [.claude, .gemini])
     }
+
+    func testRefreshableServicesUseAntigravityRemoteRefreshReachabilitySeparatelyFromRuntime() {
+        let settings = AppSettings.shared
+        let snapshot = settings.createSnapshot()
+        defer { settings.restore(from: snapshot) }
+
+        AppProviderKind.runtimeKinds.forEach { settings.setProviderEnabled(false, for: $0) }
+        settings.setProviderEnabled(true, for: .antigravity)
+
+        let services = ServiceSelectionHelper.refreshableServices(
+            settings: settings,
+            hasClaudeSessionKey: false,
+            hasClaudeOAuthCredential: false,
+            isCodexAuthenticated: false,
+            geminiRuntimeReachability: false,
+            antigravityRuntimeReachability: false,
+            antigravityRefreshReachability: true
+        )
+
+        XCTAssertEqual(services, [.antigravity])
+    }
 }

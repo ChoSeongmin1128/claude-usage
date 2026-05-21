@@ -11,6 +11,15 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(AppSettings.normalizedRefreshInterval(60), 60)
     }
 
+    func testUpdateChecksAreForcedToThirtyMinutes() {
+        XCTAssertEqual(UpdateCheckInterval.allCases, [.automatic])
+        XCTAssertEqual(UpdateCheckInterval.enforcedTimerInterval, 1800)
+        XCTAssertEqual(UpdateCheckInterval.automatic.timerInterval, 1800)
+        XCTAssertEqual(UpdateCheckInterval.off.normalizedForAutomaticChecks, .automatic)
+        XCTAssertEqual(UpdateCheckInterval.onLaunch.normalizedForAutomaticChecks, .automatic)
+        XCTAssertEqual(UpdateCheckInterval.hourly.normalizedForAutomaticChecks, .automatic)
+    }
+
     func testSetPopoverItemsNormalizesDuplicatesAndUnsupportedEntries() {
         let settings = AppSettings.shared
         let snapshot = settings.createSnapshot()
@@ -212,5 +221,18 @@ final class AppSettingsTests: XCTestCase {
         settings.alertRemainingMode = true
 
         XCTAssertEqual(settings.enabledAlertThresholds, [10, 75, 90])
+    }
+
+    func testAntigravityUsageDataSourcePersistsRawValue() {
+        let settings = AppSettings.shared
+        let snapshot = settings.createSnapshot()
+        defer { settings.restore(from: snapshot) }
+
+        settings.antigravityUsageDataSource = .googleOAuth
+
+        XCTAssertEqual(
+            UserDefaults.standard.string(forKey: "antigravityUsageDataSource"),
+            AntigravityUsageDataSource.googleOAuth.rawValue
+        )
     }
 }

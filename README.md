@@ -2,7 +2,7 @@
 
 `Claude`를 중심으로 `Codex`, `Gemini`, `Antigravity`까지 확장할 수 있는 macOS 메뉴바 사용량 추적 앱입니다.
 
-현재 구현 기준으로는 `Claude`, `Codex`, `Gemini`, `Antigravity`가 모두 런타임 provider로 연결되어 있습니다. 다만 완성도는 `Claude`가 가장 높고, 나머지는 provider별 환경 의존성과 UX 마감이 더 남아 있습니다.
+현재 구현 기준으로는 `Claude`, `Codex`, `Gemini`, `Antigravity`가 모두 런타임 provider로 연결되어 있습니다. `Antigravity`는 앱 로컬 API, Google OAuth 원격 조회, CLI 감지, multi-account 설정 UX까지 런타임 provider 흐름에 맞춰 정리되어 있습니다.
 
 ## 현재 방향
 
@@ -19,7 +19,7 @@
 - `Claude` 현재 세션 / 주간 사용량 표시
 - `Codex` 현재 / 주간 / 크레딧 표시
 - `Gemini` quota 기반 사용량 표시
-- `Antigravity` local language server probe 기반 사용량 표시
+- `Antigravity` local language server / Google OAuth 원격 quota 기반 사용량 표시
 - 메뉴바 아이콘 스타일
   - 배터리바
   - 원형
@@ -105,6 +105,13 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
   - 감지는 하되 자동 활성화하지 않습니다.
 - `Antigravity`
   - 로컬 language server 프로세스와 connect 포트를 찾고, 로컬 API에 연결합니다.
+  - 자동 모드는 로컬 API를 먼저 쓰되, 로컬 응답에 quota window가 없으면 Google OAuth 원격 조회로 보완합니다.
+  - Antigravity CLI는 `agy` 바이너리의 실행 가능 여부, `~/.gemini/antigravity-cli` 상태 디렉터리, 공식 설정 파일인 `settings.json` 존재 여부를 분리해 감지합니다.
+  - CLI 자체의 OS secure keyring은 직접 읽지 않고, ClaudeUsage 전용 Google OAuth 연결로 원격 quota API를 조회합니다.
+  - Google OAuth client 정보는 환경변수를 우선하고, 없으면 설치된 `Antigravity.app`의 2.0 `language_server` 번들까지 탐색합니다.
+  - OAuth 토큰은 `~/Library/Application Support/ClaudeUsage/Antigravity/oauth_creds.json`에 `0600` 권한으로 저장하고, 상위 디렉터리는 `0700`으로 맞춥니다.
+  - 여러 Google 계정은 같은 디렉터리의 `oauth_accounts.json`에 `0600` 권한으로 보관하고, 선택한 계정은 기존 `oauth_creds.json`에도 반영해 기존 사용자/코드 경로와 호환합니다.
+  - 기존에 잘못 저장된 Antigravity Keychain 항목은 앱 시작 시 사용자 프롬프트 없이 읽히는 경우에만 파일 저장소로 마이그레이션한 뒤 제거합니다. 상태 확인과 refresh 경로에서는 Keychain을 건드리지 않습니다.
   - 실행 중이지만 연결 토큰이나 포트가 없으면 바로 그 상태를 표시합니다.
   - 감지는 하되 자동 활성화하지 않습니다.
 
@@ -113,14 +120,16 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
 ## 현재 업데이트 상태
 
 - 현재 앱은 `Sparkle 패키지`를 이미 포함합니다.
-- 현재 구현은 `Sparkle 앱내 확인 + GitHub Release fallback` 구조입니다.
+- 현재 구현은 `Sparkle 백그라운드 다운로드/설치 준비 + GitHub Release fallback` 구조입니다.
 - 여기서 `Sparkle 준비됨`의 기준은 `유효한 SUFeedURL + 유효한 SUPublicEDKey` 입니다.
+- Sparkle 준비 경로에서는 업데이트 확인을 끌 수 없고 30분마다 자동 확인합니다.
+- Sparkle 자동 업데이트는 다운로드/검증까지만 앱이 준비하고, 실제 교체와 재실행은 popover 설치 버튼을 누를 때 진행합니다.
 - `NOTARY_PROFILE` 은 런타임 readiness가 아니라 release 스크립트 실행 전제입니다.
 - `appcast(feed)`와 `공개키`가 준비되지 않은 개발 빌드에서는 `GitHub Release fallback`으로 동작합니다.
 - release build는 채널별 `SUFeedURL` 을 앱에 넣기 때문에 staging 산출물을 prod에 그대로 재사용하지 않습니다.
 - 2026-05-02 확인 기준 prod/staging appcast는 모두 `2.0.15` (`sparkle:version` `20015`) 를 가리킵니다.
 - 설정 화면의 `업데이트` 섹션에서 지금 빌드가 `Sparkle 통합`, `appcast 준비`, `공개키 준비` 중 어디까지 와 있는지 직접 볼 수 있습니다.
-- 릴리즈 산출물은 [build-notarize-release.sh](Scripts/build-notarize-release.sh) 로 `archive -> zip -> notarize -> staple -> DMG 생성/공증` 흐름을 실행할 수 있습니다.
+- 릴리즈 산출물은 [build-notarize-release.sh](Scripts/build-notarize-release.sh) 로 `archive -> zip -> notarize -> staple -> DMG 생성/공증` 흐름을 실행할 수 있습니다. 사내 배포용 signed-only 산출물은 `RELEASE_DISTRIBUTION=internal` 로 같은 스크립트에서 생성합니다.
 - Sparkle 채널용 appcast는 [generate-sparkle-appcast.sh](Scripts/generate-sparkle-appcast.sh) 로 생성합니다.
 - GitHub Pages 채널 구조는 다음을 기준으로 합니다.
   - `prod`: `https://choseongmin1128.github.io/claude-usage/appcast.xml`
@@ -190,11 +199,17 @@ xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -configuration Deb
   - 표시
   - 표시 항목
   - 알림
-- `Gemini`, `Antigravity`
+- `Gemini`
   - 런타임 provider 연결됨
   - 환경 감지 / refresh 가능 여부 / 첫 성공 조회 상태를 구분해서 표시
   - 자동 활성화는 하지 않고, 사용자가 직접 켜는 정책 유지
   - provider별 UX 마감은 Claude보다 덜 끝난 상태
+- `Antigravity`
+  - 앱 로컬 API / Google OAuth 원격 조회 / 자동 fallback 모드를 분리
+  - 자동 모드에서 로컬 앱이 연결됐지만 quota가 비어 있으면 OAuth 원격 조회로 보완
+  - CLI 설치/설정 감지와 OAuth 연결 상태를 별도 badge로 표시
+  - permission denied와 서버 장애를 구분해 표시
+  - 자동 활성화는 하지 않고, 사용자가 직접 켜는 정책 유지
 
 ## 테스트
 
@@ -248,16 +263,18 @@ ClaudeUsage/
 
 ## 현재 한계
 
-- release build는 Sparkle appcast를 기준으로 업데이트합니다. 개발 빌드는 appcast/feed와 공개키가 없으면 GitHub Release 엔진으로 fallback됩니다.
+- release build는 Sparkle appcast를 기준으로 업데이트하며, 새 버전이 있으면 백그라운드에서 다운로드/검증 후 popover 설치 버튼만 노출합니다. 개발 빌드는 appcast/feed와 공개키가 없으면 GitHub Release 엔진으로 fallback됩니다.
 - `Sparkle 준비됨`은 `feed + 공개키` 기준이고, notarization 계정 프로필은 배포 스크립트 전제이므로 런타임 readiness와 별개입니다.
 - 메뉴바와 refresh 경로는 runtime-capable provider 기준으로 많이 정리됐지만, 일부 내부 구조는 여전히 `Claude/Codex` 중심 흔적이 남아 있습니다.
-- `Gemini`, `Antigravity`는 런타임 연결은 됐지만 provider별 UX, 오류 문구, 환경 안내는 Claude보다 덜 다듬어져 있습니다.
+- `Gemini`은 런타임 연결은 됐지만 provider별 UX, 오류 문구, 환경 안내는 Claude/Antigravity보다 덜 다듬어져 있습니다.
+- `Antigravity`는 로컬 앱 API와 Google OAuth 원격 quota 조회를 모두 지원하지만, 공식 API가 공개 안정화된 상태는 아니므로 원격 endpoint 변경 시 보강이 필요할 수 있습니다.
 - first-run onboarding과 권한 설명은 아직 더 다듬어야 합니다.
 
 ## 문서
 
 - 작업 계획: [WORK_PLAN.md](WORK_PLAN.md)
 - 인증/소스 설명: [docs/authentication-and-sources.md](docs/authentication-and-sources.md)
+- Antigravity 사용량 소스: [docs/antigravity-usage-sources.md](docs/antigravity-usage-sources.md)
 - 프로젝트 작업 방식: [docs/PROJECT_WORKFLOW.md](docs/PROJECT_WORKFLOW.md)
 - 배포 가이드: [docs/RELEASE.md](docs/RELEASE.md)
 - Apple Developer / 업데이트: [apple-developer-update.md](apple-developer-update.md)

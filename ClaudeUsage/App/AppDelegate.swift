@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let codexAPIService = CodexAPIService()
     let geminiAPIService = GeminiAPIService()
     let antigravityAPIService = AntigravityAPIService()
+    let antigravityRemoteUsageService = AntigravityRemoteUsageService()
     let popoverCoordinator = AppPopoverCoordinator()
     let runtimeObservationCoordinator = AppRuntimeObservationCoordinator()
     let settingsWindowCoordinator = SettingsWindowCoordinator()

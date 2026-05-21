@@ -18,6 +18,7 @@ extension AppDelegate {
         setupKeyboardShortcuts()
         bindRuntimeObservers()
 
+        migrateLegacyAntigravityOAuthCredentialIfNeeded()
         applyInitialRuntimeProviderDetectionIfNeeded()
         bootstrapRefreshState()
         syncUpdateCheckState(runImmediate: true)
@@ -38,6 +39,26 @@ extension AppDelegate {
             NSEvent.removeMonitor(monitor)
         }
         stopGlobalClickMonitor()
+    }
+
+    func migrateLegacyAntigravityOAuthCredentialIfNeeded() {
+        DispatchQueue.global(qos: .utility).async {
+            do {
+                let store = AntigravityOAuthCredentialsStore()
+                let migratedLegacyKeychainCredential = try store.migrateLegacyKeychainCredentialsIfAvailable() != nil
+                let accountState = try? AntigravityOAuthAccountStore(activeCredentialStore: store)
+                    .syncActiveCredentialIfNeeded()
+                guard migratedLegacyKeychainCredential || accountState?.activeAccount != nil else {
+                    return
+                }
+
+                ProviderEnvironmentDetector.invalidateCache(for: .antigravity)
+                ProviderEnvironmentDetector.refreshStatusInBackground(for: .antigravity)
+                ProviderEnvironmentDetector.refreshAntigravitySignalsInBackground()
+            } catch {
+                Logger.warning("[Antigravity] legacy OAuth Keychain 마이그레이션 실패: \(error.localizedDescription)")
+            }
+        }
     }
 
     func applyInitialRuntimeProviderDetectionIfNeeded() {
@@ -111,7 +132,7 @@ extension AppDelegate {
         Task { @MainActor [weak self] in
             guard let self else { return }
             let usesExternalScheduler = await UpdateService.shared.configureAutomaticChecks(
-                interval: AppSettings.shared.updateCheckInterval,
+                interval: .enforced,
                 runImmediate: runImmediate
             )
 
@@ -121,7 +142,7 @@ extension AppDelegate {
             }
 
             self.updateCoordinator.apply(
-                interval: AppSettings.shared.updateCheckInterval,
+                interval: .enforced,
                 runImmediate: runImmediate
             ) { [weak self] in
                 self?.checkForUpdates()

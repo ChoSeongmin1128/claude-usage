@@ -348,14 +348,15 @@ enum MenuBarStatusComposer {
             hasCredential: hasCredential,
             secondaryColor: secondaryColor
         )
+        let usageWithWindows = usage?.hasUsageWindows == true ? usage : nil
         return MenuBarProviderSnapshot(
             kind: .antigravity,
             text: status.text,
             color: status.color,
             tooltip: status.tooltip,
             icon: config.showIcon ? icon : nil,
-            styleIcon: styleIcon(usage: usage, config: config),
-            resetText: resetText(usage: usage, config: config),
+            styleIcon: styleIcon(usage: usageWithWindows, config: config),
+            resetText: resetText(usage: usageWithWindows, config: config),
             systemStatus: systemStatus
         )
     }
@@ -723,6 +724,15 @@ enum MenuBarStatusComposer {
             return MenuBarProviderStatus(text: "…", color: secondaryColor, tooltip: "로딩 중")
         }
 
+        guard usage.hasUsageWindows else {
+            let account = usage.accountEmail.map { " · \($0)" } ?? ""
+            return MenuBarProviderStatus(
+                text: "연결",
+                color: .systemBlue,
+                tooltip: "\(usage.source.displayName)\(account) · quota 정보 없음"
+            )
+        }
+
         let primary = usage.primaryPercentage
         let secondary = usage.secondaryPercentage
         let tertiary = usage.tertiaryPercentage
@@ -744,7 +754,7 @@ enum MenuBarStatusComposer {
         return MenuBarProviderStatus(
             text: text,
             color: ColorProvider.nsStatusColor(for: primary),
-            tooltip: "Claude \(Int(primary.rounded()))% / Pro \(Int(secondary.rounded()))% / Flash \(Int(tertiary.rounded()))%"
+            tooltip: "\(usage.source.displayName) · Claude \(Int(primary.rounded()))% / Pro \(Int(secondary.rounded()))% / Flash \(Int(tertiary.rounded()))%"
         )
     }
 

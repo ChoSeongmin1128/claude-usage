@@ -131,7 +131,7 @@ actor CodexAPIService {
                 // 인증 에러(영구) 는 재시도 없이 즉시 throw
                 if let apiError = error as? APIError {
                     switch apiError {
-                    case .invalidSessionKey, .codexReauthRequired:
+                    case .invalidSessionKey, .codexReauthRequired, .permissionDenied:
                         throw error
                     default:
                         break

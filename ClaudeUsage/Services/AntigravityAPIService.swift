@@ -20,13 +20,6 @@ actor AntigravityAPIService {
         }
     }
 
-    private enum AntigravityModelFamily {
-        case claude
-        case geminiPro
-        case geminiFlash
-        case unknown
-    }
-
     private struct AntigravityProcessInfo {
         let pid: Int
         let csrfToken: String
@@ -35,112 +28,23 @@ actor AntigravityAPIService {
         let httpsServerPort: Int?
     }
 
-    private struct AntigravityModelQuota {
-        let label: String
-        let modelID: String
-        let remainingFraction: Double?
-        let resetAtISO: String?
-    }
-
     private struct RequestContext {
-        let httpsPort: Int
-        let httpPort: Int?
+        let endpoints: [ConnectionEndpoint]
+    }
+
+    private struct ConnectionEndpoint: Equatable {
+        enum Source: String {
+            case languageServer = "language-server"
+            case extensionServer = "extension-server"
+        }
+
+        let scheme: String
+        let port: Int
         let csrfToken: String
-    }
+        let source: Source
 
-    private struct UserStatusEnvelope: Decodable {
-        let code: ResponseCode?
-        let userStatus: UserStatusPayload?
-    }
-
-    private struct CommandModelConfigEnvelope: Decodable {
-        let code: ResponseCode?
-        let clientModelConfigs: [ModelConfigPayload]?
-    }
-
-    private struct UserStatusPayload: Decodable {
-        let email: String?
-        let planStatus: PlanStatusPayload?
-        let cascadeModelConfigData: CascadeModelConfigDataPayload?
-    }
-
-    private struct PlanStatusPayload: Decodable {
-        let planInfo: PlanInfoPayload?
-    }
-
-    private struct PlanInfoPayload: Decodable {
-        let planName: String?
-        let planDisplayName: String?
-        let displayName: String?
-        let productName: String?
-        let planShortName: String?
-
-        var preferredName: String? {
-            [
-                planDisplayName,
-                displayName,
-                productName,
-                planName,
-                planShortName,
-            ]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first(where: { !$0.isEmpty })
-        }
-    }
-
-    private struct CascadeModelConfigDataPayload: Decodable {
-        let clientModelConfigs: [ModelConfigPayload]?
-    }
-
-    private struct ModelConfigPayload: Decodable {
-        let label: String
-        let modelOrAlias: ModelAliasPayload
-        let quotaInfo: QuotaInfoPayload?
-    }
-
-    private struct ModelAliasPayload: Decodable {
-        let model: String
-    }
-
-    private struct QuotaInfoPayload: Decodable {
-        let remainingFraction: Double?
-        let resetTime: String?
-    }
-
-    private enum ResponseCode: Decodable {
-        case int(Int)
-        case string(String)
-
-        var isOK: Bool {
-            switch self {
-            case .int(let value):
-                return value == 0
-            case .string(let value):
-                let lower = value.lowercased()
-                return lower == "ok" || lower == "success" || value == "0"
-            }
-        }
-
-        var rawValue: String {
-            switch self {
-            case .int(let value):
-                return "\(value)"
-            case .string(let value):
-                return value
-            }
-        }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.singleValueContainer()
-            if let value = try? container.decode(Int.self) {
-                self = .int(value)
-                return
-            }
-            if let value = try? container.decode(String.self) {
-                self = .string(value)
-                return
-            }
-            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unsupported response code")
+        func matchesRequestTarget(_ other: ConnectionEndpoint) -> Bool {
+            scheme == other.scheme && port == other.port && csrfToken == other.csrfToken
         }
     }
 
@@ -168,13 +72,12 @@ actor AntigravityAPIService {
 
     func fetchUsage() async throws -> AntigravityUsageResponse {
         let processInfo = try detectProcessInfo()
-        let effectiveCsrfToken = processInfo.csrfToken
 
-        Logger.info("[Antigravity] process pid=\(processInfo.pid) httpsHint=\(processInfo.httpsServerPort.map(String.init) ?? "-") extHint=\(processInfo.extensionPort.map(String.init) ?? "-")")
+        Logger.info("[Antigravity] process pid=\(processInfo.pid) httpsHint=\(processInfo.httpsServerPort.map(String.init) ?? "-") extHint=\(processInfo.extensionPort.map(String.init) ?? "-") extCsrf=\((processInfo.extensionCsrfToken?.isEmpty == false) ? "yes" : "no")")
 
-        // CodexBar 방식: 프로세스 플래그(https_server_port/extension_server_port)와 lsof 결과를
-        // 모두 합친 후보 포트 리스트를 만들고, 각 포트에 GetUnleashData probe로 working 포트를 찾음.
-        // https_server_port만 쓰는 shortcut은 해당 포트가 닫혔을 때 전체 실패하므로 제거.
+        // 프로세스 플래그(https_server_port/extension_server_port)와 lsof 결과를
+        // 모두 합친 후보 포트 리스트를 만들고, 각 endpoint/token 조합에 GetUnleashData probe를 실행.
+        // extension server는 별도 CSRF 토큰이 있을 수 있으므로 language server 토큰만 재사용하지 않는다.
         var candidatePorts: [Int] = []
         if let https = processInfo.httpsServerPort { candidatePorts.append(https) }
         if let ext = processInfo.extensionPort { candidatePorts.append(ext) }
@@ -182,7 +85,7 @@ actor AntigravityAPIService {
         // lsof로 실제 LISTEN 포트를 전부 수집 (실패해도 위의 hint만으로 시도)
         let lsofPorts = (try? await detectListeningPortsAsync(pid: processInfo.pid)) ?? []
         candidatePorts.append(contentsOf: lsofPorts)
-        candidatePorts = uniqueOrdered(candidatePorts)
+        candidatePorts = uniqueOrdered(candidatePorts.filter(isValidTCPPort(_:)))
         Logger.info("[Antigravity] candidate ports = \(candidatePorts)")
 
         guard !candidatePorts.isEmpty else {
@@ -190,14 +93,23 @@ actor AntigravityAPIService {
             throw APIError.networkError("Antigravity 앱 연결을 확인하지 못했습니다. 앱을 다시 열고 잠시 후 다시 시도해 주세요")
         }
 
-        let connectPort = try await resolveConnectPort(ports: candidatePorts, csrfToken: effectiveCsrfToken)
-        Logger.info("[Antigravity] selected working port = \(connectPort)")
-
-        let context = RequestContext(
-            httpsPort: connectPort,
-            httpPort: processInfo.extensionPort,
-            csrfToken: effectiveCsrfToken
+        let resolvedEndpoint = try await resolveWorkingEndpoint(
+            endpoints: connectionCandidates(
+                listeningPorts: candidatePorts,
+                languageServerCSRFToken: processInfo.csrfToken,
+                extensionServerPort: processInfo.extensionPort,
+                extensionServerCSRFToken: processInfo.extensionCsrfToken
+            )
         )
+        Logger.info("[Antigravity] selected endpoint = \(resolvedEndpoint.source.rawValue) \(resolvedEndpoint.scheme)://127.0.0.1:\(resolvedEndpoint.port)")
+
+        let context = RequestContext(endpoints: requestEndpoints(
+            resolvedEndpoint: resolvedEndpoint,
+            listeningPorts: candidatePorts,
+            languageServerCSRFToken: processInfo.csrfToken,
+            extensionServerPort: processInfo.extensionPort,
+            extensionServerCSRFToken: processInfo.extensionCsrfToken
+        ))
 
         do {
             let response = try await makeRequest(
@@ -205,7 +117,7 @@ actor AntigravityAPIService {
                 body: defaultRequestBody(),
                 context: context
             )
-            return try parseUserStatusResponse(response)
+            return try AntigravityLocalUsageParsing.userStatusResponse(from: response)
         } catch let apiError as APIError where apiError.isDefinitiveAuthFailure {
             // 401/403: 세션 만료. 캐시 날리고 다음 호출에서 재감지.
             AntigravityStatusProbe.invalidateCache()
@@ -218,7 +130,7 @@ actor AntigravityAPIService {
                 body: defaultRequestBody(),
                 context: context
             )
-            return try parseCommandModelResponse(response)
+            return try AntigravityLocalUsageParsing.commandModelResponse(from: response)
         }
     }
 
@@ -229,6 +141,10 @@ actor AntigravityAPIService {
             result.append(v)
         }
         return result
+    }
+
+    private func isValidTCPPort(_ port: Int) -> Bool {
+        (1...65_535).contains(port)
     }
 
     func fetchUsageWithRetry(maxAttempts: Int = 3) async throws -> AntigravityUsageResponse {
@@ -262,160 +178,6 @@ actor AntigravityAPIService {
         throw APIError.unknownError(lastError?.localizedDescription ?? "Antigravity 사용량 조회 실패")
     }
 
-    private func parseUserStatusResponse(_ data: Data) throws -> AntigravityUsageResponse {
-        let decoder = JSONDecoder()
-        let envelope = try decoder.decode(UserStatusEnvelope.self, from: data)
-        if let code = envelope.code, !code.isOK {
-            throw APIError.unknownError("Antigravity 응답 코드 \(code.rawValue)")
-        }
-        guard let userStatus = envelope.userStatus else {
-            throw APIError.parseError
-        }
-
-        let quotas = (userStatus.cascadeModelConfigData?.clientModelConfigs ?? []).compactMap(quota(from:))
-        return buildUsageResponse(
-            quotas: quotas,
-            accountEmail: userStatus.email,
-            accountPlan: userStatus.planStatus?.planInfo?.preferredName
-        )
-    }
-
-    private func parseCommandModelResponse(_ data: Data) throws -> AntigravityUsageResponse {
-        let decoder = JSONDecoder()
-        let envelope = try decoder.decode(CommandModelConfigEnvelope.self, from: data)
-        if let code = envelope.code, !code.isOK {
-            throw APIError.unknownError("Antigravity 응답 코드 \(code.rawValue)")
-        }
-
-        let quotas = (envelope.clientModelConfigs ?? []).compactMap(quota(from:))
-        return buildUsageResponse(
-            quotas: quotas,
-            accountEmail: nil,
-            accountPlan: nil
-        )
-    }
-
-    private func buildUsageResponse(
-        quotas: [AntigravityModelQuota],
-        accountEmail: String?,
-        accountPlan: String?
-    ) -> AntigravityUsageResponse {
-        let primary = representativeQuota(for: .claude, in: quotas) ?? fallbackQuota(in: quotas)
-        let secondary = representativeQuota(for: .geminiPro, in: quotas)
-        let tertiary = representativeQuota(for: .geminiFlash, in: quotas)
-
-        return AntigravityUsageResponse(
-            accountEmail: accountEmail,
-            accountPlan: accountPlan,
-            primaryWindow: primary.map(window(from:)),
-            secondaryWindow: secondary.map(window(from:)),
-            tertiaryWindow: tertiary.map(window(from:))
-        )
-    }
-
-    private func window(from quota: AntigravityModelQuota) -> AntigravityUsageWindow {
-        let remaining = max(0, min(1, quota.remainingFraction ?? 0))
-        return AntigravityUsageWindow(
-            label: label(for: quota),
-            modelID: quota.modelID,
-            usedPercent: (1 - remaining) * 100,
-            resetAtISO: quota.resetAtISO
-        )
-    }
-
-    private func label(for quota: AntigravityModelQuota) -> String {
-        switch family(for: quota) {
-        case .claude:
-            return "Claude"
-        case .geminiPro:
-            return "Gemini Pro"
-        case .geminiFlash:
-            return "Gemini Flash"
-        case .unknown:
-            return quota.label
-        }
-    }
-
-    private func representativeQuota(
-        for family: AntigravityModelFamily,
-        in quotas: [AntigravityModelQuota]
-    ) -> AntigravityModelQuota? {
-        let candidates = quotas.filter { self.family(for: $0) == family }
-        guard !candidates.isEmpty else { return nil }
-
-        return candidates.min { lhs, rhs in
-            let lhsPriority = priority(for: lhs, in: family)
-            let rhsPriority = priority(for: rhs, in: family)
-            if lhsPriority != rhsPriority {
-                return lhsPriority < rhsPriority
-            }
-            let lhsRemaining = lhs.remainingFraction ?? 1
-            let rhsRemaining = rhs.remainingFraction ?? 1
-            if lhsRemaining != rhsRemaining {
-                return lhsRemaining < rhsRemaining
-            }
-            return lhs.label.localizedCaseInsensitiveCompare(rhs.label) == .orderedAscending
-        }
-    }
-
-    private func fallbackQuota(in quotas: [AntigravityModelQuota]) -> AntigravityModelQuota? {
-        quotas.min { lhs, rhs in
-            let lhsRemaining = lhs.remainingFraction ?? 1
-            let rhsRemaining = rhs.remainingFraction ?? 1
-            if lhsRemaining != rhsRemaining {
-                return lhsRemaining < rhsRemaining
-            }
-            return lhs.label.localizedCaseInsensitiveCompare(rhs.label) == .orderedAscending
-        }
-    }
-
-    private func priority(for quota: AntigravityModelQuota, in family: AntigravityModelFamily) -> Int {
-        let text = "\(quota.label) \(quota.modelID)".lowercased()
-        switch family {
-        case .claude:
-            return text.contains("thinking") ? 1 : 0
-        case .geminiPro:
-            return text.contains("pro-low") || (text.contains("pro") && text.contains("low")) ? 0 : 1
-        case .geminiFlash:
-            return text.contains("flash-lite") || text.contains("lite") ? 1 : 0
-        case .unknown:
-            return 0
-        }
-    }
-
-    private func family(for quota: AntigravityModelQuota) -> AntigravityModelFamily {
-        let text = "\(quota.label) \(quota.modelID)".lowercased()
-        if text.contains("claude") {
-            return .claude
-        }
-        if text.contains("gemini"), text.contains("pro") {
-            return .geminiPro
-        }
-        if text.contains("gemini"), text.contains("flash") {
-            return .geminiFlash
-        }
-        return .unknown
-    }
-
-    private func quota(from config: ModelConfigPayload) -> AntigravityModelQuota? {
-        guard let quotaInfo = config.quotaInfo else { return nil }
-        return AntigravityModelQuota(
-            label: config.label,
-            modelID: config.modelOrAlias.model,
-            remainingFraction: quotaInfo.remainingFraction,
-            resetAtISO: normalizedResetTime(quotaInfo.resetTime)
-        )
-    }
-
-    private func normalizedResetTime(_ value: String?) -> String? {
-        guard let value, !value.isEmpty else { return nil }
-        if ISO8601DateFormatter().date(from: value) != nil {
-            return value
-        }
-        guard let seconds = Double(value) else { return nil }
-        return ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: seconds))
-    }
-
     private func detectProcessInfo() throws -> AntigravityProcessInfo {
         guard let process = AntigravityStatusProbe.runningProcess() else {
             throw APIError.networkError("Antigravity language server가 실행 중이 아닙니다")
@@ -434,7 +196,7 @@ actor AntigravityAPIService {
         )
     }
 
-    /// App Sandbox 제거 후 lsof를 항상 실행합니다. CodexBar와 동일 전략.
+    /// App Sandbox 제거 후 lsof를 항상 실행합니다.
     /// 결과가 비어있어도 throw하지 않고 빈 배열을 반환하도록 조정했습니다 —
     /// 호출자가 프로세스 플래그 힌트와 병합해서 사용하도록.
     private func detectListeningPortsAsync(pid: Int) async throws -> [Int] {
@@ -524,36 +286,135 @@ actor AntigravityAPIService {
         return ports.sorted()
     }
 
-    private func resolveConnectPort(ports: [Int], csrfToken: String) async throws -> Int {
-        for port in ports {
-            if await isWorkingConnectPort(port: port, csrfToken: csrfToken) {
-                return port
+    private func connectionCandidates(
+        listeningPorts: [Int],
+        languageServerCSRFToken: String,
+        extensionServerPort: Int?,
+        extensionServerCSRFToken: String?
+    ) -> [ConnectionEndpoint] {
+        var endpoints = languageServerEndpoints(
+            listeningPorts: listeningPorts,
+            csrfToken: languageServerCSRFToken
+        )
+        appendUniqueRequestTargets(
+            extensionServerEndpoints(
+                extensionServerPort: extensionServerPort,
+                languageServerCSRFToken: languageServerCSRFToken,
+                extensionServerCSRFToken: extensionServerCSRFToken
+            ),
+            to: &endpoints
+        )
+        return endpoints
+    }
+
+    private func requestEndpoints(
+        resolvedEndpoint: ConnectionEndpoint,
+        listeningPorts: [Int],
+        languageServerCSRFToken: String,
+        extensionServerPort: Int?,
+        extensionServerCSRFToken: String?
+    ) -> [ConnectionEndpoint] {
+        var endpoints = [resolvedEndpoint]
+        let languageEndpoints = languageServerEndpoints(
+            listeningPorts: listeningPorts,
+            csrfToken: languageServerCSRFToken
+        )
+        let extensionEndpoints = extensionServerEndpoints(
+            extensionServerPort: extensionServerPort,
+            languageServerCSRFToken: languageServerCSRFToken,
+            extensionServerCSRFToken: extensionServerCSRFToken
+        )
+
+        if resolvedEndpoint.source == .extensionServer {
+            appendUniqueRequestTargets(extensionEndpoints, to: &endpoints)
+            appendUniqueRequestTargets(languageEndpoints, to: &endpoints)
+        } else {
+            appendUniqueRequestTargets(languageEndpoints, to: &endpoints)
+            appendUniqueRequestTargets(extensionEndpoints, to: &endpoints)
+        }
+        return endpoints
+    }
+
+    private func languageServerEndpoints(
+        listeningPorts: [Int],
+        csrfToken: String
+    ) -> [ConnectionEndpoint] {
+        listeningPorts.map {
+            ConnectionEndpoint(
+                scheme: "https",
+                port: $0,
+                csrfToken: csrfToken,
+                source: .languageServer
+            )
+        }
+    }
+
+    private func extensionServerEndpoints(
+        extensionServerPort: Int?,
+        languageServerCSRFToken: String,
+        extensionServerCSRFToken: String?
+    ) -> [ConnectionEndpoint] {
+        guard let extensionServerPort else { return [] }
+        var endpoints: [ConnectionEndpoint] = []
+
+        if let extensionServerCSRFToken, !extensionServerCSRFToken.isEmpty {
+            endpoints.append(ConnectionEndpoint(
+                scheme: "http",
+                port: extensionServerPort,
+                csrfToken: extensionServerCSRFToken,
+                source: .extensionServer
+            ))
+        }
+
+        if extensionServerCSRFToken != languageServerCSRFToken {
+            endpoints.append(ConnectionEndpoint(
+                scheme: "http",
+                port: extensionServerPort,
+                csrfToken: languageServerCSRFToken,
+                source: .extensionServer
+            ))
+        }
+
+        return endpoints
+    }
+
+    private func appendUniqueRequestTargets(_ candidates: [ConnectionEndpoint], to endpoints: inout [ConnectionEndpoint]) {
+        for endpoint in candidates {
+            guard !endpoints.contains(where: { $0.matchesRequestTarget(endpoint) }) else { continue }
+            endpoints.append(endpoint)
+        }
+    }
+
+    private func resolveWorkingEndpoint(endpoints: [ConnectionEndpoint]) async throws -> ConnectionEndpoint {
+        for endpoint in endpoints {
+            if await isWorkingEndpoint(endpoint) {
+                return endpoint
             }
         }
-        // 모든 포트 probe 실패 — 프로세스 정보가 stale할 가능성이 높음
+        if let fallback = endpoints.first(where: { $0.source == .languageServer }) ?? endpoints.first {
+            Logger.debug("[Antigravity] endpoint probe fallback: \(fallback.source.rawValue) \(fallback.scheme):\(fallback.port)")
+            return fallback
+        }
         AntigravityStatusProbe.invalidateCache()
-        Logger.warning("[Antigravity] 모든 후보 포트 probe 실패 \(ports) — 캐시 무효화")
+        Logger.warning("[Antigravity] 모든 후보 endpoint probe 실패 — 캐시 무효화")
         throw APIError.networkError("Antigravity 앱 연결을 확인하지 못했습니다. 앱을 다시 열고 잠시 후 다시 시도해 주세요")
     }
 
-    private func isWorkingConnectPort(port: Int, csrfToken: String) async -> Bool {
-        let context = RequestContext(httpsPort: port, httpPort: port, csrfToken: csrfToken)
+    private func isWorkingEndpoint(_ endpoint: ConnectionEndpoint) async -> Bool {
+        let context = RequestContext(endpoints: [endpoint])
         do {
             _ = try await makeRequest(path: unleashPath, body: unleashRequestBody(), context: context)
             return true
-        } catch {
-            do {
-                _ = try await makeRequest(path: userStatusPath, body: defaultRequestBody(), context: context)
+        } catch let apiError as APIError {
+            if apiError.isHTTPResponseLike {
+                Logger.debug("[Antigravity] endpoint probe HTTP 응답 있음 — reachable \(endpoint.source.rawValue) \(endpoint.scheme):\(endpoint.port)")
                 return true
-            } catch let apiError as APIError where apiError.isDefinitiveAuthFailure {
-                // 401/403은 "포트는 살아있지만 토큰이 stale"한 상황.
-                // working 포트로 인정하고 상위에서 auth 에러로 처리하도록 한다.
-                Logger.info("[Antigravity] port \(port) 응답 있음(auth 실패) — 포트는 OK")
-                return true
-            } catch {
-                Logger.debug("[Antigravity] port \(port) probe 실패: \(error.localizedDescription)")
-                return false
             }
+            Logger.debug("[Antigravity] endpoint probe 실패: \(endpoint.source.rawValue) \(endpoint.scheme):\(endpoint.port) \(apiError.localizedDescription)")
+            return false
+        } catch {
+            Logger.debug("[Antigravity] endpoint probe 실패: \(endpoint.source.rawValue) \(endpoint.scheme):\(endpoint.port) \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -587,35 +448,22 @@ actor AntigravityAPIService {
     }
 
     private func makeRequest(path: String, body: [String: Any], context: RequestContext) async throws -> Data {
-        do {
-            return try await sendRequest(
-                scheme: "https",
-                port: context.httpsPort,
-                path: path,
-                body: body,
-                csrfToken: context.csrfToken
-            )
-        } catch {
-            let fallbackPorts = [context.httpPort, context.httpsPort]
-                .compactMap { $0 }
-                .filter { $0 != context.httpsPort } + [context.httpsPort]
-
-            for port in fallbackPorts {
-                do {
-                    return try await sendRequest(
-                        scheme: "http",
-                        port: port,
-                        path: path,
-                        body: body,
-                        csrfToken: context.csrfToken
-                    )
-                } catch {
-                    continue
-                }
+        var lastError: Error?
+        for endpoint in context.endpoints {
+            do {
+                return try await sendRequest(
+                    scheme: endpoint.scheme,
+                    port: endpoint.port,
+                    path: path,
+                    body: body,
+                    csrfToken: endpoint.csrfToken
+                )
+            } catch {
+                lastError = error
+                Logger.debug("[Antigravity] request 실패 \(endpoint.source.rawValue) \(endpoint.scheme):\(endpoint.port) \(path): \(error.localizedDescription)")
             }
-
-            throw error
         }
+        throw lastError ?? APIError.networkError("Antigravity 요청 endpoint가 없습니다")
     }
 
     private func sendRequest(
@@ -670,6 +518,17 @@ actor AntigravityAPIService {
         default:
             Logger.warning("[Antigravity] HTTP \(httpResponse.statusCode) (\(scheme)://127.0.0.1:\(port)\(path))")
             throw APIError.serverError(httpResponse.statusCode)
+        }
+    }
+}
+
+private extension APIError {
+    var isHTTPResponseLike: Bool {
+        switch self {
+        case .invalidSessionKey, .rateLimited, .serverError:
+            return true
+        case .codexReauthRequired, .claudeOAuthPathRetired, .cloudflareBlocked, .networkError, .permissionDenied, .parseError, .unknownError:
+            return false
         }
     }
 }
