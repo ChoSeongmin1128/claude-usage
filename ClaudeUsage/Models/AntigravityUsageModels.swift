@@ -368,18 +368,4 @@ nonisolated enum AntigravityUsageMapper {
         return 4
     }
 
-    static func displayIcon(for window: AntigravityUsageWindow) -> String {
-        switch window.family {
-        case .geminiFlash:
-            return "bolt.horizontal.circle"
-        case .geminiPro:
-            return "sparkles"
-        case .claude:
-            return "brain"
-        case .gpt:
-            return "cpu"
-        case .unknown:
-            return "square.stack.3d.up"
-        }
-    }
 }

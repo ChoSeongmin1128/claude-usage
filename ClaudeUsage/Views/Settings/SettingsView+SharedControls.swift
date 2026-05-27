@@ -438,6 +438,15 @@ private struct ProviderPopoverDisplaySection: View {
             .frame(maxWidth: 360, alignment: .leading)
 
             if provider == .antigravity {
+                AntigravityPopoverPreviewView(
+                    settings: settings,
+                    mode: selectedMode,
+                    usage: antigravityUsage
+                )
+                .frame(maxWidth: 560, alignment: .leading)
+            }
+
+            if provider == .antigravity {
                 AntigravityModelVisibilityListView(
                     settings: settings,
                     usage: antigravityUsage
@@ -478,7 +487,7 @@ private struct AntigravityModelVisibilityListView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("모델")
+                Text("표시 모델")
                     .font(.subheadline.weight(.semibold))
                 Spacer()
                 if let visibleCount {
@@ -502,11 +511,6 @@ private struct AntigravityModelVisibilityListView: View {
                     ForEach(Array(modelWindows.enumerated()), id: \.element.modelID) { index, window in
                         VStack(spacing: 0) {
                             HStack(spacing: 8) {
-                                Image(systemName: AntigravityUsageMapper.displayIcon(for: window))
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 16)
-
                                 Button {
                                     settings.setAntigravityModelVisible(
                                         !settings.isAntigravityModelVisible(window.modelID),
@@ -557,5 +561,86 @@ private struct AntigravityModelVisibilityListView: View {
         guard !modelWindows.isEmpty else { return nil }
         let visible = modelWindows.filter { settings.isAntigravityModelVisible($0.modelID) }.count
         return (visible, modelWindows.count)
+    }
+}
+
+private struct AntigravityPopoverPreviewView: View {
+    @ObservedObject var settings: AppSettings
+    let mode: PopoverDisplayEditorMode
+    let usage: AntigravityUsageResponse?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("미리보기")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(mode.title)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if sections.isEmpty {
+                Text(emptyMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(previewBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else {
+                VStack(spacing: mode.isCompact ? 4 : 8) {
+                    ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
+                        if index > 0 && !mode.isCompact {
+                            Divider()
+                        }
+                        PopoverDisplaySectionView(
+                            section: section,
+                            density: mode.isCompact ? .compact : .standard
+                        )
+                    }
+                }
+                .padding(12)
+                .background(previewBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+            }
+        }
+    }
+
+    private var sections: [PopoverDisplaySection] {
+        let catalog = UsageItemCatalogRegistry.catalog(for: .antigravity)
+        let items = mode.isCompact
+            ? settings.compactPopoverItems(for: .antigravity)
+            : settings.popoverItems(for: .antigravity)
+        return catalog.sections(from: items, context: context)
+    }
+
+    private var context: UsageItemContext {
+        UsageItemContext(
+            density: mode.isCompact ? .compact : .standard,
+            settings: settings,
+            claudeUsage: nil,
+            claudeOverage: nil,
+            claudeAccounts: [],
+            activeClaudeAccountID: nil,
+            codexUsage: nil,
+            codexError: nil,
+            antigravityUsage: usage
+        )
+    }
+
+    private var emptyMessage: String {
+        usage == nil
+            ? "사용량을 한 번 조회하면 팝오버 미리보기가 표시됩니다."
+            : "현재 설정으로 표시할 Antigravity 항목이 없습니다."
+    }
+
+    private var previewBackground: Color {
+        Color(NSColor.windowBackgroundColor).opacity(0.62)
     }
 }

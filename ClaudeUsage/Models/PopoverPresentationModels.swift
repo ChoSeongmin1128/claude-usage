@@ -31,7 +31,7 @@ enum PopoverDisplaySectionKind: Equatable {
 }
 
 struct PopoverUsageSectionData {
-    let systemIcon: String
+    let systemIcon: String?
     let title: String
     let compactLabel: String
     let percentage: Double

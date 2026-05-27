@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct UsageSectionView: View {
-    let systemIcon: String
+    let systemIcon: String?
     let title: String
     let percentage: Double
     let resetAt: String?
@@ -19,8 +19,10 @@ struct UsageSectionView: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    Image(systemName: systemIcon)
-                        .foregroundStyle(.secondary)
+                    if let systemIcon {
+                        Image(systemName: systemIcon)
+                            .foregroundStyle(.secondary)
+                    }
                     Text(title)
                         .font(.headline)
                         .lineLimit(1)

@@ -402,7 +402,7 @@ struct AntigravityItemCatalog: UsageItemCatalog {
                     importance: .primary,
                     payload: .usage(
                         PopoverUsageSectionData(
-                            systemIcon: AntigravityUsageMapper.displayIcon(for: window),
+                            systemIcon: nil,
                             title: window.label,
                             compactLabel: window.label,
                             percentage: window.usedPercent,
