@@ -81,7 +81,7 @@ extension AppDelegate {
         let flagKey = Self.initialRuntimeProviderDetectionKey
         DispatchQueue.global(qos: .utility).async {
             var detectedKinds: [AppProviderKind] = []
-            for kind in [AppProviderKind.gemini, .antigravity] {
+            for kind in [AppProviderKind.antigravity] {
                 guard ProviderEnvironmentDetector.status(for: kind)?.isDetected == true else { continue }
                 detectedKinds.append(kind)
             }

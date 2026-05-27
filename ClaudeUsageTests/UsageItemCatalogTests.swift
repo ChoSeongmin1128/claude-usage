@@ -127,17 +127,17 @@ final class UsageItemCatalogTests: XCTestCase {
         XCTAssertEqual(statusTitles(from: sections), ["현재 세션", "주간 한도", "Codex 크레딧"])
     }
 
-    func testGeminiCatalogSkipsAccountInfoByDefault() {
-        let catalog = GeminiItemCatalog()
+    func testAntigravityCatalogSkipsAccountInfoByDefault() {
+        let catalog = AntigravityItemCatalog()
         let sections = catalog.sections(
             from: catalog.defaultItems,
             context: makeContext(
-                geminiUsage: GeminiUsageResponse(
+                antigravityUsage: AntigravityUsageResponse(
                     accountEmail: "user@example.com",
-                    accountPlan: "Gemini Advanced",
-                    primaryWindow: GeminiUsageWindow(
-                        label: "Pro",
-                        modelID: "gemini-pro",
+                    accountPlan: "Workspace",
+                    primaryWindow: AntigravityUsageWindow(
+                        label: "Gemini 3.1 Pro (Low)",
+                        modelID: "gemini-3.1-pro-low",
                         usedPercent: 24,
                         resetAtISO: nil
                     ),
@@ -147,25 +147,157 @@ final class UsageItemCatalogTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(sections.map(\.id), ["geminiPrimary"])
+        XCTAssertEqual(sections.map(\.id), ["antigravityModel-0"])
         XCTAssertEqual(sections.map(\.kind), [.usage])
         XCTAssertTrue(accountEmails(from: sections).isEmpty)
     }
 
-    func testGeminiCatalogIncludesAccountInfoWhenUserEnablesItem() {
-        let catalog = GeminiItemCatalog()
+    func testAntigravityCatalogUsesExactCLIModelLabels() {
+        let catalog = AntigravityItemCatalog()
+        let sections = catalog.sections(
+            from: catalog.defaultItems,
+            context: makeContext(
+                antigravityUsage: AntigravityUsageResponse(
+                    accountEmail: nil,
+                    accountPlan: nil,
+                    primaryWindow: AntigravityUsageWindow(
+                        label: "Gemini 3.1 Pro (Low)",
+                        modelID: "models/gemini-2.5-pro",
+                        usedPercent: 24,
+                        resetAtISO: nil
+                    ),
+                    secondaryWindow: AntigravityUsageWindow(
+                        label: "Gemini 3.5 Flash (Medium)",
+                        modelID: "gemini-2.5-flash",
+                        usedPercent: 11,
+                        resetAtISO: nil
+                    ),
+                    tertiaryWindow: AntigravityUsageWindow(
+                        label: "Claude Sonnet 4.6 (Thinking)",
+                        modelID: "claude-sonnet-4.6-thinking",
+                        usedPercent: 7,
+                        resetAtISO: nil
+                    )
+                )
+            )
+        )
+
+        XCTAssertEqual(
+            usageTitles(from: sections),
+            ["Gemini 3.1 Pro (Low)", "Gemini 3.5 Flash (Medium)", "Claude Sonnet 4.6 (Thinking)"]
+        )
+        XCTAssertEqual(compactLabels(from: sections), ["Gemini 3.1 Pro (Low)", "Gemini 3.5 Flash (Medium)", "Claude Sonnet 4.6 (Thinking)"])
+    }
+
+    func testAntigravityCatalogExpandsEveryModelQuotaWindow() {
+        let catalog = AntigravityItemCatalog()
+        let modelWindows = [
+            AntigravityUsageWindow(label: "Gemini 3.5 Flash (Medium)", modelID: "gemini-3.5-flash-medium", usedPercent: 20, resetAtISO: nil),
+            AntigravityUsageWindow(label: "Gemini 3.5 Flash (High)", modelID: "gemini-3.5-flash-high", usedPercent: 20, resetAtISO: nil),
+            AntigravityUsageWindow(label: "Gemini 3.5 Flash (Low)", modelID: "gemini-3.5-flash-low", usedPercent: 20, resetAtISO: nil),
+            AntigravityUsageWindow(label: "Claude Sonnet 4.6 (Thinking)", modelID: "claude-sonnet-4.6-thinking", usedPercent: 0, resetAtISO: nil),
+            AntigravityUsageWindow(label: "GPT-OSS 120B (Medium)", modelID: "gpt-oss-120b-medium", usedPercent: 0, resetAtISO: nil),
+        ]
+        let sections = catalog.sections(
+            from: catalog.defaultItems,
+            context: makeContext(
+                antigravityUsage: AntigravityUsageResponse(
+                    accountEmail: nil,
+                    accountPlan: nil,
+                    modelWindows: modelWindows
+                )
+            )
+        )
+
+        XCTAssertEqual(sections.map(\.id), [
+            "antigravityModel-0",
+            "antigravityModel-1",
+            "antigravityModel-2",
+            "antigravityModel-3",
+            "antigravityModel-4",
+        ])
+        XCTAssertEqual(usageTitles(from: sections), modelWindows.map(\.label))
+    }
+
+    func testAntigravityCatalogFiltersHiddenModelIDs() {
+        let settings = AppSettings.shared
+        let snapshot = settings.createSnapshot()
+        defer { settings.restore(from: snapshot) }
+
+        let catalog = AntigravityItemCatalog()
+        let modelWindows = [
+            AntigravityUsageWindow(label: "Gemini 3.5 Flash (Medium)", modelID: "gemini-3.5-flash-medium", usedPercent: 20, resetAtISO: nil),
+            AntigravityUsageWindow(label: "Gemini 3.1 Pro (Low)", modelID: "gemini-3.1-pro-low", usedPercent: 24, resetAtISO: nil),
+            AntigravityUsageWindow(label: "Claude Sonnet 4.6 (Thinking)", modelID: "claude-sonnet-4.6-thinking", usedPercent: 0, resetAtISO: nil),
+        ]
+        settings.setAntigravityModelVisible(false, modelID: "gemini-3.1-pro-low")
+
+        let sections = catalog.sections(
+            from: catalog.defaultItems,
+            context: makeContext(
+                antigravityUsage: AntigravityUsageResponse(
+                    accountEmail: nil,
+                    accountPlan: nil,
+                    modelWindows: modelWindows
+                )
+            )
+        )
+
+        XCTAssertEqual(
+            usageTitles(from: sections),
+            ["Gemini 3.5 Flash (Medium)", "Claude Sonnet 4.6 (Thinking)"]
+        )
+    }
+
+    func testAntigravityCatalogDisplayNamesAreOwnedByProviderPrefix() {
+        XCTAssertEqual(PopoverItemConfig(id: "unknownPrimary", visible: true).displayName, "unknownPrimary")
+        XCTAssertEqual(PopoverItemConfig(id: "antigravityPrimary", visible: true).displayName, "antigravityPrimary")
+        XCTAssertEqual(PopoverItemConfig(id: "antigravityModels", visible: true).displayName, "모델별 quota")
+        XCTAssertEqual(PopoverItemConfig(id: "antigravityAccount", visible: true).displayName, "Antigravity 계정 정보")
+    }
+
+    func testAntigravityUsageSummaryIsModelBased() {
+        let usage = AntigravityUsageResponse(
+            accountEmail: nil,
+            accountPlan: nil,
+            primaryWindow: AntigravityUsageWindow(
+                label: "Gemini 3.1 Pro (Low)",
+                modelID: "gemini-2.5-pro",
+                usedPercent: 24.4,
+                resetAtISO: nil
+            ),
+            secondaryWindow: AntigravityUsageWindow(
+                label: "Gemini 3.5 Flash (Medium)",
+                modelID: "gemini-2.5-flash",
+                usedPercent: 11.6,
+                resetAtISO: nil
+            ),
+            tertiaryWindow: AntigravityUsageWindow(
+                label: "Claude Sonnet 4.6 (Thinking)",
+                modelID: "claude-sonnet-4.6-thinking",
+                usedPercent: 7.1,
+                resetAtISO: nil
+            )
+        )
+
+        XCTAssertEqual(usage.modelSummary(), "Gemini 3.1 Pro (Low) 24% · Gemini 3.5 Flash (Medium) 12% · Claude Sonnet 4.6 (Thinking) 7%")
+        XCTAssertEqual(usage.modelSummary(separator: " / "), "Gemini 3.1 Pro (Low) 24% / Gemini 3.5 Flash (Medium) 12% / Claude Sonnet 4.6 (Thinking) 7%")
+    }
+
+    func testAntigravityCatalogIncludesAccountInfoWhenUserEnablesItem() {
+        let catalog = AntigravityItemCatalog()
         let sections = catalog.sections(
             from: [
-                PopoverItemConfig(id: "geminiPrimary", visible: true),
-                PopoverItemConfig(id: "geminiAccount", visible: true),
+                PopoverItemConfig(id: "antigravityModels", visible: true),
+                PopoverItemConfig(id: "antigravityAccount", visible: true),
             ],
             context: makeContext(
-                geminiUsage: GeminiUsageResponse(
+                antigravityUsage: AntigravityUsageResponse(
                     accountEmail: "user@example.com",
-                    accountPlan: "Gemini Advanced",
-                    primaryWindow: GeminiUsageWindow(
-                        label: "Pro",
-                        modelID: "gemini-pro",
+                    accountPlan: "Workspace",
+                    primaryWindow: AntigravityUsageWindow(
+                        label: "Gemini 3.1 Pro (Low)",
+                        modelID: "gemini-3.1-pro-low",
                         usedPercent: 24,
                         resetAtISO: nil
                     ),
@@ -175,7 +307,7 @@ final class UsageItemCatalogTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(sections.map(\.id), ["geminiPrimary", "geminiAccount"])
+        XCTAssertEqual(sections.map(\.id), ["antigravityModel-0", "antigravityAccount"])
         XCTAssertEqual(sections.map(\.kind), [.usage, .account])
         XCTAssertEqual(accountEmails(from: sections), ["user@example.com"])
     }
@@ -187,7 +319,6 @@ private func makeContext(
     claudeOverage: OverageSpendLimitResponse? = nil,
     codexUsage: CodexUsageResponse? = nil,
     codexError: APIError? = nil,
-    geminiUsage: GeminiUsageResponse? = nil,
     antigravityUsage: AntigravityUsageResponse? = nil
 ) -> UsageItemContext {
     UsageItemContext(
@@ -199,7 +330,6 @@ private func makeContext(
         activeClaudeAccountID: nil,
         codexUsage: codexUsage,
         codexError: codexError,
-        geminiUsage: geminiUsage,
         antigravityUsage: antigravityUsage
     )
 }
@@ -208,6 +338,13 @@ private func usageTitles(from sections: [PopoverDisplaySection]) -> [String] {
     sections.compactMap { section in
         guard case let .usage(data) = section.payload else { return nil }
         return data.title
+    }
+}
+
+private func compactLabels(from sections: [PopoverDisplaySection]) -> [String] {
+    sections.compactMap { section in
+        guard case let .usage(data) = section.payload else { return nil }
+        return data.compactLabel
     }
 }
 

@@ -99,15 +99,6 @@ extension AppDelegate {
         }
     }
 
-    var currentGeminiUsage: GeminiUsageResponse? {
-        get { runtimeProviderState(for: .gemini).geminiUsage }
-        set {
-            updateRuntimeProviderState(for: .gemini) { state in
-                state.payload = newValue.map(RuntimeProviderPayload.gemini)
-            }
-        }
-    }
-
     var currentAntigravityUsage: AntigravityUsageResponse? {
         get { runtimeProviderState(for: .antigravity).antigravityUsage }
         set {
@@ -130,15 +121,6 @@ extension AppDelegate {
         get { runtimeProviderState(for: .codex).error }
         set {
             updateRuntimeProviderState(for: .codex) { state in
-                state.error = newValue
-            }
-        }
-    }
-
-    var geminiError: APIError? {
-        get { runtimeProviderState(for: .gemini).error }
-        set {
-            updateRuntimeProviderState(for: .gemini) { state in
                 state.error = newValue
             }
         }
@@ -177,18 +159,6 @@ extension AppDelegate {
         }
     }
 
-    var isGeminiLoading: Bool {
-        get { runtimeProviderState(for: .gemini).isLoading }
-        set {
-            updateRuntimeProviderState(for: .gemini) { state in
-                state.isLoading = newValue
-                state.lastAttemptState = newValue
-                    ? .loading
-                    : RuntimeProviderAttemptState.resolve(isLoading: false, error: state.error)
-            }
-        }
-    }
-
     var isAntigravityLoading: Bool {
         get { runtimeProviderState(for: .antigravity).isLoading }
         set {
@@ -214,15 +184,6 @@ extension AppDelegate {
         get { runtimeProviderState(for: .codex).loadingStartedAt }
         set {
             updateRuntimeProviderState(for: .codex) { state in
-                state.loadingStartedAt = newValue
-            }
-        }
-    }
-
-    var geminiLoadingStartedAt: Date? {
-        get { runtimeProviderState(for: .gemini).loadingStartedAt }
-        set {
-            updateRuntimeProviderState(for: .gemini) { state in
                 state.loadingStartedAt = newValue
             }
         }
@@ -255,15 +216,6 @@ extension AppDelegate {
         }
     }
 
-    var nextGeminiRefreshAllowedAt: Date? {
-        get { runtimeProviderState(for: .gemini).nextRefreshAllowedAt }
-        set {
-            updateRuntimeProviderState(for: .gemini) { state in
-                state.nextRefreshAllowedAt = newValue
-            }
-        }
-    }
-
     var nextAntigravityRefreshAllowedAt: Date? {
         get { runtimeProviderState(for: .antigravity).nextRefreshAllowedAt }
         set {
@@ -286,15 +238,6 @@ extension AppDelegate {
         get { runtimeProviderState(for: .codex).lastUpdated }
         set {
             updateRuntimeProviderState(for: .codex) { state in
-                state.lastUpdated = newValue
-            }
-        }
-    }
-
-    var geminiLastUpdated: Date? {
-        get { runtimeProviderState(for: .gemini).lastUpdated }
-        set {
-            updateRuntimeProviderState(for: .gemini) { state in
                 state.lastUpdated = newValue
             }
         }
@@ -327,15 +270,6 @@ extension AppDelegate {
         }
     }
 
-    var hasGeminiAuthError: Bool {
-        get { runtimeProviderState(for: .gemini).hasAuthError }
-        set {
-            updateRuntimeProviderState(for: .gemini) { state in
-                state.hasAuthError = newValue
-            }
-        }
-    }
-
     var hasAntigravityAuthError: Bool {
         get { runtimeProviderState(for: .antigravity).hasAuthError }
         set {
@@ -350,19 +284,9 @@ extension AppDelegate {
     // 내부적으로 subprocess 를 돌리는 `.status(for:)` 직접 호출 금지.
     // 캐시는 앱 시작 및 refresh 틱에서 백그라운드로 미리 갱신됨.
 
-    var hasGeminiCredential: Bool {
-        let status = ProviderEnvironmentDetector.staleWhileRevalidate(for: .gemini)
-        return status?.credentialState.hasAnyCredential ?? false
-    }
-
     var hasAntigravityCredential: Bool {
         let status = ProviderEnvironmentDetector.staleWhileRevalidate(for: .antigravity)
         return status?.credentialState.hasAnyCredential ?? false
-    }
-
-    var geminiRuntimeReachability: Bool {
-        let status = ProviderEnvironmentDetector.staleWhileRevalidate(for: .gemini)
-        return status?.runtimeReachability ?? false
     }
 
     var antigravityRuntimeReachability: Bool {
@@ -372,16 +296,7 @@ extension AppDelegate {
 
     var antigravityRefreshReachability: Bool {
         let status = ProviderEnvironmentDetector.staleWhileRevalidate(for: .antigravity)
-        switch AppSettings.shared.antigravityUsageDataSource {
-        case .localIDE:
-            return status?.runtimeReachability ?? false
-        case .googleOAuth:
-            return (status?.runtimeReachability ?? false)
-                || (ProviderEnvironmentDetector.cachedAntigravitySignals()?.hasOAuthCredential
-                    ?? AntigravityOAuthCredentialProbe.current().hasCredential)
-        case .auto:
-            return status?.canAttemptRefresh ?? false
-        }
+        return status?.canAttemptRefresh ?? false
     }
 
     var refreshableServices: [PopoverService] {
@@ -390,7 +305,6 @@ extension AppDelegate {
             hasClaudeSessionKey: KeychainManager.shared.hasSessionKey,
             hasClaudeOAuthCredential: claudeCredentialAvailability.oauthCredentialAvailable,
             isCodexAuthenticated: CodexAuthManager.shared.isAuthenticated,
-            geminiRuntimeReachability: geminiRuntimeReachability,
             antigravityRuntimeReachability: antigravityRuntimeReachability,
             antigravityRefreshReachability: antigravityRefreshReachability
         )

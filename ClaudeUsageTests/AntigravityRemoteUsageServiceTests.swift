@@ -3,6 +3,36 @@ import XCTest
 @testable import ClaudeUsage
 
 final class AntigravityRemoteUsageServiceTests: XCTestCase {
+    func testDefaultEndpointCandidatesPreferCloudCodeWhenRuntimeEndpointIsAbsent() {
+        let candidates = AntigravityRemoteUsageService.defaultEndpointBaseURLCandidates(runningProcess: nil)
+
+        XCTAssertEqual(candidates.map(\.host), [
+            "cloudcode-pa.googleapis.com",
+            "daily-cloudcode-pa.googleapis.com",
+        ])
+    }
+
+    func testDefaultEndpointCandidatesKeepRuntimeEndpointFirst() {
+        let runtimeEndpoint = AntigravityProcessSnapshot(
+            pid: 42,
+            command: "language_server",
+            csrfToken: nil,
+            extensionPort: nil,
+            extensionCsrfToken: nil,
+            httpsServerPort: nil,
+            cloudCodeEndpoint: "https://daily-cloudcode-pa.googleapis.com"
+        )
+
+        let candidates = AntigravityRemoteUsageService.defaultEndpointBaseURLCandidates(
+            runningProcess: runtimeEndpoint
+        )
+
+        XCTAssertEqual(candidates.map(\.host), [
+            "daily-cloudcode-pa.googleapis.com",
+            "cloudcode-pa.googleapis.com",
+        ])
+    }
+
     func testFetchUsageUsesStoredOAuthCredentialsAndFetchAvailableModels() async throws {
         let client = FakeAntigravityRemoteHTTPClient()
         await client.enqueue(
@@ -73,12 +103,12 @@ final class AntigravityRemoteUsageServiceTests: XCTestCase {
         XCTAssertEqual(usage.source, .googleOAuth)
         XCTAssertEqual(usage.accountEmail, "nathan@example.com")
         XCTAssertEqual(usage.accountPlan, "Paid")
-        XCTAssertEqual(usage.primaryWindow?.label, "Claude")
-        XCTAssertEqual(usage.primaryPercentage, 75, accuracy: 0.001)
-        XCTAssertEqual(usage.secondaryWindow?.label, "Gemini Pro")
-        XCTAssertEqual(usage.secondaryPercentage, 50, accuracy: 0.001)
-        XCTAssertEqual(usage.tertiaryWindow?.label, "Gemini Flash")
-        XCTAssertEqual(usage.tertiaryPercentage, 20, accuracy: 0.001)
+        XCTAssertEqual(usage.primaryWindow?.label, "Gemini 3 Pro Low")
+        XCTAssertEqual(usage.primaryPercentage, 50, accuracy: 0.001)
+        XCTAssertEqual(usage.secondaryWindow?.label, "Gemini 3 Flash")
+        XCTAssertEqual(usage.secondaryPercentage, 20, accuracy: 0.001)
+        XCTAssertEqual(usage.tertiaryWindow?.label, "Claude Sonnet 4.5")
+        XCTAssertEqual(usage.tertiaryPercentage, 75, accuracy: 0.001)
     }
 
     func testFetchUsageFallsBackFromDailyEndpointToLegacyEndpointWhenUnavailable() async throws {
@@ -148,7 +178,97 @@ final class AntigravityRemoteUsageServiceTests: XCTestCase {
             "/v1internal:loadCodeAssist",
             "/v1internal:fetchAvailableModels",
         ])
-        XCTAssertEqual(usage.primaryPercentage, 75, accuracy: 0.001)
+        XCTAssertEqual(usage.tertiaryPercentage, 75, accuracy: 0.001)
+    }
+
+    func testFetchUsageTriesNextEndpointWhenFirstEndpointOnlyReturnsIdentity() async throws {
+        let client = FakeAntigravityRemoteHTTPClient()
+        await client.enqueue(
+            path: "/v1internal:loadCodeAssist",
+            statusCode: 200,
+            json: """
+            {
+              "planInfo": { "planType": "Paid" },
+              "cloudaicompanionProject": { "projectId": "project-daily" }
+            }
+            """
+        )
+        await client.enqueue(
+            path: "/v1internal:fetchAvailableModels",
+            statusCode: 403,
+            json: #"{"error":"permission denied"}"#
+        )
+        await client.enqueue(
+            path: "/v1internal:retrieveUserQuota",
+            statusCode: 403,
+            json: #"{"error":"permission denied"}"#
+        )
+        await client.enqueue(
+            path: "/v1internal:loadCodeAssist",
+            statusCode: 200,
+            json: """
+            {
+              "planInfo": { "planType": "Paid" },
+              "cloudaicompanionProject": { "projectId": "project-legacy" }
+            }
+            """
+        )
+        await client.enqueue(
+            path: "/v1internal:fetchAvailableModels",
+            statusCode: 200,
+            json: """
+            {
+              "models": {
+                "claude-sonnet-4-5": {
+                  "displayName": "Claude Sonnet 4.5",
+                  "quotaInfo": {
+                    "remainingFraction": 0.25,
+                    "resetTime": "2026-05-21T00:00:00Z"
+                  }
+                }
+              }
+            }
+            """
+        )
+
+        let service = AntigravityRemoteUsageService(
+            httpClient: client,
+            credentialProvider: {
+                AntigravityOAuthCredentials(
+                    accessToken: "access-token",
+                    refreshToken: nil,
+                    expiryDate: Date(timeIntervalSinceNow: 3_600),
+                    email: "nathan@example.com"
+                )
+            },
+            credentialProviderLabel: "unit-test",
+            endpointBaseURLProvider: {
+                [
+                    URL(string: "https://daily-cloudcode-pa.googleapis.com")!,
+                    URL(string: "https://cloudcode-pa.googleapis.com")!,
+                ]
+            }
+        )
+
+        let usage = try await service.fetchUsage()
+        let requests = await client.recordedRequests()
+
+        XCTAssertEqual(requests.map(\.host), [
+            "daily-cloudcode-pa.googleapis.com",
+            "daily-cloudcode-pa.googleapis.com",
+            "daily-cloudcode-pa.googleapis.com",
+            "cloudcode-pa.googleapis.com",
+            "cloudcode-pa.googleapis.com",
+        ])
+        XCTAssertEqual(requests.map(\.path), [
+            "/v1internal:loadCodeAssist",
+            "/v1internal:fetchAvailableModels",
+            "/v1internal:retrieveUserQuota",
+            "/v1internal:loadCodeAssist",
+            "/v1internal:fetchAvailableModels",
+        ])
+        XCTAssertEqual(usage.tertiaryPercentage, 75, accuracy: 0.001)
+        XCTAssertTrue(usage.hasUsageWindows)
     }
 
     func testFetchUsageAllowsIdentityOnlyResponseWhenQuotaModelsAreEmptyAndQuotaFallbackIsPermissionDenied() async throws {
@@ -184,7 +304,10 @@ final class AntigravityRemoteUsageServiceTests: XCTestCase {
                     email: "nathan@example.com"
                 )
             },
-            credentialProviderLabel: "unit-test"
+            credentialProviderLabel: "unit-test",
+            endpointBaseURLProvider: {
+                [URL(string: "https://cloudcode-pa.googleapis.com")!]
+            }
         )
 
         let usage = try await service.fetchUsage()
@@ -273,8 +396,9 @@ final class AntigravityRemoteUsageServiceTests: XCTestCase {
         XCTAssertEqual(usage.source, .googleOAuth)
         XCTAssertEqual(usage.accountEmail, "nathan@example.com")
         XCTAssertEqual(usage.accountPlan, "Paid")
-        XCTAssertEqual(usage.primaryWindow?.modelID, "claude-sonnet-4-5")
-        XCTAssertEqual(usage.primaryPercentage, 70, accuracy: 0.001)
+        XCTAssertNil(usage.primaryWindow)
+        XCTAssertEqual(usage.tertiaryWindow?.modelID, "claude-sonnet-4-5")
+        XCTAssertEqual(usage.tertiaryPercentage, 70, accuracy: 0.001)
     }
 
     func testFetchUsageRefreshesWhenOnlyRefreshTokenIsStored() async throws {
@@ -345,7 +469,7 @@ final class AntigravityRemoteUsageServiceTests: XCTestCase {
         XCTAssertEqual(requests[1].headers["Authorization"], "Bearer fresh-access-token")
         XCTAssertEqual(try jsonBodyValue(requests[2].bodyData, key: "project"), "project-2")
         XCTAssertEqual(usage.accountEmail, "nathan@example.com")
-        XCTAssertEqual(usage.primaryPercentage, 30, accuracy: 0.001)
+        XCTAssertEqual(usage.tertiaryPercentage, 30, accuracy: 0.001)
     }
 
     func testFetchUsageRefreshesAndRetriesWhenStoredAccessTokenIsRejected() async throws {
@@ -424,7 +548,7 @@ final class AntigravityRemoteUsageServiceTests: XCTestCase {
         XCTAssertEqual(try jsonBodyValue(requests[3].bodyData, key: "project"), "project-retry")
         XCTAssertEqual(usage.source, .googleOAuth)
         XCTAssertEqual(usage.accountPlan, "Paid")
-        XCTAssertEqual(usage.primaryPercentage, 60, accuracy: 0.001)
+        XCTAssertEqual(usage.tertiaryPercentage, 60, accuracy: 0.001)
     }
 
     func testFetchUsageRetriesAlternateClientSecretWhenRefreshRejectsFirstSecret() async throws {
@@ -506,7 +630,91 @@ final class AntigravityRemoteUsageServiceTests: XCTestCase {
         XCTAssertTrue(firstBody?.contains("client_secret=bad-secret") == true)
         XCTAssertTrue(secondBody?.contains("client_secret=good-secret") == true)
         XCTAssertEqual(requests[2].headers["Authorization"], "Bearer fresh-access-token")
-        XCTAssertEqual(usage.primaryPercentage, 30, accuracy: 0.001)
+        XCTAssertEqual(usage.tertiaryPercentage, 30, accuracy: 0.001)
+    }
+
+    func testFetchUsageTriesPublicClientBeforeBundledSecret() async throws {
+        let client = FakeAntigravityRemoteHTTPClient()
+        await client.enqueue(
+            path: "/token",
+            statusCode: 400,
+            json: #"{"error":"invalid_request","error_description":"client_secret is missing."}"#
+        )
+        await client.enqueue(
+            path: "/token",
+            statusCode: 200,
+            json: """
+            {
+              "access_token": "fresh-access-token",
+              "expires_in": 3600
+            }
+            """
+        )
+        await client.enqueue(
+            path: "/v1internal:loadCodeAssist",
+            statusCode: 200,
+            json: """
+            {
+              "planInfo": { "planType": "Free" },
+              "cloudaicompanionProject": { "projectId": "project-2" }
+            }
+            """
+        )
+        await client.enqueue(
+            path: "/v1internal:fetchAvailableModels",
+            statusCode: 200,
+            json: """
+            {
+              "models": {
+                "claude-sonnet-4-5": {
+                  "displayName": "Claude Sonnet 4.5",
+                  "quotaInfo": {
+                    "remainingFraction": 0.7,
+                    "resetTime": "2026-05-21T00:00:00Z"
+                  }
+                }
+              }
+            }
+            """
+        )
+
+        let service = AntigravityRemoteUsageService(
+            httpClient: client,
+            credentialProvider: {
+                AntigravityOAuthCredentials(
+                    accessToken: nil,
+                    refreshToken: "stored-refresh-token",
+                    expiryDate: nil,
+                    email: "nathan@example.com"
+                )
+            },
+            credentialProviderLabel: "unit-test",
+            oauthClientProvider: {
+                AntigravityOAuthClient(
+                    clientID: "client-id",
+                    clientSecret: "bundled-secret",
+                    clientSecretCandidates: ["bundled-secret"],
+                    allowsPublicClient: true
+                )
+            }
+        )
+
+        let usage = try await service.fetchUsage()
+        let requests = await client.recordedRequests()
+        let publicBody = String(data: try XCTUnwrap(requests[0].bodyData), encoding: .utf8)
+        let secretBody = String(data: try XCTUnwrap(requests[1].bodyData), encoding: .utf8)
+
+        XCTAssertEqual(requests.map(\.path), [
+            "/token",
+            "/token",
+            "/v1internal:loadCodeAssist",
+            "/v1internal:fetchAvailableModels",
+        ])
+        XCTAssertTrue(publicBody?.contains("client_id=client-id") == true)
+        XCTAssertFalse(publicBody?.contains("client_secret=") == true)
+        XCTAssertTrue(secretBody?.contains("client_secret=bundled-secret") == true)
+        XCTAssertEqual(requests[2].headers["Authorization"], "Bearer fresh-access-token")
+        XCTAssertEqual(usage.tertiaryPercentage, 30, accuracy: 0.001)
     }
 
     func testFetchUsageMergesDiscoveredClientSecretCandidatesForStoredClient() async throws {
@@ -591,7 +799,7 @@ final class AntigravityRemoteUsageServiceTests: XCTestCase {
         XCTAssertTrue(firstBody?.contains("client_secret=stale-secret") == true)
         XCTAssertTrue(secondBody?.contains("client_secret=current-secret") == true)
         XCTAssertEqual(requests[2].headers["Authorization"], "Bearer fresh-access-token")
-        XCTAssertEqual(usage.primaryPercentage, 30, accuracy: 0.001)
+        XCTAssertEqual(usage.tertiaryPercentage, 30, accuracy: 0.001)
     }
 
     func testFetchUsageFallsBackToRetrieveUserQuotaWhenAvailableModelsIsPermissionDenied() async throws {
@@ -662,10 +870,11 @@ final class AntigravityRemoteUsageServiceTests: XCTestCase {
         XCTAssertEqual(try jsonBodyValue(requests[2].bodyData, key: "project"), "stored-project")
         XCTAssertEqual(usage.source, .googleOAuth)
         XCTAssertEqual(usage.accountPlan, "Free")
-        XCTAssertEqual(usage.primaryWindow?.modelID, "claude-sonnet-4-5")
-        XCTAssertEqual(usage.primaryPercentage, 60, accuracy: 0.001)
-        XCTAssertEqual(usage.tertiaryWindow?.modelID, "gemini-3-flash")
-        XCTAssertEqual(usage.tertiaryPercentage, 40, accuracy: 0.001)
+        XCTAssertNil(usage.primaryWindow)
+        XCTAssertEqual(usage.secondaryWindow?.modelID, "gemini-3-flash")
+        XCTAssertEqual(usage.secondaryPercentage, 40, accuracy: 0.001)
+        XCTAssertEqual(usage.tertiaryWindow?.modelID, "claude-sonnet-4-5")
+        XCTAssertEqual(usage.tertiaryPercentage, 60, accuracy: 0.001)
     }
 
     func testFetchUsageKeepsIdentityWhenQuotaEndpointsArePermissionDenied() async throws {
@@ -701,7 +910,10 @@ final class AntigravityRemoteUsageServiceTests: XCTestCase {
                     email: "nathan@example.com"
                 )
             },
-            credentialProviderLabel: "unit-test"
+            credentialProviderLabel: "unit-test",
+            endpointBaseURLProvider: {
+                [URL(string: "https://cloudcode-pa.googleapis.com")!]
+            }
         )
 
         let usage = try await service.fetchUsage()

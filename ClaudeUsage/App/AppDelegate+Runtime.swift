@@ -16,8 +16,6 @@ extension AppDelegate {
         // UI 경로에서 호출되므로 blocking 금지. SWR 로 캐시만 참조.
         let environmentStatus: ProviderEnvironmentStatus?
         switch service {
-        case .gemini:
-            environmentStatus = ProviderEnvironmentDetector.staleWhileRevalidate(for: .gemini)
         case .antigravity:
             environmentStatus = ProviderEnvironmentDetector.staleWhileRevalidate(for: .antigravity)
         case .claude, .codex:
@@ -193,12 +191,6 @@ extension AppDelegate {
                 codexError = nil
                 hasCodexAuthError = false
                 nextCodexRefreshAllowedAt = nil
-            }
-        case .gemini:
-            if hasGeminiCredential {
-                geminiError = nil
-                hasGeminiAuthError = false
-                nextGeminiRefreshAllowedAt = nil
             }
         case .antigravity:
             if hasAntigravityCredential {
@@ -501,73 +493,6 @@ extension AppDelegate {
         }
     }
 
-    func refreshGeminiUsage(force: Bool = false) {
-        guard ServiceSelectionHelper.isEnabled(.gemini, settings: AppSettings.shared) else { return }
-        guard prepareRefresh(for: .gemini, force: force, respectBackoffWithoutPayload: false) else { return }
-
-        Task {
-            do {
-                let usage = try await GeminiRuntimeRefresher.refresh(apiService: geminiAPIService)
-                await MainActor.run {
-                    var state = self.runtimeProviderState(for: .gemini)
-                    RuntimeProviderRefreshCoordinator.applySuccess(
-                        state: &state,
-                        payload: .gemini(usage)
-                    )
-                    self.setRuntimeProviderState(state, for: .gemini)
-                    self.syncRuntimePresentation(overage: self.currentOverage)
-
-                    NotificationManager.shared.checkThreshold(
-                        session: .geminiPrimary,
-                        percentage: usage.primaryPercentage,
-                        resetAt: usage.primaryWindow?.resetAtISO
-                    )
-                    NotificationManager.shared.checkThreshold(
-                        session: .geminiSecondary,
-                        percentage: usage.secondaryPercentage,
-                        resetAt: usage.secondaryWindow?.resetAtISO
-                    )
-                    if let tertiary = usage.tertiaryWindow {
-                        NotificationManager.shared.checkThreshold(
-                            session: .geminiTertiary,
-                            percentage: tertiary.usedPercent,
-                            resetAt: tertiary.resetAtISO
-                        )
-                    }
-                }
-            } catch let error as APIError {
-                await MainActor.run {
-                    var state = self.runtimeProviderState(for: .gemini)
-                    let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
-                        state: &state,
-                        error: error,
-                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
-                    )
-                    self.setRuntimeProviderState(state, for: .gemini)
-                    if let backoffSeconds = resolution.backoffSeconds {
-                        Logger.info("Gemini 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
-                    }
-                    self.syncRuntimePresentation(overage: self.currentOverage)
-                }
-            } catch {
-                let wrapped = APIError.unknownError(error.localizedDescription)
-                await MainActor.run {
-                    var state = self.runtimeProviderState(for: .gemini)
-                    let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
-                        state: &state,
-                        error: wrapped,
-                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
-                    )
-                    self.setRuntimeProviderState(state, for: .gemini)
-                    if let backoffSeconds = resolution.backoffSeconds {
-                        Logger.info("Gemini 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
-                    }
-                    self.syncRuntimePresentation(overage: self.currentOverage)
-                }
-            }
-        }
-    }
-
     func refreshAntigravityUsageAfterConfigurationChange() {
         setRuntimeProviderState(RuntimeProviderState(), for: .antigravity)
         syncRuntimePresentation(overage: currentOverage)
@@ -577,16 +502,20 @@ extension AppDelegate {
     func refreshAntigravityUsage(force: Bool = false) {
         guard ServiceSelectionHelper.isEnabled(.antigravity, settings: AppSettings.shared) else { return }
         guard prepareRefresh(for: .antigravity, force: force, respectBackoffWithoutPayload: false) else { return }
-        let requestDataSource = AppSettings.shared.antigravityUsageDataSource
+        let requestDataSource = AntigravityUsageDataSource.auto
         let requestConfiguration = AntigravityRefreshConfiguration.current(dataSource: requestDataSource)
-        let requestLoadingStartedAt = runtimeProviderState(for: .antigravity).loadingStartedAt
+        let requestState = runtimeProviderState(for: .antigravity)
+        let requestLoadingStartedAt = requestState.loadingStartedAt
+        let lastSuccessfulUsage = requestState.antigravityUsage
 
         Task {
             do {
                 let usage = try await AntigravityRuntimeRefresher.refresh(
                     apiService: antigravityAPIService,
                     remoteService: antigravityRemoteUsageService,
-                    dataSource: requestDataSource
+                    cliService: antigravityCLIUsageService,
+                    dataSource: requestDataSource,
+                    lastSuccessfulUsage: lastSuccessfulUsage
                 )
                 await MainActor.run {
                     guard self.shouldApplyAntigravityRefreshResult(

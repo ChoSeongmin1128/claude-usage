@@ -178,7 +178,7 @@ struct ProviderStatusSectionView: View {
                 alignment: .center
             )
         } else {
-            ProviderStatusRow(title: status.title, error: status.error)
+            ProviderStatusRow(status: status)
         }
     }
 
@@ -186,14 +186,14 @@ struct ProviderStatusSectionView: View {
         if let error = status.error {
             return error.compactStatusText
         }
-        return "데이터 없음"
+        return status.statusText ?? "데이터 없음"
     }
 
     private var statusColor: Color {
         if let error = status.error {
             return error.compactStatusColor
         }
-        return .secondary
+        return status.statusText == nil ? .secondary : .orange
     }
 }
 
@@ -331,56 +331,64 @@ struct PopoverDisplayItemsListView: View {
             : settings.popoverItems(for: service)
     }
 
+    private var editableItems: [PopoverItemConfig] {
+        service == .antigravity
+            ? items.filter { $0.id != "antigravityModels" }
+            : items
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                VStack(spacing: 0) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "line.3.horizontal")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                            .frame(width: 14)
+            ForEach(Array(editableItems.enumerated()), id: \.element.id) { displayIndex, item in
+                if let index = items.firstIndex(where: { $0.id == item.id }) {
+                    VStack(spacing: 0) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "line.3.horizontal")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                                .frame(width: 14)
 
-                        Button {
-                            var updated = items
-                            updated[index].visible.toggle()
-                            applyItems(updated, isCompact: isCompact)
-                        } label: {
-                            Image(systemName: item.visible ? "eye" : "eye.slash")
+                            Button {
+                                var updated = items
+                                updated[index].visible.toggle()
+                                applyItems(updated, isCompact: isCompact)
+                            } label: {
+                                Image(systemName: item.visible ? "eye" : "eye.slash")
+                                    .foregroundStyle(item.visible ? .primary : .tertiary)
+                                    .font(.system(size: 12))
+                                    .frame(width: 16, height: 16)
+                            }
+                            .buttonStyle(.borderless)
+                            .help(item.visible ? "숨기기" : "보이기")
+
+                            Text(item.displayName)
+                                .font(.subheadline)
                                 .foregroundStyle(item.visible ? .primary : .tertiary)
-                                .font(.system(size: 12))
-                                .frame(width: 16, height: 16)
+
+                            Spacer()
                         }
-                        .buttonStyle(.borderless)
-                        .help(item.visible ? "숨기기" : "보이기")
+                        .frame(height: 26)
+                        .padding(.horizontal, 8)
+                        .contentShape(Rectangle())
 
-                        Text(item.displayName)
-                            .font(.subheadline)
-                            .foregroundStyle(item.visible ? .primary : .tertiary)
-
-                        Spacer()
+                        if displayIndex < editableItems.count - 1 {
+                            Divider().padding(.horizontal, 8)
+                        }
                     }
-                    .frame(height: 26)
-                    .padding(.horizontal, 8)
-                    .contentShape(Rectangle())
-
-                    if index < items.count - 1 {
-                        Divider().padding(.horizontal, 8)
+                    .background(draggingItemID == item.id ? Color.accentColor.opacity(0.1) : Color.clear)
+                    .cornerRadius(4)
+                    .onDrag {
+                        draggingItemID = item.id
+                        return NSItemProvider(object: item.id as NSString)
                     }
+                    .onDrop(of: [UTType.text], delegate: PopoverItemDropDelegate(
+                        targetID: item.id,
+                        settings: settings,
+                        isCompact: isCompact,
+                        service: service,
+                        draggingItemID: $draggingItemID
+                    ))
                 }
-                .background(draggingItemID == item.id ? Color.accentColor.opacity(0.1) : Color.clear)
-                .cornerRadius(4)
-                .onDrag {
-                    draggingItemID = item.id
-                    return NSItemProvider(object: item.id as NSString)
-                }
-                .onDrop(of: [UTType.text], delegate: PopoverItemDropDelegate(
-                    targetID: item.id,
-                    settings: settings,
-                    isCompact: isCompact,
-                    service: service,
-                    draggingItemID: $draggingItemID
-                ))
             }
         }
         .padding(.vertical, 4)
@@ -435,35 +443,45 @@ private struct PopoverItemDropDelegate: DropDelegate {
 }
 
 struct ProviderStatusRow: View {
-    let title: String
-    let error: APIError?
+    let status: PopoverStatusSectionData
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Image(systemName: "info.circle")
                 .foregroundStyle(.secondary)
-            Text(title)
-                .font(.subheadline)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(status.title)
+                    .font(.subheadline)
+                if let message = status.message {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
             Spacer()
             Text(statusText)
                 .font(.caption)
                 .foregroundStyle(statusColor)
+                .padding(.top, 1)
         }
         .padding(.vertical, 4)
     }
 
     private var statusText: String {
-        if let error {
+        if let error = status.error {
             return error.compactStatusText
         }
-        return "데이터 없음"
+        return status.statusText ?? "데이터 없음"
     }
 
     private var statusColor: Color {
-        if let error {
+        if let error = status.error {
             return error.compactStatusColor
         }
-        return .secondary
+        return status.statusText == nil ? .secondary : .orange
     }
 }
 

@@ -71,19 +71,8 @@ extension AppDelegate {
 
     // MARK: - Settings Window
 
-    func showSettingsWindow() {
-        setupWizardWindowCoordinator.close()
-        if setupWizardCredentialStepOverride == .manualSessionKey {
-            setupWizardCredentialStepOverride = nil
-        }
-
-        if settingsWindowCoordinator.focusIfVisible() {
-            return
-        }
-
-        applyClaudeSetupLandingTabsIfNeeded()
-
-        let settingsView = SettingsView(
+    func makeSettingsView() -> SettingsView {
+        SettingsView(
             onOpenLogin: { [weak self] in
                 self?.settingsWindowCoordinator.close()
                 self?.showLoginWindow(clearCookies: true)
@@ -137,8 +126,26 @@ extension AppDelegate {
             },
             antigravityLastUsageSource: { [weak self] in
                 self?.runtimeProviderState(for: .antigravity).antigravityUsage?.source
+            },
+            antigravityLastUsage: { [weak self] in
+                self?.runtimeProviderState(for: .antigravity).antigravityUsage
             }
         )
+    }
+
+    func showSettingsWindow() {
+        setupWizardWindowCoordinator.close()
+        if setupWizardCredentialStepOverride == .manualSessionKey {
+            setupWizardCredentialStepOverride = nil
+        }
+
+        if settingsWindowCoordinator.focusIfVisible() {
+            return
+        }
+
+        applyClaudeSetupLandingTabsIfNeeded()
+
+        let settingsView = makeSettingsView()
         settingsWindowCoordinator.present(rootView: settingsView)
     }
 

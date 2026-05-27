@@ -37,7 +37,7 @@ final class ProviderPoliciesTests: XCTestCase {
 
     func testShouldRefreshOnTabSwitchRefreshesWhenBackoffIsActive() {
         let state = RuntimeProviderPresentationState(
-            service: .gemini,
+            service: .antigravity,
             lastUpdated: Date(),
             hasContent: true,
             error: nil,
@@ -67,17 +67,17 @@ final class ProviderPoliciesTests: XCTestCase {
         }
     }
 
-    func testEnabledChangeDecisionRefreshesGeminiImmediatelyWithoutCredential() {
+    func testEnabledChangeDecisionRefreshesAntigravityImmediatelyWithoutCredential() {
         let decision = ProviderTransitionPolicy.enabledChangeDecision(
             state: RuntimeProviderActivationState(
-                service: .gemini,
+                service: .antigravity,
                 enabled: true,
                 hasCredential: false
             )
         )
 
         guard case .refreshNow = decision else {
-            return XCTFail("Gemini는 활성화 직후 즉시 refresh 결정이어야 합니다")
+            return XCTFail("Antigravity는 활성화 직후 즉시 refresh 결정이어야 합니다")
         }
     }
 

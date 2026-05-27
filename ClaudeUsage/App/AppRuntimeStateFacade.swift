@@ -59,20 +59,6 @@ final class AppRuntimeStateFacade {
                 hasAuthError: state.hasAuthError,
                 lastAttemptState: state.lastAttemptState
             )
-        case .gemini:
-            return RuntimeProviderSnapshot(
-                service: .gemini,
-                payload: state.payload,
-                error: state.error,
-                isLoading: state.isLoading,
-                lastUpdated: state.lastUpdated,
-                nextRefreshAllowedAt: state.nextRefreshAllowedAt,
-                credentialState: environmentStatus?.credentialState ?? .unknown,
-                isDetected: environmentStatus?.isDetected ?? false,
-                canAttemptRefresh: environmentStatus?.canAttemptRefresh ?? false,
-                hasAuthError: state.hasAuthError,
-                lastAttemptState: state.lastAttemptState
-            )
         case .antigravity:
             return RuntimeProviderSnapshot(
                 service: .antigravity,

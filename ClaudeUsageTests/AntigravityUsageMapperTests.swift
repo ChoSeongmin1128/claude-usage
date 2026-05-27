@@ -2,7 +2,7 @@ import XCTest
 @testable import ClaudeUsage
 
 final class AntigravityUsageMapperTests: XCTestCase {
-    func testBuildResponseKeepsRepresentativeCodingModelsAndSkipsAutocompleteOrLiteQuotas() {
+    func testBuildResponseKeepsAllDisplayableModelsAndUsesRepresentativesForMenuSlots() {
         let response = AntigravityUsageMapper.buildResponse(
             quotas: [
                 AntigravityModelQuota(
@@ -43,12 +43,24 @@ final class AntigravityUsageMapperTests: XCTestCase {
 
         XCTAssertEqual(response.source, .googleOAuth)
         XCTAssertEqual(response.accountEmail, "nathan@example.com")
-        XCTAssertEqual(response.primaryWindow?.label, "Claude")
-        XCTAssertEqual(response.primaryPercentage, 60, accuracy: 0.001)
-        XCTAssertEqual(response.secondaryWindow?.modelID, "gemini-2.5-pro")
-        XCTAssertEqual(response.secondaryWindow?.label, "Gemini Pro")
-        XCTAssertEqual(response.tertiaryWindow?.modelID, "gemini-2.5-flash")
-        XCTAssertEqual(response.tertiaryWindow?.label, "Gemini Flash")
+        XCTAssertEqual(
+            response.modelWindows.map(\.label),
+            [
+                "Gemini 2.5 Flash",
+                "Gemini 2.5 Flash Lite",
+                "Gemini 2.5 Pro",
+                "Claude Sonnet",
+            ]
+        )
+        XCTAssertEqual(response.primaryWindow?.modelID, "gemini-2.5-pro")
+        XCTAssertEqual(response.primaryWindow?.label, "Gemini 2.5 Pro")
+        XCTAssertEqual(response.primaryPercentage, 10, accuracy: 0.001)
+        XCTAssertEqual(response.secondaryWindow?.modelID, "gemini-2.5-flash")
+        XCTAssertEqual(response.secondaryWindow?.label, "Gemini 2.5 Flash")
+        XCTAssertEqual(response.secondaryPercentage, 20, accuracy: 0.001)
+        XCTAssertEqual(response.tertiaryWindow?.modelID, "claude-sonnet-4.5")
+        XCTAssertEqual(response.tertiaryWindow?.label, "Claude Sonnet")
+        XCTAssertEqual(response.tertiaryPercentage, 60, accuracy: 0.001)
     }
 
     func testBuildResponseDoesNotInventUsageWhenRemainingFractionIsMissing() {

@@ -136,6 +136,7 @@ struct SettingsView: View {
     var onRefreshAntigravityUsage: (() -> Void)?
     var onCodexLogout: (() -> Void)?
     var antigravityLastUsageSource: (() -> AntigravityUsageDataSource?)?
+    var antigravityLastUsage: (() -> AntigravityUsageResponse?)?
     enum TestResult: Equatable {
         case success(String)
         case failure(String)

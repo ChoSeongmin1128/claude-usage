@@ -45,12 +45,10 @@ final class PopoverViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     // ProviderEnvironmentDetector 결과 캐시 — SwiftUI body 렌더링 중 블로킹 호출 방지
-    private var cachedGeminiEnvStatus: ProviderEnvironmentStatus?
     private var cachedAntigravityEnvStatus: ProviderEnvironmentStatus?
     // 초기값은 cache-only — 콜드 캐시면 nil 로 출발해서 환경 warm-up 후에 채워짐.
     // VM 생성 시점에 /bin/ps · SQLite · JSON 파싱을 돌리면 첫 popover/메뉴바
     // 클릭이 1초 가까이 버벅거리므로 여기서는 blocking 을 금지한다.
-    private var cachedGeminiSignals: GeminiEnvironmentSignals?
     private var cachedAntigravitySignals: AntigravityEnvironmentSignals?
 
     var onRefreshService: ((PopoverService) -> Void)?
@@ -105,10 +103,6 @@ final class PopoverViewModel: ObservableObject {
 
     var codexUsage: CodexUsageResponse? {
         snapshot(for: .codex)?.codexUsage
-    }
-
-    var geminiUsage: GeminiUsageResponse? {
-        snapshot(for: .gemini)?.geminiUsage
     }
 
     var antigravityUsage: AntigravityUsageResponse? {
@@ -261,55 +255,9 @@ final class PopoverViewModel: ObservableObject {
                 isAuthRequired: isAuthRequired,
                 shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired)
             )
-        case .gemini:
-            return geminiRuntimeServiceState(settings: settings)
         case .antigravity:
             return antigravityRuntimeServiceState(settings: settings)
         }
-    }
-
-    private func geminiRuntimeServiceState(settings: AppSettings) -> RuntimeServiceState {
-        let isEnabled = settings.isProviderEnabled(.gemini)
-        let environmentStatus = cachedGeminiEnvStatus
-        let signalsCached = cachedGeminiSignals
-        let signals = signalsCached ?? .empty
-        let snapshot = runtimeSnapshots[.gemini]
-        let runtimeError = snapshot?.error
-        let requiresInteractiveSetup: Bool = {
-            // 환경 감지 캐시가 아직 없으면 "인증 필요" 판정을 보류 — UI가 잠깐
-            // 엉뚱한 auth prompt 를 띄우는 걸 막는다.
-            guard signalsCached != nil else { return false }
-            if !signals.hasBinary { return signals.credentialState == .missing }
-            switch signals.authType {
-            case .apiKey, .vertexAI: return true
-            case .oauthPersonal, .unknown: return signals.credentialState == .missing
-            }
-        }()
-        let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
-        let isAuthRequired = isEnabled
-            && requiresInteractiveSetup
-            && missingCredential
-            && !(snapshot?.hasContent ?? false)
-            && !(snapshot?.isLoading ?? false)
-        let summaryState = Self.resolveGeminiSummaryState(
-            snapshot: snapshot,
-            environmentStatus: environmentStatus,
-            signals: signals,
-            isEnabled: isEnabled,
-            isAuthRequired: isAuthRequired
-        )
-
-        return RuntimeServiceState(
-            service: .gemini,
-            summary: summaryState.summary,
-            meta: snapshot.flatMap(runtimeMeta(for:)),
-            lastUpdated: snapshot?.lastUpdated,
-            isLoading: snapshot?.isLoading ?? false,
-            error: runtimeError,
-            hasContent: geminiUsage != nil,
-            isAuthRequired: isAuthRequired,
-            shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired)
-        )
     }
 
     private func antigravityRuntimeServiceState(settings: AppSettings) -> RuntimeServiceState {
@@ -323,7 +271,7 @@ final class PopoverViewModel: ObservableObject {
         let requiresInteractiveSetup: Bool = {
             guard signalsCached != nil else { return false }
             return AntigravitySetupPolicy.requiresInteractiveSetup(
-                dataSource: settings.antigravityUsageDataSource,
+                dataSource: .auto,
                 signals: signals
             )
         }()
@@ -338,8 +286,7 @@ final class PopoverViewModel: ObservableObject {
             environmentStatus: environmentStatus,
             signals: signals,
             isEnabled: isEnabled,
-            isAuthRequired: isAuthRequired,
-            dataSource: settings.antigravityUsageDataSource
+            isAuthRequired: isAuthRequired
         )
 
         return RuntimeServiceState(
@@ -361,8 +308,6 @@ final class PopoverViewModel: ObservableObject {
             return runtimeServiceState(for: .claude, settings: settings).summary
         case .codex:
             return runtimeServiceState(for: .codex, settings: settings).summary
-        case .gemini:
-            return runtimeServiceState(for: .gemini, settings: settings).summary
         case .antigravity:
             return runtimeServiceState(for: .antigravity, settings: settings).summary
         }
@@ -374,8 +319,6 @@ final class PopoverViewModel: ObservableObject {
             return runtimeServiceState(for: .claude, settings: .shared).meta
         case .codex:
             return runtimeServiceState(for: .codex, settings: .shared).meta
-        case .gemini:
-            return runtimeServiceState(for: .gemini, settings: .shared).meta
         case .antigravity:
             return runtimeServiceState(for: .antigravity, settings: .shared).meta
         }
@@ -400,7 +343,7 @@ final class PopoverViewModel: ObservableObject {
             return settings.isProviderEnabled(.claude) ? baseSummary : "비활성화됨"
         case .codex:
             return settings.isProviderEnabled(.codex) ? baseSummary : "비활성화됨"
-        case .gemini, .antigravity:
+        case .antigravity:
             return settings.isProviderEnabled(kind) ? baseSummary : "비활성화됨"
         }
     }
@@ -417,7 +360,7 @@ final class PopoverViewModel: ObservableObject {
                 return baseDetail
             }
             return "현재는 설정만 유지하고 있습니다."
-        case .gemini, .antigravity:
+        case .antigravity:
             if settings.isProviderEnabled(kind) {
                 // SwiftUI body 경로 — SWR (blocking 금지)
                 return ProviderEnvironmentDetector.staleWhileRevalidate(for: kind)?.summary
@@ -434,7 +377,7 @@ final class PopoverViewModel: ObservableObject {
             return settings.isProviderEnabled(.claude) ? "활성" : "비활성"
         case .codex:
             return settings.isProviderEnabled(.codex) ? "활성" : "비활성"
-        case .gemini, .antigravity:
+        case .antigravity:
             guard settings.isProviderEnabled(kind) else { return "비활성" }
             guard let service = kind.runtimeService else { return baseBadge }
             let phase = localProviderSummaryState(for: service, settings: settings)?.phase
@@ -446,13 +389,13 @@ final class PopoverViewModel: ObservableObject {
             case .backoff:
                 return "재시도 대기"
             case .refreshingCredential:
-                return kind == .gemini ? "갱신 필요" : "연결 준비"
+                return "연결 준비"
             case .probingRuntime:
                 return "연결 확인 중"
             case .waitingForApp:
                 return "앱 필요"
             case .authRequired:
-                return kind == .gemini ? "로그인 필요" : "연결 필요"
+                return "연결 필요"
             case .temporaryError:
                 return "일시 실패"
             case .ready:
@@ -475,14 +418,10 @@ final class PopoverViewModel: ObservableObject {
 
         // 환경 상태 캐시 갱신 — main thread 에서 실행되므로 blocking 금지.
         // 읽기는 이미 캐시된 값만 (백그라운드 워밍이 주기적으로 업데이트).
-        self.cachedGeminiEnvStatus = ProviderEnvironmentDetector.cachedStatus(for: .gemini)
         self.cachedAntigravityEnvStatus = ProviderEnvironmentDetector.cachedStatus(for: .antigravity)
         // signals 도 캐시된 값만. 콜드 캐시면 nil → 백그라운드 warm-up 으로
         // 채워진 뒤 다음 update() 에서 반영됨.
-        self.cachedGeminiSignals = ProviderEnvironmentDetector.cachedGeminiSignals()
         self.cachedAntigravitySignals = ProviderEnvironmentDetector.cachedAntigravitySignals()
-        // signals 는 대부분 FS/파일 접근이라 빠르지만 Gemini 의 바이너리
-        // lookup 이 최초 1회 /bin/sh 를 호출하므로 백그라운드에서 업데이트.
         ProviderEnvironmentDetector.refreshAllInBackground()
     }
 
@@ -503,16 +442,11 @@ final class PopoverViewModel: ObservableObject {
         if let usage = snapshot.codexUsage {
             return "현재 \(Int((usage.rateLimit?.primaryWindow?.utilization ?? 0).rounded()))% · 주간 \(Int((usage.rateLimit?.secondaryWindow?.utilization ?? 0).rounded()))%"
         }
-        if let usage = snapshot.geminiUsage {
-            let tertiary = usage.tertiaryWindow.map { " · Lite \(Int($0.usedPercent.rounded()))%" } ?? ""
-            return "Pro \(Int(usage.primaryPercentage.rounded()))% · Flash \(Int(usage.secondaryPercentage.rounded()))%\(tertiary)"
-        }
         if let usage = snapshot.antigravityUsage {
             guard usage.hasUsageWindows else {
-                return "\(usage.source.displayName) · quota 정보 없음"
+                return "계정 확인됨 · 수치 미지원"
             }
-            let tertiary = usage.tertiaryWindow.map { " · Flash \(Int($0.usedPercent.rounded()))%" } ?? ""
-            return "Claude \(Int(usage.primaryPercentage.rounded()))% · Pro \(Int(usage.secondaryPercentage.rounded()))%\(tertiary)"
+            return usage.modelSummary()
         }
         if snapshot.isLoading {
             return "조회 중"
@@ -576,44 +510,16 @@ final class PopoverViewModel: ObservableObject {
 
     func localProviderSummaryState(for service: PopoverService, settings: AppSettings) -> LocalProviderSummaryState? {
         switch service {
-        case .gemini:
-            let isEnabled = settings.isProviderEnabled(.gemini)
-            let environmentStatus = cachedGeminiEnvStatus
-            let signalsCached = cachedGeminiSignals
-            let signals = signalsCached ?? .empty
-            let snapshot = runtimeSnapshots[.gemini]
-            let requiresInteractiveSetup: Bool = {
-                guard signalsCached != nil else { return false }
-                if !signals.hasBinary { return signals.credentialState == .missing }
-                switch signals.authType {
-                case .apiKey, .vertexAI: return true
-                case .oauthPersonal, .unknown: return signals.credentialState == .missing
-                }
-            }()
-            let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
-            let isAuthRequired = isEnabled
-                && requiresInteractiveSetup
-                && missingCredential
-                && !(snapshot?.hasContent ?? false)
-                && !(snapshot?.isLoading ?? false)
-            return Self.resolveGeminiSummaryState(
-                snapshot: snapshot,
-                environmentStatus: environmentStatus,
-                signals: signals,
-                isEnabled: isEnabled,
-                isAuthRequired: isAuthRequired
-            )
         case .antigravity:
             let isEnabled = settings.isProviderEnabled(.antigravity)
             let environmentStatus = cachedAntigravityEnvStatus
             let signalsCached = cachedAntigravitySignals
             let signals = signalsCached ?? .empty
             let snapshot = runtimeSnapshots[.antigravity]
-            let dataSource = settings.antigravityUsageDataSource
             let requiresInteractiveSetup: Bool = {
                 guard signalsCached != nil else { return false }
                 return AntigravitySetupPolicy.requiresInteractiveSetup(
-                    dataSource: dataSource,
+                    dataSource: .auto,
                     signals: signals
                 )
             }()
@@ -628,58 +534,11 @@ final class PopoverViewModel: ObservableObject {
                 environmentStatus: environmentStatus,
                 signals: signals,
                 isEnabled: isEnabled,
-                isAuthRequired: isAuthRequired,
-                dataSource: dataSource
+                isAuthRequired: isAuthRequired
             )
         case .claude, .codex:
             return nil
         }
-    }
-
-    static func resolveGeminiSummaryState(
-        snapshot: RuntimeProviderSnapshot?,
-        environmentStatus: ProviderEnvironmentStatus?,
-        signals: GeminiEnvironmentSignals,
-        isEnabled: Bool,
-        isAuthRequired: Bool
-    ) -> LocalProviderSummaryState {
-        if !isEnabled {
-            return .init(phase: .disabled, summary: "비활성화됨")
-        }
-        if let usage = snapshot?.geminiUsage {
-            return .init(
-                phase: .ready,
-                summary: "Pro \(Int(usage.primaryPercentage.rounded()))% · Flash \(Int(usage.secondaryPercentage.rounded()))%"
-            )
-        }
-        if snapshot?.isLoading == true {
-            return .init(phase: .loading, summary: "조회 중")
-        }
-        if let nextRefreshAllowedAt = snapshot?.nextRefreshAllowedAt,
-           snapshot?.payload == nil,
-           let remainingSeconds = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextRefreshAllowedAt)
-        {
-            return .init(phase: .backoff, summary: "약 \(remainingSeconds)초 후 다시 시도")
-        }
-        if environmentStatus?.credentialState == .refreshable, environmentStatus?.runtimeReachability == true {
-            return .init(phase: .refreshingCredential, summary: "로그인 갱신 후 연결 확인 중")
-        }
-        if environmentStatus?.runtimeReachability == true {
-            return .init(phase: .probingRuntime, summary: "연결 확인 중")
-        }
-        if let error = snapshot?.error, !shouldSuppressRecoverableError(error, runtimeReachability: environmentStatus?.runtimeReachability ?? false) {
-            if error.isDefinitiveAuthFailure || snapshot?.fetchState == .authFailure || isAuthRequired {
-                return .init(phase: .authRequired, summary: "로그인 필요")
-            }
-            return .init(phase: .temporaryError, summary: error.errorDescription ?? "일시 조회 실패")
-        }
-        if snapshot?.fetchState == .authFailure || isAuthRequired {
-            return .init(phase: .authRequired, summary: "로그인 필요")
-        }
-        if signals.credentialState == .missing {
-            return .init(phase: .authRequired, summary: environmentStatus?.summary ?? "로그인 필요")
-        }
-        return .init(phase: .probingRuntime, summary: environmentStatus?.summary ?? "Gemini 조회를 준비 중입니다")
     }
 
     static func resolveAntigravitySummaryState(
@@ -687,8 +546,7 @@ final class PopoverViewModel: ObservableObject {
         environmentStatus: ProviderEnvironmentStatus?,
         signals: AntigravityEnvironmentSignals,
         isEnabled: Bool,
-        isAuthRequired: Bool,
-        dataSource: AntigravityUsageDataSource = .auto
+        isAuthRequired: Bool
     ) -> LocalProviderSummaryState {
         if !isEnabled {
             return .init(phase: .disabled, summary: "비활성화됨")
@@ -697,12 +555,12 @@ final class PopoverViewModel: ObservableObject {
             guard usage.hasUsageWindows else {
                 return .init(
                     phase: .ready,
-                    summary: "\(usage.source.displayName) · quota 정보 없음"
+                    summary: "계정 확인됨 · 수치 미지원"
                 )
             }
             return .init(
                 phase: .ready,
-                summary: "\(usage.source.displayName) · Claude \(Int(usage.primaryPercentage.rounded()))% · Pro \(Int(usage.secondaryPercentage.rounded()))%"
+                summary: usage.modelSummary()
             )
         }
         if snapshot?.isLoading == true {
@@ -719,7 +577,6 @@ final class PopoverViewModel: ObservableObject {
                 return .init(
                     phase: .authRequired,
                     summary: antigravityAuthRequiredSummary(
-                        dataSource: dataSource,
                         signals: signals,
                         environmentStatus: environmentStatus
                     )
@@ -727,53 +584,38 @@ final class PopoverViewModel: ObservableObject {
             }
             return .init(phase: .temporaryError, summary: error.errorDescription ?? "일시 조회 실패")
         }
-        if signals.hasOAuthCredential && dataSource != .localIDE {
+        if signals.hasOAuthCredential {
             return .init(
                 phase: .probingRuntime,
                 summary: signals.hasBrokenCLICommand
-                    ? "OAuth 원격 조회 준비 · CLI 복구 필요"
-                    : signals.hasCLISurface
-                    ? "OAuth 원격 조회 준비 · CLI 감지"
-                    : "OAuth 원격 조회 준비"
+                    ? "계정 확인됨 · CLI 복구 필요"
+                    : "계정 확인됨 · 사용량 조회 준비"
             )
         }
         if signals.hasRuntimeConnection {
-            return .init(
-                phase: .probingRuntime,
-                summary: dataSource == .googleOAuth
-                    ? "OAuth 없음 · 앱 연결로 조회 준비"
-                    : "앱 연결 확인 중"
-            )
+            return .init(phase: .probingRuntime, summary: "앱 연결 확인 중")
         }
-        if dataSource == .googleOAuth {
-            return .init(
-                phase: .authRequired,
-                summary: signals.hasBrokenCLICommand
-                    ? "CLI 복구 필요 · OAuth 연결 필요"
-                    : signals.hasCLISurface
-                    ? "CLI 감지 · OAuth 연결 필요"
-                    : "OAuth 연결 필요"
-            )
-        }
-        let hasRelevantPersistedAuthState = signals.hasCredentialRelevant(to: dataSource)
+        let hasRelevantPersistedAuthState = signals.hasCredentialRelevant(to: .auto)
         if hasRelevantPersistedAuthState {
+            if signals.hasCLIBinary {
+                return .init(phase: .probingRuntime, summary: "사용량 조회 준비")
+            }
             return .init(phase: .waitingForApp, summary: "앱 실행 후 연결 확인 중")
         }
-        if signals.hasCLISurface && dataSource != .localIDE {
+        if signals.hasCLISurface {
             return .init(
-                phase: .authRequired,
+                phase: signals.hasCLIBinary ? .probingRuntime : .authRequired,
                 summary: signals.hasBrokenCLICommand
-                    ? "CLI 복구 필요 · OAuth 연결 필요"
+                    ? "CLI 복구 필요"
                     : signals.hasCLIBinary
-                    ? "CLI 감지 · OAuth 연결 필요"
-                    : "CLI 설정 감지 · OAuth 연결 필요"
+                    ? "사용량 조회 준비"
+                    : "CLI 설정 감지 · 실행 파일 필요"
             )
         }
         if snapshot?.fetchState == .authFailure || isAuthRequired {
             return .init(
                 phase: .authRequired,
                 summary: antigravityAuthRequiredSummary(
-                    dataSource: dataSource,
                     signals: signals,
                     environmentStatus: environmentStatus
                 )
@@ -789,12 +631,14 @@ final class PopoverViewModel: ObservableObject {
     }
 
     private static func antigravityAuthRequiredSummary(
-        dataSource: AntigravityUsageDataSource,
         signals: AntigravityEnvironmentSignals,
         environmentStatus: ProviderEnvironmentStatus?
     ) -> String {
-        if dataSource == .googleOAuth || (dataSource == .auto && signals.hasOAuthCredential) {
-            return "OAuth 다시 연결 필요"
+        if signals.hasOAuthCredential {
+            return "Google 계정 다시 연결 필요"
+        }
+        if signals.hasCLIBinary {
+            return signals.hasBrokenCLICommand ? "CLI 복구 필요" : "CLI 확인 필요"
         }
         return environmentStatus?.summary ?? "앱 실행 또는 인증이 필요합니다"
     }

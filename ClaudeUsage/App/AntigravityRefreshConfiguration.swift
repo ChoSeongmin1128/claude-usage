@@ -6,11 +6,11 @@ struct AntigravityRefreshConfiguration: Sendable, Equatable {
     let activeOAuthAccountUpdatedAtMilliseconds: Double?
 
     static func current(
-        dataSource: AntigravityUsageDataSource = AppSettings.shared.antigravityUsageDataSource,
+        dataSource: AntigravityUsageDataSource = .auto,
         accountStore: AntigravityOAuthAccountStore = AntigravityOAuthAccountStore()
     ) -> AntigravityRefreshConfiguration {
         switch dataSource {
-        case .localIDE:
+        case .localIDE, .agyCLI:
             return AntigravityRefreshConfiguration(
                 dataSource: dataSource,
                 activeOAuthAccountID: nil,
@@ -41,7 +41,11 @@ enum AntigravitySetupPolicy {
         switch dataSource {
         case .googleOAuth:
             return !signals.hasOAuthCredential && !signals.hasRuntimeConnection
-        case .localIDE, .auto:
+        case .agyCLI:
+            return !signals.hasCLIBinary
+        case .localIDE:
+            return !signals.hasRuntimeConnection && !signals.hasCredentialRelevant(to: dataSource)
+        case .auto:
             return !signals.hasRuntimeConnection && !signals.hasCredentialRelevant(to: dataSource)
         }
     }

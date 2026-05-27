@@ -39,11 +39,12 @@ final class AntigravityLocalUsageParsingTests: XCTestCase {
         XCTAssertEqual(response.source, .localIDE)
         XCTAssertEqual(response.accountEmail, "nathan@example.com")
         XCTAssertEqual(response.accountPlan, "Antigravity Pro")
-        XCTAssertEqual(response.primaryWindow?.label, "Claude")
-        XCTAssertEqual(response.primaryPercentage, 60, accuracy: 0.001)
-        XCTAssertEqual(response.secondaryWindow?.label, "Gemini Pro")
-        XCTAssertEqual(response.secondaryPercentage, 25, accuracy: 0.001)
-        XCTAssertNotNil(response.secondaryWindow?.resetAtISO)
+        XCTAssertEqual(response.primaryWindow?.label, "Gemini 2.5 Pro")
+        XCTAssertEqual(response.primaryPercentage, 25, accuracy: 0.001)
+        XCTAssertNil(response.secondaryWindow)
+        XCTAssertEqual(response.tertiaryWindow?.label, "Claude Sonnet")
+        XCTAssertEqual(response.tertiaryPercentage, 60, accuracy: 0.001)
+        XCTAssertNotNil(response.primaryWindow?.resetAtISO)
     }
 
     func testUserStatusResponseFallsBackToPlanInfoName() throws {

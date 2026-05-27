@@ -2,36 +2,6 @@ import XCTest
 @testable import ClaudeUsage
 
 final class ProviderEnvironmentDetectorTests: XCTestCase {
-    func testInterpretGeminiMarksRefreshOnlyOauthAsRefreshableAndReachable() {
-        let status = ProviderEnvironmentDetector.interpretGemini(
-            signals: GeminiEnvironmentSignals(
-                hasBinary: true,
-                authType: .oauthPersonal,
-                credentialState: .refreshOnly
-            )
-        )
-
-        XCTAssertTrue(status.isDetected)
-        XCTAssertEqual(status.credentialState, ProviderCredentialState.refreshable)
-        XCTAssertTrue(status.runtimeReachability)
-        XCTAssertEqual(status.summary, "Gemini 로그인 정보를 갱신하고 있습니다")
-    }
-
-    func testInterpretGeminiTreatsApiKeyModeAsUnsupportedInteractiveSetup() {
-        let status = ProviderEnvironmentDetector.interpretGemini(
-            signals: GeminiEnvironmentSignals(
-                hasBinary: true,
-                authType: .apiKey,
-                credentialState: .usable
-            )
-        )
-
-        XCTAssertFalse(status.isDetected)
-        XCTAssertEqual(status.credentialState, .missing)
-        XCTAssertFalse(status.runtimeReachability)
-        XCTAssertEqual(status.summary, "현재 로그인 방식은 지원하지 않습니다")
-    }
-
     func testInterpretAntigravitySeparatesPersistedAuthFromRuntimeReachability() {
         let status = ProviderEnvironmentDetector.interpretAntigravity(
             signals: AntigravityEnvironmentSignals(
@@ -69,6 +39,14 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
                 sourceDescription: "ClaudeUsage"
             )
         )
+        let cliSignals = AntigravityEnvironmentSignals(
+            hasStateDirectory: false,
+            hasCLIBinary: true,
+            appRunning: false,
+            runningProcess: nil,
+            hasAuthStatus: false,
+            hasOAuthToken: false
+        )
 
         XCTAssertTrue(appOnlySignals.hasCredentialRelevant(to: .localIDE))
         XCTAssertTrue(appOnlySignals.hasCredentialRelevant(to: .auto))
@@ -76,6 +54,9 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
         XCTAssertTrue(oauthSignals.hasCredentialRelevant(to: .googleOAuth))
         XCTAssertTrue(oauthSignals.hasCredentialRelevant(to: .auto))
         XCTAssertFalse(oauthSignals.hasCredentialRelevant(to: .localIDE))
+        XCTAssertFalse(appOnlySignals.hasCredentialRelevant(to: .agyCLI))
+        XCTAssertTrue(cliSignals.hasCredentialRelevant(to: .agyCLI))
+        XCTAssertTrue(cliSignals.hasCredentialRelevant(to: .auto))
     }
 
     func testAntigravitySetupPolicyTreatsRuntimeConnectionAsGoogleOAuthFallbackReady() {
@@ -159,7 +140,7 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
         XCTAssertEqual(status.credentialState, .usable)
         XCTAssertFalse(status.runtimeReachability)
         XCTAssertTrue(status.canAttemptRefresh)
-        XCTAssertEqual(status.summary, "Antigravity OAuth 연결 확인됨")
+        XCTAssertEqual(status.summary, "Antigravity 계정 연결됨")
     }
 
     func testInterpretAntigravityOAuthWithCLISurfaceDoesNotClaimCLIUsageIncluded() {
@@ -182,12 +163,12 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
 
         XCTAssertTrue(status.isDetected)
         XCTAssertTrue(status.canAttemptRefresh)
-        XCTAssertEqual(status.summary, "Antigravity OAuth 연결 확인됨 · CLI 감지")
+        XCTAssertEqual(status.summary, "Antigravity 계정 연결됨")
         XCTAssertFalse(status.summary.contains("CLI 포함"))
         XCTAssertFalse(status.summary.contains("CLI 사용량 포함"))
     }
 
-    func testInterpretAntigravityMarksCLIInstallAsDetectedButNeedsOAuth() {
+    func testInterpretAntigravityMarksRunnableCLIAsRefreshable() {
         let status = ProviderEnvironmentDetector.interpretAntigravity(
             signals: AntigravityEnvironmentSignals(
                 hasStateDirectory: false,
@@ -200,10 +181,10 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
         )
 
         XCTAssertTrue(status.isDetected)
-        XCTAssertEqual(status.credentialState, .missing)
+        XCTAssertEqual(status.credentialState, .refreshable)
         XCTAssertFalse(status.runtimeReachability)
-        XCTAssertFalse(status.canAttemptRefresh)
-        XCTAssertEqual(status.summary, "Antigravity CLI 감지됨 · OAuth 연결 필요")
+        XCTAssertTrue(status.canAttemptRefresh)
+        XCTAssertEqual(status.summary, "Antigravity 사용량 조회 준비")
     }
 
     func testInterpretAntigravityMarksBrokenCLICommandAsRepairNeeded() {
@@ -222,7 +203,7 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
         XCTAssertEqual(status.credentialState, .missing)
         XCTAssertFalse(status.runtimeReachability)
         XCTAssertFalse(status.canAttemptRefresh)
-        XCTAssertEqual(status.summary, "Antigravity CLI 복구 필요 · OAuth 연결 필요")
+        XCTAssertEqual(status.summary, "Antigravity CLI 복구 필요")
     }
 
     func testAntigravityCLIStatusMarksBrokenShellWrapperTarget() throws {
@@ -244,6 +225,31 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
 
         XCTAssertEqual(status.kind, .broken)
         XCTAssertEqual(status.path, wrapper.path)
+        XCTAssertEqual(status.brokenTarget, missingTarget.path)
+    }
+
+    func testAntigravityCLIStatusMarksBrokenSymlinkedShellWrapperTarget() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ClaudeUsageTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let missingTarget = directory.appendingPathComponent("missing-antigravity")
+        let wrapper = directory.appendingPathComponent("agy.wrapper.sh")
+        try "#!/bin/sh\nexec '\(missingTarget.path)' \"$@\"\n"
+            .write(to: wrapper, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: wrapper.path
+        )
+
+        let symlink = directory.appendingPathComponent("agy")
+        try FileManager.default.createSymbolicLink(atPath: symlink.path, withDestinationPath: wrapper.path)
+
+        let status = ProviderEnvironmentDetector.antigravityCLIStatus(for: symlink)
+
+        XCTAssertEqual(status.kind, .broken)
+        XCTAssertEqual(status.path, symlink.path)
         XCTAssertEqual(status.brokenTarget, missingTarget.path)
     }
 
@@ -290,7 +296,7 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
         XCTAssertTrue(status.isDetected)
         XCTAssertEqual(status.credentialState, .missing)
         XCTAssertFalse(status.runtimeReachability)
-        XCTAssertEqual(status.summary, "Antigravity CLI 감지됨 · OAuth 연결 필요")
+        XCTAssertEqual(status.summary, "Antigravity CLI 설정 확인 필요")
     }
 
     func testInterpretAntigravityTreatsCLISettingsFileAsCLISurface() {
@@ -308,6 +314,6 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
         XCTAssertTrue(status.isDetected)
         XCTAssertEqual(status.credentialState, .missing)
         XCTAssertFalse(status.runtimeReachability)
-        XCTAssertEqual(status.summary, "Antigravity CLI 감지됨 · OAuth 연결 필요")
+        XCTAssertEqual(status.summary, "Antigravity CLI 설정 확인 필요")
     }
 }

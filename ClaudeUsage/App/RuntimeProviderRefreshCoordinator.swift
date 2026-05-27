@@ -123,7 +123,7 @@ enum RuntimeProviderRefreshCoordinator {
                     lastAttemptState: .authFailure
                 )
             }
-        case .gemini, .antigravity:
+        case .antigravity:
             if requiresInteractiveSetup {
                 return RuntimeProviderState(
                     error: .invalidSessionKey,

@@ -79,11 +79,8 @@ extension SettingsView {
             if panel == .codex {
                 checkCodexAuth()
             }
-            // 패널 자체가 .gemini / .antigravity 로 바뀌는 경우 background warm-up.
+            // 패널 자체가 .antigravity 로 바뀌는 경우 background warm-up.
             switch panel {
-            case .gemini:
-                ProviderEnvironmentDetector.refreshStatusInBackground(for: .gemini)
-                ProviderEnvironmentDetector.refreshGeminiSignalsInBackground()
             case .antigravity:
                 antigravityOAuthSettings.refreshAccounts()
                 ProviderEnvironmentDetector.refreshStatusInBackground(for: .antigravity)
@@ -142,14 +139,6 @@ extension SettingsView {
             providerPopoverDisplaySection(for: .codex)
             Divider()
             providerAlertSection(for: .codex)
-        case .gemini:
-            runtimeProviderPanel(for: .gemini)
-            Divider()
-            providerMenuBarDisplaySection(for: .gemini)
-            Divider()
-            providerPopoverDisplaySection(for: .gemini)
-            Divider()
-            providerAlertSection(for: .gemini)
         case .antigravity:
             runtimeProviderPanel(for: .antigravity)
             Divider()

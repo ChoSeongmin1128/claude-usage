@@ -101,7 +101,6 @@ struct ServiceSelectionHelper {
         hasClaudeSessionKey: Bool,
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool,
-        geminiRuntimeReachability: Bool,
         antigravityRuntimeReachability: Bool,
         antigravityRefreshReachability: Bool? = nil
     ) -> Bool {
@@ -110,7 +109,6 @@ struct ServiceSelectionHelper {
             hasClaudeSessionKey: hasClaudeSessionKey,
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
             isCodexAuthenticated: isCodexAuthenticated,
-            geminiRuntimeReachability: geminiRuntimeReachability,
             antigravityRuntimeReachability: antigravityRuntimeReachability,
             antigravityRefreshReachability: antigravityRefreshReachability ?? antigravityRuntimeReachability
         )
@@ -123,7 +121,6 @@ struct ServiceSelectionHelper {
         hasClaudeSessionKey: Bool,
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool,
-        geminiRuntimeReachability: Bool,
         antigravityRuntimeReachability: Bool,
         antigravityRefreshReachability: Bool? = nil
     ) -> [PopoverService] {
@@ -134,7 +131,6 @@ struct ServiceSelectionHelper {
                 hasClaudeSessionKey: hasClaudeSessionKey,
                 hasClaudeOAuthCredential: hasClaudeOAuthCredential,
                 isCodexAuthenticated: isCodexAuthenticated,
-                geminiRuntimeReachability: geminiRuntimeReachability,
                 antigravityRuntimeReachability: antigravityRuntimeReachability,
                 antigravityRefreshReachability: antigravityRefreshReachability
             )
@@ -146,7 +142,6 @@ struct ServiceSelectionHelper {
         hasClaudeSessionKey: Bool,
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool,
-        geminiRuntimeReachability: Bool,
         antigravityRuntimeReachability: Bool,
         antigravityRefreshReachability: Bool? = nil
     ) -> [PopoverService] {
@@ -155,7 +150,6 @@ struct ServiceSelectionHelper {
             hasClaudeSessionKey: hasClaudeSessionKey,
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
             isCodexAuthenticated: isCodexAuthenticated,
-            geminiRuntimeReachability: geminiRuntimeReachability,
             antigravityRuntimeReachability: antigravityRuntimeReachability,
             antigravityRefreshReachability: antigravityRefreshReachability
         )
@@ -166,7 +160,6 @@ struct ServiceSelectionHelper {
         hasClaudeSessionKey: Bool,
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool,
-        geminiRuntimeReachability: Bool,
         antigravityRuntimeReachability: Bool,
         antigravityRefreshReachability: Bool? = nil
     ) -> Bool {
@@ -175,7 +168,6 @@ struct ServiceSelectionHelper {
             hasClaudeSessionKey: hasClaudeSessionKey,
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
             isCodexAuthenticated: isCodexAuthenticated,
-            geminiRuntimeReachability: geminiRuntimeReachability,
             antigravityRuntimeReachability: antigravityRuntimeReachability,
             antigravityRefreshReachability: antigravityRefreshReachability
         ).isEmpty
@@ -186,7 +178,6 @@ struct ServiceSelectionHelper {
         hasClaudeSessionKey: Bool,
         hasClaudeOAuthCredential: Bool,
         isCodexAuthenticated: Bool,
-        geminiRuntimeReachability: Bool,
         antigravityRuntimeReachability: Bool,
         antigravityRefreshReachability: Bool? = nil
     ) -> Bool {
@@ -195,7 +186,6 @@ struct ServiceSelectionHelper {
             hasClaudeSessionKey: hasClaudeSessionKey,
             hasClaudeOAuthCredential: hasClaudeOAuthCredential,
             isCodexAuthenticated: isCodexAuthenticated,
-            geminiRuntimeReachability: geminiRuntimeReachability,
             antigravityRuntimeReachability: antigravityRuntimeReachability,
             antigravityRefreshReachability: antigravityRefreshReachability
         )

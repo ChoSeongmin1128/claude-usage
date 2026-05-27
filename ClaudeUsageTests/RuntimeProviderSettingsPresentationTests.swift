@@ -2,67 +2,6 @@ import XCTest
 @testable import ClaudeUsage
 
 final class RuntimeProviderSettingsPresentationTests: XCTestCase {
-    func testAntigravityAutoSourceDetailShowsLastResolvedConcreteSource() {
-        XCTAssertEqual(
-            RuntimeProviderSettingsPresentation.antigravityResolvedSourceDetail(
-                configuredSource: .auto,
-                lastResolvedSource: .googleOAuth
-            ),
-            "최근 조회 경로: Google OAuth"
-        )
-        XCTAssertNil(RuntimeProviderSettingsPresentation.antigravityResolvedSourceDetail(
-            configuredSource: .localIDE,
-            lastResolvedSource: .googleOAuth
-        ))
-        XCTAssertNil(RuntimeProviderSettingsPresentation.antigravityResolvedSourceDetail(
-            configuredSource: .auto,
-            lastResolvedSource: nil
-        ))
-    }
-
-    func testGeminiRefreshOnlyUsesRefreshingCredentialStage() {
-        let presentation = RuntimeProviderSettingsPresentation.makeGemini(
-            isEnabled: true,
-            environmentStatus: ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: ProviderCredentialState.refreshable,
-                runtimeReachability: true,
-                summary: "Gemini 로그인 정보를 갱신하고 있습니다"
-            ),
-            signals: GeminiEnvironmentSignals(
-                hasBinary: true,
-                authType: .oauthPersonal,
-                credentialState: .refreshOnly
-            )
-        )
-
-        XCTAssertEqual(presentation.stage, .refreshingCredential)
-        XCTAssertEqual(presentation.badgeTitle, "갱신 필요")
-        XCTAssertEqual(presentation.summary, "로그인 정보를 새로 고치는 중입니다")
-    }
-
-    func testGeminiMissingBinaryDoesNotLookReadyEvenWhenCredentialExists() {
-        let presentation = RuntimeProviderSettingsPresentation.makeGemini(
-            isEnabled: true,
-            environmentStatus: ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .usable,
-                runtimeReachability: false,
-                summary: "Gemini 설치를 확인해 주세요"
-            ),
-            signals: GeminiEnvironmentSignals(
-                hasBinary: false,
-                authType: .oauthPersonal,
-                credentialState: .usable
-            )
-        )
-
-        XCTAssertEqual(presentation.stage, .installRequired)
-        XCTAssertEqual(presentation.badgeTitle, "설치 필요")
-        XCTAssertTrue(presentation.nextStepDetail.contains("Gemini"))
-        XCTAssertNil(presentation.availableAction)
-    }
-
     func testAntigravityPersistedAuthWithoutRunningAppStaysWaitingForApp() {
         let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
             isEnabled: true,
@@ -87,7 +26,7 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.availableAction, .openAntigravityApp)
     }
 
-    func testAntigravityOAuthCredentialUsesRemoteReadyPresentationWhenDataSourceAllowsIt() {
+    func testAntigravityConnectedAccountUsesSimpleReadyPresentation() {
         let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
             isEnabled: true,
             environmentStatus: ProviderEnvironmentStatus(
@@ -95,7 +34,7 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
                 credentialState: .refreshable,
                 runtimeReachability: false,
                 refreshReachability: true,
-                summary: "Antigravity OAuth 연결 확인됨"
+                summary: "Antigravity 계정 연결됨"
             ),
             signals: AntigravityEnvironmentSignals(
                 hasStateDirectory: false,
@@ -108,17 +47,17 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
                     email: "nathan@example.com",
                     sourceDescription: "ClaudeUsage"
                 )
-            ),
-            dataSource: .auto
+            )
         )
 
         XCTAssertEqual(presentation.stage, .probingRuntime)
-        XCTAssertEqual(presentation.badgeTitle, "OAuth 연결")
-        XCTAssertTrue(presentation.nextStepDetail.contains("원격 quota API"))
+        XCTAssertEqual(presentation.badgeTitle, "계정 연결")
+        XCTAssertTrue(presentation.nextStepDetail.contains("사용량 수치"))
+        XCTAssertFalse(presentation.nextStepDetail.contains("원격 quota API"))
         XCTAssertNil(presentation.availableAction)
     }
 
-    func testAntigravityOAuthCredentialWithCLISurfaceDoesNotClaimSeparateCLIUsageSource() {
+    func testAntigravityConnectedAccountWithCLISurfaceKeepsPrimaryPresentationSimple() {
         let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
             isEnabled: true,
             environmentStatus: ProviderEnvironmentStatus(
@@ -126,7 +65,7 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
                 credentialState: .usable,
                 runtimeReachability: false,
                 refreshReachability: true,
-                summary: "Antigravity OAuth 연결 확인됨 · CLI 감지"
+                summary: "Antigravity 계정 연결됨"
             ),
             signals: AntigravityEnvironmentSignals(
                 hasStateDirectory: false,
@@ -141,40 +80,15 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
                     email: "nathan@example.com",
                     sourceDescription: "ClaudeUsage"
                 )
-            ),
-            dataSource: .auto
+            )
         )
 
         XCTAssertEqual(presentation.stage, .probingRuntime)
-        XCTAssertEqual(presentation.badgeTitle, "OAuth 연결")
-        XCTAssertTrue(presentation.summary.contains("Antigravity 원격 quota"))
+        XCTAssertEqual(presentation.badgeTitle, "계정 연결")
+        XCTAssertTrue(presentation.summary.contains("사용량"))
+        XCTAssertFalse(presentation.summary.contains("Antigravity 원격 quota"))
         XCTAssertFalse(presentation.summary.contains("CLI 포함"))
         XCTAssertFalse(presentation.summary.contains("CLI 사용량 포함"))
-    }
-
-    func testAntigravityGoogleOAuthModeIgnoresAppPersistedAuthAndPromptsOAuth() {
-        let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
-            isEnabled: true,
-            environmentStatus: ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .unknown,
-                runtimeReachability: false,
-                summary: "Antigravity 앱을 실행하면 조회를 시작합니다"
-            ),
-            signals: AntigravityEnvironmentSignals(
-                hasStateDirectory: true,
-                appRunning: false,
-                runningProcess: nil,
-                hasAuthStatus: true,
-                hasOAuthToken: false
-            ),
-            dataSource: .googleOAuth
-        )
-
-        XCTAssertEqual(presentation.stage, .authRequired)
-        XCTAssertEqual(presentation.badgeTitle, "OAuth 필요")
-        XCTAssertEqual(presentation.nextStepTitle, "Google OAuth 연결")
-        XCTAssertNil(presentation.availableAction)
     }
 
     func testAntigravityGoogleOAuthModeUsesRuntimeConnectionWhenAvailable() {
@@ -200,8 +114,7 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
                 ),
                 hasAuthStatus: true,
                 hasOAuthToken: false
-            ),
-            dataSource: .googleOAuth
+            )
         )
 
         XCTAssertEqual(presentation.stage, .probingRuntime)
@@ -209,14 +122,15 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
         XCTAssertTrue(presentation.summary.contains("앱 연결"))
     }
 
-    func testAntigravityCLIRemoteModePromptsOAuthInsteadOfOpeningApp() {
+    func testAntigravityCLIInAutoModeUsesUsageSourceInsteadOfPromptingOAuth() {
         let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
             isEnabled: true,
             environmentStatus: ProviderEnvironmentStatus(
                 isDetected: true,
-                credentialState: .missing,
+                credentialState: .refreshable,
                 runtimeReachability: false,
-                summary: "Antigravity CLI 감지됨 · OAuth 연결 필요"
+                refreshReachability: true,
+                summary: "Antigravity 사용량 조회 준비"
             ),
             signals: AntigravityEnvironmentSignals(
                 hasStateDirectory: false,
@@ -225,14 +139,13 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
                 runningProcess: nil,
                 hasAuthStatus: false,
                 hasOAuthToken: false
-            ),
-            dataSource: .auto
+            )
         )
 
-        XCTAssertEqual(presentation.stage, .authRequired)
-        XCTAssertEqual(presentation.badgeTitle, "CLI 감지")
-        XCTAssertEqual(presentation.nextStepTitle, "Google OAuth 연결")
-        XCTAssertTrue(presentation.nextStepDetail.contains("원격 사용량"))
+        XCTAssertEqual(presentation.stage, .probingRuntime)
+        XCTAssertEqual(presentation.badgeTitle, "조회 준비")
+        XCTAssertEqual(presentation.nextStepTitle, "사용량 조회")
+        XCTAssertTrue(presentation.nextStepDetail.contains("CLI 로그인"))
         XCTAssertNil(presentation.availableAction)
     }
 
@@ -255,14 +168,13 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
                 runningProcess: nil,
                 hasAuthStatus: false,
                 hasOAuthToken: false
-            ),
-            dataSource: .auto
+            )
         )
 
         XCTAssertEqual(presentation.stage, .authRequired)
         XCTAssertEqual(presentation.badgeTitle, "CLI 복구")
         XCTAssertEqual(presentation.badgeTone, .red)
-        XCTAssertEqual(presentation.nextStepTitle, "CLI 재설치 후 Google OAuth 연결")
+        XCTAssertEqual(presentation.nextStepTitle, "CLI 재설치")
         XCTAssertTrue(presentation.summary.contains("실행 대상"))
         XCTAssertTrue(presentation.nextStepDetail.contains("agy"))
         XCTAssertNil(presentation.availableAction)
@@ -276,7 +188,7 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
                 credentialState: .usable,
                 runtimeReachability: false,
                 refreshReachability: true,
-                summary: "Antigravity OAuth 연결 확인됨"
+                summary: "Antigravity 계정 연결됨"
             ),
             signals: AntigravityEnvironmentSignals(
                 hasStateDirectory: false,
@@ -293,24 +205,23 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
                     email: "nathan@example.com",
                     sourceDescription: "ClaudeUsage"
                 )
-            ),
-            dataSource: .auto
+            )
         )
 
         XCTAssertEqual(presentation.stage, .probingRuntime)
-        XCTAssertEqual(presentation.badgeTitle, "OAuth 연결")
+        XCTAssertEqual(presentation.badgeTitle, "계정 연결")
         XCTAssertTrue(presentation.summary.contains("CLI 명령은 복구가 필요"))
         XCTAssertFalse(presentation.summary.contains("CLI 포함"))
     }
 
-    func testAntigravityCLIStateRemoteModePromptsOAuthWithoutOpeningApp() {
+    func testAntigravityCLIStateWithoutExecutablePromptsCLIConfirmation() {
         let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
             isEnabled: true,
             environmentStatus: ProviderEnvironmentStatus(
                 isDetected: true,
                 credentialState: .missing,
                 runtimeReachability: false,
-                summary: "Antigravity CLI 감지됨 · OAuth 연결 필요"
+                summary: "Antigravity CLI 설정 확인 필요"
             ),
             signals: AntigravityEnvironmentSignals(
                 hasStateDirectory: false,
@@ -319,13 +230,12 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
                 runningProcess: nil,
                 hasAuthStatus: false,
                 hasOAuthToken: false
-            ),
-            dataSource: .auto
+            )
         )
 
         XCTAssertEqual(presentation.stage, .authRequired)
         XCTAssertEqual(presentation.badgeTitle, "CLI 설정")
-        XCTAssertEqual(presentation.nextStepTitle, "Google OAuth 연결")
+        XCTAssertEqual(presentation.nextStepTitle, "AGY CLI 확인")
         XCTAssertNil(presentation.availableAction)
     }
 
@@ -421,13 +331,6 @@ final class SparkleUpdateResultInterpreterTests: XCTestCase {
 
 final class PublicCopySanityTests: XCTestCase {
     func testNormalUserFacingCopyDoesNotExposeInternalImplementationTerms() {
-        let geminiStatus = ProviderEnvironmentDetector.interpretGemini(
-            signals: GeminiEnvironmentSignals(
-                hasBinary: true,
-                authType: .oauthPersonal,
-                credentialState: .refreshOnly
-            )
-        )
         let antigravityStatus = ProviderEnvironmentDetector.interpretAntigravity(
             signals: AntigravityEnvironmentSignals(
                 hasStateDirectory: true,
@@ -445,15 +348,6 @@ final class PublicCopySanityTests: XCTestCase {
                 hasOAuthToken: true
             )
         )
-        let geminiPresentation = RuntimeProviderSettingsPresentation.makeGemini(
-            isEnabled: true,
-            environmentStatus: geminiStatus,
-            signals: GeminiEnvironmentSignals(
-                hasBinary: false,
-                authType: .oauthPersonal,
-                credentialState: .usable
-            )
-        )
         let claudeAccountPresentation = ClaudeAccountSettingsPresentation.resolve(
             account: ClaudeAccount(
                 id: "web",
@@ -467,11 +361,7 @@ final class PublicCopySanityTests: XCTestCase {
         )
 
         assertNoInternalTerms(in: [
-            geminiStatus.summary,
             antigravityStatus.summary,
-            geminiPresentation.summary,
-            geminiPresentation.nextStepTitle,
-            geminiPresentation.nextStepDetail,
             claudeAccountPresentation.primaryTitle,
             claudeAccountPresentation.secondaryLine ?? "",
             claudeAccountPresentation.statusText,

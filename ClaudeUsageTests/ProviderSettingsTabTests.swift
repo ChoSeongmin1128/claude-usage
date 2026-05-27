@@ -22,18 +22,16 @@ final class ProviderSettingsTabTests: XCTestCase {
     }
 
     func testRuntimeProviderLegacyTabsNormalizeToExpectedTabs() {
-        XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "auth", for: .gemini), .overview)
-        XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "display", for: .gemini), .overview)
-        XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "popover", for: .gemini), .overview)
-        XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "advanced", for: .gemini), .overview)
-        XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "alerts", for: .gemini), .overview)
         XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "auth", for: .antigravity), .overview)
+        XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "display", for: .antigravity), .overview)
+        XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "popover", for: .antigravity), .overview)
+        XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "advanced", for: .antigravity), .overview)
+        XCTAssertEqual(ProviderSettingsTab.normalized(rawValue: "alerts", for: .antigravity), .overview)
     }
 
     func testProviderTabsCollapseToOverviewOnly() {
         XCTAssertEqual(ProviderSettingsTab.tabs(for: .claude), [.overview])
         XCTAssertEqual(ProviderSettingsTab.tabs(for: .codex), [.overview])
-        XCTAssertEqual(ProviderSettingsTab.tabs(for: .gemini), [.overview])
         XCTAssertEqual(ProviderSettingsTab.tabs(for: .antigravity), [.overview])
     }
 

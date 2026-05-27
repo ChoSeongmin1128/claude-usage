@@ -202,7 +202,10 @@ class AppSettings: ObservableObject {
     private static let popoverItemsByProviderKey = "popoverItemsV2"
     private static let compactPopoverItemsByProviderKey = "compactPopoverItemsV2"
     private static let popoverItemsMigrationVersionKey = "popoverItemsMigrationVersion"
-    private static let currentPopoverItemsMigrationVersion = 3
+    private static let currentPopoverItemsMigrationVersion = 4
+    private static let antigravityHiddenModelIDsKey = "antigravityHiddenModelIDs"
+    private static let antigravityMenuBarPrimaryModelIDKey = "antigravityMenuBarPrimaryModelID"
+    private static let antigravityMenuBarSecondaryModelIDKey = "antigravityMenuBarSecondaryModelID"
     // 구 키 (v1, dual-write 대상)
     private static let legacyClaudePopoverKey = "popoverItems"
     private static let legacyClaudeCompactPopoverKey = "compactPopoverItems"
@@ -270,7 +273,7 @@ class AppSettings: ObservableObject {
                 switch service {
                 case .claude: fullCandidate = legacyClaudeFullResolved
                 case .codex: fullCandidate = legacyCodexFull
-                case .gemini, .antigravity: fullCandidate = nil
+                case .antigravity: fullCandidate = nil
                 }
             }
             let rawFull = fullCandidate ?? catalog.defaultItems
@@ -288,7 +291,7 @@ class AppSettings: ObservableObject {
                 switch service {
                 case .claude: compactCandidate = legacyClaudeCompact
                 case .codex: compactCandidate = legacyCodexCompact
-                case .gemini, .antigravity: compactCandidate = nil
+                case .antigravity: compactCandidate = nil
                 }
             }
             let rawCompact = compactCandidate ?? full[key]!
@@ -307,8 +310,8 @@ class AppSettings: ObservableObject {
         service: PopoverService,
         migrationVersion: Int
     ) -> [PopoverItemConfig] {
-        guard migrationVersion < 3,
-              service == .gemini || service == .antigravity else {
+        guard migrationVersion < 4,
+              service == .antigravity else {
             return items
         }
 
@@ -388,6 +391,33 @@ class AppSettings: ObservableObject {
         min(max(value, 0), 100)
     }
 
+    nonisolated private static func normalizedOptionalID(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    nonisolated private static func loadStringSet(from defaults: UserDefaults, key: String) -> Set<String> {
+        if let data = defaults.data(forKey: key),
+           let values = try? JSONDecoder().decode([String].self, from: data) {
+            return Set(values.compactMap(Self.normalizedOptionalID))
+        }
+        if let values = defaults.array(forKey: key) as? [String] {
+            return Set(values.compactMap(Self.normalizedOptionalID))
+        }
+        return []
+    }
+
+    nonisolated private static func persistStringSet(_ values: Set<String>, to defaults: UserDefaults, key: String) {
+        let normalized = values.compactMap(Self.normalizedOptionalID).sorted()
+        if normalized.isEmpty {
+            defaults.removeObject(forKey: key)
+            return
+        }
+        if let data = try? JSONEncoder().encode(normalized) {
+            defaults.set(data, forKey: key)
+        }
+    }
+
     private let defaults = UserDefaults.standard
     let loadedProviderStatesFromDisk: Bool
 
@@ -441,16 +471,6 @@ class AppSettings: ObservableObject {
             defaults.set(codexRefreshInterval, forKey: "codexRefreshInterval")
         }
     }
-    @Published var geminiRefreshInterval: TimeInterval {
-        didSet {
-            let normalized = Self.normalizedRefreshInterval(geminiRefreshInterval)
-            guard geminiRefreshInterval == normalized else {
-                geminiRefreshInterval = normalized
-                return
-            }
-            defaults.set(geminiRefreshInterval, forKey: "geminiRefreshInterval")
-        }
-    }
     @Published var antigravityRefreshInterval: TimeInterval {
         didSet {
             let normalized = Self.normalizedRefreshInterval(antigravityRefreshInterval)
@@ -464,13 +484,39 @@ class AppSettings: ObservableObject {
     @Published var antigravityUsageDataSource: AntigravityUsageDataSource {
         didSet { defaults.set(antigravityUsageDataSource.rawValue, forKey: "antigravityUsageDataSource") }
     }
+    @Published var antigravityHiddenModelIDs: Set<String> {
+        didSet {
+            Self.persistStringSet(
+                antigravityHiddenModelIDs,
+                to: defaults,
+                key: Self.antigravityHiddenModelIDsKey
+            )
+        }
+    }
+    @Published var antigravityMenuBarPrimaryModelID: String? {
+        didSet {
+            persistOptionalString(
+                Self.normalizedOptionalID(antigravityMenuBarPrimaryModelID),
+                key: Self.antigravityMenuBarPrimaryModelIDKey
+            )
+            bumpRuntimeProviderDisplayRevision()
+        }
+    }
+    @Published var antigravityMenuBarSecondaryModelID: String? {
+        didSet {
+            persistOptionalString(
+                Self.normalizedOptionalID(antigravityMenuBarSecondaryModelID),
+                key: Self.antigravityMenuBarSecondaryModelIDKey
+            )
+            bumpRuntimeProviderDisplayRevision()
+        }
+    }
 
     func effectiveRefreshInterval(for service: PopoverService) -> TimeInterval {
         guard usePerProviderRefreshIntervals else { return Self.normalizedRefreshInterval(refreshInterval) }
         switch service {
         case .claude: return Self.normalizedRefreshInterval(claudeRefreshInterval)
         case .codex: return Self.normalizedRefreshInterval(codexRefreshInterval)
-        case .gemini: return Self.normalizedRefreshInterval(geminiRefreshInterval)
         case .antigravity: return Self.normalizedRefreshInterval(antigravityRefreshInterval)
         }
     }
@@ -638,9 +684,11 @@ class AppSettings: ObservableObject {
         let usePerProviderRefreshIntervals: Bool
         let claudeRefreshInterval: TimeInterval
         let codexRefreshInterval: TimeInterval
-        let geminiRefreshInterval: TimeInterval
         let antigravityRefreshInterval: TimeInterval
         let antigravityUsageDataSource: AntigravityUsageDataSource
+        let antigravityHiddenModelIDs: Set<String>
+        let antigravityMenuBarPrimaryModelID: String?
+        let antigravityMenuBarSecondaryModelID: String?
         let autoRefresh: Bool
         let notificationsEnabled: Bool
         let notificationPresets: [NotificationPreset]
@@ -691,9 +739,11 @@ class AppSettings: ObservableObject {
             usePerProviderRefreshIntervals: usePerProviderRefreshIntervals,
             claudeRefreshInterval: claudeRefreshInterval,
             codexRefreshInterval: codexRefreshInterval,
-            geminiRefreshInterval: geminiRefreshInterval,
             antigravityRefreshInterval: antigravityRefreshInterval,
             antigravityUsageDataSource: antigravityUsageDataSource,
+            antigravityHiddenModelIDs: antigravityHiddenModelIDs,
+            antigravityMenuBarPrimaryModelID: antigravityMenuBarPrimaryModelID,
+            antigravityMenuBarSecondaryModelID: antigravityMenuBarSecondaryModelID,
             autoRefresh: autoRefresh,
             notificationsEnabled: notificationsEnabled,
             notificationPresets: notificationPresets,
@@ -752,9 +802,11 @@ class AppSettings: ObservableObject {
         usePerProviderRefreshIntervals = snapshot.usePerProviderRefreshIntervals
         claudeRefreshInterval = snapshot.claudeRefreshInterval
         codexRefreshInterval = snapshot.codexRefreshInterval
-        geminiRefreshInterval = snapshot.geminiRefreshInterval
         antigravityRefreshInterval = snapshot.antigravityRefreshInterval
         antigravityUsageDataSource = snapshot.antigravityUsageDataSource
+        antigravityHiddenModelIDs = snapshot.antigravityHiddenModelIDs
+        antigravityMenuBarPrimaryModelID = snapshot.antigravityMenuBarPrimaryModelID
+        antigravityMenuBarSecondaryModelID = snapshot.antigravityMenuBarSecondaryModelID
         autoRefresh = snapshot.autoRefresh
         notificationsEnabled = snapshot.notificationsEnabled
         notificationPresets = snapshot.notificationPresets
@@ -845,7 +897,8 @@ class AppSettings: ObservableObject {
     /// provider별 팝오버 항목 (정규화 후).
     func popoverItems(for service: PopoverService) -> [PopoverItemConfig] {
         let catalog = UsageItemCatalogRegistry.catalog(for: service)
-        return catalog.normalized(popoverItemsByProvider[service.rawValue] ?? catalog.defaultItems)
+        let normalized = catalog.normalized(popoverItemsByProvider[service.rawValue] ?? catalog.defaultItems)
+        return service == .antigravity ? antigravityStructuralPopoverItemsVisible(normalized) : normalized
     }
 
     /// provider별 간소화 팝오버 항목 (정규화 후).
@@ -854,7 +907,8 @@ class AppSettings: ObservableObject {
         let stored = compactPopoverItemsByProvider[service.rawValue]
             ?? popoverItemsByProvider[service.rawValue]
             ?? catalog.defaultItems
-        return catalog.normalized(stored)
+        let normalized = catalog.normalized(stored)
+        return service == .antigravity ? antigravityStructuralPopoverItemsVisible(normalized) : normalized
     }
 
     /// density에 맞춰 실제로 사용할 항목 배열.
@@ -897,6 +951,34 @@ class AppSettings: ObservableObject {
                 }
             }
         )
+    }
+
+    func isAntigravityModelVisible(_ modelID: String) -> Bool {
+        guard let modelID = Self.normalizedOptionalID(modelID) else { return true }
+        return !antigravityHiddenModelIDs.contains(modelID)
+    }
+
+    func setAntigravityModelVisible(_ visible: Bool, modelID: String) {
+        guard let modelID = Self.normalizedOptionalID(modelID) else { return }
+        var next = antigravityHiddenModelIDs
+        if visible {
+            next.remove(modelID)
+        } else {
+            next.insert(modelID)
+        }
+        antigravityHiddenModelIDs = next
+    }
+
+    func visibleAntigravityModelWindows(from windows: [AntigravityUsageWindow]) -> [AntigravityUsageWindow] {
+        windows.filter { isAntigravityModelVisible($0.modelID) }
+    }
+
+    private func antigravityStructuralPopoverItemsVisible(_ items: [PopoverItemConfig]) -> [PopoverItemConfig] {
+        items.map { item in
+            item.id == "antigravityModels"
+                ? PopoverItemConfig(id: item.id, visible: true)
+                : item
+        }
     }
 
     var enabledProviderKinds: [AppProviderKind] {
@@ -1150,7 +1232,7 @@ class AppSettings: ObservableObject {
                 circularDisplayMode: codexCircularDisplayMode,
                 iconMetric: codexIconMetric
             )
-        case .gemini, .antigravity:
+        case .antigravity:
             return ProviderMenuBarDisplayConfig(
                 kind: kind,
                 showIcon: providerBoolDefault(true, for: kind, suffix: "showIcon"),
@@ -1160,7 +1242,9 @@ class AppSettings: ObservableObject {
                 resetTimeDisplay: providerResetTimeDisplay(for: kind),
                 timeFormat: providerTimeFormat(for: kind),
                 circularDisplayMode: providerCircularDisplayMode(for: kind),
-                iconMetric: providerIconMetric(for: kind)
+                iconMetric: providerIconMetric(for: kind),
+                primaryModelID: antigravityMenuBarPrimaryModelID,
+                secondaryModelID: antigravityMenuBarSecondaryModelID
             )
         }
     }
@@ -1175,7 +1259,7 @@ class AppSettings: ObservableObject {
             showClaudeIcon = enabled
         case .codex:
             showCodexIcon = enabled
-        case .gemini, .antigravity:
+        case .antigravity:
             objectWillChange.send()
             defaults.set(enabled, forKey: providerDefaultsKey(kind, suffix: "showIcon"))
             bumpRuntimeProviderDisplayRevision()
@@ -1188,7 +1272,7 @@ class AppSettings: ObservableObject {
             return claudeAlertEnabled
         case .codex:
             return codexAlertEnabled
-        case .gemini, .antigravity:
+        case .antigravity:
             return providerBoolDefault(false, for: kind, suffix: "alertEnabled")
         }
     }
@@ -1199,7 +1283,7 @@ class AppSettings: ObservableObject {
             claudeAlertEnabled = enabled
         case .codex:
             codexAlertEnabled = enabled
-        case .gemini, .antigravity:
+        case .antigravity:
             objectWillChange.send()
             defaults.set(enabled, forKey: providerDefaultsKey(kind, suffix: "alertEnabled"))
         }
@@ -1211,7 +1295,7 @@ class AppSettings: ObservableObject {
             menuBarStyle = style
         case .codex:
             codexMenuBarStyle = style
-        case .gemini, .antigravity:
+        case .antigravity:
             objectWillChange.send()
             defaults.set(style.rawValue, forKey: providerDefaultsKey(kind, suffix: "menuBarStyle"))
             bumpRuntimeProviderDisplayRevision()
@@ -1231,7 +1315,7 @@ class AppSettings: ObservableObject {
             percentageDisplay = display
         case .codex:
             codexPercentageDisplay = display
-        case .gemini, .antigravity:
+        case .antigravity:
             objectWillChange.send()
             defaults.set(display.rawValue, forKey: providerDefaultsKey(kind, suffix: "percentageDisplay"))
             bumpRuntimeProviderDisplayRevision()
@@ -1244,7 +1328,7 @@ class AppSettings: ObservableObject {
             resetTimeDisplay = display
         case .codex:
             codexResetTimeDisplay = display
-        case .gemini, .antigravity:
+        case .antigravity:
             objectWillChange.send()
             defaults.set(display.rawValue, forKey: providerDefaultsKey(kind, suffix: "resetTimeDisplay"))
             bumpRuntimeProviderDisplayRevision()
@@ -1257,7 +1341,7 @@ class AppSettings: ObservableObject {
             timeFormat = format
         case .codex:
             codexTimeFormat = format
-        case .gemini, .antigravity:
+        case .antigravity:
             objectWillChange.send()
             defaults.set(format.rawValue, forKey: providerDefaultsKey(kind, suffix: "timeFormat"))
             bumpRuntimeProviderDisplayRevision()
@@ -1270,7 +1354,7 @@ class AppSettings: ObservableObject {
             showBatteryPercent = enabled
         case .codex:
             codexShowBatteryPercent = enabled
-        case .gemini, .antigravity:
+        case .antigravity:
             objectWillChange.send()
             defaults.set(enabled, forKey: providerDefaultsKey(kind, suffix: "showBatteryPercent"))
             bumpRuntimeProviderDisplayRevision()
@@ -1283,7 +1367,7 @@ class AppSettings: ObservableObject {
             circularDisplayMode = mode
         case .codex:
             codexCircularDisplayMode = mode
-        case .gemini, .antigravity:
+        case .antigravity:
             objectWillChange.send()
             defaults.set(mode.rawValue, forKey: providerDefaultsKey(kind, suffix: "circularDisplayMode"))
             bumpRuntimeProviderDisplayRevision()
@@ -1296,7 +1380,7 @@ class AppSettings: ObservableObject {
             iconMetric = metric
         case .codex:
             codexIconMetric = metric
-        case .gemini, .antigravity:
+        case .antigravity:
             objectWillChange.send()
             defaults.set(metric.rawValue, forKey: providerDefaultsKey(kind, suffix: "iconMetric"))
             bumpRuntimeProviderDisplayRevision()
@@ -1305,6 +1389,14 @@ class AppSettings: ObservableObject {
 
     private func providerDefaultsKey(_ kind: AppProviderKind, suffix: String) -> String {
         "\(kind.rawValue).\(suffix)"
+    }
+
+    private func persistOptionalString(_ value: String?, key: String) {
+        if let value = Self.normalizedOptionalID(value) {
+            defaults.set(value, forKey: key)
+        } else {
+            defaults.removeObject(forKey: key)
+        }
     }
 
     private func bumpRuntimeProviderDisplayRevision() {
@@ -1327,7 +1419,7 @@ class AppSettings: ObservableObject {
                 || defaults.object(forKey: "codexPercentageDisplay") != nil
                 || defaults.object(forKey: "codexResetTimeDisplay") != nil
                 || defaults.object(forKey: "codexMenuBarStyle") != nil
-        case .gemini, .antigravity:
+        case .antigravity:
             return defaults.object(forKey: providerDefaultsKey(kind, suffix: "showIcon")) != nil
                 || defaults.object(forKey: providerDefaultsKey(kind, suffix: "percentageDisplay")) != nil
                 || defaults.object(forKey: providerDefaultsKey(kind, suffix: "resetTimeDisplay")) != nil
@@ -1397,15 +1489,19 @@ class AppSettings: ObservableObject {
         usePerProviderRefreshIntervals = false
         claudeRefreshInterval = 30.0
         codexRefreshInterval = 60.0
-        geminiRefreshInterval = 60.0
         antigravityRefreshInterval = 120.0
         antigravityUsageDataSource = .auto
+        antigravityHiddenModelIDs = []
+        antigravityMenuBarPrimaryModelID = nil
+        antigravityMenuBarSecondaryModelID = nil
         defaults.removeObject(forKey: "usePerProviderRefreshIntervals")
         defaults.removeObject(forKey: "claudeRefreshInterval")
         defaults.removeObject(forKey: "codexRefreshInterval")
-        defaults.removeObject(forKey: "geminiRefreshInterval")
         defaults.removeObject(forKey: "antigravityRefreshInterval")
         defaults.removeObject(forKey: "antigravityUsageDataSource")
+        defaults.removeObject(forKey: Self.antigravityHiddenModelIDsKey)
+        defaults.removeObject(forKey: Self.antigravityMenuBarPrimaryModelIDKey)
+        defaults.removeObject(forKey: Self.antigravityMenuBarSecondaryModelIDKey)
         autoRefresh = true
         notificationsEnabled = true
         notificationPresets = Self.defaultNotificationPresets
@@ -1437,14 +1533,13 @@ class AppSettings: ObservableObject {
         codexIconMetric = .fiveHour
         codexShowBatteryPercent = true
         codexAlertEnabled = false
-        clearRuntimeProviderDefaults(for: .gemini)
         clearRuntimeProviderDefaults(for: .antigravity)
         providerStates = AppProviderStateCatalog.defaultCatalog
         settingsLastTab = "common"
     }
 
     private func clearRuntimeProviderDefaults(for kind: AppProviderKind) {
-        guard kind == .gemini || kind == .antigravity else { return }
+        guard kind == .antigravity else { return }
 
         [
             "showIcon",
@@ -1462,6 +1557,9 @@ class AppSettings: ObservableObject {
         defaults.removeObject(forKey: "\(kind.rawValue)PopoverPinned")
         defaults.removeObject(forKey: "\(kind.rawValue)PopoverCompact")
         defaults.removeObject(forKey: "\(kind.rawValue)SettingsLastTab")
+        defaults.removeObject(forKey: Self.antigravityHiddenModelIDsKey)
+        defaults.removeObject(forKey: Self.antigravityMenuBarPrimaryModelIDKey)
+        defaults.removeObject(forKey: Self.antigravityMenuBarSecondaryModelIDKey)
         bumpRuntimeProviderDisplayRevision()
     }
 
@@ -1510,11 +1608,20 @@ class AppSettings: ObservableObject {
         self.usePerProviderRefreshIntervals = defaults.object(forKey: "usePerProviderRefreshIntervals") as? Bool ?? false
         self.claudeRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "claudeRefreshInterval") as? TimeInterval ?? 30.0)
         self.codexRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "codexRefreshInterval") as? TimeInterval ?? 60.0)
-        self.geminiRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "geminiRefreshInterval") as? TimeInterval ?? 60.0)
         self.antigravityRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "antigravityRefreshInterval") as? TimeInterval ?? 120.0)
         let antigravityDataSourceRaw = defaults.string(forKey: "antigravityUsageDataSource")
             ?? AntigravityUsageDataSource.auto.rawValue
         self.antigravityUsageDataSource = AntigravityUsageDataSource(rawValue: antigravityDataSourceRaw) ?? .auto
+        self.antigravityHiddenModelIDs = Self.loadStringSet(
+            from: defaults,
+            key: Self.antigravityHiddenModelIDsKey
+        )
+        self.antigravityMenuBarPrimaryModelID = Self.normalizedOptionalID(
+            defaults.string(forKey: Self.antigravityMenuBarPrimaryModelIDKey)
+        )
+        self.antigravityMenuBarSecondaryModelID = Self.normalizedOptionalID(
+            defaults.string(forKey: Self.antigravityMenuBarSecondaryModelIDKey)
+        )
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
         let storedAlertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
@@ -1623,7 +1730,6 @@ class AppSettings: ObservableObject {
         (defaults.object(forKey: "popoverPinned") as? Bool)
             ?? (defaults.object(forKey: "claudePopoverPinned") as? Bool)
             ?? (defaults.object(forKey: "codexPopoverPinned") as? Bool)
-            ?? (defaults.object(forKey: "\(AppProviderKind.gemini.rawValue)PopoverPinned") as? Bool)
             ?? (defaults.object(forKey: "\(AppProviderKind.antigravity.rawValue)PopoverPinned") as? Bool)
             ?? false
     }
@@ -1632,7 +1738,6 @@ class AppSettings: ObservableObject {
         (defaults.object(forKey: "popoverCompact") as? Bool)
             ?? (defaults.object(forKey: "claudePopoverCompact") as? Bool)
             ?? (defaults.object(forKey: "codexPopoverCompact") as? Bool)
-            ?? (defaults.object(forKey: "\(AppProviderKind.gemini.rawValue)PopoverCompact") as? Bool)
             ?? (defaults.object(forKey: "\(AppProviderKind.antigravity.rawValue)PopoverCompact") as? Bool)
             ?? false
     }

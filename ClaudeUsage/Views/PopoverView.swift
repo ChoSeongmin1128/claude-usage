@@ -583,18 +583,10 @@ struct PopoverView: View {
                 actionStyle: .prominent,
                 action: { viewModel.openSettings(for: .codex) }
             )
-        case .gemini:
-            return ErrorPresentation(
-                title: "Gemini 로그인 필요",
-                message: "Gemini CLI 로그인 후 사용량 새로고침을 눌러 주세요.",
-                actionTitle: "설정 열기",
-                actionStyle: .prominent,
-                action: { viewModel.openSettings(for: .gemini) }
-            )
         case .antigravity:
             return ErrorPresentation(
                 title: "Antigravity 연결 필요",
-                message: "Antigravity 연결 토큰이 만료됐거나 Google OAuth 연결을 갱신할 수 없습니다. Antigravity 앱을 다시 열고, 계속 실패하면 설정에서 Google OAuth를 다시 연결해 주세요.",
+                message: "Antigravity 연결 토큰이 만료됐거나 Google 계정 연결을 갱신할 수 없습니다. Antigravity 앱을 다시 열고, 계속 실패하면 설정에서 Google 계정을 다시 연결해 주세요.",
                 actionTitle: "설정 열기",
                 actionStyle: .prominent,
                 action: { viewModel.openSettings(for: .antigravity) }

@@ -24,16 +24,13 @@ enum ProviderSettingsTab: String, CaseIterable, Identifiable, Sendable {
         case "advanced":
             return .overview
         default:
-            switch kind {
-            case .claude, .codex, .gemini, .antigravity:
-                return .overview
-            }
+            return .overview
         }
     }
 
     static func tabs(for kind: AppProviderKind) -> [Self] {
         switch kind {
-        case .claude, .codex, .gemini, .antigravity:
+        case .claude, .codex, .antigravity:
             return [.overview]
         }
     }

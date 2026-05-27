@@ -33,31 +33,8 @@ struct RuntimeProviderAuthPresentation: Sendable, Equatable {
 }
 
 enum RuntimeProviderSettingsPresentation {
-    static func antigravityResolvedSourceDetail(
-        configuredSource: AntigravityUsageDataSource,
-        lastResolvedSource: AntigravityUsageDataSource?
-    ) -> String? {
-        guard configuredSource == .auto,
-              let lastResolvedSource,
-              lastResolvedSource != .auto
-        else {
-            return nil
-        }
-        return "최근 조회 경로: \(lastResolvedSource.displayName)"
-    }
-
     static func authPresentation(for provider: AppProviderKind, isEnabled: Bool) -> RuntimeProviderAuthPresentation? {
         switch provider {
-        case .gemini:
-            let environmentStatus = ProviderEnvironmentDetector.staleWhileRevalidate(for: .gemini)
-            guard let signals = ProviderEnvironmentDetector.cachedGeminiSignals() else {
-                return makeProbingFallback(provider: .gemini, isEnabled: isEnabled)
-            }
-            return makeGemini(
-                isEnabled: isEnabled,
-                environmentStatus: environmentStatus,
-                signals: signals
-            )
         case .antigravity:
             let environmentStatus = ProviderEnvironmentDetector.staleWhileRevalidate(for: .antigravity)
             guard let signals = ProviderEnvironmentDetector.cachedAntigravitySignals() else {
@@ -66,8 +43,7 @@ enum RuntimeProviderSettingsPresentation {
             return makeAntigravity(
                 isEnabled: isEnabled,
                 environmentStatus: environmentStatus,
-                signals: signals,
-                dataSource: AppSettings.shared.antigravityUsageDataSource
+                signals: signals
             )
         case .claude, .codex:
             return nil
@@ -78,13 +54,7 @@ enum RuntimeProviderSettingsPresentation {
         provider: AppProviderKind,
         isEnabled: Bool
     ) -> RuntimeProviderAuthPresentation {
-        let providerName: String = {
-            switch provider {
-            case .gemini: return "Gemini"
-            case .antigravity: return "Antigravity"
-            default: return "provider"
-            }
-        }()
+        let providerName = provider.displayName
 
         if !isEnabled {
             return .init(
@@ -109,103 +79,10 @@ enum RuntimeProviderSettingsPresentation {
         )
     }
 
-    static func makeGemini(
-        isEnabled: Bool,
-        environmentStatus: ProviderEnvironmentStatus?,
-        signals: GeminiEnvironmentSignals
-    ) -> RuntimeProviderAuthPresentation {
-        guard isEnabled else {
-            return .init(
-                stage: .disabled,
-                badgeTitle: "비활성",
-                badgeTone: .secondary,
-                summary: "Gemini 사용을 켜면 로그인 상태를 확인합니다",
-                nextStepTitle: "서비스 켜기",
-                nextStepDetail: "켜면 로그인 상태를 자동으로 확인합니다.",
-                availableAction: .enableService
-            )
-        }
-
-        if !signals.hasBinary {
-            let detail = signals.credentialState == .missing
-                ? "Gemini를 먼저 설치하고 로그인해 주세요."
-                : "로그인은 되어 있지만 Gemini를 실행할 수 없습니다."
-            return .init(
-                stage: .installRequired,
-                badgeTitle: "설치 필요",
-                badgeTone: .orange,
-                summary: "Gemini를 실행할 준비가 필요합니다",
-                nextStepTitle: "Gemini 설치 또는 다시 설치",
-                nextStepDetail: detail,
-                availableAction: nil
-            )
-        }
-
-        switch signals.authType {
-        case .apiKey, .vertexAI:
-            return .init(
-                stage: .unsupportedConfiguration,
-                badgeTitle: "구성 변경",
-                badgeTone: .orange,
-                summary: "현재 로그인 방식으로는 여기서 확인할 수 없습니다",
-                nextStepTitle: "개인 계정으로 다시 로그인",
-                nextStepDetail: "Gemini는 개인 로그인 상태만 읽습니다.",
-                availableAction: nil
-            )
-        case .oauthPersonal, .unknown:
-            break
-        }
-
-        switch signals.credentialState {
-        case .missing:
-            return .init(
-                stage: .authRequired,
-                badgeTitle: "로그인 필요",
-                badgeTone: .red,
-                summary: "Gemini 로그인 후 다시 확인해 주세요",
-                nextStepTitle: "Gemini에서 로그인",
-                nextStepDetail: "로그인이 끝나면 여기서 바로 확인할 수 있습니다.",
-                availableAction: nil
-            )
-        case .refreshOnly:
-            return .init(
-                stage: .refreshingCredential,
-                badgeTitle: "갱신 필요",
-                badgeTone: .blue,
-                summary: "로그인 정보를 새로 고치는 중입니다",
-                nextStepTitle: "잠시 기다리기",
-                nextStepDetail: "새로 고친 뒤 다시 확인합니다.",
-                availableAction: nil
-            )
-        case .usable:
-            if environmentStatus?.runtimeReachability == true {
-                return .init(
-                    stage: .probingRuntime,
-                    badgeTitle: "연결 확인 중",
-                    badgeTone: .blue,
-                    summary: "로그인은 확인됐고 사용량을 불러오는 중입니다",
-                    nextStepTitle: "잠시 기다리기",
-                    nextStepDetail: "첫 사용량이 들어오면 화면이 바뀝니다.",
-                    availableAction: nil
-                )
-            }
-            return .init(
-                stage: .installRequired,
-                badgeTitle: "경로 확인",
-                badgeTone: .orange,
-                summary: "Gemini는 보이지만 아직 바로 사용할 수 없습니다",
-                nextStepTitle: "설치 상태 다시 확인",
-                nextStepDetail: "설치 상태를 확인한 뒤 다시 확인해 주세요.",
-                availableAction: nil
-            )
-        }
-    }
-
     static func makeAntigravity(
         isEnabled: Bool,
         environmentStatus: ProviderEnvironmentStatus?,
-        signals: AntigravityEnvironmentSignals,
-        dataSource: AntigravityUsageDataSource = .auto
+        signals: AntigravityEnvironmentSignals
     ) -> RuntimeProviderAuthPresentation {
         guard isEnabled else {
             return .init(
@@ -219,50 +96,30 @@ enum RuntimeProviderSettingsPresentation {
             )
         }
 
-        if signals.hasOAuthCredential && dataSource != .localIDE {
+        if signals.hasOAuthCredential {
             return .init(
                 stage: .probingRuntime,
-                badgeTitle: "OAuth 연결",
+                badgeTitle: "계정 연결",
                 badgeTone: .blue,
                 summary: signals.hasBrokenCLICommand
-                    ? "Google OAuth로 원격 사용량을 확인할 수 있습니다. CLI 명령은 복구가 필요합니다"
-                    : signals.hasCLISurface
-                    ? "Google OAuth로 Antigravity 원격 quota를 확인할 수 있습니다"
-                    : "Google OAuth로 원격 사용량을 확인할 수 있습니다",
-                nextStepTitle: "사용량 조회 대기",
-                nextStepDetail: "앱이 닫혀 있어도 다음 갱신에서 원격 quota API를 조회합니다.",
+                    ? "계정은 연결됐지만 CLI 명령은 복구가 필요합니다"
+                    : "계정은 연결됐고 사용량을 확인합니다",
+                nextStepTitle: "사용량 조회",
+                nextStepDetail: "계정만 보이면 Antigravity가 아직 사용량 수치를 제공하지 않은 상태입니다.",
                 availableAction: nil
             )
         }
 
-        let hasRelevantPersistedAuthState = signals.hasCredentialRelevant(to: dataSource)
+        let hasRelevantPersistedAuthState = signals.hasCredentialRelevant(to: .auto)
 
         if signals.hasRuntimeConnection {
             return .init(
                 stage: .probingRuntime,
                 badgeTitle: "연결 확인 중",
                 badgeTone: .blue,
-                summary: dataSource == .googleOAuth
-                    ? "OAuth 연결은 없지만 앱 연결로 사용량을 불러오는 중입니다"
-                    : "앱 연결은 확인됐고 사용량을 불러오는 중입니다",
+                summary: "앱 연결은 확인됐고 사용량을 불러오는 중입니다",
                 nextStepTitle: "앱을 켜 둔 채 기다리기",
                 nextStepDetail: "첫 사용량이 들어오면 화면이 바뀝니다.",
-                availableAction: nil
-            )
-        }
-
-        if dataSource == .googleOAuth {
-            return .init(
-                stage: .authRequired,
-                badgeTitle: "OAuth 필요",
-                badgeTone: .red,
-                summary: signals.hasBrokenCLICommand
-                    ? "CLI 명령 복구와 Google OAuth 연결이 필요합니다"
-                    : signals.hasCLISurface
-                    ? "Antigravity 원격 quota 조회에는 Google OAuth 연결이 필요합니다"
-                    : "원격 quota 조회에는 Google OAuth 연결이 필요합니다",
-                nextStepTitle: "Google OAuth 연결",
-                nextStepDetail: "앱 로그인 흔적과 별개로 ClaudeUsage가 사용할 Google OAuth 연결을 추가해야 합니다.",
                 availableAction: nil
             )
         }
@@ -280,6 +137,17 @@ enum RuntimeProviderSettingsPresentation {
         }
 
         if hasRelevantPersistedAuthState {
+            if signals.hasCLIBinary {
+                return .init(
+                    stage: .probingRuntime,
+                    badgeTitle: "조회 준비",
+                    badgeTone: .blue,
+                    summary: "사용량 조회를 준비 중입니다",
+                    nextStepTitle: "사용량 조회",
+                    nextStepDetail: "CLI 로그인 선택이나 trust prompt가 뜨면 터미널에서 `agy`를 먼저 한 번 열어 주세요.",
+                    availableAction: nil
+                )
+            }
             return .init(
                 stage: .waitingForApp,
                 badgeTitle: "앱 필요",
@@ -291,20 +159,20 @@ enum RuntimeProviderSettingsPresentation {
             )
         }
 
-        if signals.hasCLISurface && dataSource != .localIDE {
+        if signals.hasCLISurface {
             return .init(
-                stage: .authRequired,
-                badgeTitle: signals.hasBrokenCLICommand ? "CLI 복구" : (signals.hasCLIBinary ? "CLI 감지" : "CLI 설정"),
+                stage: signals.hasCLIBinary ? .probingRuntime : .authRequired,
+                badgeTitle: signals.hasBrokenCLICommand ? "CLI 복구" : (signals.hasCLIBinary ? "조회 준비" : "CLI 설정"),
                 badgeTone: signals.hasBrokenCLICommand ? .red : .orange,
                 summary: signals.hasBrokenCLICommand
                     ? "agy 명령은 감지됐지만 현재 실행 대상이 없습니다"
                     : signals.hasCLIBinary
-                    ? "CLI는 감지됐고 원격 사용량에는 Google OAuth 연결이 필요합니다"
-                    : "CLI 설정은 감지됐고 원격 사용량에는 Google OAuth 연결이 필요합니다",
-                nextStepTitle: signals.hasBrokenCLICommand ? "CLI 재설치 후 Google OAuth 연결" : "Google OAuth 연결",
+                    ? "사용량 조회를 준비 중입니다"
+                    : "CLI 설정은 감지됐지만 실행 파일이 필요합니다",
+                nextStepTitle: signals.hasBrokenCLICommand ? "CLI 재설치" : "AGY CLI 확인",
                 nextStepDetail: signals.hasBrokenCLICommand
-                    ? "PATH의 agy 래퍼가 없는 대상 파일을 가리킵니다. Antigravity 2.0 또는 CLI를 다시 설치한 뒤 OAuth를 연결해 주세요."
-                    : "CLI 사용량은 같은 Antigravity quota에 반영되지만 ClaudeUsage는 별도 OAuth 연결로 원격 사용량을 조회합니다.",
+                    ? "PATH의 agy 래퍼가 없는 대상 파일을 가리킵니다. Antigravity 2.0 또는 CLI를 다시 설치해 주세요."
+                    : "터미널에서 `agy`가 실행되는지 확인해 주세요.",
                 availableAction: nil
             )
         }

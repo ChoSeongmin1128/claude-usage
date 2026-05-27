@@ -15,7 +15,6 @@ final class ServiceSelectionHelperTests: XCTestCase {
 
         settings.setProviderEnabled(false, for: .claude)
         settings.setProviderEnabled(true, for: .codex)
-        settings.setProviderEnabled(false, for: .gemini)
         settings.setProviderEnabled(false, for: .antigravity)
         settings.setActiveMenuBarService(.claude)
 
@@ -28,12 +27,12 @@ final class ServiceSelectionHelperTests: XCTestCase {
         defer { settings.restore(from: snapshot) }
 
         settings.setProviderEnabled(true, for: .claude)
-        settings.setProviderEnabled(true, for: .gemini)
+        settings.setProviderEnabled(true, for: .antigravity)
         settings.setActiveMenuBarService(.claude)
 
-        ServiceSelectionHelper.setActivePopoverService(.gemini, settings: settings)
+        ServiceSelectionHelper.setActivePopoverService(.antigravity, settings: settings)
 
-        XCTAssertEqual(ServiceSelectionHelper.resolvedPopoverService(settings: settings), .gemini)
+        XCTAssertEqual(ServiceSelectionHelper.resolvedPopoverService(settings: settings), .antigravity)
     }
 
     func testResolvedMenuBarServiceFallsBackToVisibleRuntimeWhenPreferredIsHidden() {
@@ -76,11 +75,10 @@ final class ServiceSelectionHelperTests: XCTestCase {
             hasClaudeSessionKey: false,
             hasClaudeOAuthCredential: true,
             isCodexAuthenticated: false,
-            geminiRuntimeReachability: true,
             antigravityRuntimeReachability: false
         )
 
-        XCTAssertEqual(services, [.claude, .gemini])
+        XCTAssertEqual(services, [.claude])
     }
 
     func testRefreshableServicesUseAntigravityRemoteRefreshReachabilitySeparatelyFromRuntime() {
@@ -96,7 +94,6 @@ final class ServiceSelectionHelperTests: XCTestCase {
             hasClaudeSessionKey: false,
             hasClaudeOAuthCredential: false,
             isCodexAuthenticated: false,
-            geminiRuntimeReachability: false,
             antigravityRuntimeReachability: false,
             antigravityRefreshReachability: true
         )

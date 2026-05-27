@@ -1,8 +1,8 @@
 # ClaudeUsage
 
-`Claude`를 중심으로 `Codex`, `Gemini`, `Antigravity`까지 확장할 수 있는 macOS 메뉴바 사용량 추적 앱입니다.
+`Claude`를 중심으로 `Codex`, `Antigravity`까지 확장할 수 있는 macOS 메뉴바 사용량 추적 앱입니다.
 
-현재 구현 기준으로는 `Claude`, `Codex`, `Gemini`, `Antigravity`가 모두 런타임 provider로 연결되어 있습니다. `Antigravity`는 앱 로컬 API, Google OAuth 원격 조회, CLI 감지, multi-account 설정 UX까지 런타임 provider 흐름에 맞춰 정리되어 있습니다.
+현재 구현 기준으로는 `Claude`, `Codex`, `Antigravity`가 런타임 provider로 연결되어 있습니다. `Antigravity`는 앱 로컬 API, Google OAuth 원격 조회, AGY CLI 감지, multi-account 설정 UX까지 런타임 provider 흐름에 맞춰 정리되어 있습니다.
 
 ## 현재 방향
 
@@ -18,8 +18,7 @@
 
 - `Claude` 현재 세션 / 주간 사용량 표시
 - `Codex` 현재 / 주간 / 크레딧 표시
-- `Gemini` quota 기반 사용량 표시
-- `Antigravity` local language server / Google OAuth 원격 quota 기반 사용량 표시
+- `Antigravity` local language server / AGY CLI / Google OAuth 원격 quota 기반 사용량 표시
 - 메뉴바 아이콘 스타일
   - 배터리바
   - 원형
@@ -43,7 +42,7 @@
 - 기존 설치본 실행 중 이동 시 중복 실행 방지
 - Claude 인증 탭의 단계형 빠른 시작 wizard
 - provider별 refresh/backoff/loading/error 상태를 runtime catalog로 통합
-- `Gemini`, `Antigravity`의 `감지됨 / 갱신 가능 / 연결 가능 / 첫 성공 조회` 상태 분리
+- `Antigravity`의 `감지됨 / 갱신 가능 / 연결 가능 / 첫 성공 조회` 상태 분리
 - `ClaudeUsageTests` 단위 테스트 타깃 추가
 
 ## 인증 경로
@@ -99,16 +98,12 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
 - `Claude Code OAuth`
   - `~/.claude` 자격 파일과 Keychain에 있는 Claude Code 자격을 읽습니다.
   - OAuth 토큰과 profile metadata를 이용해 `organization`, `subscription`, `rate limit tier`를 판단합니다.
-- `Gemini`
-  - `~/.gemini/oauth_creds.json`, `settings.json`, 설치된 Gemini CLI 경로를 읽습니다.
-  - 필요 시 Google Cloud project를 탐색해 quota 요청의 정확도를 높입니다.
-  - 감지는 하되 자동 활성화하지 않습니다.
 - `Antigravity`
   - 로컬 language server 프로세스와 connect 포트를 찾고, 로컬 API에 연결합니다.
-  - 자동 모드는 로컬 API를 먼저 쓰되, 로컬 응답에 quota window가 없으면 Google OAuth 원격 조회로 보완합니다.
+  - 자동 모드는 로컬 API를 먼저 쓰되, quota window가 없으면 AGY CLI `/usage` 출력과 Google OAuth 원격 조회로 보완합니다.
   - Antigravity CLI는 `agy` 바이너리의 실행 가능 여부, `~/.gemini/antigravity-cli` 상태 디렉터리, 공식 설정 파일인 `settings.json` 존재 여부를 분리해 감지합니다.
-  - CLI 자체의 OS secure keyring은 직접 읽지 않고, ClaudeUsage 전용 Google OAuth 연결로 원격 quota API를 조회합니다.
-  - Google OAuth client 정보는 환경변수를 우선하고, 없으면 설치된 `Antigravity.app`의 2.0 `language_server` 번들까지 탐색합니다.
+  - CLI 자체의 OS secure keyring은 직접 읽지 않습니다. `agy`가 로그인된 경우에는 PTY로 `/usage` 화면을 열고 표시된 quota만 파싱합니다.
+  - Google OAuth client 정보는 환경변수를 우선하고, 없으면 Antigravity 번들을 fallback으로 탐색합니다.
   - OAuth 토큰은 `~/Library/Application Support/ClaudeUsage/Antigravity/oauth_creds.json`에 `0600` 권한으로 저장하고, 상위 디렉터리는 `0700`으로 맞춥니다.
   - 여러 Google 계정은 같은 디렉터리의 `oauth_accounts.json`에 `0600` 권한으로 보관하고, 선택한 계정은 기존 `oauth_creds.json`에도 반영해 기존 사용자/코드 경로와 호환합니다.
   - 기존에 잘못 저장된 Antigravity Keychain 항목은 앱 시작 시 사용자 프롬프트 없이 읽히는 경우에만 파일 저장소로 마이그레이션한 뒤 제거합니다. 상태 확인과 refresh 경로에서는 Keychain을 건드리지 않습니다.
@@ -200,11 +195,6 @@ xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -configuration Deb
   - 표시
   - 표시 항목
   - 알림
-- `Gemini`
-  - 런타임 provider 연결됨
-  - 환경 감지 / refresh 가능 여부 / 첫 성공 조회 상태를 구분해서 표시
-  - 자동 활성화는 하지 않고, 사용자가 직접 켜는 정책 유지
-  - provider별 UX 마감은 Claude보다 덜 끝난 상태
 - `Antigravity`
   - 앱 로컬 API / Google OAuth 원격 조회 / 자동 fallback 모드를 분리
   - 자동 모드에서 로컬 앱이 연결됐지만 quota가 비어 있으면 OAuth 원격 조회로 보완
@@ -267,7 +257,6 @@ ClaudeUsage/
 - release build는 Sparkle appcast를 기준으로 업데이트하며, 새 버전이 있으면 백그라운드에서 다운로드/검증 후 popover 설치 버튼만 노출합니다. 개발 빌드는 appcast/feed와 공개키가 없으면 GitHub Release 엔진으로 fallback됩니다.
 - `Sparkle 준비됨`은 `feed + 공개키` 기준이고, notarization 계정 프로필은 배포 스크립트 전제이므로 런타임 readiness와 별개입니다.
 - 메뉴바와 refresh 경로는 runtime-capable provider 기준으로 많이 정리됐지만, 일부 내부 구조는 여전히 `Claude/Codex` 중심 흔적이 남아 있습니다.
-- `Gemini`은 런타임 연결은 됐지만 provider별 UX, 오류 문구, 환경 안내는 Claude/Antigravity보다 덜 다듬어져 있습니다.
 - `Antigravity`는 로컬 앱 API와 Google OAuth 원격 quota 조회를 모두 지원하지만, 공식 API가 공개 안정화된 상태는 아니므로 원격 endpoint 변경 시 보강이 필요할 수 있습니다.
 - first-run onboarding과 권한 설명은 아직 더 다듬어야 합니다.
 

@@ -13,7 +13,7 @@ struct ClaudeUsageApp: App {
 
     var body: some Scene {
         Settings {
-            EmptyView()
+            appDelegate.makeSettingsView()
         }
     }
 }

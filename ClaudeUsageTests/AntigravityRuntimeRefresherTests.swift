@@ -38,22 +38,67 @@ final class AntigravityRuntimeRefresherTests: XCTestCase {
         XCTAssertEqual(remoteCallCount, 1)
     }
 
-    func testGoogleOAuthSourceFallsBackToLocalWhenRemoteCredentialIsMissing() async throws {
+    func testAgyCLISourceUsesOnlyCLIFetcher() async throws {
         let local = ScriptedAntigravityUsageFetcher(results: [.success(Self.usage(source: .localIDE, percent: 12))])
-        let remote = ScriptedAntigravityUsageFetcher(results: [.failure(APIError.invalidSessionKey)])
+        let remote = ScriptedAntigravityUsageFetcher(results: [.success(Self.usage(source: .googleOAuth, percent: 88))])
+        let cli = ScriptedAntigravityUsageFetcher(results: [.success(Self.usage(source: .agyCLI, percent: 20))])
 
         let usage = try await AntigravityRuntimeRefresher.refresh(
             apiService: local,
             remoteService: remote,
-            dataSource: .googleOAuth
+            cliService: cli,
+            dataSource: .agyCLI
         )
 
-        XCTAssertEqual(usage.source, .localIDE)
-        XCTAssertEqual(usage.primaryPercentage, 12)
+        XCTAssertEqual(usage.source, .agyCLI)
+        XCTAssertEqual(usage.primaryPercentage, 20)
         let localCallCount = await local.callCount()
         let remoteCallCount = await remote.callCount()
-        XCTAssertEqual(localCallCount, 1)
+        let cliCallCount = await cli.callCount()
+        XCTAssertEqual(localCallCount, 0)
+        XCTAssertEqual(remoteCallCount, 0)
+        XCTAssertEqual(cliCallCount, 1)
+    }
+
+    func testExplicitGoogleOAuthSourceDoesNotFallbackToOtherSources() async throws {
+        let local = ScriptedAntigravityUsageFetcher(results: [.success(Self.usage(source: .localIDE, percent: 12))])
+        let remote = ScriptedAntigravityUsageFetcher(results: [.failure(APIError.invalidSessionKey)])
+
+        do {
+            _ = try await AntigravityRuntimeRefresher.refresh(
+                apiService: local,
+                remoteService: remote,
+                dataSource: .googleOAuth
+            )
+            XCTFail("Expected Google OAuth credential error")
+        } catch let error as APIError {
+            guard case .invalidSessionKey = error else {
+                return XCTFail("Expected invalidSessionKey, got \(error)")
+            }
+        }
+
+        let localCallCount = await local.callCount()
+        let remoteCallCount = await remote.callCount()
+        XCTAssertEqual(localCallCount, 0)
         XCTAssertEqual(remoteCallCount, 1)
+    }
+
+    func testPlannerAutoStartsWithLastNumericSuccessThenDeduplicates() {
+        let sources = AntigravityUsagePlanner.plannedSources(
+            configuredSource: .auto,
+            lastSuccessfulUsage: Self.usage(source: .agyCLI, percent: 42)
+        )
+
+        XCTAssertEqual(sources, [.agyCLI, .localIDE, .googleOAuth])
+    }
+
+    func testPlannerAutoIgnoresIdentityOnlyLastUsage() {
+        let sources = AntigravityUsagePlanner.plannedSources(
+            configuredSource: .auto,
+            lastSuccessfulUsage: Self.identityOnlyUsage(source: .googleOAuth)
+        )
+
+        XCTAssertEqual(sources, [.localIDE, .agyCLI, .googleOAuth])
     }
 
     func testAutoSourceKeepsLocalResultWhenLocalSucceeds() async throws {
@@ -111,6 +156,28 @@ final class AntigravityRuntimeRefresherTests: XCTestCase {
         XCTAssertEqual(remoteCallCount, 1)
     }
 
+    func testAutoSourceUsesCLIBeforeRemoteWhenLocalHasNoQuotaWindows() async throws {
+        let local = ScriptedAntigravityUsageFetcher(results: [.success(Self.identityOnlyUsage(source: .localIDE))])
+        let remote = ScriptedAntigravityUsageFetcher(results: [.success(Self.identityOnlyUsage(source: .googleOAuth))])
+        let cli = ScriptedAntigravityUsageFetcher(results: [.success(Self.usage(source: .agyCLI, percent: 20))])
+
+        let usage = try await AntigravityRuntimeRefresher.refresh(
+            apiService: local,
+            remoteService: remote,
+            cliService: cli,
+            dataSource: .auto
+        )
+
+        XCTAssertEqual(usage.source, .agyCLI)
+        XCTAssertEqual(usage.primaryPercentage, 20)
+        let localCallCount = await local.callCount()
+        let remoteCallCount = await remote.callCount()
+        let cliCallCount = await cli.callCount()
+        XCTAssertEqual(localCallCount, 1)
+        XCTAssertEqual(remoteCallCount, 0)
+        XCTAssertEqual(cliCallCount, 1)
+    }
+
     func testAutoSourceFallsBackToRemoteWhenLocalFails() async throws {
         let local = ScriptedAntigravityUsageFetcher(results: [.failure(APIError.networkError("local down"))])
         let remote = ScriptedAntigravityUsageFetcher(results: [.success(Self.usage(source: .googleOAuth, percent: 76))])
@@ -152,6 +219,28 @@ final class AntigravityRuntimeRefresherTests: XCTestCase {
         XCTAssertEqual(remoteCallCount, 1)
     }
 
+    func testAutoSourceUsesCLIWhenLocalFailsAndRemoteHasNoCredential() async throws {
+        let local = ScriptedAntigravityUsageFetcher(results: [.failure(APIError.networkError("local down"))])
+        let remote = ScriptedAntigravityUsageFetcher(results: [.failure(APIError.invalidSessionKey)])
+        let cli = ScriptedAntigravityUsageFetcher(results: [.success(Self.usage(source: .agyCLI, percent: 20))])
+
+        let usage = try await AntigravityRuntimeRefresher.refresh(
+            apiService: local,
+            remoteService: remote,
+            cliService: cli,
+            dataSource: .auto
+        )
+
+        XCTAssertEqual(usage.source, .agyCLI)
+        XCTAssertEqual(usage.primaryPercentage, 20)
+        let localCallCount = await local.callCount()
+        let cliCallCount = await cli.callCount()
+        XCTAssertEqual(localCallCount, 1)
+        let remoteCallCount = await remote.callCount()
+        XCTAssertEqual(remoteCallCount, 0)
+        XCTAssertEqual(cliCallCount, 1)
+    }
+
     func testAutoSourceSurfacesRemoteNonCredentialFailure() async throws {
         let local = ScriptedAntigravityUsageFetcher(results: [.failure(APIError.networkError("local down"))])
         let remote = ScriptedAntigravityUsageFetcher(results: [.failure(APIError.permissionDenied("quota denied"))])
@@ -176,8 +265,8 @@ final class AntigravityRuntimeRefresherTests: XCTestCase {
             accountEmail: "nathan@example.com",
             accountPlan: "Paid",
             primaryWindow: AntigravityUsageWindow(
-                label: "Claude",
-                modelID: "claude-sonnet-4-5",
+                label: "Gemini 3.1 Pro (Low)",
+                modelID: "gemini-3.1-pro-low",
                 usedPercent: percent,
                 resetAtISO: nil
             ),

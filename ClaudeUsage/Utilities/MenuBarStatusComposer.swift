@@ -300,36 +300,6 @@ enum MenuBarStatusComposer {
         )
     }
 
-    static func geminiSnapshot(
-        config: ProviderMenuBarDisplayConfig,
-        usage: GeminiUsageResponse?,
-        error: APIError?,
-        hasAuthError: Bool,
-        hasCredential: Bool,
-        secondaryColor: NSColor,
-        icon: NSImage?,
-        systemStatus: ProviderSystemStatus? = nil
-    ) -> MenuBarProviderSnapshot {
-        let status = geminiStatus(
-            config: config,
-            usage: usage,
-            error: error,
-            hasAuthError: hasAuthError,
-            hasCredential: hasCredential,
-            secondaryColor: secondaryColor
-        )
-        return MenuBarProviderSnapshot(
-            kind: .gemini,
-            text: status.text,
-            color: status.color,
-            tooltip: status.tooltip,
-            icon: config.showIcon ? icon : nil,
-            styleIcon: styleIcon(usage: usage, config: config),
-            resetText: resetText(usage: usage, config: config),
-            systemStatus: systemStatus
-        )
-    }
-
     static func antigravitySnapshot(
         config: ProviderMenuBarDisplayConfig,
         usage: AntigravityUsageResponse?,
@@ -642,59 +612,6 @@ enum MenuBarStatusComposer {
         )
     }
 
-    private static func geminiStatus(
-        config: ProviderMenuBarDisplayConfig,
-        usage: GeminiUsageResponse?,
-        error: APIError?,
-        hasAuthError: Bool,
-        hasCredential: Bool,
-        secondaryColor: NSColor
-    ) -> MenuBarProviderStatus {
-        if !hasCredential {
-            return MenuBarProviderStatus(text: "로그인", color: .systemOrange, tooltip: "Gemini 인증 필요")
-        }
-        guard let usage else {
-            if let error {
-                if error.isTemporaryFailure {
-                    return MenuBarProviderStatus(
-                        text: "…",
-                        color: secondaryColor,
-                        tooltip: error.errorDescription ?? "재시도 중"
-                    )
-                }
-                return MenuBarProviderStatus(
-                    text: hasAuthError ? "인증" : "오류",
-                    color: .systemOrange,
-                    tooltip: error.errorDescription ?? "조회 오류"
-                )
-            }
-            return MenuBarProviderStatus(text: "…", color: secondaryColor, tooltip: "로딩 중")
-        }
-
-        let primary = usage.primaryPercentage
-        let secondary = usage.secondaryPercentage
-        let displayPrimary = displayValue(for: primary, showRemaining: showsRemaining(config: config))
-        let displaySecondary = displayValue(for: secondary, showRemaining: showsRemaining(config: config))
-        let text: String = {
-            switch config.percentageDisplay {
-            case .none:
-                return ""
-            case .fiveHour:
-                return String(format: "%.0f%%", displayPrimary)
-            case .weekly:
-                return String(format: "%.0f%%", displaySecondary)
-            case .dual:
-                return String(format: "%.0f%%·%.0f%%", displayPrimary, displaySecondary)
-            }
-        }()
-
-        return MenuBarProviderStatus(
-            text: text,
-            color: ColorProvider.nsStatusColor(for: primary),
-            tooltip: "Pro \(Int(primary.rounded()))% / Flash \(Int(secondary.rounded()))%"
-        )
-    }
-
     private static func antigravityStatus(
         config: ProviderMenuBarDisplayConfig,
         usage: AntigravityUsageResponse?,
@@ -719,7 +636,7 @@ enum MenuBarStatusComposer {
                     text: hasAuthError ? "연결" : "오류",
                     color: .systemOrange,
                     tooltip: hasAuthError
-                        ? "Antigravity 연결이 만료됐습니다. 앱을 다시 열거나 설정에서 Google OAuth를 다시 연결하세요."
+                        ? "Antigravity 연결이 만료됐습니다. 앱을 다시 열거나 설정에서 Google 계정을 다시 연결하세요."
                         : (error.errorDescription ?? "조회 오류")
                 )
             }
@@ -729,15 +646,15 @@ enum MenuBarStatusComposer {
         guard usage.hasUsageWindows else {
             let account = usage.accountEmail.map { " · \($0)" } ?? ""
             return MenuBarProviderStatus(
-                text: "연결",
-                color: .systemBlue,
-                tooltip: "\(usage.source.displayName)\(account) · quota 정보 없음"
+                text: "!",
+                color: .systemOrange,
+                tooltip: "Antigravity\(account) · 계정 확인됨 · quota 수치 미지원"
             )
         }
 
-        let primary = usage.primaryPercentage
-        let secondary = usage.secondaryPercentage
-        let tertiary = usage.tertiaryPercentage
+        let windows = antigravityMenuBarWindows(usage: usage, config: config)
+        let primary = windows.primary?.usedPercent ?? 0
+        let secondary = windows.secondary?.usedPercent ?? 0
         let displayPrimary = displayValue(for: primary, showRemaining: showsRemaining(config: config))
         let displaySecondary = displayValue(for: secondary, showRemaining: showsRemaining(config: config))
         let text: String = {
@@ -756,7 +673,7 @@ enum MenuBarStatusComposer {
         return MenuBarProviderStatus(
             text: text,
             color: ColorProvider.nsStatusColor(for: primary),
-            tooltip: "\(usage.source.displayName) · Claude \(Int(primary.rounded()))% / Pro \(Int(secondary.rounded()))% / Flash \(Int(tertiary.rounded()))%"
+            tooltip: antigravityTooltip(usage: usage, windows: windows)
         )
     }
 
@@ -806,45 +723,23 @@ enum MenuBarStatusComposer {
         }
     }
 
-    private static func resetText(usage: GeminiUsageResponse?, config: ProviderMenuBarDisplayConfig) -> String? {
-        guard let usage else { return nil }
-        switch config.resetTimeDisplay {
-        case .none:
-            return nil
-        case .fiveHour:
-            guard let resetAt = usage.primaryWindow?.resetAtISO else { return nil }
-            return TimeFormatter.formatResetTime(from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
-        case .weekly:
-            guard let resetAt = usage.secondaryWindow?.resetAtISO else { return nil }
-            return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
-        case .dual:
-            let first = usage.primaryWindow?.resetAtISO.flatMap {
-                TimeFormatter.formatResetTime(from: $0, style: config.timeFormat, includeDateIfNotToday: false)
-            }
-            let second = usage.secondaryWindow?.resetAtISO.flatMap {
-                TimeFormatter.formatResetTimeWeekly(from: $0, style: config.timeFormat, includeDateIfNotToday: false)
-            }
-            if let first, let second { return "\(first) · \(second)" }
-            return first ?? second
-        }
-    }
-
     private static func resetText(usage: AntigravityUsageResponse?, config: ProviderMenuBarDisplayConfig) -> String? {
         guard let usage else { return nil }
+        let windows = antigravityMenuBarWindows(usage: usage, config: config)
         switch config.resetTimeDisplay {
         case .none:
             return nil
         case .fiveHour:
-            guard let resetAt = usage.primaryWindow?.resetAtISO else { return nil }
+            guard let resetAt = windows.primary?.resetAtISO else { return nil }
             return TimeFormatter.formatResetTime(from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
         case .weekly:
-            guard let resetAt = usage.secondaryWindow?.resetAtISO else { return nil }
+            guard let resetAt = windows.secondary?.resetAtISO else { return nil }
             return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
         case .dual:
-            let first = usage.primaryWindow?.resetAtISO.flatMap {
+            let first = windows.primary?.resetAtISO.flatMap {
                 TimeFormatter.formatResetTime(from: $0, style: config.timeFormat, includeDateIfNotToday: false)
             }
-            let second = usage.secondaryWindow?.resetAtISO.flatMap {
+            let second = windows.secondary?.resetAtISO.flatMap {
                 TimeFormatter.formatResetTimeWeekly(from: $0, style: config.timeFormat, includeDateIfNotToday: false)
             }
             if let first, let second { return "\(first) · \(second)" }
@@ -876,10 +771,11 @@ enum MenuBarStatusComposer {
         )
     }
 
-    private static func styleIcon(usage: GeminiUsageResponse?, config: ProviderMenuBarDisplayConfig) -> NSImage? {
+    private static func styleIcon(usage: AntigravityUsageResponse?, config: ProviderMenuBarDisplayConfig) -> NSImage? {
         guard let usage else { return nil }
-        let primary = usage.primaryPercentage
-        let secondary = usage.secondaryPercentage
+        let windows = antigravityMenuBarWindows(usage: usage, config: config)
+        let primary = windows.primary?.usedPercent ?? 0
+        let secondary = windows.secondary?.usedPercent ?? 0
         return styleIcon(
             primary: primary,
             secondary: secondary,
@@ -888,16 +784,35 @@ enum MenuBarStatusComposer {
         )
     }
 
-    private static func styleIcon(usage: AntigravityUsageResponse?, config: ProviderMenuBarDisplayConfig) -> NSImage? {
-        guard let usage else { return nil }
-        let primary = usage.primaryPercentage
-        let secondary = usage.secondaryPercentage
-        return styleIcon(
-            primary: primary,
-            secondary: secondary,
-            config: config,
-            metric: resolvedMetric(primary: primary, secondary: secondary, config: config)
+    private static func antigravityMenuBarWindows(
+        usage: AntigravityUsageResponse,
+        config: ProviderMenuBarDisplayConfig
+    ) -> (primary: AntigravityUsageWindow?, secondary: AntigravityUsageWindow?) {
+        let primary = usage.menuBarPrimaryWindow(preferredModelID: config.primaryModelID)
+        let secondary = usage.menuBarSecondaryWindow(
+            preferredModelID: config.secondaryModelID,
+            primaryModelID: primary?.modelID
         )
+        return (primary, secondary)
+    }
+
+    private static func antigravityTooltip(
+        usage: AntigravityUsageResponse,
+        windows: (primary: AntigravityUsageWindow?, secondary: AntigravityUsageWindow?)
+    ) -> String {
+        let selected = [windows.primary, windows.secondary]
+            .compactMap { $0 }
+            .reduce(into: [AntigravityUsageWindow]()) { result, window in
+                if !result.contains(where: { $0.modelID == window.modelID }) {
+                    result.append(window)
+                }
+            }
+            .map { "\($0.label) \(Int($0.usedPercent.rounded()))%" }
+            .joined(separator: " / ")
+        guard !selected.isEmpty else {
+            return "Antigravity · \(usage.modelSummary(separator: " / "))"
+        }
+        return "Antigravity · \(selected)"
     }
 
     private static func styleIcon(

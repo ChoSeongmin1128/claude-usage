@@ -30,7 +30,6 @@ struct ProviderDescriptor: Sendable, Equatable {
 enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
     case claude
     case codex
-    case gemini
     case antigravity
 
     nonisolated var descriptor: ProviderDescriptor {
@@ -69,23 +68,6 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                     defaultEnabled: false
                 )
             )
-        case .gemini:
-            return ProviderDescriptor(
-                kind: self,
-                displayName: "Gemini CLI",
-                settingsPanelTitle: "Gemini CLI",
-                settingsPanelIconName: "sparkles",
-                brandAssetName: "ProviderGeminiIcon",
-                settingsPanelSummary: "Gemini CLI 로그인",
-                settingsPanelDetail: "Gemini CLI 로그인 상태로 사용량을 확인합니다.",
-                settingsComingSoonMessage: nil,
-                capabilities: ProviderCapabilities(
-                    runtimeService: .gemini,
-                    refreshStrategy: .gemini,
-                    supportsBrowserImport: false,
-                    defaultEnabled: false
-                )
-            )
         case .antigravity:
             return ProviderDescriptor(
                 kind: self,
@@ -93,8 +75,8 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 settingsPanelTitle: "Antigravity",
                 settingsPanelIconName: "antenna.radiowaves.left.and.right",
                 brandAssetName: "ProviderAntigravityIcon",
-                settingsPanelSummary: "앱 연결 또는 Google OAuth",
-                settingsPanelDetail: "Antigravity 앱 로컬 API와 Google OAuth 원격 quota API 중 선택해 사용량을 확인합니다.",
+                settingsPanelSummary: "계정 및 model quota",
+                settingsPanelDetail: "Antigravity 계정과 model quota 상태를 확인합니다.",
                 settingsComingSoonMessage: nil,
                 capabilities: ProviderCapabilities(
                     runtimeService: .antigravity,
@@ -184,6 +166,10 @@ struct AppProviderState: Codable, Equatable, Sendable {
 struct AppProviderStateCatalog: Codable, Equatable, Sendable {
     var states: [AppProviderKind: AppProviderState]
 
+    private enum CodingKeys: String, CodingKey {
+        case states
+    }
+
     static let defaultStates: [AppProviderKind: AppProviderState] = Dictionary(
         uniqueKeysWithValues: AppProviderKind.allCases.map { kind in
             let isEnabled = kind.descriptor.capabilities.defaultEnabled
@@ -199,6 +185,27 @@ struct AppProviderStateCatalog: Codable, Equatable, Sendable {
 
     init(states: [AppProviderKind: AppProviderState] = Self.defaultStates) {
         self.states = Self.normalized(states)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let rawStates = try container.decode([String: AppProviderState].self, forKey: .states)
+        let decodedStates = Dictionary(
+            uniqueKeysWithValues: rawStates.compactMap { rawValue, state in
+                AppProviderKind(rawValue: rawValue).map { ($0, state) }
+            }
+        )
+        self.init(states: decodedStates)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        let rawStates = Dictionary(
+            uniqueKeysWithValues: states.map { kind, state in
+                (kind.rawValue, state)
+            }
+        )
+        try container.encode(rawStates, forKey: .states)
     }
 
     subscript(kind: AppProviderKind) -> AppProviderState {
@@ -297,6 +304,34 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
     let timeFormat: TimeFormatStyle
     let circularDisplayMode: CircularDisplayMode
     let iconMetric: IconMetric
+    let primaryModelID: String?
+    let secondaryModelID: String?
+
+    init(
+        kind: AppProviderKind,
+        showIcon: Bool,
+        style: MenuBarStyle,
+        percentageDisplay: PercentageDisplay,
+        showBatteryPercent: Bool,
+        resetTimeDisplay: ResetTimeDisplay,
+        timeFormat: TimeFormatStyle,
+        circularDisplayMode: CircularDisplayMode,
+        iconMetric: IconMetric,
+        primaryModelID: String? = nil,
+        secondaryModelID: String? = nil
+    ) {
+        self.kind = kind
+        self.showIcon = showIcon
+        self.style = style
+        self.percentageDisplay = percentageDisplay
+        self.showBatteryPercent = showBatteryPercent
+        self.resetTimeDisplay = resetTimeDisplay
+        self.timeFormat = timeFormat
+        self.circularDisplayMode = circularDisplayMode
+        self.iconMetric = iconMetric
+        self.primaryModelID = primaryModelID
+        self.secondaryModelID = secondaryModelID
+    }
 }
 
 enum ProviderMenuBarDisplayPreset: String, CaseIterable, Identifiable, Sendable, Equatable {

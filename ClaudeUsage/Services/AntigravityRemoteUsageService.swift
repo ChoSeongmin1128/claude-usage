@@ -28,8 +28,8 @@ actor AntigravityRemoteUsageService {
         }
     }
 
-    private static let defaultBaseURL = URL(string: "https://daily-cloudcode-pa.googleapis.com")!
-    private static let legacyBaseURL = URL(string: "https://cloudcode-pa.googleapis.com")!
+    private static let primaryBaseURL = URL(string: "https://cloudcode-pa.googleapis.com")!
+    private static let dailyBaseURL = URL(string: "https://daily-cloudcode-pa.googleapis.com")!
     private static let allowedRemoteHosts: Set<String> = [
         "daily-cloudcode-pa.googleapis.com",
         "cloudcode-pa.googleapis.com",
@@ -67,6 +67,12 @@ actor AntigravityRemoteUsageService {
         let credentials: AntigravityOAuthCredentials
         let store: AntigravityOAuthCredentialsStore?
         let label: String
+    }
+
+    private struct IdentityOnlyEndpointCandidate {
+        let quotas: [AntigravityModelQuota]
+        let codeAssist: AntigravityCodeAssistResponse
+        let credentials: AntigravityOAuthCredentials
     }
 
     private struct RefreshResult {
@@ -129,8 +135,8 @@ actor AntigravityRemoteUsageService {
     ) -> [URL] {
         uniqueEndpointBaseURLs([
             normalizedAllowedBaseURL(runningProcess?.cloudCodeEndpoint),
-            defaultBaseURL,
-            legacyBaseURL,
+            primaryBaseURL,
+            dailyBaseURL,
         ].compactMap { $0 })
     }
 
@@ -166,7 +172,9 @@ actor AntigravityRemoteUsageService {
         let endpoints = endpointBaseURLProvider().map(EndpointSet.init(baseURL:))
         var lastError: Error?
 
-        for endpointSet in endpoints {
+        var identityOnlyCandidate: IdentityOnlyEndpointCandidate?
+
+        for (index, endpointSet) in endpoints.enumerated() {
             do {
                 let codeAssist = try await loadCodeAssist(
                     accessToken: accessToken,
@@ -190,6 +198,16 @@ actor AntigravityRemoteUsageService {
                     endpointSet: endpointSet
                 )
 
+                if !Self.hasUsableQuotaFraction(quotas), index < endpoints.count - 1 {
+                    identityOnlyCandidate = IdentityOnlyEndpointCandidate(
+                        quotas: quotas,
+                        codeAssist: codeAssist,
+                        credentials: credentials
+                    )
+                    Logger.info("[Antigravity] endpoint=\(endpointSet.baseURL.host ?? "-") quota 수치 없음, 다음 endpoint 확인")
+                    continue
+                }
+
                 Logger.info("[Antigravity] remote usage fetched via \(source.label) endpoint=\(endpointSet.baseURL.host ?? "-")")
                 return AntigravityUsageMapper.buildResponse(
                     quotas: quotas,
@@ -206,7 +224,21 @@ actor AntigravityRemoteUsageService {
             }
         }
 
+        if let identityOnlyCandidate {
+            Logger.info("[Antigravity] 모든 원격 endpoint에서 quota 수치가 없어 identity-only 응답 사용")
+            return AntigravityUsageMapper.buildResponse(
+                quotas: identityOnlyCandidate.quotas,
+                accountEmail: claims.email ?? identityOnlyCandidate.credentials.email?.trimmedNonEmpty,
+                accountPlan: AntigravityRemoteUsageParsing.plan(from: identityOnlyCandidate.codeAssist, claims: claims),
+                source: .googleOAuth
+            )
+        }
+
         throw lastError ?? APIError.networkError("Antigravity 원격 endpoint가 없습니다")
+    }
+
+    nonisolated private static func hasUsableQuotaFraction(_ quotas: [AntigravityModelQuota]) -> Bool {
+        quotas.contains { $0.remainingFraction != nil }
     }
 
     func fetchUsageWithRetry(maxAttempts: Int = 2) async throws -> AntigravityUsageResponse {
@@ -285,8 +317,8 @@ actor AntigravityRemoteUsageService {
         let client = try refreshOAuthClient(from: credentials)
         var lastInvalidClient = false
         var attemptedSecrets: Set<String> = []
-        for clientSecret in client.clientSecretCandidates {
-            attemptedSecrets.insert(clientSecret)
+        for clientSecret in client.tokenClientSecretCandidates {
+            attemptedSecrets.insert(clientSecretAttemptKey(clientSecret))
             do {
                 return try await refreshAccessToken(
                     credentials: credentials,
@@ -301,7 +333,9 @@ actor AntigravityRemoteUsageService {
             }
         }
         if lastInvalidClient, let fallbackClient = fallbackOAuthClient(for: client) {
-            for clientSecret in fallbackClient.clientSecretCandidates where !attemptedSecrets.contains(clientSecret) {
+            for clientSecret in fallbackClient.tokenClientSecretCandidates
+                where !attemptedSecrets.contains(clientSecretAttemptKey(clientSecret))
+            {
                 do {
                     return try await refreshAccessToken(
                         credentials: credentials,
@@ -325,7 +359,7 @@ actor AntigravityRemoteUsageService {
         credentials: AntigravityOAuthCredentials,
         refreshToken: String,
         clientID: String,
-        clientSecret: String,
+        clientSecret: String?,
         sourceStore: AntigravityOAuthCredentialsStore?
     ) async throws -> RefreshResult {
         var request = URLRequest(url: AntigravityOAuthConfig.tokenURL)
@@ -344,7 +378,13 @@ actor AntigravityRemoteUsageService {
             throw APIError.unknownError("Invalid refresh response")
         }
         guard http.statusCode == 200 else {
-            if http.statusCode == 401, tokenError(from: data) == "invalid_client" {
+            let errorPayload = tokenError(from: data)
+            if isRetryableClientCredentialError(
+                statusCode: http.statusCode,
+                errorCode: errorPayload?.code,
+                errorDescription: errorPayload?.description,
+                clientSecret: clientSecret
+            ) {
                 throw AntigravityTokenRefreshError.invalidClient
             }
             throw APIError.invalidSessionKey
@@ -363,9 +403,13 @@ actor AntigravityRemoteUsageService {
     }
 
     private func refreshOAuthClient(from credentials: AntigravityOAuthCredentials) throws -> AntigravityOAuthClient {
-        if let clientID = credentials.clientID?.trimmedNonEmpty,
-           let clientSecret = credentials.clientSecret?.trimmedNonEmpty {
-            return AntigravityOAuthClient(clientID: clientID, clientSecret: clientSecret)
+        if let clientID = credentials.clientID?.trimmedNonEmpty {
+            let clientSecret = credentials.clientSecret?.trimmedNonEmpty
+            return AntigravityOAuthClient(
+                clientID: clientID,
+                clientSecret: clientSecret,
+                allowsPublicClient: clientSecret == nil
+            )
         }
         guard let client = oauthClientProvider() else {
             throw APIError.unknownError(AntigravityOAuthConfig.missingCredentialsMessage)
@@ -378,6 +422,10 @@ actor AntigravityRemoteUsageService {
             return nil
         }
         return discovered
+    }
+
+    private func clientSecretAttemptKey(_ clientSecret: String?) -> String {
+        clientSecret ?? "<public-client>"
     }
 
     private func updatedCredentials(
@@ -601,18 +649,42 @@ actor AntigravityRemoteUsageService {
         }
     }
 
-    private func tokenError(from data: Data) -> String? {
+    private func tokenError(from data: Data) -> AntigravityOAuthTokenErrorPayload? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        return (json["error"] as? String)?.trimmedNonEmpty
+        return AntigravityOAuthTokenErrorPayload(
+            code: (json["error"] as? String)?.trimmedNonEmpty,
+            description: (json["error_description"] as? String)?.trimmedNonEmpty
+        )
     }
 
-    private func formBody(_ values: [String: String]) -> Data? {
+    private func isRetryableClientCredentialError(
+        statusCode: Int,
+        errorCode: String?,
+        errorDescription: String?,
+        clientSecret: String?
+    ) -> Bool {
+        if statusCode == 401, errorCode == "invalid_client" {
+            return true
+        }
+        guard clientSecret == nil, errorCode == "invalid_request" else {
+            return false
+        }
+        return errorDescription?.localizedCaseInsensitiveContains("client_secret") == true
+    }
+
+    private func formBody(_ values: [String: String?]) -> Data? {
         var components = URLComponents()
-        components.queryItems = values.map { key, value in
-            URLQueryItem(name: key, value: value)
+        components.queryItems = values.compactMap { key, value in
+            guard let value else { return nil }
+            return URLQueryItem(name: key, value: value)
         }
         return components.query?.data(using: .utf8)
     }
+}
+
+private nonisolated struct AntigravityOAuthTokenErrorPayload: Sendable, Equatable {
+    let code: String?
+    let description: String?
 }
 
 private nonisolated enum AntigravityTokenRefreshError: Error {

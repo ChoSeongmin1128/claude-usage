@@ -4,7 +4,6 @@ enum SettingsProviderPanel: String, CaseIterable, Identifiable, Sendable {
     case common
     case claude
     case codex
-    case gemini
     case antigravity
 
     var id: String { rawValue }
@@ -51,7 +50,6 @@ enum SettingsProviderRegistry {
             .init(panel: .common, title: "공통", icon: "slider.horizontal.3", providerKind: nil, availability: .active),
             providerPanelDescriptor(for: .claude),
             providerPanelDescriptor(for: .codex),
-            providerPanelDescriptor(for: .gemini),
             providerPanelDescriptor(for: .antigravity),
         ]
     }
@@ -101,8 +99,6 @@ enum SettingsProviderRegistry {
             return .claude
         case .codex:
             return .codex
-        case .gemini:
-            return .gemini
         case .antigravity:
             return .antigravity
         }

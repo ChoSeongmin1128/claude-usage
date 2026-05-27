@@ -20,7 +20,7 @@
 
 - Antigravity 2.0 앱 사용량과 AGY CLI 사용량을 별도 provider로 쪼개지 않습니다.
 - CLI는 별도 quota 원장이 아니라 같은 Antigravity 계정 quota의 다른 surface로 봅니다.
-- AGY CLI 로컬 상태 파일은 usage source로 파싱하지 않습니다. `ccusage` 최신 문서도 Antigravity CLI의 `~/.gemini/antigravity-cli` 로컬 파일이 readable token usage나 per-turn accounting을 안정적으로 제공하지 않는다고 보고 있습니다.
+- AGY CLI 로컬 상태 파일은 usage source로 파싱하지 않습니다. 대신 `agy` TUI의 `/usage` quota 화면은 공식 CLI surface가 제공하는 표시 결과이므로 보조 usage source로 사용할 수 있습니다.
 - CLI 감지는 `agy` 실행 파일, `~/.gemini/antigravity-cli` 상태 디렉터리, `settings.json` 존재 여부를 분리해서 표시합니다.
 - `agy` 명령은 PATH에 있어도 shell wrapper가 사라진 bundle 내부 경로를 가리킬 수 있습니다. ClaudeUsage는 wrapper target을 정적으로 확인해 깨진 CLI를 정상 CLI로 표시하지 않습니다.
 - Windows는 현재 제품 요구사항에서 제외합니다.
@@ -39,15 +39,16 @@ ClaudeUsage는 CodexBar와 호환을 목표로 하지 않습니다. 대신 아�
 
 ## 3. 데이터 소스 모드
 
-Antigravity 설정은 세 가지 모드를 가집니다.
+Antigravity 설정은 네 가지 모드를 가집니다.
 
 | 모드 | 동작 | 사용자에게 맞는 경우 |
 |---|---|---|
-| `자동` | 로컬 앱 API를 먼저 조회하고, 실패하거나 quota window가 없으면 Google OAuth 원격 조회로 보완 | 대부분의 사용자 |
+| `자동` | 로컬 앱 API를 먼저 조회하고, 실패하거나 quota window가 없으면 AGY CLI `/usage`, Google OAuth 원격 조회 순서로 보완 | 대부분의 사용자 |
 | `로컬 앱` | 실행 중인 Antigravity 2.0 language server만 조회 | OAuth 연결 없이 앱 상태만 보고 싶은 경우 |
+| `AGY CLI` | `agy`를 PTY로 실행해 `/usage` quota 화면을 읽음 | 터미널에서 `agy` 로그인이 이미 동작하고 앱/OAuth 경로가 수치를 주지 않는 경우 |
 | `Google OAuth` | ClaudeUsage에 연결한 Google OAuth 계정으로 원격 quota만 조회 | CLI/원격 작업 중심이거나 Antigravity 앱이 꺼져 있어도 quota를 보고 싶은 경우 |
 
-자동 모드에서 로컬 API가 성공했지만 quota window가 비어 있으면 identity-only 결과로 바로 확정하지 않습니다. 먼저 원격 OAuth로 보완하고, 원격도 실패하면 로컬 identity-only 결과를 유지합니다.
+자동 모드에서 로컬 API가 성공했지만 quota window가 비어 있으면 identity-only 결과로 바로 확정하지 않습니다. 먼저 AGY CLI `/usage`로 보완하고, CLI도 수치를 주지 않거나 실패하면 원격 OAuth를 시도합니다. 모든 보조 source가 실패하면 가장 최근의 identity-only 결과를 유지합니다.
 
 ## 4. 로컬 앱 조회
 
@@ -89,22 +90,26 @@ Antigravity 설정은 세 가지 모드를 가집니다.
 - `POST https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels`
 - `POST https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota`
 
-원격 조회는 Google OAuth access token을 사용합니다. access token이 없거나 만료 임박이면 refresh token으로 갱신합니다. project ID가 없으면 `loadCodeAssist` 응답, `onboardUser`, 재조회 순서로 project ID를 보완하고, 찾은 값은 credentials에 저장합니다. OAuth client secret은 Antigravity bundle 내부 형식이 바뀔 수 있으므로 `GOCSPX-` 접두사 뒤 길이를 고정하지 않습니다.
+기본 원격 후보는 실행 중인 Antigravity 프로세스가 노출한 endpoint를 먼저 존중하고, 없으면 `cloudcode-pa.googleapis.com`, `daily-cloudcode-pa.googleapis.com` 순서로 시도합니다. 첫 endpoint가 계정 정보만 내려주고 quota fraction을 주지 않으면 최종 성공으로 삼지 않고 다음 endpoint를 확인한 뒤, 모든 후보가 같은 상태일 때만 identity-only 응답으로 처리합니다.
 
-`fetchAvailableModels` 가 403이거나, 200 응답이지만 usable usage fraction을 주지 않으면 `retrieveUserQuota` 를 fallback으로 시도합니다. 둘 다 403이면 인증 자체가 깨진 것으로 보지 않고 identity-only 상태를 허용합니다. 401은 재로그인이 필요한 인증 실패로 봅니다. `retrieveUserQuota` 가 비어 있거나 유효한 모델 bucket을 주지 않으면 정상 quota 없음으로 삼키지 않고 parse failure로 처리합니다. 이 fallback endpoint는 shape 변화가 생겼을 때 조용히 identity-only로 퇴행하면 문제를 늦게 발견하기 때문입니다.
+원격 조회는 Google OAuth access token을 사용합니다. access token이 없거나 만료 임박이면 refresh token으로 갱신합니다. project ID가 없으면 `loadCodeAssist` 응답, `onboardUser`, 재조회 순서로 project ID를 보완하고, 찾은 값은 credentials에 저장합니다. OAuth client는 명시 환경변수를 우선하고, 없으면 Antigravity 2.0 번들의 client 정보를 탐색합니다. 번들의 `language_server`에는 client id만 있고 실제 secret이 아닌 `GOCSPX...https` 문자열이 붙어 있을 수 있으므로, 번들 secret fallback은 길이와 경계를 검증한 후보만 사용합니다.
 
-모델 ID는 있지만 `remainingFraction` 이 없는 quota는 usage window로 만들지 않습니다. Antigravity 응답 shape가 바뀌어 사용량 값이 빠진 경우 0%/100% 같은 가짜 수치를 표시하지 않고, 계정/plan만 있는 `quota 정보 없음` 상태로 남깁니다.
+`fetchAvailableModels` 가 403이거나, 200 응답이지만 usable usage fraction을 주지 않으면 `retrieveUserQuota` 를 fallback으로 시도합니다. 둘 다 403이면 인증 자체가 깨진 것으로 보지 않고 identity-only 상태를 허용합니다. 401은 재로그인이 필요한 인증 실패로 봅니다. `retrieveUserQuota` 가 비어 있거나 유효한 모델 bucket을 주지 않으면 정상 수치 미제공으로 삼키지 않고 parse failure로 처리합니다. 이 fallback endpoint는 shape 변화가 생겼을 때 조용히 identity-only로 퇴행하면 문제를 늦게 발견하기 때문입니다.
 
-OAuth 로그인 callback은 loopback server로만 받습니다. callback parser는 `GET`, `Host: 127.0.0.1:<port>`, `/callback` path, OAuth `state` 를 모두 확인합니다.
+모델 ID는 있지만 `remainingFraction` 이 없는 quota는 usage window로 만들지 않습니다. Antigravity 응답 shape가 바뀌어 사용량 값이 빠진 경우 0%/100% 같은 가짜 수치를 표시하지 않고, 계정/plan만 확인된 `quota 수치 미지원` 상태로 남깁니다.
+
+OAuth 로그인 callback은 loopback server로만 받습니다. callback parser는 `GET`, `Host: 127.0.0.1:<port>`, `/oauth2callback` path, OAuth `state` 를 모두 확인합니다.
+
+OAuth login은 loopback redirect와 PKCE(`S256`)를 사용합니다. 설치된 Antigravity.app에서 찾은 client는 공개 client 흐름을 먼저 시도한 뒤 Google이 client credential 오류를 반환하면 같은 client ID의 검증된 secret 후보를 순서대로 재시도합니다. 이 처리는 사용자가 별도 Google Cloud 프로젝트나 OAuth secret을 준비하지 않아도 로그인할 수 있게 하기 위한 방어입니다.
 
 OAuth client 정보는 아래 순서로 찾습니다.
 
-1. `ANTIGRAVITY_OAUTH_CLIENT_ID`, `ANTIGRAVITY_OAUTH_CLIENT_SECRET`
+1. `ANTIGRAVITY_OAUTH_CLIENT_ID`, 선택적으로 `ANTIGRAVITY_OAUTH_CLIENT_SECRET`
 2. `/Applications/Antigravity.app/Contents/Resources/app/out/main.js`
 3. `/Applications/Antigravity.app/Contents/Resources/bin/language_server`
 4. 사용자 `~/Applications/Antigravity.app` 의 같은 경로
 
-Antigravity 2.0 language server에는 같은 client ID에 여러 secret 후보가 들어 있을 수 있으므로 token refresh에서 같은 client ID의 secret 후보를 순서대로 재시도합니다.
+Antigravity 2.0 language server에는 같은 client ID에 여러 secret 후보가 들어 있을 수 있으므로 token refresh에서 공개 client 요청과 같은 client ID의 secret 후보를 순서대로 재시도합니다.
 
 ## 6. 저장소와 Keychain 정책
 
@@ -140,8 +145,9 @@ Antigravity OAuth 저장 위치:
 
 - 로컬 앱이 실행 중이어도 quota window가 없으면 0%처럼 보이면 안 됩니다.
 - quota 모델은 감지됐지만 usage fraction이 없으면 100%처럼 보이면 안 됩니다.
-- quota가 없고 identity만 있으면 `연결` / `quota 정보 없음` 계열 문구로 보여줍니다.
+- quota가 없고 identity만 있으면 메뉴바 숫자 대신 `!` 상태 마커를 표시하고, 팝오버/설정에서는 `계정 확인됨 · 수치 미지원` 계열 문구로 보여줍니다.
 - PATH의 `agy`가 없는 대상 파일을 가리키면 `CLI 복구 필요`로 보여주고, CLI 자체 사용량이 별도 source로 준비됐다고 표현하지 않습니다.
+- `agy`가 실행 가능하면 자동 모드의 보조 source이자 수동 `AGY CLI` source로 표시합니다. 다만 로그인 선택, trust prompt처럼 상호작용이 필요한 화면은 자동으로 승인하지 않고 실패로 처리합니다.
 - CLI가 없어도 로컬 앱 API와 Google OAuth 원격 조회는 사용할 수 있습니다.
 - `Google OAuth` 모드에서는 Antigravity 앱의 로그인 상태를 OAuth 준비 완료로 취급하지 않습니다. ClaudeUsage에 연결한 OAuth 계정이 있어야 합니다.
 - `로컬 앱` 모드에서는 ClaudeUsage OAuth가 없어도 로컬 runtime만 기준으로 판단합니다.
@@ -167,6 +173,6 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
 
 - Antigravity 2.0/CLI는 출시 직후라 binary name, flag, endpoint response shape가 바뀔 수 있습니다.
 - Google Cloud Code Assist endpoint는 공개 안정 API가 아니므로 403/parse failure 증가 시 upstream 변경을 먼저 의심해야 합니다.
-- OAuth client discovery는 설치된 Antigravity.app 내부 bundle에 의존합니다. 앱 bundle 구조가 바뀌면 환경변수 override가 우선 복구 수단입니다.
+- OAuth client discovery는 환경변수, Antigravity.app bundle 순서로 의존합니다. Antigravity bundle 구조가 바뀌면 환경변수 override가 우선 복구 수단입니다.
 - local language server port와 CSRF token은 재시작 때 바뀝니다. stale cache가 의심되면 `AntigravityStatusProbe.invalidateCache()` 경로와 retry를 먼저 확인합니다.
 - AGY CLI 설정 파일은 공식 문서상 JSON 파일입니다. 설정 내용을 임의로 수정하지 말고, 존재 여부와 경로 상태만 UX에 노출합니다.

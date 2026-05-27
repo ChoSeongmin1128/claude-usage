@@ -139,7 +139,7 @@ final class AntigravityOAuthSettingsViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.activeAccountID)
         XCTAssertNil(try credentialStore.load())
         XCTAssertEqual(refreshCount, 1)
-        XCTAssertEqual(viewModel.message, "ClaudeUsage에 저장된 모든 Antigravity OAuth 연결을 해제했습니다.")
+        XCTAssertEqual(viewModel.message, "ClaudeUsage에 저장된 모든 Antigravity Google 계정 연결을 해제했습니다.")
     }
 
     func testCancelLoginIgnoresLateSuccess() async throws {

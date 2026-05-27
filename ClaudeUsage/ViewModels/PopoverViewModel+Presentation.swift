@@ -61,11 +61,55 @@ extension PopoverViewModel {
 
         var sections: [PopoverDisplaySection] = []
         for item in visibleItems {
-            if let claudeCatalog = catalog as? ClaudeItemCatalog {
-                sections.append(contentsOf: claudeCatalog.expandedSections(for: item.id, context: context))
-            } else if let built = catalog.section(for: item.id, context: context) {
-                sections.append(built)
-            }
+            sections.append(contentsOf: catalog.expandedSections(for: item.id, context: context))
+        }
+
+        if service == .antigravity,
+           let usage = context.antigravityUsage,
+           !usage.hasUsageWindows,
+           !sections.contains(where: { $0.id == "antigravityQuotaStatus" })
+        {
+            sections.insert(
+                PopoverDisplaySection(
+                    id: "antigravityQuotaStatus",
+                    kind: .status,
+                    importance: .primary,
+                    payload: .status(
+                        PopoverStatusSectionData(
+                            title: "계정 확인됨",
+                            error: nil,
+                            statusText: "수치 미지원",
+                            message: "계정과 플랜은 확인됐지만 Antigravity가 아직 사용량 수치를 제공하지 않았습니다."
+                        )
+                    )
+                ),
+                at: 0
+            )
+        }
+
+        if service == .antigravity,
+           let usage = context.antigravityUsage,
+           usage.hasUsageWindows,
+           context.settings.visibleAntigravityModelWindows(from: usage.modelWindows).isEmpty,
+           !sections.contains(where: { $0.kind == .usage }),
+           !sections.contains(where: { $0.id == "antigravityHiddenModelsStatus" })
+        {
+            sections.insert(
+                PopoverDisplaySection(
+                    id: "antigravityHiddenModelsStatus",
+                    kind: .status,
+                    importance: .primary,
+                    payload: .status(
+                        PopoverStatusSectionData(
+                            title: "표시할 모델 없음",
+                            error: nil,
+                            statusText: "숨김",
+                            message: "설정에서 팝오버에 표시할 Antigravity 모델을 선택하세요."
+                        )
+                    )
+                ),
+                at: 0
+            )
         }
 
         if density == .compact {
@@ -86,7 +130,6 @@ extension PopoverViewModel {
             activeClaudeAccountID: usageHealthSnapshot?.activeAccountID,
             codexUsage: codexUsage,
             codexError: snapshot(for: .codex)?.error,
-            geminiUsage: geminiUsage,
             antigravityUsage: antigravityUsage
         )
     }

@@ -8,7 +8,7 @@ extension SettingsView {
                 Label("메뉴바 표시", systemImage: "slider.horizontal.3")
                     .font(.headline)
 
-                if provider == .gemini || provider == .antigravity {
+                if provider == .antigravity {
                     settingsToggleRow(
                         "메뉴바에 표시",
                         isOn: Binding(
@@ -21,12 +21,12 @@ extension SettingsView {
                 if provider == .claude || provider == .codex || settings.isProviderVisibleInMenuBar(provider) {
                     Picker("표시 방식", selection: menuBarPresetBinding(for: provider)) {
                         ForEach(ProviderMenuBarDisplayPreset.allCases) { preset in
-                            Text(preset.displayName).tag(preset)
+                            Text(menuBarPresetDisplayName(preset, for: provider)).tag(preset)
                         }
                     }
                     .pickerStyle(.segmented)
 
-                    Text(currentMenuBarPreset(for: provider).detail)
+                    Text(menuBarPresetDetail(currentMenuBarPreset(for: provider), for: provider))
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -74,13 +74,17 @@ extension SettingsView {
                 )
             )
 
-            Picker("퍼센트", selection: Binding(
+            Picker(provider == .antigravity ? "텍스트" : "퍼센트", selection: Binding(
                 get: { settings.menuBarDisplayConfig(for: provider)?.percentageDisplay ?? .fiveHour },
                 set: { settings.setProviderPercentageDisplay($0, for: provider) }
             )) {
                 ForEach(PercentageDisplay.allCases, id: \.self) { mode in
-                    Text(mode.displayName).tag(mode)
+                    Text(percentageDisplayName(mode, for: provider)).tag(mode)
                 }
+            }
+
+            if provider == .antigravity {
+                antigravityMenuBarModelPickers()
             }
 
             Picker("갱신 시간", selection: Binding(
@@ -88,7 +92,7 @@ extension SettingsView {
                 set: { settings.setProviderResetTimeDisplay($0, for: provider) }
             )) {
                 ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
-                    Text(mode.displayName).tag(mode)
+                    Text(resetTimeDisplayName(mode, for: provider)).tag(mode)
                 }
             }
 
@@ -132,7 +136,7 @@ extension SettingsView {
             if displayConfig.style == .batteryBar || displayConfig.style == .circular {
                 settingsRadioGroup(
                     "아이콘 기준",
-                    options: IconMetric.allCases.map { ($0, $0.displayName) },
+                    options: IconMetric.allCases.map { ($0, iconMetricDisplayName($0, for: provider)) },
                     selection: settings.menuBarDisplayConfig(for: provider)?.iconMetric ?? .fiveHour,
                     onChange: { settings.setProviderIconMetric($0, for: provider) }
                 )
@@ -152,13 +156,154 @@ extension SettingsView {
         .cornerRadius(8)
     }
 
+    private func menuBarPresetDisplayName(_ preset: ProviderMenuBarDisplayPreset, for provider: AppProviderKind) -> String {
+        if usesModelBasedMenuBarLabels(provider), preset == .dual {
+            return "두 모델"
+        }
+        return preset.displayName
+    }
+
+    private func menuBarPresetDetail(_ preset: ProviderMenuBarDisplayPreset, for provider: AppProviderKind) -> String {
+        guard usesModelBasedMenuBarLabels(provider) else {
+            return preset.detail
+        }
+        let primary = primaryMenuBarMetricName(for: provider)
+        let secondary = secondaryMenuBarMetricName(for: provider)
+        switch preset {
+        case .basic:
+            return "아이콘과 \(primary) 사용률만 표시합니다."
+        case .battery:
+            return "아이콘과 배터리 형태로 \(primary) 남은 사용량을 표시합니다."
+        case .dual:
+            return "\(primary)와 \(secondary) 사용률을 함께 표시합니다."
+        case .custom:
+            return "표시 항목을 직접 조정합니다."
+        }
+    }
+
+    private func percentageDisplayName(_ mode: PercentageDisplay, for provider: AppProviderKind) -> String {
+        switch mode {
+        case .none:
+            return "없음"
+        case .fiveHour:
+            return primaryMenuBarMetricName(for: provider)
+        case .weekly:
+            return secondaryMenuBarMetricName(for: provider)
+        case .dual:
+            return usesModelBasedMenuBarLabels(provider) ? "두 모델" : "동시 표시"
+        }
+    }
+
+    private func resetTimeDisplayName(_ mode: ResetTimeDisplay, for provider: AppProviderKind) -> String {
+        switch mode {
+        case .none:
+            return "없음"
+        case .fiveHour:
+            return primaryMenuBarMetricName(for: provider)
+        case .weekly:
+            return secondaryMenuBarMetricName(for: provider)
+        case .dual:
+            return usesModelBasedMenuBarLabels(provider) ? "두 모델" : "동시 표시"
+        }
+    }
+
+    private func iconMetricDisplayName(_ metric: IconMetric, for provider: AppProviderKind) -> String {
+        switch metric {
+        case .fiveHour:
+            return primaryMenuBarMetricName(for: provider)
+        case .weekly:
+            return secondaryMenuBarMetricName(for: provider)
+        }
+    }
+
+    private func primaryMenuBarMetricName(for provider: AppProviderKind) -> String {
+        switch provider {
+        case .antigravity:
+            return antigravityMenuBarModelName(
+                modelID: settings.antigravityMenuBarPrimaryModelID,
+                fallback: "주 모델"
+            )
+        default:
+            return "현재 세션"
+        }
+    }
+
+    private func secondaryMenuBarMetricName(for provider: AppProviderKind) -> String {
+        switch provider {
+        case .antigravity:
+            return antigravityMenuBarModelName(
+                modelID: settings.antigravityMenuBarSecondaryModelID,
+                fallback: "보조 모델"
+            )
+        default:
+            return "주간"
+        }
+    }
+
+    private func antigravityMenuBarModelName(modelID: String?, fallback: String) -> String {
+        guard let modelID,
+              let window = antigravityLastUsage?()?.modelWindows.first(where: { $0.modelID == modelID })
+        else {
+            return fallback
+        }
+        return window.label
+    }
+
+    private func antigravityModelSelectionBinding(primary: Bool) -> Binding<String> {
+        Binding(
+            get: {
+                if primary {
+                    return settings.antigravityMenuBarPrimaryModelID ?? ""
+                }
+                return settings.antigravityMenuBarSecondaryModelID ?? ""
+            },
+            set: { value in
+                let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if primary {
+                    settings.antigravityMenuBarPrimaryModelID = normalized.isEmpty ? nil : normalized
+                } else {
+                    settings.antigravityMenuBarSecondaryModelID = normalized.isEmpty ? nil : normalized
+                }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func antigravityMenuBarModelPickers() -> some View {
+        let windows = antigravityLastUsage?()?.modelWindows ?? []
+        if windows.isEmpty {
+            Text("사용량을 한 번 조회하면 메뉴바에 표시할 모델을 직접 고를 수 있습니다.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            Picker("주 모델", selection: antigravityModelSelectionBinding(primary: true)) {
+                Text("자동").tag("")
+                ForEach(windows, id: \.modelID) { window in
+                    Text(window.label).tag(window.modelID)
+                }
+            }
+
+            Picker("보조 모델", selection: antigravityModelSelectionBinding(primary: false)) {
+                Text("자동").tag("")
+                ForEach(windows, id: \.modelID) { window in
+                    Text(window.label).tag(window.modelID)
+                }
+            }
+        }
+    }
+
+    private func usesModelBasedMenuBarLabels(_ provider: AppProviderKind) -> Bool {
+        provider == .antigravity
+    }
+
     @ViewBuilder
     func providerPopoverDisplaySection(for provider: AppProviderKind) -> some View {
         if let service = provider.runtimeService {
             ProviderPopoverDisplaySection(
                 settings: settings,
                 provider: provider,
-                service: service
+                service: service,
+                antigravityUsage: provider == .antigravity ? antigravityLastUsage?() : nil
             )
         }
     }
@@ -272,6 +417,7 @@ private struct ProviderPopoverDisplaySection: View {
     @ObservedObject var settings: AppSettings
     let provider: AppProviderKind
     let service: PopoverService
+    let antigravityUsage: AntigravityUsageResponse?
     @State private var selectedMode: PopoverDisplayEditorMode = .standard
 
     var body: some View {
@@ -290,6 +436,14 @@ private struct ProviderPopoverDisplaySection: View {
             }
             .pickerStyle(.segmented)
             .frame(maxWidth: 360, alignment: .leading)
+
+            if provider == .antigravity {
+                AntigravityModelVisibilityListView(
+                    settings: settings,
+                    usage: antigravityUsage
+                )
+                .frame(maxWidth: 420, alignment: .leading)
+            }
 
             PopoverDisplayItemsListView(
                 settings: settings,
@@ -314,5 +468,94 @@ private struct ProviderPopoverDisplaySection: View {
                 selectedMode = newMode
             }
         )
+    }
+}
+
+private struct AntigravityModelVisibilityListView: View {
+    @ObservedObject var settings: AppSettings
+    let usage: AntigravityUsageResponse?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("모델")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                if let visibleCount {
+                    Text("\(visibleCount.visible)/\(visibleCount.total) 표시")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if modelWindows.isEmpty {
+                Text("사용량을 한 번 조회하면 모델별 표시 여부를 조정할 수 있습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(NSColor.windowBackgroundColor).opacity(0.6))
+                    .cornerRadius(6)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(modelWindows.enumerated()), id: \.element.modelID) { index, window in
+                        VStack(spacing: 0) {
+                            HStack(spacing: 8) {
+                                Image(systemName: AntigravityUsageMapper.displayIcon(for: window))
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 16)
+
+                                Button {
+                                    settings.setAntigravityModelVisible(
+                                        !settings.isAntigravityModelVisible(window.modelID),
+                                        modelID: window.modelID
+                                    )
+                                } label: {
+                                    Image(systemName: settings.isAntigravityModelVisible(window.modelID) ? "eye" : "eye.slash")
+                                        .foregroundStyle(settings.isAntigravityModelVisible(window.modelID) ? .primary : .tertiary)
+                                        .font(.system(size: 12))
+                                        .frame(width: 16, height: 16)
+                                }
+                                .buttonStyle(.borderless)
+                                .help(settings.isAntigravityModelVisible(window.modelID) ? "숨기기" : "보이기")
+
+                                Text(window.label)
+                                    .font(.subheadline)
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .foregroundStyle(settings.isAntigravityModelVisible(window.modelID) ? .primary : .tertiary)
+
+                                Spacer(minLength: 8)
+
+                                Text("\(Int(window.usedPercent.rounded()))%")
+                                    .font(.system(.caption, design: .monospaced).weight(.medium))
+                                    .foregroundStyle(ColorProvider.statusColor(for: window.usedPercent))
+                            }
+                            .frame(height: 28)
+                            .padding(.horizontal, 8)
+
+                            if index < modelWindows.count - 1 {
+                                Divider().padding(.horizontal, 8)
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+                .background(Color(NSColor.windowBackgroundColor).opacity(0.6))
+                .cornerRadius(6)
+            }
+        }
+    }
+
+    private var modelWindows: [AntigravityUsageWindow] {
+        usage?.modelWindows ?? []
+    }
+
+    private var visibleCount: (visible: Int, total: Int)? {
+        guard !modelWindows.isEmpty else { return nil }
+        let visible = modelWindows.filter { settings.isAntigravityModelVisible($0.modelID) }.count
+        return (visible, modelWindows.count)
     }
 }

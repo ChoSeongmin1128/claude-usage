@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 import Network
 
@@ -23,11 +24,12 @@ nonisolated enum AntigravityOAuthLoginRunner {
         timeout: TimeInterval = 120,
         onPhaseChange: (@Sendable (Phase) -> Void)? = nil
     ) async -> Result {
-        guard let oauthClient = AntigravityOAuthConfig.resolvedClient() else {
+        guard let oauthClient = await resolvedClientOffMainActor() else {
             return Result(outcome: .failed(AntigravityOAuthConfig.missingCredentialsMessage))
         }
 
         let state = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let pkce = AntigravityOAuthPKCEPair.generate()
         let server = AntigravityLoopbackServer(state: state)
 
         do {
@@ -35,6 +37,7 @@ nonisolated enum AntigravityOAuthLoginRunner {
             let authURL = try makeAuthorizationURL(
                 redirectURL: callbackURL,
                 state: state,
+                pkce: pkce,
                 oauthClient: oauthClient
             )
             onPhaseChange?(.waitingBrowser)
@@ -81,6 +84,7 @@ nonisolated enum AntigravityOAuthLoginRunner {
             let tokenExchange = try await exchangeCodeForTokens(
                 code: code,
                 redirectURL: callbackURL,
+                codeVerifier: pkce.verifier,
                 oauthClient: oauthClient
             )
             let tokenResponse = tokenExchange.response
@@ -111,9 +115,16 @@ nonisolated enum AntigravityOAuthLoginRunner {
         }
     }
 
+    private static func resolvedClientOffMainActor() async -> AntigravityOAuthClient? {
+        await Task.detached(priority: .userInitiated) {
+            AntigravityOAuthConfig.resolvedClient()
+        }.value
+    }
+
     private static func makeAuthorizationURL(
         redirectURL: URL,
         state: String,
+        pkce: AntigravityOAuthPKCEPair,
         oauthClient: AntigravityOAuthClient
     ) throws -> URL {
         guard var components = URLComponents(url: AntigravityOAuthConfig.authURL, resolvingAgainstBaseURL: false) else {
@@ -127,6 +138,8 @@ nonisolated enum AntigravityOAuthLoginRunner {
             URLQueryItem(name: "access_type", value: "offline"),
             URLQueryItem(name: "prompt", value: "select_account consent"),
             URLQueryItem(name: "state", value: state),
+            URLQueryItem(name: "code_challenge", value: pkce.challenge),
+            URLQueryItem(name: "code_challenge_method", value: "S256"),
         ]
         guard let url = components.url else {
             throw AntigravityLoginError.invalidAuthorizationURL
@@ -137,16 +150,18 @@ nonisolated enum AntigravityOAuthLoginRunner {
     private static func exchangeCodeForTokens(
         code: String,
         redirectURL: URL,
+        codeVerifier: String,
         oauthClient: AntigravityOAuthClient
     ) async throws -> TokenExchangeResult {
         var lastInvalidClientMessage: String?
-        for clientSecret in oauthClient.clientSecretCandidates {
+        for clientSecret in oauthClient.tokenClientSecretCandidates {
             do {
                 let response = try await exchangeCodeForTokens(
                     code: code,
                     redirectURL: redirectURL,
                     clientID: oauthClient.clientID,
-                    clientSecret: clientSecret
+                    clientSecret: clientSecret,
+                    codeVerifier: codeVerifier
                 )
                 return TokenExchangeResult(response: response, clientSecret: clientSecret)
             } catch AntigravityLoginError.invalidClient(let message) {
@@ -161,7 +176,8 @@ nonisolated enum AntigravityOAuthLoginRunner {
         code: String,
         redirectURL: URL,
         clientID: String,
-        clientSecret: String
+        clientSecret: String?,
+        codeVerifier: String
     ) async throws -> TokenResponse {
         var request = URLRequest(url: AntigravityOAuthConfig.tokenURL)
         request.httpMethod = "POST"
@@ -171,6 +187,7 @@ nonisolated enum AntigravityOAuthLoginRunner {
             "code": code,
             "client_id": clientID,
             "client_secret": clientSecret,
+            "code_verifier": codeVerifier,
             "redirect_uri": redirectURL.absoluteString,
             "grant_type": "authorization_code",
         ])
@@ -182,7 +199,13 @@ nonisolated enum AntigravityOAuthLoginRunner {
         guard http.statusCode == 200 else {
             let message = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
                 ?? "HTTP \(http.statusCode)"
-            if http.statusCode == 401, tokenError(from: data) == "invalid_client" {
+            let errorPayload = tokenError(from: data)
+            if isRetryableClientCredentialError(
+                statusCode: http.statusCode,
+                errorCode: errorPayload?.code,
+                errorDescription: errorPayload?.description,
+                clientSecret: clientSecret
+            ) {
                 throw AntigravityLoginError.invalidClient(message)
             }
             throw AntigravityLoginError.failed(message)
@@ -194,9 +217,27 @@ nonisolated enum AntigravityOAuthLoginRunner {
         }
     }
 
-    private static func tokenError(from data: Data) -> String? {
+    private static func tokenError(from data: Data) -> AntigravityOAuthTokenErrorPayload? {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        return (json["error"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return AntigravityOAuthTokenErrorPayload(
+            code: (json["error"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+            description: (json["error_description"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    private static func isRetryableClientCredentialError(
+        statusCode: Int,
+        errorCode: String?,
+        errorDescription: String?,
+        clientSecret: String?
+    ) -> Bool {
+        if statusCode == 401, errorCode == "invalid_client" {
+            return true
+        }
+        guard clientSecret == nil, errorCode == "invalid_request" else {
+            return false
+        }
+        return errorDescription?.localizedCaseInsensitiveContains("client_secret") == true
     }
 
     private static func fetchUserEmail(accessToken: String) async throws -> String? {
@@ -216,15 +257,43 @@ nonisolated enum AntigravityOAuthLoginRunner {
         }
     }
 
-    private static func formBody(_ values: [String: String]) -> Data? {
+    private static func formBody(_ values: [String: String?]) -> Data? {
         values
-            .map { key, value in
+            .compactMap { key, value -> String? in
+                guard let value else { return nil }
                 let encodedKey = key.addingPercentEncoding(withAllowedCharacters: .urlQueryValueAllowed) ?? key
                 let encodedValue = value.addingPercentEncoding(withAllowedCharacters: .urlQueryValueAllowed) ?? value
                 return "\(encodedKey)=\(encodedValue)"
             }
             .joined(separator: "&")
             .data(using: .utf8)
+    }
+}
+
+private nonisolated struct AntigravityOAuthTokenErrorPayload: Sendable, Equatable {
+    let code: String?
+    let description: String?
+}
+
+private nonisolated struct AntigravityOAuthPKCEPair: Sendable, Equatable {
+    let verifier: String
+    let challenge: String
+
+    static func generate() -> AntigravityOAuthPKCEPair {
+        let verifier = base64URL(Data((0..<32).map { _ in UInt8.random(in: 0...255) }))
+        let digest = SHA256.hash(data: Data(verifier.utf8))
+        return AntigravityOAuthPKCEPair(
+            verifier: verifier,
+            challenge: base64URL(Data(digest))
+        )
+    }
+
+    private static func base64URL(_ data: Data) -> String {
+        data
+            .base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
     }
 }
 
@@ -253,7 +322,7 @@ private nonisolated enum AntigravityLoginError: LocalizedError {
 
 private nonisolated struct TokenExchangeResult: Sendable {
     let response: TokenResponse
-    let clientSecret: String
+    let clientSecret: String?
 }
 
 private nonisolated struct TokenResponse: Decodable {
@@ -316,7 +385,7 @@ nonisolated enum AntigravityOAuthCallbackParser {
         let returnedState = components.queryItems?.first(where: { $0.name == "state" })?.value
         let error = components.queryItems?.first(where: { $0.name == "error" })?.value
 
-        guard components.path == "/callback" else {
+        guard components.path == "/oauth2callback" else {
             return AntigravityOAuthCallback(code: nil, returnedState: returnedState, error: "예상하지 못한 callback path입니다.")
         }
         if let returnedState, returnedState != expectedState {
@@ -376,7 +445,7 @@ private nonisolated final class AntigravityLoopbackServer: @unchecked Sendable {
                         return
                     }
                     self.allowedHost = "127.0.0.1:\(port.rawValue)"
-                    let url = URL(string: "http://127.0.0.1:\(port.rawValue)/callback")!
+                    let url = URL(string: "http://127.0.0.1:\(port.rawValue)/oauth2callback")!
                     self.finishReady(with: .success(url))
                 case .failed(let error):
                     self.finishReady(with: .failure(error))

@@ -48,6 +48,19 @@ final class AntigravityRefreshConfigurationTests: XCTestCase {
         XCTAssertNil(configuration.activeOAuthAccountUpdatedAtMilliseconds)
     }
 
+    func testAgyCLISourceIgnoresOAuthAccountState() throws {
+        try accountStore.upsert(makeCredentials(email: "first@example.com"), makeActive: true)
+
+        let configuration = AntigravityRefreshConfiguration.current(
+            dataSource: .agyCLI,
+            accountStore: accountStore
+        )
+
+        XCTAssertEqual(configuration.dataSource, .agyCLI)
+        XCTAssertNil(configuration.activeOAuthAccountID)
+        XCTAssertNil(configuration.activeOAuthAccountUpdatedAtMilliseconds)
+    }
+
     func testRemoteSourceIncludesActiveOAuthAccountMetadata() throws {
         try accountStore.upsert(makeCredentials(email: "first@example.com"), makeActive: true)
         let active = try XCTUnwrap(accountStore.state().activeAccount)

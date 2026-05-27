@@ -27,36 +27,6 @@ nonisolated struct ProviderEnvironmentStatus: Sendable, Equatable {
     }
 }
 
-nonisolated enum GeminiAuthType: String, Sendable, Equatable {
-    case oauthPersonal = "oauth-personal"
-    case apiKey = "api-key"
-    case vertexAI = "vertex-ai"
-    case unknown
-}
-
-nonisolated enum GeminiCredentialState: Sendable, Equatable {
-    case usable
-    case refreshOnly
-    case missing
-
-    var providerCredentialState: ProviderCredentialState {
-        switch self {
-        case .usable:
-            return .usable
-        case .refreshOnly:
-            return .refreshable
-        case .missing:
-            return .missing
-        }
-    }
-}
-
-nonisolated struct GeminiEnvironmentSignals: Sendable, Equatable {
-    let hasBinary: Bool
-    let authType: GeminiAuthType
-    let credentialState: GeminiCredentialState
-}
-
 nonisolated struct AntigravityCLIBinaryStatus: Sendable, Equatable {
     enum Kind: String, Sendable, Equatable {
         case missing
@@ -157,10 +127,12 @@ nonisolated struct AntigravityEnvironmentSignals: Sendable, Equatable {
         switch dataSource {
         case .localIDE:
             return hasAppPersistedAuthState
+        case .agyCLI:
+            return hasCLIBinary
         case .googleOAuth:
             return hasOAuthCredential
         case .auto:
-            return hasPersistedAuthState
+            return hasPersistedAuthState || hasCLIBinary
         }
     }
 
@@ -173,15 +145,6 @@ nonisolated struct AntigravityEnvironmentSignals: Sendable, Equatable {
         runningProcess: nil,
         hasAuthStatus: false,
         hasOAuthToken: false
-    )
-}
-
-extension GeminiEnvironmentSignals {
-    /// cache-miss fallback. 실제 감지 전까지 "정보 없음" 을 의미.
-    static let empty = GeminiEnvironmentSignals(
-        hasBinary: false,
-        authType: .unknown,
-        credentialState: .missing
     )
 }
 
@@ -209,17 +172,12 @@ enum ProviderEnvironmentDetector {
     /// 잘못된 정보를 보여 줄 위험이 커지므로 2분으로 제한.
     /// TTL=5s + background warm-up 덕에 실제 체감되는 stale window 는 훨씬 짧다.
     private static let staleAllowance: TimeInterval = 120
-    // MARK: - Signals cache (antigravitySignals/geminiSignals 결과 캐시)
+    // MARK: - Signals cache (antigravitySignals 결과 캐시)
     // SQLite · JSON 파싱 · 파일 IO 를 포함해서 blocking 비용이 있으므로
-    // UI 경로용 cachedAntigravitySignals/cachedGeminiSignals 에서 재활용.
+    // UI 경로용 cachedAntigravitySignals 에서 재활용.
 
     private struct CachedAntigravitySignals {
         let signals: AntigravityEnvironmentSignals
-        let cachedAt: Date
-    }
-
-    private struct CachedGeminiSignals {
-        let signals: GeminiEnvironmentSignals
         let cachedAt: Date
     }
 
@@ -233,9 +191,7 @@ enum ProviderEnvironmentDetector {
 
         private let signalsCacheLock = NSLock()
         private nonisolated(unsafe) var cachedAntigravitySignalsValue: CachedAntigravitySignals?
-        private nonisolated(unsafe) var cachedGeminiSignalsValue: CachedGeminiSignals?
         private nonisolated(unsafe) var antigravitySignalsInflight = false
-        private nonisolated(unsafe) var geminiSignalsInflight = false
         private let binaryPathCacheLock = NSLock()
         private nonisolated(unsafe) var binaryPathCache: [String: URL?] = [:]
 
@@ -251,9 +207,6 @@ enum ProviderEnvironmentDetector {
             signalsCacheLock.lock()
             if kind == nil || kind == .antigravity {
                 cachedAntigravitySignalsValue = nil
-            }
-            if kind == nil || kind == .gemini {
-                cachedGeminiSignalsValue = nil
             }
             signalsCacheLock.unlock()
         }
@@ -322,24 +275,9 @@ enum ProviderEnvironmentDetector {
             return (cached?.signals, needsRefresh)
         }
 
-        nonisolated func cachedGeminiSignals(now: Date, ttl: TimeInterval) -> (signals: GeminiEnvironmentSignals?, needsRefresh: Bool) {
-            signalsCacheLock.lock()
-            defer { signalsCacheLock.unlock() }
-
-            let cached = cachedGeminiSignalsValue
-            let needsRefresh = cached.map { now.timeIntervalSince($0.cachedAt) >= ttl } ?? true
-            return (cached?.signals, needsRefresh)
-        }
-
         nonisolated func storeAntigravitySignals(_ signals: AntigravityEnvironmentSignals, cachedAt: Date) {
             signalsCacheLock.lock()
             cachedAntigravitySignalsValue = CachedAntigravitySignals(signals: signals, cachedAt: cachedAt)
-            signalsCacheLock.unlock()
-        }
-
-        nonisolated func storeGeminiSignals(_ signals: GeminiEnvironmentSignals, cachedAt: Date) {
-            signalsCacheLock.lock()
-            cachedGeminiSignalsValue = CachedGeminiSignals(signals: signals, cachedAt: cachedAt)
             signalsCacheLock.unlock()
         }
 
@@ -358,24 +296,6 @@ enum ProviderEnvironmentDetector {
             signalsCacheLock.lock()
             cachedAntigravitySignalsValue = CachedAntigravitySignals(signals: signals, cachedAt: cachedAt)
             antigravitySignalsInflight = false
-            signalsCacheLock.unlock()
-        }
-
-        nonisolated func beginGeminiSignalsRefresh() -> Bool {
-            signalsCacheLock.lock()
-            defer { signalsCacheLock.unlock() }
-
-            if geminiSignalsInflight {
-                return false
-            }
-            geminiSignalsInflight = true
-            return true
-        }
-
-        nonisolated func endGeminiSignalsRefresh(_ signals: GeminiEnvironmentSignals, cachedAt: Date) {
-            signalsCacheLock.lock()
-            cachedGeminiSignalsValue = CachedGeminiSignals(signals: signals, cachedAt: cachedAt)
-            geminiSignalsInflight = false
             signalsCacheLock.unlock()
         }
 
@@ -472,17 +392,13 @@ enum ProviderEnvironmentDetector {
         }
     }
 
-    /// 백그라운드에서 antigravity/gemini signals 를 계산해 signals 캐시까지 채움.
+    /// 백그라운드에서 Antigravity signals 를 계산해 signals 캐시까지 채움.
     /// claude/codex 는 해당 없음 → nil 반환.
     private nonisolated static func backgroundWarmSignals(for kind: AppProviderKind) -> Any? {
         switch kind {
         case .antigravity:
             let signals = uncachedAntigravitySignals()
             stateStore.storeAntigravitySignals(signals, cachedAt: Date())
-            return signals
-        case .gemini:
-            let signals = uncachedGeminiSignals()
-            stateStore.storeGeminiSignals(signals, cachedAt: Date())
             return signals
         case .claude, .codex:
             return nil
@@ -491,7 +407,7 @@ enum ProviderEnvironmentDetector {
 
     /// 모든 provider 에 대해 백그라운드 갱신 예약 (앱 시작 / refresh 틱에서 호출).
     nonisolated static func refreshAllInBackground() {
-        for kind in [AppProviderKind.gemini, .antigravity, .codex] {
+        for kind in [AppProviderKind.antigravity, .codex] {
             refreshStatusInBackground(for: kind)
         }
     }
@@ -516,9 +432,6 @@ enum ProviderEnvironmentDetector {
                 runtimeReachability: authenticated,
                 summary: authenticated ? "CLI/OAuth 인증 감지" : "CLI/OAuth 인증 미감지"
             )
-        case .gemini:
-            let signals = (precomputedSignals as? GeminiEnvironmentSignals) ?? geminiSignals()
-            return interpretGemini(signals: signals)
         case .antigravity:
             let signals = (precomputedSignals as? AntigravityEnvironmentSignals) ?? antigravitySignals()
             return interpretAntigravity(signals: signals)
@@ -539,15 +452,6 @@ enum ProviderEnvironmentDetector {
         return cached.signals
     }
 
-    static func cachedGeminiSignals() -> GeminiEnvironmentSignals? {
-        let cached = stateStore.cachedGeminiSignals(now: Date(), ttl: signalsCacheTTL)
-
-        if cached.needsRefresh {
-            refreshGeminiSignalsInBackground()
-        }
-        return cached.signals
-    }
-
     nonisolated static func refreshAntigravitySignalsInBackground() {
         if !stateStore.beginAntigravitySignalsRefresh() {
             return
@@ -558,19 +462,6 @@ enum ProviderEnvironmentDetector {
             stateStore.endAntigravitySignalsRefresh(signals, cachedAt: Date())
 
             postProviderEnvironmentUpdated(for: .antigravity)
-        }
-    }
-
-    nonisolated static func refreshGeminiSignalsInBackground() {
-        if !stateStore.beginGeminiSignalsRefresh() {
-            return
-        }
-
-        DispatchQueue.global(qos: .utility).async {
-            let signals = uncachedGeminiSignals()
-            stateStore.endGeminiSignalsRefresh(signals, cachedAt: Date())
-
-            postProviderEnvironmentUpdated(for: .gemini)
         }
     }
 
@@ -586,16 +477,10 @@ enum ProviderEnvironmentDetector {
         switch kind {
         case .claude, .codex:
             return false
-        case .gemini:
-            guard let status = staleWhileRevalidate(for: kind) else { return false }
-            if status.credentialState.hasAnyCredential { return false }
-            if status.runtimeReachability { return false }
-            return true
         case .antigravity:
-            let dataSource = AppSettings.shared.antigravityUsageDataSource
             if let signals = cachedAntigravitySignals() {
                 return AntigravitySetupPolicy.requiresInteractiveSetup(
-                    dataSource: dataSource,
+                    dataSource: .auto,
                     signals: signals
                 )
             }
@@ -610,86 +495,11 @@ enum ProviderEnvironmentDetector {
         switch kind {
         case .claude, .codex:
             return false
-        case .gemini:
-            let signals = geminiSignals()
-            if !signals.hasBinary { return signals.credentialState == .missing }
-            switch signals.authType {
-            case .apiKey, .vertexAI:
-                return true
-            case .oauthPersonal, .unknown:
-                return signals.credentialState == .missing
-            }
         case .antigravity:
             let signals = antigravitySignals()
             return AntigravitySetupPolicy.requiresInteractiveSetup(
-                dataSource: AppSettings.shared.antigravityUsageDataSource,
+                dataSource: .auto,
                 signals: signals
-            )
-        }
-    }
-
-    static func interpretGemini(signals: GeminiEnvironmentSignals) -> ProviderEnvironmentStatus {
-        switch signals.authType {
-        case .apiKey:
-            return ProviderEnvironmentStatus(
-                isDetected: false,
-                credentialState: .missing,
-                runtimeReachability: false,
-                summary: signals.hasBinary ? "현재 로그인 방식은 지원하지 않습니다" : "Gemini CLI 설치 필요"
-            )
-        case .vertexAI:
-            return ProviderEnvironmentStatus(
-                isDetected: false,
-                credentialState: .missing,
-                runtimeReachability: false,
-                summary: signals.hasBinary ? "현재 로그인 방식은 지원하지 않습니다" : "Gemini CLI 설치 필요"
-            )
-        case .oauthPersonal, .unknown:
-            break
-        }
-
-        switch (signals.hasBinary, signals.credentialState) {
-        case (true, .usable):
-            return ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .usable,
-                runtimeReachability: true,
-                summary: "Gemini 로그인 확인됨"
-            )
-        case (true, .refreshOnly):
-            return ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .refreshable,
-                runtimeReachability: true,
-                summary: "Gemini 로그인 정보를 갱신하고 있습니다"
-            )
-        case (true, .missing):
-            return ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .missing,
-                runtimeReachability: false,
-                summary: "Gemini 로그인 필요"
-            )
-        case (false, .usable):
-            return ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .usable,
-                runtimeReachability: false,
-                summary: "Gemini 설치를 확인해 주세요"
-            )
-        case (false, .refreshOnly):
-            return ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .refreshable,
-                runtimeReachability: false,
-                summary: "Gemini 설치를 확인해 주세요"
-            )
-        case (false, .missing):
-            return ProviderEnvironmentStatus(
-                isDetected: false,
-                credentialState: .missing,
-                runtimeReachability: false,
-                summary: "Gemini CLI 설치 필요"
             )
         }
     }
@@ -723,10 +533,8 @@ enum ProviderEnvironmentDetector {
                 runtimeReachability: false,
                 refreshReachability: true,
                 summary: signals.hasBrokenCLICommand
-                    ? "Antigravity OAuth 연결 확인됨 · CLI 복구 필요"
-                    : signals.hasCLISurface
-                    ? "Antigravity OAuth 연결 확인됨 · CLI 감지"
-                    : "Antigravity OAuth 연결 확인됨"
+                    ? "Antigravity 계정 연결됨 · CLI 복구 필요"
+                    : "Antigravity 계정 연결됨"
             )
         case (nil, true, true, _, _):
             return ProviderEnvironmentStatus(
@@ -759,11 +567,14 @@ enum ProviderEnvironmentDetector {
         case (nil, false, false, false, true):
             return ProviderEnvironmentStatus(
                 isDetected: true,
-                credentialState: .missing,
+                credentialState: signals.hasCLIBinary ? .refreshable : .missing,
                 runtimeReachability: false,
+                refreshReachability: signals.hasCLIBinary,
                 summary: signals.hasBrokenCLICommand
-                    ? "Antigravity CLI 복구 필요 · OAuth 연결 필요"
-                    : "Antigravity CLI 감지됨 · OAuth 연결 필요"
+                    ? "Antigravity CLI 복구 필요"
+                    : signals.hasCLIBinary
+                    ? "Antigravity 사용량 조회 준비"
+                    : "Antigravity CLI 설정 확인 필요"
             )
         case (nil, false, false, false, false):
             return ProviderEnvironmentStatus(
@@ -821,13 +632,14 @@ enum ProviderEnvironmentDetector {
         // surface signals without treating either as a credential source.
         var firstBrokenStatus: AntigravityCLIBinaryStatus?
         for name in ["agy", "antigravity"] {
-            guard let url = resolvedBinaryURL(named: name) else { continue }
-            let status = antigravityCLIStatus(for: url)
-            if status.isRunnable {
-                return status
-            }
-            if status.isBroken, firstBrokenStatus == nil {
-                firstBrokenStatus = status
+            for url in binaryCandidateURLs(named: name) {
+                let status = antigravityCLIStatus(for: url)
+                if status.isRunnable {
+                    return status
+                }
+                if status.isBroken, firstBrokenStatus == nil {
+                    firstBrokenStatus = status
+                }
             }
         }
         return firstBrokenStatus ?? .missing
@@ -842,15 +654,18 @@ enum ProviderEnvironmentDetector {
             return .broken(path: path, target: nil)
         }
 
+        let inspectionURL: URL
         if let symlinkTarget = resolvedSymlinkTarget(for: url, fileManager: fileManager) {
             guard fileManager.fileExists(atPath: symlinkTarget),
                   fileManager.isExecutableFile(atPath: symlinkTarget) else {
                 return .broken(path: path, target: symlinkTarget)
             }
-            return .runnable(path: path)
+            inspectionURL = URL(fileURLWithPath: symlinkTarget)
+        } else {
+            inspectionURL = url
         }
 
-        if let shellTarget = shellExecTarget(from: url, fileManager: fileManager) {
+        if let shellTarget = shellExecTarget(from: inspectionURL, fileManager: fileManager) {
             guard fileManager.fileExists(atPath: shellTarget),
                   fileManager.isExecutableFile(atPath: shellTarget) else {
                 return .broken(path: path, target: shellTarget)
@@ -966,16 +781,13 @@ enum ProviderEnvironmentDetector {
     }
 
     private nonisolated static func _resolvedBinaryURL(named name: String) -> URL? {
-        let fm = FileManager.default
         // 파일시스템 검색만으로 빠르게 해결 시도 (Process 실행 없음)
-        for directory in binaryCandidateDirectories() {
-            let candidate = URL(fileURLWithPath: directory).appendingPathComponent(name)
-            if fm.isExecutableFile(atPath: candidate.path) {
-                return candidate
-            }
+        if let candidate = binaryCandidateURLs(named: name).first {
+            return candidate
         }
 
         // 파일시스템에서 찾지 못한 경우에만 셸 실행 (비용이 큰 fallback)
+        let fm = FileManager.default
         if let shellPath = shellBinaryPath(named: name) {
             let url = URL(fileURLWithPath: shellPath)
             if fm.isExecutableFile(atPath: url.path) {
@@ -984,6 +796,13 @@ enum ProviderEnvironmentDetector {
         }
 
         return nil
+    }
+
+    private nonisolated static func binaryCandidateURLs(named name: String) -> [URL] {
+        let fm = FileManager.default
+        return binaryCandidateDirectories()
+            .map { URL(fileURLWithPath: $0).appendingPathComponent(name) }
+            .filter { fm.isExecutableFile(atPath: $0.path) }
     }
 
     private nonisolated static func shellBinaryPath(named name: String) -> String? {
@@ -1041,76 +860,8 @@ enum ProviderEnvironmentDetector {
             "\(home)/.local/bin",
             "\(home)/bin",
         ]
-        return Array(Set(envPaths + fallbackPaths))
+        var seen: Set<String> = []
+        return (envPaths + fallbackPaths).filter { seen.insert($0).inserted }
     }
 
-    private nonisolated static func geminiAuthType() -> GeminiAuthType {
-        let settingsURL = FileManager.default.realHomeDirectory
-            .appendingPathComponent(".gemini/settings.json")
-
-        guard
-            let data = try? Data(contentsOf: settingsURL),
-            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let security = json["security"] as? [String: Any],
-            let auth = security["auth"] as? [String: Any],
-            let selectedType = auth["selectedType"] as? String
-        else {
-            return .unknown
-        }
-
-        return GeminiAuthType(rawValue: selectedType) ?? .unknown
-    }
-
-    /// Blocking. 백그라운드 경로 전용.
-    /// CLI 탐색 + JSON 파싱 포함.
-    static func geminiSignals() -> GeminiEnvironmentSignals {
-        let signals = uncachedGeminiSignals()
-        stateStore.storeGeminiSignals(signals, cachedAt: Date())
-        return signals
-    }
-
-    private nonisolated static func uncachedGeminiSignals() -> GeminiEnvironmentSignals {
-        GeminiEnvironmentSignals(
-            hasBinary: binaryExists(named: "gemini"),
-            authType: geminiAuthType(),
-            credentialState: geminiCredentialState()
-        )
-    }
-
-    private nonisolated static func geminiCredentialState() -> GeminiCredentialState {
-        let credsURL = FileManager.default.realHomeDirectory
-            .appendingPathComponent(".gemini/oauth_creds.json")
-        guard
-            let data = try? Data(contentsOf: credsURL),
-            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            return .missing
-        }
-
-        let accessToken = (json["access_token"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let refreshToken = (json["refresh_token"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let expiryDate: Date? = {
-            if let expiryMs = json["expiry_date"] as? Double {
-                return Date(timeIntervalSince1970: expiryMs / 1000)
-            }
-            if let expiryMs = json["expiry_date"] as? Int {
-                return Date(timeIntervalSince1970: Double(expiryMs) / 1000)
-            }
-            return nil
-        }()
-
-        let hasUsableAccessToken = {
-            guard let accessToken, !accessToken.isEmpty else { return false }
-            guard let expiryDate else { return true }
-            return expiryDate > Date()
-        }()
-
-        if hasUsableAccessToken {
-            return .usable
-        }
-        if let refreshToken, !refreshToken.isEmpty {
-            return .refreshOnly
-        }
-        return .missing
-    }
 }

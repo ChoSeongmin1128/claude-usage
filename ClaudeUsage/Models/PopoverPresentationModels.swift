@@ -58,6 +58,23 @@ struct PopoverAccountSectionData {
 struct PopoverStatusSectionData {
     let title: String
     let error: APIError?
+
+    /// Optional explicit state text for non-error statuses. When nil, the view
+    /// falls back to the provider's generic empty/error copy.
+    let statusText: String?
+    let message: String?
+
+    init(
+        title: String,
+        error: APIError?,
+        statusText: String? = nil,
+        message: String? = nil
+    ) {
+        self.title = title
+        self.error = error
+        self.statusText = statusText
+        self.message = message
+    }
 }
 
 enum PopoverDisplayPayload {

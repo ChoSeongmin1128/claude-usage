@@ -188,18 +188,6 @@ extension AppDelegate {
                 icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .codex, size: iconSize) : nil,
                 systemStatus: providerSystemStatus(for: .codex)
             )
-        case .gemini:
-            guard let config = AppSettings.shared.menuBarDisplayConfig(for: .gemini) else { return nil }
-            return MenuBarStatusComposer.geminiSnapshot(
-                config: config,
-                usage: runtimeSnapshot.geminiUsage,
-                error: runtimeSnapshot.error,
-                hasAuthError: runtimeSnapshot.hasAuthError,
-                hasCredential: runtimeSnapshot.hasCredential,
-                secondaryColor: secondaryColor,
-                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .gemini, size: iconSize) : nil,
-                systemStatus: providerSystemStatus(for: .gemini)
-            )
         case .antigravity:
             guard let config = AppSettings.shared.menuBarDisplayConfig(for: .antigravity) else { return nil }
             return MenuBarStatusComposer.antigravitySnapshot(

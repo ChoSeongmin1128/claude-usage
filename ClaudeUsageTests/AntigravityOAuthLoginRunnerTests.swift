@@ -5,7 +5,7 @@ final class AntigravityOAuthLoginRunnerTests: XCTestCase {
     func testCallbackParserAcceptsLoopbackGetWithExpectedState() {
         let callback = AntigravityOAuthCallbackParser.parse(
             from: request(
-                line: "GET /callback?code=abc123&state=expected HTTP/1.1",
+                line: "GET /oauth2callback?code=abc123&state=expected HTTP/1.1",
                 host: "127.0.0.1:54321"
             ),
             expectedState: "expected",
@@ -20,7 +20,7 @@ final class AntigravityOAuthLoginRunnerTests: XCTestCase {
     func testCallbackParserRejectsUnexpectedHost() {
         let callback = AntigravityOAuthCallbackParser.parse(
             from: request(
-                line: "GET /callback?code=abc123&state=expected HTTP/1.1",
+                line: "GET /oauth2callback?code=abc123&state=expected HTTP/1.1",
                 host: "192.168.0.10:54321"
             ),
             expectedState: "expected",
@@ -34,7 +34,7 @@ final class AntigravityOAuthLoginRunnerTests: XCTestCase {
     func testCallbackParserRejectsNonGetRequests() {
         let callback = AntigravityOAuthCallbackParser.parse(
             from: request(
-                line: "POST /callback?code=abc123&state=expected HTTP/1.1",
+                line: "POST /oauth2callback?code=abc123&state=expected HTTP/1.1",
                 host: "127.0.0.1:54321"
             ),
             expectedState: "expected",
@@ -48,7 +48,7 @@ final class AntigravityOAuthLoginRunnerTests: XCTestCase {
     func testCallbackParserRejectsUnexpectedState() {
         let callback = AntigravityOAuthCallbackParser.parse(
             from: request(
-                line: "GET /callback?code=abc123&state=unexpected HTTP/1.1",
+                line: "GET /oauth2callback?code=abc123&state=unexpected HTTP/1.1",
                 host: "127.0.0.1:54321"
             ),
             expectedState: "expected",

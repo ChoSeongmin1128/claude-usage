@@ -15,9 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let updateCoordinator = AppUpdateCoordinator()
     let apiService = ClaudeAPIService()
     let codexAPIService = CodexAPIService()
-    let geminiAPIService = GeminiAPIService()
     let antigravityAPIService = AntigravityAPIService()
     let antigravityRemoteUsageService = AntigravityRemoteUsageService()
+    let antigravityCLIUsageService = AntigravityCLIUsageService()
     let popoverCoordinator = AppPopoverCoordinator()
     let runtimeObservationCoordinator = AppRuntimeObservationCoordinator()
     let settingsWindowCoordinator = SettingsWindowCoordinator()
@@ -38,7 +38,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         RuntimeRefreshHandlerRegistry.makeHandlers(
             refreshClaude: { [weak self] force in self?.refreshUsage(force: force) },
             refreshCodex: { [weak self] force in self?.refreshCodexUsage(force: force) },
-            refreshGemini: { [weak self] force in self?.refreshGeminiUsage(force: force) },
             refreshAntigravity: { [weak self] force in self?.refreshAntigravityUsage(force: force) }
         )
 }

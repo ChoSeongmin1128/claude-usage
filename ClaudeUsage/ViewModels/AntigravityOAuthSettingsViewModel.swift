@@ -30,7 +30,7 @@ final class AntigravityOAuthSettingsViewModel: ObservableObject {
     ) {
         guard !isLoggingIn else { return }
         isLoggingIn = true
-        message = "브라우저에서 Google 로그인을 완료해 주세요."
+        message = "Google 로그인 창을 준비하는 중입니다. 창이 뜨면 브라우저에서 로그인을 완료해 주세요."
         loginTask?.cancel()
         let loginID = UUID()
         activeLoginID = loginID
@@ -52,12 +52,12 @@ final class AntigravityOAuthSettingsViewModel: ObservableObject {
                 message = "선택한 Antigravity Google 계정 연결을 해제했습니다."
             } else {
                 try accountStore.deleteAll()
-                message = "ClaudeUsage에 저장된 Antigravity OAuth 연결을 해제했습니다."
+                message = "ClaudeUsage에 저장된 Antigravity Google 계정 연결을 해제했습니다."
             }
             refreshAccounts()
             refreshEnvironment()
         } catch {
-            message = "OAuth 연결 해제 실패: \(error.localizedDescription)"
+            message = "Google 계정 연결 해제 실패: \(error.localizedDescription)"
         }
     }
 
@@ -65,10 +65,10 @@ final class AntigravityOAuthSettingsViewModel: ObservableObject {
         do {
             try accountStore.deleteAll()
             refreshAccounts()
-            message = "ClaudeUsage에 저장된 모든 Antigravity OAuth 연결을 해제했습니다."
+            message = "ClaudeUsage에 저장된 모든 Antigravity Google 계정 연결을 해제했습니다."
             refreshEnvironment()
         } catch {
-            message = "OAuth 연결 전체 해제 실패: \(error.localizedDescription)"
+            message = "Google 계정 연결 전체 해제 실패: \(error.localizedDescription)"
         }
     }
 
@@ -83,7 +83,7 @@ final class AntigravityOAuthSettingsViewModel: ObservableObject {
             message = "\(label) 계정으로 전환했습니다."
             refreshEnvironment()
         } catch {
-            message = "OAuth 계정 전환 실패: \(error.localizedDescription)"
+            message = "Google 계정 전환 실패: \(error.localizedDescription)"
         }
     }
 
@@ -120,11 +120,11 @@ final class AntigravityOAuthSettingsViewModel: ObservableObject {
                 let state = try accountStore.upsert(credentials, makeActive: true)
                 apply(state)
             } catch {
-                message = "Google OAuth 계정 저장 실패: \(error.localizedDescription)"
+                message = "Google 계정 저장 실패: \(error.localizedDescription)"
                 return
             }
             message = credentials.email.map { "\($0) 계정을 연결했습니다." }
-                ?? "Google OAuth 계정을 연결했습니다."
+                ?? "Google 계정을 연결했습니다."
             settings.antigravityUsageDataSource = .auto
             refreshEnvironment()
         case .cancelled:

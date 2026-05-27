@@ -46,21 +46,49 @@ final class AppSettingsTests: XCTestCase {
         )
     }
 
+    func testAntigravityModelGroupStaysStructuralWhileModelsAreFilteredSeparately() {
+        let settings = AppSettings.shared
+        let snapshot = settings.createSnapshot()
+        defer { settings.restore(from: snapshot) }
+
+        settings.setPopoverItems(
+            [
+                PopoverItemConfig(id: "antigravityModels", visible: false),
+                PopoverItemConfig(id: "antigravityAccount", visible: true),
+            ],
+            for: .antigravity
+        )
+        settings.setAntigravityModelVisible(false, modelID: "gemini-3.1-pro-low")
+        settings.antigravityMenuBarPrimaryModelID = "claude-sonnet-4.6-thinking"
+        settings.antigravityMenuBarSecondaryModelID = "gpt-oss-120b-medium"
+
+        XCTAssertEqual(
+            settings.popoverItems(for: .antigravity),
+            [
+                PopoverItemConfig(id: "antigravityModels", visible: true),
+                PopoverItemConfig(id: "antigravityAccount", visible: true),
+            ]
+        )
+        XCTAssertFalse(settings.isAntigravityModelVisible("gemini-3.1-pro-low"))
+        XCTAssertEqual(settings.menuBarDisplayConfig(for: .antigravity)?.primaryModelID, "claude-sonnet-4.6-thinking")
+        XCTAssertEqual(settings.menuBarDisplayConfig(for: .antigravity)?.secondaryModelID, "gpt-oss-120b-medium")
+    }
+
     func testSetProviderMenuBarVisibleFalseClearsAllVisibleIndicators() {
         let settings = AppSettings.shared
         let snapshot = settings.createSnapshot()
         defer { settings.restore(from: snapshot) }
 
-        settings.setProviderMenuBarVisible(false, for: .gemini)
+        settings.setProviderMenuBarVisible(false, for: .antigravity)
 
-        guard let config = settings.menuBarDisplayConfig(for: .gemini) else {
-            return XCTFail("Gemini 메뉴바 설정을 읽지 못했습니다")
+        guard let config = settings.menuBarDisplayConfig(for: .antigravity) else {
+            return XCTFail("Antigravity 메뉴바 설정을 읽지 못했습니다")
         }
         XCTAssertFalse(config.showIcon)
         XCTAssertEqual(config.percentageDisplay, .none)
         XCTAssertEqual(config.resetTimeDisplay, .none)
         XCTAssertEqual(config.style, .none)
-        XCTAssertFalse(settings.isProviderVisibleInMenuBar(.gemini))
+        XCTAssertFalse(settings.isProviderVisibleInMenuBar(.antigravity))
     }
 
     func testSetProviderMenuBarVisibleTrueRestoresMinimalVisiblePreset() {
@@ -68,18 +96,18 @@ final class AppSettingsTests: XCTestCase {
         let snapshot = settings.createSnapshot()
         defer { settings.restore(from: snapshot) }
 
-        settings.setProviderMenuBarVisible(false, for: .gemini)
-        settings.setProviderMenuBarVisible(true, for: .gemini)
+        settings.setProviderMenuBarVisible(false, for: .antigravity)
+        settings.setProviderMenuBarVisible(true, for: .antigravity)
 
-        guard let config = settings.menuBarDisplayConfig(for: .gemini) else {
-            return XCTFail("Gemini 메뉴바 설정을 읽지 못했습니다")
+        guard let config = settings.menuBarDisplayConfig(for: .antigravity) else {
+            return XCTFail("Antigravity 메뉴바 설정을 읽지 못했습니다")
         }
         XCTAssertTrue(config.showIcon)
         XCTAssertEqual(config.percentageDisplay, .fiveHour)
         XCTAssertEqual(config.resetTimeDisplay, .none)
         XCTAssertEqual(config.style, .none)
-        XCTAssertTrue(settings.isProviderVisibleInMenuBar(.gemini))
-        XCTAssertEqual(settings.menuBarDisplayPreset(for: .gemini), .basic)
+        XCTAssertTrue(settings.isProviderVisibleInMenuBar(.antigravity))
+        XCTAssertEqual(settings.menuBarDisplayPreset(for: .antigravity), .basic)
     }
 
     func testApplyMenuBarDisplayPresetUsesExistingConfigKeys() {
@@ -131,7 +159,7 @@ final class AppSettingsTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         defaults.set(true, forKey: "codexPopoverPinned")
-        defaults.set(true, forKey: "geminiPopoverCompact")
+        defaults.set(true, forKey: "codexPopoverCompact")
 
         XCTAssertTrue(AppSettings.normalizedGlobalPopoverPinned(from: defaults))
         XCTAssertTrue(AppSettings.normalizedGlobalPopoverCompact(from: defaults))
@@ -160,12 +188,6 @@ final class AppSettingsTests: XCTestCase {
         }
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        let oldGeminiDefaults = [
-            PopoverItemConfig(id: "geminiPrimary", visible: true),
-            PopoverItemConfig(id: "geminiSecondary", visible: true),
-            PopoverItemConfig(id: "geminiTertiary", visible: true),
-            PopoverItemConfig(id: "geminiAccount", visible: true),
-        ]
         let oldAntigravityDefaults = [
             PopoverItemConfig(id: "antigravityPrimary", visible: true),
             PopoverItemConfig(id: "antigravitySecondary", visible: true),
@@ -173,7 +195,6 @@ final class AppSettingsTests: XCTestCase {
             PopoverItemConfig(id: "antigravityAccount", visible: true),
         ]
         let dict = [
-            "gemini": oldGeminiDefaults,
             "antigravity": oldAntigravityDefaults,
         ]
         let data = try JSONEncoder().encode(dict)
@@ -183,13 +204,27 @@ final class AppSettingsTests: XCTestCase {
         let loaded = AppSettings.loadPopoverItemsByProvider(from: defaults)
 
         XCTAssertEqual(
-            loaded.full["gemini"]?.first(where: { $0.id == "geminiAccount" })?.visible,
-            false
-        )
-        XCTAssertEqual(
             loaded.full["antigravity"]?.first(where: { $0.id == "antigravityAccount" })?.visible,
             false
         )
+    }
+
+    func testProviderStateCatalogSkipsLegacyUnknownProviders() throws {
+        let json = """
+        {
+          "states": {
+            "claude": { "isEnabled": true, "isActive": true },
+            "gemini": { "isEnabled": true, "isActive": false },
+            "antigravity": { "isEnabled": true, "isActive": false }
+          }
+        }
+        """
+
+        let catalog = try JSONDecoder().decode(AppProviderStateCatalog.self, from: Data(json.utf8))
+
+        XCTAssertTrue(catalog[.claude].isEnabled)
+        XCTAssertTrue(catalog[.antigravity].isEnabled)
+        XCTAssertEqual(catalog.states.keys.sorted { $0.rawValue < $1.rawValue }, [.antigravity, .claude, .codex])
     }
 
     func testSetMenuBarStyleBatteryVariantForcesRemainingCircularMode() {

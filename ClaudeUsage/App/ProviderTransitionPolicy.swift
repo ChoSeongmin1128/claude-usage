@@ -24,7 +24,7 @@ enum ProviderTransitionPolicy {
     ) -> ProviderEnabledTransitionDecision {
         guard state.enabled else { return .clearStateOnly }
         switch state.service {
-        case .gemini, .antigravity:
+        case .antigravity:
             return .refreshNow
         case .claude, .codex:
             break

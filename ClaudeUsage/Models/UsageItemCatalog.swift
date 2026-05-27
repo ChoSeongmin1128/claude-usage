@@ -16,7 +16,6 @@ struct UsageItemContext {
     let codexUsage: CodexUsageResponse?
     let codexError: APIError?
 
-    let geminiUsage: GeminiUsageResponse?
     let antigravityUsage: AntigravityUsageResponse?
 }
 
@@ -31,6 +30,7 @@ protocol UsageItemCatalog {
     var defaultItems: [PopoverItemConfig] { get }
     func displayName(for itemID: String) -> String?
     func section(for itemID: String, context: UsageItemContext) -> PopoverDisplaySection?
+    func expandedSections(for itemID: String, context: UsageItemContext) -> [PopoverDisplaySection]
 }
 
 extension UsageItemCatalog {
@@ -65,7 +65,14 @@ extension UsageItemCatalog {
     func sections(from items: [PopoverItemConfig], context: UsageItemContext) -> [PopoverDisplaySection] {
         items
             .filter(\.visible)
-            .compactMap { section(for: $0.id, context: context) }
+            .flatMap { expandedSections(for: $0.id, context: context) }
+    }
+
+    func expandedSections(for itemID: String, context: UsageItemContext) -> [PopoverDisplaySection] {
+        if let single = section(for: itemID, context: context) {
+            return [single]
+        }
+        return []
     }
 }
 
@@ -75,7 +82,6 @@ enum UsageItemCatalogRegistry {
     static let all: [any UsageItemCatalog] = [
         ClaudeItemCatalog(),
         CodexItemCatalog(),
-        GeminiItemCatalog(),
         AntigravityItemCatalog(),
     ]
 
@@ -83,7 +89,6 @@ enum UsageItemCatalogRegistry {
         switch service {
         case .claude: return ClaudeItemCatalog()
         case .codex: return CodexItemCatalog()
-        case .gemini: return GeminiItemCatalog()
         case .antigravity: return AntigravityItemCatalog()
         }
     }
@@ -327,64 +332,6 @@ struct CodexItemCatalog: UsageItemCatalog {
     }
 }
 
-// MARK: - Windowed (Gemini / Antigravity 공통)
-
-/// Gemini/Antigravity는 구조가 동일하므로 공통 로직을 여기에 둡니다.
-/// - 두 provider 모두: primary/secondary/tertiary/account 4항목
-/// - 아이콘/라벨만 provider별로 다름
-private protocol WindowedItemCatalogStyle {
-    var primaryIcon: String { get }
-    var secondaryIcon: String { get }
-    var tertiaryIcon: String { get }
-    var accountIcon: String { get }
-}
-
-private func windowedDefaults(prefix: String) -> [PopoverItemConfig] {
-    [
-        PopoverItemConfig(id: "\(prefix)Primary", visible: true),
-        PopoverItemConfig(id: "\(prefix)Secondary", visible: true),
-        PopoverItemConfig(id: "\(prefix)Tertiary", visible: true),
-        PopoverItemConfig(id: "\(prefix)Account", visible: false),
-    ]
-}
-
-private func windowedDisplayName(for itemID: String, providerLabel: String) -> String? {
-    if itemID.hasSuffix("Primary") { return "\(providerLabel) 1차" }
-    if itemID.hasSuffix("Secondary") { return "\(providerLabel) 2차" }
-    if itemID.hasSuffix("Tertiary") { return "\(providerLabel) 3차" }
-    if itemID.hasSuffix("Account") { return "\(providerLabel) 계정 정보" }
-    return nil
-}
-
-/// 공통 window 데이터에서 섹션 생성.
-private func windowedSection<Window>(
-    id: String,
-    window: Window?,
-    icon: String,
-    isWeekly: Bool,
-    settings: AppSettings,
-    extract: (Window) -> (label: String, percent: Double, resetAt: String?)
-) -> PopoverDisplaySection? {
-    guard let window else { return nil }
-    let extracted = extract(window)
-    return PopoverDisplaySection(
-        id: id,
-        kind: .usage,
-        importance: .primary,
-        payload: .usage(
-            PopoverUsageSectionData(
-                systemIcon: icon,
-                title: extracted.label,
-                compactLabel: extracted.label,
-                percentage: extracted.percent,
-                resetAt: extracted.resetAt,
-                isWeekly: isWeekly,
-                timeFormatStyle: settings.timeFormat
-            )
-        )
-    )
-}
-
 private func windowedAccountSection(
     id: String,
     email: String?,
@@ -407,49 +354,32 @@ private func windowedAccountSection(
     )
 }
 
-// MARK: - Gemini
+// MARK: - Antigravity
 
-struct GeminiItemCatalog: UsageItemCatalog, WindowedItemCatalogStyle {
-    let providerID = PopoverService.gemini.rawValue
-    let defaultItems: [PopoverItemConfig] = windowedDefaults(prefix: "gemini")
+struct AntigravityItemCatalog: UsageItemCatalog {
+    let providerID = PopoverService.antigravity.rawValue
+    let defaultItems: [PopoverItemConfig] = [
+        PopoverItemConfig(id: "antigravityModels", visible: true),
+        PopoverItemConfig(id: "antigravityAccount", visible: false),
+    ]
 
-    fileprivate let primaryIcon = "sparkles"
-    fileprivate let secondaryIcon = "bolt.horizontal.circle"
-    fileprivate let tertiaryIcon = "circle.hexagongrid"
     fileprivate let accountIcon = "person.crop.circle"
 
     func displayName(for itemID: String) -> String? {
-        windowedDisplayName(for: itemID, providerLabel: "Gemini")
+        switch itemID {
+        case "antigravityModels":
+            return "모델별 quota"
+        case "antigravityAccount":
+            return "Antigravity 계정 정보"
+        default:
+            return nil
+        }
     }
 
     func section(for itemID: String, context: UsageItemContext) -> PopoverDisplaySection? {
-        let usage = context.geminiUsage
+        let usage = context.antigravityUsage
         switch itemID {
-        case "geminiPrimary":
-            return windowedSection(
-                id: itemID,
-                window: usage?.primaryWindow,
-                icon: primaryIcon,
-                isWeekly: false,
-                settings: context.settings
-            ) { w in (w.label, w.usedPercent, w.resetAtISO) }
-        case "geminiSecondary":
-            return windowedSection(
-                id: itemID,
-                window: usage?.secondaryWindow,
-                icon: secondaryIcon,
-                isWeekly: true,
-                settings: context.settings
-            ) { w in (w.label, w.usedPercent, w.resetAtISO) }
-        case "geminiTertiary":
-            return windowedSection(
-                id: itemID,
-                window: usage?.tertiaryWindow,
-                icon: tertiaryIcon,
-                isWeekly: true,
-                settings: context.settings
-            ) { w in (w.label, w.usedPercent, w.resetAtISO) }
-        case "geminiAccount":
+        case "antigravityAccount":
             return windowedAccountSection(
                 id: itemID,
                 email: usage?.accountEmail,
@@ -460,59 +390,31 @@ struct GeminiItemCatalog: UsageItemCatalog, WindowedItemCatalogStyle {
             return nil
         }
     }
-}
 
-// MARK: - Antigravity
-
-struct AntigravityItemCatalog: UsageItemCatalog, WindowedItemCatalogStyle {
-    let providerID = PopoverService.antigravity.rawValue
-    let defaultItems: [PopoverItemConfig] = windowedDefaults(prefix: "antigravity")
-
-    fileprivate let primaryIcon = "brain"
-    fileprivate let secondaryIcon = "sparkles"
-    fileprivate let tertiaryIcon = "bolt.horizontal.circle"
-    fileprivate let accountIcon = "person.crop.circle"
-
-    func displayName(for itemID: String) -> String? {
-        windowedDisplayName(for: itemID, providerLabel: "Antigravity")
-    }
-
-    func section(for itemID: String, context: UsageItemContext) -> PopoverDisplaySection? {
-        let usage = context.antigravityUsage
+    func expandedSections(for itemID: String, context: UsageItemContext) -> [PopoverDisplaySection] {
         switch itemID {
-        case "antigravityPrimary":
-            return windowedSection(
-                id: itemID,
-                window: usage?.primaryWindow,
-                icon: primaryIcon,
-                isWeekly: false,
-                settings: context.settings
-            ) { w in (w.label, w.usedPercent, w.resetAtISO) }
-        case "antigravitySecondary":
-            return windowedSection(
-                id: itemID,
-                window: usage?.secondaryWindow,
-                icon: secondaryIcon,
-                isWeekly: true,
-                settings: context.settings
-            ) { w in (w.label, w.usedPercent, w.resetAtISO) }
-        case "antigravityTertiary":
-            return windowedSection(
-                id: itemID,
-                window: usage?.tertiaryWindow,
-                icon: tertiaryIcon,
-                isWeekly: true,
-                settings: context.settings
-            ) { w in (w.label, w.usedPercent, w.resetAtISO) }
-        case "antigravityAccount":
-            return windowedAccountSection(
-                id: itemID,
-                email: usage?.accountEmail,
-                plan: usage?.accountPlan,
-                icon: accountIcon
-            )
+        case "antigravityModels":
+            guard let usage = context.antigravityUsage else { return [] }
+            return context.settings.visibleAntigravityModelWindows(from: usage.modelWindows).enumerated().map { index, window in
+                PopoverDisplaySection(
+                    id: "antigravityModel-\(index)",
+                    kind: .usage,
+                    importance: .primary,
+                    payload: .usage(
+                        PopoverUsageSectionData(
+                            systemIcon: AntigravityUsageMapper.displayIcon(for: window),
+                            title: window.label,
+                            compactLabel: window.label,
+                            percentage: window.usedPercent,
+                            resetAt: window.resetAtISO,
+                            isWeekly: false,
+                            timeFormatStyle: context.settings.timeFormat
+                        )
+                    )
+                )
+            }
         default:
-            return nil
+            return section(for: itemID, context: context).map { [$0] } ?? []
         }
     }
 }

@@ -261,6 +261,11 @@ final class AntigravityOAuthCredentialsStoreTests: XCTestCase {
             firstSecret,
             secondSecret,
         ])
+        XCTAssertEqual(client.tokenClientSecretCandidates, [
+            nil,
+            firstSecret,
+            secondSecret,
+        ])
     }
 
     func testOAuthClientDiscoveryDoesNotAssumeFixedSecretLength() throws {
@@ -276,6 +281,7 @@ final class AntigravityOAuthCredentialsStoreTests: XCTestCase {
 
         XCTAssertEqual(client.clientSecret, longSecret)
         XCTAssertEqual(client.clientSecretCandidates, [longSecret])
+        XCTAssertEqual(client.tokenClientSecretCandidates, [nil, longSecret])
     }
 
     func testOAuthClientDiscoveryFallsBackWhenMarkerWindowMissesSecret() throws {
@@ -292,6 +298,45 @@ final class AntigravityOAuthCredentialsStoreTests: XCTestCase {
 
         XCTAssertEqual(client.clientID, clientID)
         XCTAssertEqual(client.clientSecret, secret)
+        XCTAssertEqual(client.tokenClientSecretCandidates, [nil, secret])
+    }
+
+    func testOAuthClientDiscoveryAllowsPublicClientWhenSecretIsMissing() throws {
+        let clientID = fakeGoogleOAuthClientID(prefix: "111111111111")
+        let content = """
+        vs/platform/cloudCode/common/oauthClient.js
+        \(clientID)
+        no bundled secret
+        """
+
+        let client = try XCTUnwrap(AntigravityOAuthConfig.parseClient(fromBundleContent: content))
+
+        XCTAssertEqual(client.clientID, clientID)
+        XCTAssertNil(client.clientSecret)
+        XCTAssertTrue(client.clientSecretCandidates.isEmpty)
+        XCTAssertEqual(client.tokenClientSecretCandidates, [nil])
+    }
+
+    func testOAuthClientDiscoveryIgnoresConcatenatedSecretLikeURLPrefix() throws {
+        let clientID = fakeGoogleOAuthClientID(prefix: "111111111111")
+        let invalidSecret = fakeGoogleOAuthSecret("A", count: 68) + "https"
+        let content = """
+        \(clientID)
+        \(invalidSecret)://cloudcode-pa.googleapis.com
+        """
+
+        let client = try XCTUnwrap(AntigravityOAuthConfig.parseClient(fromBundleContent: content))
+
+        XCTAssertEqual(client.clientID, clientID)
+        XCTAssertNil(client.clientSecret)
+        XCTAssertTrue(client.clientSecretCandidates.isEmpty)
+        XCTAssertEqual(client.tokenClientSecretCandidates, [nil])
+    }
+
+    func testExplicitOAuthClientDoesNotUsePublicAttemptWhenSecretIsConfigured() {
+        let client = AntigravityOAuthClient(clientID: "client-id", clientSecret: "client-secret")
+
+        XCTAssertEqual(client.tokenClientSecretCandidates, ["client-secret"])
     }
 
     private func fakeGoogleOAuthClientID(prefix: String) -> String {

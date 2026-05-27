@@ -43,20 +43,20 @@ final class RefreshOrchestrationTests: XCTestCase {
         XCTAssertEqual(service, .claude)
     }
 
-    func testActionForEnabledChangeRefreshesGeminiImmediately() {
+    func testActionForEnabledChangeRefreshesAntigravityImmediately() {
         let action = RefreshOrchestration.actionForEnabledChange(
             state: RuntimeProviderActivationState(
-                service: .gemini,
+                service: .antigravity,
                 enabled: true,
                 hasCredential: false
             )
         )
 
         guard case let .refresh(service, force) = action else {
-            return XCTFail("Gemini는 활성화 직후 refreshNow여야 합니다")
+            return XCTFail("Antigravity는 활성화 직후 refreshNow여야 합니다")
         }
 
-        XCTAssertEqual(service, .gemini)
+        XCTAssertEqual(service, .antigravity)
         XCTAssertTrue(force)
     }
 
@@ -146,7 +146,7 @@ final class RefreshOrchestrationTests: XCTestCase {
 
     func testClearedStateMarksLocalProviderAuthFailureWhenInteractiveSetupRequired() {
         let state = RuntimeProviderRefreshCoordinator.clearedState(
-            service: .gemini,
+            service: .antigravity,
             isCodexAuthenticated: true,
             requiresInteractiveSetup: true
         )
@@ -210,7 +210,7 @@ final class PopoverViewModelTests: XCTestCase {
             viewModel.update(
                 snapshots: [
                     RuntimeProviderSnapshot(
-                        service: .gemini,
+                        service: .antigravity,
                         payload: nil,
                         error: nil,
                         isLoading: false,
@@ -229,7 +229,7 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertTrue(events.isEmpty)
     }
 
-    func testResolveAntigravitySummaryStateTreatsCLIAsOAuthSetupNeed() {
+    func testResolveAntigravitySummaryStateTreatsCLIAsUsageSource() {
         let state = PopoverViewModel.resolveAntigravitySummaryState(
             snapshot: RuntimeProviderSnapshot(
                 service: .antigravity,
@@ -238,16 +238,17 @@ final class PopoverViewModelTests: XCTestCase {
                 isLoading: false,
                 lastUpdated: nil,
                 nextRefreshAllowedAt: nil,
-                credentialState: .missing,
+                credentialState: .refreshable,
                 isDetected: true,
-                canAttemptRefresh: false,
+                canAttemptRefresh: true,
                 hasAuthError: false
             ),
             environmentStatus: ProviderEnvironmentStatus(
                 isDetected: true,
-                credentialState: .missing,
+                credentialState: .refreshable,
                 runtimeReachability: false,
-                summary: "Antigravity CLI 감지됨 · OAuth 연결 필요"
+                refreshReachability: true,
+                summary: "Antigravity 사용량 조회 준비"
             ),
             signals: AntigravityEnvironmentSignals(
                 hasStateDirectory: false,
@@ -258,12 +259,11 @@ final class PopoverViewModelTests: XCTestCase {
                 hasOAuthToken: false
             ),
             isEnabled: true,
-            isAuthRequired: false,
-            dataSource: .auto
+            isAuthRequired: false
         )
 
-        XCTAssertEqual(state.phase, .authRequired)
-        XCTAssertEqual(state.summary, "CLI 감지 · OAuth 연결 필요")
+        XCTAssertEqual(state.phase, .probingRuntime)
+        XCTAssertEqual(state.summary, "사용량 조회 준비")
     }
 
     func testResolveAntigravitySummaryStateTreatsBrokenCLIAsRepairNeed() {
@@ -284,7 +284,7 @@ final class PopoverViewModelTests: XCTestCase {
                 isDetected: true,
                 credentialState: .missing,
                 runtimeReachability: false,
-                summary: "Antigravity CLI 복구 필요 · OAuth 연결 필요"
+                summary: "Antigravity CLI 복구 필요"
             ),
             signals: AntigravityEnvironmentSignals(
                 hasStateDirectory: false,
@@ -298,12 +298,11 @@ final class PopoverViewModelTests: XCTestCase {
                 hasOAuthToken: false
             ),
             isEnabled: true,
-            isAuthRequired: false,
-            dataSource: .auto
+            isAuthRequired: false
         )
 
         XCTAssertEqual(state.phase, .authRequired)
-        XCTAssertEqual(state.summary, "CLI 복구 필요 · OAuth 연결 필요")
+        XCTAssertEqual(state.summary, "CLI 복구 필요")
     }
 
     func testResolveAntigravitySummaryStateDoesNotClaimCLIIncludedWhenOAuthReadyButCLIIsBroken() {
@@ -325,7 +324,7 @@ final class PopoverViewModelTests: XCTestCase {
                 credentialState: .usable,
                 runtimeReachability: false,
                 refreshReachability: true,
-                summary: "Antigravity OAuth 연결 확인됨 · CLI 복구 필요"
+                summary: "Antigravity 계정 연결됨 · CLI 복구 필요"
             ),
             signals: AntigravityEnvironmentSignals(
                 hasStateDirectory: false,
@@ -344,12 +343,11 @@ final class PopoverViewModelTests: XCTestCase {
                 )
             ),
             isEnabled: true,
-            isAuthRequired: false,
-            dataSource: .auto
+            isAuthRequired: false
         )
 
         XCTAssertEqual(state.phase, .probingRuntime)
-        XCTAssertEqual(state.summary, "OAuth 원격 조회 준비 · CLI 복구 필요")
+        XCTAssertEqual(state.summary, "계정 확인됨 · CLI 복구 필요")
     }
 
     func testResolveAntigravitySummaryStateDoesNotClaimSeparateCLIUsageSourceWhenOAuthReady() {
@@ -371,7 +369,7 @@ final class PopoverViewModelTests: XCTestCase {
                 credentialState: .usable,
                 runtimeReachability: false,
                 refreshReachability: true,
-                summary: "Antigravity OAuth 연결 확인됨 · CLI 감지"
+                summary: "Antigravity 계정 연결됨"
             ),
             signals: AntigravityEnvironmentSignals(
                 hasStateDirectory: false,
@@ -388,12 +386,11 @@ final class PopoverViewModelTests: XCTestCase {
                 )
             ),
             isEnabled: true,
-            isAuthRequired: false,
-            dataSource: .auto
+            isAuthRequired: false
         )
 
         XCTAssertEqual(state.phase, .probingRuntime)
-        XCTAssertEqual(state.summary, "OAuth 원격 조회 준비 · CLI 감지")
+        XCTAssertEqual(state.summary, "계정 확인됨 · 사용량 조회 준비")
         XCTAssertFalse(state.summary.contains("CLI 포함"))
         XCTAssertFalse(state.summary.contains("CLI 사용량 포함"))
     }
@@ -427,14 +424,13 @@ final class PopoverViewModelTests: XCTestCase {
                     hasOAuthToken: false
                 ),
                 isEnabled: true,
-                isAuthRequired: false,
-                dataSource: .googleOAuth
+                isAuthRequired: false
             )
         }
         let (phase, summary) = await MainActor.run { (state.phase, state.summary) }
 
-        XCTAssertEqual(phase, .authRequired)
-        XCTAssertEqual(summary, "OAuth 연결 필요")
+        XCTAssertEqual(phase, .waitingForApp)
+        XCTAssertEqual(summary, "앱 실행 후 연결 확인 중")
     }
 
     func testResolveAntigravitySummaryStateGoogleOAuthModeUsesRuntimeConnectionWhenAvailable() async {
@@ -474,14 +470,13 @@ final class PopoverViewModelTests: XCTestCase {
                     hasOAuthToken: false
                 ),
                 isEnabled: true,
-                isAuthRequired: false,
-                dataSource: .googleOAuth
+                isAuthRequired: false
             )
         }
         let (phase, summary) = await MainActor.run { (state.phase, state.summary) }
 
         XCTAssertEqual(phase, .probingRuntime)
-        XCTAssertEqual(summary, "OAuth 없음 · 앱 연결로 조회 준비")
+        XCTAssertEqual(summary, "앱 연결 확인 중")
     }
 
     func testResolveAntigravitySummaryStateShowsOAuthReconnectWhenStoredCredentialIsRejected() async {
@@ -504,7 +499,7 @@ final class PopoverViewModelTests: XCTestCase {
                     credentialState: .usable,
                     runtimeReachability: false,
                     refreshReachability: true,
-                    summary: "Antigravity OAuth 연결 확인됨"
+                    summary: "Antigravity 계정 연결됨"
                 ),
                 signals: AntigravityEnvironmentSignals(
                     hasStateDirectory: false,
@@ -520,14 +515,13 @@ final class PopoverViewModelTests: XCTestCase {
                     )
                 ),
                 isEnabled: true,
-                isAuthRequired: false,
-                dataSource: .googleOAuth
+                isAuthRequired: false
             )
         }
         let (phase, summary) = await MainActor.run { (state.phase, state.summary) }
 
         XCTAssertEqual(phase, .authRequired)
-        XCTAssertEqual(summary, "OAuth 다시 연결 필요")
+        XCTAssertEqual(summary, "Google 계정 다시 연결 필요")
     }
 
     func testRequestLayoutRefreshEmitsOnlyExplicitReasons() async {
@@ -539,14 +533,14 @@ final class PopoverViewModelTests: XCTestCase {
             }
 
             viewModel.requestLayoutRefresh(reason: .compactToggle)
-            viewModel.requestLayoutRefresh(for: .gemini, reason: .serviceSelection)
+            viewModel.requestLayoutRefresh(for: .antigravity, reason: .serviceSelection)
             return recorder.events
         }
 
         XCTAssertEqual(events.count, 2)
         XCTAssertEqual(events[0].0, .claude)
         XCTAssertEqual(events[0].1, .compactToggle)
-        XCTAssertEqual(events[1].0, .gemini)
+        XCTAssertEqual(events[1].0, .antigravity)
         XCTAssertEqual(events[1].1, .serviceSelection)
     }
 
@@ -563,84 +557,12 @@ final class PopoverViewModelTests: XCTestCase {
             }
 
             viewModel.selectService(.claude)
-            viewModel.selectService(.gemini)
-            viewModel.selectService(.gemini)
+            viewModel.selectService(.antigravity)
+            viewModel.selectService(.antigravity)
             return recorder.events
         }
 
-        XCTAssertEqual(events, [.gemini])
-    }
-
-    func testResolveGeminiSummaryStateKeepsRefreshOnlyFirstFetchOutOfReady() async {
-        let state = await MainActor.run {
-            PopoverViewModel.resolveGeminiSummaryState(
-                snapshot: RuntimeProviderSnapshot(
-                    service: .gemini,
-                    payload: nil,
-                    error: nil,
-                    isLoading: false,
-                    lastUpdated: nil,
-                    nextRefreshAllowedAt: nil,
-                    credentialState: .refreshable,
-                    isDetected: true,
-                    canAttemptRefresh: true,
-                    hasAuthError: false
-                ),
-                environmentStatus: ProviderEnvironmentStatus(
-                    isDetected: true,
-                    credentialState: .refreshable,
-                    runtimeReachability: true,
-                    summary: "Gemini 로그인 정보를 갱신하고 있습니다"
-                ),
-                signals: GeminiEnvironmentSignals(
-                    hasBinary: true,
-                    authType: .oauthPersonal,
-                    credentialState: .refreshOnly
-                ),
-                isEnabled: true,
-                isAuthRequired: false
-            )
-        }
-        let (phase, summary) = await MainActor.run { (state.phase, state.summary) }
-
-        XCTAssertEqual(phase, .refreshingCredential)
-        XCTAssertEqual(summary, "로그인 갱신 후 연결 확인 중")
-    }
-
-    func testResolveGeminiSummaryStatePrefersBackoffBeforeReadyPromotion() async {
-        let state = await MainActor.run {
-            PopoverViewModel.resolveGeminiSummaryState(
-                snapshot: RuntimeProviderSnapshot(
-                    service: .gemini,
-                    payload: nil,
-                    error: nil,
-                    isLoading: false,
-                    lastUpdated: nil,
-                    nextRefreshAllowedAt: Date(timeIntervalSinceNow: 15),
-                    credentialState: .refreshable,
-                    isDetected: true,
-                    canAttemptRefresh: true,
-                    hasAuthError: false
-                ),
-                environmentStatus: ProviderEnvironmentStatus(
-                    isDetected: true,
-                    credentialState: .refreshable,
-                    runtimeReachability: true,
-                    summary: "Gemini 로그인 정보를 갱신하고 있습니다"
-                ),
-                signals: GeminiEnvironmentSignals(
-                    hasBinary: true,
-                    authType: .oauthPersonal,
-                    credentialState: .refreshOnly
-                ),
-                isEnabled: true,
-                isAuthRequired: false
-            )
-        }
-        let (phase, summary) = await MainActor.run { (state.phase, state.summary) }
-
-        XCTAssertEqual(phase, .backoff)
-        XCTAssertTrue(summary.contains("후 다시 시도"))
+        XCTAssertEqual(events, [.antigravity])
     }
 
     func testResolveAntigravitySummaryStateKeepsPersistedAuthOutOfReady() async {
@@ -782,21 +704,21 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(phase, .error)
     }
 
-    func testDisplaySectionsHideGeminiAccountByDefault() async {
+    func testDisplaySectionsHideAntigravityAccountByDefault() async {
         let result = await MainActor.run { () -> ([PopoverDisplaySection], [PopoverDisplaySection]) in
             let viewModel = PopoverViewModel()
-            let payload = GeminiUsageResponse(
+            let payload = AntigravityUsageResponse(
                 accountEmail: "user@example.com",
-                accountPlan: "Gemini Advanced",
-                primaryWindow: GeminiUsageWindow(label: "Pro", modelID: "gemini-pro", usedPercent: 24, resetAtISO: nil),
-                secondaryWindow: GeminiUsageWindow(label: "Flash", modelID: "gemini-flash", usedPercent: 11, resetAtISO: nil),
+                accountPlan: "Workspace",
+                primaryWindow: AntigravityUsageWindow(label: "Gemini 3.1 Pro (Low)", modelID: "gemini-3.1-pro-low", usedPercent: 24, resetAtISO: nil),
+                secondaryWindow: AntigravityUsageWindow(label: "Gemini 3.5 Flash (Medium)", modelID: "gemini-3.5-flash-medium", usedPercent: 11, resetAtISO: nil),
                 tertiaryWindow: nil
             )
             viewModel.update(
                 snapshots: [
                     RuntimeProviderSnapshot(
-                        service: .gemini,
-                        payload: .gemini(payload),
+                        service: .antigravity,
+                        payload: .antigravity(payload),
                         error: nil,
                         isLoading: false,
                         lastUpdated: Date(),
@@ -810,8 +732,8 @@ final class PopoverViewModelTests: XCTestCase {
             )
 
             return (
-                viewModel.displaySections(for: .gemini, density: .standard, settings: .shared),
-                viewModel.displaySections(for: .gemini, density: .compact, settings: .shared)
+                viewModel.displaySections(for: .antigravity, density: .standard, settings: .shared),
+                viewModel.displaySections(for: .antigravity, density: .compact, settings: .shared)
             )
         }
 
@@ -819,6 +741,53 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(result.0.map(\.kind), [.usage, .usage])
         XCTAssertEqual(result.1.count, 2)
         XCTAssertEqual(result.1.map(\.kind), [.usage, .usage])
+    }
+
+    func testDisplaySectionsShowAntigravityQuotaMissingStatusForIdentityOnlyUsage() async {
+        let result = await MainActor.run { () -> ([PopoverDisplaySection], [PopoverDisplaySection]) in
+            let viewModel = PopoverViewModel()
+            let payload = AntigravityUsageResponse(
+                source: .googleOAuth,
+                accountEmail: "user@example.com",
+                accountPlan: "Workspace",
+                primaryWindow: nil,
+                secondaryWindow: nil,
+                tertiaryWindow: nil
+            )
+            viewModel.update(
+                snapshots: [
+                    RuntimeProviderSnapshot(
+                        service: .antigravity,
+                        payload: .antigravity(payload),
+                        error: nil,
+                        isLoading: false,
+                        lastUpdated: Date(),
+                        nextRefreshAllowedAt: nil,
+                        credentialState: .usable,
+                        isDetected: true,
+                        canAttemptRefresh: true,
+                        hasAuthError: false
+                    )
+                ]
+            )
+
+            return (
+                viewModel.displaySections(for: .antigravity, density: .standard, settings: .shared),
+                viewModel.displaySections(for: .antigravity, density: .compact, settings: .shared)
+            )
+        }
+
+        XCTAssertEqual(result.0.first?.id, "antigravityQuotaStatus")
+        XCTAssertEqual(result.0.first?.kind, .status)
+        if case .status(let status)? = result.0.first?.payload {
+            XCTAssertEqual(status.title, "계정 확인됨")
+            XCTAssertEqual(status.statusText, "수치 미지원")
+            XCTAssertTrue(status.message?.contains("계정과 플랜은 확인됐지만") == true)
+        } else {
+            XCTFail("Expected status payload")
+        }
+        XCTAssertEqual(result.1.first?.id, "antigravityQuotaStatus")
+        XCTAssertEqual(result.1.first?.kind, .status)
     }
 
     func testDisplaySectionsKeepCodexVisibleItemsAcrossDensitiesWhenCompactConfigShared() async {
@@ -937,7 +906,7 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(result.1, ["codexSecondary-status"])
     }
 
-    func testLayoutSpecUsesDisplaySectionsForGeminiSecondaryWindow() async {
+    func testLayoutSpecUsesDisplaySectionsForAntigravitySecondaryWindow() async {
         let size = await MainActor.run { () -> CGSize in
             let settings = AppSettings.shared
             let snapshot = settings.createSnapshot()
@@ -945,18 +914,18 @@ final class PopoverViewModelTests: XCTestCase {
 
             settings.popoverCompact = false
             let viewModel = PopoverViewModel()
-            let payload = GeminiUsageResponse(
+            let payload = AntigravityUsageResponse(
                 accountEmail: "user@example.com",
-                accountPlan: "Gemini Advanced",
-                primaryWindow: GeminiUsageWindow(label: "Pro", modelID: "gemini-pro", usedPercent: 24, resetAtISO: nil),
-                secondaryWindow: GeminiUsageWindow(label: "Flash", modelID: "gemini-flash", usedPercent: 11, resetAtISO: nil),
+                accountPlan: "Workspace",
+                primaryWindow: AntigravityUsageWindow(label: "Gemini 3.1 Pro (Low)", modelID: "gemini-3.1-pro-low", usedPercent: 24, resetAtISO: nil),
+                secondaryWindow: AntigravityUsageWindow(label: "Gemini 3.5 Flash (Medium)", modelID: "gemini-3.5-flash-medium", usedPercent: 11, resetAtISO: nil),
                 tertiaryWindow: nil
             )
             viewModel.update(
                 snapshots: [
                     RuntimeProviderSnapshot(
-                        service: .gemini,
-                        payload: .gemini(payload),
+                        service: .antigravity,
+                        payload: .antigravity(payload),
                         error: nil,
                         isLoading: false,
                         lastUpdated: Date(),
@@ -969,7 +938,7 @@ final class PopoverViewModelTests: XCTestCase {
                 ]
             )
 
-            return viewModel.layoutSpec(for: .gemini, settings: settings).size
+            return viewModel.layoutSpec(for: .antigravity, settings: settings).size
         }
 
         XCTAssertEqual(size.width, 368)

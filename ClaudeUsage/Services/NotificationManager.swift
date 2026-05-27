@@ -12,9 +12,6 @@ enum SessionType: String {
     case weekly
     case codexPrimary
     case codexSecondary
-    case geminiPrimary
-    case geminiSecondary
-    case geminiTertiary
     case antigravityPrimary
     case antigravitySecondary
     case antigravityTertiary
@@ -27,18 +24,12 @@ enum SessionType: String {
             return "주간"
         case .codexSecondary:
             return "주간 세션"
-        case .geminiPrimary:
-            return "Gemini Pro"
-        case .geminiSecondary:
-            return "Gemini Flash"
-        case .geminiTertiary:
-            return "Gemini Lite"
         case .antigravityPrimary:
-            return "Claude lane"
-        case .antigravitySecondary:
             return "Gemini Pro lane"
-        case .antigravityTertiary:
+        case .antigravitySecondary:
             return "Gemini Flash lane"
+        case .antigravityTertiary:
+            return "Claude lane"
         }
     }
 
@@ -48,8 +39,6 @@ enum SessionType: String {
             return "Claude"
         case .codexPrimary, .codexSecondary:
             return "Codex"
-        case .geminiPrimary, .geminiSecondary, .geminiTertiary:
-            return "Gemini"
         case .antigravityPrimary, .antigravitySecondary, .antigravityTertiary:
             return "Antigravity"
         }
@@ -69,9 +58,6 @@ final class NotificationManager {
         .weekly: SessionTracker(),
         .codexPrimary: SessionTracker(),
         .codexSecondary: SessionTracker(),
-        .geminiPrimary: SessionTracker(),
-        .geminiSecondary: SessionTracker(),
-        .geminiTertiary: SessionTracker(),
         .antigravityPrimary: SessionTracker(),
         .antigravitySecondary: SessionTracker(),
         .antigravityTertiary: SessionTracker(),
@@ -109,8 +95,6 @@ final class NotificationManager {
             guard settings.claudeAlertEnabled, settings.alertWeeklyEnabled else { return }
         case .codexPrimary, .codexSecondary:
             guard settings.codexAlertEnabled else { return }
-        case .geminiPrimary, .geminiSecondary, .geminiTertiary:
-            guard settings.isProviderAlertEnabled(.gemini) else { return }
         case .antigravityPrimary, .antigravitySecondary, .antigravityTertiary:
             guard settings.isProviderAlertEnabled(.antigravity) else { return }
         }
@@ -120,7 +104,7 @@ final class NotificationManager {
             switch session {
             case .codexPrimary, .codexSecondary:
                 return settings.enabledCodexAlertThresholds
-            case .fiveHour, .weekly, .geminiPrimary, .geminiSecondary, .geminiTertiary, .antigravityPrimary, .antigravitySecondary, .antigravityTertiary:
+            case .fiveHour, .weekly, .antigravityPrimary, .antigravitySecondary, .antigravityTertiary:
                 return settings.enabledAlertThresholds
             }
         }()

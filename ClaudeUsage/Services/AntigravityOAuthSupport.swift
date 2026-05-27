@@ -104,22 +104,42 @@ nonisolated struct AntigravityOAuthCredentials: Codable, Sendable, Equatable {
 
 nonisolated struct AntigravityOAuthClient: Sendable, Equatable {
     let clientID: String
-    let clientSecret: String
+    let clientSecret: String?
 
-    /// Antigravity 2.0 bundles multiple Google OAuth client secrets in the
-    /// language server binary. The authorization code is tied to clientID, so
-    /// token exchange can safely retry alternate secrets for the same client.
+    /// Some upstream bundles expose multiple Google OAuth secret candidates.
+    /// The authorization code is tied to clientID, so token exchange only
+    /// retries alternate secrets for the same client.
     let clientSecretCandidates: [String]
+    let allowsPublicClient: Bool
 
-    init(clientID: String, clientSecret: String, clientSecretCandidates: [String]? = nil) {
-        self.clientID = clientID
-        self.clientSecret = clientSecret
-        self.clientSecretCandidates = Self.uniqueSecrets(clientSecretCandidates ?? [clientSecret], preferred: clientSecret)
+    var tokenClientSecretCandidates: [String?] {
+        var result: [String?] = []
+        if allowsPublicClient {
+            result.append(nil)
+        }
+        result.append(contentsOf: clientSecretCandidates.map(Optional.some))
+        return result
     }
 
-    private static func uniqueSecrets(_ values: [String], preferred: String) -> [String] {
+    init(
+        clientID: String,
+        clientSecret: String?,
+        clientSecretCandidates: [String]? = nil,
+        allowsPublicClient: Bool = false
+    ) {
+        let normalizedSecret = clientSecret?.trimmedNonEmpty
+        self.clientID = clientID
+        self.clientSecret = normalizedSecret
+        self.clientSecretCandidates = Self.uniqueSecrets(
+            clientSecretCandidates ?? normalizedSecret.map { [$0] } ?? [],
+            preferred: normalizedSecret
+        )
+        self.allowsPublicClient = allowsPublicClient || normalizedSecret == nil
+    }
+
+    private static func uniqueSecrets(_ values: [String], preferred: String?) -> [String] {
         var result: [String] = []
-        for value in [preferred] + values {
+        for value in [preferred].compactMap({ $0 }) + values {
             guard let secret = value.trimmedNonEmpty, !result.contains(secret) else { continue }
             result.append(secret)
         }
@@ -319,7 +339,7 @@ nonisolated enum AntigravityOAuthConfig {
     ]
 
     static let missingCredentialsMessage =
-        "Antigravity OAuth client를 찾지 못했습니다. Antigravity.app을 설치하거나 ANTIGRAVITY_OAUTH_CLIENT_ID/ANTIGRAVITY_OAUTH_CLIENT_SECRET 환경변수를 설정해 주세요."
+        "Antigravity OAuth client를 찾지 못했습니다. Antigravity.app을 설치하거나 ANTIGRAVITY_OAUTH_CLIENT_ID 환경변수를 설정해 주세요."
 
     static func resolvedClient() -> AntigravityOAuthClient? {
         if let client = environmentClient() {
@@ -330,12 +350,15 @@ nonisolated enum AntigravityOAuthConfig {
 
     private static func environmentClient() -> AntigravityOAuthClient? {
         let env = ProcessInfo.processInfo.environment
-        guard let clientID = env["ANTIGRAVITY_OAUTH_CLIENT_ID"]?.trimmedNonEmpty,
-              let clientSecret = env["ANTIGRAVITY_OAUTH_CLIENT_SECRET"]?.trimmedNonEmpty
-        else {
+        guard let clientID = env["ANTIGRAVITY_OAUTH_CLIENT_ID"]?.trimmedNonEmpty else {
             return nil
         }
-        return AntigravityOAuthClient(clientID: clientID, clientSecret: clientSecret)
+        let clientSecret = env["ANTIGRAVITY_OAUTH_CLIENT_SECRET"]?.trimmedNonEmpty
+        return AntigravityOAuthClient(
+            clientID: clientID,
+            clientSecret: clientSecret,
+            allowsPublicClient: clientSecret == nil
+        )
     }
 
     static func discoverClientFromInstalledApp(fileManager: FileManager = .default) -> AntigravityOAuthClient? {
@@ -379,12 +402,17 @@ nonisolated enum AntigravityOAuthConfig {
     }
 
     static func parseClient(fromBundleContent content: String) -> AntigravityOAuthClient? {
+        var publicClientCandidate: AntigravityOAuthClient?
         for haystack in clientSearchWindows(in: content) {
             if let client = parseClient(fromSearchWindow: haystack) {
+                if client.clientSecretCandidates.isEmpty {
+                    publicClientCandidate = publicClientCandidate ?? client
+                    continue
+                }
                 return client
             }
         }
-        return nil
+        return publicClientCandidate
     }
 
     private static func parseClient(fromSearchWindow haystack: String) -> AntigravityOAuthClient? {
@@ -395,16 +423,14 @@ nonisolated enum AntigravityOAuthConfig {
             return nil
         }
         let clientSecrets = uniqueMatches(
-            pattern: #"GOCSPX-[A-Za-z0-9_-]+"#,
+            pattern: #"GOCSPX-[A-Za-z0-9_-]{20,60}(?![A-Za-z0-9_-])"#,
             in: haystack
         )
-        guard let clientSecret = clientSecrets.first else {
-            return nil
-        }
         return AntigravityOAuthClient(
             clientID: clientID,
-            clientSecret: clientSecret,
-            clientSecretCandidates: clientSecrets
+            clientSecret: clientSecrets.first,
+            clientSecretCandidates: clientSecrets,
+            allowsPublicClient: true
         )
     }
 
