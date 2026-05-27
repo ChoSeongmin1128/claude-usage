@@ -4,6 +4,10 @@ extension SettingsView {
     @ViewBuilder
     func providerMenuBarDisplaySection(for provider: AppProviderKind) -> some View {
         if let displayConfig = settings.menuBarDisplayConfig(for: provider) {
+            let showsDisplayControls = provider == .claude
+                || provider == .codex
+                || settings.isProviderVisibleInMenuBar(provider)
+
             VStack(alignment: .leading, spacing: 12) {
                 Label("메뉴바 표시", systemImage: "slider.horizontal.3")
                     .font(.headline)
@@ -18,7 +22,7 @@ extension SettingsView {
                     )
                 }
 
-                if provider == .claude || provider == .codex || settings.isProviderVisibleInMenuBar(provider) {
+                if showsDisplayControls {
                     Picker("표시 방식", selection: menuBarPresetBinding(for: provider)) {
                         ForEach(ProviderMenuBarDisplayPreset.allCases) { preset in
                             Text(menuBarPresetDisplayName(preset, for: provider)).tag(preset)
@@ -29,12 +33,13 @@ extension SettingsView {
                     Text(menuBarPresetDetail(currentMenuBarPreset(for: provider), for: provider))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
 
+                if showsDisplayControls {
                     if currentMenuBarPreset(for: provider) == .custom {
                         menuBarCustomControls(for: provider, displayConfig: displayConfig)
                     }
                 }
-
             }
         }
     }
@@ -303,6 +308,12 @@ extension SettingsView {
                 settings: settings,
                 provider: provider,
                 service: service,
+                claudeUsage: provider == .claude ? claudeLastUsage?() : nil,
+                claudeOverage: provider == .claude ? claudeLastOverage?() : nil,
+                claudeAccounts: claudeAccounts,
+                activeClaudeAccountID: activeClaudeAccountID,
+                codexUsage: provider == .codex ? codexLastUsage?() : nil,
+                codexError: provider == .codex ? codexLastError?() : nil,
                 antigravityUsage: provider == .antigravity ? antigravityLastUsage?() : nil
             )
         }
@@ -417,6 +428,12 @@ private struct ProviderPopoverDisplaySection: View {
     @ObservedObject var settings: AppSettings
     let provider: AppProviderKind
     let service: PopoverService
+    let claudeUsage: ClaudeUsageResponse?
+    let claudeOverage: OverageSpendLimitResponse?
+    let claudeAccounts: [ClaudeAccount]
+    let activeClaudeAccountID: String?
+    let codexUsage: CodexUsageResponse?
+    let codexError: APIError?
     let antigravityUsage: AntigravityUsageResponse?
     @State private var selectedMode: PopoverDisplayEditorMode = .standard
 
@@ -437,14 +454,19 @@ private struct ProviderPopoverDisplaySection: View {
             .pickerStyle(.segmented)
             .frame(maxWidth: 360, alignment: .leading)
 
-            if provider == .antigravity {
-                AntigravityPopoverPreviewView(
-                    settings: settings,
-                    mode: selectedMode,
-                    usage: antigravityUsage
-                )
-                .frame(maxWidth: 560, alignment: .leading)
-            }
+            ProviderPopoverPreviewView(
+                settings: settings,
+                service: service,
+                mode: selectedMode,
+                claudeUsage: claudeUsage,
+                claudeOverage: claudeOverage,
+                claudeAccounts: claudeAccounts,
+                activeClaudeAccountID: activeClaudeAccountID,
+                codexUsage: codexUsage,
+                codexError: codexError,
+                antigravityUsage: antigravityUsage
+            )
+            .frame(maxWidth: 560, alignment: .leading)
 
             if provider == .antigravity {
                 AntigravityModelVisibilityListView(
@@ -564,10 +586,17 @@ private struct AntigravityModelVisibilityListView: View {
     }
 }
 
-private struct AntigravityPopoverPreviewView: View {
+private struct ProviderPopoverPreviewView: View {
     @ObservedObject var settings: AppSettings
+    let service: PopoverService
     let mode: PopoverDisplayEditorMode
-    let usage: AntigravityUsageResponse?
+    let claudeUsage: ClaudeUsageResponse?
+    let claudeOverage: OverageSpendLimitResponse?
+    let claudeAccounts: [ClaudeAccount]
+    let activeClaudeAccountID: String?
+    let codexUsage: CodexUsageResponse?
+    let codexError: APIError?
+    let antigravityUsage: AntigravityUsageResponse?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -580,67 +609,158 @@ private struct AntigravityPopoverPreviewView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if sections.isEmpty {
-                Text(emptyMessage)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(previewBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            } else {
-                VStack(spacing: mode.isCompact ? 4 : 8) {
-                    ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
-                        if index > 0 && !mode.isCompact {
-                            Divider()
-                        }
-                        PopoverDisplaySectionView(
-                            section: section,
-                            density: mode.isCompact ? .compact : .standard
-                        )
-                    }
-                }
-                .padding(12)
-                .background(previewBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                )
-            }
+            popoverFrame
         }
     }
 
+    @ViewBuilder
+    private var popoverFrame: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            previewHeader
+                .frame(height: mode.isCompact ? 28 : 34)
+                .padding(.horizontal, mode.isCompact ? 12 : 16)
+                .padding(.top, mode.isCompact ? 3 : 10)
+                .padding(.bottom, mode.isCompact ? 3 : 6)
+
+            previewBody
+                .padding(.horizontal, mode.isCompact ? 14 : 18)
+                .padding(.vertical, mode.isCompact ? 10 : 14)
+
+            Divider()
+
+            previewFooter
+                .padding(.horizontal, mode.isCompact ? 12 : 16)
+                .padding(.vertical, mode.isCompact ? 5 : 8)
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(Color(NSColor.windowBackgroundColor).opacity(0.86))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+        )
+    }
+
+    private var previewHeader: some View {
+        HStack(spacing: 8) {
+            ForEach(availableServices, id: \.rawValue) { candidate in
+                ProviderBrandIconView(provider: candidate.providerKind, kind: .popover, size: 15)
+                    .frame(width: 22, height: 22)
+                    .background(
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(candidate == service
+                                ? Color.accentColor.opacity(0.18)
+                                : Color(NSColor.controlBackgroundColor).opacity(0.45))
+                    )
+            }
+
+            Spacer(minLength: 8)
+
+            Image(systemName: "arrow.clockwise")
+            Image(systemName: mode.isCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
+            Image(systemName: settings.popoverPinned ? "pin.fill" : "pin")
+        }
+        .font(.system(size: 12))
+        .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder
+    private var previewBody: some View {
+        if sections.isEmpty {
+            StatusPanelView(
+                density: density,
+                icon: "tray",
+                iconColor: .secondary,
+                showsProgress: false,
+                title: "데이터 없음",
+                message: emptyMessage,
+                actionTitle: nil,
+                actionStyle: .bordered,
+                action: nil
+            )
+        } else {
+            VStack(spacing: mode.isCompact ? 5 : 10) {
+                ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
+                    if index > 0 && !mode.isCompact {
+                        Divider()
+                    }
+                    PopoverDisplaySectionView(section: section, density: density)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private var previewFooter: some View {
+        HStack(spacing: 12) {
+            if service == .claude {
+                Image(systemName: "safari")
+                    .foregroundStyle(Color.accentColor)
+                if !mode.isCompact {
+                    Text("claude.ai/settings/usage")
+                        .font(.caption)
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+
+            Spacer()
+
+            Image(systemName: "slider.horizontal.3")
+            Image(systemName: "gearshape")
+            Image(systemName: "power")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
     private var sections: [PopoverDisplaySection] {
-        let catalog = UsageItemCatalogRegistry.catalog(for: .antigravity)
+        let catalog = UsageItemCatalogRegistry.catalog(for: service)
         let items = mode.isCompact
-            ? settings.compactPopoverItems(for: .antigravity)
-            : settings.popoverItems(for: .antigravity)
+            ? settings.compactPopoverItems(for: service)
+            : settings.popoverItems(for: service)
         return catalog.sections(from: items, context: context)
     }
 
     private var context: UsageItemContext {
         UsageItemContext(
-            density: mode.isCompact ? .compact : .standard,
+            density: density,
             settings: settings,
-            claudeUsage: nil,
-            claudeOverage: nil,
-            claudeAccounts: [],
-            activeClaudeAccountID: nil,
-            codexUsage: nil,
-            codexError: nil,
-            antigravityUsage: usage
+            claudeUsage: claudeUsage,
+            claudeOverage: claudeOverage,
+            claudeAccounts: claudeAccounts,
+            activeClaudeAccountID: activeClaudeAccountID,
+            codexUsage: codexUsage,
+            codexError: codexError,
+            antigravityUsage: antigravityUsage
         )
     }
 
     private var emptyMessage: String {
-        usage == nil
-            ? "사용량을 한 번 조회하면 팝오버 미리보기가 표시됩니다."
-            : "현재 설정으로 표시할 Antigravity 항목이 없습니다."
+        switch service {
+        case .claude:
+            return claudeUsage == nil
+                ? "사용량을 한 번 조회하면 팝오버 미리보기가 표시됩니다."
+                : "현재 설정으로 표시할 Claude 항목이 없습니다."
+        case .codex:
+            return codexUsage == nil
+                ? "사용량을 한 번 조회하면 팝오버 미리보기가 표시됩니다."
+                : "현재 설정으로 표시할 Codex 항목이 없습니다."
+        case .antigravity:
+            return antigravityUsage == nil
+                ? "사용량을 한 번 조회하면 팝오버 미리보기가 표시됩니다."
+                : "현재 설정으로 표시할 Antigravity 항목이 없습니다."
+        }
     }
 
-    private var previewBackground: Color {
-        Color(NSColor.windowBackgroundColor).opacity(0.62)
+    private var density: PopoverDensity {
+        mode.isCompact ? .compact : .standard
+    }
+
+    private var availableServices: [PopoverService] {
+        let enabled = ServiceSelectionHelper.enabledServices(settings: settings)
+        if enabled.isEmpty {
+            return [service]
+        }
+        return enabled
     }
 }

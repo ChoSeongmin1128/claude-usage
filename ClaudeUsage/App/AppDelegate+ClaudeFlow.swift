@@ -124,6 +124,18 @@ extension AppDelegate {
                 self.updateMenuBar()
                 self.updatePopoverViewModel(overage: self.currentOverage)
             },
+            claudeLastUsage: { [weak self] in
+                self?.currentUsage
+            },
+            claudeLastOverage: { [weak self] in
+                self?.currentOverage
+            },
+            codexLastUsage: { [weak self] in
+                self?.currentCodexUsage
+            },
+            codexLastError: { [weak self] in
+                self?.runtimeProviderState(for: .codex).error
+            },
             antigravityLastUsageSource: { [weak self] in
                 self?.runtimeProviderState(for: .antigravity).antigravityUsage?.source
             },

@@ -135,6 +135,10 @@ struct SettingsView: View {
     var onRefreshClaudeUsage: (() -> Void)?
     var onRefreshAntigravityUsage: (() -> Void)?
     var onCodexLogout: (() -> Void)?
+    var claudeLastUsage: (() -> ClaudeUsageResponse?)?
+    var claudeLastOverage: (() -> OverageSpendLimitResponse?)?
+    var codexLastUsage: (() -> CodexUsageResponse?)?
+    var codexLastError: (() -> APIError?)?
     var antigravityLastUsageSource: (() -> AntigravityUsageDataSource?)?
     var antigravityLastUsage: (() -> AntigravityUsageResponse?)?
     enum TestResult: Equatable {
