@@ -42,7 +42,7 @@ extension AppDelegate {
     func showUnifiedContextMenu() {
         let menu = StatusContextMenuBuilder.build(
             settings: AppSettings.shared,
-            runtimeServices: ServiceSelectionHelper.supportedPopoverServices,
+            runtimeServices: ServiceSelectionHelper.exposedServices(settings: AppSettings.shared),
             refreshableServiceSet: Set(refreshableServices),
             actions: StatusContextMenuActions(
                 refreshAll: #selector(refreshClicked),

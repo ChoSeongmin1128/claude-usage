@@ -14,7 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let refreshScheduler = RefreshScheduler()
     let updateCoordinator = AppUpdateCoordinator()
     let apiService = ClaudeAPIService()
-    let codexAPIService = CodexAPIService()
+    let codexAPIService = CodexAPIService(authManager: CodexAuthManager.shared)
     let antigravityAPIService = AntigravityAPIService()
     let antigravityRemoteUsageService = AntigravityRemoteUsageService()
     let antigravityCLIUsageService = AntigravityCLIUsageService()
@@ -27,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     var statusTimer: Timer?
     var appearanceObservation: NSKeyValueObservation?
-    var lastObservedProviderStates = AppSettings.shared.providerStates
+    var lastObservedProviderSelectionState = AppSettings.shared.providerSelectionState
     var eventMonitor: Any?
     var globalClickMonitor: Any?
     var isPresentingPopover = false

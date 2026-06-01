@@ -527,7 +527,7 @@ private extension APIError {
         switch self {
         case .invalidSessionKey, .rateLimited, .serverError:
             return true
-        case .codexReauthRequired, .claudeOAuthPathRetired, .cloudflareBlocked, .networkError, .permissionDenied, .parseError, .unknownError:
+        case .codexReauthRequired, .codexTokenRefreshTemporary, .claudeOAuthPathRetired, .cloudflareBlocked, .networkError, .permissionDenied, .parseError, .unknownError:
             return false
         }
     }

@@ -193,6 +193,7 @@ class AppSettings: ObservableObject {
     nonisolated static let maximumRefreshInterval: TimeInterval = 3600
     private static let providerStateMigrationVersionKey = "providerStateMigrationVersion"
     private static let currentProviderStateMigrationVersion = 1
+    private static let additionalRuntimeProvidersEnabledKey = "additionalRuntimeProvidersEnabled"
 
     // MARK: - Popover items 저장 키
     // 구 키는 다운그레이드 보호를 위해 dual-write로 유지합니다.
@@ -623,6 +624,9 @@ class AppSettings: ObservableObject {
     @Published var showCodexIcon: Bool {
         didSet { defaults.set(showCodexIcon, forKey: "showCodexIcon") }
     }
+    @Published var additionalRuntimeProvidersEnabled: Bool {
+        didSet { defaults.set(additionalRuntimeProvidersEnabled, forKey: Self.additionalRuntimeProvidersEnabledKey) }
+    }
     @Published var providerStates: AppProviderStateCatalog {
         didSet {
             if let data = try? JSONEncoder().encode(providerStates) {
@@ -711,6 +715,7 @@ class AppSettings: ObservableObject {
         let separateCompactConfig: Bool
         let compactPopoverItemsByProvider: [String: [PopoverItemConfig]]
         let showCodexIcon: Bool
+        let additionalRuntimeProvidersEnabled: Bool
         let codexPercentageDisplay: PercentageDisplay
         let codexResetTimeDisplay: ResetTimeDisplay
         let codexTimeFormat: TimeFormatStyle
@@ -766,6 +771,7 @@ class AppSettings: ObservableObject {
             separateCompactConfig: separateCompactConfig,
             compactPopoverItemsByProvider: compactPopoverItemsByProvider,
             showCodexIcon: showCodexIcon,
+            additionalRuntimeProvidersEnabled: additionalRuntimeProvidersEnabled,
             codexPercentageDisplay: codexPercentageDisplay,
             codexResetTimeDisplay: codexResetTimeDisplay,
             codexTimeFormat: codexTimeFormat,
@@ -832,6 +838,7 @@ class AppSettings: ObservableObject {
             fallback: snapshot.popoverItemsByProvider
         )
         showCodexIcon = snapshot.showCodexIcon
+        additionalRuntimeProvidersEnabled = snapshot.additionalRuntimeProvidersEnabled
         codexPercentageDisplay = snapshot.codexPercentageDisplay
         codexResetTimeDisplay = snapshot.codexResetTimeDisplay
         codexTimeFormat = snapshot.codexTimeFormat
@@ -865,6 +872,35 @@ class AppSettings: ObservableObject {
         defaults.set(catalog.state(for: .codex).isEnabled, forKey: "codexEnabled")
         defaults.set(catalog.legacyMenuBarActiveService(fallback: "claude"), forKey: "menuBarActiveService")
         defaults.set(Self.currentProviderStateMigrationVersion, forKey: Self.providerStateMigrationVersionKey)
+    }
+
+    static func inferredAdditionalRuntimeProvidersEnabled(
+        from defaults: UserDefaults,
+        decodedProviderStates: AppProviderStateCatalog?,
+        legacyCodexEnabled: Bool,
+        activeService: String
+    ) -> Bool {
+        if let stored = defaults.object(forKey: Self.additionalRuntimeProvidersEnabledKey) as? Bool {
+            return stored
+        }
+
+        if let decodedProviderStates {
+            if AppProviderKind.additionalRuntimeKinds.contains(where: { decodedProviderStates.state(for: $0).isEnabled }) {
+                return true
+            }
+            if let activeKind = decodedProviderStates.activeProviderKind,
+               activeKind.requiresAdditionalProviderOptIn {
+                return true
+            }
+        } else if legacyCodexEnabled {
+            return true
+        }
+
+        if let activeKind = AppProviderKind(rawValue: activeService.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+            return activeKind.requiresAdditionalProviderOptIn
+        }
+
+        return false
     }
 
     // MARK: - Computed
@@ -981,16 +1017,20 @@ class AppSettings: ObservableObject {
         }
     }
 
+    var providerExposurePolicy: ProviderExposurePolicy {
+        ProviderExposurePolicy(additionalRuntimeProvidersEnabled: additionalRuntimeProvidersEnabled)
+    }
+
     var enabledProviderKinds: [AppProviderKind] {
-        providerStates.enabledProviderKinds
+        providerStates.enabledProviderKinds.filter(isProviderExposed)
     }
 
     var runtimeEnabledProviderKinds: [AppProviderKind] {
-        providerStates.enabledRuntimeProviderKinds
+        providerStates.enabledRuntimeProviderKinds.filter(isProviderExposed)
     }
 
     var shellEnabledProviderKinds: [AppProviderKind] {
-        providerStates.enabledShellProviderKinds
+        providerStates.enabledShellProviderKinds.filter(isProviderExposed)
     }
 
     var hasAnyEnabledProvider: Bool {
@@ -1062,18 +1102,28 @@ class AppSettings: ObservableObject {
     }
 
     var activeProviderKind: AppProviderKind? {
-        providerStates.activeProviderKind
+        guard let active = providerStates.activeProviderKind,
+              isProviderExposed(active) else {
+            return nil
+        }
+        return active
     }
 
     var activeRuntimeProviderKind: AppProviderKind? {
-        providerStates.activeRuntimeProviderKind
+        guard let active = providerStates.activeRuntimeProviderKind,
+              isProviderExposed(active) else {
+            return nil
+        }
+        return active
     }
 
     var activeMenuBarServiceRawValue: String {
-        let normalized = PopoverService(
+        guard let service = PopoverService(
             rawValue: menuBarActiveServiceSelectionRawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        )?.rawValue
-        return normalized ?? providerStates.legacyMenuBarActiveService(fallback: "claude")
+        ), isProviderExposed(service.providerKind) else {
+            return runtimeEnabledProviderKinds.first?.runtimeService?.rawValue ?? "claude"
+        }
+        return service.rawValue
     }
 
     var claudeEnabled: Bool {
@@ -1081,7 +1131,7 @@ class AppSettings: ObservableObject {
     }
 
     var codexEnabled: Bool {
-        providerStates.state(for: .codex).isEnabled
+        isProviderEnabled(.codex)
     }
 
     var menuBarActiveService: String {
@@ -1089,13 +1139,24 @@ class AppSettings: ObservableObject {
     }
 
     var providerSelectionState: ProviderSelectionState {
-        ProviderSelectionState(
+        let exposurePolicy = providerExposurePolicy
+        return ProviderSelectionState(
+            exposedKinds: exposurePolicy.exposedKinds,
+            exposedRuntimeKinds: exposurePolicy.exposedRuntimeKinds,
             enabledKinds: enabledProviderKinds,
             runtimeEnabledKinds: runtimeEnabledProviderKinds,
             shellEnabledKinds: shellEnabledProviderKinds,
             activeKind: activeProviderKind,
             activeRuntimeKind: activeRuntimeProviderKind
         )
+    }
+
+    func isProviderExposed(_ kind: AppProviderKind) -> Bool {
+        providerExposurePolicy.isExposed(kind)
+    }
+
+    var exposedRuntimeProviderKinds: [AppProviderKind] {
+        providerExposurePolicy.exposedRuntimeKinds
     }
 
     var menuBarDisplayChangePublisher: AnyPublisher<Void, Never> {
@@ -1131,10 +1192,14 @@ class AppSettings: ObservableObject {
     }
 
     func isProviderEnabled(_ kind: AppProviderKind) -> Bool {
-        providerStates.state(for: kind).isEnabled
+        guard isProviderExposed(kind) else { return false }
+        return providerStates.state(for: kind).isEnabled
     }
 
     func setProviderEnabled(_ enabled: Bool, for kind: AppProviderKind) {
+        if enabled && kind.requiresAdditionalProviderOptIn && !additionalRuntimeProvidersEnabled {
+            additionalRuntimeProvidersEnabled = true
+        }
         let wasEnabled = providerStates.state(for: kind).isEnabled
         var catalog = providerStates
         catalog.setEnabled(enabled, for: kind)
@@ -1198,9 +1263,10 @@ class AppSettings: ObservableObject {
     }
 
     func setActiveMenuBarService(_ service: PopoverService?) {
-        let fallback = providerStates.legacyMenuBarActiveService(fallback: "claude")
+        let fallback = runtimeEnabledProviderKinds.first?.runtimeService?.rawValue ?? "claude"
         let rawValue = service?.rawValue ?? fallback
-        let normalized = PopoverService(rawValue: rawValue)?.rawValue ?? fallback
+        let normalizedService = PopoverService(rawValue: rawValue)
+        let normalized = normalizedService.map { isProviderExposed($0.providerKind) ? $0.rawValue : fallback } ?? fallback
         if menuBarActiveServiceSelectionRawValue != normalized {
             menuBarActiveServiceSelectionRawValue = normalized
         }
@@ -1525,6 +1591,7 @@ class AppSettings: ObservableObject {
         separateCompactConfig = false
         compactPopoverItemsByProvider = Self.defaultPopoverItemsDict()
         showCodexIcon = true
+        additionalRuntimeProvidersEnabled = false
         codexPercentageDisplay = .fiveHour
         codexResetTimeDisplay = .none
         codexTimeFormat = .h24
@@ -1693,9 +1760,11 @@ class AppSettings: ObservableObject {
 
         let persistedProviderStatesData = defaults.data(forKey: "providerStates")
         self.loadedProviderStatesFromDisk = persistedProviderStatesData != nil
+        let decodedProviderStates: AppProviderStateCatalog? = persistedProviderStatesData.flatMap {
+            try? JSONDecoder().decode(AppProviderStateCatalog.self, from: $0)
+        }
         let loadedProviderStates: AppProviderStateCatalog
-        if let data = persistedProviderStatesData,
-           let catalog = try? JSONDecoder().decode(AppProviderStateCatalog.self, from: data) {
+        if let catalog = decodedProviderStates {
             loadedProviderStates = catalog
         } else {
             loadedProviderStates = AppProviderStateCatalog.fromLegacy(
@@ -1704,8 +1773,16 @@ class AppSettings: ObservableObject {
                 activeService: normalizedActiveService
             )
         }
+        let resolvedAdditionalRuntimeProvidersEnabled = Self.inferredAdditionalRuntimeProvidersEnabled(
+            from: defaults,
+            decodedProviderStates: decodedProviderStates,
+            legacyCodexEnabled: storedCodexEnabled,
+            activeService: normalizedActiveService
+        )
+        self.additionalRuntimeProvidersEnabled = resolvedAdditionalRuntimeProvidersEnabled
         self.providerStates = loadedProviderStates
         self.menuBarActiveServiceSelectionRawValue = normalizedActiveService
+        defaults.set(resolvedAdditionalRuntimeProvidersEnabled, forKey: Self.additionalRuntimeProvidersEnabledKey)
         Self.migrateLegacyProviderFieldsIfNeeded(from: loadedProviderStates, defaults: defaults)
         if let data = try? JSONEncoder().encode(loadedProviderStates) {
             defaults.set(data, forKey: "providerStates")

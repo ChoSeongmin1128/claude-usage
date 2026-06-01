@@ -43,6 +43,8 @@ enum RefreshExecutionPolicy {
                 return retryAfter ?? 0
             case .networkError:
                 return 10
+            case .codexTokenRefreshTemporary:
+                return 20
             case .serverError(let statusCode):
                 return statusCode >= 500 ? 20 : 10
             case .invalidSessionKey, .codexReauthRequired, .claudeOAuthPathRetired, .permissionDenied, .parseError, .unknownError:

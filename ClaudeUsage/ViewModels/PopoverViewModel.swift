@@ -198,17 +198,19 @@ final class PopoverViewModel: ObservableObject {
     }
 
     func providerShellCards(settings: AppSettings) -> [ProviderShellCard] {
-        SettingsProviderRegistry.providerShellDescriptors.map { descriptor in
-            ProviderShellCard(
-                kind: descriptor.kind,
-                title: descriptor.title,
-                icon: descriptor.icon,
-                summary: shellSummary(for: descriptor.kind, settings: settings, baseSummary: descriptor.summary),
-                detail: shellDetail(for: descriptor.kind, settings: settings, baseDetail: descriptor.detail),
-                badgeTitle: shellBadgeTitle(for: descriptor.kind, settings: settings, baseBadge: descriptor.role.badgeTitle),
-                isSelectable: descriptor.supportsPopoverSelection
-            )
-        }
+        SettingsProviderRegistry.providerShellDescriptors
+            .filter { settings.isProviderExposed($0.kind) }
+            .map { descriptor in
+                ProviderShellCard(
+                    kind: descriptor.kind,
+                    title: descriptor.title,
+                    icon: descriptor.icon,
+                    summary: shellSummary(for: descriptor.kind, settings: settings, baseSummary: descriptor.summary),
+                    detail: shellDetail(for: descriptor.kind, settings: settings, baseDetail: descriptor.detail),
+                    badgeTitle: shellBadgeTitle(for: descriptor.kind, settings: settings, baseBadge: descriptor.role.badgeTitle),
+                    isSelectable: descriptor.supportsPopoverSelection
+                )
+            }
     }
 
     var hasClaudeCredential: Bool {

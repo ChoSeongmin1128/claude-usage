@@ -131,6 +131,9 @@ struct PopoverView: View {
         .onChange(of: settings.providerStates) { _, _ in
             normalizeSelectedServiceIfNeeded()
         }
+        .onChange(of: settings.additionalRuntimeProvidersEnabled) { _, _ in
+            normalizeSelectedServiceIfNeeded()
+        }
         .onChange(of: viewModel.selectedService) { _, _ in
             syncCompactForSelectedServiceIfNeeded()
             isDisplayEditorPresented = false
@@ -262,7 +265,8 @@ struct PopoverView: View {
     private var availableServices: [PopoverService] {
         let result = ServiceSelectionHelper.enabledServices(settings: settings)
         if result.isEmpty {
-            return ServiceSelectionHelper.supportedPopoverServices.isEmpty ? [.claude] : ServiceSelectionHelper.supportedPopoverServices
+            let exposedServices = ServiceSelectionHelper.exposedServices(settings: settings)
+            return exposedServices.isEmpty ? [.claude] : exposedServices
         }
         return result
     }
@@ -473,6 +477,17 @@ struct PopoverView: View {
                 actionTitle: "설정 열기",
                 actionStyle: .prominent,
                 action: { viewModel.openSettings(for: .codex) }
+            )
+
+        case .codexTokenRefreshTemporary(let reason):
+            return ErrorPresentation(
+                title: "Codex 갱신 일시 실패",
+                message: reason.isEmpty
+                    ? "Codex 토큰 갱신 서버가 일시적으로 응답하지 않았습니다. 마지막 성공 데이터는 유지하고 잠시 후 자동 재시도합니다."
+                    : "Codex 토큰 갱신 서버가 일시적으로 응답하지 않았습니다. 마지막 성공 데이터는 유지하고 잠시 후 자동 재시도합니다. (\(reason))",
+                actionTitle: "지금 다시 시도",
+                actionStyle: .bordered,
+                action: { viewModel.refresh() }
             )
 
         case .cloudflareBlocked(let retryAfter):

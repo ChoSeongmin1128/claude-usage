@@ -592,6 +592,7 @@ actor AntigravityRemoteUsageService {
         case .invalidSessionKey, .rateLimited:
             return false
         case .codexReauthRequired,
+             .codexTokenRefreshTemporary,
              .claudeOAuthPathRetired,
              .cloudflareBlocked,
              .networkError,

@@ -135,6 +135,9 @@ extension AppDelegate {
     }
 
     func openSettingsForAuth(service: PopoverService) {
+        if service.providerKind.requiresAdditionalProviderOptIn {
+            AppSettings.shared.additionalRuntimeProvidersEnabled = true
+        }
         AppSettings.shared.settingsLastTab = ServiceSelectionHelper.settingsRootTab(for: service)
         showSettingsWindow()
     }

@@ -27,6 +27,11 @@ struct ProviderDescriptor: Sendable, Equatable {
     let capabilities: ProviderCapabilities
 }
 
+enum ProviderExposureGroup: Sendable {
+    case primary
+    case additionalRuntime
+}
+
 enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
     case claude
     case codex
@@ -144,12 +149,34 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
         descriptor.capabilities.supportsBrowserImport
     }
 
+    nonisolated var exposureGroup: ProviderExposureGroup {
+        switch self {
+        case .claude:
+            return .primary
+        case .codex, .antigravity:
+            return .additionalRuntime
+        }
+    }
+
+    nonisolated var requiresAdditionalProviderOptIn: Bool {
+        switch exposureGroup {
+        case .primary:
+            return false
+        case .additionalRuntime:
+            return true
+        }
+    }
+
     nonisolated static var runtimeKinds: [AppProviderKind] {
         allCases.filter(\.isRuntimeProvider)
     }
 
     nonisolated static var shellKinds: [AppProviderKind] {
         allCases.filter(\.isShellProvider)
+    }
+
+    nonisolated static var additionalRuntimeKinds: [AppProviderKind] {
+        runtimeKinds.filter(\.requiresAdditionalProviderOptIn)
     }
 }
 
@@ -287,11 +314,32 @@ struct AppProviderStateCatalog: Codable, Equatable, Sendable {
 }
 
 struct ProviderSelectionState: Equatable, Sendable {
+    let exposedKinds: [AppProviderKind]
+    let exposedRuntimeKinds: [AppProviderKind]
     let enabledKinds: [AppProviderKind]
     let runtimeEnabledKinds: [AppProviderKind]
     let shellEnabledKinds: [AppProviderKind]
     let activeKind: AppProviderKind?
     let activeRuntimeKind: AppProviderKind?
+}
+
+struct ProviderExposurePolicy: Equatable, Sendable {
+    let additionalRuntimeProvidersEnabled: Bool
+
+    static let primaryOnly = ProviderExposurePolicy(additionalRuntimeProvidersEnabled: false)
+    static let allSupported = ProviderExposurePolicy(additionalRuntimeProvidersEnabled: true)
+
+    func isExposed(_ kind: AppProviderKind) -> Bool {
+        !kind.requiresAdditionalProviderOptIn || additionalRuntimeProvidersEnabled
+    }
+
+    var exposedKinds: [AppProviderKind] {
+        AppProviderKind.allCases.filter(isExposed)
+    }
+
+    var exposedRuntimeKinds: [AppProviderKind] {
+        AppProviderKind.runtimeKinds.filter(isExposed)
+    }
 }
 
 struct ProviderMenuBarDisplayConfig: Equatable, Sendable {

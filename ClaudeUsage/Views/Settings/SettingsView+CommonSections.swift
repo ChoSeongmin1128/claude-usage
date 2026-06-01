@@ -18,6 +18,15 @@ extension SettingsView {
                 subtitle: "시스템 설정 → 일반 → 로그인 항목에서도 관리할 수 있습니다",
                 isOn: $settings.launchAtLogin
             )
+
+            settingsToggleRow(
+                "Codex/Antigravity도 사용",
+                subtitle: "끄면 설정, 팝오버, 메뉴에는 Claude만 표시합니다",
+                isOn: Binding(
+                    get: { settings.additionalRuntimeProvidersEnabled },
+                    set: { settings.additionalRuntimeProvidersEnabled = $0 }
+                )
+            )
         }
     }
 

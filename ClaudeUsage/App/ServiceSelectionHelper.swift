@@ -24,6 +24,10 @@ struct ServiceSelectionHelper {
         settings.providerSelectionState.runtimeEnabledKinds.compactMap(service(for:))
     }
 
+    static func exposedServices(settings: AppSettings) -> [PopoverService] {
+        settings.exposedRuntimeProviderKinds.compactMap(service(for:))
+    }
+
     static func enabledRuntimeProviderKinds(settings: AppSettings) -> [AppProviderKind] {
         settings.providerSelectionState.runtimeEnabledKinds
     }

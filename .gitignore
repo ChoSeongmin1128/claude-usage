@@ -65,6 +65,9 @@ iOSInjectionProject/
 # macOS
 .DS_Store
 
+# Local agent/tool worktrees
+.claude/
+
 # Local release artifacts
 ClaudeUsage.zip
 ClaudeUsage.dmg

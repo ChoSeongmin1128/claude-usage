@@ -227,6 +227,117 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(catalog.states.keys.sorted { $0.rawValue < $1.rawValue }, [.antigravity, .claude, .codex])
     }
 
+    func testAdditionalRuntimeProvidersMigrationDefaultsToClaudeOnly() {
+        let suiteName = "ClaudeUsageTests.additionalProvidersDefault.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            return XCTFail("테스트 UserDefaults suite를 만들지 못했습니다")
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let inferred = AppSettings.inferredAdditionalRuntimeProvidersEnabled(
+            from: defaults,
+            decodedProviderStates: nil,
+            legacyCodexEnabled: false,
+            activeService: "claude"
+        )
+
+        XCTAssertFalse(inferred)
+    }
+
+    func testAdditionalRuntimeProvidersMigrationDetectsExistingProviderUse() {
+        let suiteName = "ClaudeUsageTests.additionalProvidersExisting.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            return XCTFail("테스트 UserDefaults suite를 만들지 못했습니다")
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var catalog = AppProviderStateCatalog.defaultCatalog
+        catalog.setEnabled(true, for: .antigravity)
+
+        XCTAssertTrue(AppSettings.inferredAdditionalRuntimeProvidersEnabled(
+            from: defaults,
+            decodedProviderStates: catalog,
+            legacyCodexEnabled: false,
+            activeService: "claude"
+        ))
+
+        XCTAssertTrue(AppSettings.inferredAdditionalRuntimeProvidersEnabled(
+            from: defaults,
+            decodedProviderStates: nil,
+            legacyCodexEnabled: true,
+            activeService: "claude"
+        ))
+
+        XCTAssertTrue(AppSettings.inferredAdditionalRuntimeProvidersEnabled(
+            from: defaults,
+            decodedProviderStates: nil,
+            legacyCodexEnabled: false,
+            activeService: "antigravity"
+        ))
+    }
+
+    func testAdditionalRuntimeProvidersExplicitSettingWinsMigrationInference() {
+        let suiteName = "ClaudeUsageTests.additionalProvidersExplicit.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            return XCTFail("테스트 UserDefaults suite를 만들지 못했습니다")
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(false, forKey: "additionalRuntimeProvidersEnabled")
+        var catalog = AppProviderStateCatalog.defaultCatalog
+        catalog.setEnabled(true, for: .codex)
+
+        let inferred = AppSettings.inferredAdditionalRuntimeProvidersEnabled(
+            from: defaults,
+            decodedProviderStates: catalog,
+            legacyCodexEnabled: true,
+            activeService: "codex"
+        )
+
+        XCTAssertFalse(inferred)
+    }
+
+    func testAdditionalRuntimeProvidersGateFiltersProvidersWithoutDroppingState() {
+        let settings = AppSettings.shared
+        let snapshot = settings.createSnapshot()
+        defer { settings.restore(from: snapshot) }
+
+        settings.setProviderEnabled(true, for: .claude)
+        settings.additionalRuntimeProvidersEnabled = true
+        settings.setProviderEnabled(true, for: .codex)
+        settings.setProviderEnabled(true, for: .antigravity)
+
+        XCTAssertEqual(settings.runtimeEnabledProviderKinds, [.claude, .codex, .antigravity])
+        XCTAssertEqual(settings.providerSelectionState.exposedRuntimeKinds, [.claude, .codex, .antigravity])
+        XCTAssertEqual(ServiceSelectionHelper.exposedServices(settings: settings), [.claude, .codex, .antigravity])
+
+        settings.additionalRuntimeProvidersEnabled = false
+
+        XCTAssertEqual(settings.runtimeEnabledProviderKinds, [.claude])
+        XCTAssertEqual(settings.providerSelectionState.exposedRuntimeKinds, [.claude])
+        XCTAssertEqual(ServiceSelectionHelper.exposedServices(settings: settings), [.claude])
+        XCTAssertFalse(settings.isProviderEnabled(.codex))
+        XCTAssertFalse(settings.isProviderEnabled(.antigravity))
+        XCTAssertTrue(settings.providerState(for: .codex).isEnabled)
+        XCTAssertTrue(settings.providerState(for: .antigravity).isEnabled)
+
+        settings.additionalRuntimeProvidersEnabled = true
+
+        XCTAssertTrue(settings.isProviderEnabled(.codex))
+        XCTAssertTrue(settings.isProviderEnabled(.antigravity))
+    }
+
+    func testSettingsSidebarHidesAdditionalProvidersWhenGateIsOff() {
+        XCTAssertEqual(
+            SettingsProviderRegistry.sidebarPanels(exposurePolicy: .primaryOnly).map(\.panel),
+            [.common, .claude]
+        )
+        XCTAssertEqual(
+            SettingsProviderRegistry.sidebarPanels(exposurePolicy: .allSupported).map(\.panel),
+            [.common, .claude, .codex, .antigravity]
+        )
+    }
+
     func testSetMenuBarStyleBatteryVariantForcesRemainingCircularMode() {
         let settings = AppSettings.shared
         let snapshot = settings.createSnapshot()

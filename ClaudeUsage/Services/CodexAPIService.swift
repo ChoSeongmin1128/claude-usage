@@ -13,7 +13,19 @@ actor CodexAPIService {
     // MARK: - Properties
 
     private var accessToken: String?
-    private let baseURL = "https://chatgpt.com/backend-api"
+    private let baseURL: URL
+    private let urlSession: URLSession
+    private let authManager: CodexAuthManager
+
+    init(
+        baseURL: URL = URL(string: "https://chatgpt.com/backend-api")!,
+        urlSession: URLSession = .shared,
+        authManager: CodexAuthManager
+    ) {
+        self.baseURL = baseURL
+        self.urlSession = urlSession
+        self.authManager = authManager
+    }
 
     // MARK: - Token Management
 
@@ -27,24 +39,15 @@ actor CodexAPIService {
     /// - Returns: 토큰을 사용할 수 있는 상태가 됐는지 (`true`), 일시 실패 (`false`).
     /// - Throws: `APIError.codexReauthRequired` — refresh_token 이 영구 무효화돼 재로그인 필요.
     func refreshTokenIfNeeded() async throws -> Bool {
-        let currentToken = await MainActor.run { CodexAuthManager.shared.getToken() }
-        guard let currentToken else { return false }
-
-        if !currentToken.isExpired {
-            self.accessToken = currentToken.accessToken
-            return true
-        }
-
-        guard let refreshToken = currentToken.refreshToken else { return false }
-
-        let result = await CodexAuthManager.shared.refreshAccessToken(using: refreshToken)
+        let result = await authManager.refreshTokenIfNeeded()
         switch result {
-        case .success(let newToken):
-            self.accessToken = newToken.accessToken
+        case .success(let token):
+            self.accessToken = token.accessToken
             return true
         case .permanentFailure(let reason):
             throw APIError.codexReauthRequired(reason: reason)
-        case .transientFailure:
+        case .transientFailure(let reason):
+            Logger.warning("Codex 토큰 선제 갱신 일시 실패: \(reason)")
             return false
         }
     }
@@ -54,11 +57,11 @@ actor CodexAPIService {
     /// 사용량 데이터 가져오기 (OAuth Bearer 토큰, CodexBar 방식)
     func fetchUsage() async throws -> CodexUsageResponse {
         // 토큰 갱신 확인. permanent 실패는 refreshTokenIfNeeded 가 .codexReauthRequired throw.
-        let storedToken = await MainActor.run { CodexAuthManager.shared.getToken() }
+        let storedToken = await authManager.getToken()
         if let token = storedToken, token.isExpired {
             let refreshed = try await refreshTokenIfNeeded()
             if !refreshed {
-                throw APIError.invalidSessionKey
+                throw APIError.codexTokenRefreshTemporary(reason: "expired_access_token")
             }
         }
 
@@ -73,7 +76,15 @@ actor CodexAPIService {
 
         Logger.info("Codex 사용량 데이터 요청 시작")
 
-        let url = URL(string: "\(baseURL)/wham/usage")!
+        do {
+            return try await performUsageRequest(accessToken: accessToken)
+        } catch APIError.invalidSessionKey {
+            return try await recoverFromUnauthorizedAndRetry(failedAccessToken: accessToken)
+        }
+    }
+
+    private func performUsageRequest(accessToken: String) async throws -> CodexUsageResponse {
+        let url = baseURL.appendingPathComponent("wham/usage")
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 30
@@ -87,7 +98,7 @@ actor CodexAPIService {
 
         let (data, response): (Data, URLResponse)
         do {
-            (data, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await urlSession.data(for: request)
         } catch {
             throw APIError.networkError(error.localizedDescription)
         }
@@ -120,6 +131,26 @@ actor CodexAPIService {
         }
     }
 
+    private func recoverFromUnauthorizedAndRetry(failedAccessToken: String) async throws -> CodexUsageResponse {
+        Logger.warning("Codex 사용량 API 인증 실패 — auth.json 재로드/refresh 복구를 시도합니다")
+        let recovery = await authManager.recoverFromUnauthorized(failedAccessToken: failedAccessToken)
+        switch recovery {
+        case .success(let recoveredToken):
+            self.accessToken = recoveredToken.accessToken
+            do {
+                return try await performUsageRequest(accessToken: recoveredToken.accessToken)
+            } catch APIError.invalidSessionKey {
+                throw APIError.codexReauthRequired(reason: "usage_unauthorized_after_recovery")
+            }
+
+        case .permanentFailure(let reason):
+            throw APIError.codexReauthRequired(reason: reason)
+
+        case .transientFailure(let reason):
+            throw APIError.codexTokenRefreshTemporary(reason: reason)
+        }
+    }
+
     /// 재시도 로직을 포함한 사용량 가져오기
     func fetchUsageWithRetry(maxAttempts: Int = 3) async throws -> CodexUsageResponse {
         var lastError: Error?
@@ -131,7 +162,7 @@ actor CodexAPIService {
                 // 인증 에러(영구) 는 재시도 없이 즉시 throw
                 if let apiError = error as? APIError {
                     switch apiError {
-                    case .invalidSessionKey, .codexReauthRequired, .permissionDenied:
+                    case .invalidSessionKey, .codexReauthRequired, .codexTokenRefreshTemporary, .permissionDenied:
                         throw error
                     default:
                         break

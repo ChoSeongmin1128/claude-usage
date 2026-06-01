@@ -9,7 +9,7 @@ final class AppRuntimeObservationCoordinator {
         onRefreshConfigurationChanged: @escaping () -> Void,
         onUpdateConfigurationChanged: @escaping () -> Void,
         onMenuBarDisplayChanged: @escaping () -> Void,
-        onProviderStatesChanged: @escaping (AppProviderStateCatalog) -> Void,
+        onProviderSelectionChanged: @escaping (ProviderSelectionState) -> Void,
         onPowerStateChanged: @escaping () -> Void,
         onClaudeSessionKeyChanged: @escaping () -> Void
     ) {
@@ -39,7 +39,13 @@ final class AppRuntimeObservationCoordinator {
         AppSettings.shared.$providerStates
             .dropFirst()
             .receive(on: RunLoop.main)
-            .sink { catalog in onProviderStatesChanged(catalog) }
+            .sink { _ in onProviderSelectionChanged(AppSettings.shared.providerSelectionState) }
+            .store(in: &cancellables)
+
+        AppSettings.shared.$additionalRuntimeProvidersEnabled
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { _ in onProviderSelectionChanged(AppSettings.shared.providerSelectionState) }
             .store(in: &cancellables)
 
         PowerMonitor.shared.$isOnBattery

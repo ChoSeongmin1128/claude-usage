@@ -43,26 +43,30 @@ struct SettingsProviderPanelDescriptor: Identifiable, Sendable, Equatable {
 }
 
 enum SettingsProviderRegistry {
-    static let providerDescriptors: [ProviderDescriptor] = AppProviderKind.allCases.map(\.descriptor)
+    nonisolated static let providerDescriptors: [ProviderDescriptor] = AppProviderKind.allCases.map(\.descriptor)
 
-    static var sidebarPanels: [SettingsProviderPanelDescriptor] {
-        [
-            .init(panel: .common, title: "공통", icon: "slider.horizontal.3", providerKind: nil, availability: .active),
-            providerPanelDescriptor(for: .claude),
-            providerPanelDescriptor(for: .codex),
-            providerPanelDescriptor(for: .antigravity),
-        ]
+    nonisolated static var sidebarPanels: [SettingsProviderPanelDescriptor] {
+        sidebarPanels(exposurePolicy: .allSupported)
     }
 
-    static var providerShellDescriptors: [ProviderShellDescriptor] {
+    nonisolated static func sidebarPanels(exposurePolicy: ProviderExposurePolicy) -> [SettingsProviderPanelDescriptor] {
+        let providerPanels = AppProviderKind.allCases
+            .filter(exposurePolicy.isExposed)
+            .map(providerPanelDescriptor)
+        return [
+            .init(panel: .common, title: "공통", icon: "slider.horizontal.3", providerKind: nil, availability: .active),
+        ] + providerPanels
+    }
+
+    nonisolated static var providerShellDescriptors: [ProviderShellDescriptor] {
         providerDescriptors.map { providerShellDescriptor(for: $0.kind) }
     }
 
-    static func descriptor(for panel: SettingsProviderPanel) -> SettingsProviderPanelDescriptor {
+    nonisolated static func descriptor(for panel: SettingsProviderPanel) -> SettingsProviderPanelDescriptor {
         sidebarPanels.first { $0.panel == panel } ?? sidebarPanels[0]
     }
 
-    static func providerShellDescriptor(for kind: AppProviderKind) -> ProviderShellDescriptor {
+    nonisolated static func providerShellDescriptor(for kind: AppProviderKind) -> ProviderShellDescriptor {
         let providerDescriptor = kind.descriptor
         return ProviderShellDescriptor(
             kind: kind,
@@ -75,7 +79,7 @@ enum SettingsProviderRegistry {
         )
     }
 
-    static func providerPanelDescriptor(for kind: AppProviderKind) -> SettingsProviderPanelDescriptor {
+    nonisolated static func providerPanelDescriptor(for kind: AppProviderKind) -> SettingsProviderPanelDescriptor {
         let providerDescriptor = kind.descriptor
         let availability: SettingsProviderPanelDescriptor.Availability
         if let message = providerDescriptor.settingsComingSoonMessage {
@@ -93,7 +97,7 @@ enum SettingsProviderRegistry {
         )
     }
 
-    private static func panel(for kind: AppProviderKind) -> SettingsProviderPanel {
+    nonisolated private static func panel(for kind: AppProviderKind) -> SettingsProviderPanel {
         switch kind {
         case .claude:
             return .claude

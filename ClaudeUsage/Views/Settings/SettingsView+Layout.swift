@@ -37,7 +37,7 @@ extension SettingsView {
             testResult = nil
             syncClaudeAccountsState()
             selectedOrganizationID = appliedPreferredOrganizationID
-            selectedPanel = SettingsProviderPanel(rawValue: settings.settingsLastTab) ?? .common
+            selectedPanel = normalizedPanel(SettingsProviderPanel(rawValue: settings.settingsLastTab) ?? .common)
             loadUsageHealthSnapshot()
             checkCodexAuth()
             antigravityOAuthSettings.refreshAccounts()
@@ -95,6 +95,13 @@ extension SettingsView {
         }
         .onChange(of: settings.providerStates) { _, _ in
             checkCodexAuth()
+        }
+        .onChange(of: settings.additionalRuntimeProvidersEnabled) { _, isEnabled in
+            checkCodexAuth()
+            guard !isEnabled,
+                  let provider = SettingsProviderRegistry.descriptor(for: selectedPanel).providerKind,
+                  provider.requiresAdditionalProviderOptIn else { return }
+            selectedPanel = .common
         }
         .onReceive(settings.$shouldRevealClaudeAdvancedAuth.removeDuplicates()) { shouldReveal in
             guard shouldReveal else { return }
@@ -161,7 +168,7 @@ extension SettingsView {
                 .padding(.horizontal, 8)
                 .padding(.top, 4)
 
-            ForEach(SettingsProviderRegistry.sidebarPanels) { panel in
+            ForEach(SettingsProviderRegistry.sidebarPanels(exposurePolicy: settings.providerExposurePolicy)) { panel in
                 sidebarRow(panel)
             }
 
@@ -213,5 +220,13 @@ extension SettingsView {
             get: { settings.isProviderEnabled(provider) },
             set: { settings.setProviderEnabled($0, for: provider) }
         )
+    }
+
+    private func normalizedPanel(_ panel: SettingsProviderPanel) -> SettingsProviderPanel {
+        guard let provider = SettingsProviderRegistry.descriptor(for: panel).providerKind,
+              !settings.isProviderExposed(provider) else {
+            return panel
+        }
+        return .common
     }
 }

@@ -1260,7 +1260,7 @@ actor ClaudeAPIService {
                     switch apiError {
                     case .rateLimited(_), .cloudflareBlocked(_), .permissionDenied:
                         throw apiError
-                    case .invalidSessionKey, .codexReauthRequired, .claudeOAuthPathRetired, .networkError, .parseError, .serverError, .unknownError:
+                    case .invalidSessionKey, .codexReauthRequired, .codexTokenRefreshTemporary, .claudeOAuthPathRetired, .networkError, .parseError, .serverError, .unknownError:
                         break
                     }
                 }

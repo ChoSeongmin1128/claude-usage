@@ -106,11 +106,11 @@ extension AppDelegate {
             onMenuBarDisplayChanged: { [weak self] in
                 self?.updateMenuBar(force: true)
             },
-            onProviderStatesChanged: { [weak self] catalog in
+            onProviderSelectionChanged: { [weak self] selectionState in
                 guard let self else { return }
-                let previous = self.lastObservedProviderStates
-                self.lastObservedProviderStates = catalog
-                self.handleProviderStateTransition(from: previous, to: catalog)
+                let previous = self.lastObservedProviderSelectionState
+                self.lastObservedProviderSelectionState = selectionState
+                self.handleProviderSelectionTransition(from: previous, to: selectionState)
             },
             onPowerStateChanged: { [weak self] in
                 self?.syncRefreshTimerState()
@@ -154,14 +154,14 @@ extension AppDelegate {
         }
     }
 
-    func handleProviderStateTransition(from previous: AppProviderStateCatalog, to current: AppProviderStateCatalog) {
+    func handleProviderSelectionTransition(from previous: ProviderSelectionState, to current: ProviderSelectionState) {
         let resolvedService = resolvedPopoverService()
         popoverViewModel.selectedService = resolvedService
         applyPopoverBehavior()
 
         for kind in ServiceSelectionHelper.supportedProviderKinds {
-            let previousEnabled = previous.state(for: kind).isEnabled
-            let currentEnabled = current.state(for: kind).isEnabled
+            let previousEnabled = previous.runtimeEnabledKinds.contains(kind)
+            let currentEnabled = current.runtimeEnabledKinds.contains(kind)
             guard previousEnabled != currentEnabled,
                   let service = ServiceSelectionHelper.service(for: kind) else { continue }
             handleProviderEnabledChange(currentEnabled, for: service)

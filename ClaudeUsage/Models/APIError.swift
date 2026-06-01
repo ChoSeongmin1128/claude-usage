@@ -13,6 +13,9 @@ enum APIError: Error, Sendable {
     /// refresh_token 이 영구 무효화되어 사용자가 다시 로그인해야 하는 상태.
     /// OAuth 응답에서 `refresh_token_reused`, `invalid_grant` 같은 영구 실패 코드를 받았을 때 사용.
     case codexReauthRequired(reason: String)
+    /// access token 은 만료됐지만 refresh 서버/네트워크가 일시 실패한 상태.
+    /// 마지막 성공 데이터는 유지하고 백오프 후 자동 재시도해야 한다.
+    case codexTokenRefreshTemporary(reason: String)
     /// Claude CLI OAuth (`/api/oauth/usage`) 경로가 비활성화돼 있어 호출되지 않은 상태.
     /// 사용자가 `claudeCodeExternal` 계정만 가지고 있을 때 발생하며, 에러가 아니라
     /// "Claude.ai 로그인으로 전환 권장" 안내 카드로 처리된다 (UX 친화 분기).
@@ -36,6 +39,11 @@ extension APIError: LocalizedError {
 
         case .codexReauthRequired:
             return "Codex 재로그인이 필요합니다. 터미널에서 `codex login` 을 다시 실행하세요."
+
+        case .codexTokenRefreshTemporary(let reason):
+            return reason.isEmpty
+                ? "Codex 토큰 갱신에 일시 실패했습니다. 마지막 성공 데이터는 유지됩니다."
+                : "Codex 토큰 갱신에 일시 실패했습니다: \(reason)"
 
         case .claudeOAuthPathRetired:
             return "Claude Code CLI 경로가 비활성화됐습니다. Claude.ai 로그인으로 전환해 주세요."
@@ -77,7 +85,7 @@ extension APIError: LocalizedError {
 
     nonisolated var isTemporaryFailure: Bool {
         switch self {
-        case .rateLimited(_), .cloudflareBlocked(_), .networkError, .parseError:
+        case .rateLimited(_), .cloudflareBlocked(_), .codexTokenRefreshTemporary, .networkError, .parseError:
             return true
         case .serverError(let code):
             return code >= 500
@@ -92,7 +100,7 @@ extension APIError: LocalizedError {
             return true
         case .serverError(let code):
             return code == 401 || code == 403
-        case .rateLimited, .cloudflareBlocked, .networkError, .permissionDenied, .parseError, .unknownError:
+        case .rateLimited, .cloudflareBlocked, .codexTokenRefreshTemporary, .networkError, .permissionDenied, .parseError, .unknownError:
             return false
         }
     }
