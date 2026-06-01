@@ -326,18 +326,18 @@ struct ProviderSelectionState: Equatable, Sendable {
 struct ProviderExposurePolicy: Equatable, Sendable {
     let additionalRuntimeProvidersEnabled: Bool
 
-    static let primaryOnly = ProviderExposurePolicy(additionalRuntimeProvidersEnabled: false)
-    static let allSupported = ProviderExposurePolicy(additionalRuntimeProvidersEnabled: true)
+    nonisolated static let primaryOnly = ProviderExposurePolicy(additionalRuntimeProvidersEnabled: false)
+    nonisolated static let allSupported = ProviderExposurePolicy(additionalRuntimeProvidersEnabled: true)
 
-    func isExposed(_ kind: AppProviderKind) -> Bool {
+    nonisolated func isExposed(_ kind: AppProviderKind) -> Bool {
         !kind.requiresAdditionalProviderOptIn || additionalRuntimeProvidersEnabled
     }
 
-    var exposedKinds: [AppProviderKind] {
+    nonisolated var exposedKinds: [AppProviderKind] {
         AppProviderKind.allCases.filter(isExposed)
     }
 
-    var exposedRuntimeKinds: [AppProviderKind] {
+    nonisolated var exposedRuntimeKinds: [AppProviderKind] {
         AppProviderKind.runtimeKinds.filter(isExposed)
     }
 }
