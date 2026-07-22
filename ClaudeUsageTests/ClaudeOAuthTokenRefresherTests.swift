@@ -7,6 +7,7 @@ import XCTest
 ///   - 일시적 실패(5xx, 네트워크) 시 cooldown 진입 (이후 호출은 cooldown 메시지)
 ///   - 동시 호출 시 in-flight task 결과 공유 (HTTP 호출 1회만)
 ///   - refresh_token 누락 시 즉시 `missingRefreshToken` 에러
+@MainActor
 final class ClaudeOAuthTokenRefresherTests: XCTestCase {
     func testSuccessReturnsNewCredentialAndPreservesRefreshTokenWhenServerOmitsIt() async throws {
         let json = """
@@ -89,7 +90,7 @@ final class ClaudeOAuthTokenRefresherTests: XCTestCase {
         let runner = MockRunner(scriptedResponses: [
             .success(body: "internal server error", statusCode: 500)
         ])
-        var currentTime = Date(timeIntervalSince1970: 1_000_000)
+        let currentTime = Date(timeIntervalSince1970: 1_000_000)
         let refresher = ClaudeOAuthTokenRefresher(
             httpRunner: runner.run,
             cooldownInterval: 60,

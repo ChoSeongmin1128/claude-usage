@@ -1,6 +1,7 @@
 import XCTest
 @testable import ClaudeUsage
 
+@MainActor
 final class AntigravityRefreshConfigurationTests: XCTestCase {
     private var temporaryDirectory: URL!
     private var credentialStore: AntigravityOAuthCredentialsStore!

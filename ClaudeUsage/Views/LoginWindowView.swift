@@ -256,10 +256,18 @@ struct LoginWindowView: View {
                     action: { startChromeImport() }
                 )
 
-                // v2.2.0: "Claude Code 로그인 사용" 카드는 의도적으로 제거.
-                // /api/oauth/usage 경로 비활성화에 따라 CLI OAuth 자격으로 로그인해도
-                // 사용량 조회가 안 되므로 옵션 자체를 노출하지 않는다. CLI 사용자도
-                // Claude.ai 로그인으로 통일.
+                methodCard(
+                    icon: "terminal",
+                    iconTint: .purple,
+                    title: "Claude Code 로그인 사용",
+                    subtitle: cliCardSubtitle,
+                    badge: cliPreview == nil ? nil : "감지됨",
+                    isEnabled: cliPreview != nil,
+                    disabledReason: didLoadCLIPreview && cliPreview == nil
+                        ? "터미널에서 `claude auth login`을 실행한 뒤 다시 열어 주세요."
+                        : nil,
+                    action: { startCLIActivation() }
+                )
 
                 methodCard(
                     icon: "key.horizontal",
@@ -291,8 +299,6 @@ struct LoginWindowView: View {
             return "\(line) · 터미널 인증을 그대로 사용합니다"
         }
         if cliPreview != nil {
-            // v2.2.0 부터 위저드 카드 자체를 노출하지 않아 이 분기는 dead path —
-            // 정확성 차원에서 표현만 정정. CLI 로그인은 `claude auth login` 이 정확.
             return "터미널의 `claude auth login` 인증을 그대로 사용합니다"
         }
         if !didLoadCLIPreview {

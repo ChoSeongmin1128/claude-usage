@@ -220,6 +220,11 @@ actor ClaudeAPIService {
     private var sessionPathCooldownUntil: Date?
     private var sessionPathCooldownReason: APIError?
     private var sessionPathLimitStrike = 0
+    /// OAuth 경로 보호: 토큰별 rate limit 예산이 작아서 (과거 429 → 2500초 대기 관측)
+    /// 성공 결과를 짧게 캐시하고, 429 는 Retry-After 만큼 경로 쿨다운한다.
+    private var oauthPathCooldownUntil: Date?
+    private var lastOAuthSuccess: (usage: ClaudeUsageResponse, at: Date)?
+    private static let minimumOAuthCallInterval: TimeInterval = 300
     private let requestTimeout: TimeInterval = 20
     private let sourcePlanner = ClaudeSourcePlanner()
     private let messagesHeaderFallbackFetcher = ClaudeMessagesHeaderFallbackFetcher()
@@ -232,6 +237,7 @@ actor ClaudeAPIService {
     private var authPathHealthStore = AuthPathHealthStore()
     private var lastKnownUsagePercent: Double?
     private var lastSuccessfulUsageSource: ClaudeUsageSource?
+    private var lastFetchMetadata: RuntimeProviderFetchMetadata?
     private var lastResolvedSessionOrganization: OrganizationSummary?
     private let accountStoreObserver = ClaudeAccountStoreNotificationObserver()
 
@@ -318,6 +324,9 @@ actor ClaudeAPIService {
         lastKnownUsagePercent = nil
         lastSuccessfulUsageSource = nil
         resetSessionPathCooldown()
+        // 계정이 바뀌면 OAuth 캐시/쿨다운도 무효 (토큰이 계정별이므로)
+        oauthPathCooldownUntil = nil
+        lastOAuthSuccess = nil
 
         if nextAccount?.kind == .webSession {
             sessionKey = nextAccount.flatMap { KeychainManager.shared.load(for: $0.id) }
@@ -550,8 +559,13 @@ actor ClaudeAPIService {
     /// 은 건드리지 않고, 레거시 자동 마이그레이션 결과면서 동작 불가 상태인 경우에만 전환.
     nonisolated static let oauthAwareMigrationVersionKey = "ClaudeUsage.oauthAwareMigrationVersion"
     nonisolated static let oauthAwareMigrationCurrentVersion = 1
+    /// v2.3: OAuth (`/api/oauth/usage`) 경로를 정식 소스로 승격.
+    /// v2.2.0 에서 비활성화했던 이유(토큰별 rate limit, refresh rotation 함정)는
+    /// (1) OAuth 경로 최소 호출 간격 + 성공 캐시, (2) 429 Retry-After 쿨다운,
+    /// (3) 별도 캐시 keychain 을 쓰는 rotation-safe reader 로 완화한다.
+    /// 문제가 재발하면 환경변수 `CLAUDE_USAGE_ENABLE_CLAUDE_OAUTH_USAGE=0` 이 kill switch.
     nonisolated private static var claudeOAuthUsageCallsEnabled: Bool {
-        ProcessInfo.processInfo.environment["CLAUDE_USAGE_ENABLE_CLAUDE_OAUTH_USAGE"] == "1"
+        ProcessInfo.processInfo.environment["CLAUDE_USAGE_ENABLE_CLAUDE_OAUTH_USAGE"] != "0"
     }
 
     /// 자동 전환 결정의 핵심 룰을 단위 테스트 가능한 pure function 으로 분리.
@@ -572,9 +586,8 @@ actor ClaudeAPIService {
     }
 
     private func runOAuthAwareLegacyMigrationIfNeeded() async {
-        // v2.2.0: OAuth 경로 비활성. legacy web session 이 손상되더라도 CLI external 계정으로
-        // 자동 전환하면 사용자가 OAuth 안내 카드만 보게 되어 마찰만 늘어난다. 그러므로
-        // 이 migration 자체를 skip — 손상 안내는 Claude.ai 재로그인 경로로 통일된다.
+        // v2.3: OAuth 경로 승격으로 이 migration 도 다시 활성.
+        // 손상된 legacy web 계정은 CLI external 계정으로 자동 전환된다.
         guard Self.claudeOAuthUsageCallsEnabled else { return }
 
         let defaults = UserDefaults.standard
@@ -622,8 +635,14 @@ actor ClaudeAPIService {
         lastResolvedSessionOrganization
     }
 
-    /// 사용량 데이터 가져오기
+    /// 기존 호출자를 위한 payload 전용 API. 런타임 표시는 provenance를 보존하는
+    /// `fetchUsageOutcome()`을 사용해야 한다.
     func fetchUsage() async throws -> ClaudeUsageResponse {
+        try await fetchUsageOutcome().usage
+    }
+
+    /// 사용량과 실제 조회 출처/계정 귀속을 함께 반환한다.
+    func fetchUsageOutcome() async throws -> ClaudeUsageFetchOutcome {
         reloadActiveAccount()
         Logger.info("사용량 데이터 요청 시작")
         let oauthAccessToken = try await readSystemOAuthAccessToken()
@@ -653,43 +672,21 @@ actor ClaudeAPIService {
             return .webSession
         }()
 
+        let requestAccountID = usesStoredActiveAccount ? activeAccount?.id : nil
         let normalizedSessionKey: String? = {
             guard activeKind == .webSession else { return nil }
             guard let sessionKey, !sessionKey.isEmpty else { return nil }
             return sessionKey
         }()
         let sessionCooldownError = normalizedSessionKey != nil ? currentSessionPathCooldownError() : nil
-        // 활성 계정이 web 일 때, 그 web 계정이 사용자가 명시 선택/추가한 결과인지 판별.
-        // 레거시 자동 마이그레이션(`source == .legacyMigration`) 결과면 사용자 의지가
-        // 아직 표명되지 않은 상태이므로 OAuth 폴백을 허용한다. (planner 가 사용)
-        let webSessionExplicitlySelected: Bool = {
-            guard activeKind == .webSession, let source = activeAccount?.source else {
-                return true
-            }
-            return source != .legacyMigration
-        }()
-        // 사용자가 "Claude Code OAuth 우선 시도" 토글을 켰는지 main actor 에서 한 번 읽는다.
-        // 이 값이 true 면 web 활성이어도 OAuth 가 primary 후보로 시도된다.
-        let preferOAuth = await MainActor.run { AppSettings.shared.claudePreferOAuth }
-        // OAuth 토큰을 어떤 경우에 fetch context 에 노출할지 결정.
-        // - 활성=CLI: 항상 OAuth 가 primary
-        // - 활성=web + 레거시 마이그레이션: OAuth 를 secondary fallback 으로 노출
-        // - 활성=web + 사용자 설정 preferOAuth=true: OAuth 를 primary 후보로 노출
-        // - 그 외 (명시 선택된 web): OAuth 노출 안 함 → 사용자 의도 존중
+        // 시스템 Claude Code 로그인은 활성 웹 계정과 다른 사용자일 수 있다.
+        // OAuth는 Claude Code 계정이 명시적으로 활성일 때만 해당 계정의 source로 노출한다.
         let oauthTokenForFetch: String? = {
             guard let token = oauthAccessToken else { return nil }
-            if activeKind == .claudeCodeExternal { return token }
-            if activeKind == .webSession {
-                if !webSessionExplicitlySelected { return token }
-                if preferOAuth { return token }
-            }
-            return nil
+            return activeKind == .claudeCodeExternal ? token : nil
         }()
-        // v2.2.0: Claude CLI OAuth (`/api/oauth/usage`) 경로 비활성화.
-        //   - 토큰별 rate limit (사용자가 본 2500초 대기) 우회
-        //   - refresh_token rotation trap 회피
-        // SourcePlanner 에 oauth 후보가 들어가지 않도록 oauthAvailable 을 false 로 강제한다.
-        // 로컬 검증용 override 는 명시 환경변수에서만 허용한다.
+        // v2.3: OAuth 경로 정식 승격. 예산 보호(최소 호출 간격 + 429 쿨다운)는
+        // fetch 루프의 .oauth 분기에서 처리한다. 환경변수 =0 이 kill switch.
         let effectiveOAuthAvailable = Self.claudeOAuthUsageCallsEnabled && oauthTokenForFetch != nil
         let context = ClaudeFetchContext(
             accountKind: activeKind,
@@ -700,12 +697,12 @@ actor ClaudeAPIService {
             oauthValidationState: validationState(for: .oauth, credentialAvailable: effectiveOAuthAvailable),
             recentSuccessfulSource: nil,
             currentUsagePercent: lastKnownUsagePercent,
-            fallbackPolicy: await currentMessagesFallbackPolicy(),
-            webSessionExplicitlySelected: webSessionExplicitlySelected,
-            preferOAuthOverActiveAccount: preferOAuth)
+            fallbackPolicy: await currentMessagesFallbackPolicy())
         let accountScopedOAuthToken = Self.claudeOAuthUsageCallsEnabled ? oauthTokenForFetch : nil
         let plan = sourcePlanner.makePlan(from: context)
         var sourceErrors: [ClaudeUsageSource: APIError] = [:]
+        var attemptedSources: [ClaudeUsageSource] = []
+        lastFetchMetadata = RuntimeProviderFetchMetadata(accountID: requestAccountID)
 
         if let cooldownError = sessionCooldownError {
             sourceErrors[.webSession] = cooldownError
@@ -713,6 +710,11 @@ actor ClaudeAPIService {
         }
 
         for candidate in plan.primaryCandidates where candidate.isAvailable {
+            attemptedSources.append(candidate.source)
+            lastFetchMetadata = RuntimeProviderFetchMetadata(
+                sourceLabel: candidate.source.displayName,
+                accountID: requestAccountID,
+                attemptedSourceLabels: attemptedSources.map(\.displayName))
             switch candidate.source {
             case .webSession:
                 guard let sessionKey = normalizedSessionKey else {
@@ -722,16 +724,20 @@ actor ClaudeAPIService {
                 do {
                     let usage = try await fetchUsageWithSessionKey(sessionKey)
                     resetSessionPathCooldown()
-                    rememberSuccessfulUsage(usage, source: .webSession)
-                    return usage
+                    rememberSuccessfulUsage(usage, source: .webSession, accountID: requestAccountID)
+                    return makeFetchOutcome(
+                        usage: usage,
+                        source: .webSession,
+                        accountID: requestAccountID,
+                        attemptedSources: attemptedSources)
                 } catch let apiError as APIError {
                     sourceErrors[.webSession] = apiError
-                    markActiveAccountValidationFailed()
+                    markAccountValidationFailed(accountID: requestAccountID)
                     Logger.warning("세션키 경로 실패: \(apiError.localizedDescription)")
                 } catch {
                     let apiError = APIError.unknownError(error.localizedDescription)
                     sourceErrors[.webSession] = apiError
-                    markActiveAccountValidationFailed()
+                    markAccountValidationFailed(accountID: requestAccountID)
                     Logger.warning("세션키 경로 실패: \(error.localizedDescription)")
                 }
 
@@ -741,9 +747,29 @@ actor ClaudeAPIService {
                     continue
                 }
 
+                // OAuth 경로 예산 보호 1: 최소 호출 간격 내 재요청은 마지막 성공 결과 반환
+                if let cached = lastOAuthSuccess,
+                   Date().timeIntervalSince(cached.at) < Self.minimumOAuthCallInterval {
+                    return makeFetchOutcome(
+                        usage: cached.usage,
+                        source: .oauth,
+                        accountID: requestAccountID,
+                        attemptedSources: attemptedSources)
+                }
+                // OAuth 경로 예산 보호 2: 429 쿨다운 중이면 이번 사이클은 스킵
+                if let until = oauthPathCooldownUntil {
+                    let remaining = Int(ceil(until.timeIntervalSinceNow))
+                    if remaining > 0 {
+                        sourceErrors[.oauth] = .rateLimited(retryAfter: remaining)
+                        continue
+                    }
+                    oauthPathCooldownUntil = nil
+                }
+
                 do {
                     let usage = try await fetchUsageViaOAuth(accessToken: oauthAccessToken)
-                    rememberSuccessfulUsage(usage, source: .oauth)
+                    lastOAuthSuccess = (usage, Date())
+                    rememberSuccessfulUsage(usage, source: .oauth, accountID: requestAccountID)
                     // CLI external account 의 identity 가 비어 있으면 백그라운드로
                     // OAuth profile 을 가져와 email/조직 정보를 채운다. 실패해도 사용량 자체는
                     // 정상이므로 silent. 한 번 채워지면 다음부터는 이 분기 안 탐.
@@ -755,21 +781,43 @@ actor ClaudeAPIService {
                             await self?.refreshClaudeCodeAccountProfile()
                         }
                     }
-                    return usage
+                    return makeFetchOutcome(
+                        usage: usage,
+                        source: .oauth,
+                        accountID: requestAccountID,
+                        attemptedSources: attemptedSources)
                 } catch let apiError as APIError {
                     sourceErrors[.oauth] = apiError
-                    markActiveAccountValidationFailed()
+                    // 429 는 Retry-After 만큼 OAuth 경로를 쿨다운 (기본 15분)
+                    if case .rateLimited(let retryAfter) = apiError {
+                        let cooldown = TimeInterval(retryAfter ?? 900)
+                        oauthPathCooldownUntil = Date().addingTimeInterval(cooldown)
+                        Logger.warning("OAuth 경로 429 → \(Int(cooldown))초 쿨다운")
+                    }
+                    markAccountValidationFailed(accountID: requestAccountID)
                     Logger.warning("OAuth 경로 실패: \(apiError.localizedDescription)")
 
                     if plan.shouldAttemptAutomaticFallback {
+                        attemptedSources.append(.messagesHeaderFallback)
+                        lastFetchMetadata = RuntimeProviderFetchMetadata(
+                            sourceLabel: ClaudeUsageSource.messagesHeaderFallback.displayName,
+                            accountID: requestAccountID,
+                            attemptedSourceLabels: attemptedSources.map(\.displayName))
                         do {
                             let usage = try await fetchUsageViaMessagesFallback(
                                 accessToken: oauthAccessToken,
                                 policy: plan.fallbackPolicy,
                                 currentUsagePercent: lastKnownUsagePercent)
                             Logger.warning("OAuth 경로 실패 → Messages 헤더 복구 성공")
-                            rememberSuccessfulUsage(usage, source: .messagesHeaderFallback)
-                            return usage
+                            rememberSuccessfulUsage(
+                                usage,
+                                source: .messagesHeaderFallback,
+                                accountID: requestAccountID)
+                            return makeFetchOutcome(
+                                usage: usage,
+                                source: .messagesHeaderFallback,
+                                accountID: requestAccountID,
+                                attemptedSources: attemptedSources)
                         } catch {
                             Logger.warning("Messages 헤더 복구 실패: \(error.localizedDescription)")
                         }
@@ -777,7 +825,7 @@ actor ClaudeAPIService {
                 } catch {
                     let apiError = APIError.unknownError(error.localizedDescription)
                     sourceErrors[.oauth] = apiError
-                    markActiveAccountValidationFailed()
+                    markAccountValidationFailed(accountID: requestAccountID)
                     Logger.warning("OAuth 경로 실패: \(error.localizedDescription)")
                 }
 
@@ -792,11 +840,10 @@ actor ClaudeAPIService {
         if let sessionError = sourceErrors[.webSession] {
             throw sessionError
         }
-        // v2.2.0: CLI OAuth-only 계정이고 sessionKey 가 없으면 "에러" 가 아니라
-        // "Claude.ai 로그인으로 전환 권장" 안내로 분기한다. UI 가 이 케이스를 받아
-        // 빨간 에러 카드 대신 친절 안내 카드를 표시한다.
+        // Claude Code 계정을 선택했지만 OAuth 자격을 읽지 못했거나 kill switch가
+        // 활성인 경우, 웹 계정으로 몰래 전환하지 않고 해당 계정의 재로그인을 요구한다.
         if activeKind == .claudeCodeExternal, normalizedSessionKey == nil {
-            throw APIError.claudeOAuthPathRetired
+            throw APIError.claudeCodeCredentialUnavailable
         }
         throw APIError.invalidSessionKey
     }
@@ -1241,13 +1288,18 @@ actor ClaudeAPIService {
         )
     }
 
-    /// 재시도 로직을 포함한 사용량 가져오기
+    /// 기존 payload 전용 API.
     func fetchUsageWithRetry(maxAttempts: Int = 3) async throws -> ClaudeUsageResponse {
+        try await fetchUsageWithRetryOutcome(maxAttempts: maxAttempts).usage
+    }
+
+    /// provenance를 유지하는 재시도 API. 런타임 refresh는 이 경로만 사용한다.
+    func fetchUsageWithRetryOutcome(maxAttempts: Int = 3) async throws -> ClaudeUsageFetchOutcome {
         var lastError: Error?
 
         for attempt in 1...maxAttempts {
             do {
-                return try await fetchUsage()
+                return try await fetchUsageOutcome()
 
             } catch {
                 // 인증 에러는 재시도 없이 즉시 throw
@@ -1260,7 +1312,7 @@ actor ClaudeAPIService {
                     switch apiError {
                     case .rateLimited(_), .cloudflareBlocked(_), .permissionDenied:
                         throw apiError
-                    case .invalidSessionKey, .codexReauthRequired, .codexTokenRefreshTemporary, .claudeOAuthPathRetired, .networkError, .parseError, .serverError, .unknownError:
+                    case .invalidSessionKey, .codexReauthRequired, .codexTokenRefreshTemporary, .claudeCodeCredentialUnavailable, .networkError, .parseError, .serverError, .unknownError:
                         break
                     }
                 }
@@ -1276,6 +1328,10 @@ actor ClaudeAPIService {
         }
 
         throw lastError ?? APIError.unknownError("모든 재시도 실패")
+    }
+
+    func currentFetchMetadataSnapshot() -> RuntimeProviderFetchMetadata? {
+        lastFetchMetadata
     }
 
     func fetchUsageUsingMessagesFallback() async throws -> ClaudeUsageResponse {
@@ -1300,7 +1356,10 @@ actor ClaudeAPIService {
             accessToken: accessToken,
             policy: manualPolicy,
             currentUsagePercent: nil)
-        rememberSuccessfulUsage(usage, source: .messagesHeaderFallback)
+        rememberSuccessfulUsage(
+            usage,
+            source: .messagesHeaderFallback,
+            accountID: usesStoredActiveAccount ? activeAccount?.id : nil)
         return usage
     }
 
@@ -1575,24 +1634,45 @@ actor ClaudeAPIService {
         return digest.map { String(format: "%02x", $0) }.joined()
     }
 
-    private func rememberSuccessfulUsage(_ usage: ClaudeUsageResponse, source: ClaudeUsageSource) {
+    private func makeFetchOutcome(
+        usage: ClaudeUsageResponse,
+        source: ClaudeUsageSource,
+        accountID: String?,
+        attemptedSources: [ClaudeUsageSource]
+    ) -> ClaudeUsageFetchOutcome {
+        let provenance = ClaudeFetchProvenance(
+            source: source,
+            accountID: accountID,
+            attemptedSources: attemptedSources)
+        lastFetchMetadata = RuntimeProviderFetchMetadata(
+            sourceLabel: source.displayName,
+            accountID: accountID,
+            attemptedSourceLabels: attemptedSources.map(\.displayName))
+        return ClaudeUsageFetchOutcome(usage: usage, provenance: provenance)
+    }
+
+    private func rememberSuccessfulUsage(
+        _ usage: ClaudeUsageResponse,
+        source: ClaudeUsageSource,
+        accountID: String?
+    ) {
         lastKnownUsagePercent = usage.fiveHourPercentage
         if source != .messagesHeaderFallback {
             lastSuccessfulUsageSource = source
         }
-        markActiveAccountVerified()
+        markAccountVerified(accountID: accountID)
         recordOverallUsageSuccess()
     }
 
-    private func markActiveAccountVerified() {
-        guard usesStoredActiveAccount, let activeAccount else { return }
-        accountStore.updateValidationState(.verified, for: activeAccount.id)
+    private func markAccountVerified(accountID: String?) {
+        guard usesStoredActiveAccount, let accountID else { return }
+        accountStore.updateValidationState(.verified, for: accountID)
         self.activeAccount = accountStore.activeAccount()
     }
 
-    private func markActiveAccountValidationFailed() {
-        guard usesStoredActiveAccount, let activeAccount else { return }
-        accountStore.updateValidationState(.failed, for: activeAccount.id)
+    private func markAccountValidationFailed(accountID: String?) {
+        guard usesStoredActiveAccount, let accountID else { return }
+        accountStore.updateValidationState(.failed, for: accountID)
         self.activeAccount = accountStore.activeAccount()
     }
 

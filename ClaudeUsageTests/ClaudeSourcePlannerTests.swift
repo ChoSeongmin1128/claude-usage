@@ -115,8 +115,7 @@ final class ClaudeSourcePlannerTests: XCTestCase {
             webSessionAvailable: false,
             oauthAvailable: true,
             webSessionValidationState: .failed,
-            oauthValidationState: .detected,
-            webSessionExplicitlySelected: true
+            oauthValidationState: .detected
         )
 
         let plan = planner.makePlan(from: context)
@@ -125,12 +124,9 @@ final class ClaudeSourcePlannerTests: XCTestCase {
         XCTAssertNil(plan.preferredPrimarySource)
     }
 
-    func testLegacyMigratedWebAccountFallsBackToOAuthWhenAvailable() {
-        // 레거시 `claude-session-key` 자동 마이그레이션으로 생긴 web 계정은 사용자
-        // 의지가 명시되지 않은 상태이므로, OAuth(Claude Code CLI) 자격이 있으면
-        // secondary candidate 로 추가해 web 실패 시 자동으로 폴백한다.
-        // 사용자 시나리오: 업데이트 후 첫 실행에서 만료된 web session 만 마이그레이션되고
-        // CLI 로그인은 따로 해 둔 케이스. 사용자가 별도 조작 없이도 사용량이 보이도록.
+    func testMigratedWebAccountStillDoesNotCrossAccountBoundary() {
+        // 마이그레이션 유래 여부는 인증 경계를 바꾸지 않는다. 웹 세션이 만료되어도
+        // 다른 사용자일 수 있는 시스템 Claude Code 자격으로 자동 전환하지 않는다.
         let planner = ClaudeSourcePlanner()
         let context = ClaudeFetchContext(
             accountKind: .webSession,
@@ -138,15 +134,14 @@ final class ClaudeSourcePlannerTests: XCTestCase {
             webSessionAvailable: false,
             oauthAvailable: true,
             webSessionValidationState: .failed,
-            oauthValidationState: .detected,
-            webSessionExplicitlySelected: false
+            oauthValidationState: .detected
         )
 
         let plan = planner.makePlan(from: context)
 
-        XCTAssertEqual(plan.primaryCandidates.map(\.source), [.webSession, .oauth])
-        XCTAssertEqual(plan.primaryCandidates.map(\.reason), ["active-account-web-session", "legacy-web-fallback-to-oauth"])
-        XCTAssertEqual(plan.preferredPrimarySource, .oauth)
+        XCTAssertEqual(plan.primaryCandidates.map(\.source), [.webSession])
+        XCTAssertEqual(plan.primaryCandidates.map(\.reason), ["active-account-web-session"])
+        XCTAssertNil(plan.preferredPrimarySource)
     }
 
     func testLegacyMigratedWebAccountDoesNotEmitOAuthCandidateWhenTokenUnavailable() {
@@ -157,8 +152,7 @@ final class ClaudeSourcePlannerTests: XCTestCase {
             accountKind: .webSession,
             sourcePreference: .auto,
             webSessionAvailable: true,
-            oauthAvailable: false,
-            webSessionExplicitlySelected: false
+            oauthAvailable: false
         )
 
         let plan = planner.makePlan(from: context)
@@ -166,38 +160,13 @@ final class ClaudeSourcePlannerTests: XCTestCase {
         XCTAssertEqual(plan.primaryCandidates.map(\.source), [.webSession])
     }
 
-    func testPreferOAuthFlipsOrderForExplicitWebSessionAccountWhenOAuthAvailable() {
-        // 사용자가 "Claude Code OAuth 우선 시도" 설정을 켜면, 명시 선택한 web 계정이어도
-        // OAuth 가 primary 후보가 되고 web 은 fallback 으로 내려간다.
-        // 활성 계정 = 진실의 출처라는 기본 원칙을 사용자가 의도적으로 뒤집은 케이스.
+    func testWebAccountNeverEmitsOAuthCandidateEvenWhenBothCredentialsExist() {
         let planner = ClaudeSourcePlanner()
         let context = ClaudeFetchContext(
             accountKind: .webSession,
             sourcePreference: .auto,
             webSessionAvailable: true,
-            oauthAvailable: true,
-            webSessionExplicitlySelected: true,
-            preferOAuthOverActiveAccount: true
-        )
-
-        let plan = planner.makePlan(from: context)
-
-        XCTAssertEqual(plan.primaryCandidates.map(\.source), [.oauth, .webSession])
-        XCTAssertEqual(plan.primaryCandidates.map(\.reason), ["user-prefers-oauth", "user-prefers-oauth-fallback-web"])
-        XCTAssertEqual(plan.preferredPrimarySource, .oauth)
-    }
-
-    func testPreferOAuthHasNoEffectWhenOAuthTokenIsUnavailable() {
-        // preferOAuth 가 켜져 있어도 OAuth 토큰 자체가 없으면 기본 web-first 동작 유지.
-        // 사용자가 토글만 켜고 CLI 로그인은 안 한 상태에서 잘못된 빈 candidate 가 생기지 않게.
-        let planner = ClaudeSourcePlanner()
-        let context = ClaudeFetchContext(
-            accountKind: .webSession,
-            sourcePreference: .auto,
-            webSessionAvailable: true,
-            oauthAvailable: false,
-            webSessionExplicitlySelected: true,
-            preferOAuthOverActiveAccount: true
+            oauthAvailable: true
         )
 
         let plan = planner.makePlan(from: context)
@@ -206,15 +175,13 @@ final class ClaudeSourcePlannerTests: XCTestCase {
         XCTAssertEqual(plan.preferredPrimarySource, .webSession)
     }
 
-    func testPreferOAuthDoesNotChangeClaudeCodeAccountBehavior() {
-        // 활성 계정이 CLI 일 때는 preferOAuth 토글이 무의미(이미 OAuth 만 시도) → 후보 1개 유지.
+    func testClaudeCodeAccountUsesOnlyOAuth() {
         let planner = ClaudeSourcePlanner()
         let context = ClaudeFetchContext(
             accountKind: .claudeCodeExternal,
             sourcePreference: .auto,
             webSessionAvailable: true,
-            oauthAvailable: true,
-            preferOAuthOverActiveAccount: true
+            oauthAvailable: true
         )
 
         let plan = planner.makePlan(from: context)

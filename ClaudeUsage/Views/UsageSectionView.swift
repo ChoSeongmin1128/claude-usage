@@ -22,10 +22,13 @@ struct UsageSectionView: View {
                     if let systemIcon {
                         Image(systemName: systemIcon)
                             .foregroundStyle(.secondary)
+                            .frame(width: 18, alignment: .center)
                     }
                     Text(title)
                         .font(.headline)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .truncationMode(.tail)
                 }
 
                 if let text = resetTimeText {

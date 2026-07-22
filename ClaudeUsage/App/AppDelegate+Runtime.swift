@@ -330,8 +330,9 @@ extension AppDelegate {
                 let responseAccountID = await self.apiService.currentActiveAccountID()
 
                 await MainActor.run {
-                    guard requestAccountID == responseAccountID else {
-                        Logger.info("Claude 계정 전환 중 도착한 이전 조회 결과 무시")
+                    guard requestAccountID == responseAccountID,
+                          requestAccountID == result.provenance.accountID else {
+                        Logger.info("Claude 계정 귀속이 다른 조회 결과 무시")
                         self.resetClaudeRuntimeAfterAccountBoundaryChange()
                         return
                     }
@@ -347,7 +348,8 @@ extension AppDelegate {
                     var state = self.runtimeProviderState(for: .claude)
                     RuntimeProviderRefreshCoordinator.applySuccess(
                         state: &state,
-                        payload: .claude(result.usage)
+                        payload: .claude(result.usage),
+                        metadata: result.metadata
                     )
                     self.setRuntimeProviderState(state, for: .claude)
                     self.popoverViewModel.nextUsageRetryAt = state.nextRefreshAllowedAt
@@ -370,6 +372,7 @@ extension AppDelegate {
             } catch let error as APIError {
                 Logger.error("API 에러: \(error.errorDescription ?? "")")
                 let responseAccountID = await self.apiService.currentActiveAccountID()
+                let fetchMetadata = await self.apiService.currentFetchMetadataSnapshot()
 
                 await MainActor.run {
                     guard requestAccountID == responseAccountID else {
@@ -381,6 +384,7 @@ extension AppDelegate {
                     let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
                         state: &state,
                         error: error,
+                        metadata: fetchMetadata,
                         minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
                     )
                     self.setRuntimeProviderState(state, for: .claude)
@@ -396,6 +400,7 @@ extension AppDelegate {
 
                 let apiError = APIError.unknownError(error.localizedDescription)
                 let responseAccountID = await self.apiService.currentActiveAccountID()
+                let fetchMetadata = await self.apiService.currentFetchMetadataSnapshot()
                 await MainActor.run {
                     guard requestAccountID == responseAccountID else {
                         Logger.info("Claude 계정 전환 중 도착한 이전 조회 실패 무시")
@@ -406,6 +411,7 @@ extension AppDelegate {
                     let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
                         state: &state,
                         error: apiError,
+                        metadata: fetchMetadata,
                         minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
                     )
                     self.setRuntimeProviderState(state, for: .claude)
@@ -444,21 +450,28 @@ extension AppDelegate {
                     var state = self.runtimeProviderState(for: .codex)
                     RuntimeProviderRefreshCoordinator.applySuccess(
                         state: &state,
-                        payload: .codex(usage)
+                        payload: .codex(usage),
+                        metadata: RuntimeProviderFetchMetadata(sourceLabel: "Codex 로그인")
                     )
                     self.setRuntimeProviderState(state, for: .codex)
                     self.syncRuntimePresentation(overage: self.currentOverage)
 
-                    NotificationManager.shared.checkThreshold(
-                        session: .codexPrimary,
-                        percentage: usage.primaryPercentage,
-                        resetAt: usage.rateLimit?.primaryWindow?.resetAtISO
-                    )
-                    NotificationManager.shared.checkThreshold(
-                        session: .codexSecondary,
-                        percentage: usage.secondaryPercentage,
-                        resetAt: usage.rateLimit?.secondaryWindow?.resetAtISO
-                    )
+                    // 창이 없는 세션/주간 축은 0%로 오인된 임계값 상태 전이를 막기 위해 건너뛴다.
+                    // (2026-07 개편: 주간 창이 primary 자리에 오므로 위치가 아닌 의미 기반 접근)
+                    if let sessionWindow = usage.sessionWindow {
+                        NotificationManager.shared.checkThreshold(
+                            session: .codexPrimary,
+                            percentage: sessionWindow.utilization,
+                            resetAt: sessionWindow.resetAtISO
+                        )
+                    }
+                    if let weeklyWindow = usage.weeklyWindow {
+                        NotificationManager.shared.checkThreshold(
+                            session: .codexSecondary,
+                            percentage: weeklyWindow.utilization,
+                            resetAt: weeklyWindow.resetAtISO
+                        )
+                    }
                 }
             } catch let error as APIError {
                 await MainActor.run {
@@ -528,7 +541,8 @@ extension AppDelegate {
                     var state = self.runtimeProviderState(for: .antigravity)
                     RuntimeProviderRefreshCoordinator.applySuccess(
                         state: &state,
-                        payload: .antigravity(usage)
+                        payload: .antigravity(usage),
+                        metadata: RuntimeProviderFetchMetadata(sourceLabel: "Antigravity 연결")
                     )
                     self.setRuntimeProviderState(state, for: .antigravity)
                     self.syncRuntimePresentation(overage: self.currentOverage)

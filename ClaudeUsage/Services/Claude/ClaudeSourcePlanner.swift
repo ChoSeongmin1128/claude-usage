@@ -41,43 +41,14 @@ struct ClaudeSourcePlanner {
     ) -> [ClaudeSourceCandidate] {
         switch accountKind {
         case .webSession:
-            // 사용자 설정 "Claude Code OAuth 우선 시도" 가 켜졌고 OAuth 토큰이 있으면
-            // 활성 계정이 web 이어도 OAuth 를 primary 로 잡는다. CodexBar 패턴.
-            // 명시 선택된 web 계정의 권위를 일시적으로 뒤집는 글로벌 토글이며,
-            // OAuth 실패 시 web 으로 자연 폴백된다.
-            if context.preferOAuthOverActiveAccount, context.oauthAvailable {
-                return [
-                    ClaudeSourceCandidate(
-                        source: .oauth,
-                        isAvailable: self.isAvailable(.oauth, in: context),
-                        reason: "user-prefers-oauth"),
-                    ClaudeSourceCandidate(
-                        source: .webSession,
-                        isAvailable: self.isAvailable(.webSession, in: context),
-                        reason: "user-prefers-oauth-fallback-web")
-                ]
-            }
-
-            var candidates: [ClaudeSourceCandidate] = [
+            // 계정 선택은 사용자 의도이자 데이터 귀속 경계다. 시스템 Claude Code OAuth는
+            // 다른 계정일 수 있으므로 웹 계정 refresh 중에는 절대로 후보로 섞지 않는다.
+            return [
                 ClaudeSourceCandidate(
                     source: .webSession,
                     isAvailable: self.isAvailable(.webSession, in: context),
                     reason: "active-account-web-session")
             ]
-            // 사용자가 명시적으로 선택한 web 계정이 아니라 레거시 자동 마이그레이션
-            // 결과(claude-session-key → web 계정)인 경우, 그 sessionKey 가
-            // 만료·차단되어 있어도 사용자는 "그냥 안 보임" 으로 인식한다.
-            // OAuth 토큰이 사용 가능하면 secondary candidate 로 추가해 안전하게
-            // 폴백한다. 명시 선택된 web 계정에는 이 폴백을 적용하지 않아 사용자
-            // 의도("회사 web 계정으로만 보겠다") 가 다른 OAuth 자격으로 잠식되지 않게 한다.
-            if !context.webSessionExplicitlySelected, context.oauthAvailable {
-                candidates.append(
-                    ClaudeSourceCandidate(
-                        source: .oauth,
-                        isAvailable: self.isAvailable(.oauth, in: context),
-                        reason: "legacy-web-fallback-to-oauth"))
-            }
-            return candidates
         case .claudeCodeExternal:
             return [
                 ClaudeSourceCandidate(

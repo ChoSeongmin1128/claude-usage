@@ -116,6 +116,12 @@ struct PopoverDisplaySectionView: View {
             } else {
                 CodexCreditsView(credits: credits.credits)
             }
+        case .resetCredits(let resetCredits):
+            if density.isCompact {
+                CompactCodexResetCreditsRow(data: resetCredits)
+            } else {
+                CodexResetCreditsView(data: resetCredits)
+            }
         case .overage(let overage):
             if density.isCompact {
                 CompactOverageRow(overage: overage.overage)
@@ -221,6 +227,7 @@ struct CompactUsageRow: View {
                     .fontWeight(.medium)
                     .foregroundStyle(ColorProvider.statusColor(for: percentage))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                     .frame(width: 32, alignment: .trailing)
             }
             .frame(width: PopoverLayoutMetrics.compactRowMeterWidth, alignment: .trailing)
@@ -320,9 +327,12 @@ struct PopoverDisplayEditorView: View {
 }
 
 struct PopoverDisplayItemsListView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var settings: AppSettings
     let service: PopoverService
     let isCompact: Bool
+    /// 프로바이더 응답은 정상인데 현재 표시할 데이터가 없는 항목 (설정 목록에 안내 표시)
+    var unavailableItemIDs: Set<String> = []
     @State private var draggingItemID: String?
 
     private var items: [PopoverItemConfig] {
@@ -360,10 +370,18 @@ struct PopoverDisplayItemsListView: View {
                             }
                             .buttonStyle(.borderless)
                             .help(item.visible ? "숨기기" : "보이기")
+                            .accessibilityLabel("\(item.displayName) \(item.visible ? "숨기기" : "보이기")")
 
                             Text(item.displayName)
                                 .font(.subheadline)
                                 .foregroundStyle(item.visible ? .primary : .tertiary)
+
+                            if unavailableItemIDs.contains(item.id) {
+                                Text("지금 데이터 없음")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                                    .help("현재 플랜/응답에는 이 항목의 데이터가 없어 팝오버에 표시되지 않습니다.")
+                            }
 
                             Spacer()
                         }
@@ -377,6 +395,15 @@ struct PopoverDisplayItemsListView: View {
                     }
                     .background(draggingItemID == item.id ? Color.accentColor.opacity(0.1) : Color.clear)
                     .cornerRadius(4)
+                    .accessibilityElement(children: .contain)
+                    .accessibilityLabel(item.displayName)
+                    .accessibilityValue(item.visible ? "표시 중" : "숨김")
+                    .accessibilityAction(named: "위로 이동") {
+                        moveItem(id: item.id, offset: -1)
+                    }
+                    .accessibilityAction(named: "아래로 이동") {
+                        moveItem(id: item.id, offset: 1)
+                    }
                     .onDrag {
                         draggingItemID = item.id
                         return NSItemProvider(object: item.id as NSString)
@@ -386,6 +413,7 @@ struct PopoverDisplayItemsListView: View {
                         settings: settings,
                         isCompact: isCompact,
                         service: service,
+                        reduceMotion: reduceMotion,
                         draggingItemID: $draggingItemID
                     ))
                 }
@@ -403,6 +431,17 @@ struct PopoverDisplayItemsListView: View {
             settings.setPopoverItems(items, for: service)
         }
     }
+
+    private func moveItem(id: String, offset: Int) {
+        var updated = items
+        guard let fromIndex = updated.firstIndex(where: { $0.id == id }) else { return }
+        let targetIndex = fromIndex + offset
+        guard updated.indices.contains(targetIndex) else { return }
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.15)) {
+            updated.swapAt(fromIndex, targetIndex)
+            applyItems(updated, isCompact: isCompact)
+        }
+    }
 }
 
 private struct PopoverItemDropDelegate: DropDelegate {
@@ -410,6 +449,7 @@ private struct PopoverItemDropDelegate: DropDelegate {
     let settings: AppSettings
     let isCompact: Bool
     let service: PopoverService
+    let reduceMotion: Bool
     @Binding var draggingItemID: String?
 
     func performDrop(info: DropInfo) -> Bool {
@@ -426,7 +466,7 @@ private struct PopoverItemDropDelegate: DropDelegate {
         guard let fromIndex = items.firstIndex(where: { $0.id == draggingID }),
               let toIndex = items.firstIndex(where: { $0.id == targetID }) else { return }
 
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.15)) {
             let offset = toIndex > fromIndex ? toIndex + 1 : toIndex
             items.move(fromOffsets: IndexSet(integer: fromIndex), toOffset: offset)
             if isCompact {
@@ -541,6 +581,74 @@ struct CompactCodexCreditsRow: View {
                 .font(.system(.caption, design: .monospaced))
                 .fontWeight(.medium)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .frame(width: PopoverLayoutMetrics.compactRowMeterWidth, alignment: .trailing)
+        }
+        .frame(
+            maxWidth: .infinity,
+            minHeight: PopoverLayoutMetrics.compactCreditsRowHeight,
+            maxHeight: PopoverLayoutMetrics.compactCreditsRowHeight,
+            alignment: .center
+        )
+    }
+}
+
+struct CodexResetCreditsView: View {
+    let data: PopoverResetCreditsSectionData
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.counterclockwise.circle")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, alignment: .center)
+                Text("한도 초기화 크레딧")
+                    .font(.headline)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                Text("\(data.availableCount)개")
+                    .font(.headline)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(data.availableCount > 0 ? Color.accentColor : .secondary)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+
+            if let expiryText {
+                Text(expiryText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// "만료: 6일 3시간 후 (7/28(월))" — 주간 한도와 동일한 시간 표기 규칙(1일 이상은 분 생략)
+    private var expiryText: String? {
+        guard let iso = data.nextExpiresAtISO else { return nil }
+        return TimeFormatter.formatRelativeTimeWithClockWeekly(
+            from: iso,
+            style: data.timeFormatStyle,
+            label: "만료"
+        )
+    }
+}
+
+struct CompactCodexResetCreditsRow: View {
+    let data: PopoverResetCreditsSectionData
+
+    var body: some View {
+        HStack(spacing: PopoverLayoutMetrics.compactRowSpacing) {
+            Text("초기화 크레딧")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
+
+            Text("\(data.availableCount)개")
+                .font(.system(.caption, design: .monospaced))
+                .fontWeight(.medium)
+                .foregroundStyle(data.availableCount > 0 ? Color.accentColor : .secondary)
                 .lineLimit(1)
                 .frame(width: PopoverLayoutMetrics.compactRowMeterWidth, alignment: .trailing)
         }

@@ -2,6 +2,8 @@ import Foundation
 
 struct ClaudeRuntimeRefreshSuccess {
     let usage: ClaudeUsageResponse
+    let provenance: ClaudeFetchProvenance
+    let metadata: RuntimeProviderFetchMetadata
     let overage: OverageSpendLimitResponse?
     let overageFetchedAt: Date?
 }
@@ -13,7 +15,7 @@ enum ClaudeRuntimeRefresher {
         apiService: ClaudeAPIService,
         lastOverageFetchAt: Date?
     ) async throws -> ClaudeRuntimeRefreshSuccess {
-        let usage = try await apiService.fetchUsageWithRetry()
+        let outcome = try await apiService.fetchUsageWithRetryOutcome()
         let shouldFetchOverage = shouldRefreshOverage(lastFetchedAt: lastOverageFetchAt)
         let overage: OverageSpendLimitResponse?
         if shouldFetchOverage {
@@ -28,7 +30,12 @@ enum ClaudeRuntimeRefresher {
         }
 
         return ClaudeRuntimeRefreshSuccess(
-            usage: usage,
+            usage: outcome.usage,
+            provenance: outcome.provenance,
+            metadata: RuntimeProviderFetchMetadata(
+                sourceLabel: outcome.provenance.source.displayName,
+                accountID: outcome.provenance.accountID,
+                attemptedSourceLabels: outcome.provenance.attemptedSources.map(\.displayName)),
             overage: overage,
             overageFetchedAt: overage != nil ? Date() : nil
         )

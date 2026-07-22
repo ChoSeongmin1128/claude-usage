@@ -360,27 +360,19 @@ extension SettingsView {
     }
 
     func settingsToggleRow(_ title: String, subtitle: String? = nil, isOn: Binding<Bool>) -> some View {
-        HStack(spacing: 12) {
-            Button {
-                isOn.wrappedValue.toggle()
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                    if let subtitle {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+        Toggle(isOn: isOn) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.plain)
-
-            Toggle("", isOn: isOn)
-                .labelsHidden()
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .toggleStyle(.switch)
         .padding(.vertical, 2)
-        .contentShape(Rectangle())
     }
 
     /// macOS SwiftUI Picker(.radioGroup)의 Binding set 미호출 버그 우회용 수동 라디오 그룹
@@ -405,6 +397,9 @@ extension SettingsView {
                     }
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(options[i].label)
+                .accessibilityValue(selection == options[i].value ? "선택됨" : "선택 안 됨")
+                .accessibilityAddTraits(selection == options[i].value ? .isSelected : [])
             }
         }
     }
@@ -479,7 +474,8 @@ private struct ProviderPopoverDisplaySection: View {
             PopoverDisplayItemsListView(
                 settings: settings,
                 service: service,
-                isCompact: selectedMode.isCompact
+                isCompact: selectedMode.isCompact,
+                unavailableItemIDs: unavailableItemIDs
             )
             .frame(maxWidth: 420, alignment: .leading)
 
@@ -499,6 +495,24 @@ private struct ProviderPopoverDisplaySection: View {
                 selectedMode = newMode
             }
         )
+    }
+
+    /// 응답은 정상인데 표시할 데이터가 없는 항목 ID — 목록에 "지금 데이터 없음" 안내를 붙인다.
+    /// (예: 주간 전용 Codex 플랜에서는 "Codex 현재"가 해당)
+    private var unavailableItemIDs: Set<String> {
+        let catalog = UsageItemCatalogRegistry.catalog(for: service)
+        let context = UsageItemContext(
+            density: selectedMode.isCompact ? .compact : .standard,
+            settings: settings,
+            claudeUsage: claudeUsage,
+            claudeOverage: claudeOverage,
+            claudeAccounts: claudeAccounts,
+            activeClaudeAccountID: activeClaudeAccountID,
+            codexUsage: codexUsage,
+            codexError: codexError,
+            antigravityUsage: antigravityUsage
+        )
+        return catalog.unavailableItemIDs(context: context)
     }
 }
 

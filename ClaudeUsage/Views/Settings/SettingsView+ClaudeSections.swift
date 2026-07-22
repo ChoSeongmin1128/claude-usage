@@ -396,26 +396,13 @@ extension SettingsView {
                 Divider()
                     .padding(.vertical, 2)
 
-                // Claude Code 로그인을 우선 시도 — 사용자의 활성 계정이 브라우저 로그인이어도
-                // OAuth 토큰이 있으면 OAuth 부터 시도. OAuth 실패 시 브라우저 로그인 으로 폴백.
-                Toggle(isOn: Binding(
-                    get: { settings.claudePreferOAuth },
-                    set: { settings.claudePreferOAuth = $0 }
-                )) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Claude Code 로그인을 먼저 시도")
-                            .font(.subheadline)
-                        Text("브라우저 로그인이 활성이어도 Claude Code OAuth 가 있으면 그걸 먼저 사용합니다. OAuth 실패 시 브라우저 로그인으로 자동 폴백.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .toggleStyle(.switch)
-                .disabled(!(usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false))
+                Text("조회 방식은 현재 선택한 계정 안에서 자동으로 결정됩니다. 다른 계정의 로그인 정보로 자동 전환하지 않습니다.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 HStack(spacing: 8) {
-                    Button("브라우저 로그인 값 삭제") { handleClearBrowserSessionAction() }
+                    Button("브라우저 로그인 값 삭제") { pendingDestructiveAction = .clearBrowserSession }
                         .disabled(!(usageHealthSnapshot?.runtime.credentialAvailability.sessionCredentialAvailable ?? false))
 
                     Button("Claude Code 다시 로그인 안내") { showClaudeCodeLoginGuidance() }
@@ -437,7 +424,7 @@ extension SettingsView {
         case .use:
             setActiveClaudeAccount(account)
         case .deleteWebSession:
-            deleteClaudeWebAccount(account)
+            pendingDestructiveAction = .deleteClaudeAccount(account)
         case .showClaudeCodeLoginGuidance:
             showClaudeCodeLoginGuidance()
         }
@@ -623,14 +610,19 @@ extension SettingsView {
             }
             return "브라우저 로그인 값이 저장되어 있습니다. 사용량 새로고침으로 실제 조회를 확인하세요."
         case .oauthPreferred, .oauthFallback:
-            // v2.2.0: OAuth 경로는 비활성. 이 분기는 호출되지 않아야 하지만 방어적으로 Claude.ai 전환 안내.
-            return "Claude Code CLI 경로는 v2.2.0 부터 사용량 조회에 사용되지 않습니다. Claude.ai 로그인으로 전환해 주세요."
+            if snapshot.runtime.oauthValidationState == .failed {
+                return "Claude Code 로그인을 갱신하지 못했습니다. 터미널에서 `claude auth login`을 다시 실행해 주세요."
+            }
+            if snapshot.runtime.oauthValidationState == .verified {
+                return "Claude Code 로그인으로 최근 조회가 성공했습니다."
+            }
+            return "Claude Code 로그인 정보가 저장되어 있습니다. 사용량 새로고침으로 실제 조회를 확인하세요."
         case .unauthenticated:
             if snapshot.runtime.sessionValidationState == .failed {
                 return "브라우저 로그인 값 확인이 필요합니다. Claude.ai 에서 다시 로그인해 주세요."
             }
             if snapshot.runtime.oauthValidationState == .failed {
-                return "Claude Code CLI 경로는 v2.2.0 부터 사용량 조회에 사용되지 않습니다. Claude.ai 로그인으로 전환해 주세요."
+                return "Claude Code 로그인을 갱신하지 못했습니다. 터미널에서 `claude auth login`을 다시 실행해 주세요."
             }
         }
 
@@ -639,8 +631,7 @@ extension SettingsView {
         }
 
         if availability.oauthCredentialAvailable {
-            // OAuth 토큰이 keychain 에 있어도 v2.2.0 부터는 호출하지 않는다.
-            return "Claude Code CLI 경로는 v2.2.0 부터 사용량 조회에 사용되지 않습니다. Claude.ai 로그인으로 전환해 주세요."
+            return "Claude Code 로그인 정보가 저장되어 있습니다. 사용량 새로고침으로 실제 조회를 확인하세요."
         }
 
         return "브라우저 로그인 값이 저장되어 있습니다. 사용량 새로고침으로 실제 조회를 확인하세요."

@@ -14,7 +14,7 @@ enum PopoverLayoutMetrics {
     static let standardBodyInsets = EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
     static let compactSectionSpacing: CGFloat = 3
     static let standardSectionSpacing: CGFloat = 12
-    static let compactRowLabelWidth: CGFloat = 100
+    static let compactRowLabelWidth: CGFloat = 112
     static let compactRowMeterWidth: CGFloat = 150
     static let compactRowSpacing: CGFloat = 6
     static let compactUsageRowHeight: CGFloat = 18
@@ -25,7 +25,7 @@ enum PopoverLayoutMetrics {
     static let compactStatusPanelHeight: CGFloat = 40
     static let compactInteractiveStatusPanelHeight: CGFloat = 48
     static let compactFixedContentBodyHeight: CGFloat = compactUsageRowHeight * 3 + compactSectionSpacing * 2
-    static let compactMaximumVisibleRows = 3
+    static let compactMaximumVisibleRows = 5
     static let compactMinimumPopoverHeight: CGFloat = 96
     static let compactContentBottomSpacing: CGFloat = 5
     static let standardStatusPanelHeight: CGFloat = 72
@@ -108,13 +108,18 @@ enum PopoverLayoutMetrics {
         case .loading, .empty:
             return standardPopoverHeight(forBodyHeight: standardStatusPanelHeight)
         case .content:
+            // 행 수에 따라 계단식으로 키우고, 6행 이상은 고정 + 내부 스크롤
             switch rowCount {
             case ...2:
                 return 256
             case 3:
                 return 300
-            default:
+            case 4:
                 return 336
+            case 5:
+                return 372
+            default:
+                return 400
             }
         }
     }
@@ -141,8 +146,11 @@ enum PopoverLayoutMetrics {
         }
     }
 
+    /// 컴팩트 본문 높이 — 행 수에 맞춰 늘어나고, 최대 표시 행 수를 넘으면 스크롤로 전환됩니다.
+    /// (과거에는 3행 고정이라 모델 행이 늘어나면 잘렸음)
     static func compactContentBodyHeight(rowCount: Int) -> CGFloat {
-        compactFixedContentBodyHeight
+        let rows = min(max(rowCount, 1), compactMaximumVisibleRows)
+        return compactUsageRowHeight * CGFloat(rows) + compactSectionSpacing * CGFloat(max(0, rows - 1))
     }
 
     static func standardPopoverHeight(forBodyHeight bodyHeight: CGFloat) -> CGFloat {
@@ -160,7 +168,7 @@ enum PopoverLayoutMetrics {
         switch kind {
         case .usage:
             return compactUsageRowHeight
-        case .credits:
+        case .credits, .resetCredits:
             return compactCreditsRowHeight
         case .overage:
             return compactOverageRowHeight

@@ -4,6 +4,43 @@ import XCTest
 
 @MainActor
 final class MenuBarStatusComposerTests: XCTestCase {
+    func testMenuBarColorModeControlsGaugeColor() {
+        func claudeColor(percentage: Double, mode: MenuBarColorMode) -> NSColor {
+            let usage = ClaudeUsageResponse(
+                fiveHour: UsageWindow(utilization: percentage, resetsAt: nil),
+                sevenDay: nil
+            )
+            return MenuBarStatusComposer.claudeSnapshot(
+                config: ProviderMenuBarDisplayConfig(
+                    kind: .claude,
+                    showIcon: false,
+                    style: .none,
+                    percentageDisplay: .fiveHour,
+                    showBatteryPercent: false,
+                    resetTimeDisplay: .none,
+                    timeFormat: .h24,
+                    circularDisplayMode: .usage,
+                    iconMetric: .fiveHour,
+                    colorMode: mode
+                ),
+                usage: usage,
+                error: nil,
+                hasAuthError: false,
+                hasCredential: true,
+                secondaryColor: .secondaryLabelColor,
+                icon: nil
+            ).color
+        }
+
+        // always: 임계값 색상 그대로
+        XCTAssertTrue(claudeColor(percentage: 55, mode: .always).isEqual(NSColor.systemYellow))
+        // warningOnly: 75 미만은 모노크롬, 이상은 색상
+        XCTAssertTrue(claudeColor(percentage: 55, mode: .warningOnly).isEqual(NSColor.labelColor))
+        XCTAssertTrue(claudeColor(percentage: 92, mode: .warningOnly).isEqual(NSColor.systemRed))
+        // monochrome: 항상 모노크롬
+        XCTAssertTrue(claudeColor(percentage: 92, mode: .monochrome).isEqual(NSColor.labelColor))
+    }
+
     func testAntigravityIdentityOnlyUsageDoesNotRenderFakeZeroQuota() {
         let usage = AntigravityUsageResponse(
             source: .googleOAuth,

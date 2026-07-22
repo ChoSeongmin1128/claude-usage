@@ -15,7 +15,9 @@ extension SettingsView {
 
             settingsToggleRow(
                 "로그인 시 자동 시작",
-                subtitle: "시스템 설정 → 일반 → 로그인 항목에서도 관리할 수 있습니다",
+                subtitle: settings.launchAtLoginRequiresApproval
+                    ? "시스템 설정 → 일반 → 로그인 항목에서 승인이 필요합니다"
+                    : "시스템 설정 → 일반 → 로그인 항목에서도 관리할 수 있습니다",
                 isOn: $settings.launchAtLogin
             )
 
@@ -27,6 +29,17 @@ extension SettingsView {
                     set: { settings.additionalRuntimeProvidersEnabled = $0 }
                 )
             )
+
+            settingsRadioGroup(
+                "메뉴바 색상",
+                options: MenuBarColorMode.allCases.map { (value: $0, label: $0.displayName) },
+                selection: settings.menuBarColorMode,
+                onChange: { settings.menuBarColorMode = $0 }
+            )
+
+            Text(settings.menuBarColorMode.detail)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
     }
 
@@ -38,7 +51,15 @@ extension SettingsView {
             settingsToggleRow(
                 "전체 알림 사용",
                 subtitle: "사용량이 정한 기준에 도달하면 알림을 표시합니다",
-                isOn: $settings.notificationsEnabled
+                isOn: Binding(
+                    get: { settings.notificationsEnabled },
+                    set: { isEnabled in
+                        settings.notificationsEnabled = isEnabled
+                        if isEnabled {
+                            NotificationManager.shared.requestPermission()
+                        }
+                    }
+                )
             )
 
             if !settings.notificationsEnabled {

@@ -43,7 +43,9 @@ final class AppRuntimeStateFacade {
                 isDetected: hasCredential,
                 canAttemptRefresh: hasCredential,
                 hasAuthError: state.hasAuthError,
-                lastAttemptState: state.lastAttemptState
+                lastAttemptState: state.lastAttemptState,
+                lastSuccessfulMetadata: state.lastSuccessfulMetadata,
+                lastAttemptMetadata: state.lastAttemptMetadata
             )
         case .codex:
             return RuntimeProviderSnapshot(
@@ -57,7 +59,9 @@ final class AppRuntimeStateFacade {
                 isDetected: codexAuthenticated,
                 canAttemptRefresh: codexAuthenticated,
                 hasAuthError: state.hasAuthError,
-                lastAttemptState: state.lastAttemptState
+                lastAttemptState: state.lastAttemptState,
+                lastSuccessfulMetadata: state.lastSuccessfulMetadata,
+                lastAttemptMetadata: state.lastAttemptMetadata
             )
         case .antigravity:
             return RuntimeProviderSnapshot(
@@ -71,7 +75,9 @@ final class AppRuntimeStateFacade {
                 isDetected: environmentStatus?.isDetected ?? false,
                 canAttemptRefresh: environmentStatus?.canAttemptRefresh ?? false,
                 hasAuthError: state.hasAuthError,
-                lastAttemptState: state.lastAttemptState
+                lastAttemptState: state.lastAttemptState,
+                lastSuccessfulMetadata: state.lastSuccessfulMetadata,
+                lastAttemptMetadata: state.lastAttemptMetadata
             )
         }
     }

@@ -24,13 +24,33 @@ extension SettingsView {
 
             HStack {
                 Spacer()
-                Button("기본값 복원") { resetToDefaults() }
+                Button("기본값 복원") { pendingDestructiveAction = .resetDefaults }
                     .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
         }
         .frame(width: 760, height: 600)
+        .confirmationDialog(
+            pendingDestructiveAction?.title ?? "확인",
+            isPresented: Binding(
+                get: { pendingDestructiveAction != nil },
+                set: { if !$0 { pendingDestructiveAction = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let action = pendingDestructiveAction {
+                Button(action.actionTitle, role: .destructive) {
+                    performDestructiveAction(action)
+                    pendingDestructiveAction = nil
+                }
+            }
+            Button("취소", role: .cancel) { pendingDestructiveAction = nil }
+        } message: {
+            if let action = pendingDestructiveAction {
+                Text(action.detail)
+            }
+        }
         .onAppear {
             resetClaudeAuthDisclosureState()
             syncStoredSessionKeyState()
@@ -116,6 +136,21 @@ extension SettingsView {
             antigravityOAuthSettings.cancelLogin()
             cancelOrganizationLoad()
             flushPendingOrganizationPersistence()
+        }
+    }
+
+    private func performDestructiveAction(_ action: SettingsDestructiveAction) {
+        switch action {
+        case .resetDefaults:
+            resetToDefaults()
+        case .clearBrowserSession:
+            handleClearBrowserSessionAction()
+        case .deleteClaudeAccount(let account):
+            deleteClaudeWebAccount(account)
+        case .disconnectAntigravityAccount:
+            disconnectSelectedAntigravityAccount()
+        case .disconnectAllAntigravityAccounts:
+            disconnectAllAntigravityAccounts()
         }
     }
 
@@ -206,6 +241,7 @@ extension SettingsView {
                     .toggleStyle(.switch)
                     .controlSize(.mini)
                     .labelsHidden()
+                    .accessibilityLabel("\(provider.displayName) 사용")
                     .help(settings.isProviderEnabled(provider) ? "\(provider.displayName) 사용 중" : "\(provider.displayName) 사용 안 함")
             }
         }

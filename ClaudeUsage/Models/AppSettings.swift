@@ -427,6 +427,10 @@ class AppSettings: ObservableObject {
     @Published var menuBarStyle: MenuBarStyle {
         didSet { defaults.set(menuBarStyle.rawValue, forKey: "menuBarStyle") }
     }
+    /// 메뉴바 게이지 색상 정책 (전체 provider 공통)
+    @Published var menuBarColorMode: MenuBarColorMode {
+        didSet { defaults.set(menuBarColorMode.rawValue, forKey: "menuBarColorMode") }
+    }
     @Published var percentageDisplay: PercentageDisplay {
         didSet { defaults.set(percentageDisplay.rawValue, forKey: "percentageDisplay") }
     }
@@ -563,12 +567,6 @@ class AppSettings: ObservableObject {
     @Published var claudeMessagesFallbackAutoDisableBelowPercent: Int {
         didSet { defaults.set(claudeMessagesFallbackAutoDisableBelowPercent, forKey: "claudeMessagesFallbackAutoDisableBelowPercent") }
     }
-    /// 사용자가 브라우저 로그인(web)을 활성 계정으로 둔 상태라도 Claude Code OAuth 가
-    /// 사용 가능하면 OAuth 경로를 우선 시도할지 결정. 기본 false → 활성 계정 = 진실의 출처.
-    /// true 면 web 활성이어도 planner 가 `[.oauth, .webSession]` 순으로 후보를 만든다.
-    @Published var claudePreferOAuth: Bool {
-        didSet { defaults.set(claudePreferOAuth, forKey: "claudePreferOAuth") }
-    }
     @Published var alertFiveHourEnabled: Bool {
         didSet { defaults.set(alertFiveHourEnabled, forKey: "alertFiveHourEnabled") }
     }
@@ -591,10 +589,13 @@ class AppSettings: ObservableObject {
     }
     @Published var launchAtLogin: Bool {
         didSet {
+            guard !isReconcilingLaunchAtLogin else { return }
             defaults.set(launchAtLogin, forKey: "launchAtLogin")
             updateLaunchAtLogin(launchAtLogin)
         }
     }
+    @Published private(set) var launchAtLoginRequiresApproval = false
+    private var isReconcilingLaunchAtLogin = false
     @Published var preferredOrganizationID: String {
         didSet { defaults.set(preferredOrganizationID, forKey: "preferredOrganizationID") }
     }
@@ -684,6 +685,7 @@ class AppSettings: ObservableObject {
         let timeFormat: TimeFormatStyle
         let circularDisplayMode: CircularDisplayMode
         let iconMetric: IconMetric
+        let menuBarColorMode: MenuBarColorMode
         let refreshInterval: TimeInterval
         let usePerProviderRefreshIntervals: Bool
         let claudeRefreshInterval: TimeInterval
@@ -704,7 +706,6 @@ class AppSettings: ObservableObject {
         let claudeAlertEnabled: Bool
         let claudeMessagesFallbackPolicy: ClaudeMessagesFallbackPolicy
         let claudeMessagesFallbackAutoDisableBelowPercent: Int
-        let claudePreferOAuth: Bool
         let alertFiveHourEnabled: Bool
         let alertWeeklyEnabled: Bool
         let popoverPinned: Bool
@@ -740,6 +741,7 @@ class AppSettings: ObservableObject {
             timeFormat: timeFormat,
             circularDisplayMode: circularDisplayMode,
             iconMetric: iconMetric,
+            menuBarColorMode: menuBarColorMode,
             refreshInterval: refreshInterval,
             usePerProviderRefreshIntervals: usePerProviderRefreshIntervals,
             claudeRefreshInterval: claudeRefreshInterval,
@@ -760,7 +762,6 @@ class AppSettings: ObservableObject {
             claudeAlertEnabled: claudeAlertEnabled,
             claudeMessagesFallbackPolicy: claudeMessagesFallbackPolicy,
             claudeMessagesFallbackAutoDisableBelowPercent: claudeMessagesFallbackAutoDisableBelowPercent,
-            claudePreferOAuth: claudePreferOAuth,
             alertFiveHourEnabled: alertFiveHourEnabled,
             alertWeeklyEnabled: alertWeeklyEnabled,
             popoverPinned: popoverPinned,
@@ -803,6 +804,7 @@ class AppSettings: ObservableObject {
         resetTimeDisplay = snapshot.resetTimeDisplay
         timeFormat = snapshot.timeFormat
         circularDisplayMode = snapshot.circularDisplayMode
+        menuBarColorMode = snapshot.menuBarColorMode
         iconMetric = snapshot.iconMetric
         refreshInterval = snapshot.refreshInterval
         usePerProviderRefreshIntervals = snapshot.usePerProviderRefreshIntervals
@@ -824,7 +826,6 @@ class AppSettings: ObservableObject {
         claudeAlertEnabled = snapshot.claudeAlertEnabled
         claudeMessagesFallbackPolicy = snapshot.claudeMessagesFallbackPolicy
         claudeMessagesFallbackAutoDisableBelowPercent = Self.normalizedMessagesFallbackThreshold(snapshot.claudeMessagesFallbackAutoDisableBelowPercent)
-        claudePreferOAuth = snapshot.claudePreferOAuth
         alertFiveHourEnabled = snapshot.alertFiveHourEnabled
         alertWeeklyEnabled = snapshot.alertWeeklyEnabled
         popoverPinned = snapshot.popoverPinned
@@ -1162,6 +1163,7 @@ class AppSettings: ObservableObject {
     var menuBarDisplayChangePublisher: AnyPublisher<Void, Never> {
         let basePublishers: [AnyPublisher<Void, Never>] = [
             $menuBarStyle.map { _ in () }.eraseToAnyPublisher(),
+            $menuBarColorMode.map { _ in () }.eraseToAnyPublisher(),
             $percentageDisplay.map { _ in () }.eraseToAnyPublisher(),
             $showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
             $resetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
@@ -1284,7 +1286,8 @@ class AppSettings: ObservableObject {
                 resetTimeDisplay: resetTimeDisplay,
                 timeFormat: timeFormat,
                 circularDisplayMode: circularDisplayMode,
-                iconMetric: iconMetric
+                iconMetric: iconMetric,
+                colorMode: menuBarColorMode
             )
         case .codex:
             return ProviderMenuBarDisplayConfig(
@@ -1296,7 +1299,8 @@ class AppSettings: ObservableObject {
                 resetTimeDisplay: codexResetTimeDisplay,
                 timeFormat: codexTimeFormat,
                 circularDisplayMode: codexCircularDisplayMode,
-                iconMetric: codexIconMetric
+                iconMetric: codexIconMetric,
+                colorMode: menuBarColorMode
             )
         case .antigravity:
             return ProviderMenuBarDisplayConfig(
@@ -1309,6 +1313,7 @@ class AppSettings: ObservableObject {
                 timeFormat: providerTimeFormat(for: kind),
                 circularDisplayMode: providerCircularDisplayMode(for: kind),
                 iconMetric: providerIconMetric(for: kind),
+                colorMode: menuBarColorMode,
                 primaryModelID: antigravityMenuBarPrimaryModelID,
                 secondaryModelID: antigravityMenuBarSecondaryModelID
             )
@@ -1569,7 +1574,7 @@ class AppSettings: ObservableObject {
         defaults.removeObject(forKey: Self.antigravityMenuBarPrimaryModelIDKey)
         defaults.removeObject(forKey: Self.antigravityMenuBarSecondaryModelIDKey)
         autoRefresh = true
-        notificationsEnabled = true
+        notificationsEnabled = false
         notificationPresets = Self.defaultNotificationPresets
         alertRemainingMode = false
         reducedRefreshOnBattery = true
@@ -1580,7 +1585,6 @@ class AppSettings: ObservableObject {
         claudeAlertEnabled = true
         claudeMessagesFallbackPolicy = .off
         claudeMessagesFallbackAutoDisableBelowPercent = Self.normalizedMessagesFallbackThreshold(20)
-        claudePreferOAuth = false
         alertFiveHourEnabled = true
         alertWeeklyEnabled = false
         popoverPinned = false
@@ -1633,14 +1637,28 @@ class AppSettings: ObservableObject {
     // MARK: - Launch at Login
 
     private func updateLaunchAtLogin(_ enabled: Bool) {
+        let service = SMAppService.mainApp
         do {
             if enabled {
-                try SMAppService.mainApp.register()
+                if service.status == .notRegistered {
+                    try service.register()
+                }
             } else {
-                try SMAppService.mainApp.unregister()
+                if service.status != .notRegistered {
+                    try service.unregister()
+                }
             }
         } catch {
             Logger.error("로그인 시 자동 시작 설정 실패: \(error)")
+        }
+
+        launchAtLoginRequiresApproval = service.status == .requiresApproval
+        let actualEnabled = service.status == .enabled
+        defaults.set(actualEnabled, forKey: "launchAtLogin")
+        if launchAtLogin != actualEnabled {
+            isReconcilingLaunchAtLogin = true
+            launchAtLogin = actualEnabled
+            isReconcilingLaunchAtLogin = false
         }
     }
 
@@ -1649,6 +1667,9 @@ class AppSettings: ObservableObject {
     private init() {
         let style = defaults.string(forKey: "menuBarStyle") ?? MenuBarStyle.none.rawValue
         self.menuBarStyle = MenuBarStyle(rawValue: style) ?? .none
+
+        let colorMode = defaults.string(forKey: "menuBarColorMode") ?? MenuBarColorMode.always.rawValue
+        self.menuBarColorMode = MenuBarColorMode(rawValue: colorMode) ?? .always
 
         // 마이그레이션: showPercentage/showDualPercentage → percentageDisplay
         if let pd = defaults.string(forKey: "percentageDisplay") {
@@ -1690,7 +1711,7 @@ class AppSettings: ObservableObject {
             defaults.string(forKey: Self.antigravityMenuBarSecondaryModelIDKey)
         )
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
-        self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? true
+        self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? false
         let storedAlertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
         self.alertRemainingMode = storedAlertRemainingMode
         self.notificationPresets = Self.migrateNotificationPresets(from: defaults, commonRemainingMode: storedAlertRemainingMode)
@@ -1718,11 +1739,8 @@ class AppSettings: ObservableObject {
         self.claudeMessagesFallbackPolicy = ClaudeMessagesFallbackPolicy(rawValue: fallbackPolicyRaw) ?? .off
         let storedFallbackThreshold = defaults.object(forKey: "claudeMessagesFallbackAutoDisableBelowPercent") as? Int ?? 20
         self.claudeMessagesFallbackAutoDisableBelowPercent = Self.normalizedMessagesFallbackThreshold(storedFallbackThreshold)
-        if let storedPreferOAuth = defaults.object(forKey: "claudePreferOAuth") as? Bool {
-            self.claudePreferOAuth = storedPreferOAuth
-        } else {
-            self.claudePreferOAuth = false
-        }
+        // 이전 버전의 교차 계정 OAuth 우선 설정은 계정 귀속을 깨뜨릴 수 있어 폐기한다.
+        defaults.removeObject(forKey: "claudePreferOAuth")
         self.alertFiveHourEnabled = defaults.object(forKey: "alertFiveHourEnabled") as? Bool ?? true
         self.alertWeeklyEnabled = defaults.object(forKey: "alertWeeklyEnabled") as? Bool ?? false
         let legacyPinned = Self.normalizedGlobalPopoverPinned(from: defaults)
@@ -1732,8 +1750,11 @@ class AppSettings: ObservableObject {
         defaults.set(legacyPinned, forKey: "popoverPinned")
         defaults.set(normalizedCompact, forKey: "popoverCompact")
         // 시스템 상태에서 실제 등록 여부 확인
-        let savedLaunchAtLogin = defaults.object(forKey: "launchAtLogin") as? Bool ?? false
-        self.launchAtLogin = savedLaunchAtLogin
+        let launchAtLoginStatus = SMAppService.mainApp.status
+        let isLaunchAtLoginEnabled = launchAtLoginStatus == .enabled
+        self.launchAtLogin = isLaunchAtLoginEnabled
+        self.launchAtLoginRequiresApproval = launchAtLoginStatus == .requiresApproval
+        defaults.set(isLaunchAtLoginEnabled, forKey: "launchAtLogin")
         self.preferredOrganizationID = defaults.string(forKey: "preferredOrganizationID")?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let storedCodexEnabled = defaults.object(forKey: "codexEnabled") as? Bool ?? false
         self.showCodexIcon = defaults.object(forKey: "showCodexIcon") as? Bool ?? true

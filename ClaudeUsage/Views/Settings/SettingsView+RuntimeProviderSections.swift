@@ -124,9 +124,7 @@ extension SettingsView {
                         .controlSize(.small)
                     } else {
                         Button(antigravityOAuthSettings.accounts.count > 1 ? "선택 계정 제거" : "Google 연결 해제") {
-                            antigravityOAuthSettings.disconnect(
-                                refreshEnvironment: refreshAntigravityEnvironmentState
-                            )
+                            pendingDestructiveAction = .disconnectAntigravityAccount
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
@@ -134,9 +132,7 @@ extension SettingsView {
 
                         if antigravityOAuthSettings.accounts.count > 1 {
                             Button("모든 계정 제거") {
-                                antigravityOAuthSettings.disconnectAll(
-                                    refreshEnvironment: refreshAntigravityEnvironmentState
-                                )
+                                pendingDestructiveAction = .disconnectAllAntigravityAccounts
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
@@ -277,5 +273,17 @@ extension SettingsView {
             return "설정만 감지"
         }
         return isLoading ? "확인 중" : "미감지"
+    }
+
+    func disconnectSelectedAntigravityAccount() {
+        antigravityOAuthSettings.disconnect(
+            refreshEnvironment: refreshAntigravityEnvironmentState
+        )
+    }
+
+    func disconnectAllAntigravityAccounts() {
+        antigravityOAuthSettings.disconnectAll(
+            refreshEnvironment: refreshAntigravityEnvironmentState
+        )
     }
 }

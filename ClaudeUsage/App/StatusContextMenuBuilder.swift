@@ -38,16 +38,14 @@ enum StatusContextMenuBuilder {
         menu.addItem(refreshAll)
         menu.addItem(.separator())
 
-        for (index, service) in runtimeServices.enumerated() {
-            if index > 0 {
-                menu.addItem(.separator())
-            }
-            addRuntimeServiceSection(
+        // 프로바이더당 3행씩 늘어놓는 대신 서브메뉴 하나로 묶는다.
+        // 부모 항목의 체크 표시가 모니터링 on/off 상태를 한눈에 알려준다.
+        for service in runtimeServices {
+            menu.addItem(providerSubmenuItem(
                 service,
                 settings: settings,
                 canRefresh: refreshableServiceSet.contains(service),
-                actions: actions,
-                to: menu)
+                actions: actions))
         }
 
         menu.addItem(.separator())
@@ -57,31 +55,39 @@ enum StatusContextMenuBuilder {
         return menu
     }
 
-    private static func addRuntimeServiceSection(
+    private static func providerSubmenuItem(
         _ service: PopoverService,
         settings: AppSettings,
         canRefresh: Bool,
-        actions: StatusContextMenuActions,
-        to menu: NSMenu
-    ) {
+        actions: StatusContextMenuActions
+    ) -> NSMenuItem {
         let serviceName = service.displayName
         let kind = service.providerKind
+        let isMonitoring = settings.isProviderEnabled(kind)
 
-        menu.addItem(toggleItem(
-            title: "\(serviceName) 모니터링 활성화",
-            isEnabled: settings.isProviderEnabled(kind),
-            action: actions.toggleProvider,
-            representedObject: service.rawValue))
-        menu.addItem(refreshItem(
-            title: "\(serviceName) 새로고침",
+        let submenu = NSMenu()
+        submenu.addItem(refreshItem(
+            title: "새로고침",
             isEnabled: canRefresh,
             action: actions.refreshProvider,
             representedObject: service.rawValue))
-        menu.addItem(styleItem(
-            title: "\(serviceName) 아이콘 스타일",
+        submenu.addItem(styleItem(
+            title: "아이콘 스타일",
             service: service,
             currentStyle: settings.menuBarStyle(for: kind) ?? .none,
             action: actions.changeProviderStyle))
+        submenu.addItem(.separator())
+        // 컨트롤 문구는 실행 결과를 그대로 말한다: 켜기/끄기
+        submenu.addItem(toggleItem(
+            title: isMonitoring ? "모니터링 끄기" : "모니터링 켜기",
+            isEnabled: false,
+            action: actions.toggleProvider,
+            representedObject: service.rawValue))
+
+        let parent = NSMenuItem(title: serviceName, action: nil, keyEquivalent: "")
+        parent.submenu = submenu
+        parent.state = isMonitoring ? .on : .off
+        return parent
     }
 
     private static func makeItem(

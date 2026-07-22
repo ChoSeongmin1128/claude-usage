@@ -593,7 +593,7 @@ actor AntigravityRemoteUsageService {
             return false
         case .codexReauthRequired,
              .codexTokenRefreshTemporary,
-             .claudeOAuthPathRetired,
+             .claudeCodeCredentialUnavailable,
              .cloudflareBlocked,
              .networkError,
              .permissionDenied,

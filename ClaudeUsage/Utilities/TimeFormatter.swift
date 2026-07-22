@@ -145,31 +145,39 @@ enum TimeFormatter {
 
     /// 남은 시간 + 갱신 예상 시각을 결합한 포맷 (현재 세션용: 항상 시각만)
     /// 예: "갱신 예상: 2시간 34분 후 (18:34)" 또는 "갱신 예상: 2시간 34분 후 (6:34 PM)"
-    nonisolated static func formatRelativeTimeWithClock(from resetAt: String, style: TimeFormatStyle = .h24) -> String {
+    nonisolated static func formatRelativeTimeWithClock(
+        from resetAt: String,
+        style: TimeFormatStyle = .h24,
+        label: String = "갱신 예상"
+    ) -> String {
         let relative = formatRelativeTime(from: resetAt)
         if relative == "곧 갱신" || relative == "시간 정보 없음" {
-            return "갱신 예상: \(relative)"
+            return "\(label): \(relative)"
         }
         // remaining 스타일이면 괄호 안에 24시간 시각 표시 (중복 방지)
         let clockStyle: TimeFormatStyle = style == .remaining ? .h24 : style
         // 현재 세션은 5시간 윈도우이므로 날짜 없이 시각만 표시
         if let clock = formatResetTime(from: resetAt, style: clockStyle, includeDateIfNotToday: false) {
-            return "갱신 예상: \(relative) (\(clock))"
+            return "\(label): \(relative) (\(clock))"
         }
-        return "갱신 예상: \(relative)"
+        return "\(label): \(relative)"
     }
 
     /// 주간 세션용: 1일 이상이면 분 단위 생략한 결합 포맷
     /// 예: "갱신 예상: 2일 3시간 후 (2/14(금))" — 1일 이내면 기본과 동일
-    nonisolated static func formatRelativeTimeWithClockWeekly(from resetAt: String, style: TimeFormatStyle = .h24) -> String {
+    nonisolated static func formatRelativeTimeWithClockWeekly(
+        from resetAt: String,
+        style: TimeFormatStyle = .h24,
+        label: String = "갱신 예상"
+    ) -> String {
         guard let resetDate = parseISO8601(resetAt) else {
-            return "갱신 예상: \(formatRelativeTime(from: resetAt))"
+            return "\(label): \(formatRelativeTime(from: resetAt))"
         }
 
         let interval = resetDate.timeIntervalSince(Date())
         if interval <= 86400 {
             // 1일 이내: 기본과 동일
-            return formatRelativeTimeWithClock(from: resetAt, style: style)
+            return formatRelativeTimeWithClock(from: resetAt, style: style, label: label)
         }
 
         // 1일 이상: 분 단위 생략
@@ -186,9 +194,9 @@ enum TimeFormatter {
 
         let clockStyle: TimeFormatStyle = style == .remaining ? .h24 : style
         if let clock = formatResetTimeWeekly(from: resetAt, style: clockStyle) {
-            return "갱신 예상: \(relative) (\(clock))"
+            return "\(label): \(relative) (\(clock))"
         }
-        return "갱신 예상: \(relative)"
+        return "\(label): \(relative)"
     }
 
     /// Date 기반 상대 시간 포맷 (30초 기준 반올림)

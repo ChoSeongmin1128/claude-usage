@@ -342,6 +342,39 @@ struct ProviderExposurePolicy: Equatable, Sendable {
     }
 }
 
+/// 메뉴바 게이지(퍼센트 텍스트·아이콘 fill) 색상 정책.
+/// HIG는 메뉴바 아이템에 모노크롬을 권장하지만, 사용량 앱 특성상 상태색이 유용해
+/// 사용자가 직접 고르게 한다.
+enum MenuBarColorMode: String, CaseIterable, Identifiable, Sendable, Equatable {
+    /// 현행: 항상 사용률 임계값 색상 (초록/노랑/주황/빨강)
+    case always
+    /// 하이브리드: 평소 모노크롬, 주의 구간(75% 이상)부터만 색상
+    case warningOnly
+    /// 항상 시스템 텍스트색 (가장 네이티브)
+    case monochrome
+
+    nonisolated var id: String { rawValue }
+
+    /// warningOnly 모드에서 색상이 켜지는 사용률 (주황 시작점과 동일)
+    nonisolated static let warningThreshold: Double = 75
+
+    nonisolated var displayName: String {
+        switch self {
+        case .always: return "항상 색상"
+        case .warningOnly: return "주의 구간만 색상"
+        case .monochrome: return "모노크롬"
+        }
+    }
+
+    nonisolated var detail: String {
+        switch self {
+        case .always: return "사용률에 따라 초록/노랑/주황/빨강으로 표시합니다."
+        case .warningOnly: return "평소에는 시스템 텍스트색, 75% 이상부터 색상으로 강조합니다."
+        case .monochrome: return "항상 시스템 텍스트색으로 표시합니다. 메뉴바가 가장 차분해집니다."
+        }
+    }
+}
+
 struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
     let kind: AppProviderKind
     let showIcon: Bool
@@ -352,6 +385,7 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
     let timeFormat: TimeFormatStyle
     let circularDisplayMode: CircularDisplayMode
     let iconMetric: IconMetric
+    let colorMode: MenuBarColorMode
     let primaryModelID: String?
     let secondaryModelID: String?
 
@@ -365,6 +399,7 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         timeFormat: TimeFormatStyle,
         circularDisplayMode: CircularDisplayMode,
         iconMetric: IconMetric,
+        colorMode: MenuBarColorMode = .always,
         primaryModelID: String? = nil,
         secondaryModelID: String? = nil
     ) {
@@ -377,6 +412,7 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         self.timeFormat = timeFormat
         self.circularDisplayMode = circularDisplayMode
         self.iconMetric = iconMetric
+        self.colorMode = colorMode
         self.primaryModelID = primaryModelID
         self.secondaryModelID = secondaryModelID
     }

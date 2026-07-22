@@ -11,14 +11,16 @@ import Foundation
 struct ClaudeUsageResponse: Codable, Sendable {
     let fiveHour: UsageWindow
     let sevenDay: UsageWindow?
-    let sevenDaySonnet: UsageWindow?  // Max 플랜 전용
-    let sevenDayOpus: UsageWindow?    // Max 플랜 전용
+    let sevenDaySonnet: UsageWindow?  // 레거시 필드 (limits[]로 대체 중)
+    let sevenDayOpus: UsageWindow?    // 레거시 필드 (limits[]로 대체 중)
+    let scopedLimits: [ClaudeScopedLimit]
 
     enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
         case sevenDay = "seven_day"
         case sevenDaySonnet = "seven_day_sonnet"
         case sevenDayOpus = "seven_day_opus"
+        case scopedLimits = "limits"
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -27,19 +29,150 @@ struct ClaudeUsageResponse: Codable, Sendable {
         sevenDay = try container.decodeIfPresent(UsageWindow.self, forKey: .sevenDay)
         sevenDaySonnet = try container.decodeIfPresent(UsageWindow.self, forKey: .sevenDaySonnet)
         sevenDayOpus = try container.decodeIfPresent(UsageWindow.self, forKey: .sevenDayOpus)
+        scopedLimits = Self.decodeScopedLimits(from: container)
     }
 
     nonisolated init(
         fiveHour: UsageWindow,
         sevenDay: UsageWindow?,
         sevenDaySonnet: UsageWindow? = nil,
-        sevenDayOpus: UsageWindow? = nil)
+        sevenDayOpus: UsageWindow? = nil,
+        scopedLimits: [ClaudeScopedLimit] = [])
     {
         self.fiveHour = fiveHour
         self.sevenDay = sevenDay
         self.sevenDaySonnet = sevenDaySonnet
         self.sevenDayOpus = sevenDayOpus
+        self.scopedLimits = scopedLimits
     }
+
+    /// limits 배열은 항목 단위로 관대하게 디코딩합니다.
+    /// 잘못된 항목 하나가 전체 사용량 파싱을 깨뜨리면 안 됩니다.
+    nonisolated private static func decodeScopedLimits(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) -> [ClaudeScopedLimit] {
+        guard var array = try? container.nestedUnkeyedContainer(forKey: .scopedLimits) else {
+            return []
+        }
+        var collected: [ClaudeScopedLimit] = []
+        while !array.isAtEnd {
+            if let entry = try? array.decode(ClaudeScopedLimit.self) {
+                collected.append(entry)
+            } else if (try? array.decode(DecodingSink.self)) == nil {
+                break
+            }
+        }
+        return collected
+    }
+}
+
+/// 임의 JSON 요소를 소비만 하는 싱크 (lossy 배열 디코딩용)
+private struct DecodingSink: Decodable {
+    nonisolated init(from decoder: Decoder) throws {}
+}
+
+/// `limits[]` 배열의 개별 한도 항목.
+/// 현재 확인된 형태: `kind: "weekly_scoped"` + `scope.model.display_name` (예: "Fable")
+struct ClaudeScopedLimit: Codable, Sendable, Equatable {
+    let kind: String?
+    let group: String?
+    let percent: Double?
+    let resetsAt: String?
+    let modelID: String?
+    let modelName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case kind
+        case group
+        case percent
+        case resetsAt = "resets_at"
+        case scope
+    }
+
+    private enum ScopeKeys: String, CodingKey {
+        case model
+    }
+
+    private enum ModelKeys: String, CodingKey {
+        case id
+        case displayName = "display_name"
+    }
+
+    nonisolated init(
+        kind: String?,
+        group: String? = nil,
+        percent: Double?,
+        resetsAt: String? = nil,
+        modelID: String? = nil,
+        modelName: String?)
+    {
+        self.kind = kind
+        self.group = group
+        self.percent = percent
+        self.resetsAt = resetsAt
+        self.modelID = modelID
+        self.modelName = modelName
+    }
+
+    nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = (try? container.decodeIfPresent(String.self, forKey: .kind)) ?? nil
+        group = (try? container.decodeIfPresent(String.self, forKey: .group)) ?? nil
+
+        // percent: Int/Double/String 방어 (UsageWindow.utilization과 동일 원칙)
+        if let doubleVal = try? container.decode(Double.self, forKey: .percent) {
+            percent = doubleVal
+        } else if let intVal = try? container.decode(Int.self, forKey: .percent) {
+            percent = Double(intVal)
+        } else if let strVal = try? container.decode(String.self, forKey: .percent),
+                  let parsed = Double(strVal) {
+            percent = parsed
+        } else {
+            percent = nil
+        }
+
+        // resets_at: 문자열(ISO) 외에 숫자(unix seconds) 변형 방어 (UsageWindow와 동일)
+        if let textVal = try? container.decode(String.self, forKey: .resetsAt),
+           !textVal.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let trimmed = textVal.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let unix = Double(trimmed) {
+                resetsAt = UsageWindow.isoString(fromUnixSeconds: unix)
+            } else {
+                resetsAt = trimmed
+            }
+        } else if let intVal = try? container.decode(Int.self, forKey: .resetsAt) {
+            resetsAt = UsageWindow.isoString(fromUnixSeconds: Double(intVal))
+        } else if let doubleVal = try? container.decode(Double.self, forKey: .resetsAt) {
+            resetsAt = UsageWindow.isoString(fromUnixSeconds: doubleVal)
+        } else {
+            resetsAt = nil
+        }
+
+        if let scope = try? container.nestedContainer(keyedBy: ScopeKeys.self, forKey: .scope),
+           let model = try? scope.nestedContainer(keyedBy: ModelKeys.self, forKey: .model) {
+            modelID = (try? model.decodeIfPresent(String.self, forKey: .id)) ?? nil
+            modelName = (try? model.decodeIfPresent(String.self, forKey: .displayName)) ?? nil
+        } else {
+            modelID = nil
+            modelName = nil
+        }
+    }
+
+    nonisolated func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(kind, forKey: .kind)
+        try container.encodeIfPresent(group, forKey: .group)
+        try container.encodeIfPresent(percent, forKey: .percent)
+        try container.encodeIfPresent(resetsAt, forKey: .resetsAt)
+    }
+}
+
+/// 팝오버에 표시하는 모델별 주간 한도 창 (limits[] + 레거시 필드 병합 결과)
+struct ClaudeModelWeeklyWindow: Sendable, Equatable {
+    let slug: String        // 표시 ID용 (예: "fable", "sonnet")
+    let modelName: String   // 표시 이름 (예: "Fable")
+    let utilization: Double
+    let resetsAt: String?
 }
 
 /// 개별 사용량 윈도우 (5시간, 주간, Sonnet, Opus)
@@ -90,7 +223,7 @@ struct UsageWindow: Codable, Sendable {
         self.resetsAt = resetsAt
     }
 
-    nonisolated private static func isoString(fromUnixSeconds seconds: Double) -> String {
+    nonisolated static func isoString(fromUnixSeconds seconds: Double) -> String {
         let date = Date(timeIntervalSince1970: seconds)
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -132,6 +265,79 @@ extension ClaudeUsageResponse {
     /// Opus 주간 퍼센트 (없으면 nil)
     nonisolated var opusPercentage: Double? {
         sevenDayOpus?.utilization
+    }
+
+    /// 표시용 모델별 주간 한도 목록.
+    /// limits[]의 weekly_scoped 항목(신형, 예: Fable)을 우선 사용하고,
+    /// 레거시 seven_day_sonnet/seven_day_opus는 신형에 같은 모델이 없을 때만 보충합니다.
+    nonisolated var modelWeeklyWindows: [ClaudeModelWeeklyWindow] {
+        var windows: [ClaudeModelWeeklyWindow] = []
+        var seenSlugs: Set<String> = []
+
+        for limit in scopedLimits {
+            guard limit.kind == "weekly_scoped" else { continue }
+            if let group = limit.group, group != "weekly" { continue }
+            guard let percent = limit.percent, percent.isFinite else { continue }
+            guard let rawName = limit.modelName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !rawName.isEmpty else { continue }
+            // 전체 모델 합산 스코프는 seven_day 주간 한도와 중복이므로 제외
+            guard !Self.isAllModelsScope(modelID: limit.modelID, modelName: rawName) else { continue }
+
+            let identity = limit.modelID?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let slug = Self.modelSlug((identity?.isEmpty == false ? identity! : rawName))
+            guard !slug.isEmpty, seenSlugs.insert(slug).inserted else { continue }
+
+            windows.append(ClaudeModelWeeklyWindow(
+                slug: slug,
+                modelName: rawName,
+                utilization: percent,
+                resetsAt: limit.resetsAt
+            ))
+        }
+
+        // 레거시 필드 보충 (신형 limits에 같은 모델이 없을 때만)
+        let coveredText = seenSlugs.joined(separator: " ")
+        if let sonnet = sevenDaySonnet, !coveredText.contains("sonnet") {
+            windows.append(ClaudeModelWeeklyWindow(
+                slug: "sonnet",
+                modelName: "Sonnet",
+                utilization: sonnet.utilization,
+                resetsAt: sonnet.resetsAt
+            ))
+        }
+        if let opus = sevenDayOpus, !coveredText.contains("opus") {
+            windows.append(ClaudeModelWeeklyWindow(
+                slug: "opus",
+                modelName: "Opus",
+                utilization: opus.utilization,
+                resetsAt: opus.resetsAt
+            ))
+        }
+
+        return windows
+    }
+
+    /// 소문자 영숫자 + 대시 슬러그 (모델 ID/이름 → 안정적인 표시 ID)
+    nonisolated private static func modelSlug(_ value: String) -> String {
+        var result = ""
+        var lastWasDash = false
+        for scalar in value.lowercased().unicodeScalars {
+            if CharacterSet.alphanumerics.contains(scalar) {
+                result.unicodeScalars.append(scalar)
+                lastWasDash = false
+            } else if !lastWasDash {
+                result.append("-")
+                lastWasDash = true
+            }
+        }
+        return result.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+    }
+
+    nonisolated private static func isAllModelsScope(modelID: String?, modelName: String) -> Bool {
+        if modelSlug(modelName) == "all-models" { return true }
+        guard let modelID, !modelID.isEmpty else { return false }
+        let idSlug = modelSlug(modelID)
+        return idSlug == "all-models" || idSlug.hasSuffix("-all-models")
     }
 }
 

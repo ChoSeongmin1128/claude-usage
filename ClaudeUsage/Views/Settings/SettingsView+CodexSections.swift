@@ -28,14 +28,6 @@ extension SettingsView {
                         checkCodexAuth()
                     }
                     .buttonStyle(.bordered)
-
-                    if codexAuthStatus == .authenticated {
-                        Button("로그아웃") {
-                            onCodexLogout?()
-                            checkCodexAuth()
-                        }
-                        .buttonStyle(.bordered)
-                    }
                 }
             }
         }

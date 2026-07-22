@@ -69,6 +69,59 @@ struct CodexAuthPresentation: Equatable {
     }
 }
 
+enum SettingsDestructiveAction: Identifiable, Equatable {
+    case resetDefaults
+    case clearBrowserSession
+    case deleteClaudeAccount(ClaudeAccount)
+    case disconnectAntigravityAccount
+    case disconnectAllAntigravityAccounts
+
+    var id: String {
+        switch self {
+        case .resetDefaults: return "reset-defaults"
+        case .clearBrowserSession: return "clear-browser-session"
+        case .deleteClaudeAccount(let account): return "delete-claude-\(account.id)"
+        case .disconnectAntigravityAccount: return "disconnect-antigravity"
+        case .disconnectAllAntigravityAccounts: return "disconnect-all-antigravity"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .resetDefaults: return "모든 표시 설정을 기본값으로 복원할까요?"
+        case .clearBrowserSession: return "브라우저 로그인 값을 삭제할까요?"
+        case .deleteClaudeAccount(let account): return "\(account.displayName) 계정을 삭제할까요?"
+        case .disconnectAntigravityAccount: return "선택한 Google 계정 연결을 해제할까요?"
+        case .disconnectAllAntigravityAccounts: return "모든 Google 계정 연결을 해제할까요?"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .resetDefaults:
+            return "계정 로그인은 유지되고 메뉴바, 팝오버, 알림 설정만 초기화됩니다."
+        case .clearBrowserSession:
+            return "선택한 브라우저 계정의 저장된 로그인 값이 제거됩니다. Claude Code 로그인은 유지됩니다."
+        case .deleteClaudeAccount:
+            return "저장된 브라우저 로그인과 계정 표시 정보가 함께 제거됩니다."
+        case .disconnectAntigravityAccount:
+            return "해당 계정의 로컬 연결 정보가 제거되며 다시 연결할 수 있습니다."
+        case .disconnectAllAntigravityAccounts:
+            return "저장된 모든 Antigravity Google 계정 연결이 이 Mac에서 제거됩니다."
+        }
+    }
+
+    var actionTitle: String {
+        switch self {
+        case .resetDefaults: return "기본값 복원"
+        case .clearBrowserSession: return "로그인 값 삭제"
+        case .deleteClaudeAccount: return "계정 삭제"
+        case .disconnectAntigravityAccount: return "연결 해제"
+        case .disconnectAllAntigravityAccounts: return "모두 연결 해제"
+        }
+    }
+}
+
 enum CodexAuthStatusResolver {
     /// **[C] Refresh 자동 호출 제거**:
     /// 이전에는 만료(또는 만료 추정) 시 status 조회 자체가 `refreshAccessToken` 콜백을 호출했다.
@@ -127,6 +180,7 @@ struct SettingsView: View {
     @State var codexAuthCheckTask: Task<Void, Never>?
     @State var runtimeEnvironmentRefreshTick: Int = 0
     @State var expandedCustomMenuBarProviders: Set<AppProviderKind> = []
+    @State var pendingDestructiveAction: SettingsDestructiveAction?
     @StateObject var antigravityOAuthSettings = AntigravityOAuthSettingsViewModel()
 
     var onOpenLogin: (() -> Void)?

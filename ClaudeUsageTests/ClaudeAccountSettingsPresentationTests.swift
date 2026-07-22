@@ -1,6 +1,7 @@
 import XCTest
 @testable import ClaudeUsage
 
+@MainActor
 final class ClaudeAccountSettingsPresentationTests: XCTestCase {
     func testWebSessionPresentationUsesHumanAccountLabel() {
         let account = ClaudeAccount(

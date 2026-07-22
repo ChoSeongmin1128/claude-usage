@@ -59,7 +59,7 @@ final class UsageItemCatalogTests: XCTestCase {
 
         XCTAssertEqual(sections.map(\.id), ["modelUsage-sonnet", "modelUsage-opus"])
         XCTAssertEqual(sections.map(\.kind), [.usage, .usage])
-        XCTAssertEqual(usageTitles(from: sections), ["Sonnet (주간)", "Opus (주간)"])
+        XCTAssertEqual(usageTitles(from: sections), ["Sonnet", "Opus"])
     }
 
     func testClaudeOverageSectionIsShownWhenExtraUsageEnabled() {
@@ -110,6 +110,174 @@ final class UsageItemCatalogTests: XCTestCase {
         )
 
         XCTAssertNil(section)
+    }
+
+    func testClaudeModelUsageExpansionIncludesScopedWeeklyFable() {
+        let catalog = ClaudeItemCatalog()
+        let sections = catalog.expandedSections(
+            for: "modelUsage",
+            context: makeContext(
+                claudeUsage: ClaudeUsageResponse(
+                    fiveHour: UsageWindow(utilization: 12, resetsAt: nil),
+                    sevenDay: UsageWindow(utilization: 40, resetsAt: nil),
+                    sevenDaySonnet: UsageWindow(utilization: 61, resetsAt: nil),
+                    scopedLimits: [
+                        ClaudeScopedLimit(kind: "weekly_scoped", percent: 27, modelName: "Fable"),
+                        ClaudeScopedLimit(kind: "weekly_scoped", percent: 90, modelID: "all-models", modelName: "All models"),
+                    ]
+                )
+            )
+        )
+
+        XCTAssertEqual(sections.map(\.id), ["modelUsage-fable", "modelUsage-sonnet"])
+        XCTAssertEqual(usageTitles(from: sections), ["Fable", "Sonnet"])
+        XCTAssertEqual(compactLabels(from: sections), ["Fable", "소넷"])
+    }
+
+    func testCodexCatalogNormalizedInsertsNewDefaultsAtCatalogPosition() {
+        let catalog = CodexItemCatalog()
+        // 모델별 한도/초기화 크레딧 항목이 생기기 전의 저장 목록
+        let normalized = catalog.normalized([
+            PopoverItemConfig(id: "codexPrimary", visible: true),
+            PopoverItemConfig(id: "codexSecondary", visible: false),
+            PopoverItemConfig(id: "codexCredits", visible: true),
+        ])
+
+        // 새 항목은 끝에 몰리지 않고 카탈로그 기본 순서상 위치에 삽입된다
+        XCTAssertEqual(
+            normalized.map(\.id),
+            ["codexPrimary", "codexSecondary", "codexModelLimits", "codexResetCredits", "codexCredits"]
+        )
+        XCTAssertEqual(normalized.first { $0.id == "codexSecondary" }?.visible, false)
+    }
+
+    func testCodexCatalogMarksSessionItemUnavailableForWeeklyOnlyPlan() throws {
+        let catalog = CodexItemCatalog()
+        let usage = try decodeCodexUsage(
+            """
+            {
+              "plan_type": "pro",
+              "rate_limit": {
+                "primary_window": { "used_percent": 12, "limit_window_seconds": 604800 },
+                "secondary_window": null
+              }
+            }
+            """
+        )
+
+        let unavailable = catalog.unavailableItemIDs(context: makeContext(codexUsage: usage))
+        XCTAssertTrue(unavailable.contains("codexPrimary"))
+        XCTAssertFalse(unavailable.contains("codexSecondary"))
+
+        // 응답 자체가 없으면(로딩/오류) 미제공 판정을 하지 않는다
+        XCTAssertTrue(catalog.unavailableItemIDs(context: makeContext()).isEmpty)
+    }
+
+    func testCodexCatalogRoutesWeeklyAsPrimaryResponseToWeeklyRow() throws {
+        // 2026-07 실제 응답: 주간 창이 primary_window 자리에 오고 secondary 는 null.
+        // "Codex 현재" 행은 숨고, 주간 창은 "Codex 주간" 항목으로 표시돼야 한다.
+        let catalog = CodexItemCatalog()
+        let usage = try decodeCodexUsage(
+            """
+            {
+              "plan_type": "pro",
+              "rate_limit": {
+                "primary_window": {
+                  "used_percent": 12,
+                  "limit_window_seconds": 604800,
+                  "reset_at": 1785283490
+                },
+                "secondary_window": null
+              }
+            }
+            """
+        )
+        let sections = catalog.sections(
+            from: catalog.defaultItems,
+            context: makeContext(codexUsage: usage)
+        )
+
+        XCTAssertFalse(sections.contains { $0.id.hasPrefix("codexPrimary") })
+        let weekly = sections.first { $0.id == "codexSecondary" }
+        XCTAssertNotNil(weekly)
+        XCTAssertEqual(usageTitles(from: sections.filter { $0.id == "codexSecondary" }), ["주간 한도"])
+    }
+
+    func testCodexCatalogExpandsAdditionalModelLimits() throws {
+        let catalog = CodexItemCatalog()
+        let usage = try decodeCodexUsage(
+            """
+            {
+              "rate_limit": {
+                "primary_window": { "used_percent": 12, "limit_window_seconds": 604800 },
+                "secondary_window": null
+              },
+              "additional_rate_limits": [
+                {
+                  "limit_name": "GPT-5.3-Codex-Spark",
+                  "rate_limit": {
+                    "primary_window": { "used_percent": 7, "limit_window_seconds": 604800 }
+                  }
+                }
+              ]
+            }
+            """
+        )
+        let sections = catalog.sections(
+            from: catalog.defaultItems,
+            context: makeContext(codexUsage: usage)
+        )
+
+        XCTAssertTrue(sections.contains { $0.id == "codexModelLimit-GPT-5.3-Codex-Spark" })
+        XCTAssertTrue(usageTitles(from: sections).contains("GPT-5.3-Codex-Spark"))
+    }
+
+    func testCodexCatalogShowsResetCreditsRowWhenAvailable() throws {
+        let catalog = CodexItemCatalog()
+        var usage = try decodeCodexUsage(
+            """
+            {
+              "plan_type": "plus",
+              "rate_limit": {
+                "primary_window": { "used_percent": 4, "limit_window_seconds": 18000 },
+                "secondary_window": { "used_percent": 63, "limit_window_seconds": 604800 }
+              }
+            }
+            """
+        )
+        usage.resetCredits = CodexResetCreditsResponse(
+            credits: [
+                CodexResetCredit(id: "credit-1", status: "available", expiresAtISO: "2099-01-01T00:00:00Z"),
+            ]
+        )
+
+        let sections = catalog.sections(
+            from: catalog.defaultItems,
+            context: makeContext(codexUsage: usage)
+        )
+
+        XCTAssertTrue(sections.contains { $0.id == "codexResetCredits" && $0.kind == .resetCredits })
+    }
+
+    func testCodexCatalogHidesResetCreditsRowWhenNoneAvailable() throws {
+        let catalog = CodexItemCatalog()
+        var usage = try decodeCodexUsage(
+            """
+            {
+              "rate_limit": {
+                "primary_window": { "used_percent": 4, "limit_window_seconds": 18000 }
+              }
+            }
+            """
+        )
+        usage.resetCredits = CodexResetCreditsResponse(credits: [])
+
+        let sections = catalog.sections(
+            from: catalog.defaultItems,
+            context: makeContext(codexUsage: usage)
+        )
+
+        XCTAssertFalse(sections.contains { $0.id == "codexResetCredits" })
     }
 
     func testCodexCatalogFallsBackToStatusSectionsWhenPayloadMissing() {
@@ -332,6 +500,10 @@ private func makeContext(
         codexError: codexError,
         antigravityUsage: antigravityUsage
     )
+}
+
+private func decodeCodexUsage(_ json: String) throws -> CodexUsageResponse {
+    try JSONDecoder().decode(CodexUsageResponse.self, from: Data(json.utf8))
 }
 
 private func usageTitles(from sections: [PopoverDisplaySection]) -> [String] {

@@ -8,6 +8,8 @@
 import SwiftUI
 
 struct ProgressBarView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let percentage: Double
     var height: CGFloat = 8
     var color: Color? = nil
@@ -22,10 +24,13 @@ struct ProgressBarView: View {
                 // 진행바
                 RoundedRectangle(cornerRadius: height / 2)
                     .fill(color ?? ColorProvider.statusColor(for: percentage))
-                    .frame(width: geometry.size.width * CGFloat(min(percentage, 100)) / 100)
-                    .animation(.easeInOut(duration: 0.3), value: percentage)
+                    .frame(width: geometry.size.width * CGFloat(max(0, min(percentage, 100))) / 100)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: percentage)
             }
         }
         .frame(height: height)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("사용량")
+        .accessibilityValue("\(Int(max(0, min(percentage, 100)).rounded()))퍼센트 사용")
     }
 }

@@ -36,6 +36,13 @@ enum RuntimeProviderFetchState: String, Sendable, Equatable {
     case blocked
 }
 
+enum RuntimeProviderFreshness: String, Sendable, Equatable {
+    case unavailable
+    case loading
+    case fresh
+    case stale
+}
+
 enum RuntimeProviderAttemptState: String, Sendable, Equatable {
     case idle
     case loading
@@ -111,6 +118,24 @@ enum RuntimeProviderPayload {
     case antigravity(AntigravityUsageResponse)
 }
 
+/// 조회 결과의 출처와 계정 귀속 정보. payload와 같은 수명으로 보관해 화면이
+/// "어느 계정의 어떤 연결에서 가져온 값인지"를 문자열 추측 없이 표시하게 한다.
+struct RuntimeProviderFetchMetadata: Sendable, Equatable {
+    let sourceLabel: String?
+    let accountID: String?
+    let attemptedSourceLabels: [String]
+
+    nonisolated init(
+        sourceLabel: String? = nil,
+        accountID: String? = nil,
+        attemptedSourceLabels: [String] = []
+    ) {
+        self.sourceLabel = sourceLabel
+        self.accountID = accountID
+        self.attemptedSourceLabels = attemptedSourceLabels
+    }
+}
+
 enum RuntimeRefreshStrategy: Sendable, Equatable {
     case claude
     case codex
@@ -167,6 +192,8 @@ struct RuntimeProviderState {
     private var lastSuccessfulPayloadStorage: RuntimeProviderPayload?
     private var lastSuccessfulAtStorage: Date?
     private var lastAttemptErrorStorage: APIError?
+    private var lastSuccessfulMetadataStorage: RuntimeProviderFetchMetadata?
+    private var lastAttemptMetadataStorage: RuntimeProviderFetchMetadata?
     var lastAttemptState: RuntimeProviderAttemptState
     var isLoading: Bool
     var loadingStartedAt: Date?
@@ -181,11 +208,15 @@ struct RuntimeProviderState {
         nextRefreshAllowedAt: Date? = nil,
         lastUpdated: Date? = nil,
         hasAuthError: Bool = false,
-        lastAttemptState: RuntimeProviderAttemptState? = nil
+        lastAttemptState: RuntimeProviderAttemptState? = nil,
+        lastSuccessfulMetadata: RuntimeProviderFetchMetadata? = nil,
+        lastAttemptMetadata: RuntimeProviderFetchMetadata? = nil
     ) {
         self.lastSuccessfulPayloadStorage = payload
         self.lastSuccessfulAtStorage = lastUpdated
         self.lastAttemptErrorStorage = error
+        self.lastSuccessfulMetadataStorage = lastSuccessfulMetadata
+        self.lastAttemptMetadataStorage = lastAttemptMetadata
         self.lastAttemptState = lastAttemptState ?? RuntimeProviderAttemptState.resolve(
             isLoading: isLoading,
             error: error
@@ -218,6 +249,16 @@ struct RuntimeProviderState {
                 hasAuthError = true
             }
         }
+    }
+
+    var lastSuccessfulMetadata: RuntimeProviderFetchMetadata? {
+        get { lastSuccessfulMetadataStorage }
+        set { lastSuccessfulMetadataStorage = newValue }
+    }
+
+    var lastAttemptMetadata: RuntimeProviderFetchMetadata? {
+        get { lastAttemptMetadataStorage }
+        set { lastAttemptMetadataStorage = newValue }
     }
 
     var payload: RuntimeProviderPayload? {
@@ -264,7 +305,16 @@ struct RuntimeProviderState {
             return .loading
         }
         if lastSuccessfulPayloadStorage != nil {
-            return .success
+            switch lastAttemptState {
+            case .temporaryFailure:
+                return .temporaryFailure
+            case .definitiveFailure:
+                return .definitiveFailure
+            case .authFailure:
+                return .authFailure
+            case .idle, .loading:
+                return .success
+            }
         }
         switch lastAttemptState {
         case .idle:
@@ -306,6 +356,8 @@ struct RuntimeProviderSnapshot {
     let isDetected: Bool
     let canAttemptRefresh: Bool
     let hasAuthError: Bool
+    let lastSuccessfulMetadata: RuntimeProviderFetchMetadata?
+    let lastAttemptMetadata: RuntimeProviderFetchMetadata?
 
     init(
         service: PopoverService,
@@ -318,7 +370,9 @@ struct RuntimeProviderSnapshot {
         isDetected: Bool,
         canAttemptRefresh: Bool,
         hasAuthError: Bool,
-        lastAttemptState: RuntimeProviderAttemptState? = nil
+        lastAttemptState: RuntimeProviderAttemptState? = nil,
+        lastSuccessfulMetadata: RuntimeProviderFetchMetadata? = nil,
+        lastAttemptMetadata: RuntimeProviderFetchMetadata? = nil
     ) {
         self.service = service
         self.displayPayload = payload
@@ -330,6 +384,8 @@ struct RuntimeProviderSnapshot {
         self.isDetected = isDetected
         self.canAttemptRefresh = canAttemptRefresh
         self.hasAuthError = hasAuthError
+        self.lastSuccessfulMetadata = lastSuccessfulMetadata
+        self.lastAttemptMetadata = lastAttemptMetadata
         self.lastAttemptState = lastAttemptState ?? RuntimeProviderAttemptState.resolve(
             isLoading: isLoading,
             error: error
@@ -345,13 +401,27 @@ struct RuntimeProviderSnapshot {
     var runtimeReachability: Bool { canAttemptRefresh }
     var hasBackoff: Bool { RefreshExecutionPolicy.remainingBackoffSeconds(until: nextRefreshAllowedAt) != nil }
     var isStaleRecoverable: Bool { displayPayload != nil && lastAttemptState == .temporaryFailure }
+    var freshness: RuntimeProviderFreshness {
+        if isLoading { return .loading }
+        guard displayPayload != nil else { return .unavailable }
+        return lastAttemptError == nil ? .fresh : .stale
+    }
 
     var fetchState: RuntimeProviderFetchState {
         if isLoading {
             return .loading
         }
         if displayPayload != nil {
-            return .success
+            switch lastAttemptState {
+            case .temporaryFailure:
+                return .temporaryFailure
+            case .definitiveFailure:
+                return .definitiveFailure
+            case .authFailure:
+                return .authFailure
+            case .idle, .loading:
+                return .success
+            }
         }
         switch lastAttemptState {
         case .loading:

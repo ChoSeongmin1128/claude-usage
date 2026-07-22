@@ -31,6 +31,8 @@ protocol UsageItemCatalog {
     func displayName(for itemID: String) -> String?
     func section(for itemID: String, context: UsageItemContext) -> PopoverDisplaySection?
     func expandedSections(for itemID: String, context: UsageItemContext) -> [PopoverDisplaySection]
+    /// 이 provider의 사용량 payload가 context에 실려 있는지 (미로딩/오류 상태 구분용)
+    func hasPayload(context: UsageItemContext) -> Bool
 }
 
 extension UsageItemCatalog {
@@ -39,10 +41,10 @@ extension UsageItemCatalog {
     /// 저장된 항목 배열을 지원 ID 기준으로 정규화합니다.
     /// - 미지원 ID 제거
     /// - 중복 제거
-    /// - 누락된 지원 ID는 기본 visibility로 보충
+    /// - 누락된 지원 ID는 기본 visibility로, 카탈로그 기본 순서상 위치에 삽입
+    ///   (끝에 몰아붙이면 새 항목이 생길 때마다 사용자 목록 순서가 어긋난다)
     func normalized(_ items: [PopoverItemConfig]) -> [PopoverItemConfig] {
         let supported = Set(supportedIDs)
-        let defaultVisible = Dictionary(uniqueKeysWithValues: defaultItems.map { ($0.id, $0.visible) })
 
         var seen = Set<String>()
         var result: [PopoverItemConfig] = []
@@ -54,11 +56,23 @@ extension UsageItemCatalog {
             result.append(item)
         }
 
-        for id in supportedIDs where !seen.contains(id) {
-            result.append(PopoverItemConfig(id: id, visible: defaultVisible[id] ?? true))
+        for (defaultIndex, config) in defaultItems.enumerated() where !seen.contains(config.id) {
+            // 기본 순서상 이 항목보다 앞에 오는 항목들 중, 사용자 목록에 존재하는
+            // 마지막 항목 바로 뒤에 삽입한다.
+            let precedingIDs = Set(defaultItems[..<defaultIndex].map(\.id))
+            let insertIndex = result.lastIndex(where: { precedingIDs.contains($0.id) }).map { $0 + 1 } ?? 0
+            result.insert(PopoverItemConfig(id: config.id, visible: config.visible), at: insertIndex)
+            seen.insert(config.id)
         }
 
         return result.isEmpty ? defaultItems : result
+    }
+
+    /// 프로바이더 데이터는 정상 수신됐는데 표시할 내용이 없는 항목 ID 목록.
+    /// 설정 UI가 "지금 플랜/응답에는 이 항목이 없다"는 안내를 붙이는 데 사용한다.
+    func unavailableItemIDs(context: UsageItemContext) -> Set<String> {
+        guard hasPayload(context: context) else { return [] }
+        return Set(supportedIDs.filter { expandedSections(for: $0, context: context).isEmpty })
     }
 
     /// Visible 항목만 순서대로 섹션으로 변환.
@@ -103,6 +117,10 @@ enum UsageItemCatalogRegistry {
 
 struct ClaudeItemCatalog: UsageItemCatalog {
     let providerID = PopoverService.claude.rawValue
+
+    func hasPayload(context: UsageItemContext) -> Bool {
+        context.claudeUsage != nil
+    }
 
     let defaultItems: [PopoverItemConfig] = [
         PopoverItemConfig(id: "currentSession", visible: true),
@@ -181,55 +199,51 @@ struct ClaudeItemCatalog: UsageItemCatalog {
         }
     }
 
-    /// 일부 항목은 1:N으로 확장됩니다 (예: modelUsage → Sonnet + Opus 2개).
+    /// 일부 항목은 1:N으로 확장됩니다 (예: modelUsage → 모델별 주간 한도 N개).
     /// 기본 `section(for:)`로 처리 불가능한 경우 이 함수가 섹션 배열을 생성합니다.
     func expandedSections(for itemID: String, context: UsageItemContext) -> [PopoverDisplaySection] {
         switch itemID {
         case "modelUsage":
-            var out: [PopoverDisplaySection] = []
-            if let sonnet = context.claudeUsage?.sevenDaySonnet {
-                out.append(PopoverDisplaySection(
-                    id: "modelUsage-sonnet",
+            guard let usage = context.claudeUsage else { return [] }
+            // limits[] 기반 동적 목록 — Fable 등 새 모델 스코프 한도가 생겨도 코드 수정 없이 표시됩니다.
+            // 제목은 모델명만 (긴 이름 잘림 방지 + Codex 모델 행과 동일 규칙).
+            return usage.modelWeeklyWindows.map { window in
+                PopoverDisplaySection(
+                    id: "modelUsage-\(window.slug)",
                     kind: .usage,
                     importance: .primary,
                     payload: .usage(
                         PopoverUsageSectionData(
-                            systemIcon: "bolt.fill",
-                            title: "Sonnet (주간)",
-                            compactLabel: "소넷",
-                            percentage: sonnet.utilization,
-                            resetAt: sonnet.resetsAt,
+                            systemIcon: Self.modelIcon(forSlug: window.slug),
+                            title: window.modelName,
+                            compactLabel: Self.modelCompactLabel(for: window),
+                            percentage: window.utilization,
+                            resetAt: window.resetsAt,
                             isWeekly: true,
                             timeFormatStyle: context.settings.timeFormat
                         )
                     )
-                ))
+                )
             }
-            if let opus = context.claudeUsage?.sevenDayOpus {
-                out.append(PopoverDisplaySection(
-                    id: "modelUsage-opus",
-                    kind: .usage,
-                    importance: .primary,
-                    payload: .usage(
-                        PopoverUsageSectionData(
-                            systemIcon: "diamond.fill",
-                            title: "Opus (주간)",
-                            compactLabel: "Opus",
-                            percentage: opus.utilization,
-                            resetAt: opus.resetsAt,
-                            isWeekly: true,
-                            timeFormatStyle: context.settings.timeFormat
-                        )
-                    )
-                ))
-            }
-            return out
         default:
             if let single = section(for: itemID, context: context) {
                 return [single]
             }
             return []
         }
+    }
+
+    private static func modelIcon(forSlug slug: String) -> String {
+        if slug.contains("sonnet") { return "bolt.fill" }
+        if slug.contains("opus") { return "diamond.fill" }
+        if slug.contains("fable") || slug.contains("mythos") { return "sparkles" }
+        if slug.contains("haiku") { return "leaf.fill" }
+        return "cpu"
+    }
+
+    private static func modelCompactLabel(for window: ClaudeModelWeeklyWindow) -> String {
+        if window.slug.contains("sonnet") { return "소넷" }
+        return window.modelName
     }
 }
 
@@ -238,9 +252,15 @@ struct ClaudeItemCatalog: UsageItemCatalog {
 struct CodexItemCatalog: UsageItemCatalog {
     let providerID = PopoverService.codex.rawValue
 
+    func hasPayload(context: UsageItemContext) -> Bool {
+        context.codexUsage != nil
+    }
+
     let defaultItems: [PopoverItemConfig] = [
         PopoverItemConfig(id: "codexPrimary", visible: true),
         PopoverItemConfig(id: "codexSecondary", visible: true),
+        PopoverItemConfig(id: "codexModelLimits", visible: true),
+        PopoverItemConfig(id: "codexResetCredits", visible: true),
         PopoverItemConfig(id: "codexCredits", visible: true),
     ]
 
@@ -248,15 +268,55 @@ struct CodexItemCatalog: UsageItemCatalog {
         switch itemID {
         case "codexPrimary": return "Codex 현재"
         case "codexSecondary": return "Codex 주간"
+        case "codexModelLimits": return "Codex 모델별 한도"
+        case "codexResetCredits": return "Codex 한도 초기화 크레딧"
         case "codexCredits": return "Codex 크레딧"
         default: return nil
+        }
+    }
+
+    /// codexModelLimits 는 additional_rate_limits 항목 수만큼 1:N 확장됩니다.
+    func expandedSections(for itemID: String, context: UsageItemContext) -> [PopoverDisplaySection] {
+        switch itemID {
+        case "codexModelLimits":
+            guard let usage = context.codexUsage else { return [] }
+            return usage.additionalRateLimits.compactMap { limit in
+                guard let window = limit.window,
+                      let name = limit.limitName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      !name.isEmpty else { return nil }
+                // 제목은 모델명만 — 실제 모델명이 길어 접미사를 붙이면 잘린다.
+                // 주간 여부는 아래 "갱신 예상" 줄의 주간 포맷이 전달한다.
+                return PopoverDisplaySection(
+                    id: "codexModelLimit-\(name)",
+                    kind: .usage,
+                    importance: .primary,
+                    payload: .usage(
+                        PopoverUsageSectionData(
+                            systemIcon: "cpu",
+                            title: name,
+                            compactLabel: name,
+                            percentage: window.utilization,
+                            resetAt: window.resetAtISO,
+                            isWeekly: (window.limitWindowSeconds ?? 0) >= 24 * 3600,
+                            timeFormatStyle: context.settings.codexTimeFormat
+                        )
+                    )
+                )
+            }
+        default:
+            if let single = section(for: itemID, context: context) {
+                return [single]
+            }
+            return []
         }
     }
 
     func section(for itemID: String, context: UsageItemContext) -> PopoverDisplaySection? {
         switch itemID {
         case "codexPrimary":
-            if let window = context.codexUsage?.rateLimit?.primaryWindow {
+            // 위치(primary/secondary)가 아니라 창 길이로 분류한다 —
+            // 2026-07 개편으로 주간 창이 primary 자리에 오기 때문.
+            if let window = context.codexUsage?.sessionWindow {
                 return PopoverDisplaySection(
                     id: "codexPrimary",
                     kind: .usage,
@@ -264,8 +324,8 @@ struct CodexItemCatalog: UsageItemCatalog {
                     payload: .usage(
                         PopoverUsageSectionData(
                             systemIcon: "bubble.left.and.bubble.right",
-                            title: "현재 세션",
-                            compactLabel: "현재",
+                            title: window.adaptiveTitle(expectedSeconds: 5 * 3600, fallback: "현재 세션"),
+                            compactLabel: window.adaptiveCompactLabel(expectedSeconds: 5 * 3600, fallback: "현재"),
                             percentage: window.utilization,
                             resetAt: window.resetAtISO,
                             isWeekly: false,
@@ -273,6 +333,9 @@ struct CodexItemCatalog: UsageItemCatalog {
                         )
                     )
                 )
+            } else if context.codexUsage != nil {
+                // 사용량 응답은 정상인데 세션 성격 창이 없는 경우(주간 전용 개편) — 행을 숨긴다.
+                return nil
             } else {
                 return PopoverDisplaySection(
                     id: "codexPrimary-status",
@@ -283,7 +346,7 @@ struct CodexItemCatalog: UsageItemCatalog {
             }
 
         case "codexSecondary":
-            if let window = context.codexUsage?.rateLimit?.secondaryWindow {
+            if let window = context.codexUsage?.weeklyWindow {
                 return PopoverDisplaySection(
                     id: "codexSecondary",
                     kind: .usage,
@@ -291,8 +354,8 @@ struct CodexItemCatalog: UsageItemCatalog {
                     payload: .usage(
                         PopoverUsageSectionData(
                             systemIcon: "calendar.badge.clock",
-                            title: "주간 한도",
-                            compactLabel: "주간",
+                            title: window.adaptiveTitle(expectedSeconds: 7 * 24 * 3600, fallback: "주간 한도"),
+                            compactLabel: window.adaptiveCompactLabel(expectedSeconds: 7 * 24 * 3600, fallback: "주간"),
                             percentage: window.utilization,
                             resetAt: window.resetAtISO,
                             isWeekly: true,
@@ -300,6 +363,9 @@ struct CodexItemCatalog: UsageItemCatalog {
                         )
                     )
                 )
+            } else if context.codexUsage != nil {
+                // 주간 성격 창 자체가 없는 응답 — 오류가 아니라 미제공이므로 행을 숨긴다.
+                return nil
             } else {
                 return PopoverDisplaySection(
                     id: "codexSecondary-status",
@@ -309,14 +375,39 @@ struct CodexItemCatalog: UsageItemCatalog {
                 )
             }
 
+        case "codexResetCredits":
+            // 보유 크레딧이 있을 때만 표시 — 0개일 때는 노이즈라 숨긴다.
+            guard let resetCredits = context.codexUsage?.resetCredits else { return nil }
+            let availableCount = resetCredits.availableCount()
+            guard availableCount > 0 else { return nil }
+            return PopoverDisplaySection(
+                id: "codexResetCredits",
+                kind: .resetCredits,
+                importance: .primary,
+                payload: .resetCredits(
+                    PopoverResetCreditsSectionData(
+                        availableCount: availableCount,
+                        nextExpiresAtISO: resetCredits.nextExpiringAvailable()?.expiresAtISO,
+                        timeFormatStyle: context.settings.codexTimeFormat
+                    )
+                )
+            )
+
         case "codexCredits":
             if let credits = context.codexUsage?.credits {
+                // 크레딧을 실제로 쓰는 계정에서만 표시 — has_credits=false, 잔액 0 이면
+                // "$0.00" 은 정보가 아니라 노이즈다. (실계정 응답 기준)
+                let balance = credits.balance ?? 0
+                guard credits.unlimited || credits.hasCredits || balance > 0 else { return nil }
                 return PopoverDisplaySection(
                     id: "codexCredits",
                     kind: .credits,
                     importance: .primary,
                     payload: .credits(PopoverCreditsSectionData(credits: credits))
                 )
+            } else if context.codexUsage != nil {
+                // 사용량 응답에 크레딧 필드 자체가 없으면 미제공 — 행을 숨긴다.
+                return nil
             } else {
                 return PopoverDisplaySection(
                     id: "codexCredits-status",
@@ -358,6 +449,10 @@ private func windowedAccountSection(
 
 struct AntigravityItemCatalog: UsageItemCatalog {
     let providerID = PopoverService.antigravity.rawValue
+
+    func hasPayload(context: UsageItemContext) -> Bool {
+        context.antigravityUsage != nil
+    }
     let defaultItems: [PopoverItemConfig] = [
         PopoverItemConfig(id: "antigravityModels", visible: true),
         PopoverItemConfig(id: "antigravityAccount", visible: false),

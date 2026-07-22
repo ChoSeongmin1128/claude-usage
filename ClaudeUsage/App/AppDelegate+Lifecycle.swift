@@ -11,8 +11,11 @@ extension AppDelegate {
 
         Logger.info("ClaudeUsage 앱 시작")
 
+        // 메뉴바 tooltip 표시 지연 단축 (macOS 기본 약 1.5초 → 0.5초).
+        // 이 키는 앱 도메인에서만 읽히므로 시스템 전역에는 영향이 없다.
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 500])
+
         AppLocationChecker.checkAndPromptIfNeeded()
-        NotificationManager.shared.requestPermission()
         setupStatusItems()
         setupPopovers()
         setupKeyboardShortcuts()

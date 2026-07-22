@@ -5,14 +5,14 @@ enum ClaudeUsageSource: String, CaseIterable, Sendable {
     case oauth = "oauth"
     case messagesHeaderFallback = "messages_header_fallback"
 
-    var displayName: String {
+    nonisolated var displayName: String {
         switch self {
         case .webSession:
-            return "Web session"
+            return "브라우저 로그인"
         case .oauth:
-            return "OAuth"
+            return "Claude Code"
         case .messagesHeaderFallback:
-            return "Messages header fallback"
+            return "Claude Code 보조 조회"
         }
     }
 }
@@ -63,17 +63,6 @@ struct ClaudeFetchContext: Equatable, Sendable {
     var recentSuccessfulSource: ClaudeUsageSource?
     var currentUsagePercent: Double?
     var fallbackPolicy: ClaudeMessagesHeaderFallbackPolicy
-    /// 활성 계정이 .webSession 일 때, 사용자가 직접 선택한 결과인지 여부.
-    /// 레거시 마이그레이션으로 자동 생성된 web 계정은 false. 사용자가 설정 UI 에서
-    /// 명시적으로 추가/선택한 web 계정은 true. account-scoped fallback 정책에서
-    /// "암묵적인 web 계정이면 OAuth 로 자동 폴백" 같은 결정을 위해 사용한다.
-    /// .claudeCodeExternal 또는 nil 계정에는 영향 없음.
-    var webSessionExplicitlySelected: Bool
-    /// 사용자가 설정에서 "Claude Code OAuth 우선 시도" 토글을 켰는지 여부.
-    /// true 이고 OAuth 토큰이 사용 가능하면 planner 가 활성 계정과 무관하게 OAuth 를
-    /// primary 후보로 잡는다. (web 활성이어도 OAuth 가 먼저 시도되고 실패 시 web 폴백)
-    /// 활성 계정 = 진실의 출처라는 기존 원칙을 사용자가 명시적으로 뒤집는 길.
-    var preferOAuthOverActiveAccount: Bool
 
     nonisolated init(
         accountKind: ClaudeAccountKind? = nil,
@@ -84,9 +73,7 @@ struct ClaudeFetchContext: Equatable, Sendable {
         oauthValidationState: ClaudeCredentialValidationState? = nil,
         recentSuccessfulSource: ClaudeUsageSource? = nil,
         currentUsagePercent: Double? = nil,
-        fallbackPolicy: ClaudeMessagesHeaderFallbackPolicy = .init(),
-        webSessionExplicitlySelected: Bool = true,
-        preferOAuthOverActiveAccount: Bool = false)
+        fallbackPolicy: ClaudeMessagesHeaderFallbackPolicy = .init())
     {
         self.accountKind = accountKind
         self.sourcePreference = sourcePreference
@@ -97,9 +84,24 @@ struct ClaudeFetchContext: Equatable, Sendable {
         self.recentSuccessfulSource = recentSuccessfulSource
         self.currentUsagePercent = currentUsagePercent
         self.fallbackPolicy = fallbackPolicy
-        self.webSessionExplicitlySelected = webSessionExplicitlySelected
-        self.preferOAuthOverActiveAccount = preferOAuthOverActiveAccount
     }
+}
+
+struct ClaudeFetchAttempt: Sendable {
+    let source: ClaudeUsageSource
+    let wasAvailable: Bool
+    let error: APIError?
+}
+
+struct ClaudeFetchProvenance: Equatable, Sendable {
+    let source: ClaudeUsageSource
+    let accountID: String?
+    let attemptedSources: [ClaudeUsageSource]
+}
+
+struct ClaudeUsageFetchOutcome: Sendable {
+    let usage: ClaudeUsageResponse
+    let provenance: ClaudeFetchProvenance
 }
 
 struct ClaudeSourceCandidate: Equatable, Sendable {

@@ -71,6 +71,21 @@ enum MenuBarStatusComposer {
         ])
     }
 
+    /// 메뉴바 색상 모드(설정)를 반영한 게이지 색.
+    /// HIG 권장인 모노크롬과 현행 임계값 색상 사이에서 사용자가 고른 정책을 적용한다.
+    private static func gaugeColor(for percentage: Double, config: ProviderMenuBarDisplayConfig) -> NSColor {
+        switch config.colorMode {
+        case .always:
+            return ColorProvider.nsStatusColor(for: percentage)
+        case .warningOnly:
+            return percentage >= MenuBarColorMode.warningThreshold
+                ? ColorProvider.nsStatusColor(for: percentage)
+                : .labelColor
+        case .monochrome:
+            return .labelColor
+        }
+    }
+
     static func claudeOnlyContent(
         config: ProviderMenuBarDisplayConfig,
         usage: ClaudeUsageResponse?,
@@ -108,8 +123,8 @@ enum MenuBarStatusComposer {
 
         let fiveHour = usage.fiveHourPercentage
         let weekly = usage.sevenDay?.utilization ?? 0
-        let fiveHourColor = ColorProvider.nsStatusColor(for: fiveHour)
-        let weeklyColor = ColorProvider.nsWeeklyStatusColor(for: weekly)
+        let fiveHourColor = gaugeColor(for: fiveHour, config: config)
+        let weeklyColor = gaugeColor(for: weekly, config: config)
         let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         let smallFont = NSFont.systemFont(ofSize: 11)
         var elements: [MenuBarElement] = []
@@ -153,7 +168,8 @@ enum MenuBarStatusComposer {
         }
 
         let authWarning = hasAuthError ? "\n⚠️ Claude 인증 상태를 확인해주세요" : ""
-        let tooltip = "현재 세션: \(Int(fiveHour))% / 주간: \(Int(weekly))%\(authWarning)"
+        let tooltip = "현재 \(Int(fiveHour))% · 주간 \(Int(weekly))%\(authWarning)"
+            + staleNote(error: error, hasAuthError: hasAuthError)
         return MenuBarRenderedContent(image: composeElements(elements), tooltip: tooltip)
     }
 
@@ -222,10 +238,11 @@ enum MenuBarStatusComposer {
             )
         }
 
-        let primary = usage.primaryPercentage
-        let weekly = usage.secondaryPercentage
-        let primaryColor = ColorProvider.nsStatusColor(for: primary)
-        let weeklyColor = ColorProvider.nsWeeklyStatusColor(for: weekly)
+        let hasPrimary = usage.hasSessionWindow
+        let primary = usage.sessionPercentage
+        let weekly = usage.weeklyPercentage
+        let primaryColor = gaugeColor(for: usage.gaugePercentage, config: config)
+        let weeklyColor = gaugeColor(for: weekly, config: config)
         let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         let smallFont = NSFont.systemFont(ofSize: 11)
         var elements: [MenuBarElement] = []
@@ -238,18 +255,24 @@ enum MenuBarStatusComposer {
         case .none:
             break
         case .fiveHour:
-            elements.append(.text(displayText(for: primary, showRemaining: showsRemaining(config: config)), attributes: [.font: font, .foregroundColor: primaryColor], shadow: true))
+            // 세션 창이 없으면 주간 게이지로 대체 표시
+            elements.append(.text(displayText(for: usage.gaugePercentage, showRemaining: showsRemaining(config: config)), attributes: [.font: font, .foregroundColor: primaryColor], shadow: true))
         case .weekly:
             elements.append(.text(displayText(for: weekly, showRemaining: showsRemaining(config: config)), attributes: [.font: font, .foregroundColor: weeklyColor], shadow: true))
         case .dual:
-            elements.append(.image(segmentedPercentageImage(
-                first: displayText(for: primary, showRemaining: showsRemaining(config: config)),
-                firstColor: primaryColor,
-                second: displayText(for: weekly, showRemaining: showsRemaining(config: config)),
-                secondColor: weeklyColor,
-                font: font,
-                separatorColor: secondaryColor
-            )))
+            if hasPrimary {
+                elements.append(.image(segmentedPercentageImage(
+                    first: displayText(for: primary, showRemaining: showsRemaining(config: config)),
+                    firstColor: primaryColor,
+                    second: displayText(for: weekly, showRemaining: showsRemaining(config: config)),
+                    secondColor: weeklyColor,
+                    font: font,
+                    separatorColor: secondaryColor
+                )))
+            } else {
+                // 주간 전용 응답 — 듀얼 대신 주간 단일 표시
+                elements.append(.text(displayText(for: weekly, showRemaining: showsRemaining(config: config)), attributes: [.font: font, .foregroundColor: weeklyColor], shadow: true))
+            }
         }
 
         if let styleIcon = styleIcon(usage: usage, config: config) {
@@ -266,7 +289,10 @@ enum MenuBarStatusComposer {
 
         return MenuBarRenderedContent(
             image: composeElements(elements),
-            tooltip: "Codex 현재: \(Int(primary))% / 주간: \(Int(weekly))%"
+            tooltip: (hasPrimary
+                ? "현재 \(Int(primary))% · 주간 \(Int(weekly))%"
+                : "주간 \(Int(weekly))%")
+                + staleNote(error: error, hasAuthError: hasAuthError)
         )
     }
 
@@ -410,7 +436,10 @@ enum MenuBarStatusComposer {
 
         return MenuBarRenderedContent(
             image: composeElements(elements),
-            tooltip: "Claude: \(claude.tooltip) / Codex: \(codex.tooltip)"
+            tooltip: [
+                tooltipBlock(name: "Claude", tooltip: claude.tooltip),
+                tooltipBlock(name: "Codex", tooltip: codex.tooltip),
+            ].joined(separator: "\n")
         )
     }
 
@@ -460,7 +489,7 @@ enum MenuBarStatusComposer {
         }
         let tooltip = resolvedSnapshots
             .map(providerTooltip(for:))
-            .joined(separator: " / ")
+            .joined(separator: "\n")
         return MenuBarRenderedContent(
             image: composeElements(elements.isEmpty ? [statusDot(color: secondaryColor)] : elements),
             tooltip: tooltip
@@ -495,11 +524,11 @@ enum MenuBarStatusComposer {
     }
 
     nonisolated private static func providerTooltip(for snapshot: MenuBarProviderSnapshot) -> String {
-        let base = "\(snapshot.kind.displayName): \(snapshot.tooltip)"
+        let base = tooltipBlock(name: snapshot.kind.displayName, tooltip: snapshot.tooltip)
         guard let status = snapshot.systemStatus, status.hasIssue else {
             return base
         }
-        return "\(base)\n\(snapshot.kind.displayName) 상태: \(status.menuBarSummary)"
+        return "\(base)\n   ⚠ \(snapshot.kind.displayName) 상태: \(status.menuBarSummary)"
     }
 
     private static func statusBadgedIcon(_ icon: NSImage, for snapshot: MenuBarProviderSnapshot) -> NSImage {
@@ -518,6 +547,37 @@ enum MenuBarStatusComposer {
         case .major, .critical:
             return .systemRed
         }
+    }
+
+    /// 마지막 성공 데이터를 표시 중인데 최근 갱신이 실패한 경우 tooltip에 붙는 안내.
+    /// 인증 실패는 별도 경고 배지로 처리하므로 여기서는 제외한다.
+    /// 경고류는 항상 "⚠ " 접두 + 별도 줄 — tooltip 줄넘김 규칙(1줄 = 수치 요약, 이후 줄 = 경고)의 일부.
+    private static func staleNote(error: APIError?, hasAuthError: Bool) -> String {
+        guard let error, !hasAuthError else { return "" }
+        let label: String
+        if error.isTemporaryFailure {
+            label = "일시 오류"
+        } else if error.isPermissionDenied {
+            label = "권한 없음"
+        } else {
+            label = "조회 실패"
+        }
+        return "\n⚠ 갱신 지연(\(label)) — 마지막 성공 데이터 표시 중"
+    }
+
+    /// 멀티 프로바이더 tooltip 블록: 첫 줄은 "이름: 수치 요약", 경고 줄들은 들여쓰기로 소속을 표시.
+    /// 예)
+    ///   Claude: 현재 85% · 주간 52%
+    ///      ⚠ 갱신 지연(일시 오류) — 마지막 성공 데이터 표시 중
+    ///   Codex: 주간 12%
+    nonisolated private static func tooltipBlock(name: String, tooltip: String) -> String {
+        let lines = tooltip.components(separatedBy: "\n")
+        guard let first = lines.first, !first.isEmpty else { return name }
+        var block = "\(name): \(first)"
+        for line in lines.dropFirst() where !line.isEmpty {
+            block += "\n   \(line)"
+        }
+        return block
     }
 
     private static func claudeStatus(
@@ -561,8 +621,9 @@ enum MenuBarStatusComposer {
 
         return MenuBarProviderStatus(
             text: text,
-            color: ColorProvider.nsStatusColor(for: fiveHour),
-            tooltip: "현재 \(Int(fiveHour.rounded()))% / 주간 \(Int(weekly.rounded()))%"
+            color: gaugeColor(for: fiveHour, config: config),
+            tooltip: "현재 \(Int(fiveHour.rounded()))% · 주간 \(Int(weekly.rounded()))%"
+                + staleNote(error: error, hasAuthError: hasAuthError)
         )
     }
 
@@ -588,9 +649,10 @@ enum MenuBarStatusComposer {
             return MenuBarProviderStatus(text: "…", color: secondaryColor, tooltip: "로딩 중")
         }
 
-        let primary = usage.primaryPercentage
-        let weekly = usage.secondaryPercentage
-        let displayPrimary = displayValue(for: primary, showRemaining: showsRemaining(config: config))
+        let hasPrimary = usage.hasSessionWindow
+        let primary = usage.sessionPercentage
+        let weekly = usage.weeklyPercentage
+        let displayPrimary = displayValue(for: hasPrimary ? primary : weekly, showRemaining: showsRemaining(config: config))
         let displayWeekly = displayValue(for: weekly, showRemaining: showsRemaining(config: config))
         let text: String = {
             switch config.percentageDisplay {
@@ -601,14 +663,19 @@ enum MenuBarStatusComposer {
             case .weekly:
                 return String(format: "%.0f%%", displayWeekly)
             case .dual:
+                // 세션 창이 없는 주간 전용 응답이면 주간 하나만 표시
+                guard hasPrimary else { return String(format: "%.0f%%", displayWeekly) }
                 return String(format: "%.0f%%·%.0f%%", displayPrimary, displayWeekly)
             }
         }()
 
         return MenuBarProviderStatus(
             text: text,
-            color: ColorProvider.nsStatusColor(for: primary),
-            tooltip: "현재 \(Int(primary.rounded()))% / 주간 \(Int(weekly.rounded()))%"
+            color: gaugeColor(for: usage.gaugePercentage, config: config),
+            tooltip: (hasPrimary
+                ? "현재 \(Int(primary.rounded()))% · 주간 \(Int(weekly.rounded()))%"
+                : "주간 \(Int(weekly.rounded()))%")
+                + staleNote(error: error, hasAuthError: hasAuthError)
         )
     }
 
@@ -672,7 +739,7 @@ enum MenuBarStatusComposer {
 
         return MenuBarProviderStatus(
             text: text,
-            color: ColorProvider.nsStatusColor(for: primary),
+            color: gaugeColor(for: primary, config: config),
             tooltip: antigravityTooltip(usage: usage, windows: windows)
         )
     }
@@ -706,16 +773,21 @@ enum MenuBarStatusComposer {
         case .none:
             return nil
         case .fiveHour:
-            guard let resetAt = usage.rateLimit?.primaryWindow?.resetAtISO else { return nil }
-            return TimeFormatter.formatResetTime(from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
+            // 세션 창이 있으면 세션 포맷, 없으면(주간 전용 개편) 주간 창을 주간 포맷으로 대체.
+            // 포맷은 표시 슬롯이 아니라 실제 창 성격을 따라간다 — 주간 창에 분 단위까지 붙는 것 방지.
+            if let sessionReset = usage.sessionWindow?.resetAtISO {
+                return TimeFormatter.formatResetTime(from: sessionReset, style: config.timeFormat, includeDateIfNotToday: false)
+            }
+            guard let weeklyReset = usage.weeklyWindow?.resetAtISO else { return nil }
+            return TimeFormatter.formatResetTimeWeekly(from: weeklyReset, style: config.timeFormat, includeDateIfNotToday: false)
         case .weekly:
-            guard let resetAt = usage.rateLimit?.secondaryWindow?.resetAtISO else { return nil }
+            guard let resetAt = usage.weeklyWindow?.resetAtISO else { return nil }
             return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
         case .dual:
-            let first = usage.rateLimit?.primaryWindow?.resetAtISO.flatMap {
+            let first = usage.sessionWindow?.resetAtISO.flatMap {
                 TimeFormatter.formatResetTime(from: $0, style: config.timeFormat, includeDateIfNotToday: false)
             }
-            let second = usage.rateLimit?.secondaryWindow?.resetAtISO.flatMap {
+            let second = usage.weeklyWindow?.resetAtISO.flatMap {
                 TimeFormatter.formatResetTimeWeekly(from: $0, style: config.timeFormat, includeDateIfNotToday: false)
             }
             if let first, let second { return "\(first) · \(second)" }
@@ -761,8 +833,26 @@ enum MenuBarStatusComposer {
 
     private static func styleIcon(usage: CodexUsageResponse?, config: ProviderMenuBarDisplayConfig) -> NSImage? {
         guard let usage else { return nil }
-        let primary = usage.primaryPercentage
-        let secondary = usage.secondaryPercentage
+        // 세션 창이 없으면 주간 게이지를 primary 자리에 사용 (0% 오인 방지)
+        let primary = usage.gaugePercentage
+        let secondary = usage.weeklyPercentage
+        if !usage.hasSessionWindow {
+            let isRemainingMode = config.circularDisplayMode == .remaining
+            let value = isRemainingMode ? (100.0 - secondary) : secondary
+            let color = gaugeColor(for: secondary, config: config)
+            switch config.style {
+            case .none:
+                return nil
+            case .batteryBar, .dualBattery, .sideBySideBattery:
+                return MenuBarIconRenderer.batteryIcon(
+                    percentage: value,
+                    color: color,
+                    showPercent: config.showBatteryPercent
+                )
+            case .circular, .concentricRings:
+                return MenuBarIconRenderer.circularRingIcon(percentage: value, color: color)
+            }
+        }
         return styleIcon(
             primary: primary,
             secondary: secondary,
@@ -821,8 +911,8 @@ enum MenuBarStatusComposer {
         config: ProviderMenuBarDisplayConfig,
         metric: (percentage: Double, color: NSColor)
     ) -> NSImage? {
-        let primaryColor = ColorProvider.nsStatusColor(for: primary)
-        let secondaryColor = ColorProvider.nsWeeklyStatusColor(for: secondary)
+        let primaryColor = gaugeColor(for: primary, config: config)
+        let secondaryColor = gaugeColor(for: secondary, config: config)
         let isRemainingMode = config.circularDisplayMode == .remaining
         let circularValue = isRemainingMode ? (100.0 - metric.percentage) : metric.percentage
         let outer = isRemainingMode ? (100.0 - primary) : primary
@@ -871,9 +961,9 @@ enum MenuBarStatusComposer {
     ) -> (percentage: Double, color: NSColor) {
         switch config.iconMetric {
         case .fiveHour:
-            return (primary, ColorProvider.nsStatusColor(for: primary))
+            return (primary, gaugeColor(for: primary, config: config))
         case .weekly:
-            return (secondary, ColorProvider.nsWeeklyStatusColor(for: secondary))
+            return (secondary, gaugeColor(for: secondary, config: config))
         }
     }
 

@@ -100,6 +100,73 @@ final class RefreshOrchestrationTests: XCTestCase {
         XCTAssertNotNil(resolution.backoffSeconds)
     }
 
+    func testTemporaryFailureKeepsSuccessfulProvenanceAndRecordsAttempt() {
+        let successfulMetadata = RuntimeProviderFetchMetadata(
+            sourceLabel: "브라우저 로그인",
+            accountID: "account-a",
+            attemptedSourceLabels: ["브라우저 로그인"]
+        )
+        let attemptMetadata = RuntimeProviderFetchMetadata(
+            sourceLabel: "브라우저 로그인",
+            accountID: "account-a",
+            attemptedSourceLabels: ["브라우저 로그인"]
+        )
+        var state = RuntimeProviderState()
+
+        RuntimeProviderRefreshCoordinator.applySuccess(
+            state: &state,
+            payload: sampleClaudePayload,
+            metadata: successfulMetadata
+        )
+        XCTAssertEqual(state.lastSuccessfulMetadata, successfulMetadata)
+
+        _ = RuntimeProviderRefreshCoordinator.prepareForRefresh(state: &state, force: true)
+        let loadingSnapshot = RuntimeProviderSnapshot(
+            service: .claude,
+            payload: state.payload,
+            error: state.error,
+            isLoading: state.isLoading,
+            lastUpdated: state.lastUpdated,
+            credentialState: .usable,
+            isDetected: true,
+            canAttemptRefresh: true,
+            hasAuthError: false,
+            lastAttemptState: state.lastAttemptState,
+            lastSuccessfulMetadata: state.lastSuccessfulMetadata,
+            lastAttemptMetadata: state.lastAttemptMetadata
+        )
+        XCTAssertEqual(loadingSnapshot.freshness, .loading)
+
+        _ = RuntimeProviderRefreshCoordinator.applyFailure(
+            state: &state,
+            error: .networkError("timeout"),
+            metadata: attemptMetadata,
+            minimumInterval: 30
+        )
+
+        XCTAssertNotNil(state.payload)
+        XCTAssertEqual(state.lastSuccessfulMetadata, successfulMetadata)
+        XCTAssertEqual(state.lastAttemptMetadata, attemptMetadata)
+
+        let staleSnapshot = RuntimeProviderSnapshot(
+            service: .claude,
+            payload: state.payload,
+            error: state.error,
+            isLoading: state.isLoading,
+            lastUpdated: state.lastUpdated,
+            nextRefreshAllowedAt: state.nextRefreshAllowedAt,
+            credentialState: .usable,
+            isDetected: true,
+            canAttemptRefresh: true,
+            hasAuthError: state.hasAuthError,
+            lastAttemptState: state.lastAttemptState,
+            lastSuccessfulMetadata: state.lastSuccessfulMetadata,
+            lastAttemptMetadata: state.lastAttemptMetadata
+        )
+        XCTAssertEqual(staleSnapshot.freshness, .stale)
+        XCTAssertEqual(staleSnapshot.fetchState, .temporaryFailure)
+    }
+
     func testApplyFailureClearsPayloadForDefinitiveAuthFailure() {
         var state = RuntimeProviderState(
             payload: sampleClaudePayload
@@ -116,7 +183,9 @@ final class RefreshOrchestrationTests: XCTestCase {
         XCTAssertTrue(state.hasAuthError)
     }
 
-    func testApplyFailureClearsPayloadForDefinitiveNonAuthFailure() {
+    func testApplyFailureKeepsPayloadForDefinitiveNonAuthFailure() {
+        // 비인증 definitive 실패(4xx, 스키마 변경 등)는 마지막 성공 데이터를 유지한다.
+        // 메뉴바/팝오버가 갑자기 에러 카드로 뒤집히는 대신 stale 표시 + 갱신 지연 안내.
         var state = RuntimeProviderState(
             payload: sampleClaudePayload
         )
@@ -127,7 +196,7 @@ final class RefreshOrchestrationTests: XCTestCase {
             minimumInterval: 30
         )
 
-        XCTAssertNil(state.payload)
+        XCTAssertNotNil(state.payload)
         XCTAssertEqual(state.lastAttemptState, .definitiveFailure)
         XCTAssertFalse(state.hasAuthError)
     }
@@ -841,12 +910,11 @@ final class PopoverViewModelTests: XCTestCase {
             )
         }
 
-        XCTAssertEqual(
-            result.0,
-            ["codexPrimary", "codexSecondary-status", "codexCredits-status"]
-        )
+        // 사용량 응답이 정상인데 secondary 창·credits 필드가 없으면 해당 행을 숨긴다
+        // (데이터 없음 카드 금지)
+        XCTAssertEqual(result.0, ["codexPrimary"])
         XCTAssertEqual(result.1, result.0)
-        XCTAssertEqual(result.2, [.usage, .status, .status])
+        XCTAssertEqual(result.2, [.usage])
     }
 
     func testDisplaySectionsUseProviderCompactConfigWhenSeparated() async {
@@ -899,11 +967,9 @@ final class PopoverViewModelTests: XCTestCase {
             )
         }
 
-        XCTAssertEqual(
-            result.0,
-            ["codexPrimary", "codexSecondary-status", "codexCredits-status"]
-        )
-        XCTAssertEqual(result.1, ["codexSecondary-status"])
+        XCTAssertEqual(result.0, ["codexPrimary"])
+        // compact 는 codexSecondary 만 표시하도록 설정했지만 응답에 secondary 창이 없어 숨김
+        XCTAssertEqual(result.1, [])
     }
 
     func testLayoutSpecUsesDisplaySectionsForAntigravitySecondaryWindow() async {

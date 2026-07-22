@@ -18,17 +18,22 @@ struct PopoverView: View {
         let layoutSpec = layout.spec
 
         VStack(alignment: .leading, spacing: 0) {
-            // 상단 바
-            HStack(spacing: 8) {
-                headerServiceSelector
-                    .layoutPriority(1)
-                Spacer(minLength: 8)
-                headerUtilityControls
+            // 상단 바: provider 선택과 조회 provenance/freshness를 한 영역에서 보여준다.
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 8) {
+                    headerServiceSelector
+                        .layoutPriority(1)
+                    Spacer(minLength: 8)
+                    headerUtilityControls
+                }
+                .frame(height: isCompact ? 18 : 24)
+
+                providerStatusRail
+                    .frame(height: isCompact ? 10 : 12)
             }
-            .frame(height: isCompact ? 24 : 28)
             .padding(.horizontal, isCompact ? 12 : 16)
-            .padding(.top, isCompact ? 3 : 10)
-            .padding(.bottom, isCompact ? 3 : 6)
+            .padding(.top, isCompact ? 2 : 6)
+            .padding(.bottom, isCompact ? 0 : 2)
 
             if isCompact {
                 compactMainSection(layoutSpec: layoutSpec, sections: layout.sections)
@@ -77,6 +82,7 @@ struct PopoverView: View {
                 .buttonStyle(.borderless)
                 .font(.caption)
                 .help("표시 항목 편집")
+                .accessibilityLabel("표시 항목 편집")
                 .popover(isPresented: $isDisplayEditorPresented, arrowEdge: .bottom) {
                     PopoverDisplayEditorView(
                         settings: settings,
@@ -95,6 +101,8 @@ struct PopoverView: View {
                 }
                 .buttonStyle(.borderless)
                 .font(.caption)
+                .help("설정 열기")
+                .accessibilityLabel("설정 열기")
 
                 Button {
                     NSApplication.shared.terminate(nil)
@@ -106,6 +114,8 @@ struct PopoverView: View {
                 }
                 .buttonStyle(.borderless)
                 .font(.caption)
+                .help("ClaudeUsage 종료")
+                .accessibilityLabel("ClaudeUsage 종료")
             }
             .padding(.horizontal, isCompact ? 12 : 16)
             .padding(.vertical, isCompact ? 4 : 8)
@@ -171,6 +181,8 @@ struct PopoverView: View {
             }
             .buttonStyle(.borderless)
             .disabled(currentServiceLoading)
+            .help(currentServiceLoading ? "사용량 갱신 중" : "사용량 새로고침")
+            .accessibilityLabel(currentServiceLoading ? "사용량 갱신 중" : "사용량 새로고침")
 
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) {
@@ -184,6 +196,7 @@ struct PopoverView: View {
             }
             .buttonStyle(.borderless)
             .help(isCompact ? "일반 보기" : "간소화 보기")
+            .accessibilityLabel(isCompact ? "일반 보기로 전환" : "간소화 보기로 전환")
 
             Button {
                 isPinned.toggle()
@@ -195,6 +208,7 @@ struct PopoverView: View {
             }
             .buttonStyle(.borderless)
             .help(isPinned ? "고정 해제" : "고정")
+            .accessibilityLabel(isPinned ? "팝오버 고정 해제" : "팝오버 고정")
         }
         .fixedSize()
     }
@@ -242,6 +256,7 @@ struct PopoverView: View {
                         .fill(Color.orange)
                         .frame(width: isCompact ? 4 : 6, height: isCompact ? 4 : 6)
                         .offset(x: isCompact ? 2 : 3, y: isCompact ? -2 : -3)
+                        .accessibilityHidden(true)
                 }
             }
             .frame(width: 22, height: 22)
@@ -250,6 +265,120 @@ struct PopoverView: View {
             .cornerRadius(7)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(service.displayName)
+        .accessibilityValue(providerSelectorAccessibilityValue(for: service))
+        .accessibilityAddTraits(selectedService == service ? .isSelected : [])
+    }
+
+    private var providerStatusRail: some View {
+        let state = viewModel.runtimeServiceState(for: selectedService, settings: settings)
+        let label = providerStatusRailText(state: state)
+        return HStack(spacing: 4) {
+            Image(systemName: providerStatusRailSymbol(state: state))
+                .font(.system(size: isCompact ? 7 : 8, weight: .semibold))
+                .foregroundStyle(providerStatusRailColor(state: state))
+                .accessibilityHidden(true)
+            providerStatusRailSegments(state: state)
+            Spacer(minLength: 0)
+        }
+        .help(label)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(selectedService.displayName) 상태")
+        .accessibilityValue(label)
+    }
+
+    private func providerStatusRailText(state: PopoverViewModel.RuntimeServiceState) -> String {
+        let parts = providerStatusRailParts(state: state)
+        return [parts.account, parts.source, parts.status].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private func providerStatusRailParts(
+        state: PopoverViewModel.RuntimeServiceState
+    ) -> (account: String?, source: String?, status: String) {
+        var accountLabel: String?
+        if let accountID = state.accountID,
+           let account = viewModel.usageHealthSnapshot?.accounts.first(where: { $0.id == accountID }) {
+            accountLabel = account.identity.primaryLabel ?? account.displayName
+        }
+        let status: String
+        if let meta = state.meta {
+            status = meta
+        } else if state.isLoading {
+            status = "갱신 중"
+        } else if state.isAuthRequired {
+            status = "로그인 필요"
+        } else {
+            status = "아직 갱신되지 않음"
+        }
+        return (accountLabel, state.sourceLabel, status)
+    }
+
+    @ViewBuilder
+    private func providerStatusRailSegments(state: PopoverViewModel.RuntimeServiceState) -> some View {
+        let parts = providerStatusRailParts(state: state)
+        let statusColor: Color = state.freshness == .stale ? .orange : .secondary
+        let font = Font.system(size: isCompact ? 8 : 9, weight: .medium)
+        if let account = parts.account {
+            Text(account)
+                .font(font)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .layoutPriority(0)
+            Text("·").font(font).foregroundStyle(.tertiary)
+        }
+        if let source = parts.source {
+            Text(source)
+                .font(font)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize()
+                .layoutPriority(1)
+            Text("·").font(font).foregroundStyle(.tertiary)
+        }
+        Text(parts.status)
+            .font(font)
+            .foregroundStyle(statusColor)
+            .lineLimit(1)
+            .fixedSize()
+            .layoutPriority(2)
+    }
+
+    private func providerStatusRailSymbol(state: PopoverViewModel.RuntimeServiceState) -> String {
+        if state.isAuthRequired { return "person.crop.circle.badge.exclamationmark" }
+        switch state.freshness {
+        case .fresh:
+            return "checkmark.circle.fill"
+        case .stale:
+            return "exclamationmark.triangle.fill"
+        case .loading:
+            return "arrow.triangle.2.circlepath"
+        case .unavailable:
+            return "circle.dotted"
+        }
+    }
+
+    private func providerStatusRailColor(state: PopoverViewModel.RuntimeServiceState) -> Color {
+        if state.isAuthRequired { return .orange }
+        switch state.freshness {
+        case .fresh:
+            return .green
+        case .stale:
+            return .orange
+        case .loading:
+            return .blue
+        case .unavailable:
+            return .secondary
+        }
+    }
+
+    private func providerSelectorAccessibilityValue(for service: PopoverService) -> String {
+        let state = viewModel.runtimeServiceState(for: service, settings: settings)
+        var parts: [String] = []
+        if selectedService == service { parts.append("선택됨") }
+        if state.freshness == .stale { parts.append("이전 데이터") }
+        if state.isAuthRequired { parts.append("로그인 필요") }
+        return parts.isEmpty ? "사용 가능" : parts.joined(separator: ", ")
     }
 
     private var selectedService: PopoverService {
@@ -456,16 +585,13 @@ struct PopoverView: View {
         case .invalidSessionKey:
             return authReauthPresentation(service: service)
 
-        case .claudeOAuthPathRetired:
-            // v2.2.0: Claude CLI OAuth (`/api/oauth/usage`) 경로가 비활성화됐다.
-            // 사용자가 본 "2500초 대기" 문제의 근본 원인이라 호출 자체를 끊었고,
-            // 대신 더 안정적인 Claude.ai 로그인으로 전환을 권장하는 친절 카드를 노출한다.
+        case .claudeCodeCredentialUnavailable:
             return ErrorPresentation(
-                title: "Claude.ai 로그인 권장",
-                message: "Claude Code CLI 경로는 조회 한도 문제가 잦아 v2.2.0 부터 비활성화됐습니다. Claude.ai 로그인으로 전환하면 한도 여유가 훨씬 크고 더 안정적입니다.",
-                actionTitle: "Claude.ai 로그인 시작",
+                title: "Claude Code 자격 증명 없음",
+                message: "Claude Code 로그인 정보를 찾을 수 없습니다. 터미널에서 `claude auth login`을 실행한 뒤 다시 확인해 주세요.",
+                actionTitle: "설정 열기",
                 actionStyle: .prominent,
-                action: { viewModel.startClaudeLogin() }
+                action: { viewModel.openSettings(for: .claude) }
             )
 
         case .codexReauthRequired(let reason):
@@ -505,7 +631,7 @@ struct PopoverView: View {
             // 분/시간 단위로 변환해 "2400초" 같은 노이즈 대신 "40분 후" 로 보여준다.
             return ErrorPresentation(
                 title: "조회 한도 도달",
-                message: "Anthropic 이 잠시 사용량 조회를 제한했습니다. \(Self.formatRetryDuration(retryAfter)) 자동 재시도합니다.",
+                message: "\(service.displayName) 사용량 조회가 잠시 제한됐습니다. \(Self.formatRetryDuration(retryAfter)) 자동 재시도합니다.",
                 actionTitle: "지금 다시 시도",
                 actionStyle: .bordered,
                 action: { viewModel.refresh() }
@@ -582,7 +708,19 @@ struct PopoverView: View {
     private func authReauthPresentation(service: PopoverService) -> ErrorPresentation {
         switch service {
         case .claude:
-            // v2.2.0: CLI OAuth 경로 비활성. 인증 만료 시 Claude.ai 로그인으로 통일 안내.
+            let runtimeState = viewModel.runtimeServiceState(for: .claude, settings: settings)
+            let activeAccount = viewModel.usageHealthSnapshot?.activeAccount
+            let isClaudeCode = activeAccount?.kind == .claudeCodeExternal
+                || runtimeState.sourceLabel?.hasPrefix("Claude Code") == true
+            if isClaudeCode {
+                return ErrorPresentation(
+                    title: "Claude Code 로그인 만료",
+                    message: "터미널에서 `claude auth login`을 다시 실행한 뒤 사용량 새로고침을 눌러 주세요.",
+                    actionTitle: "설정 열기",
+                    actionStyle: .prominent,
+                    action: { viewModel.openSettings(for: .claude) }
+                )
+            }
             return ErrorPresentation(
                 title: "Claude 로그인 만료",
                 message: "Claude.ai 로그인이 만료됐습니다. 메뉴바의 'Claude 로그인 시작' 으로 다시 연결해 주세요.",
@@ -614,39 +752,66 @@ struct PopoverView: View {
     /// 첫 사용자가 메뉴바에서 한 번의 클릭으로 로그인 wizard 에 도달하게 한다.
     @ViewBuilder
     private func claudeUnauthenticatedPanel(density: PopoverDensity) -> some View {
-        VStack(spacing: density == .compact ? 8 : 12) {
-            Image(systemName: "person.badge.key")
-                .font(.system(size: density == .compact ? 28 : 36))
-                .foregroundStyle(.orange)
-            Text("Claude 로그인이 필요합니다")
-                .font(density == .compact ? .subheadline.weight(.semibold) : .headline)
-            Text("Chrome 프로필에 저장된 로그인이나 Claude Code 인증을 그대로 사용할 수 있습니다.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 16)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
-                Button("Claude 로그인 시작") {
-                    viewModel.startClaudeLogin()
+        if density == .compact {
+            statusPanel(
+                density: density,
+                configuration: StatusPanelConfiguration(
+                    icon: nil,
+                    iconColor: .orange,
+                    showsProgress: false,
+                    title: "Claude 로그인 필요",
+                    message: "Chrome 또는 Claude Code 로그인을 연결해 주세요.",
+                    actionTitle: "로그인 시작",
+                    actionStyle: .prominent,
+                    action: { viewModel.startClaudeLogin() }
+                )
+            )
+        } else {
+            VStack(spacing: 12) {
+                Image(systemName: "person.badge.key")
+                    .font(.system(size: 36))
+                    .foregroundStyle(.orange)
+                Text("Claude 로그인이 필요합니다")
+                    .font(.headline)
+                Text("Chrome 프로필에 저장된 로그인이나 Claude Code 인증을 그대로 사용할 수 있습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    Button("Claude 로그인 시작") {
+                        viewModel.startClaudeLogin()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                    Button("설정 열기") {
+                        viewModel.openSettings(for: .claude)
+                    }
+                    .controlSize(.regular)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(density == .compact ? .small : .regular)
-                Button("설정 열기") {
-                    viewModel.openSettings(for: .claude)
-                }
-                .controlSize(density == .compact ? .small : .regular)
             }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 18)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, density == .compact ? 12 : 18)
     }
 
     @ViewBuilder
     private func displaySectionsContent(layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection]) -> some View {
         if sections.isEmpty {
-            Color.clear
-                .frame(maxWidth: .infinity, minHeight: 1)
+            statusPanel(
+                density: layoutSpec.density,
+                configuration: StatusPanelConfiguration(
+                    icon: "slider.horizontal.3",
+                    iconColor: .secondary,
+                    showsProgress: false,
+                    title: "표시할 항목 없음",
+                    message: "표시 편집에서 최소 한 항목을 선택해 주세요.",
+                    actionTitle: "표시 편집",
+                    actionStyle: .bordered,
+                    action: { isDisplayEditorPresented = true }
+                )
+            )
         } else {
             VStack(spacing: layoutSpec.sectionSpacing) {
                 ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
@@ -692,7 +857,7 @@ struct PopoverView: View {
     @ViewBuilder
     private func standardMainContainer(layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection]) -> some View {
         if layoutSpec.phase == .content {
-            ScrollView(.vertical, showsIndicators: false) {
+            ScrollView(.vertical, showsIndicators: true) {
                 standardMainSection(layoutSpec: layoutSpec, sections: sections)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

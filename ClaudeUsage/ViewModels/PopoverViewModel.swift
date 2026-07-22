@@ -26,6 +26,9 @@ final class PopoverViewModel: ObservableObject {
         let hasContent: Bool
         let isAuthRequired: Bool
         let shouldShowWarningDot: Bool
+        let freshness: RuntimeProviderFreshness
+        let sourceLabel: String?
+        let accountID: String?
     }
 
     struct LocalProviderSummaryState: Sendable, Equatable {
@@ -224,6 +227,7 @@ final class PopoverViewModel: ObservableObject {
         case .claude:
             let isEnabled = settings.isProviderEnabled(.claude)
             let snapshot = snapshot(for: service)
+            let provenance = snapshot?.lastSuccessfulMetadata ?? snapshot?.lastAttemptMetadata
             let isAuthRequired = isEnabled && !(snapshot?.hasCredential ?? false) && !(snapshot?.hasContent ?? false) && !(snapshot?.isLoading ?? false)
             let summary = snapshot.map { runtimeSummary(for: $0, isEnabled: isEnabled, isAuthRequired: isAuthRequired) }
                 ?? (!isEnabled ? "비활성화됨" : (isAuthRequired ? "인증 필요" : "데이터를 아직 불러오지 못했습니다"))
@@ -237,11 +241,15 @@ final class PopoverViewModel: ObservableObject {
                 error: snapshot?.error,
                 hasContent: snapshot?.hasContent ?? false,
                 isAuthRequired: isAuthRequired,
-                shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired)
+                shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired),
+                freshness: snapshot?.freshness ?? .unavailable,
+                sourceLabel: provenance?.sourceLabel,
+                accountID: provenance?.accountID
             )
         case .codex:
             let isEnabled = settings.isProviderEnabled(.codex)
             let snapshot = snapshot(for: service)
+            let provenance = snapshot?.lastSuccessfulMetadata ?? snapshot?.lastAttemptMetadata
             let isAuthRequired = isEnabled && !(snapshot?.hasCredential ?? false) && !(snapshot?.hasContent ?? false) && !(snapshot?.isLoading ?? false)
             let summary = snapshot.map { runtimeSummary(for: $0, isEnabled: isEnabled, isAuthRequired: isAuthRequired) }
                 ?? (!isEnabled ? "비활성화됨" : (isAuthRequired ? "인증 필요" : "데이터를 아직 불러오지 못했습니다"))
@@ -255,7 +263,10 @@ final class PopoverViewModel: ObservableObject {
                 error: snapshot?.error,
                 hasContent: snapshot?.hasContent ?? false,
                 isAuthRequired: isAuthRequired,
-                shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired)
+                shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired),
+                freshness: snapshot?.freshness ?? .unavailable,
+                sourceLabel: provenance?.sourceLabel,
+                accountID: provenance?.accountID
             )
         case .antigravity:
             return antigravityRuntimeServiceState(settings: settings)
@@ -268,6 +279,7 @@ final class PopoverViewModel: ObservableObject {
         let signalsCached = cachedAntigravitySignals
         let signals = signalsCached ?? .empty
         let snapshot = runtimeSnapshots[.antigravity]
+        let provenance = snapshot?.lastSuccessfulMetadata ?? snapshot?.lastAttemptMetadata
         let runtimeError = snapshot?.error
         // 캐시 cold 상태에서는 auth prompt 를 보류 — warm-up 끝나면 정확한 상태로 전환.
         let requiresInteractiveSetup: Bool = {
@@ -300,7 +312,10 @@ final class PopoverViewModel: ObservableObject {
             error: runtimeError,
             hasContent: antigravityUsage != nil,
             isAuthRequired: isAuthRequired,
-            shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired)
+            shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired),
+            freshness: snapshot?.freshness ?? .unavailable,
+            sourceLabel: provenance?.sourceLabel,
+            accountID: provenance?.accountID
         )
     }
 
@@ -442,7 +457,7 @@ final class PopoverViewModel: ObservableObject {
             return "현재 \(Int(usage.fiveHour.utilization.rounded()))% · 주간 \(Int((usage.sevenDay?.utilization ?? 0).rounded()))%"
         }
         if let usage = snapshot.codexUsage {
-            return "현재 \(Int((usage.rateLimit?.primaryWindow?.utilization ?? 0).rounded()))% · 주간 \(Int((usage.rateLimit?.secondaryWindow?.utilization ?? 0).rounded()))%"
+            return usage.usageSummaryText
         }
         if let usage = snapshot.antigravityUsage {
             guard usage.hasUsageWindows else {
@@ -474,20 +489,20 @@ final class PopoverViewModel: ObservableObject {
         guard snapshot.hasContent else {
             return snapshot.lastUpdated.map(relativeTimestamp(for:))
         }
-        if snapshot.isLoading {
-            return "갱신 중"
-        }
         guard let lastUpdated = snapshot.lastUpdated else {
             return nil
         }
         let relative = relativeTimestamp(for: lastUpdated)
-        if snapshot.lastAttemptState == .temporaryFailure {
-            if snapshot.hasBackoff {
-                return "재시도 대기 · 마지막 성공 \(relative)"
-            }
-            return "마지막 성공 \(relative)"
+        if snapshot.isLoading {
+            return "갱신 중 · \(relative) 성공"
         }
-        return relative
+        if snapshot.error != nil {
+            if snapshot.hasBackoff {
+                return "\(relative) 성공 · 재시도 대기"
+            }
+            return "\(relative) 성공 · 갱신 실패"
+        }
+        return "갱신 \(relative)"
     }
 
     private func shouldShowWarningDot(
@@ -499,9 +514,6 @@ final class PopoverViewModel: ObservableObject {
         }
         if isAuthRequired || snapshot.hasAuthError {
             return true
-        }
-        if snapshot.isStaleRecoverable {
-            return false
         }
         return snapshot.error != nil
     }

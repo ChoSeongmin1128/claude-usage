@@ -131,6 +131,66 @@ actor CodexAPIService {
         }
     }
 
+    /// 한도 초기화 크레딧 조회 (wham/rate-limit-reset-credits).
+    /// 이 엔드포인트는 서버 측에서 자주 느리거나 timeout 을 반환하는 것으로 확인됨
+    /// (CodexBar 도 4초 timeout 의 best-effort 로 다룬다). 사용량 갱신을 지연시키지 않도록
+    /// 짧은 timeout 을 쓰고, 실패는 호출부(supplement)에서 "정보 없음"으로 무시한다.
+    private func performResetCreditsRequest(
+        accessToken: String,
+        accountID: String?
+    ) async throws -> CodexResetCreditsResponse {
+        let url = baseURL.appendingPathComponent("wham/rate-limit-reset-credits")
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 5
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("ClaudeUsage", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("codex-1", forHTTPHeaderField: "OpenAI-Beta")
+        request.setValue("Codex Desktop", forHTTPHeaderField: "originator")
+        if let accountID, !accountID.isEmpty {
+            request.setValue(accountID, forHTTPHeaderField: "ChatGPT-Account-Id")
+        }
+
+        Logger.debug("Codex 한도 초기화 크레딧 요청: \(url.absoluteString)")
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await urlSession.data(for: request)
+        } catch {
+            throw APIError.networkError(error.localizedDescription)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            throw APIError.serverError(statusCode)
+        }
+
+        do {
+            return try JSONDecoder().decode(CodexResetCreditsResponse.self, from: data)
+        } catch {
+            Logger.debug("Codex 한도 초기화 크레딧 파싱 실패: \(error)")
+            throw APIError.parseError
+        }
+    }
+
+    /// 사용량 응답에 한도 초기화 크레딧 정보를 보충합니다. 크레딧 조회 실패는 사용량 표시를 막지 않습니다.
+    private func supplementResetCredits(_ usage: CodexUsageResponse) async -> CodexUsageResponse {
+        guard let accessToken, !accessToken.isEmpty else { return usage }
+        let accountID = await authManager.getToken()?.accountID
+        var supplemented = usage
+        do {
+            supplemented.resetCredits = try await performResetCreditsRequest(
+                accessToken: accessToken,
+                accountID: accountID
+            )
+        } catch {
+            Logger.debug("Codex 한도 초기화 크레딧 조회 실패(무시): \(error.localizedDescription)")
+        }
+        return supplemented
+    }
+
     private func recoverFromUnauthorizedAndRetry(failedAccessToken: String) async throws -> CodexUsageResponse {
         Logger.warning("Codex 사용량 API 인증 실패 — auth.json 재로드/refresh 복구를 시도합니다")
         let recovery = await authManager.recoverFromUnauthorized(failedAccessToken: failedAccessToken)
@@ -151,13 +211,14 @@ actor CodexAPIService {
         }
     }
 
-    /// 재시도 로직을 포함한 사용량 가져오기
+    /// 재시도 로직을 포함한 사용량 가져오기 (+ 초기화 크레딧 보충)
     func fetchUsageWithRetry(maxAttempts: Int = 3) async throws -> CodexUsageResponse {
         var lastError: Error?
 
         for attempt in 1...maxAttempts {
             do {
-                return try await fetchUsage()
+                let usage = try await fetchUsage()
+                return await supplementResetCredits(usage)
             } catch {
                 // 인증 에러(영구) 는 재시도 없이 즉시 throw
                 if let apiError = error as? APIError {

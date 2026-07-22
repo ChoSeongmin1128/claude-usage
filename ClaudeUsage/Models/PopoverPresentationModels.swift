@@ -25,6 +25,7 @@ enum PopoverSectionImportance: Equatable {
 enum PopoverDisplaySectionKind: Equatable {
     case usage
     case credits
+    case resetCredits
     case overage
     case account
     case status
@@ -42,6 +43,12 @@ struct PopoverUsageSectionData {
 
 struct PopoverCreditsSectionData {
     let credits: CodexCredits
+}
+
+struct PopoverResetCreditsSectionData {
+    let availableCount: Int
+    let nextExpiresAtISO: String?
+    let timeFormatStyle: TimeFormatStyle
 }
 
 struct PopoverOverageSectionData {
@@ -80,6 +87,7 @@ struct PopoverStatusSectionData {
 enum PopoverDisplayPayload {
     case usage(PopoverUsageSectionData)
     case credits(PopoverCreditsSectionData)
+    case resetCredits(PopoverResetCreditsSectionData)
     case overage(PopoverOverageSectionData)
     case account(PopoverAccountSectionData)
     case status(PopoverStatusSectionData)

@@ -16,10 +16,9 @@ enum APIError: Error, Sendable {
     /// access token 은 만료됐지만 refresh 서버/네트워크가 일시 실패한 상태.
     /// 마지막 성공 데이터는 유지하고 백오프 후 자동 재시도해야 한다.
     case codexTokenRefreshTemporary(reason: String)
-    /// Claude CLI OAuth (`/api/oauth/usage`) 경로가 비활성화돼 있어 호출되지 않은 상태.
-    /// 사용자가 `claudeCodeExternal` 계정만 가지고 있을 때 발생하며, 에러가 아니라
-    /// "Claude.ai 로그인으로 전환 권장" 안내 카드로 처리된다 (UX 친화 분기).
-    case claudeOAuthPathRetired
+    /// Claude Code 계정이 활성인데 사용할 수 있는 자격 증명(OAuth 토큰/세션키)이 없는 상태.
+    /// 에러 카드 대신 "Claude Code 로그인 확인 또는 Claude.ai 로그인 전환" 안내 카드로 처리된다.
+    case claudeCodeCredentialUnavailable
     case rateLimited(retryAfter: Int? = nil)
     case cloudflareBlocked(retryAfter: Int? = nil)
     case networkError(String)
@@ -45,8 +44,8 @@ extension APIError: LocalizedError {
                 ? "Codex 토큰 갱신에 일시 실패했습니다. 마지막 성공 데이터는 유지됩니다."
                 : "Codex 토큰 갱신에 일시 실패했습니다: \(reason)"
 
-        case .claudeOAuthPathRetired:
-            return "Claude Code CLI 경로가 비활성화됐습니다. Claude.ai 로그인으로 전환해 주세요."
+        case .claudeCodeCredentialUnavailable:
+            return "Claude Code 자격 증명을 찾을 수 없습니다. 터미널에서 `claude auth login`을 실행해 주세요."
 
         case .rateLimited(let retryAfter):
             if let retryAfter, retryAfter > 0 {
@@ -89,14 +88,14 @@ extension APIError: LocalizedError {
             return true
         case .serverError(let code):
             return code >= 500
-        case .invalidSessionKey, .codexReauthRequired, .claudeOAuthPathRetired, .permissionDenied, .unknownError:
+        case .invalidSessionKey, .codexReauthRequired, .claudeCodeCredentialUnavailable, .permissionDenied, .unknownError:
             return false
         }
     }
 
     nonisolated var isDefinitiveAuthFailure: Bool {
         switch self {
-        case .invalidSessionKey, .codexReauthRequired, .claudeOAuthPathRetired:
+        case .invalidSessionKey, .codexReauthRequired, .claudeCodeCredentialUnavailable:
             return true
         case .serverError(let code):
             return code == 401 || code == 403
