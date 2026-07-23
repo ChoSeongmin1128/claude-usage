@@ -19,13 +19,15 @@ extension SettingsView {
             )
 
             if settings.isProviderEnabled(.claude) {
+                if shouldShowClaudeOAuthMigrationCard {
+                    ClaudeOAuthMigrationCard(
+                        state: claudeOAuthMigrationState,
+                        onMigrate: migrateLegacyClaudeOAuthCredential,
+                        onDefer: deferClaudeOAuthMigration,
+                        onReconnectClaudeCode: { onReconnectClaudeCode?() }
+                    )
+                }
                 claudeAccountSection
-                ClaudeOAuthMigrationCard(
-                    state: claudeOAuthMigrationState,
-                    onMigrate: migrateLegacyClaudeOAuthCredential,
-                    onDefer: deferClaudeOAuthMigration,
-                    onShowLoginGuidance: showClaudeCodeLoginGuidance
-                )
                 // 「계정 변경」 별도 섹션은 제거. 「계정 관리」 펼침 안에서 통합 행으로 처리.
                 if shouldShowOrganizationSection {
                     organizationSection
@@ -102,7 +104,8 @@ extension SettingsView {
                     }
                     .buttonStyle(.borderedProminent)
 
-                    if account.kind == .claudeCodeExternal {
+                    if account.kind == .claudeCodeExternal,
+                       !claudeOAuthMigrationState.replacesStandardClaudeCodeReconnectAction {
                         Button("Claude Code 다시 연결") {
                             onReconnectClaudeCode?()
                         }
@@ -173,6 +176,11 @@ extension SettingsView {
 
     private var shouldShowClaudeAccountManagementSection: Bool {
         !claudeAccounts.isEmpty
+    }
+
+    private var shouldShowClaudeOAuthMigrationCard: Bool {
+        guard let activeAccount = activeClaudeAccount() else { return true }
+        return activeAccount.kind == .claudeCodeExternal
     }
 
     @ViewBuilder

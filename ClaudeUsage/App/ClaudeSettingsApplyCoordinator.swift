@@ -127,9 +127,6 @@ enum ClaudeSettingsApplyCoordinator {
 
         let resolvedOrganization = await apiService.resolvedSessionOrganizationForLastValidation()
         let normalizedPreferredOrganizationID = normalizeOrganizationID(preferredOrganizationID)
-        let resolvedPreferredOrganizationID = normalizedPreferredOrganizationID.isEmpty
-            ? (resolvedOrganization?.id ?? normalizedPreferredOrganizationID)
-            : normalizedPreferredOrganizationID
         let identity = resolvedOrganization.map {
             ClaudeAccountIdentity(
                 organizationName: $0.name,
@@ -140,7 +137,10 @@ enum ClaudeSettingsApplyCoordinator {
         do {
             try keychain.save(
                 key,
-                preferredOrganizationID: resolvedPreferredOrganizationID,
+                // 자동으로 선택된 organization은 identity로만 기록한다. 강제
+                // preference는 사용자가 직접 선택한 경우에만 저장해야 이후 더
+                // 적합한 조직 계정이 발견됐을 때 자동 선택이 다시 평가된다.
+                preferredOrganizationID: normalizedPreferredOrganizationID,
                 displayName: displayName,
                 identity: identity,
                 source: source,

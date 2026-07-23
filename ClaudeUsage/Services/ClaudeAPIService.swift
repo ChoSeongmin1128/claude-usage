@@ -61,6 +61,30 @@ actor ClaudeAPIService {
             }
         }
 
+        /// Claude의 개인 workspace는 현재 "<email>'s Organization" 형태로
+        /// 노출될 수 있다. 명시적인 personal/individual metadata와 이 이름
+        /// 패턴만 개인 신호로 사용하고, 일반 조직명은 추측하지 않는다.
+        var hasPersonalAccountSignal: Bool {
+            let normalizedName = name?.lowercased() ?? ""
+            let hasPersonalWorkspaceName =
+                normalizedName.contains("@")
+                    && (
+                        normalizedName.contains("'s organization")
+                            || normalizedName.contains("’s organization")
+                    )
+            if hasPersonalWorkspaceName {
+                return true
+            }
+
+            let values = [planLabel, billingType, rateLimitTier]
+                .compactMap { $0?.lowercased() }
+            return values.contains { value in
+                value.contains("personal")
+                    || value.contains("individual")
+                    || value.contains("consumer")
+            }
+        }
+
         private nonisolated static func normalized(_ value: String?) -> String? {
             guard let value else { return nil }
             let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -270,7 +294,7 @@ actor ClaudeAPIService {
             ? activeAccount.flatMap { sessionKeyLoader($0.id) }
             : nil
         self.preferredOrganizationID = activeAccount?.kind == .webSession
-            ? Self.normalizeOrganizationID(activeAccount?.preferredOrganizationID)
+            ? Self.normalizeOrganizationID(activeAccount?.userSelectedPreferredOrganizationID)
             : nil
         // ClaudeAccountStore 변경(계정 전환, 조직 선택 변경 등)을 받아 in-memory
         // 캐시를 자동 무효화한다. UI/Coordinator 가 store 만 갱신해도 다음 fetch 가
@@ -321,7 +345,7 @@ actor ClaudeAPIService {
             ? activeAccount.flatMap { sessionKeyLoader($0.id) }
             : nil
         self.preferredOrganizationID = activeAccount?.kind == .webSession
-            ? Self.normalizeOrganizationID(activeAccount?.preferredOrganizationID)
+            ? Self.normalizeOrganizationID(activeAccount?.userSelectedPreferredOrganizationID)
             : nil
         accountStoreObserver.start { [weak self] in
             guard let self else { return }
@@ -341,7 +365,9 @@ actor ClaudeAPIService {
             let previousPreferredOrganizationID = preferredOrganizationID
             if nextAccount?.kind == .webSession {
                 sessionKey = nextAccount.flatMap { sessionKeyLoader($0.id) }
-                preferredOrganizationID = Self.normalizeOrganizationID(nextAccount?.preferredOrganizationID)
+                preferredOrganizationID = Self.normalizeOrganizationID(
+                    nextAccount?.userSelectedPreferredOrganizationID
+                )
             } else {
                 sessionKey = nil
                 preferredOrganizationID = nil
@@ -368,7 +394,9 @@ actor ClaudeAPIService {
 
         if nextAccount?.kind == .webSession {
             sessionKey = nextAccount.flatMap { sessionKeyLoader($0.id) }
-            preferredOrganizationID = Self.normalizeOrganizationID(nextAccount?.preferredOrganizationID)
+            preferredOrganizationID = Self.normalizeOrganizationID(
+                nextAccount?.userSelectedPreferredOrganizationID
+            )
         } else {
             sessionKey = nil
             preferredOrganizationID = nil
@@ -497,10 +525,11 @@ actor ClaudeAPIService {
         switch await oauthCredentialReader.importActiveCLICredential() {
         case .available:
             return
-        case .imported(let credentialChanged):
-            if credentialChanged {
-                await resetClaudeCodeStateAfterCredentialChange()
-            }
+        case .imported:
+            // 명시적 가져오기는 vault가 비어 있어 이전 token과 비교할 수 없는
+            // 경우에도 다른 CLI 계정일 수 있다. 과거 identity/profile/usage
+            // 캐시를 항상 비워 새 credential의 응답으로 다시 채운다.
+            await resetClaudeCodeStateAfterCredentialChange()
         case .notFound:
             throw APIError.claudeCodeCredentialUnavailable
         case .cancelled:
@@ -612,7 +641,7 @@ actor ClaudeAPIService {
         if !(200...299).contains(http.statusCode) {
             // fetchUsageViaOAuth 와 동일 정책: 401 시 1회 refresh + retry
             if http.statusCode == 401, allowRefreshRetry,
-               let newToken = await oauthCredentialReader.forceRefreshAccessToken(),
+               let newToken = try await forceRefreshSystemOAuthAccessToken(),
                newToken != accessToken
             {
                 return try await performOAuthProfileRequest(accessToken: newToken, allowRefreshRetry: false)
@@ -672,7 +701,8 @@ actor ClaudeAPIService {
     /// v2.3: OAuth (`/api/oauth/usage`) 경로를 정식 소스로 승격.
     /// v2.2.0 에서 비활성화했던 이유(토큰별 rate limit, refresh rotation 함정)는
     /// (1) OAuth 경로 최소 호출 간격 + 성공 캐시, (2) 429 Retry-After 쿨다운,
-    /// (3) 별도 캐시 keychain 을 쓰는 rotation-safe reader 로 완화한다.
+    /// (3) 파일 기반 자격만 회전 결과를 원본에 write-back하고 CLI Keychain
+    /// 자격은 read-only mirror로 다루는 ownership-aware reader로 완화한다.
     /// 문제가 재발하면 환경변수 `CLAUDE_USAGE_ENABLE_CLAUDE_OAUTH_USAGE=0` 이 kill switch.
     nonisolated private static var claudeOAuthUsageCallsEnabled: Bool {
         ProcessInfo.processInfo.environment["CLAUDE_USAGE_ENABLE_CLAUDE_OAUTH_USAGE"] != "0"
@@ -1242,7 +1272,17 @@ actor ClaudeAPIService {
     }
 
     private func rememberActiveOrganization(_ organization: OrganizationSummary) async {
-        guard let activeAccount, activeAccount.kind == .webSession else { return }
+        guard let activeAccount,
+              let sessionKey,
+              Self.shouldRememberResolvedOrganization(
+                  activeAccount: activeAccount,
+                  sessionKey: sessionKey
+              ) else {
+            // 새 Chrome 프로필을 저장 전 검증하는 동안에는 공용 서비스의
+            // activeAccount가 이전 계정일 수 있다. 새 조직 identity를 이전
+            // 계정에 합치지 않고 coordinator가 새 계정을 저장할 때 전달한다.
+            return
+        }
         var metadata = await profileMetadataStore.load() ?? ClaudeProfileMetadata()
         metadata.organizationUUID = organization.id
         metadata.lastUpdatedAt = Date()
@@ -1255,6 +1295,17 @@ actor ClaudeAPIService {
             for: activeAccount.id
         )
         self.activeAccount = accountStore.activeAccount()
+    }
+
+    nonisolated static func shouldRememberResolvedOrganization(
+        activeAccount: ClaudeAccount?,
+        sessionKey: String
+    ) -> Bool {
+        guard let activeAccount, activeAccount.kind == .webSession else { return false }
+        let fingerprint = ClaudeAccountStore.fingerprint(for: sessionKey)
+        return activeAccount.id == ClaudeAccountStore.webSessionAccountID(
+            fingerprint: fingerprint
+        )
     }
 
     private func selectAutomaticOrganization(
@@ -1441,7 +1492,7 @@ actor ClaudeAPIService {
                     switch apiError {
                     case .rateLimited(_), .cloudflareBlocked(_), .permissionDenied:
                         throw apiError
-                    case .invalidSessionKey, .codexReauthRequired, .codexTokenRefreshTemporary, .claudeCodeCredentialUnavailable, .networkError, .parseError, .serverError, .unknownError:
+                    case .invalidSessionKey, .codexReauthRequired, .codexTokenRefreshTemporary, .claudeCodeCredentialUnavailable, .claudeCodeReauthenticationRequired, .claudeCodeReconnectRequired, .networkError, .parseError, .serverError, .unknownError:
                         break
                     }
                 }
@@ -1673,7 +1724,7 @@ actor ClaudeAPIService {
             return try await performOAuthUsageRequest(accessToken: accessToken)
         } catch let firstError as APIError {
             guard case .invalidSessionKey = firstError else { throw firstError }
-            guard let refreshedToken = await oauthCredentialReader.forceRefreshAccessToken(),
+            guard let refreshedToken = try await forceRefreshSystemOAuthAccessToken(),
                   refreshedToken != accessToken
             else {
                 throw firstError
@@ -1726,7 +1777,23 @@ actor ClaudeAPIService {
     }
 
     private func readSystemOAuthAccessToken() async throws -> String? {
-        try await oauthCredentialReader.readAccessToken()
+        do {
+            return try await oauthCredentialReader.readAccessToken()
+        } catch ClaudeOAuthCredentialReadError.reauthenticationRequired {
+            throw APIError.claudeCodeReauthenticationRequired
+        } catch ClaudeOAuthCredentialReadError.reconnectRequired {
+            throw APIError.claudeCodeReconnectRequired
+        }
+    }
+
+    private func forceRefreshSystemOAuthAccessToken() async throws -> String? {
+        do {
+            return try await oauthCredentialReader.forceRefreshAccessToken()
+        } catch ClaudeOAuthCredentialReadError.reauthenticationRequired {
+            throw APIError.claudeCodeReauthenticationRequired
+        } catch ClaudeOAuthCredentialReadError.reconnectRequired {
+            throw APIError.claudeCodeReconnectRequired
+        }
     }
 
     private nonisolated static func hasStoredOAuthCredentialInventory(_ state: ClaudeAccountState) -> Bool {

@@ -165,7 +165,8 @@ extension SettingsView {
             selectedOrganizationID = normalizedOrganizationID
         }
         guard let activeClaudeAccountID else { return false }
-        let previousOrganizationID = activeClaudeAccount()?.preferredOrganizationID ?? ""
+        let previousOrganizationID = activeClaudeAccount()?
+            .userSelectedPreferredOrganizationID ?? ""
         ClaudeAccountStore.shared.updatePreferredOrganizationID(normalizedOrganizationID, for: activeClaudeAccountID)
         if let organization = organizations.first(where: { $0.id == normalizedOrganizationID }) {
             ClaudeAccountStore.shared.mergeIdentity(
@@ -185,7 +186,7 @@ extension SettingsView {
         cancelUsageHealthLoad(clearSnapshot: true)
         profileMetadata = nil
         activeClaudeAccountID = account.id
-        selectedOrganizationID = account.preferredOrganizationID
+        selectedOrganizationID = account.userSelectedPreferredOrganizationID ?? ""
         claudeAccountMessage = "현재 사용 계정을 \(account.displayName)으로 변경했습니다. 새 계정의 사용량을 확인합니다."
         isClaudeAccountSwitcherExpanded = false
         isClaudeAccountManagementExpanded = false
@@ -226,7 +227,7 @@ extension SettingsView {
     }
 
     func activeClaudePreferredOrganizationID() -> String {
-        activeClaudeWebAccount()?.preferredOrganizationID ?? ""
+        activeClaudeWebAccount()?.userSelectedPreferredOrganizationID ?? ""
     }
 
     func normalizeSessionKey(_ raw: String) -> String {
@@ -293,7 +294,10 @@ extension SettingsView {
                 }
             }
 
-            let service = ClaudeAPIService(sessionKey: normalizedKey)
+            // 활성 계정의 조직 조회는 AppDelegate가 주입한 공용 actor를
+            // 사용한다. fetchOrganizations()가 store에서 active account를
+            // 다시 로드하므로 계정 전환과 같은 credential 경계를 공유한다.
+            let service = claudeAPIService
             var resolvedOrganizations: [ClaudeAPIService.OrganizationSummary] = []
 
             if !forceRefresh {

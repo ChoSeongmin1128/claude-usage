@@ -96,7 +96,11 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
   - Chrome 쿠키 DB 또는 내장 로그인 창에서 읽습니다.
   - 세션키 값은 Keychain에 저장합니다.
 - `Claude Code OAuth`
-  - `~/.claude` 자격 파일과 Keychain에 있는 Claude Code 자격을 읽습니다.
+  - 자동 갱신에서는 앱 전용 vault와 `~/.claude` 자격 파일만 읽습니다.
+  - 사용자가 `Claude Code 다시 연결`을 선택한 경우에만 CLI Keychain을 한 번 읽고, 파일과 Keychain 중 만료 시각이 더 최신인 OAuth 자격을 앱 전용 vault에 복사합니다.
+  - 기존 Claude Code 사용자는 업데이트 뒤 설정의 `Claude Code 연결 업데이트`로 이전 앱 캐시를 한 번만 옮깁니다. Chrome/웹 로그인 사용자는 별도 조작이 필요하지 않습니다.
+  - vault는 CLI에서 복사한 mirror와 앱이 이전부터 갱신해 온 credential의 소유권을 구분해, 오래된 CLI 파일이 방금 연결한 최신 Keychain 자격을 다시 덮지 않게 합니다.
+  - Claude Code가 소유한 Keychain 항목은 수정하거나 삭제하지 않습니다.
   - OAuth 토큰과 profile metadata를 이용해 `organization`, `subscription`, `rate limit tier`를 판단합니다.
 - `Antigravity`
   - 로컬 language server 프로세스와 connect 포트를 찾고, 로컬 API에 연결합니다.

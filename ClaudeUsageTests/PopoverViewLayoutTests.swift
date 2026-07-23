@@ -1,7 +1,77 @@
+import SwiftUI
 import XCTest
 @testable import ClaudeUsage
 
 final class PopoverViewLayoutTests: XCTestCase {
+    func testProviderStatusRailAlwaysIdentifiesSelectedProvider() {
+        XCTAssertEqual(
+            PopoverView.providerStatusRailLabels(
+                serviceName: "Claude",
+                account: nil,
+                source: nil,
+                status: "로그인 필요"
+            ),
+            ["Claude", "로그인 필요"]
+        )
+        XCTAssertEqual(
+            PopoverView.providerStatusRailLabels(
+                serviceName: "Claude",
+                account: "nathan@example.com",
+                source: "Chrome",
+                status: "방금 갱신"
+            ),
+            ["Claude", "nathan@example.com", "Chrome", "방금 갱신"]
+        )
+    }
+
+    func testProviderSelectorGeometryKeepsWarningDotInsideSelectionBackground() {
+        XCTAssertEqual(PopoverLayoutMetrics.providerSelectorSize(compact: false), 26)
+        XCTAssertEqual(PopoverLayoutMetrics.providerIconSize(compact: false), 16)
+        XCTAssertEqual(PopoverLayoutMetrics.providerWarningDotSize(compact: false), 6)
+        XCTAssertGreaterThan(
+            PopoverLayoutMetrics.providerSelectorSize(compact: false),
+            PopoverLayoutMetrics.providerIconSize(compact: false)
+        )
+        XCTAssertGreaterThanOrEqual(
+            PopoverLayoutMetrics.providerSelectorSize(compact: false),
+            PopoverLayoutMetrics.providerWarningDotSize(compact: false)
+                + PopoverLayoutMetrics.providerWarningDotInset(compact: false) * 2
+        )
+
+        XCTAssertEqual(PopoverLayoutMetrics.providerSelectorSize(compact: true), 20)
+        XCTAssertEqual(PopoverLayoutMetrics.providerIconSize(compact: true), 14)
+        XCTAssertEqual(PopoverLayoutMetrics.providerWarningDotSize(compact: true), 4)
+        XCTAssertGreaterThanOrEqual(
+            PopoverLayoutMetrics.providerSelectorSize(compact: true),
+            PopoverLayoutMetrics.providerWarningDotSize(compact: true)
+                + PopoverLayoutMetrics.providerWarningDotInset(compact: true) * 2
+        )
+    }
+
+    @MainActor
+    func testSelectedProviderWarningVisualRendersAtExpectedSize() throws {
+        let preview = ProviderSelectorButtonLabel(
+            provider: .claude,
+            isSelected: true,
+            showsWarning: true,
+            compact: false
+        )
+        .padding(6)
+        .background(Color(NSColor.windowBackgroundColor))
+        .preferredColorScheme(.dark)
+
+        let renderer = ImageRenderer(content: preview)
+        renderer.scale = 2
+        let image = try XCTUnwrap(renderer.nsImage)
+        XCTAssertEqual(image.size.width, 38, accuracy: 0.1)
+        XCTAssertEqual(image.size.height, 38, accuracy: 0.1)
+
+        let attachment = XCTAttachment(image: image)
+        attachment.name = "Selected Claude provider with contained warning badge"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func testStandardPopoverWidthIsReducedTo368() {
         XCTAssertEqual(PopoverView.preferredPopoverWidth(compact: false), 368)
         XCTAssertEqual(PopoverLayoutMetrics.preferredPopoverWidth(compact: false), 368)

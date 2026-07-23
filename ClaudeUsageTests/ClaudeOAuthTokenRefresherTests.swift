@@ -3,7 +3,7 @@ import XCTest
 
 /// `ClaudeOAuthTokenRefresher` 가 다음 책임을 흔들림 없이 유지하는지 고정한다:
 ///   - 성공 응답 디코딩 + 새 credential 생성
-///   - `invalid_grant` 응답 시 terminal disposition (이후 호출도 실패)
+///   - `invalid_grant` 응답 시 해당 refresh token만 terminal disposition
 ///   - 일시적 실패(5xx, 네트워크) 시 cooldown 진입 (이후 호출은 cooldown 메시지)
 ///   - 동시 호출 시 in-flight task 결과 공유 (HTTP 호출 1회만)
 ///   - refresh_token 누락 시 즉시 `missingRefreshToken` 에러
@@ -33,7 +33,7 @@ final class ClaudeOAuthTokenRefresherTests: XCTestCase {
         XCTAssertEqual(refreshed.accessToken, "new-access")
         XCTAssertEqual(refreshed.refreshToken, "rt-existing", "응답에서 refresh_token 이 빠지면 기존 값을 그대로 유지")
         XCTAssertEqual(refreshed.expiresAt, Date(timeIntervalSince1970: 1_003_600))
-        XCTAssertEqual(refreshed.source, .refreshed)
+        XCTAssertEqual(refreshed.source, credential.source)
         let count = await runner.totalCalls()
         XCTAssertEqual(count, 1)
     }
@@ -84,6 +84,33 @@ final class ClaudeOAuthTokenRefresherTests: XCTestCase {
 
         let count = await runner.totalCalls()
         XCTAssertEqual(count, 1, "terminal 이후엔 HTTP 호출 자체가 일어나지 않아야 함")
+    }
+
+    func testNewRefreshTokenLineageRecoversWithoutRestartAfterInvalidGrant() async throws {
+        let runner = MockRunner(scriptedResponses: [
+            .success(body: #"{"error":"invalid_grant"}"#, statusCode: 400),
+            .success(body: #"{"access_token":"recovered","refresh_token":"rt-newer","expires_in":600}"#, statusCode: 200)
+        ])
+        let refresher = ClaudeOAuthTokenRefresher(httpRunner: runner.run, cooldownInterval: 60)
+        let rejected = ClaudeCodeOAuthCredential(
+            accessToken: "old",
+            refreshToken: "rt-old",
+            source: .refreshed
+        )
+        let relogged = ClaudeCodeOAuthCredential(
+            accessToken: "new-login",
+            refreshToken: "rt-new",
+            source: .file(URL(fileURLWithPath: "/tmp/.credentials.json"))
+        )
+
+        _ = try? await refresher.refresh(rejected)
+        let refreshed = try await refresher.refresh(relogged)
+
+        XCTAssertEqual(refreshed.accessToken, "recovered")
+        XCTAssertEqual(refreshed.refreshToken, "rt-newer")
+        XCTAssertEqual(refreshed.source, relogged.source)
+        let count = await runner.totalCalls()
+        XCTAssertEqual(count, 2)
     }
 
     func testTransientFailureSchedulesCooldownAndBlocksImmediateRetry() async {

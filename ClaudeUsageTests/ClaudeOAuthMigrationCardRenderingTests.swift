@@ -10,7 +10,7 @@ final class ClaudeOAuthMigrationCardRenderingTests: XCTestCase {
             state: .available,
             onMigrate: {},
             onDefer: {},
-            onShowLoginGuidance: {}
+            onReconnectClaudeCode: {}
         )
         .frame(width: 680)
         .padding(20)
@@ -31,10 +31,10 @@ final class ClaudeOAuthMigrationCardRenderingTests: XCTestCase {
 
     func testFailureMigrationCardKeepsAllActionsWithinSettingsWidth() throws {
         let view = ClaudeOAuthMigrationCard(
-            state: .failed("기존 OAuth 캐시를 읽지 못했습니다. Claude Code에 다시 로그인해 주세요."),
+            state: .failed("기존 Claude Code 연결 정보를 읽지 못했습니다. Claude Code에 다시 로그인해 주세요."),
             onMigrate: {},
             onDefer: {},
-            onShowLoginGuidance: {}
+            onReconnectClaudeCode: {}
         )
         .frame(width: 680)
         .padding(20)
@@ -44,5 +44,41 @@ final class ClaudeOAuthMigrationCardRenderingTests: XCTestCase {
         let image = try XCTUnwrap(renderer.nsImage)
         XCTAssertEqual(image.size.width, 720, accuracy: 1)
         XCTAssertLessThan(image.size.height, 200)
+
+        let tiff = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiff))
+        let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        try png.write(to: URL(fileURLWithPath: "/private/tmp/ClaudeUsage-oauth-migration-failure-card.png"))
+    }
+
+    func testMigrationActionReplacesDuplicateReconnectOnlyWhileActionable() {
+        XCTAssertTrue(
+            ClaudeOAuthCredentialMigrationState.available
+                .replacesStandardClaudeCodeReconnectAction
+        )
+        XCTAssertTrue(
+            ClaudeOAuthCredentialMigrationState.checking
+                .replacesStandardClaudeCodeReconnectAction
+        )
+        XCTAssertTrue(
+            ClaudeOAuthCredentialMigrationState.migrating
+                .replacesStandardClaudeCodeReconnectAction
+        )
+        XCTAssertTrue(
+            ClaudeOAuthCredentialMigrationState.failed("failure")
+                .replacesStandardClaudeCodeReconnectAction
+        )
+        XCTAssertFalse(
+            ClaudeOAuthCredentialMigrationState.deferred
+                .replacesStandardClaudeCodeReconnectAction
+        )
+        XCTAssertFalse(
+            ClaudeOAuthCredentialMigrationState.completed
+                .replacesStandardClaudeCodeReconnectAction
+        )
+        XCTAssertFalse(
+            ClaudeOAuthCredentialMigrationState.notNeeded
+                .replacesStandardClaudeCodeReconnectAction
+        )
     }
 }

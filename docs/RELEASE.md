@@ -17,7 +17,8 @@
 
 현재 운영 기준:
 
-- 코드 브랜치: `main`
+- 작업 브랜치: 최신 `main`에서 만든 `dev`, 작업 단위별 커밋과 push
+- 릴리스 브랜치: 검증된 `dev`를 squash한 `main`
 - staging: 코드 브랜치가 아니라 `vX.Y.Z-staging` prerelease + `/channels/staging/appcast.xml` channel
 - prod: staging 검증 후 `vX.Y.Z` stable release + root `/appcast.xml` channel
 - `gh-pages`: appcast 정적 호스팅 브랜치이며 수동 코드 작업 대상이 아님
@@ -117,12 +118,53 @@ SUFeedURL 을 직접 정하고 싶다면 스크립트 실행 후 xcconfig 를 �
 
 ---
 
-## 2. 릴리스 빌드 (버전마다)
+## 2. 릴리스 후보 확정과 빌드
+
+릴리스 전에는 `dev`의 작업 단위 커밋을 모두 push하고 전체 테스트, Release build, 실제 앱 QA, 코드 리뷰를 마칩니다. 그 뒤 `main`에 squash commit 하나로 반영합니다.
+
+다음 릴리스 작업을 시작할 때 `dev`를 최신 `main`으로 다시 맞추는 작업은 직전
+`dev`의 최종 tree가 `git diff --exit-code main dev` 기준으로 `main`과 동일해
+squash 반영이 끝났음을 확인한 뒤에만 수행합니다. 진행 중인 `dev`를 무조건
+재생성하거나 reset하지 않습니다.
+
+```bash
+git status --short
+git switch main
+git pull --ff-only origin main
+git merge --squash dev
+git commit -m "릴리스 변경 요약"
+xcodebuild test -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -destination 'platform=macOS'
+git push origin main
+```
+
+이후 산출물은 반드시 최종 `main`에서 새로 만듭니다. squash 전 산출물은 commit provenance가 다르므로 게시하지 않습니다.
 
 배포 기준은 `RELEASE_DISTRIBUTION` 으로 고릅니다.
 
 - `notarized` 기본값: Developer ID 서명, Apple notarization, staple, Gatekeeper 검증까지 수행합니다. 웹/공개 다운로드 또는 일반 사용자 배포 기준입니다.
 - `internal`: 사내 배포용 signed-only DMG 를 만듭니다. Developer ID 서명과 codesign 검증은 수행하지만 Apple notarization 과 staple 은 건너뜁니다. 다운로드 quarantine 경로에서는 macOS Gatekeeper 경고나 차단이 나올 수 있습니다.
+
+같은 이름의 유효한 `Developer ID Application` 인증서가 둘 이상이면 빌드
+스크립트는 임의 선택하지 않고 중단합니다. 먼저 기존 배포 앱 또는 직전 정상
+산출물의 서명 인증서 SHA-1을 확인하고, 현재 Keychain에 같은 인증서가 유효한지
+대조한 뒤 그 값을 `CERT_HASH`로 명시합니다.
+
+```bash
+# 직전 정상 앱의 서명 인증서 SHA-1
+codesign -d --extract-certificates /path/to/ClaudeUsage.app
+openssl x509 -inform DER -in codesign0 -noout -fingerprint -sha1
+
+# 현재 사용 가능한 Developer ID Application 인증서
+security find-identity -v -p codesigning
+
+CERT_HASH="확인한_SHA1_공백_없이" \
+RELEASE_CHANNEL=staging \
+./Scripts/build-notarize-release.sh
+```
+
+인증서 이름이 같다는 이유만으로 첫 번째 identity를 택하지 않습니다. 일치하는
+기존 정상 산출물이 없으면 인증서 만료일과 팀 ID를 확인하고 릴리스 담당자가
+대상을 명시적으로 결정해야 합니다.
 
 ```bash
 # staging
@@ -212,6 +254,37 @@ staging 예:
 ```bash
 RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh
 ./Scripts/publish-release.sh vX.Y.Z-staging --prerelease --channel staging --notes "릴리스 요약"
+```
+
+게시 후에는 release의 원격 DMG를 다시 다운로드해 최종 사용자 경로를 검증합니다. 로컬 build 산출물을 Downloads에 복사한 것으로 원격 배포 검증을 대신하지 않습니다.
+
+```bash
+DOWNLOAD_DIR="$HOME/Downloads/ClaudeUsage-X.Y.Z-staging"
+mkdir -p "$DOWNLOAD_DIR"
+gh release download vX.Y.Z-staging \
+  --repo ChoSeongmin1128/claude-usage \
+  --pattern ClaudeUsage.dmg \
+  --dir "$DOWNLOAD_DIR"
+
+xcrun stapler validate "$DOWNLOAD_DIR/ClaudeUsage.dmg"
+spctl -a -t open --context context:primary-signature -vv "$DOWNLOAD_DIR/ClaudeUsage.dmg"
+shasum -a 256 "$DOWNLOAD_DIR/ClaudeUsage.dmg"
+```
+
+DMG를 mount한 뒤 앱도 별도로 확인합니다.
+
+```bash
+xcrun stapler validate "/Volumes/ClaudeUsage/ClaudeUsage.app"
+spctl -a -t exec -vv "/Volumes/ClaudeUsage/ClaudeUsage.app"
+/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "/Volumes/ClaudeUsage/ClaudeUsage.app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "/Volumes/ClaudeUsage/ClaudeUsage.app/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "/Volumes/ClaudeUsage/ClaudeUsage.app/Contents/Info.plist"
+```
+
+검증 완료 후 사용자가 요청한 경우에만 mount한 앱으로 `~/Downloads/ClaudeUsage.app`을 교체합니다. 배포 작업이 끝나면 GitHub CLI 계정을 평소 계정으로 복원합니다.
+
+```bash
+gh auth switch --hostname github.com --user nathan-glorang
 ```
 
 prod 예:

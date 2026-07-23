@@ -130,7 +130,7 @@ struct ClaudeAccountSettingsPresentation: Equatable {
         organizations: [ClaudeAPIService.OrganizationSummary]
     ) -> String? {
         let organizationID = [
-            Optional(account.preferredOrganizationID),
+            account.userSelectedPreferredOrganizationID,
             account.identity.organizationID,
         ]
         .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -218,7 +218,9 @@ struct ClaudeAccountSettingsPresentation: Equatable {
             rows.append(ClaudeAccountSettingsDetailRow(title: title, value: source))
         }
 
-        if let organizationID = nilIfEmpty(account.identity.organizationID ?? account.preferredOrganizationID) {
+        if let organizationID = nilIfEmpty(
+            account.identity.organizationID ?? account.userSelectedPreferredOrganizationID
+        ) {
             let shortID = shortOrganizationID(organizationID)
             if shortID != organization {
                 rows.append(ClaudeAccountSettingsDetailRow(title: "조직 ID", value: shortID))

@@ -1,6 +1,6 @@
 # Claude 인증 및 사용량 소스
 
-최종 갱신: 2026-05-20
+최종 갱신: 2026-07-23
 
 이 문서는 현재 `ClaudeUsage`가 Claude 인증과 사용량 조회를 어떤 경로로 다루는지 정리한 문서입니다.
 Antigravity의 로컬 앱, AGY CLI, Google OAuth 원격 quota 정책은 [Antigravity 사용량 소스와 설정 UX](antigravity-usage-sources.md)를 기준으로 합니다.
@@ -14,8 +14,9 @@ Claude는 한 가지 자격만 쓰지 않습니다. 앱은 아래 경로를 함�
 가장 안정적인 경로입니다. 다만 앱 안에서 사용자가 처음 누르게 되는 기본 CTA는 아닙니다.
 
 - 설치: `brew install --cask claude-code`
-- 로그인: `claude login`
-- 앱 반영: `설정 > Claude > 인증 > 상태 새로고침`
+- 로그인: `claude auth login`
+- 앱 반영: Claude Code 계정을 선택한 뒤 `Claude Code 다시 연결`
+- 이전 버전에서 업데이트: 설정의 `Claude Code 연결 업데이트`
 
 이 경로를 권장하는 이유는 단순합니다.
 
@@ -23,6 +24,48 @@ Claude는 한 가지 자격만 쓰지 않습니다. 앱은 아래 경로를 함�
 - 자격이 만료됐거나 확인 실패 상태면 사용자는 `claude login` 을 다시 실행해 복구할 수 있습니다.
 - Claude Code가 이미 profile metadata를 같이 제공할 수 있습니다.
 - 앱이 `organizationUuid`, `subscriptionType`, `rateLimitTier`, `hasExtraUsageEnabled`를 읽는 데 유리합니다.
+
+#### 자격 저장소와 Keychain 프롬프트 정책
+
+Claude Code 2.1.x는 로그인하거나 OAuth token을 회전할 때 macOS Keychain만
+갱신하고 `~/.claude/.credentials.json`은 이전 token을 가진 채 남길 수 있습니다.
+따라서 파일이 존재한다는 이유만으로 항상 최신 자격으로 판단하지 않습니다.
+
+- 앱 시작, 주기적 사용량 갱신, 계정 전환은 ClaudeUsage 앱 전용 vault와 자격
+  파일만 읽으며 Claude Code 소유 Keychain을 조회하지 않습니다.
+- 사용자가 `Claude Code 다시 연결`을 누른 경우에만 현재 config에 대응하는
+  `Claude Code-credentials` 항목을 한 번 읽습니다.
+- 이 명시적 연결에서는 자격 파일과 Keychain 후보의 만료 시각을 비교합니다.
+  만료 시각이 같거나 Keychain 쪽이 더 늦으면 Claude Code의 현재 저장소인
+  Keychain을 선택합니다.
+- 선택한 자격에서는 Claude OAuth 필드만 Security.framework 기반 앱 전용
+  vault에 복사하고, CLI mirror인지 앱이 관리하는 이전 credential인지 소유권을
+  함께 기록합니다. Claude Code Keychain 항목과 CLI가 소유한 다른 credential은
+  수정하거나 삭제하지 않습니다.
+- 파일 기반 refresh가 필요한 경우에만 회전된 token lineage를 같은 파일에
+  원자적으로 write-back합니다. Keychain에서 가져온 mirror는 앱이 독립적으로
+  refresh하지 않습니다.
+- 이전 버전에서 앱이 이미 refresh한 credential은 CLI mirror와 다른 lineage로
+  표시해 새 vault에서 계속 갱신합니다. 오래된 CLI 파일이 이 credential을
+  덮어쓰지 않습니다.
+
+이 경계 때문에 `claude auth login` 직후에는 앱에서 `Claude Code 다시 연결`을
+한 번 눌러야 할 수 있습니다. 이때 macOS 인증은 최대 한 번 발생할 수 있지만,
+이후 앱 실행이나 브라우저/Claude Code 계정 전환은 Keychain UI 없이 동작해야
+합니다.
+
+#### 기존 사용자 업데이트 동작
+
+- Chrome/웹 로그인 계정이 활성인 사용자는 업데이트만 하면 되며 Claude Code
+  이전 안내나 macOS 인증이 표시되지 않습니다.
+- 이전 ClaudeUsage 버전의 Claude Code cache가 있는 사용자는 Claude Code
+  계정을 사용할 때 `Claude Code 연결 업데이트` 한 가지 행동만 보게 됩니다.
+- 연결 업데이트는 같은 macOS 인증 context로 기존 정보 읽기, 새 vault 저장
+  검증, 이전 정보 정리를 수행합니다. 정상 상태에서는 인증 창이 최대 한 번만
+  표시됩니다.
+- 사용자가 인증을 취소하면 같은 앱 실행 중에는 다시 요청하지 않습니다.
+- 이전 credential이 이미 서버에서 폐기된 예외 상황에만 `claude auth login`
+  후 `Claude Code 다시 연결`이 필요합니다.
 
 ### Chrome 가져오기
 

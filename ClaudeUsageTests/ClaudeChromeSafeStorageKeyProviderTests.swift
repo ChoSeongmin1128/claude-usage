@@ -118,6 +118,54 @@ final class ClaudeChromeSafeStorageKeyProviderTests: XCTestCase {
         XCTAssertEqual(pipeline.cookieReadCount, 2)
         XCTAssertTrue(pipeline.allCookieReadsReceivedSharedKey)
     }
+
+    func testImportIgnoresLookalikeClaudeDomains() throws {
+        let candidate = ClaudeBrowserSessionCandidate(
+            family: .chrome,
+            profileName: "Default",
+            cookiesPath: URL(fileURLWithPath: "/tmp/Default/Cookies"),
+            supportsAutomaticImport: true
+        )
+        let service = ClaudeChromeCookieImportService(
+            candidateProvider: { [candidate] },
+            decryptionKeyProvider: { [] },
+            cookieReader: { _, _, _ in
+                [
+                    ClaudeChromiumCookieRecord(
+                        domain: "evilclaude.ai",
+                        name: "sessionKey",
+                        path: "/",
+                        value: "sk-ant-lookalike-domain-0123456789",
+                        expiresAt: nil,
+                        isSecure: true
+                    ),
+                    ClaudeChromiumCookieRecord(
+                        domain: "claude.ai.evil.example",
+                        name: "sessionKey",
+                        path: "/",
+                        value: "sk-ant-suffix-lookalike-0123456789",
+                        expiresAt: nil,
+                        isSecure: true
+                    ),
+                    ClaudeChromiumCookieRecord(
+                        domain: ".claude.ai",
+                        name: "sessionKey",
+                        path: "/",
+                        value: "sk-ant-valid-claude-domain-0123456789",
+                        expiresAt: nil,
+                        isSecure: true
+                    ),
+                ]
+            }
+        )
+
+        let outcome = try service.attemptImport()
+
+        guard case .importedSession(let session) = outcome else {
+            return XCTFail("실제 Claude 도메인의 세션만 가져와야 합니다.")
+        }
+        XCTAssertEqual(session.sessionKey, "sk-ant-valid-claude-domain-0123456789")
+    }
 }
 
 private final class SafeStorageReaderSpy: @unchecked Sendable {

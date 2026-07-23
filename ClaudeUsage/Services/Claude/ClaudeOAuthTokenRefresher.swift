@@ -12,8 +12,9 @@ import Foundation
 ///
 /// Cooldown: transient 실패(네트워크, 5xx) 시 `cooldownInterval` 동안 차단.
 ///
-/// Terminal disposition: `invalid_grant` 오류는 refresh 자체가 불가능한 상태이므로
-/// 더 이상 시도하지 않는다 — 사용자가 `claude` 로 재로그인해야 함을 의미.
+/// Token-scoped terminal disposition: `invalid_grant`가 난 refresh token만 더
+/// 시도하지 않는다. Claude Code 재로그인으로 새 lineage가 생기면 앱 재시작
+/// 없이 다시 갱신할 수 있다.
 actor ClaudeOAuthTokenRefresher {
     typealias HTTPRunner = @Sendable (URLRequest) async throws -> (Data, URLResponse)
 
@@ -52,9 +53,12 @@ actor ClaudeOAuthTokenRefresher {
     private let cooldownInterval: TimeInterval
     private let now: @Sendable () -> Date
 
-    private var inFlight: Task<ClaudeCodeOAuthCredential, Error>?
+    private var inFlightByRefreshToken: [String: Task<ClaudeCodeOAuthCredential, Error>] = [:]
     private var cooldownUntil: Date?
-    private var terminalFailureRecorded: Bool = false
+    /// `invalid_grant`는 앱 전체의 영구 상태가 아니라 해당 refresh token에만
+    /// 해당한다. Claude Code가 다시 로그인해 새 token lineage를 만든 경우에는
+    /// 같은 앱 실행 중에도 정상적으로 복구할 수 있어야 한다.
+    private var rejectedRefreshTokens: Set<String> = []
 
     init(
         httpRunner: @escaping HTTPRunner = { request in
@@ -74,40 +78,43 @@ actor ClaudeOAuthTokenRefresher {
     /// - in-flight 중복 호출은 같은 Task 결과를 공유한다.
     /// - cooldown / terminal 상태면 즉시 throw.
     func refresh(_ credential: ClaudeCodeOAuthCredential) async throws -> ClaudeCodeOAuthCredential {
-        if terminalFailureRecorded {
+        guard let refreshToken = credential.refreshToken,
+              !refreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            throw RefreshError.missingRefreshToken
+        }
+        if rejectedRefreshTokens.contains(refreshToken) {
             throw RefreshError.invalidGrant
         }
         if let cooldownUntil, now() < cooldownUntil {
             let remaining = Int(cooldownUntil.timeIntervalSince(now()))
             throw RefreshError.temporary("cooldown 잔여 \(remaining)s")
         }
-        guard let refreshToken = credential.refreshToken,
-              !refreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else {
-            throw RefreshError.missingRefreshToken
-        }
 
-        if let inFlight {
+        if let inFlight = inFlightByRefreshToken[refreshToken] {
             return try await inFlight.value
         }
 
         let task = Task<ClaudeCodeOAuthCredential, Error> {
-            try await self.performRefresh(refreshToken: refreshToken)
+            try await self.performRefresh(
+                refreshToken: refreshToken,
+                source: credential.source
+            )
         }
-        inFlight = task
-        defer { inFlight = nil }
+        inFlightByRefreshToken[refreshToken] = task
+        defer { inFlightByRefreshToken[refreshToken] = nil }
         return try await task.value
     }
 
     /// 테스트/긴급 복구용 — cooldown 과 terminal 상태를 모두 해제한다.
     func resetState() {
         cooldownUntil = nil
-        terminalFailureRecorded = false
+        rejectedRefreshTokens.removeAll()
     }
 
     /// 외부에서 cooldown/terminal 여부를 확인할 수 있게 expose. 디버그/UI 용.
     func currentBlockReason() -> RefreshError? {
-        if terminalFailureRecorded {
+        if !rejectedRefreshTokens.isEmpty {
             return .invalidGrant
         }
         if let cooldownUntil, now() < cooldownUntil {
@@ -119,7 +126,10 @@ actor ClaudeOAuthTokenRefresher {
 
     // MARK: - Internal
 
-    private func performRefresh(refreshToken: String) async throws -> ClaudeCodeOAuthCredential {
+    private func performRefresh(
+        refreshToken: String,
+        source: ClaudeCodeOAuthCredential.Source
+    ) async throws -> ClaudeCodeOAuthCredential {
         var request = URLRequest(url: Self.endpointURL)
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -150,7 +160,7 @@ actor ClaudeOAuthTokenRefresher {
 
         if http.statusCode != 200 {
             if Self.containsInvalidGrant(in: data) {
-                terminalFailureRecorded = true
+                rejectedRefreshTokens.insert(refreshToken)
                 Logger.warning("Claude OAuth refresh 거부 (invalid_grant) — 재로그인 필요")
                 throw RefreshError.invalidGrant
             }
@@ -184,7 +194,7 @@ actor ClaudeOAuthTokenRefresher {
             accessToken: decoded.accessToken,
             refreshToken: decoded.refreshToken ?? refreshToken,
             expiresAt: expiresAt,
-            source: .refreshed)
+            source: source)
     }
 
     private func resolvedClientID() -> String {

@@ -52,7 +52,16 @@ extension AppDelegate {
     }
 
     private var activeClaudePreferredOrganizationID: String {
-        ClaudeAccountStore.shared.activeWebAccount()?.preferredOrganizationID ?? ""
+        ClaudeAccountStore.shared.activeWebAccount()?.userSelectedPreferredOrganizationID ?? ""
+    }
+
+    private func userSelectedPreferredOrganizationID(forSessionKey sessionKey: String) -> String {
+        let accountID = ClaudeAccountStore.webSessionAccountID(
+            fingerprint: ClaudeAccountStore.fingerprint(for: sessionKey)
+        )
+        return ClaudeAccountStore.shared.accounts()
+            .first(where: { $0.id == accountID })?
+            .userSelectedPreferredOrganizationID ?? ""
     }
 
     func applyClaudeSetupLandingTabsIfNeeded() {
@@ -197,7 +206,11 @@ extension AppDelegate {
                         try await ClaudeSettingsApplyCoordinator.activateSessionKey(
                             key,
                             apiService: self.apiService,
-                            preferredOrganizationID: self.activeClaudePreferredOrganizationID,
+                            // Chrome의 다른 프로필을 연결할 때 현재 활성 계정의
+                            // organization preference를 잘못 이식하지 않는다.
+                            preferredOrganizationID: self.userSelectedPreferredOrganizationID(
+                                forSessionKey: key
+                            ),
                             displayName: displayName,
                             source: source,
                             sourceDetail: sourceDetail

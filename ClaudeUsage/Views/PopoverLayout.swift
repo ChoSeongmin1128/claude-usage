@@ -10,6 +10,14 @@ enum PopoverLayoutMetrics {
     static let compactHeaderHeight: CGFloat = 30
     static let compactFooterHeight: CGFloat = 31
     static let dividerHeight: CGFloat = 1
+    static let standardProviderSelectorSize: CGFloat = 26
+    static let compactProviderSelectorSize: CGFloat = 20
+    static let standardProviderIconSize: CGFloat = 16
+    static let compactProviderIconSize: CGFloat = 14
+    static let standardProviderWarningDotSize: CGFloat = 6
+    static let compactProviderWarningDotSize: CGFloat = 4
+    static let standardProviderWarningDotInset: CGFloat = 1.5
+    static let compactProviderWarningDotInset: CGFloat = 1
     static let compactBodyInsets = EdgeInsets(top: 6, leading: 10, bottom: 3, trailing: 10)
     static let standardBodyInsets = EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
     static let compactSectionSpacing: CGFloat = 3
@@ -33,6 +41,22 @@ enum PopoverLayoutMetrics {
 
     static func preferredPopoverWidth(compact: Bool) -> CGFloat {
         compact ? compactPopoverWidth : standardPopoverWidth
+    }
+
+    static func providerSelectorSize(compact: Bool) -> CGFloat {
+        compact ? compactProviderSelectorSize : standardProviderSelectorSize
+    }
+
+    static func providerIconSize(compact: Bool) -> CGFloat {
+        compact ? compactProviderIconSize : standardProviderIconSize
+    }
+
+    static func providerWarningDotSize(compact: Bool) -> CGFloat {
+        compact ? compactProviderWarningDotSize : standardProviderWarningDotSize
+    }
+
+    static func providerWarningDotInset(compact: Bool) -> CGFloat {
+        compact ? compactProviderWarningDotInset : standardProviderWarningDotInset
     }
 
     static func layoutSpec(

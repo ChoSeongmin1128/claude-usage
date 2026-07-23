@@ -26,13 +26,13 @@ struct PopoverView: View {
                     Spacer(minLength: 8)
                     headerUtilityControls
                 }
-                .frame(height: isCompact ? 18 : 24)
+                .frame(height: PopoverLayoutMetrics.providerSelectorSize(compact: isCompact))
 
                 providerStatusRail
-                    .frame(height: isCompact ? 10 : 12)
+                    .frame(height: isCompact ? 9 : 12)
             }
             .padding(.horizontal, isCompact ? 12 : 16)
-            .padding(.top, isCompact ? 2 : 6)
+            .padding(.top, isCompact ? 1 : 4)
             .padding(.bottom, isCompact ? 0 : 2)
 
             if isCompact {
@@ -228,14 +228,14 @@ struct PopoverView: View {
     private var headerServiceSelector: some View {
         if availableServices.count > 1 {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+                HStack(spacing: isCompact ? 5 : 6) {
                     ForEach(availableServices, id: \.rawValue) { service in
                         headerSelectorButton(for: service)
                     }
                 }
             }
             .scrollIndicators(.never)
-            .frame(height: 22)
+            .frame(height: PopoverLayoutMetrics.providerSelectorSize(compact: isCompact))
         } else {
             headerSelectorButton(for: selectedService)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -247,22 +247,12 @@ struct PopoverView: View {
         Button {
             selectService(service)
         } label: {
-            ZStack(alignment: .topTrailing) {
-                ProviderBrandIconView(provider: service.providerKind, kind: .popover, size: 15)
-                    .frame(width: 18, height: 18)
-
-                if shouldShowWarningDot(for: service) {
-                    Circle()
-                        .fill(Color.orange)
-                        .frame(width: isCompact ? 4 : 6, height: isCompact ? 4 : 6)
-                        .offset(x: isCompact ? 2 : 3, y: isCompact ? -2 : -3)
-                        .accessibilityHidden(true)
-                }
-            }
-            .frame(width: 22, height: 22)
-            .background(selectedService == service ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
-            .foregroundStyle(selectedService == service ? Color.accentColor : .primary)
-            .cornerRadius(7)
+            ProviderSelectorButtonLabel(
+                provider: service.providerKind,
+                isSelected: selectedService == service,
+                showsWarning: shouldShowWarningDot(for: service),
+                compact: isCompact
+            )
         }
         .buttonStyle(.plain)
         .accessibilityLabel(service.displayName)
@@ -274,10 +264,6 @@ struct PopoverView: View {
         let state = viewModel.runtimeServiceState(for: selectedService, settings: settings)
         let label = providerStatusRailText(state: state)
         return HStack(spacing: 4) {
-            Image(systemName: providerStatusRailSymbol(state: state))
-                .font(.system(size: isCompact ? 7 : 8, weight: .semibold))
-                .foregroundStyle(providerStatusRailColor(state: state))
-                .accessibilityHidden(true)
             providerStatusRailSegments(state: state)
             Spacer(minLength: 0)
         }
@@ -289,7 +275,24 @@ struct PopoverView: View {
 
     private func providerStatusRailText(state: PopoverViewModel.RuntimeServiceState) -> String {
         let parts = providerStatusRailParts(state: state)
-        return [parts.account, parts.source, parts.status].compactMap { $0 }.joined(separator: " · ")
+        return Self.providerStatusRailLabels(
+            serviceName: selectedService.displayName,
+            account: parts.account,
+            source: parts.source,
+            status: parts.status
+        ).joined(separator: " · ")
+    }
+
+    static func providerStatusRailLabels(
+        serviceName: String,
+        account: String?,
+        source: String?,
+        status: String
+    ) -> [String] {
+        [serviceName, account, source, status].compactMap { value in
+            guard let value, !value.isEmpty else { return nil }
+            return value
+        }
     }
 
     private func providerStatusRailParts(
@@ -316,8 +319,15 @@ struct PopoverView: View {
     @ViewBuilder
     private func providerStatusRailSegments(state: PopoverViewModel.RuntimeServiceState) -> some View {
         let parts = providerStatusRailParts(state: state)
-        let statusColor: Color = state.freshness == .stale ? .orange : .secondary
+        let statusColor: Color = state.isAuthRequired || state.freshness == .stale ? .orange : .secondary
         let font = Font.system(size: isCompact ? 8 : 9, weight: .medium)
+        Text(selectedService.displayName)
+            .font(font)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .fixedSize()
+            .layoutPriority(2)
+        Text("·").font(font).foregroundStyle(.tertiary)
         if let account = parts.account {
             Text(account)
                 .font(font)
@@ -342,34 +352,6 @@ struct PopoverView: View {
             .lineLimit(1)
             .fixedSize()
             .layoutPriority(2)
-    }
-
-    private func providerStatusRailSymbol(state: PopoverViewModel.RuntimeServiceState) -> String {
-        if state.isAuthRequired { return "person.crop.circle.badge.exclamationmark" }
-        switch state.freshness {
-        case .fresh:
-            return "checkmark.circle.fill"
-        case .stale:
-            return "exclamationmark.triangle.fill"
-        case .loading:
-            return "arrow.triangle.2.circlepath"
-        case .unavailable:
-            return "circle.dotted"
-        }
-    }
-
-    private func providerStatusRailColor(state: PopoverViewModel.RuntimeServiceState) -> Color {
-        if state.isAuthRequired { return .orange }
-        switch state.freshness {
-        case .fresh:
-            return .green
-        case .stale:
-            return .orange
-        case .loading:
-            return .blue
-        case .unavailable:
-            return .secondary
-        }
     }
 
     private func providerSelectorAccessibilityValue(for service: PopoverService) -> String {
@@ -589,6 +571,24 @@ struct PopoverView: View {
             return ErrorPresentation(
                 title: "Claude Code 자격 증명 없음",
                 message: "Claude Code 로그인 정보를 찾을 수 없습니다. 터미널에서 `claude auth login`을 실행한 뒤 다시 확인해 주세요.",
+                actionTitle: "설정 열기",
+                actionStyle: .prominent,
+                action: { viewModel.openSettings(for: .claude) }
+            )
+
+        case .claudeCodeReauthenticationRequired:
+            return ErrorPresentation(
+                title: "Claude Code 인증 갱신 필요",
+                message: "로그인 파일은 있지만 refresh token이 더 이상 유효하지 않습니다. 터미널에서 `claude auth login`을 한 번 다시 실행한 뒤 새로고침해 주세요.",
+                actionTitle: "설정 열기",
+                actionStyle: .prominent,
+                action: { viewModel.openSettings(for: .claude) }
+            )
+
+        case .claudeCodeReconnectRequired:
+            return ErrorPresentation(
+                title: "Claude Code 연결 확인 필요",
+                message: "Claude Code 로그인은 유지되고 있지만 ClaudeUsage가 현재 연결 정보를 사용할 수 없습니다. 설정에서 ‘Claude Code 다시 연결’을 눌러 최신 연결 정보를 다시 가져와 주세요.",
                 actionTitle: "설정 열기",
                 actionStyle: .prominent,
                 action: { viewModel.openSettings(for: .claude) }
@@ -874,5 +874,47 @@ struct PopoverView: View {
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(.bottom, 2)
+    }
+}
+
+struct ProviderSelectorButtonLabel: View {
+    let provider: AppProviderKind
+    let isSelected: Bool
+    let showsWarning: Bool
+    let compact: Bool
+
+    var body: some View {
+        let buttonSize = PopoverLayoutMetrics.providerSelectorSize(compact: compact)
+        let iconSize = PopoverLayoutMetrics.providerIconSize(compact: compact)
+        let warningDotSize = PopoverLayoutMetrics.providerWarningDotSize(compact: compact)
+        let warningDotInset = PopoverLayoutMetrics.providerWarningDotInset(compact: compact)
+
+        ProviderBrandIconView(provider: provider, kind: .popover, size: iconSize)
+            .frame(width: buttonSize, height: buttonSize)
+            .background(
+                isSelected
+                    ? Color.accentColor.opacity(0.18)
+                    : Color(NSColor.controlBackgroundColor).opacity(0.45)
+            )
+            .clipShape(
+                RoundedRectangle(
+                    cornerRadius: compact ? 6 : 8,
+                    style: .continuous
+                )
+            )
+            .overlay(alignment: .topTrailing) {
+                if showsWarning {
+                    Circle()
+                        .fill(Color.orange)
+                        .overlay {
+                            Circle()
+                                .stroke(Color(NSColor.windowBackgroundColor), lineWidth: 1)
+                        }
+                        .frame(width: warningDotSize, height: warningDotSize)
+                        .padding(warningDotInset)
+                        .accessibilityHidden(true)
+                }
+            }
+            .foregroundStyle(isSelected ? Color.accentColor : .primary)
     }
 }

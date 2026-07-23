@@ -263,7 +263,10 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
 
     private static nonisolated func isClaudeHost(_ host: String) -> Bool {
         let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized.contains("claude.ai") || normalized.contains("anthropic.com")
+        return normalized == "claude.ai"
+            || normalized.hasSuffix(".claude.ai")
+            || normalized == "anthropic.com"
+            || normalized.hasSuffix(".anthropic.com")
     }
 
     private static nonisolated func isSessionCookieName(_ name: String) -> Bool {

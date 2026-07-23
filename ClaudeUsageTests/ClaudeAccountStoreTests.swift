@@ -144,7 +144,56 @@ final class ClaudeAccountStoreTests: XCTestCase {
 
         let accounts = Dictionary(uniqueKeysWithValues: store.accounts().map { ($0.id, $0) })
         XCTAssertEqual(accounts[first.id]?.preferredOrganizationID, "org-updated")
+        XCTAssertEqual(accounts[first.id]?.preferredOrganizationWasUserSelected, true)
+        XCTAssertEqual(accounts[first.id]?.userSelectedPreferredOrganizationID, "org-updated")
         XCTAssertEqual(accounts[second.id]?.preferredOrganizationID, "org-b")
+    }
+
+    func testEmptyOrganizationPreferenceUsesAutomaticSelectionMode() {
+        let store = makeStore()
+
+        let account = store.upsertWebSessionAccount(
+            sessionKey: "sk-ant-automatic",
+            preferredOrganizationID: ""
+        )
+
+        XCTAssertEqual(account.preferredOrganizationID, "")
+        XCTAssertEqual(account.preferredOrganizationWasUserSelected, false)
+        XCTAssertNil(account.userSelectedPreferredOrganizationID)
+    }
+
+    func testLegacyStoredPreferenceWithoutSelectionMarkerIsTreatedAsAutomatic() throws {
+        let legacy = ClaudeAccount(
+            id: "legacy-web",
+            kind: .webSession,
+            displayName: "Chrome",
+            identity: ClaudeAccountIdentity(
+                organizationName: "personal@example.com's Organization",
+                organizationID: "org-personal"
+            ),
+            source: .chromeProfile,
+            preferredOrganizationID: "org-personal"
+        )
+        let encoded = try JSONEncoder().encode([legacy])
+        var array = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [[String: Any]]
+        )
+        array[0].removeValue(forKey: "preferredOrganizationWasUserSelected")
+        defaults.set(
+            try JSONSerialization.data(withJSONObject: array),
+            forKey: ClaudeAccountStore.accountsDefaultsKey
+        )
+        defaults.set(legacy.id, forKey: ClaudeAccountStore.activeAccountDefaultsKey)
+        defaults.set(
+            ClaudeAccountStore.currentMigrationVersion,
+            forKey: ClaudeAccountStore.migrationVersionDefaultsKey
+        )
+
+        let decoded = try XCTUnwrap(makeStore().activeAccount())
+
+        XCTAssertEqual(decoded.preferredOrganizationID, "org-personal")
+        XCTAssertNil(decoded.preferredOrganizationWasUserSelected)
+        XCTAssertNil(decoded.userSelectedPreferredOrganizationID)
     }
 
     func testReplaceIdentityClearsStaleClaudeCodeAccountMetadata() {

@@ -5,18 +5,18 @@ struct ClaudeOAuthMigrationCard: View {
     let state: ClaudeOAuthCredentialMigrationState
     let onMigrate: () -> Void
     let onDefer: () -> Void
-    let onShowLoginGuidance: () -> Void
+    let onReconnectClaudeCode: () -> Void
 
     var body: some View {
         switch state {
         case .available:
             notice(
                 icon: "key.horizontal.fill",
-                title: "기존 Claude 로그인 캐시 이전",
-                detail: "이 Mac에 이전 버전이 만든 OAuth 캐시가 있습니다. 한 번 인증해 앱 전용 저장소로 옮기면 계정 전환 때 Keychain 암호를 다시 묻지 않습니다.",
+                title: "Claude Code 연결 업데이트 필요",
+                detail: "기존 Claude Code 연결을 새 보안 저장 방식으로 업데이트합니다. 처음 한 번만 macOS 인증을 완료하면 이후 앱 실행과 계정 전환에서는 암호를 다시 묻지 않습니다.",
                 tone: .orange
             ) {
-                Button("이전", action: onMigrate)
+                Button("연결 업데이트", action: onMigrate)
                     .buttonStyle(.borderedProminent)
                 Button("나중에", action: onDefer)
                     .buttonStyle(.bordered)
@@ -24,8 +24,8 @@ struct ClaudeOAuthMigrationCard: View {
         case .migrating:
             notice(
                 icon: "key.horizontal.fill",
-                title: "로그인 캐시 이전 중",
-                detail: "macOS 인증이 끝나면 새 저장소를 검증한 뒤 기존 캐시를 정리합니다.",
+                title: "Claude Code 연결 업데이트 중",
+                detail: "macOS 인증이 끝나면 새 보안 저장소를 확인하고 이전 연결 정보를 정리합니다.",
                 tone: .orange
             ) {
                 ProgressView()
@@ -37,28 +37,28 @@ struct ClaudeOAuthMigrationCard: View {
         case .deferred:
             notice(
                 icon: "clock.arrow.circlepath",
-                title: "로그인 캐시 이전을 미뤘습니다",
-                detail: "이번 실행에서는 Keychain 인증을 다시 요청하지 않습니다. 앱을 다시 실행하면 이전할 수 있습니다.",
+                title: "Claude Code 연결 업데이트를 미뤘습니다",
+                detail: "이번 실행에서는 macOS 인증을 다시 요청하지 않습니다. 앱을 다시 실행하면 업데이트할 수 있습니다.",
                 tone: .secondary
             ) { EmptyView() }
         case .completed:
             notice(
                 icon: "checkmark.shield.fill",
-                title: "로그인 캐시 이전 완료",
-                detail: "앞으로 ClaudeUsage가 만든 OAuth 캐시는 앱 전용 Keychain 저장소에서 관리됩니다.",
+                title: "Claude Code 연결 업데이트 완료",
+                detail: "앞으로 ClaudeUsage의 연결 정보는 앱 전용 보안 저장소에서 관리됩니다.",
                 tone: .green
             ) { EmptyView() }
         case .completedWithLegacyCleanupFailure:
             notice(
                 icon: "exclamationmark.shield.fill",
-                title: "새 저장소 이전 완료",
-                detail: "새 저장소는 검증했지만 기존 캐시는 정리하지 못했습니다. 앱 사용에는 영향이 없으며 이전 캐시를 다시 읽지 않습니다.",
+                title: "Claude Code 연결 업데이트 완료",
+                detail: "새 보안 저장소는 확인했지만 이전 연결 정보는 정리하지 못했습니다. 앱 사용에는 영향이 없으며 이전 정보는 다시 읽지 않습니다.",
                 tone: .orange
             ) { EmptyView() }
         case .failed(let message):
             notice(
                 icon: "exclamationmark.triangle.fill",
-                title: "로그인 캐시를 이전하지 못했습니다",
+                title: "Claude Code 연결을 업데이트하지 못했습니다",
                 detail: message,
                 tone: .orange
             ) {
@@ -66,7 +66,7 @@ struct ClaudeOAuthMigrationCard: View {
                     .buttonStyle(.borderedProminent)
                 Button("나중에", action: onDefer)
                     .buttonStyle(.bordered)
-                Button("재로그인 안내", action: onShowLoginGuidance)
+                Button("현재 Claude Code로 연결", action: onReconnectClaudeCode)
                     .buttonStyle(.bordered)
             }
         case .checking, .notNeeded:

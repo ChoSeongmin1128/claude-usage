@@ -21,15 +21,20 @@ enum ClaudeAutomaticOrganizationSelectionPolicy {
     }
 
     private nonisolated static func score(_ candidate: ClaudeAutomaticOrganizationCandidate) -> Int {
+        var score = 0
         if candidate.organization.hasTeamPlanSignal {
-            return 300
+            score += 1_000
         }
         if candidate.overage?.isEnabled == true {
-            return 200
+            score += 200
+        } else if candidate.overage != nil {
+            score += 100
         }
-        if candidate.overage != nil {
-            return 100
+        // 조직 metadata가 비어 있어도 명확한 개인 workspace보다 일반 조직
+        // 후보를 우선한다. 사용자의 직접 선택은 이 정책 호출 전에 처리된다.
+        if candidate.organization.hasPersonalAccountSignal {
+            score -= 500
         }
-        return 0
+        return score
     }
 }

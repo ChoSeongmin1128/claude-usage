@@ -1,11 +1,12 @@
 # ClaudeUsage 프로젝트 작업 방식
 
-최종 갱신: 2026-05-02
+최종 갱신: 2026-07-23
 
 ## 현재 기준
 
-- 코드 브랜치는 `main` 하나를 기준으로 운용합니다.
-- 현재 원격에는 코드용 `dev` 또는 `stg` 브랜치가 없습니다.
+- `main`은 배포 가능한 squash commit만 두는 기준 브랜치입니다.
+- 기능/유지보수 작업은 최신 `main`에서 `dev`를 만들고 작업 단위별로 커밋해 원격 `dev`에 올립니다.
+- 검증과 코드 리뷰가 끝나면 `dev` 전체를 `main`에 squash commit 하나로 반영합니다.
 - `gh-pages` 는 Sparkle appcast와 GitHub Pages 정적 파일을 올리는 배포 산출물 브랜치입니다. 코드 작업이나 스테이징 검증 브랜치로 쓰지 않습니다.
 - staging은 브랜치가 아니라 release channel입니다. 최신 `main` 커밋을 prerelease로 빌드해 `channels/staging/appcast.xml` 에 게시합니다.
 - prod는 staging 검증이 끝난 버전만 stable release로 게시합니다.
@@ -15,8 +16,8 @@
 
 | 구분 | 역할 | 현재 상태 |
 |---|---|---|
-| `main` | 실제 개발과 릴리스 기준 코드 브랜치 | 사용 중 |
-| `dev` | 별도 장기 개발 브랜치 | 현재 없음 |
+| `main` | squash된 배포 후보와 릴리스 기준 | 사용 중 |
+| `dev` | 최신 `main` 기반 작업 단위 커밋/검증 | 사용 중 |
 | `stg` | 코드 브랜치가 아니라 staging channel로 운용 | 현재 브랜치 없음 |
 | `gh-pages` | appcast 정적 호스팅 | 스크립트가 갱신 |
 
@@ -75,24 +76,64 @@ gh auth switch --hostname github.com --user nathan-glorang
 
 주의: Xcode project의 code signing identity와 development team은 빌드 동작에 직접 영향을 줍니다. 완전한 개인 정보 분리를 원하면 별도 작업으로 signing 값을 local xcconfig로 이관한 뒤 release/test 빌드를 다시 검증해야 합니다.
 
-## Staging 배포 절차
+## 개발 및 Staging 배포 절차
 
-전제: working tree가 clean이고, 배포할 코드가 `main`에 커밋되어 있어야 합니다.
+`dev`는 릴리스마다 최신 `main`에서 시작합니다. 서로 다른 변경은 커밋을 나누고 각 커밋을 원격 `dev`에 올립니다.
 
 ```bash
+git switch main
+git pull --ff-only origin main
+
+# 직전 dev의 최종 tree가 main에 squash 반영됐는지 먼저 확인
+git diff --exit-code main dev
+git switch dev
+git reset --hard main
+
+# 작업 단위별
+git add <files>
+git commit -m "..."
+git push -u origin dev
+```
+
+`dev`를 최신 `main`으로 다시 맞추는 `reset --hard`는 직전 작업의 최종 tree가
+`main`과 동일해 squash 반영이 끝났음을 확인한 뒤에만 실행합니다. 진행 중인
+`dev`를 `git switch -C`로 무조건 재생성하지 않습니다. diff가 있으면 먼저
+`main..dev` 커밋과 squash 반영 상태를 조사합니다.
+
+전체 XCTest, Release build, 실제 UI/계정 QA, 코드 리뷰가 끝난 뒤에만 squash합니다.
+
+```bash
+git status --short
+git switch main
+git pull --ff-only origin main
+git merge --squash dev
+git commit -m "릴리스 변경 요약"
 xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -destination 'platform=macOS' test
 git push origin main
+```
+
+게시 산출물은 반드시 위 최종 `main` commit에서 새로 빌드합니다. `dev`나 이전 commit에서 만든 ZIP/DMG를 재사용하지 않습니다.
+
+```bash
+xcrun notarytool history --keychain-profile ClaudeUsageNotary --output-format json --no-progress
 RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh
 ./Scripts/publish-release.sh vX.Y.Z-staging --prerelease --channel staging --notes "릴리스 요약"
 curl -fsSL https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml | sed -n '1,40p'
 gh release view vX.Y.Z-staging --json tagName,isPrerelease,url
 ```
 
-필요하면 사용자 전달용 DMG를 다운로드 폴더에 복사합니다.
+사용자 전달본은 로컬 build 폴더를 복사하지 않고 게시된 GitHub Release DMG를 다시 받습니다.
 
 ```bash
-cp build/release/ClaudeUsage.dmg ~/Downloads/ClaudeUsage-X.Y.Z-staging.dmg
+gh release download vX.Y.Z-staging \
+  --repo ChoSeongmin1128/claude-usage \
+  --pattern ClaudeUsage.dmg \
+  --dir ~/Downloads/ClaudeUsage-X.Y.Z-staging
 ```
+
+다운로드한 DMG의 checksum을 release asset과 대조하고, mount한 앱의 `stapler`, `spctl`, 버전, staging `SUFeedURL`을 확인합니다. 사용자가 Downloads 앱 교체를 요청한 경우 검증된 DMG에서 꺼낸 앱만 `~/Downloads/ClaudeUsage.app`에 둡니다.
+
+배포가 끝나면 `gh auth switch --hostname github.com --user nathan-glorang`로 평소 계정을 복원합니다.
 
 ## Prod 배포 절차
 

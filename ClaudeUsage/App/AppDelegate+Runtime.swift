@@ -183,27 +183,28 @@ extension AppDelegate {
                 self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
                 self.applyUsageHealthSnapshot(snapshot)
 
-                if snapshot.runtime.credentialAvailability.hasAnyCredential {
-                    let providerEnabled = ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
-                    if providerEnabled {
-                        self.syncRefreshTimerState()
-                    }
-                    if providerEnabled || requireUsageValidation {
-                        return self.refreshUsage(
-                            force: true,
-                            syncHealthAfterCompletion: false,
-                            allowWhenDisabled: requireUsageValidation
-                        )
-                    } else {
-                        self.updateMenuBar()
-                        self.updatePopoverViewModel(overage: self.currentOverage)
-                    }
-                } else {
-                    self.clearClaudePresentationState(markSetupIncomplete: false)
-                    self.updateMenuBar()
-                    self.updatePopoverViewModel(overage: self.currentOverage)
+                let providerEnabled = ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
+                if providerEnabled {
                     self.syncRefreshTimerState()
                 }
+                if ClaudeCredentialRefreshRequest.shouldAttemptUsage(
+                    activeAccount: accountState.activeAccount,
+                    providerEnabled: providerEnabled,
+                    requireUsageValidation: requireUsageValidation
+                ) {
+                    return self.refreshUsage(
+                        force: true,
+                        syncHealthAfterCompletion: false,
+                        allowWhenDisabled: requireUsageValidation
+                    )
+                }
+
+                if !snapshot.runtime.credentialAvailability.hasAnyCredential {
+                    self.clearClaudePresentationState(markSetupIncomplete: false)
+                }
+                self.updateMenuBar()
+                self.updatePopoverViewModel(overage: self.currentOverage)
+                self.syncRefreshTimerState()
                 return nil
             }
             await usageTask?.value

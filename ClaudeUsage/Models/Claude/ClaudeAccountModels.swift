@@ -71,6 +71,9 @@ struct ClaudeAccount: Codable, Identifiable, Equatable, Sendable {
     var source: ClaudeAccountSource?
     var sourceDetail: String?
     var preferredOrganizationID: String
+    /// nil은 이 필드가 생기기 전 버전이 자동 선택 결과를 preference로 저장한
+    /// legacy 상태다. true인 경우에만 런타임에서 사용자 직접 선택으로 취급한다.
+    var preferredOrganizationWasUserSelected: Bool?
     var createdAt: Date
     var lastUsedAt: Date
     var lastValidationState: ClaudeCredentialValidationState
@@ -83,6 +86,7 @@ struct ClaudeAccount: Codable, Identifiable, Equatable, Sendable {
         source: ClaudeAccountSource? = nil,
         sourceDetail: String? = nil,
         preferredOrganizationID: String = "",
+        preferredOrganizationWasUserSelected: Bool? = nil,
         createdAt: Date = Date(),
         lastUsedAt: Date = Date(),
         lastValidationState: ClaudeCredentialValidationState = .detected
@@ -95,7 +99,11 @@ struct ClaudeAccount: Codable, Identifiable, Equatable, Sendable {
         self.identity = identity
         self.source = source
         self.sourceDetail = sourceDetail?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-        self.preferredOrganizationID = preferredOrganizationID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPreferredOrganizationID = preferredOrganizationID
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        self.preferredOrganizationID = normalizedPreferredOrganizationID
+        self.preferredOrganizationWasUserSelected = preferredOrganizationWasUserSelected
+            ?? !normalizedPreferredOrganizationID.isEmpty
         self.createdAt = createdAt
         self.lastUsedAt = lastUsedAt
         self.lastValidationState = lastValidationState
@@ -109,6 +117,16 @@ struct ClaudeAccount: Codable, Identifiable, Equatable, Sendable {
         identity.primaryLabel ?? kind.displayName
     }
 
+    /// 직접 선택 marker가 있는 값만 강제 preference로 사용한다. 이전 버전이
+    /// 자동으로 저장한 ID는 nil marker라서 새 자동 선택 정책의 평가 대상이 된다.
+    nonisolated var userSelectedPreferredOrganizationID: String? {
+        guard preferredOrganizationWasUserSelected == true,
+              !preferredOrganizationID.isEmpty else {
+            return nil
+        }
+        return preferredOrganizationID
+    }
+
     nonisolated static func == (lhs: ClaudeAccount, rhs: ClaudeAccount) -> Bool {
         lhs.id == rhs.id
             && lhs.kind == rhs.kind
@@ -117,6 +135,7 @@ struct ClaudeAccount: Codable, Identifiable, Equatable, Sendable {
             && lhs.source == rhs.source
             && lhs.sourceDetail == rhs.sourceDetail
             && lhs.preferredOrganizationID == rhs.preferredOrganizationID
+            && lhs.preferredOrganizationWasUserSelected == rhs.preferredOrganizationWasUserSelected
             && lhs.createdAt == rhs.createdAt
             && lhs.lastUsedAt == rhs.lastUsedAt
             && lhs.lastValidationState == rhs.lastValidationState
@@ -223,6 +242,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
         let accountID = Self.webSessionAccountID(fingerprint: fingerprint)
         let requestedPreferredOrganizationID = preferredOrganizationID?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedPreferenceWasUserSelected = requestedPreferredOrganizationID.map { !$0.isEmpty }
         let now = Date()
 
         lock.lock()
@@ -256,12 +276,17 @@ final class ClaudeAccountStore: @unchecked Sendable {
             accounts[index].source = source ?? accounts[index].source ?? .embeddedWebLogin
             accounts[index].sourceDetail = requestedSourceDetail ?? accounts[index].sourceDetail
             accounts[index].preferredOrganizationID = resolvedPreferredOrganizationID
+            if let requestedPreferenceWasUserSelected {
+                accounts[index].preferredOrganizationWasUserSelected = requestedPreferenceWasUserSelected
+            }
             accounts[index].lastUsedAt = now
             accounts[index].lastValidationState = lastValidationState
             account = accounts[index]
         } else {
             let resolvedPreferredOrganizationID = requestedPreferredOrganizationID
                 ?? legacyPreferredOrganizationID()
+            let resolvedPreferenceWasUserSelected = requestedPreferenceWasUserSelected
+                ?? !resolvedPreferredOrganizationID.isEmpty
             let resolvedDisplayName: String
             if let requestedDisplayName, !requestedDisplayName.isEmpty {
                 resolvedDisplayName = requestedDisplayName
@@ -276,6 +301,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
                 source: source ?? .embeddedWebLogin,
                 sourceDetail: requestedSourceDetail,
                 preferredOrganizationID: resolvedPreferredOrganizationID,
+                preferredOrganizationWasUserSelected: resolvedPreferenceWasUserSelected,
                 createdAt: now,
                 lastUsedAt: now,
                 lastValidationState: lastValidationState
@@ -389,7 +415,9 @@ final class ClaudeAccountStore: @unchecked Sendable {
     nonisolated func updatePreferredOrganizationID(_ organizationID: String, for accountID: String) {
         updateAccount(id: accountID) { account in
             guard account.kind == .webSession else { return }
-            account.preferredOrganizationID = organizationID.trimmingCharacters(in: .whitespacesAndNewlines)
+            let normalized = organizationID.trimmingCharacters(in: .whitespacesAndNewlines)
+            account.preferredOrganizationID = normalized
+            account.preferredOrganizationWasUserSelected = !normalized.isEmpty
         }
     }
 

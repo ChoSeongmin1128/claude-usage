@@ -135,4 +135,64 @@ final class ClaudeCredentialRefreshRequestTests: XCTestCase {
             )
         )
     }
+
+    func testActiveAccountAttemptsUsageEvenWhenCredentialInventoryIsEmpty() {
+        let cli = ClaudeAccount(
+            id: ClaudeAccountStore.claudeCodeExternalAccountID,
+            kind: .claudeCodeExternal,
+            displayName: "Claude Code",
+            identity: ClaudeAccountIdentity(),
+            source: .claudeCodeCLI,
+            sourceDetail: nil,
+            preferredOrganizationID: "",
+            createdAt: Date(),
+            lastUsedAt: Date(),
+            lastValidationState: .detected
+        )
+
+        XCTAssertTrue(
+            ClaudeCredentialRefreshRequest.shouldAttemptUsage(
+                activeAccount: cli,
+                providerEnabled: true,
+                requireUsageValidation: false
+            )
+        )
+        XCTAssertTrue(
+            ClaudeCredentialRefreshRequest.shouldAttemptUsage(
+                activeAccount: cli,
+                providerEnabled: false,
+                requireUsageValidation: true
+            )
+        )
+    }
+
+    func testUsageAttemptRequiresActiveAccountAndEnabledOrExplicitValidation() {
+        XCTAssertFalse(
+            ClaudeCredentialRefreshRequest.shouldAttemptUsage(
+                activeAccount: nil,
+                providerEnabled: true,
+                requireUsageValidation: true
+            )
+        )
+
+        let browser = ClaudeAccount(
+            id: "browser-a",
+            kind: .webSession,
+            displayName: "Chrome",
+            identity: ClaudeAccountIdentity(),
+            source: .chromeProfile,
+            sourceDetail: nil,
+            preferredOrganizationID: "",
+            createdAt: Date(),
+            lastUsedAt: Date(),
+            lastValidationState: .detected
+        )
+        XCTAssertFalse(
+            ClaudeCredentialRefreshRequest.shouldAttemptUsage(
+                activeAccount: browser,
+                providerEnabled: false,
+                requireUsageValidation: false
+            )
+        )
+    }
 }

@@ -5,7 +5,7 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
     func testCredentialFileIsUsedAfterVaultMissWithoutInteractiveKeychainRead() async throws {
         let home = try makeTemporaryHome()
         try writeCredentialFile(configDirectory: home.appendingPathComponent(".claude"), token: "file-token")
-        let vault = OAuthVaultStub()
+        let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "stale-vault-token"))
         let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
             XCTFail("백그라운드 credential 조회가 CLI Keychain UI를 열면 안 됩니다")
             return .cancelled
@@ -16,6 +16,7 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
 
         XCTAssertEqual(token, "file-token")
         XCTAssertEqual(vault.loadCount, 1)
+        XCTAssertNotEqual(token, "stale-vault-token")
         XCTAssertTrue(interactive.calls.isEmpty)
     }
 
@@ -38,7 +39,7 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         XCTAssertTrue(interactive.calls.isEmpty)
     }
 
-    func testAppVaultIsPreferredWithoutExternalKeychainRead() async throws {
+    func testAppVaultIsUsedWhenActiveCredentialFileIsMissing() async throws {
         let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "vault-token"))
         let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
             XCTFail("앱 전용 vault 조회 성공 후 외부 Keychain을 읽으면 안 됩니다")
@@ -173,41 +174,68 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         XCTAssertEqual(vault.loadCount, 2)
     }
 
-    func testVaultReadFailureDoesNotFallBackToFileOrExternalKeychain() async throws {
+    func testVaultReadFailureDoesNotFallBackToPossiblyStaleCredentialFile() async throws {
         let home = try makeTemporaryHome()
         try writeCredentialFile(configDirectory: home.appendingPathComponent(".claude"), token: "file-token")
         let vault = OAuthVaultStub(loadError: OAuthVaultStub.TestError.expected)
         let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
-            XCTFail("vault 오류를 cache miss로 처리하면 안 됩니다")
+            XCTFail("vault 오류 뒤에 외부 Keychain을 읽으면 안 됩니다")
             return .cancelled
         }
         let reader = makeReader(home: home, vault: vault, interactive: interactive)
 
-        let token = try await reader.readAccessToken()
-
-        XCTAssertNil(token)
+        do {
+            _ = try await reader.readAccessToken()
+            XCTFail("vault 읽기 실패를 cache miss로 처리해 stale CLI 파일로 내려가면 안 됩니다")
+        } catch let error as ClaudeOAuthCredentialReadError {
+            XCTAssertEqual(error, .reconnectRequired)
+        }
+        XCTAssertEqual(vault.loadCount, 0)
         XCTAssertTrue(interactive.calls.isEmpty)
     }
 
-    func testMalformedVaultPayloadDoesNotSelectAnotherCredentialSource() async throws {
+    func testActiveCredentialFileTakesPriorityOverMalformedVaultMirror() async throws {
         let home = try makeTemporaryHome()
         try writeCredentialFile(configDirectory: home.appendingPathComponent(".claude"), token: "file-token")
         let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
             XCTFail("손상된 vault 뒤에 다른 계정을 선택하면 안 됩니다")
             return .cancelled
         }
+        let vault = OAuthVaultStub(payload: #"{"invalid":true}"#)
         let reader = makeReader(
             home: home,
-            vault: OAuthVaultStub(payload: #"{"invalid":true}"#),
+            vault: vault,
             interactive: interactive
         )
 
         let token = try await reader.readAccessToken()
-        XCTAssertNil(token)
+        XCTAssertEqual(token, "file-token")
+        XCTAssertEqual(vault.loadCount, 1)
         XCTAssertTrue(interactive.calls.isEmpty)
     }
 
-    func testRefreshedCredentialPersistsToVaultWithoutExternalKeychainWrite() async throws {
+    func testMalformedActiveCredentialFileDoesNotFallBackToVaultMirror() async throws {
+        let home = try makeTemporaryHome()
+        let configDirectory = home.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try #"{"invalid":true}"#.write(
+            to: configDirectory.appendingPathComponent(".credentials.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "different-account-vault"))
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: home,
+            appCredentialVault: vault
+        )
+
+        let token = try await reader.readAccessToken()
+
+        XCTAssertNil(token)
+        XCTAssertEqual(vault.loadCount, 1)
+    }
+
+    func testExpiredVaultMirrorDoesNotRotateCLIOwnedRefreshToken() async throws {
         let expired = Self.credentialJSON(
             token: "expired-access",
             refreshToken: "refresh-token",
@@ -218,7 +246,14 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
             XCTFail("앱 소유 refresh 캐시는 외부 Keychain을 읽거나 쓰면 안 됩니다")
             return .cancelled
         }
-        let refresher = makeSuccessfulRefresher()
+        let refresher = ClaudeOAuthTokenRefresher(httpRunner: { request in
+            XCTFail("만료된 vault mirror의 refresh token을 사용하면 안 됩니다")
+            let url = try XCTUnwrap(request.url)
+            return (
+                Data(#"{"access_token":"unexpected"}"#.utf8),
+                HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            )
+        })
         let reader = ClaudeCodeCredentialReader(
             homeDirectory: try makeTemporaryHome(),
             tokenRefresher: refresher,
@@ -230,25 +265,224 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
 
         let token = try await reader.readAccessToken()
 
-        XCTAssertEqual(token, "new-access")
-        XCTAssertEqual(vault.saveCount, 1)
-        XCTAssertTrue(vault.payload?.contains("new-access") == true)
+        XCTAssertNil(token)
+        XCTAssertEqual(vault.saveCount, 0)
         XCTAssertTrue(interactive.calls.isEmpty)
     }
 
-    func testMillisecondExpiresAtIsNormalizedAndRefreshesExpiredCredential() async throws {
-        let expiredMilliseconds = #"{"claudeAiOauth":{"accessToken":"expired-access","refreshToken":"refresh-token","expiresAt":1770000000000}}"#
-        let vault = OAuthVaultStub(payload: expiredMilliseconds)
+    func testForcedRefreshDoesNotConsumeStaleFileWhenVersionedCLIMirrorIsNewer() async throws {
+        let home = try makeTemporaryHome()
+        let configDirectory = home.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try Self.credentialJSON(
+            token: "expired-file-access",
+            refreshToken: "stale-file-refresh",
+            expiresAt: #""2000-01-01T00:00:00Z""#
+        ).write(
+            to: configDirectory.appendingPathComponent(".credentials.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let mirrorPayload = try XCTUnwrap(
+            ClaudeOAuthCredentialVaultPayload.encode(
+                credentialPayload: Self.credentialJSON(
+                    token: "fresh-keychain-access",
+                    refreshToken: "shared-keychain-refresh",
+                    expiresAt: #""2099-01-01T00:00:00Z""#
+                ),
+                ownership: .cliMirror
+            )
+        )
         let reader = ClaudeCodeCredentialReader(
-            homeDirectory: try makeTemporaryHome(),
+            homeDirectory: home,
+            tokenRefresher: ClaudeOAuthTokenRefresher(httpRunner: { _ in
+                XCTFail("최신 CLI mirror가 있으면 stale 파일 refresh token을 소비하면 안 됩니다")
+                throw URLError(.cancelled)
+            }),
+            appCredentialVault: OAuthVaultStub(payload: mirrorPayload)
+        )
+
+        do {
+            _ = try await reader.forceRefreshAccessToken()
+            XCTFail("CLI mirror는 앱이 독립적으로 refresh하지 않고 재연결을 요구해야 합니다")
+        } catch let error as ClaudeOAuthCredentialReadError {
+            XCTAssertEqual(error, .reconnectRequired)
+        }
+    }
+
+    func testMigratedAppManagedVaultRefreshesWithoutReadingStaleCLIFileOrKeychain() async throws {
+        let home = try makeTemporaryHome()
+        let configDirectory = home.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try Self.credentialJSON(
+            token: "stale-file-access",
+            refreshToken: "stale-file-refresh",
+            expiresAt: #""2000-01-01T00:00:00Z""#
+        ).write(
+            to: configDirectory.appendingPathComponent(".credentials.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let migratedPayload = try XCTUnwrap(
+            ClaudeOAuthCredentialVaultPayload.encode(
+                credentialPayload: Self.credentialJSON(
+                    token: "migrated-expired-access",
+                    refreshToken: "migrated-refresh",
+                    expiresAt: #""2000-01-01T00:00:00Z""#
+                ),
+                ownership: .appManaged
+            )
+        )
+        let vault = OAuthVaultStub(payload: migratedPayload)
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            XCTFail("migration 이후 자동 refresh가 CLI Keychain을 읽으면 안 됩니다")
+            return .cancelled
+        }
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: home,
             tokenRefresher: makeSuccessfulRefresher(),
-            appCredentialVault: vault
+            appCredentialVault: vault,
+            interactiveKeychainPayloadReader: { service, account, reason in
+                interactive.read(service: service, account: account, reason: reason)
+            }
         )
 
         let token = try await reader.readAccessToken()
 
         XCTAssertEqual(token, "new-access")
+        XCTAssertTrue(vault.payload?.contains("new-refresh") == true)
+        XCTAssertEqual(
+            vault.payload.map(ClaudeOAuthCredentialVaultPayload.ownership(of:)),
+            .appManaged
+        )
+        XCTAssertTrue(interactive.calls.isEmpty)
+    }
+
+    func testUnusableActiveCredentialFileDoesNotFallBackToAnotherVaultAccount() async throws {
+        let home = try makeTemporaryHome()
+        let configDirectory = home.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        let expired = Self.credentialJSON(
+            token: "active-expired",
+            refreshToken: "active-rejected-refresh",
+            expiresAt: #""2000-01-01T00:00:00Z""#
+        )
+        try expired.write(
+            to: configDirectory.appendingPathComponent(".credentials.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "different-account-vault"))
+        let refresher = ClaudeOAuthTokenRefresher(httpRunner: { request in
+            let url = try XCTUnwrap(request.url)
+            return (
+                Data(#"{"error":"invalid_grant"}"#.utf8),
+                HTTPURLResponse(url: url, statusCode: 400, httpVersion: nil, headerFields: nil)!
+            )
+        })
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: home,
+            tokenRefresher: refresher,
+            appCredentialVault: vault
+        )
+
+        do {
+            _ = try await reader.readAccessToken()
+            XCTFail("거부된 활성 CLI refresh token은 재로그인 오류로 노출되어야 합니다")
+        } catch let error as ClaudeOAuthCredentialReadError {
+            guard case .reauthenticationRequired = error else {
+                return XCTFail("예상하지 못한 credential 오류: \(error)")
+            }
+        }
+        XCTAssertEqual(vault.loadCount, 1)
+    }
+
+    func testConcurrentCLIRotationWinsWithoutFalseReauthenticationError() async throws {
+        let home = try makeTemporaryHome()
+        let configDirectory = home.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        let credentialURL = configDirectory.appendingPathComponent(".credentials.json")
+        try Self.credentialJSON(
+            token: "expired",
+            refreshToken: "old-refresh",
+            expiresAt: #""2000-01-01T00:00:00Z""#
+        ).write(to: credentialURL, atomically: true, encoding: .utf8)
+        let refresher = ClaudeOAuthTokenRefresher(httpRunner: { request in
+            try Self.credentialJSON(
+                token: "cli-refreshed-access",
+                refreshToken: "cli-new-refresh"
+            ).write(to: credentialURL, atomically: true, encoding: .utf8)
+            let url = try XCTUnwrap(request.url)
+            return (
+                Data(#"{"error":"invalid_grant"}"#.utf8),
+                HTTPURLResponse(url: url, statusCode: 400, httpVersion: nil, headerFields: nil)!
+            )
+        })
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: home,
+            tokenRefresher: refresher,
+            appCredentialVault: OAuthVaultStub()
+        )
+
+        let token = try await reader.readAccessToken()
+
+        XCTAssertEqual(token, "cli-refreshed-access")
+    }
+
+    func testExpiredCredentialFileRefreshWritesBackRotatedLineageAndPreservesPayload() async throws {
+        let home = try makeTemporaryHome()
+        let configDirectory = home.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        let credentialURL = configDirectory.appendingPathComponent(".credentials.json")
+        let expiredMilliseconds = #"{"claudeAiOauth":{"accessToken":"expired-access","refreshToken":"refresh-token","expiresAt":1770000000000,"scopes":["user:profile"]},"mcpOAuth":{"server":{"token":"preserve-me"}}}"#
+        try expiredMilliseconds.write(to: credentialURL, atomically: true, encoding: .utf8)
+        let vault = OAuthVaultStub()
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: home,
+            tokenRefresher: makeSuccessfulRefresher(),
+            appCredentialVault: vault
+        )
+
+        let token = try await reader.readAccessToken()
+        let updatedPayload = try String(contentsOf: credentialURL, encoding: .utf8)
+        let attributes = try FileManager.default.attributesOfItem(atPath: credentialURL.path)
+
+        XCTAssertEqual(token, "new-access")
         XCTAssertEqual(vault.saveCount, 1)
+        XCTAssertTrue(updatedPayload.contains("new-access"))
+        XCTAssertTrue(updatedPayload.contains("new-refresh"))
+        XCTAssertTrue(updatedPayload.contains("user:profile"))
+        XCTAssertTrue(updatedPayload.contains("preserve-me"))
+        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+    }
+
+    func testCredentialFileRefreshPreservesSymlinkAndWritesResolvedTarget() async throws {
+        let home = try makeTemporaryHome()
+        let configDirectory = home.appendingPathComponent(".claude")
+        let storageDirectory = home.appendingPathComponent("credential-storage")
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
+        let targetURL = storageDirectory.appendingPathComponent("credentials.json")
+        let symlinkURL = configDirectory.appendingPathComponent(".credentials.json")
+        try Self.credentialJSON(
+            token: "expired",
+            refreshToken: "refresh-token",
+            expiresAt: #""2000-01-01T00:00:00Z""#
+        ).write(to: targetURL, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: symlinkURL, withDestinationURL: targetURL)
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: home,
+            tokenRefresher: makeSuccessfulRefresher(),
+            appCredentialVault: OAuthVaultStub()
+        )
+
+        let token = try await reader.readAccessToken()
+        let targetPayload = try String(contentsOf: targetURL, encoding: .utf8)
+        let symlinkDestination = try FileManager.default.destinationOfSymbolicLink(atPath: symlinkURL.path)
+
+        XCTAssertEqual(token, "new-access")
+        XCTAssertTrue(targetPayload.contains("new-refresh"))
+        XCTAssertFalse(symlinkDestination.isEmpty)
     }
 
     func testSecondExpiresAtRemainsSupported() async throws {
@@ -291,15 +525,20 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         XCTAssertEqual(vault.saveCount, 1)
     }
 
-    func testExplicitCLIImportPrefersExactKeychainOverCredentialFile() async throws {
+    func testExplicitCLIImportChoosesFresherActiveCredentialFileAfterOneKeychainRead() async throws {
         let home = try makeTemporaryHome()
         try writeCredentialFile(
             configDirectory: home.appendingPathComponent(".claude"),
-            token: "stale-file-token"
+            token: "active-file-token"
         )
         let vault = OAuthVaultStub()
         let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
-            .value(Self.credentialJSON(token: "current-keychain-token"))
+            .value(
+                Self.credentialJSON(
+                    token: "stale-keychain-token",
+                    expiresAt: #""2000-01-01T00:00:00Z""#
+                )
+            )
         }
         let reader = ClaudeCodeCredentialReader(
             homeDirectory: home,
@@ -313,8 +552,197 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
 
         XCTAssertEqual(result, .imported(credentialChanged: false))
         XCTAssertEqual(interactive.calls.count, 1)
-        XCTAssertTrue(vault.payload?.contains("current-keychain-token") == true)
-        XCTAssertFalse(vault.payload?.contains("stale-file-token") == true)
+        XCTAssertTrue(vault.payload?.contains("active-file-token") == true)
+        XCTAssertFalse(vault.payload?.contains("stale-keychain-token") == true)
+    }
+
+    func testExplicitCLIImportPrefersFreshKeychainOverExpiredFileWithoutRefreshingStaleLineage() async throws {
+        let home = try makeTemporaryHome()
+        let configDirectory = home.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try Self.credentialJSON(
+            token: "expired-file-token",
+            refreshToken: "consumed-file-refresh",
+            expiresAt: #""2000-01-01T00:00:00Z""#
+        ).write(
+            to: configDirectory.appendingPathComponent(".credentials.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "old-vault-token"))
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            .value(Self.credentialJSON(token: "fresh-keychain-token"))
+        }
+        let refresher = ClaudeOAuthTokenRefresher(httpRunner: { _ in
+            XCTFail("fresh Keychain credential가 있으면 stale 파일 lineage를 refresh하면 안 됩니다")
+            throw URLError(.cancelled)
+        })
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: home,
+            tokenRefresher: refresher,
+            appCredentialVault: vault,
+            interactiveKeychainPayloadReader: { service, account, reason in
+                interactive.read(service: service, account: account, reason: reason)
+            }
+        )
+
+        let result = await reader.importActiveCLICredential()
+
+        XCTAssertEqual(result, .imported(credentialChanged: true))
+        XCTAssertEqual(interactive.calls.count, 1)
+        XCTAssertTrue(vault.payload?.contains("fresh-keychain-token") == true)
+        XCTAssertFalse(vault.payload?.contains("expired-file-token") == true)
+    }
+
+    func testInventoryRefreshKeepsFreshExplicitKeychainMirrorOverExpiredCredentialFile() async throws {
+        let home = try makeTemporaryHome()
+        let configDirectory = home.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try Self.credentialJSON(
+            token: "expired-file-token",
+            refreshToken: "consumed-file-refresh",
+            expiresAt: #""2000-01-01T00:00:00Z""#
+        ).write(
+            to: configDirectory.appendingPathComponent(".credentials.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let vault = OAuthVaultStub()
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            .value(
+                Self.credentialJSON(
+                    token: "fresh-keychain-token",
+                    expiresAt: #""2099-01-01T00:00:00Z""#
+                )
+            )
+        }
+        let refresher = ClaudeOAuthTokenRefresher(httpRunner: { _ in
+            XCTFail("명시적으로 가져온 최신 Keychain mirror 뒤에 stale 파일을 refresh하면 안 됩니다")
+            throw URLError(.cancelled)
+        })
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: home,
+            tokenRefresher: refresher,
+            appCredentialVault: vault,
+            interactiveKeychainPayloadReader: { service, account, reason in
+                interactive.read(service: service, account: account, reason: reason)
+            }
+        )
+
+        let importResult = await reader.importActiveCLICredential()
+        XCTAssertEqual(importResult, .imported(credentialChanged: false))
+        let inventory = try await reader.refreshCredentialInventoryWithoutUI()
+
+        XCTAssertEqual(inventory.accessToken, "fresh-keychain-token")
+        XCTAssertFalse(inventory.credentialChanged)
+        XCTAssertEqual(interactive.calls.count, 1)
+        let savedPayload = try XCTUnwrap(vault.payload)
+        XCTAssertEqual(
+            ClaudeOAuthCredentialVaultPayload.ownership(of: savedPayload),
+            .cliMirror
+        )
+    }
+
+    func testExplicitCLIImportPrefersLaterKeychainExpiryEvenWhenFileIsStillUsable() async throws {
+        let home = try makeTemporaryHome()
+        let configDirectory = home.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try Self.credentialJSON(
+            token: "usable-but-stale-file-token",
+            expiresAt: #""2050-01-01T00:00:00Z""#
+        ).write(
+            to: configDirectory.appendingPathComponent(".credentials.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let vault = OAuthVaultStub()
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            .value(Self.credentialJSON(token: "later-keychain-token"))
+        }
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: home,
+            appCredentialVault: vault,
+            interactiveKeychainPayloadReader: { service, account, reason in
+                interactive.read(service: service, account: account, reason: reason)
+            }
+        )
+
+        let result = await reader.importActiveCLICredential()
+
+        XCTAssertEqual(result, .imported(credentialChanged: false))
+        XCTAssertEqual(interactive.calls.count, 1)
+        XCTAssertTrue(vault.payload?.contains("later-keychain-token") == true)
+        XCTAssertFalse(vault.payload?.contains("usable-but-stale-file-token") == true)
+    }
+
+    func testExplicitCLIImportKeepsMetadataFromSelectedFileInsteadOfStaleKeychainCandidate() async throws {
+        let home = try makeTemporaryHome()
+        let configDirectory = home.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        let filePayload = #"{"claudeAiOauth":{"accessToken":"selected-file","expiresAt":"2099-01-01T00:00:00Z","subscriptionType":"team"}}"#
+        try filePayload.write(
+            to: configDirectory.appendingPathComponent(".credentials.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let metadataStore = ClaudeProfileMetadataStore(
+            fileURL: home.appendingPathComponent("metadata.json")
+        )
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            .value(
+                #"{"claudeAiOauth":{"accessToken":"stale-keychain","expiresAt":"2000-01-01T00:00:00Z","subscriptionType":"free"}}"#
+            )
+        }
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: home,
+            profileMetadataStore: metadataStore,
+            appCredentialVault: OAuthVaultStub(),
+            interactiveKeychainPayloadReader: { service, account, reason in
+                interactive.read(service: service, account: account, reason: reason)
+            }
+        )
+
+        let result = await reader.importActiveCLICredential()
+        let metadata = await metadataStore.load()
+        let subscriptionType = await metadata?.subscriptionType
+
+        XCTAssertEqual(result, .imported(credentialChanged: false))
+        XCTAssertEqual(subscriptionType, "team")
+    }
+
+    func testExplicitCLIImportUpdatesMetadataOnlyFromSelectedKeychainCandidate() async throws {
+        let home = try makeTemporaryHome()
+        let configDirectory = home.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        let filePayload = #"{"claudeAiOauth":{"accessToken":"older-file","expiresAt":"2050-01-01T00:00:00Z","subscriptionType":"free"}}"#
+        try filePayload.write(
+            to: configDirectory.appendingPathComponent(".credentials.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        let metadataStore = ClaudeProfileMetadataStore(
+            fileURL: home.appendingPathComponent("metadata.json")
+        )
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            .value(
+                #"{"claudeAiOauth":{"accessToken":"selected-keychain","expiresAt":"2099-01-01T00:00:00Z","subscriptionType":"team"}}"#
+            )
+        }
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: home,
+            profileMetadataStore: metadataStore,
+            appCredentialVault: OAuthVaultStub(),
+            interactiveKeychainPayloadReader: { service, account, reason in
+                interactive.read(service: service, account: account, reason: reason)
+            }
+        )
+
+        let result = await reader.importActiveCLICredential()
+        let metadata = await metadataStore.load()
+        let subscriptionType = await metadata?.subscriptionType
+
+        XCTAssertEqual(result, .imported(credentialChanged: false))
+        XCTAssertEqual(subscriptionType, "team")
     }
 
     func testExplicitCLIImportCancellationDoesNotPersistVault() async throws {
@@ -372,6 +800,29 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         XCTAssertEqual(result, .imported(credentialChanged: true))
         XCTAssertEqual(interactive.calls.count, 1)
         XCTAssertTrue(vault.payload?.contains("new-cli-token") == true)
+    }
+
+    func testExplicitCLIImportFallsBackToActiveCredentialFileWhenKeychainDataIsInvalid() async throws {
+        let home = try makeTemporaryHome()
+        try writeCredentialFile(
+            configDirectory: home.appendingPathComponent(".claude"),
+            token: "active-file-token"
+        )
+        let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "stale-vault-token"))
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            .invalidData
+        }
+        let reader = makeReader(
+            home: home,
+            vault: vault,
+            interactive: interactive
+        )
+
+        let result = await reader.importActiveCLICredential()
+
+        XCTAssertEqual(result, .imported(credentialChanged: true))
+        XCTAssertEqual(interactive.calls.count, 1)
+        XCTAssertTrue(vault.payload?.contains("active-file-token") == true)
     }
 
     func testInventoryRefreshReplacesStaleVaultWithActiveCredentialFile() async throws {

@@ -594,6 +594,8 @@ actor AntigravityRemoteUsageService {
         case .codexReauthRequired,
              .codexTokenRefreshTemporary,
              .claudeCodeCredentialUnavailable,
+             .claudeCodeReauthenticationRequired,
+             .claudeCodeReconnectRequired,
              .cloudflareBlocked,
              .networkError,
              .permissionDenied,

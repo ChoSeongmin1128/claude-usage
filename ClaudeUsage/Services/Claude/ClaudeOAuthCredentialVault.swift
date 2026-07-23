@@ -8,6 +8,72 @@ protocol ClaudeOAuthCredentialVault: Sendable {
     nonisolated func deletePayload() throws
 }
 
+nonisolated enum ClaudeOAuthCredentialVaultOwnership: String, Equatable, Sendable {
+    case cliMirror
+    case appManaged
+}
+
+/// Vault payload의 refresh-token 소유권을 명시한다.
+///
+/// CLI에서 복사한 credential은 원본과 같은 회전형 refresh token을 공유하므로
+/// 앱이 독립적으로 갱신하면 안 된다. 반면 이전 버전의 `-refreshed` 캐시는 앱이
+/// 이미 회전시킨 lineage이므로, 마이그레이션 뒤에도 앱이 계속 갱신해야 한다.
+nonisolated enum ClaudeOAuthCredentialVaultPayload {
+    private static let metadataKey = "_claudeUsageVault"
+    private static let schemaVersion = 1
+
+    static func ownership(of payload: String) -> ClaudeOAuthCredentialVaultOwnership {
+        guard let root = jsonObject(from: payload),
+              let metadata = root[metadataKey] as? [String: Any],
+              let rawOwnership = metadata["ownership"] as? String,
+              let ownership = ClaudeOAuthCredentialVaultOwnership(rawValue: rawOwnership)
+        else {
+            // 2.3.0 개발 빌드가 만들었던 marker 없는 payload는 CLI mirror로
+            // 보수적으로 해석한다. 앱 소유로 오판하면 CLI refresh lineage를
+            // 독립적으로 회전시킬 수 있다.
+            return .cliMirror
+        }
+        return ownership
+    }
+
+    static func isVersioned(_ payload: String) -> Bool {
+        guard let root = jsonObject(from: payload),
+              let metadata = root[metadataKey] as? [String: Any],
+              metadata["schemaVersion"] as? Int == schemaVersion
+        else {
+            return false
+        }
+        return true
+    }
+
+    static func encode(
+        credentialPayload: String,
+        ownership: ClaudeOAuthCredentialVaultOwnership
+    ) -> String? {
+        guard var root = jsonObject(from: credentialPayload),
+              let oauth = root["claudeAiOauth"] as? [String: Any],
+              let accessToken = oauth["accessToken"] as? String,
+              !accessToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            return nil
+        }
+
+        root[metadataKey] = [
+            "schemaVersion": schemaVersion,
+            "ownership": ownership.rawValue,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: root, options: [.sortedKeys]) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func jsonObject(from payload: String) -> [String: Any]? {
+        guard let data = payload.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+}
+
 /// ClaudeUsage가 refresh한 Claude Code OAuth credential 전용 저장소.
 /// CLI 소유 Keychain 항목과 service/account namespace를 공유하지 않는다.
 final class KeychainClaudeOAuthCredentialVault: ClaudeOAuthCredentialVault, @unchecked Sendable {
@@ -102,7 +168,7 @@ nonisolated final class SecurityFrameworkClaudeOAuthLegacyCredentialMigrator:
                 return .notNeeded
             }
         } catch {
-            return .failed("새 OAuth 저장소 상태를 확인하지 못했습니다.")
+            return .failed("새 보안 저장소 상태를 확인하지 못했습니다.")
         }
 
         switch preflightChecker(Self.legacyService, account) {
@@ -111,7 +177,7 @@ nonisolated final class SecurityFrameworkClaudeOAuthLegacyCredentialMigrator:
         case .notFound:
             return .notNeeded
         case .failure:
-            return .failed("기존 OAuth 캐시 상태를 확인하지 못했습니다.")
+            return .failed("기존 Claude Code 연결 상태를 확인하지 못했습니다.")
         }
     }
 
@@ -124,27 +190,33 @@ nonisolated final class SecurityFrameworkClaudeOAuthLegacyCredentialMigrator:
         let payload: String
         do {
             guard let loaded = try legacyPayloadLoader(context), !loaded.isEmpty else {
-                return .failed("이전할 OAuth 캐시를 찾지 못했습니다. Claude Code에 다시 로그인해 주세요.")
+                return .failed("이전할 Claude Code 연결 정보를 찾지 못했습니다. Claude Code에 다시 로그인해 주세요.")
             }
-            payload = loaded
+            guard let encoded = ClaudeOAuthCredentialVaultPayload.encode(
+                credentialPayload: loaded,
+                ownership: .appManaged
+            ) else {
+                return .failed("기존 Claude Code 연결 정보가 유효하지 않습니다. Claude Code에 다시 로그인해 주세요.")
+            }
+            payload = encoded
         } catch let error as ClaudeOAuthLegacyAccessError {
             switch error {
             case .cancelled:
                 return .cancelled
             case .status:
-                return .failed("기존 OAuth 캐시를 읽지 못했습니다. Claude Code에 다시 로그인해 주세요.")
+                return .failed("기존 Claude Code 연결 정보를 읽지 못했습니다. Claude Code에 다시 로그인해 주세요.")
             }
         } catch {
-            return .failed("기존 OAuth 캐시를 읽지 못했습니다. Claude Code에 다시 로그인해 주세요.")
+            return .failed("기존 Claude Code 연결 정보를 읽지 못했습니다. Claude Code에 다시 로그인해 주세요.")
         }
 
         do {
             try destination.savePayload(payload)
             guard try destination.loadPayload() == payload else {
-                return .failed("새 OAuth 저장소의 저장 결과를 검증하지 못했습니다.")
+                return .failed("새 보안 저장소의 저장 결과를 확인하지 못했습니다.")
             }
         } catch {
-            return .failed("새 OAuth 저장소에 캐시를 저장하지 못했습니다.")
+            return .failed("새 보안 저장소에 연결 정보를 저장하지 못했습니다.")
         }
 
         do {
@@ -215,6 +287,15 @@ nonisolated enum ClaudeOAuthCredentialMigrationState: Equatable, Sendable {
     case completed
     case completedWithLegacyCleanupFailure
     case failed(String)
+
+    var replacesStandardClaudeCodeReconnectAction: Bool {
+        switch self {
+        case .checking, .available, .migrating, .failed:
+            return true
+        case .notNeeded, .deferred, .completed, .completedWithLegacyCleanupFailure:
+            return false
+        }
+    }
 }
 
 actor ClaudeOAuthCredentialMigrationCoordinator {

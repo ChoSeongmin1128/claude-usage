@@ -3,7 +3,7 @@ import XCTest
 @testable import ClaudeUsage
 
 final class ClaudeOAuthCredentialMigrationTests: XCTestCase {
-    func testSuccessfulMigrationUsesOneContextThenVerifiesAndDeletesLegacyItem() {
+    func testSuccessfulMigrationUsesOneContextThenVerifiesAndDeletesLegacyItem() throws {
         let vault = MigrationVaultStub()
         let contextRecorder = MigrationContextRecorder()
         let migrator = SecurityFrameworkClaudeOAuthLegacyCredentialMigrator(
@@ -19,7 +19,12 @@ final class ClaudeOAuthCredentialMigrationTests: XCTestCase {
 
         XCTAssertEqual(migrator.availability(destination: vault), .available)
         XCTAssertEqual(migrator.migrate(destination: vault), .completed)
-        XCTAssertEqual(vault.payload, Self.payload)
+        let migratedPayload = try XCTUnwrap(vault.payload)
+        XCTAssertEqual(
+            ClaudeOAuthCredentialVaultPayload.ownership(of: migratedPayload),
+            .appManaged
+        )
+        XCTAssertTrue(migratedPayload.contains(#""accessToken":"access""#))
         XCTAssertEqual(vault.saveCount, 1)
         XCTAssertEqual(contextRecorder.deleteCount, 1)
         XCTAssertTrue(contextRecorder.usedSameContext)
@@ -64,7 +69,28 @@ final class ClaudeOAuthCredentialMigrationTests: XCTestCase {
         )
 
         XCTAssertEqual(migrator.migrate(destination: vault), .completedWithLegacyCleanupFailure)
-        XCTAssertEqual(vault.payload, Self.payload)
+        let migratedPayload = try? XCTUnwrap(vault.payload)
+        XCTAssertEqual(
+            migratedPayload.map(ClaudeOAuthCredentialVaultPayload.ownership(of:)),
+            .appManaged
+        )
+    }
+
+    func testInvalidLegacyPayloadIsNotSavedOrDeleted() {
+        let vault = MigrationVaultStub()
+        let deleteCounter = LockedCounter()
+        let migrator = SecurityFrameworkClaudeOAuthLegacyCredentialMigrator(
+            preflightChecker: { _, _ in .allowed },
+            legacyPayloadLoader: { _ in #"{"notOAuth":true}"# },
+            legacyPayloadDeleter: { _ in deleteCounter.increment() }
+        )
+
+        guard case .failed = migrator.migrate(destination: vault) else {
+            return XCTFail("유효하지 않은 legacy payload는 migration 실패여야 합니다")
+        }
+        XCTAssertNil(vault.payload)
+        XCTAssertEqual(vault.saveCount, 0)
+        XCTAssertEqual(deleteCounter.value, 0)
     }
 
     func testConcurrentMigrationRequestsShareOneOperation() async {

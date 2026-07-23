@@ -36,7 +36,7 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
         XCTAssertEqual(healthSnapshotCount, 0)
     }
 
-    func testActivateSessionKeySavesResolvedOrganizationWhenPreferredOrganizationIsAutomatic() async throws {
+    func testActivateSessionKeyKeepsAutomaticOrganizationOutOfUserPreference() async throws {
         let keychain = FakeClaudeSessionKeyStore()
         let service = FakeClaudeSettingsService()
         await service.setResolvedOrganization(
@@ -51,7 +51,7 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
             refreshRequester: {}
         )
 
-        XCTAssertEqual(keychain.savedPreferredOrganizationIDs, ["org-glorang"])
+        XCTAssertEqual(keychain.savedPreferredOrganizationIDs, [""])
         XCTAssertEqual(
             keychain.savedIdentities,
             [ClaudeAccountIdentity(organizationName: "Glorang", organizationID: "org-glorang")]

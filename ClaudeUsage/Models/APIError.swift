@@ -19,6 +19,12 @@ enum APIError: Error, Sendable {
     /// Claude Code 계정이 활성인데 사용할 수 있는 자격 증명(OAuth 토큰/세션키)이 없는 상태.
     /// 에러 카드 대신 "Claude Code 로그인 확인 또는 Claude.ai 로그인 전환" 안내 카드로 처리된다.
     case claudeCodeCredentialUnavailable
+    /// Claude Code credential 파일은 존재하지만 회전형 refresh token이 서버에서
+    /// 거부되어 자동 복구할 수 없는 상태.
+    case claudeCodeReauthenticationRequired
+    /// Claude Code 로그인 자체를 다시 요구할 근거는 없지만, 앱이 보유한 CLI
+    /// credential mirror를 명시적으로 다시 가져와야 하는 상태.
+    case claudeCodeReconnectRequired
     case rateLimited(retryAfter: Int? = nil)
     case cloudflareBlocked(retryAfter: Int? = nil)
     case networkError(String)
@@ -46,6 +52,12 @@ extension APIError: LocalizedError {
 
         case .claudeCodeCredentialUnavailable:
             return "Claude Code 자격 증명을 찾을 수 없습니다. 터미널에서 `claude auth login`을 실행해 주세요."
+
+        case .claudeCodeReauthenticationRequired:
+            return "Claude Code 로그인 정보는 있지만 인증 갱신이 거부되었습니다. 터미널에서 `claude auth login`을 다시 실행해 주세요."
+
+        case .claudeCodeReconnectRequired:
+            return "Claude Code 로그인은 유지되고 있지만 ClaudeUsage 연결 정보를 다시 확인해야 합니다."
 
         case .rateLimited(let retryAfter):
             if let retryAfter, retryAfter > 0 {
@@ -88,14 +100,14 @@ extension APIError: LocalizedError {
             return true
         case .serverError(let code):
             return code >= 500
-        case .invalidSessionKey, .codexReauthRequired, .claudeCodeCredentialUnavailable, .permissionDenied, .unknownError:
+        case .invalidSessionKey, .codexReauthRequired, .claudeCodeCredentialUnavailable, .claudeCodeReauthenticationRequired, .claudeCodeReconnectRequired, .permissionDenied, .unknownError:
             return false
         }
     }
 
     nonisolated var isDefinitiveAuthFailure: Bool {
         switch self {
-        case .invalidSessionKey, .codexReauthRequired, .claudeCodeCredentialUnavailable:
+        case .invalidSessionKey, .codexReauthRequired, .claudeCodeCredentialUnavailable, .claudeCodeReauthenticationRequired, .claudeCodeReconnectRequired:
             return true
         case .serverError(let code):
             return code == 401 || code == 403
