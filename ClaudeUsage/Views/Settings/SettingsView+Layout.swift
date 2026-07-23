@@ -103,7 +103,10 @@ extension SettingsView {
             runtimeEnvironmentRefreshTick &+= 1
         }
         .onReceive(NotificationCenter.default.publisher(for: .runtimeProviderStateUpdated).receive(on: RunLoop.main)) { notification in
-            guard notification.object as? PopoverService == .antigravity else { return }
+            guard notification.object as? PopoverService != nil else { return }
+            // Claude/Codex 미리보기도 AppDelegate의 최신 runtime payload closure를
+            // 다시 읽어야 한다. 계정 경계에서 payload가 초기화됐는데 이 tick이
+            // 갱신되지 않으면 설정 창에 이전 계정 사용량이 남아 보인다.
             runtimeEnvironmentRefreshTick &+= 1
         }
         .onChange(of: sessionKey) { _, _ in

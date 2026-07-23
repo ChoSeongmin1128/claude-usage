@@ -121,19 +121,51 @@ extension AppDelegate {
         )
     }
 
-    func handleClaudeCredentialContextChanged() {
+    @discardableResult
+    func handleClaudeCredentialContextChanged(
+        refreshOAuthCredentialInventory: Bool = false,
+        requireUsageValidation: Bool = false
+    ) -> Task<Void, Never> {
+        let accountState = ClaudeAccountStore.shared.state()
+        let requestedAccountID = accountState.activeAccountID
+        let previousAccountID = withRuntimeState { $0.activeClaudeAccountID }
+        let shouldRefreshOAuthCredentialInventory =
+            ClaudeCredentialRefreshRequest.shouldRefreshOAuthInventory(
+                explicitlyRequested: refreshOAuthCredentialInventory,
+                previousAccountID: previousAccountID,
+                activeAccount: accountState.activeAccount
+            )
+        let request = ClaudeCredentialRefreshRequest(
+            accountID: requestedAccountID,
+            refreshOAuthCredentialInventory: shouldRefreshOAuthCredentialInventory,
+            requireUsageValidation: requireUsageValidation
+        )
+        if let activeRequest = claudeCredentialRefreshRequest,
+           activeRequest.satisfies(request),
+           let activeTask = claudeCredentialRefreshTask {
+            return activeTask
+        }
+
         claudeCredentialRefreshGeneration &+= 1
         let generation = claudeCredentialRefreshGeneration
-        let requestedAccountID = ClaudeAccountStore.shared.state().activeAccountID
         claudeCredentialRefreshTask?.cancel()
         claudeUsageRefreshTask?.cancel()
+        claudeCredentialRefreshRequest = request
         resetClaudeRuntimeAfterAccountBoundaryChange(refreshHealthSnapshot: false)
 
-        claudeCredentialRefreshTask = Task { [weak self] in
+        let task = Task { [weak self] in
             guard let self else { return }
+            defer {
+                if generation == self.claudeCredentialRefreshGeneration {
+                    self.claudeCredentialRefreshTask = nil
+                    self.claudeCredentialRefreshRequest = nil
+                }
+            }
             await apiService.reloadActiveAccount()
 
-            async let snapshotTask = apiService.fetchUsageHealthSnapshot()
+            async let snapshotTask = apiService.fetchUsageHealthSnapshot(
+                refreshOAuthCredentialInventory: shouldRefreshOAuthCredentialInventory
+            )
             async let metadataTask = apiService.fetchCachedProfileMetadata()
             let snapshot = await snapshotTask
             let cachedProfileMetadata = await metadataTask
@@ -142,8 +174,8 @@ extension AppDelegate {
                   requestedAccountID == responseAccountID else {
                 return
             }
-            await MainActor.run {
-                guard generation == self.claudeCredentialRefreshGeneration else { return }
+            let usageTask: Task<Void, Never>? = await MainActor.run {
+                guard generation == self.claudeCredentialRefreshGeneration else { return nil }
                 if snapshot.runtime.credentialAvailability.hasAnyCredential {
                     self.setupWizardCredentialStepOverride = nil
                 }
@@ -152,8 +184,16 @@ extension AppDelegate {
                 self.applyUsageHealthSnapshot(snapshot)
 
                 if snapshot.runtime.credentialAvailability.hasAnyCredential {
-                    if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
-                        self.refreshUsage(force: true, syncHealthAfterCompletion: false)
+                    let providerEnabled = ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
+                    if providerEnabled {
+                        self.syncRefreshTimerState()
+                    }
+                    if providerEnabled || requireUsageValidation {
+                        return self.refreshUsage(
+                            force: true,
+                            syncHealthAfterCompletion: false,
+                            allowWhenDisabled: requireUsageValidation
+                        )
                     } else {
                         self.updateMenuBar()
                         self.updatePopoverViewModel(overage: self.currentOverage)
@@ -164,8 +204,12 @@ extension AppDelegate {
                     self.updatePopoverViewModel(overage: self.currentOverage)
                     self.syncRefreshTimerState()
                 }
+                return nil
             }
+            await usageTask?.value
         }
+        claudeCredentialRefreshTask = task
+        return task
     }
 
     func handleProviderSelectionTransition(from previous: ProviderSelectionState, to current: ProviderSelectionState) {
@@ -330,11 +374,18 @@ extension AppDelegate {
         }
     }
 
-    func refreshUsage(force: Bool = false, syncHealthAfterCompletion: Bool = true) {
-        guard ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) else { return }
-        guard prepareRefresh(for: .claude, force: force) else { return }
+    @discardableResult
+    func refreshUsage(
+        force: Bool = false,
+        syncHealthAfterCompletion: Bool = true,
+        allowWhenDisabled: Bool = false
+    ) -> Task<Void, Never>? {
+        guard allowWhenDisabled || ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) else {
+            return nil
+        }
+        guard prepareRefresh(for: .claude, force: force) else { return nil }
 
-        claudeUsageRefreshTask = Task { [weak self] in
+        let task = Task { [weak self] in
             guard let self else { return }
             let requestAccountID = await apiService.currentActiveAccountID()
             do {
@@ -389,6 +440,9 @@ extension AppDelegate {
                         claudePolicy: self.currentClaudeNotificationPolicy
                     )
                 }
+            } catch is CancellationError {
+                Logger.debug("Claude credential 변경으로 오래된 사용량 응답 폐기")
+                return
             } catch let error as APIError {
                 guard !Task.isCancelled else {
                     Logger.debug("Claude 사용량 갱신 취소")
@@ -456,6 +510,8 @@ extension AppDelegate {
                 }
             }
         }
+        claudeUsageRefreshTask = task
+        return task
     }
 
     func refreshCodexUsage(force: Bool = false) {

@@ -53,9 +53,10 @@ final class AppRuntimeObservationCoordinator {
             .sink { _ in onPowerStateChanged() }
             .store(in: &cancellables)
 
-        Publishers.Merge(
+        Publishers.Merge3(
             NotificationCenter.default.publisher(for: .claudeAccountDidChange),
-            NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange)
+            NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange),
+            NotificationCenter.default.publisher(for: .claudeCredentialRefreshRequested)
         )
             .filter { notification in
                 guard notification.name == .claudeSessionKeyDidChange,

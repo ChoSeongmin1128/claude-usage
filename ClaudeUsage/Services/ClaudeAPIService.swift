@@ -224,6 +224,7 @@ actor ClaudeAPIService {
     /// 성공 결과를 짧게 캐시하고, 429 는 Retry-After 만큼 경로 쿨다운한다.
     private var oauthPathCooldownUntil: Date?
     private var lastOAuthSuccess: (usage: ClaudeUsageResponse, at: Date)?
+    private var claudeCodeCredentialGeneration = 0
     private static let minimumOAuthCallInterval: TimeInterval = 300
     private let requestTimeout: TimeInterval = 20
     private let sourcePlanner = ClaudeSourcePlanner()
@@ -442,7 +443,15 @@ actor ClaudeAPIService {
             && (refreshOAuthCredentialInventory || activeKind == .claudeCodeExternal || activeKind == nil)
         let oauthCredentialAvailable: Bool
         if shouldReadOAuthCredential {
-            oauthCredentialAvailable = (try? await readSystemOAuthAccessToken()) != nil
+            if refreshOAuthCredentialInventory,
+               let inventoryRefresh = try? await oauthCredentialReader.refreshCredentialInventoryWithoutUI() {
+                if inventoryRefresh.credentialChanged {
+                    await resetClaudeCodeStateAfterCredentialChange()
+                }
+                oauthCredentialAvailable = inventoryRefresh.accessToken != nil
+            } else {
+                oauthCredentialAvailable = (try? await readSystemOAuthAccessToken()) != nil
+            }
         } else {
             oauthCredentialAvailable = Self.hasStoredOAuthCredentialInventory(initialState)
         }
@@ -471,16 +480,60 @@ actor ClaudeAPIService {
         await profileMetadataStore.load()
     }
 
-    /// 로그인 윈도우 카드 미리보기 등 가벼운 UI 결정 용도. 부작용 없이 OAuth credential
-    /// 의 존재만 확인한다. `fetchUsageHealthSnapshot` 은 reloadActiveAccount / upsert /
-    /// 상태 저장 등 다양한 부작용이 있어 미리보기 용도로는 부담이 크다.
-    func peekClaudeCodeCredentialAvailable() async -> Bool {
-        await oauthCredentialReader.invalidateCache()
-        return (try? await readSystemOAuthAccessToken()) != nil
+    /// 로그인 윈도우 카드 미리보기 등 가벼운 UI 결정 용도.
+    /// 외부 Claude Code Keychain을 조회하지 않고 저장된 inventory만 사용한다.
+    func hasStoredClaudeCodeCredentialInventory() -> Bool {
+        guard usesStoredActiveAccount else { return false }
+        return Self.hasStoredOAuthCredentialInventory(accountStore.state())
     }
 
     func invalidateClaudeCodeCredentialCache() async {
         await oauthCredentialReader.invalidateCache()
+    }
+
+    /// 사용자 본인이 Claude Code 연결을 선택한 경우에만 CLI 소유 Keychain
+    /// credential을 한 번 읽어 앱 vault에 저장한다.
+    func importClaudeCodeCredentialForActivation() async throws {
+        switch await oauthCredentialReader.importActiveCLICredential() {
+        case .available:
+            return
+        case .imported(let credentialChanged):
+            if credentialChanged {
+                await resetClaudeCodeStateAfterCredentialChange()
+            }
+        case .notFound:
+            throw APIError.claudeCodeCredentialUnavailable
+        case .cancelled:
+            throw ClaudeOAuthCredentialImportError.cancelled
+        case .failed(let message):
+            throw ClaudeOAuthCredentialImportError.failed(message)
+        }
+    }
+
+    private func resetClaudeCodeStateAfterCredentialChange() async {
+        let claudeCodeAccountID = ClaudeAccountStore.claudeCodeExternalAccountID
+        claudeCodeCredentialGeneration &+= 1
+        oauthPathCooldownUntil = nil
+        lastOAuthSuccess = nil
+        lastKnownUsagePercent = nil
+        lastSuccessfulUsageSource = nil
+        lastFetchMetadata = nil
+        UserDefaults.standard.removeObject(
+            forKey: Self.authPathHealthDefaultsKey(for: claudeCodeAccountID)
+        )
+        if activeAccount?.id == claudeCodeAccountID {
+            authPathHealthStore = AuthPathHealthStore()
+        }
+        accountStore.replaceIdentity(
+            ClaudeAccountIdentity(),
+            for: claudeCodeAccountID
+        )
+        accountStore.updateValidationState(
+            .detected,
+            for: claudeCodeAccountID
+        )
+        await oauthProfileMetadataStore.clear()
+        activeAccount = accountStore.activeAccount()
     }
 
     /// CLI external account 가 store 에 있다면 그 cached profile metadata 를 반환.
@@ -577,7 +630,12 @@ actor ClaudeAPIService {
     /// 실패해도 silent return — 사용자가 사용량 자체는 계속 볼 수 있어야 하기 때문.
     /// 호출 시점: CLI 활성화 직후, 또는 사용량 OAuth 성공 후 identity 가 비어 있는 경우.
     func refreshClaudeCodeAccountProfile() async {
+        let credentialGeneration = claudeCodeCredentialGeneration
         guard let profile = try? await fetchOAuthProfile() else { return }
+        guard credentialGeneration == claudeCodeCredentialGeneration else {
+            Logger.info("Claude Code credential 변경 전에 시작된 profile 응답을 무시합니다")
+            return
+        }
         let identity = ClaudeAccountIdentity(
             email: profile.account?.email,
             organizationName: profile.organization?.name,
@@ -733,6 +791,7 @@ actor ClaudeAPIService {
         }()
 
         let requestAccountID = usesStoredActiveAccount ? activeAccount?.id : nil
+        let requestClaudeCodeCredentialGeneration = claudeCodeCredentialGeneration
         let normalizedSessionKey: String? = {
             guard activeKind == .webSession else { return nil }
             guard let sessionKey, !sessionKey.isEmpty else { return nil }
@@ -828,6 +887,9 @@ actor ClaudeAPIService {
 
                 do {
                     let usage = try await fetchUsageViaOAuth(accessToken: oauthAccessToken)
+                    guard requestClaudeCodeCredentialGeneration == claudeCodeCredentialGeneration else {
+                        throw CancellationError()
+                    }
                     lastOAuthSuccess = (usage, Date())
                     rememberSuccessfulUsage(usage, source: .oauth, accountID: requestAccountID)
                     // CLI external account 의 identity 가 비어 있으면 백그라운드로
@@ -868,6 +930,9 @@ actor ClaudeAPIService {
                                 accessToken: oauthAccessToken,
                                 policy: plan.fallbackPolicy,
                                 currentUsagePercent: lastKnownUsagePercent)
+                            guard requestClaudeCodeCredentialGeneration == claudeCodeCredentialGeneration else {
+                                throw CancellationError()
+                            }
                             Logger.warning("OAuth 경로 실패 → Messages 헤더 복구 성공")
                             rememberSuccessfulUsage(
                                 usage,
@@ -878,10 +943,14 @@ actor ClaudeAPIService {
                                 source: .messagesHeaderFallback,
                                 accountID: requestAccountID,
                                 attemptedSources: attemptedSources)
+                        } catch is CancellationError {
+                            throw CancellationError()
                         } catch {
                             Logger.warning("Messages 헤더 복구 실패: \(error.localizedDescription)")
                         }
                     }
+                } catch is CancellationError {
+                    throw CancellationError()
                 } catch {
                     let apiError = APIError.unknownError(error.localizedDescription)
                     sourceErrors[.oauth] = apiError

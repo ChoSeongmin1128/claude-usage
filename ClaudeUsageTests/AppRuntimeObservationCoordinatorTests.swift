@@ -22,6 +22,30 @@ final class AppRuntimeObservationCoordinatorTests: XCTestCase {
 
         NotificationCenter.default.post(name: .claudeAccountDidChange, object: nil)
         NotificationCenter.default.post(name: .claudeSessionKeyDidChange, object: nil)
+        NotificationCenter.default.post(name: .claudeCredentialRefreshRequested, object: nil)
+
+        await fulfillment(of: [transaction], timeout: 1.0)
+        try? await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(transactionCount, 1)
+    }
+
+    func testExplicitCredentialRefreshRequestStartsOneTransaction() async {
+        let coordinator = AppRuntimeObservationCoordinator()
+        var transactionCount = 0
+        let transaction = expectation(description: "explicit credential refresh")
+        coordinator.bind(
+            onRefreshConfigurationChanged: {},
+            onUpdateConfigurationChanged: {},
+            onMenuBarDisplayChanged: {},
+            onProviderSelectionChanged: { _ in },
+            onPowerStateChanged: {},
+            onClaudeCredentialContextChanged: {
+                transactionCount += 1
+                transaction.fulfill()
+            }
+        )
+
+        NotificationCenter.default.post(name: .claudeCredentialRefreshRequested, object: nil)
 
         await fulfillment(of: [transaction], timeout: 1.0)
         try? await Task.sleep(for: .milliseconds(100))

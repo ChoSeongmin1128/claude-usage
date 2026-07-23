@@ -103,12 +103,14 @@ enum ClaudeSettingsApplyCoordinator {
         _ key: String,
         apiService: any ClaudeSettingsApplyingService,
         preferredOrganizationID: String,
-        providerEnabled: Bool,
         displayName: String? = nil,
         source: ClaudeAccountSource? = .embeddedWebLogin,
         sourceDetail: String? = nil,
-        keychain: any ClaudeSessionKeyStoring = KeychainManager.shared
-    ) async throws -> ClaudeSettingsApplyResult {
+        keychain: any ClaudeSessionKeyStoring = KeychainManager.shared,
+        refreshRequester: @escaping @Sendable () -> Void = {
+            NotificationCenter.default.post(name: .claudeCredentialRefreshRequested, object: nil)
+        }
+    ) async throws {
         let previousKey = keychain.load()
         // 검증 fetch 가 어느 organization 으로 향할지 강제하기 위한 일회성
         // in-memory 설정. 영구 저장은 keychain.save(... preferredOrganizationID:)
@@ -149,17 +151,7 @@ enum ClaudeSettingsApplyCoordinator {
             throw error
         }
 
-        let snapshot = await apiService.fetchUsageHealthSnapshot()
-        let cachedMetadata = await apiService.fetchCachedProfileMetadata()
-        return ClaudeSettingsApplyResult(
-            snapshot: snapshot,
-            shouldStartMonitoring: providerEnabled && snapshot.runtime.credentialAvailability.hasAnyCredential,
-            shouldMarkSetupComplete: SetupCompletionPolicy.shouldMarkSetupComplete(
-                hasSuccessfulFetch: snapshot.lastOverallSuccessAt != nil,
-                preferredOrganizationID: preferredOrganizationID,
-                cachedMetadata: cachedMetadata
-            )
-        )
+        refreshRequester()
     }
 
     static func deleteBrowserSession(

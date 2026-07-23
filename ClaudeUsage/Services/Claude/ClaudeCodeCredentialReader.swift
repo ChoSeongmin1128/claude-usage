@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 struct ClaudeCodeOAuthCredential: Equatable, Sendable {
@@ -38,32 +39,57 @@ struct ClaudeCodeOAuthCredential: Equatable, Sendable {
     }
 }
 
-struct ClaudeCodeSecurityCommandResult: Equatable, Sendable {
-    let status: Int32
-    let stdout: String
-    let stderr: String
-}
-
 protocol ClaudeOAuthCredentialReading: Sendable {
     func readAccessToken() async throws -> String?
+    func refreshCredentialInventoryWithoutUI() async throws -> ClaudeOAuthCredentialInventoryRefresh
     func forceRefreshAccessToken() async -> String?
     func invalidateCache() async
+    func importActiveCLICredential() async -> ClaudeOAuthCredentialImportResult
+}
+
+nonisolated struct ClaudeOAuthCredentialInventoryRefresh: Equatable, Sendable {
+    let accessToken: String?
+    let credentialChanged: Bool
+}
+
+nonisolated enum ClaudeOAuthCredentialImportResult: Equatable, Sendable {
+    case available
+    case imported(credentialChanged: Bool)
+    case notFound
+    case cancelled
+    case failed(String)
+}
+
+nonisolated enum ClaudeOAuthCredentialImportError: LocalizedError, Sendable {
+    case cancelled
+    case failed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .cancelled:
+            return "macOS Keychain 인증을 취소했습니다."
+        case .failed(let message):
+            return message
+        }
+    }
 }
 
 actor ClaudeCodeCredentialReader {
-    typealias PreflightChecker = @Sendable (_ service: String, _ account: String?) -> KeychainAccessPreflight.Outcome
-    typealias SecurityCommandRunner = @Sendable (_ arguments: [String], _ timeout: TimeInterval) async throws -> ClaudeCodeSecurityCommandResult?
+    typealias InteractiveKeychainPayloadReader = @Sendable (
+        _ service: String,
+        _ account: String?,
+        _ localizedReason: String
+    ) -> KeychainAccessPreflight.ReadOutcome
 
     private let homeDirectory: URL
+    private let claudeConfigDirectory: URL
+    private let usesScopedKeychainService: Bool
     private let profileMetadataStore: ClaudeProfileMetadataStore?
-    private let preflightChecker: PreflightChecker
-    private let securityCommandRunner: SecurityCommandRunner
+    private let interactiveKeychainPayloadReader: InteractiveKeychainPayloadReader
     private let tokenRefresher: ClaudeOAuthTokenRefresher
     private let appCredentialVault: any ClaudeOAuthCredentialVault
     private let cacheTTL: TimeInterval
     private let now: @Sendable () -> Date
-    private var discoveredServiceNames: [String] = []
-    private var didDiscoverServiceNames = false
     private var cachedResult: CachedResult?
     private var inFlightRead: Task<ClaudeCodeOAuthCredential?, Error>?
     private var cacheGeneration = 0
@@ -75,30 +101,65 @@ actor ClaudeCodeCredentialReader {
 
     init(
         homeDirectory: URL = FileManager.default.realHomeDirectory,
+        claudeConfigDirectory: URL? = nil,
         profileMetadataStore: ClaudeProfileMetadataStore? = nil,
         tokenRefresher: ClaudeOAuthTokenRefresher = ClaudeOAuthTokenRefresher(),
         appCredentialVault: any ClaudeOAuthCredentialVault = KeychainClaudeOAuthCredentialVault.shared,
         cacheTTL: TimeInterval = 60,
         now: @escaping @Sendable () -> Date = Date.init,
-        preflightChecker: @escaping PreflightChecker = { service, account in
-            KeychainAccessPreflight.checkGenericPassword(service: service, account: account)
-        },
-        securityCommandRunner: @escaping SecurityCommandRunner = { arguments, timeout in
-            try await ClaudeCodeCredentialReader.runSecurityCommand(arguments: arguments, timeout: timeout)
+        interactiveKeychainPayloadReader: @escaping InteractiveKeychainPayloadReader = { service, account, reason in
+            KeychainAccessPreflight.readGenericPasswordInteractively(
+                service: service,
+                account: account,
+                localizedReason: reason
+            )
         }
     ) {
+        let environmentConfigDirectory = Self.explicitClaudeConfigDirectoryFromEnvironment()
+        let resolvedConfigDirectory = claudeConfigDirectory
+            ?? environmentConfigDirectory
+            ?? homeDirectory.appendingPathComponent(".claude", isDirectory: true)
         self.homeDirectory = homeDirectory
+        self.claudeConfigDirectory = resolvedConfigDirectory
+        self.usesScopedKeychainService = claudeConfigDirectory != nil
+            || environmentConfigDirectory != nil
         self.profileMetadataStore = profileMetadataStore
         self.tokenRefresher = tokenRefresher
         self.appCredentialVault = appCredentialVault
         self.cacheTTL = cacheTTL
         self.now = now
-        self.preflightChecker = preflightChecker
-        self.securityCommandRunner = securityCommandRunner
+        self.interactiveKeychainPayloadReader = interactiveKeychainPayloadReader
     }
 
     func readAccessToken() async throws -> String? {
         try await readCredential()?.accessToken
+    }
+
+    /// Refreshes the active Claude credential inventory without touching the
+    /// Claude CLI-owned Keychain item.
+    ///
+    /// Classic Keychain ACL items can surface an Allow/Deny password dialog even
+    /// when a SecItem query requests no UI. Therefore automatic bootstrap,
+    /// account switching, and usage refreshes are restricted to the app vault and
+    /// credential files. The CLI Keychain is read only by
+    /// `importActiveCLICredential()` after an explicit user action.
+    func refreshCredentialInventoryWithoutUI() async throws -> ClaudeOAuthCredentialInventoryRefresh {
+        let previousAccessToken: String?
+        if let cachedAccessToken = cachedResult?.credential?.accessToken {
+            previousAccessToken = cachedAccessToken
+        } else if let payload = try appCredentialVault.loadPayload() {
+            previousAccessToken = parseCredential(
+                from: payload,
+                source: .refreshed
+            )?.accessToken
+        } else {
+            previousAccessToken = nil
+        }
+        invalidateCache()
+
+        return try await loadFileThenVaultInventoryFallback(
+            previousAccessToken: previousAccessToken
+        )
     }
 
     /// 401 등으로 캐시된 토큰이 거부됐을 때 외부에서 호출해 즉시 refresh 를 시도하게 한다.
@@ -164,62 +225,141 @@ actor ClaudeCodeCredentialReader {
         inFlightRead?.cancel()
         inFlightRead = nil
         cachedResult = nil
-        discoveredServiceNames = []
-        didDiscoverServiceNames = false
+    }
+
+    /// Explicit Claude Code connection flow. Background reads never reach this
+    /// method; one exact active-config item may show macOS Keychain UI once.
+    func importActiveCLICredential() async -> ClaudeOAuthCredentialImportResult {
+        invalidateCache()
+
+        let vaultCredential: ClaudeCodeOAuthCredential?
+        do {
+            vaultCredential = try await loadVaultCredential()
+        } catch {
+            return .failed("앱 OAuth 저장소를 읽지 못했습니다.")
+        }
+
+        let service = Self.keychainServiceName(
+            for: claudeConfigDirectory,
+            homeDirectory: homeDirectory,
+            usesExplicitConfigDirectory: usesScopedKeychainService
+        )
+        let outcome = interactiveKeychainPayloadReader(
+            service,
+            NSUserName(),
+            "Claude Code 로그인을 ClaudeUsage에 연결합니다."
+        )
+        switch outcome {
+        case .value(let payload):
+            guard let credential = await decodeCredential(
+                from: payload,
+                source: .keychain(service: service),
+                sourceDescription: "Claude Code Keychain"
+            ), let usable = await ensureUsable(credential) else {
+                return .failed("Claude Code 로그인 정보가 유효하지 않습니다. 터미널에서 다시 로그인해 주세요.")
+            }
+            do {
+                if !credential.isExpired {
+                    try appCredentialVault.savePayload(payload)
+                }
+                guard let verifiedPayload = try appCredentialVault.loadPayload(),
+                      parseCredential(from: verifiedPayload, source: .refreshed) != nil else {
+                    return .failed("Claude Code 로그인 정보를 앱 저장소에 검증하지 못했습니다.")
+                }
+            } catch {
+                return .failed("Claude Code 로그인 정보를 앱 저장소에 저장하지 못했습니다.")
+            }
+            cachedResult = CachedResult(credential: usable, storedAt: now())
+            return .imported(
+                credentialChanged: vaultCredential != nil
+                    && vaultCredential?.accessToken != usable.accessToken
+            )
+        case .notFound:
+            if let credential = await readCredentialFromFiles(),
+               let usable = await ensureUsable(credential) {
+                await persistRefreshedCredentialToKeychain(usable)
+                cachedResult = CachedResult(credential: usable, storedAt: now())
+                return .imported(
+                    credentialChanged: vaultCredential != nil
+                        && vaultCredential?.accessToken != usable.accessToken
+                )
+            }
+            guard let vaultCredential else { return .notFound }
+            cachedResult = CachedResult(credential: vaultCredential, storedAt: now())
+            return .available
+        case .cancelled:
+            return .cancelled
+        case .interactionRequired:
+            return .failed("macOS Keychain 인증을 시작하지 못했습니다.")
+        case .invalidData:
+            return .failed("Claude Code Keychain 데이터가 유효하지 않습니다.")
+        case .failure(let status):
+            return .failed("macOS Keychain 오류가 발생했습니다(code: \(status)).")
+        }
+    }
+
+    private func loadVaultCredential() async throws -> ClaudeCodeOAuthCredential? {
+        guard let payload = try appCredentialVault.loadPayload() else { return nil }
+        guard let credential = await decodeCredential(
+            from: payload,
+            source: .refreshed,
+            sourceDescription: "앱 OAuth vault"
+        ) else {
+            return nil
+        }
+        return await ensureUsable(credential)
     }
 
     private func performCredentialLookup() async throws -> ClaudeCodeOAuthCredential? {
-        if let payload = try? appCredentialVault.loadPayload(),
-           let credential = await decodeCredential(
-               from: payload,
-               source: .refreshed,
-               sourceDescription: "앱 OAuth vault"),
-           let usable = await ensureUsable(credential)
-        {
-            return usable
-        }
-
-        if let credential = await readCredentialFromFiles() {
-            if let usable = await ensureUsable(credential) {
-                return usable
+        do {
+            if let payload = try appCredentialVault.loadPayload() {
+                guard let credential = await decodeCredential(
+                    from: payload,
+                    source: .refreshed,
+                    sourceDescription: "앱 OAuth vault"
+                ) else {
+                    Logger.warning("앱 OAuth vault payload가 유효하지 않아 외부 credential 조회를 중단합니다")
+                    return nil
+                }
+                return await ensureUsable(credential)
             }
+        } catch {
+            // A temporarily locked or otherwise unavailable app-owned vault is not
+            // equivalent to a cache miss. Falling through could select a different
+            // CLI account or trigger classic Keychain ACL UI.
+            Logger.warning("앱 OAuth vault 조회 실패 — 외부 credential 조회를 중단합니다")
+            return nil
         }
 
-        let primaryService = "Claude Code-credentials"
-        let preflightResult = preflightChecker(primaryService, NSUserName())
-        if case .interactionRequired = preflightResult {
-            Logger.info("키체인 접근 시 UI 프롬프트 필요 — 파일 기반 인증만 사용")
-        }
-
-        if case .allowed = preflightResult,
-           let payload = try? await readKeychainPayload(serviceName: primaryService),
-           let credential = await decodeCredential(
-               from: payload,
-               source: .keychain(service: primaryService),
-               sourceDescription: "키체인 서비스: \(primaryService)"),
-           let usable = await ensureUsable(credential)
-        {
+        if let credential = await readCredentialFromFiles(),
+           let usable = await ensureUsable(credential) {
             return usable
         }
 
-        let discoveredServices = await getDiscoveredServiceNames().filter { $0 != primaryService }
-        if !discoveredServices.isEmpty {
-            Logger.debug("OAuth 토큰 조회: 추가 키체인 서비스 \(discoveredServices.count)개 후보")
-        }
-        for service in discoveredServices {
-            guard case .allowed = preflightChecker(service, NSUserName()),
-                  let payload = try? await readKeychainPayload(serviceName: service),
-                  let credential = await decodeCredential(
-                      from: payload,
-                      source: .keychain(service: service),
-                      sourceDescription: "키체인 서비스: \(service)"),
-                  let usable = await ensureUsable(credential)
-            else { continue }
-            return usable
-        }
-
-        Logger.warning("OAuth 토큰 조회 실패 (파일/키체인 모두 실패)")
+        Logger.warning("OAuth 토큰 조회 실패 (앱 vault/활성 config 파일 모두 실패)")
         return nil
+    }
+
+    private func loadFileThenVaultInventoryFallback(
+        previousAccessToken: String?
+    ) async throws -> ClaudeOAuthCredentialInventoryRefresh {
+        if let credential = await readCredentialFromFiles(),
+           let usable = await ensureUsable(credential) {
+            await persistRefreshedCredentialToKeychain(usable)
+            cachedResult = CachedResult(credential: usable, storedAt: now())
+            return ClaudeOAuthCredentialInventoryRefresh(
+                accessToken: usable.accessToken,
+                credentialChanged: previousAccessToken != nil
+                    && previousAccessToken != usable.accessToken
+            )
+        }
+
+        let fallback = try await loadVaultCredential()
+        cachedResult = CachedResult(credential: fallback, storedAt: now())
+        return ClaudeOAuthCredentialInventoryRefresh(
+            accessToken: fallback?.accessToken,
+            credentialChanged: false
+        )
     }
 
     /// decodeCredential 단계에서 expired 토큰도 반환되므로(refresh 가능 여부 판단을 위해)
@@ -290,10 +430,39 @@ actor ClaudeCodeCredentialReader {
         return string
     }
 
+    nonisolated static func keychainServiceName(
+        for configDirectory: URL,
+        homeDirectory: URL,
+        usesExplicitConfigDirectory: Bool? = nil
+    ) -> String {
+        let normalizedConfig = configDirectory.standardizedFileURL.path
+        let normalizedDefault = homeDirectory
+            .appendingPathComponent(".claude", isDirectory: true)
+            .standardizedFileURL
+            .path
+        let shouldScope = usesExplicitConfigDirectory ?? (normalizedConfig != normalizedDefault)
+        guard shouldScope else {
+            return "Claude Code-credentials"
+        }
+
+        let digest = SHA256.hash(data: Data(normalizedConfig.utf8))
+        let suffix = digest.prefix(4).map { String(format: "%02x", $0) }.joined()
+        return "Claude Code-credentials-\(suffix)"
+    }
+
+    private nonisolated static func explicitClaudeConfigDirectoryFromEnvironment() -> URL? {
+        if let configuredPath = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !configuredPath.isEmpty {
+            return URL(fileURLWithPath: configuredPath, isDirectory: true)
+        }
+        return nil
+    }
+
     private func readCredentialFromFiles() async -> ClaudeCodeOAuthCredential? {
         let candidates = [
-            homeDirectory.appendingPathComponent(".claude/.credentials.json"),
-            homeDirectory.appendingPathComponent(".claude/credentials.json")
+            claudeConfigDirectory.appendingPathComponent(".credentials.json"),
+            claudeConfigDirectory.appendingPathComponent("credentials.json")
         ]
 
         for fileURL in candidates {
@@ -310,68 +479,8 @@ actor ClaudeCodeCredentialReader {
             }
         }
 
-        Logger.debug("OAuth 토큰 파일 조회 실패 (~/.claude)")
+        Logger.debug("OAuth 토큰 파일 조회 실패 (\(claudeConfigDirectory.lastPathComponent))")
         return nil
-    }
-
-    private func readKeychainPayload(serviceName: String) async throws -> String? {
-        guard let result = try await securityCommandRunner(
-            [
-                "find-generic-password",
-                "-s", serviceName,
-                "-a", NSUserName(),
-                "-w"
-            ],
-            2.5
-        ) else {
-            Logger.warning("키체인 조회 타임아웃(service: \(serviceName))")
-            return nil
-        }
-
-        if result.status == 44 {
-            return nil
-        }
-
-        guard result.status == 0 else {
-            let errorMessage = result.stderr.isEmpty ? "unknown error" : result.stderr
-            throw APIError.unknownError("시스템 키체인 오류(code: \(result.status), service: \(serviceName)): \(errorMessage)")
-        }
-
-        let credentials = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        return credentials.isEmpty ? nil : credentials
-    }
-
-    private func getDiscoveredServiceNames() async -> [String] {
-        if didDiscoverServiceNames {
-            return discoveredServiceNames
-        }
-        didDiscoverServiceNames = true
-        discoveredServiceNames = await discoverServiceNames()
-        return discoveredServiceNames
-    }
-
-    private func discoverServiceNames() async -> [String] {
-        guard let result = try? await securityCommandRunner(["dump-keychain"], 1.0) else {
-            Logger.debug("키체인 서비스 탐색 타임아웃")
-            return []
-        }
-
-        guard result.status == 0, !result.stdout.isEmpty else {
-            return []
-        }
-
-        let pattern = #""svce"<blob>="(Claude Code-credentials[^"]*)""#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return []
-        }
-
-        let output = result.stdout
-        let nsrange = NSRange(output.startIndex..<output.endIndex, in: output)
-        return regex.matches(in: output, range: nsrange).compactMap { match in
-            guard match.numberOfRanges >= 2,
-                  let range = Range(match.range(at: 1), in: output) else { return nil }
-            return String(output[range])
-        }
     }
 
     private func decodeCredential(
@@ -472,122 +581,16 @@ actor ClaudeCodeCredentialReader {
                 }
             }
             if let timestamp = value as? TimeInterval {
-                return Date(timeIntervalSince1970: timestamp)
-            }
-            if let intTimestamp = value as? Int {
-                return Date(timeIntervalSince1970: TimeInterval(intTimestamp))
+                return Date(timeIntervalSince1970: Self.normalizedEpochSeconds(timestamp))
             }
         }
         return nil
     }
 
-    static func runSecurityCommand(arguments: [String], timeout: TimeInterval) async throws -> ClaudeCodeSecurityCommandResult? {
-        final class LockedDataBuffer: @unchecked Sendable {
-            private let lock = NSLock()
-            private var storage = Data()
-
-            func append(_ data: Data) {
-                lock.lock()
-                storage.append(data)
-                lock.unlock()
-            }
-
-            func stringValue() -> String {
-                lock.lock()
-                let snapshot = storage
-                lock.unlock()
-                return String(data: snapshot, encoding: .utf8) ?? ""
-            }
-        }
-
-        final class ContinuationGate: @unchecked Sendable {
-            private let lock = NSLock()
-            private var resumed = false
-
-            func resume(_ action: () -> Void) {
-                lock.lock()
-                defer { lock.unlock() }
-                guard !resumed else { return }
-                resumed = true
-                action()
-            }
-        }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
-        process.arguments = arguments
-
-        let outputPipe = Pipe()
-        let errorPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = errorPipe
-
-        do {
-            try process.run()
-        } catch {
-            throw APIError.unknownError("security 실행 실패: \(error.localizedDescription)")
-        }
-
-        return try await withCheckedThrowingContinuation { continuation in
-            let stdoutBuffer = LockedDataBuffer()
-            let stderrBuffer = LockedDataBuffer()
-            let gate = ContinuationGate()
-
-            func resumeOnce(with result: Result<ClaudeCodeSecurityCommandResult?, Error>) {
-                gate.resume {
-                    continuation.resume(with: result)
-                }
-            }
-
-            let timeoutWork = DispatchWorkItem {
-                if process.isRunning {
-                    process.terminate()
-                }
-            }
-            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutWork)
-
-            outputPipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {
-                    outputPipe.fileHandleForReading.readabilityHandler = nil
-                } else {
-                    stdoutBuffer.append(data)
-                }
-            }
-
-            errorPipe.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {
-                    errorPipe.fileHandleForReading.readabilityHandler = nil
-                } else {
-                    stderrBuffer.append(data)
-                }
-            }
-
-            process.terminationHandler = { terminatedProcess in
-                timeoutWork.cancel()
-
-                DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) {
-                    outputPipe.fileHandleForReading.readabilityHandler = nil
-                    errorPipe.fileHandleForReading.readabilityHandler = nil
-
-                    guard terminatedProcess.terminationReason != .uncaughtSignal else {
-                        resumeOnce(with: .success(nil))
-                        return
-                    }
-
-                    resumeOnce(
-                        with: .success(
-                            ClaudeCodeSecurityCommandResult(
-                                status: terminatedProcess.terminationStatus,
-                                stdout: stdoutBuffer.stringValue(),
-                                stderr: stderrBuffer.stringValue()
-                            )
-                        )
-                    )
-                }
-            }
-        }
+    private nonisolated static func normalizedEpochSeconds(_ value: TimeInterval) -> TimeInterval {
+        // Claude Code persists expiresAt in milliseconds. Retain compatibility
+        // with sources that already use seconds without relying on JSON number type.
+        abs(value) >= 10_000_000_000 ? value / 1_000 : value
     }
 }
 

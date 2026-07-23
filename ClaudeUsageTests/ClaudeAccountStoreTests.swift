@@ -147,6 +147,30 @@ final class ClaudeAccountStoreTests: XCTestCase {
         XCTAssertEqual(accounts[second.id]?.preferredOrganizationID, "org-b")
     }
 
+    func testReplaceIdentityClearsStaleClaudeCodeAccountMetadata() {
+        let store = makeStore()
+        let account = store.upsertClaudeCodeExternalAccount(
+            identity: ClaudeAccountIdentity(
+                email: "old@example.com",
+                organizationName: "Old Org",
+                organizationID: "old-org",
+                planLabel: "Old Plan"
+            ),
+            validationState: .verified,
+            setActiveIfMissing: true
+        )
+
+        store.replaceIdentity(ClaudeAccountIdentity(), for: account.id)
+        store.updateValidationState(.detected, for: account.id)
+
+        let updated = store.accounts().first(where: { $0.id == account.id })
+        XCTAssertNil(updated?.identity.email)
+        XCTAssertNil(updated?.identity.organizationName)
+        XCTAssertNil(updated?.identity.organizationID)
+        XCTAssertNil(updated?.identity.planLabel)
+        XCTAssertEqual(updated?.lastValidationState, .detected)
+    }
+
     func testUpdatingPreferredOrganizationPostsAccountsDidChangeNotification() {
         // ClaudeAccountStore 가 단일 진실의 출처임을 보장하려면, store 변경이
         // .claudeAccountsDidChange 알림으로 외부에 전파되어야 한다.

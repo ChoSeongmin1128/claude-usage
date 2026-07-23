@@ -64,7 +64,51 @@ final class ClaudeAPIServiceOAuthCredentialRoutingTests: XCTestCase {
         _ = await service.fetchUsageHealthSnapshot(refreshOAuthCredentialInventory: true)
 
         let readCount = await reader.readCount
-        XCTAssertEqual(readCount, 1)
+        let refreshCount = await reader.refreshCount
+        XCTAssertEqual(readCount, 0)
+        XCTAssertEqual(refreshCount, 1)
+    }
+
+    func testClaudeCodePreviewUsesStoredInventoryWithoutReadingOAuthCredential() async {
+        let (store, defaults, suite) = makeStore()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        _ = store.upsertClaudeCodeExternalAccount(
+            validationState: .detected,
+            setActiveIfMissing: false
+        )
+        let reader = OAuthReaderSpy(token: "oauth-token")
+        let service = ClaudeAPIService(
+            accountStore: store,
+            oauthCredentialReader: reader,
+            sessionKeyLoader: { _ in nil }
+        )
+
+        let available = await service.hasStoredClaudeCodeCredentialInventory()
+
+        let readCount = await reader.readCount
+        let invalidationCount = await reader.invalidationCount
+        XCTAssertTrue(available)
+        XCTAssertEqual(readCount, 0)
+        XCTAssertEqual(invalidationCount, 0)
+    }
+
+    func testClaudeCodePreviewDoesNotProbeOAuthWhenInventoryIsMissing() async {
+        let (store, defaults, suite) = makeStore()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let reader = OAuthReaderSpy(token: "oauth-token")
+        let service = ClaudeAPIService(
+            accountStore: store,
+            oauthCredentialReader: reader,
+            sessionKeyLoader: { _ in nil }
+        )
+
+        let available = await service.hasStoredClaudeCodeCredentialInventory()
+
+        let readCount = await reader.readCount
+        let invalidationCount = await reader.invalidationCount
+        XCTAssertFalse(available)
+        XCTAssertEqual(readCount, 0)
+        XCTAssertEqual(invalidationCount, 0)
     }
 
     private func makeStore() -> (ClaudeAccountStore, UserDefaults, String) {
@@ -86,6 +130,7 @@ final class ClaudeAPIServiceOAuthCredentialRoutingTests: XCTestCase {
 private actor OAuthReaderSpy: ClaudeOAuthCredentialReading {
     private let token: String?
     private(set) var readCount = 0
+    private(set) var refreshCount = 0
     private(set) var invalidationCount = 0
 
     init(token: String?) {
@@ -97,12 +142,24 @@ private actor OAuthReaderSpy: ClaudeOAuthCredentialReading {
         return token
     }
 
+    func refreshCredentialInventoryWithoutUI() async throws -> ClaudeOAuthCredentialInventoryRefresh {
+        refreshCount += 1
+        return ClaudeOAuthCredentialInventoryRefresh(
+            accessToken: token,
+            credentialChanged: false
+        )
+    }
+
     func forceRefreshAccessToken() async -> String? {
         token
     }
 
     func invalidateCache() async {
         invalidationCount += 1
+    }
+
+    func importActiveCLICredential() async -> ClaudeOAuthCredentialImportResult {
+        token == nil ? .notFound : .available
     }
 }
 

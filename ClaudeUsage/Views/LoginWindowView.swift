@@ -13,6 +13,7 @@ struct LoginWindowView: View {
 
     var clearOnOpen: Bool
     var startChromeImportOnOpen: Bool
+    var startCLIActivationOnOpen: Bool
     var onSessionKeyFound: (String, String?, ClaudeAccountSource?, String?) async throws -> Void
     var onActivateCLI: () async throws -> ActivationSummary
     var onLoadCLIPreview: () async -> CLIPreview?
@@ -22,6 +23,7 @@ struct LoginWindowView: View {
     init(
         clearOnOpen: Bool = false,
         startChromeImportOnOpen: Bool = false,
+        startCLIActivationOnOpen: Bool = false,
         onSessionKeyFound: @escaping (String, String?, ClaudeAccountSource?, String?) async throws -> Void,
         onActivateCLI: @escaping () async throws -> ActivationSummary,
         onLoadCLIPreview: @escaping () async -> CLIPreview?,
@@ -30,6 +32,7 @@ struct LoginWindowView: View {
     ) {
         self.clearOnOpen = clearOnOpen
         self.startChromeImportOnOpen = startChromeImportOnOpen
+        self.startCLIActivationOnOpen = startCLIActivationOnOpen
         self.onSessionKeyFound = onSessionKeyFound
         self.onActivateCLI = onActivateCLI
         self.onLoadCLIPreview = onLoadCLIPreview
@@ -124,7 +127,9 @@ struct LoginWindowView: View {
         .onAppear {
             guard !didStartOnAppearFlow else { return }
             didStartOnAppearFlow = true
-            Task { await preloadCLIPreviewIfNeeded() }
+            if !startCLIActivationOnOpen {
+                Task { await preloadCLIPreviewIfNeeded() }
+            }
             applyOpenIntent()
         }
     }
@@ -251,7 +256,7 @@ struct LoginWindowView: View {
                     icon: "globe",
                     iconTint: .blue,
                     title: "Chrome 프로필에서 가져오기",
-                    subtitle: "Chrome에 이미 로그인된 Claude 계정을 자동으로 가져옵니다",
+                    subtitle: "Chrome의 Claude 로그인을 가져옵니다 · macOS 인증은 최대 한 번만 요청합니다",
                     badge: "권장",
                     action: { startChromeImport() }
                 )
@@ -262,10 +267,7 @@ struct LoginWindowView: View {
                     title: "Claude Code 로그인 사용",
                     subtitle: cliCardSubtitle,
                     badge: cliPreview == nil ? nil : "감지됨",
-                    isEnabled: cliPreview != nil,
-                    disabledReason: didLoadCLIPreview && cliPreview == nil
-                        ? "터미널에서 `claude auth login`을 실행한 뒤 다시 열어 주세요."
-                        : nil,
+                    isEnabled: didLoadCLIPreview,
                     action: { startCLIActivation() }
                 )
 
@@ -296,15 +298,15 @@ struct LoginWindowView: View {
 
     private var cliCardSubtitle: String {
         if let preview = cliPreview, let line = preview.subtitleLine {
-            return "\(line) · 터미널 인증을 그대로 사용합니다"
+            return "\(line) · 다시 연결할 때 macOS 인증이 한 번 필요할 수 있습니다"
         }
         if cliPreview != nil {
-            return "터미널의 `claude auth login` 인증을 그대로 사용합니다"
+            return "터미널 인증 사용 · 다시 연결할 때 macOS 인증이 한 번 필요할 수 있습니다"
         }
         if !didLoadCLIPreview {
             return "Claude Code 인증 정보를 찾는 중..."
         }
-        return "터미널 인증 정보를 찾지 못했습니다"
+        return "클릭해 터미널 인증을 확인합니다 · 처음 연결할 때 macOS 인증이 한 번 필요할 수 있습니다"
     }
 
     private func methodCard(
@@ -593,7 +595,9 @@ struct LoginWindowView: View {
     }
 
     private func applyOpenIntent() {
-        if startChromeImportOnOpen {
+        if startCLIActivationOnOpen {
+            startCLIActivation()
+        } else if startChromeImportOnOpen {
             startChromeImport()
         }
     }

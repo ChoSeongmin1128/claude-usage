@@ -78,6 +78,10 @@ extension AppDelegate {
                 self?.settingsWindowCoordinator.close()
                 self?.showLoginWindow(clearCookies: true)
             },
+            onReconnectClaudeCode: { [weak self] in
+                self?.settingsWindowCoordinator.close()
+                self?.showLoginWindow(startCLIActivationOnOpen: true)
+            },
             onImportClaudeFromChrome: { [weak self] in
                 self?.settingsWindowCoordinator.close()
                 self?.showLoginWindow(startChromeImportOnOpen: true)
@@ -96,6 +100,9 @@ extension AppDelegate {
                 guard let self else { return }
                 self.syncUsageHealthSnapshotToUI()
                 self.refreshUsage(force: true)
+            },
+            onClaudeOAuthMigrationCompleted: { [weak self] in
+                self?.handleClaudeCredentialContextChanged(refreshOAuthCredentialInventory: true)
             },
             onRefreshAntigravityUsage: { [weak self] in
                 self?.refreshAntigravityUsageAfterConfigurationChange()
@@ -146,11 +153,15 @@ extension AppDelegate {
 
     // MARK: - Login Window
 
-    func showLoginWindow(clearCookies: Bool = false, startChromeImportOnOpen: Bool = false) {
+    func showLoginWindow(
+        clearCookies: Bool = false,
+        startChromeImportOnOpen: Bool = false,
+        startCLIActivationOnOpen: Bool = false
+    ) {
         setupWizardWindowCoordinator.close()
 
         if loginWindowCoordinator.focusIfVisible() {
-            if clearCookies || startChromeImportOnOpen {
+            if clearCookies || startChromeImportOnOpen || startCLIActivationOnOpen {
                 loginWindowCoordinator.close()
             } else {
                 return
@@ -167,6 +178,7 @@ extension AppDelegate {
             let loginView = LoginWindowView(
                 clearOnOpen: clearCookies,
                 startChromeImportOnOpen: startChromeImportOnOpen,
+                startCLIActivationOnOpen: startCLIActivationOnOpen,
                 onSessionKeyFound: { [weak self] key, displayName, source, sourceDetail in
                     guard let self else { return }
 
@@ -182,28 +194,18 @@ extension AppDelegate {
                     }
 
                     do {
-                        let result = try await ClaudeSettingsApplyCoordinator.activateSessionKey(
+                        try await ClaudeSettingsApplyCoordinator.activateSessionKey(
                             key,
                             apiService: self.apiService,
                             preferredOrganizationID: self.activeClaudePreferredOrganizationID,
-                            providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared),
                             displayName: displayName,
                             source: source,
                             sourceDetail: sourceDetail
                         )
-                        await MainActor.run {
-                            self.applyUsageHealthSnapshot(result.snapshot)
-                            self.hasAuthError = false
-                            if result.shouldStartMonitoring {
-                                self.startMonitoring()
-                            } else {
-                                self.updateMenuBar()
-                                self.updatePopoverViewModel(overage: self.currentOverage)
-                            }
-                            // wizard 의 success step 이 사용자에게 결과를 보여줄 시간을 확보하기 위해
-                            // 즉시 close 하지 않는다. 사용자가 "완료" 버튼을 누르면 onCancel → close.
-                        }
-                        Logger.info("로그인 완료, 모니터링 시작")
+                        // 저장 완료 알림이 AppRuntimeObservationCoordinator의 단일
+                        // credential transaction을 시작한다. 여기서는 health/usage를
+                        // 직접 다시 요청하지 않는다.
+                        Logger.info("로그인 저장 완료, credential refresh transaction 요청")
                     } catch {
                         await MainActor.run {
                             self.isLoading = false
@@ -339,11 +341,11 @@ extension AppDelegate {
     // MARK: - LoginWindow CLI Bridge
 
     /// 로그인 윈도우 Step 1 의 "Claude Code 로그인 사용" 카드 미리보기.
-    /// 토큰이 없거나 만료 + refresh 불가면 nil → 카드가 disabled 상태로 표시된다.
-    /// 빠르게 응답해야 하므로 메타데이터(file cache)만 읽고 네트워크는 안 친다.
+    /// 저장된 credential inventory와 메타데이터만 사용하며 외부 Keychain은 조회하지 않는다.
+    /// inventory가 없어도 카드는 활성 상태로 남아 명시적 연결 액션에서 확인한다.
     @MainActor
     func loadClaudeCodeCLIPreview() async -> LoginWindowView.CLIPreview? {
-        guard await apiService.peekClaudeCodeCredentialAvailable() else { return nil }
+        guard await apiService.hasStoredClaudeCodeCredentialInventory() else { return nil }
         let metadata = await apiService.fetchCachedClaudeCodeProfileMetadata()
         // 이전에 CLI 활성화 경험이 있으면 store 의 identity 에 email/조직 이름이 있을 수 있다.
         let existing = ClaudeAccountStore.shared.accounts()
@@ -357,10 +359,14 @@ extension AppDelegate {
 
     /// 로그인 윈도우의 "Claude Code 로그인 사용" 카드 활성화 액션.
     /// 1) CLI external account 를 active 로 강제 전환 (이미 있으면 setActiveAccountID 만)
-    /// 2) 사용량 fetch 로 검증
+    /// 2) 공용 credential transaction 의 사용량 fetch 로 검증
     /// 3) 성공 요약을 wizard 에 반환 (이메일/조직/플랜 표시)
     @MainActor
     func activateClaudeCodeCLI() async throws -> LoginWindowView.ActivationSummary {
+        // 사용자가 이 카드를 누른 시점에만 CLI Keychain 항목의 대화형 읽기를
+        // 허용한다. 성공한 payload는 앱 vault로 복사되므로 이후 전환은 무프롬프트다.
+        try await apiService.importClaudeCodeCredentialForActivation()
+
         let store = ClaudeAccountStore.shared
         // 1. CLI external account 등록을 보장하고 active 로 설정.
         //    OAuth credential 자체는 fetchUsage 가 첫 호출에서 자체적으로 검사하므로 여기서는
@@ -372,51 +378,34 @@ extension AppDelegate {
         )
         store.setActiveAccountID(ClaudeAccountStore.claudeCodeExternalAccountID)
 
-        // 2. 검증: 실제 사용량 호출. 실패하면 throw → wizard 가 .failure step 으로.
-        currentError = nil
-        hasAuthError = false
-        if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
-            isLoading = true
-            loadingStartedAt = Date()
-        }
-        updateMenuBar()
-        updatePopoverViewModel(overage: currentOverage)
+        // 2. account 변경 알림도 같은 request 에 합류한다. provider 가 꺼져 있어도
+        // 연결 액션 자체는 실제 사용량 1회로 검증한다.
+        let transaction = handleClaudeCredentialContextChanged(
+            refreshOAuthCredentialInventory: true,
+            requireUsageValidation: true
+        )
+        await transaction.value
 
-        await apiService.reloadActiveAccount()
-        do {
-            let usage = try await apiService.fetchUsage()
-            // OAuth profile 도 함께 가져와 store identity / metadata 를 채운다.
-            // 실패해도 사용량 자체는 정상이므로 silent return.
-            await apiService.refreshClaudeCodeAccountProfile()
-            let snapshot = await apiService.fetchUsageHealthSnapshot()
-            applyUsageHealthSnapshot(snapshot)
-            hasAuthError = false
-            if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared), hasRefreshableService {
-                startMonitoring()
-            } else {
-                updateMenuBar()
-                updatePopoverViewModel(overage: currentOverage)
-            }
-            Logger.info("Claude Code CLI 활성화 성공 (5시간 utilization=\(usage.fiveHour.utilization))")
-
-            // 3. 사용자에게 보여줄 요약 라인 구성. (refresh 후의 최신 identity 사용)
-            let activeAccount = ClaudeAccountStore.shared.activeAccount()
-            let metadata = await apiService.fetchCachedClaudeCodeProfileMetadata()
-            let email = activeAccount?.identity.email
-            let organizationName = activeAccount?.identity.organizationName
-            let plan = metadata?.subscriptionType ?? metadata?.rateLimitTier
-            let detailParts = [email, organizationName, plan].compactMap { $0?.isEmpty == false ? $0 : nil }
-            return LoginWindowView.ActivationSummary(
-                title: "Claude Code 로그인을 연결했습니다",
-                detail: detailParts.isEmpty ? nil : detailParts.joined(separator: " · "),
-                methodLabel: "Claude Code CLI"
-            )
-        } catch {
-            isLoading = false
-            loadingStartedAt = nil
-            updateMenuBar()
-            updatePopoverViewModel(overage: currentOverage)
-            throw error
+        let snapshot = runtimeProviderSnapshot(for: .claude)
+        let expectedAccountID = ClaudeAccountStore.claudeCodeExternalAccountID
+        guard snapshot.lastSuccessfulMetadata?.accountID == expectedAccountID,
+              let usage = currentUsage else {
+            throw snapshot.error ?? APIError.unknownError("Claude Code 사용량을 확인하지 못했습니다")
         }
+        Logger.info("Claude Code CLI 활성화 성공 (5시간 utilization=\(usage.fiveHour.utilization))")
+
+        // 3. 사용자에게 보여줄 요약 라인 구성. OAuth 사용량 성공 뒤 시작된
+        // profile 동기화가 아직 끝나지 않았으면 안전하게 제목만 표시한다.
+        let activeAccount = ClaudeAccountStore.shared.activeAccount()
+        let metadata = await apiService.fetchCachedClaudeCodeProfileMetadata()
+        let email = activeAccount?.identity.email
+        let organizationName = activeAccount?.identity.organizationName
+        let plan = metadata?.subscriptionType ?? metadata?.rateLimitTier
+        let detailParts = [email, organizationName, plan].compactMap { $0?.isEmpty == false ? $0 : nil }
+        return LoginWindowView.ActivationSummary(
+            title: "Claude Code 로그인을 연결했습니다",
+            detail: detailParts.isEmpty ? nil : detailParts.joined(separator: " · "),
+            methodLabel: "Claude Code CLI"
+        )
     }
 }

@@ -12,6 +12,7 @@ extension Notification.Name {
     nonisolated static let claudeSessionKeyDidChange = Notification.Name("claudeSessionKeyDidChange")
     nonisolated static let claudeAccountDidChange = Notification.Name("claudeAccountDidChange")
     nonisolated static let claudeAccountsDidChange = Notification.Name("claudeAccountsDidChange")
+    nonisolated static let claudeCredentialRefreshRequested = Notification.Name("claudeCredentialRefreshRequested")
     nonisolated static let claudeUsageHealthSnapshotDidChange = Notification.Name("claudeUsageHealthSnapshotDidChange")
 }
 

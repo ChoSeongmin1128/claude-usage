@@ -1,6 +1,5 @@
 import Foundation
 import CommonCrypto
-import Security
 import SQLite3
 
 struct ClaudeChromiumCookieRecord: Sendable, Equatable {
@@ -33,7 +32,8 @@ enum ClaudeChromiumCookieReader {
     nonisolated static func readCookies(
         cookiesURL sourceURL: URL,
         profileName: String,
-        localStateURL: URL?) throws -> [ClaudeChromiumCookieRecord]
+        decryptionKeys: [Data]
+    ) throws -> [ClaudeChromiumCookieRecord]
     {
         let tempDirectory = try self.makeTemporaryDirectory(
             prefix: "claude-chromium-\(profileName.replacingOccurrences(of: " ", with: "_"))")
@@ -48,8 +48,7 @@ enum ClaudeChromiumCookieReader {
             throw ClaudeChromiumCookieReaderError.unableToCopyCookies(details: error.localizedDescription)
         }
 
-        let encryptedKeys = self.chromeCookieKeys(localStateURL: localStateURL)
-        return try self.readCookies(fromCopiedDatabase: copiedDB, keys: encryptedKeys)
+        return try self.readCookies(fromCopiedDatabase: copiedDB, keys: decryptionKeys)
     }
 
     private nonisolated static func readCookies(fromCopiedDatabase databaseURL: URL, keys: [Data]) throws -> [ClaudeChromiumCookieRecord] {
@@ -97,89 +96,6 @@ enum ClaudeChromiumCookieReader {
             guard let expiresAt = record.expiresAt else { return true }
             return expiresAt >= Date()
         }
-    }
-
-    private nonisolated static func chromeCookieKeys(localStateURL: URL?) -> [Data] {
-        var keys: [Data] = []
-        let labels = [
-            ("Chrome Safe Storage", "Chrome"),
-            ("Chromium Safe Storage", "Chromium"),
-            ("Google Chrome Safe Storage", "Chrome"),
-        ]
-
-        for (service, account) in labels {
-            if let password = self.safeStoragePassword(service: service, account: account) {
-                keys.append(self.deriveKey(from: password))
-            }
-        }
-
-        if !keys.isEmpty {
-            return keys
-        }
-
-        if let localStateURL,
-           let encryptedKey = self.encryptedKey(from: localStateURL),
-           let plainKey = self.decryptLocalStateKey(encryptedKey: encryptedKey) {
-            keys.append(plainKey)
-        }
-
-        return keys
-    }
-
-    private nonisolated static func safeStoragePassword(service: String, account: String) -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-            kSecReturnData as String: true,
-        ]
-
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    private nonisolated static func encryptedKey(from localStateURL: URL) -> Data? {
-        guard let data = try? Data(contentsOf: localStateURL),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let osCrypt = json["os_crypt"] as? [String: Any],
-              let encryptedKey = osCrypt["encrypted_key"] as? String,
-              let decoded = Data(base64Encoded: encryptedKey) else {
-            return nil
-        }
-        return decoded
-    }
-
-    private nonisolated static func decryptLocalStateKey(encryptedKey: Data) -> Data? {
-        guard encryptedKey.count > 5 else { return nil }
-        let payload = encryptedKey.starts(with: Data("DPAPI".utf8))
-            ? encryptedKey.dropFirst(5)
-            : encryptedKey
-        return Data(payload)
-    }
-
-    private nonisolated static func deriveKey(from password: String) -> Data {
-        let salt = Data("saltysalt".utf8)
-        var key = Data(count: kCCKeySizeAES128)
-        _ = key.withUnsafeMutableBytes { keyBytes in
-            password.utf8CString.withUnsafeBytes { passBytes in
-                salt.withUnsafeBytes { saltBytes in
-                    CCKeyDerivationPBKDF(
-                        CCPBKDFAlgorithm(kCCPBKDF2),
-                        passBytes.bindMemory(to: Int8.self).baseAddress,
-                        passBytes.count - 1,
-                        saltBytes.bindMemory(to: UInt8.self).baseAddress,
-                        salt.count,
-                        CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1),
-                        1003,
-                        keyBytes.bindMemory(to: UInt8.self).baseAddress,
-                        keyBytes.count)
-                }
-            }
-        }
-        return key
     }
 
     private nonisolated static func resolveValue(plainValue: String?, encryptedValue: Data?, keys: [Data]) -> String? {

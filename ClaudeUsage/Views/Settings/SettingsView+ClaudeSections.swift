@@ -102,6 +102,14 @@ extension SettingsView {
                     }
                     .buttonStyle(.borderedProminent)
 
+                    if account.kind == .claudeCodeExternal {
+                        Button("Claude Code 다시 연결") {
+                            onReconnectClaudeCode?()
+                        }
+                        .buttonStyle(.bordered)
+                        .help("터미널에서 Claude Code 계정을 바꿨다면 새 인증을 다시 가져옵니다")
+                    }
+
                     if shouldShowClaudeAccountManagementSection {
                         // 「계정 변경」 은 별도 버튼이 아니라 「계정 관리」 펼침 안의
                         // 각 계정 행에서 직접 [사용] 버튼으로 처리한다 (Hick's Law).

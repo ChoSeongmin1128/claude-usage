@@ -303,6 +303,7 @@ extension SettingsView {
 
     @ViewBuilder
     func providerPopoverDisplaySection(for provider: AppProviderKind) -> some View {
+        let _ = runtimeEnvironmentRefreshTick
         if let service = provider.runtimeService {
             ProviderPopoverDisplaySection(
                 settings: settings,

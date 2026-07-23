@@ -101,7 +101,14 @@ extension AppDelegate {
     func bootstrapRefreshState() {
         Task {
             await apiService.reloadActiveAccount()
-            let snapshot = await apiService.fetchUsageHealthSnapshot(refreshOAuthCredentialInventory: true)
+            let activeAccount = ClaudeAccountStore.shared.state().activeAccount
+            let shouldRefreshOAuthCredentialInventory =
+                ClaudeCredentialRefreshRequest.shouldRefreshOAuthInventoryAtBootstrap(
+                    activeAccount: activeAccount
+                )
+            let snapshot = await apiService.fetchUsageHealthSnapshot(
+                refreshOAuthCredentialInventory: shouldRefreshOAuthCredentialInventory
+            )
             let cachedProfileMetadata = await apiService.fetchCachedProfileMetadata()
             await MainActor.run {
                 self.currentClaudeProfileMetadata = cachedProfileMetadata

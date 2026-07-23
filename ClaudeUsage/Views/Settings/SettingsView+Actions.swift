@@ -446,7 +446,7 @@ extension SettingsView {
             switch state {
             case .completed, .completedWithLegacyCleanupFailure:
                 await service.invalidateClaudeCodeCredentialCache()
-                loadUsageHealthSnapshot(refreshOAuthCredentialInventory: true)
+                onClaudeOAuthMigrationCompleted?()
             default:
                 break
             }

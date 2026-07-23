@@ -2,138 +2,145 @@ import XCTest
 @testable import ClaudeUsage
 
 final class ClaudeCodeCredentialReaderTests: XCTestCase {
-    func testCredentialFileIsPreferredAfterAppVaultMiss() async throws {
+    func testCredentialFileIsUsedAfterVaultMissWithoutInteractiveKeychainRead() async throws {
         let home = try makeTemporaryHome()
-        try writeCredentialFile(home: home, token: "file-token")
+        try writeCredentialFile(configDirectory: home.appendingPathComponent(".claude"), token: "file-token")
         let vault = OAuthVaultStub()
-        let runner = CommandRunnerStub { _, _ in
-            XCTFail("파일 credential을 찾은 뒤에는 /usr/bin/security를 호출하면 안 됩니다")
-            return nil
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            XCTFail("백그라운드 credential 조회가 CLI Keychain UI를 열면 안 됩니다")
+            return .cancelled
         }
-        let reader = makeReader(home: home, vault: vault, runner: runner)
+        let reader = makeReader(home: home, vault: vault, interactive: interactive)
 
         let token = try await reader.readAccessToken()
 
         XCTAssertEqual(token, "file-token")
         XCTAssertEqual(vault.loadCount, 1)
-        XCTAssertTrue(runner.calls.isEmpty)
+        XCTAssertTrue(interactive.calls.isEmpty)
     }
 
-    func testAppVaultIsPreferredWithoutSecurityCommand() async throws {
-        let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "vault-token"))
-        let runner = CommandRunnerStub { _, _ in
-            XCTFail("앱 전용 vault 조회에 /usr/bin/security를 사용하면 안 됩니다")
-            return nil
+    func testMissingVaultAndFileDoesNotReadInteractiveKeychain() async throws {
+        let vault = OAuthVaultStub()
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            XCTFail("자동 조회가 Claude CLI Keychain에 접근하면 안 됩니다")
+            return .value(Self.credentialJSON(token: "unexpected-token"))
         }
-        let reader = makeReader(home: try makeTemporaryHome(), vault: vault, runner: runner)
+        let reader = makeReader(
+            home: try makeTemporaryHome(),
+            vault: vault,
+            interactive: interactive
+        )
+
+        let token = try await reader.readAccessToken()
+
+        XCTAssertNil(token)
+        XCTAssertEqual(vault.loadCount, 1)
+        XCTAssertTrue(interactive.calls.isEmpty)
+    }
+
+    func testAppVaultIsPreferredWithoutExternalKeychainRead() async throws {
+        let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "vault-token"))
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            XCTFail("앱 전용 vault 조회 성공 후 외부 Keychain을 읽으면 안 됩니다")
+            return .cancelled
+        }
+        let reader = makeReader(
+            home: try makeTemporaryHome(),
+            vault: vault,
+            interactive: interactive
+        )
 
         let token = try await reader.readAccessToken()
 
         XCTAssertEqual(token, "vault-token")
         XCTAssertEqual(vault.loadCount, 1)
-        XCTAssertTrue(runner.calls.isEmpty)
+        XCTAssertTrue(interactive.calls.isEmpty)
     }
 
-    func testPrimaryCLIKeychainServiceIsUsedWhenVaultAndFileAreMissing() async throws {
-        let vault = OAuthVaultStub()
-        let runner = CommandRunnerStub { arguments, _ in
-            guard arguments.contains("Claude Code-credentials") else { return nil }
-            return ClaudeCodeSecurityCommandResult(
-                status: 0,
-                stdout: Self.credentialJSON(token: "primary-token"),
-                stderr: ""
-            )
+    func testDefaultConfigExplicitImportReadsOnlyDefaultClaudeCodeService() async throws {
+        let interactive = InteractiveKeychainPayloadReaderStub { service, _ , _ in
+            XCTAssertEqual(service, "Claude Code-credentials")
+            return .value(Self.credentialJSON(token: "default-token"))
         }
-        let reader = makeReader(home: try makeTemporaryHome(), vault: vault, runner: runner)
+        let reader = makeReader(
+            home: try makeTemporaryHome(),
+            vault: OAuthVaultStub(),
+            interactive: interactive
+        )
 
-        let token = try await reader.readAccessToken()
+        let result = await reader.importActiveCLICredential()
 
-        XCTAssertEqual(token, "primary-token")
-        XCTAssertEqual(runner.calls, [[
-            "find-generic-password", "-s", "Claude Code-credentials", "-a", NSUserName(), "-w"
-        ]])
+        XCTAssertEqual(result, .imported(credentialChanged: false))
+        XCTAssertEqual(interactive.calls.map(\.service), ["Claude Code-credentials"])
     }
 
-    func testDiscoveredHashedKeychainServiceIsPreflightedBeforeRead() async throws {
-        let runner = CommandRunnerStub { arguments, _ in
-            if arguments.contains("Claude Code-credentials") {
-                return ClaudeCodeSecurityCommandResult(status: 44, stdout: "", stderr: "")
-            }
-            if arguments == ["dump-keychain"] {
-                return ClaudeCodeSecurityCommandResult(
-                    status: 0,
-                    stdout: #""svce"<blob>="Claude Code-credentials:hashed""#,
-                    stderr: ""
-                )
-            }
-            if arguments.contains("Claude Code-credentials:hashed") {
-                return ClaudeCodeSecurityCommandResult(
-                    status: 0,
-                    stdout: Self.credentialJSON(token: "hashed-token"),
-                    stderr: ""
-                )
-            }
-            return nil
+    func testCustomConfigExplicitImportReadsOnlyStrictHashedService() async throws {
+        let home = URL(fileURLWithPath: "/tmp/claude-home", isDirectory: true)
+        let config = URL(fileURLWithPath: "/tmp/claude-config-work", isDirectory: true)
+        let expectedService = "Claude Code-credentials-7516b27d"
+        let interactive = InteractiveKeychainPayloadReaderStub { service, _, _ in
+            XCTAssertEqual(service, expectedService)
+            return .value(Self.credentialJSON(token: "scoped-token"))
         }
-        let preflight = PreflightRecorder(outcomes: [
-            "Claude Code-credentials": .allowed,
-            "Claude Code-credentials:hashed": .allowed,
-        ])
         let reader = ClaudeCodeCredentialReader(
-            homeDirectory: try makeTemporaryHome(),
+            homeDirectory: home,
+            claudeConfigDirectory: config,
             appCredentialVault: OAuthVaultStub(),
-            preflightChecker: { service, account in preflight.check(service: service, account: account) },
-            securityCommandRunner: { arguments, timeout in
-                try await runner.run(arguments: arguments, timeout: timeout)
+            interactiveKeychainPayloadReader: { service, account, reason in
+                interactive.read(service: service, account: account, reason: reason)
             }
         )
 
-        let token = try await reader.readAccessToken()
+        let result = await reader.importActiveCLICredential()
 
-        XCTAssertEqual(token, "hashed-token")
-        XCTAssertTrue(preflight.services.contains("Claude Code-credentials:hashed"))
-        XCTAssertTrue(runner.calls.contains(["dump-keychain"]))
+        XCTAssertEqual(
+            ClaudeCodeCredentialReader.keychainServiceName(
+                for: config,
+                homeDirectory: home
+            ),
+            expectedService
+        )
+        XCTAssertEqual(result, .imported(credentialChanged: false))
+        XCTAssertEqual(interactive.calls.map(\.service), [expectedService])
     }
 
-    func testDiscoveredServiceThatNeedsInteractionIsNotRead() async throws {
-        let runner = CommandRunnerStub { arguments, _ in
-            if arguments == ["dump-keychain"] {
-                return ClaudeCodeSecurityCommandResult(
-                    status: 0,
-                    stdout: #""svce"<blob>="Claude Code-credentials:locked""#,
-                    stderr: ""
-                )
-            }
-            return nil
+    func testExplicitDefaultConfigImportStillReadsScopedHashedService() async throws {
+        let home = URL(fileURLWithPath: "/tmp/claude-home-default", isDirectory: true)
+        let config = home.appendingPathComponent(".claude", isDirectory: true)
+        let expectedService = "Claude Code-credentials-fb84b3b6"
+        let interactive = InteractiveKeychainPayloadReaderStub { service, _, _ in
+            XCTAssertEqual(service, expectedService)
+            return .value(Self.credentialJSON(token: "explicit-default-token"))
         }
         let reader = ClaudeCodeCredentialReader(
-            homeDirectory: try makeTemporaryHome(),
+            homeDirectory: home,
+            claudeConfigDirectory: config,
             appCredentialVault: OAuthVaultStub(),
-            preflightChecker: { service, _ in
-                service == "Claude Code-credentials:locked" ? .interactionRequired : .notFound
-            },
-            securityCommandRunner: { arguments, timeout in
-                try await runner.run(arguments: arguments, timeout: timeout)
+            interactiveKeychainPayloadReader: { service, account, reason in
+                interactive.read(service: service, account: account, reason: reason)
             }
         )
 
-        let token = try await reader.readAccessToken()
-        XCTAssertNil(token)
-        XCTAssertFalse(runner.calls.contains { $0.contains("Claude Code-credentials:locked") })
+        let result = await reader.importActiveCLICredential()
+
+        XCTAssertEqual(
+            ClaudeCodeCredentialReader.keychainServiceName(
+                for: config,
+                homeDirectory: home,
+                usesExplicitConfigDirectory: true
+            ),
+            expectedService
+        )
+        XCTAssertEqual(result, .imported(credentialChanged: false))
+        XCTAssertEqual(interactive.calls.map(\.service), [expectedService])
     }
 
     func testConcurrentCredentialRequestsShareOneLookup() async throws {
-        let vault = OAuthVaultStub()
-        let runner = CommandRunnerStub { arguments, _ in
-            guard arguments.contains("Claude Code-credentials") else { return nil }
-            try await Task.sleep(for: .milliseconds(80))
-            return ClaudeCodeSecurityCommandResult(
-                status: 0,
-                stdout: Self.credentialJSON(token: "shared-token"),
-                stderr: ""
-            )
-        }
-        let reader = makeReader(home: try makeTemporaryHome(), vault: vault, runner: runner)
+        let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "shared-token"))
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: try makeTemporaryHome(),
+            appCredentialVault: vault
+        )
 
         let tokens = try await withThrowingTaskGroup(of: String?.self) { group in
             for _ in 0..<8 {
@@ -144,25 +151,14 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
 
         XCTAssertEqual(Set(tokens.compactMap { $0 }), ["shared-token"])
         XCTAssertEqual(vault.loadCount, 1)
-        XCTAssertEqual(runner.calls.filter { $0.first == "find-generic-password" }.count, 1)
     }
 
     func testNilResultIsCachedUntilExplicitInvalidation() async throws {
         let vault = OAuthVaultStub()
-        let runner = CommandRunnerStub { arguments, _ in
-            if arguments == ["dump-keychain"] {
-                return ClaudeCodeSecurityCommandResult(status: 0, stdout: "", stderr: "")
-            }
-            return nil
-        }
         let reader = ClaudeCodeCredentialReader(
             homeDirectory: try makeTemporaryHome(),
             appCredentialVault: vault,
-            cacheTTL: 600,
-            preflightChecker: { _, _ in .notFound },
-            securityCommandRunner: { arguments, timeout in
-                try await runner.run(arguments: arguments, timeout: timeout)
-            }
+            cacheTTL: 600
         )
 
         let first = try await reader.readAccessToken()
@@ -170,73 +166,284 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         XCTAssertNil(first)
         XCTAssertNil(second)
         XCTAssertEqual(vault.loadCount, 1)
-        XCTAssertEqual(runner.calls.filter { $0 == ["dump-keychain"] }.count, 1)
 
         await reader.invalidateCache()
         let afterInvalidation = try await reader.readAccessToken()
         XCTAssertNil(afterInvalidation)
         XCTAssertEqual(vault.loadCount, 2)
-        XCTAssertEqual(runner.calls.filter { $0 == ["dump-keychain"] }.count, 2)
     }
 
-    func testRefreshedCredentialPersistsToVaultWithoutSecurityAddOrACLArguments() async throws {
+    func testVaultReadFailureDoesNotFallBackToFileOrExternalKeychain() async throws {
+        let home = try makeTemporaryHome()
+        try writeCredentialFile(configDirectory: home.appendingPathComponent(".claude"), token: "file-token")
+        let vault = OAuthVaultStub(loadError: OAuthVaultStub.TestError.expected)
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            XCTFail("vault 오류를 cache miss로 처리하면 안 됩니다")
+            return .cancelled
+        }
+        let reader = makeReader(home: home, vault: vault, interactive: interactive)
+
+        let token = try await reader.readAccessToken()
+
+        XCTAssertNil(token)
+        XCTAssertTrue(interactive.calls.isEmpty)
+    }
+
+    func testMalformedVaultPayloadDoesNotSelectAnotherCredentialSource() async throws {
+        let home = try makeTemporaryHome()
+        try writeCredentialFile(configDirectory: home.appendingPathComponent(".claude"), token: "file-token")
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            XCTFail("손상된 vault 뒤에 다른 계정을 선택하면 안 됩니다")
+            return .cancelled
+        }
+        let reader = makeReader(
+            home: home,
+            vault: OAuthVaultStub(payload: #"{"invalid":true}"#),
+            interactive: interactive
+        )
+
+        let token = try await reader.readAccessToken()
+        XCTAssertNil(token)
+        XCTAssertTrue(interactive.calls.isEmpty)
+    }
+
+    func testRefreshedCredentialPersistsToVaultWithoutExternalKeychainWrite() async throws {
         let expired = Self.credentialJSON(
             token: "expired-access",
             refreshToken: "refresh-token",
-            expiresAt: "2000-01-01T00:00:00Z"
+            expiresAt: #""2000-01-01T00:00:00Z""#
         )
         let vault = OAuthVaultStub(payload: expired)
-        let runner = CommandRunnerStub { _, _ in
-            XCTFail("앱 소유 refresh 캐시 저장에 /usr/bin/security를 호출하면 안 됩니다")
-            return nil
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            XCTFail("앱 소유 refresh 캐시는 외부 Keychain을 읽거나 쓰면 안 됩니다")
+            return .cancelled
         }
+        let refresher = makeSuccessfulRefresher()
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: try makeTemporaryHome(),
+            tokenRefresher: refresher,
+            appCredentialVault: vault,
+            interactiveKeychainPayloadReader: { service, account, reason in
+                interactive.read(service: service, account: account, reason: reason)
+            }
+        )
+
+        let token = try await reader.readAccessToken()
+
+        XCTAssertEqual(token, "new-access")
+        XCTAssertEqual(vault.saveCount, 1)
+        XCTAssertTrue(vault.payload?.contains("new-access") == true)
+        XCTAssertTrue(interactive.calls.isEmpty)
+    }
+
+    func testMillisecondExpiresAtIsNormalizedAndRefreshesExpiredCredential() async throws {
+        let expiredMilliseconds = #"{"claudeAiOauth":{"accessToken":"expired-access","refreshToken":"refresh-token","expiresAt":1770000000000}}"#
+        let vault = OAuthVaultStub(payload: expiredMilliseconds)
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: try makeTemporaryHome(),
+            tokenRefresher: makeSuccessfulRefresher(),
+            appCredentialVault: vault
+        )
+
+        let token = try await reader.readAccessToken()
+
+        XCTAssertEqual(token, "new-access")
+        XCTAssertEqual(vault.saveCount, 1)
+    }
+
+    func testSecondExpiresAtRemainsSupported() async throws {
+        let futureSeconds = #"{"claudeAiOauth":{"accessToken":"seconds-token","expiresAt":4070908800}}"#
+        let vault = OAuthVaultStub(payload: futureSeconds)
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: try makeTemporaryHome(),
+            tokenRefresher: makeSuccessfulRefresher(),
+            appCredentialVault: vault
+        )
+
+        let token = try await reader.readAccessToken()
+        XCTAssertEqual(token, "seconds-token")
+        XCTAssertEqual(vault.saveCount, 0)
+    }
+
+    func testExplicitCLIImportReadsExactServiceOnceAndPersistsVault() async throws {
+        let home = try makeTemporaryHome()
+        let vault = OAuthVaultStub()
+        let interactive = InteractiveKeychainPayloadReaderStub { service, account, reason in
+            XCTAssertEqual(service, "Claude Code-credentials")
+            XCTAssertEqual(account, NSUserName())
+            XCTAssertFalse(reason.isEmpty)
+            return .value(Self.credentialJSON(token: "imported-token"))
+        }
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: home,
+            appCredentialVault: vault,
+            interactiveKeychainPayloadReader: { service, account, reason in
+                interactive.read(service: service, account: account, reason: reason)
+            }
+        )
+
+        let result = await reader.importActiveCLICredential()
+        let token = try await reader.readAccessToken()
+
+        XCTAssertEqual(result, .imported(credentialChanged: false))
+        XCTAssertEqual(token, "imported-token")
+        XCTAssertEqual(interactive.calls.count, 1)
+        XCTAssertEqual(vault.saveCount, 1)
+    }
+
+    func testExplicitCLIImportPrefersExactKeychainOverCredentialFile() async throws {
+        let home = try makeTemporaryHome()
+        try writeCredentialFile(
+            configDirectory: home.appendingPathComponent(".claude"),
+            token: "stale-file-token"
+        )
+        let vault = OAuthVaultStub()
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            .value(Self.credentialJSON(token: "current-keychain-token"))
+        }
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: home,
+            appCredentialVault: vault,
+            interactiveKeychainPayloadReader: { service, account, reason in
+                interactive.read(service: service, account: account, reason: reason)
+            }
+        )
+
+        let result = await reader.importActiveCLICredential()
+
+        XCTAssertEqual(result, .imported(credentialChanged: false))
+        XCTAssertEqual(interactive.calls.count, 1)
+        XCTAssertTrue(vault.payload?.contains("current-keychain-token") == true)
+        XCTAssertFalse(vault.payload?.contains("stale-file-token") == true)
+    }
+
+    func testExplicitCLIImportCancellationDoesNotPersistVault() async throws {
+        let vault = OAuthVaultStub()
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in .cancelled }
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: try makeTemporaryHome(),
+            appCredentialVault: vault,
+            interactiveKeychainPayloadReader: { service, account, reason in
+                interactive.read(service: service, account: account, reason: reason)
+            }
+        )
+
+        let result = await reader.importActiveCLICredential()
+
+        XCTAssertEqual(result, .cancelled)
+        XCTAssertEqual(interactive.calls.count, 1)
+        XCTAssertEqual(vault.saveCount, 0)
+        XCTAssertNil(vault.payload)
+    }
+
+    func testExplicitCLIImportRechecksCLIThenFallsBackToExistingVault() async throws {
+        let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "vault-token"))
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in .notFound }
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: try makeTemporaryHome(),
+            appCredentialVault: vault,
+            interactiveKeychainPayloadReader: { service, account, reason in
+                interactive.read(service: service, account: account, reason: reason)
+            }
+        )
+
+        let result = await reader.importActiveCLICredential()
+
+        XCTAssertEqual(result, .available)
+        XCTAssertEqual(interactive.calls.count, 1)
+        XCTAssertEqual(vault.saveCount, 0)
+    }
+
+    func testExplicitCLIImportReportsReplacementOfStaleVaultCredential() async throws {
+        let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "old-vault-token"))
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            .value(Self.credentialJSON(token: "new-cli-token"))
+        }
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: try makeTemporaryHome(),
+            appCredentialVault: vault,
+            interactiveKeychainPayloadReader: { service, account, reason in
+                interactive.read(service: service, account: account, reason: reason)
+            }
+        )
+
+        let result = await reader.importActiveCLICredential()
+
+        XCTAssertEqual(result, .imported(credentialChanged: true))
+        XCTAssertEqual(interactive.calls.count, 1)
+        XCTAssertTrue(vault.payload?.contains("new-cli-token") == true)
+    }
+
+    func testInventoryRefreshReplacesStaleVaultWithActiveCredentialFile() async throws {
+        let home = try makeTemporaryHome()
+        try writeCredentialFile(
+            configDirectory: home.appendingPathComponent(".claude"),
+            token: "new-file-token"
+        )
+        let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "old-vault-token"))
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            XCTFail("inventory refresh가 CLI Keychain UI를 열면 안 됩니다")
+            return .cancelled
+        }
+        let reader = makeReader(
+            home: home,
+            vault: vault,
+            interactive: interactive
+        )
+
+        let result = try await reader.refreshCredentialInventoryWithoutUI()
+
+        XCTAssertEqual(result.accessToken, "new-file-token")
+        XCTAssertTrue(result.credentialChanged)
+        XCTAssertEqual(vault.saveCount, 1)
+        XCTAssertTrue(vault.payload?.contains("new-file-token") == true)
+        XCTAssertTrue(interactive.calls.isEmpty)
+    }
+
+    func testInventoryRefreshKeepsVaultWithoutCredentialFileOrKeychainRead() async throws {
+        let home = try makeTemporaryHome()
+        let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "vault-token"))
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            XCTFail("inventory refresh가 CLI Keychain UI를 열면 안 됩니다")
+            return .cancelled
+        }
+        let reader = makeReader(
+            home: home,
+            vault: vault,
+            interactive: interactive
+        )
+
+        let result = try await reader.refreshCredentialInventoryWithoutUI()
+
+        XCTAssertEqual(result.accessToken, "vault-token")
+        XCTAssertFalse(result.credentialChanged)
+        XCTAssertEqual(vault.saveCount, 0)
+        XCTAssertTrue(interactive.calls.isEmpty)
+    }
+
+    private func makeReader(
+        home: URL,
+        vault: OAuthVaultStub,
+        interactive: InteractiveKeychainPayloadReaderStub
+    ) -> ClaudeCodeCredentialReader {
+        ClaudeCodeCredentialReader(
+            homeDirectory: home,
+            appCredentialVault: vault,
+            interactiveKeychainPayloadReader: { service, account, reason in
+                interactive.read(service: service, account: account, reason: reason)
+            }
+        )
+    }
+
+    private func makeSuccessfulRefresher() -> ClaudeOAuthTokenRefresher {
         let response = #"{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600}"#
-        let refresher = ClaudeOAuthTokenRefresher(
+        return ClaudeOAuthTokenRefresher(
             httpRunner: { request in
                 let url = try XCTUnwrap(request.url)
                 return (
                     Data(response.utf8),
                     HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
                 )
-            }
-        )
-        let reader = ClaudeCodeCredentialReader(
-            homeDirectory: try makeTemporaryHome(),
-            tokenRefresher: refresher,
-            appCredentialVault: vault,
-            preflightChecker: { _, _ in .allowed },
-            securityCommandRunner: { arguments, timeout in
-                try await runner.run(arguments: arguments, timeout: timeout)
-            }
-        )
-
-        let token = try await reader.readAccessToken()
-        XCTAssertEqual(token, "new-access")
-        XCTAssertEqual(vault.saveCount, 1)
-        XCTAssertTrue(vault.payload?.contains("new-access") == true)
-        XCTAssertTrue(runner.calls.isEmpty)
-        XCTAssertFalse(runner.calls.flatMap { $0 }.contains("-T"))
-    }
-
-    func testTimeoutReturnsNilWithoutThrowing() async throws {
-        let runner = CommandRunnerStub { _, _ in nil }
-        let reader = makeReader(home: try makeTemporaryHome(), vault: OAuthVaultStub(), runner: runner)
-
-        let token = try await reader.readAccessToken()
-        XCTAssertNil(token)
-    }
-
-    private func makeReader(
-        home: URL,
-        vault: OAuthVaultStub,
-        runner: CommandRunnerStub
-    ) -> ClaudeCodeCredentialReader {
-        ClaudeCodeCredentialReader(
-            homeDirectory: home,
-            appCredentialVault: vault,
-            preflightChecker: { _, _ in .allowed },
-            securityCommandRunner: { arguments, timeout in
-                try await runner.run(arguments: arguments, timeout: timeout)
             }
         )
     }
@@ -248,11 +455,10 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         return url
     }
 
-    private func writeCredentialFile(home: URL, token: String) throws {
-        let directory = home.appendingPathComponent(".claude", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    private func writeCredentialFile(configDirectory: URL, token: String) throws {
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
         try Self.credentialJSON(token: token).write(
-            to: directory.appendingPathComponent(".credentials.json"),
+            to: configDirectory.appendingPathComponent(".credentials.json"),
             atomically: true,
             encoding: .utf8
         )
@@ -261,38 +467,37 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
     private static func credentialJSON(
         token: String,
         refreshToken: String? = nil,
-        expiresAt: String = "2099-01-01T00:00:00Z"
+        expiresAt: String = #""2099-01-01T00:00:00Z""#
     ) -> String {
         let refreshFragment = refreshToken.map { ",\"refreshToken\":\"\($0)\"" } ?? ""
-        return "{\"claudeAiOauth\":{\"accessToken\":\"\(token)\"\(refreshFragment),\"expiresAt\":\"\(expiresAt)\"}}"
+        return "{\"claudeAiOauth\":{\"accessToken\":\"\(token)\"\(refreshFragment),\"expiresAt\":\(expiresAt)}}"
     }
 }
 
 private final class OAuthVaultStub: ClaudeOAuthCredentialVault, @unchecked Sendable {
+    enum TestError: Error {
+        case expected
+    }
+
     private let lock = NSLock()
     private var storedPayload: String?
     private var recordedLoadCount = 0
     private var recordedSaveCount = 0
     private var recordedDeleteCount = 0
+    private let loadError: Error?
 
-    init(payload: String? = nil) {
+    init(payload: String? = nil, loadError: Error? = nil) {
         storedPayload = payload
+        self.loadError = loadError
     }
 
-    var payload: String? {
-        lock.withLock { storedPayload }
-    }
-
-    var loadCount: Int {
-        lock.withLock { recordedLoadCount }
-    }
-
-    var saveCount: Int {
-        lock.withLock { recordedSaveCount }
-    }
+    var payload: String? { lock.withLock { storedPayload } }
+    var loadCount: Int { lock.withLock { recordedLoadCount } }
+    var saveCount: Int { lock.withLock { recordedSaveCount } }
 
     nonisolated func loadPayload() throws -> String? {
-        lock.withLock {
+        if let loadError { throw loadError }
+        return lock.withLock {
             recordedLoadCount += 1
             return storedPayload
         }
@@ -313,41 +518,27 @@ private final class OAuthVaultStub: ClaudeOAuthCredentialVault, @unchecked Senda
     }
 }
 
-private final class CommandRunnerStub: @unchecked Sendable {
-    private let lock = NSLock()
-    private var recordedCalls: [[String]] = []
-    private let handler: @Sendable ([String], TimeInterval) async throws -> ClaudeCodeSecurityCommandResult?
+private final class InteractiveKeychainPayloadReaderStub: @unchecked Sendable {
+    struct Call: Equatable {
+        let service: String
+        let account: String?
+        let reason: String
+    }
 
-    init(handler: @escaping @Sendable ([String], TimeInterval) async throws -> ClaudeCodeSecurityCommandResult?) {
+    private let lock = NSLock()
+    private var recordedCalls: [Call] = []
+    private let handler: @Sendable (String, String?, String) -> KeychainAccessPreflight.ReadOutcome
+
+    init(handler: @escaping @Sendable (String, String?, String) -> KeychainAccessPreflight.ReadOutcome) {
         self.handler = handler
     }
 
-    var calls: [[String]] {
-        lock.withLock { recordedCalls }
-    }
+    var calls: [Call] { lock.withLock { recordedCalls } }
 
-    func run(arguments: [String], timeout: TimeInterval) async throws -> ClaudeCodeSecurityCommandResult? {
-        lock.withLock { recordedCalls.append(arguments) }
-        return try await handler(arguments, timeout)
-    }
-}
-
-private final class PreflightRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private let outcomes: [String: KeychainAccessPreflight.Outcome]
-    private var recordedServices: [String] = []
-
-    init(outcomes: [String: KeychainAccessPreflight.Outcome]) {
-        self.outcomes = outcomes
-    }
-
-    var services: [String] {
-        lock.withLock { recordedServices }
-    }
-
-    func check(service: String, account: String?) -> KeychainAccessPreflight.Outcome {
-        _ = account
-        lock.withLock { recordedServices.append(service) }
-        return outcomes[service] ?? .notFound
+    func read(service: String, account: String?, reason: String) -> KeychainAccessPreflight.ReadOutcome {
+        lock.withLock {
+            recordedCalls.append(Call(service: service, account: account, reason: reason))
+        }
+        return handler(service, account, reason)
     }
 }

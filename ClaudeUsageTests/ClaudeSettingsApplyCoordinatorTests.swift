@@ -6,16 +6,17 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
     func testActivateSessionKeySavesOnlyAfterSessionUsageValidationSucceeds() async throws {
         let keychain = FakeClaudeSessionKeyStore()
         let service = FakeClaudeSettingsService()
+        let refreshRequests = LockedRefreshRequestCounter()
 
-        let result = try await ClaudeSettingsApplyCoordinator.activateSessionKey(
+        try await ClaudeSettingsApplyCoordinator.activateSessionKey(
             "new-session",
             apiService: service,
             preferredOrganizationID: "org-company",
-            providerEnabled: true,
             displayName: "Chrome Profile 2",
             source: .chromeProfile,
             sourceDetail: "Profile 2",
-            keychain: keychain
+            keychain: keychain,
+            refreshRequester: { refreshRequests.increment() }
         )
 
         XCTAssertEqual(keychain.savedValues, ["new-session"])
@@ -29,8 +30,10 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
         XCTAssertEqual(validatedSessionKeys, ["new-session"])
         XCTAssertEqual(currentSessionKey, "new-session")
         let preferredOrganizationID = await service.preferredOrganizationIDSnapshot()
+        let healthSnapshotCount = await service.healthSnapshotCount()
         XCTAssertEqual(preferredOrganizationID, "org-company")
-        XCTAssertTrue(result.shouldStartMonitoring)
+        XCTAssertEqual(refreshRequests.value, 1)
+        XCTAssertEqual(healthSnapshotCount, 0)
     }
 
     func testActivateSessionKeySavesResolvedOrganizationWhenPreferredOrganizationIsAutomatic() async throws {
@@ -40,12 +43,12 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
             ClaudeAPIService.OrganizationSummary(id: "org-glorang", name: "Glorang")
         )
 
-        _ = try await ClaudeSettingsApplyCoordinator.activateSessionKey(
+        try await ClaudeSettingsApplyCoordinator.activateSessionKey(
             "new-session",
             apiService: service,
             preferredOrganizationID: "",
-            providerEnabled: true,
-            keychain: keychain
+            keychain: keychain,
+            refreshRequester: {}
         )
 
         XCTAssertEqual(keychain.savedPreferredOrganizationIDs, ["org-glorang"])
@@ -61,12 +64,12 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
         await service.setValidationError(APIError.invalidSessionKey)
 
         do {
-            _ = try await ClaudeSettingsApplyCoordinator.activateSessionKey(
+            try await ClaudeSettingsApplyCoordinator.activateSessionKey(
                 "bad-session",
                 apiService: service,
                 preferredOrganizationID: "",
-                providerEnabled: true,
-                keychain: keychain
+                keychain: keychain,
+                refreshRequester: {}
             )
             XCTFail("Expected validation failure")
         } catch {
@@ -201,6 +204,7 @@ private actor FakeClaudeSettingsService: ClaudeSettingsApplyingService {
     private var oauthAvailable: Bool
     private var preferredOrganizationID = ""
     private var resolvedOrganization: ClaudeAPIService.OrganizationSummary?
+    private var recordedHealthSnapshotCount = 0
 
     init(oauthAvailable: Bool = false) {
         self.oauthAvailable = oauthAvailable
@@ -224,6 +228,10 @@ private actor FakeClaudeSettingsService: ClaudeSettingsApplyingService {
 
     func preferredOrganizationIDSnapshot() -> String {
         preferredOrganizationID
+    }
+
+    func healthSnapshotCount() -> Int {
+        recordedHealthSnapshotCount
     }
 
     func updatePreferredOrganizationID(_ id: String) {
@@ -254,6 +262,7 @@ private actor FakeClaudeSettingsService: ClaudeSettingsApplyingService {
     }
 
     func fetchUsageHealthSnapshot() -> ClaudeAPIService.UsageHealthSnapshot {
+        recordedHealthSnapshotCount += 1
         let sessionAvailable = currentSessionKey?.isEmpty == false
         return ClaudeAPIService.UsageHealthSnapshot(
             lastOverallSuccessAt: sessionAvailable ? Date() : nil,
@@ -287,5 +296,16 @@ private actor FakeClaudeSettingsService: ClaudeSettingsApplyingService {
             totalAttempts: available ? 1 : 0,
             totalFailures: 0
         )
+    }
+}
+
+private final class LockedRefreshRequestCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int { lock.withLock { count } }
+
+    func increment() {
+        lock.withLock { count += 1 }
     }
 }

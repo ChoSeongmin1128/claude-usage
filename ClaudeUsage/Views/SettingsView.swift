@@ -190,9 +190,11 @@ struct SettingsView: View {
     @StateObject var antigravityOAuthSettings = AntigravityOAuthSettingsViewModel()
 
     var onOpenLogin: (() -> Void)?
+    var onReconnectClaudeCode: (() -> Void)?
     var onImportClaudeFromChrome: (() -> Void)?
     var onClearBrowserSession: (() -> Void)?
     var onRefreshClaudeUsage: (() -> Void)?
+    var onClaudeOAuthMigrationCompleted: (() -> Void)?
     var onRefreshAntigravityUsage: (() -> Void)?
     var onCodexLogout: (() -> Void)?
     var claudeLastUsage: (() -> ClaudeUsageResponse?)?
@@ -206,9 +208,11 @@ struct SettingsView: View {
         claudeAPIService: ClaudeAPIService,
         claudeOAuthMigrationCoordinator: ClaudeOAuthCredentialMigrationCoordinator = .shared,
         onOpenLogin: (() -> Void)? = nil,
+        onReconnectClaudeCode: (() -> Void)? = nil,
         onImportClaudeFromChrome: (() -> Void)? = nil,
         onClearBrowserSession: (() -> Void)? = nil,
         onRefreshClaudeUsage: (() -> Void)? = nil,
+        onClaudeOAuthMigrationCompleted: (() -> Void)? = nil,
         onRefreshAntigravityUsage: (() -> Void)? = nil,
         onCodexLogout: (() -> Void)? = nil,
         claudeLastUsage: (() -> ClaudeUsageResponse?)? = nil,
@@ -221,9 +225,11 @@ struct SettingsView: View {
         self.claudeAPIService = claudeAPIService
         self.claudeOAuthMigrationCoordinator = claudeOAuthMigrationCoordinator
         self.onOpenLogin = onOpenLogin
+        self.onReconnectClaudeCode = onReconnectClaudeCode
         self.onImportClaudeFromChrome = onImportClaudeFromChrome
         self.onClearBrowserSession = onClearBrowserSession
         self.onRefreshClaudeUsage = onRefreshClaudeUsage
+        self.onClaudeOAuthMigrationCompleted = onClaudeOAuthMigrationCompleted
         self.onRefreshAntigravityUsage = onRefreshAntigravityUsage
         self.onCodexLogout = onCodexLogout
         self.claudeLastUsage = claudeLastUsage

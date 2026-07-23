@@ -405,6 +405,12 @@ final class ClaudeAccountStore: @unchecked Sendable {
         }
     }
 
+    nonisolated func replaceIdentity(_ identity: ClaudeAccountIdentity, for accountID: String) {
+        updateAccount(id: accountID) { account in
+            account.identity = identity
+        }
+    }
+
     nonisolated func updateValidationState(_ state: ClaudeCredentialValidationState, for accountID: String) {
         updateAccount(id: accountID) { account in
             account.lastValidationState = state

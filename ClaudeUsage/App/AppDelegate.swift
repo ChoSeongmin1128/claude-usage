@@ -34,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var claudeCredentialRefreshTask: Task<Void, Never>?
     var claudeUsageRefreshTask: Task<Void, Never>?
     var claudeCredentialRefreshGeneration = 0
+    var claudeCredentialRefreshRequest: ClaudeCredentialRefreshRequest?
 
     var popover: NSPopover? { popoverCoordinator.popover }
     var popoverViewModel: PopoverViewModel { popoverCoordinator.viewModel }

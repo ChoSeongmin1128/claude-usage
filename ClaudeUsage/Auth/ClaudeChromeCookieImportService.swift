@@ -6,13 +6,46 @@ protocol ClaudeBrowserCookieImporting {
 }
 
 final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unchecked Sendable {
+    typealias CandidateProvider = @Sendable () -> [ClaudeBrowserSessionCandidate]
+    typealias DecryptionKeyProvider = @Sendable () throws -> [Data]
+    typealias CookieReader = @Sendable (
+        _ cookiesURL: URL,
+        _ profileName: String,
+        _ decryptionKeys: [Data]
+    ) throws -> [ClaudeChromiumCookieRecord]
+
     private struct ChromeProfileDescriptor: Sendable, Equatable {
         let profileName: String
         let displayName: String?
         let accountEmail: String?
     }
 
+    private let candidateProvider: CandidateProvider?
+    private let decryptionKeyProvider: DecryptionKeyProvider
+    private let cookieReader: CookieReader
+
+    nonisolated init(
+        candidateProvider: CandidateProvider? = nil,
+        decryptionKeyProvider: @escaping DecryptionKeyProvider = {
+            try ClaudeChromeSafeStorageKeyProvider().loadDerivedKeysForUserInitiatedImport()
+        },
+        cookieReader: @escaping CookieReader = { cookiesURL, profileName, decryptionKeys in
+            try ClaudeChromiumCookieReader.readCookies(
+                cookiesURL: cookiesURL,
+                profileName: profileName,
+                decryptionKeys: decryptionKeys
+            )
+        }
+    ) {
+        self.candidateProvider = candidateProvider
+        self.decryptionKeyProvider = decryptionKeyProvider
+        self.cookieReader = cookieReader
+    }
+
     nonisolated func discoverCandidates() -> [ClaudeBrowserSessionCandidate] {
+        if let candidateProvider {
+            return candidateProvider()
+        }
         let fileManager = FileManager.default
         let home = fileManager.realHomeDirectory
         let chromeRoot = home.appendingPathComponent("Library/Application Support/Google/Chrome", isDirectory: true)
@@ -38,26 +71,24 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
     }
 
     nonisolated func attemptImport() throws -> ClaudeBrowserImportOutcome {
-        guard BrowserCookieAccessGate.shouldAttemptChromeAccess() else {
-            return .unavailable(message: "Chrome에서 자동으로 가져오기를 잠시 사용할 수 없습니다.\nChrome에서 Claude에 로그인한 뒤 다시 시도하거나, 고급 설정에서 직접 입력해 주세요.")
-        }
-
         let candidates = self.discoverCandidates()
         guard !candidates.isEmpty else {
             return .unavailable(message: self.manualGuidanceMessage(
                 discoveredProfiles: [],
                 failureDetails: ["Chrome 프로필을 찾지 못했습니다."]))
         }
+        let decryptionKeys = try decryptionKeyProvider()
 
         var failureDetails: [String] = []
         var importedSessions: [ClaudeBrowserImportedSession] = []
         var seenFingerprints = Set<String>()
         for candidate in candidates {
             do {
-                let records = try ClaudeChromiumCookieReader.readCookies(
-                    cookiesURL: candidate.cookiesPath,
-                    profileName: candidate.profileName,
-                    localStateURL: candidate.localStatePath)
+                let records = try cookieReader(
+                    candidate.cookiesPath,
+                    candidate.profileName,
+                    decryptionKeys
+                )
 
                 if let sessionKey = Self.findSessionKey(in: records) {
                     let fingerprint = ClaudeAccountStore.fingerprint(for: sessionKey)
