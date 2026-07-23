@@ -3,12 +3,12 @@
     <channel>
         <title>ClaudeUsage</title>
         <item>
-            <title>2.3.2</title>
-            <pubDate>Thu, 23 Jul 2026 20:05:19 +0900</pubDate>
-            <sparkle:version>20320</sparkle:version>
-            <sparkle:shortVersionString>2.3.2</sparkle:shortVersionString>
+            <title>2.3.3</title>
+            <pubDate>Thu, 23 Jul 2026 20:19:26 +0900</pubDate>
+            <sparkle:version>20330</sparkle:version>
+            <sparkle:shortVersionString>2.3.3</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.3.2-staging/ClaudeUsage.zip" length="4259098" type="application/octet-stream" sparkle:edSignature="mJT8TcdLeLvRp3/W+xzg0F63HIIm6WadLnvY/VvlkIk8g/XzIxtDWBb9TeEYx6kMQtsfJQsJn3O3aP6XqVyBAw=="/>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.3.3-staging/ClaudeUsage.zip" length="4260254" type="application/octet-stream" sparkle:edSignature="zvoPEVUWYgzdHMi//Kd5tu3UfchMHQEAZxUc10AlJH4LXsPWcMK19HrNmNdadwo7P1qA+5NdDR8Km0zBCJFZAg=="/>
         </item>
     </channel>
 </rss>
