@@ -408,11 +408,17 @@ extension SettingsView {
             guard !Task.isCancelled,
                   requestedAccountID == responseAccountID else { return }
             await MainActor.run {
-                guard generation == usageHealthLoadGeneration else { return }
+                let currentState = ClaudeAccountStore.shared.state()
+                guard generation == usageHealthLoadGeneration,
+                      requestedAccountID == currentState.activeAccountID,
+                      let resolvedAccountState = ClaudeAccountSnapshotPresentationPolicy.resolve(
+                          snapshotActiveAccountID: resolvedSnapshot.activeAccountID,
+                          currentState: currentState
+                      ) else { return }
                 usageHealthSnapshot = resolvedSnapshot
                 profileMetadata = resolvedMetadata
-                claudeAccounts = resolvedSnapshot.accounts
-                activeClaudeAccountID = resolvedSnapshot.activeAccountID
+                claudeAccounts = resolvedAccountState.accounts
+                activeClaudeAccountID = resolvedAccountState.activeAccountID
                 if organizations.isEmpty && !resolvedCachedOrganizations.isEmpty {
                     organizations = resolvedCachedOrganizations
                 }

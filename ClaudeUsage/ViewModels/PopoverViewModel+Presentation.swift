@@ -121,13 +121,18 @@ extension PopoverViewModel {
     // MARK: - Context 조립
 
     private func makeContext(density: PopoverDensity, settings: AppSettings) -> UsageItemContext {
-        UsageItemContext(
+        let currentAccountState = ClaudeAccountStore.shared.state()
+        let presentedAccountState = ClaudeAccountSnapshotPresentationPolicy.resolve(
+            snapshotActiveAccountID: usageHealthSnapshot?.activeAccountID,
+            currentState: currentAccountState
+        )
+        return UsageItemContext(
             density: density,
             settings: settings,
             claudeUsage: claudeUsage,
             claudeOverage: overage,
-            claudeAccounts: usageHealthSnapshot?.accounts ?? [],
-            activeClaudeAccountID: usageHealthSnapshot?.activeAccountID,
+            claudeAccounts: presentedAccountState?.accounts ?? [],
+            activeClaudeAccountID: presentedAccountState?.activeAccountID,
             codexUsage: codexUsage,
             codexError: snapshot(for: .codex)?.error,
             antigravityUsage: antigravityUsage

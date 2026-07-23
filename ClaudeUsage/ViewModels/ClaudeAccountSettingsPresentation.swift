@@ -28,6 +28,22 @@ struct ClaudeAccountSettingsDetailRow: Equatable, Hashable {
     let value: String
 }
 
+/// Usage health snapshots carry the account inventory that existed when the
+/// request started. Identity/profile enrichment may finish later for the same
+/// account, so Settings must present the current store state rather than
+/// replacing it with that older snapshot copy.
+enum ClaudeAccountSnapshotPresentationPolicy {
+    nonisolated static func resolve(
+        snapshotActiveAccountID: String?,
+        currentState: ClaudeAccountState
+    ) -> ClaudeAccountState? {
+        guard snapshotActiveAccountID == currentState.activeAccountID else {
+            return nil
+        }
+        return currentState
+    }
+}
+
 struct ClaudeAccountSettingsPresentation: Equatable {
     let primaryTitle: String
     let secondaryLine: String?

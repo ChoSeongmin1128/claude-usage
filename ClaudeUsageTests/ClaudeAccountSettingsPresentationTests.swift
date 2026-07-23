@@ -3,6 +3,47 @@ import XCTest
 
 @MainActor
 final class ClaudeAccountSettingsPresentationTests: XCTestCase {
+    func testHealthSnapshotUsesCurrentStoreMetadataForSameActiveAccount() {
+        let staleAccount = ClaudeAccount(
+            id: ClaudeAccountStore.claudeCodeExternalAccountID,
+            kind: .claudeCodeExternal,
+            displayName: "efa005dc-8c5f-4fd2-ab83-af6e4d063690",
+            identity: ClaudeAccountIdentity(
+                organizationID: "efa005dc-8c5f-4fd2-ab83-af6e4d063690"
+            )
+        )
+        let currentAccount = ClaudeAccount(
+            id: staleAccount.id,
+            kind: .claudeCodeExternal,
+            displayName: "team",
+            identity: ClaudeAccountIdentity(planLabel: "team")
+        )
+        let currentState = ClaudeAccountState(
+            accounts: [currentAccount],
+            activeAccountID: currentAccount.id
+        )
+
+        let resolved = ClaudeAccountSnapshotPresentationPolicy.resolve(
+            snapshotActiveAccountID: staleAccount.id,
+            currentState: currentState
+        )
+
+        XCTAssertEqual(resolved, currentState)
+        XCTAssertEqual(resolved?.activeAccount?.displayName, "team")
+    }
+
+    func testHealthSnapshotRejectsDifferentActiveAccountGeneration() {
+        let currentState = ClaudeAccountState(
+            accounts: [],
+            activeAccountID: "web-current"
+        )
+
+        XCTAssertNil(ClaudeAccountSnapshotPresentationPolicy.resolve(
+            snapshotActiveAccountID: "web-previous",
+            currentState: currentState
+        ))
+    }
+
     func testWebSessionPresentationUsesHumanAccountLabel() {
         let account = ClaudeAccount(
             id: "web",

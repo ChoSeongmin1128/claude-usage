@@ -45,7 +45,11 @@ struct ClaudeAccountIdentity: Codable, Equatable, Sendable {
     }
 
     nonisolated var primaryLabel: String? {
-        email ?? organizationName ?? organizationID ?? planLabel
+        // Stable IDs belong in diagnostics/detail rows, never in the primary
+        // user-facing account label. OAuth inventory can temporarily know only
+        // an organization UUID plus a readable plan name while profile refresh
+        // is still in flight.
+        email ?? organizationName ?? planLabel
     }
 
     nonisolated static func == (lhs: ClaudeAccountIdentity, rhs: ClaudeAccountIdentity) -> Bool {
@@ -430,11 +434,12 @@ final class ClaudeAccountStore: @unchecked Sendable {
         var accounts = state.accounts
         let now = Date()
         let accountID = Self.claudeCodeExternalAccountID
-        let resolvedDisplayName = identity.primaryLabel ?? "Claude Code 계정"
+        let readableDisplayName = identity.primaryLabel
         let account: ClaudeAccount
         var didChange = false
 
         if let index = accounts.firstIndex(where: { $0.id == accountID }) {
+            let resolvedDisplayName = readableDisplayName ?? accounts[index].displayName
             if accounts[index].displayName != resolvedDisplayName {
                 accounts[index].displayName = resolvedDisplayName
                 didChange = true
@@ -456,7 +461,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
             account = ClaudeAccount(
                 id: accountID,
                 kind: .claudeCodeExternal,
-                displayName: resolvedDisplayName,
+                displayName: readableDisplayName ?? "Claude Code 계정",
                 identity: identity,
                 source: .claudeCodeCLI,
                 lastUsedAt: now,

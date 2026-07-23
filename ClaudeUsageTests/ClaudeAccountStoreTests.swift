@@ -108,6 +108,36 @@ final class ClaudeAccountStoreTests: XCTestCase {
         XCTAssertEqual(store.activeAccount()?.id, activeWeb?.id)
     }
 
+    func testClaudeCodeInventoryKeepsReadableDisplayNameWhenOnlyOpaqueIDRemains() {
+        let store = makeStore()
+        let initial = store.upsertClaudeCodeExternalAccount(
+            identity: ClaudeAccountIdentity(
+                organizationID: "efa005dc-8c5f-4fd2-ab83-af6e4d063690",
+                planLabel: "team"
+            ),
+            validationState: .verified
+        )
+
+        let refreshed = store.upsertClaudeCodeExternalAccount(
+            identity: ClaudeAccountIdentity(
+                organizationID: "efa005dc-8c5f-4fd2-ab83-af6e4d063690"
+            ),
+            validationState: .verified
+        )
+
+        XCTAssertEqual(initial.displayName, "team")
+        XCTAssertEqual(refreshed.displayName, "team")
+        XCTAssertEqual(store.activeAccount()?.displayName, "team")
+    }
+
+    func testOpaqueOrganizationIDIsNotAUserFacingPrimaryLabel() {
+        let identity = ClaudeAccountIdentity(
+            organizationID: "efa005dc-8c5f-4fd2-ab83-af6e4d063690"
+        )
+
+        XCTAssertNil(identity.primaryLabel)
+    }
+
     func testWebSessionSourceAndDetailAreStoredAndPreservedAcrossValidationUpdates() {
         let store = makeStore()
 

@@ -85,11 +85,15 @@ extension SettingsView {
             selectedOrganizationID = appliedPreferredOrganizationID
         }
         .onReceive(NotificationCenter.default.publisher(for: .claudeUsageHealthSnapshotDidChange).receive(on: RunLoop.main)) { notification in
-            guard let snapshot = notification.object as? ClaudeAPIService.UsageHealthSnapshot,
-                  snapshot.activeAccountID == ClaudeAccountStore.shared.state().activeAccountID else { return }
+            guard let snapshot = notification.object as? ClaudeAPIService.UsageHealthSnapshot else { return }
+            let currentState = ClaudeAccountStore.shared.state()
+            guard let resolvedAccountState = ClaudeAccountSnapshotPresentationPolicy.resolve(
+                snapshotActiveAccountID: snapshot.activeAccountID,
+                currentState: currentState
+            ) else { return }
             usageHealthSnapshot = snapshot
-            claudeAccounts = snapshot.accounts
-            activeClaudeAccountID = snapshot.activeAccountID
+            claudeAccounts = resolvedAccountState.accounts
+            activeClaudeAccountID = resolvedAccountState.activeAccountID
             let service = claudeAPIService
             Task {
                 let metadata = await service.fetchCachedProfileMetadata()
