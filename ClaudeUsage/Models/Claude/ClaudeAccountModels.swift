@@ -173,7 +173,9 @@ struct ClaudeWebSessionUpsertResult: Sendable {
 
 final class ClaudeAccountStore: @unchecked Sendable {
     nonisolated static let shared = ClaudeAccountStore(
-        legacySandboxCredentialStore: ClaudeLegacySandboxCredentialStore.shared
+        legacySandboxCredentialStore: AppRuntimeEnvironment.isRunningUnitTests
+            ? nil
+            : ClaudeLegacySandboxCredentialStore.shared
     )
 
     nonisolated static let accountsDefaultsKey = "ClaudeUsage.claudeAccounts.v1"

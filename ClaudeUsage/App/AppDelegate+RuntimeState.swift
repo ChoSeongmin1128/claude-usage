@@ -319,6 +319,6 @@ extension AppDelegate {
     }
 
     var isRunningUnitTests: Bool {
-        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+        AppRuntimeEnvironment.isRunningUnitTests
     }
 }

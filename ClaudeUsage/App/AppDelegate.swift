@@ -13,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var statusItem: NSStatusItem?
     let refreshScheduler = RefreshScheduler()
     let updateCoordinator = AppUpdateCoordinator()
-    let apiService = ClaudeAPIService()
+    lazy var apiService = ClaudeAPIService()
     let codexAPIService = CodexAPIService(authManager: CodexAuthManager.shared)
     let antigravityAPIService = AntigravityAPIService()
     let antigravityRemoteUsageService = AntigravityRemoteUsageService()
