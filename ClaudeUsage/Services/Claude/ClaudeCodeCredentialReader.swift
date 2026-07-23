@@ -44,30 +44,42 @@ struct ClaudeCodeSecurityCommandResult: Equatable, Sendable {
     let stderr: String
 }
 
+protocol ClaudeOAuthCredentialReading: Sendable {
+    func readAccessToken() async throws -> String?
+    func forceRefreshAccessToken() async -> String?
+    func invalidateCache() async
+}
+
 actor ClaudeCodeCredentialReader {
     typealias PreflightChecker = @Sendable (_ service: String, _ account: String?) -> KeychainAccessPreflight.Outcome
     typealias SecurityCommandRunner = @Sendable (_ arguments: [String], _ timeout: TimeInterval) async throws -> ClaudeCodeSecurityCommandResult?
-
-    /// 우리 앱 전용 refresh 캐시 keychain item.
-    /// Anthropic CLI 가 관리하는 `Claude Code-credentials` 항목과는 별도로,
-    /// 우리 앱이 refresh 한 새 access/refresh token 을 영구 저장해 다음 부팅 시
-    /// 옛 RT 로 호출하지 않게 한다 (refresh_token_reused 함정 방지).
-    /// CLI 의 keychain item 은 절대 수정하지 않아 CLI 동작에 영향 없음.
-    private static let refreshedCacheKeychainService = "ClaudeUsage.Claude Code-credentials-refreshed"
 
     private let homeDirectory: URL
     private let profileMetadataStore: ClaudeProfileMetadataStore?
     private let preflightChecker: PreflightChecker
     private let securityCommandRunner: SecurityCommandRunner
     private let tokenRefresher: ClaudeOAuthTokenRefresher
+    private let appCredentialVault: any ClaudeOAuthCredentialVault
+    private let cacheTTL: TimeInterval
+    private let now: @Sendable () -> Date
     private var discoveredServiceNames: [String] = []
     private var didDiscoverServiceNames = false
-    private var cachedCredential: ClaudeCodeOAuthCredential?
+    private var cachedResult: CachedResult?
+    private var inFlightRead: Task<ClaudeCodeOAuthCredential?, Error>?
+    private var cacheGeneration = 0
+
+    private struct CachedResult: Sendable {
+        let credential: ClaudeCodeOAuthCredential?
+        let storedAt: Date
+    }
 
     init(
         homeDirectory: URL = FileManager.default.realHomeDirectory,
         profileMetadataStore: ClaudeProfileMetadataStore? = nil,
         tokenRefresher: ClaudeOAuthTokenRefresher = ClaudeOAuthTokenRefresher(),
+        appCredentialVault: any ClaudeOAuthCredentialVault = KeychainClaudeOAuthCredentialVault.shared,
+        cacheTTL: TimeInterval = 60,
+        now: @escaping @Sendable () -> Date = Date.init,
         preflightChecker: @escaping PreflightChecker = { service, account in
             KeychainAccessPreflight.checkGenericPassword(service: service, account: account)
         },
@@ -78,6 +90,9 @@ actor ClaudeCodeCredentialReader {
         self.homeDirectory = homeDirectory
         self.profileMetadataStore = profileMetadataStore
         self.tokenRefresher = tokenRefresher
+        self.appCredentialVault = appCredentialVault
+        self.cacheTTL = cacheTTL
+        self.now = now
         self.preflightChecker = preflightChecker
         self.securityCommandRunner = securityCommandRunner
     }
@@ -90,7 +105,7 @@ actor ClaudeCodeCredentialReader {
     /// 성공하면 새 access token, 실패하면 nil (caller 가 적절히 폴백).
     func forceRefreshAccessToken() async -> String? {
         let credential: ClaudeCodeOAuthCredential?
-        if let cached = cachedCredential {
+        if let cached = cachedResult?.credential {
             credential = cached
         } else {
             credential = try? await readCredential()
@@ -98,7 +113,7 @@ actor ClaudeCodeCredentialReader {
         guard let credential, credential.canAttemptRefresh else { return nil }
         do {
             let refreshed = try await tokenRefresher.refresh(credential)
-            cachedCredential = refreshed
+            cachedResult = CachedResult(credential: refreshed, storedAt: now())
             // 영구 저장: 다음 부팅 시 옛 RT 로 호출하지 않도록 우리 캐시 keychain 에 write-back.
             await persistRefreshedCredentialToKeychain(refreshed)
             return refreshed.accessToken
@@ -115,36 +130,57 @@ actor ClaudeCodeCredentialReader {
     }
 
     func readCredential() async throws -> ClaudeCodeOAuthCredential? {
-        if let cachedCredential, !cachedCredential.isExpired {
-            return cachedCredential
+        if let cachedResult,
+           now().timeIntervalSince(cachedResult.storedAt) < cacheTTL,
+           cachedResult.credential?.isExpired != true
+        {
+            return cachedResult.credential
         }
-        // 캐시는 만료됐지만 refresh token 이 살아있으면 refresh 한 번 시도.
-        if let cached = cachedCredential, cached.canAttemptRefresh {
-            if let refreshed = await attemptRefresh(of: cached) {
-                cachedCredential = refreshed
-                return refreshed
-            }
-        }
-        cachedCredential = nil
 
-        // 1순위: 우리 앱의 refresh 캐시 keychain item.
-        // 이전 세션에서 refresh 성공으로 얻은 가장 최신 RT 가 여기 있다면 그것 우선 사용.
-        // Anthropic CLI 의 keychain item 은 옛 RT 일 가능성이 높아 (이미 우리가 사용해서
-        // invalidate 됐을 수 있음) 우리 캐시를 먼저 시도하는 게 안전하다.
-        if let payload = try? await readKeychainPayload(serviceName: Self.refreshedCacheKeychainService),
+        if let inFlightRead {
+            return try await inFlightRead.value
+        }
+
+        let generation = cacheGeneration
+        let task = Task { try await performCredentialLookup() }
+        inFlightRead = task
+        do {
+            let result = try await task.value
+            if generation == cacheGeneration {
+                cachedResult = CachedResult(credential: result, storedAt: now())
+                inFlightRead = nil
+            }
+            return result
+        } catch {
+            if generation == cacheGeneration {
+                inFlightRead = nil
+            }
+            throw error
+        }
+    }
+
+    func invalidateCache() {
+        cacheGeneration &+= 1
+        inFlightRead?.cancel()
+        inFlightRead = nil
+        cachedResult = nil
+        discoveredServiceNames = []
+        didDiscoverServiceNames = false
+    }
+
+    private func performCredentialLookup() async throws -> ClaudeCodeOAuthCredential? {
+        if let payload = try? appCredentialVault.loadPayload(),
            let credential = await decodeCredential(
                from: payload,
-               source: .keychain(service: Self.refreshedCacheKeychainService),
-               sourceDescription: "우리 앱 refresh 캐시"),
+               source: .refreshed,
+               sourceDescription: "앱 OAuth vault"),
            let usable = await ensureUsable(credential)
         {
-            cachedCredential = usable
             return usable
         }
 
         if let credential = await readCredentialFromFiles() {
             if let usable = await ensureUsable(credential) {
-                cachedCredential = usable
                 return usable
             }
         }
@@ -153,17 +189,16 @@ actor ClaudeCodeCredentialReader {
         let preflightResult = preflightChecker(primaryService, NSUserName())
         if case .interactionRequired = preflightResult {
             Logger.info("키체인 접근 시 UI 프롬프트 필요 — 파일 기반 인증만 사용")
-            return nil
         }
 
-        if let payload = try? await readKeychainPayload(serviceName: primaryService),
+        if case .allowed = preflightResult,
+           let payload = try? await readKeychainPayload(serviceName: primaryService),
            let credential = await decodeCredential(
                from: payload,
                source: .keychain(service: primaryService),
                sourceDescription: "키체인 서비스: \(primaryService)"),
            let usable = await ensureUsable(credential)
         {
-            cachedCredential = usable
             return usable
         }
 
@@ -172,14 +207,14 @@ actor ClaudeCodeCredentialReader {
             Logger.debug("OAuth 토큰 조회: 추가 키체인 서비스 \(discoveredServices.count)개 후보")
         }
         for service in discoveredServices {
-            guard let payload = try? await readKeychainPayload(serviceName: service),
+            guard case .allowed = preflightChecker(service, NSUserName()),
+                  let payload = try? await readKeychainPayload(serviceName: service),
                   let credential = await decodeCredential(
                       from: payload,
                       source: .keychain(service: service),
                       sourceDescription: "키체인 서비스: \(service)"),
                   let usable = await ensureUsable(credential)
             else { continue }
-            cachedCredential = usable
             return usable
         }
 
@@ -219,26 +254,20 @@ actor ClaudeCodeCredentialReader {
     /// 실패해도 in-memory cache 는 살아있어 현재 세션은 정상.
     private func persistRefreshedCredentialToKeychain(_ credential: ClaudeCodeOAuthCredential) async {
         let payload = Self.serializeCredentialAsAuthJSON(credential)
-        let arguments: [String] = [
-            "add-generic-password",
-            "-U",                                // update (없으면 추가, 있으면 갱신)
-            "-s", Self.refreshedCacheKeychainService,
-            "-a", NSUserName(),
-            "-T", "",                            // 모든 앱 접근 허용 안 함 (우리 앱만)
-            "-w", payload
-        ]
-        _ = try? await securityCommandRunner(arguments, 2.5)
+        do {
+            try appCredentialVault.savePayload(payload)
+        } catch {
+            Logger.warning("OAuth refresh 캐시 저장 실패")
+        }
     }
 
     private func deleteRefreshedCredentialFromKeychain() async {
-        _ = try? await securityCommandRunner(
-            [
-                "delete-generic-password",
-                "-s", Self.refreshedCacheKeychainService,
-                "-a", NSUserName()
-            ],
-            2.0
-        )
+        do {
+            try appCredentialVault.deletePayload()
+        } catch {
+            Logger.warning("OAuth refresh 캐시 삭제 실패")
+        }
+        cachedResult = nil
     }
 
     /// `~/.claude/.credentials.json` 과 호환되는 JSON 으로 직렬화.
@@ -561,3 +590,5 @@ actor ClaudeCodeCredentialReader {
         }
     }
 }
+
+extension ClaudeCodeCredentialReader: ClaudeOAuthCredentialReading {}

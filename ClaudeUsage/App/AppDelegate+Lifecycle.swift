@@ -101,7 +101,7 @@ extension AppDelegate {
     func bootstrapRefreshState() {
         Task {
             await apiService.reloadActiveAccount()
-            let snapshot = await apiService.fetchUsageHealthSnapshot()
+            let snapshot = await apiService.fetchUsageHealthSnapshot(refreshOAuthCredentialInventory: true)
             let cachedProfileMetadata = await apiService.fetchCachedProfileMetadata()
             await MainActor.run {
                 self.currentClaudeProfileMetadata = cachedProfileMetadata
@@ -198,6 +198,7 @@ extension AppDelegate {
 
         popoverViewModel.usageHealthSnapshot = snapshot
         popoverViewModel.nextUsageRetryAt = nextUsageRefreshAllowedAt
+        NotificationCenter.default.post(name: .claudeUsageHealthSnapshotDidChange, object: snapshot)
 
         if credentialAvailabilityChanged {
             syncRefreshTimerState()

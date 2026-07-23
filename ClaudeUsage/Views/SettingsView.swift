@@ -151,6 +151,8 @@ enum CodexAuthStatusResolver {
 }
 
 struct SettingsView: View {
+    let claudeAPIService: ClaudeAPIService
+    let claudeOAuthMigrationCoordinator: ClaudeOAuthCredentialMigrationCoordinator
     @ObservedObject var settings = AppSettings.shared
     @ObservedObject var updateRuntimeState = UpdateRuntimeState.shared
     @State var sessionKey: String = ""
@@ -168,7 +170,11 @@ struct SettingsView: View {
     @State var claudeAccountMessage: String?
     @State var organizationMessage: String?
     @State var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
+    @State var usageHealthLoadTask: Task<Void, Never>?
+    @State var usageHealthLoadGeneration = 0
     @State var profileMetadata: ClaudeProfileMetadata?
+    @State var claudeOAuthMigrationState: ClaudeOAuthCredentialMigrationState = .checking
+    @State var claudeOAuthMigrationTask: Task<Void, Never>?
     @State var claudeAccounts: [ClaudeAccount] = []
     @State var activeClaudeAccountID: String?
     @State var selectedPanel: SettingsProviderPanel = .common
@@ -195,6 +201,39 @@ struct SettingsView: View {
     var codexLastError: (() -> APIError?)?
     var antigravityLastUsageSource: (() -> AntigravityUsageDataSource?)?
     var antigravityLastUsage: (() -> AntigravityUsageResponse?)?
+
+    init(
+        claudeAPIService: ClaudeAPIService,
+        claudeOAuthMigrationCoordinator: ClaudeOAuthCredentialMigrationCoordinator = .shared,
+        onOpenLogin: (() -> Void)? = nil,
+        onImportClaudeFromChrome: (() -> Void)? = nil,
+        onClearBrowserSession: (() -> Void)? = nil,
+        onRefreshClaudeUsage: (() -> Void)? = nil,
+        onRefreshAntigravityUsage: (() -> Void)? = nil,
+        onCodexLogout: (() -> Void)? = nil,
+        claudeLastUsage: (() -> ClaudeUsageResponse?)? = nil,
+        claudeLastOverage: (() -> OverageSpendLimitResponse?)? = nil,
+        codexLastUsage: (() -> CodexUsageResponse?)? = nil,
+        codexLastError: (() -> APIError?)? = nil,
+        antigravityLastUsageSource: (() -> AntigravityUsageDataSource?)? = nil,
+        antigravityLastUsage: (() -> AntigravityUsageResponse?)? = nil
+    ) {
+        self.claudeAPIService = claudeAPIService
+        self.claudeOAuthMigrationCoordinator = claudeOAuthMigrationCoordinator
+        self.onOpenLogin = onOpenLogin
+        self.onImportClaudeFromChrome = onImportClaudeFromChrome
+        self.onClearBrowserSession = onClearBrowserSession
+        self.onRefreshClaudeUsage = onRefreshClaudeUsage
+        self.onRefreshAntigravityUsage = onRefreshAntigravityUsage
+        self.onCodexLogout = onCodexLogout
+        self.claudeLastUsage = claudeLastUsage
+        self.claudeLastOverage = claudeLastOverage
+        self.codexLastUsage = codexLastUsage
+        self.codexLastError = codexLastError
+        self.antigravityLastUsageSource = antigravityLastUsageSource
+        self.antigravityLastUsage = antigravityLastUsage
+    }
+
     enum TestResult: Equatable {
         case success(String)
         case failure(String)

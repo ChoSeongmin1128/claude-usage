@@ -152,7 +152,6 @@ extension SettingsView {
             syncClaudeAccountsState()
             storedSessionKey = normalizedKey
             testResult = .success("브라우저 로그인 값을 저장했습니다.")
-            loadUsageHealthSnapshot()
         } catch {
             testResult = .failure(error.localizedDescription)
             Logger.error("세션 키 저장 실패: \(error)")
@@ -183,19 +182,21 @@ extension SettingsView {
 
     func setActiveClaudeAccount(_ account: ClaudeAccount) {
         cancelOrganizationLoad(clearState: true)
-        ClaudeAccountStore.shared.setActiveAccountID(account.id)
-        syncClaudeAccountsState()
-        syncStoredSessionKeyState()
-        selectedOrganizationID = appliedPreferredOrganizationID
-        claudeAccountMessage = "현재 사용 계정을 \(account.displayName)으로 변경했습니다. 사용량을 다시 조회합니다."
+        cancelUsageHealthLoad(clearSnapshot: true)
+        profileMetadata = nil
+        activeClaudeAccountID = account.id
+        selectedOrganizationID = account.preferredOrganizationID
+        claudeAccountMessage = "현재 사용 계정을 \(account.displayName)으로 변경했습니다. 새 계정의 사용량을 확인합니다."
         isClaudeAccountSwitcherExpanded = false
         isClaudeAccountManagementExpanded = false
-        loadUsageHealthSnapshot()
+        ClaudeAccountStore.shared.setActiveAccountID(account.id)
     }
 
     func deleteClaudeWebAccount(_ account: ClaudeAccount) {
         guard account.kind == .webSession else { return }
         cancelOrganizationLoad(clearState: true)
+        cancelUsageHealthLoad(clearSnapshot: true)
+        profileMetadata = nil
         ClaudeAccountStore.shared.deleteAccount(id: account.id)
         syncClaudeAccountsState()
         syncStoredSessionKeyState()
@@ -207,7 +208,6 @@ extension SettingsView {
         if claudeAccounts.isEmpty {
             isClaudeAccountManagementExpanded = false
         }
-        loadUsageHealthSnapshot()
     }
 
     func activeClaudeAccount() -> ClaudeAccount? {
@@ -376,17 +376,35 @@ extension SettingsView {
         }
     }
 
-    func loadUsageHealthSnapshot() {
-        Task {
-            let service = ClaudeAPIService()
+    func cancelUsageHealthLoad(clearSnapshot: Bool = false) {
+        usageHealthLoadGeneration &+= 1
+        usageHealthLoadTask?.cancel()
+        usageHealthLoadTask = nil
+        if clearSnapshot {
+            usageHealthSnapshot = nil
+        }
+    }
+
+    func loadUsageHealthSnapshot(refreshOAuthCredentialInventory: Bool = false) {
+        cancelUsageHealthLoad()
+        let generation = usageHealthLoadGeneration
+        let requestedAccountID = ClaudeAccountStore.shared.state().activeAccountID
+        let service = claudeAPIService
+        usageHealthLoadTask = Task {
             await service.reloadActiveAccount()
-            async let snapshot = service.fetchUsageHealthSnapshot()
+            async let snapshot = service.fetchUsageHealthSnapshot(
+                refreshOAuthCredentialInventory: refreshOAuthCredentialInventory
+            )
             async let metadata = service.fetchCachedProfileMetadata()
             async let cachedOrganizations = service.cachedOrganizationsForDisplay()
             let resolvedSnapshot = await snapshot
             let resolvedMetadata = await metadata
             let resolvedCachedOrganizations = await cachedOrganizations
+            let responseAccountID = await service.currentActiveAccountID()
+            guard !Task.isCancelled,
+                  requestedAccountID == responseAccountID else { return }
             await MainActor.run {
+                guard generation == usageHealthLoadGeneration else { return }
                 usageHealthSnapshot = resolvedSnapshot
                 profileMetadata = resolvedMetadata
                 claudeAccounts = resolvedSnapshot.accounts
@@ -394,13 +412,59 @@ extension SettingsView {
                 if organizations.isEmpty && !resolvedCachedOrganizations.isEmpty {
                     organizations = resolvedCachedOrganizations
                 }
+                usageHealthLoadTask = nil
             }
         }
     }
 
     func refreshClaudeUsageFromSettings() {
-        loadUsageHealthSnapshot()
         onRefreshClaudeUsage?()
+    }
+
+    func inspectClaudeOAuthMigration() {
+        claudeOAuthMigrationTask?.cancel()
+        let coordinator = claudeOAuthMigrationCoordinator
+        claudeOAuthMigrationTask = Task {
+            let state = await coordinator.inspect()
+            guard !Task.isCancelled else { return }
+            claudeOAuthMigrationState = state
+            claudeOAuthMigrationTask = nil
+        }
+    }
+
+    func migrateLegacyClaudeOAuthCredential() {
+        guard claudeOAuthMigrationState == .available || isClaudeOAuthMigrationFailure else { return }
+        claudeOAuthMigrationTask?.cancel()
+        claudeOAuthMigrationState = .migrating
+        let coordinator = claudeOAuthMigrationCoordinator
+        let service = claudeAPIService
+        claudeOAuthMigrationTask = Task {
+            let state = await coordinator.migrate()
+            guard !Task.isCancelled else { return }
+            claudeOAuthMigrationState = state
+            claudeOAuthMigrationTask = nil
+            switch state {
+            case .completed, .completedWithLegacyCleanupFailure:
+                await service.invalidateClaudeCodeCredentialCache()
+                loadUsageHealthSnapshot(refreshOAuthCredentialInventory: true)
+            default:
+                break
+            }
+        }
+    }
+
+    func deferClaudeOAuthMigration() {
+        claudeOAuthMigrationTask?.cancel()
+        let coordinator = claudeOAuthMigrationCoordinator
+        claudeOAuthMigrationTask = Task {
+            claudeOAuthMigrationState = await coordinator.deferForCurrentSession()
+            claudeOAuthMigrationTask = nil
+        }
+    }
+
+    var isClaudeOAuthMigrationFailure: Bool {
+        if case .failed = claudeOAuthMigrationState { return true }
+        return false
     }
 
     func resetClaudeAuthDisclosureState() {

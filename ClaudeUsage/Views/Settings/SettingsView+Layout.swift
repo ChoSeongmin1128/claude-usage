@@ -59,6 +59,7 @@ extension SettingsView {
             selectedOrganizationID = appliedPreferredOrganizationID
             selectedPanel = normalizedPanel(SettingsProviderPanel(rawValue: settings.settingsLastTab) ?? .common)
             loadUsageHealthSnapshot()
+            inspectClaudeOAuthMigration()
             checkCodexAuth()
             antigravityOAuthSettings.refreshAccounts()
             updateRuntimeState.bootstrapIfNeeded()
@@ -71,12 +72,30 @@ extension SettingsView {
             syncStoredSessionKeyState()
             syncClaudeAccountsState()
             selectedOrganizationID = appliedPreferredOrganizationID
-            loadUsageHealthSnapshot()
         }
         .onReceive(NotificationCenter.default.publisher(for: .claudeAccountsDidChange).receive(on: RunLoop.main)) { _ in
             syncClaudeAccountsState()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .claudeAccountDidChange).receive(on: RunLoop.main)) { _ in
+            cancelOrganizationLoad(clearState: true)
+            cancelUsageHealthLoad(clearSnapshot: true)
+            profileMetadata = nil
+            syncStoredSessionKeyState()
+            syncClaudeAccountsState()
             selectedOrganizationID = appliedPreferredOrganizationID
-            loadUsageHealthSnapshot()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .claudeUsageHealthSnapshotDidChange).receive(on: RunLoop.main)) { notification in
+            guard let snapshot = notification.object as? ClaudeAPIService.UsageHealthSnapshot,
+                  snapshot.activeAccountID == ClaudeAccountStore.shared.state().activeAccountID else { return }
+            usageHealthSnapshot = snapshot
+            claudeAccounts = snapshot.accounts
+            activeClaudeAccountID = snapshot.activeAccountID
+            let service = claudeAPIService
+            Task {
+                let metadata = await service.fetchCachedProfileMetadata()
+                guard snapshot.activeAccountID == ClaudeAccountStore.shared.state().activeAccountID else { return }
+                profileMetadata = metadata
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .providerEnvironmentUpdated).receive(on: RunLoop.main)) { _ in
             // 백그라운드 환경 감지 결과가 들어왔을 때 SettingsView 를 재렌더.

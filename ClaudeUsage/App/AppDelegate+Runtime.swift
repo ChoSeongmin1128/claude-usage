@@ -115,21 +115,35 @@ extension AppDelegate {
             onPowerStateChanged: { [weak self] in
                 self?.syncRefreshTimerState()
             },
-            onClaudeSessionKeyChanged: { [weak self] in
-                self?.handleClaudeSessionKeyChanged()
+            onClaudeCredentialContextChanged: { [weak self] in
+                self?.handleClaudeCredentialContextChanged()
             }
         )
     }
 
-    func handleClaudeSessionKeyChanged() {
-        Task {
+    func handleClaudeCredentialContextChanged() {
+        claudeCredentialRefreshGeneration &+= 1
+        let generation = claudeCredentialRefreshGeneration
+        let requestedAccountID = ClaudeAccountStore.shared.state().activeAccountID
+        claudeCredentialRefreshTask?.cancel()
+        claudeUsageRefreshTask?.cancel()
+        resetClaudeRuntimeAfterAccountBoundaryChange(refreshHealthSnapshot: false)
+
+        claudeCredentialRefreshTask = Task { [weak self] in
+            guard let self else { return }
             await apiService.reloadActiveAccount()
 
             async let snapshotTask = apiService.fetchUsageHealthSnapshot()
             async let metadataTask = apiService.fetchCachedProfileMetadata()
             let snapshot = await snapshotTask
             let cachedProfileMetadata = await metadataTask
+            let responseAccountID = await apiService.currentActiveAccountID()
+            guard !Task.isCancelled,
+                  requestedAccountID == responseAccountID else {
+                return
+            }
             await MainActor.run {
+                guard generation == self.claudeCredentialRefreshGeneration else { return }
                 if snapshot.runtime.credentialAvailability.hasAnyCredential {
                     self.setupWizardCredentialStepOverride = nil
                 }
@@ -139,7 +153,7 @@ extension AppDelegate {
 
                 if snapshot.runtime.credentialAvailability.hasAnyCredential {
                     if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
-                        self.refreshUsage(force: true)
+                        self.refreshUsage(force: true, syncHealthAfterCompletion: false)
                     } else {
                         self.updateMenuBar()
                         self.updatePopoverViewModel(overage: self.currentOverage)
@@ -273,13 +287,15 @@ extension AppDelegate {
         setRuntimeProviderState(RuntimeProviderState(), for: service)
     }
 
-    func resetClaudeRuntimeAfterAccountBoundaryChange() {
+    func resetClaudeRuntimeAfterAccountBoundaryChange(refreshHealthSnapshot: Bool = true) {
         currentOverage = nil
         lastOverageFetchAt = nil
         popoverViewModel.nextUsageRetryAt = nil
         setRuntimeProviderState(RuntimeProviderState(), for: .claude)
         syncRuntimePresentation(overage: nil)
-        syncUsageHealthSnapshotToUI()
+        if refreshHealthSnapshot {
+            syncUsageHealthSnapshotToUI()
+        }
     }
 
     func prepareRefresh(
@@ -314,11 +330,12 @@ extension AppDelegate {
         }
     }
 
-    func refreshUsage(force: Bool = false) {
+    func refreshUsage(force: Bool = false, syncHealthAfterCompletion: Bool = true) {
         guard ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) else { return }
         guard prepareRefresh(for: .claude, force: force) else { return }
 
-        Task {
+        claudeUsageRefreshTask = Task { [weak self] in
+            guard let self else { return }
             let requestAccountID = await apiService.currentActiveAccountID()
             do {
                 Logger.debug("사용량 갱신 시작")
@@ -329,11 +346,12 @@ extension AppDelegate {
                 let cachedProfileMetadata = await self.apiService.fetchCachedProfileMetadata()
                 let responseAccountID = await self.apiService.currentActiveAccountID()
 
+                guard !Task.isCancelled else { return }
                 await MainActor.run {
+                    guard !Task.isCancelled else { return }
                     guard requestAccountID == responseAccountID,
                           requestAccountID == result.provenance.accountID else {
                         Logger.info("Claude 계정 귀속이 다른 조회 결과 무시")
-                        self.resetClaudeRuntimeAfterAccountBoundaryChange()
                         return
                     }
                     self.currentClaudeProfileMetadata = cachedProfileMetadata
@@ -354,7 +372,9 @@ extension AppDelegate {
                     self.setRuntimeProviderState(state, for: .claude)
                     self.popoverViewModel.nextUsageRetryAt = state.nextRefreshAllowedAt
                     self.syncRuntimePresentation(overage: self.currentOverage)
-                    self.syncUsageHealthSnapshotToUI()
+                    if syncHealthAfterCompletion {
+                        self.syncUsageHealthSnapshotToUI()
+                    }
 
                     NotificationManager.shared.checkThreshold(
                         session: .fiveHour,
@@ -370,14 +390,18 @@ extension AppDelegate {
                     )
                 }
             } catch let error as APIError {
+                guard !Task.isCancelled else {
+                    Logger.debug("Claude 사용량 갱신 취소")
+                    return
+                }
                 Logger.error("API 에러: \(error.errorDescription ?? "")")
                 let responseAccountID = await self.apiService.currentActiveAccountID()
                 let fetchMetadata = await self.apiService.currentFetchMetadataSnapshot()
 
                 await MainActor.run {
+                    guard !Task.isCancelled else { return }
                     guard requestAccountID == responseAccountID else {
                         Logger.info("Claude 계정 전환 중 도착한 이전 조회 실패 무시")
-                        self.resetClaudeRuntimeAfterAccountBoundaryChange()
                         return
                     }
                     var state = self.runtimeProviderState(for: .claude)
@@ -393,18 +417,24 @@ extension AppDelegate {
                         Logger.info("임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
                     }
                     self.syncRuntimePresentation(overage: self.currentOverage)
-                    self.syncUsageHealthSnapshotToUI()
+                    if syncHealthAfterCompletion {
+                        self.syncUsageHealthSnapshotToUI()
+                    }
                 }
             } catch {
+                guard !Task.isCancelled else {
+                    Logger.debug("Claude 사용량 갱신 취소")
+                    return
+                }
                 Logger.error("예상치 못한 에러: \(error)")
 
                 let apiError = APIError.unknownError(error.localizedDescription)
                 let responseAccountID = await self.apiService.currentActiveAccountID()
                 let fetchMetadata = await self.apiService.currentFetchMetadataSnapshot()
                 await MainActor.run {
+                    guard !Task.isCancelled else { return }
                     guard requestAccountID == responseAccountID else {
                         Logger.info("Claude 계정 전환 중 도착한 이전 조회 실패 무시")
-                        self.resetClaudeRuntimeAfterAccountBoundaryChange()
                         return
                     }
                     var state = self.runtimeProviderState(for: .claude)
@@ -420,7 +450,9 @@ extension AppDelegate {
                         Logger.info("임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
                     }
                     self.syncRuntimePresentation(overage: self.currentOverage)
-                    self.syncUsageHealthSnapshotToUI()
+                    if syncHealthAfterCompletion {
+                        self.syncUsageHealthSnapshotToUI()
+                    }
                 }
             }
         }

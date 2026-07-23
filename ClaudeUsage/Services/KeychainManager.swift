@@ -12,6 +12,7 @@ extension Notification.Name {
     nonisolated static let claudeSessionKeyDidChange = Notification.Name("claudeSessionKeyDidChange")
     nonisolated static let claudeAccountDidChange = Notification.Name("claudeAccountDidChange")
     nonisolated static let claudeAccountsDidChange = Notification.Name("claudeAccountsDidChange")
+    nonisolated static let claudeUsageHealthSnapshotDidChange = Notification.Name("claudeUsageHealthSnapshotDidChange")
 }
 
 enum KeychainError: Error, LocalizedError {
@@ -87,7 +88,7 @@ final class KeychainManager: @unchecked Sendable {
         let accountID = ClaudeAccountStore.webSessionAccountID(
             fingerprint: ClaudeAccountStore.fingerprint(for: sessionKey)
         )
-        try save(sessionKey, for: accountID, postsNotification: false)
+        let credentialChanged = try save(sessionKey, for: accountID, postsNotification: false)
         _ = ClaudeAccountStore.shared.upsertWebSessionAccount(
             sessionKey: sessionKey,
             preferredOrganizationID: preferredOrganizationID,
@@ -98,17 +99,25 @@ final class KeychainManager: @unchecked Sendable {
             lastValidationState: .verified,
             setActive: true
         )
+        if credentialChanged {
+            NotificationCenter.default.post(name: .claudeSessionKeyDidChange, object: accountID)
+        }
         UserDefaults.standard.removeObject(forKey: self.storageKey)
         Logger.info("세션 키 저장 완료")
     }
 
-    nonisolated func save(_ sessionKey: String, for accountID: String, postsNotification: Bool = true) throws {
+    @discardableResult
+    nonisolated func save(
+        _ sessionKey: String,
+        for accountID: String,
+        postsNotification: Bool = true
+    ) throws -> Bool {
         guard !sessionKey.isEmpty else {
             throw KeychainError.invalidData
         }
         if self.cachedSessionKeyValue(for: accountID) == sessionKey {
             Logger.debug("세션 키 저장 스킵: 동일한 값이 이미 캐시에 있음")
-            return
+            return false
         }
         let scopedAccount = ClaudeKeychainStore.accountName(for: accountID)
         do {
@@ -118,8 +127,9 @@ final class KeychainManager: @unchecked Sendable {
         }
         self.setCachedSessionKey(sessionKey, for: accountID)
         if postsNotification {
-            NotificationCenter.default.post(name: .claudeSessionKeyDidChange, object: nil)
+            NotificationCenter.default.post(name: .claudeSessionKeyDidChange, object: accountID)
         }
+        return true
     }
 
     nonisolated func load() -> String? {
@@ -187,7 +197,7 @@ final class KeychainManager: @unchecked Sendable {
         }
         self.setCachedSessionKey(nil, for: accountID)
         if postsNotification {
-            NotificationCenter.default.post(name: .claudeSessionKeyDidChange, object: nil)
+            NotificationCenter.default.post(name: .claudeSessionKeyDidChange, object: accountID)
         }
     }
 

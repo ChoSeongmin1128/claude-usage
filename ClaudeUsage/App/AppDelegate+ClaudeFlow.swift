@@ -73,6 +73,7 @@ extension AppDelegate {
 
     func makeSettingsView() -> SettingsView {
         SettingsView(
+            claudeAPIService: apiService,
             onOpenLogin: { [weak self] in
                 self?.settingsWindowCoordinator.close()
                 self?.showLoginWindow(clearCookies: true)
@@ -83,28 +84,10 @@ extension AppDelegate {
             },
             onClearBrowserSession: { [weak self] in
                 guard let self else { return }
-                Task {
-                    let result = await ClaudeSettingsApplyCoordinator.deleteBrowserSession(
-                        apiService: self.apiService,
-                        preferredOrganizationID: "",
-                        providerEnabled: ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared)
-                    )
-                    await MainActor.run {
-                        self.resetClaudeRuntimeAfterAccountBoundaryChange()
-                        self.applyUsageHealthSnapshot(result.snapshot)
-                        if result.shouldStartMonitoring {
-                            self.startMonitoring()
-                        } else if !result.snapshot.runtime.credentialAvailability.hasAnyCredential {
-                            self.clearClaudePresentationState(markSetupIncomplete: false)
-                            self.updateMenuBar()
-                            self.updatePopoverViewModel(overage: self.currentOverage)
-                            self.syncRefreshTimerState()
-                        } else {
-                            self.updateMenuBar()
-                            self.updatePopoverViewModel(overage: self.currentOverage)
-                            self.syncRefreshTimerState()
-                        }
-                    }
+                do {
+                    try KeychainManager.shared.delete()
+                } catch {
+                    Logger.warning("브라우저 로그인 값 삭제 실패: \(error.localizedDescription)")
                 }
                 self.clearWebSessionData()
                 Logger.info("브라우저 로그인 값 삭제 완료")

@@ -11,7 +11,7 @@ final class AppRuntimeObservationCoordinator {
         onMenuBarDisplayChanged: @escaping () -> Void,
         onProviderSelectionChanged: @escaping (ProviderSelectionState) -> Void,
         onPowerStateChanged: @escaping () -> Void,
-        onClaudeSessionKeyChanged: @escaping () -> Void
+        onClaudeCredentialContextChanged: @escaping () -> Void
     ) {
         cancelAll()
 
@@ -53,9 +53,20 @@ final class AppRuntimeObservationCoordinator {
             .sink { _ in onPowerStateChanged() }
             .store(in: &cancellables)
 
-        NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange)
+        Publishers.Merge(
+            NotificationCenter.default.publisher(for: .claudeAccountDidChange),
+            NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange)
+        )
+            .filter { notification in
+                guard notification.name == .claudeSessionKeyDidChange,
+                      let changedAccountID = notification.object as? String else {
+                    return true
+                }
+                return ClaudeAccountStore.shared.state().activeAccountID == changedAccountID
+            }
+            .debounce(for: .milliseconds(40), scheduler: RunLoop.main)
             .receive(on: RunLoop.main)
-            .sink { _ in onClaudeSessionKeyChanged() }
+            .sink { _ in onClaudeCredentialContextChanged() }
             .store(in: &cancellables)
     }
 

@@ -204,7 +204,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
         let activeAccountChanged = state.activeAccountID != id
         saveRaw(accounts: accounts, activeAccountID: id)
         lock.unlock()
-        postAccountNotifications(credentialBoundaryChanged: activeAccountChanged)
+        postAccountNotifications(activeAccountChanged: activeAccountChanged)
     }
 
     @discardableResult
@@ -286,7 +286,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
         let activeID = setActive ? accountID : (state.activeAccountID ?? accountID)
         saveRaw(accounts: accounts, activeAccountID: activeID)
         lock.unlock()
-        postAccountNotifications(credentialBoundaryChanged: true)
+        postAccountNotifications(activeAccountChanged: activeID != state.activeAccountID)
         return account
     }
 
@@ -348,7 +348,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
         }
         saveRaw(accounts: accounts, activeAccountID: activeID)
         lock.unlock()
-        postAccountNotifications(credentialBoundaryChanged: activeID != state.activeAccountID)
+        postAccountNotifications(activeAccountChanged: activeID != state.activeAccountID)
         return account
     }
 
@@ -371,10 +371,19 @@ final class ClaudeAccountStore: @unchecked Sendable {
         saveRaw(accounts: state.accounts, activeAccountID: activeID)
         lock.unlock()
 
+        var deletedSessionCredential = false
         if removed.kind == .webSession {
-            try? keychainVault.delete(account: ClaudeKeychainStore.accountName(for: removed.id))
+            do {
+                try keychainVault.delete(account: ClaudeKeychainStore.accountName(for: removed.id))
+                deletedSessionCredential = true
+            } catch {
+                Logger.warning("Claude 브라우저 credential 삭제 실패")
+            }
         }
-        postAccountNotifications(credentialBoundaryChanged: state.activeAccountID == id)
+        postAccountNotifications(activeAccountChanged: state.activeAccountID == id)
+        if deletedSessionCredential {
+            postSessionCredentialNotification(accountID: removed.id)
+        }
     }
 
     nonisolated func updatePreferredOrganizationID(_ organizationID: String, for accountID: String) {
@@ -530,23 +539,33 @@ final class ClaudeAccountStore: @unchecked Sendable {
         }
     }
 
-    private nonisolated func postAccountNotifications(credentialBoundaryChanged: Bool = false) {
+    private nonisolated func postAccountNotifications(activeAccountChanged: Bool = false) {
         guard postsNotifications else { return }
 
         if Thread.isMainThread {
-            Self.postAccountNotificationsOnCurrentThread(credentialBoundaryChanged: credentialBoundaryChanged)
+            Self.postAccountNotificationsOnCurrentThread(activeAccountChanged: activeAccountChanged)
         } else {
             DispatchQueue.main.async {
-                Self.postAccountNotificationsOnCurrentThread(credentialBoundaryChanged: credentialBoundaryChanged)
+                Self.postAccountNotificationsOnCurrentThread(activeAccountChanged: activeAccountChanged)
             }
         }
     }
 
-    private nonisolated static func postAccountNotificationsOnCurrentThread(credentialBoundaryChanged: Bool) {
+    private nonisolated func postSessionCredentialNotification(accountID: String) {
+        guard postsNotifications else { return }
+        if Thread.isMainThread {
+            NotificationCenter.default.post(name: .claudeSessionKeyDidChange, object: accountID)
+        } else {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .claudeSessionKeyDidChange, object: accountID)
+            }
+        }
+    }
+
+    private nonisolated static func postAccountNotificationsOnCurrentThread(activeAccountChanged: Bool) {
         NotificationCenter.default.post(name: .claudeAccountsDidChange, object: nil)
-        NotificationCenter.default.post(name: .claudeAccountDidChange, object: nil)
-        if credentialBoundaryChanged {
-            NotificationCenter.default.post(name: .claudeSessionKeyDidChange, object: nil)
+        if activeAccountChanged {
+            NotificationCenter.default.post(name: .claudeAccountDidChange, object: nil)
         }
     }
 

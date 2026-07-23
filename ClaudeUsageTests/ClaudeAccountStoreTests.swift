@@ -190,6 +190,35 @@ final class ClaudeAccountStoreTests: XCTestCase {
         wait(for: [unwanted], timeout: 0.3)
     }
 
+    func testActiveAccountSwitchPostsAccountBoundaryWithoutSessionCredentialNotification() {
+        let store = ClaudeAccountStore(defaults: defaults, keychainVault: vault, postsNotifications: true)
+        Self.retainedObjects.append(store)
+        _ = store.upsertWebSessionAccount(sessionKey: "sk-ant-first", setActive: true)
+        let second = store.upsertWebSessionAccount(sessionKey: "sk-ant-second", setActive: false)
+
+        let accountBoundary = expectation(description: "active account boundary")
+        let unwantedSession = expectation(description: "no session credential notification")
+        unwantedSession.isInverted = true
+        let accountToken = NotificationCenter.default.addObserver(
+            forName: .claudeAccountDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in accountBoundary.fulfill() }
+        let sessionToken = NotificationCenter.default.addObserver(
+            forName: .claudeSessionKeyDidChange,
+            object: nil,
+            queue: nil
+        ) { _ in unwantedSession.fulfill() }
+        defer {
+            NotificationCenter.default.removeObserver(accountToken)
+            NotificationCenter.default.removeObserver(sessionToken)
+        }
+
+        store.setActiveAccountID(second.id)
+
+        wait(for: [accountBoundary, unwantedSession], timeout: 0.3)
+    }
+
     func testUpsertingExistingWebSessionWithoutPreferredOrganizationKeepsExistingSelection() {
         let store = makeStore()
         let account = store.upsertWebSessionAccount(

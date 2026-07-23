@@ -31,6 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var eventMonitor: Any?
     var globalClickMonitor: Any?
     var isPresentingPopover = false
+    var claudeCredentialRefreshTask: Task<Void, Never>?
+    var claudeUsageRefreshTask: Task<Void, Never>?
+    var claudeCredentialRefreshGeneration = 0
 
     var popover: NSPopover? { popoverCoordinator.popover }
     var popoverViewModel: PopoverViewModel { popoverCoordinator.viewModel }

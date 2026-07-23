@@ -20,6 +20,12 @@ extension SettingsView {
 
             if settings.isProviderEnabled(.claude) {
                 claudeAccountSection
+                ClaudeOAuthMigrationCard(
+                    state: claudeOAuthMigrationState,
+                    onMigrate: migrateLegacyClaudeOAuthCredential,
+                    onDefer: deferClaudeOAuthMigration,
+                    onShowLoginGuidance: showClaudeCodeLoginGuidance
+                )
                 // 「계정 변경」 별도 섹션은 제거. 「계정 관리」 펼침 안에서 통합 행으로 처리.
                 if shouldShowOrganizationSection {
                     organizationSection

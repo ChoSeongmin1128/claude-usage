@@ -230,7 +230,8 @@ actor ClaudeAPIService {
     private let messagesHeaderFallbackFetcher = ClaudeMessagesHeaderFallbackFetcher()
     private var profileMetadataStore: ClaudeProfileMetadataStore
     private let oauthProfileMetadataStore: ClaudeProfileMetadataStore
-    private var oauthCredentialReader: ClaudeCodeCredentialReader
+    private let oauthCredentialReader: any ClaudeOAuthCredentialReading
+    private let sessionKeyLoader: @Sendable (String) -> String?
     private let organizationCacheTTL: TimeInterval = 7 * 24 * 60 * 60
     private static let authPathHealthDefaultsKeyPrefix = "ClaudeUsage.authPathHealth.v1"
     private static let organizationCacheDefaultsKeyPrefix = "ClaudeUsage.cachedOrganizations.v1"
@@ -260,10 +261,12 @@ actor ClaudeAPIService {
         self.profileMetadataStore = profileMetadataStore
         self.oauthProfileMetadataStore = oauthProfileMetadataStore
         self.oauthCredentialReader = ClaudeCodeCredentialReader(profileMetadataStore: oauthProfileMetadataStore)
+        let sessionKeyLoader: @Sendable (String) -> String? = { KeychainManager.shared.load(for: $0) }
+        self.sessionKeyLoader = sessionKeyLoader
         self.activeAccount = activeAccount
         self.authPathHealthStore = Self.loadAuthPathHealthStore(for: activeAccount?.id)
         self.sessionKey = activeAccount?.kind == .webSession
-            ? activeAccount.flatMap { KeychainManager.shared.load(for: $0.id) }
+            ? activeAccount.flatMap { sessionKeyLoader($0.id) }
             : nil
         self.preferredOrganizationID = activeAccount?.kind == .webSession
             ? Self.normalizeOrganizationID(activeAccount?.preferredOrganizationID)
@@ -288,9 +291,43 @@ actor ClaudeAPIService {
         self.profileMetadataStore = profileMetadataStore
         self.oauthProfileMetadataStore = oauthProfileMetadataStore
         self.oauthCredentialReader = ClaudeCodeCredentialReader(profileMetadataStore: nil)
+        self.sessionKeyLoader = { _ in nil }
         self.sessionKey = sessionKey
         self.activeAccount = nil
         self.authPathHealthStore = Self.loadAuthPathHealthStore(for: nil)
+    }
+
+    /// Tests and orchestration checks can inject an OAuth reader without touching the real Keychain.
+    init(
+        accountStore: ClaudeAccountStore,
+        oauthCredentialReader: any ClaudeOAuthCredentialReading,
+        sessionKeyLoader: @escaping @Sendable (String) -> String?
+    ) {
+        self.accountStore = accountStore
+        self.usesStoredActiveAccount = true
+        self.accountStore.ensureLegacyMigrationIfNeeded()
+        let activeAccount = self.accountStore.activeAccount()
+        let profileMetadataStore = ClaudeProfileMetadataStore(accountID: activeAccount?.id)
+        self.profileMetadataStore = profileMetadataStore
+        self.oauthProfileMetadataStore = ClaudeProfileMetadataStore(
+            accountID: ClaudeAccountStore.claudeCodeExternalAccountID
+        )
+        self.oauthCredentialReader = oauthCredentialReader
+        self.sessionKeyLoader = sessionKeyLoader
+        self.activeAccount = activeAccount
+        self.authPathHealthStore = Self.loadAuthPathHealthStore(for: activeAccount?.id)
+        self.sessionKey = activeAccount?.kind == .webSession
+            ? activeAccount.flatMap { sessionKeyLoader($0.id) }
+            : nil
+        self.preferredOrganizationID = activeAccount?.kind == .webSession
+            ? Self.normalizeOrganizationID(activeAccount?.preferredOrganizationID)
+            : nil
+        accountStoreObserver.start { [weak self] in
+            guard let self else { return }
+            Task { [weak self] in
+                await self?.reloadActiveAccount()
+            }
+        }
     }
 
     func reloadActiveAccount() {
@@ -302,7 +339,7 @@ actor ClaudeAPIService {
             // 함께 무효화해야 다음 사용량 조회가 새 organization 으로 나간다.
             let previousPreferredOrganizationID = preferredOrganizationID
             if nextAccount?.kind == .webSession {
-                sessionKey = nextAccount.flatMap { KeychainManager.shared.load(for: $0.id) }
+                sessionKey = nextAccount.flatMap { sessionKeyLoader($0.id) }
                 preferredOrganizationID = Self.normalizeOrganizationID(nextAccount?.preferredOrganizationID)
             } else {
                 sessionKey = nil
@@ -329,7 +366,7 @@ actor ClaudeAPIService {
         lastOAuthSuccess = nil
 
         if nextAccount?.kind == .webSession {
-            sessionKey = nextAccount.flatMap { KeychainManager.shared.load(for: $0.id) }
+            sessionKey = nextAccount.flatMap { sessionKeyLoader($0.id) }
             preferredOrganizationID = Self.normalizeOrganizationID(nextAccount?.preferredOrganizationID)
         } else {
             sessionKey = nil
@@ -392,14 +429,24 @@ actor ClaudeAPIService {
     }
 
     func fetchUsageHealthSnapshot() async -> UsageHealthSnapshot {
+        await fetchUsageHealthSnapshot(refreshOAuthCredentialInventory: false)
+    }
+
+    func fetchUsageHealthSnapshot(refreshOAuthCredentialInventory: Bool) async -> UsageHealthSnapshot {
         reloadActiveAccount()
+        let initialState = usesStoredActiveAccount
+            ? accountStore.state()
+            : ClaudeAccountState(accounts: [], activeAccountID: nil)
+        let activeKind = usesStoredActiveAccount ? activeAccount?.kind : .webSession
+        let shouldReadOAuthCredential = usesStoredActiveAccount
+            && (refreshOAuthCredentialInventory || activeKind == .claudeCodeExternal || activeKind == nil)
         let oauthCredentialAvailable: Bool
-        if usesStoredActiveAccount {
+        if shouldReadOAuthCredential {
             oauthCredentialAvailable = (try? await readSystemOAuthAccessToken()) != nil
         } else {
-            oauthCredentialAvailable = false
+            oauthCredentialAvailable = Self.hasStoredOAuthCredentialInventory(initialState)
         }
-        if usesStoredActiveAccount, oauthCredentialAvailable {
+        if shouldReadOAuthCredential, oauthCredentialAvailable {
             _ = accountStore.upsertClaudeCodeExternalAccount(
                 identity: await claudeCodeAccountIdentity(),
                 validationState: stableClaudeCodeValidationState(credentialAvailable: true),
@@ -428,7 +475,12 @@ actor ClaudeAPIService {
     /// 의 존재만 확인한다. `fetchUsageHealthSnapshot` 은 reloadActiveAccount / upsert /
     /// 상태 저장 등 다양한 부작용이 있어 미리보기 용도로는 부담이 크다.
     func peekClaudeCodeCredentialAvailable() async -> Bool {
-        (try? await readSystemOAuthAccessToken()) != nil
+        await oauthCredentialReader.invalidateCache()
+        return (try? await readSystemOAuthAccessToken()) != nil
+    }
+
+    func invalidateClaudeCodeCredentialCache() async {
+        await oauthCredentialReader.invalidateCache()
     }
 
     /// CLI external account 가 store 에 있다면 그 cached profile metadata 를 반환.
@@ -645,12 +697,20 @@ actor ClaudeAPIService {
     func fetchUsageOutcome() async throws -> ClaudeUsageFetchOutcome {
         reloadActiveAccount()
         Logger.info("사용량 데이터 요청 시작")
-        let oauthAccessToken = try await readSystemOAuthAccessToken()
+        let initialActiveKind: ClaudeAccountKind? = {
+            if usesStoredActiveAccount { return activeAccount?.kind }
+            return .webSession
+        }()
+        let shouldReadOAuthCredential = usesStoredActiveAccount
+            && (initialActiveKind == .claudeCodeExternal || initialActiveKind == nil)
+        let oauthAccessToken = shouldReadOAuthCredential
+            ? try await readSystemOAuthAccessToken()
+            : nil
         // OAuth credential 이 발견되면 활성 계정 유무와 무관하게 CLI external account 를
         // 항상 store 에 등록한다. 등록만 하고 activeIfMissing 으로만 active 결정 →
         // 사용자가 다른 web 계정을 명시 선택한 경우 그 선택을 존중하지만,
         // 설정 UI 의 계정 목록과 health snapshot 에서 CLI 계정이 항상 보이도록 보장.
-        if usesStoredActiveAccount, oauthAccessToken != nil {
+        if shouldReadOAuthCredential, oauthAccessToken != nil {
             _ = accountStore.upsertClaudeCodeExternalAccount(
                 identity: await claudeCodeAccountIdentity(),
                 validationState: stableClaudeCodeValidationState(credentialAvailable: true),
@@ -1598,6 +1658,13 @@ actor ClaudeAPIService {
 
     private func readSystemOAuthAccessToken() async throws -> String? {
         try await oauthCredentialReader.readAccessToken()
+    }
+
+    private nonisolated static func hasStoredOAuthCredentialInventory(_ state: ClaudeAccountState) -> Bool {
+        guard let account = state.accounts.first(where: { $0.kind == .claudeCodeExternal }) else {
+            return false
+        }
+        return account.lastValidationState == .detected || account.lastValidationState == .verified
     }
 
     private func currentMessagesFallbackPolicy() async -> ClaudeMessagesHeaderFallbackPolicy {
