@@ -90,7 +90,7 @@ final class KeychainManager: @unchecked Sendable {
             fingerprint: ClaudeAccountStore.fingerprint(for: sessionKey)
         )
         let credentialChanged = try save(sessionKey, for: accountID, postsNotification: false)
-        _ = ClaudeAccountStore.shared.upsertWebSessionAccount(
+        let upsertResult = ClaudeAccountStore.shared.upsertWebSessionAccountReplacingRotatedChromeSession(
             sessionKey: sessionKey,
             preferredOrganizationID: preferredOrganizationID,
             identity: identity ?? ClaudeAccountIdentity(),
@@ -100,7 +100,14 @@ final class KeychainManager: @unchecked Sendable {
             lastValidationState: .verified,
             setActive: true
         )
-        if credentialChanged {
+        for supersededAccountID in upsertResult.supersededAccountIDs {
+            do {
+                try delete(for: supersededAccountID, postsNotification: false)
+            } catch {
+                Logger.warning("교체된 Chrome credential 정리 실패")
+            }
+        }
+        if credentialChanged || !upsertResult.supersededAccountIDs.isEmpty {
             NotificationCenter.default.post(name: .claudeSessionKeyDidChange, object: accountID)
         }
         UserDefaults.standard.removeObject(forKey: self.storageKey)

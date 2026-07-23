@@ -162,6 +162,11 @@ struct ClaudeAccountState: Equatable, Sendable {
     }
 }
 
+struct ClaudeWebSessionUpsertResult: Sendable {
+    let account: ClaudeAccount
+    let supersededAccountIDs: [String]
+}
+
 final class ClaudeAccountStore: @unchecked Sendable {
     nonisolated static let shared = ClaudeAccountStore()
 
@@ -170,7 +175,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
     nonisolated static let migrationVersionDefaultsKey = "ClaudeUsage.claudeAccountsMigrationVersion"
     nonisolated static let legacySessionKeyDefaultsKey = "claude-session-key"
     nonisolated static let legacyPreferredOrganizationDefaultsKey = "preferredOrganizationID"
-    nonisolated static let currentMigrationVersion = 1
+    nonisolated static let currentMigrationVersion = 2
     nonisolated static let claudeCodeExternalAccountID = "claude-code-external"
 
     private nonisolated(unsafe) let defaults: UserDefaults
@@ -237,6 +242,57 @@ final class ClaudeAccountStore: @unchecked Sendable {
         lastValidationState: ClaudeCredentialValidationState = .detected,
         setActive: Bool = true
     ) -> ClaudeAccount {
+        upsertWebSessionAccountResult(
+            sessionKey: sessionKey,
+            preferredOrganizationID: preferredOrganizationID,
+            identity: identity,
+            displayName: displayName,
+            source: source,
+            sourceDetail: sourceDetail,
+            lastValidationState: lastValidationState,
+            setActive: setActive,
+            replacesRotatedChromeSession: false
+        ).account
+    }
+
+    /// A Chrome profile can receive a new session cookie for the same Claude
+    /// account. Treat that as credential rotation instead of exposing another
+    /// indistinguishable account row.
+    @discardableResult
+    nonisolated func upsertWebSessionAccountReplacingRotatedChromeSession(
+        sessionKey: String,
+        preferredOrganizationID: String? = nil,
+        identity: ClaudeAccountIdentity = ClaudeAccountIdentity(),
+        displayName: String? = nil,
+        source: ClaudeAccountSource? = nil,
+        sourceDetail: String? = nil,
+        lastValidationState: ClaudeCredentialValidationState = .detected,
+        setActive: Bool = true
+    ) -> ClaudeWebSessionUpsertResult {
+        upsertWebSessionAccountResult(
+            sessionKey: sessionKey,
+            preferredOrganizationID: preferredOrganizationID,
+            identity: identity,
+            displayName: displayName,
+            source: source,
+            sourceDetail: sourceDetail,
+            lastValidationState: lastValidationState,
+            setActive: setActive,
+            replacesRotatedChromeSession: true
+        )
+    }
+
+    private nonisolated func upsertWebSessionAccountResult(
+        sessionKey: String,
+        preferredOrganizationID: String?,
+        identity: ClaudeAccountIdentity,
+        displayName: String?,
+        source: ClaudeAccountSource?,
+        sourceDetail: String?,
+        lastValidationState: ClaudeCredentialValidationState,
+        setActive: Bool,
+        replacesRotatedChromeSession: Bool
+    ) -> ClaudeWebSessionUpsertResult {
         ensureLegacyMigrationIfNeeded()
         let fingerprint = Self.fingerprint(for: sessionKey)
         let accountID = Self.webSessionAccountID(fingerprint: fingerprint)
@@ -260,11 +316,34 @@ final class ClaudeAccountStore: @unchecked Sendable {
         let requestedSourceDetail = sourceDetail?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .nilIfEmpty
+        let supersededAccounts = replacesRotatedChromeSession
+            ? Self.rotatedChromeSessionAccounts(
+                in: accounts,
+                keepingAccountID: accountID,
+                source: source,
+                sourceDetail: requestedSourceDetail,
+                identity: resolvedIdentity
+            )
+            : []
+        let inheritedExplicitPreference = supersededAccounts
+            .filter { $0.preferredOrganizationWasUserSelected == true }
+            .max(by: Self.isOlderAccount)
 
         let account: ClaudeAccount
         if let index = accounts.firstIndex(where: { $0.id == accountID }) {
-            let resolvedPreferredOrganizationID = requestedPreferredOrganizationID
-                ?? accounts[index].preferredOrganizationID
+            let resolvedPreferredOrganizationID: String
+            let resolvedPreferenceWasUserSelected: Bool?
+            if requestedPreferenceWasUserSelected == true {
+                resolvedPreferredOrganizationID = requestedPreferredOrganizationID ?? ""
+                resolvedPreferenceWasUserSelected = true
+            } else if let inheritedExplicitPreference {
+                resolvedPreferredOrganizationID = inheritedExplicitPreference.preferredOrganizationID
+                resolvedPreferenceWasUserSelected = true
+            } else {
+                resolvedPreferredOrganizationID = requestedPreferredOrganizationID
+                    ?? accounts[index].preferredOrganizationID
+                resolvedPreferenceWasUserSelected = requestedPreferenceWasUserSelected
+            }
             let resolvedDisplayName: String
             if let requestedDisplayName, !requestedDisplayName.isEmpty {
                 resolvedDisplayName = requestedDisplayName
@@ -276,17 +355,27 @@ final class ClaudeAccountStore: @unchecked Sendable {
             accounts[index].source = source ?? accounts[index].source ?? .embeddedWebLogin
             accounts[index].sourceDetail = requestedSourceDetail ?? accounts[index].sourceDetail
             accounts[index].preferredOrganizationID = resolvedPreferredOrganizationID
-            if let requestedPreferenceWasUserSelected {
-                accounts[index].preferredOrganizationWasUserSelected = requestedPreferenceWasUserSelected
+            if let resolvedPreferenceWasUserSelected {
+                accounts[index].preferredOrganizationWasUserSelected = resolvedPreferenceWasUserSelected
             }
             accounts[index].lastUsedAt = now
             accounts[index].lastValidationState = lastValidationState
             account = accounts[index]
         } else {
-            let resolvedPreferredOrganizationID = requestedPreferredOrganizationID
-                ?? legacyPreferredOrganizationID()
-            let resolvedPreferenceWasUserSelected = requestedPreferenceWasUserSelected
-                ?? !resolvedPreferredOrganizationID.isEmpty
+            let resolvedPreferredOrganizationID: String
+            let resolvedPreferenceWasUserSelected: Bool?
+            if requestedPreferenceWasUserSelected == true {
+                resolvedPreferredOrganizationID = requestedPreferredOrganizationID ?? ""
+                resolvedPreferenceWasUserSelected = true
+            } else if let inheritedExplicitPreference {
+                resolvedPreferredOrganizationID = inheritedExplicitPreference.preferredOrganizationID
+                resolvedPreferenceWasUserSelected = true
+            } else {
+                resolvedPreferredOrganizationID = requestedPreferredOrganizationID
+                    ?? legacyPreferredOrganizationID()
+                resolvedPreferenceWasUserSelected = requestedPreferenceWasUserSelected
+                    ?? !resolvedPreferredOrganizationID.isEmpty
+            }
             let resolvedDisplayName: String
             if let requestedDisplayName, !requestedDisplayName.isEmpty {
                 resolvedDisplayName = requestedDisplayName
@@ -309,11 +398,24 @@ final class ClaudeAccountStore: @unchecked Sendable {
             accounts.append(account)
         }
 
-        let activeID = setActive ? accountID : (state.activeAccountID ?? accountID)
+        let supersededAccountIDs = supersededAccounts.map(\.id)
+        if !supersededAccountIDs.isEmpty {
+            let supersededIDSet = Set(supersededAccountIDs)
+            accounts.removeAll { supersededIDSet.contains($0.id) }
+        }
+        let activeID: String
+        if setActive || state.activeAccountID.map(supersededAccountIDs.contains) == true {
+            activeID = accountID
+        } else {
+            activeID = state.activeAccountID ?? accountID
+        }
         saveRaw(accounts: accounts, activeAccountID: activeID)
         lock.unlock()
         postAccountNotifications(activeAccountChanged: activeID != state.activeAccountID)
-        return account
+        return ClaudeWebSessionUpsertResult(
+            account: account,
+            supersededAccountIDs: supersededAccountIDs
+        )
     }
 
     @discardableResult
@@ -450,66 +552,195 @@ final class ClaudeAccountStore: @unchecked Sendable {
 
     nonisolated func ensureLegacyMigrationIfNeeded() {
         lock.lock()
-        let migrationVersion = defaults.integer(forKey: Self.migrationVersionDefaultsKey)
+        var migrationVersion = defaults.integer(forKey: Self.migrationVersionDefaultsKey)
         guard migrationVersion < Self.currentMigrationVersion else {
             lock.unlock()
             return
         }
 
         var state = rawState()
-        let legacyKeychainAccount = ClaudeKeychainStore.defaultAccount
-        let keychainValue = try? keychainVault.loadString(account: legacyKeychainAccount)
-        let defaultsValue = defaults.string(forKey: Self.legacySessionKeyDefaultsKey)
-        let legacySessionKey = [keychainValue, defaultsValue]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first(where: { !$0.isEmpty })
+        let previousActiveAccountID = state.activeAccountID
+        var shouldDeleteLegacyKeychainAccount = false
+        var supersededAccountIDs: [String] = []
+        var didChangeAccounts = false
 
-        guard let legacySessionKey else {
-            if state.activeAccountID == nil {
+        if migrationVersion < 1 {
+            let legacyKeychainAccount = ClaudeKeychainStore.defaultAccount
+            let keychainValue = try? keychainVault.loadString(account: legacyKeychainAccount)
+            let defaultsValue = defaults.string(forKey: Self.legacySessionKeyDefaultsKey)
+            let legacySessionKey = [keychainValue, defaultsValue]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first(where: { !$0.isEmpty })
+
+            if let legacySessionKey {
+                let fingerprint = Self.fingerprint(for: legacySessionKey)
+                let accountID = Self.webSessionAccountID(fingerprint: fingerprint)
+                let scopedAccountName = ClaudeKeychainStore.accountName(for: accountID)
+                do {
+                    try keychainVault.saveString(legacySessionKey, account: scopedAccountName)
+                } catch {
+                    Logger.warning("Claude 계정 마이그레이션 실패: \(error.localizedDescription)")
+                    lock.unlock()
+                    return
+                }
+
+                if !state.accounts.contains(where: { $0.id == accountID }) {
+                    let preferredOrganizationID = legacyPreferredOrganizationID()
+                    state.accounts.append(
+                        ClaudeAccount(
+                            id: accountID,
+                            kind: .webSession,
+                            displayName: "브라우저 계정",
+                            identity: ClaudeAccountIdentity(fingerprint: fingerprint),
+                            source: .legacyMigration,
+                            preferredOrganizationID: preferredOrganizationID
+                        )
+                    )
+                    didChangeAccounts = true
+                }
+
+                if state.activeAccountID == nil
+                    || state.accounts.contains(where: { $0.id == state.activeAccountID }) == false
+                {
+                    state.activeAccountID = accountID
+                    didChangeAccounts = true
+                }
+                shouldDeleteLegacyKeychainAccount = true
+            } else if state.activeAccountID == nil {
                 state.activeAccountID = state.accounts.first(where: { $0.kind == .webSession })?.id
                     ?? state.accounts.first?.id
+                didChangeAccounts = state.activeAccountID != nil
             }
-            saveRaw(accounts: state.accounts, activeAccountID: state.activeAccountID)
-            defaults.set(Self.currentMigrationVersion, forKey: Self.migrationVersionDefaultsKey)
-            lock.unlock()
-            return
+
+            defaults.removeObject(forKey: Self.legacySessionKeyDefaultsKey)
+            migrationVersion = 1
+            defaults.set(migrationVersion, forKey: Self.migrationVersionDefaultsKey)
         }
 
-        let fingerprint = Self.fingerprint(for: legacySessionKey)
-        let accountID = Self.webSessionAccountID(fingerprint: fingerprint)
-        let scopedAccountName = ClaudeKeychainStore.accountName(for: accountID)
-        do {
-            try keychainVault.saveString(legacySessionKey, account: scopedAccountName)
-        } catch {
-            Logger.warning("Claude 계정 마이그레이션 실패: \(error.localizedDescription)")
-            lock.unlock()
-            return
-        }
-
-        if !state.accounts.contains(where: { $0.id == accountID }) {
-            let preferredOrganizationID = legacyPreferredOrganizationID()
-            state.accounts.append(
-                ClaudeAccount(
-                    id: accountID,
-                    kind: .webSession,
-                    displayName: "브라우저 계정",
-                    identity: ClaudeAccountIdentity(fingerprint: fingerprint),
-                    source: .legacyMigration,
-                    preferredOrganizationID: preferredOrganizationID
-                )
+        if migrationVersion < 2 {
+            let consolidation = Self.consolidatingRotatedChromeSessions(
+                accounts: state.accounts,
+                activeAccountID: state.activeAccountID
             )
-        }
-
-        if state.activeAccountID == nil || state.accounts.contains(where: { $0.id == state.activeAccountID }) == false {
-            state.activeAccountID = accountID
+            if !consolidation.supersededAccountIDs.isEmpty {
+                state.accounts = consolidation.accounts
+                state.activeAccountID = consolidation.activeAccountID
+                supersededAccountIDs = consolidation.supersededAccountIDs
+                didChangeAccounts = true
+            }
+            migrationVersion = 2
+            defaults.set(migrationVersion, forKey: Self.migrationVersionDefaultsKey)
         }
 
         saveRaw(accounts: state.accounts, activeAccountID: state.activeAccountID)
-        try? keychainVault.delete(account: legacyKeychainAccount)
-        defaults.removeObject(forKey: Self.legacySessionKeyDefaultsKey)
-        defaults.set(Self.currentMigrationVersion, forKey: Self.migrationVersionDefaultsKey)
         lock.unlock()
-        postAccountNotifications()
+
+        if shouldDeleteLegacyKeychainAccount {
+            try? keychainVault.delete(account: ClaudeKeychainStore.defaultAccount)
+        }
+        for accountID in supersededAccountIDs {
+            do {
+                try keychainVault.delete(account: ClaudeKeychainStore.accountName(for: accountID))
+            } catch {
+                Logger.warning("교체된 Chrome credential 정리 실패")
+            }
+        }
+        if didChangeAccounts {
+            postAccountNotifications(activeAccountChanged: previousActiveAccountID != state.activeAccountID)
+        }
+    }
+
+    private nonisolated static func rotatedChromeSessionAccounts(
+        in accounts: [ClaudeAccount],
+        keepingAccountID: String,
+        source: ClaudeAccountSource?,
+        sourceDetail: String?,
+        identity: ClaudeAccountIdentity
+    ) -> [ClaudeAccount] {
+        guard source == .chromeProfile,
+              let sourceDetail = normalizedRotationIdentityComponent(sourceDetail),
+              let organizationID = normalizedRotationIdentityComponent(identity.organizationID) else {
+            return []
+        }
+
+        return accounts.filter { account in
+            account.id != keepingAccountID
+                && account.kind == .webSession
+                && account.source == .chromeProfile
+                && normalizedRotationIdentityComponent(account.sourceDetail) == sourceDetail
+                && normalizedRotationIdentityComponent(account.identity.organizationID) == organizationID
+        }
+    }
+
+    private nonisolated static func consolidatingRotatedChromeSessions(
+        accounts: [ClaudeAccount],
+        activeAccountID: String?
+    ) -> (accounts: [ClaudeAccount], activeAccountID: String?, supersededAccountIDs: [String]) {
+        let grouped = Dictionary(grouping: accounts) { account -> String? in
+            guard account.kind == .webSession,
+                  account.source == .chromeProfile,
+                  let sourceDetail = normalizedRotationIdentityComponent(account.sourceDetail),
+                  let organizationID = normalizedRotationIdentityComponent(account.identity.organizationID) else {
+                return nil
+            }
+            return "\(sourceDetail)\u{1F}\(organizationID)"
+        }
+
+        var keptAccountsByID = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
+        var resolvedActiveAccountID = activeAccountID
+        var supersededAccountIDs: [String] = []
+
+        for (key, group) in grouped {
+            guard key != nil, group.count > 1 else { continue }
+            let keeper = group.first(where: { $0.id == activeAccountID })
+                ?? group.max(by: isOlderAccount)!
+            var mergedKeeper = keeper
+            let explicitPreference = group
+                .filter { $0.preferredOrganizationWasUserSelected == true }
+                .max(by: isOlderAccount)
+            if mergedKeeper.preferredOrganizationWasUserSelected != true,
+               let explicitPreference
+            {
+                mergedKeeper.preferredOrganizationID = explicitPreference.preferredOrganizationID
+                mergedKeeper.preferredOrganizationWasUserSelected = true
+            }
+            mergedKeeper.createdAt = group.map(\.createdAt).min() ?? mergedKeeper.createdAt
+            mergedKeeper.lastUsedAt = group.map(\.lastUsedAt).max() ?? mergedKeeper.lastUsedAt
+            keptAccountsByID[keeper.id] = mergedKeeper
+
+            for account in group where account.id != keeper.id {
+                keptAccountsByID.removeValue(forKey: account.id)
+                supersededAccountIDs.append(account.id)
+                if resolvedActiveAccountID == account.id {
+                    resolvedActiveAccountID = keeper.id
+                }
+            }
+        }
+
+        let orderedAccounts = accounts.compactMap { keptAccountsByID.removeValue(forKey: $0.id) }
+        return (
+            accounts: orderedAccounts,
+            activeAccountID: resolvedActiveAccountID,
+            supersededAccountIDs: supersededAccountIDs
+        )
+    }
+
+    private nonisolated static func normalizedRotationIdentityComponent(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let normalized = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private nonisolated static func isOlderAccount(_ lhs: ClaudeAccount, _ rhs: ClaudeAccount) -> Bool {
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt < rhs.createdAt
+        }
+        if lhs.lastUsedAt != rhs.lastUsedAt {
+            return lhs.lastUsedAt < rhs.lastUsedAt
+        }
+        return lhs.id < rhs.id
     }
 
     nonisolated static func webSessionAccountID(fingerprint: String) -> String {
