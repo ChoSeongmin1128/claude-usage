@@ -7,7 +7,7 @@ enum PopoverLayoutMetrics {
     static let standardFooterContainerHeight: CGFloat = 30
     static let standardShortcutFooterHeight: CGFloat = 16
     static let standardMainSectionBottomSpacing: CGFloat = 2
-    static let compactHeaderHeight: CGFloat = 30
+    static let compactHeaderHeight: CGFloat = 21
     static let compactFooterHeight: CGFloat = 31
     static let dividerHeight: CGFloat = 1
     static let standardProviderSelectorSize: CGFloat = 26

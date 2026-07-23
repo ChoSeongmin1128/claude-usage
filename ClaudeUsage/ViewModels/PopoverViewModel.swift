@@ -487,12 +487,12 @@ final class PopoverViewModel: ObservableObject {
 
     private func runtimeMeta(for snapshot: RuntimeProviderSnapshot) -> String? {
         guard snapshot.hasContent else {
-            return snapshot.lastUpdated.map(relativeTimestamp(for:))
+            return snapshot.lastUpdated.map { Self.relativeTimestamp(for: $0) }
         }
         guard let lastUpdated = snapshot.lastUpdated else {
             return nil
         }
-        let relative = relativeTimestamp(for: lastUpdated)
+        let relative = Self.relativeTimestamp(for: lastUpdated)
         if snapshot.isLoading {
             return "갱신 중 · \(relative) 성공"
         }
@@ -502,7 +502,7 @@ final class PopoverViewModel: ObservableObject {
             }
             return "\(relative) 성공 · 갱신 실패"
         }
-        return "갱신 \(relative)"
+        return "\(relative) 갱신"
     }
 
     private func shouldShowWarningDot(
@@ -518,8 +518,18 @@ final class PopoverViewModel: ObservableObject {
         return snapshot.error != nil
     }
 
-    private func relativeTimestamp(for date: Date) -> String {
-        RelativeDateTimeFormatter().localizedString(for: date, relativeTo: Date())
+    nonisolated static func relativeTimestamp(for date: Date, relativeTo referenceDate: Date = Date()) -> String {
+        let elapsed = max(0, referenceDate.timeIntervalSince(date))
+        if elapsed < 60 {
+            return "방금"
+        }
+        if elapsed < 60 * 60 {
+            return "\(Int(elapsed / 60))분 전"
+        }
+        if elapsed < 24 * 60 * 60 {
+            return "\(Int(elapsed / (60 * 60)))시간 전"
+        }
+        return "\(Int(elapsed / (24 * 60 * 60)))일 전"
     }
 
     func localProviderSummaryState(for service: PopoverService, settings: AppSettings) -> LocalProviderSummaryState? {

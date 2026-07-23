@@ -207,14 +207,10 @@ extension SettingsView {
     }
 
     private var claudeAccountManagementSection: some View {
-        DisclosureGroup(isExpanded: $isClaudeAccountManagementExpanded) {
-            VStack(alignment: .leading, spacing: 10) {
-                connectedClaudeAccountsCard
-                accountAddCard
-                advancedClaudeDiagnosticsSection
-            }
-            .padding(.top, 8)
-        } label: {
+        SettingsDisclosureControl(
+            isExpanded: $isClaudeAccountManagementExpanded,
+            accessibilityLabel: "계정 관리"
+        ) {
             HStack(spacing: 8) {
                 Text("계정 관리")
                     .font(.subheadline.weight(.semibold))
@@ -226,7 +222,12 @@ extension SettingsView {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .contentShape(Rectangle())
+        } content: {
+            VStack(alignment: .leading, spacing: 10) {
+                connectedClaudeAccountsCard
+                accountAddCard
+                advancedClaudeDiagnosticsSection
+            }
         }
         .padding(12)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.35))

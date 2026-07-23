@@ -18,18 +18,25 @@ struct PopoverView: View {
         let layoutSpec = layout.spec
 
         VStack(alignment: .leading, spacing: 0) {
-            // 상단 바: provider 선택과 조회 provenance/freshness를 한 영역에서 보여준다.
+            // Compact는 계정 혼동이나 조치가 필요한 상태만 한 줄에 남긴다.
+            // Standard는 provenance/freshness를 별도 상태 레일로 제공한다.
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 8) {
                     headerServiceSelector
                         .layoutPriority(1)
-                    Spacer(minLength: 8)
+                    if let context = compactHeaderContext {
+                        compactHeaderContextView(context)
+                            .layoutPriority(0)
+                    }
+                    Spacer(minLength: isCompact ? 4 : 8)
                     headerUtilityControls
                 }
                 .frame(height: PopoverLayoutMetrics.providerSelectorSize(compact: isCompact))
 
-                providerStatusRail
-                    .frame(height: isCompact ? 9 : 12)
+                if !isCompact {
+                    providerStatusRail
+                        .frame(height: 12)
+                }
             }
             .padding(.horizontal, isCompact ? 12 : 16)
             .padding(.top, isCompact ? 1 : 4)
@@ -226,9 +233,16 @@ struct PopoverView: View {
 
     @ViewBuilder
     private var headerServiceSelector: some View {
-        if availableServices.count > 1 {
+        if isCompact {
+            HStack(spacing: 5) {
+                ForEach(availableServices, id: \.rawValue) { service in
+                    headerSelectorButton(for: service)
+                }
+            }
+            .fixedSize(horizontal: true, vertical: false)
+        } else if availableServices.count > 1 {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: isCompact ? 5 : 6) {
+                HStack(spacing: 6) {
                     ForEach(availableServices, id: \.rawValue) { service in
                         headerSelectorButton(for: service)
                     }
@@ -258,6 +272,50 @@ struct PopoverView: View {
         .accessibilityLabel(service.displayName)
         .accessibilityValue(providerSelectorAccessibilityValue(for: service))
         .accessibilityAddTraits(selectedService == service ? .isSelected : [])
+    }
+
+    private var compactHeaderContext: CompactPopoverHeaderContext? {
+        guard isCompact else { return nil }
+        let state = viewModel.runtimeServiceState(for: selectedService, settings: settings)
+        let accounts = selectedService == .claude
+            ? (viewModel.usageHealthSnapshot?.accounts ?? [])
+            : []
+        let activeAccount = state.accountID.flatMap { accountID in
+            accounts.first(where: { $0.id == accountID })
+        }
+        return CompactPopoverHeaderPresentationPolicy.resolve(
+            accountCount: accounts.count,
+            activeAccount: activeAccount,
+            isLoading: state.isLoading,
+            isAuthenticationRequired: state.isAuthRequired,
+            hasRefreshError: state.error != nil
+        )
+    }
+
+    private func compactHeaderContextView(_ context: CompactPopoverHeaderContext) -> some View {
+        HStack(spacing: 3) {
+            if let accountLabel = context.accountLabel {
+                Text(accountLabel)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            if context.accountLabel != nil, context.status != nil {
+                Text("·")
+                    .foregroundStyle(.tertiary)
+            }
+            if let status = context.status {
+                Text(status.label)
+                    .foregroundStyle(status == .authenticationRequired || status == .refreshFailed ? .orange : .secondary)
+                    .fixedSize()
+                    .layoutPriority(1)
+            }
+        }
+        .font(.system(size: 9, weight: .medium))
+        .help(context.labels.joined(separator: " · "))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("선택한 서비스 상태")
+        .accessibilityValue(context.labels.joined(separator: ", "))
     }
 
     private var providerStatusRail: some View {

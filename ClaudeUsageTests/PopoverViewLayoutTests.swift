@@ -3,6 +3,111 @@ import XCTest
 @testable import ClaudeUsage
 
 final class PopoverViewLayoutTests: XCTestCase {
+    func testCompactHeaderHidesNormalSingleAccountMetadata() {
+        let account = makeClaudeAccount(
+            email: "nathan@example.com",
+            organizationName: "Glorang",
+            planLabel: "team"
+        )
+
+        XCTAssertNil(
+            CompactPopoverHeaderPresentationPolicy.resolve(
+                accountCount: 1,
+                activeAccount: account,
+                isLoading: false,
+                isAuthenticationRequired: false,
+                hasRefreshError: false
+            )
+        )
+    }
+
+    func testCompactHeaderShowsActualIdentityOnlyForMultipleAccounts() {
+        let account = makeClaudeAccount(
+            email: "nathan@example.com",
+            organizationName: "Glorang",
+            planLabel: "team"
+        )
+
+        let context = CompactPopoverHeaderPresentationPolicy.resolve(
+            accountCount: 2,
+            activeAccount: account,
+            isLoading: false,
+            isAuthenticationRequired: false,
+            hasRefreshError: false
+        )
+
+        XCTAssertEqual(context?.labels, ["nathan@example.com"])
+    }
+
+    func testCompactHeaderDoesNotUsePlanAsAccountIdentity() {
+        let account = makeClaudeAccount(
+            email: nil,
+            organizationName: nil,
+            planLabel: "team"
+        )
+
+        XCTAssertNil(
+            CompactPopoverHeaderPresentationPolicy.resolve(
+                accountCount: 2,
+                activeAccount: account,
+                isLoading: false,
+                isAuthenticationRequired: false,
+                hasRefreshError: false
+            )
+        )
+    }
+
+    func testCompactHeaderShowsOnlyActionableRuntimeStates() {
+        XCTAssertEqual(
+            CompactPopoverHeaderPresentationPolicy.resolve(
+                accountCount: 0,
+                activeAccount: nil,
+                isLoading: true,
+                isAuthenticationRequired: false,
+                hasRefreshError: false
+            )?.labels,
+            ["갱신 중"]
+        )
+        XCTAssertEqual(
+            CompactPopoverHeaderPresentationPolicy.resolve(
+                accountCount: 0,
+                activeAccount: nil,
+                isLoading: false,
+                isAuthenticationRequired: true,
+                hasRefreshError: false
+            )?.labels,
+            ["로그인 필요"]
+        )
+        XCTAssertEqual(
+            CompactPopoverHeaderPresentationPolicy.resolve(
+                accountCount: 0,
+                activeAccount: nil,
+                isLoading: false,
+                isAuthenticationRequired: false,
+                hasRefreshError: true
+            )?.labels,
+            ["갱신 실패"]
+        )
+    }
+
+    func testRelativeTimestampAvoidsSecondLevelPseudoPrecision() {
+        let reference = Date(timeIntervalSince1970: 10_000)
+
+        XCTAssertEqual(PopoverViewModel.relativeTimestamp(for: reference, relativeTo: reference), "방금")
+        XCTAssertEqual(
+            PopoverViewModel.relativeTimestamp(for: reference.addingTimeInterval(-59), relativeTo: reference),
+            "방금"
+        )
+        XCTAssertEqual(
+            PopoverViewModel.relativeTimestamp(for: reference.addingTimeInterval(-60), relativeTo: reference),
+            "1분 전"
+        )
+        XCTAssertEqual(
+            PopoverViewModel.relativeTimestamp(for: reference.addingTimeInterval(15), relativeTo: reference),
+            "방금"
+        )
+    }
+
     func testProviderStatusRailAlwaysIdentifiesSelectedProvider() {
         XCTAssertEqual(
             PopoverView.providerStatusRailLabels(
@@ -161,7 +266,7 @@ final class PopoverViewLayoutTests: XCTestCase {
     func testCompactPopoverHeightUsesShorterStatusVariant() {
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .empty, rowCount: 0),
-            116
+            107
         )
         // 행 수 기반 높이: 1행은 최소 높이(96)에 걸리고, 이후 행마다 21pt씩 커진다.
         // 최대 표시 행 수(5)를 넘으면 고정 + 내부 스크롤.
@@ -171,23 +276,41 @@ final class PopoverViewLayoutTests: XCTestCase {
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .content, rowCount: 2),
-            115
+            106
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .content, rowCount: 3),
-            136
+            127
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .content, rowCount: 4),
-            157
+            148
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .content, rowCount: 5),
-            178
+            169
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .content, rowCount: 6),
-            178
+            169
+        )
+    }
+
+    private func makeClaudeAccount(
+        email: String?,
+        organizationName: String?,
+        planLabel: String?
+    ) -> ClaudeAccount {
+        ClaudeAccount(
+            id: "test-account",
+            kind: .webSession,
+            displayName: planLabel ?? "브라우저 계정",
+            identity: ClaudeAccountIdentity(
+                email: email,
+                organizationName: organizationName,
+                planLabel: planLabel
+            ),
+            lastValidationState: .verified
         )
     }
 
@@ -239,7 +362,7 @@ final class PopoverViewLayoutTests: XCTestCase {
 
         XCTAssertEqual(result.0, expectedBodyHeight)
         XCTAssertEqual(result.1, 5)
-        XCTAssertEqual(result.2, 115)
+        XCTAssertEqual(result.2, 106)
     }
 
     func testCompactPopoverContentHeightFollowsVisibleRowCounts() async {
@@ -305,9 +428,9 @@ final class PopoverViewLayoutTests: XCTestCase {
             return (claudeHeight, codexHeight)
         }
 
-        // Claude 3행(현재+주간+Sonnet) → 136, Codex 2행 → 115
-        XCTAssertEqual(result.0, 136)
-        XCTAssertEqual(result.1, 115)
+        // Claude 3행(현재+주간+Sonnet) → 127, Codex 2행 → 106
+        XCTAssertEqual(result.0, 127)
+        XCTAssertEqual(result.1, 106)
     }
 
     func testStandardShownContentUsesMeasuredHeightInsteadOfFallbackBucket() {
@@ -363,7 +486,7 @@ final class PopoverViewLayoutTests: XCTestCase {
         ).targetSize()
 
         XCTAssertEqual(targetSize.width, 296)
-        XCTAssertEqual(targetSize.height, 115)
+        XCTAssertEqual(targetSize.height, 106)
     }
 
     func testPopoverCompactStateIsGlobalAcrossProviders() async {
