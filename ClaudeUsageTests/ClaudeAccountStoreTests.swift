@@ -78,6 +78,84 @@ final class ClaudeAccountStoreTests: XCTestCase {
         XCTAssertEqual(defaults.integer(forKey: ClaudeAccountStore.migrationVersionDefaultsKey), 0)
     }
 
+    func testVersionThreeMigrationMovesResidualDefaultsCredentialIntoScopedKeychain() throws {
+        let legacySession = "sk-ant-residual-session"
+        let accountID = ClaudeAccountStore.webSessionAccountID(
+            fingerprint: ClaudeAccountStore.fingerprint(for: legacySession)
+        )
+        let existingAccount = ClaudeAccount(
+            id: accountID,
+            kind: .webSession,
+            displayName: "Chrome Nathan",
+            identity: ClaudeAccountIdentity(
+                organizationName: "Example Org",
+                fingerprint: ClaudeAccountStore.fingerprint(for: legacySession)
+            ),
+            source: .chromeProfile
+        )
+        defaults.set(
+            try JSONEncoder().encode([existingAccount]),
+            forKey: ClaudeAccountStore.accountsDefaultsKey
+        )
+        defaults.set(accountID, forKey: ClaudeAccountStore.activeAccountDefaultsKey)
+        defaults.set(2, forKey: ClaudeAccountStore.migrationVersionDefaultsKey)
+        defaults.set(legacySession, forKey: ClaudeAccountStore.legacySessionKeyDefaultsKey)
+
+        let store = makeStore()
+        store.ensureLegacyMigrationIfNeeded()
+
+        XCTAssertNil(defaults.string(forKey: ClaudeAccountStore.legacySessionKeyDefaultsKey))
+        XCTAssertEqual(
+            try vault.loadString(account: ClaudeKeychainStore.accountName(for: accountID)),
+            legacySession
+        )
+        XCTAssertEqual(store.accounts(), [existingAccount])
+        XCTAssertEqual(
+            defaults.integer(forKey: ClaudeAccountStore.migrationVersionDefaultsKey),
+            ClaudeAccountStore.currentMigrationVersion
+        )
+    }
+
+    func testVersionThreeMigrationKeepsResidualDefaultsCredentialWhenScopedSaveFails() {
+        let legacySession = "sk-ant-residual-session"
+        let accountID = ClaudeAccountStore.webSessionAccountID(
+            fingerprint: ClaudeAccountStore.fingerprint(for: legacySession)
+        )
+        defaults.set(2, forKey: ClaudeAccountStore.migrationVersionDefaultsKey)
+        defaults.set(legacySession, forKey: ClaudeAccountStore.legacySessionKeyDefaultsKey)
+        vault.accountsThatFailOnSave.insert(ClaudeKeychainStore.accountName(for: accountID))
+
+        let store = makeStore()
+        store.ensureLegacyMigrationIfNeeded()
+
+        XCTAssertEqual(
+            defaults.string(forKey: ClaudeAccountStore.legacySessionKeyDefaultsKey),
+            legacySession
+        )
+        XCTAssertTrue(store.accounts().isEmpty)
+        XCTAssertEqual(defaults.integer(forKey: ClaudeAccountStore.migrationVersionDefaultsKey), 2)
+    }
+
+    func testVersionThreeMigrationKeepsResidualDefaultsCredentialWhenScopedSaveIsNotPersisted() {
+        let legacySession = "sk-ant-residual-session"
+        let accountID = ClaudeAccountStore.webSessionAccountID(
+            fingerprint: ClaudeAccountStore.fingerprint(for: legacySession)
+        )
+        defaults.set(2, forKey: ClaudeAccountStore.migrationVersionDefaultsKey)
+        defaults.set(legacySession, forKey: ClaudeAccountStore.legacySessionKeyDefaultsKey)
+        vault.accountsThatDropSave.insert(ClaudeKeychainStore.accountName(for: accountID))
+
+        let store = makeStore()
+        store.ensureLegacyMigrationIfNeeded()
+
+        XCTAssertEqual(
+            defaults.string(forKey: ClaudeAccountStore.legacySessionKeyDefaultsKey),
+            legacySession
+        )
+        XCTAssertTrue(store.accounts().isEmpty)
+        XCTAssertEqual(defaults.integer(forKey: ClaudeAccountStore.migrationVersionDefaultsKey), 2)
+    }
+
     func testClaudeCodeAccountBecomesActiveOnlyWhenNoWebAccountExists() {
         let store = makeStore()
 
@@ -496,12 +574,16 @@ private final class FakeClaudeSessionKeyVault: ClaudeSessionKeyVault, @unchecked
     private let lock = NSLock()
     private nonisolated(unsafe) var values: [String: String] = [:]
     nonisolated(unsafe) var accountsThatFailOnSave = Set<String>()
+    nonisolated(unsafe) var accountsThatDropSave = Set<String>()
 
     nonisolated func saveString(_ value: String, account: String) throws {
         lock.lock()
         defer { lock.unlock() }
         if accountsThatFailOnSave.contains(account) {
             throw ClaudeKeychainStoreError.unexpectedStatus(errSecNotAvailable)
+        }
+        if accountsThatDropSave.contains(account) {
+            return
         }
         values[account] = value
     }

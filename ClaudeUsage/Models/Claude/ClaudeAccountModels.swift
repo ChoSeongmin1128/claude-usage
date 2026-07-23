@@ -179,7 +179,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
     nonisolated static let migrationVersionDefaultsKey = "ClaudeUsage.claudeAccountsMigrationVersion"
     nonisolated static let legacySessionKeyDefaultsKey = "claude-session-key"
     nonisolated static let legacyPreferredOrganizationDefaultsKey = "preferredOrganizationID"
-    nonisolated static let currentMigrationVersion = 2
+    nonisolated static let currentMigrationVersion = 3
     nonisolated static let claudeCodeExternalAccountID = "claude-code-external"
 
     private nonisolated(unsafe) let defaults: UserDefaults
@@ -634,6 +634,58 @@ final class ClaudeAccountStore: @unchecked Sendable {
                 didChangeAccounts = true
             }
             migrationVersion = 2
+            defaults.set(migrationVersion, forKey: Self.migrationVersionDefaultsKey)
+        }
+
+        if migrationVersion < 3 {
+            let defaultsValue = defaults.string(forKey: Self.legacySessionKeyDefaultsKey)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if let legacySessionKey = defaultsValue, !legacySessionKey.isEmpty {
+                let fingerprint = Self.fingerprint(for: legacySessionKey)
+                let accountID = Self.webSessionAccountID(fingerprint: fingerprint)
+                let scopedAccountName = ClaudeKeychainStore.accountName(for: accountID)
+                do {
+                    if try keychainVault.loadString(account: scopedAccountName) != legacySessionKey {
+                        try keychainVault.saveString(legacySessionKey, account: scopedAccountName)
+                    }
+                    guard try keychainVault.loadString(account: scopedAccountName)
+                        == legacySessionKey
+                    else {
+                        throw ClaudeKeychainStoreError.unexpectedStatus(errSecNotAvailable)
+                    }
+                } catch {
+                    // 평문 원본은 scoped Keychain 저장이 확인되기 전에는 삭제하지
+                    // 않는다. migration version도 올리지 않아 다음 실행에서 재시도한다.
+                    Logger.warning("잔존 Claude credential 보안 마이그레이션 실패")
+                    saveRaw(accounts: state.accounts, activeAccountID: state.activeAccountID)
+                    lock.unlock()
+                    return
+                }
+
+                if !state.accounts.contains(where: { $0.id == accountID }) {
+                    state.accounts.append(
+                        ClaudeAccount(
+                            id: accountID,
+                            kind: .webSession,
+                            displayName: "브라우저 계정",
+                            identity: ClaudeAccountIdentity(fingerprint: fingerprint),
+                            source: .legacyMigration
+                        )
+                    )
+                    didChangeAccounts = true
+                }
+                if state.activeAccountID == nil
+                    || state.accounts.contains(where: { $0.id == state.activeAccountID }) == false
+                {
+                    state.activeAccountID = accountID
+                    didChangeAccounts = true
+                }
+            }
+
+            // 값이 없거나 scoped Keychain 저장이 검증된 경우에만 평문을 제거한다.
+            defaults.removeObject(forKey: Self.legacySessionKeyDefaultsKey)
+            migrationVersion = 3
             defaults.set(migrationVersion, forKey: Self.migrationVersionDefaultsKey)
         }
 
