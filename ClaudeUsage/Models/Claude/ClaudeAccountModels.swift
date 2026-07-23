@@ -172,28 +172,33 @@ struct ClaudeWebSessionUpsertResult: Sendable {
 }
 
 final class ClaudeAccountStore: @unchecked Sendable {
-    nonisolated static let shared = ClaudeAccountStore()
+    nonisolated static let shared = ClaudeAccountStore(
+        legacySandboxCredentialStore: ClaudeLegacySandboxCredentialStore.shared
+    )
 
     nonisolated static let accountsDefaultsKey = "ClaudeUsage.claudeAccounts.v1"
     nonisolated static let activeAccountDefaultsKey = "ClaudeUsage.activeClaudeAccountID"
     nonisolated static let migrationVersionDefaultsKey = "ClaudeUsage.claudeAccountsMigrationVersion"
     nonisolated static let legacySessionKeyDefaultsKey = "claude-session-key"
     nonisolated static let legacyPreferredOrganizationDefaultsKey = "preferredOrganizationID"
-    nonisolated static let currentMigrationVersion = 3
+    nonisolated static let currentMigrationVersion = 4
     nonisolated static let claudeCodeExternalAccountID = "claude-code-external"
 
     private nonisolated(unsafe) let defaults: UserDefaults
     private let keychainVault: any ClaudeSessionKeyVault
+    private let legacySandboxCredentialStore: (any ClaudeLegacySandboxCredentialStoring)?
     private let lock = NSLock()
     private let postsNotifications: Bool
 
     nonisolated init(
         defaults: UserDefaults = .standard,
         keychainVault: any ClaudeSessionKeyVault = ClaudeKeychainStore.shared,
+        legacySandboxCredentialStore: (any ClaudeLegacySandboxCredentialStoring)? = nil,
         postsNotifications: Bool = true
     ) {
         self.defaults = defaults
         self.keychainVault = keychainVault
+        self.legacySandboxCredentialStore = legacySandboxCredentialStore
         self.postsNotifications = postsNotifications
     }
 
@@ -686,6 +691,81 @@ final class ClaudeAccountStore: @unchecked Sendable {
             // 값이 없거나 scoped Keychain 저장이 검증된 경우에만 평문을 제거한다.
             defaults.removeObject(forKey: Self.legacySessionKeyDefaultsKey)
             migrationVersion = 3
+            defaults.set(migrationVersion, forKey: Self.migrationVersionDefaultsKey)
+        }
+
+        if migrationVersion < 4 {
+            do {
+                let legacySandboxSessionKey = try legacySandboxCredentialStore?
+                    .loadLegacySessionKey()?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                if let legacySandboxSessionKey, !legacySandboxSessionKey.isEmpty {
+                    let hasSecuredWebCredential = state.accounts
+                        .filter { $0.kind == .webSession }
+                        .contains { account in
+                            let scopedAccount = ClaudeKeychainStore.accountName(for: account.id)
+                            do {
+                                guard let value = try keychainVault.loadString(account: scopedAccount) else {
+                                    return false
+                                }
+                                return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                            } catch {
+                                return false
+                            }
+                        }
+
+                    if !hasSecuredWebCredential {
+                        let fingerprint = Self.fingerprint(for: legacySandboxSessionKey)
+                        let accountID = Self.webSessionAccountID(fingerprint: fingerprint)
+                        let scopedAccount = ClaudeKeychainStore.accountName(for: accountID)
+                        if try keychainVault.loadString(account: scopedAccount) != legacySandboxSessionKey {
+                            try keychainVault.saveString(legacySandboxSessionKey, account: scopedAccount)
+                        }
+                        guard try keychainVault.loadString(account: scopedAccount)
+                            == legacySandboxSessionKey
+                        else {
+                            throw ClaudeKeychainStoreError.unexpectedStatus(errSecNotAvailable)
+                        }
+
+                        if !state.accounts.contains(where: { $0.id == accountID }) {
+                            state.accounts.append(
+                                ClaudeAccount(
+                                    id: accountID,
+                                    kind: .webSession,
+                                    displayName: "브라우저 계정",
+                                    identity: ClaudeAccountIdentity(fingerprint: fingerprint),
+                                    source: .legacyMigration
+                                )
+                            )
+                            didChangeAccounts = true
+                        }
+                        if state.activeAccountID == nil
+                            || state.accounts.contains(where: { $0.id == state.activeAccountID }) == false
+                        {
+                            state.activeAccountID = accountID
+                            didChangeAccounts = true
+                        }
+
+                        // plaintext를 지우기 전에 복구 가능한 Keychain/account 상태를
+                        // 먼저 영속화한다. 이 사이에 프로세스가 종료되어도 다음 실행은
+                        // scoped credential과 inventory를 기준으로 정리를 재시도할 수 있다.
+                        saveRaw(accounts: state.accounts, activeAccountID: state.activeAccountID)
+                    }
+
+                    try legacySandboxCredentialStore?.deleteLegacySessionKey()
+                }
+            } catch {
+                Logger.warning("legacy sandbox credential 보안 마이그레이션 실패")
+                saveRaw(accounts: state.accounts, activeAccountID: state.activeAccountID)
+                lock.unlock()
+                if didChangeAccounts {
+                    postAccountNotifications(activeAccountChanged: previousActiveAccountID != state.activeAccountID)
+                }
+                return
+            }
+
+            migrationVersion = 4
             defaults.set(migrationVersion, forKey: Self.migrationVersionDefaultsKey)
         }
 

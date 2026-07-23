@@ -5,6 +5,7 @@ final class ClaudeAccountStoreTests: XCTestCase {
     private static var retainedObjects: [AnyObject] = []
     private var defaults: UserDefaults!
     private var vault: FakeClaudeSessionKeyVault!
+    private var legacySandboxStore: FakeClaudeLegacySandboxCredentialStore!
     private var defaultBackups: [String: Any?] = [:]
     private let defaultKeys = [
         ClaudeAccountStore.accountsDefaultsKey,
@@ -20,6 +21,7 @@ final class ClaudeAccountStoreTests: XCTestCase {
         defaultBackups = Dictionary(uniqueKeysWithValues: defaultKeys.map { ($0, defaults.object(forKey: $0)) })
         defaultKeys.forEach { defaults.removeObject(forKey: $0) }
         vault = FakeClaudeSessionKeyVault()
+        legacySandboxStore = FakeClaudeLegacySandboxCredentialStore()
     }
 
     override func tearDown() {
@@ -154,6 +156,143 @@ final class ClaudeAccountStoreTests: XCTestCase {
         )
         XCTAssertTrue(store.accounts().isEmpty)
         XCTAssertEqual(defaults.integer(forKey: ClaudeAccountStore.migrationVersionDefaultsKey), 2)
+    }
+
+    func testVersionFourMigrationDeletesStaleSandboxCredentialWhenScopedWebCredentialExists() throws {
+        let currentSession = "sk-ant-current-session"
+        let currentAccountID = ClaudeAccountStore.webSessionAccountID(
+            fingerprint: ClaudeAccountStore.fingerprint(for: currentSession)
+        )
+        let currentAccount = ClaudeAccount(
+            id: currentAccountID,
+            kind: .webSession,
+            displayName: "Chrome Nathan",
+            identity: ClaudeAccountIdentity(fingerprint: ClaudeAccountStore.fingerprint(for: currentSession)),
+            source: .chromeProfile
+        )
+        defaults.set(try JSONEncoder().encode([currentAccount]), forKey: ClaudeAccountStore.accountsDefaultsKey)
+        defaults.set(currentAccountID, forKey: ClaudeAccountStore.activeAccountDefaultsKey)
+        defaults.set(3, forKey: ClaudeAccountStore.migrationVersionDefaultsKey)
+        try vault.saveString(
+            currentSession,
+            account: ClaudeKeychainStore.accountName(for: currentAccountID)
+        )
+        legacySandboxStore.value = "sk-ant-obsolete-sandbox-session"
+
+        let store = makeStore()
+        store.ensureLegacyMigrationIfNeeded()
+
+        XCTAssertNil(legacySandboxStore.value)
+        XCTAssertEqual(legacySandboxStore.deleteCount, 1)
+        XCTAssertEqual(store.accounts(), [currentAccount])
+        XCTAssertEqual(
+            defaults.integer(forKey: ClaudeAccountStore.migrationVersionDefaultsKey),
+            ClaudeAccountStore.currentMigrationVersion
+        )
+    }
+
+    func testVersionFourMigrationSecuresSandboxCredentialWhenNoScopedWebCredentialExists() throws {
+        let legacySession = "sk-ant-sandbox-session"
+        legacySandboxStore.value = legacySession
+        defaults.set(3, forKey: ClaudeAccountStore.migrationVersionDefaultsKey)
+
+        let store = makeStore()
+        store.ensureLegacyMigrationIfNeeded()
+
+        let account = try XCTUnwrap(store.activeAccount())
+        XCTAssertEqual(account.kind, .webSession)
+        XCTAssertEqual(account.source, .legacyMigration)
+        XCTAssertEqual(
+            try vault.loadString(account: ClaudeKeychainStore.accountName(for: account.id)),
+            legacySession
+        )
+        XCTAssertNil(legacySandboxStore.value)
+        XCTAssertEqual(
+            defaults.integer(forKey: ClaudeAccountStore.migrationVersionDefaultsKey),
+            ClaudeAccountStore.currentMigrationVersion
+        )
+    }
+
+    func testVersionFourMigrationPreservesSandboxCredentialWhenScopedSaveFails() {
+        let legacySession = "sk-ant-sandbox-session"
+        let accountID = ClaudeAccountStore.webSessionAccountID(
+            fingerprint: ClaudeAccountStore.fingerprint(for: legacySession)
+        )
+        legacySandboxStore.value = legacySession
+        defaults.set(3, forKey: ClaudeAccountStore.migrationVersionDefaultsKey)
+        vault.accountsThatFailOnSave.insert(ClaudeKeychainStore.accountName(for: accountID))
+
+        let store = makeStore()
+        store.ensureLegacyMigrationIfNeeded()
+
+        XCTAssertEqual(legacySandboxStore.value, legacySession)
+        XCTAssertEqual(legacySandboxStore.deleteCount, 0)
+        XCTAssertTrue(store.accounts().isEmpty)
+        XCTAssertEqual(defaults.integer(forKey: ClaudeAccountStore.migrationVersionDefaultsKey), 3)
+    }
+
+    func testVersionFourMigrationPreservesSandboxCredentialWhenDeletionFails() throws {
+        let legacySession = "sk-ant-sandbox-session"
+        let accountID = ClaudeAccountStore.webSessionAccountID(
+            fingerprint: ClaudeAccountStore.fingerprint(for: legacySession)
+        )
+        legacySandboxStore.value = legacySession
+        legacySandboxStore.failsOnDelete = true
+        defaults.set(3, forKey: ClaudeAccountStore.migrationVersionDefaultsKey)
+
+        let store = makeStore()
+        store.ensureLegacyMigrationIfNeeded()
+
+        XCTAssertEqual(legacySandboxStore.value, legacySession)
+        XCTAssertEqual(
+            try vault.loadString(account: ClaudeKeychainStore.accountName(for: accountID)),
+            legacySession
+        )
+        XCTAssertEqual(store.accounts().map(\.id), [accountID])
+        XCTAssertEqual(defaults.integer(forKey: ClaudeAccountStore.migrationVersionDefaultsKey), 3)
+    }
+
+    func testLegacySandboxFileStoreDeletesOnlyCredentialAndPreservesFormatAndPermissions() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ClaudeLegacySandboxCredentialStoreTests")
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let preferencesURL = directory.appendingPathComponent("legacy.plist")
+        let originalValues: [String: Any] = [
+            "claude-session-key": "sk-ant-file-test",
+            "preserved-string": "keep-me",
+            "preserved-data": Data([0x01, 0x02, 0x03]),
+        ]
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: originalValues,
+            format: .binary,
+            options: 0
+        )
+        try data.write(to: preferencesURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: preferencesURL.path)
+        let store = ClaudeLegacySandboxCredentialStore(preferencesURL: preferencesURL)
+
+        XCTAssertEqual(try store.loadLegacySessionKey(), "sk-ant-file-test")
+        try store.deleteLegacySessionKey()
+
+        let rewrittenData = try Data(contentsOf: preferencesURL)
+        var rewrittenFormat = PropertyListSerialization.PropertyListFormat.xml
+        let rewrittenValues = try XCTUnwrap(
+            try PropertyListSerialization.propertyList(
+                from: rewrittenData,
+                options: [],
+                format: &rewrittenFormat
+            ) as? [String: Any]
+        )
+        XCTAssertNil(rewrittenValues["claude-session-key"])
+        XCTAssertEqual(rewrittenValues["preserved-string"] as? String, "keep-me")
+        XCTAssertEqual(rewrittenValues["preserved-data"] as? Data, Data([0x01, 0x02, 0x03]))
+        XCTAssertEqual(rewrittenFormat, .binary)
+        let attributes = try FileManager.default.attributesOfItem(atPath: preferencesURL.path)
+        XCTAssertEqual(attributes[.posixPermissions] as? NSNumber, NSNumber(value: 0o600))
     }
 
     func testClaudeCodeAccountBecomesActiveOnlyWhenNoWebAccountExists() {
@@ -564,9 +703,32 @@ final class ClaudeAccountStoreTests: XCTestCase {
     }
 
     private func makeStore() -> ClaudeAccountStore {
-        let store = ClaudeAccountStore(defaults: defaults, keychainVault: vault, postsNotifications: false)
+        let store = ClaudeAccountStore(
+            defaults: defaults,
+            keychainVault: vault,
+            legacySandboxCredentialStore: legacySandboxStore,
+            postsNotifications: false
+        )
         Self.retainedObjects.append(store)
         return store
+    }
+}
+
+private final class FakeClaudeLegacySandboxCredentialStore: ClaudeLegacySandboxCredentialStoring, @unchecked Sendable {
+    nonisolated(unsafe) var value: String?
+    nonisolated(unsafe) var deleteCount = 0
+    nonisolated(unsafe) var failsOnDelete = false
+
+    nonisolated func loadLegacySessionKey() throws -> String? {
+        value
+    }
+
+    nonisolated func deleteLegacySessionKey() throws {
+        deleteCount += 1
+        if failsOnDelete {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        value = nil
     }
 }
 
