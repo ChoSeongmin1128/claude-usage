@@ -4,7 +4,7 @@
 - 저장소: `/Users/seongmin/Personal/maintenance/ClaudeUsage`
 - 원격: `git@github-seongmin:ChoSeongmin1128/claude-usage.git`
 - 브랜치: `dev`
-- 상태: Stage 8~9 완료. `v2.4.0-staging` 게시·원격 검증 완료. signed QA만 남음
+- 상태: Stage 8~9 완료. `v2.4.1-staging` 게시·원격 검증 완료. staging QA 진행 중
 
 ## 1. 가장 먼저 읽을 내용
 
@@ -336,22 +336,55 @@ staging 산출본에서 확인할 항목:
 쓴 인증서와 같아야 Keychain ACL 연속성이 유지되기 때문입니다. 다음 배포에서도
 `CERT_HASH`로 이 값을 넘깁니다.
 
-### 남은 signed QA
+### staging QA 결과 (v2.4.0-staging 기준)
 
-`~/Downloads/ClaudeUsage.app`은 이전 동일 채널 앱(v2.3.3-staging)으로
-유지돼 있습니다. **그 앱에서 Sparkle 업데이트를 실행해** 실제 upgrade 경로를
-확인합니다.
+통과:
 
-- 기존 prod → 새 signed app upgrade migration
-- Keychain prompt 0회
-- account A↔B 10회 전환
+- **upgrade migration**: `accounts.json`은 metadata만 담고 secret은 vault에만
+  있음. `credentialReference`가 `oauth.antigravity.v2.<uuid>` 형식이고
+  `migrationAliases`에 legacy 계정 키가 남아 이전 경로가 확인됨. legacy JSON
+  3종과 legacy Keychain 2 service 모두 제거됨. durable version 2 마커 존재
+- **Keychain prompt 0회**: 실행 중 `SecurityAgent` 없음
+- **automatic refresh가 AGY를 시작하지 않음**: AGY/language_server 프로세스
+  없음, ClaudeUsage 자식 프로세스 없음, managed launch lock 비어 있음
+
+검증 불가:
+
+- **account A↔B 10회 전환**: 계정이 1개뿐이라 전환 자체가 성립하지 않음
+
+결함 발견 → v2.4.1에서 수정:
+
+- **Google 계정 연결이 항상 실패**. 토큰 교환이 일회용 authorization code를
+  secret 없는 첫 시도로 소진했다. 자세한 경위는 커밋 메시지 참조
+- 실패 사유가 UI에서 버려지고 로그인 경로에 로깅이 없어 진단 자체가 불가능했다
+- `language_server` client discovery가 로그인마다 14.6초 (→ 0.41초)
+
+**교훈**: AGY 2.4.2는 앱을 `app.asar`로 패키징하므로 코드가 찾는
+`Contents/Resources/app/out/main.js`는 존재하지 않는다. OAuth client는
+`bin/language_server` 바이너리에서만 나오고, 그 안에서 clientID와 secret은
+460KB 떨어져 있다. 이 경로는 배포 전에 로컬 빌드로 반드시 확인해야 한다.
+opt-in 통합 테스트로 고정해 뒀다
+(`CLAUDEUSAGE_RUN_AGY_INTEGRATION=1`, `TEST_RUNNER_` 접두사로 전달).
+
+### 게시 완료: v2.4.1-staging
+
+- tag `v2.4.1-staging` → `401d77a` = `main`
+- Release: pre-release, 3-asset. 공증 ZIP·DMG Accepted, staple·Gatekeeper 통과
+- 공개 피드 2.4.1 / 20401 + edSignature
+- DMG SHA-256 `861105b9d209795f2ec7e58bdb5b9639009500737dcd7dabc17a6af3761fcf53`
+- **인증서 자동 선택 동작 확인**: `CERT_HASH` 없이 실행해 배치된 v2.4.0-staging
+  앱 기준으로 `A4F7A686…`을 스스로 선택
+
+### 남은 QA
+
+`~/Downloads/ClaudeUsage.app`(v2.4.0-staging)에서 Sparkle 업데이트를 실행한 뒤:
+
+- Google 계정 연결 성공 여부 (실패해도 이제 사유가 화면에 표시됨)
+- quota 수치가 실제로 표시되는지 (`계정만 확인됨`에서 벗어나는지)
+- standard / compact / menu bar / settings / notification 화면
 - managed AGY opt-in과 idle teardown
-- standard / compact / menu bar / settings / notification 실제 화면
 
-QA에서 결함이 나오면 tag는 immutable이므로 2.4.0을 버리고 다음 숫자 버전으로
-갑니다. staging 검증 전 prod 배포를 진행하지 않습니다.
-
-### 배포 순서
+### 배포 순서### 배포 순서
 
 1. reviewed `dev`를 `main`에 squash merge
 2. staged main tree와 reviewed dev tree 동일성 검증
