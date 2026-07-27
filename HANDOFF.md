@@ -4,7 +4,7 @@
 - 저장소: `/Users/seongmin/Personal/maintenance/ClaudeUsage`
 - 원격: `git@github-seongmin:ChoSeongmin1128/claude-usage.git`
 - 브랜치: `dev`
-- 상태: Stage 8~9 완료. Stage 10의 자동 검증 완료, signed QA는 staging 산출본에서 수행 예정
+- 상태: Stage 8~9 완료. `v2.4.0-staging` 게시·원격 검증 완료. signed QA만 남음
 
 ## 1. 가장 먼저 읽을 내용
 
@@ -327,6 +327,39 @@ staging 산출본에서 확인할 항목:
 - account A↔B 10회 전환
 - managed AGY idle teardown
 - standard/compact/menu bar/settings/notification 실제 화면
+
+### 게시 완료: v2.4.0-staging
+
+- tag: `v2.4.0-staging` (annotated `c70bff6`) → `3fa8563` = `main`
+- Release: pre-release, 3-asset (`appcast.xml`, `ClaudeUsage.dmg`, `ClaudeUsage.zip`)
+- 공증: ZIP·DMG 모두 Accepted, staple validate 성공,
+  Gatekeeper `accepted / source=Notarized Developer ID`
+- 원격 재다운로드 검증 통과. app 2.4.0 (20400)
+  - DMG SHA-256 `4d34ee103755be8b837c917f5e21031cbce375546db0ede0dbe9cc794fa84b29`
+  - ZIP SHA-256 `ac5cf91d7dea6e3f69a3ff0df63b0d08895eae3ffdb24bb745a6c45d2342fe92`
+  - appcast SHA-256 `6ddd63c9f642ccfbdcc5940f72b2ce1cd02e49d25eb2b078dfe489b10e5c0eb2`
+- 공개 Pages 피드가 2.4.0 / 20400과 edSignature를 서빙
+- gh CLI 계정은 `nathan-glorang`으로 복원됨
+
+서명 인증서는 `A4F7A686CAD1108C148DA7C53E707F308304480F`를 명시했습니다. 같은
+팀에 Developer ID 인증서가 두 개 있어 자동 선택이 모호하고, 배포 중인 v2.3.3이
+쓴 인증서와 같아야 Keychain ACL 연속성이 유지되기 때문입니다. 다음 배포에서도
+`CERT_HASH`로 이 값을 넘깁니다.
+
+### 남은 signed QA
+
+`~/Downloads/ClaudeUsage.app`은 이전 동일 채널 앱(v2.3.3-staging)으로
+유지돼 있습니다. **그 앱에서 Sparkle 업데이트를 실행해** 실제 upgrade 경로를
+확인합니다.
+
+- 기존 prod → 새 signed app upgrade migration
+- Keychain prompt 0회
+- account A↔B 10회 전환
+- managed AGY opt-in과 idle teardown
+- standard / compact / menu bar / settings / notification 실제 화면
+
+QA에서 결함이 나오면 tag는 immutable이므로 2.4.0을 버리고 다음 숫자 버전으로
+갑니다. staging 검증 전 prod 배포를 진행하지 않습니다.
 
 ### 배포 순서
 
