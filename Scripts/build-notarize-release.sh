@@ -344,30 +344,63 @@ DEVELOPMENT_TEAM="$TRUSTED_DEVELOPMENT_TEAM"
 # 탐색한다. DEVELOPMENT_TEAM 이 설정돼 있으면 해당 팀(예: "5YG4V2PLZV")으로
 # 필터링한다. 후보가 여러 개여서 모호하면 silent 자동 선택을 거부하고 명시적
 # 지정을 요구한다.
-detect_developer_id_certificate() {
+list_developer_id_certificates() {
     local team_filter="${1:-}"
-    local matches
-    matches="$(security find-identity -v -p codesigning 2>/dev/null \
+    security find-identity -v -p codesigning 2>/dev/null \
         | awk -v team="$team_filter" '
             /Developer ID Application/ {
                 if (team == "" || $0 ~ "\\(" team "\\)") print $2
             }
-        ')"
-    [[ -z "$matches" ]] && return 1
-    local count
-    count=$(printf '%s\n' "$matches" | grep -c .)
-    [[ "$count" -gt 1 ]] && return 2
-    printf '%s\n' "$matches"
+        '
+}
+
+# 이미 배포된 앱의 leaf 서명 인증서 SHA-1. 후보가 여러 개일 때 어느 인증서가
+# "현재 쓰이고 있는 것"인지 판단하는 기준이 된다.
+resolve_app_signing_certificate_sha1() {
+    local app_path="$1"
+    [[ -d "$app_path" ]] || return 1
+
+    local work
+    work="$(mktemp -d)" || return 1
+    local sha=""
+    if codesign -d --extract-certificates="$work/cert" "$app_path" >/dev/null 2>&1 \
+        && [[ -f "$work/cert0" ]]; then
+        sha="$(openssl x509 -inform DER -in "$work/cert0" -noout -fingerprint -sha1 2>/dev/null \
+            | sed 's/.*=//; s/://g' \
+            | tr '[:lower:]' '[:upper:]')"
+    fi
+    rm -rf "$work"
+
+    [[ "$sha" =~ ^[0-9A-F]{40}$ ]] || return 1
+    printf '%s\n' "$sha"
 }
 
 if [[ -z "$CERT_HASH" ]]; then
+    CERT_CANDIDATES=()
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && CERT_CANDIDATES+=("$line")
+    done < <(list_developer_id_certificates "$TRUSTED_DEVELOPMENT_TEAM")
+
+    SIGNING_REFERENCE_SHA=""
+    if [[ -n "${SIGNING_REFERENCE_APP:-}" ]]; then
+        SIGNING_REFERENCE_SHA="$(
+            resolve_app_signing_certificate_sha1 "$SIGNING_REFERENCE_APP" || true
+        )"
+    fi
+
     detected=""
     detect_rc=0
-    detected=$(detect_developer_id_certificate "$TRUSTED_DEVELOPMENT_TEAM") || detect_rc=$?
+    detected="$(
+        select_signing_certificate "$SIGNING_REFERENCE_SHA" "${CERT_CANDIDATES[@]+"${CERT_CANDIDATES[@]}"}"
+    )" || detect_rc=$?
     case "$detect_rc" in
         0)
             CERT_HASH="$detected"
-            echo "코드서명 인증서 자동 탐색: $CERT_HASH"
+            if [[ "${#CERT_CANDIDATES[@]}" -gt 1 ]]; then
+                echo "코드서명 인증서 선택: $CERT_HASH (현재 배포본과 동일: $SIGNING_REFERENCE_APP)"
+            else
+                echo "코드서명 인증서 자동 탐색: $CERT_HASH"
+            fi
             ;;
         1)
             echo "Developer ID Application 인증서를 keychain 에서 찾지 못했습니다." >&2
@@ -375,9 +408,16 @@ if [[ -z "$CERT_HASH" ]]; then
             exit 1
             ;;
         2)
-            echo "Developer ID Application 인증서가 여러 개 있어 자동 선택이 모호합니다:" >&2
+            echo "Developer ID Application 인증서가 여러 개인데 비교할 현재 배포본이 없습니다:" >&2
             security find-identity -v -p codesigning | grep "Developer ID Application" >&2
-            echo "DEVELOPMENT_TEAM 또는 CERT_HASH 환경변수로 사용할 인증서를 명시해 주세요." >&2
+            echo "SIGNING_REFERENCE_APP로 현재 배포본 경로를 주거나 CERT_HASH로 직접 지정하세요." >&2
+            exit 1
+            ;;
+        3)
+            echo "현재 배포본이 쓴 인증서($SIGNING_REFERENCE_SHA)가 keychain 후보에 없습니다:" >&2
+            security find-identity -v -p codesigning | grep "Developer ID Application" >&2
+            echo "서명 인증서가 바뀌면 기존 사용자에게 Keychain prompt가 발생하므로 자동 선택을 거부합니다." >&2
+            echo "의도한 교체라면 CERT_HASH로 명시하세요." >&2
             exit 1
             ;;
     esac

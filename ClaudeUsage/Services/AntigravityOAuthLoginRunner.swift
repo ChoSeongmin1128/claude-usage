@@ -120,8 +120,16 @@ nonisolated enum AntigravityOAuthLoginRunner {
         } catch let AntigravityLoginError.launchFailed(message) {
             server.stop()
             return Result(outcome: .launchFailed(message))
+        } catch let AntigravityLoginError.failed(message) {
+            server.stop()
+            Logger.log("AGY Google 로그인 실패: \(message)", level: .error)
+            return Result(outcome: .failed(message))
         } catch {
             server.stop()
+            Logger.log(
+                "AGY Google 로그인 실패: \(error.localizedDescription)",
+                level: .error
+            )
             return Result(outcome: .failed(error.localizedDescription))
         }
     }
@@ -208,9 +216,11 @@ nonisolated enum AntigravityOAuthLoginRunner {
             throw AntigravityLoginError.failed("토큰 응답이 올바르지 않습니다.")
         }
         guard http.statusCode == 200 else {
-            let message = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-                ?? "HTTP \(http.statusCode)"
             let errorPayload = tokenError(from: data)
+            let message = describeTokenError(
+                statusCode: http.statusCode,
+                payload: errorPayload
+            )
             if isRetryableClientCredentialError(
                 statusCode: http.statusCode,
                 errorCode: errorPayload?.code,
@@ -226,6 +236,24 @@ nonisolated enum AntigravityOAuthLoginRunner {
         } catch {
             throw AntigravityLoginError.failed("토큰 응답을 해석하지 못했습니다.")
         }
+    }
+
+    /// Google 토큰 오류를 사람이 읽을 수 있게 정리한다. 응답 본문을 그대로
+    /// 노출하지 않고 `error`/`error_description`만 쓴다.
+    private static func describeTokenError(
+        statusCode: Int,
+        payload: AntigravityOAuthTokenErrorPayload?
+    ) -> String {
+        let parts = [payload?.code, payload?.description]
+            .compactMap { value -> String? in
+                let trimmed = value?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return (trimmed?.isEmpty ?? true) ? nil : trimmed
+            }
+        guard !parts.isEmpty else {
+            return "HTTP \(statusCode)"
+        }
+        return "\(parts.joined(separator: ": ")) (HTTP \(statusCode))"
     }
 
     private static func tokenError(from data: Data) -> AntigravityOAuthTokenErrorPayload? {

@@ -378,10 +378,14 @@ final class AntigravitySettingsViewModel:
                 title: "브라우저를 열지 못했습니다",
                 message: "기본 브라우저 설정을 확인한 뒤 다시 시도해 주세요."
             )
-        case .failed:
+        case .failed(let reason):
+            // 실제 사유를 버리면 사용자도 로그도 원인을 알 수 없다.
+            let detail = reason.trimmingCharacters(in: .whitespacesAndNewlines)
             finishLoginFailure(
                 title: "Google 계정을 연결하지 못했습니다",
-                message: "로그인 상태를 확인한 뒤 다시 시도해 주세요."
+                message: detail.isEmpty
+                    ? "로그인 상태를 확인한 뒤 다시 시도해 주세요."
+                    : "\(detail) — 로그인 상태를 확인한 뒤 다시 시도해 주세요."
             )
         }
         return false

@@ -112,13 +112,17 @@ nonisolated struct AntigravityOAuthClient: Sendable, Equatable {
     let clientSecretCandidates: [String]
     let allowsPublicClient: Bool
 
+    /// Google authorization code는 일회용이다. 교환이 한 번 거부되면 그 code는
+    /// 소진되므로 **가장 정확한 후보가 첫 시도**여야 한다. discovery가 secret을
+    /// 찾았다면 그 secret으로 먼저 시도하고, secret이 아예 없을 때만 public
+    /// client(nil)로 시도한다. 예전에는 secret을 찾았는데도 nil을 먼저 넣어서
+    /// 첫 시도가 `invalid_client`로 실패하며 code를 소진했고, 이어지는 secret
+    /// 재시도는 항상 `invalid_grant`가 됐다.
     var tokenClientSecretCandidates: [String?] {
-        var result: [String?] = []
-        if allowsPublicClient {
-            result.append(nil)
+        guard clientSecretCandidates.isEmpty else {
+            return clientSecretCandidates.map(Optional.some)
         }
-        result.append(contentsOf: clientSecretCandidates.map(Optional.some))
-        return result
+        return allowsPublicClient ? [nil] : []
     }
 
     init(
@@ -371,8 +375,8 @@ nonisolated enum AntigravityOAuthConfig {
             return client
         }
         for url in candidateLanguageServerURLs(fileManager: fileManager) where fileManager.fileExists(atPath: url.path) {
-            guard let data = try? Data(contentsOf: url),
-                  let client = parseClient(fromBundleContent: String(decoding: data, as: UTF8.self))
+            guard let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+                  let client = parseClient(fromBinary: data)
             else {
                 continue
             }
@@ -430,8 +434,56 @@ nonisolated enum AntigravityOAuthConfig {
             clientID: clientID,
             clientSecret: clientSecrets.first,
             clientSecretCandidates: clientSecrets,
-            allowsPublicClient: true
+            allowsPublicClient: clientSecrets.isEmpty
         )
+    }
+
+    /// `language_server`는 100MB 단위 바이너리다. 전체를 UTF-8로 손실 디코딩한 뒤
+    /// 정규식을 돌리면 로그인마다 십수 초가 걸린다. 게다가 clientID와 secret은
+    /// 서로 수백 KB 떨어져 있을 수 있어 하나의 좁은 창으로는 둘을 같이 담을 수
+    /// 없다. 그래서 표식 바이트를 찾아 그 주변 작은 창만 해석하고 결과를 합친다.
+    static func parseClient(fromBinary data: Data) -> AntigravityOAuthClient? {
+        let clientIDs = matches(
+            pattern: #"[0-9]+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com"#,
+            around: Data("apps.googleusercontent.com".utf8),
+            in: data
+        )
+        guard let clientID = clientIDs.first else {
+            return nil
+        }
+        let secrets = matches(
+            pattern: #"GOCSPX-[A-Za-z0-9_-]{20,60}(?![A-Za-z0-9_-])"#,
+            around: Data("GOCSPX-".utf8),
+            in: data
+        )
+        return AntigravityOAuthClient(
+            clientID: clientID,
+            clientSecret: secrets.first,
+            clientSecretCandidates: secrets,
+            allowsPublicClient: secrets.isEmpty
+        )
+    }
+
+    private static func matches(
+        pattern: String,
+        around marker: Data,
+        in data: Data,
+        radius: Int = 512
+    ) -> [String] {
+        var result: [String] = []
+        var cursor = data.startIndex
+        while cursor < data.endIndex,
+              let hit = data.range(of: marker, in: cursor..<data.endIndex) {
+            let lower = max(data.startIndex, hit.lowerBound - radius)
+            let upper = min(data.endIndex, hit.upperBound + radius)
+            let window = String(decoding: data[lower..<upper], as: UTF8.self)
+            for value in uniqueMatches(pattern: pattern, in: window)
+            where !result.contains(value) {
+                result.append(value)
+            }
+            cursor = hit.upperBound
+        }
+        return result
     }
 
     private static func clientSearchWindows(in content: String) -> [String] {

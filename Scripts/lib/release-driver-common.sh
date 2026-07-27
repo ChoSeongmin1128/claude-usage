@@ -142,6 +142,34 @@ resolve_local_tag_commit() {
     git -C "$repository" rev-parse --verify --quiet "refs/tags/$tag^{commit}" || true
 }
 
+# 같은 팀에 Developer ID Application 인증서가 여러 개 있을 때 어느 것으로
+# 서명하는지는 임의로 정할 수 없다. 서명 인증서가 바뀌면 기존 사용자의 Keychain
+# ACL 연속성이 끊겨 업데이트 후 자격증명 접근에 prompt가 뜬다. 그래서 같은 채널의
+# 현재 배포본이 실제로 쓴 인증서와 일치하는 후보만 고른다.
+#
+# 반환: 0 선택 성공(stdout에 SHA-1) / 1 후보 없음 / 2 기준 없음 / 3 기준 불일치
+select_signing_certificate() {
+    local reference_sha="$1"
+    shift
+    local candidates=("$@")
+
+    [[ "${#candidates[@]}" -gt 0 ]] || return 1
+    if [[ "${#candidates[@]}" -eq 1 ]]; then
+        printf '%s\n' "${candidates[0]}"
+        return 0
+    fi
+    [[ -n "$reference_sha" ]] || return 2
+
+    local candidate
+    for candidate in "${candidates[@]}"; do
+        if [[ "$candidate" == "$reference_sha" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 3
+}
+
 classify_release_candidate_state() {
     local tag_state="${1:-}"
     local release_state="${2:-}"

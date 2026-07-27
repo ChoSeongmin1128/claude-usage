@@ -969,6 +969,7 @@ env \
     "APPS_ICON_Y=190" \
     "WINDOW_W=540" \
     "WINDOW_H=380" \
+    "SIGNING_REFERENCE_APP=$DOWNLOADS_APP_PATH" \
     "$BUILD_SCRIPT"
 
 LOCAL_APP="$ARCHIVE_PATH/Products/Applications/ClaudeUsage.app"

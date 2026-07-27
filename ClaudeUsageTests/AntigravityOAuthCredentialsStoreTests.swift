@@ -262,7 +262,6 @@ final class AntigravityOAuthCredentialsStoreTests: XCTestCase {
             secondSecret,
         ])
         XCTAssertEqual(client.tokenClientSecretCandidates, [
-            nil,
             firstSecret,
             secondSecret,
         ])
@@ -281,7 +280,7 @@ final class AntigravityOAuthCredentialsStoreTests: XCTestCase {
 
         XCTAssertEqual(client.clientSecret, longSecret)
         XCTAssertEqual(client.clientSecretCandidates, [longSecret])
-        XCTAssertEqual(client.tokenClientSecretCandidates, [nil, longSecret])
+        XCTAssertEqual(client.tokenClientSecretCandidates, [longSecret])
     }
 
     func testOAuthClientDiscoveryFallsBackWhenMarkerWindowMissesSecret() throws {
@@ -298,7 +297,7 @@ final class AntigravityOAuthCredentialsStoreTests: XCTestCase {
 
         XCTAssertEqual(client.clientID, clientID)
         XCTAssertEqual(client.clientSecret, secret)
-        XCTAssertEqual(client.tokenClientSecretCandidates, [nil, secret])
+        XCTAssertEqual(client.tokenClientSecretCandidates, [secret])
     }
 
     func testOAuthClientDiscoveryAllowsPublicClientWhenSecretIsMissing() throws {
@@ -337,6 +336,79 @@ final class AntigravityOAuthCredentialsStoreTests: XCTestCase {
         let client = AntigravityOAuthClient(clientID: "client-id", clientSecret: "client-secret")
 
         XCTAssertEqual(client.tokenClientSecretCandidates, ["client-secret"])
+    }
+
+    /// 설치된 AGY의 `language_server`에서는 clientID와 secret이 수백 KB 떨어져
+    /// 있다. 좁은 창 하나로는 둘을 함께 담을 수 없으므로 바이너리 경로는 각
+    /// 표식 주변을 따로 훑어 결과를 합쳐야 한다.
+    func testBinaryClientDiscoveryPairsDistantClientIDAndSecret() throws {
+        let clientID = fakeGoogleOAuthClientID(prefix: "111111111111")
+        let secret = fakeGoogleOAuthSecret("B", count: 28)
+        var data = Data([0x00, 0x01, 0x02])
+        data.append(Data(secret.utf8))
+        data.append(Data(repeating: 0x00, count: 600_000))
+        data.append(Data(clientID.utf8))
+        data.append(Data([0x00]))
+
+        let client = try XCTUnwrap(
+            AntigravityOAuthConfig.parseClient(fromBinary: data)
+        )
+
+        XCTAssertEqual(client.clientID, clientID)
+        XCTAssertEqual(client.clientSecret, secret)
+        XCTAssertFalse(client.allowsPublicClient)
+        XCTAssertEqual(client.tokenClientSecretCandidates, [secret])
+    }
+
+    /// secret이 없으면 public client(nil) 시도만 남아야 한다.
+    func testBinaryClientDiscoveryFallsBackToPublicClientWithoutSecret() throws {
+        let clientID = fakeGoogleOAuthClientID(prefix: "222222222222")
+        var data = Data(repeating: 0x00, count: 1024)
+        data.append(Data(clientID.utf8))
+        data.append(Data([0x00]))
+
+        let client = try XCTUnwrap(
+            AntigravityOAuthConfig.parseClient(fromBinary: data)
+        )
+
+        XCTAssertEqual(client.clientID, clientID)
+        XCTAssertNil(client.clientSecret)
+        XCTAssertTrue(client.allowsPublicClient)
+        XCTAssertEqual(client.tokenClientSecretCandidates, [nil])
+    }
+
+    /// 설치된 실제 Antigravity에 대한 opt-in 검증. 비밀값은 단정하지 않고
+    /// secret이 발견됐는지와 첫 시도가 secret인지만 확인한다.
+    /// `CLAUDEUSAGE_RUN_AGY_INTEGRATION=1`일 때만 실행한다.
+    func testInstalledAntigravityYieldsConfidentialClientWhenIntegrationEnabled() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["CLAUDEUSAGE_RUN_AGY_INTEGRATION"] == "1",
+            "Set CLAUDEUSAGE_RUN_AGY_INTEGRATION=1 to probe the installed Antigravity app."
+        )
+        let started = Date()
+        guard let client = AntigravityOAuthConfig.discoverClientFromInstalledApp() else {
+            throw XCTSkip("Antigravity 설치본에서 OAuth client를 찾지 못했습니다.")
+        }
+        let elapsed = Date().timeIntervalSince(started)
+
+        XCTAssertTrue(client.clientID.hasSuffix("apps." + "googleusercontent.com"))
+        XCTAssertFalse(
+            client.clientSecretCandidates.isEmpty,
+            "secret을 찾지 못하면 confidential client 교환이 불가능합니다."
+        )
+        XCTAssertFalse(
+            client.allowsPublicClient,
+            "secret이 있으면 public client 시도를 먼저 하지 않아야 합니다."
+        )
+        XCTAssertNotNil(
+            client.tokenClientSecretCandidates.first ?? nil,
+            "일회용 authorization code는 첫 시도에서 secret을 써야 합니다."
+        )
+        XCTAssertLessThan(
+            elapsed,
+            5.0,
+            "client discovery가 로그인마다 수 초 이상 걸리면 안 됩니다."
+        )
     }
 
     private func fakeGoogleOAuthClientID(prefix: String) -> String {

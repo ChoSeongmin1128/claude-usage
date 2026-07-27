@@ -136,6 +136,24 @@ assert_equal "0" "$(release_cleanup_exit_code 0 0 0)" "clean success status"
 assert_equal "1" "$(release_cleanup_exit_code 0 1 0)" "cleanup failure changes success"
 assert_equal "1" "$(release_cleanup_exit_code 0 0 1)" "account restore failure changes success"
 assert_equal "7" "$(release_cleanup_exit_code 7 1 1)" "original failure is preserved"
+# 서명 인증서 선택. 후보가 여러 개일 때 임의로 고르면 기존 사용자 Keychain ACL
+# 연속성이 끊기므로, 현재 배포본과 일치하는 것만 골라야 한다.
+CERT_A="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+CERT_B="BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+assert_equal "$CERT_A" "$(select_signing_certificate "" "$CERT_A")" \
+    "single certificate needs no reference"
+assert_equal "$CERT_B" "$(select_signing_certificate "$CERT_B" "$CERT_A" "$CERT_B")" \
+    "reference picks the deployed certificate"
+assert_failure "no candidate" select_signing_certificate ""
+set +e
+select_signing_certificate "" "$CERT_A" "$CERT_B" >/dev/null 2>&1
+AMBIGUOUS_RC=$?
+select_signing_certificate "$CERT_A$CERT_A" "$CERT_A" "$CERT_B" >/dev/null 2>&1
+UNKNOWN_REFERENCE_RC=$?
+set -e
+assert_equal "2" "$AMBIGUOUS_RC" "ambiguous candidates without reference are rejected"
+assert_equal "3" "$UNKNOWN_REFERENCE_RC" "reference absent from candidates is rejected"
+
 RESOLVE_TAG_REPO="$TEST_ROOT/resolve-tag-repo"
 git init -q "$RESOLVE_TAG_REPO"
 git -C "$RESOLVE_TAG_REPO" \
