@@ -131,6 +131,17 @@ release_cleanup_exit_code() {
     fi
 }
 
+# `git rev-parse <ref>`는 해석하지 못한 ref를 stdout에 그대로 출력하고 non-zero로
+# 끝난다. `|| true`로 종료 코드만 삼키면 그 리터럴 문자열이 commit SHA인 것처럼
+# 흘러가, 아직 존재하지 않는 새 tag가 mismatched로 오판된다. `--verify --quiet`은
+# 해석에 실패하면 아무것도 출력하지 않으므로 "없음"을 빈 문자열로 표현할 수 있다.
+resolve_local_tag_commit() {
+    local repository="$1"
+    local tag="$2"
+
+    git -C "$repository" rev-parse --verify --quiet "refs/tags/$tag^{commit}" || true
+}
+
 classify_release_candidate_state() {
     local tag_state="${1:-}"
     local release_state="${2:-}"

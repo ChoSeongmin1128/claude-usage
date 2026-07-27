@@ -657,9 +657,7 @@ ORIGIN_MAIN_SHA="$(git -C "$ROOT_DIR" rev-parse origin/main)"
 [[ "$HEAD_SHA" == "$ORIGIN_MAIN_SHA" ]] \
     || die "HEAD가 최신 origin/main과 일치하지 않습니다: HEAD=$HEAD_SHA, origin/main=$ORIGIN_MAIN_SHA"
 
-LOCAL_TAG_COMMIT="$(
-    git -C "$ROOT_DIR" rev-parse "refs/tags/$TAG^{commit}" 2>/dev/null || true
-)"
+LOCAL_TAG_COMMIT="$(resolve_local_tag_commit "$ROOT_DIR" "$TAG")"
 REMOTE_TAG_LINES="$(
     git -C "$ROOT_DIR" ls-remote --tags origin \
         "refs/tags/$TAG" "refs/tags/$TAG^{}"

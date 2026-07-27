@@ -136,6 +136,25 @@ assert_equal "0" "$(release_cleanup_exit_code 0 0 0)" "clean success status"
 assert_equal "1" "$(release_cleanup_exit_code 0 1 0)" "cleanup failure changes success"
 assert_equal "1" "$(release_cleanup_exit_code 0 0 1)" "account restore failure changes success"
 assert_equal "7" "$(release_cleanup_exit_code 7 1 1)" "original failure is preserved"
+RESOLVE_TAG_REPO="$TEST_ROOT/resolve-tag-repo"
+git init -q "$RESOLVE_TAG_REPO"
+git -C "$RESOLVE_TAG_REPO" \
+    -c user.email=release-tests@example.com \
+    -c user.name="release tests" \
+    commit -q --allow-empty -m init
+RESOLVE_TAG_HEAD="$(git -C "$RESOLVE_TAG_REPO" rev-parse HEAD)"
+git -C "$RESOLVE_TAG_REPO" tag v9.9.9-staging
+assert_equal \
+    "$RESOLVE_TAG_HEAD" \
+    "$(resolve_local_tag_commit "$RESOLVE_TAG_REPO" v9.9.9-staging)" \
+    "existing local tag resolves to commit"
+# 없는 tag는 리터럴 ref 문자열이 아니라 빈 문자열이어야 한다. 비어 있지 않으면
+# 아직 발행하지 않은 새 버전이 항상 mismatched로 차단된다.
+assert_equal \
+    "" \
+    "$(resolve_local_tag_commit "$RESOLVE_TAG_REPO" v9.9.10-staging)" \
+    "absent local tag resolves to empty"
+
 assert_equal "fresh" "$(classify_release_candidate_state absent absent previous)" "fresh release state"
 assert_equal "tag_only" "$(classify_release_candidate_state matching absent previous)" "tag-only resume state"
 assert_equal "pages_pending" "$(classify_release_candidate_state matching complete previous)" "Pages resume state"
