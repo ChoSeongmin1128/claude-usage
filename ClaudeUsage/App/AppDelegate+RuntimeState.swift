@@ -99,12 +99,22 @@ extension AppDelegate {
         }
     }
 
-    var currentAntigravityUsage: AntigravityUsageResponse? {
-        get { runtimeProviderState(for: .antigravity).antigravityUsage }
-        set {
-            updateRuntimeProviderState(for: .antigravity) { state in
-                state.payload = newValue.map(RuntimeProviderPayload.antigravity)
+    var currentAntigravityRuntimeSnapshot:
+        AntigravityRuntimeSnapshot
+    {
+        get {
+            withRuntimeState {
+                $0.antigravityRuntimeSnapshot
             }
+        }
+        set {
+            withRuntimeState {
+                $0.antigravityRuntimeSnapshot = newValue
+            }
+            NotificationCenter.default.post(
+                name: .runtimeProviderStateUpdated,
+                object: PopoverService.antigravity
+            )
         }
     }
 
@@ -121,15 +131,6 @@ extension AppDelegate {
         get { runtimeProviderState(for: .codex).error }
         set {
             updateRuntimeProviderState(for: .codex) { state in
-                state.error = newValue
-            }
-        }
-    }
-
-    var antigravityError: APIError? {
-        get { runtimeProviderState(for: .antigravity).error }
-        set {
-            updateRuntimeProviderState(for: .antigravity) { state in
                 state.error = newValue
             }
         }
@@ -159,18 +160,6 @@ extension AppDelegate {
         }
     }
 
-    var isAntigravityLoading: Bool {
-        get { runtimeProviderState(for: .antigravity).isLoading }
-        set {
-            updateRuntimeProviderState(for: .antigravity) { state in
-                state.isLoading = newValue
-                state.lastAttemptState = newValue
-                    ? .loading
-                    : RuntimeProviderAttemptState.resolve(isLoading: false, error: state.error)
-            }
-        }
-    }
-
     var loadingStartedAt: Date? {
         get { runtimeProviderState(for: .claude).loadingStartedAt }
         set {
@@ -184,15 +173,6 @@ extension AppDelegate {
         get { runtimeProviderState(for: .codex).loadingStartedAt }
         set {
             updateRuntimeProviderState(for: .codex) { state in
-                state.loadingStartedAt = newValue
-            }
-        }
-    }
-
-    var antigravityLoadingStartedAt: Date? {
-        get { runtimeProviderState(for: .antigravity).loadingStartedAt }
-        set {
-            updateRuntimeProviderState(for: .antigravity) { state in
                 state.loadingStartedAt = newValue
             }
         }
@@ -216,15 +196,6 @@ extension AppDelegate {
         }
     }
 
-    var nextAntigravityRefreshAllowedAt: Date? {
-        get { runtimeProviderState(for: .antigravity).nextRefreshAllowedAt }
-        set {
-            updateRuntimeProviderState(for: .antigravity) { state in
-                state.nextRefreshAllowedAt = newValue
-            }
-        }
-    }
-
     var lastUpdated: Date? {
         get { runtimeProviderState(for: .claude).lastUpdated }
         set {
@@ -238,15 +209,6 @@ extension AppDelegate {
         get { runtimeProviderState(for: .codex).lastUpdated }
         set {
             updateRuntimeProviderState(for: .codex) { state in
-                state.lastUpdated = newValue
-            }
-        }
-    }
-
-    var antigravityLastUpdated: Date? {
-        get { runtimeProviderState(for: .antigravity).lastUpdated }
-        set {
-            updateRuntimeProviderState(for: .antigravity) { state in
                 state.lastUpdated = newValue
             }
         }
@@ -270,33 +232,16 @@ extension AppDelegate {
         }
     }
 
-    var hasAntigravityAuthError: Bool {
-        get { runtimeProviderState(for: .antigravity).hasAuthError }
-        set {
-            updateRuntimeProviderState(for: .antigravity) { state in
-                state.hasAuthError = newValue
-            }
-        }
-    }
-
-    // ⚠️ 아래 4개 computed property 는 UI 경로(메뉴바 클릭, 우클릭 메뉴,
-    // popover 렌더링)에서 호출되므로 반드시 staleWhileRevalidate 만 사용.
-    // 내부적으로 subprocess 를 돌리는 `.status(for:)` 직접 호출 금지.
-    // 캐시는 앱 시작 및 refresh 틱에서 백그라운드로 미리 갱신됨.
-
-    var hasAntigravityCredential: Bool {
-        let status = ProviderEnvironmentDetector.staleWhileRevalidate(for: .antigravity)
-        return status?.credentialState.hasAnyCredential ?? false
-    }
-
     var antigravityRuntimeReachability: Bool {
-        let status = ProviderEnvironmentDetector.staleWhileRevalidate(for: .antigravity)
-        return status?.runtimeReachability ?? false
+        runtimeProviderSnapshot(
+            for: .antigravity
+        ).canAttemptRefresh
     }
 
     var antigravityRefreshReachability: Bool {
-        let status = ProviderEnvironmentDetector.staleWhileRevalidate(for: .antigravity)
-        return status?.canAttemptRefresh ?? false
+        runtimeProviderSnapshot(
+            for: .antigravity
+        ).canAttemptRefresh
     }
 
     var refreshableServices: [PopoverService] {

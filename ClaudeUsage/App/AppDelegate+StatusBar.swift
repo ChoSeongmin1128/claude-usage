@@ -40,10 +40,20 @@ extension AppDelegate {
     }
 
     func showUnifiedContextMenu() {
+        let settings = AppSettings.shared
+        let runtimeServices =
+            ServiceSelectionHelper.exposedServices(
+                settings: settings
+            )
         let menu = StatusContextMenuBuilder.build(
-            settings: AppSettings.shared,
-            runtimeServices: ServiceSelectionHelper.exposedServices(settings: AppSettings.shared),
+            settings: settings,
+            runtimeServices: runtimeServices,
             refreshableServiceSet: Set(refreshableServices),
+            styleConfigurations:
+                statusContextStyleConfigurations(
+                    for: runtimeServices,
+                    settings: settings
+                ),
             actions: StatusContextMenuActions(
                 refreshAll: #selector(refreshClicked),
                 settings: #selector(settingsClicked),
@@ -78,6 +88,30 @@ extension AppDelegate {
     }
 
     func applyMenuBarStyle(_ style: MenuBarStyle, for kind: AppProviderKind) {
+        if kind == .antigravity {
+            guard let typedStyle =
+                    antigravityMenuBarStyle(
+                        from: style
+                    )
+            else {
+                return
+            }
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    _ = try await antigravityRuntime
+                        .runtimeController
+                        .updateMenuBarStyle(
+                            typedStyle
+                        )
+                } catch {
+                    Logger.warning(
+                        "Antigravity 메뉴바 스타일 저장 실패: \(error.localizedDescription)"
+                    )
+                }
+            }
+            return
+        }
         AppSettings.shared.setMenuBarStyle(style, for: kind)
         updateMenuBar()
     }
@@ -112,24 +146,27 @@ extension AppDelegate {
 
         let settings = AppSettings.shared
         guard let button = statusItem?.button else { return }
+        let appearance = button.effectiveAppearance
         let highContrast = AppSettings.shared.menuBarTextHighContrast
         let secondaryColor = MenuBarIconFactory.secondaryTextColor(highContrast: highContrast)
 
         let runtimeKinds = ServiceSelectionHelper
             .enabledRuntimeProviderKinds(settings: settings)
-            .filter { settings.isProviderVisibleInMenuBar($0) }
+            .filter(isRuntimeProviderVisibleInMenuBar)
         let compactSnapshots = runtimeKinds.compactMap {
             menuBarProviderSnapshot(
                 for: $0,
                 iconSize: NSSize(width: 14, height: 14),
-                secondaryColor: secondaryColor
+                secondaryColor: secondaryColor,
+                appearance: appearance
             )
         }
 
         if compactSnapshots.count > 1 {
             let content = MenuBarStatusComposer.multipleProviderContent(
                 snapshots: compactSnapshots,
-                secondaryColor: secondaryColor
+                secondaryColor: secondaryColor,
+                appearance: appearance
             )
             applyMenuBarContent(content, to: button)
             return
@@ -143,14 +180,16 @@ extension AppDelegate {
         guard let snapshot = menuBarProviderSnapshot(
             for: activeService.providerKind,
             iconSize: NSSize(width: 18, height: 18),
-            secondaryColor: secondaryColor
+            secondaryColor: secondaryColor,
+            appearance: appearance
         ) else {
             applyMenuBarContent(MenuBarStatusComposer.placeholder(secondaryColor: secondaryColor), to: button)
             return
         }
         let content = MenuBarStatusComposer.singleProviderContent(
             snapshot: snapshot,
-            secondaryColor: secondaryColor
+            secondaryColor: secondaryColor,
+            appearance: appearance
         )
         applyMenuBarContent(content, to: button)
     }
@@ -158,13 +197,16 @@ extension AppDelegate {
     func menuBarProviderSnapshot(
         for kind: AppProviderKind,
         iconSize: NSSize,
-        secondaryColor: NSColor
+        secondaryColor: NSColor,
+        appearance: NSAppearance
     ) -> MenuBarProviderSnapshot? {
-        guard AppSettings.shared.isProviderVisibleInMenuBar(kind) else { return nil }
+        guard isRuntimeProviderVisibleInMenuBar(kind) else {
+            return nil
+        }
         guard let service = kind.runtimeService else { return nil }
-        let runtimeSnapshot = runtimeProviderSnapshot(for: service)
         switch kind {
         case .claude:
+            let runtimeSnapshot = runtimeProviderSnapshot(for: service)
             guard let config = AppSettings.shared.menuBarDisplayConfig(for: .claude) else { return nil }
             return MenuBarStatusComposer.claudeSnapshot(
                 config: config,
@@ -173,10 +215,15 @@ extension AppDelegate {
                 hasAuthError: runtimeSnapshot.hasAuthError,
                 hasCredential: runtimeSnapshot.hasCredential,
                 secondaryColor: secondaryColor,
-                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .claude, size: iconSize) : nil,
+                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(
+                    for: .claude,
+                    size: iconSize,
+                    appearance: appearance
+                ) : nil,
                 systemStatus: providerSystemStatus(for: .claude)
             )
         case .codex:
+            let runtimeSnapshot = runtimeProviderSnapshot(for: service)
             guard let config = AppSettings.shared.menuBarDisplayConfig(for: .codex) else { return nil }
             return MenuBarStatusComposer.codexSnapshot(
                 config: config,
@@ -185,21 +232,137 @@ extension AppDelegate {
                 hasAuthError: runtimeSnapshot.hasAuthError,
                 isAuthenticated: runtimeSnapshot.hasCredential,
                 secondaryColor: secondaryColor,
-                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .codex, size: iconSize) : nil,
+                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(
+                    for: .codex,
+                    size: iconSize,
+                    appearance: appearance
+                ) : nil,
                 systemStatus: providerSystemStatus(for: .codex)
             )
         case .antigravity:
-            guard let config = AppSettings.shared.menuBarDisplayConfig(for: .antigravity) else { return nil }
+            guard case .content(let presentation) =
+                    currentAntigravityRuntimeSnapshot
+                        .quotaPresentation
+            else {
+                return nil
+            }
             return MenuBarStatusComposer.antigravitySnapshot(
-                config: config,
-                usage: runtimeSnapshot.antigravityUsage,
-                error: runtimeSnapshot.error,
-                hasAuthError: runtimeSnapshot.hasAuthError,
-                hasCredential: runtimeSnapshot.hasCredential,
-                secondaryColor: secondaryColor,
-                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(for: .antigravity, size: iconSize) : nil,
-                systemStatus: providerSystemStatus(for: .antigravity)
+                presentation: presentation.menuBar,
+                context: presentation.context,
+                icon: MenuBarIconFactory.providerMenuBarIcon(
+                    for: .antigravity,
+                    size: iconSize,
+                    appearance: appearance
+                )
             )
+        }
+    }
+
+    func isRuntimeProviderVisibleInMenuBar(
+        _ kind: AppProviderKind
+    ) -> Bool {
+        if kind == .antigravity {
+            return currentAntigravityRuntimeSnapshot
+                .settings?
+                .display
+                .menuBar
+                .isVisible
+                == true
+        }
+        return AppSettings.shared
+            .isProviderVisibleInMenuBar(kind)
+    }
+
+    private func statusContextStyleConfigurations(
+        for services: [PopoverService],
+        settings: AppSettings
+    ) -> [
+        PopoverService:
+            ProviderStyleMenuConfiguration
+    ] {
+        Dictionary(
+            uniqueKeysWithValues:
+                services.compactMap { service in
+                    if service == .antigravity {
+                        guard
+                            let style =
+                                currentAntigravityRuntimeSnapshot
+                                    .settings?
+                                    .display
+                                    .menuBar
+                                    .style
+                        else {
+                            return nil
+                        }
+                        return (
+                            service,
+                            ProviderStyleMenuConfiguration(
+                                currentStyle:
+                                    menuBarStyle(
+                                        from: style
+                                    ),
+                                availableStyles: [
+                                    .none,
+                                    .batteryBar,
+                                    .circular,
+                                ]
+                            )
+                        )
+                    }
+                    guard
+                        let style = settings
+                            .menuBarStyle(
+                                for:
+                                    service.providerKind
+                            )
+                    else {
+                        return nil
+                    }
+                    return (
+                        service,
+                        ProviderStyleMenuConfiguration(
+                            currentStyle: style,
+                            availableStyles:
+                                MenuBarStyle.allCases
+                        )
+                    )
+                }
+        )
+    }
+
+    private func antigravityMenuBarStyle(
+        from style: MenuBarStyle
+    ) -> AntigravityDisplaySettings
+        .MenuBarPresentationIntent.Style?
+    {
+        switch style {
+        case .none:
+            return AntigravityDisplaySettings
+                .MenuBarPresentationIntent
+                .Style
+                .none
+        case .batteryBar:
+            return .batteryBar
+        case .circular:
+            return .circular
+        case .concentricRings,
+             .dualBattery,
+             .sideBySideBattery:
+            return nil
+        }
+    }
+
+    private func menuBarStyle(
+        from style: AntigravityDisplaySettings
+            .MenuBarPresentationIntent.Style
+    ) -> MenuBarStyle {
+        switch style {
+        case .none:
+            return .none
+        case .batteryBar:
+            return .batteryBar
+        case .circular:
+            return .circular
         }
     }
 
@@ -208,6 +371,7 @@ extension AppDelegate {
         button.imagePosition = .imageOnly
         button.attributedTitle = NSAttributedString(string: "")
         button.toolTip = content.tooltip
+        content.applyAccessibility(to: button)
         if PopoverGeometryDiagnostics.isEnabled {
             let buttonScreenFrame = button.window.map {
                 NSStringFromRect($0.convertToScreen(button.convert(button.bounds, to: nil)))

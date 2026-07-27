@@ -6,38 +6,55 @@ enum MenuBarIconFactory {
         highContrast ? NSColor.labelColor : NSColor.secondaryLabelColor
     }
 
-    static func providerMenuBarIcon(for provider: AppProviderKind, size: NSSize) -> NSImage? {
-        if let base = ProviderBrandIconResolver.baseImage(for: provider) {
-            let cropped = imageByTrimmingTransparentPadding(base)
-            return fittedIcon(cropped, size: size)
-        }
+    static func providerMenuBarIcon(
+        for provider: AppProviderKind,
+        size: NSSize,
+        appearance: NSAppearance
+    ) -> NSImage? {
+        var resolvedImage: NSImage?
+        appearance.performAsCurrentDrawingAppearance {
+            if let base = ProviderBrandIconResolver.baseImage(for: provider) {
+                resolvedImage = rasterizedIcon(base, size: size, appearance: appearance)
+                return
+            }
 
-        if let symbol = provider.fallbackSystemSymbolName,
-           let fallback = NSImage(systemSymbolName: symbol, accessibilityDescription: provider.displayName) {
-            return fittedIcon(fallback, size: size)
-        }
+            if let symbol = provider.fallbackSystemSymbolName,
+               let fallback = NSImage(systemSymbolName: symbol, accessibilityDescription: provider.displayName) {
+                resolvedImage = rasterizedIcon(fallback, size: size, appearance: appearance)
+                return
+            }
 
-        Logger.error("\(provider.displayName) 메뉴바 아이콘 생성 실패")
-        return nil
+            Logger.error("\(provider.displayName) 메뉴바 아이콘 생성 실패")
+        }
+        return resolvedImage
     }
 
-    static func badgedIcon(_ base: NSImage, indicator: StatusIndicator) -> NSImage {
+    static func badgedIcon(
+        _ base: NSImage,
+        indicator: StatusIndicator,
+        appearance: NSAppearance
+    ) -> NSImage {
         guard indicator != .none else { return base }
 
-        let size = base.size
-        let badgeDiameter: CGFloat = indicator == .critical ? 8 : 7
-        let badgeRect = NSRect(
-            x: max(0, size.width - badgeDiameter),
-            y: max(0, size.height - badgeDiameter),
-            width: badgeDiameter,
-            height: badgeDiameter
-        )
-        let badgeColor: NSColor = indicator == .minor ? .systemOrange : .systemRed
+        var renderedImage = base
+        appearance.performAsCurrentDrawingAppearance {
+            let size = base.size
+            let badgeDiameter: CGFloat = indicator == .critical ? 8 : 7
+            let badgeRect = NSRect(
+                x: max(0, size.width - badgeDiameter),
+                y: max(0, size.height - badgeDiameter),
+                width: badgeDiameter,
+                height: badgeDiameter
+            )
+            let badgeColor: NSColor = indicator == .minor ? .systemOrange : .systemRed
+            let image = NSImage(size: size)
+            image.lockFocus()
+            defer { image.unlockFocus() }
 
-        let image = NSImage(size: size, flipped: false) { rect in
+            let rect = NSRect(origin: .zero, size: size)
             base.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
 
-            let isDark = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
             let outlineColor = (isDark ? NSColor.black : NSColor.white).withAlphaComponent(0.92)
             let outlinePath = NSBezierPath(ovalIn: badgeRect.insetBy(dx: -1, dy: -1))
             outlineColor.setFill()
@@ -62,10 +79,23 @@ enum MenuBarIconFactory {
                 (text as NSString).draw(at: point, withAttributes: attrs)
             }
 
-            return true
+            image.isTemplate = false
+            renderedImage = image
         }
-        image.isTemplate = false
-        return image
+        return renderedImage
+    }
+
+    static func rasterizedIcon(
+        _ source: NSImage,
+        size: NSSize,
+        appearance: NSAppearance
+    ) -> NSImage {
+        var renderedImage = source
+        appearance.performAsCurrentDrawingAppearance {
+            let cropped = imageByTrimmingTransparentPadding(source)
+            renderedImage = fittedIcon(cropped, size: size)
+        }
+        return renderedImage
     }
 
     private static func fittedIcon(_ source: NSImage, size: NSSize) -> NSImage {

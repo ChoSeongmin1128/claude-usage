@@ -48,6 +48,28 @@ APPS_ICON_Y="${APPS_ICON_Y:-190}"
 WINDOW_W="${WINDOW_W:-540}"
 WINDOW_H="${WINDOW_H:-380}"
 CERT_HASH="${CERT_HASH:-}"
+ICON_TMP=""
+
+cleanup_make_dmg() {
+    local exit_code=$?
+    local cleanup_failed=0
+
+    if [[ -n "$ICON_TMP" && -d "$ICON_TMP" ]]; then
+        if ! rm -rf "$ICON_TMP" || [[ -e "$ICON_TMP" ]]; then
+            echo "오류: DMG 아이콘 임시 디렉터리를 정리하지 못했습니다: $ICON_TMP" >&2
+            cleanup_failed=1
+        fi
+    fi
+    if [[ "$exit_code" == "0" && "$cleanup_failed" == "1" ]]; then
+        exit 1
+    fi
+    exit "$exit_code"
+}
+
+trap cleanup_make_dmg EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 if [[ ! -d "$APP_PATH" ]]; then
     echo "앱 경로를 찾지 못했습니다: $APP_PATH" >&2
@@ -132,6 +154,11 @@ if [[ -f "$VOLUME_ICON" ]] && command -v Rez >/dev/null 2>&1 \
     # Finder "Has Custom Icon" 비트 ON
     SetFile -a C "$DMG_PATH"
     rm -rf "$ICON_TMP"
+    [[ ! -e "$ICON_TMP" ]] || {
+        echo "DMG 아이콘 임시 디렉터리를 정리하지 못했습니다: $ICON_TMP" >&2
+        exit 1
+    }
+    ICON_TMP=""
 fi
 
 if [[ -n "$CERT_HASH" ]]; then

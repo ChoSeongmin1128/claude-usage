@@ -42,11 +42,10 @@ final class AntigravityOAuthSettingsViewModelTests: XCTestCase {
         try super.tearDownWithError()
     }
 
-    func testConnectSuccessStoresAccountSelectsAutoSourceAndRefreshesEnvironment() async throws {
+    func testConnectSuccessStoresAccountAndRefreshesEnvironment() async throws {
         let settings = AppSettings.shared
         let snapshot = settings.createSnapshot()
         defer { settings.restore(from: snapshot) }
-        settings.antigravityUsageDataSource = .localIDE
         var refreshCount = 0
         let credentials = makeCredentials(email: "new@example.com")
         let viewModel = AntigravityOAuthSettingsViewModel(
@@ -67,7 +66,6 @@ final class AntigravityOAuthSettingsViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.accounts.map(\.email), ["new@example.com"])
         XCTAssertEqual(viewModel.activeAccountID, viewModel.accounts.first?.id)
         XCTAssertEqual(try credentialStore.load()?.email, "new@example.com")
-        XCTAssertEqual(settings.antigravityUsageDataSource, .auto)
         XCTAssertEqual(refreshCount, 1)
         XCTAssertEqual(viewModel.message, "new@example.com 계정을 연결했습니다.")
     }

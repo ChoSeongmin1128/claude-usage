@@ -29,7 +29,7 @@ enum RefreshOrchestration {
         lastRefreshedAt: [PopoverService: Date] = [:]
     ) -> [ProviderRuntimeAction] {
         let now = Date()
-        return supportedServices.compactMap { service in
+        return supportedServices.compactMap { service -> ProviderRuntimeAction? in
             if force,
                service.providerKind.isRuntimeProvider,
                ServiceSelectionHelper.isEnabled(service, settings: settings)

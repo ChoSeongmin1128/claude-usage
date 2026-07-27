@@ -2,14 +2,102 @@
 
 ## 개요
 
-배포는 네 단계로 구성됩니다.
+일반 배포는 통합 driver 한 명령으로 실행합니다.
+
+```bash
+# 환경과 버전을 화면에서 입력
+./Scripts/release.sh
+
+# 환경/버전을 인자로 입력
+./Scripts/release.sh stg 2.4.0
+./Scripts/release.sh prod 2.4.0
+```
+
+배포 흐름은 네 단계로 구분됩니다.
 
 1. **계정/원격 확인** — GitHub CLI active 계정과 repository 확인
-2. **1회성 세팅** — Sparkle 키 + notarization 자격 등록
-3. **릴리스 빌드** — notarized 배포 또는 signed-only 내부 배포 산출물 생성
-4. **게시** — git tag + GitHub Release 업로드 + Sparkle appcast 발행
+2. **1회성 사전조건** — Sparkle 키 + notarization 자격 등록
+3. **릴리스 빌드** — driver는 notarized 배포 산출물만 생성
+4. **게시** — immutable tag/Release 업로드 → 원격 검증 → 검증된 Sparkle appcast 발행
 
-스크립트는 모두 `Scripts/` 에 있고 독립 실행 가능합니다.
+`Scripts/build-notarize-release.sh`와 `Scripts/publish-release.sh`는 driver가
+호출하는 저수준 primitive입니다. 복구나 진단 목적이 아니면 두 스크립트를
+따로 조합하지 않습니다. signed-only 내부 배포는 통합 driver 범위가 아니며,
+필요할 때만 build primitive를 `RELEASE_DISTRIBUTION=internal`로 직접
+실행합니다.
+
+### 통합 driver 계약
+
+driver는 먼저 현재 project, prod Release/feed, staging Release/feed의
+version과 build를 보여줍니다. 환경은 `stg`, `staging`, `prod`만 받으며,
+버전은 suffix 없는 숫자 `X.Y.Z`만 받습니다.
+
+| 입력 환경 | 실제 channel | 자동 생성 tag |
+|---|---|---|
+| `stg`, `staging` | `staging` | `vX.Y.Z-staging` |
+| `prod` | `prod` | `vX.Y.Z` |
+
+`2.4.0`부터 `CURRENT_PROJECT_VERSION`은
+`major * 10000 + minor * 100 + patch`로 계산합니다. 따라서
+`2.4.0 → 20400`, `2.4.1 → 20401`, `2.4.10 → 20410`입니다.
+minor와 patch는 각각 `0...99`만 허용합니다. 과거 `2.3.x`의 `20310`,
+`20320`, `20330`은 이전 규칙으로 게시된 역사적 build이며, driver는 이전
+앱을 준비할 때 이를 새 공식으로 역산하지 않고 해당 채널 appcast의 실제
+published build를 사용합니다.
+
+입력 version/build와 `ClaudeUsage.xcodeproj/project.pbxproj`가 다르면 driver는
+source를 자동 수정하거나 commit하지 않고 정확한 차이를 출력한 뒤 중단합니다.
+버전 변경도 `dev` 검증과 `main` squash에 포함되어야 release source
+provenance가 유지되기 때문입니다.
+
+mutation 없는 계획만 보려면:
+
+```bash
+./Scripts/release.sh stg 2.4.0 --non-interactive --dry-run
+```
+
+자동화 환경에서도 publish 확인은 생략할 수 없습니다.
+
+```bash
+./Scripts/release.sh stg 2.4.0 \
+  --non-interactive \
+  --confirm-publish v2.4.0-staging \
+  --notes "2.4.0 staging"
+```
+
+실제 driver는 계정/원격/clean main/tag/notary/test gate, 이전 동일 채널
+원격 앱 준비, 기존 build/publish primitive 실행, 새 원격 artifact 검증,
+검증된 appcast의 Pages/feed 전파, public feed 포함 최종 재검증을 순서대로
+수행합니다. DMG·ZIP·appcast는 GitHub의
+SHA-256/size metadata와 대조하고, DMG 및 ZIP의 앱 모두 notarization,
+Gatekeeper, bundle version/build/feed를 확인합니다. appcast의 ZIP length,
+Sparkle Ed25519 signature와 앱의 `SUPublicEDKey`도 검증하며, public feed는
+Release의 `appcast.xml` asset과 byte-for-byte로 대조합니다.
+
+테스트 DerivedData/xcresult, archive용 임시 xcconfig, appcast staging,
+archive DerivedData와 release build는 각 사용 단계가 끝나는 즉시
+삭제합니다. 실패·중단 시에도 trap이 남은 download, mount, worktree와
+실행 임시 루트를 정리하고 GitHub CLI 계정을 `nathan-glorang`으로
+복원합니다. fresh/tag-only 게시에서 최종적으로 남는 QA 앱은
+`~/Downloads/ClaudeUsage.app` 하나이며, 새 후보가 아니라 Sparkle upgrade를
+시작할 이전 동일 채널 버전입니다. backup app은 만들지 않습니다.
+
+### 중단 후 재실행
+
+tag, GitHub Release와 기존 asset은 한번 만들어지면 이동·수정·덮어쓰기하지
+않습니다. driver는 재실행 때 원격 상태를 다시 분류합니다.
+
+| 상태 | 조건 | 재실행 동작 |
+|---|---|---|
+| `fresh` | 후보 tag와 Release가 모두 없음 | 전체 검증·빌드·게시 |
+| `tag_only` | tag가 정확히 현재 `main`을 가리키고 Release는 없음 | 전체 검증·빌드 후 기존 tag를 재사용해 Release 생성 |
+| `pages_pending` | tag와 세 asset이 완전하고 public feed만 이전 버전 | Release를 재검증한 뒤 Pages/feed만 복구 |
+| `complete` | tag, Release 세 asset, public feed가 모두 후보와 일치 | 원격 산출물과 public feed만 재검증 |
+| `burned` | tag commit 불일치, partial/추가 asset, metadata 불일치, feed 분기 | 원격 변경 없이 중단하고 다음 숫자 버전 사용 |
+
+`pages_pending`과 `complete`에서는 XCTest, notarization build, Downloads 앱
+교체를 다시 실행하지 않습니다. partial Release에 asset을 추가 업로드하거나
+`--clobber`, tag 강제 이동·삭제로 같은 버전을 되살리는 경로는 없습니다.
 
 ---
 
@@ -93,9 +181,19 @@ BUILD_DIR="$HOME/Downloads/ClaudeUsage-release-$(date +%Y%m%d-%H%M)" \
   - `SUFeedURL` = 기본적으로 GitHub Pages `prod` 채널 (`https://choseongmin1128.github.io/claude-usage/appcast.xml`) 로 추정
   - `SUPublicEDKey` = 방금 생성한 공개키
   - `NOTARY_PROFILE` = "ClaudeUsageNotary"
+- 공개 trust root인 `Config/Release.xcconfig`의 `SUPublicEDKey`도 같은 값으로 갱신
 - `.gitignore` 에 로컬 xcconfig 규칙 추가
 
-키가 이미 있다면 공개키만 재사용하고 새로 생성하지 않습니다. 강제 재생성은 `--force` 플래그.
+키가 이미 있다면 공개키만 재사용하고 새로 생성하지 않습니다. `--force`는
+local xcconfig 전체를 다시 작성하는 옵션이며 signing key를 회전하지 않습니다.
+[Sparkle의 `generate_keys` 기본 동작](https://github.com/sparkle-project/Sparkle/blob/2.x/generate_keys/main.swift#L1083-L1092)도
+기존 Keychain key를 덮어쓰지 않습니다. 실제 키 회전은 기존 설치 앱의 update
+trust chain에 영향을 주므로 일반 release와 분리합니다. 기존 private key를
+`generate_keys -x`로 안전한 위치에 export한 뒤 Keychain Access에서 정확한
+Sparkle signing key를 수동으로 제거하고 새 키를 생성하는 별도 incident
+절차와 구버전 upgrade 호환성 검토가 필요합니다. 바뀐 tracked public key는
+source diff로 검토·commit해야 하며, local/env key가 tracked trust root와
+다르면 archive 전에 중단합니다.
 
 staging 채널을 기본값으로 쓰고 싶다면:
 
@@ -138,6 +236,14 @@ git push origin main
 ```
 
 이후 산출물은 반드시 최종 `main`에서 새로 만듭니다. squash 전 산출물은 commit provenance가 다르므로 게시하지 않습니다.
+
+정상 배포에서는 이 시점부터 통합 driver를 실행합니다.
+
+```bash
+./Scripts/release.sh stg X.Y.Z
+```
+
+아래 build 명령은 driver 내부 primitive를 수동 진단할 때의 참고입니다.
 
 배포 기준은 `RELEASE_DISTRIBUTION` 으로 고릅니다.
 
@@ -227,9 +333,17 @@ swift Scripts/dmg-assets/generate-background.swift Scripts/dmg-assets/background
 
 ## 3. GitHub 게시
 
+정상 경로에서는 이 절의 build/publish/download/verification을
+`./Scripts/release.sh stg|prod X.Y.Z`가 수행합니다. 아래 명령은 게시
+primitive를 독립적으로 복구·진단할 때만 사용합니다.
+
 ```bash
-# working tree 가 clean 하고 HEAD 가 릴리스 대상 커밋일 때
-./Scripts/publish-release.sh vX.Y.Z
+# working tree가 clean한 main이고, 산출물을 만든 commit을 고정할 때
+EXPECTED_COMMIT="$(git rev-parse HEAD)"
+./Scripts/publish-release.sh vX.Y.Z \
+  --channel prod \
+  --expected-commit "$EXPECTED_COMMIT" \
+  --skip-pages-publish
 ```
 
 수행 단계:
@@ -239,21 +353,30 @@ swift Scripts/dmg-assets/generate-background.swift Scripts/dmg-assets/background
 3. Sparkle `generate_appcast` 로 `appcast.xml` 생성
    - 다운로드 URL prefix 는 `--download-base-url`, `SPARKLE_DOWNLOAD_BASE_URL`, 또는 저장소의 `releases/download/<TAG>` 추론값을 사용
    - `SUFeedURL` 은 Sparkle 클라이언트가 읽을 feed 위치로만 사용하며, GitHub Pages 채널 URL이어도 됩니다
-4. `git tag` + `git push origin <TAG>`
-5. `gh release create` 로 DMG + ZIP + appcast.xml 업로드
-6. feed URL 이 GitHub Pages 채널이면 [publish-pages-appcast.sh](../Scripts/publish-pages-appcast.sh) 로 `gh-pages` 브랜치의 appcast도 함께 갱신
+4. tracked 공개키로 appcast enclosure/length/Ed25519 signature 사전 검증
+5. 고정한 `--expected-commit`에만 `git tag` + `git push origin <TAG>`
+6. `gh release create` 로 DMG + ZIP + appcast.xml 업로드
+7. public Pages는 변경하지 않음. driver가 원격 세 asset을 완전히 검증한 뒤
+   verifier에서 export한 정확한 appcast 바이트만
+   [publish-pages-appcast.sh](../Scripts/publish-pages-appcast.sh)로 게시
 
 옵션:
-- `--draft` — 초안으로 생성 (공개 전 수동 승인)
 - `--prerelease` — pre-release 표시
 - `--channel prod|staging` — 기본 채널 지정 (미지정 시 stable=prod, prerelease=staging)
+- `--expected-commit SHA` — 검증·빌드한 main commit 고정(필수)
+- `--resume-exact-tag` — 같은 commit의 기존 tag만 재사용
 - `--notes "..."` — 릴리스 노트 직접 지정 (미지정 시 `--generate-notes`)
 
 staging 예:
 
 ```bash
 RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh
-./Scripts/publish-release.sh vX.Y.Z-staging --prerelease --channel staging --notes "릴리스 요약"
+./Scripts/publish-release.sh vX.Y.Z-staging \
+  --prerelease \
+  --channel staging \
+  --expected-commit "$(git rev-parse HEAD)" \
+  --skip-pages-publish \
+  --notes "릴리스 요약"
 ```
 
 게시 후에는 release의 원격 DMG를 다시 다운로드해 최종 사용자 경로를 검증합니다. 로컬 build 산출물을 Downloads에 복사한 것으로 원격 배포 검증을 대신하지 않습니다.
@@ -281,7 +404,11 @@ spctl -a -t exec -vv "/Volumes/ClaudeUsage/ClaudeUsage.app"
 /usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "/Volumes/ClaudeUsage/ClaudeUsage.app/Contents/Info.plist"
 ```
 
-검증 완료 후 사용자가 요청한 경우에만 mount한 앱으로 `~/Downloads/ClaudeUsage.app`을 교체합니다. 배포 작업이 끝나면 GitHub CLI 계정을 평소 계정으로 복원합니다.
+통합 driver는 새 publish 전에 이전 동일 채널 앱을 실제 Sparkle upgrade
+기준으로 준비하기 위해, 검증한 DMG의 앱으로
+`~/Downloads/ClaudeUsage.app`을 교체합니다. standalone verifier를 직접
+실행할 때는 `--install-to`를 지정한 경우에만 앱을 교체합니다. 배포 작업이
+끝나면 GitHub CLI 계정을 평소 계정으로 복원합니다.
 
 ```bash
 gh auth switch --hostname github.com --user nathan-glorang
@@ -291,7 +418,11 @@ prod 예:
 
 ```bash
 RELEASE_CHANNEL=prod ./Scripts/build-notarize-release.sh
-./Scripts/publish-release.sh vX.Y.Z --channel prod --notes "릴리스 요약"
+./Scripts/publish-release.sh vX.Y.Z \
+  --channel prod \
+  --expected-commit "$(git rev-parse HEAD)" \
+  --skip-pages-publish \
+  --notes "릴리스 요약"
 ```
 
 ---
@@ -314,8 +445,11 @@ Sparkle 이 클라이언트 앱에서 하는 일:
 
 ### 업데이트 채널 분리
 
-staging 빌드는 `RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh` 또는 `SU_FEED_URL` 로 채널을 고정하세요.
-stable/prod 릴리스는 `RELEASE_CHANNEL=prod ./Scripts/build-notarize-release.sh` 로 root `appcast.xml` 을 명시합니다. staging 과 prod 는 앱에 들어가는 `SUFeedURL` 이 다르므로 staging 산출물을 prod에 재사용하지 않습니다.
+정상 배포에서는 `./Scripts/release.sh stg|prod X.Y.Z`가 채널을 고정합니다.
+저수준 build 진단에서만 `RELEASE_CHANNEL=staging|prod
+./Scripts/build-notarize-release.sh` 또는 `SU_FEED_URL`을 직접 사용합니다.
+staging과 prod는 앱에 들어가는 `SUFeedURL`이 다르므로 staging 산출물을 prod에
+재사용하지 않습니다.
 
 ---
 
@@ -418,13 +552,12 @@ Xcode 에서 한 번 Release 빌드를 돌리면 Sparkle SPM artifact 가 `~/Lib
 - [ ] `pipx install dmgbuild` / `brew install gh`
 
 릴리스마다:
-- [ ] `xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -destination 'platform=macOS' test`
-- [ ] 버전 bump 커밋 + push
-- [ ] staging 이면 `RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh`
-- [ ] prod 이면 `RELEASE_CHANNEL=prod ./Scripts/build-notarize-release.sh`
-- [ ] `PlistBuddy` 로 `SUFeedURL` 이 의도한 채널인지 확인
-- [ ] stable 이면 `./Scripts/publish-release.sh vX.Y.Z --channel prod`
-- [ ] staging 이면 `./Scripts/publish-release.sh vX.Y.Z-staging --prerelease --channel staging`
-- [ ] `gh-pages` 의 `appcast.xml` / `channels/staging/appcast.xml` 확인
-- [ ] 별도 Mac 에서 앱 실행 후 "업데이트 확인" 눌러 Sparkle 경로 검증
-- [ ] 필요 시 `gh auth switch --hostname github.com --user nathan-glorang` 로 평소 작업 계정 복구
+- [ ] 버전 bump와 전체 검증을 `dev`에서 완료하고 `main`에 squash + push
+- [ ] `./Scripts/release.sh stg|prod X.Y.Z` 실행
+- [ ] 출력된 이전 prod/staging/code version과 계산된 build/tag 확인
+- [ ] 게시 직전 exact tag 입력
+- [ ] `gh-pages`의 `appcast.xml` / `channels/staging/appcast.xml` 확인
+- [ ] 원격 DMG·ZIP·appcast digest와 앱 notarization/Gatekeeper 검증 통과
+- [ ] `~/Downloads/ClaudeUsage.app`이 이전 동일 채널 버전인지 확인
+- [ ] 별도 Mac에서 앱 실행 후 "업데이트 확인"으로 Sparkle upgrade 검증
+- [ ] GitHub CLI active 계정이 `nathan-glorang`으로 복원됐는지 확인

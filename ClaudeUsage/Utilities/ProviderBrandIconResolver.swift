@@ -12,10 +12,19 @@ enum ProviderBrandIconResolver {
 
     static func image(
         for provider: AppProviderKind,
-        kind: ProviderBrandIconKind
+        kind: ProviderBrandIconKind,
+        appearance: NSAppearance? = nil
     ) -> NSImage? {
         if kind == .menuBar {
-            return MenuBarIconFactory.providerMenuBarIcon(for: provider, size: NSSize(width: 18, height: 18))
+            guard let appearance else {
+                Logger.error("\(provider.displayName) 메뉴바 아이콘 appearance가 지정되지 않았습니다.")
+                return nil
+            }
+            return MenuBarIconFactory.providerMenuBarIcon(
+                for: provider,
+                size: NSSize(width: 18, height: 18),
+                appearance: appearance
+            )
         }
 
         if let assetName = assetName(for: provider, kind: kind),
@@ -74,5 +83,19 @@ struct ProviderBrandIconView: View {
             }
         }
         .frame(width: size, height: size)
+    }
+}
+
+struct ProviderSettingsSectionHeader: View {
+    let provider: AppProviderKind
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 7) {
+            ProviderBrandIconView(provider: provider, kind: .settings, size: 16)
+            Text(title)
+        }
+        .font(.headline)
+        .accessibilityElement(children: .combine)
     }
 }

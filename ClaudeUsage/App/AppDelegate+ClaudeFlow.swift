@@ -83,6 +83,9 @@ extension AppDelegate {
     func makeSettingsView() -> SettingsView {
         SettingsView(
             claudeAPIService: apiService,
+            antigravityRuntimeController:
+                antigravityRuntime
+                    .runtimeController,
             onOpenLogin: { [weak self] in
                 self?.settingsWindowCoordinator.close()
                 self?.showLoginWindow(clearCookies: true)
@@ -113,9 +116,6 @@ extension AppDelegate {
             onClaudeOAuthMigrationCompleted: { [weak self] in
                 self?.handleClaudeCredentialContextChanged(refreshOAuthCredentialInventory: true)
             },
-            onRefreshAntigravityUsage: { [weak self] in
-                self?.refreshAntigravityUsageAfterConfigurationChange()
-            },
             onCodexLogout: { [weak self] in
                 guard let self else { return }
                 CodexAuthManager.shared.clearCache()
@@ -134,12 +134,6 @@ extension AppDelegate {
             },
             codexLastError: { [weak self] in
                 self?.runtimeProviderState(for: .codex).error
-            },
-            antigravityLastUsageSource: { [weak self] in
-                self?.runtimeProviderState(for: .antigravity).antigravityUsage?.source
-            },
-            antigravityLastUsage: { [weak self] in
-                self?.runtimeProviderState(for: .antigravity).antigravityUsage
             }
         )
     }

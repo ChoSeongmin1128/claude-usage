@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=Scripts/lib/release-driver-common.sh
+source "$ROOT_DIR/Scripts/lib/release-driver-common.sh"
 ARTIFACTS_DIR="${ARTIFACTS_DIR:-$ROOT_DIR/build/release}"
 APPCAST_OUTPUT="${APPCAST_OUTPUT:-$ARTIFACTS_DIR/appcast.xml}"
 LOCAL_XC_CONFIG_PATH="${LOCAL_XC_CONFIG_PATH:-$ROOT_DIR/Config/Sparkle.release.local.xcconfig}"
@@ -76,12 +78,16 @@ is_placeholder_value() {
   [[ "$value" == *"placeholder"* ]] && return 0
   [[ "$value" == *"replace_with"* ]] && return 0
   [[ "$value" == *"example.com"* ]] && return 0
-  [[ "$value" == *'$('* ]] && return 0
+  [[ "$value" == *"\$("* ]] && return 0
   return 1
 }
 
 find_sparkle_binary() {
   local name="$1"
+  if [[ -n "${SPARKLE_TOOLS_DIR:-}" && -x "$SPARKLE_TOOLS_DIR/$name" ]]; then
+    printf '%s\n' "$SPARKLE_TOOLS_DIR/$name"
+    return 0
+  fi
   local candidates=(
     "$HOME/Library/Developer/Xcode/DerivedData/ClaudeUsage"*/SourcePackages/artifacts/sparkle/Sparkle/bin/"$name"
   )
@@ -217,11 +223,23 @@ if [[ "$ZIP_COUNT" == "0" ]]; then
   exit 1
 fi
 
-STAGING_DIR="$(mktemp -d)"
+STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/claudeusage-appcast.XXXXXX")"
 cleanup() {
-  rm -rf "$STAGING_DIR"
+  local exit_code=$?
+  local cleanup_failed=0
+
+  if [[ -n "$STAGING_DIR" && -d "$STAGING_DIR" ]]; then
+    if ! rm -rf "$STAGING_DIR" || [[ -e "$STAGING_DIR" ]]; then
+      echo "appcast 임시 디렉터리를 정리하지 못했습니다: $STAGING_DIR" >&2
+      cleanup_failed=1
+    fi
+  fi
+  exit "$(release_cleanup_exit_code "$exit_code" "$cleanup_failed" 0)"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 find "$ARTIFACTS_DIR" -maxdepth 1 -name '*.zip' -print0 | while IFS= read -r -d '' zip_path; do
   cp "$zip_path" "$STAGING_DIR/"
@@ -249,6 +267,12 @@ rm -f "$APPCAST_OUTPUT"
   "$STAGING_DIR"
 
 attach_signatures_to_appcast "$APPCAST_OUTPUT" "$STAGING_DIR" "$SIGN_UPDATE"
+rm -rf "$STAGING_DIR"
+[[ ! -e "$STAGING_DIR" ]] || {
+  echo "appcast 임시 디렉터리를 정리하지 못했습니다: $STAGING_DIR" >&2
+  exit 1
+}
+STAGING_DIR=""
 
 echo
 echo "완료: $APPCAST_OUTPUT"

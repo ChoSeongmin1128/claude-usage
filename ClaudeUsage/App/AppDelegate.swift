@@ -8,16 +8,18 @@
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    static let initialRuntimeProviderDetectionKey = "initialRuntimeProviderDetectionCompleted"
-
     var statusItem: NSStatusItem?
     let refreshScheduler = RefreshScheduler()
     let updateCoordinator = AppUpdateCoordinator()
     lazy var apiService = ClaudeAPIService()
     let codexAPIService = CodexAPIService(authManager: CodexAuthManager.shared)
-    let antigravityAPIService = AntigravityAPIService()
-    let antigravityRemoteUsageService = AntigravityRemoteUsageService()
-    let antigravityCLIUsageService = AntigravityCLIUsageService()
+    let antigravityRuntime =
+        AntigravityProductRuntimeCompositionFactory
+            .makeProduction(
+                settingsBootstrap:
+                    AntigravityApplicationBootstrap
+                        .prepareSettings()
+            )
     let popoverCoordinator = AppPopoverCoordinator()
     let runtimeObservationCoordinator = AppRuntimeObservationCoordinator()
     let settingsWindowCoordinator = SettingsWindowCoordinator()
@@ -27,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     var statusTimer: Timer?
     var appearanceObservation: NSKeyValueObservation?
-    var lastObservedProviderSelectionState = AppSettings.shared.providerSelectionState
+    var lastObservedProviderSelectionState: ProviderSelectionState?
     var eventMonitor: Any?
     var globalClickMonitor: Any?
     var isPresentingPopover = false
@@ -35,6 +37,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var claudeUsageRefreshTask: Task<Void, Never>?
     var claudeCredentialRefreshGeneration = 0
     var claudeCredentialRefreshRequest: ClaudeCredentialRefreshRequest?
+    var antigravityRuntimeObservationTask:
+        Task<Void, Never>?
+    var antigravityRuntimeBootstrapTask:
+        Task<Void, Never>?
+    var antigravityTerminationTask:
+        Task<Void, Never>?
+    var antigravityTerminationTimeoutTask:
+        Task<Void, Never>?
+    var hasRepliedToTermination = false
 
     var popover: NSPopover? { popoverCoordinator.popover }
     var popoverViewModel: PopoverViewModel { popoverCoordinator.viewModel }

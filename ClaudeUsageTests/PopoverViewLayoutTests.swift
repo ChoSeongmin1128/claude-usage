@@ -153,6 +153,50 @@ final class PopoverViewLayoutTests: XCTestCase {
         )
     }
 
+    func testProviderSelectorWarningNeverAnnouncesAvailability() {
+        let warningState =
+            PopoverViewModel.RuntimeServiceState(
+                service: .antigravity,
+                summary: "일부 확인 필요",
+                meta: nil,
+                lastUpdated: nil,
+                isLoading: false,
+                error: nil,
+                hasContent: true,
+                isAuthRequired: false,
+                shouldShowWarningDot: true,
+                freshness: .fresh,
+                sourceLabel: nil,
+                accountID: nil
+            )
+
+        XCTAssertEqual(
+            warningState
+                .providerSelectorAccessibilityValue(
+                    isSelected: false
+                ),
+            "확인 필요"
+        )
+        XCTAssertEqual(
+            warningState
+                .providerSelectorAccessibilityValue(
+                    isSelected: true
+                ),
+            "선택됨, 확인 필요"
+        )
+    }
+
+    func testCompactDisplayModeDoesNotShowPersistentIdentityRail() {
+        XCTAssertTrue(
+            PopoverDisplayEditorMode.standard
+                .showsPersistentIdentityRail
+        )
+        XCTAssertFalse(
+            PopoverDisplayEditorMode.compact
+                .showsPersistentIdentityRail
+        )
+    }
+
     @MainActor
     func testSelectedProviderWarningVisualRendersAtExpectedSize() throws {
         let preview = ProviderSelectorButtonLabel(

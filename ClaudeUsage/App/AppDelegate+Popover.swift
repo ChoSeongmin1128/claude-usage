@@ -114,7 +114,11 @@ extension AppDelegate {
     }
 
     func resolvedMenuBarService() -> PopoverService? {
-        ServiceSelectionHelper.resolvedMenuBarService(settings: AppSettings.shared)
+        ServiceSelectionHelper.resolvedMenuBarService(
+            settings: AppSettings.shared,
+            isVisible:
+                isRuntimeProviderVisibleInMenuBar
+        )
     }
 
     var isPopoverPinned: Bool {

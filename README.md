@@ -127,17 +127,18 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
 - `NOTARY_PROFILE` 은 런타임 readiness가 아니라 release 스크립트 실행 전제입니다.
 - `appcast(feed)`와 `공개키`가 준비되지 않은 개발 빌드에서는 `GitHub Release fallback`으로 동작합니다.
 - release build는 채널별 `SUFeedURL` 을 앱에 넣기 때문에 staging 산출물을 prod에 그대로 재사용하지 않습니다.
-- 2026-05-02 확인 기준 prod/staging appcast는 모두 `2.0.15` (`sparkle:version` `20015`) 를 가리킵니다.
+- 2026-07-27 확인 기준 prod/staging appcast는 모두 `2.3.3` (`sparkle:version` `20330`) 을 가리킵니다.
 - 설정 화면의 `업데이트` 섹션에서 지금 빌드가 `Sparkle 통합`, `appcast 준비`, `공개키 준비` 중 어디까지 와 있는지 직접 볼 수 있습니다.
-- 릴리즈 산출물은 [build-notarize-release.sh](Scripts/build-notarize-release.sh) 로 `archive -> zip -> notarize -> staple -> DMG 생성/공증` 흐름을 실행할 수 있습니다. 사내 배포용 signed-only 산출물은 `RELEASE_DISTRIBUTION=internal` 로 같은 스크립트에서 생성합니다.
+- 일반 배포는 [release.sh](Scripts/release.sh) 에 `stg|prod`와 숫자 버전을 입력해 실행합니다. 이 driver가 테스트, 공증 build, 이전 동일 채널 앱 준비, 게시, 원격 DMG·ZIP·appcast와 Sparkle 서명 검증, 단계별 임시 산출물 정리를 통합합니다. 중단 후에는 정확한 기존 tag를 재사용하거나 Pages만 복구하며, partial Release를 덮어쓰지 않습니다.
+- [build-notarize-release.sh](Scripts/build-notarize-release.sh) 는 driver가 호출하는 저수준 primitive이며, 사내 배포용 signed-only 산출물은 진단·내부 배포 시 `RELEASE_DISTRIBUTION=internal` 로 직접 생성할 수 있습니다.
 - Sparkle 채널용 appcast는 [generate-sparkle-appcast.sh](Scripts/generate-sparkle-appcast.sh) 로 생성합니다.
 - GitHub Pages 채널 구조는 다음을 기준으로 합니다.
   - `prod`: `https://choseongmin1128.github.io/claude-usage/appcast.xml`
   - `staging`: `https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml`
 - `gh-pages` 브랜치는 코드 브랜치가 아니라 위 appcast를 배포하는 정적 호스팅 브랜치입니다.
-- 현재 원격 코드 브랜치는 `main` 기준이고, `dev`/`stg` 코드 브랜치는 운용하지 않습니다. staging은 `vX.Y.Z-staging` prerelease와 staging appcast channel로 처리합니다.
-- [publish-release.sh](Scripts/publish-release.sh) 는 stable 릴리스면 `prod`, prerelease 면 `staging` 채널을 기본값으로 잡고, GitHub Release 업로드 뒤 `gh-pages` 채널 appcast도 같이 갱신합니다.
-- Release 빌드는 [Release.xcconfig](Config/Release.xcconfig) 를 기본으로 읽고, 로컬 비밀값은 `Config/Sparkle.release.local.xcconfig` 에서 덮어씁니다. 이 로컬 파일은 git에 올리지 않습니다.
+- `dev`는 최신 `main` 기반의 작업·검증 브랜치이고, 검증된 tree를 squash한 `main`만 배포 기준으로 사용합니다. 별도 `stg` 코드 브랜치는 운용하지 않으며 staging은 `vX.Y.Z-staging` prerelease와 staging appcast channel로 처리합니다.
+- [publish-release.sh](Scripts/publish-release.sh) 는 tag와 DMG·ZIP·appcast 세 asset의 Release까지만 생성합니다. public `gh-pages` appcast는 driver가 원격 산출물을 검증한 뒤에만 별도로 갱신합니다.
+- Release 빌드는 [Release.xcconfig](Config/Release.xcconfig) 의 tracked Sparkle 공개 trust root를 기준으로 읽고, feed/notary 같은 로컬 값은 `Config/Sparkle.release.local.xcconfig` 에서 덮어씁니다. 이 로컬 파일은 git에 올리지 않습니다.
 - 배포/계정/브랜치 운영 규칙은 [프로젝트 작업 방식](docs/PROJECT_WORKFLOW.md) 문서가 기준입니다.
 
 ## 보조 사용량 복구
@@ -224,6 +225,7 @@ xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -configuration Deb
 현재 기본 검증 명령은 아래와 같습니다.
 
 ```bash
+./Scripts/tests/release-driver-tests.sh
 xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -destination 'platform=macOS' test
 ```
 
@@ -242,7 +244,7 @@ ClaudeUsage/
 
 ## 브랜치와 채널
 
-- 현재 원격 코드 브랜치는 `main` 기준입니다.
+- 기능 작업은 `dev`, 배포 기준은 squash된 `main`입니다.
 - `gh-pages` 는 Sparkle appcast / Pages 용 브랜치라서, `stg` 역할로 보면 안 됩니다.
 - staging은 브랜치가 아니라 release channel입니다. `main`의 최신 릴리스 후보를 `vX.Y.Z-staging` prerelease와 `/channels/staging/appcast.xml` 로 게시합니다.
 - prod는 staging 검증이 끝난 버전만 `vX.Y.Z` stable release와 root `/appcast.xml` 로 게시합니다.

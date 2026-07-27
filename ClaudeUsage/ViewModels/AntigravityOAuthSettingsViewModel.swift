@@ -125,7 +125,6 @@ final class AntigravityOAuthSettingsViewModel: ObservableObject {
             }
             message = credentials.email.map { "\($0) 계정을 연결했습니다." }
                 ?? "Google 계정을 연결했습니다."
-            settings.antigravityUsageDataSource = .auto
             refreshEnvironment()
         case .cancelled:
             message = "Google 로그인을 취소했습니다."

@@ -80,22 +80,32 @@ final class KeychainClaudeOAuthCredentialVault: ClaudeOAuthCredentialVault, @unc
     nonisolated static let shared = KeychainClaudeOAuthCredentialVault()
     nonisolated static let account = "claude-code-oauth-cache.v2"
 
-    private let keychainStore: ClaudeKeychainStore
+    private let vault: any OAuthCredentialVault
 
-    nonisolated init(keychainStore: ClaudeKeychainStore = .shared) {
-        self.keychainStore = keychainStore
+    /// The v2 Claude cache shipped in the classic macOS Keychain, which is the
+    /// one domain the shared app vault uses.
+    nonisolated init(
+        vault: any OAuthCredentialVault = SecurityFrameworkOAuthCredentialVault.shared
+    ) {
+        self.vault = vault
     }
 
     nonisolated func loadPayload() throws -> String? {
-        try keychainStore.loadString(account: Self.account)
+        guard let data = try vault.loadPayload(reference: Self.account) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
     }
 
     nonisolated func savePayload(_ payload: String) throws {
-        try keychainStore.saveString(payload, account: Self.account)
+        guard !payload.isEmpty else {
+            throw ClaudeKeychainStoreError.invalidValue
+        }
+        try vault.savePayload(Data(payload.utf8), reference: Self.account)
     }
 
     nonisolated func deletePayload() throws {
-        try keychainStore.delete(account: Self.account)
+        try vault.deletePayload(reference: Self.account)
     }
 }
 

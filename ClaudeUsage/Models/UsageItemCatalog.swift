@@ -15,8 +15,6 @@ struct UsageItemContext {
 
     let codexUsage: CodexUsageResponse?
     let codexError: APIError?
-
-    let antigravityUsage: AntigravityUsageResponse?
 }
 
 // MARK: - Catalog protocol
@@ -447,69 +445,32 @@ private func windowedAccountSection(
 
 // MARK: - Antigravity
 
+/// AGY v2는 팝오버를 동적 quota lane으로 그리므로 이 catalog는 섹션을 만들지
+/// 않는다. 남은 역할은 설정 화면의 항목 목록과 메뉴 노출이 참조할 권위 ID
+/// 하나를 제공하는 것뿐이다. 구 `antigravityModels` / `antigravityAccount`는
+/// `AntigravitySettingsMigrationCoordinator`가 이 ID로 옮긴 뒤 삭제한다.
 struct AntigravityItemCatalog: UsageItemCatalog {
+    static let usageLimitsItemID = "antigravityUsageLimits"
+
     let providerID = PopoverService.antigravity.rawValue
 
-    func hasPayload(context: UsageItemContext) -> Bool {
-        context.antigravityUsage != nil
-    }
     let defaultItems: [PopoverItemConfig] = [
-        PopoverItemConfig(id: "antigravityModels", visible: true),
-        PopoverItemConfig(id: "antigravityAccount", visible: false),
+        PopoverItemConfig(id: AntigravityItemCatalog.usageLimitsItemID, visible: true),
     ]
 
-    fileprivate let accountIcon = "person.crop.circle"
+    func hasPayload(context: UsageItemContext) -> Bool {
+        false
+    }
 
     func displayName(for itemID: String) -> String? {
-        switch itemID {
-        case "antigravityModels":
-            return "모델별 quota"
-        case "antigravityAccount":
-            return "Antigravity 계정 정보"
-        default:
-            return nil
-        }
+        itemID == Self.usageLimitsItemID ? "사용량 한도" : nil
     }
 
     func section(for itemID: String, context: UsageItemContext) -> PopoverDisplaySection? {
-        let usage = context.antigravityUsage
-        switch itemID {
-        case "antigravityAccount":
-            return windowedAccountSection(
-                id: itemID,
-                email: usage?.accountEmail,
-                plan: usage?.accountPlan,
-                icon: accountIcon
-            )
-        default:
-            return nil
-        }
+        nil
     }
 
     func expandedSections(for itemID: String, context: UsageItemContext) -> [PopoverDisplaySection] {
-        switch itemID {
-        case "antigravityModels":
-            guard let usage = context.antigravityUsage else { return [] }
-            return context.settings.visibleAntigravityModelWindows(from: usage.modelWindows).enumerated().map { index, window in
-                PopoverDisplaySection(
-                    id: "antigravityModel-\(index)",
-                    kind: .usage,
-                    importance: .primary,
-                    payload: .usage(
-                        PopoverUsageSectionData(
-                            systemIcon: nil,
-                            title: window.label,
-                            compactLabel: window.label,
-                            percentage: window.usedPercent,
-                            resetAt: window.resetAtISO,
-                            isWeekly: false,
-                            timeFormatStyle: context.settings.timeFormat
-                        )
-                    )
-                )
-            }
-        default:
-            return section(for: itemID, context: context).map { [$0] } ?? []
-        }
+        []
     }
 }

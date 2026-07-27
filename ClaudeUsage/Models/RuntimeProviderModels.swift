@@ -115,7 +115,6 @@ enum PopoverService: String, CaseIterable, Sendable {
 enum RuntimeProviderPayload {
     case claude(ClaudeUsageResponse)
     case codex(CodexUsageResponse)
-    case antigravity(AntigravityUsageResponse)
 }
 
 /// 조회 결과의 출처와 계정 귀속 정보. payload와 같은 수명으로 보관해 화면이
@@ -295,11 +294,6 @@ struct RuntimeProviderState {
         return usage
     }
 
-    var antigravityUsage: AntigravityUsageResponse? {
-        guard case let .antigravity(usage)? = lastSuccessfulPayloadStorage else { return nil }
-        return usage
-    }
-
     var fetchState: RuntimeProviderFetchState {
         if isLoading {
             return .loading
@@ -451,11 +445,6 @@ struct RuntimeProviderSnapshot {
 
     var codexUsage: CodexUsageResponse? {
         guard case let .codex(usage)? = displayPayload else { return nil }
-        return usage
-    }
-
-    var antigravityUsage: AntigravityUsageResponse? {
-        guard case let .antigravity(usage)? = displayPayload else { return nil }
         return usage
     }
 }

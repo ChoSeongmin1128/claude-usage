@@ -73,7 +73,8 @@ final class StatusPageInterpreterTests: XCTestCase {
 
         let content = MenuBarStatusComposer.singleProviderContent(
             snapshot: snapshot,
-            secondaryColor: .secondaryLabelColor
+            secondaryColor: .secondaryLabelColor,
+            appearance: NSAppearance(named: .aqua)!
         )
 
         XCTAssertGreaterThan(content.image.size.width, icon.size.width)

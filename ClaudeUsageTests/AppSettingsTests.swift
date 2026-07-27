@@ -46,68 +46,77 @@ final class AppSettingsTests: XCTestCase {
         )
     }
 
-    func testAntigravityModelGroupStaysStructuralWhileModelsAreFilteredSeparately() {
+    /// AGY 팝오버는 quota lane 경로가 그리므로 권위 항목을 사용자가 숨길 수
+    /// 없다. 구 ID는 지원 목록에 없어 정규화에서 버려진다.
+    func testAntigravityUsageLimitsItemStaysStructuralAndLegacyIDsAreDropped() {
         let settings = AppSettings.shared
         let snapshot = settings.createSnapshot()
         defer { settings.restore(from: snapshot) }
 
         settings.setPopoverItems(
             [
-                PopoverItemConfig(id: "antigravityModels", visible: false),
+                PopoverItemConfig(id: AntigravityItemCatalog.usageLimitsItemID, visible: false),
+                PopoverItemConfig(id: "antigravityModels", visible: true),
                 PopoverItemConfig(id: "antigravityAccount", visible: true),
             ],
             for: .antigravity
         )
-        settings.setAntigravityModelVisible(false, modelID: "gemini-3.1-pro-low")
-        settings.antigravityMenuBarPrimaryModelID = "claude-sonnet-4.6-thinking"
-        settings.antigravityMenuBarSecondaryModelID = "gpt-oss-120b-medium"
 
-        XCTAssertEqual(
-            settings.popoverItems(for: .antigravity),
-            [
-                PopoverItemConfig(id: "antigravityModels", visible: true),
-                PopoverItemConfig(id: "antigravityAccount", visible: true),
-            ]
-        )
-        XCTAssertFalse(settings.isAntigravityModelVisible("gemini-3.1-pro-low"))
-        XCTAssertEqual(settings.menuBarDisplayConfig(for: .antigravity)?.primaryModelID, "claude-sonnet-4.6-thinking")
-        XCTAssertEqual(settings.menuBarDisplayConfig(for: .antigravity)?.secondaryModelID, "gpt-oss-120b-medium")
+        let expected = [
+            PopoverItemConfig(id: AntigravityItemCatalog.usageLimitsItemID, visible: true)
+        ]
+        XCTAssertEqual(settings.popoverItems(for: .antigravity), expected)
+        XCTAssertEqual(settings.compactPopoverItems(for: .antigravity), expected)
     }
 
-    func testSetProviderMenuBarVisibleFalseClearsAllVisibleIndicators() {
+    /// AGY 메뉴바 표시는 `AntigravityDisplaySettings.menuBar`가 단독 소유한다.
+    /// generic per-provider 표면으로는 읽지도 쓰지도 못해야 한다. 그렇지 않으면
+    /// 아무도 읽지 않는 표시 상태가 다시 생긴다.
+    func testGenericMenuBarDisplaySurfaceRefusesAntigravity() {
         let settings = AppSettings.shared
         let snapshot = settings.createSnapshot()
         defer { settings.restore(from: snapshot) }
 
-        settings.setProviderMenuBarVisible(false, for: .antigravity)
+        XCTAssertNil(settings.menuBarDisplayConfig(for: .antigravity))
+        XCTAssertNil(settings.menuBarStyle(for: .antigravity))
 
-        guard let config = settings.menuBarDisplayConfig(for: .antigravity) else {
-            return XCTFail("Antigravity 메뉴바 설정을 읽지 못했습니다")
-        }
-        XCTAssertFalse(config.showIcon)
-        XCTAssertEqual(config.percentageDisplay, .none)
-        XCTAssertEqual(config.resetTimeDisplay, .none)
-        XCTAssertEqual(config.style, .none)
-        XCTAssertFalse(settings.isProviderVisibleInMenuBar(.antigravity))
-    }
-
-    func testSetProviderMenuBarVisibleTrueRestoresMinimalVisiblePreset() {
-        let settings = AppSettings.shared
-        let snapshot = settings.createSnapshot()
-        defer { settings.restore(from: snapshot) }
-
-        settings.setProviderMenuBarVisible(false, for: .antigravity)
+        settings.setProviderShowIcon(true, for: .antigravity)
+        settings.setMenuBarStyle(.batteryBar, for: .antigravity)
+        settings.setProviderPercentageDisplay(.dual, for: .antigravity)
+        settings.setProviderResetTimeDisplay(.fiveHour, for: .antigravity)
+        settings.setProviderTimeFormat(.h12, for: .antigravity)
+        settings.setProviderShowBatteryPercent(true, for: .antigravity)
+        settings.setProviderCircularDisplayMode(.remaining, for: .antigravity)
+        settings.setProviderIconMetric(.weekly, for: .antigravity)
+        settings.applyMenuBarDisplayPreset(.battery, for: .antigravity)
         settings.setProviderMenuBarVisible(true, for: .antigravity)
 
-        guard let config = settings.menuBarDisplayConfig(for: .antigravity) else {
-            return XCTFail("Antigravity 메뉴바 설정을 읽지 못했습니다")
+        XCTAssertNil(settings.menuBarDisplayConfig(for: .antigravity))
+        XCTAssertEqual(settings.menuBarDisplayPreset(for: .antigravity), .custom)
+        XCTAssertFalse(settings.isProviderVisibleInMenuBar(.antigravity))
+
+        // 알림 on/off도 typed 설정이 단독 소유한다.
+        settings.setProviderAlertEnabled(true, for: .antigravity)
+        XCTAssertFalse(settings.isProviderAlertEnabled(.antigravity))
+    }
+
+    /// 위 차단이 다른 provider까지 막지 않는지 함께 고정한다.
+    func testGenericMenuBarDisplaySurfaceStillAppliesToOtherProviders() {
+        let settings = AppSettings.shared
+        let snapshot = settings.createSnapshot()
+        defer { settings.restore(from: snapshot) }
+
+        settings.setProviderMenuBarVisible(false, for: .codex)
+        guard let hidden = settings.menuBarDisplayConfig(for: .codex) else {
+            return XCTFail("Codex 메뉴바 설정을 읽지 못했습니다")
         }
-        XCTAssertTrue(config.showIcon)
-        XCTAssertEqual(config.percentageDisplay, .fiveHour)
-        XCTAssertEqual(config.resetTimeDisplay, .none)
-        XCTAssertEqual(config.style, .none)
-        XCTAssertTrue(settings.isProviderVisibleInMenuBar(.antigravity))
-        XCTAssertEqual(settings.menuBarDisplayPreset(for: .antigravity), .basic)
+        XCTAssertFalse(hidden.showIcon)
+        XCTAssertEqual(hidden.percentageDisplay, .none)
+        XCTAssertFalse(settings.isProviderVisibleInMenuBar(.codex))
+
+        settings.setProviderMenuBarVisible(true, for: .codex)
+        XCTAssertTrue(settings.isProviderVisibleInMenuBar(.codex))
+        XCTAssertEqual(settings.menuBarDisplayPreset(for: .codex), .basic)
     }
 
     func testApplyMenuBarDisplayPresetUsesExistingConfigKeys() {
@@ -181,7 +190,9 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertFalse(AppSettings.normalizedGlobalPopoverCompact(from: defaults))
     }
 
-    func testLegacyWindowedAccountPopoverDefaultMigratesToHidden() throws {
+    /// 구 AGY 팝오버 항목은 저장돼 있어도 로드 시점 정규화에서 사라지고
+    /// 권위 항목만 남는다.
+    func testLegacyAntigravityPopoverItemsDoNotSurviveLoad() throws {
         let suiteName = "ClaudeUsageTests.windowedAccountMigration.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             return XCTFail("테스트 UserDefaults suite를 만들지 못했습니다")
@@ -204,8 +215,8 @@ final class AppSettingsTests: XCTestCase {
         let loaded = AppSettings.loadPopoverItemsByProvider(from: defaults)
 
         XCTAssertEqual(
-            loaded.full["antigravity"]?.first(where: { $0.id == "antigravityAccount" })?.visible,
-            false
+            loaded.full["antigravity"]?.map(\.id),
+            [AntigravityItemCatalog.usageLimitsItemID]
         )
     }
 
@@ -369,16 +380,24 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(settings.enabledAlertThresholds, [10, 75, 90])
     }
 
-    func testAntigravityUsageDataSourcePersistsRawValue() {
+    /// 구 AGY 키는 초기화 경로에서 지우기만 하고 다시 쓰지 않는다.
+    func testResetToDefaultsDoesNotRecreateLegacyAntigravityKeys() {
         let settings = AppSettings.shared
         let snapshot = settings.createSnapshot()
         defer { settings.restore(from: snapshot) }
 
-        settings.antigravityUsageDataSource = .googleOAuth
+        let legacyKeys = [
+            "antigravityUsageDataSource",
+            "antigravityHiddenModelIDs",
+            "antigravityMenuBarPrimaryModelID",
+            "antigravityMenuBarSecondaryModelID",
+        ]
+        legacyKeys.forEach { UserDefaults.standard.set("stale", forKey: $0) }
 
-        XCTAssertEqual(
-            UserDefaults.standard.string(forKey: "antigravityUsageDataSource"),
-            AntigravityUsageDataSource.googleOAuth.rawValue
-        )
+        settings.resetToDefaults()
+
+        for key in legacyKeys {
+            XCTAssertNil(UserDefaults.standard.object(forKey: key), key)
+        }
     }
 }

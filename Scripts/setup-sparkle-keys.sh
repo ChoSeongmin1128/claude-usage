@@ -9,29 +9,59 @@
 #   3. Config/Sparkle.release.local.xcconfig 템플릿 작성 또는 병합
 #      - SUPublicEDKey 를 방금 생성한 값으로 채움
 #      - SUFeedURL, NOTARY_PROFILE 은 기존 값 유지하거나 placeholder 로
+#   4. 공개 trust root인 Config/Release.xcconfig의 SUPublicEDKey도 함께 갱신
 #
 # 멱등성:
 #   기존에 키가 이미 생성돼 있으면 (Keychain에 "Private key for signing
-#   Sparkle updates" 항목 존재) 재생성을 거부하고 기존 공개키만 출력.
-#   로컬 xcconfig 가 이미 있으면 덮어쓰지 않고 SUPublicEDKey 줄만 교체
-#   제안. --force 플래그로 재생성 강제 가능.
+#   Sparkle updates" 항목 존재) 기존 공개키를 재사용.
+#   로컬 xcconfig 가 이미 있으면 덮어쓰지 않고 SUPublicEDKey 줄만 교체.
+#   --force는 local xcconfig 전체를 다시 쓸 뿐 signing key를 회전하지 않음.
 #
 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 LOCAL_XCCONFIG="$ROOT_DIR/Config/Sparkle.release.local.xcconfig"
-EXAMPLE_XCCONFIG="$ROOT_DIR/Config/Sparkle.release.example.xcconfig"
+TRACKED_XCCONFIG="$ROOT_DIR/Config/Release.xcconfig"
+LOCAL_UPDATE_TEMP=""
+TRACKED_UPDATE_TEMP=""
 
-FORCE=0
+OVERWRITE_CONFIG=0
 DEFAULT_FEED_URL=""
 DEFAULT_NOTARY_PROFILE="ClaudeUsageNotary"
 CHANNEL="prod"
 
+cleanup_update_temps() {
+    local exit_code=$?
+    local cleanup_failed=0
+    local candidate
+
+    for candidate in "$LOCAL_UPDATE_TEMP" "$TRACKED_UPDATE_TEMP"; do
+        [[ -n "$candidate" && -e "$candidate" ]] || continue
+        if ! rm -f -- "$candidate" || [[ -e "$candidate" ]]; then
+            echo "임시 xcconfig를 정리하지 못했습니다: $candidate" >&2
+            cleanup_failed=1
+        fi
+    done
+
+    trap - EXIT
+    if [[ "$exit_code" == "0" && "$cleanup_failed" == "1" ]]; then
+        exit_code=1
+    fi
+    exit "$exit_code"
+}
+
+exit_on_signal() {
+    exit 130
+}
+
+trap cleanup_update_temps EXIT
+trap exit_on_signal INT TERM HUP
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --force)
-            FORCE=1
+            OVERWRITE_CONFIG=1
             shift
             ;;
         --feed-url)
@@ -52,7 +82,7 @@ while [[ $# -gt 0 ]]; do
     $0 [--force] [--feed-url URL] [--channel prod|staging] [--notary-profile NAME]
 
 옵션:
-    --force            기존 키/xcconfig 를 경고 없이 덮어쓰기
+    --force            local xcconfig를 다시 작성 (기존 signing key는 재사용)
     --feed-url URL     SUFeedURL 기본값 (기본: GitHub Pages 채널 URL)
     --channel NAME     기본 feed 채널 (prod 또는 staging, 기본: $CHANNEL)
     --notary-profile N NOTARY_PROFILE 기본값 (기본: $DEFAULT_NOTARY_PROFILE)
@@ -81,7 +111,10 @@ derive_repo_pages_base_url() {
     local remote_url=""
 
     if command -v gh >/dev/null 2>&1; then
-        name_with_owner="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+        name_with_owner="$(
+            cd "$ROOT_DIR"
+            gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true
+        )"
     fi
 
     if [[ "$name_with_owner" =~ ^([^/]+)/([^/]+)$ ]]; then
@@ -191,17 +224,16 @@ elif [[ -n "$EXISTING_OUTPUT" && "$EXISTING_OUTPUT" != *"No existing signing key
     echo "$EXISTING_OUTPUT" >&2
 fi
 
-if [[ "$HAS_EXISTING_KEY" == "0" || "$FORCE" == "1" ]]; then
-    if [[ "$FORCE" == "1" ]]; then
-        echo "   --force 플래그: 새 키 생성"
-    else
-        echo "   기존 키 없음: 새 키 생성"
-    fi
+if [[ "$HAS_EXISTING_KEY" == "0" ]]; then
+    echo "   기존 키 없음: 새 키 생성"
     # 키 생성 (공개키를 stdout 마지막 줄로 출력)
     GEN_OUTPUT="$("$GEN_KEYS" 2>&1)"
     PUBLIC_KEY="$(extract_public_key "$GEN_OUTPUT")"
 else
     echo "   기존 키 사용 (키체인에 보관됨)"
+    if [[ "$OVERWRITE_CONFIG" == "1" ]]; then
+        echo "   --force는 설정만 다시 쓰며 signing key를 회전하지 않습니다"
+    fi
 fi
 
 if [[ -z "$PUBLIC_KEY" ]]; then
@@ -228,19 +260,23 @@ NOTARY_PROFILE = $DEFAULT_NOTARY_PROFILE
 EOF
 }
 
-if [[ -f "$LOCAL_XCCONFIG" && "$FORCE" != "1" ]]; then
+if [[ -f "$LOCAL_XCCONFIG" && "$OVERWRITE_CONFIG" != "1" ]]; then
     # 기존 파일 보존: SUPublicEDKey 줄만 대체
     if grep -q '^[[:space:]]*SUPublicEDKey' "$LOCAL_XCCONFIG"; then
         # macOS sed 호환 (in-place 편집 시 ''): 공개키 값만 치환
-        tmp_file="$(mktemp)"
+        LOCAL_UPDATE_TEMP="$(
+            mktemp "$ROOT_DIR/Config/.Sparkle.release.local.xcconfig.XXXXXX"
+        )"
+        cp -p "$LOCAL_XCCONFIG" "$LOCAL_UPDATE_TEMP"
         awk -v key="$PUBLIC_KEY" '
             /^[[:space:]]*SUPublicEDKey/ {
                 print "SUPublicEDKey = " key
                 next
             }
             { print }
-        ' "$LOCAL_XCCONFIG" > "$tmp_file"
-        mv "$tmp_file" "$LOCAL_XCCONFIG"
+        ' "$LOCAL_XCCONFIG" > "$LOCAL_UPDATE_TEMP"
+        mv "$LOCAL_UPDATE_TEMP" "$LOCAL_XCCONFIG"
+        LOCAL_UPDATE_TEMP=""
         echo "   기존 파일의 SUPublicEDKey 만 업데이트"
     else
         echo "SUPublicEDKey = $PUBLIC_KEY" >> "$LOCAL_XCCONFIG"
@@ -250,6 +286,31 @@ else
     write_xcconfig
     echo "   새 xcconfig 작성 완료"
 fi
+
+[[ -f "$TRACKED_XCCONFIG" ]] || {
+    echo "tracked release xcconfig를 찾지 못했습니다: $TRACKED_XCCONFIG" >&2
+    exit 1
+}
+TRACKED_UPDATE_TEMP="$(
+    mktemp "$ROOT_DIR/Config/.Release.xcconfig.XXXXXX"
+)"
+cp -p "$TRACKED_XCCONFIG" "$TRACKED_UPDATE_TEMP"
+awk -v key="$PUBLIC_KEY" '
+    /^[[:space:]]*SUPublicEDKey[[:space:]]*=/ {
+        print "SUPublicEDKey = " key
+        updated = 1
+        next
+    }
+    { print }
+    END {
+        if (!updated) {
+            print "SUPublicEDKey = " key
+        }
+    }
+' "$TRACKED_XCCONFIG" > "$TRACKED_UPDATE_TEMP"
+mv "$TRACKED_UPDATE_TEMP" "$TRACKED_XCCONFIG"
+TRACKED_UPDATE_TEMP=""
+echo "   tracked Sparkle trust root 업데이트: $TRACKED_XCCONFIG"
 
 # .gitignore 반영 확인
 if ! grep -q "Sparkle.release.local.xcconfig" "$ROOT_DIR/.gitignore" 2>/dev/null; then
@@ -263,8 +324,9 @@ echo "   공개키: $PUBLIC_KEY"
 echo "   로컬 xcconfig: $LOCAL_XCCONFIG"
 echo
 echo "다음 단계"
-echo "   1. Config/Sparkle.release.local.xcconfig 의 SUFeedURL 을 확인/수정하세요"
-echo "   2. notarytool 자격이 없다면 다음 명령으로 저장:"
+echo "   1. Config/Release.xcconfig 의 SUPublicEDKey 변경을 검토하고 commit하세요"
+echo "   2. Config/Sparkle.release.local.xcconfig 의 SUFeedURL 을 확인/수정하세요"
+echo "   3. notarytool 자격이 없다면 다음 명령으로 저장:"
 echo "        xcrun notarytool store-credentials \"$DEFAULT_NOTARY_PROFILE\" \\"
 echo "            --apple-id YOUR@EMAIL --team-id YOUR_TEAM_ID"
-echo "   3. Scripts/build-notarize-release.sh 실행"
+echo "   4. Scripts/build-notarize-release.sh 실행"

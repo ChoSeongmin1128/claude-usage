@@ -386,8 +386,6 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
     let circularDisplayMode: CircularDisplayMode
     let iconMetric: IconMetric
     let colorMode: MenuBarColorMode
-    let primaryModelID: String?
-    let secondaryModelID: String?
 
     init(
         kind: AppProviderKind,
@@ -399,9 +397,7 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         timeFormat: TimeFormatStyle,
         circularDisplayMode: CircularDisplayMode,
         iconMetric: IconMetric,
-        colorMode: MenuBarColorMode = .always,
-        primaryModelID: String? = nil,
-        secondaryModelID: String? = nil
+        colorMode: MenuBarColorMode = .always
     ) {
         self.kind = kind
         self.showIcon = showIcon
@@ -413,8 +409,6 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         self.circularDisplayMode = circularDisplayMode
         self.iconMetric = iconMetric
         self.colorMode = colorMode
-        self.primaryModelID = primaryModelID
-        self.secondaryModelID = secondaryModelID
     }
 }
 

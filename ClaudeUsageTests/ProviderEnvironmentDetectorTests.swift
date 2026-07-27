@@ -19,47 +19,9 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
         XCTAssertEqual(status.summary, "Antigravity 앱을 실행하면 조회를 시작합니다")
     }
 
-    func testAntigravityRelevantCredentialDependsOnConfiguredDataSource() {
-        let appOnlySignals = AntigravityEnvironmentSignals(
-            hasStateDirectory: true,
-            appRunning: false,
-            runningProcess: nil,
-            hasAuthStatus: true,
-            hasOAuthToken: false
-        )
-        let oauthSignals = AntigravityEnvironmentSignals(
-            hasStateDirectory: false,
-            appRunning: false,
-            runningProcess: nil,
-            hasAuthStatus: false,
-            hasOAuthToken: false,
-            oauthCredentialStatus: AntigravityOAuthCredentialStatus(
-                hasCredential: true,
-                email: "nathan@example.com",
-                sourceDescription: "ClaudeUsage"
-            )
-        )
-        let cliSignals = AntigravityEnvironmentSignals(
-            hasStateDirectory: false,
-            hasCLIBinary: true,
-            appRunning: false,
-            runningProcess: nil,
-            hasAuthStatus: false,
-            hasOAuthToken: false
-        )
-
-        XCTAssertTrue(appOnlySignals.hasCredentialRelevant(to: .localIDE))
-        XCTAssertTrue(appOnlySignals.hasCredentialRelevant(to: .auto))
-        XCTAssertFalse(appOnlySignals.hasCredentialRelevant(to: .googleOAuth))
-        XCTAssertTrue(oauthSignals.hasCredentialRelevant(to: .googleOAuth))
-        XCTAssertTrue(oauthSignals.hasCredentialRelevant(to: .auto))
-        XCTAssertFalse(oauthSignals.hasCredentialRelevant(to: .localIDE))
-        XCTAssertFalse(appOnlySignals.hasCredentialRelevant(to: .agyCLI))
-        XCTAssertTrue(cliSignals.hasCredentialRelevant(to: .agyCLI))
-        XCTAssertTrue(cliSignals.hasCredentialRelevant(to: .auto))
-    }
-
-    func testAntigravitySetupPolicyTreatsRuntimeConnectionAsGoogleOAuthFallbackReady() {
+    /// runtime 연결이 있거나 앱/CLI 자격 흔적이 있으면 대화형 초기 설정을
+    /// 요구하지 않는다. 둘 다 없을 때만 요구한다.
+    func testAntigravityInteractiveSetupFollowsRuntimeConnectionAndCredentialTrace() {
         let runtimeSignals = AntigravityEnvironmentSignals(
             hasStateDirectory: true,
             appRunning: true,
@@ -83,14 +45,17 @@ final class ProviderEnvironmentDetectorTests: XCTestCase {
             hasOAuthToken: false
         )
 
-        XCTAssertFalse(AntigravitySetupPolicy.requiresInteractiveSetup(
-            dataSource: .googleOAuth,
-            signals: runtimeSignals
-        ))
-        XCTAssertTrue(AntigravitySetupPolicy.requiresInteractiveSetup(
-            dataSource: .googleOAuth,
-            signals: noRuntimeSignals
-        ))
+        let bareSignals = AntigravityEnvironmentSignals(
+            hasStateDirectory: false,
+            appRunning: false,
+            runningProcess: nil,
+            hasAuthStatus: false,
+            hasOAuthToken: false
+        )
+
+        XCTAssertFalse(runtimeSignals.requiresInteractiveSetup)
+        XCTAssertFalse(noRuntimeSignals.requiresInteractiveSetup)
+        XCTAssertTrue(bareSignals.requiresInteractiveSetup)
     }
 
     func testInterpretAntigravityAcceptsCsrfOnlyRuntimeForReachability() {

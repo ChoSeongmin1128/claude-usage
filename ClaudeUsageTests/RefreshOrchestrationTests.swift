@@ -298,300 +298,258 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertTrue(events.isEmpty)
     }
 
-    func testResolveAntigravitySummaryStateTreatsCLIAsUsageSource() {
+    func testResolveAntigravitySummaryStateUsesTypedDisabledStateAsRefreshReady() {
         let state = PopoverViewModel.resolveAntigravitySummaryState(
-            snapshot: RuntimeProviderSnapshot(
-                service: .antigravity,
-                payload: nil,
-                error: nil,
-                isLoading: false,
-                lastUpdated: nil,
-                nextRefreshAllowedAt: nil,
-                credentialState: .refreshable,
-                isDetected: true,
-                canAttemptRefresh: true,
-                hasAuthError: false
-            ),
-            environmentStatus: ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .refreshable,
-                runtimeReachability: false,
-                refreshReachability: true,
-                summary: "Antigravity 사용량 조회 준비"
-            ),
-            signals: AntigravityEnvironmentSignals(
-                hasStateDirectory: false,
-                hasCLIBinary: true,
-                appRunning: false,
-                runningProcess: nil,
-                hasAuthStatus: false,
-                hasOAuthToken: false
-            ),
-            isEnabled: true,
-            isAuthRequired: false
+            snapshot: antigravityRuntimeSnapshot(),
+            isEnabled: true
         )
 
         XCTAssertEqual(state.phase, .probingRuntime)
         XCTAssertEqual(state.summary, "사용량 조회 준비")
     }
 
-    func testResolveAntigravitySummaryStateTreatsBrokenCLIAsRepairNeed() {
+    func testResolveAntigravitySummaryStateTreatsManagedRecoveryBlockAsBootstrapAttention() {
         let state = PopoverViewModel.resolveAntigravitySummaryState(
-            snapshot: RuntimeProviderSnapshot(
-                service: .antigravity,
-                payload: nil,
-                error: nil,
-                isLoading: false,
-                lastUpdated: nil,
-                nextRefreshAllowedAt: nil,
-                credentialState: .missing,
-                isDetected: true,
-                canAttemptRefresh: false,
-                hasAuthError: false
+            snapshot: antigravityRuntimeSnapshot(
+                readiness:
+                    .blocked(.managedRuntimeRecovery),
+                presentationState:
+                    .failed(
+                        .sourceUnavailable(.managedCLI)
+                    ),
+                managedRuntimeAvailability:
+                    .recoveryBlocked
             ),
-            environmentStatus: ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .missing,
-                runtimeReachability: false,
-                summary: "Antigravity CLI 복구 필요"
+            isEnabled: true
+        )
+
+        XCTAssertEqual(state.phase, .temporaryError)
+        XCTAssertEqual(state.summary, "초기 설정 확인 필요")
+    }
+
+    func testResolveAntigravitySummaryStateDoesNotMergeManagedFailureIntoIdentityOnlySource() {
+        let identity = ProviderAccountIdentity(
+            stableAccountID: "subject-a",
+            email: "nathan@example.com"
+        )
+        let state = PopoverViewModel.resolveAntigravitySummaryState(
+            snapshot: antigravityRuntimeSnapshot(
+                presentationState:
+                    .identityOnly(
+                        AntigravityIdentityOnlyUsage(
+                            identity: identity,
+                            plan: "Workspace",
+                            provenance:
+                                antigravityProvenance(
+                                    identity: identity
+                                ),
+                            fetchedAt:
+                                Self.referenceDate
+                        )
+                    ),
+                managedRuntimeAvailability:
+                    .recoveryBlocked
             ),
-            signals: AntigravityEnvironmentSignals(
-                hasStateDirectory: false,
-                cliBinaryStatus: .broken(
-                    path: "/opt/homebrew/bin/agy",
-                    target: "/Applications/Antigravity.app/Contents/Resources/app/bin/antigravity"
-                ),
-                appRunning: false,
-                runningProcess: nil,
-                hasAuthStatus: false,
-                hasOAuthToken: false
+            isEnabled: true
+        )
+
+        XCTAssertEqual(state.phase, .temporaryError)
+        XCTAssertEqual(
+            state.summary,
+            "계정 확인됨 · 수치 미지원"
+        )
+        XCTAssertFalse(state.summary.contains("CLI"))
+    }
+
+    func testResolveAntigravitySummaryStateDoesNotInventSeparateCLISourceForReadyQuota() {
+        let state = PopoverViewModel.resolveAntigravitySummaryState(
+            snapshot: antigravityRuntimeSnapshot(
+                presentationState:
+                    .ready(antigravityQuotaSnapshot())
             ),
-            isEnabled: true,
-            isAuthRequired: false
+            isEnabled: true
+        )
+
+        XCTAssertEqual(state.phase, .ready)
+        XCTAssertEqual(state.summary, "2개 사용량 한도")
+        XCTAssertFalse(state.summary.contains("CLI"))
+    }
+
+    func testResolveAntigravitySummaryStateUsesTypedSetupRequirementForMissingSelection() {
+        let state = PopoverViewModel.resolveAntigravitySummaryState(
+            snapshot: antigravityRuntimeSnapshot(
+                presentationState:
+                    .setupRequired(
+                        .noSelectedOAuthAccount
+                    )
+            ),
+            isEnabled: true
         )
 
         XCTAssertEqual(state.phase, .authRequired)
-        XCTAssertEqual(state.summary, "CLI 복구 필요")
+        XCTAssertEqual(state.summary, "연결 설정 필요")
     }
 
-    func testResolveAntigravitySummaryStateDoesNotClaimCLIIncludedWhenOAuthReadyButCLIIsBroken() {
+    func testResolveAntigravitySummaryStateUsesTypedRefreshingState() {
         let state = PopoverViewModel.resolveAntigravitySummaryState(
-            snapshot: RuntimeProviderSnapshot(
-                service: .antigravity,
-                payload: nil,
-                error: nil,
-                isLoading: false,
-                lastUpdated: nil,
-                nextRefreshAllowedAt: nil,
-                credentialState: .usable,
-                isDetected: true,
-                canAttemptRefresh: true,
-                hasAuthError: false
+            snapshot: antigravityRuntimeSnapshot(
+                presentationState:
+                    .refreshing(previous: nil)
             ),
-            environmentStatus: ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .usable,
-                runtimeReachability: false,
-                refreshReachability: true,
-                summary: "Antigravity 계정 연결됨 · CLI 복구 필요"
-            ),
-            signals: AntigravityEnvironmentSignals(
-                hasStateDirectory: false,
-                cliBinaryStatus: .broken(
-                    path: "/opt/homebrew/bin/agy",
-                    target: "/Applications/Antigravity.app/Contents/Resources/app/bin/antigravity"
-                ),
-                appRunning: false,
-                runningProcess: nil,
-                hasAuthStatus: false,
-                hasOAuthToken: false,
-                oauthCredentialStatus: AntigravityOAuthCredentialStatus(
-                    hasCredential: true,
-                    email: "nathan@example.com",
-                    sourceDescription: "ClaudeUsage OAuth"
-                )
-            ),
-            isEnabled: true,
-            isAuthRequired: false
+            isEnabled: true
         )
 
-        XCTAssertEqual(state.phase, .probingRuntime)
-        XCTAssertEqual(state.summary, "계정 확인됨 · CLI 복구 필요")
+        XCTAssertEqual(state.phase, .loading)
+        XCTAssertEqual(state.summary, "사용량 확인 중")
     }
 
-    func testResolveAntigravitySummaryStateDoesNotClaimSeparateCLIUsageSourceWhenOAuthReady() {
+    func testResolveAntigravitySummaryStateShowsReconnectForTypedAuthenticationFailure() {
         let state = PopoverViewModel.resolveAntigravitySummaryState(
-            snapshot: RuntimeProviderSnapshot(
-                service: .antigravity,
-                payload: nil,
-                error: nil,
-                isLoading: false,
-                lastUpdated: nil,
-                nextRefreshAllowedAt: nil,
-                credentialState: .usable,
-                isDetected: true,
-                canAttemptRefresh: true,
-                hasAuthError: false
-            ),
-            environmentStatus: ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .usable,
-                runtimeReachability: false,
-                refreshReachability: true,
-                summary: "Antigravity 계정 연결됨"
-            ),
-            signals: AntigravityEnvironmentSignals(
-                hasStateDirectory: false,
-                hasCLIBinary: true,
-                hasCLISettingsFile: true,
-                appRunning: false,
-                runningProcess: nil,
-                hasAuthStatus: false,
-                hasOAuthToken: false,
-                oauthCredentialStatus: AntigravityOAuthCredentialStatus(
-                    hasCredential: true,
-                    email: "nathan@example.com",
-                    sourceDescription: "ClaudeUsage OAuth"
-                )
-            ),
-            isEnabled: true,
-            isAuthRequired: false
-        )
-
-        XCTAssertEqual(state.phase, .probingRuntime)
-        XCTAssertEqual(state.summary, "계정 확인됨 · 사용량 조회 준비")
-        XCTAssertFalse(state.summary.contains("CLI 포함"))
-        XCTAssertFalse(state.summary.contains("CLI 사용량 포함"))
-    }
-
-    func testResolveAntigravitySummaryStateGoogleOAuthModeIgnoresAppPersistedAuth() async {
-        let state = await MainActor.run {
-            PopoverViewModel.resolveAntigravitySummaryState(
-                snapshot: RuntimeProviderSnapshot(
-                    service: .antigravity,
-                    payload: nil,
-                    error: nil,
-                    isLoading: false,
-                    lastUpdated: nil,
-                    nextRefreshAllowedAt: nil,
-                    credentialState: .unknown,
-                    isDetected: true,
-                    canAttemptRefresh: false,
-                    hasAuthError: false
-                ),
-                environmentStatus: ProviderEnvironmentStatus(
-                    isDetected: true,
-                    credentialState: .unknown,
-                    runtimeReachability: false,
-                    summary: "Antigravity 인증 상태 감지 · 앱을 실행하면 조회를 시작합니다"
-                ),
-                signals: AntigravityEnvironmentSignals(
-                    hasStateDirectory: true,
-                    appRunning: false,
-                    runningProcess: nil,
-                    hasAuthStatus: true,
-                    hasOAuthToken: false
-                ),
-                isEnabled: true,
-                isAuthRequired: false
-            )
-        }
-        let (phase, summary) = await MainActor.run { (state.phase, state.summary) }
-
-        XCTAssertEqual(phase, .waitingForApp)
-        XCTAssertEqual(summary, "앱 실행 후 연결 확인 중")
-    }
-
-    func testResolveAntigravitySummaryStateGoogleOAuthModeUsesRuntimeConnectionWhenAvailable() async {
-        let state = await MainActor.run {
-            PopoverViewModel.resolveAntigravitySummaryState(
-                snapshot: RuntimeProviderSnapshot(
-                    service: .antigravity,
-                    payload: nil,
-                    error: nil,
-                    isLoading: false,
-                    lastUpdated: nil,
-                    nextRefreshAllowedAt: nil,
-                    credentialState: .refreshable,
-                    isDetected: true,
-                    canAttemptRefresh: true,
-                    hasAuthError: false
-                ),
-                environmentStatus: ProviderEnvironmentStatus(
-                    isDetected: true,
-                    credentialState: .refreshable,
-                    runtimeReachability: true,
-                    summary: "Antigravity 연결 확인됨"
-                ),
-                signals: AntigravityEnvironmentSignals(
-                    hasStateDirectory: true,
-                    appRunning: true,
-                    runningProcess: AntigravityProcessSnapshot(
-                        pid: 42,
-                        command: "language_server --csrf_token token",
-                        csrfToken: "token",
-                        extensionPort: nil,
-                        extensionCsrfToken: nil,
-                        httpsServerPort: nil,
-                        cloudCodeEndpoint: "https://daily-cloudcode-pa.googleapis.com"
-                    ),
-                    hasAuthStatus: true,
-                    hasOAuthToken: false
-                ),
-                isEnabled: true,
-                isAuthRequired: false
-            )
-        }
-        let (phase, summary) = await MainActor.run { (state.phase, state.summary) }
-
-        XCTAssertEqual(phase, .probingRuntime)
-        XCTAssertEqual(summary, "앱 연결 확인 중")
-    }
-
-    func testResolveAntigravitySummaryStateShowsOAuthReconnectWhenStoredCredentialIsRejected() async {
-        let state = await MainActor.run {
-            PopoverViewModel.resolveAntigravitySummaryState(
-                snapshot: RuntimeProviderSnapshot(
-                    service: .antigravity,
-                    payload: nil,
-                    error: .invalidSessionKey,
-                    isLoading: false,
-                    lastUpdated: nil,
-                    nextRefreshAllowedAt: nil,
-                    credentialState: .usable,
-                    isDetected: true,
-                    canAttemptRefresh: true,
-                    hasAuthError: true
-                ),
-                environmentStatus: ProviderEnvironmentStatus(
-                    isDetected: true,
-                    credentialState: .usable,
-                    runtimeReachability: false,
-                    refreshReachability: true,
-                    summary: "Antigravity 계정 연결됨"
-                ),
-                signals: AntigravityEnvironmentSignals(
-                    hasStateDirectory: false,
-                    hasCLIBinary: true,
-                    appRunning: false,
-                    runningProcess: nil,
-                    hasAuthStatus: false,
-                    hasOAuthToken: false,
-                    oauthCredentialStatus: AntigravityOAuthCredentialStatus(
-                        hasCredential: true,
-                        email: "nathan@example.com",
-                        sourceDescription: "ClaudeUsage OAuth"
+            snapshot: antigravityRuntimeSnapshot(
+                presentationState:
+                    .failed(
+                        .authenticationRequired(
+                            .googleOAuth
+                        )
                     )
-                ),
-                isEnabled: true,
-                isAuthRequired: false
-            )
-        }
-        let (phase, summary) = await MainActor.run { (state.phase, state.summary) }
+            ),
+            isEnabled: true
+        )
 
-        XCTAssertEqual(phase, .authRequired)
-        XCTAssertEqual(summary, "Google 계정 다시 연결 필요")
+        XCTAssertEqual(state.phase, .authRequired)
+        XCTAssertEqual(
+            state.summary,
+            "Google 계정 다시 연결 필요"
+        )
     }
+
+    func testResolveAntigravitySummaryStateDoesNotPromoteAccountMetadataToReady() {
+        let accountID = AntigravityAccountID(
+            rawValue:
+                "00000000-0000-0000-0000-000000000001"
+        )
+        let identity = ProviderAccountIdentity(
+            stableAccountID: "subject-a",
+            email: "nathan@example.com"
+        )
+        let state = PopoverViewModel.resolveAntigravitySummaryState(
+            snapshot: antigravityRuntimeSnapshot(
+                accounts: [
+                    AntigravityRuntimeAccountSummary(
+                        id: accountID,
+                        label: "Nathan",
+                        identity: identity,
+                        isActive: true
+                    ),
+                ],
+                activeAccountID: accountID
+            ),
+            isEnabled: true
+        )
+
+        XCTAssertEqual(state.phase, .probingRuntime)
+        XCTAssertEqual(state.summary, "사용량 조회 준비")
+    }
+
+    private func antigravityRuntimeSnapshot(
+        readiness:
+            AntigravityRuntimeReadiness = .ready,
+        presentationState:
+            AntigravityPresentationState = .disabled,
+        managedRuntimeAvailability:
+            AntigravityManagedRuntimeAvailability =
+                .available,
+        accounts:
+            [AntigravityRuntimeAccountSummary] = [],
+        activeAccountID:
+            AntigravityAccountID? = nil
+    ) -> AntigravityRuntimeSnapshot {
+        let settings = AntigravitySettingsSnapshot(
+            connection: .default,
+            display: .default
+        )
+        return AntigravityRuntimeSnapshot(
+            readiness: readiness,
+            migrationStatus: nil,
+            repositoryRevision: 7,
+            accounts: accounts,
+            activeAccountID: activeAccountID,
+            settings: settings,
+            presentationState: presentationState,
+            quotaPresentation:
+                AntigravityQuotaPresentationMapper.map(
+                    state: presentationState,
+                    settings: settings.display,
+                    now: Self.referenceDate
+                ),
+            managedRuntimeAvailability:
+                managedRuntimeAvailability,
+            lastAttemptAt: Self.referenceDate,
+            lastSuccessfulAt: nil
+        )
+    }
+
+    private func antigravityQuotaSnapshot()
+        -> AntigravityQuotaSnapshot
+    {
+        let identity = ProviderAccountIdentity(
+            stableAccountID: "subject-a",
+            email: "nathan@example.com"
+        )
+        return AntigravityQuotaSnapshot(
+            identity: identity,
+            plan: "Workspace",
+            lanes: [
+                AntigravityQuotaLane(
+                    id: .geminiFiveHour,
+                    upstreamGroupID: "gemini",
+                    upstreamBucketID: "five-hour",
+                    scope: .gemini,
+                    cadence: .fiveHour,
+                    remainingFraction: 0.7,
+                    resetAt:
+                        Self.referenceDate
+                            .addingTimeInterval(3_600),
+                    resetDescription: nil,
+                    availability: .available
+                ),
+                AntigravityQuotaLane(
+                    id: .geminiWeekly,
+                    upstreamGroupID: "gemini",
+                    upstreamBucketID: "weekly",
+                    scope: .gemini,
+                    cadence: .weekly,
+                    remainingFraction: 0.5,
+                    resetAt:
+                        Self.referenceDate
+                            .addingTimeInterval(86_400),
+                    resetDescription: nil,
+                    availability: .available
+                ),
+            ],
+            decodeIssues: [],
+            provenance:
+                antigravityProvenance(
+                    identity: identity
+                ),
+            fetchedAt: Self.referenceDate
+        )
+    }
+
+    private func antigravityProvenance(
+        identity: ProviderAccountIdentity
+    ) -> AntigravityQuotaProvenance {
+        AntigravityQuotaProvenance(
+            transport: .googleOAuth,
+            endpointOwner: .external,
+            accountIdentity: identity,
+            capability: .groupedQuotaSummary,
+            processIdentity: nil
+        )
+    }
+
+    private static let referenceDate =
+        Date(timeIntervalSince1970: 1_900_000_000)
 
     func testRequestLayoutRefreshEmitsOnlyExplicitReasons() async {
         let events = await MainActor.run { () -> [(PopoverService, PopoverLayoutRefreshReason)] in
@@ -632,44 +590,6 @@ final class PopoverViewModelTests: XCTestCase {
         }
 
         XCTAssertEqual(events, [.antigravity])
-    }
-
-    func testResolveAntigravitySummaryStateKeepsPersistedAuthOutOfReady() async {
-        let state = await MainActor.run {
-            PopoverViewModel.resolveAntigravitySummaryState(
-                snapshot: RuntimeProviderSnapshot(
-                    service: .antigravity,
-                    payload: nil,
-                    error: nil,
-                    isLoading: false,
-                    lastUpdated: nil,
-                    nextRefreshAllowedAt: nil,
-                    credentialState: .unknown,
-                    isDetected: true,
-                    canAttemptRefresh: false,
-                    hasAuthError: false
-                ),
-                environmentStatus: ProviderEnvironmentStatus(
-                    isDetected: true,
-                    credentialState: .unknown,
-                    runtimeReachability: false,
-                    summary: "Antigravity 인증 상태 감지 · 앱을 실행하면 조회를 시작합니다"
-                ),
-                signals: AntigravityEnvironmentSignals(
-                    hasStateDirectory: true,
-                    appRunning: false,
-                    runningProcess: nil,
-                    hasAuthStatus: true,
-                    hasOAuthToken: false
-                ),
-                isEnabled: true,
-                isAuthRequired: false
-            )
-        }
-        let (phase, summary) = await MainActor.run { (state.phase, state.summary) }
-
-        XCTAssertEqual(phase, .waitingForApp)
-        XCTAssertEqual(summary, "앱 실행 후 연결 확인 중")
     }
 
     func testContentPhaseKeepsContentForStalePayloadWithTemporaryFailure() async {
@@ -773,90 +693,40 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(phase, .error)
     }
 
-    func testDisplaySectionsHideAntigravityAccountByDefault() async {
-        let result = await MainActor.run { () -> ([PopoverDisplaySection], [PopoverDisplaySection]) in
-            let viewModel = PopoverViewModel()
-            let payload = AntigravityUsageResponse(
-                accountEmail: "user@example.com",
-                accountPlan: "Workspace",
-                primaryWindow: AntigravityUsageWindow(label: "Gemini 3.1 Pro (Low)", modelID: "gemini-3.1-pro-low", usedPercent: 24, resetAtISO: nil),
-                secondaryWindow: AntigravityUsageWindow(label: "Gemini 3.5 Flash (Medium)", modelID: "gemini-3.5-flash-medium", usedPercent: 11, resetAtISO: nil),
-                tertiaryWindow: nil
-            )
-            viewModel.update(
-                snapshots: [
-                    RuntimeProviderSnapshot(
-                        service: .antigravity,
-                        payload: .antigravity(payload),
-                        error: nil,
-                        isLoading: false,
-                        lastUpdated: Date(),
-                        nextRefreshAllowedAt: nil,
-                        credentialState: .usable,
-                        isDetected: true,
-                        canAttemptRefresh: true,
-                        hasAuthError: false
-                    )
-                ]
-            )
+    /// AGY v2는 동적 lane 경로로만 그린다. legacy `UsageItemCatalog`가 AGY 항목을
+    /// 되살리면 같은 수치가 두 경로로 중복 렌더링되므로 경계를 고정한다.
+    func testAntigravityQuotaNeverProducesLegacyCatalogDisplaySections() {
+        let viewModel = PopoverViewModel()
+        let identity = ProviderAccountIdentity(
+            stableAccountID: "subject-a",
+            email: "nathan@example.com"
+        )
+        let states: [AntigravityPresentationState] = [
+            .ready(antigravityQuotaSnapshot()),
+            .identityOnly(
+                AntigravityIdentityOnlyUsage(
+                    identity: identity,
+                    plan: "Workspace",
+                    provenance: antigravityProvenance(identity: identity),
+                    fetchedAt: Self.referenceDate
+                )
+            ),
+        ]
 
-            return (
-                viewModel.displaySections(for: .antigravity, density: .standard, settings: .shared),
-                viewModel.displaySections(for: .antigravity, density: .compact, settings: .shared)
+        for state in states {
+            viewModel.antigravityRuntimeSnapshot = antigravityRuntimeSnapshot(
+                presentationState: state
             )
+            for density in [PopoverDensity.standard, .compact] {
+                XCTAssertTrue(
+                    viewModel.displaySections(
+                        for: .antigravity,
+                        density: density,
+                        settings: .shared
+                    ).isEmpty
+                )
+            }
         }
-
-        XCTAssertEqual(result.0.count, 2)
-        XCTAssertEqual(result.0.map(\.kind), [.usage, .usage])
-        XCTAssertEqual(result.1.count, 2)
-        XCTAssertEqual(result.1.map(\.kind), [.usage, .usage])
-    }
-
-    func testDisplaySectionsShowAntigravityQuotaMissingStatusForIdentityOnlyUsage() async {
-        let result = await MainActor.run { () -> ([PopoverDisplaySection], [PopoverDisplaySection]) in
-            let viewModel = PopoverViewModel()
-            let payload = AntigravityUsageResponse(
-                source: .googleOAuth,
-                accountEmail: "user@example.com",
-                accountPlan: "Workspace",
-                primaryWindow: nil,
-                secondaryWindow: nil,
-                tertiaryWindow: nil
-            )
-            viewModel.update(
-                snapshots: [
-                    RuntimeProviderSnapshot(
-                        service: .antigravity,
-                        payload: .antigravity(payload),
-                        error: nil,
-                        isLoading: false,
-                        lastUpdated: Date(),
-                        nextRefreshAllowedAt: nil,
-                        credentialState: .usable,
-                        isDetected: true,
-                        canAttemptRefresh: true,
-                        hasAuthError: false
-                    )
-                ]
-            )
-
-            return (
-                viewModel.displaySections(for: .antigravity, density: .standard, settings: .shared),
-                viewModel.displaySections(for: .antigravity, density: .compact, settings: .shared)
-            )
-        }
-
-        XCTAssertEqual(result.0.first?.id, "antigravityQuotaStatus")
-        XCTAssertEqual(result.0.first?.kind, .status)
-        if case .status(let status)? = result.0.first?.payload {
-            XCTAssertEqual(status.title, "계정 확인됨")
-            XCTAssertEqual(status.statusText, "수치 미지원")
-            XCTAssertTrue(status.message?.contains("계정과 플랜은 확인됐지만") == true)
-        } else {
-            XCTFail("Expected status payload")
-        }
-        XCTAssertEqual(result.1.first?.id, "antigravityQuotaStatus")
-        XCTAssertEqual(result.1.first?.kind, .status)
     }
 
     func testDisplaySectionsKeepCodexVisibleItemsAcrossDensitiesWhenCompactConfigShared() async {
@@ -972,43 +842,37 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(result.1, [])
     }
 
-    func testLayoutSpecUsesDisplaySectionsForAntigravitySecondaryWindow() async {
-        let size = await MainActor.run { () -> CGSize in
-            let settings = AppSettings.shared
-            let snapshot = settings.createSnapshot()
-            defer { settings.restore(from: snapshot) }
+    /// AGY 팝오버 높이는 legacy 섹션 수가 아니라 실제 quota lane 수에서 나온다.
+    func testLayoutSpecSizesAntigravityFromQuotaLanesNotLegacySections() {
+        let settings = AppSettings.shared
+        let snapshot = settings.createSnapshot()
+        defer { settings.restore(from: snapshot) }
 
-            settings.popoverCompact = false
-            let viewModel = PopoverViewModel()
-            let payload = AntigravityUsageResponse(
-                accountEmail: "user@example.com",
-                accountPlan: "Workspace",
-                primaryWindow: AntigravityUsageWindow(label: "Gemini 3.1 Pro (Low)", modelID: "gemini-3.1-pro-low", usedPercent: 24, resetAtISO: nil),
-                secondaryWindow: AntigravityUsageWindow(label: "Gemini 3.5 Flash (Medium)", modelID: "gemini-3.5-flash-medium", usedPercent: 11, resetAtISO: nil),
-                tertiaryWindow: nil
-            )
-            viewModel.update(
-                snapshots: [
-                    RuntimeProviderSnapshot(
-                        service: .antigravity,
-                        payload: .antigravity(payload),
-                        error: nil,
-                        isLoading: false,
-                        lastUpdated: Date(),
-                        nextRefreshAllowedAt: nil,
-                        credentialState: .usable,
-                        isDetected: true,
-                        canAttemptRefresh: true,
-                        hasAuthError: false
-                    )
-                ]
-            )
+        settings.popoverCompact = false
+        settings.setProviderEnabled(true, for: .antigravity)
+        let viewModel = PopoverViewModel()
+        viewModel.antigravityRuntimeSnapshot = antigravityRuntimeSnapshot(
+            presentationState: .ready(antigravityQuotaSnapshot())
+        )
 
-            return viewModel.layoutSpec(for: .antigravity, settings: settings).size
-        }
+        XCTAssertEqual(
+            viewModel.contentPhase(for: .antigravity, settings: settings),
+            .content
+        )
+        XCTAssertTrue(
+            viewModel.displaySections(
+                for: .antigravity,
+                density: .standard,
+                settings: settings
+            ).isEmpty
+        )
 
-        XCTAssertEqual(size.width, 368)
-        XCTAssertEqual(size.height, 256)
+        let lanedSize = viewModel.layoutSpec(for: .antigravity, settings: settings).size
+        viewModel.antigravityRuntimeSnapshot = antigravityRuntimeSnapshot()
+        let quotaFreeSize = viewModel.layoutSpec(for: .antigravity, settings: settings).size
+
+        XCTAssertEqual(lanedSize.width, 368)
+        XCTAssertGreaterThan(lanedSize.height, quotaFreeSize.height)
     }
 
     func testGlobalCompactSettingDrivesAllProviderLayouts() async {

@@ -50,6 +50,48 @@ final class ServiceSelectionHelperTests: XCTestCase {
         XCTAssertEqual(ServiceSelectionHelper.resolvedMenuBarService(settings: settings), .claude)
     }
 
+    func testResolvedMenuBarServiceUsesInjectedTypedVisibility()
+    {
+        let settings = AppSettings.shared
+        let snapshot = settings.createSnapshot()
+        defer { settings.restore(from: snapshot) }
+
+        settings.setProviderEnabled(
+            true,
+            for: .claude
+        )
+        settings.setProviderEnabled(
+            true,
+            for: .antigravity
+        )
+        settings.setProviderMenuBarVisible(
+            true,
+            for: .claude
+        )
+        settings.setProviderMenuBarVisible(
+            true,
+            for: .antigravity
+        )
+        settings.setActiveMenuBarService(
+            .antigravity
+        )
+        ServiceSelectionHelper
+            .setActivePopoverService(
+                .antigravity,
+                settings: settings
+            )
+
+        let resolved =
+            ServiceSelectionHelper
+                .resolvedMenuBarService(
+                    settings: settings
+                ) { kind in
+                    kind != .antigravity
+                }
+
+        XCTAssertEqual(resolved, .claude)
+    }
+
     func testResolvedMenuBarServiceReturnsNilWhenNoVisibleRuntimeServicesRemain() {
         let settings = AppSettings.shared
         let snapshot = settings.createSnapshot()

@@ -1,6 +1,6 @@
 # Apple Developer 기반 배포/업데이트 전략
 
-최종 갱신: 2026-05-02
+최종 갱신: 2026-07-27
 
 ## 1. 현재 결론
 
@@ -18,7 +18,11 @@
 - [UpdateService.swift](ClaudeUsage/Services/UpdateService.swift)의 `Sparkle` / `GitHub Release fallback` 엔진 선택 구조
 - [setup-sparkle-keys.sh](Scripts/setup-sparkle-keys.sh)의 키 생성 및 `SUFeedURL` 초기화
 - [build-notarize-release.sh](Scripts/build-notarize-release.sh)의 archive -> notarize -> staple -> ZIP/DMG 생성
-- [publish-release.sh](Scripts/publish-release.sh)의 tag / GitHub Release / appcast 생성
+- [release.sh](Scripts/release.sh)의 채널·버전 입력, 사전 검증, 공증 build,
+  immutable Release, 원격 검증, Pages 전파 통합
+- [publish-release.sh](Scripts/publish-release.sh)의 tag / GitHub Release / appcast asset 생성
+- [verify-release-artifact.sh](Scripts/verify-release-artifact.sh)의 원격
+  DMG·ZIP·appcast, 서명·공증·Gatekeeper·Sparkle 서명 검증
 - [publish-pages-appcast.sh](Scripts/publish-pages-appcast.sh)의 `gh-pages` 게시
 - [docs/RELEASE.md](docs/RELEASE.md)의 실제 배포 절차
 - [docs/PROJECT_WORKFLOW.md](docs/PROJECT_WORKFLOW.md)의 브랜치, 채널, 계정, 로컬 파일 관리 기준
@@ -27,7 +31,8 @@
 
 현재 운영 기준:
 
-- `main`: 코드 기준 브랜치
+- `dev`: 최신 `main` 기반 작업 단위 커밋과 검증
+- `main`: 검증된 `dev` tree를 squash한 배포 기준 브랜치
 - `gh-pages`: Sparkle appcast를 호스팅하는 정적 브랜치
 - `staging`: 코드 브랜치가 아니라 prerelease + staging appcast channel
 - `prod`: staging 검증 후 게시하는 stable release + root appcast channel
@@ -37,11 +42,12 @@
 - prod: `https://choseongmin1128.github.io/claude-usage/appcast.xml`
 - staging: `https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml`
 
-2026-05-02 직접 확인 기준:
+2026-07-27 직접 확인 기준:
 
-- prod feed는 `2.0.15` (`sparkle:version` `20015`) 를 가리킵니다.
-- staging feed는 `2.0.15` (`sparkle:version` `20015`) 를 가리킵니다.
-- 원격 코드 브랜치는 `main` 기준이며, 별도 `dev`/`stg` 브랜치는 없습니다.
+- prod feed는 `2.3.3` (`sparkle:version` `20330`) 을 가리킵니다.
+- staging feed는 `2.3.3` (`sparkle:version` `20330`) 을 가리킵니다.
+- `dev`는 작업 브랜치, `main`은 squash된 배포 기준이며 별도 `stg` 코드
+  브랜치는 없습니다.
 
 ## 4. 업데이트 동작
 
@@ -55,11 +61,16 @@
 
 ## 5. 운영 원칙
 
-- staging은 `RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh` 로 빌드하고 `vX.Y.Z-staging` prerelease로 게시합니다.
-- prod는 staging 검증 완료 후 `RELEASE_CHANNEL=prod ./Scripts/build-notarize-release.sh` 와 `vX.Y.Z` stable release로 게시합니다.
+- staging은 `./Scripts/release.sh stg X.Y.Z`로 실행하며 driver가
+  `vX.Y.Z-staging` prerelease와 staging feed를 고정합니다.
+- prod는 staging 검증 완료 후 `./Scripts/release.sh prod X.Y.Z`로 실행하며
+  driver가 `vX.Y.Z` stable release와 prod feed를 고정합니다.
 - staging과 prod는 앱에 들어가는 `SUFeedURL` 이 다르므로 같은 커밋이어도 산출물을 각각 다시 빌드합니다.
-- `gh-pages`는 직접 편집하지 않고, [publish-release.sh](Scripts/publish-release.sh)가 호출하는 [publish-pages-appcast.sh](Scripts/publish-pages-appcast.sh)를 통해 갱신합니다.
-- GitHub CLI active 계정은 배포 전에 `gh auth switch --hostname github.com --user ChoSeongmin1128` 로 맞춥니다.
+- `gh-pages`는 직접 편집하지 않습니다. driver가 immutable Release의 원격
+  세 asset을 완전히 검증한 뒤 verifier가 export한 정확한 appcast만
+  [publish-pages-appcast.sh](Scripts/publish-pages-appcast.sh)로 게시합니다.
+- driver는 GitHub CLI active 계정을 `ChoSeongmin1128`로 맞춰 게시하고 종료
+  시 `nathan-glorang`으로 복원합니다.
 - `Config/Sparkle.release.local.xcconfig`, Apple notarization key, SSH alias 설정, 로컬 DMG/ZIP 산출물은 저장소에 올리지 않습니다.
 
 ## 6. App Store를 보류하는 이유

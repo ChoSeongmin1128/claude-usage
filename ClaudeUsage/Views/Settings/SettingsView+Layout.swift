@@ -61,12 +61,10 @@ extension SettingsView {
             loadUsageHealthSnapshot()
             inspectClaudeOAuthMigration()
             checkCodexAuth()
-            antigravityOAuthSettings.refreshAccounts()
+            Task {
+                await antigravitySettings.load()
+            }
             updateRuntimeState.bootstrapIfNeeded()
-            // Settings 창이 뜬 순간부터 백그라운드에서 환경 감지 warm-up.
-            // UI 스레드는 블로킹되지 않고, warm-up 완료 시 Notification 로 재렌더.
-            ProviderEnvironmentDetector.refreshAllInBackground()
-            AntigravityStatusProbe.refreshAllInBackground()
         }
         .onReceive(NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange).receive(on: RunLoop.main)) { _ in
             syncStoredSessionKeyState()
@@ -101,11 +99,6 @@ extension SettingsView {
                 profileMetadata = metadata
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .providerEnvironmentUpdated).receive(on: RunLoop.main)) { _ in
-            // 백그라운드 환경 감지 결과가 들어왔을 때 SettingsView 를 재렌더.
-            // 각 패널의 runtimeEnvironmentRefreshTick 읽기가 dependency 를 만듦.
-            runtimeEnvironmentRefreshTick &+= 1
-        }
         .onReceive(NotificationCenter.default.publisher(for: .runtimeProviderStateUpdated).receive(on: RunLoop.main)) { notification in
             guard notification.object as? PopoverService != nil else { return }
             // Claude/Codex 미리보기도 AppDelegate의 최신 runtime payload closure를
@@ -128,10 +121,9 @@ extension SettingsView {
             // 패널 자체가 .antigravity 로 바뀌는 경우 background warm-up.
             switch panel {
             case .antigravity:
-                antigravityOAuthSettings.refreshAccounts()
-                ProviderEnvironmentDetector.refreshStatusInBackground(for: .antigravity)
-                ProviderEnvironmentDetector.refreshAntigravitySignalsInBackground()
-                AntigravityStatusProbe.refreshAllInBackground()
+                Task {
+                    await antigravitySettings.load()
+                }
             default:
                 break
             }
@@ -159,7 +151,7 @@ extension SettingsView {
         }
         .onDisappear {
             codexAuthCheckTask?.cancel()
-            antigravityOAuthSettings.cancelLogin()
+            antigravitySettings.stopObserving()
             cancelOrganizationLoad()
             flushPendingOrganizationPersistence()
         }

@@ -188,7 +188,10 @@ enum ClaudeMessagesFallbackPolicy: String, Codable, CaseIterable, Sendable {
 }
 
 class AppSettings: ObservableObject {
-    static let shared = AppSettings()
+    static let shared: AppSettings = {
+        _ = AntigravityApplicationBootstrap.prepareSettings()
+        return AppSettings()
+    }()
     nonisolated static let minimumRefreshInterval: TimeInterval = 15
     nonisolated static let maximumRefreshInterval: TimeInterval = 3600
     private static let providerStateMigrationVersionKey = "providerStateMigrationVersion"
@@ -204,9 +207,14 @@ class AppSettings: ObservableObject {
     private static let compactPopoverItemsByProviderKey = "compactPopoverItemsV2"
     private static let popoverItemsMigrationVersionKey = "popoverItemsMigrationVersion"
     private static let currentPopoverItemsMigrationVersion = 4
-    private static let antigravityHiddenModelIDsKey = "antigravityHiddenModelIDs"
-    private static let antigravityMenuBarPrimaryModelIDKey = "antigravityMenuBarPrimaryModelID"
-    private static let antigravityMenuBarSecondaryModelIDKey = "antigravityMenuBarSecondaryModelID"
+    /// v2 전환 이후 더 읽지 않는 AGY 키. 초기화 경로에서 지우기만 해서
+    /// 이전 값이 되살아나지 않게 한다.
+    private static let legacyAntigravityModelKeys = [
+        "antigravityUsageDataSource",
+        "antigravityHiddenModelIDs",
+        "antigravityMenuBarPrimaryModelID",
+        "antigravityMenuBarSecondaryModelID",
+    ]
     // 구 키 (v1, dual-write 대상)
     private static let legacyClaudePopoverKey = "popoverItems"
     private static let legacyClaudeCompactPopoverKey = "compactPopoverItems"
@@ -486,37 +494,6 @@ class AppSettings: ObservableObject {
             defaults.set(antigravityRefreshInterval, forKey: "antigravityRefreshInterval")
         }
     }
-    @Published var antigravityUsageDataSource: AntigravityUsageDataSource {
-        didSet { defaults.set(antigravityUsageDataSource.rawValue, forKey: "antigravityUsageDataSource") }
-    }
-    @Published var antigravityHiddenModelIDs: Set<String> {
-        didSet {
-            Self.persistStringSet(
-                antigravityHiddenModelIDs,
-                to: defaults,
-                key: Self.antigravityHiddenModelIDsKey
-            )
-        }
-    }
-    @Published var antigravityMenuBarPrimaryModelID: String? {
-        didSet {
-            persistOptionalString(
-                Self.normalizedOptionalID(antigravityMenuBarPrimaryModelID),
-                key: Self.antigravityMenuBarPrimaryModelIDKey
-            )
-            bumpRuntimeProviderDisplayRevision()
-        }
-    }
-    @Published var antigravityMenuBarSecondaryModelID: String? {
-        didSet {
-            persistOptionalString(
-                Self.normalizedOptionalID(antigravityMenuBarSecondaryModelID),
-                key: Self.antigravityMenuBarSecondaryModelIDKey
-            )
-            bumpRuntimeProviderDisplayRevision()
-        }
-    }
-
     func effectiveRefreshInterval(for service: PopoverService) -> TimeInterval {
         guard usePerProviderRefreshIntervals else { return Self.normalizedRefreshInterval(refreshInterval) }
         switch service {
@@ -691,10 +668,6 @@ class AppSettings: ObservableObject {
         let claudeRefreshInterval: TimeInterval
         let codexRefreshInterval: TimeInterval
         let antigravityRefreshInterval: TimeInterval
-        let antigravityUsageDataSource: AntigravityUsageDataSource
-        let antigravityHiddenModelIDs: Set<String>
-        let antigravityMenuBarPrimaryModelID: String?
-        let antigravityMenuBarSecondaryModelID: String?
         let autoRefresh: Bool
         let notificationsEnabled: Bool
         let notificationPresets: [NotificationPreset]
@@ -747,10 +720,6 @@ class AppSettings: ObservableObject {
             claudeRefreshInterval: claudeRefreshInterval,
             codexRefreshInterval: codexRefreshInterval,
             antigravityRefreshInterval: antigravityRefreshInterval,
-            antigravityUsageDataSource: antigravityUsageDataSource,
-            antigravityHiddenModelIDs: antigravityHiddenModelIDs,
-            antigravityMenuBarPrimaryModelID: antigravityMenuBarPrimaryModelID,
-            antigravityMenuBarSecondaryModelID: antigravityMenuBarSecondaryModelID,
             autoRefresh: autoRefresh,
             notificationsEnabled: notificationsEnabled,
             notificationPresets: notificationPresets,
@@ -811,10 +780,6 @@ class AppSettings: ObservableObject {
         claudeRefreshInterval = snapshot.claudeRefreshInterval
         codexRefreshInterval = snapshot.codexRefreshInterval
         antigravityRefreshInterval = snapshot.antigravityRefreshInterval
-        antigravityUsageDataSource = snapshot.antigravityUsageDataSource
-        antigravityHiddenModelIDs = snapshot.antigravityHiddenModelIDs
-        antigravityMenuBarPrimaryModelID = snapshot.antigravityMenuBarPrimaryModelID
-        antigravityMenuBarSecondaryModelID = snapshot.antigravityMenuBarSecondaryModelID
         autoRefresh = snapshot.autoRefresh
         notificationsEnabled = snapshot.notificationsEnabled
         notificationPresets = snapshot.notificationPresets
@@ -990,29 +955,9 @@ class AppSettings: ObservableObject {
         )
     }
 
-    func isAntigravityModelVisible(_ modelID: String) -> Bool {
-        guard let modelID = Self.normalizedOptionalID(modelID) else { return true }
-        return !antigravityHiddenModelIDs.contains(modelID)
-    }
-
-    func setAntigravityModelVisible(_ visible: Bool, modelID: String) {
-        guard let modelID = Self.normalizedOptionalID(modelID) else { return }
-        var next = antigravityHiddenModelIDs
-        if visible {
-            next.remove(modelID)
-        } else {
-            next.insert(modelID)
-        }
-        antigravityHiddenModelIDs = next
-    }
-
-    func visibleAntigravityModelWindows(from windows: [AntigravityUsageWindow]) -> [AntigravityUsageWindow] {
-        windows.filter { isAntigravityModelVisible($0.modelID) }
-    }
-
     private func antigravityStructuralPopoverItemsVisible(_ items: [PopoverItemConfig]) -> [PopoverItemConfig] {
         items.map { item in
-            item.id == "antigravityModels"
+            item.id == AntigravityItemCatalog.usageLimitsItemID
                 ? PopoverItemConfig(id: item.id, visible: true)
                 : item
         }
@@ -1234,6 +1179,7 @@ class AppSettings: ObservableObject {
     }
 
     func applyMenuBarDisplayPreset(_ preset: ProviderMenuBarDisplayPreset, for kind: AppProviderKind) {
+        guard Self.ownsGenericMenuBarDisplay(kind) else { return }
         switch preset {
         case .basic:
             setProviderShowIcon(true, for: kind)
@@ -1303,21 +1249,17 @@ class AppSettings: ObservableObject {
                 colorMode: menuBarColorMode
             )
         case .antigravity:
-            return ProviderMenuBarDisplayConfig(
-                kind: kind,
-                showIcon: providerBoolDefault(true, for: kind, suffix: "showIcon"),
-                style: providerMenuBarStyle(for: kind),
-                percentageDisplay: providerPercentageDisplay(for: kind),
-                showBatteryPercent: providerBoolDefault(true, for: kind, suffix: "showBatteryPercent"),
-                resetTimeDisplay: providerResetTimeDisplay(for: kind),
-                timeFormat: providerTimeFormat(for: kind),
-                circularDisplayMode: providerCircularDisplayMode(for: kind),
-                iconMetric: providerIconMetric(for: kind),
-                colorMode: menuBarColorMode,
-                primaryModelID: antigravityMenuBarPrimaryModelID,
-                secondaryModelID: antigravityMenuBarSecondaryModelID
-            )
+            // AGY 메뉴바 표시는 AntigravityDisplaySettings가 단독 소유한다.
+            return nil
         }
+    }
+
+    /// AGY의 메뉴바 표시 상태는 `AntigravityDisplaySettings.menuBar`가 단독으로
+    /// 소유하고, 렌더링도 그 값만 읽는다. generic per-provider 키로 쓰면 아무도
+    /// 읽지 않는 상태만 남으므로 이 표면에서는 AGY를 받지 않는다. 반대로
+    /// provider 활성화와 메뉴바 노출은 공용 설정이므로 그대로 둔다.
+    private static func ownsGenericMenuBarDisplay(_ kind: AppProviderKind) -> Bool {
+        kind != .antigravity
     }
 
     func menuBarStyle(for kind: AppProviderKind) -> MenuBarStyle? {
@@ -1331,9 +1273,8 @@ class AppSettings: ObservableObject {
         case .codex:
             showCodexIcon = enabled
         case .antigravity:
-            objectWillChange.send()
-            defaults.set(enabled, forKey: providerDefaultsKey(kind, suffix: "showIcon"))
-            bumpRuntimeProviderDisplayRevision()
+            // typed display 설정이 단독 소유한다. generic 키는 쓰지 않는다.
+            break
         }
     }
 
@@ -1344,7 +1285,9 @@ class AppSettings: ObservableObject {
         case .codex:
             return codexAlertEnabled
         case .antigravity:
-            return providerBoolDefault(false, for: kind, suffix: "alertEnabled")
+            // AGY 알림 on/off는 AntigravityDisplaySettings.notifications가
+            // 단독 소유하고 NotificationManager도 그 값만 본다.
+            return false
         }
     }
 
@@ -1355,8 +1298,8 @@ class AppSettings: ObservableObject {
         case .codex:
             codexAlertEnabled = enabled
         case .antigravity:
-            objectWillChange.send()
-            defaults.set(enabled, forKey: providerDefaultsKey(kind, suffix: "alertEnabled"))
+            // typed 설정이 단독 소유한다. generic 키는 쓰지 않는다.
+            break
         }
     }
 
@@ -1367,9 +1310,8 @@ class AppSettings: ObservableObject {
         case .codex:
             codexMenuBarStyle = style
         case .antigravity:
-            objectWillChange.send()
-            defaults.set(style.rawValue, forKey: providerDefaultsKey(kind, suffix: "menuBarStyle"))
-            bumpRuntimeProviderDisplayRevision()
+            // typed display 설정이 단독 소유한다. generic 키는 쓰지 않는다.
+            break
         }
 
         // 배터리 스타일은 남은 사용량 표시가 자연스럽고, 스타일을 끄면 기본 사용량 기준으로 되돌립니다.
@@ -1387,9 +1329,8 @@ class AppSettings: ObservableObject {
         case .codex:
             codexPercentageDisplay = display
         case .antigravity:
-            objectWillChange.send()
-            defaults.set(display.rawValue, forKey: providerDefaultsKey(kind, suffix: "percentageDisplay"))
-            bumpRuntimeProviderDisplayRevision()
+            // typed display 설정이 단독 소유한다. generic 키는 쓰지 않는다.
+            break
         }
     }
 
@@ -1400,9 +1341,8 @@ class AppSettings: ObservableObject {
         case .codex:
             codexResetTimeDisplay = display
         case .antigravity:
-            objectWillChange.send()
-            defaults.set(display.rawValue, forKey: providerDefaultsKey(kind, suffix: "resetTimeDisplay"))
-            bumpRuntimeProviderDisplayRevision()
+            // typed display 설정이 단독 소유한다. generic 키는 쓰지 않는다.
+            break
         }
     }
 
@@ -1413,9 +1353,8 @@ class AppSettings: ObservableObject {
         case .codex:
             codexTimeFormat = format
         case .antigravity:
-            objectWillChange.send()
-            defaults.set(format.rawValue, forKey: providerDefaultsKey(kind, suffix: "timeFormat"))
-            bumpRuntimeProviderDisplayRevision()
+            // typed display 설정이 단독 소유한다. generic 키는 쓰지 않는다.
+            break
         }
     }
 
@@ -1426,9 +1365,8 @@ class AppSettings: ObservableObject {
         case .codex:
             codexShowBatteryPercent = enabled
         case .antigravity:
-            objectWillChange.send()
-            defaults.set(enabled, forKey: providerDefaultsKey(kind, suffix: "showBatteryPercent"))
-            bumpRuntimeProviderDisplayRevision()
+            // typed display 설정이 단독 소유한다. generic 키는 쓰지 않는다.
+            break
         }
     }
 
@@ -1439,9 +1377,8 @@ class AppSettings: ObservableObject {
         case .codex:
             codexCircularDisplayMode = mode
         case .antigravity:
-            objectWillChange.send()
-            defaults.set(mode.rawValue, forKey: providerDefaultsKey(kind, suffix: "circularDisplayMode"))
-            bumpRuntimeProviderDisplayRevision()
+            // typed display 설정이 단독 소유한다. generic 키는 쓰지 않는다.
+            break
         }
     }
 
@@ -1452,9 +1389,8 @@ class AppSettings: ObservableObject {
         case .codex:
             codexIconMetric = metric
         case .antigravity:
-            objectWillChange.send()
-            defaults.set(metric.rawValue, forKey: providerDefaultsKey(kind, suffix: "iconMetric"))
-            bumpRuntimeProviderDisplayRevision()
+            // typed display 설정이 단독 소유한다. generic 키는 쓰지 않는다.
+            break
         }
     }
 
@@ -1561,18 +1497,11 @@ class AppSettings: ObservableObject {
         claudeRefreshInterval = 30.0
         codexRefreshInterval = 60.0
         antigravityRefreshInterval = 120.0
-        antigravityUsageDataSource = .auto
-        antigravityHiddenModelIDs = []
-        antigravityMenuBarPrimaryModelID = nil
-        antigravityMenuBarSecondaryModelID = nil
         defaults.removeObject(forKey: "usePerProviderRefreshIntervals")
         defaults.removeObject(forKey: "claudeRefreshInterval")
         defaults.removeObject(forKey: "codexRefreshInterval")
         defaults.removeObject(forKey: "antigravityRefreshInterval")
-        defaults.removeObject(forKey: "antigravityUsageDataSource")
-        defaults.removeObject(forKey: Self.antigravityHiddenModelIDsKey)
-        defaults.removeObject(forKey: Self.antigravityMenuBarPrimaryModelIDKey)
-        defaults.removeObject(forKey: Self.antigravityMenuBarSecondaryModelIDKey)
+        Self.legacyAntigravityModelKeys.forEach(defaults.removeObject(forKey:))
         autoRefresh = true
         notificationsEnabled = false
         notificationPresets = Self.defaultNotificationPresets
@@ -1628,9 +1557,7 @@ class AppSettings: ObservableObject {
         defaults.removeObject(forKey: "\(kind.rawValue)PopoverPinned")
         defaults.removeObject(forKey: "\(kind.rawValue)PopoverCompact")
         defaults.removeObject(forKey: "\(kind.rawValue)SettingsLastTab")
-        defaults.removeObject(forKey: Self.antigravityHiddenModelIDsKey)
-        defaults.removeObject(forKey: Self.antigravityMenuBarPrimaryModelIDKey)
-        defaults.removeObject(forKey: Self.antigravityMenuBarSecondaryModelIDKey)
+        Self.legacyAntigravityModelKeys.forEach(defaults.removeObject(forKey:))
         bumpRuntimeProviderDisplayRevision()
     }
 
@@ -1697,19 +1624,6 @@ class AppSettings: ObservableObject {
         self.claudeRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "claudeRefreshInterval") as? TimeInterval ?? 30.0)
         self.codexRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "codexRefreshInterval") as? TimeInterval ?? 60.0)
         self.antigravityRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "antigravityRefreshInterval") as? TimeInterval ?? 120.0)
-        let antigravityDataSourceRaw = defaults.string(forKey: "antigravityUsageDataSource")
-            ?? AntigravityUsageDataSource.auto.rawValue
-        self.antigravityUsageDataSource = AntigravityUsageDataSource(rawValue: antigravityDataSourceRaw) ?? .auto
-        self.antigravityHiddenModelIDs = Self.loadStringSet(
-            from: defaults,
-            key: Self.antigravityHiddenModelIDsKey
-        )
-        self.antigravityMenuBarPrimaryModelID = Self.normalizedOptionalID(
-            defaults.string(forKey: Self.antigravityMenuBarPrimaryModelIDKey)
-        )
-        self.antigravityMenuBarSecondaryModelID = Self.normalizedOptionalID(
-            defaults.string(forKey: Self.antigravityMenuBarSecondaryModelIDKey)
-        )
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? false
         let storedAlertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false

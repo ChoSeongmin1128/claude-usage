@@ -11,6 +11,25 @@ import Foundation
 struct MenuBarRenderedContent {
     let image: NSImage
     let tooltip: String
+    let accessibilityLabel: String?
+    let accessibilityValue: String?
+
+    init(
+        image: NSImage,
+        tooltip: String,
+        accessibilityLabel: String? = nil,
+        accessibilityValue: String? = nil
+    ) {
+        self.image = image
+        self.tooltip = tooltip
+        self.accessibilityLabel = accessibilityLabel
+        self.accessibilityValue = accessibilityValue
+    }
+
+    func applyAccessibility(to button: NSStatusBarButton) {
+        button.setAccessibilityLabel(accessibilityLabel)
+        button.setAccessibilityValue(accessibilityValue)
+    }
 }
 
 private struct MenuBarElement {
@@ -36,13 +55,75 @@ private struct MenuBarProviderStatus {
 
 struct MenuBarProviderSnapshot {
     let kind: AppProviderKind
-    let text: String
+    let regularText: String?
+    let condensedText: String?
     let color: NSColor
     let tooltip: String
     let icon: NSImage?
     let styleIcon: NSImage?
     let resetText: String?
     let systemStatus: ProviderSystemStatus?
+    let accessibilityLabel: String?
+    let accessibilityValue: String?
+    let isStale: Bool
+
+    var text: String {
+        regularText ?? ""
+    }
+
+    init(
+        kind: AppProviderKind,
+        text: String,
+        color: NSColor,
+        tooltip: String,
+        icon: NSImage?,
+        styleIcon: NSImage?,
+        resetText: String?,
+        systemStatus: ProviderSystemStatus?
+    ) {
+        self.init(
+            kind: kind,
+            regularText: text,
+            condensedText: text,
+            color: color,
+            tooltip: tooltip,
+            icon: icon,
+            styleIcon: styleIcon,
+            resetText: resetText,
+            systemStatus: systemStatus,
+            accessibilityLabel: nil,
+            accessibilityValue: nil,
+            isStale: false
+        )
+    }
+
+    init(
+        kind: AppProviderKind,
+        regularText: String?,
+        condensedText: String?,
+        color: NSColor,
+        tooltip: String,
+        icon: NSImage?,
+        styleIcon: NSImage?,
+        resetText: String?,
+        systemStatus: ProviderSystemStatus?,
+        accessibilityLabel: String?,
+        accessibilityValue: String?,
+        isStale: Bool = false
+    ) {
+        self.kind = kind
+        self.regularText = regularText
+        self.condensedText = condensedText
+        self.color = color
+        self.tooltip = tooltip
+        self.icon = icon
+        self.styleIcon = styleIcon
+        self.resetText = resetText
+        self.systemStatus = systemStatus
+        self.accessibilityLabel = accessibilityLabel
+        self.accessibilityValue = accessibilityValue
+        self.isStale = isStale
+    }
 }
 
 enum MenuBarStatusComposer {
@@ -326,34 +407,50 @@ enum MenuBarStatusComposer {
         )
     }
 
+    /// Antigravity v2 메뉴바 경로.
+    ///
+    /// 선택 lane, 수치, reset 문구, 색상 의미와 접근성 문구는 mapper가 만든
+    /// presentation에 이미 확정되어 있다. 이 경로는 legacy usage/config 또는
+    /// process environment를 다시 해석하지 않고, 그 값을 AppKit 표현으로만 바꾼다.
     static func antigravitySnapshot(
-        config: ProviderMenuBarDisplayConfig,
-        usage: AntigravityUsageResponse?,
-        error: APIError?,
-        hasAuthError: Bool,
-        hasCredential: Bool,
-        secondaryColor: NSColor,
-        icon: NSImage?,
-        systemStatus: ProviderSystemStatus? = nil
-    ) -> MenuBarProviderSnapshot {
-        let status = antigravityStatus(
-            config: config,
-            usage: usage,
-            error: error,
-            hasAuthError: hasAuthError,
-            hasCredential: hasCredential,
-            secondaryColor: secondaryColor
-        )
-        let usageWithWindows = usage?.hasUsageWindows == true ? usage : nil
+        presentation: AntigravityMenuBarQuotaPresentation,
+        context: AntigravityQuotaPresentationContext = .init(),
+        icon: NSImage?
+    ) -> MenuBarProviderSnapshot? {
+        guard presentation.isVisible else {
+            return nil
+        }
+
+        let isStale: Bool
+        switch context.phase {
+        case .stale:
+            isStale = true
+        case .current, .refreshing:
+            isStale = false
+        }
+        let color = antigravityColor(for: presentation.tone)
         return MenuBarProviderSnapshot(
             kind: .antigravity,
-            text: status.text,
-            color: status.color,
-            tooltip: status.tooltip,
-            icon: config.showIcon ? icon : nil,
-            styleIcon: styleIcon(usage: usageWithWindows, config: config),
-            resetText: resetText(usage: usageWithWindows, config: config),
-            systemStatus: systemStatus
+            regularText: presentation.regularText,
+            condensedText: presentation.condensedText,
+            color: color,
+            tooltip: staleAnnotatedTooltip(
+                presentation.tooltip,
+                isStale: isStale
+            ),
+            icon: presentation.showsProviderIcon ? icon : nil,
+            styleIcon: antigravityStyleIcon(
+                presentation: presentation,
+                color: color
+            ),
+            resetText: nil,
+            systemStatus: nil,
+            accessibilityLabel: presentation.accessibilityLabel,
+            accessibilityValue: staleAnnotatedAccessibilityValue(
+                presentation.accessibilityValue,
+                isStale: isStale
+            ),
+            isStale: isStale
         )
     }
 
@@ -445,28 +542,34 @@ enum MenuBarStatusComposer {
 
     static func singleProviderContent(
         snapshot: MenuBarProviderSnapshot,
-        secondaryColor: NSColor
+        secondaryColor: NSColor,
+        appearance: NSAppearance
     ) -> MenuBarRenderedContent {
         let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         let resetFont = NSFont.systemFont(ofSize: 11)
         var elements = renderElements(
             for: snapshot,
+            text: snapshot.regularText,
             valueFont: valueFont,
             resetFont: resetFont,
-            secondaryColor: secondaryColor
+            secondaryColor: secondaryColor,
+            appearance: appearance
         )
         if elements.isEmpty {
             elements.append(statusDot(color: secondaryColor))
         }
         return MenuBarRenderedContent(
             image: composeElements(elements),
-            tooltip: providerTooltip(for: snapshot)
+            tooltip: providerTooltip(for: snapshot),
+            accessibilityLabel: snapshot.accessibilityLabel,
+            accessibilityValue: snapshot.accessibilityValue
         )
     }
 
     static func multipleProviderContent(
         snapshots: [MenuBarProviderSnapshot],
-        secondaryColor: NSColor
+        secondaryColor: NSColor,
+        appearance: NSAppearance
     ) -> MenuBarRenderedContent {
         let separatorFont = NSFont.systemFont(ofSize: 11, weight: .regular)
         let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
@@ -475,9 +578,11 @@ enum MenuBarStatusComposer {
         let elements = resolvedSnapshots.enumerated().flatMap { index, snapshot -> [MenuBarElement] in
             var rendered = renderElements(
                 for: snapshot,
+                text: snapshot.condensedText,
                 valueFont: valueFont,
                 resetFont: resetFont,
-                secondaryColor: secondaryColor
+                secondaryColor: secondaryColor,
+                appearance: appearance
             )
             if rendered.isEmpty {
                 rendered = [statusDot(color: snapshot.color)]
@@ -490,29 +595,42 @@ enum MenuBarStatusComposer {
         let tooltip = resolvedSnapshots
             .map(providerTooltip(for:))
             .joined(separator: "\n")
+        let accessibilityLabel = joinedAccessibilityText(
+            resolvedSnapshots.compactMap(\.accessibilityLabel)
+        )
+        let accessibilityValue = joinedAccessibilityText(
+            resolvedSnapshots.compactMap(\.accessibilityValue)
+        )
         return MenuBarRenderedContent(
             image: composeElements(elements.isEmpty ? [statusDot(color: secondaryColor)] : elements),
-            tooltip: tooltip
+            tooltip: tooltip,
+            accessibilityLabel: accessibilityLabel,
+            accessibilityValue: accessibilityValue
         )
     }
 
     private static func renderElements(
         for snapshot: MenuBarProviderSnapshot,
+        text: String?,
         valueFont: NSFont,
         resetFont: NSFont,
         secondaryColor: NSColor,
+        appearance: NSAppearance,
         includeResetText: Bool = true
     ) -> [MenuBarElement] {
         var elements: [MenuBarElement] = []
         if let icon = snapshot.icon {
-            let renderedIcon = statusBadgedIcon(icon, for: snapshot)
+            let renderedIcon = statusBadgedIcon(icon, for: snapshot, appearance: appearance)
             elements.append(.image(renderedIcon))
         }
-        if !snapshot.text.isEmpty {
-            elements.append(.text(snapshot.text, attributes: [.font: valueFont, .foregroundColor: snapshot.color]))
+        if let text, !text.isEmpty {
+            elements.append(.text(text, attributes: [.font: valueFont, .foregroundColor: snapshot.color]))
         }
         if let styleIcon = snapshot.styleIcon {
             elements.append(.image(styleIcon))
+        }
+        if snapshot.isStale {
+            elements.append(staleDataIndicator())
         }
         if includeResetText, let resetText = snapshot.resetText {
             elements.append(.text(resetText, attributes: [.font: resetFont, .foregroundColor: secondaryColor]))
@@ -523,6 +641,54 @@ enum MenuBarStatusComposer {
         return elements
     }
 
+    private static func staleDataIndicator() -> MenuBarElement {
+        .text(
+            "◷",
+            attributes: [
+                .font: NSFont.systemFont(
+                    ofSize: 10,
+                    weight: .semibold
+                ),
+                .foregroundColor: NSColor.systemOrange,
+            ]
+        )
+    }
+
+    nonisolated private static func staleAnnotatedTooltip(
+        _ tooltip: String,
+        isStale: Bool
+    ) -> String {
+        guard isStale,
+              !tooltip.contains("이전 데이터")
+        else {
+            return tooltip
+        }
+        return "\(tooltip)\n상태: 이전 데이터"
+    }
+
+    nonisolated private static func staleAnnotatedAccessibilityValue(
+        _ value: String,
+        isStale: Bool
+    ) -> String {
+        guard isStale,
+              !value.contains("이전 데이터")
+        else {
+            return value
+        }
+        return value.isEmpty
+            ? "이전 데이터"
+            : "\(value), 이전 데이터"
+    }
+
+    nonisolated private static func joinedAccessibilityText(
+        _ values: [String]
+    ) -> String? {
+        guard !values.isEmpty else {
+            return nil
+        }
+        return values.joined(separator: ", ")
+    }
+
     nonisolated private static func providerTooltip(for snapshot: MenuBarProviderSnapshot) -> String {
         let base = tooltipBlock(name: snapshot.kind.displayName, tooltip: snapshot.tooltip)
         guard let status = snapshot.systemStatus, status.hasIssue else {
@@ -531,11 +697,19 @@ enum MenuBarStatusComposer {
         return "\(base)\n   ⚠ \(snapshot.kind.displayName) 상태: \(status.menuBarSummary)"
     }
 
-    private static func statusBadgedIcon(_ icon: NSImage, for snapshot: MenuBarProviderSnapshot) -> NSImage {
+    private static func statusBadgedIcon(
+        _ icon: NSImage,
+        for snapshot: MenuBarProviderSnapshot,
+        appearance: NSAppearance
+    ) -> NSImage {
         guard let status = snapshot.systemStatus, status.hasIssue else {
             return icon
         }
-        return MenuBarIconFactory.badgedIcon(icon, indicator: status.effectiveIndicator)
+        return MenuBarIconFactory.badgedIcon(
+            icon,
+            indicator: status.effectiveIndicator,
+            appearance: appearance
+        )
     }
 
     private static func statusBadgeColor(for indicator: StatusIndicator) -> NSColor {
@@ -679,71 +853,6 @@ enum MenuBarStatusComposer {
         )
     }
 
-    private static func antigravityStatus(
-        config: ProviderMenuBarDisplayConfig,
-        usage: AntigravityUsageResponse?,
-        error: APIError?,
-        hasAuthError: Bool,
-        hasCredential: Bool,
-        secondaryColor: NSColor
-    ) -> MenuBarProviderStatus {
-        if !hasCredential {
-            return MenuBarProviderStatus(text: "연결", color: .systemOrange, tooltip: "Antigravity 연결 필요")
-        }
-        guard let usage else {
-            if let error {
-                if error.isTemporaryFailure {
-                    return MenuBarProviderStatus(
-                        text: "…",
-                        color: secondaryColor,
-                        tooltip: error.errorDescription ?? "재시도 중"
-                    )
-                }
-                return MenuBarProviderStatus(
-                    text: hasAuthError ? "연결" : "오류",
-                    color: .systemOrange,
-                    tooltip: hasAuthError
-                        ? "Antigravity 연결이 만료됐습니다. 앱을 다시 열거나 설정에서 Google 계정을 다시 연결하세요."
-                        : (error.errorDescription ?? "조회 오류")
-                )
-            }
-            return MenuBarProviderStatus(text: "…", color: secondaryColor, tooltip: "로딩 중")
-        }
-
-        guard usage.hasUsageWindows else {
-            let account = usage.accountEmail.map { " · \($0)" } ?? ""
-            return MenuBarProviderStatus(
-                text: "!",
-                color: .systemOrange,
-                tooltip: "Antigravity\(account) · 계정 확인됨 · quota 수치 미지원"
-            )
-        }
-
-        let windows = antigravityMenuBarWindows(usage: usage, config: config)
-        let primary = windows.primary?.usedPercent ?? 0
-        let secondary = windows.secondary?.usedPercent ?? 0
-        let displayPrimary = displayValue(for: primary, showRemaining: showsRemaining(config: config))
-        let displaySecondary = displayValue(for: secondary, showRemaining: showsRemaining(config: config))
-        let text: String = {
-            switch config.percentageDisplay {
-            case .none:
-                return ""
-            case .fiveHour:
-                return String(format: "%.0f%%", displayPrimary)
-            case .weekly:
-                return String(format: "%.0f%%", displaySecondary)
-            case .dual:
-                return String(format: "%.0f%%·%.0f%%", displayPrimary, displaySecondary)
-            }
-        }()
-
-        return MenuBarProviderStatus(
-            text: text,
-            color: gaugeColor(for: primary, config: config),
-            tooltip: antigravityTooltip(usage: usage, windows: windows)
-        )
-    }
-
     private static func resetText(usage: ClaudeUsageResponse?, config: ProviderMenuBarDisplayConfig) -> String? {
         guard let usage else { return nil }
         switch config.resetTimeDisplay {
@@ -795,30 +904,6 @@ enum MenuBarStatusComposer {
         }
     }
 
-    private static func resetText(usage: AntigravityUsageResponse?, config: ProviderMenuBarDisplayConfig) -> String? {
-        guard let usage else { return nil }
-        let windows = antigravityMenuBarWindows(usage: usage, config: config)
-        switch config.resetTimeDisplay {
-        case .none:
-            return nil
-        case .fiveHour:
-            guard let resetAt = windows.primary?.resetAtISO else { return nil }
-            return TimeFormatter.formatResetTime(from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
-        case .weekly:
-            guard let resetAt = windows.secondary?.resetAtISO else { return nil }
-            return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
-        case .dual:
-            let first = windows.primary?.resetAtISO.flatMap {
-                TimeFormatter.formatResetTime(from: $0, style: config.timeFormat, includeDateIfNotToday: false)
-            }
-            let second = windows.secondary?.resetAtISO.flatMap {
-                TimeFormatter.formatResetTimeWeekly(from: $0, style: config.timeFormat, includeDateIfNotToday: false)
-            }
-            if let first, let second { return "\(first) · \(second)" }
-            return first ?? second
-        }
-    }
-
     private static func styleIcon(usage: ClaudeUsageResponse?, config: ProviderMenuBarDisplayConfig) -> NSImage? {
         guard let usage else { return nil }
         let primary = usage.fiveHourPercentage
@@ -861,48 +946,46 @@ enum MenuBarStatusComposer {
         )
     }
 
-    private static func styleIcon(usage: AntigravityUsageResponse?, config: ProviderMenuBarDisplayConfig) -> NSImage? {
-        guard let usage else { return nil }
-        let windows = antigravityMenuBarWindows(usage: usage, config: config)
-        let primary = windows.primary?.usedPercent ?? 0
-        let secondary = windows.secondary?.usedPercent ?? 0
-        return styleIcon(
-            primary: primary,
-            secondary: secondary,
-            config: config,
-            metric: resolvedMetric(primary: primary, secondary: secondary, config: config)
-        )
-    }
-
-    private static func antigravityMenuBarWindows(
-        usage: AntigravityUsageResponse,
-        config: ProviderMenuBarDisplayConfig
-    ) -> (primary: AntigravityUsageWindow?, secondary: AntigravityUsageWindow?) {
-        let primary = usage.menuBarPrimaryWindow(preferredModelID: config.primaryModelID)
-        let secondary = usage.menuBarSecondaryWindow(
-            preferredModelID: config.secondaryModelID,
-            primaryModelID: primary?.modelID
-        )
-        return (primary, secondary)
-    }
-
-    private static func antigravityTooltip(
-        usage: AntigravityUsageResponse,
-        windows: (primary: AntigravityUsageWindow?, secondary: AntigravityUsageWindow?)
-    ) -> String {
-        let selected = [windows.primary, windows.secondary]
-            .compactMap { $0 }
-            .reduce(into: [AntigravityUsageWindow]()) { result, window in
-                if !result.contains(where: { $0.modelID == window.modelID }) {
-                    result.append(window)
-                }
-            }
-            .map { "\($0.label) \(Int($0.usedPercent.rounded()))%" }
-            .joined(separator: " / ")
-        guard !selected.isEmpty else {
-            return "Antigravity · \(usage.modelSummary(separator: " / "))"
+    private static func antigravityStyleIcon(
+        presentation: AntigravityMenuBarQuotaPresentation,
+        color: NSColor
+    ) -> NSImage? {
+        guard let percentage = presentation.gaugePercentage else {
+            return nil
         }
-        return "Antigravity · \(selected)"
+
+        switch presentation.style {
+        case .none:
+            return nil
+        case .batteryBar:
+            return MenuBarIconRenderer.batteryIcon(
+                percentage: percentage,
+                color: color,
+                showPercent: presentation.showsGaugePercentage
+            )
+        case .circular:
+            return MenuBarIconRenderer.circularRingIcon(
+                percentage: percentage,
+                color: color
+            )
+        }
+    }
+
+    private static func antigravityColor(
+        for tone: AntigravityQuotaRiskTone
+    ) -> NSColor {
+        switch tone {
+        case .neutral:
+            return .secondaryLabelColor
+        case .healthy:
+            return .systemGreen
+        case .attention:
+            return .systemYellow
+        case .warning:
+            return .systemOrange
+        case .critical:
+            return .systemRed
+        }
     }
 
     private static func styleIcon(

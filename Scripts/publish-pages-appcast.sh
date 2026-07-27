@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=Scripts/lib/release-driver-common.sh
+source "$ROOT_DIR/Scripts/lib/release-driver-common.sh"
 APPCAST_SOURCE="${APPCAST_SOURCE:-$ROOT_DIR/build/release/appcast.xml}"
 GHPAGES_BRANCH="${GHPAGES_BRANCH:-gh-pages}"
 
@@ -25,7 +27,10 @@ derive_repo_pages_metadata() {
     local remote_url=""
 
     if command -v gh >/dev/null 2>&1; then
-        name_with_owner="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+        name_with_owner="$(
+            cd "$ROOT_DIR"
+            gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true
+        )"
     fi
 
     if [[ "$name_with_owner" =~ ^([^/]+)/([^/]+)$ ]]; then
@@ -173,11 +178,56 @@ if [[ -z "$CHANNEL" ]]; then
     CHANNEL="$(infer_channel_from_feed_path "$RELATIVE_FEED_PATH")"
 fi
 
+EXPECTED_CHANNEL_FEED_URL="$(derive_default_feed_url_for_channel "$CHANNEL")"
+[[ "$FEED_URL" == "$EXPECTED_CHANNEL_FEED_URL" ]] || {
+    echo "channel과 feed URL이 일치하지 않습니다: channel=$CHANNEL, expected=$EXPECTED_CHANNEL_FEED_URL, actual=$FEED_URL" >&2
+    exit 1
+}
+
 WORKTREE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/claudeusage-gh-pages.XXXXXX")"
+# `git worktree list`는 macOS /var 경로를 /private/var로 canonicalize할 수
+# 있으므로 등록 확인과 cleanup이 같은 물리 경로를 사용해야 한다.
+WORKTREE_DIR="$(cd "$WORKTREE_DIR" && pwd -P)"
+is_registered_worktree() {
+    git -C "$ROOT_DIR" worktree list --porcelain \
+        | awk -v target="$WORKTREE_DIR" '
+            $1 == "worktree" && $2 == target {
+                found = 1
+            }
+            END {
+                exit(found ? 0 : 1)
+            }
+        '
+}
+
 cleanup() {
-    git -C "$ROOT_DIR" worktree remove --force "$WORKTREE_DIR" >/dev/null 2>&1 || rm -rf "$WORKTREE_DIR"
+    local exit_code=$?
+    local cleanup_failed=0
+
+    if is_registered_worktree; then
+        if ! git -C "$ROOT_DIR" worktree remove --force "$WORKTREE_DIR" >/dev/null 2>&1; then
+            if ! rm -rf "$WORKTREE_DIR" || [[ -e "$WORKTREE_DIR" ]]; then
+                echo "gh-pages 임시 worktree를 제거하지 못했습니다: $WORKTREE_DIR" >&2
+                cleanup_failed=1
+            fi
+            git -C "$ROOT_DIR" worktree prune --expire now >/dev/null 2>&1 || cleanup_failed=1
+        fi
+    elif [[ -d "$WORKTREE_DIR" ]]; then
+        if ! rm -rf "$WORKTREE_DIR" || [[ -e "$WORKTREE_DIR" ]]; then
+            echo "gh-pages 임시 디렉터리를 제거하지 못했습니다: $WORKTREE_DIR" >&2
+            cleanup_failed=1
+        fi
+    fi
+    if [[ -e "$WORKTREE_DIR" ]] || is_registered_worktree; then
+        echo "gh-pages 임시 worktree 정리가 완료되지 않았습니다: $WORKTREE_DIR" >&2
+        cleanup_failed=1
+    fi
+    exit "$(release_cleanup_exit_code "$exit_code" "$cleanup_failed" 0)"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 git -C "$ROOT_DIR" fetch origin "$GHPAGES_BRANCH" >/dev/null 2>&1
 if ! git -C "$ROOT_DIR" show-ref --verify --quiet "refs/remotes/origin/$GHPAGES_BRANCH"; then

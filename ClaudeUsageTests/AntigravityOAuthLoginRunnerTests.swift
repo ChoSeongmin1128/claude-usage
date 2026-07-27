@@ -2,6 +2,33 @@ import XCTest
 @testable import ClaudeUsage
 
 final class AntigravityOAuthLoginRunnerTests: XCTestCase {
+    func testLoopbackCallbackWaitCancellationCompletes()
+        async throws
+    {
+        let server = AntigravityLoopbackServer(
+            state: "expected"
+        )
+        _ = try await server.start()
+        let wait = Task {
+            try await server.waitForCallback()
+        }
+        await Task.yield()
+
+        wait.cancel()
+
+        do {
+            _ = try await wait.value
+            XCTFail("Expected callback wait cancellation")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail(
+                "Expected CancellationError, got \(error)"
+            )
+        }
+        server.stop()
+    }
+
     func testCallbackParserAcceptsLoopbackGetWithExpectedState() {
         let callback = AntigravityOAuthCallbackParser.parse(
             from: request(

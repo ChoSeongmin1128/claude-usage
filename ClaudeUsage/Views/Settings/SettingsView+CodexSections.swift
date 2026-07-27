@@ -8,8 +8,7 @@ extension SettingsView {
 
     var codexAuthSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Codex 사용", systemImage: "bubble.left.and.bubble.right")
-                .font(.headline)
+            ProviderSettingsSectionHeader(provider: .codex, title: "Codex 사용")
 
             settingsToggleRow(
                 "Codex 사용",

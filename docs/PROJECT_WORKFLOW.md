@@ -1,6 +1,6 @@
 # ClaudeUsage 프로젝트 작업 방식
 
-최종 갱신: 2026-07-23
+최종 갱신: 2026-07-27
 
 ## 현재 기준
 
@@ -10,7 +10,7 @@
 - `gh-pages` 는 Sparkle appcast와 GitHub Pages 정적 파일을 올리는 배포 산출물 브랜치입니다. 코드 작업이나 스테이징 검증 브랜치로 쓰지 않습니다.
 - staging은 브랜치가 아니라 release channel입니다. 최신 `main` 커밋을 prerelease로 빌드해 `channels/staging/appcast.xml` 에 게시합니다.
 - prod는 staging 검증이 끝난 버전만 stable release로 게시합니다.
-- 2026-05-02 확인 기준 최신 prod/staging feed는 모두 `2.0.15` (`sparkle:version` `20015`) 입니다.
+- 2026-07-27 확인 기준 최신 prod/staging feed는 모두 `2.3.3` (`sparkle:version` `20330`) 입니다.
 
 ## 브랜치와 채널
 
@@ -30,6 +30,11 @@
 
 - prod: `vX.Y.Z`
 - staging: `vX.Y.Z-staging`
+
+`2.4.0` 이후 build number는
+`major * 10000 + minor * 100 + patch`로 계산합니다. 예:
+`2.4.0 → 20400`, `2.4.1 → 20401`. 과거 `2.3.x`의 `20310/20320/20330`은
+published metadata에 남는 역사적 값이며 새 후보 계산에 재사용하지 않습니다.
 
 ## GitHub 계정과 원격
 
@@ -72,7 +77,14 @@ gh auth switch --hostname github.com --user nathan-glorang
 - 배포 산출물: `ClaudeUsage.zip`, `ClaudeUsage.dmg`, `*.dmg`, `*.pkg`
 - 개인 머신 경로, SSH host alias 세부값, Apple ID, app-specific password
 
-공개 예시는 `Config/Sparkle.release.example.xcconfig` 같은 placeholder 파일에만 둡니다. `SUPublicEDKey` 자체는 공개키지만, 실제 feed/profile 조합은 로컬 release override에서 관리하는 편이 안전합니다.
+Sparkle 개인키, 실제 feed/profile과 공증 자격은 local override/Keychain에서
+관리합니다. `SUPublicEDKey`는 다운로드 서명의 공개 trust root이므로
+`Config/Release.xcconfig`에 추적합니다. `Scripts/setup-sparkle-keys.sh
+--force`는 local 설정만 다시 작성하며 기존 Keychain signing key를 회전하지
+않습니다. 실제 키 회전은 기존 설치 앱의 update trust chain을 포함한 별도
+incident 절차로 수행하고, 새 key 생성 뒤 local 설정과 tracked trust root를
+함께 갱신해 source diff와 구버전 upgrade 호환성을 검토·commit한 뒤에만 새
+릴리스를 만듭니다.
 
 주의: Xcode project의 code signing identity와 development team은 빌드 동작에 직접 영향을 줍니다. 완전한 개인 정보 분리를 원하면 별도 작업으로 signing 값을 local xcconfig로 이관한 뒤 release/test 빌드를 다시 검증해야 합니다.
 
@@ -115,40 +127,49 @@ git push origin main
 게시 산출물은 반드시 위 최종 `main` commit에서 새로 빌드합니다. `dev`나 이전 commit에서 만든 ZIP/DMG를 재사용하지 않습니다.
 
 ```bash
-xcrun notarytool history --keychain-profile ClaudeUsageNotary --output-format json --no-progress
-RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh
-./Scripts/publish-release.sh vX.Y.Z-staging --prerelease --channel staging --notes "릴리스 요약"
-curl -fsSL https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml | sed -n '1,40p'
-gh release view vX.Y.Z-staging --json tagName,isPrerelease,url
+./Scripts/release.sh stg X.Y.Z
 ```
 
-사용자 전달본은 로컬 build 폴더를 복사하지 않고 게시된 GitHub Release DMG를 다시 받습니다.
+driver는 현재 code/prod/staging version과 build, 이전 동일 채널 tag,
+입력으로 생성될 `vX.Y.Z-staging`을 먼저 표시합니다. clean main,
+notary/test, 이전 원격 앱 준비, notarized build, exact-tag 게시 확인,
+새 원격 artifact 검증, 검증된 appcast의 Pages/feed 전파, public feed 포함
+최종 재검증을 순서대로 강제합니다. appcast의 Sparkle Ed25519
+signature/ZIP length/public key와 public feed의 byte-for-byte 동일성까지
+확인합니다.
 
-```bash
-gh release download vX.Y.Z-staging \
-  --repo ChoSeongmin1128/claude-usage \
-  --pattern ClaudeUsage.dmg \
-  --dir ~/Downloads/ClaudeUsage-X.Y.Z-staging
-```
+새 publish 전에 이전 staging Release의 원격 DMG·ZIP·appcast를 GitHub
+digest와 대조하고 mount/extract한 앱의 `stapler`, `spctl`, version/build,
+staging `SUFeedURL`을 확인합니다. 그 DMG에서 꺼낸 이전 앱만
+`~/Downloads/ClaudeUsage.app`에 두어 실제 Sparkle upgrade 기준으로
+사용합니다. 새 후보 artifact는 게시 후 별도로 검증하며 Downloads 앱을 새
+후보로 덮지 않습니다.
 
-다운로드한 DMG의 checksum을 release asset과 대조하고, mount한 앱의 `stapler`, `spctl`, 버전, staging `SUFeedURL`을 확인합니다. 사용자가 Downloads 앱 교체를 요청한 경우 검증된 DMG에서 꺼낸 앱만 `~/Downloads/ClaudeUsage.app`에 둡니다.
+XCTest DerivedData/xcresult, archive 임시 설정, appcast staging,
+archive DerivedData와 release build는 각 사용 직후 삭제합니다.
+성공·실패·중단과 관계없이 남은 mount/download/worktree/실행 임시 루트를
+정리하고 GitHub CLI 계정을 `nathan-glorang`으로 복원합니다.
 
-배포가 끝나면 `gh auth switch --hostname github.com --user nathan-glorang`로 평소 계정을 복원합니다.
+배포가 중간에 끊기면 같은 명령을 재실행합니다. 현재 `main`과 정확히 같은
+tag만 있고 Release가 없으면 tag를 재사용합니다. 세 Release asset이
+완전하고 public feed만 이전 버전이면 build와 Downloads 교체 없이 Pages만
+복구합니다. 이미 모두 게시된 후보는 원격 검증만 다시 수행합니다.
+tag commit 불일치, partial/추가 asset, metadata/feed 분기는 기존 원격을
+수정하지 않고 다음 숫자 버전을 요구합니다.
 
 ## Prod 배포 절차
 
 prod는 staging에서 같은 코드/동작 검증이 끝난 뒤에만 진행합니다. staging 산출물을 그대로 재사용하지 말고 prod feed URL이 들어간 release build를 다시 만듭니다.
 
 ```bash
-xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -destination 'platform=macOS' test
-git push origin main
-RELEASE_CHANNEL=prod ./Scripts/build-notarize-release.sh
-./Scripts/publish-release.sh vX.Y.Z --channel prod --notes "릴리스 요약"
-curl -fsSL https://choseongmin1128.github.io/claude-usage/appcast.xml | sed -n '1,40p'
-gh release view vX.Y.Z --json tagName,isPrerelease,url
+./Scripts/release.sh prod X.Y.Z
 ```
 
-prod release는 prerelease로 만들지 않습니다. prod appcast는 root `appcast.xml` 을 갱신합니다.
+driver는 동일 버전 `vX.Y.Z-staging`이 현재 `main`과 같은 commit을 가리키고
+draft가 아닌 prerelease인지 확인합니다. 실제 staging QA 완료 여부는 release
+기록만으로 추정하지 않으며 prod 실행 전에 별도로 확인해야 합니다. prod
+release는 prerelease로 만들지 않으며 prod appcast는 root `appcast.xml`을
+갱신합니다.
 
 ## 검증 기준
 

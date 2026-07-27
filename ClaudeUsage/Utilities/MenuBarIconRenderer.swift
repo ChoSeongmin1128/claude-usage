@@ -30,7 +30,12 @@ enum MenuBarIconRenderer {
             let bodyPath = NSBezierPath(roundedRect: bodyRect, xRadius: cornerRadius, yRadius: cornerRadius)
             bodyPath.lineWidth = 1.0
 
-            let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let isDark =
+                (NSApp?.effectiveAppearance
+                    ?? NSAppearance.currentDrawing())
+                    .bestMatch(
+                        from: [.darkAqua, .aqua]
+                    ) == .darkAqua
             let strokeColor: NSColor = isDark ? .white.withAlphaComponent(0.7) : .black.withAlphaComponent(0.5)
             strokeColor.setStroke()
             bodyPath.stroke()
@@ -98,7 +103,12 @@ enum MenuBarIconRenderer {
         let radius = (ringSize - lineWidth) / 2
 
         let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
-            let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let isDark =
+                (NSApp?.effectiveAppearance
+                    ?? NSAppearance.currentDrawing())
+                    .bestMatch(
+                        from: [.darkAqua, .aqua]
+                    ) == .darkAqua
             let trackColor: NSColor = isDark ? .white.withAlphaComponent(0.2) : .black.withAlphaComponent(0.12)
 
             // 밝은/어두운 배경 대응 그림자
@@ -159,7 +169,12 @@ enum MenuBarIconRenderer {
         let adjustedCenter = NSPoint(x: totalSize / 2, y: totalSize / 2)
 
         let image = NSImage(size: NSSize(width: totalSize, height: totalSize), flipped: false) { _ in
-            let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let isDark =
+                (NSApp?.effectiveAppearance
+                    ?? NSAppearance.currentDrawing())
+                    .bestMatch(
+                        from: [.darkAqua, .aqua]
+                    ) == .darkAqua
             let trackColor: NSColor = isDark ? .white.withAlphaComponent(0.15) : .black.withAlphaComponent(0.08)
 
             let shadow = NSShadow()
@@ -303,7 +318,12 @@ enum MenuBarIconRenderer {
         let inset: CGFloat = 1.0
 
         let image = NSImage(size: NSSize(width: totalWidth, height: totalHeight), flipped: false) { _ in
-            let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let isDark =
+                (NSApp?.effectiveAppearance
+                    ?? NSAppearance.currentDrawing())
+                    .bestMatch(
+                        from: [.darkAqua, .aqua]
+                    ) == .darkAqua
             let strokeColor: NSColor = isDark ? .white.withAlphaComponent(0.7) : .black.withAlphaComponent(0.5)
 
             func drawSmallBattery(yOffset: CGFloat, percentage: Double, color: NSColor) {
@@ -359,7 +379,12 @@ enum MenuBarIconRenderer {
         let totalWidth = singleWidth * 2 + gap
 
         let image = NSImage(size: NSSize(width: totalWidth, height: batteryHeight), flipped: false) { _ in
-            let isDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let isDark =
+                (NSApp?.effectiveAppearance
+                    ?? NSAppearance.currentDrawing())
+                    .bestMatch(
+                        from: [.darkAqua, .aqua]
+                    ) == .darkAqua
             let strokeColor: NSColor = isDark ? .white.withAlphaComponent(0.7) : .black.withAlphaComponent(0.5)
 
             drawFullBattery(xOffset: 0, yOffset: 0, percentage: leftPercent, color: leftColor, showPercent: showPercent, strokeColor: strokeColor, isDark: isDark)

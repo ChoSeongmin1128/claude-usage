@@ -2,273 +2,391 @@ import XCTest
 @testable import ClaudeUsage
 
 final class RuntimeProviderSettingsPresentationTests: XCTestCase {
-    func testAntigravityPersistedAuthWithoutRunningAppStaysWaitingForApp() {
+    func testDisabledServiceDoesNotExposeRuntimeState() {
+        let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
+            isEnabled: false,
+            state: AntigravityPresentationFixture.state(
+                presentation: .ready(
+                    AntigravityPresentationFixture.quotaSnapshot
+                )
+            )
+        )
+
+        XCTAssertEqual(presentation.stage, .disabled)
+        XCTAssertEqual(presentation.badgeTitle, "비활성")
+        XCTAssertEqual(presentation.availableAction, .enableService)
+    }
+
+    func testMissingTypedStateShowsDeterministicBootstrapPresentation() {
         let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
             isEnabled: true,
-            environmentStatus: ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .unknown,
-                runtimeReachability: false,
-                summary: "Antigravity 앱을 실행하면 조회를 시작합니다"
-            ),
-            signals: AntigravityEnvironmentSignals(
-                hasStateDirectory: true,
-                appRunning: false,
-                runningProcess: nil,
-                hasAuthStatus: true,
-                hasOAuthToken: false
+            state: nil
+        )
+
+        XCTAssertEqual(presentation.stage, .probingRuntime)
+        XCTAssertEqual(presentation.badgeTitle, "준비 중")
+        XCTAssertTrue(presentation.summary.contains("불러오는 중"))
+        XCTAssertNil(presentation.availableAction)
+    }
+
+    func testBusyTypedStateTakesPriorityOverPreviousContent() {
+        let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
+            isEnabled: true,
+            state: AntigravityPresentationFixture.state(
+                activity: .changingAccount,
+                presentation: .ready(
+                    AntigravityPresentationFixture.quotaSnapshot
+                )
+            )
+        )
+
+        XCTAssertEqual(presentation.stage, .probingRuntime)
+        XCTAssertEqual(presentation.badgeTitle, "확인 중")
+        XCTAssertTrue(presentation.summary.contains("계정과 조회 방식"))
+    }
+
+    func testReadyTypedStateShowsObservedLaneCount() {
+        let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
+            isEnabled: true,
+            state: AntigravityPresentationFixture.state(
+                presentation: .ready(
+                    AntigravityPresentationFixture.quotaSnapshot
+                ),
+                quotaPresentation: .content(
+                    AntigravityPresentationFixture.quotaPresentation
+                )
+            )
+        )
+
+        XCTAssertEqual(presentation.stage, .probingRuntime)
+        XCTAssertEqual(presentation.badgeTitle, "연결됨")
+        XCTAssertEqual(presentation.summary, "1개 사용 한도를 확인했습니다")
+        XCTAssertNil(presentation.availableAction)
+    }
+
+    func testPartialTypedStateExplainsThatUnsupportedValuesAreNotEstimated() {
+        let state = AntigravityPresentationFixture.state(
+            presentation: .partial(
+                AntigravityPresentationFixture.quotaSnapshot,
+                issues: [
+                    AntigravityQuotaDecodeIssue(
+                        kind: .missingRemainingFraction,
+                        upstreamGroupID: "gemini",
+                        groupLabel: "Gemini",
+                        upstreamBucketID: "weekly"
+                    )
+                ]
+            )
+        )
+        let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
+            isEnabled: true,
+            state: state
+        )
+
+        XCTAssertEqual(presentation.stage, .probingRuntime)
+        XCTAssertEqual(presentation.badgeTitle, "일부 확인")
+        XCTAssertEqual(presentation.badgeTone, .orange)
+        XCTAssertTrue(presentation.nextStepDetail.contains("추정하지 않습니다"))
+    }
+
+    func testStaleTypedStateKeepsLastVerifiedResultExplicit() {
+        let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
+            isEnabled: true,
+            state: AntigravityPresentationFixture.state(
+                presentation: .stale(
+                    AntigravityPresentationFixture.quotaSnapshot,
+                    failure: .transportUnavailable(.localApp)
+                )
+            )
+        )
+
+        XCTAssertEqual(presentation.stage, .waitingForApp)
+        XCTAssertEqual(presentation.badgeTitle, "이전 결과")
+        XCTAssertTrue(presentation.summary.contains("마지막 검증 결과"))
+    }
+
+    func testMissingSelectedOAuthAccountRequestsAccountWithoutOpeningApp() {
+        let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
+            isEnabled: true,
+            state: AntigravityPresentationFixture.state(
+                presentation: .setupRequired(
+                    .noSelectedOAuthAccount
+                )
+            )
+        )
+
+        XCTAssertEqual(presentation.stage, .authRequired)
+        XCTAssertEqual(presentation.badgeTitle, "계정 필요")
+        XCTAssertEqual(presentation.nextStepTitle, "Google 계정 연결")
+        XCTAssertNil(presentation.availableAction)
+    }
+
+    func testMissingAmbientSessionOffersToOpenAntigravity() {
+        let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
+            isEnabled: true,
+            state: AntigravityPresentationFixture.state(
+                presentation: .setupRequired(
+                    .noAmbientLocalSession
+                )
             )
         )
 
         XCTAssertEqual(presentation.stage, .waitingForApp)
         XCTAssertEqual(presentation.badgeTitle, "앱 필요")
-        XCTAssertTrue(presentation.summary.contains("열려 있지 않습니다"))
         XCTAssertEqual(presentation.availableAction, .openAntigravityApp)
     }
 
-    func testAntigravityConnectedAccountUsesSimpleReadyPresentation() {
+    func testAccountMismatchDoesNotExposeNumbersOrRecoveryShortcut() {
         let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
             isEnabled: true,
-            environmentStatus: ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .refreshable,
-                runtimeReachability: false,
-                refreshReachability: true,
-                summary: "Antigravity 계정 연결됨"
-            ),
-            signals: AntigravityEnvironmentSignals(
-                hasStateDirectory: false,
-                appRunning: false,
-                runningProcess: nil,
-                hasAuthStatus: false,
-                hasOAuthToken: false,
-                oauthCredentialStatus: AntigravityOAuthCredentialStatus(
-                    hasCredential: true,
-                    email: "nathan@example.com",
-                    sourceDescription: "ClaudeUsage"
-                )
-            )
-        )
-
-        XCTAssertEqual(presentation.stage, .probingRuntime)
-        XCTAssertEqual(presentation.badgeTitle, "계정 연결")
-        XCTAssertTrue(presentation.nextStepDetail.contains("사용량 수치"))
-        XCTAssertFalse(presentation.nextStepDetail.contains("원격 quota API"))
-        XCTAssertNil(presentation.availableAction)
-    }
-
-    func testAntigravityConnectedAccountWithCLISurfaceKeepsPrimaryPresentationSimple() {
-        let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
-            isEnabled: true,
-            environmentStatus: ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .usable,
-                runtimeReachability: false,
-                refreshReachability: true,
-                summary: "Antigravity 계정 연결됨"
-            ),
-            signals: AntigravityEnvironmentSignals(
-                hasStateDirectory: false,
-                hasCLIBinary: true,
-                hasCLISettingsFile: true,
-                appRunning: false,
-                runningProcess: nil,
-                hasAuthStatus: false,
-                hasOAuthToken: false,
-                oauthCredentialStatus: AntigravityOAuthCredentialStatus(
-                    hasCredential: true,
-                    email: "nathan@example.com",
-                    sourceDescription: "ClaudeUsage"
-                )
-            )
-        )
-
-        XCTAssertEqual(presentation.stage, .probingRuntime)
-        XCTAssertEqual(presentation.badgeTitle, "계정 연결")
-        XCTAssertTrue(presentation.summary.contains("사용량"))
-        XCTAssertFalse(presentation.summary.contains("Antigravity 원격 quota"))
-        XCTAssertFalse(presentation.summary.contains("CLI 포함"))
-        XCTAssertFalse(presentation.summary.contains("CLI 사용량 포함"))
-    }
-
-    func testAntigravityGoogleOAuthModeUsesRuntimeConnectionWhenAvailable() {
-        let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
-            isEnabled: true,
-            environmentStatus: ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .refreshable,
-                runtimeReachability: true,
-                summary: "Antigravity 연결 확인됨"
-            ),
-            signals: AntigravityEnvironmentSignals(
-                hasStateDirectory: true,
-                appRunning: true,
-                runningProcess: AntigravityProcessSnapshot(
-                    pid: 1234,
-                    command: "language_server --csrf_token token",
-                    csrfToken: "token",
-                    extensionPort: nil,
-                    extensionCsrfToken: nil,
-                    httpsServerPort: nil,
-                    cloudCodeEndpoint: "https://daily-cloudcode-pa.googleapis.com"
+            state: AntigravityPresentationFixture.state(
+                presentation: .accountMismatch(
+                    expected: ProviderAccountIdentity(
+                        stableAccountID: "expected",
+                        email: "expected@example.com"
+                    ),
+                    received: ProviderAccountIdentity(
+                        stableAccountID: "other",
+                        email: "other@example.com"
+                    )
                 ),
-                hasAuthStatus: true,
-                hasOAuthToken: false
-            )
-        )
-
-        XCTAssertEqual(presentation.stage, .probingRuntime)
-        XCTAssertEqual(presentation.badgeTitle, "연결 확인 중")
-        XCTAssertTrue(presentation.summary.contains("앱 연결"))
-    }
-
-    func testAntigravityCLIInAutoModeUsesUsageSourceInsteadOfPromptingOAuth() {
-        let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
-            isEnabled: true,
-            environmentStatus: ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .refreshable,
-                runtimeReachability: false,
-                refreshReachability: true,
-                summary: "Antigravity 사용량 조회 준비"
-            ),
-            signals: AntigravityEnvironmentSignals(
-                hasStateDirectory: false,
-                hasCLIBinary: true,
-                appRunning: false,
-                runningProcess: nil,
-                hasAuthStatus: false,
-                hasOAuthToken: false
-            )
-        )
-
-        XCTAssertEqual(presentation.stage, .probingRuntime)
-        XCTAssertEqual(presentation.badgeTitle, "조회 준비")
-        XCTAssertEqual(presentation.nextStepTitle, "사용량 조회")
-        XCTAssertTrue(presentation.nextStepDetail.contains("CLI 로그인"))
-        XCTAssertNil(presentation.availableAction)
-    }
-
-    func testAntigravityBrokenCLICommandPromptsRepairInsteadOfClaimingReadyCLI() {
-        let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
-            isEnabled: true,
-            environmentStatus: ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .missing,
-                runtimeReachability: false,
-                summary: "Antigravity CLI 복구 필요 · OAuth 연결 필요"
-            ),
-            signals: AntigravityEnvironmentSignals(
-                hasStateDirectory: false,
-                cliBinaryStatus: .broken(
-                    path: "/opt/homebrew/bin/agy",
-                    target: "/Applications/Antigravity.app/Contents/Resources/app/bin/antigravity"
-                ),
-                appRunning: false,
-                runningProcess: nil,
-                hasAuthStatus: false,
-                hasOAuthToken: false
+                quotaPresentation: .unavailable(
+                    .accountMismatch(
+                        expected: ProviderAccountIdentity(
+                            stableAccountID: "expected"
+                        ),
+                        received: ProviderAccountIdentity(
+                            stableAccountID: "other"
+                        )
+                    )
+                )
             )
         )
 
         XCTAssertEqual(presentation.stage, .authRequired)
-        XCTAssertEqual(presentation.badgeTitle, "CLI 복구")
-        XCTAssertEqual(presentation.badgeTone, .red)
-        XCTAssertEqual(presentation.nextStepTitle, "CLI 재설치")
-        XCTAssertTrue(presentation.summary.contains("실행 대상"))
-        XCTAssertTrue(presentation.nextStepDetail.contains("agy"))
+        XCTAssertEqual(presentation.badgeTitle, "계정 불일치")
+        XCTAssertTrue(presentation.summary.contains("표시하지 않았습니다"))
         XCTAssertNil(presentation.availableAction)
     }
 
-    func testAntigravityOAuthReadyWithBrokenCLIDoesNotClaimCLIIncluded() {
-        let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
-            isEnabled: true,
-            environmentStatus: ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .usable,
-                runtimeReachability: false,
-                refreshReachability: true,
-                summary: "Antigravity 계정 연결됨"
-            ),
-            signals: AntigravityEnvironmentSignals(
-                hasStateDirectory: false,
-                cliBinaryStatus: .broken(
-                    path: "/opt/homebrew/bin/agy",
-                    target: "/Applications/Antigravity.app/Contents/Resources/app/bin/antigravity"
-                ),
-                appRunning: false,
-                runningProcess: nil,
-                hasAuthStatus: false,
-                hasOAuthToken: false,
-                oauthCredentialStatus: AntigravityOAuthCredentialStatus(
-                    hasCredential: true,
-                    email: "nathan@example.com",
-                    sourceDescription: "ClaudeUsage"
+    func testIdentityOnlyStateExplainsNumericQuotaAbsence() {
+        let identityOnly =
+            AntigravityPresentationState
+                .identityOnly(
+                    AntigravityIdentityOnlyUsage(
+                        identity:
+                            ProviderAccountIdentity(
+                                stableAccountID:
+                                    "subject-1",
+                                email:
+                                    "nathan@example.com"
+                            ),
+                        plan: "Pro",
+                        provenance:
+                            AntigravityPresentationFixture
+                                .provenance,
+                        fetchedAt:
+                            AntigravityPresentationFixture
+                                .now
+                    )
                 )
-            )
-        )
+        let presentation =
+            RuntimeProviderSettingsPresentation
+                .makeAntigravity(
+                    isEnabled: true,
+                    state:
+                        AntigravityPresentationFixture
+                            .state(
+                                presentation:
+                                    identityOnly
+                            )
+                )
 
-        XCTAssertEqual(presentation.stage, .probingRuntime)
-        XCTAssertEqual(presentation.badgeTitle, "계정 연결")
-        XCTAssertTrue(presentation.summary.contains("CLI 명령은 복구가 필요"))
-        XCTAssertFalse(presentation.summary.contains("CLI 포함"))
+        XCTAssertEqual(
+            presentation.stage,
+            .probingRuntime
+        )
+        XCTAssertEqual(
+            presentation.badgeTitle,
+            "수치 없음"
+        )
+        XCTAssertTrue(
+            presentation.summary
+                .contains("수치형 사용 한도")
+        )
     }
 
-    func testAntigravityCLIStateWithoutExecutablePromptsCLIConfirmation() {
-        let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
-            isEnabled: true,
-            environmentStatus: ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: .missing,
-                runtimeReachability: false,
-                summary: "Antigravity CLI 설정 확인 필요"
-            ),
-            signals: AntigravityEnvironmentSignals(
-                hasStateDirectory: false,
-                hasCLIStateDirectory: true,
-                appRunning: false,
-                runningProcess: nil,
-                hasAuthStatus: false,
-                hasOAuthToken: false
-            )
-        )
+    func testAuthenticationFailureAndTransportFailureUseDifferentStages() {
+        let authentication =
+            RuntimeProviderSettingsPresentation
+                .makeAntigravity(
+                    isEnabled: true,
+                    state:
+                        AntigravityPresentationFixture
+                            .state(
+                                presentation:
+                                    .failed(
+                                        .authenticationRequired(
+                                            .googleOAuth
+                                        )
+                                    )
+                            )
+                )
+        let transport =
+            RuntimeProviderSettingsPresentation
+                .makeAntigravity(
+                    isEnabled: true,
+                    state:
+                        AntigravityPresentationFixture
+                            .state(
+                                presentation:
+                                    .failed(
+                                        .transportUnavailable(
+                                            .localApp
+                                        )
+                                    )
+                            )
+                )
 
-        XCTAssertEqual(presentation.stage, .authRequired)
-        XCTAssertEqual(presentation.badgeTitle, "CLI 설정")
-        XCTAssertEqual(presentation.nextStepTitle, "AGY CLI 확인")
+        XCTAssertEqual(
+            authentication.stage,
+            .authRequired
+        )
+        XCTAssertEqual(
+            authentication.badgeTitle,
+            "인증 필요"
+        )
+        XCTAssertEqual(
+            transport.stage,
+            .probingRuntime
+        )
+        XCTAssertEqual(
+            transport.badgeTitle,
+            "조회 실패"
+        )
+    }
+
+    func testControllerDisabledStateRemainsBootstrapStateWhileServiceIsEnabled() {
+        let presentation =
+            RuntimeProviderSettingsPresentation
+                .makeAntigravity(
+                    isEnabled: true,
+                    state:
+                        AntigravityPresentationFixture
+                            .state(
+                                presentation:
+                                    .disabled
+                            )
+                )
+
+        XCTAssertEqual(
+            presentation.stage,
+            .probingRuntime
+        )
+        XCTAssertEqual(
+            presentation.badgeTitle,
+            "준비 중"
+        )
         XCTAssertNil(presentation.availableAction)
     }
+}
 
-    func testAntigravityRuntimeConnectionUsesProbingStage() {
-        let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
-            isEnabled: true,
-            environmentStatus: ProviderEnvironmentStatus(
-                isDetected: true,
-                credentialState: ProviderCredentialState.refreshable,
-                runtimeReachability: true,
-                summary: "Antigravity 연결 확인됨"
-            ),
-            signals: AntigravityEnvironmentSignals(
-                hasStateDirectory: true,
-                appRunning: true,
-                runningProcess: AntigravityProcessSnapshot(
-                    pid: 1234,
-                    command: "/Applications/Antigravity.app/Contents/MacOS/language_server_macos_arm",
-                    csrfToken: "token",
-                    extensionPort: 54377,
-                    extensionCsrfToken: nil,
-                    httpsServerPort: nil,
-                    cloudCodeEndpoint: nil
+private enum AntigravityPresentationFixture {
+    static let now = Date(
+        timeIntervalSince1970: 1_900_000_000
+    )
+
+    static let provenance =
+        AntigravityQuotaProvenance(
+            transport: .googleOAuth,
+            endpointOwner: .external,
+            accountIdentity:
+                ProviderAccountIdentity(
+                    stableAccountID: "subject-1",
+                    email: "nathan@example.com"
                 ),
-                hasAuthStatus: true,
-                hasOAuthToken: false
-            )
+            capability: .groupedQuotaSummary,
+            processIdentity: nil
         )
 
-        XCTAssertEqual(presentation.stage, RuntimeProviderAuthStage.probingRuntime)
-        XCTAssertEqual(presentation.badgeTitle, "연결 확인 중")
-        XCTAssertTrue(presentation.nextStepDetail.contains("사용량"))
-        XCTAssertNil(presentation.availableAction)
+    static let quotaSnapshot =
+        AntigravityQuotaSnapshot(
+            identity:
+                ProviderAccountIdentity(
+                    stableAccountID: "subject-1",
+                    email: "nathan@example.com"
+                ),
+            plan: "Pro",
+            lanes: [
+                AntigravityQuotaLane(
+                    id: .geminiWeekly,
+                    upstreamGroupID: "gemini",
+                    upstreamBucketID: "weekly",
+                    scope: .gemini,
+                    cadence: .weekly,
+                    remainingFraction: 0.4,
+                    resetAt:
+                        now.addingTimeInterval(
+                            86_400
+                        ),
+                    resetDescription: nil,
+                    availability: .available
+                )
+            ],
+            decodeIssues: [],
+            provenance: provenance,
+            fetchedAt: now
+        )
+
+    static let quotaPresentation =
+        AntigravityQuotaPresentationMapper.map(
+            snapshot: quotaSnapshot,
+            settings: .default,
+            now: now,
+            locale:
+                Locale(identifier: "ko_KR"),
+            timeZone:
+                TimeZone(secondsFromGMT: 0)!
+        )
+
+    static func state(
+        activity:
+            AntigravitySettingsViewState
+                .Activity = .idle,
+        presentation: AntigravityPresentationState,
+        quotaPresentation:
+            AntigravityQuotaPresentationMappingResult?
+                = nil
+    ) -> AntigravitySettingsViewState {
+        AntigravitySettingsViewState(
+            activity: activity,
+            accounts: [],
+            activeAccountID: nil,
+            connection: .default,
+            display: .default,
+            migrationStatus: nil,
+            presentation: presentation,
+            quotaPresentation:
+                quotaPresentation
+                    ?? AntigravityQuotaPresentationMapper
+                        .map(
+                            state: presentation,
+                            settings: .default,
+                            now: now,
+                            locale:
+                                Locale(
+                                    identifier: "ko_KR"
+                                ),
+                            timeZone:
+                                TimeZone(
+                                    secondsFromGMT: 0
+                                )!
+                        ),
+            managedRuntimeAvailability:
+                .unavailable,
+            repositoryRevision: 1,
+            notice: nil
+        )
     }
 }
 
@@ -331,23 +449,25 @@ final class SparkleUpdateResultInterpreterTests: XCTestCase {
 
 final class PublicCopySanityTests: XCTestCase {
     func testNormalUserFacingCopyDoesNotExposeInternalImplementationTerms() {
-        let antigravityStatus = ProviderEnvironmentDetector.interpretAntigravity(
-            signals: AntigravityEnvironmentSignals(
-                hasStateDirectory: true,
-                appRunning: true,
-                runningProcess: AntigravityProcessSnapshot(
-                    pid: 42,
-                    command: "language_server_macos --csrf_token token",
-                    csrfToken: "token",
-                    extensionPort: nil,
-                    extensionCsrfToken: nil,
-                    httpsServerPort: nil,
-                    cloudCodeEndpoint: nil
-                ),
-                hasAuthStatus: true,
-                hasOAuthToken: true
-            )
-        )
+        let antigravityStatus =
+            RuntimeProviderSettingsPresentation
+                .makeAntigravity(
+                    isEnabled: true,
+                    state:
+                        AntigravityPresentationFixture
+                            .state(
+                                presentation:
+                                    .ready(
+                                        AntigravityPresentationFixture
+                                            .quotaSnapshot
+                                    ),
+                                quotaPresentation:
+                                    .content(
+                                        AntigravityPresentationFixture
+                                            .quotaPresentation
+                                    )
+                            )
+                )
         let claudeAccountPresentation = ClaudeAccountSettingsPresentation.resolve(
             account: ClaudeAccount(
                 id: "web",
@@ -362,6 +482,8 @@ final class PublicCopySanityTests: XCTestCase {
 
         assertNoInternalTerms(in: [
             antigravityStatus.summary,
+            antigravityStatus.nextStepTitle,
+            antigravityStatus.nextStepDetail,
             claudeAccountPresentation.primaryTitle,
             claudeAccountPresentation.secondaryLine ?? "",
             claudeAccountPresentation.statusText,

@@ -1,9 +1,10 @@
 // Shared release defaults for signed builds.
-// Keep committed defaults empty and let a local, untracked file override them.
+// The Sparkle public key is a release trust root and is intentionally tracked.
+// Feed URL and signing/notary secrets remain channel-specific or local.
 // Sparkle runtime readiness only depends on SUFeedURL and SUPublicEDKey.
 // NOTARY_PROFILE is a release-script prerequisite and should live in the local override or environment.
 
 SUFeedURL =
-SUPublicEDKey =
+SUPublicEDKey = RVFthjNZ7PkWgMpAgi77UajSz/smZAmFJNqA355aEWQ=
 
 #include? "Sparkle.release.local.xcconfig"

@@ -21,8 +21,7 @@ extension AppDelegate {
         setupKeyboardShortcuts()
         bindRuntimeObservers()
 
-        migrateLegacyAntigravityOAuthCredentialIfNeeded()
-        applyInitialRuntimeProviderDetectionIfNeeded()
+        bootstrapAntigravityRuntime()
         bootstrapRefreshState()
         syncUpdateCheckState(runImmediate: true)
         refreshSystemStatus()
@@ -38,6 +37,9 @@ extension AppDelegate {
         settingsWindowCoordinator.invalidate()
         loginWindowCoordinator.invalidate()
         runtimeObservationCoordinator.cancelAll()
+        antigravityRuntimeObservationTask?.cancel()
+        antigravityRuntimeBootstrapTask?.cancel()
+        antigravityTerminationTimeoutTask?.cancel()
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
@@ -45,57 +47,112 @@ extension AppDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        Logger.info("ClaudeUsage 앱 종료 요청 수락")
-        return .terminateNow
-    }
+        if hasRepliedToTermination {
+            return .terminateNow
+        }
+        guard antigravityTerminationTask == nil else {
+            return .terminateLater
+        }
 
-    func migrateLegacyAntigravityOAuthCredentialIfNeeded() {
-        DispatchQueue.global(qos: .utility).async {
-            do {
-                let store = AntigravityOAuthCredentialsStore()
-                let migratedLegacyKeychainCredential = try store.migrateLegacyKeychainCredentialsIfAvailable() != nil
-                let accountState = try? AntigravityOAuthAccountStore(activeCredentialStore: store)
-                    .syncActiveCredentialIfNeeded()
-                guard migratedLegacyKeychainCredential || accountState?.activeAccount != nil else {
+        Logger.info("ClaudeUsage 앱 종료 전 Antigravity owned runtime 정리")
+        refreshScheduler.stop()
+        antigravityTerminationTask = Task { [weak self] in
+            guard let self else { return }
+            await antigravityRuntime
+                .runtimeController.shutdown()
+            finishDeferredTermination(
+                timedOut: false
+            )
+        }
+        antigravityTerminationTimeoutTask =
+            Task { [weak self] in
+                do {
+                    try await Task.sleep(
+                        for: .seconds(5)
+                    )
+                } catch {
                     return
                 }
-
-                ProviderEnvironmentDetector.invalidateCache(for: .antigravity)
-                ProviderEnvironmentDetector.refreshStatusInBackground(for: .antigravity)
-                ProviderEnvironmentDetector.refreshAntigravitySignalsInBackground()
-            } catch {
-                Logger.warning("[Antigravity] legacy OAuth Keychain 마이그레이션 실패: \(error.localizedDescription)")
+                self?.finishDeferredTermination(
+                    timedOut: true
+                )
             }
-        }
+        return .terminateLater
     }
 
-    func applyInitialRuntimeProviderDetectionIfNeeded() {
-        let defaults = UserDefaults.standard
-        guard defaults.bool(forKey: Self.initialRuntimeProviderDetectionKey) == false else { return }
-        guard AppSettings.shared.loadedProviderStatesFromDisk == false else {
-            defaults.set(true, forKey: Self.initialRuntimeProviderDetectionKey)
+    @MainActor
+    private func finishDeferredTermination(
+        timedOut: Bool
+    ) {
+        guard !hasRepliedToTermination else {
             return
         }
-
-        // 초기 감지는 /bin/sh + SQLite + /bin/ps 를 동기로 돌리는데, 이를
-        // applicationDidFinishLaunching 중 main thread 에서 수행하면 launch 가
-        // 지연된다. 결과는 로그 용도라 순서에 의존하지 않으므로 background 로
-        // 옮기고, 실패/미감지 시에도 플래그만 세워 다음 런치에서 반복 시도를 막는다.
-        let flagKey = Self.initialRuntimeProviderDetectionKey
-        DispatchQueue.global(qos: .utility).async {
-            var detectedKinds: [AppProviderKind] = []
-            for kind in [AppProviderKind.antigravity] {
-                guard ProviderEnvironmentDetector.status(for: kind)?.isDetected == true else { continue }
-                detectedKinds.append(kind)
-            }
-
-            // UserDefaults 는 thread-safe (Apple 문서화) 이므로 백그라운드에서 직접 기록.
-            UserDefaults.standard.set(true, forKey: flagKey)
-
-            if !detectedKinds.isEmpty {
-                Logger.info("초기 runtime provider 감지 완료(자동 활성화 없음): \(detectedKinds.map(\.rawValue).joined(separator: ", "))")
-            }
+        hasRepliedToTermination = true
+        if timedOut {
+            Logger.warning(
+                "Antigravity 종료 정리 제한 시간을 초과했습니다. durable ledger를 유지한 채 앱 종료를 계속합니다."
+            )
+        } else {
+            antigravityTerminationTimeoutTask?
+                .cancel()
+            Logger.info(
+                "Antigravity owned runtime 정리 완료"
+            )
         }
+        NSApplication.shared.reply(
+            toApplicationShouldTerminate: true
+        )
+    }
+
+    func bootstrapAntigravityRuntime() {
+        antigravityRuntimeObservationTask?
+            .cancel()
+        antigravityRuntimeObservationTask =
+            Task { [weak self] in
+                guard let self else { return }
+                let stream =
+                    await antigravityRuntime
+                        .runtimeController
+                        .snapshots()
+                for await snapshot in stream {
+                    guard !Task.isCancelled else {
+                        break
+                    }
+                    await MainActor.run {
+                        self.applyAntigravityRuntimeSnapshot(
+                            snapshot
+                        )
+                    }
+                }
+            }
+        antigravityRuntimeBootstrapTask =
+            Task { [weak self] in
+                guard let self else { return }
+                _ = await antigravityRuntime
+                    .runtimeController
+                    .bootstrap(
+                        performInitialRefresh: false
+                    )
+            }
+    }
+
+    @MainActor
+    private func applyAntigravityRuntimeSnapshot(
+        _ snapshot: AntigravityRuntimeSnapshot
+    ) {
+        currentAntigravityRuntimeSnapshot =
+            snapshot
+        popoverViewModel
+            .antigravityRuntimeSnapshot =
+            snapshot
+        NotificationManager.shared
+            .checkAntigravityThresholds(
+                snapshot: snapshot
+            )
+        syncRuntimePresentation(
+            overage: currentOverage
+        )
+        syncRefreshTimerState()
     }
 
     func bootstrapRefreshState() {

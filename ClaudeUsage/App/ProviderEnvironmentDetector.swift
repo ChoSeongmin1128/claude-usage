@@ -123,17 +123,10 @@ nonisolated struct AntigravityEnvironmentSignals: Sendable, Equatable {
         return process.csrfToken?.isEmpty == false
     }
 
-    func hasCredentialRelevant(to dataSource: AntigravityUsageDataSource) -> Bool {
-        switch dataSource {
-        case .localIDE:
-            return hasAppPersistedAuthState
-        case .agyCLI:
-            return hasCLIBinary
-        case .googleOAuth:
-            return hasOAuthCredential
-        case .auto:
-            return hasPersistedAuthState || hasCLIBinary
-        }
+    /// 대화형 초기 설정이 필요한지 판정한다. runtime 연결도 없고 앱과 CLI
+    /// 어느 쪽에도 자격 흔적이 없을 때만 true.
+    var requiresInteractiveSetup: Bool {
+        !hasRuntimeConnection && !(hasPersistedAuthState || hasCLIBinary)
     }
 
     /// cache-miss fallback. 실제 감지 전까지 "정보 없음" 을 의미.
@@ -479,10 +472,7 @@ enum ProviderEnvironmentDetector {
             return false
         case .antigravity:
             if let signals = cachedAntigravitySignals() {
-                return AntigravitySetupPolicy.requiresInteractiveSetup(
-                    dataSource: .auto,
-                    signals: signals
-                )
+                return signals.requiresInteractiveSetup
             }
             guard let status = staleWhileRevalidate(for: kind) else { return false }
             if status.credentialState.hasAnyCredential { return false }
@@ -496,11 +486,7 @@ enum ProviderEnvironmentDetector {
         case .claude, .codex:
             return false
         case .antigravity:
-            let signals = antigravitySignals()
-            return AntigravitySetupPolicy.requiresInteractiveSetup(
-                dataSource: .auto,
-                signals: signals
-            )
+            return antigravitySignals().requiresInteractiveSetup
         }
     }
 

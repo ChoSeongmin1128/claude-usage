@@ -20,7 +20,7 @@
 
 - Antigravity 2.0 앱 사용량과 AGY CLI 사용량을 별도 provider로 쪼개지 않습니다.
 - CLI는 별도 quota 원장이 아니라 같은 Antigravity 계정 quota의 다른 surface로 봅니다.
-- AGY CLI 로컬 상태 파일은 usage source로 파싱하지 않습니다. 대신 `agy` TUI의 `/usage` quota 화면은 공식 CLI surface가 제공하는 표시 결과이므로 보조 usage source로 사용할 수 있습니다.
+- AGY CLI 로컬 상태 파일도, `agy` TUI의 `/usage` 화면도 usage source로 파싱하지 않습니다. TUI는 UI이지 API가 아니므로 quota 수치의 근거로 쓰지 않습니다. CLI는 managed session opt-in에서 실행 대상일 뿐입니다.
 - CLI 감지는 `agy` 실행 파일, `~/.gemini/antigravity-cli` 상태 디렉터리, `settings.json` 존재 여부를 분리해서 표시합니다.
 - `agy` 명령은 PATH에 있어도 shell wrapper가 사라진 bundle 내부 경로를 가리킬 수 있습니다. ClaudeUsage는 wrapper target을 정적으로 확인해 깨진 CLI를 정상 CLI로 표시하지 않습니다.
 - Windows는 현재 제품 요구사항에서 제외합니다.
@@ -37,27 +37,34 @@ ClaudeUsage는 CodexBar와 호환을 목표로 하지 않습니다. 대신 아�
 - 로컬 앱 API가 quota window를 주지 않는 경우가 있으므로 원격 OAuth path가 필요합니다.
 - Google Cloud Code Assist 계열 원격 endpoint는 공개 안정 API가 아니므로 parser/request 코드는 테스트로 방어해야 합니다.
 
-## 3. 데이터 소스 모드
+## 3. 연결 정책
 
-Antigravity 설정은 네 가지 모드를 가집니다.
+v2에서는 "데이터 소스 모드" 대신 `AntigravityConnectionSettings`의 typed 연결
+정책을 씁니다. 값은 `sourcePolicy`, `allowManagedCLI`, `managedSession` 세
+가지입니다.
 
-| 모드 | 동작 | 사용자에게 맞는 경우 |
+| `sourcePolicy` | 동작 | 사용자에게 맞는 경우 |
 |---|---|---|
-| `자동` | 로컬 앱 API를 먼저 조회하고, 실패하거나 quota window가 없으면 AGY CLI `/usage`, Google OAuth 원격 조회 순서로 보완 | 대부분의 사용자 |
-| `로컬 앱` | 실행 중인 Antigravity 2.0 language server만 조회 | OAuth 연결 없이 앱 상태만 보고 싶은 경우 |
-| `AGY CLI` | `agy`를 PTY로 실행해 `/usage` quota 화면을 읽음 | 터미널에서 `agy` 로그인이 이미 동작하고 앱/OAuth 경로가 수치를 주지 않는 경우 |
-| `Google OAuth` | ClaudeUsage에 연결한 Google OAuth 계정으로 원격 quota만 조회 | CLI/원격 작업 중심이거나 Antigravity 앱이 꺼져 있어도 quota를 보고 싶은 경우 |
+| `automatic` | 실행 중인 local session을 먼저 쓰고, 없으면 연결된 Google 계정으로 원격 quota를 조회 | 대부분의 사용자 |
+| `local_session` | 실행 중인 Antigravity language server만 조회 | OAuth 연결 없이 앱 상태만 보고 싶은 경우 |
+| `google_account` | ClaudeUsage에 연결한 Google 계정으로 원격 quota만 조회 | 앱이 꺼져 있어도 quota를 보고 싶은 경우 |
 
-자동 모드에서 로컬 API가 성공했지만 quota window가 비어 있으면 identity-only 결과로 바로 확정하지 않습니다. 먼저 AGY CLI `/usage`로 보완하고, CLI도 수치를 주지 않거나 실패하면 원격 OAuth를 시도합니다. 모든 보조 source가 실패하면 가장 최근의 identity-only 결과를 유지합니다.
+`allowManagedCLI`는 opt-in입니다. 켜져 있을 때만 ClaudeUsage가 `agy`를 직접
+띄우고, `managedSession.idleTimeoutSeconds`(기본 180초) 뒤에 정리합니다.
+자동 refresh가 AGY를 임의로 시작하지 않습니다.
+
+quota 수치는 구조화된 localhost RPC와 Google OAuth 응답에서만 옵니다. `agy`
+TUI 문자열을 파싱해 수치를 만들지 않습니다.
 
 ## 4. 로컬 앱 조회
 
 책임 분리:
 
 - `AntigravityStatusProbe`: 프로세스 탐지, 캐시, 2.0 language server 명령 판별
-- `AntigravityAPIService`: endpoint 후보 구성, local HTTP/HTTPS 요청, retry
-- `AntigravityLocalUsageParsing`: 로컬 응답 DTO와 quota 파싱
-- `AntigravityUsageMapper`: 모델 quota를 primary/secondary/tertiary usage window로 정규화
+- `AntigravityRuntimeDiscovery`: endpoint 후보 구성과 실행 image 신뢰 검증
+- `AntigravityLocalRPCTransport` / `AntigravityLocalRPCClient`: local HTTP/HTTPS 요청, retry, deadline
+- `AntigravityLocalRPCModels`: 구조화 RPC 응답 DTO
+- `AntigravityQuotaSummaryDecoder`: RPC 응답을 quota snapshot으로 decode
 
 조회 흐름:
 
@@ -80,8 +87,8 @@ Antigravity 설정은 네 가지 모드를 가집니다.
 - `AntigravityOAuthSupport`: credentials DTO, client discovery, legacy Keychain migration
 - `AntigravityOAuthFileStorage`: 파일/디렉터리 권한 고정
 - `AntigravityOAuthAccountStore`: 다중 Google 계정 저장과 active account 동기화
-- `AntigravityRemoteUsageService`: token refresh, project resolve, quota endpoint 호출
-- `AntigravityRemoteUsageParsing`: 원격 응답 DTO와 quota/plan 파싱
+- `AntigravityGoogleOAuthQuotaClient`: token refresh, project resolve, quota endpoint 호출과 계정 귀속 검증
+- `AntigravityQuotaSummaryDecoder`: 원격 응답을 quota snapshot으로 decode
 
 원격 endpoint:
 
@@ -135,11 +142,11 @@ Antigravity OAuth 저장 위치:
 
 설정 화면은 아래 상태를 분리해서 보여줘야 합니다.
 
-- 데이터 소스: `자동`, `로컬 앱`, `Google OAuth`
+- 연결 정책: `sourcePolicy`, managed CLI opt-in, idle timeout
 - 로컬 앱 상태: 실행 중, 연결 가능, token/port 누락, 첫 성공 조회 여부
 - CLI 상태: `agy` 바이너리, 실행 가능 여부, 상태 디렉터리, `settings.json`
 - OAuth 상태: 연결 여부, active Google account, 계정 추가/선택/해제
-- 마지막 사용량 소스: 자동 모드에서 실제로 local/remote 중 무엇을 썼는지
+- 표시 설정: standard 다중 lane 선택, compact/메뉴바 단일 lane 선택
 
 표시 원칙:
 
@@ -147,25 +154,29 @@ Antigravity OAuth 저장 위치:
 - quota 모델은 감지됐지만 usage fraction이 없으면 100%처럼 보이면 안 됩니다.
 - quota가 없고 identity만 있으면 메뉴바 숫자 대신 `!` 상태 마커를 표시하고, 팝오버/설정에서는 `계정 확인됨 · 수치 미지원` 계열 문구로 보여줍니다.
 - PATH의 `agy`가 없는 대상 파일을 가리키면 `CLI 복구 필요`로 보여주고, CLI 자체 사용량이 별도 source로 준비됐다고 표현하지 않습니다.
-- `agy`가 실행 가능하면 자동 모드의 보조 source이자 수동 `AGY CLI` source로 표시합니다. 다만 로그인 선택, trust prompt처럼 상호작용이 필요한 화면은 자동으로 승인하지 않고 실패로 처리합니다.
-- CLI가 없어도 로컬 앱 API와 Google OAuth 원격 조회는 사용할 수 있습니다.
-- `Google OAuth` 모드에서는 Antigravity 앱의 로그인 상태를 OAuth 준비 완료로 취급하지 않습니다. ClaudeUsage에 연결한 OAuth 계정이 있어야 합니다.
-- `로컬 앱` 모드에서는 ClaudeUsage OAuth가 없어도 로컬 runtime만 기준으로 판단합니다.
+- CLI가 없어도 로컬 앱 조회와 Google OAuth 원격 조회는 사용할 수 있습니다.
+- `google_account`에서는 Antigravity 앱의 로그인 상태를 OAuth 준비 완료로 취급하지 않습니다. ClaudeUsage에 연결한 OAuth 계정이 있어야 합니다.
+- `local_session`에서는 ClaudeUsage OAuth가 없어도 로컬 runtime만 기준으로 판단합니다.
+- AGY 팝오버 항목은 quota lane 경로가 그리므로 사용자가 숨길 수 없습니다. 권위 항목 ID는 `antigravityUsageLimits` 하나입니다.
 
 ## 8. 테스트 기준
 
 Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합니다.
 
 - `AntigravityStatusProbeTests`: 2.0 `language_server`, legacy binary, process priority, invalid port filtering
-- `AntigravityLocalUsageParsingTests`: `GetUserStatus`, `GetCommandModelConfigs`, response code 처리
-- `AntigravityRemoteUsageParsingTests`: plan, project, quota bucket, token claim parsing
-- `AntigravityRemoteUsageServiceTests`: refresh, invalid client retry, project persistence, 401/403 처리
-- `AntigravityRuntimeRefresherTests`: auto/local/remote mode fallback과 identity-only 보완
+- `AntigravityQuotaSummaryDecoderTests`: 구조화 RPC quota 응답 decode 계약
+- `AntigravityGoogleOAuthQuotaClientTests`: Google OAuth quota 조회와 계정 귀속 검증
+- `AntigravityQuotaPresentationMapperTests`: lane grouping, 미지원/불가 값, most-constrained 선택, freshness
+- `AntigravityQuotaPresentationRenderingTests`: standard/compact 실제 렌더 폭과 합성 0% 방지
+- `AntigravityRefreshCoordinatorTests`, `AntigravityRuntimeControllerTests`: 계정/세션 경계, stale 응답 차단, display mutation 직렬화
+- `AntigravityAccountRepositoryTests`, `AntigravityMigrationCoordinatorTests`: vault write/read-back, 잔여 데이터 제거
+- `AntigravitySettingsMigrationCoordinatorTests`: 구 UserDefaults 키에서 typed 연결 설정으로의 이전과 원본 삭제
+- `AntigravityDiscoverySecurityTests`, `AntigravityManagedCLI*Tests`, `AntigravityManagedProcessTreeTests`: 실행 image 신뢰, managed lifecycle, idle teardown
 - `AntigravityOAuthCredentialsStoreTests`: file-only status/load, legacy Keychain no-UI migration/delete
-- `AntigravityOAuthLoginRunnerTests`: loopback OAuth callback host/method/state 검증
+- `AntigravityOAuthLoginRunnerTests`: loopback OAuth callback host/method/state 검증과 취소 정리
 - `AntigravityOAuthAccountStoreTests`: multi-account active credential 동기화
 - `AntigravityOAuthSettingsViewModelTests`: login cancel, account add/select/disconnect UX 상태
-- `ProviderEnvironmentDetectorTests`, `RuntimeProviderSettingsPresentationTests`, `PopoverViewModelTests`: data source별 readiness 해석
+- `ProviderEnvironmentDetectorTests`, `RuntimeProviderSettingsPresentationTests`, `PopoverViewModelTests`: 연결 정책별 readiness 해석과 lane 경계
 
 원격 endpoint가 private/internal 성격이므로 “실패하지 않는다”보다 “응답 shape 변화가 어디에서 깨졌는지 빠르게 드러난다”가 테스트의 목적입니다.
 

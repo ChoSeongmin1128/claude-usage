@@ -29,6 +29,36 @@ final class PopoverViewModel: ObservableObject {
         let freshness: RuntimeProviderFreshness
         let sourceLabel: String?
         let accountID: String?
+
+        func providerSelectorAccessibilityValue(
+            isSelected: Bool
+        ) -> String {
+            var parts: [String] = []
+            if isSelected {
+                parts.append("선택됨")
+            }
+            if isLoading {
+                parts.append("갱신 중")
+            }
+            if freshness == .stale {
+                parts.append("이전 데이터")
+            }
+            if isAuthRequired {
+                parts.append("로그인 필요")
+            } else if error != nil {
+                parts.append("갱신 실패")
+            }
+            if shouldShowWarningDot,
+               !parts.contains("이전 데이터"),
+               !parts.contains("로그인 필요"),
+               !parts.contains("갱신 실패")
+            {
+                parts.append("확인 필요")
+            }
+            return parts.isEmpty
+                ? "사용 가능"
+                : parts.joined(separator: ", ")
+        }
     }
 
     struct LocalProviderSummaryState: Sendable, Equatable {
@@ -43,16 +73,10 @@ final class PopoverViewModel: ObservableObject {
     @Published var nextUsageRetryAt: Date?
     @Published private(set) var claudeSetupPresentation: ClaudeSetupPresentation?
     @Published private(set) var runtimeSnapshots: [PopoverService: RuntimeProviderSnapshot] = [:]
+    @Published var antigravityRuntimeSnapshot = AntigravityRuntimeSnapshot.idle
 
     private let updateRuntimeState: UpdateRuntimeState
     private var cancellables = Set<AnyCancellable>()
-
-    // ProviderEnvironmentDetector 결과 캐시 — SwiftUI body 렌더링 중 블로킹 호출 방지
-    private var cachedAntigravityEnvStatus: ProviderEnvironmentStatus?
-    // 초기값은 cache-only — 콜드 캐시면 nil 로 출발해서 환경 warm-up 후에 채워짐.
-    // VM 생성 시점에 /bin/ps · SQLite · JSON 파싱을 돌리면 첫 popover/메뉴바
-    // 클릭이 1초 가까이 버벅거리므로 여기서는 blocking 을 금지한다.
-    private var cachedAntigravitySignals: AntigravityEnvironmentSignals?
 
     var onRefreshService: ((PopoverService) -> Void)?
     var onOpenSettingsForService: ((PopoverService) -> Void)?
@@ -106,10 +130,6 @@ final class PopoverViewModel: ObservableObject {
 
     var codexUsage: CodexUsageResponse? {
         snapshot(for: .codex)?.codexUsage
-    }
-
-    var antigravityUsage: AntigravityUsageResponse? {
-        snapshot(for: .antigravity)?.antigravityUsage
     }
 
     func refresh() {
@@ -275,47 +295,32 @@ final class PopoverViewModel: ObservableObject {
 
     private func antigravityRuntimeServiceState(settings: AppSettings) -> RuntimeServiceState {
         let isEnabled = settings.isProviderEnabled(.antigravity)
-        let environmentStatus = cachedAntigravityEnvStatus
-        let signalsCached = cachedAntigravitySignals
-        let signals = signalsCached ?? .empty
-        let snapshot = runtimeSnapshots[.antigravity]
-        let provenance = snapshot?.lastSuccessfulMetadata ?? snapshot?.lastAttemptMetadata
-        let runtimeError = snapshot?.error
-        // 캐시 cold 상태에서는 auth prompt 를 보류 — warm-up 끝나면 정확한 상태로 전환.
-        let requiresInteractiveSetup: Bool = {
-            guard signalsCached != nil else { return false }
-            return AntigravitySetupPolicy.requiresInteractiveSetup(
-                dataSource: .auto,
-                signals: signals
-            )
-        }()
-        let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
-        let isAuthRequired = isEnabled
-            && requiresInteractiveSetup
-            && missingCredential
-            && !(snapshot?.hasContent ?? false)
-            && !(snapshot?.isLoading ?? false)
+        let snapshot = antigravityRuntimeSnapshot
         let summaryState = Self.resolveAntigravitySummaryState(
             snapshot: snapshot,
-            environmentStatus: environmentStatus,
-            signals: signals,
-            isEnabled: isEnabled,
-            isAuthRequired: isAuthRequired
+            isEnabled: isEnabled
+        )
+        let isAuthRequired = Self.antigravityRequiresAction(
+            snapshot.presentationState
+        )
+        let shouldShowWarning = Self.antigravityShouldShowWarning(
+            snapshot: snapshot,
+            isEnabled: isEnabled
         )
 
         return RuntimeServiceState(
             service: .antigravity,
             summary: summaryState.summary,
-            meta: snapshot.flatMap(runtimeMeta(for:)),
-            lastUpdated: snapshot?.lastUpdated,
-            isLoading: snapshot?.isLoading ?? false,
-            error: runtimeError,
-            hasContent: antigravityUsage != nil,
+            meta: Self.antigravityMeta(snapshot),
+            lastUpdated: snapshot.lastSuccessfulAt,
+            isLoading: snapshot.isLoading,
+            error: nil,
+            hasContent: snapshot.hasQuotaContent,
             isAuthRequired: isAuthRequired,
-            shouldShowWarningDot: shouldShowWarningDot(snapshot: snapshot, isAuthRequired: isAuthRequired),
-            freshness: snapshot?.freshness ?? .unavailable,
-            sourceLabel: provenance?.sourceLabel,
-            accountID: provenance?.accountID
+            shouldShowWarningDot: shouldShowWarning,
+            freshness: Self.antigravityFreshness(snapshot),
+            sourceLabel: Self.antigravityIdentityRail(snapshot)?.sourceLabel,
+            accountID: snapshot.activeAccountID?.rawValue
         )
     }
 
@@ -378,13 +383,14 @@ final class PopoverViewModel: ObservableObject {
             }
             return "현재는 설정만 유지하고 있습니다."
         case .antigravity:
-            if settings.isProviderEnabled(kind) {
-                // SwiftUI body 경로 — SWR (blocking 금지)
-                return ProviderEnvironmentDetector.staleWhileRevalidate(for: kind)?.summary
-                    ?? baseDetail
-                    ?? "자격 또는 로컬 상태를 확인해 주세요."
+            guard settings.isProviderEnabled(kind) else {
+                return "비활성화된 상태입니다."
             }
-            return "비활성화된 상태입니다."
+            let state = runtimeServiceState(
+                for: .antigravity,
+                settings: settings
+            )
+            return state.meta ?? state.summary
         }
     }
 
@@ -396,30 +402,9 @@ final class PopoverViewModel: ObservableObject {
             return settings.isProviderEnabled(.codex) ? "활성" : "비활성"
         case .antigravity:
             guard settings.isProviderEnabled(kind) else { return "비활성" }
-            guard let service = kind.runtimeService else { return baseBadge }
-            let phase = localProviderSummaryState(for: service, settings: settings)?.phase
-            switch phase {
-            case .disabled:
-                return "비활성"
-            case .loading:
-                return "조회 중"
-            case .backoff:
-                return "재시도 대기"
-            case .refreshingCredential:
-                return "연결 준비"
-            case .probingRuntime:
-                return "연결 확인 중"
-            case .waitingForApp:
-                return "앱 필요"
-            case .authRequired:
-                return "연결 필요"
-            case .temporaryError:
-                return "일시 실패"
-            case .ready:
-                return "활성"
-            case .none:
-                return baseBadge
-            }
+            return Self.antigravityBadgeTitle(
+                antigravityRuntimeSnapshot
+            ) ?? baseBadge
         }
     }
 
@@ -429,17 +414,13 @@ final class PopoverViewModel: ObservableObject {
         setupPresentation: ClaudeSetupPresentation? = nil
     )
     {
-        self.runtimeSnapshots = Dictionary(uniqueKeysWithValues: snapshots.map { ($0.service, $0) })
+        self.runtimeSnapshots = Dictionary(
+            uniqueKeysWithValues: snapshots
+                .filter { $0.service != .antigravity }
+                .map { ($0.service, $0) }
+        )
         self.claudeSetupPresentation = setupPresentation
         if let overage { self.overage = overage }
-
-        // 환경 상태 캐시 갱신 — main thread 에서 실행되므로 blocking 금지.
-        // 읽기는 이미 캐시된 값만 (백그라운드 워밍이 주기적으로 업데이트).
-        self.cachedAntigravityEnvStatus = ProviderEnvironmentDetector.cachedStatus(for: .antigravity)
-        // signals 도 캐시된 값만. 콜드 캐시면 nil → 백그라운드 warm-up 으로
-        // 채워진 뒤 다음 update() 에서 반영됨.
-        self.cachedAntigravitySignals = ProviderEnvironmentDetector.cachedAntigravitySignals()
-        ProviderEnvironmentDetector.refreshAllInBackground()
     }
 
     private func runtimeSummary(
@@ -459,12 +440,6 @@ final class PopoverViewModel: ObservableObject {
         if let usage = snapshot.codexUsage {
             return usage.usageSummaryText
         }
-        if let usage = snapshot.antigravityUsage {
-            guard usage.hasUsageWindows else {
-                return "계정 확인됨 · 수치 미지원"
-            }
-            return usage.modelSummary()
-        }
         if snapshot.isLoading {
             return "조회 중"
         }
@@ -475,14 +450,9 @@ final class PopoverViewModel: ObservableObject {
             return "약 \(remainingSeconds)초 후 다시 시도"
         }
         if let error = snapshot.error {
-            if shouldSuppressRecoverableError(error, kind: snapshot.kind),
-               let environmentStatus = ProviderEnvironmentDetector.staleWhileRevalidate(for: snapshot.kind) {
-                return environmentStatus.summary
-            }
             return error.errorDescription ?? "조회 실패"
         }
-        // SwiftUI body 경로 — SWR (blocking 금지)
-        return ProviderEnvironmentDetector.staleWhileRevalidate(for: snapshot.kind)?.summary ?? "데이터를 아직 불러오지 못했습니다"
+        return "데이터를 아직 불러오지 못했습니다"
     }
 
     private func runtimeMeta(for snapshot: RuntimeProviderSnapshot) -> String? {
@@ -535,30 +505,9 @@ final class PopoverViewModel: ObservableObject {
     func localProviderSummaryState(for service: PopoverService, settings: AppSettings) -> LocalProviderSummaryState? {
         switch service {
         case .antigravity:
-            let isEnabled = settings.isProviderEnabled(.antigravity)
-            let environmentStatus = cachedAntigravityEnvStatus
-            let signalsCached = cachedAntigravitySignals
-            let signals = signalsCached ?? .empty
-            let snapshot = runtimeSnapshots[.antigravity]
-            let requiresInteractiveSetup: Bool = {
-                guard signalsCached != nil else { return false }
-                return AntigravitySetupPolicy.requiresInteractiveSetup(
-                    dataSource: .auto,
-                    signals: signals
-                )
-            }()
-            let missingCredential = (environmentStatus?.credentialState ?? .missing) == .missing
-            let isAuthRequired = isEnabled
-                && requiresInteractiveSetup
-                && missingCredential
-                && !(snapshot?.hasContent ?? false)
-                && !(snapshot?.isLoading ?? false)
             return Self.resolveAntigravitySummaryState(
-                snapshot: snapshot,
-                environmentStatus: environmentStatus,
-                signals: signals,
-                isEnabled: isEnabled,
-                isAuthRequired: isAuthRequired
+                snapshot: antigravityRuntimeSnapshot,
+                isEnabled: settings.isProviderEnabled(.antigravity)
             )
         case .claude, .codex:
             return nil
@@ -566,116 +515,251 @@ final class PopoverViewModel: ObservableObject {
     }
 
     static func resolveAntigravitySummaryState(
-        snapshot: RuntimeProviderSnapshot?,
-        environmentStatus: ProviderEnvironmentStatus?,
-        signals: AntigravityEnvironmentSignals,
-        isEnabled: Bool,
-        isAuthRequired: Bool
+        snapshot: AntigravityRuntimeSnapshot,
+        isEnabled: Bool
     ) -> LocalProviderSummaryState {
         if !isEnabled {
             return .init(phase: .disabled, summary: "비활성화됨")
         }
-        if let usage = snapshot?.antigravityUsage {
-            guard usage.hasUsageWindows else {
-                return .init(
-                    phase: .ready,
-                    summary: "계정 확인됨 · 수치 미지원"
-                )
-            }
+        switch snapshot.readiness {
+        case .bootstrapping:
+            return .init(phase: .loading, summary: "초기 설정 확인 중")
+        case .blocked:
+            return .init(
+                phase: .temporaryError,
+                summary: "초기 설정 확인 필요"
+            )
+        case .shuttingDown:
+            return .init(phase: .disabled, summary: "종료 중")
+        case .idle, .ready:
+            break
+        }
+
+        switch snapshot.presentationState {
+        case .disabled:
+            return .init(phase: .probingRuntime, summary: "사용량 조회 준비")
+        case .setupRequired:
+            return .init(phase: .authRequired, summary: "연결 설정 필요")
+        case .refreshing:
+            return .init(phase: .loading, summary: "사용량 확인 중")
+        case .ready:
             return .init(
                 phase: .ready,
-                summary: usage.modelSummary()
+                summary: antigravityQuotaSummary(snapshot)
             )
-        }
-        if snapshot?.isLoading == true {
-            return .init(phase: .loading, summary: "조회 중")
-        }
-        if let nextRefreshAllowedAt = snapshot?.nextRefreshAllowedAt,
-           snapshot?.payload == nil,
-           let remainingSeconds = RefreshExecutionPolicy.remainingBackoffSeconds(until: nextRefreshAllowedAt)
-        {
-            return .init(phase: .backoff, summary: "약 \(remainingSeconds)초 후 다시 시도")
-        }
-        if let error = snapshot?.error, !shouldSuppressRecoverableError(error, runtimeReachability: environmentStatus?.runtimeReachability ?? false) {
-            if error.isDefinitiveAuthFailure || snapshot?.fetchState == .authFailure || isAuthRequired {
-                return .init(
-                    phase: .authRequired,
-                    summary: antigravityAuthRequiredSummary(
-                        signals: signals,
-                        environmentStatus: environmentStatus
-                    )
-                )
-            }
-            return .init(phase: .temporaryError, summary: error.errorDescription ?? "일시 조회 실패")
-        }
-        if signals.hasOAuthCredential {
+        case .partial:
             return .init(
-                phase: .probingRuntime,
-                summary: signals.hasBrokenCLICommand
-                    ? "계정 확인됨 · CLI 복구 필요"
-                    : "계정 확인됨 · 사용량 조회 준비"
+                phase: .ready,
+                summary: "\(antigravityQuotaSummary(snapshot)) · 일부 확인 필요"
             )
-        }
-        if signals.hasRuntimeConnection {
-            return .init(phase: .probingRuntime, summary: "앱 연결 확인 중")
-        }
-        let hasRelevantPersistedAuthState = signals.hasCredentialRelevant(to: .auto)
-        if hasRelevantPersistedAuthState {
-            if signals.hasCLIBinary {
-                return .init(phase: .probingRuntime, summary: "사용량 조회 준비")
-            }
-            return .init(phase: .waitingForApp, summary: "앱 실행 후 연결 확인 중")
-        }
-        if signals.hasCLISurface {
+        case .stale:
             return .init(
-                phase: signals.hasCLIBinary ? .probingRuntime : .authRequired,
-                summary: signals.hasBrokenCLICommand
-                    ? "CLI 복구 필요"
-                    : signals.hasCLIBinary
-                    ? "사용량 조회 준비"
-                    : "CLI 설정 감지 · 실행 파일 필요"
+                phase: .temporaryError,
+                summary: "이전 사용량 표시 중"
             )
-        }
-        if snapshot?.fetchState == .authFailure || isAuthRequired {
+        case .accountMismatch:
             return .init(
                 phase: .authRequired,
-                summary: antigravityAuthRequiredSummary(
-                    signals: signals,
-                    environmentStatus: environmentStatus
-                )
+                summary: "선택한 계정과 세션이 다름"
+            )
+        case .limited:
+            return .init(
+                phase: .temporaryError,
+                summary: "수치형 사용량 미지원"
+            )
+        case .identityOnly:
+            return .init(
+                phase: .temporaryError,
+                summary: "계정 확인됨 · 수치 미지원"
+            )
+        case .failed(let failure):
+            return .init(
+                phase: antigravityFailureRequiresAction(failure)
+                    ? .authRequired
+                    : .temporaryError,
+                summary: antigravityFailureSummary(failure)
             )
         }
-        if signals.appRunning && !signals.hasPersistedAuthState {
-            return .init(phase: .authRequired, summary: environmentStatus?.summary ?? "앱 실행 또는 인증이 필요합니다")
-        }
-        if environmentStatus?.isDetected == true {
-            return .init(phase: .waitingForApp, summary: environmentStatus?.summary ?? "앱 실행 후 연결 확인 중")
-        }
-        return .init(phase: .authRequired, summary: environmentStatus?.summary ?? "앱 실행 또는 인증이 필요합니다")
     }
 
-    private static func antigravityAuthRequiredSummary(
-        signals: AntigravityEnvironmentSignals,
-        environmentStatus: ProviderEnvironmentStatus?
+    private static func antigravityQuotaSummary(
+        _ snapshot: AntigravityRuntimeSnapshot
     ) -> String {
-        if signals.hasOAuthCredential {
-            return "Google 계정 다시 연결 필요"
+        guard case .content(let presentation) =
+                snapshot.quotaPresentation
+        else {
+            return "사용량 확인됨"
         }
-        if signals.hasCLIBinary {
-            return signals.hasBrokenCLICommand ? "CLI 복구 필요" : "CLI 확인 필요"
-        }
-        return environmentStatus?.summary ?? "앱 실행 또는 인증이 필요합니다"
+        return "\(presentation.observedLaneCount)개 사용량 한도"
     }
 
-    private static func shouldSuppressRecoverableError(_ error: APIError, runtimeReachability: Bool) -> Bool {
-        error.isTemporaryFailure && runtimeReachability
+    private static func antigravityIdentityRail(
+        _ snapshot: AntigravityRuntimeSnapshot
+    ) -> ProviderIdentityRailProjection? {
+        guard case .content(let presentation) =
+                snapshot.quotaPresentation
+        else {
+            return nil
+        }
+        return presentation.identityRail
     }
 
-    private func shouldSuppressRecoverableError(_ error: APIError, kind: AppProviderKind) -> Bool {
-        // SwiftUI body 경로 — SWR (blocking 금지)
-        guard let status = ProviderEnvironmentDetector.staleWhileRevalidate(for: kind) else {
+    private static func antigravityMeta(
+        _ snapshot: AntigravityRuntimeSnapshot
+    ) -> String? {
+        if let identityRail = antigravityIdentityRail(snapshot) {
+            return identityRail.freshnessLabel
+        }
+        return snapshot.lastAttemptAt.map {
+            relativeTimestamp(for: $0)
+        }
+    }
+
+    private static func antigravityFreshness(
+        _ snapshot: AntigravityRuntimeSnapshot
+    ) -> RuntimeProviderFreshness {
+        if snapshot.isLoading {
+            return .loading
+        }
+        guard case .content(let presentation) =
+                snapshot.quotaPresentation
+        else {
+            return .unavailable
+        }
+        switch presentation.context.phase {
+        case .current:
+            return .fresh
+        case .refreshing:
+            return .loading
+        case .stale:
+            return .stale
+        }
+    }
+
+    private static func antigravityRequiresAction(
+        _ state: AntigravityPresentationState
+    ) -> Bool {
+        switch state {
+        case .setupRequired, .accountMismatch:
+            return true
+        case .failed(let failure):
+            return antigravityFailureRequiresAction(failure)
+        case .disabled,
+             .refreshing,
+             .ready,
+             .partial,
+             .stale,
+             .limited,
+             .identityOnly:
             return false
         }
-        return Self.shouldSuppressRecoverableError(error, runtimeReachability: status.runtimeReachability)
+    }
+
+    private static func antigravityFailureRequiresAction(
+        _ failure: AntigravityFailure
+    ) -> Bool {
+        switch failure {
+        case .selectedAccountUnavailable,
+             .selectedAccountIdentityUnavailable,
+             .authenticationRequired,
+             .interactionRequired:
+            return true
+        case .cancelled,
+             .appShuttingDown,
+             .invalidRefreshContext,
+             .generationExhausted,
+             .repositoryUnavailable,
+             .repositoryRevisionChanged,
+             .credentialCommitFailed,
+             .credentialCommitAmbiguous,
+             .noEligibleSource,
+             .sourceUnavailable,
+             .deadlineExceeded,
+             .schemaChanged,
+             .transportUnavailable,
+             .sourceContractViolation,
+             .numericQuotaUnavailable:
+            return false
+        }
+    }
+
+    private static func antigravityFailureSummary(
+        _ failure: AntigravityFailure
+    ) -> String {
+        switch failure {
+        case .authenticationRequired, .interactionRequired:
+            return "Google 계정 다시 연결 필요"
+        case .selectedAccountUnavailable,
+             .selectedAccountIdentityUnavailable:
+            return "선택한 계정 확인 필요"
+        case .sourceUnavailable, .noEligibleSource:
+            return "사용 가능한 조회 방식 없음"
+        case .schemaChanged:
+            return "응답 형식 확인 필요"
+        case .deadlineExceeded, .transportUnavailable:
+            return "연결 일시 실패"
+        case .credentialCommitFailed,
+             .credentialCommitAmbiguous:
+            return "계정 정보 저장 확인 필요"
+        case .repositoryUnavailable,
+             .repositoryRevisionChanged,
+             .invalidRefreshContext,
+             .generationExhausted,
+             .sourceContractViolation:
+            return "로컬 상태 확인 필요"
+        case .numericQuotaUnavailable:
+            return "수치형 사용량 미지원"
+        case .cancelled:
+            return "조회 취소됨"
+        case .appShuttingDown:
+            return "종료 중"
+        }
+    }
+
+    private static func antigravityShouldShowWarning(
+        snapshot: AntigravityRuntimeSnapshot,
+        isEnabled: Bool
+    ) -> Bool {
+        guard isEnabled else { return false }
+        if case .blocked = snapshot.readiness {
+            return true
+        }
+        switch snapshot.presentationState {
+        case .disabled, .refreshing, .ready:
+            return false
+        case .partial,
+             .stale,
+             .setupRequired,
+             .accountMismatch,
+             .limited,
+             .identityOnly,
+             .failed:
+            return true
+        }
+    }
+
+    private static func antigravityBadgeTitle(
+        _ snapshot: AntigravityRuntimeSnapshot
+    ) -> String? {
+        if snapshot.isLoading {
+            return "조회 중"
+        }
+        if case .blocked = snapshot.readiness {
+            return "확인 필요"
+        }
+        switch snapshot.presentationState {
+        case .ready:
+            return "활성"
+        case .partial, .stale, .limited, .identityOnly:
+            return "일부 확인"
+        case .setupRequired:
+            return "연결 필요"
+        case .accountMismatch, .failed:
+            return "조치 필요"
+        case .refreshing:
+            return "조회 중"
+        case .disabled:
+            return "준비 중"
+        }
     }
 }

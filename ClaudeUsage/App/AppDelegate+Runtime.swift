@@ -13,30 +13,27 @@ extension AppDelegate {
     }
 
     func runtimeProviderSnapshot(for service: PopoverService) -> RuntimeProviderSnapshot {
-        // UI 경로에서 호출되므로 blocking 금지. SWR 로 캐시만 참조.
-        let environmentStatus: ProviderEnvironmentStatus?
-        switch service {
-        case .antigravity:
-            environmentStatus = ProviderEnvironmentDetector.staleWhileRevalidate(for: .antigravity)
-        case .claude, .codex:
-            environmentStatus = nil
-        }
-
         return withRuntimeState {
             $0.snapshot(
                 for: service,
-                codexAuthenticated: CodexAuthManager.shared.isAuthenticated,
-                environmentStatus: environmentStatus
+                codexAuthenticated:
+                    CodexAuthManager.shared
+                        .isAuthenticated
             )
         }
     }
 
     func runtimePresentationState(for service: PopoverService) -> RuntimeProviderPresentationState {
         let snapshot = runtimeProviderSnapshot(for: service)
+        let hasContent =
+            service == .antigravity
+                ? currentAntigravityRuntimeSnapshot
+                    .hasQuotaContent
+                : snapshot.hasContent
         return RuntimeProviderPresentationState(
             service: service,
             lastUpdated: snapshot.lastUpdated,
-            hasContent: snapshot.hasContent,
+            hasContent: hasContent,
             error: snapshot.error,
             lastAttemptState: snapshot.lastAttemptState,
             nextRefreshAllowedAt: snapshot.nextRefreshAllowedAt
@@ -57,9 +54,6 @@ extension AppDelegate {
     func startMonitoring() {
         isLoading = false
         loadingStartedAt = nil
-        // UI 가 뜨기 전에 env 캐시를 먼저 워밍 — 첫 클릭 지연 최소화
-        ProviderEnvironmentDetector.refreshAllInBackground()
-        AntigravityStatusProbe.refreshAllInBackground()
         updateMenuBar()
         updatePopoverViewModel(overage: currentOverage)
         refreshAll(force: true)
@@ -96,6 +90,8 @@ extension AppDelegate {
     // MARK: - Observers
 
     func bindRuntimeObservers() {
+        lastObservedProviderSelectionState =
+            AppSettings.shared.providerSelectionState
         runtimeObservationCoordinator.bind(
             onRefreshConfigurationChanged: { [weak self] in
                 self?.syncRefreshTimerState()
@@ -108,7 +104,9 @@ extension AppDelegate {
             },
             onProviderSelectionChanged: { [weak self] selectionState in
                 guard let self else { return }
-                let previous = self.lastObservedProviderSelectionState
+                let previous =
+                    self.lastObservedProviderSelectionState
+                    ?? selectionState
                 self.lastObservedProviderSelectionState = selectionState
                 self.handleProviderSelectionTransition(from: previous, to: selectionState)
             },
@@ -252,26 +250,23 @@ extension AppDelegate {
                 nextCodexRefreshAllowedAt = nil
             }
         case .antigravity:
-            if hasAntigravityCredential {
-                antigravityError = nil
-                hasAntigravityAuthError = false
-                nextAntigravityRefreshAllowedAt = nil
-            }
+            return
         }
     }
 
     // MARK: - API
 
     func refreshAll(force: Bool = false) {
-        // 매 refresh 틱에서 env 상태 캐시도 백그라운드로 갱신.
-        // UI 경로는 SWR 로 캐시만 읽어서 클릭 지연 0 ms 를 유지함.
-        ProviderEnvironmentDetector.refreshAllInBackground()
-        AntigravityStatusProbe.refreshAllInBackground()
-
         var lastRefreshed: [PopoverService: Date] = [:]
         for service in PopoverService.allCases {
-            let state = runtimeProviderState(for: service)
-            if let lastAt = state.lastSuccessfulAt {
+            let lastAt =
+                service == .antigravity
+                    ? currentAntigravityRuntimeSnapshot
+                        .lastSuccessfulAt
+                    : runtimeProviderState(
+                        for: service
+                    ).lastSuccessfulAt
+            if let lastAt {
                 lastRefreshed[service] = lastAt
             }
         }
@@ -306,6 +301,13 @@ extension AppDelegate {
     }
 
     func clearRuntimeServiceState(_ service: PopoverService) {
+        if service == .antigravity {
+            syncRuntimePresentation(
+                overage: currentOverage
+            )
+            return
+        }
+
         if service == .claude {
             currentOverage = nil
             lastOverageFetchAt = nil
@@ -316,13 +318,20 @@ extension AppDelegate {
             RuntimeProviderRefreshCoordinator.clearedState(
                 service: service,
                 isCodexAuthenticated: CodexAuthManager.shared.isAuthenticated,
-                requiresInteractiveSetup: ProviderEnvironmentDetector.requiresInteractiveSetupFromCache(for: service.providerKind)
+                requiresInteractiveSetup: false
             ),
             for: service
         )
     }
 
     func clearStateForAuthPrompt(_ service: PopoverService) {
+        if service == .antigravity {
+            syncRuntimePresentation(
+                overage: currentOverage
+            )
+            return
+        }
+
         if service == .claude {
             currentOverage = nil
             lastOverageFetchAt = nil
@@ -595,128 +604,30 @@ extension AppDelegate {
         }
     }
 
-    func refreshAntigravityUsageAfterConfigurationChange() {
-        setRuntimeProviderState(RuntimeProviderState(), for: .antigravity)
-        syncRuntimePresentation(overage: currentOverage)
-        refreshAntigravityUsage(force: true)
-    }
-
     func refreshAntigravityUsage(force: Bool = false) {
-        guard ServiceSelectionHelper.isEnabled(.antigravity, settings: AppSettings.shared) else { return }
-        guard prepareRefresh(for: .antigravity, force: force, respectBackoffWithoutPayload: false) else { return }
-        let requestDataSource = AntigravityUsageDataSource.auto
-        let requestConfiguration = AntigravityRefreshConfiguration.current(dataSource: requestDataSource)
-        let requestState = runtimeProviderState(for: .antigravity)
-        let requestLoadingStartedAt = requestState.loadingStartedAt
-        let lastSuccessfulUsage = requestState.antigravityUsage
-
-        Task {
-            do {
-                let usage = try await AntigravityRuntimeRefresher.refresh(
-                    apiService: antigravityAPIService,
-                    remoteService: antigravityRemoteUsageService,
-                    cliService: antigravityCLIUsageService,
-                    dataSource: requestDataSource,
-                    lastSuccessfulUsage: lastSuccessfulUsage
+        guard ServiceSelectionHelper
+            .isEnabled(
+                .antigravity,
+                settings: AppSettings.shared
+            )
+        else {
+            return
+        }
+        Task { [weak self] in
+            guard let self else { return }
+            // The first refresh must wait until startup migration and managed
+            // process recovery have completed. Bootstrap itself does not
+            // refresh, so launch still produces exactly one transaction.
+            await antigravityRuntimeBootstrapTask?
+                .value
+            _ = await antigravityRuntime
+                .runtimeController
+                .refresh(
+                    trigger:
+                        force
+                            ? .manual
+                            : .scheduled
                 )
-                await MainActor.run {
-                    guard self.shouldApplyAntigravityRefreshResult(
-                        requestConfiguration: requestConfiguration,
-                        requestLoadingStartedAt: requestLoadingStartedAt
-                    ) else {
-                        return
-                    }
-
-                    var state = self.runtimeProviderState(for: .antigravity)
-                    RuntimeProviderRefreshCoordinator.applySuccess(
-                        state: &state,
-                        payload: .antigravity(usage),
-                        metadata: RuntimeProviderFetchMetadata(sourceLabel: "Antigravity 연결")
-                    )
-                    self.setRuntimeProviderState(state, for: .antigravity)
-                    self.syncRuntimePresentation(overage: self.currentOverage)
-
-                    NotificationManager.shared.checkThreshold(
-                        session: .antigravityPrimary,
-                        percentage: usage.primaryPercentage,
-                        resetAt: usage.primaryWindow?.resetAtISO
-                    )
-                    NotificationManager.shared.checkThreshold(
-                        session: .antigravitySecondary,
-                        percentage: usage.secondaryPercentage,
-                        resetAt: usage.secondaryWindow?.resetAtISO
-                    )
-                    if let tertiary = usage.tertiaryWindow {
-                        NotificationManager.shared.checkThreshold(
-                            session: .antigravityTertiary,
-                            percentage: tertiary.usedPercent,
-                            resetAt: tertiary.resetAtISO
-                        )
-                    }
-                }
-            } catch let error as APIError {
-                await MainActor.run {
-                    guard self.shouldApplyAntigravityRefreshResult(
-                        requestConfiguration: requestConfiguration,
-                        requestLoadingStartedAt: requestLoadingStartedAt
-                    ) else {
-                        return
-                    }
-
-                    var state = self.runtimeProviderState(for: .antigravity)
-                    let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
-                        state: &state,
-                        error: error,
-                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
-                    )
-                    self.setRuntimeProviderState(state, for: .antigravity)
-                    if let backoffSeconds = resolution.backoffSeconds {
-                        Logger.info("Antigravity 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
-                    }
-                    self.syncRuntimePresentation(overage: self.currentOverage)
-                }
-            } catch {
-                let wrapped = APIError.unknownError(error.localizedDescription)
-                await MainActor.run {
-                    guard self.shouldApplyAntigravityRefreshResult(
-                        requestConfiguration: requestConfiguration,
-                        requestLoadingStartedAt: requestLoadingStartedAt
-                    ) else {
-                        return
-                    }
-
-                    var state = self.runtimeProviderState(for: .antigravity)
-                    let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
-                        state: &state,
-                        error: wrapped,
-                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
-                    )
-                    self.setRuntimeProviderState(state, for: .antigravity)
-                    if let backoffSeconds = resolution.backoffSeconds {
-                        Logger.info("Antigravity 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
-                    }
-                    self.syncRuntimePresentation(overage: self.currentOverage)
-                }
-            }
         }
-    }
-
-    private func shouldApplyAntigravityRefreshResult(
-        requestConfiguration: AntigravityRefreshConfiguration,
-        requestLoadingStartedAt: Date?
-    ) -> Bool {
-        let currentConfiguration = AntigravityRefreshConfiguration.current()
-        guard currentConfiguration != requestConfiguration else {
-            return true
-        }
-
-        var state = runtimeProviderState(for: .antigravity)
-        if state.isLoading, state.loadingStartedAt == requestLoadingStartedAt {
-            state = RuntimeProviderState()
-            setRuntimeProviderState(state, for: .antigravity)
-            syncRuntimePresentation(overage: currentOverage)
-        }
-        Logger.info("[Antigravity] 설정이 바뀐 뒤 도착한 이전 사용량 응답을 무시했습니다.")
-        return false
     }
 }

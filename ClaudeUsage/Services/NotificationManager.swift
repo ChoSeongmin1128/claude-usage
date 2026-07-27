@@ -58,10 +58,12 @@ final class NotificationManager {
         .weekly: SessionTracker(),
         .codexPrimary: SessionTracker(),
         .codexSecondary: SessionTracker(),
-        .antigravityPrimary: SessionTracker(),
-        .antigravitySecondary: SessionTracker(),
-        .antigravityTertiary: SessionTracker(),
     ]
+    private var antigravityTrackers:
+        [AntigravityQuotaLaneID: SessionTracker] = [:]
+    private var hasAntigravityAccountBoundary = false
+    private var antigravityAccountBoundary:
+        AntigravityNotificationAccountBoundary?
 
     private let deliverer: NotificationDelivering
 
@@ -96,7 +98,10 @@ final class NotificationManager {
         case .codexPrimary, .codexSecondary:
             guard settings.codexAlertEnabled else { return }
         case .antigravityPrimary, .antigravitySecondary, .antigravityTertiary:
-            guard settings.isProviderAlertEnabled(.antigravity) else { return }
+            // Stage 8 callers use `checkAntigravityThresholds(snapshot:)`.
+            // Keep these cases temporarily so the Stage 9 call-site cutover
+            // can remove the legacy enum and calls atomically.
+            return
         }
 
         guard let tracker = trackers[session] else { return }
@@ -104,8 +109,10 @@ final class NotificationManager {
             switch session {
             case .codexPrimary, .codexSecondary:
                 return settings.enabledCodexAlertThresholds
-            case .fiveHour, .weekly, .antigravityPrimary, .antigravitySecondary, .antigravityTertiary:
+            case .fiveHour, .weekly:
                 return settings.enabledAlertThresholds
+            case .antigravityPrimary, .antigravitySecondary, .antigravityTertiary:
+                return []
             }
         }()
         let normalizedClaudePolicy = claudePolicy?.isFreshEnoughForNotifications == true ? claudePolicy : nil
@@ -159,6 +166,102 @@ final class NotificationManager {
         }
     }
 
+    /// Evaluates every currently available Antigravity quota lane as one
+    /// refresh transaction and emits at most one aggregate notification.
+    ///
+    /// Lane state is keyed by the stable upstream-derived lane identifier,
+    /// never by presentation order. Selected OAuth refreshes use the canonical
+    /// repository account as their boundary, while ambient local refreshes use
+    /// the identity observed from that local session. An unidentifiable local
+    /// session cannot safely inherit another account's notification history.
+    func checkAntigravityThresholds(
+        snapshot: AntigravityRuntimeSnapshot
+    ) {
+        guard
+            let accountBoundary =
+                antigravityNotificationAccountBoundary(
+                    for: snapshot
+                )
+        else {
+            resetAntigravityAccountBoundary()
+            return
+        }
+        updateAntigravityAccountBoundary(accountBoundary)
+
+        let settings = AppSettings.shared
+        guard settings.notificationsEnabled else { return }
+        guard
+            snapshot.settings?.display.notifications.isEnabled == true
+        else {
+            return
+        }
+        guard case let .content(presentation) =
+            snapshot.quotaPresentation
+        else {
+            return
+        }
+
+        let lanes = availableAntigravityLanes(in: presentation)
+        let availableLaneIDs = Set(lanes.map(\.id))
+        antigravityTrackers = antigravityTrackers.filter {
+            availableLaneIDs.contains($0.key)
+        }
+
+        let thresholds = settings.enabledAlertThresholds
+        let presentationMode: ThresholdPresentationMode =
+            settings.alertRemainingMode ? .remaining : .used
+        var crossings: [AntigravityThresholdCrossing] = []
+
+        for lane in lanes {
+            guard case let .available(usedPercentage, _) = lane.value else {
+                continue
+            }
+
+            let tracker = antigravityTrackers[lane.id]
+                ?? SessionTracker()
+            let decision = UsageWindowAlertPolicy.evaluate(
+                previousPercentage: tracker.lastPercentage,
+                currentPercentage: usedPercentage,
+                resetAt: nil,
+                thresholds: thresholds,
+                alertedThresholds: tracker.alertedThresholds,
+                isFirstCheck: tracker.isFirstCheck
+            )
+
+            tracker.isFirstCheck = false
+            tracker.lastPercentage = usedPercentage
+            tracker.alertedThresholds = decision.alertedThresholds
+            antigravityTrackers[lane.id] = tracker
+
+            if let threshold = decision.thresholdToAlert {
+                crossings.append(
+                    AntigravityThresholdCrossing(
+                        laneLabel: lane.compactLabel,
+                        threshold: threshold
+                    )
+                )
+            }
+        }
+
+        guard
+            let highestThreshold = crossings.map(\.threshold).max()
+        else {
+            return
+        }
+
+        sendNotification(
+            title: thresholdAlertTitle(
+                serviceName: "Antigravity",
+                threshold: highestThreshold,
+                presentationMode: presentationMode
+            ),
+            body: antigravityAggregateBody(
+                crossings: crossings,
+                presentationMode: presentationMode
+            )
+        )
+    }
+
     // MARK: - Private
 
     private final class SessionTracker {
@@ -166,6 +269,151 @@ final class NotificationManager {
         var lastPercentage: Double?
         var lastResetAt: String?
         var isFirstCheck = true
+    }
+
+    private struct AntigravityThresholdCrossing {
+        let laneLabel: String
+        let threshold: Int
+    }
+
+    private enum AntigravityNotificationAccountBoundary:
+        Equatable
+    {
+        case selectedOAuth(AntigravityAccountID)
+        case ambientLocal(
+            stableAccountID: String?,
+            normalizedEmail: String?
+        )
+    }
+
+    private func updateAntigravityAccountBoundary(
+        _ boundary: AntigravityNotificationAccountBoundary
+    ) {
+        guard
+            !hasAntigravityAccountBoundary
+                || antigravityAccountBoundary != boundary
+        else {
+            return
+        }
+
+        antigravityTrackers.removeAll()
+        antigravityAccountBoundary = boundary
+        hasAntigravityAccountBoundary = true
+    }
+
+    private func resetAntigravityAccountBoundary() {
+        antigravityTrackers.removeAll()
+        antigravityAccountBoundary = nil
+        hasAntigravityAccountBoundary = false
+    }
+
+    private func antigravityNotificationAccountBoundary(
+        for snapshot: AntigravityRuntimeSnapshot
+    ) -> AntigravityNotificationAccountBoundary? {
+        guard let connection = snapshot.settings?.connection else {
+            return nil
+        }
+
+        switch connection.sourcePolicy {
+        case .automatic, .googleAccount:
+            if let accountID = snapshot.activeAccountID {
+                return .selectedOAuth(accountID)
+            }
+        case .localSession:
+            break
+        }
+
+        guard
+            let identity =
+                antigravityObservedIdentity(
+                    from: snapshot.presentationState
+                )
+        else {
+            return nil
+        }
+        let stableAccountID = normalizedIdentityValue(
+            identity.stableAccountID
+        )
+        let normalizedEmail = normalizedIdentityValue(
+            identity.email
+        )?.lowercased()
+        guard stableAccountID != nil || normalizedEmail != nil else {
+            return nil
+        }
+        return .ambientLocal(
+            stableAccountID: stableAccountID,
+            normalizedEmail: normalizedEmail
+        )
+    }
+
+    private func antigravityObservedIdentity(
+        from state: AntigravityPresentationState
+    ) -> ProviderAccountIdentity? {
+        let snapshot: AntigravityQuotaSnapshot?
+        switch state {
+        case .ready(let current),
+             .partial(let current, _),
+             .stale(let current, _):
+            snapshot = current
+        case .refreshing(let previous):
+            snapshot = previous
+        case .disabled,
+             .setupRequired,
+             .accountMismatch,
+             .limited,
+             .identityOnly,
+             .failed:
+            snapshot = nil
+        }
+        return snapshot?.identity
+            ?? snapshot?.provenance.accountIdentity
+    }
+
+    private func normalizedIdentityValue(
+        _ value: String?
+    ) -> String? {
+        guard
+            let normalized = value?
+                .trimmingCharacters(
+                    in: .whitespacesAndNewlines
+                ),
+            !normalized.isEmpty
+        else {
+            return nil
+        }
+        return normalized
+    }
+
+    private func availableAntigravityLanes(
+        in presentation: AntigravityQuotaPresentation
+    ) -> [AntigravityQuotaLanePresentation] {
+        var seenLaneIDs: Set<AntigravityQuotaLaneID> = []
+
+        return presentation.groups
+            .flatMap(\.lanes)
+            .filter { lane in
+                guard case .available = lane.value else { return false }
+                return seenLaneIDs.insert(lane.id).inserted
+            }
+    }
+
+    private func antigravityAggregateBody(
+        crossings: [AntigravityThresholdCrossing],
+        presentationMode: ThresholdPresentationMode
+    ) -> String {
+        crossings.map { crossing in
+            let percentage = displayThresholdValue(
+                crossing.threshold,
+                mode: presentationMode
+            )
+            switch presentationMode {
+            case .used:
+                return "\(crossing.laneLabel): \(percentage)% 사용"
+            case .remaining:
+                return "\(crossing.laneLabel): \(percentage)% 남음"
+            }
+        }
+        .joined(separator: "\n")
     }
 
     private func shouldSuppressThreshold(

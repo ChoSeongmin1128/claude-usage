@@ -3,7 +3,9 @@ import SwiftUI
 extension SettingsView {
     @ViewBuilder
     func providerMenuBarDisplaySection(for provider: AppProviderKind) -> some View {
-        if let displayConfig = settings.menuBarDisplayConfig(for: provider) {
+        if provider == .antigravity {
+            antigravityMenuBarDisplaySection()
+        } else if let displayConfig = settings.menuBarDisplayConfig(for: provider) {
             let showsDisplayControls = provider == .claude
                 || provider == .codex
                 || settings.isProviderVisibleInMenuBar(provider)
@@ -11,16 +13,6 @@ extension SettingsView {
             VStack(alignment: .leading, spacing: 12) {
                 Label("메뉴바 표시", systemImage: "slider.horizontal.3")
                     .font(.headline)
-
-                if provider == .antigravity {
-                    settingsToggleRow(
-                        "메뉴바에 표시",
-                        isOn: Binding(
-                            get: { settings.isProviderVisibleInMenuBar(provider) },
-                            set: { settings.setProviderMenuBarVisible($0, for: provider) }
-                        )
-                    )
-                }
 
                 if showsDisplayControls {
                     Picker("표시 방식", selection: menuBarPresetBinding(for: provider)) {
@@ -79,17 +71,13 @@ extension SettingsView {
                 )
             )
 
-            Picker(provider == .antigravity ? "텍스트" : "퍼센트", selection: Binding(
+            Picker("퍼센트", selection: Binding(
                 get: { settings.menuBarDisplayConfig(for: provider)?.percentageDisplay ?? .fiveHour },
                 set: { settings.setProviderPercentageDisplay($0, for: provider) }
             )) {
                 ForEach(PercentageDisplay.allCases, id: \.self) { mode in
                     Text(percentageDisplayName(mode, for: provider)).tag(mode)
                 }
-            }
-
-            if provider == .antigravity {
-                antigravityMenuBarModelPickers()
             }
 
             Picker("갱신 시간", selection: Binding(
@@ -162,28 +150,11 @@ extension SettingsView {
     }
 
     private func menuBarPresetDisplayName(_ preset: ProviderMenuBarDisplayPreset, for provider: AppProviderKind) -> String {
-        if usesModelBasedMenuBarLabels(provider), preset == .dual {
-            return "두 모델"
-        }
         return preset.displayName
     }
 
     private func menuBarPresetDetail(_ preset: ProviderMenuBarDisplayPreset, for provider: AppProviderKind) -> String {
-        guard usesModelBasedMenuBarLabels(provider) else {
-            return preset.detail
-        }
-        let primary = primaryMenuBarMetricName(for: provider)
-        let secondary = secondaryMenuBarMetricName(for: provider)
-        switch preset {
-        case .basic:
-            return "아이콘과 \(primary) 사용률만 표시합니다."
-        case .battery:
-            return "아이콘과 배터리 형태로 \(primary) 남은 사용량을 표시합니다."
-        case .dual:
-            return "\(primary)와 \(secondary) 사용률을 함께 표시합니다."
-        case .custom:
-            return "표시 항목을 직접 조정합니다."
-        }
+        preset.detail
     }
 
     private func percentageDisplayName(_ mode: PercentageDisplay, for provider: AppProviderKind) -> String {
@@ -195,7 +166,7 @@ extension SettingsView {
         case .weekly:
             return secondaryMenuBarMetricName(for: provider)
         case .dual:
-            return usesModelBasedMenuBarLabels(provider) ? "두 모델" : "동시 표시"
+            return "동시 표시"
         }
     }
 
@@ -208,7 +179,7 @@ extension SettingsView {
         case .weekly:
             return secondaryMenuBarMetricName(for: provider)
         case .dual:
-            return usesModelBasedMenuBarLabels(provider) ? "두 모델" : "동시 표시"
+            return "동시 표시"
         }
     }
 
@@ -222,89 +193,339 @@ extension SettingsView {
     }
 
     private func primaryMenuBarMetricName(for provider: AppProviderKind) -> String {
-        switch provider {
-        case .antigravity:
-            return antigravityMenuBarModelName(
-                modelID: settings.antigravityMenuBarPrimaryModelID,
-                fallback: "주 모델"
-            )
-        default:
-            return "현재 세션"
-        }
+        "현재 세션"
     }
 
     private func secondaryMenuBarMetricName(for provider: AppProviderKind) -> String {
-        switch provider {
-        case .antigravity:
-            return antigravityMenuBarModelName(
-                modelID: settings.antigravityMenuBarSecondaryModelID,
-                fallback: "보조 모델"
+        "주간"
+    }
+
+    @ViewBuilder
+    private func antigravityMenuBarDisplaySection()
+        -> some View
+    {
+        VStack(
+            alignment: .leading,
+            spacing: 12
+        ) {
+            Label(
+                "메뉴바 표시",
+                systemImage:
+                    "slider.horizontal.3"
             )
-        default:
-            return "주간"
+            .font(.headline)
+
+            if let display =
+                antigravitySettings.state.display
+            {
+                settingsToggleRow(
+                    "메뉴바에 표시",
+                    isOn:
+                        antigravityMenuBarBinding(
+                            display,
+                            keyPath: \.isVisible
+                        )
+                )
+
+                settingsToggleRow(
+                    "Antigravity 아이콘 표시",
+                    isOn:
+                        antigravityMenuBarBinding(
+                            display,
+                            keyPath:
+                                \.showsProviderIcon
+                        )
+                )
+
+                Picker(
+                    "한도 선택",
+                    selection:
+                        antigravityMenuBarLaneSelection(
+                            display
+                        )
+                ) {
+                    Text("가장 제한적인 한도 자동 선택")
+                        .tag("")
+                    ForEach(
+                        antigravityObservedLanes,
+                        id: \.id
+                    ) { lane in
+                        Text(
+                            "\(lane.scopeTitle) · \(lane.cadenceTitle)"
+                        )
+                        .tag(lane.id.rawValue)
+                    }
+                }
+
+                Picker(
+                    "아이콘 스타일",
+                    selection:
+                        antigravityMenuBarStyleBinding(
+                            display
+                        )
+                ) {
+                    Text("없음")
+                        .tag(
+                            AntigravityDisplaySettings
+                                .MenuBarPresentationIntent
+                                .Style.none
+                        )
+                    Text("배터리바")
+                        .tag(
+                            AntigravityDisplaySettings
+                                .MenuBarPresentationIntent
+                                .Style.batteryBar
+                        )
+                    Text("원형")
+                        .tag(
+                            AntigravityDisplaySettings
+                                .MenuBarPresentationIntent
+                                .Style.circular
+                        )
+                }
+
+                settingsToggleRow(
+                    "사용률 표시",
+                    isOn:
+                        antigravityMenuBarBinding(
+                            display,
+                            keyPath:
+                                \.showsSelectedLanePercentage
+                        )
+                )
+                settingsToggleRow(
+                    "갱신 시각 표시",
+                    isOn:
+                        antigravityMenuBarBinding(
+                            display,
+                            keyPath:
+                                \.showsSelectedLaneResetTime
+                        )
+                )
+                settingsToggleRow(
+                    "게이지 내부 숫자",
+                    isOn:
+                        antigravityMenuBarBinding(
+                            display,
+                            keyPath:
+                                \.showsGaugePercentage
+                        )
+                )
+
+                if display.menuBar
+                    .showsSelectedLaneResetTime
+                {
+                    Picker(
+                        "시간 형식",
+                        selection:
+                            antigravityMenuBarTimeBinding(
+                                display
+                            )
+                    ) {
+                        Text("24시간")
+                            .tag(
+                                AntigravityDisplaySettings
+                                    .MenuBarPresentationIntent
+                                    .TimeFormat.h24
+                            )
+                        Text("12시간")
+                            .tag(
+                                AntigravityDisplaySettings
+                                    .MenuBarPresentationIntent
+                                    .TimeFormat.h12
+                            )
+                        Text("남은 시간")
+                            .tag(
+                                AntigravityDisplaySettings
+                                    .MenuBarPresentationIntent
+                                    .TimeFormat.remaining
+                            )
+                    }
+                }
+
+                if display.menuBar.style
+                    == .circular
+                {
+                    Picker(
+                        "원형 게이지 기준",
+                        selection:
+                            antigravityCircularValueBinding(
+                                display
+                            )
+                    ) {
+                        Text("사용량")
+                            .tag(
+                                AntigravityDisplaySettings
+                                    .MenuBarPresentationIntent
+                                    .CircularValue.usage
+                            )
+                        Text("남은 양")
+                            .tag(
+                                AntigravityDisplaySettings
+                                    .MenuBarPresentationIntent
+                                    .CircularValue.remaining
+                            )
+                    }
+                }
+            } else {
+                Text(
+                    "Antigravity 설정을 준비하고 있습니다."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
         }
     }
 
-    private func antigravityMenuBarModelName(modelID: String?, fallback: String) -> String {
-        guard let modelID,
-              let window = antigravityLastUsage?()?.modelWindows.first(where: { $0.modelID == modelID })
+    private var antigravityObservedLanes:
+        [AntigravityQuotaLanePresentation]
+    {
+        guard case .content(let presentation) =
+                antigravitySettings.state
+                    .quotaPresentation
         else {
-            return fallback
+            return []
         }
-        return window.label
+        return presentation.groups
+            .flatMap(\.lanes)
     }
 
-    private func antigravityModelSelectionBinding(primary: Bool) -> Binding<String> {
+    private func updateAntigravityDisplay(
+        _ update:
+            (inout AntigravityDisplaySettings)
+                -> Void
+    ) {
+        guard let currentDisplay =
+                antigravitySettings.state.display
+        else {
+            return
+        }
+        var display = currentDisplay
+        update(&display)
+        Task {
+            _ = await antigravitySettings
+                .updateDisplay(
+                    display,
+                    replacing: currentDisplay
+                )
+        }
+    }
+
+    private func antigravityMenuBarBinding(
+        _ display: AntigravityDisplaySettings,
+        keyPath:
+            WritableKeyPath<
+                AntigravityDisplaySettings
+                    .MenuBarPresentationIntent,
+                Bool
+            >
+    ) -> Binding<Bool> {
         Binding(
             get: {
-                if primary {
-                    return settings.antigravityMenuBarPrimaryModelID ?? ""
-                }
-                return settings.antigravityMenuBarSecondaryModelID ?? ""
+                display.menuBar[
+                    keyPath: keyPath
+                ]
             },
             set: { value in
-                let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if primary {
-                    settings.antigravityMenuBarPrimaryModelID = normalized.isEmpty ? nil : normalized
-                } else {
-                    settings.antigravityMenuBarSecondaryModelID = normalized.isEmpty ? nil : normalized
+                updateAntigravityDisplay {
+                    $0.menuBar[
+                        keyPath: keyPath
+                    ] = value
+                }
+            }
+        )
+    }
+
+    private func antigravityMenuBarStyleBinding(
+        _ display: AntigravityDisplaySettings
+    ) -> Binding<
+        AntigravityDisplaySettings
+            .MenuBarPresentationIntent.Style
+    > {
+        Binding(
+            get: { display.menuBar.style },
+            set: { style in
+                updateAntigravityDisplay {
+                    $0.menuBar.style = style
+                }
+            }
+        )
+    }
+
+    private func antigravityMenuBarTimeBinding(
+        _ display: AntigravityDisplaySettings
+    ) -> Binding<
+        AntigravityDisplaySettings
+            .MenuBarPresentationIntent.TimeFormat
+    > {
+        Binding(
+            get: { display.menuBar.timeFormat },
+            set: { format in
+                updateAntigravityDisplay {
+                    $0.menuBar.timeFormat = format
+                }
+            }
+        )
+    }
+
+    private func antigravityCircularValueBinding(
+        _ display: AntigravityDisplaySettings
+    ) -> Binding<
+        AntigravityDisplaySettings
+            .MenuBarPresentationIntent
+            .CircularValue
+    > {
+        Binding(
+            get: {
+                display.menuBar.circularValue
+            },
+            set: { value in
+                updateAntigravityDisplay {
+                    $0.menuBar.circularValue =
+                        value
+                }
+            }
+        )
+    }
+
+    private func antigravityMenuBarLaneSelection(
+        _ display: AntigravityDisplaySettings
+    ) -> Binding<String> {
+        Binding(
+            get: {
+                switch display.menuBar
+                    .laneSelection
+                {
+                case .automaticMostConstrained:
+                    return ""
+                case .fixed(let laneID):
+                    return laneID.rawValue
+                }
+            },
+            set: { rawValue in
+                updateAntigravityDisplay {
+                    $0.menuBar.laneSelection =
+                        rawValue.isEmpty
+                            ? .automaticMostConstrained
+                            : .fixed(
+                                AntigravityQuotaLaneID(
+                                    rawValue:
+                                        rawValue
+                                )
+                            )
                 }
             }
         )
     }
 
     @ViewBuilder
-    private func antigravityMenuBarModelPickers() -> some View {
-        let windows = antigravityLastUsage?()?.modelWindows ?? []
-        if windows.isEmpty {
-            Text("사용량을 한 번 조회하면 메뉴바에 표시할 모델을 직접 고를 수 있습니다.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        } else {
-            Picker("주 모델", selection: antigravityModelSelectionBinding(primary: true)) {
-                Text("자동").tag("")
-                ForEach(windows, id: \.modelID) { window in
-                    Text(window.label).tag(window.modelID)
-                }
-            }
-
-            Picker("보조 모델", selection: antigravityModelSelectionBinding(primary: false)) {
-                Text("자동").tag("")
-                ForEach(windows, id: \.modelID) { window in
-                    Text(window.label).tag(window.modelID)
-                }
-            }
-        }
-    }
-
-    private func usesModelBasedMenuBarLabels(_ provider: AppProviderKind) -> Bool {
-        provider == .antigravity
-    }
-
-    @ViewBuilder
     func providerPopoverDisplaySection(for provider: AppProviderKind) -> some View {
         let _ = runtimeEnvironmentRefreshTick
-        if let service = provider.runtimeService {
+        if provider == .antigravity {
+            AntigravityTypedPopoverDisplaySection(
+                viewModel: antigravitySettings
+            )
+        } else if let service = provider.runtimeService {
             ProviderPopoverDisplaySection(
                 settings: settings,
                 provider: provider,
@@ -314,27 +535,56 @@ extension SettingsView {
                 claudeAccounts: claudeAccounts,
                 activeClaudeAccountID: activeClaudeAccountID,
                 codexUsage: provider == .codex ? codexLastUsage?() : nil,
-                codexError: provider == .codex ? codexLastError?() : nil,
-                antigravityUsage: provider == .antigravity ? antigravityLastUsage?() : nil
+                codexError: provider == .codex ? codexLastError?() : nil
             )
         }
     }
 
+    @ViewBuilder
     func providerAlertSection(for provider: AppProviderKind) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Label("알림", systemImage: "bell")
                 .font(.headline)
 
-            settingsToggleRow(
-                "\(provider.displayName) 알림",
-                subtitle: settings.notificationsEnabled
-                    ? "이 서비스의 사용량 기준 알림을 표시합니다"
-                    : "공통 알림이 꺼져 있어 이 설정도 적용되지 않습니다",
-                isOn: Binding(
-                    get: { settings.isProviderAlertEnabled(provider) },
-                    set: { settings.setProviderAlertEnabled($0, for: provider) }
-                )
-            )
+            Group {
+                if provider == .antigravity,
+                   let display =
+                        antigravitySettings.state
+                            .display
+                {
+                    settingsToggleRow(
+                        "Antigravity 알림",
+                        subtitle:
+                            settings.notificationsEnabled
+                                ? "한 refresh에서 임계값을 넘은 사용 한도를 알림 하나로 묶습니다"
+                                : "공통 알림이 꺼져 있어 이 설정도 적용되지 않습니다",
+                        isOn: Binding(
+                            get: {
+                                display.notifications
+                                    .isEnabled
+                            },
+                            set: { isEnabled in
+                                updateAntigravityDisplay {
+                                    $0.notifications
+                                        .isEnabled =
+                                        isEnabled
+                                }
+                            }
+                        )
+                    )
+                } else {
+                    settingsToggleRow(
+                        "\(provider.displayName) 알림",
+                        subtitle: settings.notificationsEnabled
+                            ? "이 서비스의 사용량 기준 알림을 표시합니다"
+                            : "공통 알림이 꺼져 있어 이 설정도 적용되지 않습니다",
+                        isOn: Binding(
+                            get: { settings.isProviderAlertEnabled(provider) },
+                            set: { settings.setProviderAlertEnabled($0, for: provider) }
+                        )
+                    )
+                }
+            }
             .disabled(!settings.notificationsEnabled)
             .opacity(settings.notificationsEnabled ? 1.0 : 0.6)
 
@@ -420,6 +670,215 @@ extension SettingsView {
     }
 }
 
+private struct AntigravityTypedPopoverDisplaySection:
+    View
+{
+    @ObservedObject var viewModel:
+        AntigravitySettingsViewModel
+    @State private var selectedMode:
+        PopoverDisplayEditorMode = .standard
+
+    var body: some View {
+        VStack(
+            alignment: .leading,
+            spacing: 12
+        ) {
+            Label(
+                "팝오버 표시",
+                systemImage:
+                    "list.bullet.rectangle"
+            )
+            .font(.headline)
+
+            Text(
+                "일반 보기는 확인된 모든 group × cadence 한도를, 간소화 보기는 한 개의 의미 있는 한도를 표시합니다."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            Picker(
+                "",
+                selection: $selectedMode
+            ) {
+                ForEach(
+                    PopoverDisplayEditorMode
+                        .allCases
+                ) { mode in
+                    Text(mode.title)
+                        .tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(
+                maxWidth: 360,
+                alignment: .leading
+            )
+
+            if selectedMode == .compact,
+               let display =
+                    viewModel.state.display
+            {
+                Picker(
+                    "간소화 보기 한도",
+                    selection:
+                        compactLaneSelection(
+                            display
+                        )
+                ) {
+                    Text(
+                        "가장 제한적인 한도 자동 선택"
+                    )
+                    .tag("")
+                    ForEach(
+                        observedLanes,
+                        id: \.id
+                    ) { lane in
+                        Text(
+                            "\(lane.scopeTitle) · \(lane.cadenceTitle)"
+                        )
+                        .tag(lane.id.rawValue)
+                    }
+                }
+                .frame(maxWidth: 420)
+            }
+
+            preview
+                .padding(12)
+                .frame(
+                    maxWidth: 560,
+                    alignment: .leading
+                )
+                .background(
+                    Color(
+                        NSColor
+                            .controlBackgroundColor
+                    )
+                    .opacity(0.45)
+                )
+                .cornerRadius(10)
+
+            if selectedMode
+                .showsPersistentIdentityRail,
+               case .content(let presentation) =
+                viewModel.state
+                    .quotaPresentation
+            {
+                ProviderIdentityRail(
+                    projection:
+                        presentation.identityRail
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var preview: some View {
+        switch viewModel.state.quotaPresentation {
+        case .content(let presentation):
+            if selectedMode == .compact {
+                AntigravityCompactQuotaView(
+                    presentation:
+                        presentation.compact
+                )
+            } else {
+                VStack(
+                    alignment: .leading,
+                    spacing: 12
+                ) {
+                    ForEach(
+                        presentation.groups
+                    ) { group in
+                        AntigravityQuotaGroupView(
+                            group: group
+                        )
+                    }
+                }
+            }
+        case .unavailable(let state):
+            Text(unavailableTitle(state))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: .leading
+                )
+        }
+    }
+
+    private var observedLanes:
+        [AntigravityQuotaLanePresentation]
+    {
+        guard case .content(let presentation) =
+                viewModel.state
+                    .quotaPresentation
+        else {
+            return []
+        }
+        return presentation.groups
+            .flatMap(\.lanes)
+    }
+
+    private func compactLaneSelection(
+        _ display: AntigravityDisplaySettings
+    ) -> Binding<String> {
+        Binding(
+            get: {
+                switch display.compact
+                    .laneSelection
+                {
+                case .automaticMostConstrained:
+                    ""
+                case .fixed(let laneID):
+                    laneID.rawValue
+                }
+            },
+            set: { rawValue in
+                var updated = display
+                updated.compact.laneSelection =
+                    rawValue.isEmpty
+                        ? .automaticMostConstrained
+                        : .fixed(
+                            AntigravityQuotaLaneID(
+                                rawValue: rawValue
+                            )
+                        )
+                Task {
+                    _ = await viewModel
+                        .updateDisplay(
+                            updated,
+                            replacing: display
+                        )
+                }
+            }
+        )
+    }
+
+    private func unavailableTitle(
+        _ state: AntigravityPresentationState
+    ) -> String {
+        switch state {
+        case .refreshing:
+            "사용량을 확인하고 있습니다."
+        case .setupRequired:
+            "Google 계정 또는 로컬 세션을 먼저 연결해 주세요."
+        case .accountMismatch:
+            "계정이 일치하지 않아 사용량을 표시하지 않았습니다."
+        case .limited:
+            "현재 연결에서는 수치형 quota를 제공하지 않습니다."
+        case .identityOnly:
+            "계정은 확인했지만 표시할 quota가 없습니다."
+        case .failed:
+            "사용량을 불러오지 못했습니다."
+        case .disabled:
+            "Antigravity가 비활성화되어 있습니다."
+        case .ready,
+             .partial,
+             .stale:
+            "표시할 사용량이 없습니다."
+        }
+    }
+}
+
 private struct ProviderPopoverDisplaySection: View {
     @ObservedObject var settings: AppSettings
     let provider: AppProviderKind
@@ -430,7 +889,6 @@ private struct ProviderPopoverDisplaySection: View {
     let activeClaudeAccountID: String?
     let codexUsage: CodexUsageResponse?
     let codexError: APIError?
-    let antigravityUsage: AntigravityUsageResponse?
     @State private var selectedMode: PopoverDisplayEditorMode = .standard
 
     var body: some View {
@@ -459,18 +917,9 @@ private struct ProviderPopoverDisplaySection: View {
                 claudeAccounts: claudeAccounts,
                 activeClaudeAccountID: activeClaudeAccountID,
                 codexUsage: codexUsage,
-                codexError: codexError,
-                antigravityUsage: antigravityUsage
+                codexError: codexError
             )
             .frame(maxWidth: 560, alignment: .leading)
-
-            if provider == .antigravity {
-                AntigravityModelVisibilityListView(
-                    settings: settings,
-                    usage: antigravityUsage
-                )
-                .frame(maxWidth: 420, alignment: .leading)
-            }
 
             PopoverDisplayItemsListView(
                 settings: settings,
@@ -510,94 +959,9 @@ private struct ProviderPopoverDisplaySection: View {
             claudeAccounts: claudeAccounts,
             activeClaudeAccountID: activeClaudeAccountID,
             codexUsage: codexUsage,
-            codexError: codexError,
-            antigravityUsage: antigravityUsage
+            codexError: codexError
         )
         return catalog.unavailableItemIDs(context: context)
-    }
-}
-
-private struct AntigravityModelVisibilityListView: View {
-    @ObservedObject var settings: AppSettings
-    let usage: AntigravityUsageResponse?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("표시 모델")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                if let visibleCount {
-                    Text("\(visibleCount.visible)/\(visibleCount.total) 표시")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if modelWindows.isEmpty {
-                Text("사용량을 한 번 조회하면 모델별 표시 여부를 조정할 수 있습니다.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(NSColor.windowBackgroundColor).opacity(0.6))
-                    .cornerRadius(6)
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(modelWindows.enumerated()), id: \.element.modelID) { index, window in
-                        VStack(spacing: 0) {
-                            HStack(spacing: 8) {
-                                Button {
-                                    settings.setAntigravityModelVisible(
-                                        !settings.isAntigravityModelVisible(window.modelID),
-                                        modelID: window.modelID
-                                    )
-                                } label: {
-                                    Image(systemName: settings.isAntigravityModelVisible(window.modelID) ? "eye" : "eye.slash")
-                                        .foregroundStyle(settings.isAntigravityModelVisible(window.modelID) ? .primary : .tertiary)
-                                        .font(.system(size: 12))
-                                        .frame(width: 16, height: 16)
-                                }
-                                .buttonStyle(.borderless)
-                                .help(settings.isAntigravityModelVisible(window.modelID) ? "숨기기" : "보이기")
-
-                                Text(window.label)
-                                    .font(.subheadline)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                    .foregroundStyle(settings.isAntigravityModelVisible(window.modelID) ? .primary : .tertiary)
-
-                                Spacer(minLength: 8)
-
-                                Text("\(Int(window.usedPercent.rounded()))%")
-                                    .font(.system(.caption, design: .monospaced).weight(.medium))
-                                    .foregroundStyle(ColorProvider.statusColor(for: window.usedPercent))
-                            }
-                            .frame(height: 28)
-                            .padding(.horizontal, 8)
-
-                            if index < modelWindows.count - 1 {
-                                Divider().padding(.horizontal, 8)
-                            }
-                        }
-                    }
-                }
-                .padding(.vertical, 4)
-                .background(Color(NSColor.windowBackgroundColor).opacity(0.6))
-                .cornerRadius(6)
-            }
-        }
-    }
-
-    private var modelWindows: [AntigravityUsageWindow] {
-        usage?.modelWindows ?? []
-    }
-
-    private var visibleCount: (visible: Int, total: Int)? {
-        guard !modelWindows.isEmpty else { return nil }
-        let visible = modelWindows.filter { settings.isAntigravityModelVisible($0.modelID) }.count
-        return (visible, modelWindows.count)
     }
 }
 
@@ -611,7 +975,6 @@ private struct ProviderPopoverPreviewView: View {
     let activeClaudeAccountID: String?
     let codexUsage: CodexUsageResponse?
     let codexError: APIError?
-    let antigravityUsage: AntigravityUsageResponse?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -745,8 +1108,7 @@ private struct ProviderPopoverPreviewView: View {
             claudeAccounts: claudeAccounts,
             activeClaudeAccountID: activeClaudeAccountID,
             codexUsage: codexUsage,
-            codexError: codexError,
-            antigravityUsage: antigravityUsage
+            codexError: codexError
         )
     }
 
@@ -761,9 +1123,7 @@ private struct ProviderPopoverPreviewView: View {
                 ? "사용량을 한 번 조회하면 팝오버 미리보기가 표시됩니다."
                 : "현재 설정으로 표시할 Codex 항목이 없습니다."
         case .antigravity:
-            return antigravityUsage == nil
-                ? "사용량을 한 번 조회하면 팝오버 미리보기가 표시됩니다."
-                : "현재 설정으로 표시할 Antigravity 항목이 없습니다."
+            return "Antigravity 사용량 한도는 팝오버에서 quota lane으로 표시됩니다."
         }
     }
 

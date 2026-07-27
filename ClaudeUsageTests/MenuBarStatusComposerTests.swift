@@ -4,6 +4,27 @@ import XCTest
 
 @MainActor
 final class MenuBarStatusComposerTests: XCTestCase {
+    func testCodexMenuBarAssetUsesSuppliedAquaAndDarkAquaAppearances() throws {
+        let source = try XCTUnwrap(codexAssetImage())
+        let aqua = try XCTUnwrap(NSAppearance(named: .aqua))
+        let darkAqua = try XCTUnwrap(NSAppearance(named: .darkAqua))
+        let size = NSSize(width: 18, height: 18)
+
+        let lightIcon = MenuBarIconFactory.rasterizedIcon(
+            source,
+            size: size,
+            appearance: aqua
+        )
+        let darkIcon = MenuBarIconFactory.rasterizedIcon(
+            source,
+            size: size,
+            appearance: darkAqua
+        )
+
+        XCTAssertLessThan(try averageOpaqueLuminance(of: lightIcon), 0.25)
+        XCTAssertGreaterThan(try averageOpaqueLuminance(of: darkIcon), 0.75)
+    }
+
     func testMenuBarColorModeControlsGaugeColor() {
         func claudeColor(percentage: Double, mode: MenuBarColorMode) -> NSColor {
             let usage = ClaudeUsageResponse(
@@ -41,110 +62,392 @@ final class MenuBarStatusComposerTests: XCTestCase {
         XCTAssertTrue(claudeColor(percentage: 92, mode: .monochrome).isEqual(NSColor.labelColor))
     }
 
-    func testAntigravityIdentityOnlyUsageDoesNotRenderFakeZeroQuota() {
-        let usage = AntigravityUsageResponse(
-            source: .googleOAuth,
-            accountEmail: "nathan@example.com",
-            accountPlan: "Paid",
-            primaryWindow: nil,
-            secondaryWindow: nil,
-            tertiaryWindow: nil
+    func testAntigravityV2HiddenPresentationProducesNoSnapshot() {
+        let presentation = makeAntigravityMenuBarPresentation(
+            isVisible: false
         )
 
-        let snapshot = MenuBarStatusComposer.antigravitySnapshot(
-            config: ProviderMenuBarDisplayConfig(
-                kind: .antigravity,
-                showIcon: false,
-                style: .batteryBar,
-                percentageDisplay: .dual,
-                showBatteryPercent: true,
-                resetTimeDisplay: .dual,
-                timeFormat: .remaining,
-                circularDisplayMode: .usage,
-                iconMetric: .fiveHour
-            ),
-            usage: usage,
-            error: nil,
-            hasAuthError: false,
-            hasCredential: true,
-            secondaryColor: .secondaryLabelColor,
-            icon: nil
+        XCTAssertNil(
+            MenuBarStatusComposer.antigravitySnapshot(
+                presentation: presentation,
+                icon: NSImage(size: NSSize(width: 18, height: 18))
+            )
+        )
+    }
+
+    func testAntigravityV2SnapshotPreservesPresentationTextAndAccessibility() throws {
+        let presentation = makeAntigravityMenuBarPresentation(
+            showsProviderIcon: false,
+            style: .none,
+            regularText: "Claude·GPT · 주간 68% 월요일 09:00",
+            condensedText: "68%",
+            gaugePercentage: 91,
+            showsGaugePercentage: true,
+            tooltip: "typed tooltip",
+            tone: .warning,
+            accessibilityLabel: "typed accessibility label",
+            accessibilityValue: "typed accessibility value"
+        )
+        let snapshot = try XCTUnwrap(
+            MenuBarStatusComposer.antigravitySnapshot(
+                presentation: presentation,
+                icon: NSImage(size: NSSize(width: 18, height: 18))
+            )
         )
 
-        XCTAssertEqual(snapshot.text, "!")
+        XCTAssertEqual(
+            snapshot.regularText,
+            "Claude·GPT · 주간 68% 월요일 09:00"
+        )
+        XCTAssertEqual(snapshot.condensedText, "68%")
+        XCTAssertEqual(
+            snapshot.text,
+            "Claude·GPT · 주간 68% 월요일 09:00"
+        )
         XCTAssertTrue(snapshot.color.isEqual(NSColor.systemOrange))
-        XCTAssertFalse(snapshot.tooltip.contains("Google OAuth"))
-        XCTAssertFalse(snapshot.tooltip.contains("AGY CLI"))
-        XCTAssertTrue(snapshot.tooltip.contains("계정 확인됨"))
-        XCTAssertTrue(snapshot.tooltip.contains("quota 수치 미지원"))
+        XCTAssertEqual(snapshot.tooltip, "typed tooltip")
+        XCTAssertNil(snapshot.icon)
         XCTAssertNil(snapshot.styleIcon)
         XCTAssertNil(snapshot.resetText)
+        XCTAssertEqual(
+            snapshot.accessibilityLabel,
+            "typed accessibility label"
+        )
+        XCTAssertEqual(
+            snapshot.accessibilityValue,
+            "typed accessibility value"
+        )
+
+        let content = MenuBarStatusComposer.singleProviderContent(
+            snapshot: snapshot,
+            secondaryColor: .secondaryLabelColor,
+            appearance: NSAppearance(named: .aqua)!
+        )
+        XCTAssertEqual(
+            content.accessibilityLabel,
+            presentation.accessibilityLabel
+        )
+        XCTAssertEqual(
+            content.accessibilityValue,
+            presentation.accessibilityValue
+        )
     }
 
-    func testAntigravityAuthErrorTooltipDoesNotExposeGenericSessionKeyCopy() {
-        let snapshot = MenuBarStatusComposer.antigravitySnapshot(
-            config: ProviderMenuBarDisplayConfig(
-                kind: .antigravity,
-                showIcon: false,
-                style: .batteryBar,
-                percentageDisplay: .dual,
-                showBatteryPercent: true,
-                resetTimeDisplay: .dual,
-                timeFormat: .remaining,
-                circularDisplayMode: .usage,
-                iconMetric: .fiveHour
-            ),
-            usage: nil,
-            error: .invalidSessionKey,
-            hasAuthError: true,
-            hasCredential: true,
-            secondaryColor: .secondaryLabelColor,
-            icon: nil
+    func testAntigravityV2StaleContentAddsRestrainedVisualAndSpokenMarker() throws {
+        let presentation = makeAntigravityMenuBarPresentation(
+            showsProviderIcon: false,
+            style: .none,
+            regularText: "주간 68%",
+            condensedText: "68%",
+            tooltip: "Antigravity typed tooltip",
+            accessibilityValue: "주간, 68퍼센트 사용"
         )
+        let freshSnapshot = try XCTUnwrap(
+            MenuBarStatusComposer.antigravitySnapshot(
+                presentation: presentation,
+                context: .init(phase: .current),
+                icon: nil
+            )
+        )
+        let staleSnapshot = try XCTUnwrap(
+            MenuBarStatusComposer.antigravitySnapshot(
+                presentation: presentation,
+                context: .init(
+                    phase: .stale(
+                        .sourceUnavailable(.googleOAuth)
+                    )
+                ),
+                icon: nil
+            )
+        )
+        let appearance = try XCTUnwrap(
+            NSAppearance(named: .aqua)
+        )
+        let freshContent =
+            MenuBarStatusComposer.singleProviderContent(
+                snapshot: freshSnapshot,
+                secondaryColor: .secondaryLabelColor,
+                appearance: appearance
+            )
+        let staleContent =
+            MenuBarStatusComposer.singleProviderContent(
+                snapshot: staleSnapshot,
+                secondaryColor: .secondaryLabelColor,
+                appearance: appearance
+            )
 
-        XCTAssertEqual(snapshot.text, "연결")
-        XCTAssertTrue(snapshot.tooltip.contains("Antigravity"))
-        XCTAssertTrue(snapshot.tooltip.contains("Google 계정"))
-        XCTAssertFalse(snapshot.tooltip.contains("세션 키"))
+        XCTAssertFalse(freshSnapshot.isStale)
+        XCTAssertTrue(staleSnapshot.isStale)
+        XCTAssertGreaterThan(
+            staleContent.image.size.width,
+            freshContent.image.size.width
+        )
+        XCTAssertTrue(
+            staleContent.tooltip.contains("상태: 이전 데이터")
+        )
+        XCTAssertTrue(
+            staleContent.accessibilityValue?
+                .contains("이전 데이터")
+                == true
+        )
     }
 
-    func testAntigravityMenuBarUsesSelectedModelIDs() {
-        let usage = AntigravityUsageResponse(
-            source: .agyCLI,
-            accountEmail: nil,
-            accountPlan: nil,
-            modelWindows: [
-                AntigravityUsageWindow(label: "Gemini 3.5 Flash (Medium)", modelID: "gemini-3.5-flash-medium", usedPercent: 20, resetAtISO: nil),
-                AntigravityUsageWindow(label: "Gemini 3.1 Pro (Low)", modelID: "gemini-3.1-pro-low", usedPercent: 24, resetAtISO: nil),
-                AntigravityUsageWindow(label: "Claude Sonnet 4.6 (Thinking)", modelID: "claude-sonnet-4.6-thinking", usedPercent: 0, resetAtISO: nil),
-            ]
+    func testRenderedContentAppliesAndClearsStatusBarAccessibility() throws {
+        let statusItem = NSStatusBar.system.statusItem(
+            withLength: NSStatusItem.variableLength
         )
-
-        let snapshot = MenuBarStatusComposer.antigravitySnapshot(
-            config: ProviderMenuBarDisplayConfig(
-                kind: .antigravity,
-                showIcon: false,
-                style: .none,
-                percentageDisplay: .dual,
-                showBatteryPercent: true,
-                resetTimeDisplay: .none,
-                timeFormat: .remaining,
-                circularDisplayMode: .usage,
-                iconMetric: .fiveHour,
-                primaryModelID: "gemini-3.5-flash-medium",
-                secondaryModelID: "claude-sonnet-4.6-thinking"
+        defer {
+            NSStatusBar.system.removeStatusItem(
+                statusItem
+            )
+        }
+        let button = try XCTUnwrap(statusItem.button)
+        let content = MenuBarRenderedContent(
+            image: NSImage(
+                size: NSSize(width: 18, height: 18)
             ),
-            usage: usage,
-            error: nil,
-            hasAuthError: false,
-            hasCredential: true,
-            secondaryColor: .secondaryLabelColor,
-            icon: nil
+            tooltip: "tooltip",
+            accessibilityLabel: "Antigravity 메뉴 막대 사용량",
+            accessibilityValue: "주간, 68퍼센트 사용"
         )
 
-        XCTAssertEqual(snapshot.text, "20%·0%")
-        XCTAssertTrue(snapshot.tooltip.contains("Gemini 3.5 Flash (Medium) 20%"))
-        XCTAssertTrue(snapshot.tooltip.contains("Claude Sonnet 4.6 (Thinking) 0%"))
-        XCTAssertFalse(snapshot.tooltip.contains("Gemini 3.1 Pro"))
+        content.applyAccessibility(to: button)
+
+        XCTAssertEqual(
+            button.accessibilityLabel(),
+            content.accessibilityLabel
+        )
+        XCTAssertEqual(
+            button.accessibilityValue() as? String,
+            content.accessibilityValue
+        )
+
+        MenuBarRenderedContent(
+            image: content.image,
+            tooltip: "placeholder"
+        )
+        .applyAccessibility(to: button)
+
+        XCTAssertNil(button.accessibilityLabel())
+        XCTAssertNil(button.accessibilityValue())
+    }
+
+    func testAntigravityV2ToneMapsDirectlyToAppKitColor() throws {
+        let cases: [(AntigravityQuotaRiskTone, NSColor)] = [
+            (.neutral, .secondaryLabelColor),
+            (.healthy, .systemGreen),
+            (.attention, .systemYellow),
+            (.warning, .systemOrange),
+            (.critical, .systemRed),
+        ]
+
+        for (tone, expectedColor) in cases {
+            let snapshot = try XCTUnwrap(
+                MenuBarStatusComposer.antigravitySnapshot(
+                    presentation: makeAntigravityMenuBarPresentation(
+                        tone: tone
+                    ),
+                    icon: nil
+                )
+            )
+
+            XCTAssertTrue(
+                snapshot.color.isEqual(expectedColor),
+                "Unexpected AppKit color for \(tone)"
+            )
+        }
+    }
+
+    func testAntigravityV2StyleUsesOnlyPresentationGaugeAndIconIntent() throws {
+        let providerIcon = NSImage(
+            size: NSSize(width: 18, height: 18)
+        )
+        let batteryWithoutPercentage = try XCTUnwrap(
+            MenuBarStatusComposer.antigravitySnapshot(
+                presentation: makeAntigravityMenuBarPresentation(
+                    style: .batteryBar,
+                    gaugePercentage: 37,
+                    showsGaugePercentage: false
+                ),
+                icon: providerIcon
+            )
+        )
+        let batteryWithPercentage = try XCTUnwrap(
+            MenuBarStatusComposer.antigravitySnapshot(
+                presentation: makeAntigravityMenuBarPresentation(
+                    style: .batteryBar,
+                    gaugePercentage: 37,
+                    showsGaugePercentage: true
+                ),
+                icon: providerIcon
+            )
+        )
+        let circular37 = try XCTUnwrap(
+            MenuBarStatusComposer.antigravitySnapshot(
+                presentation: makeAntigravityMenuBarPresentation(
+                    style: .circular,
+                    gaugePercentage: 37
+                ),
+                icon: providerIcon
+            )
+        )
+        let circular81 = try XCTUnwrap(
+            MenuBarStatusComposer.antigravitySnapshot(
+                presentation: makeAntigravityMenuBarPresentation(
+                    style: .circular,
+                    gaugePercentage: 81
+                ),
+                icon: providerIcon
+            )
+        )
+
+        XCTAssertTrue(batteryWithoutPercentage.icon === providerIcon)
+        XCTAssertEqual(
+            try XCTUnwrap(batteryWithoutPercentage.styleIcon).size,
+            NSSize(width: 40, height: 14)
+        )
+        XCTAssertNotEqual(
+            try XCTUnwrap(
+                batteryWithoutPercentage.styleIcon?.tiffRepresentation
+            ),
+            try XCTUnwrap(
+                batteryWithPercentage.styleIcon?.tiffRepresentation
+            )
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(circular37.styleIcon).size,
+            NSSize(width: 20, height: 20)
+        )
+        XCTAssertNotEqual(
+            try XCTUnwrap(circular37.styleIcon?.tiffRepresentation),
+            try XCTUnwrap(circular81.styleIcon?.tiffRepresentation)
+        )
+    }
+
+    func testAntigravityV2SingleAndMultipleContentUseRegularAndCondensedText() throws {
+        let presentation = makeAntigravityMenuBarPresentation(
+            style: .none,
+            regularText: "Claude·GPT · 주간 68% 월요일 09:00",
+            condensedText: "68%",
+            accessibilityLabel: "Antigravity 사용량",
+            accessibilityValue: "Claude·GPT 주간, 68퍼센트 사용"
+        )
+        let snapshot = try XCTUnwrap(
+            MenuBarStatusComposer.antigravitySnapshot(
+                presentation: presentation,
+                icon: nil
+            )
+        )
+        let appearance = try XCTUnwrap(
+            NSAppearance(named: .aqua)
+        )
+        let single = MenuBarStatusComposer.singleProviderContent(
+            snapshot: snapshot,
+            secondaryColor: .secondaryLabelColor,
+            appearance: appearance
+        )
+        let multiple = MenuBarStatusComposer.multipleProviderContent(
+            snapshots: [snapshot],
+            secondaryColor: .secondaryLabelColor,
+            appearance: appearance
+        )
+
+        XCTAssertGreaterThan(single.image.size.width, multiple.image.size.width)
+        XCTAssertEqual(
+            multiple.accessibilityLabel,
+            presentation.accessibilityLabel
+        )
+        XCTAssertEqual(
+            multiple.accessibilityValue,
+            presentation.accessibilityValue
+        )
+    }
+
+    func testAntigravityV2StyleWithoutGaugeDoesNotSynthesizeZero() throws {
+        let snapshot = try XCTUnwrap(
+            MenuBarStatusComposer.antigravitySnapshot(
+                presentation: makeAntigravityMenuBarPresentation(
+                    style: .batteryBar,
+                    gaugePercentage: nil
+                ),
+                icon: nil
+            )
+        )
+
+        XCTAssertNil(snapshot.styleIcon)
+    }
+
+    private func makeAntigravityMenuBarPresentation(
+        isVisible: Bool = true,
+        showsProviderIcon: Bool = true,
+        style: AntigravityDisplaySettings.MenuBarPresentationIntent.Style = .none,
+        regularText: String? = "Claude·GPT · 주간 68%",
+        condensedText: String? = "68%",
+        gaugePercentage: Double? = nil,
+        showsGaugePercentage: Bool = true,
+        tooltip: String = "Antigravity typed tooltip",
+        tone: AntigravityQuotaRiskTone = .healthy,
+        accessibilityLabel: String = "Antigravity 메뉴 막대 사용량",
+        accessibilityValue: String = "Claude·GPT 주간, 68퍼센트 사용"
+    ) -> AntigravityMenuBarQuotaPresentation {
+        AntigravityMenuBarQuotaPresentation(
+            isVisible: isVisible,
+            showsProviderIcon: showsProviderIcon,
+            style: style,
+            selectedLaneID: .thirdPartyWeekly,
+            regularText: regularText,
+            condensedText: condensedText,
+            gaugePercentage: gaugePercentage,
+            showsGaugePercentage: showsGaugePercentage,
+            tooltip: tooltip,
+            tone: tone,
+            accessibilityLabel: accessibilityLabel,
+            accessibilityValue: accessibilityValue
+        )
+    }
+
+    private func codexAssetImage() -> NSImage? {
+        let productDirectories = [
+            ProcessInfo.processInfo.environment["BUILT_PRODUCTS_DIR"].map(URL.init(fileURLWithPath:)),
+            Bundle(for: MenuBarStatusComposerTests.self).bundleURL.deletingLastPathComponent(),
+        ].compactMap { $0 }
+
+        for productsDirectory in productDirectories {
+            let appBundleURL = productsDirectory
+                .appendingPathComponent("ClaudeUsage.app", isDirectory: true)
+            if let appBundle = Bundle(url: appBundleURL),
+               let image = appBundle.image(forResource: NSImage.Name("ProviderCodexIcon")) {
+                return image
+            }
+        }
+
+        return nil
+    }
+
+    private func averageOpaqueLuminance(of image: NSImage) throws -> CGFloat {
+        let representation = try XCTUnwrap(
+            image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:))
+        )
+        var luminance: CGFloat = 0
+        var pixelCount: CGFloat = 0
+
+        for y in 0..<representation.pixelsHigh {
+            for x in 0..<representation.pixelsWide {
+                guard
+                    let color = representation.colorAt(x: x, y: y)?
+                        .usingColorSpace(.deviceRGB),
+                    color.alphaComponent > 0.05
+                else {
+                    continue
+                }
+                luminance += (0.2126 * color.redComponent)
+                    + (0.7152 * color.greenComponent)
+                    + (0.0722 * color.blueComponent)
+                pixelCount += 1
+            }
+        }
+
+        XCTAssertGreaterThan(pixelCount, 0)
+        return luminance / max(pixelCount, 1)
     }
 }

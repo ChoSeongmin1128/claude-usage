@@ -11,6 +11,7 @@ final class AppRuntimeStateFacade {
     var lastOverageFetchAt: Date?
     var systemStatus: ClaudeSystemStatus?
     var providerSystemStatuses: [AppProviderKind: ProviderSystemStatus] = [:]
+    var antigravityRuntimeSnapshot = AntigravityRuntimeSnapshot.idle
     var setupWizardCredentialStepOverride: SetupWizardView.Step?
     var claudeCredentialAvailability = ClaudeCredentialAvailability(
         sessionCredentialAvailable: false,
@@ -24,8 +25,7 @@ final class AppRuntimeStateFacade {
 
     func snapshot(
         for service: PopoverService,
-        codexAuthenticated: Bool,
-        environmentStatus: ProviderEnvironmentStatus? = nil
+        codexAuthenticated: Bool
     ) -> RuntimeProviderSnapshot {
         let state = self[service]
 
@@ -64,21 +64,150 @@ final class AppRuntimeStateFacade {
                 lastAttemptMetadata: state.lastAttemptMetadata
             )
         case .antigravity:
+            let snapshot = antigravityRuntimeSnapshot
+            let canAttemptRefresh =
+                Self.antigravityCanAttemptRefresh(
+                    snapshot
+                )
             return RuntimeProviderSnapshot(
                 service: .antigravity,
-                payload: state.payload,
-                error: state.error,
-                isLoading: state.isLoading,
-                lastUpdated: state.lastUpdated,
-                nextRefreshAllowedAt: state.nextRefreshAllowedAt,
-                credentialState: environmentStatus?.credentialState ?? .unknown,
-                isDetected: environmentStatus?.isDetected ?? false,
-                canAttemptRefresh: environmentStatus?.canAttemptRefresh ?? false,
-                hasAuthError: state.hasAuthError,
-                lastAttemptState: state.lastAttemptState,
-                lastSuccessfulMetadata: state.lastSuccessfulMetadata,
-                lastAttemptMetadata: state.lastAttemptMetadata
+                payload: nil,
+                error: nil,
+                isLoading: snapshot.isLoading,
+                lastUpdated:
+                    snapshot.lastSuccessfulAt,
+                nextRefreshAllowedAt: nil,
+                credentialState:
+                    Self.antigravityCredentialState(
+                        snapshot,
+                        canAttemptRefresh:
+                            canAttemptRefresh
+                    ),
+                isDetected:
+                    snapshot.settings != nil
+                        || !snapshot.accounts.isEmpty,
+                canAttemptRefresh:
+                    canAttemptRefresh,
+                hasAuthError:
+                    Self.antigravityHasAuthError(
+                        snapshot.presentationState
+                    ),
+                lastAttemptState:
+                    Self.antigravityAttemptState(
+                        snapshot
+                    ),
+                lastSuccessfulMetadata: nil,
+                lastAttemptMetadata: nil
             )
+        }
+    }
+
+    private static func antigravityCanAttemptRefresh(
+        _ snapshot: AntigravityRuntimeSnapshot
+    ) -> Bool {
+        guard snapshot.readiness == .ready,
+              let connection =
+                snapshot.settings?.connection
+        else {
+            return false
+        }
+
+        switch connection.sourcePolicy {
+        case .automatic, .localSession:
+            return true
+        case .googleAccount:
+            return snapshot.activeAccountID != nil
+        }
+    }
+
+    private static func antigravityCredentialState(
+        _ snapshot: AntigravityRuntimeSnapshot,
+        canAttemptRefresh: Bool
+    ) -> ProviderCredentialState {
+        if snapshot.activeAccountID != nil {
+            return .usable
+        }
+        if canAttemptRefresh {
+            return .refreshable
+        }
+        switch snapshot.readiness {
+        case .idle, .bootstrapping:
+            return .unknown
+        case .ready, .blocked, .shuttingDown:
+            return .missing
+        }
+    }
+
+    private static func antigravityAttemptState(
+        _ snapshot: AntigravityRuntimeSnapshot
+    ) -> RuntimeProviderAttemptState {
+        switch snapshot.readiness {
+        case .bootstrapping:
+            return .loading
+        case .blocked:
+            return .definitiveFailure
+        case .idle, .ready, .shuttingDown:
+            break
+        }
+
+        switch snapshot.presentationState {
+        case .refreshing:
+            return .loading
+        case .stale:
+            return .temporaryFailure
+        case .accountMismatch:
+            return .definitiveFailure
+        case .failed(let failure):
+            return Self.antigravityIsAuthFailure(
+                failure
+            )
+                ? .authFailure
+                : .definitiveFailure
+        case .disabled,
+             .setupRequired,
+             .ready,
+             .partial,
+             .limited,
+             .identityOnly:
+            return .idle
+        }
+    }
+
+    private static func antigravityHasAuthError(
+        _ state: AntigravityPresentationState
+    ) -> Bool {
+        guard case .failed(let failure) = state
+        else {
+            return false
+        }
+        return antigravityIsAuthFailure(failure)
+    }
+
+    private static func antigravityIsAuthFailure(
+        _ failure: AntigravityFailure
+    ) -> Bool {
+        switch failure {
+        case .authenticationRequired,
+             .selectedAccountUnavailable,
+             .selectedAccountIdentityUnavailable:
+            return true
+        case .cancelled,
+             .appShuttingDown,
+             .invalidRefreshContext,
+             .generationExhausted,
+             .repositoryUnavailable,
+             .repositoryRevisionChanged,
+             .credentialCommitFailed,
+             .credentialCommitAmbiguous,
+             .noEligibleSource,
+             .sourceUnavailable,
+             .interactionRequired,
+             .deadlineExceeded,
+             .schemaChanged,
+             .transportUnavailable,
+             .sourceContractViolation,
+             .numericQuotaUnavailable:
+            return false
         }
     }
 

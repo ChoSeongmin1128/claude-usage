@@ -11,7 +11,27 @@ extension PopoverViewModel {
         let phase = contentPhase(for: service, settings: settings)
         let sections = displaySections(for: service, density: density, settings: settings)
         let hasContent = runtimeServiceState(for: service, settings: settings).hasContent
-        let rowCount = phase == .content ? max(sections.count, hasContent ? 1 : 0) : 0
+        let rowCount: Int
+        if service == .antigravity,
+           phase == .content,
+           case .content(let presentation) =
+                antigravityRuntimeSnapshot.quotaPresentation
+        {
+            if density == .compact {
+                rowCount = 1
+            } else {
+                rowCount = max(
+                    1,
+                    presentation.groups.reduce(1) {
+                        $0 + 1 + $1.lanes.count
+                    }
+                )
+            }
+        } else {
+            rowCount = phase == .content
+                ? max(sections.count, hasContent ? 1 : 0)
+                : 0
+        }
         let spec = PopoverLayoutMetrics.layoutSpec(
             density: density,
             phase: phase,
@@ -27,6 +47,40 @@ extension PopoverViewModel {
 
     func contentPhase(for service: PopoverService, settings: AppSettings) -> PopoverContentPhase {
         let runtimeState = runtimeServiceState(for: service, settings: settings)
+        if service == .antigravity {
+            guard settings.isProviderEnabled(.antigravity) else {
+                return .empty
+            }
+            switch antigravityRuntimeSnapshot.readiness {
+            case .bootstrapping:
+                return .loading
+            case .blocked:
+                return .error
+            case .shuttingDown:
+                return .empty
+            case .idle, .ready:
+                break
+            }
+            if antigravityRuntimeSnapshot.hasQuotaContent {
+                return .content
+            }
+            if runtimeState.isAuthRequired {
+                return .authRequired
+            }
+            switch antigravityRuntimeSnapshot.presentationState {
+            case .refreshing:
+                return .loading
+            case .accountMismatch,
+                 .limited,
+                 .identityOnly,
+                 .failed:
+                return .error
+            case .disabled, .setupRequired:
+                return .empty
+            case .ready, .partial, .stale:
+                return .empty
+            }
+        }
         if runtimeState.isAuthRequired {
             return .authRequired
         }
@@ -55,6 +109,12 @@ extension PopoverViewModel {
         density: PopoverDensity,
         settings: AppSettings
     ) -> [PopoverDisplaySection] {
+        // Antigravity v2는 동적 lane과 계정/출처 경계를 보존해야 하므로
+        // legacy UsageItemContext/Catalog로 다시 평탄화하지 않는다.
+        if service == .antigravity {
+            return []
+        }
+
         let catalog = UsageItemCatalogRegistry.catalog(for: service)
         let visibleItems = settings.effectivePopoverItems(for: service, density: density).filter(\.visible)
         let context = makeContext(density: density, settings: settings)
@@ -62,54 +122,6 @@ extension PopoverViewModel {
         var sections: [PopoverDisplaySection] = []
         for item in visibleItems {
             sections.append(contentsOf: catalog.expandedSections(for: item.id, context: context))
-        }
-
-        if service == .antigravity,
-           let usage = context.antigravityUsage,
-           !usage.hasUsageWindows,
-           !sections.contains(where: { $0.id == "antigravityQuotaStatus" })
-        {
-            sections.insert(
-                PopoverDisplaySection(
-                    id: "antigravityQuotaStatus",
-                    kind: .status,
-                    importance: .primary,
-                    payload: .status(
-                        PopoverStatusSectionData(
-                            title: "계정 확인됨",
-                            error: nil,
-                            statusText: "수치 미지원",
-                            message: "계정과 플랜은 확인됐지만 Antigravity가 아직 사용량 수치를 제공하지 않았습니다."
-                        )
-                    )
-                ),
-                at: 0
-            )
-        }
-
-        if service == .antigravity,
-           let usage = context.antigravityUsage,
-           usage.hasUsageWindows,
-           context.settings.visibleAntigravityModelWindows(from: usage.modelWindows).isEmpty,
-           !sections.contains(where: { $0.kind == .usage }),
-           !sections.contains(where: { $0.id == "antigravityHiddenModelsStatus" })
-        {
-            sections.insert(
-                PopoverDisplaySection(
-                    id: "antigravityHiddenModelsStatus",
-                    kind: .status,
-                    importance: .primary,
-                    payload: .status(
-                        PopoverStatusSectionData(
-                            title: "표시할 모델 없음",
-                            error: nil,
-                            statusText: "숨김",
-                            message: "설정에서 팝오버에 표시할 Antigravity 모델을 선택하세요."
-                        )
-                    )
-                ),
-                at: 0
-            )
         }
 
         if density == .compact {
@@ -134,8 +146,7 @@ extension PopoverViewModel {
             claudeAccounts: presentedAccountState?.accounts ?? [],
             activeClaudeAccountID: presentedAccountState?.activeAccountID,
             codexUsage: codexUsage,
-            codexError: snapshot(for: .codex)?.error,
-            antigravityUsage: antigravityUsage
+            codexError: snapshot(for: .codex)?.error
         )
     }
 }

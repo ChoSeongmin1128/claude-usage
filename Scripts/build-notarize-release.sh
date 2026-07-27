@@ -29,6 +29,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=Scripts/lib/release-driver-common.sh
+source "$ROOT_DIR/Scripts/lib/release-driver-common.sh"
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build/release}"
 ARCHIVE_PATH="${ARCHIVE_PATH:-$BUILD_DIR/ClaudeUsage.xcarchive}"
 APP_PATH="$ARCHIVE_PATH/Products/Applications/ClaudeUsage.app"
@@ -39,6 +41,7 @@ CONFIGURATION="${CONFIGURATION:-Release}"
 PROJECT_PATH="${PROJECT_PATH:-$ROOT_DIR/ClaudeUsage.xcodeproj}"
 XC_CONFIG_PATH="${XC_CONFIG_PATH:-$ROOT_DIR/Config/Release.xcconfig}"
 LOCAL_XC_CONFIG_PATH="${LOCAL_XC_CONFIG_PATH:-$ROOT_DIR/Config/Sparkle.release.local.xcconfig}"
+DERIVED_DATA_PATH="${DERIVED_DATA_PATH:-}"
 MAKE_DMG_SCRIPT="$ROOT_DIR/Scripts/make-dmg.sh"
 ENTITLEMENTS_PATH="${ENTITLEMENTS_PATH:-$ROOT_DIR/ClaudeUsage/ClaudeUsage.entitlements}"
 SKIP_DMG="${SKIP_DMG:-0}"
@@ -47,23 +50,90 @@ EFFECTIVE_XC_CONFIG_PATH="$XC_CONFIG_PATH"
 TEMP_XC_CONFIG_PATH=""
 TEMP_XC_CONFIG_DIR=""
 TEMP_NOTARY_KEY_PATH=""
+RESOLVED_ENTITLEMENTS_PATH=""
 
 cleanup() {
+    local exit_code=$?
+    local cleanup_failed=0
+
     if [[ -n "$TEMP_XC_CONFIG_PATH" && -f "$TEMP_XC_CONFIG_PATH" ]]; then
-        rm -f "$TEMP_XC_CONFIG_PATH"
+        if ! rm -f "$TEMP_XC_CONFIG_PATH" || [[ -e "$TEMP_XC_CONFIG_PATH" ]]; then
+            echo "임시 xcconfig를 정리하지 못했습니다: $TEMP_XC_CONFIG_PATH" >&2
+            cleanup_failed=1
+        fi
     fi
     if [[ -n "$TEMP_XC_CONFIG_DIR" && -d "$TEMP_XC_CONFIG_DIR" ]]; then
-        rmdir "$TEMP_XC_CONFIG_DIR" 2>/dev/null || true
+        if ! rm -rf "$TEMP_XC_CONFIG_DIR" || [[ -e "$TEMP_XC_CONFIG_DIR" ]]; then
+            echo "임시 xcconfig 디렉터리를 정리하지 못했습니다: $TEMP_XC_CONFIG_DIR" >&2
+            cleanup_failed=1
+        fi
     fi
     if [[ -n "$TEMP_NOTARY_KEY_PATH" && -f "$TEMP_NOTARY_KEY_PATH" ]]; then
-        rm -f "$TEMP_NOTARY_KEY_PATH"
+        if ! rm -f "$TEMP_NOTARY_KEY_PATH" || [[ -e "$TEMP_NOTARY_KEY_PATH" ]]; then
+            echo "임시 공증 key 파일을 정리하지 못했습니다: $TEMP_NOTARY_KEY_PATH" >&2
+            cleanup_failed=1
+        fi
     fi
+    if [[ -n "$RESOLVED_ENTITLEMENTS_PATH" && -f "$RESOLVED_ENTITLEMENTS_PATH" ]]; then
+        if ! rm -f "$RESOLVED_ENTITLEMENTS_PATH" || [[ -e "$RESOLVED_ENTITLEMENTS_PATH" ]]; then
+            echo "해석된 entitlements 파일을 정리하지 못했습니다: $RESOLVED_ENTITLEMENTS_PATH" >&2
+            cleanup_failed=1
+        fi
+    fi
+    exit "$(release_cleanup_exit_code "$exit_code" "$cleanup_failed" 0)"
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 create_app_zip() {
     # AppleDouble files break Gatekeeper after ZIP-based installs.
     COPYFILE_DISABLE=1 ditto -c -k --norsrc --noextattr --keepParent "$APP_PATH" "$ZIP_PATH"
+}
+
+extract_and_validate_app_entitlements() {
+    local app_path="$1"
+    local output_path="$2"
+    local bundle_id
+    local network_client
+
+    bundle_id="$(
+        /usr/libexec/PlistBuddy \
+            -c 'Print :CFBundleIdentifier' \
+            "$app_path/Contents/Info.plist"
+    )"
+    [[ "$bundle_id" == "com.seongmin.ClaudeUsage" ]] || {
+        echo "서명 대상 bundle identifier가 다릅니다: $bundle_id" >&2
+        return 1
+    }
+
+    if ! codesign --display --entitlements - --xml "$app_path" \
+        > "$output_path" 2>/dev/null; then
+        echo "앱 서명에서 entitlements를 추출하지 못했습니다: $app_path" >&2
+        return 1
+    fi
+    plutil -lint "$output_path" >/dev/null
+
+    network_client="$(
+        /usr/libexec/PlistBuddy \
+            -c 'Print :com.apple.security.network.client' \
+            "$output_path"
+    )"
+
+    [[ "$network_client" == "true" ]] || {
+        echo "network client entitlement가 누락됐습니다." >&2
+        return 1
+    }
+    # Developer ID 배포본에는 provisioning profile이 없으므로 restricted
+    # entitlement는 서명돼도 런타임에서 거부된다. 다시 들어오면 앱이 조용히
+    # 깨지므로 빌드 단계에서 막는다.
+    if /usr/libexec/PlistBuddy \
+        -c 'Print :keychain-access-groups' \
+        "$output_path" >/dev/null 2>&1; then
+        echo "provisioning profile 없이 승인될 수 없는 Keychain access group entitlement가 포함됐습니다." >&2
+        return 1
+    fi
 }
 
 preflight_notary_credentials() {
@@ -152,7 +222,7 @@ is_placeholder_value() {
     [[ "$value" == *"replace_with"* ]] && return 0
     [[ "$value" == *"replace_me"* ]] && return 0
     [[ "$value" == *"example.com"* ]] && return 0
-    [[ "$value" == *'$('* ]] && return 0
+    [[ "$value" == *"\$("* ]] && return 0
     return 1
 }
 
@@ -186,7 +256,10 @@ derive_repo_pages_base_url() {
     local remote_url
 
     if command -v gh >/dev/null 2>&1; then
-        name_with_owner="$(gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+        name_with_owner="$(
+            cd "$ROOT_DIR"
+            gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true
+        )"
     fi
 
     if [[ "$name_with_owner" =~ ^([^/]+)/([^/]+)$ ]]; then
@@ -244,6 +317,28 @@ NOTARY_SUBMIT_ARGS=()
 NOTARY_AUTH_DESCRIPTION=""
 CERT_HASH="${CERT_HASH:-}"
 RELEASE_CHANNEL="${RELEASE_CHANNEL:-}"
+REQUESTED_DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-}"
+
+if [[ ! -f "$PROJECT_PATH/project.pbxproj" ]]; then
+    echo "Xcode 프로젝트를 찾지 못했습니다: $PROJECT_PATH" >&2
+    exit 1
+fi
+TRUSTED_DEVELOPMENT_TEAM="$(
+    read_unique_xcode_build_setting "$PROJECT_PATH/project.pbxproj" DEVELOPMENT_TEAM
+)" || {
+    echo "project의 DEVELOPMENT_TEAM 신뢰 기준을 하나로 확정하지 못했습니다." >&2
+    exit 1
+}
+[[ "$TRUSTED_DEVELOPMENT_TEAM" =~ ^[A-Z0-9]{10}$ ]] || {
+    echo "project의 DEVELOPMENT_TEAM 신뢰 기준이 유효하지 않습니다: $TRUSTED_DEVELOPMENT_TEAM" >&2
+    exit 1
+}
+if [[ -n "$REQUESTED_DEVELOPMENT_TEAM" \
+    && "$REQUESTED_DEVELOPMENT_TEAM" != "$TRUSTED_DEVELOPMENT_TEAM" ]]; then
+    echo "DEVELOPMENT_TEAM override가 project 신뢰 기준과 다릅니다: requested=$REQUESTED_DEVELOPMENT_TEAM, trusted=$TRUSTED_DEVELOPMENT_TEAM" >&2
+    exit 1
+fi
+DEVELOPMENT_TEAM="$TRUSTED_DEVELOPMENT_TEAM"
 
 # CERT_HASH 가 비어 있으면 keychain 에서 Developer ID Application 인증서를 자동
 # 탐색한다. DEVELOPMENT_TEAM 이 설정돼 있으면 해당 팀(예: "5YG4V2PLZV")으로
@@ -268,7 +363,7 @@ detect_developer_id_certificate() {
 if [[ -z "$CERT_HASH" ]]; then
     detected=""
     detect_rc=0
-    detected=$(detect_developer_id_certificate "${DEVELOPMENT_TEAM:-}") || detect_rc=$?
+    detected=$(detect_developer_id_certificate "$TRUSTED_DEVELOPMENT_TEAM") || detect_rc=$?
     case "$detect_rc" in
         0)
             CERT_HASH="$detected"
@@ -287,6 +382,24 @@ if [[ -z "$CERT_HASH" ]]; then
             ;;
     esac
 fi
+NORMALIZED_CERT_HASH="$(printf '%s' "$CERT_HASH" | tr '[:lower:]' '[:upper:]')"
+[[ "$NORMALIZED_CERT_HASH" =~ ^[0-9A-F]{40}$ ]] || {
+    echo "CERT_HASH가 40자리 SHA-1이 아닙니다: $CERT_HASH" >&2
+    exit 1
+}
+security find-identity -v -p codesigning 2>/dev/null \
+    | awk -v hash="$NORMALIZED_CERT_HASH" -v team="$TRUSTED_DEVELOPMENT_TEAM" '
+        $2 == hash && /Developer ID Application/ && $0 ~ "\\(" team "\\)" {
+            found = 1
+        }
+        END {
+            exit(found ? 0 : 1)
+        }
+    ' || {
+        echo "선택한 Developer ID 인증서가 project team과 일치하지 않습니다: hash=$CERT_HASH, team=$TRUSTED_DEVELOPMENT_TEAM" >&2
+        exit 1
+    }
+CERT_HASH="$NORMALIZED_CERT_HASH"
 export CERT_HASH
 
 # ── 사전 검증 ────────────────────────────────────────────────
@@ -311,13 +424,26 @@ validate_release_distribution "$RELEASE_DISTRIBUTION"
 
 CONFIGURED_FEED_URL="$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SUFeedURL")"
 CONFIGURED_PUBLIC_KEY="$(extract_xcconfig_value "$LOCAL_XC_CONFIG_PATH" "SUPublicEDKey")"
+TRACKED_PUBLIC_KEY="$(extract_xcconfig_value "$XC_CONFIG_PATH" "SUPublicEDKey")"
 DERIVED_FEED_URL=""
 if [[ -n "$RELEASE_CHANNEL" ]]; then
     DERIVED_FEED_URL="$(derive_default_feed_url_for_channel "$RELEASE_CHANNEL" || true)"
 fi
 
 FEED_URL="${SU_FEED_URL:-${DERIVED_FEED_URL:-$CONFIGURED_FEED_URL}}"
-PUBLIC_KEY="${SU_PUBLIC_ED_KEY:-$CONFIGURED_PUBLIC_KEY}"
+if is_placeholder_value "$TRACKED_PUBLIC_KEY"; then
+    echo "tracked Release.xcconfig의 SUPublicEDKey 신뢰 기준이 비어 있거나 유효하지 않습니다." >&2
+    exit 1
+fi
+if [[ -n "${SU_PUBLIC_ED_KEY:-}" && "$SU_PUBLIC_ED_KEY" != "$TRACKED_PUBLIC_KEY" ]]; then
+    echo "SU_PUBLIC_ED_KEY override가 tracked Sparkle 공개키와 다릅니다. 먼저 Config/Release.xcconfig의 trust root를 검토·갱신하세요." >&2
+    exit 1
+fi
+if [[ -n "$CONFIGURED_PUBLIC_KEY" && "$CONFIGURED_PUBLIC_KEY" != "$TRACKED_PUBLIC_KEY" ]]; then
+    echo "local SUPublicEDKey가 tracked Sparkle 공개키와 다릅니다. key rotation은 tracked trust root와 함께 반영해야 합니다." >&2
+    exit 1
+fi
+PUBLIC_KEY="$TRACKED_PUBLIC_KEY"
 
 if is_placeholder_value "$FEED_URL"; then
     echo "유효한 SUFeedURL 을 찾지 못했습니다." >&2
@@ -388,12 +514,16 @@ if [[ -n "$RELEASE_CHANNEL" ]]; then
 fi
 echo "  - notary auth: $NOTARY_AUTH_DESCRIPTION"
 
-for bin in xcodebuild xcrun hdiutil codesign; do
+for bin in xcodebuild xcrun hdiutil codesign plutil; do
     command -v "$bin" >/dev/null 2>&1 || {
         echo "$bin 을 찾지 못했습니다." >&2
         exit 1
     }
 done
+[[ -x /usr/libexec/PlistBuddy ]] || {
+    echo "PlistBuddy를 찾지 못했습니다." >&2
+    exit 1
+}
 
 if [[ "$RELEASE_DISTRIBUTION" == "notarized" ]]; then
     preflight_notary_credentials
@@ -428,13 +558,41 @@ fi
 
 echo
 echo "1. Xcode archive 생성"
-xcodebuild \
+XCODEBUILD_ARCHIVE_ARGS=(
     -project "$PROJECT_PATH" \
     -scheme "$SCHEME" \
     -configuration "$CONFIGURATION" \
     -xcconfig "$EFFECTIVE_XC_CONFIG_PATH" \
     -archivePath "$ARCHIVE_PATH" \
     archive
+)
+if [[ -n "$DERIVED_DATA_PATH" ]]; then
+    XCODEBUILD_ARCHIVE_ARGS=(
+        -derivedDataPath "$DERIVED_DATA_PATH"
+        "${XCODEBUILD_ARCHIVE_ARGS[@]}"
+    )
+fi
+xcodebuild "${XCODEBUILD_ARCHIVE_ARGS[@]}"
+
+if [[ -n "$TEMP_XC_CONFIG_PATH" ]]; then
+    rm -f "$TEMP_XC_CONFIG_PATH"
+    [[ ! -e "$TEMP_XC_CONFIG_PATH" ]] \
+        || {
+            echo "archive 후 임시 xcconfig를 정리하지 못했습니다: $TEMP_XC_CONFIG_PATH" >&2
+            exit 1
+        }
+    TEMP_XC_CONFIG_PATH=""
+fi
+if [[ -n "$TEMP_XC_CONFIG_DIR" ]]; then
+    rmdir "$TEMP_XC_CONFIG_DIR"
+    [[ ! -e "$TEMP_XC_CONFIG_DIR" ]] \
+        || {
+            echo "archive 후 임시 xcconfig 디렉터리를 정리하지 못했습니다: $TEMP_XC_CONFIG_DIR" >&2
+            exit 1
+        }
+    TEMP_XC_CONFIG_DIR=""
+fi
+echo "archive 임시 xcconfig 정리 완료"
 
 if [[ ! -d "$APP_PATH" ]]; then
     echo "archive 안에서 앱을 찾지 못했습니다: $APP_PATH" >&2
@@ -442,6 +600,10 @@ if [[ ! -d "$APP_PATH" ]]; then
 fi
 
 /usr/libexec/PlistBuddy -c "Set :SUPublicEDKey $PUBLIC_KEY" "$APP_PATH/Contents/Info.plist"
+RESOLVED_ENTITLEMENTS_PATH="$BUILD_DIR/ClaudeUsage.resolved.entitlements"
+extract_and_validate_app_entitlements \
+    "$APP_PATH" \
+    "$RESOLVED_ENTITLEMENTS_PATH"
 
 # ── 2. Sparkle helper 재서명 ────────────────────────────────
 
@@ -462,9 +624,19 @@ if [[ -d "$SPARKLE_FW" ]]; then
 fi
 
 codesign --force --options runtime --timestamp \
-    --entitlements "$ENTITLEMENTS_PATH" \
+    --entitlements "$RESOLVED_ENTITLEMENTS_PATH" \
     --sign "$CERT_HASH" \
     "$APP_PATH"
+extract_and_validate_app_entitlements \
+    "$APP_PATH" \
+    "$RESOLVED_ENTITLEMENTS_PATH"
+rm -f "$RESOLVED_ENTITLEMENTS_PATH"
+[[ ! -e "$RESOLVED_ENTITLEMENTS_PATH" ]] \
+    || {
+        echo "해석된 entitlements 파일을 정리하지 못했습니다: $RESOLVED_ENTITLEMENTS_PATH" >&2
+        exit 1
+    }
+RESOLVED_ENTITLEMENTS_PATH=""
 
 # ── 3. 앱 ZIP 생성 ──────────────────────────────────────────
 
@@ -567,6 +739,6 @@ cat <<EOF
     distribution: $RELEASE_DISTRIBUTION
 
 다음 단계
-    1. Scripts/publish-release.sh vX.Y.Z 로 GitHub Release + appcast 게시
+    1. 검증된 main에서 Scripts/release.sh stg|prod X.Y.Z 로 게시
     2. Sparkle 업데이트 경로가 활성인지 설정 화면에서 확인
 EOF

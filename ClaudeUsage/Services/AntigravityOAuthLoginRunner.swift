@@ -24,8 +24,14 @@ nonisolated enum AntigravityOAuthLoginRunner {
         timeout: TimeInterval = 120,
         onPhaseChange: (@Sendable (Phase) -> Void)? = nil
     ) async -> Result {
+        guard !Task.isCancelled else {
+            return Result(outcome: .cancelled)
+        }
         guard let oauthClient = await resolvedClientOffMainActor() else {
             return Result(outcome: .failed(AntigravityOAuthConfig.missingCredentialsMessage))
+        }
+        guard !Task.isCancelled else {
+            return Result(outcome: .cancelled)
         }
 
         let state = UUID().uuidString.replacingOccurrences(of: "-", with: "")
@@ -34,6 +40,7 @@ nonisolated enum AntigravityOAuthLoginRunner {
 
         do {
             let callbackURL = try await server.start()
+            try Task.checkCancellation()
             let authURL = try makeAuthorizationURL(
                 redirectURL: callbackURL,
                 state: state,
@@ -66,6 +73,7 @@ nonisolated enum AntigravityOAuthLoginRunner {
                 return callback
             }
             server.stop()
+            try Task.checkCancellation()
 
             if let error = callback.error?.trimmingCharacters(in: .whitespacesAndNewlines), !error.isEmpty {
                 if error == "access_denied" {
@@ -81,14 +89,17 @@ nonisolated enum AntigravityOAuthLoginRunner {
                 return Result(outcome: .failed("Google 로그인이 authorization code를 반환하지 않았습니다."))
             }
 
+            try Task.checkCancellation()
             let tokenExchange = try await exchangeCodeForTokens(
                 code: code,
                 redirectURL: callbackURL,
                 codeVerifier: pkce.verifier,
                 oauthClient: oauthClient
             )
+            try Task.checkCancellation()
             let tokenResponse = tokenExchange.response
             let email = try await fetchUserEmail(accessToken: tokenResponse.accessToken)
+            try Task.checkCancellation()
             let credentials = AntigravityOAuthCredentials(
                 accessToken: tokenResponse.accessToken,
                 refreshToken: tokenResponse.refreshToken,
@@ -411,13 +422,14 @@ nonisolated enum AntigravityOAuthCallbackParser {
     }
 }
 
-private nonisolated final class AntigravityLoopbackServer: @unchecked Sendable {
+nonisolated final class AntigravityLoopbackServer: @unchecked Sendable {
     private let expectedState: String
     private let queue = DispatchQueue(label: "claudeusage.antigravity.oauth")
     private let lock = NSLock()
     private var listener: NWListener?
     private var allowedHost: String?
     private var readyContinuation: CheckedContinuation<URL, Error>?
+    private var pendingReadyResult: Result<URL, Error>?
     private var callbackContinuation: CheckedContinuation<AntigravityOAuthCallback, Error>?
     private var pendingCallbackResult: Result<AntigravityOAuthCallback, Error>?
     private var completed = false
@@ -427,62 +439,105 @@ private nonisolated final class AntigravityLoopbackServer: @unchecked Sendable {
     }
 
     func start() async throws -> URL {
+        try Task.checkCancellation()
         let listener = try NWListener(using: .tcp, on: .any)
-        self.listener = listener
+        lock.withLock {
+            self.listener = listener
+        }
         listener.newConnectionHandler = { [weak self] connection in
             self?.handle(connection)
         }
 
-        return try await withCheckedThrowingContinuation { continuation in
-            readyContinuation = continuation
-            listener.stateUpdateHandler = { [weak self] state in
-                guard let self else { return }
-                switch state {
-                case .ready:
-                    guard let port = listener.port else {
-                        self.finishReady(with: .failure(AntigravityLoginError.failed("로컬 callback port를 확인하지 못했습니다.")))
-                        self.finishCallback(with: .failure(AntigravityLoginError.failed("로컬 callback port를 확인하지 못했습니다.")))
-                        return
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                continuation in
+                lock.lock()
+                if let pending = pendingReadyResult {
+                    pendingReadyResult = nil
+                    lock.unlock()
+                    switch pending {
+                    case .success(let url):
+                        continuation.resume(returning: url)
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
                     }
-                    self.allowedHost = "127.0.0.1:\(port.rawValue)"
-                    let url = URL(string: "http://127.0.0.1:\(port.rawValue)/oauth2callback")!
-                    self.finishReady(with: .success(url))
-                case .failed(let error):
-                    self.finishReady(with: .failure(error))
-                    self.finishCallback(with: .failure(error))
-                default:
-                    break
+                    return
                 }
+                readyContinuation = continuation
+                lock.unlock()
+                listener.stateUpdateHandler = { [weak self] state in
+                    guard let self else { return }
+                    switch state {
+                    case .ready:
+                        guard let port = listener.port else {
+                            self.finishReady(with: .failure(AntigravityLoginError.failed("로컬 callback port를 확인하지 못했습니다.")))
+                            self.finishCallback(with: .failure(AntigravityLoginError.failed("로컬 callback port를 확인하지 못했습니다.")))
+                            return
+                        }
+                        self.allowedHost = "127.0.0.1:\(port.rawValue)"
+                        let url = URL(string: "http://127.0.0.1:\(port.rawValue)/oauth2callback")!
+                        self.finishReady(with: .success(url))
+                    case .failed(let error):
+                        self.finishReady(with: .failure(error))
+                        self.finishCallback(with: .failure(error))
+                    default:
+                        break
+                    }
+                }
+                listener.start(queue: queue)
             }
-            listener.start(queue: queue)
+        } onCancel: { [weak self] in
+            self?.cancelStart()
         }
     }
 
     func waitForCallback() async throws -> AntigravityOAuthCallback {
-        try await withCheckedThrowingContinuation { continuation in
-            lock.lock()
-            defer { lock.unlock() }
-            if let pending = pendingCallbackResult {
-                pendingCallbackResult = nil
-                switch pending {
-                case .success(let callback):
-                    continuation.resume(returning: callback)
-                case .failure(let error):
-                    continuation.resume(throwing: error)
+        try Task.checkCancellation()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                continuation in
+                lock.lock()
+                defer { lock.unlock() }
+                if let pending = pendingCallbackResult {
+                    pendingCallbackResult = nil
+                    switch pending {
+                    case .success(let callback):
+                        continuation.resume(
+                            returning: callback
+                        )
+                    case .failure(let error):
+                        continuation.resume(
+                            throwing: error
+                        )
+                    }
+                    return
                 }
-                return
+                callbackContinuation = continuation
             }
-            callbackContinuation = continuation
+        } onCancel: { [weak self] in
+            self?.cancelCallbackWait(
+                with: CancellationError()
+            )
         }
     }
 
     func stop() {
-        listener?.cancel()
-        listener = nil
+        lock.lock()
+        let activeListener = listener
+        self.listener = nil
+        lock.unlock()
+        activeListener?.cancel()
     }
 
     func cancelCallbackWait(with error: Error) {
         stop()
+        finishCallback(with: .failure(error))
+    }
+
+    private func cancelStart() {
+        stop()
+        let error = CancellationError()
+        finishReady(with: .failure(error))
         finishCallback(with: .failure(error))
     }
 
@@ -559,6 +614,9 @@ private nonisolated final class AntigravityLoopbackServer: @unchecked Sendable {
         lock.lock()
         let continuation = readyContinuation
         readyContinuation = nil
+        if continuation == nil {
+            pendingReadyResult = result
+        }
         lock.unlock()
         switch result {
         case .success(let url):

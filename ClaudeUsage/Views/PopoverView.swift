@@ -77,25 +77,40 @@ struct PopoverView: View {
 
                 Spacer()
 
-                Button {
-                    displayEditorMode = isCompact ? .compact : .standard
-                    isDisplayEditorPresented.toggle()
-                } label: {
-                    HStack(spacing: 2) {
-                        Image(systemName: "slider.horizontal.3")
-                        if !isCompact { Text("표시") }
+                if selectedService == .antigravity {
+                    Button {
+                        viewModel.openSettings(for: .antigravity)
+                    } label: {
+                        HStack(spacing: 2) {
+                            Image(systemName: "slider.horizontal.3")
+                            if !isCompact { Text("표시") }
+                        }
                     }
-                }
-                .buttonStyle(.borderless)
-                .font(.caption)
-                .help("표시 항목 편집")
-                .accessibilityLabel("표시 항목 편집")
-                .popover(isPresented: $isDisplayEditorPresented, arrowEdge: .bottom) {
-                    PopoverDisplayEditorView(
-                        settings: settings,
-                        service: selectedService,
-                        selectedMode: $displayEditorMode
-                    )
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .help("Antigravity 표시 설정")
+                    .accessibilityLabel("Antigravity 표시 설정")
+                } else {
+                    Button {
+                        displayEditorMode = isCompact ? .compact : .standard
+                        isDisplayEditorPresented.toggle()
+                    } label: {
+                        HStack(spacing: 2) {
+                            Image(systemName: "slider.horizontal.3")
+                            if !isCompact { Text("표시") }
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                    .help("표시 항목 편집")
+                    .accessibilityLabel("표시 항목 편집")
+                    .popover(isPresented: $isDisplayEditorPresented, arrowEdge: .bottom) {
+                        PopoverDisplayEditorView(
+                            settings: settings,
+                            service: selectedService,
+                            selectedMode: $displayEditorMode
+                        )
+                    }
                 }
 
                 Button {
@@ -276,6 +291,9 @@ struct PopoverView: View {
 
     private var compactHeaderContext: CompactPopoverHeaderContext? {
         guard isCompact else { return nil }
+        if selectedService == .antigravity {
+            return nil
+        }
         let state = viewModel.runtimeServiceState(for: selectedService, settings: settings)
         let accounts = selectedService == .claude
             ? (viewModel.usageHealthSnapshot?.accounts ?? [])
@@ -318,17 +336,27 @@ struct PopoverView: View {
         .accessibilityValue(context.labels.joined(separator: ", "))
     }
 
+    @ViewBuilder
     private var providerStatusRail: some View {
         let state = viewModel.runtimeServiceState(for: selectedService, settings: settings)
-        let label = providerStatusRailText(state: state)
-        return HStack(spacing: 4) {
-            providerStatusRailSegments(state: state)
-            Spacer(minLength: 0)
+        if selectedService == .antigravity,
+           case .content(let presentation) =
+                viewModel.antigravityRuntimeSnapshot.quotaPresentation
+        {
+            // Standard AGY의 계정·출처·freshness는 스크롤 밖에 고정한다.
+            // quota group이 길어져도 현재 숫자의 provenance를 잃지 않는다.
+            ProviderIdentityRail(projection: presentation.identityRail)
+        } else {
+            let label = providerStatusRailText(state: state)
+            HStack(spacing: 4) {
+                providerStatusRailSegments(state: state)
+                Spacer(minLength: 0)
+            }
+            .help(label)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(selectedService.displayName) 상태")
+            .accessibilityValue(label)
         }
-        .help(label)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(selectedService.displayName) 상태")
-        .accessibilityValue(label)
     }
 
     private func providerStatusRailText(state: PopoverViewModel.RuntimeServiceState) -> String {
@@ -414,11 +442,9 @@ struct PopoverView: View {
 
     private func providerSelectorAccessibilityValue(for service: PopoverService) -> String {
         let state = viewModel.runtimeServiceState(for: service, settings: settings)
-        var parts: [String] = []
-        if selectedService == service { parts.append("선택됨") }
-        if state.freshness == .stale { parts.append("이전 데이터") }
-        if state.isAuthRequired { parts.append("로그인 필요") }
-        return parts.isEmpty ? "사용 가능" : parts.joined(separator: ", ")
+        return state.providerSelectorAccessibilityValue(
+            isSelected: selectedService == service
+        )
     }
 
     private var selectedService: PopoverService {
@@ -493,6 +519,12 @@ struct PopoverView: View {
         guard !serviceLoading(for: selectedService) else { return }
         guard !isAuthRequired(for: selectedService) else { return }
 
+        // AGY v2는 controller bootstrap/timer가 단일 refresh transaction을
+        // 소유한다. 팝오버를 여는 동작 자체가 추가 조회를 만들지 않는다.
+        if selectedService == .antigravity {
+            return
+        }
+
         let runtimeState = viewModel.runtimeServiceState(for: selectedService, settings: settings)
         if runtimeState.hasContent == false || runtimeState.error?.isTemporaryFailure == true {
             viewModel.refresh(service: selectedService)
@@ -520,6 +552,21 @@ struct PopoverView: View {
 
     @ViewBuilder
     private func bodyContent(layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection]) -> some View {
+        if selectedService == .antigravity {
+            antigravityBodyContent(density: layoutSpec.density)
+        } else {
+            providerBodyContent(
+                layoutSpec: layoutSpec,
+                sections: sections
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func providerBodyContent(
+        layoutSpec: PopoverLayoutSpec,
+        sections: [PopoverDisplaySection]
+    ) -> some View {
         switch layoutSpec.phase {
         case .authRequired:
             if selectedService == .claude {
@@ -588,6 +635,331 @@ struct PopoverView: View {
                     actionStyle: .bordered,
                     action: nil
                 )
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func antigravityBodyContent(
+        density: PopoverDensity
+    ) -> some View {
+        switch viewModel.antigravityRuntimeSnapshot.quotaPresentation {
+        case .content(let presentation):
+            if density == .compact {
+                // Compact에는 사용자가 설정한 핵심 lane 하나만 남긴다.
+                // 계정·출처·freshness는 standard의 고정 identity rail에서 제공한다.
+                AntigravityCompactQuotaView(
+                    presentation: presentation.compact
+                )
+            } else {
+                antigravityStandardQuotaContent(presentation)
+            }
+        case .unavailable:
+            statusPanel(
+                density: density,
+                configuration: antigravityStatusConfiguration(
+                    viewModel.antigravityRuntimeSnapshot
+                )
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func antigravityStandardQuotaContent(
+        _ presentation: AntigravityQuotaPresentation
+    ) -> some View {
+        if presentation.groups.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("표시할 사용량 한도 없음")
+                    .font(.subheadline.weight(.semibold))
+                Text("현재 응답에는 표시할 수 있는 수치형 quota가 없습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(
+                    Array(presentation.groups.enumerated()),
+                    id: \.element.id
+                ) { index, group in
+                    if index > 0 {
+                        Divider()
+                    }
+                    AntigravityQuotaGroupView(group: group)
+                }
+            }
+        }
+    }
+
+    private func antigravityStatusConfiguration(
+        _ snapshot: AntigravityRuntimeSnapshot
+    ) -> StatusPanelConfiguration {
+        switch snapshot.readiness {
+        case .bootstrapping:
+            return StatusPanelConfiguration(
+                icon: nil,
+                iconColor: .secondary,
+                showsProgress: true,
+                title: "Antigravity 준비 중",
+                message: "계정과 조회 설정을 확인하고 있습니다.",
+                actionTitle: nil,
+                actionStyle: .bordered,
+                action: nil
+            )
+        case .blocked(let blocker):
+            return StatusPanelConfiguration(
+                icon: "exclamationmark.shield",
+                iconColor: .red,
+                showsProgress: false,
+                title: "초기 설정 확인 필요",
+                message: antigravityBlockerMessage(blocker),
+                actionTitle: "설정 열기",
+                actionStyle: .prominent,
+                action: {
+                    viewModel.openSettings(for: .antigravity)
+                }
+            )
+        case .shuttingDown:
+            return StatusPanelConfiguration(
+                icon: nil,
+                iconColor: .secondary,
+                showsProgress: true,
+                title: "Antigravity 종료 중",
+                message: "진행 중인 조회를 안전하게 정리하고 있습니다.",
+                actionTitle: nil,
+                actionStyle: .bordered,
+                action: nil
+            )
+        case .idle, .ready:
+            break
+        }
+
+        switch snapshot.presentationState {
+        case .disabled:
+            return StatusPanelConfiguration(
+                icon: "pause.circle",
+                iconColor: .secondary,
+                showsProgress: false,
+                title: "Antigravity 사용 중지됨",
+                message: "설정에서 Antigravity를 켜면 사용량을 확인합니다.",
+                actionTitle: "설정 열기",
+                actionStyle: .bordered,
+                action: {
+                    viewModel.openSettings(for: .antigravity)
+                }
+            )
+        case .setupRequired(let reason):
+            return StatusPanelConfiguration(
+                icon: "person.badge.key",
+                iconColor: .orange,
+                showsProgress: false,
+                title: "조회 방식 설정 필요",
+                message: antigravitySetupMessage(reason),
+                actionTitle: "설정 열기",
+                actionStyle: .prominent,
+                action: {
+                    viewModel.openSettings(for: .antigravity)
+                }
+            )
+        case .refreshing:
+            return StatusPanelConfiguration(
+                icon: nil,
+                iconColor: .secondary,
+                showsProgress: true,
+                title: "사용량 확인 중",
+                message: "선택한 계정과 조회 방식으로 다시 확인하고 있습니다.",
+                actionTitle: nil,
+                actionStyle: .bordered,
+                action: nil
+            )
+        case .accountMismatch:
+            return StatusPanelConfiguration(
+                icon: "person.crop.circle.badge.exclamationmark",
+                iconColor: .red,
+                showsProgress: false,
+                title: "계정이 일치하지 않음",
+                message: "선택한 계정과 다른 세션의 숫자는 표시하지 않았습니다. 조회 계정을 다시 선택해 주세요.",
+                actionTitle: "설정 열기",
+                actionStyle: .prominent,
+                action: {
+                    viewModel.openSettings(for: .antigravity)
+                }
+            )
+        case .limited:
+            return StatusPanelConfiguration(
+                icon: "chart.bar.doc.horizontal",
+                iconColor: .orange,
+                showsProgress: false,
+                title: "수치형 사용량 미지원",
+                message: "현재 연결은 계정과 기능만 확인하며 표시 가능한 quota 수치를 제공하지 않습니다.",
+                actionTitle: "조회 방식 확인",
+                actionStyle: .bordered,
+                action: {
+                    viewModel.openSettings(for: .antigravity)
+                }
+            )
+        case .identityOnly(let observation):
+            let account = observation.identity.email
+                ?? observation.identity.stableAccountID
+                ?? "연결된 계정"
+            return StatusPanelConfiguration(
+                icon: "person.crop.circle",
+                iconColor: .orange,
+                showsProgress: false,
+                title: "계정만 확인됨",
+                message: "\(account)은(는) 확인했지만 표시 가능한 quota 수치를 받지 못했습니다.",
+                actionTitle: "조회 방식 확인",
+                actionStyle: .bordered,
+                action: {
+                    viewModel.openSettings(for: .antigravity)
+                }
+            )
+        case .failed(let failure):
+            let failurePresentation =
+                antigravityFailurePresentation(failure)
+            let action: () -> Void = {
+                if failurePresentation.requiresSettings {
+                    viewModel.openSettings(for: .antigravity)
+                } else {
+                    viewModel.refresh(service: .antigravity)
+                }
+            }
+            return StatusPanelConfiguration(
+                icon: "exclamationmark.triangle",
+                iconColor: failurePresentation.requiresSettings
+                    ? .red
+                    : .orange,
+                showsProgress: false,
+                title: failurePresentation.title,
+                message: failurePresentation.message,
+                actionTitle: failurePresentation.requiresSettings
+                    ? "설정 열기"
+                    : "다시 시도",
+                actionStyle: failurePresentation.requiresSettings
+                    ? .prominent
+                    : .bordered,
+                action: action
+            )
+        case .ready, .partial, .stale:
+            // 이 상태들은 mapper가 항상 `.content`로 변환한다. 방어적으로
+            // unavailable이 전달되더라도 이전 숫자를 복원하지 않는다.
+            return StatusPanelConfiguration(
+                icon: "exclamationmark.triangle",
+                iconColor: .orange,
+                showsProgress: false,
+                title: "표시 데이터 확인 필요",
+                message: "검증된 사용량 presentation을 만들지 못했습니다. 다시 조회해 주세요.",
+                actionTitle: "다시 시도",
+                actionStyle: .bordered,
+                action: {
+                    viewModel.refresh(service: .antigravity)
+                }
+            )
+        }
+    }
+
+    private func antigravityBlockerMessage(
+        _ blocker: AntigravityRuntimeBlocker
+    ) -> String {
+        switch blocker {
+        case .settingsMigration:
+            return "기존 Antigravity 설정 이전을 완료하지 못했습니다. 설정에서 이전 상태를 확인해 주세요."
+        case .canonicalAccountState:
+            return "계정 저장 상태를 검증하지 못했습니다. 설정에서 계정을 다시 확인해 주세요."
+        case .typedSettings:
+            return "새 조회 설정을 준비하지 못했습니다. 설정에서 조회 방식을 다시 저장해 주세요."
+        case .managedRuntimeRecovery:
+            return "이전 AGY 실행을 안전하게 정리하지 못했습니다. 설정의 진단 항목을 확인해 주세요."
+        }
+    }
+
+    private func antigravitySetupMessage(
+        _ reason: AntigravitySetupReason
+    ) -> String {
+        switch reason {
+        case .noSelectedOAuthAccount:
+            return "Google 계정을 연결한 뒤 사용할 계정을 선택해 주세요."
+        case .noAmbientLocalSession:
+            return "Antigravity 앱 또는 AGY CLI에 로그인한 뒤 로컬 세션 조회를 다시 시도해 주세요."
+        }
+    }
+
+    private struct AntigravityFailurePresentation {
+        let title: String
+        let message: String
+        let requiresSettings: Bool
+    }
+
+    private func antigravityFailurePresentation(
+        _ failure: AntigravityFailure
+    ) -> AntigravityFailurePresentation {
+        switch failure {
+        case .authenticationRequired, .interactionRequired:
+            return AntigravityFailurePresentation(
+                title: "Google 계정 다시 연결 필요",
+                message: "현재 계정의 인증을 갱신할 수 없습니다. 설정에서 Google 계정을 다시 연결해 주세요.",
+                requiresSettings: true
+            )
+        case .selectedAccountUnavailable,
+             .selectedAccountIdentityUnavailable:
+            return AntigravityFailurePresentation(
+                title: "선택한 계정 확인 필요",
+                message: "선택한 계정이 없거나 계정 경계를 검증할 수 없습니다. 설정에서 사용할 계정을 다시 선택해 주세요.",
+                requiresSettings: true
+            )
+        case .credentialCommitFailed,
+             .credentialCommitAmbiguous:
+            return AntigravityFailurePresentation(
+                title: "계정 정보 저장 확인 필요",
+                message: "갱신한 계정 정보를 안전하게 저장했는지 확인할 수 없습니다. 기존 숫자는 표시하지 않습니다.",
+                requiresSettings: true
+            )
+        case .noEligibleSource, .sourceUnavailable:
+            return AntigravityFailurePresentation(
+                title: "사용 가능한 조회 방식 없음",
+                message: "현재 계정에 사용할 수 있는 조회 경로가 없습니다. 설정에서 Google 계정 또는 로컬 세션을 선택해 주세요.",
+                requiresSettings: true
+            )
+        case .repositoryUnavailable,
+             .repositoryRevisionChanged,
+             .invalidRefreshContext,
+             .generationExhausted,
+             .sourceContractViolation:
+            return AntigravityFailurePresentation(
+                title: "로컬 상태 확인 필요",
+                message: "계정 또는 조회 설정이 갱신 중 변경되어 결과를 폐기했습니다. 설정을 확인한 뒤 다시 시도해 주세요.",
+                requiresSettings: true
+            )
+        case .deadlineExceeded, .transportUnavailable:
+            return AntigravityFailurePresentation(
+                title: "연결 일시 실패",
+                message: "조회 경로가 제시간에 응답하지 않았습니다. 잠시 후 다시 시도해 주세요.",
+                requiresSettings: false
+            )
+        case .schemaChanged:
+            return AntigravityFailurePresentation(
+                title: "응답 형식 변경",
+                message: "Antigravity 응답 형식이 달라 수치를 안전하게 해석하지 못했습니다. 이전 숫자는 표시하지 않습니다.",
+                requiresSettings: false
+            )
+        case .numericQuotaUnavailable:
+            return AntigravityFailurePresentation(
+                title: "수치형 사용량 미지원",
+                message: "현재 조회 경로는 표시 가능한 quota 수치를 제공하지 않습니다.",
+                requiresSettings: true
+            )
+        case .cancelled:
+            return AntigravityFailurePresentation(
+                title: "조회 취소됨",
+                message: "새 계정 또는 조회 설정으로 전환되어 이전 요청을 취소했습니다.",
+                requiresSettings: false
+            )
+        case .appShuttingDown:
+            return AntigravityFailurePresentation(
+                title: "앱 종료 중",
+                message: "진행 중인 조회를 안전하게 정리하고 있습니다.",
+                requiresSettings: false
             )
         }
     }

@@ -1,0 +1,38 @@
+{
+  "accounts" : [
+    {
+      "createdAtMilliseconds" : 1800000000000,
+      "credentials" : {
+        "access_token" : "[redacted-access-primary]",
+        "client_id" : "fixture-client.apps.googleusercontent.com",
+        "client_secret" : "[redacted-client-secret]",
+        "email" : "primary@example.invalid",
+        "expiry_date" : 1900000000000,
+        "id_token" : "[redacted-id-primary]",
+        "project_id" : "fixture-project-primary",
+        "refresh_token" : "[redacted-refresh-primary]"
+      },
+      "email" : "primary@example.invalid",
+      "id" : "google-primary-example-invalid",
+      "label" : "Primary fixture",
+      "updatedAtMilliseconds" : 1800000001000
+    },
+    {
+      "createdAtMilliseconds" : 1800000002000,
+      "credentials" : {
+        "accessToken" : "[redacted-access-team]",
+        "clientId" : "fixture-client.apps.googleusercontent.com",
+        "email" : "team@example.invalid",
+        "expiresAt" : 1900000000000,
+        "idToken" : "[redacted-id-team]",
+        "projectId" : "fixture-project-team",
+        "refreshToken" : "[redacted-refresh-team]"
+      },
+      "email" : "team@example.invalid",
+      "id" : "google-team-example-invalid",
+      "label" : "Team fixture",
+      "updatedAtMilliseconds" : 1800000003000
+    }
+  ],
+  "activeAccountID" : "google-team-example-invalid"
+}

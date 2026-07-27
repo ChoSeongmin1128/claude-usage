@@ -286,6 +286,10 @@ enum PopoverDisplayEditorMode: String, CaseIterable, Identifiable {
     var isCompact: Bool {
         self == .compact
     }
+
+    var showsPersistentIdentityRail: Bool {
+        self == .standard
+    }
 }
 
 struct PopoverDisplayEditorView: View {
@@ -343,7 +347,7 @@ struct PopoverDisplayItemsListView: View {
 
     private var editableItems: [PopoverItemConfig] {
         service == .antigravity
-            ? items.filter { $0.id != "antigravityModels" }
+            ? items.filter { $0.id != AntigravityItemCatalog.usageLimitsItemID }
             : items
     }
 

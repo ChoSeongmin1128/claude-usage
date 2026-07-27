@@ -187,7 +187,8 @@ struct SettingsView: View {
     @State var runtimeEnvironmentRefreshTick: Int = 0
     @State var expandedCustomMenuBarProviders: Set<AppProviderKind> = []
     @State var pendingDestructiveAction: SettingsDestructiveAction?
-    @StateObject var antigravityOAuthSettings = AntigravityOAuthSettingsViewModel()
+    @StateObject var antigravitySettings:
+        AntigravitySettingsViewModel
 
     var onOpenLogin: (() -> Void)?
     var onReconnectClaudeCode: (() -> Void)?
@@ -195,17 +196,16 @@ struct SettingsView: View {
     var onClearBrowserSession: (() -> Void)?
     var onRefreshClaudeUsage: (() -> Void)?
     var onClaudeOAuthMigrationCompleted: (() -> Void)?
-    var onRefreshAntigravityUsage: (() -> Void)?
     var onCodexLogout: (() -> Void)?
     var claudeLastUsage: (() -> ClaudeUsageResponse?)?
     var claudeLastOverage: (() -> OverageSpendLimitResponse?)?
     var codexLastUsage: (() -> CodexUsageResponse?)?
     var codexLastError: (() -> APIError?)?
-    var antigravityLastUsageSource: (() -> AntigravityUsageDataSource?)?
-    var antigravityLastUsage: (() -> AntigravityUsageResponse?)?
 
     init(
         claudeAPIService: ClaudeAPIService,
+        antigravityRuntimeController:
+            AntigravityRuntimeController,
         claudeOAuthMigrationCoordinator: ClaudeOAuthCredentialMigrationCoordinator = .shared,
         onOpenLogin: (() -> Void)? = nil,
         onReconnectClaudeCode: (() -> Void)? = nil,
@@ -213,16 +213,20 @@ struct SettingsView: View {
         onClearBrowserSession: (() -> Void)? = nil,
         onRefreshClaudeUsage: (() -> Void)? = nil,
         onClaudeOAuthMigrationCompleted: (() -> Void)? = nil,
-        onRefreshAntigravityUsage: (() -> Void)? = nil,
         onCodexLogout: (() -> Void)? = nil,
         claudeLastUsage: (() -> ClaudeUsageResponse?)? = nil,
         claudeLastOverage: (() -> OverageSpendLimitResponse?)? = nil,
         codexLastUsage: (() -> CodexUsageResponse?)? = nil,
-        codexLastError: (() -> APIError?)? = nil,
-        antigravityLastUsageSource: (() -> AntigravityUsageDataSource?)? = nil,
-        antigravityLastUsage: (() -> AntigravityUsageResponse?)? = nil
+        codexLastError: (() -> APIError?)? = nil
     ) {
         self.claudeAPIService = claudeAPIService
+        _antigravitySettings = StateObject(
+            wrappedValue:
+                AntigravitySettingsViewModel(
+                    runtimeController:
+                        antigravityRuntimeController
+                )
+        )
         self.claudeOAuthMigrationCoordinator = claudeOAuthMigrationCoordinator
         self.onOpenLogin = onOpenLogin
         self.onReconnectClaudeCode = onReconnectClaudeCode
@@ -230,14 +234,11 @@ struct SettingsView: View {
         self.onClearBrowserSession = onClearBrowserSession
         self.onRefreshClaudeUsage = onRefreshClaudeUsage
         self.onClaudeOAuthMigrationCompleted = onClaudeOAuthMigrationCompleted
-        self.onRefreshAntigravityUsage = onRefreshAntigravityUsage
         self.onCodexLogout = onCodexLogout
         self.claudeLastUsage = claudeLastUsage
         self.claudeLastOverage = claudeLastOverage
         self.codexLastUsage = codexLastUsage
         self.codexLastError = codexLastError
-        self.antigravityLastUsageSource = antigravityLastUsageSource
-        self.antigravityLastUsage = antigravityLastUsage
     }
 
     enum TestResult: Equatable {

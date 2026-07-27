@@ -11,6 +11,11 @@ final class ProviderStyleMenuSelection: NSObject {
     }
 }
 
+struct ProviderStyleMenuConfiguration {
+    let currentStyle: MenuBarStyle
+    let availableStyles: [MenuBarStyle]
+}
+
 struct StatusContextMenuActions {
     let refreshAll: Selector
     let settings: Selector
@@ -26,6 +31,9 @@ enum StatusContextMenuBuilder {
         settings: AppSettings,
         runtimeServices: [PopoverService],
         refreshableServiceSet: Set<PopoverService>,
+        styleConfigurations:
+            [PopoverService:
+                ProviderStyleMenuConfiguration],
         actions: StatusContextMenuActions
     ) -> NSMenu {
         let menu = NSMenu()
@@ -45,6 +53,8 @@ enum StatusContextMenuBuilder {
                 service,
                 settings: settings,
                 canRefresh: refreshableServiceSet.contains(service),
+                styleConfiguration:
+                    styleConfigurations[service],
                 actions: actions))
         }
 
@@ -59,6 +69,8 @@ enum StatusContextMenuBuilder {
         _ service: PopoverService,
         settings: AppSettings,
         canRefresh: Bool,
+        styleConfiguration:
+            ProviderStyleMenuConfiguration?,
         actions: StatusContextMenuActions
     ) -> NSMenuItem {
         let serviceName = service.displayName
@@ -71,11 +83,16 @@ enum StatusContextMenuBuilder {
             isEnabled: canRefresh,
             action: actions.refreshProvider,
             representedObject: service.rawValue))
-        submenu.addItem(styleItem(
-            title: "아이콘 스타일",
-            service: service,
-            currentStyle: settings.menuBarStyle(for: kind) ?? .none,
-            action: actions.changeProviderStyle))
+        if let styleConfiguration {
+            submenu.addItem(styleItem(
+                title: "아이콘 스타일",
+                service: service,
+                currentStyle:
+                    styleConfiguration.currentStyle,
+                availableStyles:
+                    styleConfiguration.availableStyles,
+                action: actions.changeProviderStyle))
+        }
         submenu.addItem(.separator())
         // 컨트롤 문구는 실행 결과를 그대로 말한다: 켜기/끄기
         submenu.addItem(toggleItem(
@@ -126,10 +143,11 @@ enum StatusContextMenuBuilder {
         title: String,
         service: PopoverService,
         currentStyle: MenuBarStyle,
+        availableStyles: [MenuBarStyle],
         action: Selector
     ) -> NSMenuItem {
         let submenu = NSMenu()
-        for style in MenuBarStyle.allCases {
+        for style in availableStyles {
             let item = makeItem(title: style.displayName, action: action)
             item.representedObject = ProviderStyleMenuSelection(service: service, style: style)
             item.state = currentStyle == style ? .on : .off

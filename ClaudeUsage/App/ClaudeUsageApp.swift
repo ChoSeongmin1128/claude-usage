@@ -11,6 +11,10 @@ import SwiftUI
 struct ClaudeUsageApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
+    init() {
+        _ = AntigravityApplicationBootstrap.prepareSettings()
+    }
+
     var body: some Scene {
         Settings {
             appDelegate.makeSettingsView()
