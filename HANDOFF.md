@@ -53,34 +53,24 @@ Stage 8을 막고 있던 Developer ID provisioning profile blocker는 profile을
 계획 문서 기준 상태:
 
 - Stage 1~9: commit 완료
-- Stage 10: 자동 검증 완료. signed QA는 staging 산출본에서 수행
-- 버전: 2.4.0 (20400)으로 올림
-- `main` squash와 staging 배포: 진행 중
+- Stage 10: 자동 검증 완료. signed QA만 남음 (11절)
+- 버전: 2.4.0 (20400)
+- `main` squash와 `v2.4.0-staging` 배포: 완료
 
 ## 4. 현재 Git 상태
 
+`main`과 `dev`는 같은 commit을 가리킵니다.
+
 ```text
-97c12be docs: AGY 연결 정책과 테스트 기준을 v2 구현에 맞춤
-7a390ba refactor(antigravity): legacy model-window 서브시스템을 제거
-23ecbb1 docs: Stage 9 legacy 제거 의존 지도를 기록
-173e40a refactor(antigravity): legacy usage 조회 경로를 삭제
-57dbf24 docs: Stage 8 완료와 Keychain 경계 결정을 기록
-919b284 feat(antigravity): v2 quota runtime과 UX로 전환
-221c514 fix(auth): 배포 가능한 Keychain 경계로 자격 보관을 고정
-e96537e docs: AGY v2 작업 인계 상태 기록
-6fa5d5c fix(release): signed entitlement 검증 경계 강화
-bb8b2b8 feat(antigravity): v2 refresh와 lane presentation을 준비
-469c5f8 feat(release): 통합 release driver 추가
-779dd10 feat(antigravity): AGY session lifecycle 분리
-48b443a fix(auth): require signed keychain access group
-6467c65 feat(antigravity): structured local quota 조회 추가
-d667191 feat(antigravity): v2 migration coordinator를 준비
-4d572e5 fix(ui): provider icon appearance 전환을 보장
-3a43ed7 refactor(auth): OAuth credential vault 책임을 공통화
-d91a550 test(antigravity): 최신 quota 계약을 고정
-f9906f1 docs: AGY 사용량 조회 전면 개편 계획 수립
-1fc02fa main / v2.3.3
+31b1548 docs: v2.4.0-staging 게시와 원격 검증 결과를 기록
+3fa8563 fix(release): 존재하지 않는 tag를 mismatched로 오판하지 않도록 수정
+6286664 feat(antigravity): 사용량 조회를 v2 quota runtime으로 전면 개편 (2.4.0)
+1fc02fa v2.3.3
 ```
+
+`6286664`는 Stage 1~9의 `dev` 25개 commit을 squash한 것입니다. squash 이전
+해시(`e96537e`, `221c514`, `919b284`, `173e40a`, `23ecbb1`, `7a390ba`,
+`97c12be` 등)는 어느 branch에서도 도달할 수 없으므로 인용하지 않습니다.
 
 ## 5. Stage 8에서 전환된 범위
 
@@ -205,29 +195,29 @@ Apple 참고 문서:
 
 ## 8. 현재 테스트 상태
 
-Stage 9 진행분까지 통과한 항목:
-
-- 전체 XCTest: 881 executed, 0 failures
-- release driver shell tests: 305 passed
-- unsigned Release build (`CODE_SIGNING_ALLOWED=NO`): 성공
+- 전체 XCTest: 881 executed, 1 skipped, 0 failures (2.4.0 기준)
+- release driver shell tests: 307 passed
+- universal Release build: `x86_64 arm64` 확인
 - `git diff --check`: 통과
 
 테스트 수가 944에서 881로 줄어든 것은 legacy 경로와 함께 그 전용 테스트
 파일을 삭제했기 때문입니다.
 
 이전 인계 문서의 "release driver 308/308"은 오래된 수치였습니다. Stage 8
-이전 HEAD에서도 302였고, negative 검증 3개를 더해 305입니다.
+이전 HEAD에서도 302였고, negative entitlement 검증 3개와 tag 해석 회귀 2개를
+더해 307입니다.
 
-signed app QA는 Stage 10 항목이며 아직 실행하지 않았습니다.
+signed app QA는 아직 실행하지 않았습니다 (11절).
 
 ## 9. 다음 순서
 
-1. `git status --short --branch`로 tree가 깨끗한지 확인
-2. Stage 9 수행 (10절)
-3. coherent commit마다 `origin/dev` push
-4. Stage 10 수행 (11절)
+1. `~/Downloads/ClaudeUsage.app` (v2.3.3-staging)에서 Sparkle 업데이트를
+   실행해 11절의 signed QA 수행
+2. 결함이 없으면 prod 배포를 검토. 결함이 있으면 2.4.0을 버리고 다음 숫자
+   버전으로 진행
+3. 후속 과제: Data Protection Keychain 채택 (7절)
 
-전체 테스트 명령:
+전체 테스트:
 
 ```bash
 xcodebuild test -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -destination 'platform=macOS'
