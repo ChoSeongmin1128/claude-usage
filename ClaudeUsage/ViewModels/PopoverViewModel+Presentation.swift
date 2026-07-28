@@ -36,7 +36,10 @@ extension PopoverViewModel {
             density: density,
             phase: phase,
             sections: sections,
-            rowCount: rowCount
+            rowCount: rowCount,
+            // Claude 미인증은 두 버튼짜리 rich 패널을 쓰므로 본문 뷰포트가 더 필요하다.
+            // (PopoverView.providerBodyContent의 분기와 같은 조건이어야 한다.)
+            richAuthPanel: phase == .authRequired && service == .claude
         )
         return LayoutResult(spec: spec, sections: sections)
     }

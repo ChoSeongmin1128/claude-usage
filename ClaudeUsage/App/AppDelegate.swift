@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     var statusTimer: Timer?
     var appearanceObservation: NSKeyValueObservation?
+    var statusItemPlacementCheckTask: Task<Void, Never>?
     var lastObservedProviderSelectionState: ProviderSelectionState?
     var eventMonitor: Any?
     var globalClickMonitor: Any?

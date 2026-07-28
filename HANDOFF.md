@@ -399,3 +399,97 @@ gh CLI 계정은 배포 중에만 `ChoSeongmin1128`로 바꾸고, 끝나면 즉�
 `nathan-glorang`으로 복구합니다.
 
 staging 검증 전 prod 배포를 진행하지 않습니다.
+
+
+## 11. 메뉴바 상태 아이템 미배치 (해결됨, 2026-07-28)
+
+### 결론
+
+macOS 26 Tahoe에서 서드파티 상태 아이템은 ControlCenter가 replicant로 호스팅하며,
+앱별 표시 상태를 TCC 보호 저장소에 유지한다:
+
+```
+~/Library/Group Containers/group.com.apple.controlcenter/Library/Preferences/group.com.apple.controlcenter.plist
+```
+
+`trackedApplications`(Swift Codable dict가 [key, value, ...] 교차 배열로 직렬화된
+bplist blob)에서 ClaudeUsage 자체는 `isAllowed: true`였지만, **다른 앱 항목의
+`menuItemLocations`에 `com.seongmin.ClaudeUsage`가 교차 오염**돼 있었다:
+
+- `com.openai.codex` (isAllowed: false) 항목에 ClaudeUsage 참조
+- `com.google.antigravity` (isAllowed: false) 항목에 ClaudeUsage 참조
+- `com.anthropic.claude-code` 항목에 ClaudeUsage + orca 참조
+
+CC가 ClaudeUsage 아이템을 차단된 앱 소속으로 오인해 등록 15ms 만에
+`Moving host to blocked list`로 격리했다 (`log` category `appStatusItems`).
+오염 경위는 ClaudeUsage가 codex/agy CLI를 자식으로 spawn하던 QA 세션에서의
+귀속 혼선으로 추정 (Tahoe CC 버그로 보임).
+
+### 해결 절차 (재발 시 그대로)
+
+1. FDA를 세션 호스트에 부여 (Claude Code는 소문자 `claude.app` 런타임 번들 —
+   대문자 Claude.app의 FDA는 `disclaimer` 헬퍼가 체인을 끊어 상속 안 됨)
+2. plist 백업 후 python plistlib로: CU key/value 쌍 제거 + 타 앱
+   menuItemLocations의 CU 참조 스크럽 (백업: scratchpad/group-cc-backup.plist)
+3. `kill -9 ControlCenter cfprefsd` 후 파일 교체 (cfprefsd 캐시 클로버 방지;
+   SIGTERM은 구 상태를 flush하므로 -9)
+4. 앱 재실행 → `Moving host to blocked list` 부재 확인 → 메뉴바 표시 확인
+
+### 진단에서 확정한 사실 (증거)
+
+- 설정 > 메뉴 막대의 앱 토글은 이 차단 상태와 **동기화되지 않는다** (토글 ON인데
+  차단 유지; OFF→ON, 라이브 토글, CC 재시작 조합 전부 무효)
+- 차단 키는 bundle ID 단독 (autosaveName 변경 우회 무효, bundle ID 변경 시 정상)
+- `com.apple.controlcenter` 도메인의 `NSStatusItem Visible Item-N` 키는 무관
+- 미배치 상태의 AX 좌표(x=-1, w=224)와 CGWindowList는 신뢰 불가 — 판정은
+  `log` appStatusItems 카테고리와 실제 스크린샷으로 한다
+- 앱 창은 Tahoe에서 항상 오프스크린 파킹({{0,-6}} 또는 우상단, h=22)이며
+  CC replicant가 실제 표시를 담당 — 창 프레임으로 배치 여부를 판단할 수 없다
+
+### 남은 코드 과제
+
+배치 실패(차단 포함)를 앱이 감지할 수단이 마땅치 않다. isVisible은 차단 중에도
+true였다. 최소한: 시작 N초 후 button.window 높이가 메뉴바 두께(33)가 아니면
+경고 로그 + 설정 창을 여는 복구 알림을 제공하는 방어를 검토한다.
+
+## 12. 진단 중 발견한 별개 결함 (2026-07-28 판정 확정)
+
+진단 당시 4건을 기록했으나, 잔존 샌드박스 컨테이너
+(`~/Library/Containers/com.seongmin.ClaudeUsage`, 7/7 실험 빌드가 생성)가
+defaults CLI를 컨테이너로 리다이렉트해 **CLI 쓰기가 앱에 도달하지 않는
+split-brain** 상태였음이 확인됐다. 이 오염을 걷어낸 최종 판정:
+
+1. **[반증] updateMenuBar가 providerStates를 반영하지 않는다** — 렌더러는
+   앱이 실제로 읽는 outer plist 값을 정확히 반영했다. CLI 쓰기(컨테이너행)가
+   앱(outer)에 안 보였을 뿐. updateMenuBar에 결정 로그를 추가해 재발 시
+   즉시 판별 가능하게 했다.
+2. **[반증] 활성 provider는 메뉴바에서 숨길 수 없다** — 숨김은 허용되며 모두
+   숨기면 placeholder(⋯)가 남는다. 되살림(`applyMinimalVisiblePresetIfNeeded`)은
+   메뉴바 표시를 한 번도 만지지 않은 provider를 새로 켤 때의 onboarding
+   기본값뿐이고, Claude는 `hasExplicitMenuBarCustomization`이 항상 true라
+   대상조차 아니다.
+3. **[수정] providerStates ↔ legacy 미러 불일치** — didSet에서
+   claudeEnabled/codexEnabled를 함께 기록하도록 수정. AppSettings init을
+   `init(defaults:)`로 주입 가능하게 바꿔 회귀 테스트 추가
+   (`testProviderStatesChangeKeepsLegacyMirrorsInSync`).
+4. **[수정] 팝오버 Claude 미인증 화면 푸터 겹침** — rich 패널(아이콘+2줄
+   안내+버튼 2개)이 일반 status panel 뷰포트(88pt)에 강제돼 본문이 넘쳤다.
+   `standardRichAuthPanelHeight`(192pt)와 `richAuthPanel` 플래그를 추가하고
+   88pt를 고정하던 기존 테스트를 바로잡았다.
+
+추가 방어: 메뉴바 배치 감시(`scheduleStatusItemPlacementCheck`) — 시작
+20s+10s 2단계로 `button.window.occlusionState`에 `.visible`이 없으면(§11
+차단 상태의 실측 신호) error 로그 + 하루 1회 복구 안내 알림.
+`_HIHideMenuBar` 사용자는 제외.
+
+### 잔존 컨테이너 정리 (사용자 액션 필요)
+
+컨테이너는 TCC 보호라 에이전트 권한으로 삭제 불가. 터미널에서:
+
+```
+rm -rf ~/Library/Containers/com.seongmin.ClaudeUsage
+```
+
+지우지 않으면 이후 `defaults` CLI 진단이 계속 어긋난 값을 읽는다(앱 동작에는
+영향 없음 — 앱은 outer plist를 사용).
+

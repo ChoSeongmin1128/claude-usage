@@ -27,9 +27,10 @@ nonisolated enum AntigravityOAuthLoginRunner {
         guard !Task.isCancelled else {
             return Result(outcome: .cancelled)
         }
-        guard let oauthClient = await resolvedClientOffMainActor() else {
+        guard let discoveredClient = await resolvedClientOffMainActor() else {
             return Result(outcome: .failed(AntigravityOAuthConfig.missingCredentialsMessage))
         }
+        let oauthClient = await resolveUsableClient(discoveredClient)
         guard !Task.isCancelled else {
             return Result(outcome: .cancelled)
         }
@@ -132,6 +133,74 @@ nonisolated enum AntigravityOAuthLoginRunner {
             )
             return Result(outcome: .failed(error.localizedDescription))
         }
+    }
+
+    /// authorization code는 일회용이므로 교환 단계에서 secret 후보를 시험할 수
+    /// 없다. 그런데 AGY 바이너리에는 구분자 없이 붙은 secret이 여러 개 있어 어느
+    /// 것이 이 client의 것인지 정적으로 알 수 없다. 그래서 브라우저를 열기 전에
+    /// refresh_token grant로 secret 유효성만 확인한다. 의도적으로 무효한 refresh
+    /// token을 보내므로 계정이나 세션 상태에는 영향이 없다.
+    ///
+    /// - `invalid_client` → 그 secret은 이 client의 것이 아니다
+    /// - 그 외 응답 → secret 자체는 받아들여졌다
+    private static func resolveUsableClient(
+        _ client: AntigravityOAuthClient
+    ) async -> AntigravityOAuthClient {
+        let candidates = client.clientSecretCandidates
+        guard candidates.count > 1 else {
+            return client
+        }
+        for (index, secret) in candidates.enumerated() {
+            guard await isClientSecretAccepted(
+                clientID: client.clientID,
+                clientSecret: secret
+            ) else {
+                continue
+            }
+            Logger.log(
+                "AGY OAuth client secret 후보 \(index + 1)/\(candidates.count) 확정"
+            )
+            return AntigravityOAuthClient(
+                clientID: client.clientID,
+                clientSecret: secret,
+                clientSecretCandidates: [secret],
+                allowsPublicClient: false
+            )
+        }
+        Logger.log(
+            "AGY OAuth client secret 후보 \(candidates.count)개가 모두 거부됐습니다.",
+            level: .error
+        )
+        return client
+    }
+
+    private static func isClientSecretAccepted(
+        clientID: String,
+        clientSecret: String
+    ) async -> Bool {
+        var request = URLRequest(url: AntigravityOAuthConfig.tokenURL)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 15
+        request.setValue(
+            "application/x-www-form-urlencoded",
+            forHTTPHeaderField: "Content-Type"
+        )
+        request.httpBody = formBody([
+            "grant_type": "refresh_token",
+            "refresh_token": "claudeusage-client-secret-probe",
+            "client_id": clientID,
+            "client_secret": clientSecret,
+        ])
+
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse
+        else {
+            return false
+        }
+        if http.statusCode == 200 {
+            return true
+        }
+        return tokenError(from: data)?.code != "invalid_client"
     }
 
     private static func resolvedClientOffMainActor() async -> AntigravityOAuthClient? {

@@ -427,7 +427,7 @@ class AppSettings: ObservableObject {
         }
     }
 
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
     let loadedProviderStatesFromDisk: Bool
 
     // MARK: - Published Properties
@@ -610,6 +610,11 @@ class AppSettings: ObservableObject {
             if let data = try? JSONEncoder().encode(providerStates) {
                 defaults.set(data, forKey: "providerStates")
             }
+            // 다운그레이드 보호용 legacy 미러. 마이그레이션 때 한 번만 쓰면
+            // 이후 변경에서 어긋난 채 남으므로(실측: providerStates codex=true,
+            // codexEnabled=false) 변경 시마다 함께 기록한다.
+            defaults.set(providerStates.state(for: .claude).isEnabled, forKey: "claudeEnabled")
+            defaults.set(providerStates.state(for: .codex).isEnabled, forKey: "codexEnabled")
         }
     }
     @Published var menuBarActiveServiceSelectionRawValue: String {
@@ -1591,7 +1596,11 @@ class AppSettings: ObservableObject {
 
     // MARK: - Init
 
-    private init() {
+    /// 기본은 standard지만 테스트에서 suite 기반 UserDefaults를 주입할 수 있다.
+    /// AppSettings는 지금까지 singleton+UserDefaults.standard에 묶여 있어 어떤
+    /// 초기화/마이그레이션 회귀도 테스트로 잡을 수 없었다.
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         let style = defaults.string(forKey: "menuBarStyle") ?? MenuBarStyle.none.rawValue
         self.menuBarStyle = MenuBarStyle(rawValue: style) ?? .none
 

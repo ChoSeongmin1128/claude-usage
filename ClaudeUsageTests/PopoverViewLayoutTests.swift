@@ -250,6 +250,18 @@ final class PopoverViewLayoutTests: XCTestCase {
             PopoverLayoutMetrics.preferredPopoverHeight(compact: false, phase: .authRequired, rowCount: 0),
             201
         )
+        // Claude 미인증 rich 패널(아이콘+2줄 안내+버튼 2개)은 88pt 뷰포트에
+        // 들어가지 않아 푸터와 겹쳤다. rich 플래그가 본문 192pt를 확보해야 한다.
+        XCTAssertEqual(
+            PopoverLayoutMetrics.preferredPopoverHeight(
+                compact: false, phase: .authRequired, rowCount: 0, richAuthPanel: true
+            ),
+            305
+        )
+        XCTAssertEqual(
+            PopoverLayoutMetrics.standardBodyViewportHeight(phase: .authRequired, richAuthPanel: true),
+            PopoverLayoutMetrics.standardRichAuthPanelHeight
+        )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: false, phase: .loading, rowCount: 0),
             185
@@ -265,9 +277,12 @@ final class PopoverViewLayoutTests: XCTestCase {
     }
 
     func testStandardLayoutSpecUsesTallerInteractiveStatusBodyHeight() async {
+        // Claude 미인증은 rich 패널이므로 일반 interactive 패널(88pt)이 아니라
+        // rich 전용 높이를 받아야 한다. 88pt를 기대하던 이전 버전은 겹침 버그를
+        // 고정하고 있었다.
         let expectedHeights = await MainActor.run {
             (
-                PopoverLayoutMetrics.standardInteractiveStatusPanelHeight,
+                PopoverLayoutMetrics.standardRichAuthPanelHeight,
                 PopoverLayoutMetrics.standardStatusPanelHeight
             )
         }

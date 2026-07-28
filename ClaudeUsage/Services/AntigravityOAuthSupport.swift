@@ -451,17 +451,58 @@ nonisolated enum AntigravityOAuthConfig {
         guard let clientID = clientIDs.first else {
             return nil
         }
-        let secrets = matches(
+        // AGY 바이너리는 문자열을 구분자 없이 붙여 넣는다. 실제로 secret 두 개가
+        // 연달아 오고 곧바로 `https`가 붙는다. 그래서 경계를 정규식만으로 확정할
+        // 수 없다. secret 길이는 고정으로 가정하지 않으므로(테스트가 이를 고정)
+        // 후보를 관대하게 모으고, 어느 것이 이 client의 것인지는 로그인 전
+        // preflight 검증이 결정한다.
+        var secrets = matches(
             pattern: #"GOCSPX-[A-Za-z0-9_-]{20,60}(?![A-Za-z0-9_-])"#,
             around: Data("GOCSPX-".utf8),
             in: data
         )
+        for slice in packedSecretSlices(in: data) where !secrets.contains(slice) {
+            secrets.append(slice)
+        }
         return AntigravityOAuthClient(
             clientID: clientID,
             clientSecret: secrets.first,
             clientSecretCandidates: secrets,
             allowsPublicClient: secrets.isEmpty
         )
+    }
+
+    /// 맞붙은 secret들을 경계로 잘라 후보를 만든다. 각 `GOCSPX-` 표식에서
+    /// 시작해 다음 `GOCSPX-` 또는 허용 문자가 끝나는 지점까지를 한 후보로 보고,
+    /// 여기에 Google이 현재 쓰는 고정 길이 슬라이스도 함께 넣는다. 정확도는
+    /// preflight 검증이 담당하므로 여기서는 참값을 놓치지 않는 것이 목적이다.
+    private static func packedSecretSlices(in data: Data) -> [String] {
+        let marker = Data("GOCSPX-".utf8)
+        let allowed = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-".utf8)
+        let fixedBodyLength = 28
+        var result: [String] = []
+        var cursor = data.startIndex
+
+        while cursor < data.endIndex,
+              let hit = data.range(of: marker, in: cursor..<data.endIndex) {
+            var end = hit.upperBound
+            while end < data.endIndex, allowed.contains(data[end]) {
+                end += 1
+            }
+            let bodyStart = hit.upperBound
+            let candidates = [
+                bodyStart + fixedBodyLength,
+                end,
+            ]
+            for bodyEnd in candidates where bodyEnd <= end && bodyEnd > bodyStart {
+                let value = String(decoding: data[hit.lowerBound..<bodyEnd], as: UTF8.self)
+                if !result.contains(value) {
+                    result.append(value)
+                }
+            }
+            cursor = hit.upperBound
+        }
+        return result
     }
 
     private static func matches(

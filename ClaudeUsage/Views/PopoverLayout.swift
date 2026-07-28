@@ -38,6 +38,10 @@ enum PopoverLayoutMetrics {
     static let compactContentBottomSpacing: CGFloat = 5
     static let standardStatusPanelHeight: CGFloat = 72
     static let standardInteractiveStatusPanelHeight: CGFloat = 88
+    /// Claude 미인증 패널(standard)은 아이콘+제목+2줄 안내+버튼 2개짜리
+    /// rich 패널이라 일반 status panel(88pt)에 들어가지 않는다. 88pt를 그대로
+    /// 쓰면 본문이 뷰포트를 넘쳐 푸터와 겹쳐 그려진다(실측 재현).
+    static let standardRichAuthPanelHeight: CGFloat = 192
 
     static func preferredPopoverWidth(compact: Bool) -> CGFloat {
         compact ? compactPopoverWidth : standardPopoverWidth
@@ -63,7 +67,8 @@ enum PopoverLayoutMetrics {
         density: PopoverDensity,
         phase: PopoverContentPhase,
         sections: [PopoverDisplaySection],
-        rowCount: Int
+        rowCount: Int,
+        richAuthPanel: Bool = false
     ) -> PopoverLayoutSpec {
         let bodyInsets = density.isCompact ? compactBodyInsets : standardBodyInsets
         let sectionSpacing = density.isCompact ? compactSectionSpacing : standardSectionSpacing
@@ -92,13 +97,18 @@ enum PopoverLayoutMetrics {
             )
         }
 
-        let bodyContentHeight = standardBodyViewportHeight(phase: phase)
+        let bodyContentHeight = standardBodyViewportHeight(phase: phase, richAuthPanel: richAuthPanel)
         return PopoverLayoutSpec(
             density: density,
             phase: phase,
             size: CGSize(
                 width: standardPopoverWidth,
-                height: preferredPopoverHeight(compact: false, phase: phase, rowCount: rowCount)
+                height: preferredPopoverHeight(
+                    compact: false,
+                    phase: phase,
+                    rowCount: rowCount,
+                    richAuthPanel: richAuthPanel
+                )
             ),
             bodyContentHeight: bodyContentHeight,
             bodyInsets: bodyInsets,
@@ -110,7 +120,8 @@ enum PopoverLayoutMetrics {
     static func preferredPopoverHeight(
         compact: Bool,
         phase: PopoverContentPhase,
-        rowCount: Int
+        rowCount: Int,
+        richAuthPanel: Bool = false
     ) -> CGFloat {
         if compact {
             let bodyHeight = compactBodyViewportHeight(phase: phase, rowCount: rowCount)
@@ -128,7 +139,11 @@ enum PopoverLayoutMetrics {
 
         switch phase {
         case .authRequired, .error:
-            return standardPopoverHeight(forBodyHeight: standardInteractiveStatusPanelHeight)
+            return standardPopoverHeight(
+                forBodyHeight: richAuthPanel
+                    ? standardRichAuthPanelHeight
+                    : standardInteractiveStatusPanelHeight
+            )
         case .loading, .empty:
             return standardPopoverHeight(forBodyHeight: standardStatusPanelHeight)
         case .content:
@@ -148,10 +163,12 @@ enum PopoverLayoutMetrics {
         }
     }
 
-    static func standardBodyViewportHeight(phase: PopoverContentPhase) -> CGFloat {
+    static func standardBodyViewportHeight(phase: PopoverContentPhase, richAuthPanel: Bool = false) -> CGFloat {
         switch phase {
         case .authRequired, .error:
-            return standardInteractiveStatusPanelHeight
+            return richAuthPanel
+                ? standardRichAuthPanelHeight
+                : standardInteractiveStatusPanelHeight
         case .loading, .empty:
             return standardStatusPanelHeight
         case .content:

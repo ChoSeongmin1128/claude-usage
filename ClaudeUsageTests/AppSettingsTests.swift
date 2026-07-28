@@ -400,4 +400,44 @@ final class AppSettingsTests: XCTestCase {
             XCTAssertNil(UserDefaults.standard.object(forKey: key), key)
         }
     }
+
+    // MARK: - Provider legacy mirror
+
+    /// providerStates 변경이 legacy 미러(claudeEnabled/codexEnabled)를 함께
+    /// 갱신해야 한다. 마이그레이션 때 한 번만 쓰던 기존 동작은 이후 변경에서
+    /// 미러가 어긋난 채 남았다(실측: providerStates codex=true, codexEnabled=false).
+    func testProviderStatesChangeKeepsLegacyMirrorsInSync() throws {
+        let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+        let suite = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { suite.removePersistentDomain(forName: suiteName) }
+
+        let settings = AppSettings(defaults: suite)
+
+        settings.setProviderEnabled(true, for: .codex)
+        XCTAssertEqual(suite.object(forKey: "codexEnabled") as? Bool, true)
+
+        settings.setProviderEnabled(false, for: .codex)
+        XCTAssertEqual(suite.object(forKey: "codexEnabled") as? Bool, false)
+        XCTAssertEqual(suite.object(forKey: "claudeEnabled") as? Bool, true)
+
+        // 저장된 catalog 자체도 미러와 같은 값을 봐야 한다.
+        let stored = try XCTUnwrap(suite.data(forKey: "providerStates"))
+        let catalog = try JSONDecoder().decode(AppProviderStateCatalog.self, from: stored)
+        XCTAssertFalse(catalog.state(for: .codex).isEnabled)
+        XCTAssertTrue(catalog.state(for: .claude).isEnabled)
+    }
+
+    /// 주입된 defaults로 만든 인스턴스는 standard 도메인을 오염시키지 않아야 한다.
+    func testInjectedDefaultsDoNotTouchStandardDomain() throws {
+        let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+        let suite = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { suite.removePersistentDomain(forName: suiteName) }
+
+        let marker = UserDefaults.standard.data(forKey: "providerStates")
+        let settings = AppSettings(defaults: suite)
+        settings.setProviderEnabled(true, for: .codex)
+
+        XCTAssertEqual(UserDefaults.standard.data(forKey: "providerStates"), marker)
+        XCTAssertNotNil(suite.data(forKey: "providerStates"))
+    }
 }

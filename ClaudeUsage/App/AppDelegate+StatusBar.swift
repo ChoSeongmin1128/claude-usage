@@ -6,6 +6,51 @@ extension AppDelegate {
     func setupStatusItems() {
         rebuildStatusItems()
         Logger.info("메뉴바 아이템 생성 완료")
+        scheduleStatusItemPlacementCheck()
+    }
+
+    // MARK: - Placement Watchdog
+
+    /// macOS 26의 ControlCenter는 서드파티 상태 아이템을 자체 저장소
+    /// (`trackedApplications`) 기준으로 차단할 수 있고, 그 상태에서는 아이템
+    /// 창이 메뉴바에 편입되지 못한 채 오프스크린에 남는다(실측). 앱은 이를
+    /// API로 통지받지 못해 사용자에겐 "앱이 안 뜬다"로만 보이므로, 배치 여부를
+    /// 창 노출 상태로 확인해 복구 경로를 알려 준다.
+    func scheduleStatusItemPlacementCheck() {
+        statusItemPlacementCheckTask?.cancel()
+        statusItemPlacementCheckTask = Task { @MainActor [weak self] in
+            // 로그인 직후나 느린 부팅에서 메뉴바가 정착할 시간을 준다.
+            try? await Task.sleep(nanoseconds: 20_000_000_000)
+            guard let self, !Task.isCancelled, self.isStatusItemUnplaced else { return }
+            // 전체 화면 같은 일시 상태의 오탐을 줄이기 위해 한 번 더 본다.
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard !Task.isCancelled, self.isStatusItemUnplaced else { return }
+            Logger.error(
+                "메뉴바 아이템이 배치되지 않았습니다. 시스템 설정 > 메뉴 막대에서 ClaudeUsage 표시 여부를 확인하세요."
+            )
+            self.notifyStatusItemUnplacedOncePerDay()
+        }
+    }
+
+    /// 배치된 상태 아이템 창은 window server 목록에 올라 `.visible`을 갖는다.
+    /// 차단/미배치 상태에서는 창이 오프스크린 좌표에 파킹되고 목록에서 빠진다.
+    private var isStatusItemUnplaced: Bool {
+        // 메뉴바를 항상 자동으로 가리는 사용자는 정상 상태에서도 노출이 아니므로 제외.
+        if UserDefaults.standard.bool(forKey: "_HIHideMenuBar") { return false }
+        guard let window = statusItem?.button?.window else { return true }
+        return !window.occlusionState.contains(.visible)
+    }
+
+    private func notifyStatusItemUnplacedOncePerDay() {
+        let stampKey = "statusItemUnplacedNoticeDate"
+        let today = ISO8601DateFormatter().string(from: Date()).prefix(10)
+        let defaults = UserDefaults.standard
+        guard defaults.string(forKey: stampKey)?.hasPrefix(today) != true else { return }
+        defaults.set(String(today), forKey: stampKey)
+        UserNotificationDeliverer().deliver(
+            title: "ClaudeUsage가 메뉴바에 표시되지 않습니다",
+            body: "시스템 설정 > 메뉴 막대에서 ClaudeUsage를 켠 뒤에도 계속되면 Mac을 재시동해 주세요."
+        )
     }
 
     func rebuildStatusItems() {
@@ -153,6 +198,11 @@ extension AppDelegate {
         let runtimeKinds = ServiceSelectionHelper
             .enabledRuntimeProviderKinds(settings: settings)
             .filter(isRuntimeProviderVisibleInMenuBar)
+        PopoverGeometryDiagnostics.log(
+            "MenuBar decision enabled=\(ServiceSelectionHelper.enabledRuntimeProviderKinds(settings: settings)) "
+                + "rendered=\(runtimeKinds) claudeStyle=\(settings.menuBarStyle.rawValue) "
+                + "claudePct=\(settings.percentageDisplay.rawValue) claudeReset=\(settings.resetTimeDisplay.rawValue)"
+        )
         let compactSnapshots = runtimeKinds.compactMap {
             menuBarProviderSnapshot(
                 for: $0,
