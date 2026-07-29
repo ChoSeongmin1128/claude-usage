@@ -253,9 +253,10 @@ bash Scripts/tests/release-driver-tests.sh
   `testAntigravityUsageLimitsItemStaysStructuralAndLegacyIDsAreDropped`,
   `testResetToDefaultsDoesNotRecreateLegacyAntigravityKeys`,
   `testLegacyAntigravityPopoverItemsDoNotSurviveLoad`
-- `97c12be` `docs/antigravity-usage-sources.md`를 v2 연결 정책
-  (`sourcePolicy` / `allowManagedCLI` / `managedSession`)과 현재 테스트
-  클래스 목록으로 갱신. 삭제한 타입 참조도 현재 타입으로 교체
+- `97c12be` 당시 `docs/antigravity-usage-sources.md`를 schema v1 연결 정책
+  (`sourcePolicy` / `allowManagedCLI` / `managedSession`)과 당시 테스트
+  클래스 목록으로 갱신. 이 정책은 아래 §15의 schema v2 자동 조회 정책으로
+  대체됨
 - `docs/authentication-and-sources.md`는 이 문서를 가리키는 한 줄뿐이라
   갱신할 내용이 없고, `docs/PROJECT_WORKFLOW.md`와 `docs/RELEASE.md`에는
   AGY 언급이 없어 대상이 아니었습니다
@@ -493,3 +494,88 @@ rm -rf ~/Library/Containers/com.seongmin.ClaudeUsage
 지우지 않으면 이후 `defaults` CLI 진단이 계속 어긋난 값을 읽는다(앱 동작에는
 영향 없음 — 앱은 outer plist를 사용).
 
+
+## 13. v2.4.2-staging 게시 기록 (2026-07-28)
+
+- tag `v2.4.2-staging`, 2.4.2 (20402), source `acee2f1`
+- 게시 전 검증: 전체 XCTest 886 중 885 통과/1 스킵(옵트인 AGY 통합), release
+  driver 312 통과, 로컬 빌드 QA(메뉴바 표시, watchdog 정상 상태 오탐 없음)
+- 드라이버 원격 검증: ZIP/DMG notarized accepted + staple + Gatekeeper,
+  Sparkle Ed25519, appcast 게시 확인
+  - DMG SHA-256 `bd0ab2c6440fcb9d95d6594a33f833cc557194f7ad28113423debd68e40c4481`
+  - ZIP SHA-256 `3d10276fc71ece311626a4feaa0cc3b08717710a21beb33587a1728ba48e20a4`
+- 공개 피드 응답 확인: shortVersionString 2.4.2 / sparkle:version 20402
+- dev는 main(acee2f1)으로 realign 완료, gh 계정 nathan-glorang 복원 확인
+- `~/Downloads/ClaudeUsage.app`은 v2.4.1-staging 그대로 유지 —
+  Sparkle upgrade QA(2.4.1 -> 2.4.2)에 사용 가능
+
+## 14. Data Protection Keychain 재개 (진행 중)
+
+사용자 지시로 §7 보류를 철회했다(2026-07-28). 1단계 = portal에서 App ID
+`com.seongmin.ClaudeUsage`에 Keychain Sharing capability 추가 + 릴리스 서명
+leaf(`A4F7A686CAD1108C148DA7C53E707F308304480F`)와 일치하는 Developer ID
+provisioning profile 발급. 1단계 완료(2026-07-28):
+
+- App ID `com.seongmin.ClaudeUsage`(explicit, 5YG4V2PLZV) 등록. 현재 포털에는
+  "Keychain Sharing" capability 항목이 존재하지 않으며(128개 전수 확인),
+  keychain-access-groups는 프로파일에 기본 부여되는 방식으로 바뀌었다
+- Developer ID 프로파일 "ClaudeUsage Developer ID" 발급, `security cms -D`
+  실측: TeamIdentifier 5YG4V2PLZV, application-identifier
+  5YG4V2PLZV.com.seongmin.ClaudeUsage, keychain-access-groups
+  ['5YG4V2PLZV.*'], 포함 인증서 = 릴리스 서명 leaf(A4F7A686...0480F) 정확히
+  1개, ProvisionsAllDevices true, ExpirationDate 2044-07-23
+- 보관: `~/Documents/인증서와 키/ClaudeUsage/ClaudeUsage_Developer_ID.provisionprofile`
+  (repo 커밋 금지). 같은 폴더 `현황.md`에 인증서/프로파일 실사 기록
+- 함께 정리: MinNote App ID(com.seongmin.minnote)와 프로파일 2개를 포털에서
+  삭제(사용자 지시)
+
+남은 것(다음 사이클): vault를 Data Protection Keychain으로 복원, Xcode
+embedded profile 배선, release driver의 §7 검증 목록(embedded profile CMS,
+entitlement 일치, no-UI add -> read-back -> delete 실증) 구현.
+
+## 15. AGY 자동 조회 UX 전환 (2026-07-29)
+
+사용자 결정:
+
+- 설정의 `자동/로컬 세션/Google 계정` 조회 방식 선택은 완전히 제거
+- 조회 계정 미선택은 ambient local account를 의미
+- 공식 AGY CLI가 검증되면 별도 opt-in 없이 자동 source로 허용
+- AGY release digest allowlist 대신 Google Developer ID 서명 경계를 사용
+- IDE extension 전용 source는 이번 릴리스에서 추가하지 않음
+
+현재 구현:
+
+- source 순서:
+  - ambient: local app → borrowed AGY → managed AGY
+  - 선택 Google 계정: local app → borrowed AGY → managed AGY → OAuth
+- 선택 계정과 local/AGY identity가 다르면 해당 수치를 거부하고 다음 source로
+  진행하는 기존 account guard를 유지
+- `AntigravityConnectionSettings` schema v2에서 `sourcePolicy`,
+  `allowManagedCLI`를 제거하고 `managedSession.idleTimeoutSeconds`만 보존
+- schema v1과 더 오래된 `antigravityUsageDataSource` migration은 source
+  선택 의미를 버리고 v2 자동 정책으로 전환하되 idle timeout을 보존
+- CLI 후보는 `ANTIGRAVITY_CLI_PATH`, `~/.local/bin/agy`,
+  `/opt/homebrew/bin/agy`, `/usr/local/bin/agy`, 절대 `PATH` 순서
+- AGY trust는 signing identifier `cli`, Team ID `EQHXZ8M8AV`, Apple generic
+  Developer ID designated requirement를 정적·실행 직전·실행 중에 검증
+- catalog가 캡처한 vnode/file identity도 유지해 같은 경로 교체를 거부
+- 설정 고급 진단은 검증된 정확한 경로, 미감지, Google 서명 거부,
+  managed recovery 실패를 구분
+
+검증 상태:
+
+- Debug universal app build 성공
+- unsigned universal Release build 성공
+- 전체 XCTest 890개 실행, 889 통과/1 스킵/0 실패
+- release driver 테스트 312개 통과
+- 설치된 공식 AGY 1.1.7을 production resolver가 승인하고 실제 managed
+  launcher로 시작·suspend·자기 process tree 종료하는 통합 테스트 통과
+- 새 회귀 검증: 임의 새 digest + 공식 서명 허용, 잘못된 서명 거부, 실행 직전
+  file identity 교체 거부, 실행 중 dynamic designated requirement, CLI 후보
+  우선순위, v1 → v2 timeout 보존
+
+남은 릴리스 절차:
+
+- dev 커밋/푸시, main squash, `v2.4.3-staging` 게시와 원격 artifact 검증
+- 게시된 서명 후보에서 설정 UI와 실제 자동 조회를 확인한 뒤 dev를 main에
+  맞추고 이 절에 최종 릴리스 결과를 기록

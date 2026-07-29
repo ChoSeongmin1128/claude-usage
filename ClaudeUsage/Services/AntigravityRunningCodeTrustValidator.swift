@@ -68,10 +68,9 @@ nonisolated protocol AntigravityRunningCodeTrustValidating:
 
 /// Applies the trust authority appropriate to each runtime role.
 ///
-/// AGY is authorized by its reviewed SHA-256 plus mapped-vnode identity.
-/// Antigravity.app's language server has no pinned release digest, so its
-/// running process must additionally satisfy Google's exact Developer ID
-/// designated requirement.
+/// Both AGY and Antigravity.app's language server must satisfy Google's exact
+/// Developer ID designated requirement as running code. AGY also requires the
+/// vnode identity captured by the executable catalog.
 nonisolated struct AntigravityOfficialRunningCodeTrustValidator:
     AntigravityRunningCodeTrustValidating
 {
@@ -92,10 +91,15 @@ nonisolated struct AntigravityOfficialRunningCodeTrustValidator:
     ) -> Bool {
         switch executable.role {
         case .agyCLI:
-            return executable.fileIdentity.map {
-                AntigravityOfficialAGYBinaryDigestPolicy
-                    .accepts($0.sha256Digest)
-            } ?? false
+            guard executable.fileIdentity != nil else {
+                return false
+            }
+            return dynamicCodeChecker.process(
+                processID,
+                satisfies:
+                    AntigravityOfficialExecutableTrustPolicy
+                        .agyDesignatedRequirement
+            )
 
         case .appLanguageServer:
             guard executable.appBundle?.bundleIdentifier

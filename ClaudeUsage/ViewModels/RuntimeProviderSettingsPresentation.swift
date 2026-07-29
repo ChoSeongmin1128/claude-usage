@@ -88,7 +88,7 @@ enum RuntimeProviderSettingsPresentation {
                 badgeTitle: "확인 중",
                 badgeTone: .blue,
                 summary:
-                    "선택한 계정과 조회 방식을 확인하고 있습니다",
+                    "선택한 계정에 맞는 조회 경로를 확인하고 있습니다",
                 nextStepTitle: "확인 완료 기다리기",
                 nextStepDetail:
                     "현재 작업이 끝나면 검증된 결과로 갱신됩니다.",
@@ -106,7 +106,7 @@ enum RuntimeProviderSettingsPresentation {
                     quotaSummary(state),
                 nextStepTitle: "사용량 확인 완료",
                 nextStepDetail:
-                    "아래에서 계정과 조회 방식을 바꿀 수 있습니다.",
+                    "아래에서 조회할 계정을 바꿀 수 있습니다.",
                 availableAction: nil
             )
         case .partial:
@@ -142,7 +142,7 @@ enum RuntimeProviderSettingsPresentation {
                     "새 조회가 실패해 마지막 검증 결과를 유지합니다",
                 nextStepTitle: "연결 확인 후 다시 시도",
                 nextStepDetail:
-                    "현재 계정과 조회 방식을 확인한 뒤 새로고침해 주세요.",
+                    "현재 계정과 로컬 또는 Google 로그인 상태를 확인한 뒤 새로고침해 주세요.",
                 availableAction: nil
             )
         case .setupRequired(
@@ -180,7 +180,7 @@ enum RuntimeProviderSettingsPresentation {
                 badgeTone: .red,
                 summary:
                     "선택한 계정과 다른 세션의 수치는 표시하지 않았습니다",
-                nextStepTitle: "계정 또는 조회 방식 확인",
+                nextStepTitle: "조회 계정 확인",
                 nextStepDetail:
                     "의도한 계정을 선택한 뒤 다시 시도해 주세요.",
                 availableAction: nil
@@ -192,9 +192,9 @@ enum RuntimeProviderSettingsPresentation {
                 badgeTone: .orange,
                 summary:
                     "계정은 확인했지만 수치형 사용 한도를 받지 못했습니다",
-                nextStepTitle: "다른 조회 방식 확인",
+                nextStepTitle: "로그인 상태 확인",
                 nextStepDetail:
-                    "필요하면 아래에서 조회 방식을 변경해 주세요.",
+                    "AGY CLI 또는 연결된 Google 계정에서 수치 제공 여부를 확인해 주세요.",
                 availableAction: nil
             )
         case .failed(let failure):
@@ -213,13 +213,13 @@ enum RuntimeProviderSettingsPresentation {
                 summary:
                     authFailure
                         ? "현재 계정으로 인증할 수 없습니다"
-                        : "현재 연결 방식으로 사용량을 확인하지 못했습니다",
+                        : "자동 조회 경로에서 사용량을 확인하지 못했습니다",
                 nextStepTitle:
                     authFailure
                         ? "계정 다시 연결"
                         : "연결 확인 후 다시 시도",
                 nextStepDetail:
-                    "아래 계정과 조회 방식을 확인해 주세요.",
+                    "아래 조회 계정과 로그인 상태를 확인해 주세요.",
                 availableAction: nil
             )
         case .disabled:

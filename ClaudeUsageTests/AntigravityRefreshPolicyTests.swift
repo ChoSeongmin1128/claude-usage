@@ -68,67 +68,40 @@ final class AntigravityRefreshPolicyTests: XCTestCase {
         )
     }
 
-    func testAutomaticPlanNeverLaunchesManagedCLI() throws {
+    func testAmbientPlanUsesManagedCLIAfterBorrowedSourcesWhenAvailable() {
         XCTAssertEqual(
-            try AntigravitySourcePlanner.plannedSources(
-                policy: .automatic,
-                accountTarget: .selectedOAuth(
-                    AntigravityAccountID(rawValue: "selected")
-                ),
-                allowManagedCLI: true
-            ),
-            [.localApp, .borrowedCLI, .googleOAuth]
-        )
-        XCTAssertEqual(
-            try AntigravitySourcePlanner.plannedSources(
-                policy: .automatic,
+            AntigravitySourcePlanner.plannedSources(
                 accountTarget: .ambientLocal,
-                allowManagedCLI: true
-            ),
-            [.localApp, .borrowedCLI]
-        )
-    }
-
-    func testManagedCLIRequiresExplicitLocalSessionOptIn() throws {
-        XCTAssertEqual(
-            try AntigravitySourcePlanner.plannedSources(
-                policy: .localSession,
-                accountTarget: .ambientLocal,
-                allowManagedCLI: false
-            ),
-            [.localApp, .borrowedCLI]
-        )
-        XCTAssertEqual(
-            try AntigravitySourcePlanner.plannedSources(
-                policy: .localSession,
-                accountTarget: .ambientLocal,
-                allowManagedCLI: true
+                managedLaunchEnabled: true
             ),
             [.localApp, .borrowedCLI, .managedCLI]
         )
     }
 
-    func testPlannerRejectsPolicyTargetContradictions() {
-        XCTAssertThrowsError(
-            try AntigravitySourcePlanner.plannedSources(
-                policy: .googleAccount,
+    func testAmbientPlanSkipsManagedCLIWhenExecutableIsUnavailable() {
+        XCTAssertEqual(
+            AntigravitySourcePlanner.plannedSources(
                 accountTarget: .ambientLocal,
-                allowManagedCLI: false
-            )
-        ) {
-            XCTAssertEqual(
-                $0 as? AntigravitySourcePlanError,
-                .incompatiblePolicyAndAccountTarget
-            )
-        }
-        XCTAssertThrowsError(
-            try AntigravitySourcePlanner.plannedSources(
-                policy: .localSession,
+                managedLaunchEnabled: false
+            ),
+            [.localApp, .borrowedCLI]
+        )
+    }
+
+    func testSelectedAccountFallsBackToOAuthAfterManagedCLI() {
+        XCTAssertEqual(
+            AntigravitySourcePlanner.plannedSources(
                 accountTarget: .selectedOAuth(
                     AntigravityAccountID(rawValue: "selected")
                 ),
-                allowManagedCLI: true
-            )
+                managedLaunchEnabled: true
+            ),
+            [
+                .localApp,
+                .borrowedCLI,
+                .managedCLI,
+                .googleOAuth,
+            ]
         )
     }
 

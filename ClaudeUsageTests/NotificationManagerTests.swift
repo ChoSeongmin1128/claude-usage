@@ -307,7 +307,7 @@ final class NotificationManagerTests: XCTestCase {
                         usedPercentage: 89
                     )
                 ],
-                sourcePolicy: .localSession,
+                usesAmbientAccountBoundary: true,
                 observedIdentity: localAccountA
             )
         )
@@ -322,7 +322,7 @@ final class NotificationManagerTests: XCTestCase {
                         usedPercentage: 96
                     )
                 ],
-                sourcePolicy: .localSession,
+                usesAmbientAccountBoundary: true,
                 observedIdentity: localAccountB
             )
         )
@@ -340,7 +340,7 @@ final class NotificationManagerTests: XCTestCase {
                         usedPercentage: 80
                     )
                 ],
-                sourcePolicy: .localSession,
+                usesAmbientAccountBoundary: true,
                 observedIdentity: localAccountB
             )
         )
@@ -355,7 +355,7 @@ final class NotificationManagerTests: XCTestCase {
                         usedPercentage: 96
                     )
                 ],
-                sourcePolicy: .localSession,
+                usesAmbientAccountBoundary: true,
                 observedIdentity: localAccountB
             )
         )
@@ -493,9 +493,7 @@ final class NotificationManagerTests: XCTestCase {
         accountID rawAccountID: String,
         lanes: [AntigravityQuotaLane],
         notificationsEnabled: Bool = true,
-        sourcePolicy:
-            AntigravityConnectionSettings.SourcePolicy =
-                .automatic,
+        usesAmbientAccountBoundary: Bool = false,
         observedIdentity: ProviderAccountIdentity? = nil
     ) -> AntigravityRuntimeSnapshot {
         let accountID = AntigravityAccountID(
@@ -530,9 +528,6 @@ final class NotificationManagerTests: XCTestCase {
             now: fetchedAt,
             timeZone: TimeZone(secondsFromGMT: 0)!
         )
-        var connection = AntigravityConnectionSettings.default
-        connection.sourcePolicy = sourcePolicy
-
         return AntigravityRuntimeSnapshot(
             readiness: .ready,
             migrationStatus: nil,
@@ -545,14 +540,19 @@ final class NotificationManagerTests: XCTestCase {
                     isActive: true
                 )
             ],
-            activeAccountID: accountID,
+            activeAccountID:
+                usesAmbientAccountBoundary
+                    ? nil
+                    : accountID,
             settings: AntigravitySettingsSnapshot(
-                connection: connection,
+                connection: .default,
                 display: displaySettings
             ),
             presentationState: .ready(quotaSnapshot),
             quotaPresentation: .content(presentation),
-            managedRuntimeAvailability: .available,
+            managedRuntimeAvailability: .available(
+                displayPath: "~/.local/bin/agy"
+            ),
             lastAttemptAt: fetchedAt,
             lastSuccessfulAt: fetchedAt
         )

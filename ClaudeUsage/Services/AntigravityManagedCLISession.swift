@@ -289,7 +289,7 @@ actor AntigravityManagedCLISession {
         guard executable.role == .agyCLI else {
             throw AntigravityManagedSessionError.executableNotAllowed
         }
-        guard case .userOptIn(let idleTimeout) = authorization else {
+        guard case .automatic(let idleTimeout) = authorization else {
             throw AntigravityManagedSessionError.launchDisabled
         }
         guard idleTimeout > .zero else {

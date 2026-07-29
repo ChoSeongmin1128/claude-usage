@@ -169,7 +169,7 @@ final class AntigravityManagedRuntimeCompositionTests:
 
         let managedSnapshot = try await
             composition.managedSession.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: executable,

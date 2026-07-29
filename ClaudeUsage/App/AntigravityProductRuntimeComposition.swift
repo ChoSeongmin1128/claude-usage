@@ -162,9 +162,9 @@ enum
                     managedRuntime.managedSession,
                 settingsBootstrap:
                     settingsBootstrap,
-                hasManagedExecutable:
+                agyExecutableStatus:
                     executableResolution
-                        .managedLaunchExecutable != nil
+                        .agyExecutableStatus
             )
 
         return AntigravityProductRuntimeComposition(

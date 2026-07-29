@@ -655,9 +655,9 @@ nonisolated struct AntigravityDiscoveredLocalUsageSource:
     }
 }
 
-/// The only Stage 7 source allowed to acquire an owned AGY process. The
-/// coordinator passes `.userOptIn` only for explicit local-session policy with
-/// `allowManagedCLI == true`; every other request fails closed.
+/// The only source allowed to acquire an owned AGY process. The coordinator
+/// passes `.automatic` only after executable trust and managed-runtime recovery
+/// have authorized launch for this refresh; every other request fails closed.
 nonisolated struct AntigravityManagedCLIUsageSource:
     AntigravityUsageSource,
     Sendable
@@ -683,7 +683,7 @@ nonisolated struct AntigravityManagedCLIUsageSource:
         _ request: AntigravityUsageSourceRequest
     ) async throws -> AntigravityUsageSourceResponse {
         guard request.oauthAuthorization == nil,
-              case .userOptIn =
+              case .automatic =
                 request.managedLaunchAuthorization
         else {
             throw AntigravityUsageSourceError.managedLaunchDisabled

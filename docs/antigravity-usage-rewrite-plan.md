@@ -1,12 +1,15 @@
 # Antigravity/AGY 사용량 조회 전면 개편 계획
 
-- 상태: 구현 중 (단계 1~6 완료, 단계 7 준비)
+- 상태: 역사적 구현 계획 (현재 동작의 source of truth 아님)
 - 작성일: 2026-07-26
-- 최종 갱신: 2026-07-27
+- 최종 갱신: 2026-07-29
 - 기준 브랜치: `dev`
 - 계획 기준 commit: `1fc02fafe6ab29f565d61cecd47db7361f4e340b` (작업 시작 당시 `main`/`dev` 공통 기준)
 
-이 문서는 Antigravity와 AGY CLI 사용량 조회를 최신 quota 구조에 맞춰 다시 구현하기 위한 source of truth입니다. 기존 화면 문자열에 조건문을 덧붙이는 방식은 허용하지 않습니다. 새 domain contract, source orchestration, 계정 저장소와 migration, UI projection을 먼저 확정하고 기존 구현은 전환 완료 후 삭제합니다.
+이 문서는 전면 개편 당시의 결정과 실행 순서를 보존하는 역사적 계획입니다.
+2026-07-29 이후 현재 자동 조회 정책, AGY 신뢰 경계와 설정 UX의 source of
+truth는 `docs/antigravity-usage-sources.md`와 실제 코드입니다. 특히 아래의
+`sourcePolicy`/managed CLI opt-in 설계는 schema v2에서 제거됐습니다.
 
 ## 1. 목표와 완료 정의
 
@@ -171,7 +174,10 @@ Reference 코드는 그대로 복사하지 않습니다. process lifecycle과 de
 3. **source와 account를 숫자와 함께 운반합니다.** identity를 검증할 수 없는 결과는 선택 계정 아래에 적용하지 않습니다.
 4. **client는 persistence를 하지 않습니다.** token write와 active selection은 account repository와 refresh coordinator만 수행합니다.
 5. **borrowed process는 종료하지 않습니다.** ClaudeUsage가 생성한 process만 lifecycle manager가 종료할 수 있습니다.
-6. **automatic은 임의 실행을 뜻하지 않습니다.** ClaudeUsage 제품 정책으로 기본 자동 모드는 실행 중인 동일 계정 local source와 선택 OAuth만 사용하고 AGY를 조용히 시작하지 않습니다.
+6. **automatic managed launch는 검증된 AGY로 제한합니다.** 2026-07-29
+   변경으로 실행 중 source가 quota를 주지 못하면 Google 서명을 검증한 AGY를
+   자동 실행합니다. ClaudeUsage가 시작한 process tree만 idle timeout 뒤
+   정리합니다.
 7. **migration은 copy → verify → cutover → cleanup 순서입니다.** 검증 전 legacy를 삭제하지 않고, cutover 후에는 legacy를 다시 import하지 않습니다.
 8. **unknown은 0이 아닙니다.** 누락·비활성·schema mismatch를 숫자로 위장하지 않습니다.
 9. **compact는 전체 표가 아닙니다.** 핵심 제약 한 개를 전달하고 전체는 standard view에서 봅니다.

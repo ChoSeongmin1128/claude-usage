@@ -26,9 +26,24 @@ nonisolated enum AntigravityManagedRuntimeAvailability:
     Sendable,
     Equatable
 {
-    case unavailable
-    case available
-    case recoveryBlocked
+    nonisolated enum UnavailableReason:
+        Sendable,
+        Equatable
+    {
+        case executableNotFound
+        case signatureRejected
+    }
+
+    case unavailable(reason: UnavailableReason)
+    case available(displayPath: String)
+    case recoveryBlocked(displayPath: String?)
+
+    var allowsManagedLaunch: Bool {
+        guard case .available = self else {
+            return false
+        }
+        return true
+    }
 }
 
 nonisolated struct AntigravityRuntimeAccountSummary:
@@ -75,7 +90,9 @@ nonisolated struct AntigravityRuntimeSnapshot:
         settings: nil,
         presentationState: .disabled,
         quotaPresentation: .unavailable(.disabled),
-        managedRuntimeAvailability: .unavailable,
+        managedRuntimeAvailability: .unavailable(
+            reason: .executableNotFound
+        ),
         lastAttemptAt: nil,
         lastSuccessfulAt: nil
     )

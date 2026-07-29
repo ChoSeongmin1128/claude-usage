@@ -106,18 +106,11 @@ final class AppRuntimeStateFacade {
         _ snapshot: AntigravityRuntimeSnapshot
     ) -> Bool {
         guard snapshot.readiness == .ready,
-              let connection =
-                snapshot.settings?.connection
+              snapshot.settings != nil
         else {
             return false
         }
-
-        switch connection.sourcePolicy {
-        case .automatic, .localSession:
-            return true
-        case .googleAccount:
-            return snapshot.activeAccountID != nil
-        }
+        return true
     }
 
     private static func antigravityCredentialState(

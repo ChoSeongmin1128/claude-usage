@@ -44,8 +44,6 @@ final class AntigravitySettingsStoreTests: XCTestCase {
         invalidConnection = AntigravityConnectionSettings(
             schemaVersion:
                 AntigravityConnectionSettings.currentSchemaVersion + 1,
-            sourcePolicy: invalidConnection.sourcePolicy,
-            allowManagedCLI: invalidConnection.allowManagedCLI,
             managedSession: invalidConnection.managedSession
         )
         persistence.seed(
@@ -68,8 +66,7 @@ final class AntigravitySettingsStoreTests: XCTestCase {
         persistence.seed(connection: .default, display: .default)
         let store = AntigravitySettingsStore(persistence: persistence)
         var changed = AntigravityConnectionSettings.default
-        changed.sourcePolicy = .localSession
-        changed.allowManagedCLI = true
+        changed.managedSession.idleTimeoutSeconds = 240
 
         let saved = try await store.saveConnection(changed)
         let loaded = try await store.load()
@@ -98,7 +95,8 @@ final class AntigravitySettingsStoreTests: XCTestCase {
         )
         let store = AntigravitySettingsStore(persistence: persistence)
         var changedConnection = original.connection
-        changedConnection.sourcePolicy = .googleAccount
+        changedConnection.managedSession
+            .idleTimeoutSeconds = 240
         var changedDisplay = original.display
         changedDisplay.notifications.isEnabled = true
 
@@ -139,8 +137,6 @@ final class AntigravitySettingsStoreTests: XCTestCase {
         let invalid = AntigravityConnectionSettings(
             schemaVersion:
                 AntigravityConnectionSettings.currentSchemaVersion,
-            sourcePolicy: .automatic,
-            allowManagedCLI: true,
             managedSession: .init(idleTimeoutSeconds: 0)
         )
 
@@ -165,7 +161,8 @@ final class AntigravitySettingsStoreTests: XCTestCase {
         persistence.failingWriteAttempts = [3]
         let store = AntigravitySettingsStore(persistence: persistence)
         var changedConnection = AntigravityConnectionSettings.default
-        changedConnection.sourcePolicy = .googleAccount
+        changedConnection.managedSession
+            .idleTimeoutSeconds = 240
         var changedDisplay = AntigravityDisplaySettings.default
         changedDisplay.notifications.isEnabled = true
 

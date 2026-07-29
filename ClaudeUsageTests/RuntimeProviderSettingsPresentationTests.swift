@@ -42,7 +42,11 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
 
         XCTAssertEqual(presentation.stage, .probingRuntime)
         XCTAssertEqual(presentation.badgeTitle, "확인 중")
-        XCTAssertTrue(presentation.summary.contains("계정과 조회 방식"))
+        XCTAssertTrue(
+            presentation.summary.contains(
+                "계정에 맞는 조회 경로"
+            )
+        )
     }
 
     func testReadyTypedStateShowsObservedLaneCount() {
@@ -383,7 +387,10 @@ private enum AntigravityPresentationFixture {
                                 )!
                         ),
             managedRuntimeAvailability:
-                .unavailable,
+                .unavailable(
+                    reason:
+                        .executableNotFound
+                ),
             repositoryRevision: 1,
             notice: nil
         )

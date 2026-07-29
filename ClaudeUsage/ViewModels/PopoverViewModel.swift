@@ -693,7 +693,7 @@ final class PopoverViewModel: ObservableObject {
              .selectedAccountIdentityUnavailable:
             return "선택한 계정 확인 필요"
         case .sourceUnavailable, .noEligibleSource:
-            return "사용 가능한 조회 방식 없음"
+            return "사용 가능한 조회 경로 없음"
         case .schemaChanged:
             return "응답 형식 확인 필요"
         case .deadlineExceeded, .transportUnavailable:

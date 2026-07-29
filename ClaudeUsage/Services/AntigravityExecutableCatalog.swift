@@ -42,19 +42,26 @@ nonisolated protocol AntigravityExecutableRevalidating: Sendable {
 }
 
 /// Standalone production launch guard. It is intentionally independent from
-/// the catalog so direct launcher use cannot bypass the reviewed-byte policy.
+/// the catalog so direct launcher use cannot bypass the official-signature
+/// policy or launch bytes that changed after discovery.
 nonisolated struct AntigravityPinnedAGYExecutableRevalidator:
     AntigravityExecutableRevalidating
 {
     private let fileIdentityInspector:
         any AntigravityExecutableFileIdentityInspecting
+    private let trustInspector:
+        any AntigravityExecutableTrustInspecting
 
     init(
         fileIdentityInspector:
             any AntigravityExecutableFileIdentityInspecting =
-                AntigravitySystemExecutableFileIdentityInspector()
+                AntigravitySystemExecutableFileIdentityInspector(),
+        trustInspector:
+            any AntigravityExecutableTrustInspecting =
+                AntigravitySystemExecutableTrustInspector()
     ) {
         self.fileIdentityInspector = fileIdentityInspector
+        self.trustInspector = trustInspector
     }
 
     func isCurrent(
@@ -62,9 +69,16 @@ nonisolated struct AntigravityPinnedAGYExecutableRevalidator:
     ) -> Bool {
         guard executable.role == .agyCLI,
               let expected = executable.fileIdentity,
-              AntigravityOfficialAGYBinaryDigestPolicy.accepts(
-                  expected.sha256Digest
-              ) else {
+              let codeIdentity =
+                trustInspector.validatedIdentity(
+                    at: executable.canonicalURL,
+                    satisfying:
+                        AntigravityOfficialExecutableTrustPolicy
+                            .agyDesignatedRequirement
+                ),
+              AntigravityOfficialExecutableTrustPolicy
+                .acceptsAGY(codeIdentity)
+        else {
             return false
         }
         return fileIdentityInspector.identity(

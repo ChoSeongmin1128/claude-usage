@@ -65,7 +65,7 @@ extension SettingsView {
                         for: .antigravity
                     ),
             title: "Antigravity 연결",
-            detail: "선택한 계정, 조회 경로, 실제 데이터 출처를 하나의 상태로 관리합니다."
+            detail: "조회할 계정을 고르면 로컬 앱, AGY CLI, Google 계정 순서를 자동으로 결정합니다."
         ) {
             VStack(
                 alignment: .leading,
@@ -108,55 +108,28 @@ extension SettingsView {
                     antigravityNoticeView(notice)
                 }
 
-                if !state.accounts.isEmpty {
-                    Picker(
-                        "Google 계정",
-                        selection:
-                            antigravityAccountSelection
-                    ) {
-                        ForEach(state.accounts) {
-                            account in
-                            Text(account.label)
-                                .tag(
-                                    account.id.rawValue
-                                )
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .controlSize(.small)
-                    .disabled(
-                        state.activity.isBusy
-                    )
-                }
-
                 Picker(
-                    "조회 방식",
+                    "조회 계정",
                     selection:
-                        antigravitySourcePolicySelection
+                        antigravityAccountSelection
                 ) {
-                    Text("자동")
+                    Text("로컬 Antigravity/AGY 계정")
                         .tag(
-                            AntigravityConnectionSettings
-                                .SourcePolicy
-                                .automatic
+                            Optional<AntigravityAccountID>
+                                .none
                         )
-                    Text("로그인된 로컬 세션")
-                        .tag(
-                            AntigravityConnectionSettings
-                                .SourcePolicy
-                                .localSession
-                        )
-                    Text("선택한 Google 계정")
-                        .tag(
-                            AntigravityConnectionSettings
-                                .SourcePolicy
-                                .googleAccount
-                        )
+                    ForEach(state.accounts) {
+                        account in
+                        Text(account.label)
+                            .tag(
+                                Optional(account.id)
+                            )
+                    }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.menu)
+                .controlSize(.small)
                 .disabled(
-                    state.connection == nil
-                        || state.activity.isBusy
+                    state.activity.isBusy
                 )
 
                 HStack(spacing: 8) {
@@ -244,21 +217,6 @@ extension SettingsView {
                         alignment: .leading,
                         spacing: 8
                     ) {
-                        settingsToggleRow(
-                            managedRuntime.toggleTitle,
-                            subtitle:
-                                managedRuntime.detail,
-                            isOn:
-                                antigravityManagedCLISelection
-                        )
-                        .disabled(
-                            state.connection == nil
-                                || state.activity
-                                    .isBusy
-                                || !managedRuntime
-                                    .isToggleEnabled
-                        )
-
                         antigravityDiagnosticRow(
                             title: "저장 상태",
                             value:
@@ -269,7 +227,7 @@ extension SettingsView {
                                     ?? "확인 중"
                         )
                         antigravityDiagnosticRow(
-                            title: "AGY 직접 실행",
+                            title: "AGY CLI",
                             value:
                                 managedRuntime
                                     .diagnosticTitle
@@ -308,94 +266,18 @@ extension SettingsView {
     }
 
     private var antigravityAccountSelection:
-        Binding<String>
+        Binding<AntigravityAccountID?>
     {
         Binding(
             get: {
                 antigravitySettings.state
-                    .activeAccountID?
-                    .rawValue ?? ""
+                    .activeAccountID
             },
-            set: { rawValue in
-                guard !rawValue.isEmpty else {
-                    return
-                }
+            set: { accountID in
                 Task {
                     _ = await
                         antigravitySettings
-                        .selectAccount(
-                            AntigravityAccountID(
-                                rawValue: rawValue
-                            )
-                        )
-                }
-            }
-        )
-    }
-
-    private var antigravitySourcePolicySelection:
-        Binding<
-            AntigravityConnectionSettings
-                .SourcePolicy
-        >
-    {
-        Binding(
-            get: {
-                antigravitySettings.state
-                    .connection?
-                    .sourcePolicy
-                    ?? .automatic
-            },
-            set: { policy in
-                guard var connection =
-                        antigravitySettings.state
-                            .connection
-                else {
-                    return
-                }
-                connection.sourcePolicy = policy
-                Task {
-                    _ = await
-                        antigravitySettings
-                        .updateConnection(
-                            connection
-                        )
-                }
-            }
-        )
-    }
-
-    private var antigravityManagedCLISelection:
-        Binding<Bool>
-    {
-        Binding(
-            get: {
-                antigravitySettings.state
-                    .connection?
-                    .allowManagedCLI
-                    ?? false
-            },
-            set: { isEnabled in
-                let state =
-                    antigravitySettings.state
-                guard state
-                        .managedRuntimePresentation
-                        .permitsSelection(
-                            isEnabled
-                        ),
-                      var connection =
-                        state.connection
-                else {
-                    return
-                }
-                connection.allowManagedCLI =
-                    isEnabled
-                Task {
-                    _ = await
-                        antigravitySettings
-                        .updateConnection(
-                            connection
-                        )
+                        .selectAccount(accountID)
                 }
             }
         )
@@ -555,7 +437,7 @@ extension SettingsView {
         case .accountMismatch:
             return "계정이 일치하지 않음"
         case .setupRequired:
-            return "조회 방식 설정 필요"
+            return "조회 계정 또는 로그인 필요"
         case .failed:
             return "사용량 조회 실패"
         case .refreshing:
@@ -586,9 +468,9 @@ extension SettingsView {
         case .stale:
             return "새 조회가 실패해 마지막으로 검증된 데이터만 유지합니다."
         case .failed:
-            return "계정, 실행 중인 앱 또는 조회 방식을 확인해 주세요."
+            return "조회 계정, Antigravity 앱 또는 AGY CLI 로그인 상태를 확인해 주세요."
         case .refreshing:
-            return "선택한 계정과 조회 방식으로 다시 확인하고 있습니다."
+            return "선택한 계정에 맞는 조회 경로를 자동으로 다시 확인하고 있습니다."
         case .disabled:
             return "Antigravity 런타임을 준비하고 있습니다."
         case .ready, .partial:

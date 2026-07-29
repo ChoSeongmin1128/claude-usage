@@ -17,13 +17,11 @@ nonisolated enum AntigravityRefreshTrigger:
     case manual
     case retry
     case accountBoundaryChanged
-    case sourceBoundaryChanged
     case migrationCompleted
 
     var clearsPreviousSnapshot: Bool {
         switch self {
         case .accountBoundaryChanged,
-             .sourceBoundaryChanged,
              .migrationCompleted:
             true
         case .scheduled, .manual, .retry:
@@ -48,12 +46,14 @@ nonisolated struct AntigravityRefreshRequest:
     let accountTarget: AntigravityRefreshAccountTarget
     let repositoryRevision: UInt64
     let connection: AntigravityConnectionSettings
+    let managedLaunchEnabled: Bool
 
     init(
         trigger: AntigravityRefreshTrigger,
         accountTarget: AntigravityRefreshAccountTarget,
         repositoryRevision: UInt64,
-        connection: AntigravityConnectionSettings
+        connection: AntigravityConnectionSettings,
+        managedLaunchEnabled: Bool
     ) {
         precondition(
             connection.isCurrentAndValid,
@@ -63,6 +63,7 @@ nonisolated struct AntigravityRefreshRequest:
         self.accountTarget = accountTarget
         self.repositoryRevision = repositoryRevision
         self.connection = connection
+        self.managedLaunchEnabled = managedLaunchEnabled
     }
 }
 

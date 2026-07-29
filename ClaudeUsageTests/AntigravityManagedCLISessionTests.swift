@@ -44,7 +44,7 @@ final class AntigravityManagedCLISessionTests:
 
         do {
             _ = try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -73,7 +73,7 @@ final class AntigravityManagedCLISessionTests:
             for _ in 0..<20 {
                 group.addTask {
                     try await session.withRuntime(
-                        authorization: .userOptIn(
+                        authorization: .automatic(
                             idleTimeout: .seconds(5)
                         ),
                         executable: harness.executable,
@@ -114,7 +114,7 @@ final class AntigravityManagedCLISessionTests:
 
         let retained = Task {
             try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -125,7 +125,7 @@ final class AntigravityManagedCLISessionTests:
 
         let cancelled = Task {
             try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -165,7 +165,7 @@ final class AntigravityManagedCLISessionTests:
 
         let retained = Task {
             try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -176,7 +176,7 @@ final class AntigravityManagedCLISessionTests:
 
         let shortDeadline = Task {
             try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -213,7 +213,7 @@ final class AntigravityManagedCLISessionTests:
         let session = harness.makeSession()
         let operation = Task {
             try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -257,7 +257,7 @@ final class AntigravityManagedCLISessionTests:
         let session = harness.makeSession()
 
         _ = try await session.withRuntime(
-            authorization: .userOptIn(idleTimeout: .seconds(5)),
+            authorization: .automatic(idleTimeout: .seconds(5)),
             executable: harness.executable,
             deadline: AntigravityRPCDeadline()
         ) { _ in true }
@@ -268,7 +268,7 @@ final class AntigravityManagedCLISessionTests:
 
         let cancelled = Task {
             try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -286,7 +286,7 @@ final class AntigravityManagedCLISessionTests:
 
         do {
             _ = try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -315,7 +315,7 @@ final class AntigravityManagedCLISessionTests:
         let harness = ManagedSessionHarness()
         let session = harness.makeSession()
         _ = try await session.withRuntime(
-            authorization: .userOptIn(idleTimeout: .seconds(5)),
+            authorization: .automatic(idleTimeout: .seconds(5)),
             executable: harness.executable,
             deadline: AntigravityRPCDeadline()
         ) { _ in true }
@@ -326,7 +326,7 @@ final class AntigravityManagedCLISessionTests:
         let operation = Task {
             await startGate.wait()
             return try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -359,7 +359,7 @@ final class AntigravityManagedCLISessionTests:
 
         let operation = Task {
             try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .milliseconds(30)
                 ),
                 executable: harness.executable,
@@ -389,7 +389,7 @@ final class AntigravityManagedCLISessionTests:
         let session = harness.makeSession()
 
         let value = try await session.withRuntime(
-            authorization: .userOptIn(idleTimeout: .seconds(5)),
+            authorization: .automatic(idleTimeout: .seconds(5)),
             executable: harness.executable,
             deadline: AntigravityRPCDeadline()
         ) { _ in true }
@@ -415,7 +415,7 @@ final class AntigravityManagedCLISessionTests:
         let session = harness.makeSession()
         let operation = Task {
             try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -448,7 +448,7 @@ final class AntigravityManagedCLISessionTests:
         let session = harness.makeSession()
         let activeOperation = Task {
             try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -463,7 +463,7 @@ final class AntigravityManagedCLISessionTests:
 
         do {
             _ = try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -492,7 +492,7 @@ final class AntigravityManagedCLISessionTests:
         let session = harness.makeSession()
 
         let initialValue = try await session.withRuntime(
-            authorization: .userOptIn(idleTimeout: .seconds(5)),
+            authorization: .automatic(idleTimeout: .seconds(5)),
             executable: harness.executable,
             deadline: AntigravityRPCDeadline()
         ) { _ in true }
@@ -637,7 +637,7 @@ final class AntigravityManagedCLISessionTests:
         )
 
         _ = try await session.withRuntime(
-            authorization: .userOptIn(idleTimeout: .seconds(5)),
+            authorization: .automatic(idleTimeout: .seconds(5)),
             executable: harness.executable,
             deadline: AntigravityRPCDeadline()
         ) { _ in true }
@@ -682,7 +682,7 @@ final class AntigravityManagedCLISessionTests:
 
         do {
             _ = try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -714,7 +714,7 @@ final class AntigravityManagedCLISessionTests:
 
         do {
             _ = try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -742,7 +742,7 @@ final class AntigravityManagedCLISessionTests:
 
         do {
             _ = try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -774,7 +774,7 @@ final class AntigravityManagedCLISessionTests:
         let session = harness.makeSession()
         let operation = Task {
             try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -813,7 +813,7 @@ final class AntigravityManagedCLISessionTests:
 
         do {
             _ = try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -838,7 +838,7 @@ final class AntigravityManagedCLISessionTests:
         let session = harness.makeSession()
 
         let result = try await session.withRuntime(
-            authorization: .userOptIn(idleTimeout: .seconds(5)),
+            authorization: .automatic(idleTimeout: .seconds(5)),
             executable: harness.executable,
             deadline: AntigravityRPCDeadline()
         ) { _ in true }
@@ -867,7 +867,7 @@ final class AntigravityManagedCLISessionTests:
         let session = harness.makeSession()
         let active = Task {
             try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -885,7 +885,7 @@ final class AntigravityManagedCLISessionTests:
         XCTAssertEqual(harness.handle.terminationCount, 0)
         do {
             _ = try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -914,7 +914,7 @@ final class AntigravityManagedCLISessionTests:
 
         do {
             _ = try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -948,7 +948,7 @@ final class AntigravityManagedCLISessionTests:
 
         do {
             _ = try await session.withRuntime(
-                authorization: .userOptIn(
+                authorization: .automatic(
                     idleTimeout: .seconds(5)
                 ),
                 executable: harness.executable,
@@ -976,7 +976,7 @@ final class AntigravityManagedCLISessionTests:
         let session = harness.makeSession()
 
         let result = try await session.withRuntime(
-            authorization: .userOptIn(
+            authorization: .automatic(
                 idleTimeout: .seconds(5)
             ),
             executable: harness.executable,

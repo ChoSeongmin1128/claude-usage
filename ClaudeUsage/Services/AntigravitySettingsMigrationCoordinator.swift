@@ -1,7 +1,7 @@
 import Foundation
 
 nonisolated enum AntigravitySettingsMigrationKeys {
-    static let currentMigrationVersion = 1
+    static let currentMigrationVersion = 2
 
     static let connectionSettings = "antigravity.connectionSettings"
     static let displaySettings = "antigravity.displaySettings"
@@ -99,6 +99,31 @@ final class AntigravitySettingsMigrationCoordinator {
         case current(Value)
     }
 
+    private enum StoredConnectionSettings {
+        case missing
+        case current(AntigravityConnectionSettings)
+        case legacyV1(LegacyConnectionSettingsV1)
+    }
+
+    private struct LegacyConnectionSettingsV1: Decodable {
+        enum SourcePolicy: String, Decodable {
+            case automatic
+            case localSession = "local_session"
+            case googleAccount = "google_account"
+        }
+
+        let schemaVersion: Int
+        let sourcePolicy: SourcePolicy
+        let allowManagedCLI: Bool
+        let managedSession:
+            AntigravityConnectionSettings.ManagedSessionPolicy
+
+        var isValid: Bool {
+            schemaVersion == 1
+                && managedSession.isValid
+        }
+    }
+
     private enum SnapshotValue {
         case absent
         case present(Any)
@@ -151,7 +176,7 @@ final class AntigravitySettingsMigrationCoordinator {
             return .failed(Failure(reason: .invalidMigrationMarker, rollbackCompleted: true))
         }
 
-        let storedConnection: StoredSettings<AntigravityConnectionSettings>
+        let storedConnection: StoredConnectionSettings
         let storedDisplay: StoredSettings<AntigravityDisplaySettings>
         let fullPopover: PopoverMutation
         let compactPopover: PopoverMutation
@@ -176,13 +201,21 @@ final class AntigravitySettingsMigrationCoordinator {
         }
         let hasMissingSettings: Bool
         switch (storedConnection, storedDisplay) {
-        case (.current, .current):
+        case (.current, .current),
+             (.legacyV1, .current):
             hasMissingSettings = false
-        case (.missing, _), (_, .missing):
+        case (.missing, _),
+             (_, .missing):
             hasMissingSettings = true
         }
 
         let requiresMigration = markerVersion != AntigravitySettingsMigrationKeys.currentMigrationVersion
+            || {
+                if case .legacyV1 = storedConnection {
+                    return true
+                }
+                return false
+            }()
             || hasLegacyKeys
             || hasMissingSettings
             || fullPopover.changed
@@ -196,6 +229,13 @@ final class AntigravitySettingsMigrationCoordinator {
         switch storedConnection {
         case let .current(value):
             connection = value
+        case let .legacyV1(value):
+            connection = AntigravityConnectionSettings(
+                schemaVersion:
+                    AntigravityConnectionSettings
+                        .currentSchemaVersion,
+                managedSession: value.managedSession
+            )
         case .missing:
             connection = makeConnectionSettings()
         }
@@ -214,9 +254,10 @@ final class AntigravitySettingsMigrationCoordinator {
         let snapshot = captureOwnedState()
 
         do {
-            if case .missing = storedConnection {
+            switch storedConnection {
+            case .missing, .legacyV1:
                 try writeAndVerifyConnection(connection)
-            } else {
+            case .current:
                 try verifyConnection(connection)
             }
 
@@ -346,19 +387,29 @@ final class AntigravitySettingsMigrationCoordinator {
         return value
     }
 
-    private func readCurrentConnectionSettings() throws -> StoredSettings<AntigravityConnectionSettings> {
+    private func readCurrentConnectionSettings() throws
+        -> StoredConnectionSettings
+    {
         let key = AntigravitySettingsMigrationKeys.connectionSettings
         guard let object = store.object(forKey: key) else {
             return .missing
         }
-        guard
-            let data = object as? Data,
-            let value = try? decoder.decode(AntigravityConnectionSettings.self, from: data),
-            value.isCurrentAndValid
-        else {
+        guard let data = object as? Data else {
             throw FailureReason.invalidCurrentConnectionSettings
         }
-        return .current(value)
+        if let value = try? decoder.decode(
+            AntigravityConnectionSettings.self,
+            from: data
+        ), value.isCurrentAndValid {
+            return .current(value)
+        }
+        if let value = try? decoder.decode(
+            LegacyConnectionSettingsV1.self,
+            from: data
+        ), value.isValid {
+            return .legacyV1(value)
+        }
+        throw FailureReason.invalidCurrentConnectionSettings
     }
 
     private func readCurrentDisplaySettings() throws -> StoredSettings<AntigravityDisplaySettings> {
@@ -377,23 +428,8 @@ final class AntigravitySettingsMigrationCoordinator {
     }
 
     private func makeConnectionSettings() -> AntigravityConnectionSettings {
-        let rawSource = string(forKey: "antigravityUsageDataSource")
-        let sourcePolicy: AntigravityConnectionSettings.SourcePolicy
-        switch rawSource {
-        case "local_ide", "localIDE", "agy_cli", "agyCLI":
-            sourcePolicy = .localSession
-        case "google_oauth", "googleOAuth":
-            sourcePolicy = .googleAccount
-        case "auto", nil:
-            sourcePolicy = .automatic
-        default:
-            sourcePolicy = .automatic
-        }
-
         return AntigravityConnectionSettings(
             schemaVersion: AntigravityConnectionSettings.currentSchemaVersion,
-            sourcePolicy: sourcePolicy,
-            allowManagedCLI: false,
             managedSession: .default
         )
     }

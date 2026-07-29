@@ -310,17 +310,12 @@ final class NotificationManager {
     private func antigravityNotificationAccountBoundary(
         for snapshot: AntigravityRuntimeSnapshot
     ) -> AntigravityNotificationAccountBoundary? {
-        guard let connection = snapshot.settings?.connection else {
+        guard snapshot.settings != nil else {
             return nil
         }
 
-        switch connection.sourcePolicy {
-        case .automatic, .googleAccount:
-            if let accountID = snapshot.activeAccountID {
-                return .selectedOAuth(accountID)
-            }
-        case .localSession:
-            break
+        if let accountID = snapshot.activeAccountID {
+            return .selectedOAuth(accountID)
         }
 
         guard

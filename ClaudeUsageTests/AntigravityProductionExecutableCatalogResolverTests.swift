@@ -39,6 +39,31 @@ final class
         )
     }
 
+    func testProductionCandidatesPreferExplicitOverrideThenAbsolutePATH()
+    {
+        let candidates =
+            AntigravityProductionExecutableCandidates(
+                homeDirectoryURL: home,
+                environment: [
+                    "ANTIGRAVITY_CLI_PATH":
+                        "/custom/google/agy",
+                    "PATH":
+                        "relative:/custom/bin:/opt/homebrew/bin",
+                ]
+            )
+
+        XCTAssertEqual(
+            candidates.agyExecutableURLs.map(\.path),
+            [
+                "/custom/google/agy",
+                "/Users/example/.local/bin/agy",
+                "/opt/homebrew/bin/agy",
+                "/usr/local/bin/agy",
+                "/custom/bin/agy",
+            ]
+        )
+    }
+
     func testVerifiedCandidatesPopulateCatalogAndUseFixedPriority() {
         let fileSystem = StubResolverFileSystem()
         let trust = StubTrustInspector()
@@ -118,11 +143,15 @@ final class
             resolution.managedLaunchExecutable?.canonicalURL.path,
             candidates.agyExecutableURLs[0].path
         )
+        XCTAssertEqual(
+            resolution.agyExecutableStatus,
+            .verified(
+                displayPath: "~/.local/bin/agy"
+            )
+        )
     }
 
-    func testPinnedOfficialBytesCanLaunchWhenStaticSignatureIsInvalid()
-        throws
-    {
+    func testInvalidOrMissingOfficialSignatureRejectsEveryCandidate() {
         let fileSystem = StubResolverFileSystem()
         let trust = StubTrustInspector()
         let candidates = AntigravityProductionExecutableCandidates(
@@ -139,7 +168,9 @@ final class
                 signingIdentifier: "cli",
                 teamIdentifier: "WRONGTEAM"
             )
-        // The second candidate is intentionally unsigned: no identity.
+        trust.rejectedPaths.insert(
+            candidates.agyExecutableURLs[1].path
+        )
         trust.identities[candidates.agyExecutableURLs[2].path] =
             AntigravityCodeSignatureIdentity(
                 signingIdentifier: "not-the-official-cli",
@@ -156,26 +187,15 @@ final class
             )
         ).resolve()
 
-        XCTAssertEqual(
+        XCTAssertTrue(
             resolution.catalog.executables.filter {
                 $0.role == .agyCLI
-            }.count,
-            3
+            }.isEmpty
         )
-        let managedExecutable = try XCTUnwrap(
-            resolution.managedLaunchExecutable
-        )
-        let managedFileIdentity = try XCTUnwrap(
-            managedExecutable.fileIdentity
-        )
+        XCTAssertNil(resolution.managedLaunchExecutable)
         XCTAssertEqual(
-            managedExecutable.canonicalURL.path,
-            candidates.agyExecutableURLs[0].path
-        )
-        XCTAssertTrue(
-            AntigravityOfficialAGYBinaryDigestPolicy.accepts(
-                managedFileIdentity.sha256Digest
-            )
+            resolution.agyExecutableStatus,
+            .rejected
         )
     }
 
@@ -287,7 +307,7 @@ final class
         XCTAssertNil(resolution.managedLaunchExecutable)
     }
 
-    func testUnknownBinaryDigestRejectsDiscovery() {
+    func testNewBinaryDigestIsAcceptedWhenOfficialSignatureIsValid() {
         let fileSystem = StubResolverFileSystem()
         let trust = StubTrustInspector()
         let candidates = AntigravityProductionExecutableCandidates(
@@ -311,8 +331,123 @@ final class
             fileIdentity: fileIdentity
         ).resolve()
 
-        XCTAssertTrue(resolution.catalog.executables.isEmpty)
-        XCTAssertNil(resolution.managedLaunchExecutable)
+        XCTAssertEqual(
+            resolution.managedLaunchExecutable?
+                .canonicalURL.path,
+            unknown.path
+        )
+        XCTAssertEqual(
+            resolution.managedLaunchExecutable?
+                .fileIdentity?
+                .sha256Digest,
+            String(repeating: "0", count: 64)
+        )
+    }
+
+    func testLaunchRevalidationRequiresOfficialSignatureAndSameFileIdentity()
+        throws
+    {
+        let url = home.appendingPathComponent(
+            ".local/bin/agy"
+        )
+        let identity =
+            StubFileIdentityInspector.makeIdentity(
+                digest: String(
+                    repeating: "7",
+                    count: 64
+                ),
+                inode: 701
+            )
+        let executable =
+            AntigravityCanonicalExecutable(
+                canonicalURL: url,
+                role: .agyCLI,
+                fileIdentity: identity
+            )
+        let fileIdentity =
+            StubFileIdentityInspector()
+        fileIdentity.identities[url.path] = identity
+        let trust = StubTrustInspector()
+        let revalidator =
+            AntigravityPinnedAGYExecutableRevalidator(
+                fileIdentityInspector:
+                    fileIdentity,
+                trustInspector: trust
+            )
+
+        XCTAssertTrue(
+            revalidator.isCurrent(executable)
+        )
+
+        trust.identities[url.path] =
+            AntigravityCodeSignatureIdentity(
+                signingIdentifier: "cli",
+                teamIdentifier: "WRONGTEAM"
+            )
+        XCTAssertFalse(
+            revalidator.isCurrent(executable)
+        )
+
+        trust.identities[url.path] = .officialAGY
+        fileIdentity.identities[url.path] =
+            StubFileIdentityInspector.makeIdentity(
+                digest: identity.sha256Digest,
+                inode: identity.inode + 1
+            )
+        XCTAssertFalse(
+            revalidator.isCurrent(executable)
+        )
+    }
+
+    func testRunningAGYMustSatisfyOfficialDynamicRequirement()
+        throws
+    {
+        let checker =
+            StubDynamicCodeRequirementChecker()
+        let validator =
+            AntigravityOfficialRunningCodeTrustValidator(
+                dynamicCodeChecker: checker
+            )
+        let executable =
+            AntigravityCanonicalExecutable(
+                canonicalURL:
+                    home.appendingPathComponent(
+                        ".local/bin/agy"
+                    ),
+                role: .agyCLI,
+                fileIdentity:
+                    StubFileIdentityInspector
+                        .makeIdentity(
+                            digest: String(
+                                repeating: "8",
+                                count: 64
+                            ),
+                            inode: 801
+                        )
+            )
+
+        checker.result = true
+        XCTAssertTrue(
+            validator.validatesRunningCode(
+                processID: 42,
+                executable: executable
+            )
+        )
+        XCTAssertEqual(
+            checker.requirements,
+            [
+                AntigravityOfficialExecutableTrustPolicy
+                    .agyDesignatedRequirement,
+            ]
+        )
+
+        checker.result = false
+        XCTAssertFalse(
+            validator.validatesRunningCode(
+                processID: 43,
+                executable: executable
+            )
+        )
     }
 
     func testPostCatalogSamePathReplacementRejectsBorrowedProcess()
@@ -657,6 +792,10 @@ final class
         XCTAssertTrue(resolution.catalog.appBundles.isEmpty)
         XCTAssertTrue(resolution.catalog.executables.isEmpty)
         XCTAssertNil(resolution.managedLaunchExecutable)
+        XCTAssertEqual(
+            resolution.agyExecutableStatus,
+            .notFound
+        )
     }
 
     private func makeResolver(
@@ -790,6 +929,12 @@ private final class StubResolverFileSystem:
     func hasSecureOwnershipAndPermissions(at url: URL) -> Bool {
         secureExecutables.contains(url.path)
     }
+
+    func itemExists(at url: URL) -> Bool {
+        regularExecutables.contains(url.path)
+            || directories.contains(url.path)
+            || symbolicLinks.contains(url.path)
+    }
 }
 
 private final class StubTrustInspector:
@@ -798,11 +943,27 @@ private final class StubTrustInspector:
 {
     var identities:
         [String: AntigravityCodeSignatureIdentity] = [:]
+    var rejectedPaths: Set<String> = []
 
     func validatedIdentity(
-        at url: URL
+        at url: URL,
+        satisfying requirementSource: String?
     ) -> AntigravityCodeSignatureIdentity? {
-        identities[url.path]
+        guard !rejectedPaths.contains(url.path) else {
+            return nil
+        }
+        if let identity = identities[url.path] {
+            return identity
+        }
+        guard url.lastPathComponent == "agy" else {
+            return nil
+        }
+        XCTAssertEqual(
+            requirementSource,
+            AntigravityOfficialExecutableTrustPolicy
+                .agyDesignatedRequirement
+        )
+        return .officialAGY
     }
 }
 
@@ -814,12 +975,12 @@ private final class StubFileIdentityInspector:
         [String: AntigravityExecutableFileIdentity] = [:]
 
     init(officialURLs: [URL] = []) {
-        let officialDigest =
-            AntigravityOfficialAGYBinaryDigestPolicy
-                .knownSHA256Digests.first!
         for (index, url) in officialURLs.enumerated() {
             identities[url.path] = Self.makeIdentity(
-                digest: officialDigest,
+                digest: String(
+                    repeating: "a",
+                    count: 64
+                ),
                 inode: UInt64(index + 1)
             )
         }
@@ -846,12 +1007,38 @@ private final class StubFileIdentityInspector:
     }
 }
 
+private final class StubDynamicCodeRequirementChecker:
+    AntigravityDynamicCodeRequirementChecking,
+    @unchecked Sendable
+{
+    var result = false
+    var requirements: [String] = []
+
+    func process(
+        _ processID: Int32,
+        satisfies requirement: String
+    ) -> Bool {
+        requirements.append(requirement)
+        return result
+    }
+}
+
 private extension AntigravityCodeSignatureIdentity {
     static let officialApp =
         AntigravityCodeSignatureIdentity(
             signingIdentifier:
                 AntigravityOfficialExecutableTrustPolicy
                     .appSigningIdentifier,
+            teamIdentifier:
+                AntigravityOfficialExecutableTrustPolicy
+                    .teamIdentifier
+        )
+
+    static let officialAGY =
+        AntigravityCodeSignatureIdentity(
+            signingIdentifier:
+                AntigravityOfficialExecutableTrustPolicy
+                    .agySigningIdentifier,
             teamIdentifier:
                 AntigravityOfficialExecutableTrustPolicy
                     .teamIdentifier

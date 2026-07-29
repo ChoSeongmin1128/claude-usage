@@ -38,7 +38,7 @@ nonisolated protocol
     ) async -> AntigravityRuntimeSnapshot
 
     func selectAccount(
-        _ accountID: AntigravityAccountID
+        _ accountID: AntigravityAccountID?
     ) async throws -> AntigravityRuntimeSnapshot
 
     func connectAccount(
@@ -48,10 +48,6 @@ nonisolated protocol
 
     func deleteAccount(
         _ accountID: AntigravityAccountID
-    ) async throws -> AntigravityRuntimeSnapshot
-
-    func updateConnection(
-        _ connection: AntigravityConnectionSettings
     ) async throws -> AntigravityRuntimeSnapshot
 
     func updateDisplay(
@@ -156,7 +152,9 @@ nonisolated struct AntigravitySettingsViewState:
         migrationStatus: nil,
         presentation: .disabled,
         quotaPresentation: .unavailable(.disabled),
-        managedRuntimeAvailability: .unavailable,
+        managedRuntimeAvailability: .unavailable(
+            reason: .executableNotFound
+        ),
         repositoryRevision: nil,
         notice: nil
     )
@@ -171,54 +169,39 @@ nonisolated struct AntigravityManagedRuntimeSettingsPresentation:
     Equatable,
     Sendable
 {
-    let toggleTitle: String
-    let detail: String
     let diagnosticTitle: String
-    let isToggleEnabled: Bool
-    private let canEnableManagedRuntime: Bool
 
     static func resolve(
-        _ availability: AntigravityManagedRuntimeAvailability,
-        currentSelection: Bool
+        _ availability: AntigravityManagedRuntimeAvailability
     ) -> Self {
-        let toggleTitle =
-            "ClaudeUsage의 AGY 직접 실행 허용"
         switch availability {
-        case .available:
+        case .available(let displayPath):
             return Self(
-                toggleTitle: toggleTitle,
-                detail: "검증된 AGY 실행 파일이 있을 때만 로컬 세션 조회를 위해 직접 실행합니다. 사용자가 이미 실행한 AGY 세션은 이 설정과 무관하게 조회할 수 있습니다.",
-                diagnosticTitle: "직접 실행 가능",
-                isToggleEnabled: true,
-                canEnableManagedRuntime: true
-            )
-        case .unavailable:
-            return Self(
-                toggleTitle: toggleTitle,
-                detail: currentSelection
-                    ? "현재 공식 AGY CLI는 ClaudeUsage가 안전하게 직접 실행할 수 없습니다. 저장된 직접 실행 허용은 끌 수 있으며, 사용자가 이미 실행한 AGY 세션은 계속 조회할 수 있습니다."
-                    : "현재 공식 AGY CLI는 ClaudeUsage가 안전하게 직접 실행할 수 없습니다. 사용자가 이미 실행한 AGY 세션은 로컬 세션 조회에 사용할 수 있습니다.",
                 diagnosticTitle:
-                    "직접 실행 불가 · 실행 중 세션 조회 가능",
-                isToggleEnabled: currentSelection,
-                canEnableManagedRuntime: false
+                    "감지됨 · \(displayPath) · 필요 시 자동 실행"
             )
-        case .recoveryBlocked:
+        case .unavailable(let reason):
+            switch reason {
+            case .executableNotFound:
+                return Self(
+                    diagnosticTitle:
+                        "미감지 · AGY CLI 설치 필요"
+                )
+            case .signatureRejected:
+                return Self(
+                    diagnosticTitle:
+                        "감지됐지만 Google 서명 검증 실패"
+                )
+            }
+        case .recoveryBlocked(let displayPath):
+            let pathDetail = displayPath.map {
+                " · \($0)"
+            } ?? ""
             return Self(
-                toggleTitle: toggleTitle,
-                detail: currentSelection
-                    ? "이전에 ClaudeUsage가 시작한 AGY 정리를 검증할 때까지 새 프로세스를 직접 실행하지 않습니다. 저장된 직접 실행 허용은 끌 수 있으며, 사용자가 이미 실행한 AGY 세션은 계속 조회할 수 있습니다."
-                    : "이전에 ClaudeUsage가 시작한 AGY 정리를 검증할 때까지 새 프로세스를 직접 실행하지 않습니다. 사용자가 이미 실행한 AGY 세션은 계속 조회할 수 있습니다.",
                 diagnosticTitle:
-                    "직접 실행 중단 · 실행 중 세션 조회 가능",
-                isToggleEnabled: currentSelection,
-                canEnableManagedRuntime: false
+                    "이전 프로세스 복구 실패\(pathDetail) · 자동 실행 중단"
             )
         }
-    }
-
-    func permitsSelection(_ requestedSelection: Bool) -> Bool {
-        !requestedSelection || canEnableManagedRuntime
     }
 }
 
@@ -226,12 +209,7 @@ nonisolated extension AntigravitySettingsViewState {
     var managedRuntimePresentation:
         AntigravityManagedRuntimeSettingsPresentation
     {
-        .resolve(
-            managedRuntimeAvailability,
-            currentSelection:
-                connection?.allowManagedCLI
-                    ?? false
-        )
+        .resolve(managedRuntimeAvailability)
     }
 }
 
@@ -300,21 +278,31 @@ final class AntigravitySettingsViewModel:
 
     @discardableResult
     func selectAccount(
-        _ accountID: AntigravityAccountID
+        _ accountID: AntigravityAccountID?
     ) async -> Bool {
         guard state.activeAccountID != accountID,
               begin(.changingAccount)
         else {
             return false
         }
-        return await performMutation(
-            activity: .changingAccount,
-            success: AntigravitySettingsNotice(
+        let success = if accountID == nil {
+            AntigravitySettingsNotice(
+                tone: .success,
+                title: "로컬 계정으로 전환했습니다",
+                message: "실행 중인 Antigravity 또는 AGY 계정의 사용량을 확인합니다.",
+                action: .dismiss
+            )
+        } else {
+            AntigravitySettingsNotice(
                 tone: .success,
                 title: "Google 계정을 전환했습니다",
                 message: "선택한 계정과 일치하는 사용량으로 갱신했습니다.",
                 action: .dismiss
             )
+        }
+        return await performMutation(
+            activity: .changingAccount,
+            success: success
         ) {
             try await self.runtimeController
                 .selectAccount(accountID)
@@ -445,30 +433,6 @@ final class AntigravitySettingsViewModel:
             )
         state.activity = .idle
         return snapshot.accounts.isEmpty
-    }
-
-    @discardableResult
-    func updateConnection(
-        _ connection: AntigravityConnectionSettings
-    ) async -> Bool {
-        guard connection.isCurrentAndValid,
-              state.connection != connection,
-              begin(.changingConnection)
-        else {
-            return false
-        }
-        return await performMutation(
-            activity: .changingConnection,
-            success: AntigravitySettingsNotice(
-                tone: .success,
-                title: "연결 방식을 변경했습니다",
-                message: "새 연결 방식으로 사용량을 다시 확인했습니다.",
-                action: .dismiss
-            )
-        ) {
-            try await self.runtimeController
-                .updateConnection(connection)
-        }
     }
 
     @discardableResult

@@ -2,7 +2,7 @@ import XCTest
 @testable import ClaudeUsage
 
 final class AntigravityRefreshCoordinatorTests: XCTestCase {
-    func testGooglePolicyWithoutSelectedAccountReturnsSetupRequired() async {
+    func testMissingSelectedAccountFailsWithExplicitAccountID() async {
         let repository = RefreshRepositoryDouble(
             accounts: [],
             activeAccountID: nil,
@@ -15,18 +15,27 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
 
         let result = await coordinator.refresh(
             AntigravityRefreshRequest(
-                trigger: .sourceBoundaryChanged,
-                accountTarget: .ambientLocal,
+                trigger: .accountBoundaryChanged,
+                accountTarget: .selectedOAuth(
+                    AntigravityAccountID(
+                        rawValue: "missing"
+                    )
+                ),
                 repositoryRevision: 0,
-                connection: makeConnectionSettings(
-                    policy: .googleAccount
-                )
+                connection: makeConnectionSettings(),
+                managedLaunchEnabled: false
             )
         )
 
         XCTAssertEqual(
             result,
-            .setupRequired(.noSelectedOAuthAccount)
+            .failed(
+                .selectedAccountUnavailable(
+                    AntigravityAccountID(
+                        rawValue: "missing"
+                    )
+                )
+            )
         )
     }
 
@@ -59,9 +68,8 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 trigger: .manual,
                 accountTarget: .ambientLocal,
                 repositoryRevision: 0,
-                connection: makeConnectionSettings(
-                    policy: .localSession
-                )
+                connection: makeConnectionSettings(),
+                managedLaunchEnabled: false
             )
         )
 
@@ -105,20 +113,18 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             accountTarget: .ambientLocal,
             repositoryRevision: 0,
             connection: makeConnectionSettings(
-                policy: .localSession,
-                allowManagedCLI: true,
                 managedIdleTimeoutSeconds: 31
-            )
+            ),
+            managedLaunchEnabled: true
         )
         let secondRequest = AntigravityRefreshRequest(
             trigger: .manual,
             accountTarget: .ambientLocal,
             repositoryRevision: 0,
             connection: makeConnectionSettings(
-                policy: .localSession,
-                allowManagedCLI: true,
                 managedIdleTimeoutSeconds: 47
-            )
+            ),
+            managedLaunchEnabled: true
         )
 
         let first = Task {
@@ -639,9 +645,8 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 trigger: .manual,
                 accountTarget: .ambientLocal,
                 repositoryRevision: 0,
-                connection: makeConnectionSettings(
-                    policy: .localSession
-                )
+                connection: makeConnectionSettings(),
+                managedLaunchEnabled: false
             )
         )
 
@@ -989,9 +994,8 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             trigger: .scheduled,
             accountTarget: .selectedOAuth(account.id),
             repositoryRevision: 0,
-            connection: makeConnectionSettings(
-                policy: .googleAccount
-            )
+            connection: makeConnectionSettings(),
+            managedLaunchEnabled: false
         )
         let commitOwner = Task {
             await coordinator.refresh(scheduledRequest)
@@ -1615,9 +1619,8 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 trigger: .scheduled,
                 accountTarget: .selectedOAuth(account.id),
                 repositoryRevision: 0,
-                connection: makeConnectionSettings(
-                    policy: .googleAccount
-                )
+                connection: makeConnectionSettings(),
+                managedLaunchEnabled: false
             )
         )
         XCTAssertEqual(
@@ -1630,12 +1633,11 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
 
         let cleared = await coordinator.refresh(
             AntigravityRefreshRequest(
-                trigger: .sourceBoundaryChanged,
+                trigger: .accountBoundaryChanged,
                 accountTarget: .selectedOAuth(account.id),
                 repositoryRevision: 0,
-                connection: makeConnectionSettings(
-                    policy: .googleAccount
-                )
+                connection: makeConnectionSettings(),
+                managedLaunchEnabled: false
             )
         )
         XCTAssertEqual(
@@ -2234,19 +2236,19 @@ private struct AccountSwitchRefreshSource:
 private func selectedRequest(
     accountID: AntigravityAccountID,
     revision: UInt64,
-    policy: AntigravityConnectionSettings.SourcePolicy
+    policy: TestSourcePolicy
 ) -> AntigravityRefreshRequest {
-    AntigravityRefreshRequest(
+    _ = policy
+    return AntigravityRefreshRequest(
         trigger: .manual,
         accountTarget: .selectedOAuth(accountID),
         repositoryRevision: revision,
-        connection: makeConnectionSettings(policy: policy)
+        connection: makeConnectionSettings(),
+        managedLaunchEnabled: false
     )
 }
 
 private func makeConnectionSettings(
-    policy: AntigravityConnectionSettings.SourcePolicy,
-    allowManagedCLI: Bool = false,
     managedIdleTimeoutSeconds: Int =
         AntigravityConnectionSettings
             .ManagedSessionPolicy
@@ -2255,12 +2257,16 @@ private func makeConnectionSettings(
     AntigravityConnectionSettings(
         schemaVersion:
             AntigravityConnectionSettings.currentSchemaVersion,
-        sourcePolicy: policy,
-        allowManagedCLI: allowManagedCLI,
         managedSession: .init(
             idleTimeoutSeconds: managedIdleTimeoutSeconds
         )
     )
+}
+
+private enum TestSourcePolicy {
+    case automatic
+    case localSession
+    case googleAccount
 }
 
 private func makeAccount(

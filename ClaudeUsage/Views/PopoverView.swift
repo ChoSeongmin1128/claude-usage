@@ -754,7 +754,7 @@ struct PopoverView: View {
                 icon: "person.badge.key",
                 iconColor: .orange,
                 showsProgress: false,
-                title: "조회 방식 설정 필요",
+                title: "조회 계정 또는 로그인 필요",
                 message: antigravitySetupMessage(reason),
                 actionTitle: "설정 열기",
                 actionStyle: .prominent,
@@ -768,7 +768,7 @@ struct PopoverView: View {
                 iconColor: .secondary,
                 showsProgress: true,
                 title: "사용량 확인 중",
-                message: "선택한 계정과 조회 방식으로 다시 확인하고 있습니다.",
+                message: "선택한 계정에 맞는 조회 경로를 자동으로 다시 확인하고 있습니다.",
                 actionTitle: nil,
                 actionStyle: .bordered,
                 action: nil
@@ -793,7 +793,7 @@ struct PopoverView: View {
                 showsProgress: false,
                 title: "수치형 사용량 미지원",
                 message: "현재 연결은 계정과 기능만 확인하며 표시 가능한 quota 수치를 제공하지 않습니다.",
-                actionTitle: "조회 방식 확인",
+                actionTitle: "계정 확인",
                 actionStyle: .bordered,
                 action: {
                     viewModel.openSettings(for: .antigravity)
@@ -809,7 +809,7 @@ struct PopoverView: View {
                 showsProgress: false,
                 title: "계정만 확인됨",
                 message: "\(account)은(는) 확인했지만 표시 가능한 quota 수치를 받지 못했습니다.",
-                actionTitle: "조회 방식 확인",
+                actionTitle: "계정 확인",
                 actionStyle: .bordered,
                 action: {
                     viewModel.openSettings(for: .antigravity)
@@ -868,7 +868,7 @@ struct PopoverView: View {
         case .canonicalAccountState:
             return "계정 저장 상태를 검증하지 못했습니다. 설정에서 계정을 다시 확인해 주세요."
         case .typedSettings:
-            return "새 조회 설정을 준비하지 못했습니다. 설정에서 조회 방식을 다시 저장해 주세요."
+            return "자동 조회 설정을 준비하지 못했습니다. 설정을 다시 열어 상태를 확인해 주세요."
         case .managedRuntimeRecovery:
             return "이전 AGY 실행을 안전하게 정리하지 못했습니다. 설정의 진단 항목을 확인해 주세요."
         }
@@ -917,8 +917,8 @@ struct PopoverView: View {
             )
         case .noEligibleSource, .sourceUnavailable:
             return AntigravityFailurePresentation(
-                title: "사용 가능한 조회 방식 없음",
-                message: "현재 계정에 사용할 수 있는 조회 경로가 없습니다. 설정에서 Google 계정 또는 로컬 세션을 선택해 주세요.",
+                title: "사용 가능한 조회 경로 없음",
+                message: "AGY CLI 또는 Antigravity 앱 로그인 상태를 확인하거나 설정에서 Google 계정을 선택해 주세요.",
                 requiresSettings: true
             )
         case .repositoryUnavailable,
@@ -928,7 +928,7 @@ struct PopoverView: View {
              .sourceContractViolation:
             return AntigravityFailurePresentation(
                 title: "로컬 상태 확인 필요",
-                message: "계정 또는 조회 설정이 갱신 중 변경되어 결과를 폐기했습니다. 설정을 확인한 뒤 다시 시도해 주세요.",
+                message: "계정 또는 자동 조회 상태가 갱신 중 변경되어 결과를 폐기했습니다. 설정을 확인한 뒤 다시 시도해 주세요.",
                 requiresSettings: true
             )
         case .deadlineExceeded, .transportUnavailable:

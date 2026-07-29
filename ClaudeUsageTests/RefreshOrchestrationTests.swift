@@ -318,7 +318,9 @@ final class PopoverViewModelTests: XCTestCase {
                         .sourceUnavailable(.managedCLI)
                     ),
                 managedRuntimeAvailability:
-                    .recoveryBlocked
+                    .recoveryBlocked(
+                        displayPath: nil
+                    )
             ),
             isEnabled: true
         )
@@ -348,7 +350,9 @@ final class PopoverViewModelTests: XCTestCase {
                         )
                     ),
                 managedRuntimeAvailability:
-                    .recoveryBlocked
+                    .recoveryBlocked(
+                        displayPath: nil
+                    )
             ),
             isEnabled: true
         )
@@ -458,7 +462,10 @@ final class PopoverViewModelTests: XCTestCase {
             AntigravityPresentationState = .disabled,
         managedRuntimeAvailability:
             AntigravityManagedRuntimeAvailability =
-                .available,
+                .available(
+                    displayPath:
+                        "~/.local/bin/agy"
+                ),
         accounts:
             [AntigravityRuntimeAccountSummary] = [],
         activeAccountID:

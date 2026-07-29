@@ -7,14 +7,15 @@ nonisolated enum AntigravityManagedLaunchAuthorization:
     /// Automatic refresh and source selection must use this value.
     case disabled
 
-    /// Only an explicit advanced-setting opt-in may construct this value.
-    case userOptIn(idleTimeout: Duration = .seconds(180))
+    /// A verified executable and recovered managed-runtime boundary authorize
+    /// automatic launch. User-facing source settings do not participate.
+    case automatic(idleTimeout: Duration = .seconds(180))
 
     var idleTimeout: Duration? {
         switch self {
         case .disabled:
             nil
-        case .userOptIn(let idleTimeout):
+        case .automatic(let idleTimeout):
             idleTimeout
         }
     }

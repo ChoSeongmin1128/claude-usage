@@ -51,7 +51,8 @@ final class AntigravitySettingsViewModelTests:
 
         var localConnection =
             AntigravityConnectionSettings.default
-        localConnection.sourcePolicy = .localSession
+        localConnection.managedSession
+            .idleTimeoutSeconds = 240
         let streamed = Self.snapshot(
             activeAccountID: Self.secondAccountID,
             connection: localConnection,
@@ -285,107 +286,64 @@ final class AntigravitySettingsViewModelTests:
         viewModel.stopObserving()
     }
 
-    func testManagedRuntimeUnavailableDisablesDirectLaunchAndExplainsBorrowedSession()
-    {
+    func testManagedRuntimeNotFoundExplainsInstallationRequirement() {
         let presentation =
             AntigravityManagedRuntimeSettingsPresentation
                 .resolve(
-                    .unavailable,
-                    currentSelection: false
+                    .unavailable(
+                        reason:
+                            .executableNotFound
+                    )
                 )
 
-        XCTAssertFalse(
-            presentation.isToggleEnabled
-        )
-        XCTAssertEqual(
-            presentation.toggleTitle,
-            "ClaudeUsage의 AGY 직접 실행 허용"
-        )
-        XCTAssertEqual(
-            presentation.detail,
-            "현재 공식 AGY CLI는 ClaudeUsage가 안전하게 직접 실행할 수 없습니다. 사용자가 이미 실행한 AGY 세션은 로컬 세션 조회에 사용할 수 있습니다."
-        )
         XCTAssertEqual(
             presentation.diagnosticTitle,
-            "직접 실행 불가 · 실행 중 세션 조회 가능"
+            "미감지 · AGY CLI 설치 필요"
         )
     }
 
-    func testOnlyAvailableManagedRuntimeEnablesDirectLaunchToggle()
-    {
-        XCTAssertTrue(
+    func testVerifiedManagedRuntimeShowsExactDetectedPath() {
+        let presentation =
             AntigravityManagedRuntimeSettingsPresentation
                 .resolve(
-                    .available,
-                    currentSelection: false
+                    .available(
+                        displayPath:
+                            "~/.local/bin/agy"
+                    )
                 )
-                .isToggleEnabled
+
+        XCTAssertEqual(
+            presentation.diagnosticTitle,
+            "감지됨 · ~/.local/bin/agy · 필요 시 자동 실행"
         )
+    }
+
+    func testRejectedAndRecoveryBlockedStatesRemainDistinct() {
+        let rejected =
+            AntigravityManagedRuntimeSettingsPresentation
+                .resolve(
+                    .unavailable(
+                        reason:
+                            .signatureRejected
+                    )
+                )
         let recoveryBlocked =
             AntigravityManagedRuntimeSettingsPresentation
                 .resolve(
-                    .recoveryBlocked,
-                    currentSelection: false
-                )
-        XCTAssertFalse(
-            recoveryBlocked.isToggleEnabled
-        )
-        XCTAssertTrue(
-            recoveryBlocked.detail
-                .contains(
-                    "사용자가 이미 실행한 AGY 세션은 계속 조회할 수 있습니다."
-                )
-        )
-    }
-
-    func testUnavailableManagedRuntimeCanBeTurnedOffButNotBackOn()
-    {
-        for availability in [
-            AntigravityManagedRuntimeAvailability
-                .unavailable,
-            .recoveryBlocked,
-        ] {
-            let selected =
-                AntigravityManagedRuntimeSettingsPresentation
-                    .resolve(
-                        availability,
-                        currentSelection: true
+                    .recoveryBlocked(
+                        displayPath:
+                            "~/.local/bin/agy"
                     )
+                )
 
-            XCTAssertTrue(
-                selected.isToggleEnabled
-            )
-            XCTAssertTrue(
-                selected.permitsSelection(
-                    false
-                )
-            )
-            XCTAssertFalse(
-                selected.permitsSelection(
-                    true
-                )
-            )
-            XCTAssertTrue(
-                selected.detail.contains(
-                    "직접 실행 허용은 끌 수"
-                )
-            )
-
-            let deselected =
-                AntigravityManagedRuntimeSettingsPresentation
-                    .resolve(
-                        availability,
-                        currentSelection: false
-                    )
-            XCTAssertFalse(
-                deselected.isToggleEnabled
-            )
-            XCTAssertFalse(
-                deselected.permitsSelection(
-                    true
-                )
-            )
-        }
+        XCTAssertEqual(
+            rejected.diagnosticTitle,
+            "감지됐지만 Google 서명 검증 실패"
+        )
+        XCTAssertEqual(
+            recoveryBlocked.diagnosticTitle,
+            "이전 프로세스 복구 실패 · ~/.local/bin/agy · 자동 실행 중단"
+        )
     }
 
     private func waitUntil(
@@ -458,7 +416,9 @@ final class AntigravitySettingsViewModelTests:
             presentationState: .disabled,
             quotaPresentation:
                 .unavailable(.disabled),
-            managedRuntimeAvailability: .available,
+            managedRuntimeAvailability: .available(
+                displayPath: "~/.local/bin/agy"
+            ),
             lastAttemptAt: nil,
             lastSuccessfulAt: nil
         )
@@ -495,7 +455,8 @@ private actor
     private let connectResult:
         AntigravityRuntimeSnapshot?
     private var bootstrapCalls: [Bool] = []
-    private var selections: [AntigravityAccountID] = []
+    private var selections:
+        [AntigravityAccountID?] = []
     private var connections: [ConnectCall] = []
     private var continuations:
         [
@@ -558,7 +519,7 @@ private actor
     }
 
     func selectAccount(
-        _ accountID: AntigravityAccountID
+        _ accountID: AntigravityAccountID?
     ) async throws -> AntigravityRuntimeSnapshot {
         selections.append(accountID)
         if let selectError {
@@ -588,12 +549,6 @@ private actor
 
     func deleteAccount(
         _ accountID: AntigravityAccountID
-    ) async throws -> AntigravityRuntimeSnapshot {
-        current
-    }
-
-    func updateConnection(
-        _ connection: AntigravityConnectionSettings
     ) async throws -> AntigravityRuntimeSnapshot {
         current
     }
@@ -638,7 +593,7 @@ private actor
     }
 
     func selectedAccountIDs()
-        -> [AntigravityAccountID]
+        -> [AntigravityAccountID?]
     {
         selections
     }

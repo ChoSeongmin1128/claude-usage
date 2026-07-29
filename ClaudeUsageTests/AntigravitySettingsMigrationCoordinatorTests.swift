@@ -64,17 +64,15 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
         )
     }
 
-    func testAllLegacySourcePoliciesMigrateWithoutEnablingManagedCLI() throws {
-        // 구 enum은 삭제됐다. migration은 남아 있는 persisted raw 문자열만
-        // 읽으므로 여기서도 문자열을 그대로 쓴다.
-        let cases: [(String, AntigravityConnectionSettings.SourcePolicy)] = [
-            ("auto", .automatic),
-            ("local_ide", .localSession),
-            ("agy_cli", .localSession),
-            ("google_oauth", .googleAccount),
+    func testAllLegacySourceKeysMigrateToAutomaticV2Settings() throws {
+        let cases = [
+            "auto",
+            "local_ide",
+            "agy_cli",
+            "google_oauth",
         ]
 
-        for (legacy, expected) in cases {
+        for legacy in cases {
             let store = InMemoryAntigravitySettingsMigrationStore()
             store.set(legacy, forKey: "antigravityUsageDataSource")
 
@@ -82,14 +80,73 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
 
             XCTAssertEqual(outcome, .migrated(pendingNotice: nil), legacy)
             let connection = try connectionSettings(in: store)
-            XCTAssertEqual(connection.sourcePolicy, expected, legacy)
-            XCTAssertFalse(connection.allowManagedCLI, legacy)
+            XCTAssertEqual(
+                connection.schemaVersion,
+                AntigravityConnectionSettings
+                    .currentSchemaVersion,
+                legacy
+            )
             XCTAssertEqual(
                 connection.managedSession.idleTimeoutSeconds,
                 AntigravityConnectionSettings.ManagedSessionPolicy.defaultIdleTimeoutSeconds,
                 legacy
             )
             XCTAssertNil(store.object(forKey: "antigravityUsageDataSource"))
+        }
+    }
+
+    func testV1ConnectionMigratesToV2AndPreservesManagedTimeout()
+        throws
+    {
+        for sourcePolicy in [
+            "automatic",
+            "local_session",
+            "google_account",
+        ] {
+            let store =
+                InMemoryAntigravitySettingsMigrationStore()
+            let legacy = Data(
+                """
+                {"schemaVersion":1,"sourcePolicy":"\(sourcePolicy)","allowManagedCLI":false,"managedSession":{"idleTimeoutSeconds":271}}
+                """.utf8
+            )
+            store.set(
+                legacy,
+                forKey:
+                    AntigravitySettingsMigrationKeys
+                        .connectionSettings
+            )
+            store.set(
+                1,
+                forKey:
+                    AntigravitySettingsMigrationKeys
+                        .migrationVersion
+            )
+
+            let outcome =
+                AntigravitySettingsMigrationCoordinator(
+                    store: store
+                ).migrate()
+
+            XCTAssertEqual(
+                outcome,
+                .migrated(pendingNotice: nil),
+                sourcePolicy
+            )
+            let connection = try connectionSettings(
+                in: store
+            )
+            XCTAssertEqual(
+                connection.schemaVersion,
+                2,
+                sourcePolicy
+            )
+            XCTAssertEqual(
+                connection.managedSession
+                    .idleTimeoutSeconds,
+                271,
+                sourcePolicy
+            )
         }
     }
 
@@ -117,8 +174,7 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
             AntigravityConnectionSettings.self,
             from: connectionData
         )
-        XCTAssertEqual(connection.sourcePolicy, .localSession)
-        XCTAssertFalse(connection.allowManagedCLI)
+        XCTAssertEqual(connection.schemaVersion, 2)
         XCTAssertNil(defaults.object(forKey: "antigravityUsageDataSource"))
         XCTAssertNil(defaults.object(forKey: "antigravity.showIcon"))
         XCTAssertNil(defaults.object(forKey: "antigravity.percentageDisplay"))
@@ -198,8 +254,7 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
         )
 
         let connection = try connectionSettings(in: store)
-        XCTAssertEqual(connection.sourcePolicy, .googleAccount)
-        XCTAssertFalse(connection.allowManagedCLI)
+        XCTAssertEqual(connection.schemaVersion, 2)
         XCTAssertEqual(connection.managedSession.idleTimeoutSeconds, 180)
 
         let display = try displaySettings(in: store)
@@ -505,8 +560,6 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
         let store = InMemoryAntigravitySettingsMigrationStore()
         let currentConnection = AntigravityConnectionSettings(
             schemaVersion: AntigravityConnectionSettings.currentSchemaVersion,
-            sourcePolicy: .googleAccount,
-            allowManagedCLI: true,
             managedSession: .init(idleTimeoutSeconds: 333)
         )
         let currentDisplay = AntigravityDisplaySettings(
@@ -729,8 +782,6 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
         let store = try makeFailureFixture()
         let currentConnection = AntigravityConnectionSettings(
             schemaVersion: AntigravityConnectionSettings.currentSchemaVersion,
-            sourcePolicy: .localSession,
-            allowManagedCLI: true,
             managedSession: .init(idleTimeoutSeconds: 444)
         )
         let currentConnectionData = try JSONEncoder().encode(currentConnection)

@@ -14,15 +14,25 @@ nonisolated struct AntigravityCodeSignatureIdentity:
 /// Reads and validates a static code signature without executing the candidate.
 nonisolated protocol AntigravityExecutableTrustInspecting: Sendable {
     func validatedIdentity(
-        at url: URL
+        at url: URL,
+        satisfying requirementSource: String?
     ) -> AntigravityCodeSignatureIdentity?
+}
+
+nonisolated extension AntigravityExecutableTrustInspecting {
+    func validatedIdentity(
+        at url: URL
+    ) -> AntigravityCodeSignatureIdentity? {
+        validatedIdentity(at: url, satisfying: nil)
+    }
 }
 
 nonisolated struct AntigravitySystemExecutableTrustInspector:
     AntigravityExecutableTrustInspecting
 {
     func validatedIdentity(
-        at url: URL
+        at url: URL,
+        satisfying requirementSource: String?
     ) -> AntigravityCodeSignatureIdentity? {
         var staticCode: SecStaticCode?
         guard SecStaticCodeCreateWithPath(
@@ -42,10 +52,27 @@ nonisolated struct AntigravitySystemExecutableTrustInspector:
                     | kSecCSRestrictSymlinks
             )
         )
+        let requirement: SecRequirement?
+        if let requirementSource {
+            var parsed: SecRequirement?
+            guard SecRequirementCreateWithString(
+                requirementSource as CFString,
+                SecCSFlags(),
+                &parsed
+            ) == errSecSuccess,
+            let parsed
+            else {
+                return nil
+            }
+            requirement = parsed
+        } else {
+            requirement = nil
+        }
+
         guard SecStaticCodeCheckValidity(
             staticCode,
             validationFlags,
-            nil
+            requirement
         ) == errSecSuccess else {
             return nil
         }
@@ -118,7 +145,7 @@ nonisolated struct AntigravitySystemExecutableFileIdentityInspector:
         return identity(ofOpenFileDescriptor: descriptor)
     }
 
-    /// A reviewed digest remains bound to one vnode as long as immutable
+    /// A captured digest remains bound to one vnode as long as immutable
     /// kernel metadata is unchanged. This avoids re-hashing the 150+ MB AGY
     /// binary on every discovery/revalidation while still detecting atomic
     /// replacement, writes, chmod/chown, and hard-link changes.
@@ -253,6 +280,7 @@ nonisolated protocol
     AntigravityProductionExecutableResolverFileSystem:
     AntigravityExecutableCatalogFileSystem
 {
+    func itemExists(at url: URL) -> Bool
     func isDirectory(at url: URL) -> Bool
     func isSymbolicLink(at url: URL) -> Bool
     func hasMachOHeader(at url: URL) -> Bool
@@ -263,6 +291,11 @@ nonisolated struct
     AntigravitySystemProductionExecutableResolverFileSystem:
     AntigravityProductionExecutableResolverFileSystem
 {
+    func itemExists(at url: URL) -> Bool {
+        var status = stat()
+        return lstat(url.path, &status) == 0
+    }
+
     func canonicalURL(for url: URL) -> URL {
         url.resolvingSymlinksInPath().standardizedFileURL
     }
@@ -335,15 +368,14 @@ nonisolated struct
     ]
 }
 
-/// Current official Google signing boundary for Antigravity.app. AGY CLI uses
-/// the separate exact-byte policy below because Google's current archive does
-/// not pass strict macOS static-signature validation.
+/// Current official Google signing boundary for Antigravity.app and AGY CLI.
 nonisolated enum AntigravityOfficialExecutableTrustPolicy {
     static let teamIdentifier = "EQHXZ8M8AV"
     static let appSigningIdentifier =
         AntigravityAppBundleIdentity.requiredBundleIdentifier
     static let languageServerSigningIdentifier =
         "language_server"
+    static let agySigningIdentifier = "cli"
 
     /// Designated requirement emitted by the current Google-signed
     /// `Contents/Resources/bin/language_server` binary.
@@ -352,30 +384,24 @@ nonisolated enum AntigravityOfficialExecutableTrustPolicy {
         identifier "\(languageServerSigningIdentifier)" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "\(teamIdentifier)"
         """
 
+    /// Designated requirement emitted by Google's official AGY CLI.
+    static let agyDesignatedRequirement =
+        """
+        identifier "\(agySigningIdentifier)" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "\(teamIdentifier)"
+        """
+
     static func acceptsApp(
         _ identity: AntigravityCodeSignatureIdentity
     ) -> Bool {
         identity.signingIdentifier == appSigningIdentifier
             && identity.teamIdentifier == teamIdentifier
     }
-}
 
-/// Exact bytes extracted from Google's current official macOS AGY 1.1.7
-/// archives. The installer authenticates each archive against its remote
-/// SHA-512 manifest, while the extracted binaries currently fail macOS static
-/// code validation. An exact digest match is therefore the managed-launch
-/// authority for this version. New AGY releases remain unavailable until
-/// their binary digest is deliberately reviewed and added here.
-nonisolated enum AntigravityOfficialAGYBinaryDigestPolicy {
-    static let knownSHA256Digests: Set<String> = [
-        // darwin_arm64
-        "48e37ce7ef2db0e8972b6fed36ce866d4b094c587d377029ba7223565f49aed8",
-        // darwin_amd64
-        "39156db27a51621cf9c9088c4da591d7c9c66e20c3a9deb08af570871dfd98e1",
-    ]
-
-    static func accepts(_ digest: String) -> Bool {
-        knownSHA256Digests.contains(digest.lowercased())
+    static func acceptsAGY(
+        _ identity: AntigravityCodeSignatureIdentity
+    ) -> Bool {
+        identity.signingIdentifier == agySigningIdentifier
+            && identity.teamIdentifier == teamIdentifier
     }
 }
 
@@ -386,7 +412,10 @@ nonisolated struct AntigravityProductionExecutableCandidates:
     let appBundleRoots: [URL]
     let agyExecutableURLs: [URL]
 
-    init(homeDirectoryURL: URL) {
+    init(
+        homeDirectoryURL: URL,
+        environment: [String: String] = [:]
+    ) {
         let home = homeDirectoryURL.standardizedFileURL
         appBundleRoots = [
             URL(
@@ -403,7 +432,22 @@ nonisolated struct AntigravityProductionExecutableCandidates:
                     isDirectory: true
                 ),
         ]
-        agyExecutableURLs = [
+        var executableCandidates: [URL] = []
+        if let override =
+                environment["ANTIGRAVITY_CLI_PATH"]?
+                    .trimmingCharacters(
+                        in: .whitespacesAndNewlines
+                    ),
+           override.hasPrefix("/")
+        {
+            executableCandidates.append(
+                URL(
+                    fileURLWithPath: override,
+                    isDirectory: false
+                )
+            )
+        }
+        executableCandidates.append(contentsOf: [
             home
                 .appendingPathComponent(
                     ".local/bin",
@@ -418,8 +462,48 @@ nonisolated struct AntigravityProductionExecutableCandidates:
                 fileURLWithPath: "/usr/local/bin/agy",
                 isDirectory: false
             ),
-        ]
+        ])
+        if let path = environment["PATH"] {
+            executableCandidates.append(
+                contentsOf: path
+                    .split(separator: ":")
+                    .map(String.init)
+                    .filter { $0.hasPrefix("/") }
+                    .map {
+                        URL(
+                            fileURLWithPath: $0,
+                            isDirectory: true
+                        )
+                        .appendingPathComponent(
+                            "agy",
+                            isDirectory: false
+                        )
+                    }
+            )
+        }
+
+        var seen = Set<String>()
+        agyExecutableURLs =
+            executableCandidates.compactMap {
+                let standardized =
+                    $0.standardizedFileURL
+                guard seen.insert(
+                    standardized.path
+                ).inserted else {
+                    return nil
+                }
+                return standardized
+            }
     }
+}
+
+nonisolated enum AntigravityAGYExecutableDiscoveryStatus:
+    Sendable,
+    Equatable
+{
+    case verified(displayPath: String)
+    case notFound
+    case rejected
 }
 
 /// A valid empty resolution is intentional. Local discovery can remain
@@ -430,14 +514,17 @@ nonisolated struct AntigravityProductionExecutableResolution:
 {
     let catalog: AntigravityExecutableCatalog
     let managedLaunchExecutable: AntigravityCanonicalExecutable?
+    let agyExecutableStatus:
+        AntigravityAGYExecutableDiscoveryStatus
 }
 
-/// Builds the exact production allowlist without consulting PATH, invoking a
-/// shell, or executing a candidate.
+/// Builds the exact production allowlist without invoking a shell or executing
+/// a candidate.
 nonisolated struct AntigravityProductionExecutableCatalogResolver:
     Sendable
 {
     private let candidates: AntigravityProductionExecutableCandidates
+    private let homeDirectoryURL: URL
     private let fileSystem:
         any AntigravityProductionExecutableResolverFileSystem
     private let trustInspector:
@@ -448,6 +535,8 @@ nonisolated struct AntigravityProductionExecutableCatalogResolver:
     init(
         homeDirectoryURL: URL =
             FileManager.default.realHomeDirectory,
+        environment: [String: String] =
+            ProcessInfo.processInfo.environment,
         fileSystem:
             any AntigravityProductionExecutableResolverFileSystem =
                 AntigravitySystemProductionExecutableResolverFileSystem(),
@@ -458,8 +547,11 @@ nonisolated struct AntigravityProductionExecutableCatalogResolver:
             any AntigravityExecutableFileIdentityInspecting =
                 AntigravitySystemExecutableFileIdentityInspector()
     ) {
+        self.homeDirectoryURL =
+            homeDirectoryURL.standardizedFileURL
         candidates = AntigravityProductionExecutableCandidates(
-            homeDirectoryURL: homeDirectoryURL
+            homeDirectoryURL: homeDirectoryURL,
+            environment: environment
         )
         self.fileSystem = fileSystem
         self.trustInspector = trustInspector
@@ -495,10 +587,27 @@ nonisolated struct AntigravityProductionExecutableCatalogResolver:
         let managedLaunchExecutable = discoverableAGYURLs.lazy
             .compactMap { catalog.executable(matching: $0) }
             .first
+        let agyExecutableStatus:
+            AntigravityAGYExecutableDiscoveryStatus
+        if let managedLaunchExecutable {
+            agyExecutableStatus = .verified(
+                displayPath: displayPath(
+                    for: managedLaunchExecutable
+                        .canonicalURL
+                )
+            )
+        } else if candidates.agyExecutableURLs.contains(
+            where: fileSystem.itemExists
+        ) {
+            agyExecutableStatus = .rejected
+        } else {
+            agyExecutableStatus = .notFound
+        }
 
         return AntigravityProductionExecutableResolution(
             catalog: catalog,
-            managedLaunchExecutable: managedLaunchExecutable
+            managedLaunchExecutable: managedLaunchExecutable,
+            agyExecutableStatus: agyExecutableStatus
         )
     }
 
@@ -532,15 +641,14 @@ nonisolated struct AntigravityProductionExecutableCatalogResolver:
         return true
     }
 
-    /// Both borrowed discovery and opt-in managed launch use the same exact
-    /// official-byte boundary. The captured vnode identity is retained in the
+    /// Borrowed discovery and automatic managed launch use the same official
+    /// Google signing boundary. The captured vnode identity is retained in the
     /// catalog and rechecked before process acceptance and launch.
     private func verifiedAGYExecutable(
         at candidate: URL
     ) -> VerifiedAGYExecutable? {
         let exactURL = candidate.standardizedFileURL
-        guard exactURL.lastPathComponent == "agy",
-              !fileSystem.isSymbolicLink(at: exactURL),
+        guard !fileSystem.isSymbolicLink(at: exactURL),
               fileSystem.canonicalURL(for: exactURL).path
                 == exactURL.path,
               fileSystem.isExecutableRegularFile(at: exactURL),
@@ -548,11 +656,18 @@ nonisolated struct AntigravityProductionExecutableCatalogResolver:
               fileSystem.hasSecureOwnershipAndPermissions(
                   at: exactURL
               ),
+              let codeIdentity =
+                trustInspector.validatedIdentity(
+                    at: exactURL,
+                    satisfying:
+                        AntigravityOfficialExecutableTrustPolicy
+                            .agyDesignatedRequirement
+                ),
+              AntigravityOfficialExecutableTrustPolicy
+                .acceptsAGY(codeIdentity),
               let identity = fileIdentityInspector.identity(
                   at: exactURL
-              ),
-              AntigravityOfficialAGYBinaryDigestPolicy
-                .accepts(identity.sha256Digest)
+              )
         else {
             return nil
         }
@@ -560,5 +675,17 @@ nonisolated struct AntigravityProductionExecutableCatalogResolver:
             url: exactURL,
             identity: identity
         )
+    }
+
+    private func displayPath(for url: URL) -> String {
+        let path = url.standardizedFileURL.path
+        let home = homeDirectoryURL.path
+        if path == home {
+            return "~"
+        }
+        if path.hasPrefix(home + "/") {
+            return "~" + path.dropFirst(home.count)
+        }
+        return path
     }
 }

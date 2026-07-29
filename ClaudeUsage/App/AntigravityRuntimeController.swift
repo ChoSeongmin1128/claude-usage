@@ -126,7 +126,8 @@ actor AntigravityRuntimeController {
         any AntigravityManagedSessionLifecycling
     private let settingsBootstrap:
         AntigravitySettingsBootstrapResult
-    private let hasManagedExecutable: Bool
+    private let agyExecutableStatus:
+        AntigravityAGYExecutableDiscoveryStatus
     private let now: @Sendable () -> Date
     private let operationGate =
         AntigravityRuntimeOperationGate()
@@ -178,7 +179,8 @@ actor AntigravityRuntimeController {
             any AntigravityManagedSessionLifecycling,
         settingsBootstrap:
             AntigravitySettingsBootstrapResult,
-        hasManagedExecutable: Bool,
+        agyExecutableStatus:
+            AntigravityAGYExecutableDiscoveryStatus,
         now:
             @escaping @Sendable () -> Date =
                 Date.init
@@ -190,12 +192,12 @@ actor AntigravityRuntimeController {
         self.refreshCoordinator = refreshCoordinator
         self.managedSession = managedSession
         self.settingsBootstrap = settingsBootstrap
-        self.hasManagedExecutable =
-            hasManagedExecutable
+        self.agyExecutableStatus =
+            agyExecutableStatus
         self.now = now
-        managedAvailability = hasManagedExecutable
-            ? .available
-            : .unavailable
+        managedAvailability = Self.managedAvailability(
+            for: agyExecutableStatus
+        )
     }
 
     func snapshot() -> AntigravityRuntimeSnapshot {
@@ -250,11 +252,16 @@ actor AntigravityRuntimeController {
                 try await managedSession
                     .recoverOrphanedProcesses()
                 managedAvailability =
-                    hasManagedExecutable
-                        ? .available
-                        : .unavailable
+                    Self.managedAvailability(
+                        for: agyExecutableStatus
+                    )
             } catch {
-                managedAvailability = .recoveryBlocked
+                managedAvailability = .recoveryBlocked(
+                    displayPath:
+                        Self.verifiedDisplayPath(
+                            from: agyExecutableStatus
+                        )
+                )
             }
             guard isCurrentBoundary(boundaryID) else {
                 return nil
@@ -366,7 +373,7 @@ actor AntigravityRuntimeController {
 
     @discardableResult
     func selectAccount(
-        _ accountID: AntigravityAccountID
+        _ accountID: AntigravityAccountID?
     ) async throws -> AntigravityRuntimeSnapshot {
         try await performBoundaryMutation {
             transactionID in
@@ -380,11 +387,13 @@ actor AntigravityRuntimeController {
             guard isCurrent(transactionID) else {
                 return nil
             }
-            guard context.repositoryState.usableAccounts
-                .contains(where: { $0.id == accountID })
-            else {
-                throw AntigravityRuntimeControllerError
-                    .accountNotFound
+            if let accountID {
+                guard context.repositoryState.usableAccounts
+                    .contains(where: { $0.id == accountID })
+                else {
+                    throw AntigravityRuntimeControllerError
+                        .accountNotFound
+                }
             }
 
             let repositoryState:
@@ -554,54 +563,6 @@ actor AntigravityRuntimeController {
             }
             return prepareRefresh(
                 trigger: .accountBoundaryChanged,
-                migrationStatus:
-                    currentSnapshot.migrationStatus,
-                context: CanonicalContext(
-                    repositoryState: repositoryState,
-                    settings: settings
-                ),
-                transactionID: transactionID
-            )
-        }
-    }
-
-    @discardableResult
-    func updateConnection(
-        _ connection: AntigravityConnectionSettings
-    ) async throws -> AntigravityRuntimeSnapshot {
-        try ensureMutable()
-        guard connection.isCurrentAndValid else {
-            throw AntigravitySettingsStoreError
-                .invalidValue(.connection)
-        }
-        return try await performBoundaryMutation {
-            transactionID in
-            try ensureMutable()
-            guard isCurrent(transactionID) else {
-                return nil
-            }
-            let context = try await requireCanonicalContext(
-                boundaryID: transactionID
-            )
-            guard isCurrent(transactionID) else {
-                return nil
-            }
-            let settings = AntigravitySettingsSnapshot(
-                connection:
-                    try await settingsStore
-                        .saveConnection(connection),
-                display: context.settings.display
-            )
-            guard isCurrent(transactionID) else {
-                return nil
-            }
-            let repositoryState =
-                try await repository.state()
-            guard isCurrent(transactionID) else {
-                return nil
-            }
-            return prepareRefresh(
-                trigger: .sourceBoundaryChanged,
                 migrationStatus:
                     currentSnapshot.migrationStatus,
                 context: CanonicalContext(
@@ -1193,15 +1154,14 @@ actor AntigravityRuntimeController {
         let request = AntigravityRefreshRequest(
             trigger: trigger,
             accountTarget: Self.accountTarget(
-                repositoryState: context.repositoryState,
-                connection:
-                    context.settings.connection
+                repositoryState: context.repositoryState
             ),
             repositoryRevision:
                 context.repositoryState.revision,
-            connection: effectiveConnection(
-                context.settings.connection
-            )
+            connection: context.settings.connection,
+            managedLaunchEnabled:
+                managedAvailability
+                    .allowsManagedLaunch
         )
         return RefreshTransaction(
             id: transactionID,
@@ -1210,6 +1170,37 @@ actor AntigravityRuntimeController {
             migrationStatus: migrationStatus,
             context: context
         )
+    }
+
+    private static func managedAvailability(
+        for status:
+            AntigravityAGYExecutableDiscoveryStatus
+    ) -> AntigravityManagedRuntimeAvailability {
+        switch status {
+        case .verified(let displayPath):
+            return .available(
+                displayPath: displayPath
+            )
+        case .notFound:
+            return .unavailable(
+                reason: .executableNotFound
+            )
+        case .rejected:
+            return .unavailable(
+                reason: .signatureRejected
+            )
+        }
+    }
+
+    private static func verifiedDisplayPath(
+        from status:
+            AntigravityAGYExecutableDiscoveryStatus
+    ) -> String? {
+        guard case .verified(let displayPath) = status
+        else {
+            return nil
+        }
+        return displayPath
     }
 
     private func executeRefresh(
@@ -1268,20 +1259,6 @@ actor AntigravityRuntimeController {
                 == transaction.boundaryID
             && activeRefreshTransactionID
                 == transaction.id
-    }
-
-    private func effectiveConnection(
-        _ connection: AntigravityConnectionSettings
-    ) -> AntigravityConnectionSettings {
-        guard managedAvailability
-                == .recoveryBlocked,
-              connection.allowManagedCLI
-        else {
-            return connection
-        }
-        var safe = connection
-        safe.allowManagedCLI = false
-        return safe
     }
 
     @discardableResult
@@ -1368,20 +1345,14 @@ actor AntigravityRuntimeController {
 
     private nonisolated static func accountTarget(
         repositoryState:
-            AntigravityAccountRepositoryState,
-        connection: AntigravityConnectionSettings
+            AntigravityAccountRepositoryState
     ) -> AntigravityRefreshAccountTarget {
-        switch connection.sourcePolicy {
-        case .localSession:
+        guard let accountID =
+                repositoryState.activeAccountID
+        else {
             return .ambientLocal
-        case .automatic, .googleAccount:
-            guard let accountID =
-                    repositoryState.activeAccountID
-            else {
-                return .ambientLocal
-            }
-            return .selectedOAuth(accountID)
         }
+        return .selectedOAuth(accountID)
     }
 
     private nonisolated static func accountSummaries(

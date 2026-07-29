@@ -30,12 +30,15 @@ private nonisolated struct AntigravityRefreshFlightKey:
     let accountTarget: AntigravityRefreshAccountTarget
     let repositoryRevision: UInt64
     let connection: AntigravityConnectionSettings
+    let managedLaunchEnabled: Bool
     let clearsPreviousSnapshot: Bool
 
     init(_ request: AntigravityRefreshRequest) {
         accountTarget = request.accountTarget
         repositoryRevision = request.repositoryRevision
         connection = request.connection
+        managedLaunchEnabled =
+            request.managedLaunchEnabled
         clearsPreviousSnapshot =
             request.trigger.clearsPreviousSnapshot
     }
@@ -666,17 +669,6 @@ actor AntigravityRefreshCoordinator:
         do {
             try Task.checkCancellation()
             let connection = request.connection
-            if connection.sourcePolicy == .googleAccount,
-               request.accountTarget == .ambientLocal
-            {
-                return AntigravityRefreshExecutionResult(
-                    output: .setupRequired(
-                        .noSelectedOAuthAccount
-                    ),
-                    credentialMutation: nil,
-                    repositoryWasValidated: false
-                )
-            }
             let repositoryState = try await repository.state()
             guard repositoryState.revision
                     == request.repositoryRevision
@@ -725,13 +717,8 @@ actor AntigravityRefreshCoordinator:
                     )
             }
 
-            let planned: [AntigravityUsageSourceID]
-            do {
-                planned = try AntigravitySourcePlanner
-                    .plannedSources(for: request)
-            } catch {
-                return .failure(.invalidRefreshContext)
-            }
+            let planned = AntigravitySourcePlanner
+                .plannedSources(for: request)
             guard !planned.isEmpty else {
                 return .failure(.noEligibleSource)
             }
@@ -794,10 +781,9 @@ actor AntigravityRefreshCoordinator:
                 let managedAuthorization:
                     AntigravityManagedLaunchAuthorization
                 if sourceID == .managedCLI,
-                   connection.sourcePolicy == .localSession,
-                   connection.allowManagedCLI
+                   request.managedLaunchEnabled
                 {
-                    managedAuthorization = .userOptIn(
+                    managedAuthorization = .automatic(
                         idleTimeout: .seconds(
                             connection.managedSession
                                 .idleTimeoutSeconds

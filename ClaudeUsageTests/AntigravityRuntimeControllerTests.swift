@@ -18,7 +18,10 @@ final class AntigravityRuntimeControllerTests:
         XCTAssertEqual(snapshot.readiness, .ready)
         XCTAssertEqual(
             snapshot.managedRuntimeAvailability,
-            .available
+            .available(
+                displayPath:
+                    "~/.local/bin/agy"
+            )
         )
         XCTAssertLessThan(
             try XCTUnwrap(
@@ -284,25 +287,19 @@ final class AntigravityRuntimeControllerTests:
         XCTAssertTrue(requests.isEmpty)
     }
 
-    func testSourcePolicyUpdateInvalidatesAndRefreshesExactlyOnce()
+    func testSelectingAmbientModeInvalidatesAndRefreshesExactlyOnce()
         async throws
     {
         let fixture = makeFixture()
         _ = await fixture.controller.bootstrap(
             performInitialRefresh: false
         )
-        var connection =
-            AntigravityConnectionSettings.default
-        connection.sourcePolicy = .localSession
-
         let snapshot = try await fixture.controller
-            .updateConnection(connection)
+            .selectAccount(nil)
 
         let requests = await fixture.refresh.requests()
         let invalidationCount =
             await fixture.refresh.invalidationCount()
-        let connectionSaveCount =
-            await fixture.settings.connectionSaveCount()
         XCTAssertEqual(
             invalidationCount,
             1
@@ -310,27 +307,16 @@ final class AntigravityRuntimeControllerTests:
         XCTAssertEqual(requests.count, 1)
         XCTAssertEqual(
             requests.first?.trigger,
-            .sourceBoundaryChanged
+            .accountBoundaryChanged
         )
         XCTAssertEqual(
             requests.first?.accountTarget,
             .ambientLocal
         )
-        XCTAssertEqual(
-            requests.first?.connection,
-            connection
-        )
-        XCTAssertEqual(
-            connectionSaveCount,
-            1
-        )
-        XCTAssertEqual(
-            snapshot.settings?.connection,
-            connection
-        )
+        XCTAssertNil(snapshot.activeAccountID)
     }
 
-    func testSourceSwitchPreemptsInFlightRefreshAndRejectsItsLateResult()
+    func testAmbientSelectionPreemptsInFlightRefreshAndRejectsItsLateResult()
         async throws
     {
         let refreshGate = ControllerRefreshGate()
@@ -348,21 +334,15 @@ final class AntigravityRuntimeControllerTests:
         }
         await refreshGate.waitUntilRequestCount(1)
 
-        var connection =
-            AntigravityConnectionSettings.default
-        connection.sourcePolicy = .localSession
         let sourceSwitch = Task {
             try await fixture.controller
-                .updateConnection(connection)
+                .selectAccount(nil)
         }
         await refreshGate.waitUntilRequestCount(2)
 
         let invalidated =
             await fixture.controller.snapshot()
-        XCTAssertEqual(
-            invalidated.settings?.connection,
-            connection
-        )
+        XCTAssertNil(invalidated.activeAccountID)
         XCTAssertEqual(
             invalidated.presentationState,
             .refreshing(previous: nil)
@@ -373,10 +353,7 @@ final class AntigravityRuntimeControllerTests:
             with: .ready(Self.oldQuotaSnapshot)
         )
         let oldResult = await oldRefresh.value
-        XCTAssertEqual(
-            oldResult.settings?.connection,
-            connection
-        )
+        XCTAssertNil(oldResult.activeAccountID)
         XCTAssertEqual(
             oldResult.presentationState,
             .refreshing(previous: nil)
@@ -387,10 +364,7 @@ final class AntigravityRuntimeControllerTests:
             with: .ready(Self.newQuotaSnapshot)
         )
         let switched = try await sourceSwitch.value
-        XCTAssertEqual(
-            switched.settings?.connection,
-            connection
-        )
+        XCTAssertNil(switched.activeAccountID)
         XCTAssertEqual(
             switched.presentationState,
             .ready(Self.newQuotaSnapshot)
@@ -599,12 +573,7 @@ final class AntigravityRuntimeControllerTests:
     func testManagedRecoveryFailureDisablesManagedSourceForRefresh()
         async
     {
-        var connection =
-            AntigravityConnectionSettings.default
-        connection.sourcePolicy = .localSession
-        connection.allowManagedCLI = true
         let fixture = makeFixture(
-            connection: connection,
             recoveryFails: true
         )
 
@@ -615,16 +584,15 @@ final class AntigravityRuntimeControllerTests:
 
         XCTAssertEqual(
             snapshot.managedRuntimeAvailability,
-            .recoveryBlocked
+            .recoveryBlocked(
+                displayPath:
+                    "~/.local/bin/agy"
+            )
         )
         XCTAssertEqual(requests.count, 1)
         XCTAssertEqual(
-            requests.first?.connection.allowManagedCLI,
+            requests.first?.managedLaunchEnabled,
             false
-        )
-        XCTAssertEqual(
-            snapshot.settings?.connection.allowManagedCLI,
-            true
         )
     }
 
@@ -747,18 +715,14 @@ final class AntigravityRuntimeControllerTests:
         )
     }
 
-    func testGooglePolicyWithoutActiveAccountKeepsSetupRequirement()
+    func testAmbientModeWithoutLocalSessionKeepsSetupRequirement()
         async
     {
-        var connection =
-            AntigravityConnectionSettings.default
-        connection.sourcePolicy = .googleAccount
         let fixture = makeFixture(
             activeAccountID: nil,
-            connection: connection,
             refreshResult:
                 .setupRequired(
-                    .noSelectedOAuthAccount
+                    .noAmbientLocalSession
                 )
         )
 
@@ -774,7 +738,7 @@ final class AntigravityRuntimeControllerTests:
         XCTAssertEqual(
             snapshot.presentationState,
             .setupRequired(
-                .noSelectedOAuthAccount
+                .noAmbientLocalSession
             )
         )
     }
@@ -849,7 +813,11 @@ final class AntigravityRuntimeControllerTests:
             managedSession: managed,
             settingsBootstrap:
                 .ready(.alreadyCurrent),
-            hasManagedExecutable: true,
+            agyExecutableStatus:
+                .verified(
+                    displayPath:
+                        "~/.local/bin/agy"
+                ),
             now: {
                 Date(
                     timeIntervalSince1970:
