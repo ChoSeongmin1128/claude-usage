@@ -576,6 +576,15 @@ entitlement 일치, no-UI add -> read-back -> delete 실증) 구현.
 
 남은 릴리스 절차:
 
-- dev 커밋/푸시, main squash, `v2.4.3-staging` 게시와 원격 artifact 검증
-- 게시된 서명 후보에서 설정 UI와 실제 자동 조회를 확인한 뒤 dev를 main에
-  맞추고 이 절에 최종 릴리스 결과를 기록
+- 구현은 `b04761a`로 main/dev/origin 양쪽에 반영·정렬 완료
+- `v2.4.3-staging` 게시 시도는 release driver의 첫 mutation 전
+  `ClaudeUsageNotary` Keychain profile 부재로 중단됨
+  - tag/Release/Pages/Downloads는 변경되지 않음
+  - GitHub CLI는 `nathan-glorang`으로 복원됨
+  - 보관된 `AuthKey_6MM7PM2P55.p8`은 Team API Key라 issuer UUID 없이는
+    프로필을 복구할 수 없고, 로컬 파일·환경·Keychain에는 issuer가 없음
+  - App Store Connect 로그인 세션도 없어 UI에서 issuer를 확인하지 못함
+- 사용자 로그인 또는 issuer UUID 확보 후 `ClaudeUsageNotary`를 복구하고
+  release driver를 그대로 재실행
+- 게시된 서명 후보에서 설정 UI와 실제 자동 조회를 확인한 뒤 이 절에 최종
+  릴리스 결과를 기록
