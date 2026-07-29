@@ -581,10 +581,14 @@ entitlement 일치, no-UI add -> read-back -> delete 실증) 구현.
   `ClaudeUsageNotary` Keychain profile 부재로 중단됨
   - tag/Release/Pages/Downloads는 변경되지 않음
   - GitHub CLI는 `nathan-glorang`으로 복원됨
-  - 보관된 `AuthKey_6MM7PM2P55.p8`은 Team API Key라 issuer UUID 없이는
-    프로필을 복구할 수 없고, 로컬 파일·환경·Keychain에는 issuer가 없음
-  - App Store Connect 로그인 세션도 없어 UI에서 issuer를 확인하지 못함
-- 사용자 로그인 또는 issuer UUID 확보 후 `ClaudeUsageNotary`를 복구하고
-  release driver를 그대로 재실행
+  - Documents의 Developer ID p12, ClaudeUsage provisioning profile,
+    Sparkle 키, `AuthKey_6MM7PM2P55.p8`은 존재하며 기록된 무결성 값과 일치
+  - 셸 기록상 기존 `ClaudeUsageNotary`는 P8이 아니라 Apple ID + Team ID
+    `5YG4V2PLZV`로 생성됐음. 복구에는 새 app-specific password 입력이 필요
+  - P8은 별도 공증 자격으로 재사용할 수 있지만 Team API Key의 issuer UUID가
+    로컬에는 보관돼 있지 않아 현재 즉시 대체할 수 없음
+- Apple ID 방식으로 `ClaudeUsageNotary`를 다시 저장하거나 P8 issuer를
+  확보한 뒤 release driver를 그대로 재실행. 배포 대상은 Mac App Store가
+  아니라 Developer ID 공증을 거친 GitHub staging Release/appcast임
 - 게시된 서명 후보에서 설정 UI와 실제 자동 조회를 확인한 뒤 이 절에 최종
   릴리스 결과를 기록
