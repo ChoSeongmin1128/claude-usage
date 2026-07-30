@@ -98,12 +98,11 @@ Release의 `appcast.xml` asset과 byte-for-byte로 대조합니다.
 archive DerivedData와 release build는 각 사용 단계가 끝나는 즉시
 삭제합니다. 실패·중단 시에도 trap이 남은 download, mount, worktree와
 실행 임시 루트를 정리하고 GitHub CLI 계정을 `nathan-glorang`으로
-복원합니다. fresh/tag-only 게시에서 최종적으로 남는 QA 앱은 prod의
-`~/Downloads/ClaudeUsage.app` 또는 staging의
-`~/Downloads/ClaudeUsage-stg.app` 하나이며, 새 후보가 아니라 Sparkle
-upgrade를 시작할 이전 동일 identity 버전입니다. 분리된 staging identity의
-최초 공개 전환에는 이전 QA 앱을 남기지 않습니다. backup app은 만들지
-않습니다.
+복원합니다. fresh/tag-only 게시에서 이전 동일 identity 앱을
+`~/Downloads`에 일시 준비하지만, 서명 기준과 원격 upgrade source 확인 뒤
+성공·실패 모두 종료 trap에서 삭제합니다. 실제 QA 설치·실행본은
+`/Applications`만 사용하며 필요하면 검증된 원격 Release에서 다시 받습니다.
+backup app은 만들지 않습니다.
 
 ### 중단 후 재실행
 

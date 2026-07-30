@@ -795,6 +795,7 @@ run_orchestration_scenario() {
     local staging_feed_state_after="$4"
     local xcodebuild_fail="${5:-0}"
     local pages_sequence="${6:-built}"
+    local bootstrap_version="${7:-2.4.0}"
 
     rm -rf "$ORCHESTRATION_TMP" "$ORCHESTRATION_DOWNLOADS"
     mkdir -p "$ORCHESTRATION_TMP" "$ORCHESTRATION_DOWNLOADS"
@@ -822,7 +823,7 @@ run_orchestration_scenario() {
             "RELEASE_DRIVER_TEST_HEAD=$ORCHESTRATION_HEAD" \
             "RELEASE_DRIVER_TEST_PAGES_HEAD=$ORCHESTRATION_PAGES_HEAD" \
             "RELEASE_DRIVER_TEST_XCODEBUILD_FAIL=$xcodebuild_fail" \
-            "RELEASE_DRIVER_TEST_STAGING_IDENTITY_BOOTSTRAP_VERSION=2.4.0" \
+            "RELEASE_DRIVER_TEST_STAGING_IDENTITY_BOOTSTRAP_VERSION=$bootstrap_version" \
             "RELEASE_DRIVER_TEST_EXPECTED_FEED=https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml" \
             "RELEASE_DRIVER_TEST_PROD_TAG=v2.3.3" \
             "RELEASE_DRIVER_TEST_STAGING_TAG=$staging_release_tag" \
@@ -927,6 +928,25 @@ pass
 pass
 assert_orchestration_cleanup "fresh"
 assert_no_destructive_release_commands "$SCENARIO_TRACE" "fresh"
+
+run_orchestration_scenario \
+    fresh \
+    v2.3.3-staging \
+    $'2.3.3\t20330\tv2.3.3-staging' \
+    $'2.4.0\t20400\tv2.4.0-staging' \
+    0 \
+    built \
+    2.3.0
+assert_equal "0" "$SCENARIO_STATUS" "same-identity upgrade actual path"
+assert_contains "$SCENARIO_TRACE" "verify <--tag> <v2.3.3-staging>" "same-identity previous artifact verification"
+assert_contains "$SCENARIO_TRACE" "<--install-to> <$ORCHESTRATION_DOWNLOADS/ClaudeUsage-stg.app>" "same-identity temporary upgrade app"
+assert_contains "$SCENARIO_TRACE" "<SIGNING_REFERENCE_APP=$ORCHESTRATION_DOWNLOADS/ClaudeUsage-stg.app>" "same-identity signing reference"
+[[ ! -e "$ORCHESTRATION_DOWNLOADS/ClaudeUsage-stg.app" ]] \
+    || fail "same-identity upgrade 앱이 driver 종료 후 Downloads fixture에 남았습니다."
+pass
+assert_contains "$SCENARIO_OUTPUT" "배포 중 준비한 Downloads 앱은 종료 시 삭제합니다." "same-identity cleanup output"
+assert_orchestration_cleanup "same-identity upgrade"
+assert_no_destructive_release_commands "$SCENARIO_TRACE" "same-identity upgrade"
 
 run_orchestration_scenario \
     tag_only \

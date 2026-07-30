@@ -15,7 +15,7 @@
 - 2.4.6 후보는 메뉴바 상태 항목 방어만 추가한다. AGY/provider UX 통합은
   2.4.5에 이미 포함됐다.
 - 최종 자동 검증: 전체 XCTest 935개 실행, opt-in 2개 skip, 실패 0;
-  상태 항목 전용 16개 실패 0; release driver 317개 실패 0.
+  상태 항목 전용 16개 실패 0; release driver 333개 실패 0.
 - 앱 runtime QA를 위해 Codex/Claude/CuaDriver/Terminal `open`으로 설치 앱을
   실행하지 않는다. 사용자가 Finder의 Applications에서 직접 실행한다.
 - prod는 2.4.6 staging signed artifact의 실제 메뉴바 표시, 단일 프로세스,

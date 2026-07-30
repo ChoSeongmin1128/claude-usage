@@ -53,6 +53,7 @@ DRY_RUN=0
 CONFIRM_PUBLISH=""
 ORIGINAL_GH_ACCOUNT=""
 RESTORE_GH_ACCOUNT_ON_EXIT=0
+DOWNLOADS_APP_PATH=""
 RUN_ROOT=""
 BUILD_DIR=""
 ARCHIVE_PATH=""
@@ -61,6 +62,7 @@ VERIFIED_CANDIDATE_APPCAST=""
 STAGING_IDENTITY_BOOTSTRAP_VERSION="2.4.4"
 STAGING_IDENTITY_BOOTSTRAP=0
 SIGNING_REFERENCE_APP_PATH=""
+UPGRADE_APP_OWNED=0
 
 PROD_RELEASE_TAG=""
 STAGING_RELEASE_TAG=""
@@ -111,6 +113,12 @@ cleanup_release_driver() {
     local cleanup_failed=0
     local restore_failed=0
 
+    if [[ "$UPGRADE_APP_OWNED" == "1" && -e "$DOWNLOADS_APP_PATH" ]]; then
+        if ! rm -rf "$DOWNLOADS_APP_PATH" || [[ -e "$DOWNLOADS_APP_PATH" ]]; then
+            echo "오류: release upgrade 기준 앱을 정리하지 못했습니다: $DOWNLOADS_APP_PATH" >&2
+            cleanup_failed=1
+        fi
+    fi
     if [[ -n "$RUN_ROOT" && -d "$RUN_ROOT" ]]; then
         if ! rm -rf "$RUN_ROOT" || [[ -e "$RUN_ROOT" ]]; then
             echo "오류: release 임시 디렉터리를 정리하지 못했습니다: $RUN_ROOT" >&2
@@ -608,7 +616,7 @@ DRY-RUN 실행 계획
   3. release driver shell 회귀 테스트 실행
   4. 격리된 임시 DerivedData로 전체 XCTest와 실제 AGY 자동 조회 smoke 실행
   5. 이전 동일 식별자 staging/prod 원격 산출물 검증
-  6. 동일 식별자 이전 앱이 있을 때만 $DOWNLOADS_APP_PATH 로 교체
+  6. 동일 식별자 이전 앱을 $DOWNLOADS_APP_PATH 에 일시 준비하고 종료 시 삭제
   7. RELEASE_CHANNEL=$RELEASE_ENVIRONMENT 로 build-notarize-release.sh 실행
   8. 게시 직전 exact tag '$TAG' 재확인
   9. publish-release.sh로 immutable tag와 세 Release asset 게시
@@ -981,6 +989,7 @@ if [[ "$STAGING_IDENTITY_BOOTSTRAP" == "1" ]]; then
 else
     echo
     echo "이전 동일 채널 앱 준비: $PREVIOUS_TAG"
+    UPGRADE_APP_OWNED=1
     "$VERIFY_SCRIPT" \
         --tag "$PREVIOUS_TAG" \
         --channel "$RELEASE_ENVIRONMENT" \
@@ -1169,9 +1178,9 @@ else
   version/build: $VERSION ($EXPECTED_BUILD)
   source:        $HEAD_SHA
   local temp:    정리 완료
-  upgrade app:   $DOWNLOADS_APP_PATH ($PREVIOUS_TAG)
+  upgrade source: $PREVIOUS_TAG 원격 검증 완료
 
-Downloads 앱은 새 후보가 아니라 이전 동일 채널 앱으로 유지했습니다.
-이 앱에서 Sparkle 업데이트를 실행해 실제 upgrade QA를 진행할 수 있습니다.
+배포 중 준비한 Downloads 앱은 종료 시 삭제합니다.
+실제 upgrade QA는 /Applications의 설치 앱을 Finder에서 직접 실행해 진행합니다.
 EOF
 fi
