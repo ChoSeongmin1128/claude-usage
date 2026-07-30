@@ -281,6 +281,7 @@ extension AppDelegate {
         let menu = StatusContextMenuBuilder.build(
             settings: settings,
             runtimeServices: runtimeServices,
+            selectedService: popoverViewModel.selectedService,
             refreshableServiceSet: Set(refreshableServices),
             styleConfigurations:
                 statusContextStyleConfigurations(
@@ -290,7 +291,8 @@ extension AppDelegate {
             actions: StatusContextMenuActions(
                 refreshAll: #selector(refreshClicked),
                 settings: #selector(settingsClicked),
-                openUsage: #selector(openUsagePage),
+                openProviderExternalAction:
+                    #selector(openProviderExternalActionClicked(_:)),
                 quit: #selector(quitClicked),
                 toggleProvider: #selector(toggleProviderClicked(_:)),
                 refreshProvider: #selector(refreshProviderClicked(_:)),
@@ -636,7 +638,9 @@ extension AppDelegate {
                 self?.showSettingsWindow()
                 return nil
             case "u":
-                self?.openUsagePageAction()
+                guard self?.openSelectedProviderUsagePageAction() == true else {
+                    return event
+                }
                 return nil
             default:
                 return event
@@ -658,14 +662,33 @@ extension AppDelegate {
         }
     }
 
-    @objc func openUsagePage() {
-        openUsagePageAction()
+    @objc func openProviderExternalActionClicked(
+        _ sender: NSMenuItem
+    ) {
+        guard
+            let destination = sender.representedObject as? String,
+            let action = AppProviderKind.allCases
+                .flatMap({ $0.descriptor.externalActions })
+                .first(where: {
+                    $0.destination.absoluteString == destination
+                })
+        else {
+            return
+        }
+        NSWorkspace.shared.open(action.destination)
     }
 
-    func openUsagePageAction() {
-        if let url = URL(string: "https://claude.ai/settings/usage") {
-            NSWorkspace.shared.open(url)
+    @discardableResult
+    func openSelectedProviderUsagePageAction() -> Bool {
+        guard
+            let action = popoverViewModel.selectedService
+                .providerKind.descriptor.externalActions
+                .first(where: { $0.kind == .usage })
+        else {
+            return false
         }
+        NSWorkspace.shared.open(action.destination)
+        return true
     }
 
     @objc func quitClicked() {

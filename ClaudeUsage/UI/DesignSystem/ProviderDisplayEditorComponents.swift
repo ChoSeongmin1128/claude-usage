@@ -40,6 +40,59 @@ struct ProviderPopoverPreviewShell<Content: View>: View {
     }
 }
 
+struct ProviderExternalActionsView: View {
+    let provider: AppProviderKind
+    let compact: Bool
+    let isInteractive: Bool
+    let onOpen: (ProviderExternalAction) -> Void
+
+    init(
+        provider: AppProviderKind,
+        compact: Bool,
+        isInteractive: Bool = true,
+        onOpen: @escaping (ProviderExternalAction) -> Void
+    ) {
+        self.provider = provider
+        self.compact = compact
+        self.isInteractive = isInteractive
+        self.onOpen = onOpen
+    }
+
+    var body: some View {
+        HStack(spacing: compact ? 8 : 12) {
+            ForEach(provider.descriptor.externalActions) { action in
+                if isInteractive {
+                    Button {
+                        onOpen(action)
+                    } label: {
+                        actionLabel(action)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(action.helpText)
+                    .accessibilityLabel("\(provider.displayName) \(action.title) 열기")
+                } else {
+                    actionLabel(action)
+                        .foregroundStyle(Color.accentColor)
+                        .accessibilityHidden(true)
+                }
+            }
+        }
+        .font(.caption)
+    }
+
+    private func actionLabel(
+        _ action: ProviderExternalAction
+    ) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: action.systemImageName)
+            if !compact {
+                Text(action.title)
+            }
+        }
+        .foregroundStyle(Color.accentColor)
+    }
+}
+
 struct ProviderDisplayEditorShell<
     Preview: View,
     Controls: View

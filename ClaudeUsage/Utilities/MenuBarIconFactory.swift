@@ -39,12 +39,9 @@ enum MenuBarIconFactory {
         var renderedImage = base
         appearance.performAsCurrentDrawingAppearance {
             let size = base.size
-            let badgeDiameter: CGFloat = indicator == .critical ? 8 : 7
-            let badgeRect = NSRect(
-                x: max(0, size.width - badgeDiameter),
-                y: max(0, size.height - badgeDiameter),
-                width: badgeDiameter,
-                height: badgeDiameter
+            let badgeRect = statusBadgeRect(
+                for: size,
+                indicator: indicator
             )
             let badgeColor: NSColor = indicator == .minor ? .systemOrange : .systemRed
             let image = NSImage(size: size)
@@ -83,6 +80,20 @@ enum MenuBarIconFactory {
             renderedImage = image
         }
         return renderedImage
+    }
+
+    static func statusBadgeRect(
+        for size: NSSize,
+        indicator: StatusIndicator
+    ) -> NSRect {
+        let badgeDiameter: CGFloat = indicator == .critical ? 8 : 7
+        let outlineInset: CGFloat = 1
+        return NSRect(
+            x: max(outlineInset, size.width - badgeDiameter - outlineInset),
+            y: max(outlineInset, size.height - badgeDiameter - outlineInset),
+            width: badgeDiameter,
+            height: badgeDiameter
+        )
     }
 
     static func rasterizedIcon(

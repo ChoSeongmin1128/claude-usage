@@ -5,21 +5,25 @@
 - 원격: `git@github-seongmin:ChoSeongmin1128/claude-usage.git`
 - 브랜치: `main`
 - 배포 기준: Developer ID 공증 GitHub Release + Sparkle appcast. App Store 배포 아님
-- 최신 게시: `v2.4.5-staging` (`0c17c8a`)
-- 현재 후보: `2.4.6` (`20406`). 메뉴바 차단 재발 방어 구현과 자동 검증 완료,
-  서명된 staging 게시 및 사용자의 Applications 직접 실행 QA 전
+- 최신 게시: `v2.4.6-staging` (`591fe2b`)
+- 현재 후보: `2.4.7` (`20407`). 상태 badge 클리핑과 provider별 외부 액션
+  통합을 구현하고 staging 게시 전 자동 검증 완료
 
 ## 0. 현재 source of truth
 
-- `main`, `origin/main`, `v2.4.5-staging`은 현재 `0c17c8a`를 가리킨다.
-- 2.4.6 후보는 메뉴바 상태 항목 방어만 추가한다. AGY/provider UX 통합은
-  2.4.5에 이미 포함됐다.
-- 최종 자동 검증: 전체 XCTest 935개 실행, opt-in 2개 skip, 실패 0;
-  상태 항목 전용 16개 실패 0; release driver 333개 실패 0.
+- `v2.4.6-staging`의 immutable source는 `591fe2b`다. 이 문서가 포함된
+  `main`/`origin/main`은 2.4.7 후보 source이며 staging tag는 release
+  driver가 해당 exact commit에 생성한다.
+- 2.4.7 후보는 상태 badge 외곽선을 메뉴바 icon canvas 안으로 이동하고,
+  Claude/Codex의 사용량·공식 상태 페이지를 provider metadata와 공용 footer
+  component로 통합한다. Antigravity에는 검증되지 않은 대체 링크를 만들지 않는다.
+- 현재 자동 검증: 전체 XCTest 939개 실행, opt-in 2개 skip, 실패 0.
+  release driver와 notarized staging 원격 검증은 게시 단계에서 다시 실행한다.
 - 앱 runtime QA를 위해 Codex/Claude/CuaDriver/Terminal `open`으로 설치 앱을
   실행하지 않는다. 사용자가 Finder의 Applications에서 직접 실행한다.
-- prod는 2.4.6 staging signed artifact의 실제 메뉴바 표시, 단일 프로세스,
-  ControlCenter 차단 로그 부재를 확인하기 전까지 금지한다.
+- prod는 2.4.7 staging signed artifact의 실제 메뉴바 표시, badge/footer,
+  provider 전환 링크, 단일 프로세스, ControlCenter 차단 로그 부재를 사용자가
+  `/Applications/ClaudeUsage-stg.app` 직접 실행으로 확인하기 전까지 금지한다.
 
 아래 1~10절은 AGY v2 전환 당시의 역사 기록입니다. 현재 배포 판단은 이 절과
 11절 이후의 최신 기록을 우선합니다.
@@ -630,3 +634,30 @@ entitlement 일치, no-UI add -> read-back -> delete 실증) 구현.
   아니라 Developer ID 공증을 거친 GitHub staging Release/appcast임
 - 게시된 서명 후보에서 설정 UI와 실제 자동 조회를 확인한 뒤 이 절에 최종
   릴리스 결과를 기록
+
+## 16. v2.4.6-staging 게시와 v2.4.7 UI 수정 (2026-07-30)
+
+`v2.4.6-staging`은 source `591fe2b`, version/build `2.4.6 (20406)`으로
+Developer ID 서명·공증 후 GitHub prerelease와 staging appcast에 게시됐다.
+원격 DMG/ZIP의 서명, notarization staple, Gatekeeper, Sparkle Ed25519,
+appcast byte 일치까지 driver가 검증했다. live AGY opt-in 통합도 실제
+`gemini.weekly`, `gemini.fiveHour`, `thirdParty.weekly`,
+`thirdParty.fiveHour` 네 lane을 반환했다.
+
+사용자 QA에서 추가로 확인된 2.4.7 수정 범위:
+
+- 상태 badge를 icon 오른쪽 위 경계에 붙인 뒤 1pt outline을 바깥으로 그려
+  원이 잘리던 geometry를 수정. outline 전체가 18×18 canvas 안에 있는지 테스트
+- 팝오버 footer와 설정 미리보기의 Claude URL 하드코딩 제거
+- Claude: 사용량 + `https://status.claude.com/`
+- Codex: `https://chatgpt.com/codex/settings/usage` +
+  `https://status.openai.com/`
+- Antigravity: 안정적인 공식 전용 destination이 확인될 때까지 외부 action 없음
+- 같은 typed action을 팝오버, 설정 미리보기, 우클릭 menu, 선택 provider의
+  `⌘U`에서 재사용
+- 상태 tooltip은 들여쓰기 없이 `서비스 상태`로 명시하되 incident summary는
+  유지
+
+2.4.7 자동 검증은 XCTest 939개 실행, 937개 통과, opt-in 2개 skip,
+실패 0이다. 설치된 staging 앱과 사용자가 실행한 프로세스는 자동 검증 중
+종료·교체·재실행하지 않았다.

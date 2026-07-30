@@ -694,7 +694,7 @@ enum MenuBarStatusComposer {
         guard let status = snapshot.systemStatus, status.hasIssue else {
             return base
         }
-        return "\(base)\n   ⚠ \(snapshot.kind.displayName) 상태: \(status.menuBarSummary)"
+        return "\(base)\n⚠ \(snapshot.kind.displayName) 서비스 상태: \(status.menuBarSummary)"
     }
 
     private static func statusBadgedIcon(

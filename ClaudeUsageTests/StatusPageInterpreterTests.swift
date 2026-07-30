@@ -79,7 +79,11 @@ final class StatusPageInterpreterTests: XCTestCase {
 
         XCTAssertGreaterThan(content.image.size.width, icon.size.width)
         XCTAssertEqual(content.image.size.height, 22)
-        XCTAssertTrue(content.tooltip.contains("Claude 상태: Claude API latency"))
+        XCTAssertTrue(
+            content.tooltip.contains(
+                "Claude 서비스 상태: Claude API latency"
+            )
+        )
     }
 }
 

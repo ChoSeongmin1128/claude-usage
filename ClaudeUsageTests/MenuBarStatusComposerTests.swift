@@ -4,6 +4,23 @@ import XCTest
 
 @MainActor
 final class MenuBarStatusComposerTests: XCTestCase {
+    func testStatusBadgeOutlineStaysInsideMenuBarIconCanvas() {
+        let size = NSSize(width: 18, height: 18)
+
+        for indicator in [StatusIndicator.minor, .critical] {
+            let badge = MenuBarIconFactory.statusBadgeRect(
+                for: size,
+                indicator: indicator
+            )
+            let outline = badge.insetBy(dx: -1, dy: -1)
+
+            XCTAssertGreaterThanOrEqual(outline.minX, 0)
+            XCTAssertGreaterThanOrEqual(outline.minY, 0)
+            XCTAssertLessThanOrEqual(outline.maxX, size.width)
+            XCTAssertLessThanOrEqual(outline.maxY, size.height)
+        }
+    }
+
     func testCodexMenuBarAssetUsesSuppliedAquaAndDarkAquaAppearances() throws {
         let source = try XCTUnwrap(codexAssetImage())
         let aqua = try XCTUnwrap(NSAppearance(named: .aqua))

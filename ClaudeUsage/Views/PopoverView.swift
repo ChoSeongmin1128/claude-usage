@@ -52,27 +52,11 @@ struct PopoverView: View {
 
             // 하단 버튼
             HStack {
-                if selectedService == .claude {
-                    Button {
-                        viewModel.openUsagePage()
-                    } label: {
-                        Image(systemName: "safari")
-                            .foregroundColor(.accentColor)
-                    }
-                    .buttonStyle(.borderless)
-                    .font(.caption)
-                    .help("claude.ai/settings/usage")
-
-                    if !isCompact {
-                        Button {
-                            viewModel.openUsagePage()
-                        } label: {
-                            Text("claude.ai/settings/usage")
-                                .foregroundColor(.accentColor)
-                        }
-                        .buttonStyle(.borderless)
-                        .font(.caption)
-                    }
+                ProviderExternalActionsView(
+                    provider: selectedService.providerKind,
+                    compact: isCompact
+                ) { action in
+                    viewModel.openExternalAction(action)
                 }
 
                 Spacer()

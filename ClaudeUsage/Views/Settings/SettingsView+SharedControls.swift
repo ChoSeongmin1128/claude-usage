@@ -901,15 +901,11 @@ private struct ProviderPopoverPreviewView: View {
 
     private var previewFooter: some View {
         HStack(spacing: 12) {
-            if service == .claude {
-                Image(systemName: "safari")
-                    .foregroundStyle(Color.accentColor)
-                if !mode.isCompact {
-                    Text("claude.ai/settings/usage")
-                        .font(.caption)
-                        .foregroundStyle(Color.accentColor)
-                }
-            }
+            ProviderExternalActionsView(
+                provider: service.providerKind,
+                compact: mode.isCompact,
+                isInteractive: false
+            ) { _ in }
 
             Spacer()
 

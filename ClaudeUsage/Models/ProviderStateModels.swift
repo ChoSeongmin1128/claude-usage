@@ -15,6 +15,29 @@ struct ProviderCapabilities: Sendable, Equatable {
     }
 }
 
+enum ProviderExternalActionKind: String, Sendable, Equatable, Hashable {
+    case usage
+    case status
+}
+
+struct ProviderExternalAction: Identifiable, Sendable, Equatable {
+    let kind: ProviderExternalActionKind
+    let title: String
+    let systemImageName: String
+    let destination: URL
+
+    nonisolated var id: ProviderExternalActionKind {
+        kind
+    }
+
+    nonisolated var helpText: String {
+        guard let host = destination.host else {
+            return "\(title) 열기"
+        }
+        return "\(title) 열기 · \(host)"
+    }
+}
+
 struct ProviderDescriptor: Sendable, Equatable {
     let kind: AppProviderKind
     let displayName: String
@@ -25,6 +48,7 @@ struct ProviderDescriptor: Sendable, Equatable {
     let settingsPanelDetail: String
     let settingsComingSoonMessage: String?
     let capabilities: ProviderCapabilities
+    let externalActions: [ProviderExternalAction]
 }
 
 enum ProviderExposureGroup: Sendable {
@@ -54,7 +78,21 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                     refreshStrategy: .claude,
                     supportsBrowserImport: true,
                     defaultEnabled: true
-                )
+                ),
+                externalActions: [
+                    ProviderExternalAction(
+                        kind: .usage,
+                        title: "사용량",
+                        systemImageName: "chart.bar",
+                        destination: URL(string: "https://claude.ai/settings/usage")!
+                    ),
+                    ProviderExternalAction(
+                        kind: .status,
+                        title: "서비스 상태",
+                        systemImageName: "waveform.path.ecg",
+                        destination: URL(string: "https://status.claude.com/")!
+                    ),
+                ]
             )
         case .codex:
             return ProviderDescriptor(
@@ -71,7 +109,21 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                     refreshStrategy: .codex,
                     supportsBrowserImport: false,
                     defaultEnabled: false
-                )
+                ),
+                externalActions: [
+                    ProviderExternalAction(
+                        kind: .usage,
+                        title: "사용량",
+                        systemImageName: "chart.bar",
+                        destination: URL(string: "https://chatgpt.com/codex/settings/usage")!
+                    ),
+                    ProviderExternalAction(
+                        kind: .status,
+                        title: "서비스 상태",
+                        systemImageName: "waveform.path.ecg",
+                        destination: URL(string: "https://status.openai.com/")!
+                    ),
+                ]
             )
         case .antigravity:
             return ProviderDescriptor(
@@ -88,7 +140,10 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                     refreshStrategy: .antigravity,
                     supportsBrowserImport: false,
                     defaultEnabled: false
-                )
+                ),
+                // 안정적인 공식 Antigravity 사용량/상태 페이지가 확인되기 전에는
+                // 관련성이 약한 Google 페이지를 대신 열지 않는다.
+                externalActions: []
             )
         }
     }

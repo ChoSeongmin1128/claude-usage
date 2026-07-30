@@ -19,7 +19,7 @@ struct ProviderStyleMenuConfiguration {
 struct StatusContextMenuActions {
     let refreshAll: Selector
     let settings: Selector
-    let openUsage: Selector
+    let openProviderExternalAction: Selector
     let quit: Selector
     let toggleProvider: Selector
     let refreshProvider: Selector
@@ -30,6 +30,7 @@ enum StatusContextMenuBuilder {
     static func build(
         settings: AppSettings,
         runtimeServices: [PopoverService],
+        selectedService: PopoverService,
         refreshableServiceSet: Set<PopoverService>,
         styleConfigurations:
             [PopoverService:
@@ -59,8 +60,20 @@ enum StatusContextMenuBuilder {
         }
 
         menu.addItem(.separator())
+        let externalActions = selectedService.providerKind.descriptor.externalActions
+        for externalAction in externalActions {
+            let item = makeItem(
+                title: "\(selectedService.displayName) \(externalAction.title) 보기",
+                action: actions.openProviderExternalAction,
+                keyEquivalent: externalAction.kind == .usage ? "u" : ""
+            )
+            item.representedObject = externalAction.destination.absoluteString
+            menu.addItem(item)
+        }
+        if !externalActions.isEmpty {
+            menu.addItem(.separator())
+        }
         menu.addItem(makeItem(title: "설정...", action: actions.settings, keyEquivalent: ","))
-        menu.addItem(makeItem(title: "사용량 상세 보기", action: actions.openUsage, keyEquivalent: "u"))
         menu.addItem(makeItem(title: "종료", action: actions.quit, keyEquivalent: "q"))
         return menu
     }

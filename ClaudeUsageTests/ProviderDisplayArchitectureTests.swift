@@ -5,6 +5,29 @@ import XCTest
 final class ProviderDisplayArchitectureTests:
     XCTestCase
 {
+    func testProviderExternalActionsUseVerifiedDestinations() {
+        XCTAssertEqual(
+            AppProviderKind.claude.descriptor.externalActions
+                .map(\.destination.absoluteString),
+            [
+                "https://claude.ai/settings/usage",
+                "https://status.claude.com/",
+            ]
+        )
+        XCTAssertEqual(
+            AppProviderKind.codex.descriptor.externalActions
+                .map(\.destination.absoluteString),
+            [
+                "https://chatgpt.com/codex/settings/usage",
+                "https://status.openai.com/",
+            ]
+        )
+        XCTAssertTrue(
+            AppProviderKind.antigravity.descriptor.externalActions
+                .isEmpty
+        )
+    }
+
     func testCatalogPreferencesPersistVisibilityAndOrderForClaudeAndCodex() throws {
         let suite =
             "ProviderDisplayArchitectureTests.\(UUID().uuidString)"

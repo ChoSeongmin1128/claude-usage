@@ -1,6 +1,7 @@
+import AppKit
+import Combine
 import Foundation
 import SwiftUI
-import Combine
 
 @MainActor
 final class PopoverViewModel: ObservableObject {
@@ -196,9 +197,10 @@ final class PopoverViewModel: ObservableObject {
         self.onLayoutChanged?(service, reason)
     }
 
-    func openUsagePage() {
-        guard let url = URL(string: "https://claude.ai/settings/usage") else { return }
-        NSWorkspace.shared.open(url)
+    func openExternalAction(
+        _ action: ProviderExternalAction
+    ) {
+        NSWorkspace.shared.open(action.destination)
     }
 
     func downloadLatestRelease() {
