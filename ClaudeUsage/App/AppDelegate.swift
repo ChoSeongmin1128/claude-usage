@@ -15,13 +15,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let updateCoordinator = AppUpdateCoordinator()
     lazy var apiService = ClaudeAPIService()
     let codexAPIService = CodexAPIService(authManager: CodexAuthManager.shared)
-    lazy var antigravityRuntime =
-        AntigravityProductRuntimeCompositionFactory
-            .makeProduction(
-                settingsBootstrap:
-                    AntigravityApplicationBootstrap
-                        .prepareSettings()
-            )
+    lazy var antigravityRuntimeTask:
+        Task<
+            AntigravityProductRuntimeComposition,
+            Never
+        > = {
+            let settingsBootstrap =
+                AntigravityApplicationBootstrap
+                    .prepareSettings()
+            return Task {
+                await AntigravityProductRuntimeLoader
+                    .makeProduction(
+                        settingsBootstrap:
+                            settingsBootstrap
+                    )
+            }
+        }()
     let popoverCoordinator = AppPopoverCoordinator()
     let runtimeObservationCoordinator = AppRuntimeObservationCoordinator()
     let settingsWindowCoordinator = SettingsWindowCoordinator()
@@ -47,6 +56,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var antigravityTerminationTask:
         Task<Void, Never>?
     var antigravityTerminationTimeoutTask:
+        Task<Void, Never>?
+    var settingsWindowPresentationTask:
         Task<Void, Never>?
     var hasRepliedToTermination = false
 

@@ -48,4 +48,23 @@ final class AppDistributionTests: XCTestCase {
             .staging
         )
     }
+
+    func testSettingsWindowTitleUsesChannelAppName() {
+        XCTAssertEqual(
+            AppDistributionDescriptor.resolve(
+                releaseChannelValue: "prod",
+                bundleIdentifier:
+                    "com.seongmin.ClaudeUsage"
+            ).settingsWindowTitle,
+            "ClaudeUsage 설정"
+        )
+        XCTAssertEqual(
+            AppDistributionDescriptor.resolve(
+                releaseChannelValue: "staging",
+                bundleIdentifier:
+                    "com.seongmin.ClaudeUsage.staging"
+            ).settingsWindowTitle,
+            "ClaudeUsage-stg 설정"
+        )
+    }
 }

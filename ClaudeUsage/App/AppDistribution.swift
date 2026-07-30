@@ -21,6 +21,10 @@ nonisolated struct AppDistributionDescriptor:
     let bundleIdentifier: String
     let applicationSupportDirectoryName: String
 
+    var settingsWindowTitle: String {
+        "\(appName) 설정"
+    }
+
     static func resolve(
         releaseChannelValue: String?,
         bundleIdentifier: String?

@@ -23,8 +23,7 @@ nonisolated struct AntigravityProductRuntimeComposition:
         AntigravityProductionExecutableResolution
 }
 
-@MainActor
-enum
+nonisolated enum
     AntigravityProductRuntimeCompositionFactory
 {
     static func makeProduction(
@@ -188,5 +187,35 @@ enum
             executableResolution:
                 executableResolution
         )
+    }
+}
+
+nonisolated enum AntigravityProductRuntimeLoader {
+    static func makeProduction(
+        settingsBootstrap:
+            AntigravitySettingsBootstrapResult,
+        homeDirectoryURL: URL =
+            FileManager.default.realHomeDirectory
+    ) async -> AntigravityProductRuntimeComposition {
+        await performDetached {
+            AntigravityProductRuntimeCompositionFactory
+                .makeProduction(
+                    settingsBootstrap:
+                        settingsBootstrap,
+                    homeDirectoryURL:
+                        homeDirectoryURL
+                )
+        }
+    }
+
+    static func performDetached<Result: Sendable>(
+        _ operation:
+            @escaping @Sendable () -> Result
+    ) async -> Result {
+        await Task.detached(
+            priority: .userInitiated,
+            operation: operation
+        )
+        .value
     }
 }

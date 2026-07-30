@@ -26,6 +26,8 @@ nonisolated struct AntigravityManagedCLIOutputClassifier: Sendable {
     private var recentOutput = Data()
     private(set) var interactions: Set<AntigravityManagedCLIInteraction> = []
     private(set) var outputWasTruncated = false
+    private(set) var announcedLocalServerPort:
+        AntigravityTCPPort?
 
     /// Ingests PTY bytes and returns interactions first observed by this call.
     ///
@@ -51,9 +53,19 @@ nonisolated struct AntigravityManagedCLIOutputClassifier: Sendable {
             }
         }
 
-        let detected = Self.classify(
-            Self.normalizedTerminalText(from: recentOutput)
-        )
+        let normalized =
+            Self.normalizedTerminalText(
+                from: recentOutput
+            )
+        if let port =
+                Self.localServerPort(
+                    in: normalized
+                )
+        {
+            announcedLocalServerPort =
+                port
+        }
+        let detected = Self.classify(normalized)
         let newlyObserved = detected.subtracting(interactions)
         interactions.formUnion(detected)
         return newlyObserved
@@ -133,6 +145,61 @@ nonisolated struct AntigravityManagedCLIOutputClassifier: Sendable {
         }
 
         return result
+    }
+
+    private static func localServerPort(
+        in text: String
+    ) -> AntigravityTCPPort? {
+        for line in text
+            .split(separator: "\n")
+            .reversed()
+        {
+            let normalized =
+                line.lowercased()
+            if let port = port(
+                in: normalized,
+                after:
+                    "language server listening on random port at ",
+                requiredSuffix: " for https (grpc)"
+            ) {
+                return port
+            }
+            if let port = port(
+                in: normalized,
+                after:
+                    "local server: https://127.0.0.1:"
+            ) {
+                return port
+            }
+        }
+        return nil
+    }
+
+    private static func port(
+        in line: String,
+        after marker: String,
+        requiredSuffix: String? = nil
+    ) -> AntigravityTCPPort? {
+        guard let range = line.range(of: marker)
+        else {
+            return nil
+        }
+        let tail = line[range.upperBound...]
+        let digits = tail.prefix { $0.isNumber }
+        guard !digits.isEmpty,
+              let rawPort = Int(digits),
+              let port = AntigravityTCPPort(rawPort)
+        else {
+            return nil
+        }
+        if let requiredSuffix {
+            let suffix = tail.dropFirst(digits.count)
+            guard suffix.hasPrefix(requiredSuffix)
+            else {
+                return nil
+            }
+        }
+        return port
     }
 
     /// Removes ANSI CSI/OSC sequences and C0 controls without interpreting the

@@ -6,6 +6,19 @@ import XCTest
 final class AntigravityManagedRuntimeCompositionTests:
     XCTestCase
 {
+    @MainActor
+    func testProductRuntimeLoaderRunsBlockingWorkOffMainThread()
+        async
+    {
+        let ranOnMainThread =
+            await AntigravityProductRuntimeLoader
+                .performDetached {
+                    Thread.isMainThread
+                }
+
+        XCTAssertFalse(ranOnMainThread)
+    }
+
     func testManagedSessionAndDiscoveryShareLiveOwnershipGraph()
         async throws
     {

@@ -3,26 +3,29 @@
 - 갱신일: 2026-07-30
 - 저장소: `/Users/seongmin/Personal/maintenance/ClaudeUsage`
 - 원격: `git@github-seongmin:ChoSeongmin1128/claude-usage.git`
-- 브랜치: `main`
+- 브랜치: `dev`
 - 배포 기준: Developer ID 공증 GitHub Release + Sparkle appcast. App Store 배포 아님
-- 최신 게시: `v2.4.6-staging` (`591fe2b`)
-- 현재 후보: `2.4.7` (`20407`). 상태 badge 클리핑과 provider별 외부 액션
-  통합을 구현하고 staging 게시 전 자동 검증 완료
+- 최신 게시: `v2.4.7-staging` (`066c89f`)
+- 현재 후보: `2.4.8` (`20408`). AGY 정확한 RPC 포트 우선 검증, 시작 시
+  main-thread 보안 I/O 제거, 표시 설정 provider 선택 UX와 staging 제목을
+  수정하고 staging 게시 전 자동 검증 완료
 
 ## 0. 현재 source of truth
 
-- `v2.4.6-staging`의 immutable source는 `591fe2b`다. 이 문서가 포함된
-  `main`/`origin/main`은 2.4.7 후보 source이며 staging tag는 release
-  driver가 해당 exact commit에 생성한다.
-- 2.4.7 후보는 상태 badge 외곽선을 메뉴바 icon canvas 안으로 이동하고,
-  Claude/Codex의 사용량·공식 상태 페이지를 provider metadata와 공용 footer
-  component로 통합한다. Antigravity에는 검증되지 않은 대체 링크를 만들지 않는다.
-- 현재 자동 검증: 전체 XCTest 939개 실행, opt-in 2개 skip, 실패 0.
-  release driver와 notarized staging 원격 검증은 게시 단계에서 다시 실행한다.
+- `v2.4.7-staging`의 immutable source는 `066c89f`다. 현재 `dev`는 이
+  source에서 시작한 2.4.8 후보이며, 검토 후 exact tree를 `main`에 squash한다.
+- 2.4.8 후보는 managed AGY PTY의 typed local-server port를 같은 PID가 소유한
+  검증 endpoint 중 최우선으로 probe하고, executable trust/Keychain credential
+  로드를 main thread 밖으로 이동한다.
+- 표시 설정은 provider 세 개를 한 화면에 누적하지 않고 logo 선택기로 한
+  provider씩 편집하며, staging 설정 제목은 channel app name을 사용한다.
+- 현재 자동 검증: 전체 XCTest 944개 실행, opt-in 2개 skip, 실패 0;
+  release driver 333개 통과; 실제 AGY opt-in 통합 1개 통과; universal
+  Release build 통과. notarized staging 원격 검증은 게시 단계에서 다시 실행한다.
 - 앱 runtime QA를 위해 Codex/Claude/CuaDriver/Terminal `open`으로 설치 앱을
   실행하지 않는다. 사용자가 Finder의 Applications에서 직접 실행한다.
-- prod는 2.4.7 staging signed artifact의 실제 메뉴바 표시, badge/footer,
-  provider 전환 링크, 단일 프로세스, ControlCenter 차단 로그 부재를 사용자가
+- prod는 2.4.8 staging signed artifact의 실제 메뉴바 표시, 표시 설정 selector,
+  provider 전환, AGY 조회, 단일 프로세스, 시작 시 main-thread 진단 부재를 사용자가
   `/Applications/ClaudeUsage-stg.app` 직접 실행으로 확인하기 전까지 금지한다.
 
 아래 1~10절은 AGY v2 전환 당시의 역사 기록입니다. 현재 배포 판단은 이 절과
@@ -661,3 +664,50 @@ appcast byte 일치까지 driver가 검증했다. live AGY opt-in 통합도 실�
 2.4.7 자동 검증은 XCTest 939개 실행, 937개 통과, opt-in 2개 skip,
 실패 0이다. 설치된 staging 앱과 사용자가 실행한 프로세스는 자동 검증 중
 종료·교체·재실행하지 않았다.
+
+## 17. v2.4.8 staging 후보 (2026-07-30)
+
+2.4.7 설치 앱 QA에서 남은 문제를 실제 process, listener, TLS 응답과 launch
+로그로 다시 확인해 다음 범위만 수정했습니다.
+
+- AGY 1.1.8은 같은 PID에서 HTTPS(gRPC)와 plaintext HTTP listener를 함께
+  엽니다. 기존 후보는 두 포트를 모두 TLS로 probe해 plaintext 포트에서
+  `WRONG_VERSION_NUMBER`를 냈습니다.
+- managed launcher가 공식 `--log-file /dev/stderr` 옵션을 사용하고 실제
+  `Language server listening on random port at <port> for HTTPS (gRPC)` 공지를
+  typed 값으로 파싱합니다. exact process identity와 port ownership, 실제
+  `GetUserStatus` 응답을 모두 검증한 HTTPS 포트만 사용하고 sibling listener로
+  fallback하지 않습니다.
+- bootstrap log가 PTY를 채운 상태에서 RPC probe가 AGY 자체를 block하는 두
+  번째 실 실패를 재현했습니다. readiness 중 20ms 간격 bounded drain을
+  유지하고, readiness 이후에는 기존 warm-session output monitor가 이어서
+  drain합니다. 64KB backpressure 회귀 테스트를 추가했습니다.
+- executable catalog의 정적 code-signature 검증을 detached task에서 수행하고,
+  `ClaudeAPIService` 생성자의 Keychain session load는 actor-isolated
+  `reloadActiveAccount()`까지 지연합니다. 설정 열기와 runtime observation은
+  하나의 shared runtime task를 기다리며 중복 composition을 만들지 않습니다.
+- 표시 설정은 공통 설정과 provider별 설정을 분리하고, Claude/Codex/
+  Antigravity logo selector에서 선택한 하나의 메뉴바·팝오버 편집기만
+  표시합니다. 팝오버의 표시 설정 진입은 현재 provider를 선택합니다.
+- 설정 창 제목은 release channel의 app name을 사용해 staging에서
+  `ClaudeUsage-stg 설정`으로 표시합니다.
+- Sparkle background scheduler의 커스텀 popover reminder 구현에
+  `supportsGentleScheduledUpdateReminders` 선언을 추가해 시작 경고와 delegate
+  계약 불일치를 제거했습니다.
+- version/build는 `2.4.8 (20408)`입니다.
+
+현재 dev 검증:
+
+- 전체 XCTest 949개: 946 통과, 3개 opt-in skip, 실패 0
+- release driver shell tests 333개 통과
+- 실제 로그인된 공식 AGY 1.1.8 live integration 2개 통과
+  (HTTPS bootstrap port와 production managed quota)
+  (`gemini.weekly`, `gemini.fiveHour`, `thirdParty.weekly`,
+  `thirdParty.fiveHour`)
+- 이전 2.4.8 내부 후보의 정상 종료 시 앱 소유 AGY와 ledger가 함께 정리되는
+  것을 확인했습니다. 새 수정본 universal Release build와 설치본 UI/log QA는
+  아직 남아 있습니다.
+
+남은 gate는 2.4.8 signed staging 후보를 Applications에 설치한 뒤 사용자가
+직접 실행하는 실앱 QA, reviewed dev tree의 main squash, integrated release
+driver 게시와 원격 재다운로드 검증입니다.

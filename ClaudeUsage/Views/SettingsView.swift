@@ -179,6 +179,8 @@ struct SettingsView: View {
     @State var claudeAccounts: [ClaudeAccount] = []
     @State var activeClaudeAccountID: String?
     @State var selectedPanel: SettingsProviderPanel = .common
+    @State var selectedDisplayProvider:
+        AppProviderKind = .claude
     @State var isClaudeAccountSwitcherExpanded = false
     @State var isClaudeAccountManagementExpanded = false
     @State var isAdvancedAuthExpanded = false

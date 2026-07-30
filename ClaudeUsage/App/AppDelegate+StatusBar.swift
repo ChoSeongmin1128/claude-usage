@@ -334,7 +334,10 @@ extension AppDelegate {
             Task { [weak self] in
                 guard let self else { return }
                 do {
-                    _ = try await antigravityRuntime
+                    let runtime =
+                        await antigravityRuntimeTask
+                            .value
+                    _ = try await runtime
                         .runtimeController
                         .updateMenuBarStyle(
                             typedStyle

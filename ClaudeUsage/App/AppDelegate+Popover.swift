@@ -14,6 +14,18 @@ extension AppDelegate {
                 self?.openSettingsForAuth(service: service)
             },
             onOpenSettingsPanel: { [weak self] panel in
+                if panel == .display,
+                   let provider =
+                    self?.popoverViewModel
+                        .selectedService
+                        .providerKind
+                {
+                    NotificationCenter.default.post(
+                        name:
+                            .settingsDisplayProviderRequested,
+                        object: provider
+                    )
+                }
                 self?.closePopover()
                 self?.showSettingsWindow(
                     settingsPanelRawValue:

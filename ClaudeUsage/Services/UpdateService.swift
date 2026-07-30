@@ -674,6 +674,10 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
         lastCycleResult = nil
     }
 
+    var supportsGentleScheduledUpdateReminders: Bool {
+        true
+    }
+
     func standardUserDriverShouldHandleShowingScheduledUpdate(_ update: SUAppcastItem, andInImmediateFocus immediateFocus: Bool) -> Bool {
         // 예약 업데이트는 Sparkle 기본 경고창 대신 popover header의 커스텀 버튼으로만 노출합니다.
         false

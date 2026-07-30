@@ -112,6 +112,7 @@ extension AppDelegate {
         antigravityRuntimeObservationTask?.cancel()
         antigravityRuntimeBootstrapTask?.cancel()
         antigravityTerminationTimeoutTask?.cancel()
+        settingsWindowPresentationTask?.cancel()
         statusItemPlacementCheckTask?.cancel()
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
@@ -137,7 +138,9 @@ extension AppDelegate {
         refreshScheduler.stop()
         antigravityTerminationTask = Task { [weak self] in
             guard let self else { return }
-            await antigravityRuntime
+            let runtime =
+                await antigravityRuntimeTask.value
+            await runtime
                 .runtimeController.shutdown()
             finishDeferredTermination(
                 timedOut: false
@@ -239,8 +242,11 @@ extension AppDelegate {
         antigravityRuntimeObservationTask =
             Task { [weak self] in
                 guard let self else { return }
+                let runtime =
+                    await antigravityRuntimeTask
+                        .value
                 let stream =
-                    await antigravityRuntime
+                    await runtime
                         .runtimeController
                         .snapshots()
                 for await snapshot in stream {
@@ -257,7 +263,10 @@ extension AppDelegate {
         antigravityRuntimeBootstrapTask =
             Task { [weak self] in
                 guard let self else { return }
-                _ = await antigravityRuntime
+                let runtime =
+                    await antigravityRuntimeTask
+                        .value
+                _ = await runtime
                     .runtimeController
                     .bootstrap(
                         performInitialRefresh: false

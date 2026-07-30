@@ -32,6 +32,54 @@ final class AntigravityManagedCLIOutputClassifierTests: XCTestCase {
 
         XCTAssertEqual(classifier.ingest(Data(output.utf8)), [])
         XCTAssertTrue(classifier.interactions.isEmpty)
+        XCTAssertEqual(
+            classifier.announcedLocalServerPort,
+            AntigravityTCPPort(43_123)
+        )
+    }
+
+    func testFragmentedANSIStyledLocalServerPortIsRecovered()
+    {
+        var classifier =
+            AntigravityManagedCLIOutputClassifier()
+
+        _ = classifier.ingest(
+            Data(
+                "\u{1B}[36mLocal server: https://127.0.0.1:"
+                    .utf8
+            )
+        )
+        XCTAssertNil(
+            classifier.announcedLocalServerPort
+        )
+
+        _ = classifier.ingest(
+            Data("55169\u{1B}[0m\r\n".utf8)
+        )
+
+        XCTAssertEqual(
+            classifier.announcedLocalServerPort,
+            AntigravityTCPPort(55_169)
+        )
+    }
+
+    func testAGYHTTPSBootstrapLogSelectsHTTPSAndIgnoresHTTP()
+    {
+        var classifier =
+            AntigravityManagedCLIOutputClassifier()
+        let output = """
+        I0730 18:29:34.034547 59191 server.go:560] Language server listening on random port at 59764 for HTTPS (gRPC)
+        I0730 18:29:34.034787 59191 server.go:568] Language server listening on random port at 59765 for HTTP
+        """
+
+        XCTAssertEqual(
+            classifier.ingest(Data(output.utf8)),
+            []
+        )
+        XCTAssertEqual(
+            classifier.announcedLocalServerPort,
+            AntigravityTCPPort(59_764)
+        )
     }
 
     func testProjectTrustAndBrowserAuthenticationPromptsAreTyped() {

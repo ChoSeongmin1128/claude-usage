@@ -69,9 +69,10 @@ nonisolated struct AntigravityManagedCLIRPCReadinessProbe:
     }
 }
 
-/// Uses PTY output only to detect blocking user interaction or early exit.
-/// Runtime readiness requires both Stage 4's exact process/port discovery and
-/// a validated RPC response from that exact endpoint.
+/// Uses PTY output to detect blocking user interaction and AGY's authoritative
+/// HTTPS listener announcement. Runtime readiness still requires Stage 4's
+/// exact process/port discovery plus a validated RPC response from that exact
+/// endpoint; text output alone never establishes ownership or readiness.
 nonisolated struct AntigravityManagedCLIReadinessChecker:
     AntigravityManagedCLIReadinessChecking
 {
@@ -116,8 +117,24 @@ nonisolated struct AntigravityManagedCLIReadinessChecker:
             throw AntigravityManagedSessionError.processIdentityUnavailable
         }
 
-        var classifier = AntigravityManagedCLIOutputClassifier()
-        var interactions = Set<AntigravityManagedCLIInteraction>()
+        let outputMonitor =
+            AntigravityManagedCLIOutputMonitor(
+                handle: handle,
+                maximumDrainBytes: maximumDrainBytes
+            )
+        let drainTask = Task {
+            while !Task.isCancelled {
+                outputMonitor.drain()
+                do {
+                    try await Task.sleep(
+                        for: .milliseconds(20)
+                    )
+                } catch {
+                    return
+                }
+            }
+        }
+        defer { drainTask.cancel() }
 
         while true {
             do {
@@ -128,13 +145,10 @@ nonisolated struct AntigravityManagedCLIReadinessChecker:
                 throw AntigravityManagedSessionError.readinessTimedOut
             }
 
-            let beforeDiscovery = consumeOutput(
-                from: handle,
-                classifier: &classifier,
-                interactions: &interactions
-            )
+            outputMonitor.drain()
+            let beforeDiscovery = outputMonitor.snapshot()
             if let interaction = firstInteraction(
-                in: beforeDiscovery
+                in: beforeDiscovery.interactions
             ) {
                 throw AntigravityManagedSessionError
                     .interactionRequired(interaction)
@@ -168,13 +182,10 @@ nonisolated struct AntigravityManagedCLIReadinessChecker:
                 snapshot = nil
             }
 
-            let afterDiscovery = consumeOutput(
-                from: handle,
-                classifier: &classifier,
-                interactions: &interactions
-            )
+            outputMonitor.drain()
+            let afterDiscovery = outputMonitor.snapshot()
             if let interaction = firstInteraction(
-                in: afterDiscovery
+                in: afterDiscovery.interactions
             ) {
                 throw AntigravityManagedSessionError
                     .interactionRequired(interaction)
@@ -184,12 +195,19 @@ nonisolated struct AntigravityManagedCLIReadinessChecker:
                     .processExited(status)
             }
 
-            let endpoints = snapshot?.endpoints.filter {
+            let discoveredEndpoints =
+                snapshot?.endpoints.filter {
                     $0.processIdentity == processIdentity
                         && $0.transport == .agyCLI
                         && $0.ownership == .managed
                         && $0.authentication == .cliTokenless
                 } ?? []
+            let endpoints = prioritizedEndpoints(
+                discoveredEndpoints,
+                announcedPort:
+                    afterDiscovery
+                        .announcedLocalServerPort
+            )
             if !endpoints.isEmpty,
                await processInspector.revalidate(processIdentity)
             {
@@ -206,13 +224,11 @@ nonisolated struct AntigravityManagedCLIReadinessChecker:
                             deadline: deadline
                         )
 
-                        let afterProbe = consumeOutput(
-                            from: handle,
-                            classifier: &classifier,
-                            interactions: &interactions
-                        )
+                        outputMonitor.drain()
+                        let afterProbe =
+                            outputMonitor.snapshot()
                         if let interaction = firstInteraction(
-                            in: afterProbe
+                            in: afterProbe.interactions
                         ) {
                             throw AntigravityManagedSessionError
                                 .interactionRequired(interaction)
@@ -232,9 +248,10 @@ nonisolated struct AntigravityManagedCLIReadinessChecker:
                             runtime: runtime,
                             diagnostics:
                                 AntigravityManagedSessionDiagnostics(
-                                    interactions: interactions,
+                                    interactions:
+                                        afterProbe.interactions,
                                     outputWasTruncated:
-                                        classifier
+                                        afterProbe
                                             .outputWasTruncated
                                 )
                         )
@@ -267,18 +284,26 @@ nonisolated struct AntigravityManagedCLIReadinessChecker:
         }
     }
 
-    private func consumeOutput(
-        from handle: any AntigravityManagedCLIProcessHandling,
-        classifier: inout AntigravityManagedCLIOutputClassifier,
-        interactions: inout Set<AntigravityManagedCLIInteraction>
-    ) -> Set<AntigravityManagedCLIInteraction> {
-        let drained = handle.drainOutput(
-            maximumBytes: maximumDrainBytes
-        )
-        guard !drained.isEmpty else { return [] }
-        let newlyObserved = classifier.ingest(drained)
-        interactions.formUnion(newlyObserved)
-        return newlyObserved
+    private func prioritizedEndpoints(
+        _ endpoints:
+            [AntigravityVerifiedRuntimeEndpoint],
+        announcedPort: AntigravityTCPPort?
+    ) -> [AntigravityVerifiedRuntimeEndpoint] {
+        if let announcedPort {
+            // A managed AGY process can own both its TLS quota server and
+            // unrelated plaintext listeners. Once AGY announces the quota
+            // server, probing any other listener as TLS is both noisy and
+            // unsafe. Keep waiting for the announced listener to become
+            // ready instead of falling through to sibling ports.
+            return endpoints.filter {
+                $0.port == announcedPort
+            }
+        }
+
+        // A single exact process-owned listener is unambiguous. With multiple
+        // listeners, wait for the managed PTY announcement rather than
+        // guessing which protocol each port serves.
+        return endpoints.count == 1 ? endpoints : []
     }
 
     private func firstInteraction(
@@ -290,5 +315,63 @@ nonisolated struct AntigravityManagedCLIReadinessChecker:
             .browserAuthenticationRequired,
         ]
         return priority.first(where: interactions.contains)
+    }
+}
+
+/// Continuously drains the owned PTY while readiness performs network I/O.
+///
+/// AGY's supported bootstrap log can be verbose enough to fill the PTY buffer.
+/// If the reader pauses during TLS setup, the child can block in `write(2)` and
+/// stop servicing the very RPC request used to prove readiness. This monitor
+/// retains only the classifier's bounded typed state; raw terminal output is
+/// never exposed to callers or logs.
+private nonisolated final class AntigravityManagedCLIOutputMonitor:
+    @unchecked Sendable
+{
+    struct Snapshot: Sendable {
+        let interactions:
+            Set<AntigravityManagedCLIInteraction>
+        let announcedLocalServerPort:
+            AntigravityTCPPort?
+        let outputWasTruncated: Bool
+    }
+
+    private let handle:
+        any AntigravityManagedCLIProcessHandling
+    private let maximumDrainBytes: Int
+    private let lock = NSLock()
+    private var classifier =
+        AntigravityManagedCLIOutputClassifier()
+
+    init(
+        handle: any AntigravityManagedCLIProcessHandling,
+        maximumDrainBytes: Int
+    ) {
+        precondition(maximumDrainBytes > 0)
+        self.handle = handle
+        self.maximumDrainBytes = maximumDrainBytes
+    }
+
+    func drain() {
+        lock.withLock {
+            let drained = handle.drainOutput(
+                maximumBytes: maximumDrainBytes
+            )
+            guard !drained.isEmpty else { return }
+            _ = classifier.ingest(drained)
+        }
+    }
+
+    func snapshot() -> Snapshot {
+        lock.withLock {
+            Snapshot(
+                interactions: classifier.interactions,
+                announcedLocalServerPort:
+                    classifier
+                        .announcedLocalServerPort,
+                outputWasTruncated:
+                    classifier.outputWasTruncated
+            )
+        }
     }
 }

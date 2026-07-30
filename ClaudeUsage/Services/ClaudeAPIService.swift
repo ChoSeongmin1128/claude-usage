@@ -290,9 +290,12 @@ actor ClaudeAPIService {
         self.sessionKeyLoader = sessionKeyLoader
         self.activeAccount = activeAccount
         self.authPathHealthStore = Self.loadAuthPathHealthStore(for: activeAccount?.id)
-        self.sessionKey = activeAccount?.kind == .webSession
-            ? activeAccount.flatMap { sessionKeyLoader($0.id) }
-            : nil
+        // Actor initializers run synchronously on the caller's executor.
+        // App startup constructs this service from the main actor, so a
+        // Keychain-backed session load here can stall the UI. Every public
+        // fetch path calls reloadActiveAccount() on the actor before using
+        // credentials; defer the load to that isolated method.
+        self.sessionKey = nil
         self.preferredOrganizationID = activeAccount?.kind == .webSession
             ? Self.normalizeOrganizationID(activeAccount?.userSelectedPreferredOrganizationID)
             : nil
@@ -341,9 +344,7 @@ actor ClaudeAPIService {
         self.sessionKeyLoader = sessionKeyLoader
         self.activeAccount = activeAccount
         self.authPathHealthStore = Self.loadAuthPathHealthStore(for: activeAccount?.id)
-        self.sessionKey = activeAccount?.kind == .webSession
-            ? activeAccount.flatMap { sessionKeyLoader($0.id) }
-            : nil
+        self.sessionKey = nil
         self.preferredOrganizationID = activeAccount?.kind == .webSession
             ? Self.normalizeOrganizationID(activeAccount?.userSelectedPreferredOrganizationID)
             : nil

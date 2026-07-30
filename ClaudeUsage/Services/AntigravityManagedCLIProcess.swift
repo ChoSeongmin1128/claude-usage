@@ -255,10 +255,22 @@ nonisolated struct AntigravityManagedCLIProcessLauncher:
             throw AntigravityManagedSessionError.launchFailed
         }
 
-        var arguments = [strdup(executablePath), nil]
+        // AGY otherwise redirects its server bootstrap log to a private file,
+        // leaving the managed PTY without the only authoritative distinction
+        // between its HTTPS RPC listener and sibling plaintext listener.
+        // `/dev/stderr` keeps that supported `--log-file` output on the
+        // already-owned PTY without introducing a user-controlled path.
+        var arguments: [UnsafeMutablePointer<CChar>?] = [
+            strdup(executablePath),
+            strdup("--log-file"),
+            strdup("/dev/stderr"),
+            nil,
+        ]
         defer {
-            if let argument = arguments[0] {
-                free(argument)
+            for argument in arguments {
+                if let argument {
+                    free(argument)
+                }
             }
         }
         var environment = request.environment.values

@@ -1,6 +1,14 @@
 import AppKit
 import SwiftUI
 
+extension Notification.Name {
+    nonisolated static let
+        settingsDisplayProviderRequested =
+            Notification.Name(
+                "com.claudeusage.settingsDisplayProviderRequested"
+            )
+}
+
 final class SettingsWindowCoordinator: NSObject, NSWindowDelegate {
     private(set) var window: NSWindow?
 
@@ -25,7 +33,9 @@ final class SettingsWindowCoordinator: NSObject, NSWindowDelegate {
             defer: false
         )
         window.contentViewController = hostingController
-        window.title = "ClaudeUsage 설정"
+        window.title =
+            AppDistribution.current
+                .settingsWindowTitle
         window.contentMinSize = minimumWindowSize
         window.setContentSize(windowSize)
         window.center()

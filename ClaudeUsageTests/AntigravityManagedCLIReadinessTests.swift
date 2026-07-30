@@ -83,7 +83,7 @@ final class AntigravityManagedCLIReadinessTests:
         XCTAssertEqual(rpcProbe.callCount(), 2)
     }
 
-    func testMultipleOwnedPortsSelectsTheRPCReadyEndpoint()
+    func testMultipleOwnedPortsWaitsForAnnouncedRPCPort()
         async throws
     {
         let identity = makeIdentity(processID: 4_110)
@@ -101,9 +101,7 @@ final class AntigravityManagedCLIReadinessTests:
                 endpoints: [first, second]
             )]
         )
-        let rpcProbe = ManagedReadinessRPCProbeStub(
-            failures: [.transportFailure, nil]
-        )
+        let rpcProbe = ManagedReadinessRPCProbeStub()
         let checker = makeChecker(
             discovery: discovery,
             processInspector:
@@ -113,7 +111,11 @@ final class AntigravityManagedCLIReadinessTests:
 
         let result = try await checker.waitUntilReady(
             handle: ManagedReadinessProcessHandleStub(
-                processID: identity.processID
+                processID: identity.processID,
+                output: Data(
+                    "Language server listening on random port at 45322 for HTTPS (gRPC)\n"
+                        .utf8
+                )
             ),
             processIdentity: identity,
             deadline: AntigravityRPCDeadline(
@@ -124,7 +126,149 @@ final class AntigravityManagedCLIReadinessTests:
 
         XCTAssertEqual(result.runtime.endpoint, second)
         XCTAssertEqual(discovery.discoverCallCount(), 1)
-        XCTAssertEqual(rpcProbe.callCount(), 2)
+        XCTAssertEqual(
+            rpcProbe.probedPorts(),
+            [AntigravityTCPPort(45_322)!]
+        )
+    }
+
+    func testAnnouncedLocalServerPortIsProbedBeforeOtherOwnedPorts()
+        async throws
+    {
+        let identity = makeIdentity(
+            processID: 4_111
+        )
+        let unrelated = makeEndpoint(
+            identity: identity,
+            port: 55_170
+        )
+        let announced = makeEndpoint(
+            identity: identity,
+            port: 55_169
+        )
+        let rpcProbe =
+            ManagedReadinessRPCProbeStub()
+        let checker = makeChecker(
+            discovery:
+                ManagedReadinessDiscoveryStub(
+                    snapshots: [
+                        makeSnapshot(
+                            identity: identity,
+                            endpoints: [
+                                unrelated,
+                                announced,
+                            ]
+                        ),
+                    ]
+                ),
+            processInspector:
+                ManagedReadinessProcessInspectorStub(),
+            rpcProbe: rpcProbe
+        )
+
+        let result = try await checker
+            .waitUntilReady(
+                handle:
+                    ManagedReadinessProcessHandleStub(
+                        processID:
+                            identity.processID,
+                        output: Data(
+                            "Language server listening on random port at 55169 for HTTPS (gRPC)\n"
+                                .utf8
+                        )
+                    ),
+                processIdentity:
+                    identity,
+                deadline:
+                    AntigravityRPCDeadline(
+                        totalTimeout: .seconds(1),
+                        discoveryTimeout:
+                            .seconds(1)
+                    )
+            )
+
+        XCTAssertEqual(
+            result.runtime.endpoint,
+            announced
+        )
+        XCTAssertEqual(
+            rpcProbe.probedPorts(),
+            [AntigravityTCPPort(55_169)!]
+        )
+    }
+
+    func testAnnouncedPortFailureNeverFallsBackToSiblingListener()
+        async throws
+    {
+        let identity = makeIdentity(
+            processID: 4_112
+        )
+        let announced = makeEndpoint(
+            identity: identity,
+            port: 55_169
+        )
+        let sibling = makeEndpoint(
+            identity: identity,
+            port: 55_170
+        )
+        let rpcProbe = ManagedReadinessRPCProbeStub(
+            failures: [.transportFailure, nil]
+        )
+        let discovery = ManagedReadinessDiscoveryStub(
+            snapshots: [
+                makeSnapshot(
+                    identity: identity,
+                    endpoints: [announced, sibling]
+                ),
+                makeSnapshot(
+                    identity: identity,
+                    endpoints: [announced, sibling]
+                ),
+            ]
+        )
+        let checker = makeChecker(
+            discovery: discovery,
+            processInspector:
+                ManagedReadinessProcessInspectorStub(),
+            rpcProbe: rpcProbe
+        )
+
+        let result = try await checker
+            .waitUntilReady(
+                handle:
+                    ManagedReadinessProcessHandleStub(
+                        processID:
+                            identity.processID,
+                        output: Data(
+                            "Language server listening on random port at 55169 for HTTPS (gRPC)\n"
+                                .utf8
+                        )
+                    ),
+                processIdentity:
+                    identity,
+                deadline:
+                    AntigravityRPCDeadline(
+                        totalTimeout: .seconds(1),
+                        discoveryTimeout:
+                            .seconds(1)
+                    )
+            )
+
+        XCTAssertEqual(
+            result.runtime.endpoint,
+            announced
+        )
+        XCTAssertEqual(
+            rpcProbe.probedPorts(),
+            [
+                AntigravityTCPPort(55_169)!,
+                AntigravityTCPPort(55_169)!,
+            ]
+        )
+        XCTAssertEqual(
+            discovery.discoverCallCount(),
+            2
+        )
     }
 
     func testPromptEmittedDuringSuccessfulRPCProbePreventsReadiness()
@@ -171,6 +315,60 @@ final class AntigravityManagedCLIReadinessTests:
             )
         }
         XCTAssertEqual(rpcProbe.callCount(), 1)
+    }
+
+    func testPTYIsDrainedWhileRPCProbeIsInFlight()
+        async throws
+    {
+        let identity = makeIdentity(
+            processID: 4_113
+        )
+        let endpoint = makeEndpoint(
+            identity: identity
+        )
+        let handle =
+            ManagedReadinessProcessHandleStub(
+                processID: identity.processID
+            )
+        let rpcProbe =
+            ManagedReadinessBackpressureRPCProbeStub(
+                handle: handle
+            )
+        let checker = makeChecker(
+            discovery:
+                ManagedReadinessDiscoveryStub(
+                    snapshots: [
+                        makeSnapshot(
+                            identity: identity,
+                            endpoints: [endpoint]
+                        ),
+                    ]
+                ),
+            processInspector:
+                ManagedReadinessProcessInspectorStub(),
+            rpcProbe: rpcProbe
+        )
+
+        let result = try await checker
+            .waitUntilReady(
+                handle: handle,
+                processIdentity: identity,
+                deadline:
+                    AntigravityRPCDeadline(
+                        totalTimeout: .seconds(1),
+                        discoveryTimeout:
+                            .seconds(1)
+                    )
+            )
+
+        XCTAssertEqual(
+            result.runtime.endpoint,
+            endpoint
+        )
+        XCTAssertEqual(
+            handle.pendingOutputByteCount(),
+            0
+        )
     }
 
     func testBlockingPromptFailsBeforeEndpointDiscovery()
@@ -366,7 +564,8 @@ final class AntigravityManagedCLIReadinessTests:
     private func makeChecker(
         discovery: ManagedReadinessDiscoveryStub,
         processInspector: ManagedReadinessProcessInspectorStub,
-        rpcProbe: ManagedReadinessRPCProbeStub =
+        rpcProbe:
+            any AntigravityManagedCLIRPCReadinessProbing =
             ManagedReadinessRPCProbeStub()
     ) -> AntigravityManagedCLIReadinessChecker {
         AntigravityManagedCLIReadinessChecker(
@@ -439,6 +638,7 @@ private final class ManagedReadinessRPCProbeStub:
     private var failures: [AntigravityLocalRPCError?]
     private let onProbe: @Sendable () -> Void
     private var calls = 0
+    private var ports: [AntigravityTCPPort] = []
 
     init(
         failures: [AntigravityLocalRPCError?] = [nil],
@@ -455,6 +655,7 @@ private final class ManagedReadinessRPCProbeStub:
     ) async throws {
         let failure = lock.withLock {
             calls += 1
+            ports.append(runtime.endpoint.port)
             guard failures.count > 1 else {
                 return failures[0]
             }
@@ -468,6 +669,54 @@ private final class ManagedReadinessRPCProbeStub:
 
     func callCount() -> Int {
         lock.withLock { calls }
+    }
+
+    func probedPorts() -> [AntigravityTCPPort] {
+        lock.withLock { ports }
+    }
+}
+
+private final class ManagedReadinessBackpressureRPCProbeStub:
+    AntigravityManagedCLIRPCReadinessProbing,
+    @unchecked Sendable
+{
+    private let handle:
+        ManagedReadinessProcessHandleStub
+
+    init(
+        handle: ManagedReadinessProcessHandleStub
+    ) {
+        self.handle = handle
+    }
+
+    func probe(
+        _ runtime: AntigravityManagedRuntime,
+        deadline: AntigravityRPCDeadline
+    ) async throws {
+        _ = runtime
+        _ = deadline
+        handle.appendOutput(
+            Data(
+                repeating: 0x78,
+                count: 64 * 1_024
+            )
+        )
+        let drainDeadline =
+            ContinuousClock.now.advanced(
+                by: .milliseconds(750)
+            )
+        while handle.pendingOutputByteCount() > 0,
+              ContinuousClock.now < drainDeadline
+        {
+            try await Task.sleep(
+                for: .milliseconds(10)
+            )
+        }
+        guard handle.pendingOutputByteCount() == 0
+        else {
+            throw AntigravityLocalRPCError
+                .deadlineExceeded
+        }
     }
 }
 
@@ -570,6 +819,10 @@ private final class ManagedReadinessProcessHandleStub:
         lock.withLock {
             output.append(data)
         }
+    }
+
+    func pendingOutputByteCount() -> Int {
+        lock.withLock { output.count }
     }
 
     func terminationStatus() -> Int32? {

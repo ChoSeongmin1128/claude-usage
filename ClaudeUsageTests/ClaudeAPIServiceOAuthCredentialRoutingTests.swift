@@ -3,6 +3,40 @@ import XCTest
 
 @MainActor
 final class ClaudeAPIServiceOAuthCredentialRoutingTests: XCTestCase {
+    func testInitializationDefersSessionKeyLoadUntilActorReload()
+        async
+    {
+        let (store, defaults, suite) = makeStore()
+        defer {
+            defaults.removePersistentDomain(
+                forName: suite
+            )
+        }
+        let web = store.upsertWebSessionAccount(
+            sessionKey: "sk-ant-browser",
+            setActive: true
+        )
+        let loader = SessionKeyLoaderSpy(
+            accountID: web.id,
+            value: "sk-ant-browser"
+        )
+
+        let service = ClaudeAPIService(
+            accountStore: store,
+            oauthCredentialReader:
+                OAuthReaderSpy(token: nil),
+            sessionKeyLoader: {
+                loader.load(accountID: $0)
+            }
+        )
+
+        XCTAssertEqual(loader.callCount(), 0)
+
+        await service.reloadActiveAccount()
+
+        XCTAssertEqual(loader.callCount(), 1)
+    }
+
     func testBrowserAccountHealthSnapshotUsesInventoryWithoutReadingOAuthCredential() async {
         let (store, defaults, suite) = makeStore()
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -209,6 +243,36 @@ final class ClaudeAPIServiceOAuthCredentialRoutingTests: XCTestCase {
             defaults,
             suite
         )
+    }
+}
+
+private final class SessionKeyLoaderSpy:
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private let accountID: String
+    private let value: String
+    private var calls = 0
+
+    init(
+        accountID: String,
+        value: String
+    ) {
+        self.accountID = accountID
+        self.value = value
+    }
+
+    func load(accountID: String) -> String? {
+        lock.withLock {
+            calls += 1
+        }
+        return accountID == self.accountID
+            ? value
+            : nil
+    }
+
+    func callCount() -> Int {
+        lock.withLock { calls }
     }
 }
 

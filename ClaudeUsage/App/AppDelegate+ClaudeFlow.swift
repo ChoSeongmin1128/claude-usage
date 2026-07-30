@@ -81,13 +81,14 @@ extension AppDelegate {
     // MARK: - Settings Window
 
     func makeSettingsView(
+        antigravityRuntimeController:
+            AntigravityRuntimeController,
         initialPanel: SettingsProviderPanel? = nil
     ) -> SettingsView {
         SettingsView(
             claudeAPIService: apiService,
             antigravityRuntimeController:
-                antigravityRuntime
-                    .runtimeController,
+                antigravityRuntimeController,
             onOpenLogin: { [weak self] in
                 self?.settingsWindowCoordinator.close()
                 self?.showLoginWindow(clearCookies: true)
@@ -158,13 +159,52 @@ extension AppDelegate {
         if settingsWindowCoordinator.focusIfVisible() {
             return
         }
+        guard settingsWindowPresentationTask == nil
+        else {
+            return
+        }
 
-        let initialPanel = settingsPanelRawValue
-            .flatMap(SettingsProviderPanel.init(rawValue:))
-        let settingsView = makeSettingsView(
-            initialPanel: initialPanel
-        )
-        settingsWindowCoordinator.present(rootView: settingsView)
+        settingsWindowPresentationTask =
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let runtime =
+                    await antigravityRuntimeTask
+                        .value
+                guard !Task.isCancelled else {
+                    settingsWindowPresentationTask =
+                        nil
+                    return
+                }
+                defer {
+                    settingsWindowPresentationTask =
+                        nil
+                }
+                if settingsWindowCoordinator
+                    .focusIfVisible()
+                {
+                    return
+                }
+
+                let initialPanel =
+                    SettingsProviderPanel(
+                        rawValue:
+                            AppSettings.shared
+                                .settingsLastTab
+                    )
+                let settingsView =
+                    makeSettingsView(
+                        antigravityRuntimeController:
+                            runtime
+                                .runtimeController,
+                        initialPanel:
+                            initialPanel
+                    )
+                settingsWindowCoordinator
+                    .present(
+                        rootView:
+                            settingsView
+                    )
+            }
     }
 
     // MARK: - Login Window

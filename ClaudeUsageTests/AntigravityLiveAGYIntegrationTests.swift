@@ -4,6 +4,76 @@ import XCTest
 @testable import ClaudeUsage
 
 final class AntigravityLiveAGYIntegrationTests: XCTestCase {
+    func testProductionLauncherPublishesHTTPSPortToPTY()
+        async throws
+    {
+        guard ProcessInfo.processInfo.environment[
+            "CLAUDEUSAGE_RUN_LIVE_AGY_TESTS"
+        ] == "1" else {
+            throw XCTSkip(
+                "CLAUDEUSAGE_RUN_LIVE_AGY_TESTS=1 is required"
+            )
+        }
+
+        let home = FileManager.default.realHomeDirectory
+        let resolution =
+            AntigravityProductionExecutableCatalogResolver(
+                homeDirectoryURL: home
+            ).resolve()
+        let executable = try XCTUnwrap(
+            resolution.managedLaunchExecutable,
+            "A verified official AGY CLI is required"
+        )
+        let request = try XCTUnwrap(
+            AntigravityManagedCLIProcessLaunchRequest(
+                executable: executable,
+                environment: AntigravityManagedCLIEnvironment(
+                    homeDirectory: home
+                ),
+                currentDirectoryURL: home
+            )
+        )
+        let handle = try AntigravityManagedCLIProcessLauncher()
+            .launchSuspended(request)
+
+        do {
+            try handle.resume()
+            var classifier =
+                AntigravityManagedCLIOutputClassifier()
+            let deadline = ContinuousClock.now.advanced(
+                by: .seconds(10)
+            )
+            while ContinuousClock.now < deadline,
+                  classifier.announcedLocalServerPort == nil
+            {
+                _ = classifier.ingest(
+                    handle.drainOutput(
+                        maximumBytes: 4 * 1_024
+                    )
+                )
+                try await Task.sleep(
+                    for: .milliseconds(100)
+                )
+            }
+
+            let announcedPort =
+                classifier.announcedLocalServerPort
+            let termination = await handle.terminateTree(
+                gracePeriod: .milliseconds(250)
+            )
+            XCTAssertEqual(termination, .confirmed)
+            XCTAssertNotNil(
+                announcedPort,
+                "Expected AGY's supported HTTPS bootstrap announcement on the managed PTY"
+            )
+        } catch {
+            _ = await handle.terminateTree(
+                gracePeriod: .milliseconds(250)
+            )
+            throw error
+        }
+    }
+
     func testProductionManagedPathReturnsRealGroupedQuota()
         async throws
     {

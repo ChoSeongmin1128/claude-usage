@@ -102,6 +102,27 @@ final class UpdateRuntimeStateTests: XCTestCase {
 }
 
 final class UpdateServiceTests: XCTestCase {
+    #if canImport(Sparkle)
+    @MainActor
+    func testBackgroundUpdaterDeclaresGentleReminderSupport() {
+        let engine = SparkleUpdateEngine(
+            feedURL: nil
+        )
+
+        XCTAssertTrue(
+            engine
+                .supportsGentleScheduledUpdateReminders
+        )
+        XCTAssertTrue(
+            engine.responds(
+                to: NSSelectorFromString(
+                    "supportsGentleScheduledUpdateReminders"
+                )
+            )
+        )
+    }
+    #endif
+
     func testUserInitiatedCheckUsesBackgroundCheckWhenEngineIsNotInteractive() async {
         let engine = FakeUpdateEngine(supportsInteractiveCheck: false)
         let service = UpdateService(engine: engine)

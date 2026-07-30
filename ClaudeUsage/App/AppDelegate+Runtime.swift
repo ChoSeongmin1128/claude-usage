@@ -620,7 +620,10 @@ extension AppDelegate {
             // refresh, so launch still produces exactly one transaction.
             await antigravityRuntimeBootstrapTask?
                 .value
-            _ = await antigravityRuntime
+            let runtime =
+                await antigravityRuntimeTask
+                    .value
+            _ = await runtime
                 .runtimeController
                 .refresh(
                     trigger:

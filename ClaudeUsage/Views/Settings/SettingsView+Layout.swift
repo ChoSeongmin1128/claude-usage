@@ -4,6 +4,10 @@ import Combine
 
 extension SettingsView {
     var body: some View {
+        settingsLayoutWithChanges
+    }
+
+    private var settingsLayout: some View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 sidebar
@@ -36,6 +40,10 @@ extension SettingsView {
             minHeight: 560,
             idealHeight: 660
         )
+    }
+
+    private var settingsLayoutWithDialog: some View {
+        settingsLayout
         .confirmationDialog(
             pendingDestructiveAction?.title ?? "확인",
             isPresented: Binding(
@@ -56,6 +64,10 @@ extension SettingsView {
                 Text(action.detail)
             }
         }
+    }
+
+    private var settingsLayoutWithLifecycle: some View {
+        settingsLayoutWithDialog
         .onAppear {
             resetClaudeAuthDisclosureState()
             syncStoredSessionKeyState()
@@ -69,6 +81,15 @@ extension SettingsView {
                     )
                     ?? .common
             )
+            if selectedPanel == .display,
+               let activeProvider =
+                settings
+                    .providerSelectionState
+                    .activeRuntimeKind
+            {
+                selectedDisplayProvider =
+                    activeProvider
+            }
             loadUsageHealthSnapshot()
             inspectClaudeOAuthMigration()
             checkCodexAuth()
@@ -77,6 +98,18 @@ extension SettingsView {
             }
             updateRuntimeState.bootstrapIfNeeded()
         }
+        .onDisappear {
+            codexAuthCheckTask?.cancel()
+            antigravitySettings.stopObserving()
+            cancelOrganizationLoad()
+            flushPendingOrganizationPersistence()
+        }
+    }
+
+    private var settingsLayoutWithNotifications:
+        some View
+    {
+        settingsLayoutWithLifecycle
         .onReceive(NotificationCenter.default.publisher(for: .claudeSessionKeyDidChange).receive(on: RunLoop.main)) { _ in
             syncStoredSessionKeyState()
             syncClaudeAccountsState()
@@ -117,6 +150,37 @@ extension SettingsView {
             // 갱신되지 않으면 설정 창에 이전 계정 사용량이 남아 보인다.
             runtimeEnvironmentRefreshTick &+= 1
         }
+        .onReceive(
+            NotificationCenter.default
+                .publisher(
+                    for:
+                        .settingsDisplayProviderRequested
+                )
+                .receive(on: RunLoop.main)
+        ) { notification in
+            guard let provider =
+                    notification.object
+                        as? AppProviderKind
+            else {
+                return
+            }
+            selectedDisplayProvider =
+                provider
+        }
+        .onReceive(settings.$shouldRevealClaudeAdvancedAuth.removeDuplicates()) { shouldReveal in
+            guard shouldReveal else { return }
+            selectedPanel = .claude
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isAdvancedAuthExpanded = true
+            }
+            settings.shouldRevealClaudeAdvancedAuth = false
+        }
+    }
+
+    private var settingsLayoutWithChanges:
+        some View
+    {
+        settingsLayoutWithNotifications
         .onChange(of: sessionKey) { _, _ in
             testResult = nil
             lastVerifiedSessionKey = nil
@@ -153,20 +217,6 @@ extension SettingsView {
         .onChange(of: settings.providerStates) { _, _ in
             checkCodexAuth()
         }
-        .onReceive(settings.$shouldRevealClaudeAdvancedAuth.removeDuplicates()) { shouldReveal in
-            guard shouldReveal else { return }
-            selectedPanel = .claude
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isAdvancedAuthExpanded = true
-            }
-            settings.shouldRevealClaudeAdvancedAuth = false
-        }
-        .onDisappear {
-            codexAuthCheckTask?.cancel()
-            antigravitySettings.stopObserving()
-            cancelOrganizationLoad()
-            flushPendingOrganizationPersistence()
-        }
     }
 
     private func performDestructiveAction(_ action: SettingsDestructiveAction) {
@@ -191,22 +241,8 @@ extension SettingsView {
             commonServicesSection
         case .display:
             commonDisplaySection
-            ForEach(AppProviderKind.allCases, id: \.rawValue) { provider in
-                Divider()
-                VStack(alignment: .leading, spacing: 16) {
-                    ProviderSettingsSectionHeader(
-                        provider: provider,
-                        title: provider.displayName
-                    )
-                    providerMenuBarDisplaySection(
-                        for: provider
-                    )
-                    Divider()
-                    providerPopoverDisplaySection(
-                        for: provider
-                    )
-                }
-            }
+            Divider()
+            displayProviderSection
         case .notifications:
             commonAlertSection
             Divider()
@@ -233,7 +269,51 @@ extension SettingsView {
     }
 
     private var contentIdentity: String {
-        "\(selectedPanel.rawValue)-panel"
+        if selectedPanel == .display {
+            return "\(selectedPanel.rawValue)-\(selectedDisplayProvider.rawValue)-panel"
+        }
+        return "\(selectedPanel.rawValue)-panel"
+    }
+
+    private var displayProviderSection:
+        some View
+    {
+        VStack(
+            alignment: .leading,
+            spacing: 16
+        ) {
+            VStack(
+                alignment: .leading,
+                spacing: 5
+            ) {
+                Text("서비스별 표시")
+                    .font(.headline)
+                Text(
+                    "서비스를 선택해 메뉴바와 팝오버 구성을 조정합니다."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            ProviderSettingsPicker(
+                selection:
+                    $selectedDisplayProvider
+            )
+
+            Divider()
+
+            providerMenuBarDisplaySection(
+                for:
+                    selectedDisplayProvider
+            )
+
+            Divider()
+
+            providerPopoverDisplaySection(
+                for:
+                    selectedDisplayProvider
+            )
+        }
     }
 
     private var sidebar: some View {

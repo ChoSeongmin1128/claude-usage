@@ -224,11 +224,19 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
 ## 실제 AGY 회귀 검증
 
 - AGY는 명령행에 quota RPC 포트를 노출하지 않으면서 동일 PID에서 복수의
-  loopback listener를 열 수 있습니다. exact PID, 실행 파일, 사용자, 포트
-  소유권을 검증한 뒤 모든 IPv4 loopback listener를 후보로 유지하고, 실제
-  quota RPC 응답을 파싱한 endpoint만 사용합니다.
+  loopback listener를 열 수 있습니다. AGY 1.1.8에서는 HTTPS(gRPC)와
+  plaintext HTTP listener가 연속 포트로 함께 열리므로, managed launcher는
+  공식 `--log-file /dev/stderr` 옵션으로 자기 PTY에 나온 HTTPS bootstrap
+  공지를 typed port로 파싱합니다. exact PID, 실행 파일, 사용자, 포트 소유권과
+  실제 RPC 응답을 모두 검증한 뒤 그 포트만 사용하며, sibling HTTP listener를
+  TLS로 추측해서 probe하지 않습니다.
+- bootstrap log와 TUI가 PTY buffer를 채워 AGY의 RPC 처리까지 막지 않도록
+  readiness 전 과정과 warm session 수명 동안 PTY를 계속 bounded drain합니다.
+  raw 출력은 로그나 진단으로 노출하지 않고 typed interaction, announced port,
+  truncation 상태만 유지합니다.
 - `AntigravityLiveAGYIntegrationTests`는 opt-in 테스트입니다. 설치되고 로그인된
-  공식 AGY를 production launcher로 실행해 원본 grouped quota를 받은 뒤,
+  공식 AGY를 production launcher로 실행해 HTTPS bootstrap port를 먼저 확인하고
+  원본 grouped quota를 받은 뒤,
   Gemini와 Claude·GPT의 5시간/주간 quota가 모두 있는지 확인하고
   local app → borrowed CLI → managed CLI 자동 조회 coordinator까지 검증합니다.
 - 통합 `Scripts/release.sh`는 전체 XCTest 직후 이 live 테스트를 직접 실행합니다.

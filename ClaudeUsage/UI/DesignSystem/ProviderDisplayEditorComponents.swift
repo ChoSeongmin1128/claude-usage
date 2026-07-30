@@ -1,6 +1,100 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+struct ProviderSettingsPicker: View {
+    @Binding var selection: AppProviderKind
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(
+                AppProviderKind.allCases,
+                id: \.rawValue
+            ) { provider in
+                Button {
+                    selection = provider
+                } label: {
+                    HStack(spacing: 7) {
+                        ProviderBrandIconView(
+                            provider: provider,
+                            kind: .settings,
+                            size: 16
+                        )
+                        Text(provider.displayName)
+                            .font(
+                                .subheadline
+                                    .weight(
+                                        selection
+                                            == provider
+                                            ? .semibold
+                                            : .regular
+                                    )
+                            )
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .frame(
+                        maxWidth: .infinity,
+                        alignment: .leading
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(
+                    selection == provider
+                        ? Color.primary
+                        : Color.secondary
+                )
+                .background(
+                    RoundedRectangle(
+                        cornerRadius: 8,
+                        style: .continuous
+                    )
+                    .fill(
+                        selection == provider
+                            ? Color.accentColor
+                                .opacity(0.14)
+                            : Color(
+                                NSColor
+                                    .controlBackgroundColor
+                            )
+                            .opacity(0.45)
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(
+                        cornerRadius: 8,
+                        style: .continuous
+                    )
+                    .stroke(
+                        selection == provider
+                            ? Color.accentColor
+                                .opacity(0.55)
+                            : Color.secondary
+                                .opacity(0.16),
+                        lineWidth: 1
+                    )
+                )
+                .accessibilityLabel(
+                    "\(provider.displayName) 표시 설정"
+                )
+                .accessibilityAddTraits(
+                    selection == provider
+                        ? .isSelected
+                        : []
+                )
+            }
+        }
+        .frame(maxWidth: 480)
+        .accessibilityElement(
+            children: .contain
+        )
+        .accessibilityLabel(
+            "표시 설정 서비스 선택"
+        )
+    }
+}
+
 struct DisplayModePicker: View {
     @Binding var selection: PopoverDisplayEditorMode
 

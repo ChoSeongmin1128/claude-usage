@@ -21,11 +21,21 @@
 - Claude/Codex/Antigravity의 standard·compact·메뉴바·설정 표시 모델과 공용
   design-system component를 유지하고, provider별 예외는 typed adapter와
   metadata 경계 안에 둡니다.
-- 현재 후보 2.4.7은 상태 badge 클리핑과 Claude 하드코딩 외부 링크를
-  수정합니다. Claude/Codex의 사용량·공식 상태 링크는 하나의 provider
-  descriptor에서 팝오버, 설정 미리보기, 우클릭 메뉴, 단축키로 투영합니다.
-- 2.4.7 staging 게시 후 사용자가 `/Applications/ClaudeUsage-stg.app`을 직접
-  실행해 메뉴바 표시, provider 전환, 외부 링크, AGY 조회, 단일 인스턴스를
+- 현재 후보 2.4.8은 AGY가 공지한 정확한 로컬 RPC 포트를 먼저 검증하고,
+  sibling plaintext listener를 TLS로 probe하지 않습니다. 공식 bootstrap log를
+  읽기 위해 활성화한 PTY 출력은 readiness와 warm session 전 구간에서 계속
+  bounded drain해 AGY 자체가 terminal backpressure로 멈추지 않게 합니다.
+- 시작 시 executable/Keychain 검사를 main thread 밖으로 옮깁니다.
+- 백그라운드 Sparkle 예약 업데이트는 popover의 커스텀 gentle reminder로
+  처리한다는 delegate capability를 명시해 실제 구현과 scheduler 계약을
+  일치시킵니다.
+- 표시 설정은 공통 설정 뒤에 provider logo 선택기를 두고 Claude, Codex,
+  Antigravity 중 한 provider의 메뉴바·팝오버 설정만 표시합니다. 팝오버에서
+  진입하면 현재 provider가 선택됩니다.
+- staging 설정 창 제목은 배포 identity를 따라 `ClaudeUsage-stg 설정`으로
+  표시합니다.
+- 2.4.8 staging 게시 후 사용자가 `/Applications/ClaudeUsage-stg.app`을 직접
+  실행해 메뉴바 표시, provider 전환, AGY 조회, 단일 인스턴스와 시작 로그를
   확인하기 전에는 prod를 게시하지 않습니다.
 
 ## 2. 완료된 주요 정리
@@ -76,7 +86,7 @@
 
 ## 6. 다음 작업 후보
 
-- 2.4.7 staging 수동 QA 결과를 기록하고 prod gate를 통과/보류로 명시합니다.
+- 2.4.8 staging 수동 QA 결과를 기록하고 prod gate를 통과/보류로 명시합니다.
 - Antigravity managed CLI 자동 실행 정책을 일반 사용자에게 충분히 설명하는지
   별도 prod 정책 검토를 완료합니다.
 - first-run wizard에서 권한 요청 이유와 실패 시 다음 행동을 더 짧게 정리합니다.
