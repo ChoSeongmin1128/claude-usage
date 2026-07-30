@@ -18,7 +18,10 @@ extension PopoverViewModel {
                 antigravityRuntimeSnapshot.quotaPresentation
         {
             if density == .compact {
-                rowCount = 1
+                rowCount = max(
+                    1,
+                    presentation.compact.metrics.count
+                )
             } else {
                 rowCount = max(
                     1,
@@ -37,6 +40,12 @@ extension PopoverViewModel {
             phase: phase,
             sections: sections,
             rowCount: rowCount,
+            preferredStandardBodyHeight:
+                standardBodyHeight(
+                    for: service,
+                    phase: phase,
+                    sections: sections
+                ),
             // Claude 미인증은 두 버튼짜리 rich 패널을 쓰므로 본문 뷰포트가 더 필요하다.
             // (PopoverView.providerBodyContent의 분기와 같은 조건이어야 한다.)
             richAuthPanel: phase == .authRequired && service == .claude
@@ -44,8 +53,118 @@ extension PopoverViewModel {
         return LayoutResult(spec: spec, sections: sections)
     }
 
+    private func standardBodyHeight(
+        for service: PopoverService,
+        phase: PopoverContentPhase,
+        sections: [PopoverDisplaySection]
+    ) -> CGFloat? {
+        guard phase == .content else {
+            return nil
+        }
+        guard service == .antigravity else {
+            guard !sections.isEmpty else {
+                return PopoverLayoutMetrics
+                    .standardStatusPanelHeight
+            }
+            return PopoverLayoutMetrics
+                .standardCatalogContentHeight(
+                    sections: sections,
+                    fallbackRowCount: max(sections.count, 1)
+                )
+        }
+        guard case .content(let presentation) =
+            antigravityRuntimeSnapshot
+                .quotaPresentation
+        else {
+            return nil
+        }
+        return PopoverLayoutMetrics
+            .standardAntigravityContentHeight(
+                laneCounts: presentation.groups.map {
+                    $0.lanes.count
+                }
+            )
+    }
+
     func layoutSpec(for service: PopoverService, settings: AppSettings) -> PopoverLayoutSpec {
         layoutWithSections(for: service, settings: settings).spec
+    }
+
+    func compactHeaderContext(
+        for service: PopoverService,
+        settings: AppSettings
+    ) -> CompactPopoverHeaderContext? {
+        guard service != .antigravity else {
+            return nil
+        }
+        let state = runtimeServiceState(
+            for: service,
+            settings: settings
+        )
+        let accounts =
+            service == .claude
+            ? (usageHealthSnapshot?.accounts ?? [])
+            : []
+        let activeAccount =
+            state.accountID.flatMap { accountID in
+                accounts.first {
+                    $0.id == accountID
+                }
+            }
+        return CompactPopoverHeaderPresentationPolicy
+            .resolve(
+                accountCount: accounts.count,
+                activeAccount: activeAccount,
+                isLoading: state.isLoading,
+                isAuthenticationRequired:
+                    state.isAuthRequired,
+                hasRefreshError:
+                    state.error != nil
+            )
+    }
+
+    func identityRailProjection(
+        for service: PopoverService
+    ) -> ProviderIdentityRailProjection? {
+        guard service == .antigravity,
+              case .content(let presentation) =
+                antigravityRuntimeSnapshot
+                    .quotaPresentation
+        else {
+            return nil
+        }
+        return presentation.identityRail
+    }
+
+    func compactContentRowCount(
+        for service: PopoverService,
+        catalogSections:
+            [PopoverDisplaySection]
+    ) -> Int {
+        guard service == .antigravity,
+              case .content(let presentation) =
+                antigravityRuntimeSnapshot
+                    .quotaPresentation
+        else {
+            return catalogSections.count
+        }
+        return presentation.compact.metrics.count
+    }
+
+    func shouldRequestRefreshWhenVisible(
+        for service: PopoverService,
+        settings: AppSettings
+    ) -> Bool {
+        guard service != .antigravity else {
+            return false
+        }
+        let state = runtimeServiceState(
+            for: service,
+            settings: settings
+        )
+        return !state.hasContent
+            || state.error?.isTemporaryFailure
+                == true
     }
 
     func contentPhase(for service: PopoverService, settings: AppSettings) -> PopoverContentPhase {
@@ -118,7 +237,13 @@ extension PopoverViewModel {
             return []
         }
 
-        let catalog = UsageItemCatalogRegistry.catalog(for: service)
+        guard let catalog =
+                UsageItemCatalogRegistry.catalog(
+                    for: service
+                )
+        else {
+            return []
+        }
         let visibleItems = settings.effectivePopoverItems(for: service, density: density).filter(\.visible)
         let context = makeContext(density: density, settings: settings)
 

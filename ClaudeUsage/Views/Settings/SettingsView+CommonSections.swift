@@ -21,25 +21,6 @@ extension SettingsView {
                 isOn: $settings.launchAtLogin
             )
 
-            settingsToggleRow(
-                "Codex/Antigravity도 사용",
-                subtitle: "끄면 설정, 팝오버, 메뉴에는 Claude만 표시합니다",
-                isOn: Binding(
-                    get: { settings.additionalRuntimeProvidersEnabled },
-                    set: { settings.additionalRuntimeProvidersEnabled = $0 }
-                )
-            )
-
-            settingsRadioGroup(
-                "메뉴바 색상",
-                options: MenuBarColorMode.allCases.map { (value: $0, label: $0.displayName) },
-                selection: settings.menuBarColorMode,
-                onChange: { settings.menuBarColorMode = $0 }
-            )
-
-            Text(settings.menuBarColorMode.detail)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
         }
     }
 
@@ -68,10 +49,48 @@ extension SettingsView {
                     .foregroundStyle(.orange)
             }
 
-            Text("서비스별 알림은 각 서비스 화면에서 조정합니다. 시스템 설정 → 알림 → ClaudeUsage에서도 알림 허용이 필요합니다.")
+            Text("이 화면에서 임계값과 서비스별 알림을 함께 조정합니다. 시스템 설정 → 알림 → ClaudeUsage에서도 허용이 필요합니다.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
+    }
+
+    var notificationThresholdSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("알림 기준", systemImage: "gauge.with.dots.needle.50percent")
+                .font(.headline)
+
+            settingsRadioGroup(
+                "기준 표시",
+                options: [
+                    (value: false, label: "사용량"),
+                    (value: true, label: "남은 양"),
+                ],
+                selection: settings.alertRemainingMode,
+                onChange: { settings.alertRemainingMode = $0 }
+            )
+
+            settingsToggleRow(
+                "5시간 한도",
+                subtitle: "짧은 주기의 사용량 한도에 기준을 적용합니다",
+                isOn: $settings.alertFiveHourEnabled
+            )
+            settingsToggleRow(
+                "주간 한도",
+                subtitle: "주간 사용량 한도에도 같은 기준을 적용합니다",
+                isOn: $settings.alertWeeklyEnabled
+            )
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("임계값")
+                    .font(.subheadline.weight(.semibold))
+                ForEach(settings.sortedNotificationPresets) { preset in
+                    notificationPresetRow(id: preset.id)
+                }
+            }
+        }
+        .disabled(!settings.notificationsEnabled)
+        .opacity(settings.notificationsEnabled ? 1 : 0.6)
     }
 
     var updateSection: some View {
@@ -120,14 +139,72 @@ extension SettingsView {
 
     var commonDisplaySection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("고급 표시", systemImage: "menubar.rectangle")
+            Label("공통 표시", systemImage: "menubar.rectangle")
                 .font(.headline)
+
+            settingsRadioGroup(
+                "메뉴바 색상",
+                options: MenuBarColorMode.allCases.map { (value: $0, label: $0.displayName) },
+                selection: settings.menuBarColorMode,
+                onChange: { settings.menuBarColorMode = $0 }
+            )
+
+            Text(settings.menuBarColorMode.detail)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
 
             settingsToggleRow(
                 "보조 텍스트 강조",
                 subtitle: "갱신 시각과 구분자를 기본 텍스트 색상으로 표시합니다",
                 isOn: $settings.menuBarTextHighContrast
             )
+        }
+    }
+
+    private func notificationPresetRow(id: String) -> some View {
+        HStack(spacing: 12) {
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: {
+                        settings.notificationPresets
+                            .first(where: { $0.id == id })?
+                            .isEnabled ?? false
+                    },
+                    set: { isEnabled in
+                        guard let index = settings.notificationPresets
+                            .firstIndex(where: { $0.id == id }) else { return }
+                        settings.notificationPresets[index].isEnabled = isEnabled
+                    }
+                )
+            )
+            .labelsHidden()
+
+            Stepper(
+                value: Binding(
+                    get: {
+                        settings.notificationPresets
+                            .first(where: { $0.id == id })?
+                            .threshold ?? 75
+                    },
+                    set: { threshold in
+                        guard let index = settings.notificationPresets
+                            .firstIndex(where: { $0.id == id }) else { return }
+                        settings.notificationPresets[index].threshold =
+                            max(1, min(threshold, 99))
+                    }
+                ),
+                in: 1...99,
+                step: 5
+            ) {
+                let threshold = settings.notificationPresets
+                    .first(where: { $0.id == id })?
+                    .threshold ?? 0
+                Text(
+                    "\(settings.alertRemainingMode ? "남음" : "사용") \(threshold)%"
+                )
+                .monospacedDigit()
+            }
         }
     }
 

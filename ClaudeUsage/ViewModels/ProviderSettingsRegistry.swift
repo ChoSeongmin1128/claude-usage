@@ -2,6 +2,9 @@ import Foundation
 
 enum SettingsProviderPanel: String, CaseIterable, Identifiable, Sendable {
     case common
+    case display
+    case notifications
+    case updates
     case claude
     case codex
     case antigravity
@@ -51,10 +54,12 @@ enum SettingsProviderRegistry {
 
     nonisolated static func sidebarPanels(exposurePolicy: ProviderExposurePolicy) -> [SettingsProviderPanelDescriptor] {
         let providerPanels = AppProviderKind.allCases
-            .filter(exposurePolicy.isExposed)
             .map(providerPanelDescriptor)
         return [
-            .init(panel: .common, title: "공통", icon: "slider.horizontal.3", providerKind: nil, availability: .active),
+            .init(panel: .common, title: "일반", icon: "gearshape", providerKind: nil, availability: .active),
+            .init(panel: .display, title: "표시", icon: "menubar.rectangle", providerKind: nil, availability: .active),
+            .init(panel: .notifications, title: "알림", icon: "bell", providerKind: nil, availability: .active),
+            .init(panel: .updates, title: "업데이트", icon: "arrow.down.circle", providerKind: nil, availability: .active),
         ] + providerPanels
     }
 
@@ -71,7 +76,6 @@ enum SettingsProviderRegistry {
         return ProviderShellDescriptor(
             kind: kind,
             title: providerDescriptor.settingsPanelTitle,
-            icon: providerDescriptor.settingsPanelIconName,
             role: providerDescriptor.capabilities.isRuntimeProvider ? .active : .comingSoon,
             summary: providerDescriptor.settingsPanelSummary,
             detail: providerDescriptor.settingsPanelDetail,
@@ -126,7 +130,6 @@ struct ProviderShellDescriptor: Identifiable, Sendable, Equatable {
 
     let kind: AppProviderKind
     let title: String
-    let icon: String
     let role: Role
     let summary: String
     let detail: String?

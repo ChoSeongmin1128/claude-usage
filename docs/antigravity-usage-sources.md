@@ -1,6 +1,6 @@
 # Antigravity 사용량 소스와 설정 UX
 
-최종 갱신: 2026-07-29
+최종 갱신: 2026-07-30
 
 이 문서는 ClaudeUsage의 Antigravity provider가 어떤 근거로 로컬 앱, AGY CLI, Google OAuth 원격 quota를 다루는지 정리합니다. 구현을 바꿀 때는 이 문서와 테스트를 같이 갱신해야 합니다.
 
@@ -127,8 +127,9 @@ Antigravity 2.0 language server에는 같은 client ID에 여러 secret 후보�
 
 Antigravity OAuth 저장 위치:
 
-- active credential: `~/Library/Application Support/ClaudeUsage/Antigravity/oauth_creds.json`
-- account list: `~/Library/Application Support/ClaudeUsage/Antigravity/oauth_accounts.json`
+- prod active credential: `~/Library/Application Support/ClaudeUsage/Antigravity/oauth_creds.json`
+- prod account list: `~/Library/Application Support/ClaudeUsage/Antigravity/oauth_accounts.json`
+- staging root: `~/Library/Application Support/ClaudeUsage-stg/Antigravity`
 - 디렉터리 권한: `0700`
 - credential 파일 권한: `0600`
 
@@ -151,7 +152,7 @@ Antigravity OAuth 저장 위치:
 - 로컬 앱 상태: 실행 중, 연결 가능, token/port 누락, 첫 성공 조회 여부
 - CLI 상태: 검증된 실행 파일 경로, 미감지, Google 서명 거부, 복구 실패
 - OAuth 상태: 연결 여부, active Google account, 계정 추가/선택/해제
-- 표시 설정: standard 다중 lane 선택, compact/메뉴바 단일 lane 선택
+- 표시 설정: standard/compact 다중 lane 선택, 메뉴바 단일 lane 선택
 
 표시 원칙:
 
@@ -162,7 +163,33 @@ Antigravity OAuth 저장 위치:
 - CLI가 없어도 로컬 앱 조회와 Google OAuth 원격 조회는 사용할 수 있습니다.
 - Google 계정을 선택한 경우 Antigravity 앱 로그인만 OAuth 준비 완료로 취급하지 않습니다. ClaudeUsage에 연결한 해당 OAuth 계정이 있어야 합니다.
 - 로컬 계정을 선택한 경우 ClaudeUsage OAuth가 없어도 local runtime만 기준으로 판단합니다.
-- AGY 팝오버 항목은 quota lane 경로가 그리므로 사용자가 숨길 수 없습니다. 권위 항목 ID는 `antigravityUsageLimits` 하나입니다.
+- standard와 compact는 lane마다 표시 여부와 순서를 선택할 수 있습니다. compact의 `가장 제약 높은 순`은 단일 lane 필터가 아니라 보이는 lane 전체의 정렬 정책입니다.
+- built-in lane은 payload 전에도 편집할 수 있고, 현재 미관측 lane은 `지금 데이터 없음`으로 남깁니다. 새 unknown lane과 저장된 미관측 unknown lane도 stable ID를 유지합니다.
+- 메뉴 막대는 공간 제약 때문에 기존 단일 lane 선택을 유지합니다.
+- generic `popoverItemsV2`/`compactPopoverItemsV2`에는 Antigravity 항목을 저장하지 않습니다. 표시 설정의 단일 권위는 typed `AntigravityDisplaySettings`입니다.
+
+표시 계층 책임:
+
+- `CatalogDisplayAdapter`: Claude/Codex 정적 catalog를 공통 editor model로 변환
+- `AntigravityDisplayAdapter`: built-in/observed/stored lane을 병합하고 공통 editor model로 변환
+- `CatalogPopoverPresentationAdapter`, `AntigravityPopoverPresentationAdapter`: provider별 상태와 복구 action을 공통 runtime summary로 변환
+- `ProviderDisplayEditorShell`, `DisplayItemList`, `DisplayItemRow`, `StandardUsageRow`, `CompactUsageRow`, `ProgressBarView`: provider 의미를 모르는 공통 UI primitive. Claude/Codex와 Antigravity 일반 팝오버는 `StandardUsageRow`를 함께 사용하고, Antigravity의 group 의미만 provider presentation에 남깁니다.
+- `AntigravitySettingsStore`: Antigravity connection/display typed 설정의 유일한 저장 권위
+
+display schema v2는 v1 `automaticMostConstrained`를 모든 known lane 표시 +
+제약 높은 순 정렬로, `fixed(id)`를 해당 lane만 표시 + manual 순서로 원자적으로
+이전합니다. write/read-back 검증 전에는 migration marker를 올리지 않고 실패 시
+원본 UserDefaults snapshot을 복구합니다. schema v2 display key는 구버전으로
+역변환해 dual-write하지 않으므로 2.4.4 이전 앱으로 downgrade하면 Antigravity
+표시 설정을 읽지 못할 수 있습니다. Claude/Codex generic 표시 설정은 영향을
+받지 않습니다.
+
+새 built-in lane을 추가할 때는 `AntigravityQuotaLaneID`의 stable ID와 decoder
+mapping을 먼저 추가하고, `AntigravityDisplaySettings.builtInLaneIDs` 및
+`AntigravityDisplayAdapter.knownDescriptor`를 함께 갱신합니다. renderer는
+공통 editor/usage row를 그대로 사용하므로 새 합성 catalog 항목이나 generic
+UserDefaults 키를 추가하지 않습니다. 서버에서 먼저 등장한 unknown lane은 이
+등록 전에도 raw stable ID로 보존됩니다.
 
 ## 8. 테스트 기준
 
@@ -171,11 +198,12 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
 - `AntigravityStatusProbeTests`: 2.0 `language_server`, legacy binary, process priority, invalid port filtering
 - `AntigravityQuotaSummaryDecoderTests`: 구조화 RPC quota 응답 decode 계약
 - `AntigravityGoogleOAuthQuotaClientTests`: Google OAuth quota 조회와 계정 귀속 검증
-- `AntigravityQuotaPresentationMapperTests`: lane grouping, 미지원/불가 값, most-constrained 선택, freshness
-- `AntigravityQuotaPresentationRenderingTests`: standard/compact 실제 렌더 폭과 합성 0% 방지
+- `AntigravityQuotaPresentationMapperTests`: lane grouping, 미지원/불가 값, multi-lane 정렬, menu bar single lane, freshness
+- `AntigravityQuotaPresentationRenderingTests`: standard/compact 실제 렌더 폭, 다중 lane, 합성 0% 방지
 - `AntigravityRefreshCoordinatorTests`, `AntigravityRuntimeControllerTests`: 계정/세션 경계, stale 응답 차단, display mutation 직렬화
 - `AntigravityAccountRepositoryTests`, `AntigravityMigrationCoordinatorTests`: vault write/read-back, 잔여 데이터 제거
-- `AntigravitySettingsMigrationCoordinatorTests`: schema v1과 구 UserDefaults 키에서 schema v2로의 이전, idle timeout 보존, 원본 삭제
+- `AntigravityDisplaySettingsV2MigrationTests`, `AntigravitySettingsMigrationCoordinatorTests`: display schema v1→v2, 구 UserDefaults 이전, rollback/marker 순서, idle timeout 보존, generic Antigravity 키 제거
+- `AntigravityDisplayAdapterTests`, `ProviderDisplayArchitectureTests`: known/unknown/unavailable lane, all-hidden, 1~6 compact row, Claude/Codex preference persistence, adapter status contract
 - `AntigravityDiscoverySecurityTests`, `AntigravityManagedCLI*Tests`, `AntigravityManagedProcessTreeTests`: 실행 image 신뢰, managed lifecycle, idle teardown
 - `AntigravityOAuthCredentialsStoreTests`: file-only status/load, legacy Keychain no-UI migration/delete
 - `AntigravityOAuthLoginRunnerTests`: loopback OAuth callback host/method/state 검증과 취소 정리
@@ -192,3 +220,16 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
 - OAuth client discovery는 환경변수, Antigravity.app bundle 순서로 의존합니다. Antigravity bundle 구조가 바뀌면 환경변수 override가 우선 복구 수단입니다.
 - local language server port와 CSRF token은 재시작 때 바뀝니다. stale cache가 의심되면 `AntigravityStatusProbe.invalidateCache()` 경로와 retry를 먼저 확인합니다.
 - AGY CLI 설정 파일은 공식 문서상 JSON 파일입니다. 설정 내용을 임의로 수정하지 말고, 존재 여부와 경로 상태만 UX에 노출합니다.
+
+## 실제 AGY 회귀 검증
+
+- AGY는 명령행에 quota RPC 포트를 노출하지 않으면서 동일 PID에서 복수의
+  loopback listener를 열 수 있습니다. exact PID, 실행 파일, 사용자, 포트
+  소유권을 검증한 뒤 모든 IPv4 loopback listener를 후보로 유지하고, 실제
+  quota RPC 응답을 파싱한 endpoint만 사용합니다.
+- `AntigravityLiveAGYIntegrationTests`는 opt-in 테스트입니다. 설치되고 로그인된
+  공식 AGY를 production launcher로 실행해 원본 grouped quota를 받은 뒤,
+  Gemini와 Claude·GPT의 5시간/주간 quota가 모두 있는지 확인하고
+  local app → borrowed CLI → managed CLI 자동 조회 coordinator까지 검증합니다.
+- 통합 `Scripts/release.sh`는 전체 XCTest 직후 이 live 테스트를 직접 실행합니다.
+  XCTest의 skip 결과만으로는 AGY 배포 게이트를 통과한 것으로 보지 않습니다.

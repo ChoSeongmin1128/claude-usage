@@ -46,27 +46,30 @@ final class AppSettingsTests: XCTestCase {
         )
     }
 
-    /// AGY 팝오버는 quota lane 경로가 그리므로 권위 항목을 사용자가 숨길 수
-    /// 없다. 구 ID는 지원 목록에 없어 정규화에서 버려진다.
-    func testAntigravityUsageLimitsItemStaysStructuralAndLegacyIDsAreDropped() {
+    func testGenericPopoverDisplaySurfaceRefusesAntigravity() {
         let settings = AppSettings.shared
         let snapshot = settings.createSnapshot()
         defer { settings.restore(from: snapshot) }
 
         settings.setPopoverItems(
             [
-                PopoverItemConfig(id: AntigravityItemCatalog.usageLimitsItemID, visible: false),
+                PopoverItemConfig(id: "antigravityUsageLimits", visible: false),
                 PopoverItemConfig(id: "antigravityModels", visible: true),
                 PopoverItemConfig(id: "antigravityAccount", visible: true),
             ],
             for: .antigravity
         )
 
-        let expected = [
-            PopoverItemConfig(id: AntigravityItemCatalog.usageLimitsItemID, visible: true)
-        ]
-        XCTAssertEqual(settings.popoverItems(for: .antigravity), expected)
-        XCTAssertEqual(settings.compactPopoverItems(for: .antigravity), expected)
+        XCTAssertTrue(
+            settings.popoverItems(for: .antigravity)
+                .isEmpty
+        )
+        XCTAssertTrue(
+            settings.compactPopoverItems(
+                for: .antigravity
+            )
+            .isEmpty
+        )
     }
 
     /// AGY 메뉴바 표시는 `AntigravityDisplaySettings.menuBar`가 단독 소유한다.
@@ -216,7 +219,7 @@ final class AppSettingsTests: XCTestCase {
 
         XCTAssertEqual(
             loaded.full["antigravity"]?.map(\.id),
-            [AntigravityItemCatalog.usageLimitsItemID]
+            nil
         )
     }
 
@@ -308,7 +311,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertFalse(inferred)
     }
 
-    func testAdditionalRuntimeProvidersGateFiltersProvidersWithoutDroppingState() {
+    func testLegacyAdditionalProviderGateNoLongerHidesEnabledProviders() {
         let settings = AppSettings.shared
         let snapshot = settings.createSnapshot()
         defer { settings.restore(from: snapshot) }
@@ -324,11 +327,11 @@ final class AppSettingsTests: XCTestCase {
 
         settings.additionalRuntimeProvidersEnabled = false
 
-        XCTAssertEqual(settings.runtimeEnabledProviderKinds, [.claude])
-        XCTAssertEqual(settings.providerSelectionState.exposedRuntimeKinds, [.claude])
-        XCTAssertEqual(ServiceSelectionHelper.exposedServices(settings: settings), [.claude])
-        XCTAssertFalse(settings.isProviderEnabled(.codex))
-        XCTAssertFalse(settings.isProviderEnabled(.antigravity))
+        XCTAssertEqual(settings.runtimeEnabledProviderKinds, [.claude, .codex, .antigravity])
+        XCTAssertEqual(settings.providerSelectionState.exposedRuntimeKinds, [.claude, .codex, .antigravity])
+        XCTAssertEqual(ServiceSelectionHelper.exposedServices(settings: settings), [.claude, .codex, .antigravity])
+        XCTAssertTrue(settings.isProviderEnabled(.codex))
+        XCTAssertTrue(settings.isProviderEnabled(.antigravity))
         XCTAssertTrue(settings.providerState(for: .codex).isEnabled)
         XCTAssertTrue(settings.providerState(for: .antigravity).isEnabled)
 
@@ -338,14 +341,18 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(settings.isProviderEnabled(.antigravity))
     }
 
-    func testSettingsSidebarHidesAdditionalProvidersWhenGateIsOff() {
+    func testSettingsSidebarAlwaysShowsNavigationAndProviders() {
+        let expected: [SettingsProviderPanel] = [
+            .common, .display, .notifications, .updates,
+            .claude, .codex, .antigravity,
+        ]
         XCTAssertEqual(
             SettingsProviderRegistry.sidebarPanels(exposurePolicy: .primaryOnly).map(\.panel),
-            [.common, .claude]
+            expected
         )
         XCTAssertEqual(
             SettingsProviderRegistry.sidebarPanels(exposurePolicy: .allSupported).map(\.panel),
-            [.common, .claude, .codex, .antigravity]
+            expected
         )
     }
 

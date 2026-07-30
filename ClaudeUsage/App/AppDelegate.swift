@@ -8,12 +8,14 @@
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    var ownsSingleInstanceLease = false
+    var didFinishRuntimeLaunch = false
     var statusItem: NSStatusItem?
     let refreshScheduler = RefreshScheduler()
     let updateCoordinator = AppUpdateCoordinator()
     lazy var apiService = ClaudeAPIService()
     let codexAPIService = CodexAPIService(authManager: CodexAuthManager.shared)
-    let antigravityRuntime =
+    lazy var antigravityRuntime =
         AntigravityProductRuntimeCompositionFactory
             .makeProduction(
                 settingsBootstrap:

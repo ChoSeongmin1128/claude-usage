@@ -5,6 +5,7 @@
 //  Phase 2: 동적 색상 진행바
 //
 
+// Shared usage progress primitive.
 import SwiftUI
 
 struct ProgressBarView: View {

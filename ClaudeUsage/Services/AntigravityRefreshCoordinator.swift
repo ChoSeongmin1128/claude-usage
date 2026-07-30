@@ -153,7 +153,11 @@ actor AntigravityRefreshCoordinator:
         sources: [any AntigravityUsageSource],
         deadlineFactory:
             @escaping @Sendable () -> AntigravityRPCDeadline = {
-                AntigravityRPCDeadline()
+                AntigravityRPCDeadline(
+                    totalTimeout:
+                        AntigravityRPCDeadline
+                            .defaultRefreshTimeout
+                )
             }
     ) {
         var registry:

@@ -1,3 +1,4 @@
+// Shared popover geometry and scroll policy.
 import SwiftUI
 
 enum PopoverLayoutMetrics {
@@ -36,6 +37,17 @@ enum PopoverLayoutMetrics {
     static let compactMaximumVisibleRows = 5
     static let compactMinimumPopoverHeight: CGFloat = 96
     static let compactContentBottomSpacing: CGFloat = 5
+    static let standardUsageRowHeight: CGFloat = 36
+    static let standardSecondaryUsageRowHeight: CGFloat = 38
+    static let standardCreditsRowHeight: CGFloat = 42
+    static let standardAccountRowHeight: CGFloat = 58
+    static let standardStatusRowHeight: CGFloat = 54
+    static let standardGroupHeaderHeight: CGFloat = 18
+    static let standardGroupHeaderSpacing: CGFloat = 5
+    static let standardLaneSpacing: CGFloat = 4
+    /// Standard 콘텐츠 사이에는 divider 1pt와 위아래 여백 8pt가 들어간다.
+    static let standardContentDividerHeight: CGFloat = 17
+    static let standardMaximumBodyHeight: CGFloat = 287
     static let standardStatusPanelHeight: CGFloat = 72
     static let standardInteractiveStatusPanelHeight: CGFloat = 88
     /// Claude 미인증 패널(standard)은 아이콘+제목+2줄 안내+버튼 2개짜리
@@ -68,6 +80,7 @@ enum PopoverLayoutMetrics {
         phase: PopoverContentPhase,
         sections: [PopoverDisplaySection],
         rowCount: Int,
+        preferredStandardBodyHeight: CGFloat? = nil,
         richAuthPanel: Bool = false
     ) -> PopoverLayoutSpec {
         let bodyInsets = density.isCompact ? compactBodyInsets : standardBodyInsets
@@ -97,18 +110,19 @@ enum PopoverLayoutMetrics {
             )
         }
 
-        let bodyContentHeight = standardBodyViewportHeight(phase: phase, richAuthPanel: richAuthPanel)
+        let bodyContentHeight = standardBodyViewportHeight(
+            phase: phase,
+            sections: sections,
+            rowCount: rowCount,
+            preferredContentHeight: preferredStandardBodyHeight,
+            richAuthPanel: richAuthPanel
+        )
         return PopoverLayoutSpec(
             density: density,
             phase: phase,
             size: CGSize(
                 width: standardPopoverWidth,
-                height: preferredPopoverHeight(
-                    compact: false,
-                    phase: phase,
-                    rowCount: rowCount,
-                    richAuthPanel: richAuthPanel
-                )
+                height: standardPopoverHeight(forBodyHeight: bodyContentHeight)
             ),
             bodyContentHeight: bodyContentHeight,
             bodyInsets: bodyInsets,
@@ -147,23 +161,22 @@ enum PopoverLayoutMetrics {
         case .loading, .empty:
             return standardPopoverHeight(forBodyHeight: standardStatusPanelHeight)
         case .content:
-            // 행 수에 따라 계단식으로 키우고, 6행 이상은 고정 + 내부 스크롤
-            switch rowCount {
-            case ...2:
-                return 256
-            case 3:
-                return 300
-            case 4:
-                return 336
-            case 5:
-                return 372
-            default:
-                return 400
-            }
+            return standardPopoverHeight(
+                forBodyHeight: standardCatalogContentHeight(
+                    sections: [],
+                    fallbackRowCount: rowCount
+                )
+            )
         }
     }
 
-    static func standardBodyViewportHeight(phase: PopoverContentPhase, richAuthPanel: Bool = false) -> CGFloat {
+    static func standardBodyViewportHeight(
+        phase: PopoverContentPhase,
+        sections: [PopoverDisplaySection] = [],
+        rowCount: Int = 1,
+        preferredContentHeight: CGFloat? = nil,
+        richAuthPanel: Bool = false
+    ) -> CGFloat {
         switch phase {
         case .authRequired, .error:
             return richAuthPanel
@@ -172,8 +185,60 @@ enum PopoverLayoutMetrics {
         case .loading, .empty:
             return standardStatusPanelHeight
         case .content:
-            return 108
+            return min(
+                preferredContentHeight
+                    ?? standardCatalogContentHeight(
+                        sections: sections,
+                        fallbackRowCount: rowCount
+                    ),
+                standardMaximumBodyHeight
+            )
         }
+    }
+
+    static func standardCatalogContentHeight(
+        sections: [PopoverDisplaySection],
+        fallbackRowCount: Int
+    ) -> CGFloat {
+        let heights: [CGFloat]
+        if sections.isEmpty {
+            heights = Array(
+                repeating: standardUsageRowHeight,
+                count: max(fallbackRowCount, 1)
+            )
+        } else {
+            heights = sections.map {
+                standardSectionHeight(for: $0.kind)
+            }
+        }
+        let dividerCount = max(heights.count - 1, 0)
+        return min(
+            heights.reduce(0, +)
+                + CGFloat(dividerCount) * standardContentDividerHeight,
+            standardMaximumBodyHeight
+        )
+    }
+
+    static func standardAntigravityContentHeight(
+        laneCounts: [Int]
+    ) -> CGFloat {
+        guard !laneCounts.isEmpty else {
+            return standardStatusPanelHeight
+        }
+        let groupHeights = laneCounts.map { laneCount in
+            standardGroupHeaderHeight
+                + standardGroupHeaderSpacing
+                + CGFloat(max(laneCount, 1))
+                    * standardUsageRowHeight
+                + CGFloat(max(laneCount - 1, 0))
+                    * standardLaneSpacing
+        }
+        return min(
+            groupHeights.reduce(0, +)
+                + CGFloat(max(groupHeights.count - 1, 0))
+                    * standardContentDividerHeight,
+            standardMaximumBodyHeight
+        )
     }
 
     static func compactBodyViewportHeight(phase: PopoverContentPhase, rowCount: Int = compactMaximumVisibleRows) -> CGFloat {
@@ -220,6 +285,23 @@ enum PopoverLayoutMetrics {
         }
     }
 
+    static func standardSectionHeight(
+        for kind: PopoverDisplaySectionKind
+    ) -> CGFloat {
+        switch kind {
+        case .usage:
+            return standardUsageRowHeight
+        case .resetCredits, .overage:
+            return standardSecondaryUsageRowHeight
+        case .credits:
+            return standardCreditsRowHeight
+        case .account:
+            return standardAccountRowHeight
+        case .status:
+            return standardStatusRowHeight
+        }
+    }
+
 }
 
 struct PopoverStateContainer<Content: View>: View {
@@ -236,7 +318,10 @@ struct PopoverStateContainer<Content: View>: View {
             .frame(
                 maxWidth: layoutSpec.size.width,
                 minHeight: layoutSpec.bodyContentHeight,
-                maxHeight: layoutSpec.isCompact ? layoutSpec.bodyContentHeight : nil,
+                maxHeight:
+                    layoutSpec.isCompact
+                        ? layoutSpec.bodyContentHeight
+                        : nil,
                 alignment: .topLeading
             )
             .padding(.top, layoutSpec.bodyInsets.top)

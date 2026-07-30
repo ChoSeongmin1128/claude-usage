@@ -141,9 +141,12 @@ signature/ZIP length/public key와 public feed의 byte-for-byte 동일성까지
 새 publish 전에 이전 staging Release의 원격 DMG·ZIP·appcast를 GitHub
 digest와 대조하고 mount/extract한 앱의 `stapler`, `spctl`, version/build,
 staging `SUFeedURL`을 확인합니다. 그 DMG에서 꺼낸 이전 앱만
-`~/Downloads/ClaudeUsage.app`에 두어 실제 Sparkle upgrade 기준으로
+`~/Downloads/ClaudeUsage-stg.app`에 두어 실제 Sparkle upgrade 기준으로
 사용합니다. 새 후보 artifact는 게시 후 별도로 검증하며 Downloads 앱을 새
-후보로 덮지 않습니다.
+후보로 덮지 않습니다. 단, `2.4.4`부터 staging app/bundle identifier가
+분리되며 최초 공개 버전에는 같은 identity의 이전 앱이 없습니다. 이 한 번만 구
+staging upgrade QA를 생략하고, 다음 staging부터 동일 identity upgrade를
+검증합니다.
 
 XCTest DerivedData/xcresult, archive 임시 설정, appcast staging,
 archive DerivedData와 release build는 각 사용 직후 삭제합니다.

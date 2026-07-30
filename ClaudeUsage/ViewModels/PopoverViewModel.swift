@@ -7,7 +7,6 @@ final class PopoverViewModel: ObservableObject {
     struct ProviderShellCard: Identifiable, Sendable, Equatable {
         let kind: AppProviderKind
         let title: String
-        let icon: String
         let summary: String
         let detail: String?
         let badgeTitle: String?
@@ -80,6 +79,7 @@ final class PopoverViewModel: ObservableObject {
 
     var onRefreshService: ((PopoverService) -> Void)?
     var onOpenSettingsForService: ((PopoverService) -> Void)?
+    var onOpenSettingsPanel: ((SettingsProviderPanel) -> Void)?
     var onServiceSelected: ((PopoverService) -> Void)?
     var onPinChanged: ((PopoverService, Bool) -> Void)?
     var onLayoutChanged: ((PopoverService, PopoverLayoutRefreshReason) -> Void)?
@@ -168,6 +168,10 @@ final class PopoverViewModel: ObservableObject {
         self.onOpenSettingsForService?(service)
     }
 
+    func openSettings(panel: SettingsProviderPanel) {
+        self.onOpenSettingsPanel?(panel)
+    }
+
     /// 팝오버 미인증 카드의 "Claude 로그인 시작" 버튼이 호출. 콜백이 등록되지 않은 경우
     /// (예: provider 가 Claude 가 아닌 경우)에는 안전한 fallback 으로 설정 창을 연다.
     func startClaudeLogin() {
@@ -227,7 +231,6 @@ final class PopoverViewModel: ObservableObject {
                 ProviderShellCard(
                     kind: descriptor.kind,
                     title: descriptor.title,
-                    icon: descriptor.icon,
                     summary: shellSummary(for: descriptor.kind, settings: settings, baseSummary: descriptor.summary),
                     detail: shellDetail(for: descriptor.kind, settings: settings, baseDetail: descriptor.detail),
                     badgeTitle: shellBadgeTitle(for: descriptor.kind, settings: settings, baseBadge: descriptor.role.badgeTitle),
@@ -351,7 +354,6 @@ final class PopoverViewModel: ObservableObject {
         return ProviderShellCard(
             kind: descriptor.kind,
             title: descriptor.title,
-            icon: descriptor.icon,
             summary: overviewSummary(for: kind, settings: settings),
             detail: overviewMeta(for: kind),
             badgeTitle: descriptor.role.badgeTitle,

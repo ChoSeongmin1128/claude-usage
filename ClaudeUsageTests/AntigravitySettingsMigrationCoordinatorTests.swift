@@ -258,8 +258,14 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
         XCTAssertEqual(connection.managedSession.idleTimeoutSeconds, 180)
 
         let display = try displaySettings(in: store)
-        XCTAssertEqual(display.standard.laneSelection, .allKnown)
-        XCTAssertEqual(display.compact.laneSelection, .automaticMostConstrained)
+        XCTAssertEqual(
+            display.standard,
+            AntigravityDisplaySettings.default.standard
+        )
+        XCTAssertEqual(
+            display.compact,
+            AntigravityDisplaySettings.default.compact
+        )
         XCTAssertEqual(display.menuBar.laneSelection, .automaticMostConstrained)
         XCTAssertTrue(display.menuBar.isVisible)
         XCTAssertFalse(display.menuBar.showsProviderIcon)
@@ -290,27 +296,14 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
             migratedFull["future-provider"],
             fullOtherProviders["future-provider"]
         )
-        XCTAssertEqual(
-            migratedFull["antigravity"],
-            [
-                PopoverItemConfig(id: "antigravityAccount", visible: true),
-                PopoverItemConfig(id: "antigravityUsageLimits", visible: true),
-                PopoverItemConfig(id: "antigravityCustom", visible: false),
-            ]
-        )
+        XCTAssertNil(migratedFull["antigravity"])
 
         let migratedCompact = try popoverDictionary(
             in: store,
             key: AntigravitySettingsMigrationKeys.compactPopoverItemsByProvider
         )
         XCTAssertEqual(migratedCompact["claude"], compactPopover["claude"])
-        XCTAssertEqual(
-            migratedCompact["antigravity"],
-            [
-                PopoverItemConfig(id: "antigravityUsageLimits", visible: false),
-                PopoverItemConfig(id: "antigravityAccount", visible: true),
-            ]
-        )
+        XCTAssertNil(migratedCompact["antigravity"])
 
         try assertSnapshot(sharedSnapshot, matches: store)
 
@@ -357,14 +350,7 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
         )
         XCTAssertEqual(migrated["claude"], original["claude"])
         XCTAssertEqual(migrated["codex"], original["codex"])
-        XCTAssertEqual(
-            migrated["antigravity"],
-            [
-                PopoverItemConfig(id: "antigravityAccount", visible: false),
-                PopoverItemConfig(id: "antigravityUsageLimits", visible: true),
-                PopoverItemConfig(id: "antigravityCustom", visible: true),
-            ]
-        )
+        XCTAssertNil(migrated["antigravity"])
     }
 
     func testMenuBarVisibilityPreservesPercentageAndResetIntent() throws {
@@ -486,8 +472,21 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
 
         let display = AntigravityDisplaySettings(
             schemaVersion: AntigravityDisplaySettings.currentSchemaVersion,
-            standard: .init(laneSelection: .allKnown),
-            compact: .init(laneSelection: .fixed(.thirdPartyWeekly)),
+            standard:
+                AntigravityDisplaySettings.default.standard,
+            compact: .init(
+                orderedLaneIDs: [
+                    .thirdPartyWeekly,
+                    .geminiFiveHour,
+                    .geminiWeekly,
+                    .thirdPartyFiveHour,
+                ],
+                hiddenLaneIDs: [
+                    .geminiFiveHour,
+                    .geminiWeekly,
+                ],
+                orderingPolicy: .manual
+            ),
             menuBar: .init(
                 isVisible: true,
                 showsProviderIcon: true,
@@ -502,6 +501,23 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
             notifications: .init(isEnabled: false),
             pendingNotice: nil
         )
+        var multiLaneDisplay = display
+        multiLaneDisplay.menuBar.additionalLaneIDs = [
+            .geminiFiveHour,
+            .geminiWeekly,
+        ]
+        let multiLaneData = try JSONEncoder().encode(
+            multiLaneDisplay
+        )
+        XCTAssertEqual(
+            try JSONDecoder().decode(
+                AntigravityDisplaySettings.self,
+                from: multiLaneData
+            ),
+            multiLaneDisplay
+        )
+        XCTAssertTrue(multiLaneDisplay.isCurrentAndValid)
+
         let displayData = try JSONEncoder().encode(display)
 
         XCTAssertEqual(
@@ -532,10 +548,11 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
             let invalidLaneID = AntigravityQuotaLaneID(rawValue: rawLaneID)
 
             var display = AntigravityDisplaySettings.default
-            display.compact.laneSelection = .fixed(invalidLaneID)
+            display.compact.orderedLaneIDs = [
+                invalidLaneID,
+            ]
 
             XCTAssertFalse(display.isCurrentAndValid, rawLaneID)
-            XCTAssertThrowsError(try JSONEncoder().encode(display), rawLaneID)
 
             display = .default
             display.menuBar.laneSelection = .fixed(invalidLaneID)
@@ -564,8 +581,22 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
         )
         let currentDisplay = AntigravityDisplaySettings(
             schemaVersion: AntigravityDisplaySettings.currentSchemaVersion,
-            standard: .init(laneSelection: .allKnown),
-            compact: .init(laneSelection: .fixed(.thirdPartyWeekly)),
+            standard:
+                AntigravityDisplaySettings.default.standard,
+            compact: .init(
+                orderedLaneIDs: [
+                    .thirdPartyWeekly,
+                    .geminiFiveHour,
+                    .geminiWeekly,
+                    .thirdPartyFiveHour,
+                ],
+                hiddenLaneIDs: [
+                    .geminiFiveHour,
+                    .geminiWeekly,
+                    .thirdPartyFiveHour,
+                ],
+                orderingPolicy: .manual
+            ),
             menuBar: .init(
                 isVisible: false,
                 showsProviderIcon: false,

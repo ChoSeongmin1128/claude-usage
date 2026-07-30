@@ -295,26 +295,17 @@ final class UsageItemCatalogTests: XCTestCase {
         XCTAssertEqual(statusTitles(from: sections), ["현재 세션", "주간 한도", "Codex 크레딧"])
     }
 
-    /// AGY catalog는 팝오버 섹션을 만들지 않는다. 권위 항목 하나만 노출하고
-    /// 구 ID는 지원하지 않는다.
-    func testAntigravityCatalogExposesOnlyUsageLimitsItemAndBuildsNoSections() {
-        let catalog = AntigravityItemCatalog()
-        let context = makeContext()
-
-        XCTAssertEqual(catalog.supportedIDs, [AntigravityItemCatalog.usageLimitsItemID])
+    func testAntigravityUsesTypedLaneAdapterInsteadOfStaticCatalog() {
+        XCTAssertNil(
+            UsageItemCatalogRegistry.catalog(
+                for: .antigravity
+            )
+        )
         XCTAssertEqual(
-            catalog.displayName(for: AntigravityItemCatalog.usageLimitsItemID),
-            "사용량 한도"
+            UsageItemCatalogRegistry.all
+                .map(\.providerID),
+            ["claude", "codex"]
         )
-        XCTAssertNil(catalog.displayName(for: "antigravityModels"))
-        XCTAssertNil(catalog.displayName(for: "antigravityAccount"))
-        XCTAssertTrue(
-            catalog.expandedSections(
-                for: AntigravityItemCatalog.usageLimitsItemID,
-                context: context
-            ).isEmpty
-        )
-        XCTAssertTrue(catalog.unavailableItemIDs(context: context).isEmpty)
     }
 }
 

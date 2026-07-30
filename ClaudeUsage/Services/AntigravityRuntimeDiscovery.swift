@@ -282,38 +282,40 @@ actor AntigravityRuntimeDiscovery {
         listeningEndpointsByProcess:
             [Int32: Set<AntigravityOwnedListeningEndpoint>]
     ) -> [AntigravityVerifiedRuntimeEndpoint] {
-        candidates.compactMap { candidate in
+        candidates.flatMap { candidate in
             let ownedEndpoints =
                 listeningEndpointsByProcess[
                     candidate.processIdentity.processID
                 ] ?? []
-            guard case .selected(let listeningEndpoint) =
-                AntigravityPortOwnershipInspector.resolvePort(
-                    requestedPort: candidate.connectionHints.requestedPort,
-                    ownedEndpoints: ownedEndpoints
-                ) else {
-                return nil
-            }
-
-            let authentication: AntigravityRuntimeEndpointAuthentication
-            switch candidate.transport {
-            case .antigravityApp:
-                guard let token = candidate.connectionHints.csrfToken else {
-                    return nil
+            return candidateEndpoints(
+                for: candidate,
+                ownedEndpoints: ownedEndpoints
+            ).compactMap {
+                listeningEndpoint
+                    -> AntigravityVerifiedRuntimeEndpoint? in
+                let authentication:
+                    AntigravityRuntimeEndpointAuthentication
+                switch candidate.transport {
+                case .antigravityApp:
+                    guard let token =
+                            candidate.connectionHints.csrfToken
+                    else {
+                        return nil
+                    }
+                    authentication = .appCSRF(token)
+                case .agyCLI:
+                    authentication = .cliTokenless
                 }
-                authentication = .appCSRF(token)
-            case .agyCLI:
-                authentication = .cliTokenless
-            }
 
-            return AntigravityVerifiedRuntimeEndpoint(
-                processIdentity: candidate.processIdentity,
-                host: listeningEndpoint.host,
-                port: listeningEndpoint.port,
-                transport: candidate.transport,
-                ownership: candidate.ownership,
-                authentication: authentication
-            )
+                return AntigravityVerifiedRuntimeEndpoint(
+                    processIdentity: candidate.processIdentity,
+                    host: listeningEndpoint.host,
+                    port: listeningEndpoint.port,
+                    transport: candidate.transport,
+                    ownership: candidate.ownership,
+                    authentication: authentication
+                )
+            }
         }
         .sorted {
             if $0.transport != $1.transport {
@@ -325,6 +327,37 @@ actor AntigravityRuntimeDiscovery {
             }
             return $0.port.rawValue < $1.port.rawValue
         }
+    }
+
+    /// AGY does not publish its quota-server port on the command line and
+    /// currently owns more than one loopback listener. Every candidate still
+    /// belongs to the exact verified process; the RPC readiness probe selects
+    /// the listener that implements the expected API. App endpoints keep the
+    /// stricter single hinted-port contract because they also carry CSRF
+    /// authentication.
+    private nonisolated static func candidateEndpoints(
+        for candidate: AntigravityRuntimeProcessCandidate,
+        ownedEndpoints: Set<AntigravityOwnedListeningEndpoint>
+    ) -> [AntigravityOwnedListeningEndpoint] {
+        if candidate.transport == .agyCLI,
+           candidate.connectionHints.requestedPort == nil {
+            return ownedEndpoints
+                .filter { $0.host == .ipv4 }
+                .sorted {
+                    $0.port.rawValue < $1.port.rawValue
+                }
+        }
+
+        guard case .selected(let endpoint) =
+                AntigravityPortOwnershipInspector.resolvePort(
+                    requestedPort:
+                        candidate.connectionHints.requestedPort,
+                    ownedEndpoints: ownedEndpoints
+                )
+        else {
+            return []
+        }
+        return [endpoint]
     }
 }
 

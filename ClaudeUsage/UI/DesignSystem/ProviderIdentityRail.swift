@@ -1,3 +1,4 @@
+// Shared provider identity and provenance rail.
 import SwiftUI
 
 struct ProviderIdentityRail: View {

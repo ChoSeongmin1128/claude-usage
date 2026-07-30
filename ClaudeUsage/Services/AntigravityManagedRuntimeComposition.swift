@@ -112,7 +112,10 @@ nonisolated struct AntigravityManagedRuntimeCompositionDependencies:
     static func production(
         managedStateDirectoryURL: URL =
             AntigravityStoragePaths
-                .canonicalStateDirectoryURL()
+                .canonicalStateDirectoryURL(),
+        managedLaunchCoordinationDirectoryURL: URL =
+            AntigravityStoragePaths
+                .managedLaunchCoordinationDirectoryURL()
     ) -> Self {
         let subprocessRunner = AntigravityOwnedSubprocessRunner()
         let libprocReader = AntigravitySystemLibprocReader()
@@ -140,7 +143,8 @@ nonisolated struct AntigravityManagedRuntimeCompositionDependencies:
             recordStore: recordStore,
             launchCoordinator:
                 AntigravityManagedLaunchFileCoordinator(
-                    directoryURL: managedStateDirectoryURL
+                    directoryURL:
+                        managedLaunchCoordinationDirectoryURL
                 ),
             recoverySignaler:
                 AntigravitySystemExactProcessSignaler()
@@ -154,6 +158,9 @@ nonisolated enum AntigravityManagedRuntimeCompositionFactory {
         managedStateDirectoryURL: URL =
             AntigravityStoragePaths
                 .canonicalStateDirectoryURL(),
+        managedLaunchCoordinationDirectoryURL: URL =
+            AntigravityStoragePaths
+                .managedLaunchCoordinationDirectoryURL(),
         environment: AntigravityManagedCLIEnvironment =
             AntigravityManagedCLIEnvironment(),
         currentDirectoryURL: URL =
@@ -163,7 +170,9 @@ nonisolated enum AntigravityManagedRuntimeCompositionFactory {
             catalog: catalog,
             dependencies: .production(
                 managedStateDirectoryURL:
-                    managedStateDirectoryURL
+                    managedStateDirectoryURL,
+                managedLaunchCoordinationDirectoryURL:
+                    managedLaunchCoordinationDirectoryURL
             ),
             environment: environment,
             currentDirectoryURL: currentDirectoryURL

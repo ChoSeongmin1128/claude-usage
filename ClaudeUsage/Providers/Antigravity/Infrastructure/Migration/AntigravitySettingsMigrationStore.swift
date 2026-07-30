@@ -1,3 +1,4 @@
+// Persistence port used by the Antigravity migration coordinator.
 import Foundation
 
 protocol AntigravitySettingsMigrationStore: AnyObject {

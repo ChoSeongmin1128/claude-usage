@@ -83,6 +83,50 @@ final class AntigravityManagedCLIReadinessTests:
         XCTAssertEqual(rpcProbe.callCount(), 2)
     }
 
+    func testMultipleOwnedPortsSelectsTheRPCReadyEndpoint()
+        async throws
+    {
+        let identity = makeIdentity(processID: 4_110)
+        let first = makeEndpoint(
+            identity: identity,
+            port: 45_321
+        )
+        let second = makeEndpoint(
+            identity: identity,
+            port: 45_322
+        )
+        let discovery = ManagedReadinessDiscoveryStub(
+            snapshots: [makeSnapshot(
+                identity: identity,
+                endpoints: [first, second]
+            )]
+        )
+        let rpcProbe = ManagedReadinessRPCProbeStub(
+            failures: [.transportFailure, nil]
+        )
+        let checker = makeChecker(
+            discovery: discovery,
+            processInspector:
+                ManagedReadinessProcessInspectorStub(),
+            rpcProbe: rpcProbe
+        )
+
+        let result = try await checker.waitUntilReady(
+            handle: ManagedReadinessProcessHandleStub(
+                processID: identity.processID
+            ),
+            processIdentity: identity,
+            deadline: AntigravityRPCDeadline(
+                totalTimeout: .seconds(1),
+                discoveryTimeout: .seconds(1)
+            )
+        )
+
+        XCTAssertEqual(result.runtime.endpoint, second)
+        XCTAssertEqual(discovery.discoverCallCount(), 1)
+        XCTAssertEqual(rpcProbe.callCount(), 2)
+    }
+
     func testPromptEmittedDuringSuccessfulRPCProbePreventsReadiness()
         async throws
     {
@@ -353,12 +397,13 @@ final class AntigravityManagedCLIReadinessTests:
     }
 
     private func makeEndpoint(
-        identity: AntigravityVerifiedProcessIdentity
+        identity: AntigravityVerifiedProcessIdentity,
+        port: Int = 45_321
     ) -> AntigravityVerifiedRuntimeEndpoint {
         AntigravityVerifiedRuntimeEndpoint(
             processIdentity: identity,
             host: .ipv4,
-            port: AntigravityTCPPort(45_321)!,
+            port: AntigravityTCPPort(port)!,
             transport: .agyCLI,
             ownership: .managed,
             authentication: .cliTokenless

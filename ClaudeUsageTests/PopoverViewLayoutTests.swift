@@ -268,11 +268,11 @@ final class PopoverViewLayoutTests: XCTestCase {
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: false, phase: .content, rowCount: 2),
-            256
+            202
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: false, phase: .content, rowCount: 3),
-            300
+            255
         )
     }
 
@@ -492,7 +492,7 @@ final class PopoverViewLayoutTests: XCTestCase {
         XCTAssertEqual(result.1, 106)
     }
 
-    func testStandardShownContentUsesMeasuredHeightInsteadOfFallbackBucket() {
+    func testStandardShownContentKeepsContentDerivedLayoutInsteadOfMeasuredHostFrame() {
         let layoutSpec = PopoverLayoutMetrics.layoutSpec(
             density: .standard,
             phase: .content,
@@ -508,10 +508,10 @@ final class PopoverViewLayoutTests: XCTestCase {
         ).targetSize()
 
         XCTAssertEqual(targetSize.width, 368)
-        XCTAssertEqual(targetSize.height, 223)
+        XCTAssertEqual(targetSize.height, 202)
     }
 
-    func testStandardInitialContentKeepsFallbackHeightBeforePresentation() {
+    func testStandardInitialContentUsesSameContentDerivedHeightBeforePresentation() {
         let layoutSpec = PopoverLayoutMetrics.layoutSpec(
             density: .standard,
             phase: .content,
@@ -526,7 +526,49 @@ final class PopoverViewLayoutTests: XCTestCase {
             screenVisibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 900)
         ).targetSize()
 
-        XCTAssertEqual(targetSize.height, 256)
+        XCTAssertEqual(targetSize.height, 202)
+    }
+
+    func testStandardAntigravityHeightUsesGroupsAndLanesWithoutPhantomRows() {
+        XCTAssertEqual(
+            PopoverLayoutMetrics.standardAntigravityContentHeight(
+                laneCounts: [2]
+            ),
+            99
+        )
+        XCTAssertEqual(
+            PopoverLayoutMetrics.standardAntigravityContentHeight(
+                laneCounts: [2, 2]
+            ),
+            215
+        )
+        XCTAssertEqual(
+            PopoverLayoutMetrics.standardPopoverHeight(
+                forBodyHeight:
+                    PopoverLayoutMetrics
+                        .standardAntigravityContentHeight(
+                            laneCounts: [2, 2]
+                        )
+            ),
+            328
+        )
+    }
+
+    func testStandardAntigravityHeightClampsAndScrollsLargePayload() {
+        XCTAssertEqual(
+            PopoverLayoutMetrics.standardAntigravityContentHeight(
+                laneCounts: [3, 3, 3]
+            ),
+            PopoverLayoutMetrics.standardMaximumBodyHeight
+        )
+        XCTAssertEqual(
+            PopoverLayoutMetrics.standardPopoverHeight(
+                forBodyHeight:
+                    PopoverLayoutMetrics
+                        .standardMaximumBodyHeight
+            ),
+            400
+        )
     }
 
     func testCompactContentKeepsLayoutShellEvenWhenMeasuredHeightIsSmaller() {

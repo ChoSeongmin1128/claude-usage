@@ -30,7 +30,12 @@ extension SettingsView {
             .padding(.horizontal, 24)
             .padding(.vertical, 12)
         }
-        .frame(width: 760, height: 600)
+        .frame(
+            minWidth: 800,
+            idealWidth: 880,
+            minHeight: 560,
+            idealHeight: 660
+        )
         .confirmationDialog(
             pendingDestructiveAction?.title ?? "확인",
             isPresented: Binding(
@@ -57,7 +62,13 @@ extension SettingsView {
             testResult = nil
             syncClaudeAccountsState()
             selectedOrganizationID = appliedPreferredOrganizationID
-            selectedPanel = normalizedPanel(SettingsProviderPanel(rawValue: settings.settingsLastTab) ?? .common)
+            selectedPanel = normalizedPanel(
+                initialPanel
+                    ?? SettingsProviderPanel(
+                        rawValue: settings.settingsLastTab
+                    )
+                    ?? .common
+            )
             loadUsageHealthSnapshot()
             inspectClaudeOAuthMigration()
             checkCodexAuth()
@@ -128,18 +139,19 @@ extension SettingsView {
                 break
             }
         }
+        .onChange(of: settings.settingsLastTab) { _, rawValue in
+            guard let panel = SettingsProviderPanel(
+                rawValue: rawValue
+            ), panel != selectedPanel else {
+                return
+            }
+            selectedPanel = normalizedPanel(panel)
+        }
         .onChange(of: settings.updateCheckInterval) { _, _ in
             updateRuntimeState.refreshEngineStatus()
         }
         .onChange(of: settings.providerStates) { _, _ in
             checkCodexAuth()
-        }
-        .onChange(of: settings.additionalRuntimeProvidersEnabled) { _, isEnabled in
-            checkCodexAuth()
-            guard !isEnabled,
-                  let provider = SettingsProviderRegistry.descriptor(for: selectedPanel).providerKind,
-                  provider.requiresAdditionalProviderOptIn else { return }
-            selectedPanel = .common
         }
         .onReceive(settings.$shouldRevealClaudeAdvancedAuth.removeDuplicates()) { shouldReveal in
             guard shouldReveal else { return }
@@ -177,36 +189,46 @@ extension SettingsView {
         switch selectedPanel {
         case .common:
             commonServicesSection
-            Divider()
+        case .display:
+            commonDisplaySection
+            ForEach(AppProviderKind.allCases, id: \.rawValue) { provider in
+                Divider()
+                VStack(alignment: .leading, spacing: 16) {
+                    ProviderSettingsSectionHeader(
+                        provider: provider,
+                        title: provider.displayName
+                    )
+                    providerMenuBarDisplaySection(
+                        for: provider
+                    )
+                    Divider()
+                    providerPopoverDisplaySection(
+                        for: provider
+                    )
+                }
+            }
+        case .notifications:
             commonAlertSection
             Divider()
+            notificationThresholdSection
+            ForEach(AppProviderKind.allCases, id: \.rawValue) { provider in
+                Divider()
+                VStack(alignment: .leading, spacing: 12) {
+                    ProviderSettingsSectionHeader(
+                        provider: provider,
+                        title: provider.displayName
+                    )
+                    providerAlertSection(for: provider)
+                }
+            }
+        case .updates:
             updateSection
-            Divider()
-            commonDisplaySection
         case .claude:
             claudeOverviewSection
-            Divider()
-            providerMenuBarDisplaySection(for: .claude)
-            Divider()
-            providerPopoverDisplaySection(for: .claude)
-            Divider()
-            providerAlertSection(for: .claude)
         case .codex:
             codexOverviewSection
-            Divider()
-            providerMenuBarDisplaySection(for: .codex)
-            Divider()
-            providerPopoverDisplaySection(for: .codex)
-            Divider()
-            providerAlertSection(for: .codex)
         case .antigravity:
             runtimeProviderPanel(for: .antigravity)
-            Divider()
-            providerMenuBarDisplaySection(for: .antigravity)
-            Divider()
-            providerPopoverDisplaySection(for: .antigravity)
-            Divider()
-            providerAlertSection(for: .antigravity)
         }
     }
 
@@ -221,7 +243,18 @@ extension SettingsView {
                 .padding(.horizontal, 8)
                 .padding(.top, 4)
 
-            ForEach(SettingsProviderRegistry.sidebarPanels(exposurePolicy: settings.providerExposurePolicy)) { panel in
+            let panels = SettingsProviderRegistry.sidebarPanels
+            ForEach(panels.prefix(4)) { panel in
+                sidebarRow(panel)
+            }
+
+            Text("서비스")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.top, 10)
+
+            ForEach(panels.dropFirst(4)) { panel in
                 sidebarRow(panel)
             }
 
@@ -233,54 +266,32 @@ extension SettingsView {
     }
 
     private func sidebarRow(_ panel: SettingsProviderPanelDescriptor) -> some View {
-        HStack(spacing: 6) {
-            Button {
-                selectedPanel = panel.panel
-            } label: {
-                HStack(spacing: 8) {
-                    if let provider = panel.providerKind {
-                        ProviderBrandIconView(provider: provider, kind: .settings, size: 16)
-                            .frame(width: 16)
-                    } else {
-                        Image(systemName: panel.icon)
-                            .frame(width: 16)
-                    }
-                    Text(panel.title)
-                        .font(.subheadline)
-                    Spacer(minLength: 0)
+        Button {
+            selectedPanel = panel.panel
+        } label: {
+            HStack(spacing: 8) {
+                if let provider = panel.providerKind {
+                    ProviderBrandIconView(provider: provider, kind: .settings, size: 16)
+                        .frame(width: 16)
+                } else {
+                    Image(systemName: panel.icon)
+                        .frame(width: 16)
                 }
-                .contentShape(Rectangle())
+                Text(panel.title)
+                    .font(.subheadline)
+                Spacer(minLength: 0)
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(selectedPanel == panel.panel ? Color.accentColor : .primary)
-
-            if let provider = panel.providerKind {
-                Toggle("", isOn: providerEnabledBinding(for: provider))
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .labelsHidden()
-                    .accessibilityLabel("\(provider.displayName) 사용")
-                    .help(settings.isProviderEnabled(provider) ? "\(provider.displayName) 사용 중" : "\(provider.displayName) 사용 안 함")
-            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .foregroundStyle(selectedPanel == panel.panel ? Color.accentColor : .primary)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .background(selectedPanel == panel.panel ? Color.accentColor.opacity(0.16) : Color.clear)
         .cornerRadius(8)
     }
 
-    private func providerEnabledBinding(for provider: AppProviderKind) -> Binding<Bool> {
-        Binding(
-            get: { settings.isProviderEnabled(provider) },
-            set: { settings.setProviderEnabled($0, for: provider) }
-        )
-    }
-
     private func normalizedPanel(_ panel: SettingsProviderPanel) -> SettingsProviderPanel {
-        guard let provider = SettingsProviderRegistry.descriptor(for: panel).providerKind,
-              !settings.isProviderExposed(provider) else {
-            return panel
-        }
-        return .common
+        panel
     }
 }

@@ -23,6 +23,8 @@ private nonisolated struct AntigravityManagedCLIPreparedProcess:
 /// runtime candidates never cross this boundary and therefore cannot be
 /// signalled by reset, cancellation, idle teardown, or app shutdown.
 actor AntigravityManagedCLISession {
+    static let defaultStartTimeout: Duration = .seconds(20)
+
     private struct Starting {
         let generation: UInt64
         let executable: AntigravityCanonicalExecutable
@@ -81,6 +83,7 @@ actor AntigravityManagedCLISession {
     private let terminationGracePeriod: Duration
     private let cleanupCoordinationTimeout: Duration
     private let recoveryCoordinationTimeout: Duration
+    private let startTimeout: Duration
 
     private var state: State = .stopped
     private var generation: UInt64 = 0
@@ -131,12 +134,15 @@ actor AntigravityManagedCLISession {
             },
         terminationGracePeriod: Duration = .milliseconds(250),
         cleanupCoordinationTimeout: Duration = .seconds(1),
-        recoveryCoordinationTimeout: Duration = .seconds(2)
+        recoveryCoordinationTimeout: Duration = .seconds(2),
+        startTimeout: Duration =
+            AntigravityManagedCLISession.defaultStartTimeout
     ) {
         precondition(monitorInterval > .zero)
         precondition(processObservationInterval > .zero)
         precondition(cleanupCoordinationTimeout > .zero)
         precondition(recoveryCoordinationTimeout > .zero)
+        precondition(startTimeout > .zero)
         self.launcher = launcher
         self.executableRevalidator = executableRevalidator
         self.identityProvider = identityProvider
@@ -178,6 +184,7 @@ actor AntigravityManagedCLISession {
             cleanupCoordinationTimeout
         self.recoveryCoordinationTimeout =
             recoveryCoordinationTimeout
+        self.startTimeout = startTimeout
     }
 
     func withRuntime<T: Sendable>(
@@ -402,9 +409,12 @@ actor AntigravityManagedCLISession {
         let terminationGracePeriod = self.terminationGracePeriod
         let cleanupCoordinationTimeout =
             self.cleanupCoordinationTimeout
+        let startTimeout = self.startTimeout
         let pendingRecordRemovalIDs =
             self.pendingRecordRemovalIDs
-        let operationDeadline = AntigravityRPCDeadline()
+        let operationDeadline = AntigravityRPCDeadline(
+            totalTimeout: startTimeout
+        )
 
         let task = Task.detached(priority: .utility) {
             try await Self.launch(

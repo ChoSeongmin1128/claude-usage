@@ -53,7 +53,11 @@ actor ClaudeProfileMetadataStore {
                 filename = "claude-profile-metadata.json"
             }
             self.fileURL = baseURL
-                .appendingPathComponent("ClaudeUsage", isDirectory: true)
+                .appendingPathComponent(
+                    AppDistribution.current
+                        .applicationSupportDirectoryName,
+                    isDirectory: true
+                )
                 .appendingPathComponent(filename, isDirectory: false)
         }
     }

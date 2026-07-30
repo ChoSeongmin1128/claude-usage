@@ -5,7 +5,7 @@ import XCTest
 
 @MainActor
 final class AntigravityQuotaPresentationRenderingTests: XCTestCase {
-    func testStandardQuotaRailRendersAtPopoverWidthInLightAndDark() throws {
+    func testStandardQuotaRowsRenderAtPopoverWidthInLightAndDark() throws {
         let presentation = makePresentation()
 
         for scheme in [ColorScheme.light, .dark] {
@@ -26,15 +26,15 @@ final class AntigravityQuotaPresentationRenderingTests: XCTestCase {
 
             XCTAssertEqual(image.size.width, 368, accuracy: 0.5)
             XCTAssertGreaterThan(image.size.height, 120)
-            XCTAssertLessThan(image.size.height, 260)
+            XCTAssertLessThan(image.size.height, 290)
             addAttachment(
                 image,
-                name: "Antigravity quota rails \(scheme)"
+                name: "Antigravity standard usage rows \(scheme)"
             )
         }
     }
 
-    func testCompactMostConstrainedMetricRendersAtMinimumPopoverWidth() throws {
+    func testCompactVisibleMetricsRenderAtMinimumPopoverWidth() throws {
         let presentation = makePresentation()
         let view = VStack(alignment: .leading, spacing: 4) {
             ProviderIdentityRail(
@@ -53,15 +53,20 @@ final class AntigravityQuotaPresentationRenderingTests: XCTestCase {
         let image = try render(view)
 
         XCTAssertEqual(image.size.width, 296, accuracy: 0.5)
-        XCTAssertGreaterThan(image.size.height, 30)
-        XCTAssertLessThan(image.size.height, 70)
+        XCTAssertGreaterThan(image.size.height, 90)
+        XCTAssertLessThan(image.size.height, 140)
         XCTAssertEqual(
-            presentation.compact.metric?.label,
-            "Claude·GPT · 주간"
+            presentation.compact.metrics.map(\.label),
+            [
+                "Claude·GPT · 주간",
+                "Gemini · 주간",
+                "Gemini · 5시간",
+                "Claude·GPT · 5시간",
+            ]
         )
         addAttachment(
             image,
-            name: "Antigravity compact constrained lane"
+            name: "Antigravity compact visible lanes"
         )
     }
 

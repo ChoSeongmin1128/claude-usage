@@ -14,6 +14,7 @@ final class AppPopoverCoordinator {
         initialService: PopoverService,
         onRefreshService: @escaping (PopoverService) -> Void,
         onOpenSettingsForService: @escaping (PopoverService) -> Void,
+        onOpenSettingsPanel: @escaping (SettingsProviderPanel) -> Void,
         onServiceSelected: @escaping (PopoverService) -> Void,
         onLayoutChanged: @escaping (PopoverService, PopoverLayoutRefreshReason) -> Void,
         onPinChanged: @escaping (PopoverService, Bool) -> Void,
@@ -21,6 +22,7 @@ final class AppPopoverCoordinator {
     ) {
         viewModel.onRefreshService = onRefreshService
         viewModel.onOpenSettingsForService = onOpenSettingsForService
+        viewModel.onOpenSettingsPanel = onOpenSettingsPanel
         viewModel.onServiceSelected = onServiceSelected
         viewModel.onLayoutChanged = onLayoutChanged
         viewModel.onPinChanged = onPinChanged

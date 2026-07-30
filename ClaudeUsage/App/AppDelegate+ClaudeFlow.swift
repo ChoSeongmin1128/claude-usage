@@ -80,7 +80,9 @@ extension AppDelegate {
 
     // MARK: - Settings Window
 
-    func makeSettingsView() -> SettingsView {
+    func makeSettingsView(
+        initialPanel: SettingsProviderPanel? = nil
+    ) -> SettingsView {
         SettingsView(
             claudeAPIService: apiService,
             antigravityRuntimeController:
@@ -134,23 +136,34 @@ extension AppDelegate {
             },
             codexLastError: { [weak self] in
                 self?.runtimeProviderState(for: .codex).error
-            }
+            },
+            initialPanel: initialPanel
         )
     }
 
-    func showSettingsWindow() {
+    func showSettingsWindow(
+        settingsPanelRawValue: String? = nil
+    ) {
         setupWizardWindowCoordinator.close()
         if setupWizardCredentialStepOverride == .manualSessionKey {
             setupWizardCredentialStepOverride = nil
         }
 
+        if settingsPanelRawValue == nil {
+            applyClaudeSetupLandingTabsIfNeeded()
+        } else if let settingsPanelRawValue {
+            AppSettings.shared.settingsLastTab =
+                settingsPanelRawValue
+        }
         if settingsWindowCoordinator.focusIfVisible() {
             return
         }
 
-        applyClaudeSetupLandingTabsIfNeeded()
-
-        let settingsView = makeSettingsView()
+        let initialPanel = settingsPanelRawValue
+            .flatMap(SettingsProviderPanel.init(rawValue:))
+        let settingsView = makeSettingsView(
+            initialPanel: initialPanel
+        )
         settingsWindowCoordinator.present(rootView: settingsView)
     }
 

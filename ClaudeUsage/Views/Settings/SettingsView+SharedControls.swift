@@ -11,8 +11,8 @@ extension SettingsView {
                 || settings.isProviderVisibleInMenuBar(provider)
 
             VStack(alignment: .leading, spacing: 12) {
-                Label("메뉴바 표시", systemImage: "slider.horizontal.3")
-                    .font(.headline)
+                Text("메뉴바 표시")
+                    .font(.subheadline.weight(.semibold))
 
                 if showsDisplayControls {
                     Picker("표시 방식", selection: menuBarPresetBinding(for: provider)) {
@@ -208,12 +208,8 @@ extension SettingsView {
             alignment: .leading,
             spacing: 12
         ) {
-            Label(
-                "메뉴바 표시",
-                systemImage:
-                    "slider.horizontal.3"
-            )
-            .font(.headline)
+            Text("메뉴바 표시")
+                .font(.subheadline.weight(.semibold))
 
             if let display =
                 antigravitySettings.state.display
@@ -238,7 +234,7 @@ extension SettingsView {
                 )
 
                 Picker(
-                    "한도 선택",
+                    "대표 한도",
                     selection:
                         antigravityMenuBarLaneSelection(
                             display
@@ -254,6 +250,30 @@ extension SettingsView {
                             "\(lane.scopeTitle) · \(lane.cadenceTitle)"
                         )
                         .tag(lane.id.rawValue)
+                    }
+                }
+
+                if !antigravityObservedLanes.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("함께 표시할 한도")
+                            .font(.subheadline)
+                        ForEach(
+                            antigravityObservedLanes,
+                            id: \.id
+                        ) { lane in
+                            Toggle(
+                                "\(lane.scopeTitle) · \(lane.cadenceTitle)",
+                                isOn:
+                                    antigravityAdditionalMenuBarLaneBinding(
+                                        display,
+                                        laneID: lane.id
+                                    )
+                            )
+                            .toggleStyle(.checkbox)
+                        }
+                        Text("대표 한도는 게이지와 상태 색상에 사용하고, 선택한 한도는 메뉴바 텍스트에 나란히 표시합니다.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
                     }
                 }
 
@@ -518,11 +538,37 @@ extension SettingsView {
         )
     }
 
+    private func antigravityAdditionalMenuBarLaneBinding(
+        _ display: AntigravityDisplaySettings,
+        laneID: AntigravityQuotaLaneID
+    ) -> Binding<Bool> {
+        Binding(
+            get: {
+                display.menuBar.effectiveAdditionalLaneIDs
+                    .contains(laneID)
+            },
+            set: { isSelected in
+                updateAntigravityDisplay {
+                    var ids =
+                        $0.menuBar.effectiveAdditionalLaneIDs
+                    if isSelected {
+                        if !ids.contains(laneID) {
+                            ids.append(laneID)
+                        }
+                    } else {
+                        ids.removeAll { $0 == laneID }
+                    }
+                    $0.menuBar.additionalLaneIDs = ids
+                }
+            }
+        )
+    }
+
     @ViewBuilder
     func providerPopoverDisplaySection(for provider: AppProviderKind) -> some View {
         let _ = runtimeEnvironmentRefreshTick
         if provider == .antigravity {
-            AntigravityTypedPopoverDisplaySection(
+            AntigravityPopoverDisplaySettingsSection(
                 viewModel: antigravitySettings
             )
         } else if let service = provider.runtimeService {
@@ -543,9 +589,6 @@ extension SettingsView {
     @ViewBuilder
     func providerAlertSection(for provider: AppProviderKind) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("알림", systemImage: "bell")
-                .font(.headline)
-
             Group {
                 if provider == .antigravity,
                    let display =
@@ -553,7 +596,7 @@ extension SettingsView {
                             .display
                 {
                     settingsToggleRow(
-                        "Antigravity 알림",
+                        "사용량 알림",
                         subtitle:
                             settings.notificationsEnabled
                                 ? "한 refresh에서 임계값을 넘은 사용 한도를 알림 하나로 묶습니다"
@@ -574,7 +617,7 @@ extension SettingsView {
                     )
                 } else {
                     settingsToggleRow(
-                        "\(provider.displayName) 알림",
+                        "사용량 알림",
                         subtitle: settings.notificationsEnabled
                             ? "이 서비스의 사용량 기준 알림을 표시합니다"
                             : "공통 알림이 꺼져 있어 이 설정도 적용되지 않습니다",
@@ -670,215 +713,6 @@ extension SettingsView {
     }
 }
 
-private struct AntigravityTypedPopoverDisplaySection:
-    View
-{
-    @ObservedObject var viewModel:
-        AntigravitySettingsViewModel
-    @State private var selectedMode:
-        PopoverDisplayEditorMode = .standard
-
-    var body: some View {
-        VStack(
-            alignment: .leading,
-            spacing: 12
-        ) {
-            Label(
-                "팝오버 표시",
-                systemImage:
-                    "list.bullet.rectangle"
-            )
-            .font(.headline)
-
-            Text(
-                "일반 보기는 확인된 모든 group × cadence 한도를, 간소화 보기는 한 개의 의미 있는 한도를 표시합니다."
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-
-            Picker(
-                "",
-                selection: $selectedMode
-            ) {
-                ForEach(
-                    PopoverDisplayEditorMode
-                        .allCases
-                ) { mode in
-                    Text(mode.title)
-                        .tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(
-                maxWidth: 360,
-                alignment: .leading
-            )
-
-            if selectedMode == .compact,
-               let display =
-                    viewModel.state.display
-            {
-                Picker(
-                    "간소화 보기 한도",
-                    selection:
-                        compactLaneSelection(
-                            display
-                        )
-                ) {
-                    Text(
-                        "가장 제한적인 한도 자동 선택"
-                    )
-                    .tag("")
-                    ForEach(
-                        observedLanes,
-                        id: \.id
-                    ) { lane in
-                        Text(
-                            "\(lane.scopeTitle) · \(lane.cadenceTitle)"
-                        )
-                        .tag(lane.id.rawValue)
-                    }
-                }
-                .frame(maxWidth: 420)
-            }
-
-            preview
-                .padding(12)
-                .frame(
-                    maxWidth: 560,
-                    alignment: .leading
-                )
-                .background(
-                    Color(
-                        NSColor
-                            .controlBackgroundColor
-                    )
-                    .opacity(0.45)
-                )
-                .cornerRadius(10)
-
-            if selectedMode
-                .showsPersistentIdentityRail,
-               case .content(let presentation) =
-                viewModel.state
-                    .quotaPresentation
-            {
-                ProviderIdentityRail(
-                    projection:
-                        presentation.identityRail
-                )
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var preview: some View {
-        switch viewModel.state.quotaPresentation {
-        case .content(let presentation):
-            if selectedMode == .compact {
-                AntigravityCompactQuotaView(
-                    presentation:
-                        presentation.compact
-                )
-            } else {
-                VStack(
-                    alignment: .leading,
-                    spacing: 12
-                ) {
-                    ForEach(
-                        presentation.groups
-                    ) { group in
-                        AntigravityQuotaGroupView(
-                            group: group
-                        )
-                    }
-                }
-            }
-        case .unavailable(let state):
-            Text(unavailableTitle(state))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(
-                    maxWidth: .infinity,
-                    alignment: .leading
-                )
-        }
-    }
-
-    private var observedLanes:
-        [AntigravityQuotaLanePresentation]
-    {
-        guard case .content(let presentation) =
-                viewModel.state
-                    .quotaPresentation
-        else {
-            return []
-        }
-        return presentation.groups
-            .flatMap(\.lanes)
-    }
-
-    private func compactLaneSelection(
-        _ display: AntigravityDisplaySettings
-    ) -> Binding<String> {
-        Binding(
-            get: {
-                switch display.compact
-                    .laneSelection
-                {
-                case .automaticMostConstrained:
-                    ""
-                case .fixed(let laneID):
-                    laneID.rawValue
-                }
-            },
-            set: { rawValue in
-                var updated = display
-                updated.compact.laneSelection =
-                    rawValue.isEmpty
-                        ? .automaticMostConstrained
-                        : .fixed(
-                            AntigravityQuotaLaneID(
-                                rawValue: rawValue
-                            )
-                        )
-                Task {
-                    _ = await viewModel
-                        .updateDisplay(
-                            updated,
-                            replacing: display
-                        )
-                }
-            }
-        )
-    }
-
-    private func unavailableTitle(
-        _ state: AntigravityPresentationState
-    ) -> String {
-        switch state {
-        case .refreshing:
-            "사용량을 확인하고 있습니다."
-        case .setupRequired:
-            "Google 계정 또는 로컬 세션을 먼저 연결해 주세요."
-        case .accountMismatch:
-            "계정이 일치하지 않아 사용량을 표시하지 않았습니다."
-        case .limited:
-            "현재 연결에서는 수치형 quota를 제공하지 않습니다."
-        case .identityOnly:
-            "계정은 확인했지만 표시할 quota가 없습니다."
-        case .failed:
-            "사용량을 불러오지 못했습니다."
-        case .disabled:
-            "Antigravity가 비활성화되어 있습니다."
-        case .ready,
-             .partial,
-             .stale:
-            "표시할 사용량이 없습니다."
-        }
-    }
-}
-
 private struct ProviderPopoverDisplaySection: View {
     @ObservedObject var settings: AppSettings
     let provider: AppProviderKind
@@ -892,22 +726,12 @@ private struct ProviderPopoverDisplaySection: View {
     @State private var selectedMode: PopoverDisplayEditorMode = .standard
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("팝오버 표시 항목", systemImage: "list.bullet.rectangle")
-                .font(.headline)
-
-            Text("\(provider.displayName) 팝오버에서 일반/간소화 보기별 항목과 순서를 정합니다.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Picker("", selection: modeSelection) {
-                ForEach(PopoverDisplayEditorMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 360, alignment: .leading)
-
+        ProviderDisplayEditorShell(
+            title: "팝오버 표시 항목",
+            description:
+                "\(provider.displayName) 팝오버에서 일반/간소화 보기별 항목과 순서를 정합니다.",
+            selectedMode: modeSelection
+        ) {
             ProviderPopoverPreviewView(
                 settings: settings,
                 service: service,
@@ -919,8 +743,7 @@ private struct ProviderPopoverDisplaySection: View {
                 codexUsage: codexUsage,
                 codexError: codexError
             )
-            .frame(maxWidth: 560, alignment: .leading)
-
+        } controls: {
             PopoverDisplayItemsListView(
                 settings: settings,
                 service: service,
@@ -950,7 +773,13 @@ private struct ProviderPopoverDisplaySection: View {
     /// 응답은 정상인데 표시할 데이터가 없는 항목 ID — 목록에 "지금 데이터 없음" 안내를 붙인다.
     /// (예: 주간 전용 Codex 플랜에서는 "Codex 현재"가 해당)
     private var unavailableItemIDs: Set<String> {
-        let catalog = UsageItemCatalogRegistry.catalog(for: service)
+        guard let catalog =
+                UsageItemCatalogRegistry.catalog(
+                    for: service
+                )
+        else {
+            return []
+        }
         let context = UsageItemContext(
             density: selectedMode.isCompact ? .compact : .standard,
             settings: settings,
@@ -1057,10 +886,11 @@ private struct ProviderPopoverPreviewView: View {
                 action: nil
             )
         } else {
-            VStack(spacing: mode.isCompact ? 5 : 10) {
+            VStack(spacing: mode.isCompact ? 5 : 0) {
                 ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
                     if index > 0 && !mode.isCompact {
                         Divider()
+                            .padding(.vertical, 8)
                     }
                     PopoverDisplaySectionView(section: section, density: density)
                 }
@@ -1092,7 +922,13 @@ private struct ProviderPopoverPreviewView: View {
     }
 
     private var sections: [PopoverDisplaySection] {
-        let catalog = UsageItemCatalogRegistry.catalog(for: service)
+        guard let catalog =
+                UsageItemCatalogRegistry.catalog(
+                    for: service
+                )
+        else {
+            return []
+        }
         let items = mode.isCompact
             ? settings.compactPopoverItems(for: service)
             : settings.popoverItems(for: service)

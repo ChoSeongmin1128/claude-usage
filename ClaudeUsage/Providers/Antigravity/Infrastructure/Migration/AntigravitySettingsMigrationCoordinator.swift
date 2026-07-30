@@ -1,7 +1,8 @@
+// Atomic migration boundary for Antigravity-owned settings.
 import Foundation
 
 nonisolated enum AntigravitySettingsMigrationKeys {
-    static let currentMigrationVersion = 2
+    static let currentMigrationVersion = 3
 
     static let connectionSettings = "antigravity.connectionSettings"
     static let displaySettings = "antigravity.displaySettings"
@@ -94,15 +95,16 @@ final class AntigravitySettingsMigrationCoordinator {
         case deleteVerificationFailed(String)
     }
 
-    private enum StoredSettings<Value> {
-        case missing
-        case current(Value)
-    }
-
     private enum StoredConnectionSettings {
         case missing
         case current(AntigravityConnectionSettings)
         case legacyV1(LegacyConnectionSettingsV1)
+    }
+
+    private enum StoredDisplaySettings {
+        case missing
+        case current(AntigravityDisplaySettings)
+        case legacyV1(LegacyDisplaySettingsV1)
     }
 
     private struct LegacyConnectionSettingsV1: Decodable {
@@ -124,6 +126,37 @@ final class AntigravitySettingsMigrationCoordinator {
         }
     }
 
+    private struct LegacyDisplaySettingsV1: Decodable {
+        enum MultiLaneSelectionPolicy: String, Decodable {
+            case allKnown = "all_known"
+        }
+
+        struct MultiLanePresentationIntent: Decodable {
+            let laneSelection: MultiLaneSelectionPolicy
+        }
+
+        struct SingleLanePresentationIntent: Decodable {
+            let laneSelection:
+                AntigravityDisplaySettings.SingleLaneSelectionPolicy
+        }
+
+        let schemaVersion: Int
+        let standard: MultiLanePresentationIntent
+        let compact: SingleLanePresentationIntent
+        let menuBar:
+            AntigravityDisplaySettings.MenuBarPresentationIntent
+        let notifications:
+            AntigravityDisplaySettings.NotificationPresentationIntent
+        let pendingNotice: AntigravitySettingsMigrationNotice?
+
+        var isValid: Bool {
+            schemaVersion == 1
+                && standard.laneSelection == .allKnown
+                && compact.laneSelection.isValid
+                && menuBar.laneSelection.isValid
+        }
+    }
+
     private enum SnapshotValue {
         case absent
         case present(Any)
@@ -135,18 +168,11 @@ final class AntigravitySettingsMigrationCoordinator {
         let resetModelSelection: Bool
     }
 
-    private static let oldAntigravityPopoverIDs: Set<String> = [
-        "antigravityPrimary",
-        "antigravitySecondary",
-        "antigravityTertiary",
-        "antigravityModels",
-    ]
     private static let modelSpecificAntigravityPopoverIDs: Set<String> = [
         "antigravityPrimary",
         "antigravitySecondary",
         "antigravityTertiary",
     ]
-    private static let newAntigravityPopoverID = "antigravityUsageLimits"
 
     private let store: AntigravitySettingsMigrationStore
     private let encoder: JSONEncoder
@@ -177,13 +203,13 @@ final class AntigravitySettingsMigrationCoordinator {
         }
 
         let storedConnection: StoredConnectionSettings
-        let storedDisplay: StoredSettings<AntigravityDisplaySettings>
+        let storedDisplay: StoredDisplaySettings
         let fullPopover: PopoverMutation
         let compactPopover: PopoverMutation
 
         do {
             storedConnection = try readCurrentConnectionSettings()
-            storedDisplay = try readCurrentDisplaySettings()
+            storedDisplay = try readStoredDisplaySettings()
             fullPopover = try readPopoverMutation(
                 forKey: AntigravitySettingsMigrationKeys.popoverItemsByProvider
             )
@@ -202,7 +228,9 @@ final class AntigravitySettingsMigrationCoordinator {
         let hasMissingSettings: Bool
         switch (storedConnection, storedDisplay) {
         case (.current, .current),
-             (.legacyV1, .current):
+             (.legacyV1, .current),
+             (.current, .legacyV1),
+             (.legacyV1, .legacyV1):
             hasMissingSettings = false
         case (.missing, _),
              (_, .missing):
@@ -212,6 +240,12 @@ final class AntigravitySettingsMigrationCoordinator {
         let requiresMigration = markerVersion != AntigravitySettingsMigrationKeys.currentMigrationVersion
             || {
                 if case .legacyV1 = storedConnection {
+                    return true
+                }
+                return false
+            }()
+            || {
+                if case .legacyV1 = storedDisplay {
                     return true
                 }
                 return false
@@ -244,6 +278,8 @@ final class AntigravitySettingsMigrationCoordinator {
         switch storedDisplay {
         case let .current(value):
             display = value
+        case let .legacyV1(value):
+            display = makeDisplaySettings(from: value)
         case .missing:
             display = makeDisplaySettings(
                 resetModelSelectionFromPopover: fullPopover.resetModelSelection
@@ -261,9 +297,10 @@ final class AntigravitySettingsMigrationCoordinator {
                 try verifyConnection(connection)
             }
 
-            if case .missing = storedDisplay {
+            switch storedDisplay {
+            case .missing, .legacyV1:
                 try writeAndVerifyDisplay(display)
-            } else {
+            case .current:
                 try verifyDisplay(display)
             }
 
@@ -316,9 +353,9 @@ final class AntigravitySettingsMigrationCoordinator {
     }
 
     func acknowledgePendingNotice() -> NoticeAcknowledgementOutcome {
-        let storedDisplay: StoredSettings<AntigravityDisplaySettings>
+        let storedDisplay: StoredDisplaySettings
         do {
-            storedDisplay = try readCurrentDisplaySettings()
+            storedDisplay = try readStoredDisplaySettings()
         } catch let reason as FailureReason {
             return .failed(Failure(reason: reason, rollbackCompleted: true))
         } catch {
@@ -331,6 +368,14 @@ final class AntigravitySettingsMigrationCoordinator {
         }
 
         guard case let .current(display) = storedDisplay else {
+            if case .legacyV1 = storedDisplay {
+                return .failed(
+                    Failure(
+                        reason: .invalidCurrentDisplaySettings,
+                        rollbackCompleted: true
+                    )
+                )
+            }
             return .noPendingNotice
         }
         guard let notice = display.pendingNotice else {
@@ -412,19 +457,29 @@ final class AntigravitySettingsMigrationCoordinator {
         throw FailureReason.invalidCurrentConnectionSettings
     }
 
-    private func readCurrentDisplaySettings() throws -> StoredSettings<AntigravityDisplaySettings> {
+    private func readStoredDisplaySettings() throws
+        -> StoredDisplaySettings
+    {
         let key = AntigravitySettingsMigrationKeys.displaySettings
         guard let object = store.object(forKey: key) else {
             return .missing
         }
-        guard
-            let data = object as? Data,
-            let value = try? decoder.decode(AntigravityDisplaySettings.self, from: data),
-            value.isCurrentAndValid
-        else {
+        guard let data = object as? Data else {
             throw FailureReason.invalidCurrentDisplaySettings
         }
-        return .current(value)
+        if let value = try? decoder.decode(
+            AntigravityDisplaySettings.self,
+            from: data
+        ), value.isCurrentAndValid {
+            return .current(value)
+        }
+        if let value = try? decoder.decode(
+            LegacyDisplaySettingsV1.self,
+            from: data
+        ), value.isValid {
+            return .legacyV1(value)
+        }
+        throw FailureReason.invalidCurrentDisplaySettings
     }
 
     private func makeConnectionSettings() -> AntigravityConnectionSettings {
@@ -465,8 +520,18 @@ final class AntigravitySettingsMigrationCoordinator {
 
         return AntigravityDisplaySettings(
             schemaVersion: AntigravityDisplaySettings.currentSchemaVersion,
-            standard: .init(laneSelection: .allKnown),
-            compact: .init(laneSelection: .automaticMostConstrained),
+            standard: .init(
+                orderedLaneIDs:
+                    AntigravityDisplaySettings.builtInLaneIDs,
+                hiddenLaneIDs: [],
+                orderingPolicy: .manual
+            ),
+            compact: .init(
+                orderedLaneIDs:
+                    AntigravityDisplaySettings.builtInLaneIDs,
+                hiddenLaneIDs: [],
+                orderingPolicy: .mostConstrainedFirst
+            ),
             menuBar: .init(
                 isVisible: isVisible,
                 showsProviderIcon: showIcon,
@@ -480,6 +545,48 @@ final class AntigravitySettingsMigrationCoordinator {
             ),
             notifications: .init(isEnabled: notificationsEnabled),
             pendingNotice: resetModelSelection ? .displaySelectionUpdated : nil
+        )
+    }
+
+    private func makeDisplaySettings(
+        from legacy: LegacyDisplaySettingsV1
+    ) -> AntigravityDisplaySettings {
+        let compact: AntigravityDisplaySettings
+            .LaneListPresentationIntent
+        switch legacy.compact.laneSelection {
+        case .automaticMostConstrained:
+            compact = .init(
+                orderedLaneIDs:
+                    AntigravityDisplaySettings.builtInLaneIDs,
+                hiddenLaneIDs: [],
+                orderingPolicy: .mostConstrainedFirst
+            )
+        case .fixed(let laneID):
+            let remainingKnown =
+                AntigravityDisplaySettings.builtInLaneIDs
+                    .filter { $0 != laneID }
+            compact = .init(
+                orderedLaneIDs: [laneID] + remainingKnown,
+                hiddenLaneIDs: Set(remainingKnown),
+                orderingPolicy: .manual
+            )
+        }
+
+        return AntigravityDisplaySettings(
+            schemaVersion:
+                AntigravityDisplaySettings.currentSchemaVersion,
+            standard: .init(
+                orderedLaneIDs:
+                    AntigravityDisplaySettings.builtInLaneIDs,
+                hiddenLaneIDs: [],
+                orderingPolicy: .manual
+            ),
+            compact: compact,
+            menuBar: legacy.menuBar,
+            notifications: legacy.notifications,
+            pendingNotice:
+                legacy.pendingNotice
+                    ?? .displaySelectionUpdated
         )
     }
 
@@ -598,46 +705,13 @@ final class AntigravitySettingsMigrationCoordinator {
             )
         }
 
-        let hasOldIDs = items.contains { Self.oldAntigravityPopoverIDs.contains($0.id) }
-        guard hasOldIDs else {
-            return PopoverMutation(
-                transformed: dictionary,
-                changed: false,
-                resetModelSelection: false
-            )
-        }
-
-        let replacementVisible = items
-            .filter {
-                Self.oldAntigravityPopoverIDs.contains($0.id)
-                    || $0.id == Self.newAntigravityPopoverID
-            }
-            .contains(where: \.visible)
-
-        var insertedReplacement = false
-        var migratedItems: [PopoverItemConfig] = []
-        for item in items {
-            let isMigratedItem = Self.oldAntigravityPopoverIDs.contains(item.id)
-                || item.id == Self.newAntigravityPopoverID
-            if isMigratedItem {
-                if !insertedReplacement {
-                    migratedItems.append(
-                        PopoverItemConfig(
-                            id: Self.newAntigravityPopoverID,
-                            visible: replacementVisible
-                        )
-                    )
-                    insertedReplacement = true
-                }
-                continue
-            }
-            migratedItems.append(item)
-        }
-
-        dictionary[providerKey] = migratedItems
+        // Antigravity display state is owned exclusively by the typed
+        // `antigravity.displaySettings` value. Retaining even an unknown
+        // generic item would recreate a second, unread authority.
+        dictionary.removeValue(forKey: providerKey)
         return PopoverMutation(
             transformed: dictionary,
-            changed: migratedItems != items,
+            changed: true,
             resetModelSelection: items.contains {
                 Self.modelSpecificAntigravityPopoverIDs.contains($0.id)
             }
@@ -741,10 +815,7 @@ final class AntigravitySettingsMigrationCoordinator {
             else {
                 throw FailureReason.invalidPopoverSettings(key)
             }
-            let containsOldID = dictionary["antigravity"]?.contains {
-                Self.oldAntigravityPopoverIDs.contains($0.id)
-            } ?? false
-            if containsOldID {
+            if dictionary["antigravity"] != nil {
                 throw FailureReason.writeVerificationFailed(key)
             }
         }

@@ -33,7 +33,6 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/lib/release-driver-common.sh"
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build/release}"
 ARCHIVE_PATH="${ARCHIVE_PATH:-$BUILD_DIR/ClaudeUsage.xcarchive}"
-APP_PATH="$ARCHIVE_PATH/Products/Applications/ClaudeUsage.app"
 ZIP_PATH="${ZIP_PATH:-$BUILD_DIR/ClaudeUsage.zip}"
 DMG_PATH="${DMG_PATH:-$BUILD_DIR/ClaudeUsage.dmg}"
 SCHEME="${SCHEME:-ClaudeUsage}"
@@ -46,6 +45,26 @@ MAKE_DMG_SCRIPT="$ROOT_DIR/Scripts/make-dmg.sh"
 ENTITLEMENTS_PATH="${ENTITLEMENTS_PATH:-$ROOT_DIR/ClaudeUsage/ClaudeUsage.entitlements}"
 SKIP_DMG="${SKIP_DMG:-0}"
 RELEASE_DISTRIBUTION="${RELEASE_DISTRIBUTION:-notarized}"
+RELEASE_CHANNEL="${RELEASE_CHANNEL:-}"
+case "$RELEASE_CHANNEL" in
+    staging)
+        APP_BUNDLE_NAME="ClaudeUsage-stg.app"
+        APP_DISPLAY_NAME="ClaudeUsage-stg"
+        APP_BUNDLE_IDENTIFIER="com.seongmin.ClaudeUsage.staging"
+        ;;
+    ""|prod)
+        APP_BUNDLE_NAME="ClaudeUsage.app"
+        APP_DISPLAY_NAME="ClaudeUsage"
+        APP_BUNDLE_IDENTIFIER="com.seongmin.ClaudeUsage"
+        ;;
+    *)
+        # The canonical validator below emits the public error message.
+        APP_BUNDLE_NAME="ClaudeUsage.app"
+        APP_DISPLAY_NAME="ClaudeUsage"
+        APP_BUNDLE_IDENTIFIER="com.seongmin.ClaudeUsage"
+        ;;
+esac
+APP_PATH="$ARCHIVE_PATH/Products/Applications/$APP_BUNDLE_NAME"
 EFFECTIVE_XC_CONFIG_PATH="$XC_CONFIG_PATH"
 TEMP_XC_CONFIG_PATH=""
 TEMP_XC_CONFIG_DIR=""
@@ -103,7 +122,7 @@ extract_and_validate_app_entitlements() {
             -c 'Print :CFBundleIdentifier' \
             "$app_path/Contents/Info.plist"
     )"
-    [[ "$bundle_id" == "com.seongmin.ClaudeUsage" ]] || {
+    [[ "$bundle_id" == "$APP_BUNDLE_IDENTIFIER" ]] || {
         echo "서명 대상 bundle identifier가 다릅니다: $bundle_id" >&2
         return 1
     }
@@ -316,7 +335,6 @@ APP_STORE_CONNECT_ISSUER_ID="${APP_STORE_CONNECT_ISSUER_ID:-}"
 NOTARY_SUBMIT_ARGS=()
 NOTARY_AUTH_DESCRIPTION=""
 CERT_HASH="${CERT_HASH:-}"
-RELEASE_CHANNEL="${RELEASE_CHANNEL:-}"
 REQUESTED_DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-}"
 
 if [[ ! -f "$PROJECT_PATH/project.pbxproj" ]]; then
@@ -549,6 +567,7 @@ fi
 
 echo "ClaudeUsage release 산출물 빌드를 시작합니다"
 echo "  - distribution: $RELEASE_DISTRIBUTION"
+echo "  - app identity: $APP_BUNDLE_NAME ($APP_BUNDLE_IDENTIFIER)"
 if [[ -n "$RELEASE_CHANNEL" ]]; then
     echo "  - release channel: $RELEASE_CHANNEL"
 fi
@@ -585,6 +604,10 @@ if [[ -n "$RELEASE_CHANNEL" || -n "${SU_FEED_URL:-}" || -n "${SU_PUBLIC_ED_KEY:-
 SPARKLE_URL_SLASH = /
 SUFeedURL = $(xcconfig_url_literal "$FEED_URL")
 SUPublicEDKey = $PUBLIC_KEY
+PRODUCT_NAME = $APP_DISPLAY_NAME
+PRODUCT_BUNDLE_IDENTIFIER = $APP_BUNDLE_IDENTIFIER
+CLAUDEUSAGE_APP_NAME = $APP_DISPLAY_NAME
+CLAUDEUSAGE_RELEASE_CHANNEL = ${RELEASE_CHANNEL:-prod}
 EOF
     EFFECTIVE_XC_CONFIG_PATH="$TEMP_XC_CONFIG_PATH"
     echo "빌드용 임시 xcconfig override 생성: $TEMP_XC_CONFIG_PATH"

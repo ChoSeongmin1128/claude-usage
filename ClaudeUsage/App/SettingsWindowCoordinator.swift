@@ -13,19 +13,20 @@ final class SettingsWindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     func present(rootView: SettingsView) {
-        let windowSize = NSSize(width: 760, height: 600)
+        let windowSize = NSSize(width: 880, height: 660)
+        let minimumWindowSize = NSSize(width: 800, height: 560)
         let hostingController = NSHostingController(rootView: rootView)
         hostingController.view.frame = NSRect(origin: .zero, size: windowSize)
 
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: windowSize),
-            styleMask: [.titled, .closable],
+            styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.contentViewController = hostingController
         window.title = "ClaudeUsage 설정"
-        window.contentMinSize = windowSize
+        window.contentMinSize = minimumWindowSize
         window.setContentSize(windowSize)
         window.center()
         window.isReleasedWhenClosed = false

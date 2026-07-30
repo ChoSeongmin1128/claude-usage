@@ -1,3 +1,4 @@
+// Authoritative typed persistence for Antigravity settings.
 import Foundation
 
 nonisolated struct AntigravitySettingsSnapshot: Equatable, Sendable {

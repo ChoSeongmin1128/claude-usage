@@ -119,6 +119,18 @@ done
 
 [[ -n "$TAG" ]] || die "--tag 를 지정해 주세요."
 [[ "$CHANNEL" == "prod" || "$CHANNEL" == "staging" ]] || die "--channel 은 prod 또는 staging이어야 합니다."
+case "$CHANNEL" in
+    staging)
+        APP_BUNDLE_NAME="ClaudeUsage-stg.app"
+        EXPECTED_APP_NAME="ClaudeUsage-stg"
+        EXPECTED_BUNDLE_IDENTIFIER="com.seongmin.ClaudeUsage.staging"
+        ;;
+    prod)
+        APP_BUNDLE_NAME="ClaudeUsage.app"
+        EXPECTED_APP_NAME="ClaudeUsage"
+        EXPECTED_BUNDLE_IDENTIFIER="com.seongmin.ClaudeUsage"
+        ;;
+esac
 validate_numeric_release_version "$EXPECTED_VERSION" \
     || die "--expected-version 은 build number를 모호하지 않게 계산할 수 있는 X.Y.Z 형식이어야 합니다."
 [[ "$EXPECTED_BUILD" =~ ^[1-9][0-9]*$ ]] || die "--expected-build 는 양의 정수여야 합니다."
@@ -139,8 +151,8 @@ TRUSTED_SPARKLE_PUBLIC_KEY="$(
     || die "tracked Release.xcconfig의 Sparkle 공개키가 비어 있습니다."
 
 if [[ -n "$INSTALL_TO" ]]; then
-    [[ "$INSTALL_TO" == /*/ClaudeUsage.app ]] \
-        || die "--install-to 는 ClaudeUsage.app으로 끝나는 절대 경로여야 합니다."
+    [[ "$INSTALL_TO" == /*/"$APP_BUNDLE_NAME" ]] \
+        || die "--install-to 는 $APP_BUNDLE_NAME으로 끝나는 절대 경로여야 합니다."
 fi
 if [[ -n "$EXPORT_APPCAST_TO" ]]; then
     [[ "$EXPORT_APPCAST_TO" == /* && "$(basename "$EXPORT_APPCAST_TO")" == "appcast.xml" ]] \
@@ -240,11 +252,12 @@ verify_app_bundle() {
     local app_path="$1"
     local source_label="$2"
     local app_info bundle_id actual_version actual_build actual_feed_url
+    local actual_app_name actual_release_channel
     local actual_public_key signing_info signing_identifier signing_team
     local entitlements_path
     local network_client
 
-    [[ -d "$app_path" && ! -L "$app_path" ]] || die "$source_label ClaudeUsage.app을 찾지 못했습니다."
+    [[ -d "$app_path" && ! -L "$app_path" ]] || die "$source_label $APP_BUNDLE_NAME을 찾지 못했습니다."
     app_info="$app_path/Contents/Info.plist"
     [[ -f "$app_info" ]] || die "$source_label 앱의 Info.plist를 찾지 못했습니다."
 
@@ -266,11 +279,17 @@ verify_app_bundle() {
     actual_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_info")"
     actual_feed_url="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$app_info")"
     actual_public_key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$app_info")"
+    actual_app_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$app_info")"
+    actual_release_channel="$(/usr/libexec/PlistBuddy -c 'Print :ClaudeUsageReleaseChannel' "$app_info")"
 
-    [[ "$bundle_id" == "com.seongmin.ClaudeUsage" ]] \
+    [[ "$bundle_id" == "$EXPECTED_BUNDLE_IDENTIFIER" ]] \
         || die "$source_label bundle identifier가 다릅니다: $bundle_id"
-    [[ "$signing_identifier" == "com.seongmin.ClaudeUsage" ]] \
+    [[ "$signing_identifier" == "$EXPECTED_BUNDLE_IDENTIFIER" ]] \
         || die "$source_label code signature identifier가 다릅니다: $signing_identifier"
+    [[ "$actual_app_name" == "$EXPECTED_APP_NAME" ]] \
+        || die "$source_label 앱 표시 이름이 다릅니다: $actual_app_name"
+    [[ "$actual_release_channel" == "$CHANNEL" ]] \
+        || die "$source_label release channel이 다릅니다: $actual_release_channel"
     [[ "$signing_team" == "$TRUSTED_TEAM_IDENTIFIER" ]] \
         || die "$source_label code signature team이 신뢰 기준과 다릅니다: $signing_team"
 
@@ -453,7 +472,7 @@ if [[ "$VERIFY_PUBLIC_FEED" == "1" ]]; then
 fi
 
 ditto -x -k "$ZIP_PATH" "$ZIP_EXTRACT_DIR"
-ZIP_APP_PATH="$ZIP_EXTRACT_DIR/ClaudeUsage.app"
+ZIP_APP_PATH="$ZIP_EXTRACT_DIR/$APP_BUNDLE_NAME"
 verify_app_bundle "$ZIP_APP_PATH" "ZIP"
 xcrun swift \
     -module-cache-path "$VERIFY_ROOT/swift-module-cache" \
@@ -480,7 +499,7 @@ hdiutil attach \
     "$DMG_PATH" >/dev/null
 is_verify_mount_active || die "DMG attach 후 mount를 확인하지 못했습니다: $MOUNT_DIR"
 
-APP_PATH="$MOUNT_DIR/ClaudeUsage.app"
+APP_PATH="$MOUNT_DIR/$APP_BUNDLE_NAME"
 verify_app_bundle "$APP_PATH" "DMG"
 
 if [[ -n "$INSTALL_TO" ]]; then
@@ -493,12 +512,12 @@ if [[ -n "$INSTALL_TO" ]]; then
     fi
 
     INSTALL_STAGE_DIR="$(mktemp -d "$INSTALL_PARENT/.ClaudeUsage-release-install.XXXXXX")"
-    STAGED_APP="$INSTALL_STAGE_DIR/ClaudeUsage.app"
+    STAGED_APP="$INSTALL_STAGE_DIR/$APP_BUNDLE_NAME"
     ditto --rsrc --extattr --acl "$APP_PATH" "$STAGED_APP"
     verify_app_bundle "$STAGED_APP" "설치 staging"
 
     if [[ -d "$INSTALL_TO" ]]; then
-        INSTALL_PREVIOUS_APP="$INSTALL_STAGE_DIR/previous-ClaudeUsage.app"
+        INSTALL_PREVIOUS_APP="$INSTALL_STAGE_DIR/previous-$APP_BUNDLE_NAME"
         mv "$INSTALL_TO" "$INSTALL_PREVIOUS_APP"
     fi
     mv "$STAGED_APP" "$INSTALL_TO"
@@ -510,7 +529,7 @@ if [[ -n "$INSTALL_TO" ]]; then
     INSTALL_PREVIOUS_APP=""
     rmdir "$INSTALL_STAGE_DIR"
     INSTALL_STAGE_DIR=""
-    echo "  Downloads 기준 앱 교체 완료: $INSTALL_TO"
+    echo "  채널 앱 교체 완료: $INSTALL_TO"
 fi
 
 if [[ -n "$EXPORT_APPCAST_TO" ]]; then

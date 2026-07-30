@@ -17,6 +17,7 @@ nonisolated enum AntigravityRPCDeadlineError: Error, Sendable, Equatable {
 /// for each subprocess, endpoint, or retry.
 nonisolated struct AntigravityRPCDeadline: Sendable {
     static let defaultTotalTimeout: Duration = .seconds(8)
+    static let defaultRefreshTimeout: Duration = .seconds(30)
     static let maximumDiscoveryTimeout: Duration = .seconds(2)
 
     private let startedAt: ContinuousClock.Instant

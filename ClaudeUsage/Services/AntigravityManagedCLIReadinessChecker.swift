@@ -184,65 +184,74 @@ nonisolated struct AntigravityManagedCLIReadinessChecker:
                     .processExited(status)
             }
 
-            if let endpoint = snapshot?.endpoints.first(
-                where: {
+            let endpoints = snapshot?.endpoints.filter {
                     $0.processIdentity == processIdentity
                         && $0.transport == .agyCLI
                         && $0.ownership == .managed
                         && $0.authentication == .cliTokenless
-                }
-            ),
-            await processInspector.revalidate(processIdentity),
-            let runtime = AntigravityManagedRuntime(
-                processIdentity: processIdentity,
-                endpoint: endpoint
-            ) {
-                do {
-                    try await rpcProbe.probe(
-                        runtime,
-                        deadline: deadline
-                    )
-
-                    let afterProbe = consumeOutput(
-                        from: handle,
-                        classifier: &classifier,
-                        interactions: &interactions
-                    )
-                    if let interaction = firstInteraction(
-                        in: afterProbe
-                    ) {
-                        throw AntigravityManagedSessionError
-                            .interactionRequired(interaction)
-                    }
-                    if let status = handle.terminationStatus() {
-                        throw AntigravityManagedSessionError
-                            .processExited(status)
-                    }
-                    guard await processInspector.revalidate(
-                        processIdentity
+                } ?? []
+            if !endpoints.isEmpty,
+               await processInspector.revalidate(processIdentity)
+            {
+                for endpoint in endpoints {
+                    guard let runtime = AntigravityManagedRuntime(
+                        processIdentity: processIdentity,
+                        endpoint: endpoint
                     ) else {
-                        throw AntigravityLocalRPCError
-                            .endpointOwnershipChanged
+                        continue
                     }
-
-                    return AntigravityManagedCLIReadinessResult(
-                        runtime: runtime,
-                        diagnostics: AntigravityManagedSessionDiagnostics(
-                            interactions: interactions,
-                            outputWasTruncated:
-                                classifier.outputWasTruncated
+                    do {
+                        try await rpcProbe.probe(
+                            runtime,
+                            deadline: deadline
                         )
-                    )
-                } catch is CancellationError {
-                    throw AntigravityManagedSessionError.cancelled
-                } catch AntigravityLocalRPCError.cancelled {
-                    throw AntigravityManagedSessionError.cancelled
-                } catch let error as AntigravityManagedSessionError {
-                    throw error
-                } catch {
-                    // A listener may bind before AGY finishes initializing its
-                    // RPC service. Keep draining the PTY and retry within the
-                    // original monotonic readiness budget.
+
+                        let afterProbe = consumeOutput(
+                            from: handle,
+                            classifier: &classifier,
+                            interactions: &interactions
+                        )
+                        if let interaction = firstInteraction(
+                            in: afterProbe
+                        ) {
+                            throw AntigravityManagedSessionError
+                                .interactionRequired(interaction)
+                        }
+                        if let status = handle.terminationStatus() {
+                            throw AntigravityManagedSessionError
+                                .processExited(status)
+                        }
+                        guard await processInspector.revalidate(
+                            processIdentity
+                        ) else {
+                            throw AntigravityLocalRPCError
+                                .endpointOwnershipChanged
+                        }
+
+                        return AntigravityManagedCLIReadinessResult(
+                            runtime: runtime,
+                            diagnostics:
+                                AntigravityManagedSessionDiagnostics(
+                                    interactions: interactions,
+                                    outputWasTruncated:
+                                        classifier
+                                            .outputWasTruncated
+                                )
+                        )
+                    } catch is CancellationError {
+                        throw AntigravityManagedSessionError.cancelled
+                    } catch AntigravityLocalRPCError.cancelled {
+                        throw AntigravityManagedSessionError.cancelled
+                    } catch let error
+                        as AntigravityManagedSessionError
+                    {
+                        throw error
+                    } catch {
+                        // AGY can own multiple loopback listeners, and a
+                        // listener may bind before its RPC service is ready.
+                        // Try every endpoint owned by this exact process, then
+                        // rediscover within the monotonic readiness budget.
+                    }
                 }
             }
 

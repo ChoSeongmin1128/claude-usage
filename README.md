@@ -103,10 +103,12 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
   - Claude Code가 소유한 Keychain 항목은 수정하거나 삭제하지 않습니다.
   - OAuth 토큰과 profile metadata를 이용해 `organization`, `subscription`, `rate limit tier`를 판단합니다.
 - `Antigravity`
-  - 로컬 language server 프로세스와 connect 포트를 찾고, 로컬 API에 연결합니다.
-  - 자동 모드는 로컬 API를 먼저 쓰되, quota window가 없으면 AGY CLI `/usage` 출력과 Google OAuth 원격 조회로 보완합니다.
-  - Antigravity CLI는 `agy` 바이너리의 실행 가능 여부, `~/.gemini/antigravity-cli` 상태 디렉터리, 공식 설정 파일인 `settings.json` 존재 여부를 분리해 감지합니다.
-  - CLI 자체의 OS secure keyring은 직접 읽지 않습니다. `agy`가 로그인된 경우에는 PTY로 `/usage` 화면을 열고 표시된 quota만 파싱합니다.
+  - 실행 중인 local app/AGY의 구조화 localhost RPC를 우선 조회하고, 필요하면 검증된 공식 `agy`를 ClaudeUsage가 관리하는 세션으로 실행한 뒤 같은 RPC를 읽습니다.
+  - TUI의 `/usage` 문자열이나 CLI 상태 파일은 quota 수치로 파싱하지 않습니다.
+  - CLI 후보는 명시 경로, `~/.local/bin`, Homebrew, 절대 `PATH` 순으로 찾고 파일 소유권·쓰기 권한·hard link·Google Developer ID 서명을 모두 검증합니다.
+  - ClaudeUsage가 시작한 AGY process tree만 idle timeout 뒤 정리하며, 사용자가 시작한 AGY는 종료하지 않습니다.
+  - 선택한 Google 계정과 local/AGY 응답 계정이 다르면 그 수치를 거부하고 선택 계정 OAuth 경로로 내려갑니다.
+  - compact/standard popover는 알려진 네 quota lane을 기본 표시하며, lane별 표시 여부와 순서를 독립적으로 저장합니다. 메뉴 막대만 공간 제약 때문에 단일 lane 선택을 유지합니다.
   - Google OAuth client 정보는 환경변수를 우선하고, 없으면 Antigravity 번들을 fallback으로 탐색합니다.
   - OAuth 토큰은 `~/Library/Application Support/ClaudeUsage/Antigravity/oauth_creds.json`에 `0600` 권한으로 저장하고, 상위 디렉터리는 `0700`으로 맞춥니다.
   - 여러 Google 계정은 같은 디렉터리의 `oauth_accounts.json`에 `0600` 권한으로 보관하고, 선택한 계정은 기존 `oauth_creds.json`에도 반영해 기존 사용자/코드 경로와 호환합니다.
@@ -233,14 +235,33 @@ xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -destination 'plat
 
 ```text
 ClaudeUsage/
-├── App/                    # AppDelegate, app shell, service selection helper
+├── App/                    # 객체 조립과 app lifecycle
 ├── Auth/                   # Chrome import, sessionKey 추출, keychain store
-├── Models/                 # Settings, usage, provider state, fetch models
-├── Services/               # Claude/Codex API, notifications, updates
+├── Core/
+│   ├── ProviderDisplay/    # surface 표시 계약과 Claude/Codex preference store
+│   └── ProviderRuntime/    # provider 선택 preference store
+├── Providers/
+│   ├── Catalog/            # Claude/Codex 정적 catalog adapter
+│   └── Antigravity/
+│       ├── Domain/         # typed lane/display 모델
+│       ├── Application/    # account/display 명령 경계
+│       ├── Infrastructure/ # migration/persistence
+│       └── Presentation/   # editor/popover adapter와 전용 view
+├── Models/                 # 아직 이동하지 않은 공통/legacy domain 모델
+├── Services/               # API, runtime, notifications, updates
+├── UI/
+│   ├── DesignSystem/       # editor shell, row, progress, identity primitive
+│   └── Popover/            # provider content host와 layout
 ├── Utilities/              # 아이콘 렌더링, 색상, 시간 포맷, 로깅
-├── ViewModels/             # Settings/Popover/MenuBar 상태 객체
-└── Views/                  # Settings, Popover, Login, usage components
+├── ViewModels/             # 화면 observation facade
+└── Views/                  # 아직 이동하지 않은 Settings/Login shell
 ```
+
+표시 계층은 provider 원본 payload를 공통 View에 직접 넘기지 않습니다.
+Claude/Codex는 `CatalogDisplayAdapter`, Antigravity는 typed lane adapter가
+공통 editor/runtime presentation으로 변환합니다. Antigravity 표시 설정의
+권위는 `AntigravitySettingsStore` 하나이며 generic popover dictionary에는
+Antigravity 합성 항목을 저장하지 않습니다.
 
 ## 브랜치와 채널
 
@@ -248,6 +269,7 @@ ClaudeUsage/
 - `gh-pages` 는 Sparkle appcast / Pages 용 브랜치라서, `stg` 역할로 보면 안 됩니다.
 - staging은 브랜치가 아니라 release channel입니다. `main`의 최신 릴리스 후보를 `vX.Y.Z-staging` prerelease와 `/channels/staging/appcast.xml` 로 게시합니다.
 - prod는 staging 검증이 끝난 버전만 `vX.Y.Z` stable release와 root `/appcast.xml` 로 게시합니다.
+- staging 앱은 `/Applications/ClaudeUsage-stg.app` (`com.seongmin.ClaudeUsage.staging`), prod 앱은 `/Applications/ClaudeUsage.app` (`com.seongmin.ClaudeUsage`)입니다. 각 채널은 한 프로세스만 실행되며 두 채널은 하나씩 동시에 실행할 수 있습니다.
 - 세부 절차와 `gh auth switch` 계정 기준은 [프로젝트 작업 방식](docs/PROJECT_WORKFLOW.md)을 따릅니다.
 
 ## 기술/설계 메모

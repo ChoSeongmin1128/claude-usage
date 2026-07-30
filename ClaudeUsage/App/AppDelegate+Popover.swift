@@ -13,6 +13,13 @@ extension AppDelegate {
                 self?.closePopover()
                 self?.openSettingsForAuth(service: service)
             },
+            onOpenSettingsPanel: { [weak self] panel in
+                self?.closePopover()
+                self?.showSettingsWindow(
+                    settingsPanelRawValue:
+                        panel.rawValue
+                )
+            },
             onServiceSelected: { [weak self] service in
                 guard let self else { return }
                 ServiceSelectionHelper.setActivePopoverService(service, settings: AppSettings.shared)
@@ -139,9 +146,6 @@ extension AppDelegate {
     }
 
     func openSettingsForAuth(service: PopoverService) {
-        if service.providerKind.requiresAdditionalProviderOptIn {
-            AppSettings.shared.additionalRuntimeProvidersEnabled = true
-        }
         AppSettings.shared.settingsLastTab = ServiceSelectionHelper.settingsRootTab(for: service)
         showSettingsWindow()
     }

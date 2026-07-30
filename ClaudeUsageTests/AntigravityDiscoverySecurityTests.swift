@@ -369,6 +369,55 @@ final class AntigravityDiscoverySecurityTests: XCTestCase {
         XCTAssertEqual(portInspector.callCount(), 2)
     }
 
+    func testAGYDiscoveryRetainsEveryOwnedIPv4PortWithoutHint()
+        async throws
+    {
+        let candidate = makeRuntimeCandidate()
+        let first = AntigravityOwnedListeningEndpoint(
+            host: .ipv4,
+            port: AntigravityTCPPort(54_321)!
+        )
+        let second = AntigravityOwnedListeningEndpoint(
+            host: .ipv4,
+            port: AntigravityTCPPort(54_322)!
+        )
+        let ignoredIPv6 = AntigravityOwnedListeningEndpoint(
+            host: .ipv6,
+            port: AntigravityTCPPort(54_323)!
+        )
+        let discovery = AntigravityRuntimeDiscovery(
+            processInspector: DiscoveryProcessInspectorStub(
+                discoveries: [[candidate]]
+            ),
+            portInspector: DiscoveryPortInspectorStub(
+                observations: [[
+                    candidate.processIdentity.processID: [
+                        second,
+                        ignoredIPv6,
+                        first,
+                    ],
+                ]]
+            ),
+            installations: [
+                candidate.processIdentity.executable,
+            ]
+        )
+
+        let snapshot = try await discovery.discover()
+
+        XCTAssertEqual(
+            snapshot.endpoints.map(\.port),
+            [first.port, second.port]
+        )
+        XCTAssertTrue(
+            snapshot.endpoints.allSatisfy {
+                $0.processIdentity
+                    == candidate.processIdentity
+                    && $0.authentication == .cliTokenless
+            }
+        )
+    }
+
     func testPositiveCacheRevalidatesMutableManagedOwnership() async throws {
         let fileSystem = DiscoveryCatalogFileSystemStub()
         let executableURL = URL(

@@ -1,3 +1,4 @@
+// Surface presentation models derived from Antigravity quota domain.
 import Foundation
 
 nonisolated enum AntigravityQuotaRiskTone:
@@ -76,6 +77,20 @@ nonisolated struct AntigravityQuotaLanePresentation:
     let tooltip: String
     let accessibilityLabel: String
     let accessibilityValue: String
+
+    /// 일반 팝오버에서는 다른 provider와 같은 "한도" 명명 규칙을 씁니다.
+    /// compact/menu/editor 표면은 공간과 식별 맥락이 달라 짧은 cadenceTitle을
+    /// 그대로 유지합니다.
+    var standardRowTitle: String {
+        switch cadence {
+        case .fiveHour:
+            "5시간 한도"
+        case .weekly:
+            "주간 한도"
+        case .unknown:
+            cadenceTitle
+        }
+    }
 }
 
 nonisolated struct AntigravityQuotaGroupPresentation:
@@ -151,11 +166,15 @@ nonisolated struct AntigravityCompactQuotaPresentation:
     Sendable,
     Equatable
 {
-    let metric: AntigravityCompactQuotaMetricPresentation?
+    let metrics: [AntigravityCompactQuotaMetricPresentation]
     let unavailableText: String?
 
+    var metric: AntigravityCompactQuotaMetricPresentation? {
+        metrics.first
+    }
+
     static let unavailable = AntigravityCompactQuotaPresentation(
-        metric: nil,
+        metrics: [],
         unavailableText: "확인 가능한 사용량 한도 없음"
     )
 }
@@ -218,6 +237,11 @@ nonisolated struct AntigravityQuotaPresentation:
     Equatable
 {
     let context: AntigravityQuotaPresentationContext
+    /// All lanes returned by the current provider payload, before the user's
+    /// standard-popover visibility policy is applied.
+    let allGroups: [AntigravityQuotaGroupPresentation]
+    /// Lanes selected for the standard popover, in persisted presentation
+    /// order.
     let groups: [AntigravityQuotaGroupPresentation]
     let compact: AntigravityCompactQuotaPresentation
     let menuBar: AntigravityMenuBarQuotaPresentation
@@ -225,7 +249,7 @@ nonisolated struct AntigravityQuotaPresentation:
     let notices: [AntigravityQuotaPresentationNotice]
 
     var observedLaneCount: Int {
-        groups.reduce(into: 0) { count, group in
+        allGroups.reduce(into: 0) { count, group in
             count += group.lanes.count
         }
     }

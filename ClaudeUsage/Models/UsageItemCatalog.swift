@@ -94,14 +94,15 @@ enum UsageItemCatalogRegistry {
     static let all: [any UsageItemCatalog] = [
         ClaudeItemCatalog(),
         CodexItemCatalog(),
-        AntigravityItemCatalog(),
     ]
 
-    static func catalog(for service: PopoverService) -> any UsageItemCatalog {
+    static func catalog(
+        for service: PopoverService
+    ) -> (any UsageItemCatalog)? {
         switch service {
         case .claude: return ClaudeItemCatalog()
         case .codex: return CodexItemCatalog()
-        case .antigravity: return AntigravityItemCatalog()
+        case .antigravity: return nil
         }
     }
 
@@ -147,7 +148,6 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                 importance: .primary,
                 payload: .usage(
                     PopoverUsageSectionData(
-                        systemIcon: "gauge.medium",
                         title: "현재 세션",
                         compactLabel: "현재",
                         percentage: usage.fiveHour.utilization,
@@ -166,7 +166,6 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                 importance: .primary,
                 payload: .usage(
                     PopoverUsageSectionData(
-                        systemIcon: "calendar",
                         title: "주간 한도",
                         compactLabel: "주간",
                         percentage: sevenDay.utilization,
@@ -212,7 +211,6 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                     importance: .primary,
                     payload: .usage(
                         PopoverUsageSectionData(
-                            systemIcon: Self.modelIcon(forSlug: window.slug),
                             title: window.modelName,
                             compactLabel: Self.modelCompactLabel(for: window),
                             percentage: window.utilization,
@@ -229,14 +227,6 @@ struct ClaudeItemCatalog: UsageItemCatalog {
             }
             return []
         }
-    }
-
-    private static func modelIcon(forSlug slug: String) -> String {
-        if slug.contains("sonnet") { return "bolt.fill" }
-        if slug.contains("opus") { return "diamond.fill" }
-        if slug.contains("fable") || slug.contains("mythos") { return "sparkles" }
-        if slug.contains("haiku") { return "leaf.fill" }
-        return "cpu"
     }
 
     private static func modelCompactLabel(for window: ClaudeModelWeeklyWindow) -> String {
@@ -290,7 +280,6 @@ struct CodexItemCatalog: UsageItemCatalog {
                     importance: .primary,
                     payload: .usage(
                         PopoverUsageSectionData(
-                            systemIcon: "cpu",
                             title: name,
                             compactLabel: name,
                             percentage: window.utilization,
@@ -321,7 +310,6 @@ struct CodexItemCatalog: UsageItemCatalog {
                     importance: .primary,
                     payload: .usage(
                         PopoverUsageSectionData(
-                            systemIcon: "bubble.left.and.bubble.right",
                             title: window.adaptiveTitle(expectedSeconds: 5 * 3600, fallback: "현재 세션"),
                             compactLabel: window.adaptiveCompactLabel(expectedSeconds: 5 * 3600, fallback: "현재"),
                             percentage: window.utilization,
@@ -351,7 +339,6 @@ struct CodexItemCatalog: UsageItemCatalog {
                     importance: .primary,
                     payload: .usage(
                         PopoverUsageSectionData(
-                            systemIcon: "calendar.badge.clock",
                             title: window.adaptiveTitle(expectedSeconds: 7 * 24 * 3600, fallback: "주간 한도"),
                             compactLabel: window.adaptiveCompactLabel(expectedSeconds: 7 * 24 * 3600, fallback: "주간"),
                             percentage: window.utilization,
@@ -441,36 +428,4 @@ private func windowedAccountSection(
             )
         )
     )
-}
-
-// MARK: - Antigravity
-
-/// AGY v2는 팝오버를 동적 quota lane으로 그리므로 이 catalog는 섹션을 만들지
-/// 않는다. 남은 역할은 설정 화면의 항목 목록과 메뉴 노출이 참조할 권위 ID
-/// 하나를 제공하는 것뿐이다. 구 `antigravityModels` / `antigravityAccount`는
-/// `AntigravitySettingsMigrationCoordinator`가 이 ID로 옮긴 뒤 삭제한다.
-struct AntigravityItemCatalog: UsageItemCatalog {
-    static let usageLimitsItemID = "antigravityUsageLimits"
-
-    let providerID = PopoverService.antigravity.rawValue
-
-    let defaultItems: [PopoverItemConfig] = [
-        PopoverItemConfig(id: AntigravityItemCatalog.usageLimitsItemID, visible: true),
-    ]
-
-    func hasPayload(context: UsageItemContext) -> Bool {
-        false
-    }
-
-    func displayName(for itemID: String) -> String? {
-        itemID == Self.usageLimitsItemID ? "사용량 한도" : nil
-    }
-
-    func section(for itemID: String, context: UsageItemContext) -> PopoverDisplaySection? {
-        nil
-    }
-
-    func expandedSections(for itemID: String, context: UsageItemContext) -> [PopoverDisplaySection] {
-        []
-    }
 }

@@ -203,6 +203,7 @@ DRY_RUN_COMMON_ENV=(
     "RELEASE_DRIVER_ROOT_DIR=$FIXTURE_ROOT"
     "RELEASE_DRIVER_TEST_PROD_TAG=v2.3.3"
     "RELEASE_DRIVER_TEST_STAGING_TAG=v2.3.3-staging"
+    "RELEASE_DRIVER_TEST_STAGING_IDENTITY_BOOTSTRAP_VERSION=2.4.0"
     $'RELEASE_DRIVER_TEST_PROD_FEED_STATE=2.3.3\t20330\tv2.3.3'
     $'RELEASE_DRIVER_TEST_STAGING_FEED_STATE=2.3.3\t20330\tv2.3.3-staging'
     "HOME=$FIXTURE_HOME"
@@ -284,12 +285,12 @@ VERIFIER_OUTPUT="$(
         --channel staging \
         --expected-version 2.4.0 \
         --expected-build 20400 \
-        --install-to "$TEST_ROOT/Downloads/ClaudeUsage.app" \
+        --install-to "$TEST_ROOT/Downloads/ClaudeUsage-stg.app" \
         --dry-run
 )"
 assert_contains "$VERIFIER_OUTPUT" "DRY-RUN" "artifact verifier dry-run"
 assert_equal "" "$(find "$FIXTURE_TMP" -mindepth 1 -print -quit)" "verifier dry-run creates no temp"
-[[ ! -e "$TEST_ROOT/Downloads/ClaudeUsage.app" ]] || fail "verifier dry-run이 앱을 생성했습니다."
+[[ ! -e "$TEST_ROOT/Downloads/ClaudeUsage-stg.app" ]] || fail "verifier dry-run이 앱을 생성했습니다."
 pass
 
 EMPTY_ARCHIVE="$TEST_ROOT/empty-archive.zip"
@@ -408,6 +409,7 @@ set -euo pipefail
     printf ' <RELEASE_DISTRIBUTION=%s>' "${RELEASE_DISTRIBUTION:?}"
     printf ' <NOTARY_PROFILE=%s>' "${NOTARY_PROFILE:?}"
     printf ' <SU_FEED_URL=%s>' "${SU_FEED_URL:?}"
+    printf ' <SIGNING_REFERENCE_APP=%s>' "${SIGNING_REFERENCE_APP:?}"
     printf ' <TMPDIR=%s>\n' "${TMPDIR:?}"
 } >> "${RELEASE_DRIVER_TEST_TRACE:?}"
 run_root="${TMPDIR%/tmp}"
@@ -421,7 +423,8 @@ run_root="${TMPDIR%/tmp}"
 [[ "$ENTITLEMENTS_PATH" == "$RELEASE_DRIVER_ROOT_DIR/ClaudeUsage/ClaudeUsage.entitlements" ]]
 [[ "$RELEASE_CHANNEL" == "staging" ]]
 [[ "$SU_FEED_URL" == "${RELEASE_DRIVER_TEST_EXPECTED_FEED:?}" ]]
-app_path="$ARCHIVE_PATH/Products/Applications/ClaudeUsage.app"
+[[ "$SIGNING_REFERENCE_APP" == "${RELEASE_DRIVER_TEST_SANDBOX_ROOT:?}/Applications/ClaudeUsage.app" ]]
+app_path="$ARCHIVE_PATH/Products/Applications/ClaudeUsage-stg.app"
 sparkle_path="$DERIVED_DATA_PATH/SourcePackages/artifacts/sparkle/Sparkle/bin"
 mkdir -p "$app_path/Contents" "$sparkle_path"
 : > "$ZIP_PATH"
@@ -435,6 +438,12 @@ cat > "$app_path/Contents/Info.plist" <<PLIST
     <string>2.4.0</string>
     <key>CFBundleVersion</key>
     <string>20400</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.seongmin.ClaudeUsage.staging</string>
+    <key>CFBundleDisplayName</key>
+    <string>ClaudeUsage-stg</string>
+    <key>ClaudeUsageReleaseChannel</key>
+    <string>staging</string>
     <key>SUFeedURL</key>
     <string>${RELEASE_DRIVER_TEST_EXPECTED_FEED:?}</string>
 </dict>
@@ -694,6 +703,14 @@ case "${1:-}" in
     xcresulttool)
         printf '{"testsPassed":1,"testsFailed":0}\n'
         ;;
+    xctest)
+        printf 'xcrun-env <CLAUDEUSAGE_RUN_LIVE_AGY_TESTS=%s>\n' \
+            "${CLAUDEUSAGE_RUN_LIVE_AGY_TESTS:-}" \
+            >> "${RELEASE_DRIVER_TEST_TRACE:?}"
+        test_bundle="${@: -1}"
+        [[ "$CLAUDEUSAGE_RUN_LIVE_AGY_TESTS" == "1" ]]
+        [[ -d "$test_bundle" ]]
+        ;;
     *)
         exit 97
         ;;
@@ -734,7 +751,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 [[ -n "$derived_data" && -n "$result_bundle" ]]
-mkdir -p "$derived_data" "$result_bundle"
+mkdir -p \
+    "$derived_data/Build/Products/Debug/ClaudeUsageTests.xctest" \
+    "$result_bundle"
 SCRIPT
 
 cat > "$ORCHESTRATION_BIN/codesign" <<'SCRIPT'
@@ -788,7 +807,7 @@ run_orchestration_scenario() {
         env \
             "PATH=$ORCHESTRATION_BIN:/usr/bin:/bin:/usr/sbin:/sbin" \
             "TMPDIR=$ORCHESTRATION_TMP" \
-            "DOWNLOADS_APP_PATH=$ORCHESTRATION_DOWNLOADS/ClaudeUsage.app" \
+            "DOWNLOADS_APP_PATH=$ORCHESTRATION_DOWNLOADS/ClaudeUsage-stg.app" \
             "RELEASE_DRIVER_TEST_MODE=1" \
             "RELEASE_DRIVER_TEST_EXECUTE=1" \
             "RELEASE_DRIVER_TEST_SANDBOX_ROOT=$ORCHESTRATION_ROOT" \
@@ -803,6 +822,7 @@ run_orchestration_scenario() {
             "RELEASE_DRIVER_TEST_HEAD=$ORCHESTRATION_HEAD" \
             "RELEASE_DRIVER_TEST_PAGES_HEAD=$ORCHESTRATION_PAGES_HEAD" \
             "RELEASE_DRIVER_TEST_XCODEBUILD_FAIL=$xcodebuild_fail" \
+            "RELEASE_DRIVER_TEST_STAGING_IDENTITY_BOOTSTRAP_VERSION=2.4.0" \
             "RELEASE_DRIVER_TEST_EXPECTED_FEED=https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml" \
             "RELEASE_DRIVER_TEST_PROD_TAG=v2.3.3" \
             "RELEASE_DRIVER_TEST_STAGING_TAG=$staging_release_tag" \
@@ -862,8 +882,11 @@ assert_contains "$SCENARIO_TRACE" "gate <release-driver-shell-tests>" "fresh she
 assert_contains "$SCENARIO_TRACE" "xcodebuild <-project>" "fresh XCTest"
 assert_contains "$SCENARIO_TRACE" "xcodebuild-env <TMPDIR=$ORCHESTRATION_TMP/claudeusage-release-driver." "fresh XCTest TMPDIR is isolated"
 assert_contains "$SCENARIO_TRACE" "/tmp>" "fresh XCTest uses RUN_ROOT tmp"
-assert_contains "$SCENARIO_TRACE" "verify <--tag> <v2.3.3-staging>" "fresh previous artifact verification"
-assert_contains "$SCENARIO_TRACE" "<--install-to> <$ORCHESTRATION_DOWNLOADS/ClaudeUsage.app>" "fresh prior app install"
+assert_contains "$SCENARIO_TRACE" "xcrun <xctest> <-XCTest> <AntigravityLiveAGYIntegrationTests/testProductionManagedPathReturnsRealGroupedQuota>" "fresh live AGY smoke"
+assert_contains "$SCENARIO_TRACE" "xcrun-env <CLAUDEUSAGE_RUN_LIVE_AGY_TESTS=1>" "fresh live AGY opt-in"
+assert_contains "$SCENARIO_OUTPUT" "staging 전환:     2.4.0 식별자 최초 배포" "fresh identity bootstrap output"
+assert_not_contains "$SCENARIO_TRACE" "verify <--tag> <v2.3.3-staging>" "fresh legacy staging verification skipped"
+assert_not_contains "$SCENARIO_TRACE" "<--install-to>" "fresh legacy staging install skipped"
 assert_contains "$SCENARIO_TRACE" "build <BUILD_DIR=$ORCHESTRATION_TMP/" "fresh isolated build"
 assert_contains "$SCENARIO_TRACE" "<ARCHIVE_PATH=$ORCHESTRATION_TMP/" "fresh archive is isolated"
 assert_contains "$SCENARIO_TRACE" "/build/ClaudeUsage.xcarchive>" "fresh archive has canonical name"
@@ -876,6 +899,7 @@ assert_contains "$SCENARIO_TRACE" "<XC_CONFIG_PATH=$ORCHESTRATION_REPOSITORY/Con
 assert_contains "$SCENARIO_TRACE" "<LOCAL_XC_CONFIG_PATH=$ORCHESTRATION_REPOSITORY/Config/Sparkle.release.local.xcconfig>" "fresh local config is pinned"
 assert_contains "$SCENARIO_TRACE" "<ENTITLEMENTS_PATH=$ORCHESTRATION_REPOSITORY/ClaudeUsage/ClaudeUsage.entitlements>" "fresh entitlements are pinned"
 assert_contains "$SCENARIO_TRACE" "<SU_FEED_URL=https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml>" "fresh build feed is pinned"
+assert_contains "$SCENARIO_TRACE" "<SIGNING_REFERENCE_APP=$ORCHESTRATION_ROOT/Applications/ClaudeUsage.app>" "fresh signing reference uses production Applications app"
 assert_contains "$SCENARIO_TRACE" "publish-env <BUILD_DIR=$ORCHESTRATION_TMP/" "fresh publish build is isolated"
 assert_contains "$SCENARIO_TRACE" "<APPCAST_PATH=$ORCHESTRATION_TMP/" "fresh publish appcast is isolated"
 assert_contains "$SCENARIO_TRACE" "<DOWNLOAD_BASE_URL=https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.4.0-staging>" "fresh publish download URL is pinned"
@@ -889,14 +913,14 @@ assert_contains "$SCENARIO_TRACE" "verify-export <verified-candidate-appcast>" "
 assert_contains "$SCENARIO_TRACE" "pages-source <verified-candidate-appcast>" "fresh verified Pages source"
 assert_contains "$SCENARIO_TRACE" "verify <--tag> <v2.4.0-staging> <--channel> <staging> <--expected-version> <2.4.0> <--expected-build> <20400> <--verify-public-feed>" "fresh final public verification"
 assert_ordered "$SCENARIO_TRACE" "gate <release-driver-shell-tests>" "xcodebuild <-project>" "fresh shell tests before XCTest"
-assert_ordered "$SCENARIO_TRACE" "xcodebuild <-project>" "verify <--tag> <v2.3.3-staging>" "fresh XCTest before upgrade app"
-assert_ordered "$SCENARIO_TRACE" "verify <--tag> <v2.3.3-staging>" "publish <v2.4.0-staging>" "fresh previous verification before publish"
+assert_ordered "$SCENARIO_TRACE" "xcodebuild <-project>" "xcrun <xctest>" "fresh XCTest before live AGY"
+assert_ordered "$SCENARIO_TRACE" "xcrun <xctest>" "build <BUILD_DIR=" "fresh live AGY before build"
 assert_ordered "$SCENARIO_TRACE" "publish <v2.4.0-staging>" "verify-export <verified-candidate-appcast>" "fresh Release before candidate verification"
 assert_ordered "$SCENARIO_TRACE" "verify-export <verified-candidate-appcast>" "pages-source <verified-candidate-appcast>" "fresh verification before Pages"
 assert_ordered "$SCENARIO_TRACE" "pages-source <verified-candidate-appcast>" "verify <--tag> <v2.4.0-staging> <--channel> <staging> <--expected-version> <2.4.0> <--expected-build> <20400> <--verify-public-feed>" "fresh Pages before final public verification"
 assert_line_count "$SCENARIO_TRACE" "gh <api> <--method> <POST> <repos/ChoSeongmin1128/claude-usage/pages/builds>" "1" "fresh forced Pages rebuild"
-[[ -d "$ORCHESTRATION_DOWNLOADS/ClaudeUsage.app" ]] \
-    || fail "fresh staging이 이전 채널 앱을 Downloads fixture에 두지 않았습니다."
+[[ ! -e "$ORCHESTRATION_DOWNLOADS/ClaudeUsage-stg.app" ]] \
+    || fail "식별자 최초 staging이 구 번들 앱을 Downloads fixture에 두었습니다."
 pass
 [[ ! -e "$ORCHESTRATION_ROOT/hostile-override" ]] \
     || fail "fresh staging이 hostile override 대상에 파일을 생성했습니다."
@@ -913,6 +937,7 @@ assert_equal "0" "$SCENARIO_STATUS" "tag-only actual path"
 assert_contains "$SCENARIO_OUTPUT" "candidate metadata state: tag_only" "tag-only state output"
 assert_contains "$SCENARIO_TRACE" "publish <v2.4.0-staging> <--channel> <staging> <--expected-commit> <$ORCHESTRATION_HEAD> <--skip-pages-publish> <--prerelease> <--resume-exact-tag>" "tag-only two-phase exact resume publish"
 assert_contains "$SCENARIO_TRACE" "build <BUILD_DIR=$ORCHESTRATION_TMP/" "tag-only build"
+assert_not_contains "$SCENARIO_TRACE" "verify <--tag> <v2.3.3-staging>" "tag-only legacy staging verification skipped"
 assert_ordered "$SCENARIO_TRACE" "publish <v2.4.0-staging>" "verify-export <verified-candidate-appcast>" "tag-only Release before candidate verification"
 assert_ordered "$SCENARIO_TRACE" "verify-export <verified-candidate-appcast>" "pages-source <verified-candidate-appcast>" "tag-only verification before Pages"
 assert_ordered "$SCENARIO_TRACE" "pages-source <verified-candidate-appcast>" "verify <--tag> <v2.4.0-staging> <--channel> <staging> <--expected-version> <2.4.0> <--expected-build> <20400> <--verify-public-feed>" "tag-only Pages before final public verification"
@@ -929,7 +954,7 @@ assert_equal "0" "$SCENARIO_STATUS" "pages-pending actual path"
 assert_contains "$SCENARIO_OUTPUT" "candidate metadata state: pages_pending" "pages-pending state output"
 assert_contains "$SCENARIO_OUTPUT" "부분 배포 복구 및 원격 검증 완료" "pages-pending completion"
 assert_contains "$SCENARIO_TRACE" "verify <--tag> <v2.4.0-staging> <--channel> <staging> <--expected-version> <2.4.0> <--expected-build> <20400> <--export-verified-appcast-to>" "pages-pending candidate export verification"
-assert_contains "$SCENARIO_TRACE" "verify <--tag> <v2.3.3-staging>" "pages-pending previous feed verification"
+assert_not_contains "$SCENARIO_TRACE" "verify <--tag> <v2.3.3-staging>" "pages-pending legacy feed verification skipped"
 assert_contains "$SCENARIO_TRACE" "pages-publish <--feed-url>" "pages-pending Pages repair"
 assert_contains "$SCENARIO_TRACE" "pages-source <verified-candidate-appcast>" "pages-pending verified Pages source"
 assert_ordered "$SCENARIO_TRACE" "verify-export <verified-candidate-appcast>" "pages-source <verified-candidate-appcast>" "pages-pending verification before Pages"
@@ -991,7 +1016,7 @@ assert_contains "$SCENARIO_TRACE" "xcodebuild <-project>" "failure reaches XCTes
 assert_not_contains "$SCENARIO_TRACE" "verify <--tag> <v2.3.3-staging>" "failure stops before Downloads verification"
 assert_not_contains "$SCENARIO_TRACE" "build <BUILD_DIR=" "failure stops before build"
 assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-staging>" "failure stops before publish"
-[[ ! -e "$ORCHESTRATION_DOWNLOADS/ClaudeUsage.app" ]] \
+[[ ! -e "$ORCHESTRATION_DOWNLOADS/ClaudeUsage-stg.app" ]] \
     || fail "XCTest failure가 Downloads fixture를 변경했습니다."
 pass
 assert_orchestration_cleanup "failure"
@@ -1499,7 +1524,11 @@ cat > "$CANONICAL_VERIFY_STATE/Info.plist" <<EOF
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.seongmin.ClaudeUsage</string>
+    <string>com.seongmin.ClaudeUsage.staging</string>
+    <key>CFBundleDisplayName</key>
+    <string>ClaudeUsage-stg</string>
+    <key>ClaudeUsageReleaseChannel</key>
+    <string>staging</string>
     <key>CFBundleShortVersionString</key>
     <string>2.4.0</string>
     <key>CFBundleVersion</key>
@@ -1606,9 +1635,9 @@ set -euo pipefail
 } >> "${CANONICAL_VERIFY_TRACE:?}"
 [[ "${1:-}" == "-x" && "${2:-}" == "-k" ]]
 destination="$4"
-mkdir -p "$destination/ClaudeUsage.app/Contents"
+mkdir -p "$destination/ClaudeUsage-stg.app/Contents"
 cp "${CANONICAL_VERIFY_INFO_PLIST:?}" \
-    "$destination/ClaudeUsage.app/Contents/Info.plist"
+    "$destination/ClaudeUsage-stg.app/Contents/Info.plist"
 SCRIPT
 
 cat > "$CANONICAL_VERIFY_BIN/codesign" <<'SCRIPT'
@@ -1620,7 +1649,7 @@ set -euo pipefail
     printf '\n'
 } >> "${CANONICAL_VERIFY_TRACE:?}"
 if [[ " $* " == *" -dv "* ]]; then
-    printf 'Identifier=com.seongmin.ClaudeUsage\n' >&2
+    printf 'Identifier=com.seongmin.ClaudeUsage.staging\n' >&2
     printf 'TeamIdentifier=%s\n' "${CANONICAL_VERIFY_TEAM:?}" >&2
 elif [[ " $* " == *" --entitlements "* ]]; then
     cat "${CANONICAL_VERIFY_ENTITLEMENTS:?}"
@@ -1671,9 +1700,9 @@ case "${1:-}" in
             esac
         done
         [[ -n "$mountpoint" ]]
-        mkdir -p "$mountpoint/ClaudeUsage.app/Contents"
+        mkdir -p "$mountpoint/ClaudeUsage-stg.app/Contents"
         cp "${CANONICAL_VERIFY_INFO_PLIST:?}" \
-            "$mountpoint/ClaudeUsage.app/Contents/Info.plist"
+            "$mountpoint/ClaudeUsage-stg.app/Contents/Info.plist"
         printf '%s\n' "$mountpoint" > "${CANONICAL_VERIFY_MOUNT_STATE:?}"
         ;;
     detach)

@@ -204,6 +204,42 @@ final class AntigravityManagedCLISessionTests:
         XCTAssertEqual(harness.handle.terminationCount, 1)
     }
 
+    func testManagedStartUsesConfiguredIndependentBudget()
+        async throws
+    {
+        let harness = ManagedSessionHarness(
+            readinessDelay: .milliseconds(250)
+        )
+        let session = harness.makeSession(
+            startTimeout: .milliseconds(40)
+        )
+        let startedAt = ContinuousClock.now
+
+        do {
+            _ = try await session.withRuntime(
+                authorization: .automatic(
+                    idleTimeout: .seconds(5)
+                ),
+                executable: harness.executable,
+                deadline: AntigravityRPCDeadline(
+                    totalTimeout: .seconds(1)
+                )
+            ) { _ in true }
+            XCTFail("Managed start budget was not enforced")
+        } catch let error as AntigravityManagedSessionError {
+            XCTAssertEqual(error, .readinessTimedOut)
+        }
+
+        XCTAssertLessThan(
+            startedAt.duration(to: .now),
+            .milliseconds(500)
+        )
+        try await waitUntil {
+            harness.handle.terminationCount == 1
+        }
+        await session.shutdown()
+    }
+
     func testCancellingOnlyWaiterCancelsAndCleansOwnedProcess()
         async throws
     {
@@ -1128,7 +1164,9 @@ private final class ManagedSessionHarness {
         launchCoordinator:
             (any AntigravityManagedLaunchCoordinating)? = nil,
         cleanupCoordinationTimeout: Duration = .seconds(1),
-        recoveryCoordinationTimeout: Duration = .seconds(2)
+        recoveryCoordinationTimeout: Duration = .seconds(2),
+        startTimeout: Duration =
+            AntigravityManagedCLISession.defaultStartTimeout
     ) -> AntigravityManagedCLISession {
         AntigravityManagedCLISession(
             launcher: launcher,
@@ -1154,7 +1192,8 @@ private final class ManagedSessionHarness {
             cleanupCoordinationTimeout:
                 cleanupCoordinationTimeout,
             recoveryCoordinationTimeout:
-                recoveryCoordinationTimeout
+                recoveryCoordinationTimeout,
+            startTimeout: startTimeout
         )
     }
 }

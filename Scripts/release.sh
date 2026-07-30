@@ -12,16 +12,15 @@ set -euo pipefail
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR
 
 SCRIPT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+DOWNLOADS_APP_PATH_OVERRIDE="${DOWNLOADS_APP_PATH:-}"
 if [[ "${RELEASE_DRIVER_TEST_MODE:-0}" == "1" ]]; then
     ROOT_DIR="${RELEASE_DRIVER_ROOT_DIR:-$SCRIPT_ROOT}"
-    DOWNLOADS_APP_PATH="${DOWNLOADS_APP_PATH:-$HOME/Downloads/ClaudeUsage.app}"
 else
-    if [[ -n "${RELEASE_DRIVER_ROOT_DIR:-}" || -n "${DOWNLOADS_APP_PATH:-}" ]]; then
+    if [[ -n "${RELEASE_DRIVER_ROOT_DIR:-}" || -n "$DOWNLOADS_APP_PATH_OVERRIDE" ]]; then
         echo "오류: release source와 Downloads target override는 격리 테스트에서만 허용합니다." >&2
         exit 1
     fi
     ROOT_DIR="$SCRIPT_ROOT"
-    DOWNLOADS_APP_PATH="$HOME/Downloads/ClaudeUsage.app"
 fi
 # shellcheck source=Scripts/lib/release-driver-common.sh
 source "$SCRIPT_ROOT/Scripts/lib/release-driver-common.sh"
@@ -59,6 +58,9 @@ BUILD_DIR=""
 ARCHIVE_PATH=""
 DRIVER_TMP_DIR=""
 VERIFIED_CANDIDATE_APPCAST=""
+STAGING_IDENTITY_BOOTSTRAP_VERSION="2.4.4"
+STAGING_IDENTITY_BOOTSTRAP=0
+SIGNING_REFERENCE_APP_PATH=""
 
 PROD_RELEASE_TAG=""
 STAGING_RELEASE_TAG=""
@@ -198,6 +200,23 @@ if [[ -z "$ENVIRONMENT_INPUT" ]]; then
 fi
 RELEASE_ENVIRONMENT="$(normalize_release_environment "$ENVIRONMENT_INPUT")" \
     || die "지원하지 않는 배포 환경입니다: $ENVIRONMENT_INPUT (stg, staging, prod만 허용)"
+case "$RELEASE_ENVIRONMENT" in
+    staging)
+        APP_BUNDLE_NAME="ClaudeUsage-stg.app"
+        APP_BUNDLE_IDENTIFIER="com.seongmin.ClaudeUsage.staging"
+        ;;
+    prod)
+        APP_BUNDLE_NAME="ClaudeUsage.app"
+        APP_BUNDLE_IDENTIFIER="com.seongmin.ClaudeUsage"
+        ;;
+esac
+DOWNLOADS_APP_PATH="$(
+    if [[ -n "$DOWNLOADS_APP_PATH_OVERRIDE" ]]; then
+        printf '%s\n' "$DOWNLOADS_APP_PATH_OVERRIDE"
+    else
+        printf '%s/Downloads/%s\n' "$HOME" "$APP_BUNDLE_NAME"
+    fi
+)"
 
 read_channel_feed_state() {
     local channel="$1"
@@ -469,6 +488,13 @@ if [[ "${RELEASE_DRIVER_TEST_MODE:-0}" != "1" ]]; then
     gh auth status >/dev/null 2>&1 || die "GitHub CLI 로그인이 필요합니다."
 fi
 
+if [[ "${RELEASE_DRIVER_TEST_MODE:-0}" == "1" \
+    && -n "${RELEASE_DRIVER_TEST_STAGING_IDENTITY_BOOTSTRAP_VERSION:-}" ]]; then
+    STAGING_IDENTITY_BOOTSTRAP_VERSION="$RELEASE_DRIVER_TEST_STAGING_IDENTITY_BOOTSTRAP_VERSION"
+fi
+validate_numeric_release_version "$STAGING_IDENTITY_BOOTSTRAP_VERSION" \
+    || die "staging 식별자 전환 버전이 유효하지 않습니다: $STAGING_IDENTITY_BOOTSTRAP_VERSION"
+
 CODE_VERSION="$(read_project_release_version "$PROJECT_FILE")" \
     || die "project.pbxproj의 MARKETING_VERSION이 하나의 값으로 일치하지 않습니다."
 CODE_BUILD="$(read_project_release_build "$PROJECT_FILE")" \
@@ -549,9 +575,29 @@ case "$RELEASE_ENVIRONMENT" in
         ;;
 esac
 
+if [[ "$RELEASE_ENVIRONMENT" == "staging" \
+    && "$(compare_numeric_release_versions "$PREVIOUS_VERSION" "$STAGING_IDENTITY_BOOTSTRAP_VERSION")" == "-1" ]]; then
+    [[ "$(compare_numeric_release_versions "$VERSION" "$STAGING_IDENTITY_BOOTSTRAP_VERSION")" != "-1" ]] \
+        || die "분리된 staging 앱 식별자는 ${STAGING_IDENTITY_BOOTSTRAP_VERSION}부터 사용합니다."
+    STAGING_IDENTITY_BOOTSTRAP=1
+    if [[ "${RELEASE_DRIVER_TEST_MODE:-0}" == "1" ]]; then
+        SIGNING_REFERENCE_APP_PATH="${RELEASE_DRIVER_TEST_SANDBOX_ROOT:-$ROOT_DIR}/Applications/ClaudeUsage.app"
+    else
+        SIGNING_REFERENCE_APP_PATH="/Applications/ClaudeUsage.app"
+    fi
+else
+    SIGNING_REFERENCE_APP_PATH="$DOWNLOADS_APP_PATH"
+fi
+
 echo "  upgrade 기준:     $PREVIOUS_TAG / $PREVIOUS_VERSION ($PREVIOUS_BUILD)"
 echo "  Downloads 기준:   $DOWNLOADS_APP_PATH"
-echo "                    (새 publish 전에 위 동일 채널 원격 앱으로 교체)"
+if [[ "$STAGING_IDENTITY_BOOTSTRAP" == "1" ]]; then
+    echo "  staging 전환:     $STAGING_IDENTITY_BOOTSTRAP_VERSION 식별자 최초 배포"
+    echo "                    (구 staging은 번들 ID가 달라 upgrade QA 대상에서 제외)"
+    echo "  서명 기준 앱:     $SIGNING_REFERENCE_APP_PATH"
+else
+    echo "                    (새 publish 전에 위 동일 채널 원격 앱으로 교체)"
+fi
 
 if [[ "$DRY_RUN" == "1" ]]; then
     cat <<EOF
@@ -560,9 +606,9 @@ DRY-RUN 실행 계획
   1. release 계정/저장소, clean main, origin/main, 미사용 tag 확인
   2. notary profile '$NOTARY_PROFILE' 사전 검증
   3. release driver shell 회귀 테스트 실행
-  4. 격리된 임시 DerivedData/xcresult로 전체 XCTest 실행 후 즉시 정리
-  5. $PREVIOUS_TAG 원격 DMG/ZIP/appcast digest 및 앱 서명/notarization 검증
-  6. 검증한 이전 앱을 $DOWNLOADS_APP_PATH 로 교체
+  4. 격리된 임시 DerivedData로 전체 XCTest와 실제 AGY 자동 조회 smoke 실행
+  5. 이전 동일 식별자 staging/prod 원격 산출물 검증
+  6. 동일 식별자 이전 앱이 있을 때만 $DOWNLOADS_APP_PATH 로 교체
   7. RELEASE_CHANNEL=$RELEASE_ENVIRONMENT 로 build-notarize-release.sh 실행
   8. 게시 직전 exact tag '$TAG' 재확인
   9. publish-release.sh로 immutable tag와 세 Release asset 게시
@@ -811,15 +857,20 @@ case "$CANDIDATE_STATE" in
             die "후보 Release가 full verifier를 통과하지 못해 Pages를 변경하지 않았습니다. 일시적 조회 장애를 배제한 뒤에도 재현되면 기존 tag/Release/asset은 수정하지 말고 다음 숫자 버전을 사용하세요."
         fi
 
-        echo
-        echo "현재 public feed 기준 산출물 검증: $PREVIOUS_TAG"
-        "$VERIFY_SCRIPT" \
-            --tag "$PREVIOUS_TAG" \
-            --channel "$RELEASE_ENVIRONMENT" \
-            --expected-version "$PREVIOUS_VERSION" \
-            --expected-build "$PREVIOUS_BUILD" \
-            --verify-public-feed \
-            --repo "$REPOSITORY"
+        if [[ "$STAGING_IDENTITY_BOOTSTRAP" == "1" ]]; then
+            echo
+            echo "구 staging public feed 검증 생략: 분리된 bundle identifier의 최초 배포"
+        else
+            echo
+            echo "현재 public feed 기준 산출물 검증: $PREVIOUS_TAG"
+            "$VERIFY_SCRIPT" \
+                --tag "$PREVIOUS_TAG" \
+                --channel "$RELEASE_ENVIRONMENT" \
+                --expected-version "$PREVIOUS_VERSION" \
+                --expected-build "$PREVIOUS_BUILD" \
+                --verify-public-feed \
+                --repo "$REPOSITORY"
+        fi
 
         repair_pages_from_candidate_release
 
@@ -908,21 +959,37 @@ TEST_SUMMARY="$(
         --compact
 )"
 echo "$TEST_SUMMARY"
+
+LIVE_AGY_TEST_BUNDLE="$TEST_DERIVED_DATA/Build/Products/Debug/ClaudeUsageTests.xctest"
+[[ -d "$LIVE_AGY_TEST_BUNDLE" ]] \
+    || die "실제 AGY smoke test bundle을 찾지 못했습니다: $LIVE_AGY_TEST_BUNDLE"
+echo
+echo "실제 AGY 자동 조회 smoke 실행"
+CLAUDEUSAGE_RUN_LIVE_AGY_TESTS=1 xcrun xctest \
+    -XCTest \
+    AntigravityLiveAGYIntegrationTests/testProductionManagedPathReturnsRealGroupedQuota \
+    "$LIVE_AGY_TEST_BUNDLE"
+
 rm -rf "$TEST_DERIVED_DATA" "$TEST_RESULT_BUNDLE"
 rm -rf "$RUN_ROOT/test"
 [[ ! -e "$RUN_ROOT/test" ]] || die "XCTest 임시 디렉터리를 정리하지 못했습니다."
 echo "XCTest 임시 DerivedData/xcresult 정리 완료"
 
-echo
-echo "이전 동일 채널 앱 준비: $PREVIOUS_TAG"
-"$VERIFY_SCRIPT" \
-    --tag "$PREVIOUS_TAG" \
-    --channel "$RELEASE_ENVIRONMENT" \
-    --expected-version "$PREVIOUS_VERSION" \
-    --expected-build "$PREVIOUS_BUILD" \
-    --install-to "$DOWNLOADS_APP_PATH" \
-    --verify-public-feed \
-    --repo "$REPOSITORY"
+if [[ "$STAGING_IDENTITY_BOOTSTRAP" == "1" ]]; then
+    echo
+    echo "이전 staging 앱 준비 생략: $PREVIOUS_TAG 는 구 bundle identifier를 사용합니다."
+else
+    echo
+    echo "이전 동일 채널 앱 준비: $PREVIOUS_TAG"
+    "$VERIFY_SCRIPT" \
+        --tag "$PREVIOUS_TAG" \
+        --channel "$RELEASE_ENVIRONMENT" \
+        --expected-version "$PREVIOUS_VERSION" \
+        --expected-build "$PREVIOUS_BUILD" \
+        --install-to "$DOWNLOADS_APP_PATH" \
+        --verify-public-feed \
+        --repo "$REPOSITORY"
+fi
 
 echo
 echo "notarized release build"
@@ -962,17 +1029,17 @@ env \
     "SU_PUBLIC_ED_KEY=" \
     "VOLUME_NAME=Install ClaudeUsage" \
     "BACKGROUND_PNG=$ROOT_DIR/Scripts/dmg-assets/background.png" \
-    "VOLUME_ICON=$ARCHIVE_PATH/Products/Applications/ClaudeUsage.app/Contents/Resources/AppIcon.icns" \
+    "VOLUME_ICON=$ARCHIVE_PATH/Products/Applications/$APP_BUNDLE_NAME/Contents/Resources/AppIcon.icns" \
     "APP_ICON_X=150" \
     "APP_ICON_Y=190" \
     "APPS_ICON_X=390" \
     "APPS_ICON_Y=190" \
     "WINDOW_W=540" \
     "WINDOW_H=380" \
-    "SIGNING_REFERENCE_APP=$DOWNLOADS_APP_PATH" \
+    "SIGNING_REFERENCE_APP=$SIGNING_REFERENCE_APP_PATH" \
     "$BUILD_SCRIPT"
 
-LOCAL_APP="$ARCHIVE_PATH/Products/Applications/ClaudeUsage.app"
+LOCAL_APP="$ARCHIVE_PATH/Products/Applications/$APP_BUNDLE_NAME"
 LOCAL_INFO="$LOCAL_APP/Contents/Info.plist"
 [[ -d "$LOCAL_APP" && -f "$LOCAL_INFO" ]] || die "release archive 앱을 찾지 못했습니다: $LOCAL_APP"
 LOCAL_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$LOCAL_INFO")"
@@ -981,6 +1048,9 @@ LOCAL_FEED="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$LOCAL_INFO")"
 [[ "$LOCAL_VERSION" == "$VERSION" ]] || die "release app version이 다릅니다: $LOCAL_VERSION"
 [[ "$LOCAL_BUILD" == "$EXPECTED_BUILD" ]] || die "release app build가 다릅니다: $LOCAL_BUILD"
 [[ "$LOCAL_FEED" == "$FEED_URL" ]] || die "release app feed URL이 다릅니다: $LOCAL_FEED"
+LOCAL_BUNDLE_IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$LOCAL_INFO")"
+[[ "$LOCAL_BUNDLE_IDENTIFIER" == "$APP_BUNDLE_IDENTIFIER" ]] \
+    || die "release app bundle identifier가 다릅니다: $LOCAL_BUNDLE_IDENTIFIER"
 SPARKLE_TOOLS_DIR="$ARCHIVE_DERIVED_DATA/SourcePackages/artifacts/sparkle/Sparkle/bin"
 [[ -x "$SPARKLE_TOOLS_DIR/generate_appcast" && -x "$SPARKLE_TOOLS_DIR/sign_update" ]] \
     || die "격리된 DerivedData에서 Sparkle release tool을 찾지 못했습니다: $SPARKLE_TOOLS_DIR"
@@ -991,7 +1061,12 @@ echo "  source:      main@$HEAD_SHA"
 echo "  channel:     $RELEASE_ENVIRONMENT"
 echo "  version:     $VERSION ($EXPECTED_BUILD)"
 echo "  tag:         $TAG"
-echo "  previous QA: $DOWNLOADS_APP_PATH <= $PREVIOUS_TAG"
+if [[ "$STAGING_IDENTITY_BOOTSTRAP" == "1" ]]; then
+    echo "  previous QA: 생략 (구 staging과 bundle identifier가 다름)"
+    echo "  signing ref: $SIGNING_REFERENCE_APP_PATH"
+else
+    echo "  previous QA: $DOWNLOADS_APP_PATH <= $PREVIOUS_TAG"
+fi
 echo "  artifacts:   $BUILD_DIR"
 
 if [[ "$NON_INTERACTIVE" == "1" ]]; then
@@ -1073,7 +1148,21 @@ echo "새 원격 산출물 재다운로드 검증: $TAG"
     --repo "$REPOSITORY"
 
 echo
-cat <<EOF
+if [[ "$STAGING_IDENTITY_BOOTSTRAP" == "1" ]]; then
+    cat <<EOF
+배포 및 원격 검증 완료
+  channel:       $RELEASE_ENVIRONMENT
+  tag:           $TAG
+  version/build: $VERSION ($EXPECTED_BUILD)
+  source:        $HEAD_SHA
+  local temp:    정리 완료
+  upgrade app:   없음 (분리된 staging 식별자의 최초 배포)
+
+구 staging 앱은 bundle identifier가 달라 Sparkle upgrade QA에 사용하지 않았습니다.
+분리된 staging identity의 다음 버전부터 ClaudeUsage-stg.app 기준 upgrade QA를 수행합니다.
+EOF
+else
+    cat <<EOF
 배포 및 원격 검증 완료
   channel:       $RELEASE_ENVIRONMENT
   tag:           $TAG
@@ -1085,3 +1174,4 @@ cat <<EOF
 Downloads 앱은 새 후보가 아니라 이전 동일 채널 앱으로 유지했습니다.
 이 앱에서 Sparkle 업데이트를 실행해 실제 upgrade QA를 진행할 수 있습니다.
 EOF
+fi

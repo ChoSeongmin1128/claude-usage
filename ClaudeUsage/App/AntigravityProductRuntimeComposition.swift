@@ -45,6 +45,12 @@ enum
                     homeDirectoryURL:
                         homeDirectoryURL
                 )
+        let managedLaunchCoordinationDirectory =
+            AntigravityStoragePaths
+                .managedLaunchCoordinationDirectoryURL(
+                    homeDirectoryURL:
+                        homeDirectoryURL
+                )
         let executableResolution =
             AntigravityProductionExecutableCatalogResolver(
                 homeDirectoryURL:
@@ -57,6 +63,8 @@ enum
                         executableResolution.catalog,
                     managedStateDirectoryURL:
                         stateDirectory,
+                    managedLaunchCoordinationDirectoryURL:
+                        managedLaunchCoordinationDirectory,
                     currentDirectoryURL:
                         homeDirectoryURL
                 )

@@ -60,7 +60,6 @@ struct PopoverProviderOverviewRowView: View {
 
 struct PopoverProviderShellCardView: View {
     let provider: AppProviderKind
-    let icon: String
     let title: String
     let summary: String
     let detail: String?

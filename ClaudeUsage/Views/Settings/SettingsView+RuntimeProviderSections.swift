@@ -6,9 +6,10 @@ extension SettingsView {
     func runtimeProviderPanel(
         for provider: AppProviderKind
     ) -> some View {
-        runtimeProviderOverviewSection(for: provider)
         if provider == .antigravity {
             antigravityStatusSection()
+        } else {
+            runtimeProviderOverviewSection(for: provider)
         }
     }
 
@@ -71,6 +72,24 @@ extension SettingsView {
                 alignment: .leading,
                 spacing: 12
             ) {
+                settingsToggleRow(
+                    "Antigravity 사용",
+                    subtitle: "끄면 조회와 메뉴바·팝오버 표시를 중지합니다",
+                    isOn: Binding(
+                        get: {
+                            settings.isProviderEnabled(
+                                .antigravity
+                            )
+                        },
+                        set: {
+                            settings.setProviderEnabled(
+                                $0,
+                                for: .antigravity
+                            )
+                        }
+                    )
+                )
+
                 HStack(
                     alignment: .firstTextBaseline,
                     spacing: 8

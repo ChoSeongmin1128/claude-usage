@@ -36,13 +36,7 @@ final class AppRuntimeObservationCoordinator {
             .sink { onMenuBarDisplayChanged() }
             .store(in: &cancellables)
 
-        AppSettings.shared.$providerStates
-            .dropFirst()
-            .receive(on: RunLoop.main)
-            .sink { _ in onProviderSelectionChanged(AppSettings.shared.providerSelectionState) }
-            .store(in: &cancellables)
-
-        AppSettings.shared.$additionalRuntimeProvidersEnabled
+        AppSettings.shared.$providerSelectionRevision
             .dropFirst()
             .receive(on: RunLoop.main)
             .sink { _ in onProviderSelectionChanged(AppSettings.shared.providerSelectionState) }

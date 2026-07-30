@@ -1,3 +1,4 @@
+// Antigravity provider-owned display domain.
 import Foundation
 
 nonisolated enum AntigravitySettingsMigrationNotice: String, Codable, Equatable, Sendable {
@@ -13,16 +14,17 @@ nonisolated enum AntigravitySettingsMigrationNotice: String, Codable, Equatable,
     var message: String {
         switch self {
         case .displaySelectionUpdated:
-            return "이제 남은 여유가 가장 적은 사용 한도를 우선 보여줍니다. 설정에서 언제든 표시 기준을 바꿀 수 있습니다."
+            return "간소화 보기에서 여러 사용 한도를 함께 표시할 수 있습니다. 기존 선택은 유지되며 설정에서 표시 여부와 순서를 바꿀 수 있습니다."
         }
     }
 }
 
 nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
-    nonisolated static let currentSchemaVersion = 1
+    nonisolated static let currentSchemaVersion = 2
 
-    enum MultiLaneSelectionPolicy: String, Codable, CaseIterable, Sendable {
-        case allKnown = "all_known"
+    enum LaneOrderingPolicy: String, Codable, CaseIterable, Sendable {
+        case manual
+        case mostConstrainedFirst = "most_constrained_first"
     }
 
     enum SingleLaneSelectionPolicy: Codable, Equatable, Sendable {
@@ -47,7 +49,7 @@ nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
             case .fixed:
                 let rawLaneID = try container.decode(String.self, forKey: .laneID)
                 let laneID = AntigravityQuotaLaneID(rawValue: rawLaneID)
-                guard Self.hasStableLaneIDShape(laneID) else {
+                guard laneID.hasStableDisplayIdentifierShape else {
                     throw DecodingError.dataCorruptedError(
                         forKey: .laneID,
                         in: container,
@@ -67,7 +69,7 @@ nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
                     forKey: .mode
                 )
             case let .fixed(laneID):
-                guard Self.hasStableLaneIDShape(laneID) else {
+                guard laneID.hasStableDisplayIdentifierShape else {
                     throw EncodingError.invalidValue(
                         laneID,
                         EncodingError.Context(
@@ -86,53 +88,27 @@ nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
             case .automaticMostConstrained:
                 return true
             case let .fixed(laneID):
-                return Self.hasStableLaneIDShape(laneID)
+                return laneID.hasStableDisplayIdentifierShape
             }
-        }
-
-        private static func hasStableLaneIDShape(
-            _ laneID: AntigravityQuotaLaneID
-        ) -> Bool {
-            let rawValue = laneID.rawValue
-            guard
-                !rawValue.isEmpty,
-                rawValue.utf8.count <= 256,
-                rawValue == rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            else {
-                return false
-            }
-
-            let components = rawValue.split(
-                separator: ".",
-                omittingEmptySubsequences: false
-            )
-            guard components.count >= 2 else {
-                return false
-            }
-
-            return components.allSatisfy { component in
-                guard let first = component.utf8.first, Self.isASCIIAlphaNumeric(first) else {
-                    return false
-                }
-                return component.utf8.dropFirst().allSatisfy { byte in
-                    Self.isASCIIAlphaNumeric(byte) || byte == 0x2D || byte == 0x5F
-                }
-            }
-        }
-
-        private static func isASCIIAlphaNumeric(_ byte: UInt8) -> Bool {
-            (0x30...0x39).contains(byte)
-                || (0x41...0x5A).contains(byte)
-                || (0x61...0x7A).contains(byte)
         }
     }
 
-    struct MultiLanePresentationIntent: Codable, Equatable, Sendable {
-        var laneSelection: MultiLaneSelectionPolicy
-    }
+    struct LaneListPresentationIntent: Codable, Equatable, Sendable {
+        /// Stable preferred order. IDs that are observed later are appended by
+        /// the presentation adapter and are visible unless explicitly hidden.
+        var orderedLaneIDs: [AntigravityQuotaLaneID]
+        var hiddenLaneIDs: Set<AntigravityQuotaLaneID>
+        var orderingPolicy: LaneOrderingPolicy
 
-    struct SingleLanePresentationIntent: Codable, Equatable, Sendable {
-        var laneSelection: SingleLaneSelectionPolicy
+        var isValid: Bool {
+            orderedLaneIDs.count == Set(orderedLaneIDs).count
+                && orderedLaneIDs.allSatisfy(
+                    \.hasStableDisplayIdentifierShape
+                )
+                && hiddenLaneIDs.allSatisfy(
+                    \.hasStableDisplayIdentifierShape
+                )
+        }
     }
 
     struct MenuBarPresentationIntent: Codable, Equatable, Sendable {
@@ -157,6 +133,9 @@ nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
         var showsProviderIcon: Bool
         var style: Style
         var laneSelection: SingleLaneSelectionPolicy
+        /// 대표 한도 외에 메뉴바 텍스트에 함께 표시할 한도입니다.
+        /// Optional로 두어 기존 v2 JSON에 키가 없어도 그대로 decode합니다.
+        var additionalLaneIDs: [AntigravityQuotaLaneID]? = nil
         var showsSelectedLanePercentage: Bool
         var showsSelectedLaneResetTime: Bool
         var timeFormat: TimeFormat
@@ -169,17 +148,23 @@ nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
     }
 
     let schemaVersion: Int
-    var standard: MultiLanePresentationIntent
-    var compact: SingleLanePresentationIntent
+    var standard: LaneListPresentationIntent
+    var compact: LaneListPresentationIntent
     var menuBar: MenuBarPresentationIntent
     var notifications: NotificationPresentationIntent
     var pendingNotice: AntigravitySettingsMigrationNotice?
 
     static let `default` = AntigravityDisplaySettings(
         schemaVersion: currentSchemaVersion,
-        standard: MultiLanePresentationIntent(laneSelection: .allKnown),
-        compact: SingleLanePresentationIntent(
-            laneSelection: .automaticMostConstrained
+        standard: LaneListPresentationIntent(
+            orderedLaneIDs: builtInLaneIDs,
+            hiddenLaneIDs: [],
+            orderingPolicy: .manual
+        ),
+        compact: LaneListPresentationIntent(
+            orderedLaneIDs: builtInLaneIDs,
+            hiddenLaneIDs: [],
+            orderingPolicy: .mostConstrainedFirst
         ),
         menuBar: MenuBarPresentationIntent(
             isVisible: true,
@@ -198,7 +183,68 @@ nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
 
     var isCurrentAndValid: Bool {
         schemaVersion == Self.currentSchemaVersion
-            && compact.laneSelection.isValid
+            && standard.isValid
+            && compact.isValid
             && menuBar.laneSelection.isValid
+            && menuBar.effectiveAdditionalLaneIDs.count
+                == Set(menuBar.effectiveAdditionalLaneIDs).count
+            && menuBar.effectiveAdditionalLaneIDs.allSatisfy(
+                \.hasStableDisplayIdentifierShape
+            )
+    }
+
+    static let builtInLaneIDs: [AntigravityQuotaLaneID] = [
+        .geminiFiveHour,
+        .geminiWeekly,
+        .thirdPartyFiveHour,
+        .thirdPartyWeekly,
+    ]
+}
+
+nonisolated extension AntigravityDisplaySettings.MenuBarPresentationIntent {
+    var effectiveAdditionalLaneIDs: [AntigravityQuotaLaneID] {
+        additionalLaneIDs ?? []
+    }
+}
+
+nonisolated extension AntigravityQuotaLaneID {
+    var hasStableDisplayIdentifierShape: Bool {
+        let rawValue = rawValue
+        guard
+            !rawValue.isEmpty,
+            rawValue.utf8.count <= 256,
+            rawValue == rawValue.trimmingCharacters(
+                in: .whitespacesAndNewlines
+            )
+        else {
+            return false
+        }
+
+        let components = rawValue.split(
+            separator: ".",
+            omittingEmptySubsequences: false
+        )
+        guard components.count >= 2 else {
+            return false
+        }
+
+        return components.allSatisfy { component in
+            guard let first = component.utf8.first,
+                  Self.isASCIIAlphaNumeric(first)
+            else {
+                return false
+            }
+            return component.utf8.dropFirst().allSatisfy { byte in
+                Self.isASCIIAlphaNumeric(byte)
+                    || byte == 0x2D
+                    || byte == 0x5F
+            }
+        }
+    }
+
+    private static func isASCIIAlphaNumeric(_ byte: UInt8) -> Bool {
+        (0x30...0x39).contains(byte)
+            || (0x41...0x5A).contains(byte)
+            || (0x61...0x7A).contains(byte)
     }
 }

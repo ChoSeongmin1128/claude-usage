@@ -14,8 +14,10 @@ struct ClaudeSetupSectionShell<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Claude 사용", systemImage: "brain")
-                .font(.headline)
+            ProviderSettingsSectionHeader(
+                provider: .claude,
+                title: "Claude 사용"
+            )
 
             content
         }
@@ -79,8 +81,10 @@ struct RuntimeProviderPanelShell<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: descriptor.icon)
-                .font(.headline)
+            ProviderSettingsSectionHeader(
+                provider: descriptor.kind,
+                title: title
+            )
 
             if let summary {
                 Text(summary)

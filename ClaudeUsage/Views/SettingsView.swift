@@ -153,6 +153,7 @@ enum CodexAuthStatusResolver {
 struct SettingsView: View {
     let claudeAPIService: ClaudeAPIService
     let claudeOAuthMigrationCoordinator: ClaudeOAuthCredentialMigrationCoordinator
+    let initialPanel: SettingsProviderPanel?
     @ObservedObject var settings = AppSettings.shared
     @ObservedObject var updateRuntimeState = UpdateRuntimeState.shared
     @State var sessionKey: String = ""
@@ -217,9 +218,19 @@ struct SettingsView: View {
         claudeLastUsage: (() -> ClaudeUsageResponse?)? = nil,
         claudeLastOverage: (() -> OverageSpendLimitResponse?)? = nil,
         codexLastUsage: (() -> CodexUsageResponse?)? = nil,
-        codexLastError: (() -> APIError?)? = nil
+        codexLastError: (() -> APIError?)? = nil,
+        initialPanel: SettingsProviderPanel? = nil
     ) {
         self.claudeAPIService = claudeAPIService
+        self.initialPanel = initialPanel
+        _selectedPanel = State(
+            initialValue:
+                initialPanel
+                ?? SettingsProviderPanel(
+                    rawValue: AppSettings.shared.settingsLastTab
+                )
+                ?? .common
+        )
         _antigravitySettings = StateObject(
             wrappedValue:
                 AntigravitySettingsViewModel(

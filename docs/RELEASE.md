@@ -37,6 +37,26 @@ version과 build를 보여줍니다. 환경은 `stg`, `staging`, `prod`만 받�
 | `stg`, `staging` | `staging` | `vX.Y.Z-staging` |
 | `prod` | `prod` | `vX.Y.Z` |
 
+채널별 앱 identity도 분리합니다.
+
+| channel | app bundle | bundle identifier | Application Support |
+|---|---|---|---|
+| `staging` | `ClaudeUsage-stg.app` | `com.seongmin.ClaudeUsage.staging` | `ClaudeUsage-stg` |
+| `prod` | `ClaudeUsage.app` | `com.seongmin.ClaudeUsage` | `ClaudeUsage` |
+
+각 채널은 advisory lock으로 한 프로세스만 허용하므로 staging과 prod는 하나씩
+동시에 실행할 수 있지만, 같은 채널 앱을 두 번 실행해 provider runtime을
+중복 생성할 수는 없습니다. 로컬 QA 설치·실행 기준도 `/Applications`의 위
+두 앱이며 임시 build/Downloads 앱을 실행본으로 사용하지 않습니다.
+
+`2.4.4`부터 분리된 staging identity를 사용합니다. 실제 최초 공개 staging이
+`2.4.5`처럼 더 높은 버전이면 그 버전을 bootstrap release로 취급합니다. 이전 staging은 prod와
+같은 bundle identifier를 썼으므로 Sparkle upgrade 대상이 될 수 없습니다.
+driver는 이 최초 전환에서만 구 staging 앱 설치/upgrade QA를 생략하고,
+`/Applications/ClaudeUsage.app`의 Developer ID 인증서를 서명 기준으로
+사용합니다. 다음 staging 버전부터는 `ClaudeUsage-stg.app`끼리 정상 upgrade
+QA를 수행합니다.
+
 `2.4.0`부터 `CURRENT_PROJECT_VERSION`은
 `major * 10000 + minor * 100 + patch`로 계산합니다. 따라서
 `2.4.0 → 20400`, `2.4.1 → 20401`, `2.4.10 → 20410`입니다.
@@ -78,9 +98,12 @@ Release의 `appcast.xml` asset과 byte-for-byte로 대조합니다.
 archive DerivedData와 release build는 각 사용 단계가 끝나는 즉시
 삭제합니다. 실패·중단 시에도 trap이 남은 download, mount, worktree와
 실행 임시 루트를 정리하고 GitHub CLI 계정을 `nathan-glorang`으로
-복원합니다. fresh/tag-only 게시에서 최종적으로 남는 QA 앱은
-`~/Downloads/ClaudeUsage.app` 하나이며, 새 후보가 아니라 Sparkle upgrade를
-시작할 이전 동일 채널 버전입니다. backup app은 만들지 않습니다.
+복원합니다. fresh/tag-only 게시에서 최종적으로 남는 QA 앱은 prod의
+`~/Downloads/ClaudeUsage.app` 또는 staging의
+`~/Downloads/ClaudeUsage-stg.app` 하나이며, 새 후보가 아니라 Sparkle
+upgrade를 시작할 이전 동일 identity 버전입니다. 분리된 staging identity의
+최초 공개 전환에는 이전 QA 앱을 남기지 않습니다. backup app은 만들지
+않습니다.
 
 ### 중단 후 재실행
 

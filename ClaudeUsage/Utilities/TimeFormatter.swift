@@ -75,7 +75,7 @@ enum TimeFormatter {
     }
 
     /// 갱신 예상 시각을 시간 포맷에 맞게 반환
-    /// 오늘이 아닌 경우 날짜+요일 포함 (예: "2/14(금) 18:34")
+    /// 오늘이 아닌 경우 날짜+요일 포함 (예: "2월 14일 금요일 18:34")
     nonisolated static func formatResetTime(from resetAt: String, style: TimeFormatStyle = .h24, includeDateIfNotToday: Bool = true) -> String? {
         guard let resetDate = parseISO8601(resetAt) else { return nil }
 
@@ -91,7 +91,9 @@ enum TimeFormatter {
             if isToday || !includeDateIfNotToday {
                 df.dateFormat = style == .h12 ? "a h:mm" : "HH:mm"
             } else {
-                df.dateFormat = style == .h12 ? "M/d(E) a h:mm" : "M/d(E) HH:mm"
+                df.dateFormat = style == .h12
+                    ? "M월 d일 EEEE a h:mm"
+                    : "M월 d일 EEEE HH:mm"
             }
             return df.string(from: resetDate)
         }
@@ -138,70 +140,122 @@ enum TimeFormatter {
             let df = DateFormatter()
             df.locale = Locale(identifier: "ko_KR")
             df.timeZone = .current
-            df.dateFormat = "M/d(E)"
+            df.dateFormat = "M월 d일 EEEE"
             return df.string(from: resetDate)
         }
     }
 
     /// 남은 시간 + 갱신 예상 시각을 결합한 포맷 (현재 세션용: 항상 시각만)
-    /// 예: "갱신 예상: 2시간 34분 후 (18:34)" 또는 "갱신 예상: 2시간 34분 후 (6:34 PM)"
+    /// 예: "갱신 예상: 2시간 34분 후 · 18:34"
     nonisolated static func formatRelativeTimeWithClock(
         from resetAt: String,
         style: TimeFormatStyle = .h24,
-        label: String = "갱신 예상"
+        label: String? = "갱신 예상"
     ) -> String {
-        let relative = formatRelativeTime(from: resetAt)
-        if relative == "곧 갱신" || relative == "시간 정보 없음" {
-            return "\(label): \(relative)"
+        guard let resetDate = parseISO8601(resetAt) else {
+            return labeled(
+                formatRelativeTime(from: resetAt),
+                label: label
+            )
         }
-        // remaining 스타일이면 괄호 안에 24시간 시각 표시 (중복 방지)
-        let clockStyle: TimeFormatStyle = style == .remaining ? .h24 : style
-        // 현재 세션은 5시간 윈도우이므로 날짜 없이 시각만 표시
-        if let clock = formatResetTime(from: resetAt, style: clockStyle, includeDateIfNotToday: false) {
-            return "\(label): \(relative) (\(clock))"
-        }
-        return "\(label): \(relative)"
+        return formatUsageResetDetail(
+            resetAt: resetDate,
+            isWeekly: false,
+            style: style,
+            label: label
+        )
     }
 
     /// 주간 세션용: 1일 이상이면 분 단위 생략한 결합 포맷
-    /// 예: "갱신 예상: 2일 3시간 후 (2/14(금))" — 1일 이내면 기본과 동일
+    /// 예: "갱신 예상: 2일 3시간 후 · 2월 14일 금요일" — 1일 이내면 기본과 동일
     nonisolated static func formatRelativeTimeWithClockWeekly(
         from resetAt: String,
         style: TimeFormatStyle = .h24,
-        label: String = "갱신 예상"
+        label: String? = "갱신 예상"
     ) -> String {
         guard let resetDate = parseISO8601(resetAt) else {
-            return "\(label): \(formatRelativeTime(from: resetAt))"
+            return labeled(
+                formatRelativeTime(from: resetAt),
+                label: label
+            )
         }
 
-        let interval = resetDate.timeIntervalSince(Date())
-        if interval <= 86400 {
-            // 1일 이내: 기본과 동일
-            return formatRelativeTimeWithClock(from: resetAt, style: style, label: label)
+        return formatUsageResetDetail(
+            resetAt: resetDate,
+            isWeekly: true,
+            style: style,
+            label: label
+        )
+    }
+
+    /// Provider 공통 사용량 행의 갱신 상세 문구입니다.
+    ///
+    /// API가 ISO 문자열을 주는 Claude/Codex와 `Date`를 주는 Antigravity가
+    /// 동일한 `상대 시간 · 절대 시각` 규칙을 사용하도록 한 곳에서 생성합니다.
+    nonisolated static func formatUsageResetDetail(
+        resetAt: Date,
+        isWeekly: Bool,
+        style: TimeFormatStyle = .h24,
+        now: Date = Date(),
+        locale: Locale = Locale(identifier: "ko_KR"),
+        timeZone: TimeZone = .current,
+        label: String? = "갱신 예상"
+    ) -> String {
+        let relative = formatRelativeTime(
+            until: resetAt,
+            now: now
+        )
+        guard relative != "곧 갱신" else {
+            return labeled(relative, label: label)
         }
 
-        // 1일 이상: 분 단위 생략
-        let totalHours = Int(max(0, interval)) / 3600
-        let days = totalHours / 24
-        let hours = totalHours % 24
-
-        let relative: String
-        if hours > 0 {
-            relative = "\(days)일 \(hours)시간 후"
+        let interval = resetAt.timeIntervalSince(now)
+        let relativeText: String
+        if isWeekly, interval > 86400 {
+            let totalHours = Int(max(0, interval)) / 3600
+            let days = totalHours / 24
+            let hours = totalHours % 24
+            relativeText =
+                hours > 0
+                    ? "\(days)일 \(hours)시간 후"
+                    : "\(days)일 후"
         } else {
-            relative = "\(days)일 후"
+            relativeText = relative
         }
 
-        let clockStyle: TimeFormatStyle = style == .remaining ? .h24 : style
-        if let clock = formatResetTimeWeekly(from: resetAt, style: clockStyle) {
-            return "\(label): \(relative) (\(clock))"
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.timeZone = timeZone
+        let clockStyle: TimeFormatStyle =
+            style == .remaining ? .h24 : style
+        if isWeekly, interval > 86400 {
+            formatter.dateFormat = "M월 d일 EEEE"
+        } else {
+            formatter.dateFormat =
+                clockStyle == .h12 ? "a h:mm" : "HH:mm"
         }
-        return "\(label): \(relative)"
+
+        return labeled(
+            "\(relativeText) · \(formatter.string(from: resetAt))",
+            label: label
+        )
+    }
+
+    nonisolated private static func labeled(
+        _ value: String,
+        label: String?
+    ) -> String {
+        guard let label, !label.isEmpty else {
+            return value
+        }
+        return "\(label): \(value)"
     }
 
     /// Date 기반 상대 시간 포맷 (30초 기준 반올림)
-    nonisolated static func formatRelativeTime(until date: Date) -> String {
-        let now = Date()
+    nonisolated static func formatRelativeTime(
+        until date: Date,
+        now: Date = Date()
+    ) -> String {
         let rawInterval = date.timeIntervalSince(now)
 
         if rawInterval <= 0 {

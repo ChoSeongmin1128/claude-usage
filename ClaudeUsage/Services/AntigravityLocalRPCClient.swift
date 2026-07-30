@@ -35,14 +35,29 @@ nonisolated struct AntigravityLocalRPCClient:
     private let connectionFactory:
         any AntigravityLocalRPCConnectionFactory
     private let now: @Sendable () -> Date
+    private let identityAttemptLimit: Int
+    private let identityRetryDelay: Duration
+    private let sleep:
+        @Sendable (Duration) async throws -> Void
 
     init(
         connectionFactory:
             any AntigravityLocalRPCConnectionFactory,
-        now: @escaping @Sendable () -> Date = Date.init
+        now: @escaping @Sendable () -> Date = Date.init,
+        identityAttemptLimit: Int = 3,
+        identityRetryDelay: Duration = .milliseconds(100),
+        sleep:
+            @escaping @Sendable (Duration) async throws -> Void = {
+                try await Task.sleep(for: $0)
+            }
     ) {
+        precondition(identityAttemptLimit > 0)
+        precondition(identityRetryDelay >= .zero)
         self.connectionFactory = connectionFactory
         self.now = now
+        self.identityAttemptLimit = identityAttemptLimit
+        self.identityRetryDelay = identityRetryDelay
+        self.sleep = sleep
     }
 
     func fetch(
@@ -132,57 +147,89 @@ nonisolated struct AntigravityLocalRPCClient:
         identity: AntigravityLocalAccountIdentity?,
         issue: AntigravityLocalIdentityIssue?
     ) {
-        let remaining = parentDeadline.remaining
-        guard remaining > .zero else {
-            throw AntigravityLocalRPCError.deadlineExceeded
-        }
-        let identityDeadline = AntigravityRPCDeadline(
-            totalTimeout: min(.seconds(1), remaining),
-            discoveryTimeout: .zero
-        )
+        var lastIssue =
+            AntigravityLocalIdentityIssue(
+                error: .transportFailure
+            )
+        for attempt in 0..<identityAttemptLimit {
+            let remaining = parentDeadline.remaining
+            guard remaining > .zero else {
+                throw AntigravityLocalRPCError.deadlineExceeded
+            }
+            let identityDeadline = AntigravityRPCDeadline(
+                totalTimeout: min(.seconds(1), remaining),
+                discoveryTimeout: .zero
+            )
 
-        do {
-            let response = try await connection.perform(
-                .getUserStatus,
-                deadline: identityDeadline
-            )
-            try AntigravityLocalRPCResponseValidator.validate(response)
-            return (
-                try AntigravityLocalIdentityDecoder.decode(response.body),
-                nil
-            )
-        } catch let error as AntigravityLocalRPCError {
-            if error == .deadlineExceeded {
+            do {
+                let response = try await connection.perform(
+                    .getUserStatus,
+                    deadline: identityDeadline
+                )
+                try AntigravityLocalRPCResponseValidator.validate(
+                    response
+                )
+                return (
+                    try AntigravityLocalIdentityDecoder.decode(
+                        response.body
+                    ),
+                    nil
+                )
+            } catch let error as AntigravityLocalRPCError {
+                if error == .deadlineExceeded {
+                    do {
+                        try parentDeadline.check(.request)
+                    } catch is CancellationError {
+                        throw AntigravityLocalRPCError.cancelled
+                    } catch is AntigravityRPCDeadlineError {
+                        throw AntigravityLocalRPCError
+                            .deadlineExceeded
+                    }
+                }
+                if Self.isFatalIdentityError(error) {
+                    throw error
+                }
+                lastIssue =
+                    AntigravityLocalIdentityIssue(error: error)
+            } catch is CancellationError {
+                throw AntigravityLocalRPCError.cancelled
+            } catch is AntigravityRPCDeadlineError {
                 do {
                     try parentDeadline.check(.request)
                 } catch is CancellationError {
                     throw AntigravityLocalRPCError.cancelled
                 } catch is AntigravityRPCDeadlineError {
-                    throw AntigravityLocalRPCError.deadlineExceeded
+                    throw AntigravityLocalRPCError
+                        .deadlineExceeded
                 }
-                // The one-second identity budget is deliberately best-effort.
-                // A healthy grouped quota response must survive an identity
-                // endpoint that is merely slow while the parent transaction
-                // still has time remaining.
-                return (
-                    nil,
-                    AntigravityLocalIdentityIssue(error: .deadlineExceeded)
-                )
+                lastIssue =
+                    AntigravityLocalIdentityIssue(
+                        error: .deadlineExceeded
+                    )
+            } catch {
+                lastIssue =
+                    AntigravityLocalIdentityIssue(
+                        error: .malformedPayload
+                    )
             }
-            if Self.isFatalIdentityError(error) {
-                throw error
+
+            guard attempt + 1 < identityAttemptLimit else {
+                break
             }
-            return (nil, AntigravityLocalIdentityIssue(error: error))
-        } catch is CancellationError {
-            throw AntigravityLocalRPCError.cancelled
-        } catch is AntigravityRPCDeadlineError {
-            throw AntigravityLocalRPCError.deadlineExceeded
-        } catch {
-            return (
-                nil,
-                AntigravityLocalIdentityIssue(error: .malformedPayload)
-            )
+            if identityRetryDelay > .zero {
+                do {
+                    try await sleep(identityRetryDelay)
+                } catch is CancellationError {
+                    throw AntigravityLocalRPCError.cancelled
+                } catch {
+                    throw AntigravityLocalRPCError
+                        .transportFailure
+                }
+            }
         }
+        // Grouped quota remains usable as capability evidence, but the
+        // coordinator will not bind it to an account without identity.
+        return (nil, lastIssue)
     }
 
     private func limitedCapability(

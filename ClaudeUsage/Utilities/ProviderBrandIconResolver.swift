@@ -91,11 +91,17 @@ struct ProviderSettingsSectionHeader: View {
     let title: String
 
     var body: some View {
-        HStack(spacing: 7) {
-            ProviderBrandIconView(provider: provider, kind: .settings, size: 16)
+        HStack(spacing: 9) {
+            ProviderBrandIconView(
+                provider: provider,
+                kind: .settings,
+                size: 18
+            )
+            .frame(width: 20, height: 20)
             Text(title)
         }
         .font(.headline)
         .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
     }
 }

@@ -3,13 +3,50 @@ import AppKit
 extension AppDelegate {
     // MARK: - Lifecycle
 
+    func applicationWillFinishLaunching(
+        _ notification: Notification
+    ) {
+        if isRunningUnitTests {
+            return
+        }
+
+        let supportDirectory =
+            AntigravityStoragePaths
+                .applicationSupportDirectoryURL()
+        switch AppSingleInstanceGuard.shared
+            .acquire(
+                applicationSupportDirectoryURL:
+                    supportDirectory
+            ) {
+        case .acquired:
+            ownsSingleInstanceLease = true
+        case .alreadyRunning:
+            Logger.warning(
+                "\(AppDistribution.current.appName) 동일 채널 인스턴스가 이미 실행 중입니다."
+            )
+            activateExistingChannelInstance()
+            NSApplication.shared.terminate(nil)
+        case .failed(let code):
+            Logger.error(
+                "단일 인스턴스 잠금을 만들지 못했습니다: \(code)"
+            )
+            NSApplication.shared.terminate(nil)
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         if isRunningUnitTests {
             Logger.info("ClaudeUsage 테스트 런치 감지: 앱 초기화를 건너뜁니다")
             return
         }
+        guard ownsSingleInstanceLease else {
+            return
+        }
 
-        Logger.info("ClaudeUsage 앱 시작")
+        didFinishRuntimeLaunch = true
+        Logger.info(
+            "\(AppDistribution.current.appName) 앱 시작"
+        )
 
         // 메뉴바 tooltip 표시 지연 단축 (macOS 기본 약 1.5초 → 0.5초).
         // 이 키는 앱 도메인에서만 읽히므로 시스템 전역에는 영향이 없다.
@@ -26,10 +63,45 @@ extension AppDelegate {
         syncUpdateCheckState(runImmediate: true)
         refreshSystemStatus()
         startStatusTimer()
+
+        let launchIntent = ApplicationLaunchIntent.parse(
+            arguments: CommandLine.arguments
+        )
+        if let settingsPanelRawValue =
+            launchIntent.settingsPanelRawValue
+        {
+            DispatchQueue.main.async { [weak self] in
+                self?.showSettingsWindow(
+                    settingsPanelRawValue:
+                    settingsPanelRawValue
+                )
+            }
+        } else if let service =
+                    launchIntent
+                        .requestedPopoverService
+        {
+            ServiceSelectionHelper
+                .setActivePopoverService(
+                    service,
+                    settings:
+                        AppSettings.shared
+                )
+            // Background automation launchers hide the process immediately
+            // after startup. Opening a transient NSPopover before that hide
+            // finishes closes it again, so this diagnostic-only intent waits
+            // until the launch handoff has settled.
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + 2
+            ) { [weak self] in
+                self?.toggleUnifiedPopover()
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        Logger.info("ClaudeUsage 앱 종료")
+        Logger.info(
+            "\(AppDistribution.current.appName) 앱 종료"
+        )
         refreshScheduler.stop()
         updateCoordinator.invalidate()
         statusTimer?.invalidate()
@@ -44,9 +116,15 @@ extension AppDelegate {
             NSEvent.removeMonitor(monitor)
         }
         stopGlobalClickMonitor()
+        AppSingleInstanceGuard.shared.release()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard ownsSingleInstanceLease,
+              didFinishRuntimeLaunch
+        else {
+            return .terminateNow
+        }
         if hasRepliedToTermination {
             return .terminateNow
         }
@@ -78,6 +156,29 @@ extension AppDelegate {
                 )
             }
         return .terminateLater
+    }
+
+    private func activateExistingChannelInstance() {
+        guard let bundleIdentifier =
+                Bundle.main.bundleIdentifier
+        else {
+            return
+        }
+        let currentProcessIdentifier =
+            ProcessInfo.processInfo
+                .processIdentifier
+        let existing =
+            NSRunningApplication
+                .runningApplications(
+                    withBundleIdentifier:
+                        bundleIdentifier
+                )
+                .first {
+                    $0.processIdentifier
+                        != currentProcessIdentifier
+                    && !$0.isTerminated
+                }
+        existing?.activate()
     }
 
     @MainActor

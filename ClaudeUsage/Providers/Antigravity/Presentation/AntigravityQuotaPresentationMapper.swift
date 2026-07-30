@@ -1,3 +1,4 @@
+// Pure mapping from verified quota snapshots to surface presentations.
 import Foundation
 
 nonisolated enum AntigravityQuotaPresentationMapper {
@@ -17,35 +18,56 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                 snapshot.decodeIssues.count
             )
         )
-        let groups = makeGroups(
+        let allGroups = makeGroups(
             from: snapshot.lanes,
             now: now,
             locale: locale,
             timeZone: timeZone
         )
-        let orderedLanes = groups.flatMap(\.lanes)
+        let orderedLanes = allGroups.flatMap(\.lanes)
+        let standardLanes = displayedLanes(
+            intent: settings.standard,
+            from: orderedLanes
+        )
+        let compactLanes = displayedLanes(
+            intent: settings.compact,
+            from: orderedLanes
+        )
+        let groups = regroup(
+            standardLanes,
+            using: allGroups
+        )
         let identityRail = makeIdentityRail(
             snapshot: snapshot,
             context: context,
             now: now
         )
 
-        let compactSelection = selection(
-            policy: settings.compact.laneSelection,
-            surface: .compact,
-            from: orderedLanes
-        )
         let menuBarSelection = selection(
             policy: settings.menuBar.laneSelection,
             surface: .menuBar,
             from: orderedLanes
         )
+        let additionalMenuBarLanes =
+            settings.menuBar.effectiveAdditionalLaneIDs
+                .compactMap { laneID in
+                    orderedLanes.first {
+                        $0.id == laneID
+                            && $0.value.usedPercentage != nil
+                    }
+                }
+                .filter {
+                    $0.id != menuBarSelection.lane?.id
+                }
 
         let compact = compactPresentation(
-            selectedLane: compactSelection.lane
+            selectedLanes: compactLanes
         )
         let menuBar = menuBarPresentation(
-            selectedLane: menuBarSelection.lane,
+            selectedLanes:
+                [menuBarSelection.lane]
+                    .compactMap { $0 }
+                    + additionalMenuBarLanes,
             groups: groups,
             identityRail: identityRail,
             settings: settings,
@@ -56,14 +78,13 @@ nonisolated enum AntigravityQuotaPresentationMapper {
 
         return AntigravityQuotaPresentation(
             context: context,
+            allGroups: allGroups,
             groups: groups,
             compact: compact,
             menuBar: menuBar,
             identityRail: identityRail,
-            notices: [
-                compactSelection.notice,
-                menuBarSelection.notice,
-            ].compactMap { $0 }
+            notices: [menuBarSelection.notice]
+                .compactMap { $0 }
         )
     }
 
@@ -308,32 +329,150 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         return selected
     }
 
+    private static func displayedLanes(
+        intent:
+            AntigravityDisplaySettings.LaneListPresentationIntent,
+        from lanes: [AntigravityQuotaLanePresentation]
+    ) -> [AntigravityQuotaLanePresentation] {
+        var laneByID: [
+            AntigravityQuotaLaneID:
+                AntigravityQuotaLanePresentation
+        ] = [:]
+        for lane in lanes
+        where laneByID[lane.id] == nil {
+            laneByID[lane.id] = lane
+        }
+        var orderedIDs = intent.orderedLaneIDs
+        let persistedIDs = Set(orderedIDs)
+        orderedIDs.append(
+            contentsOf: lanes.map(\.id).filter {
+                !persistedIDs.contains($0)
+            }
+        )
+
+        let visible = orderedIDs.compactMap {
+            intent.hiddenLaneIDs.contains($0)
+                ? nil
+                : laneByID[$0]
+        }
+        guard intent.orderingPolicy == .mostConstrainedFirst else {
+            return visible
+        }
+
+        var stableOrder:
+            [AntigravityQuotaLaneID: Int] = [:]
+        for (index, lane) in visible.enumerated()
+        where stableOrder[lane.id] == nil {
+            stableOrder[lane.id] = index
+        }
+        return visible.sorted { lhs, rhs in
+            switch (
+                lhs.value.usedPercentage,
+                rhs.value.usedPercentage
+            ) {
+            case let (lhsValue?, rhsValue?):
+                if lhsValue != rhsValue {
+                    return lhsValue > rhsValue
+                }
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            case (nil, nil):
+                break
+            }
+            return (stableOrder[lhs.id] ?? .max)
+                < (stableOrder[rhs.id] ?? .max)
+        }
+    }
+
+    private static func regroup(
+        _ lanes: [AntigravityQuotaLanePresentation],
+        using allGroups: [AntigravityQuotaGroupPresentation]
+    ) -> [AntigravityQuotaGroupPresentation] {
+        let templateByLaneID: [
+            AntigravityQuotaLaneID:
+                AntigravityQuotaGroupPresentation
+        ] = {
+            var value: [
+                AntigravityQuotaLaneID:
+                    AntigravityQuotaGroupPresentation
+            ] = [:]
+            for group in allGroups {
+                for lane in group.lanes
+                where value[lane.id] == nil {
+                    value[lane.id] = group
+                }
+            }
+            return value
+        }()
+
+        var result: [AntigravityQuotaGroupPresentation] = []
+        var groupIndex: [
+            AntigravityQuotaGroupPresentationID: Int
+        ] = [:]
+        for lane in lanes {
+            guard let template = templateByLaneID[lane.id] else {
+                continue
+            }
+            if let index = groupIndex[template.id] {
+                let current = result[index]
+                result[index] = AntigravityQuotaGroupPresentation(
+                    id: current.id,
+                    title: current.title,
+                    isUnknownScope: current.isUnknownScope,
+                    lanes: current.lanes + [lane]
+                )
+            } else {
+                groupIndex[template.id] = result.count
+                result.append(
+                    AntigravityQuotaGroupPresentation(
+                        id: template.id,
+                        title: template.title,
+                        isUnknownScope: template.isUnknownScope,
+                        lanes: [lane]
+                    )
+                )
+            }
+        }
+        return result
+    }
+
     private static func compactPresentation(
-        selectedLane: AntigravityQuotaLanePresentation?
+        selectedLanes: [AntigravityQuotaLanePresentation]
     ) -> AntigravityCompactQuotaPresentation {
-        guard let selectedLane,
-              let usedPercentage = selectedLane.value.usedPercentage,
-              let percentageText = selectedLane.percentageText
-        else {
+        let metrics:
+            [AntigravityCompactQuotaMetricPresentation] =
+            selectedLanes.compactMap { lane
+                -> AntigravityCompactQuotaMetricPresentation?
+                in
+            guard let usedPercentage = lane.value.usedPercentage,
+                  let percentageText = lane.percentageText
+            else {
+                return nil
+            }
+            return AntigravityCompactQuotaMetricPresentation(
+                laneID: lane.id,
+                label: lane.compactLabel,
+                usedPercentage: usedPercentage,
+                percentageText: percentageText,
+                tone: lane.tone,
+                tooltip: lane.tooltip,
+                accessibilityLabel: lane.accessibilityLabel,
+                accessibilityValue: lane.accessibilityValue
+            )
+        }
+        guard !metrics.isEmpty else {
             return .unavailable
         }
         return AntigravityCompactQuotaPresentation(
-            metric: AntigravityCompactQuotaMetricPresentation(
-                laneID: selectedLane.id,
-                label: selectedLane.compactLabel,
-                usedPercentage: usedPercentage,
-                percentageText: percentageText,
-                tone: selectedLane.tone,
-                tooltip: selectedLane.tooltip,
-                accessibilityLabel: selectedLane.accessibilityLabel,
-                accessibilityValue: selectedLane.accessibilityValue
-            ),
+            metrics: metrics,
             unavailableText: nil
         )
     }
 
     private static func menuBarPresentation(
-        selectedLane: AntigravityQuotaLanePresentation?,
+        selectedLanes: [AntigravityQuotaLanePresentation],
         groups: [AntigravityQuotaGroupPresentation],
         identityRail: ProviderIdentityRailProjection,
         settings: AntigravityDisplaySettings,
@@ -345,8 +484,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             groups: groups,
             identityRail: identityRail
         )
-        guard let selectedLane,
-              let percentageText = selectedLane.percentageText
+        guard let selectedLane = selectedLanes.first,
+              selectedLane.percentageText != nil
         else {
             return AntigravityMenuBarQuotaPresentation(
                 isVisible: settings.menuBar.isVisible,
@@ -368,27 +507,42 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             )
         }
 
-        let resetText = menuBarResetText(
-            selectedLane,
-            timeFormat: settings.menuBar.timeFormat,
-            now: now,
-            locale: locale,
-            timeZone: timeZone
-        )
-        var regularComponents = [selectedLane.menuLabel]
-        if settings.menuBar.showsSelectedLanePercentage {
-            regularComponents.append(percentageText)
+        let regularText = selectedLanes.compactMap { lane -> String? in
+            guard let percentageText = lane.percentageText else {
+                return nil
+            }
+            var components = [lane.menuLabel]
+            if settings.menuBar.showsSelectedLanePercentage {
+                components.append(percentageText)
+            }
+            if settings.menuBar.showsSelectedLaneResetTime {
+                components.append(
+                    menuBarResetText(
+                        lane,
+                        timeFormat: settings.menuBar.timeFormat,
+                        now: now,
+                        locale: locale,
+                        timeZone: timeZone
+                    )
+                )
+            }
+            return components.joined(separator: " ")
         }
-        if settings.menuBar.showsSelectedLaneResetTime {
-            regularComponents.append(resetText)
-        }
-        let condensedText: String?
-        if settings.menuBar.showsSelectedLanePercentage {
-            condensedText = percentageText
-        } else if settings.menuBar.showsSelectedLaneResetTime {
-            condensedText = resetText
-        } else {
-            condensedText = nil
+        let condensedText = selectedLanes.compactMap {
+            lane -> String? in
+            if settings.menuBar.showsSelectedLanePercentage {
+                return lane.percentageText
+            }
+            if settings.menuBar.showsSelectedLaneResetTime {
+                return menuBarResetText(
+                    lane,
+                    timeFormat: settings.menuBar.timeFormat,
+                    now: now,
+                    locale: locale,
+                    timeZone: timeZone
+                )
+            }
+            return nil
         }
 
         return AntigravityMenuBarQuotaPresentation(
@@ -396,8 +550,11 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             showsProviderIcon: settings.menuBar.showsProviderIcon,
             style: settings.menuBar.style,
             selectedLaneID: selectedLane.id,
-            regularText: regularComponents.joined(separator: " "),
-            condensedText: condensedText,
+            regularText: regularText.joined(separator: " · "),
+            condensedText:
+                condensedText.isEmpty
+                    ? nil
+                    : condensedText.joined(separator: " · "),
             gaugePercentage: menuBarGaugePercentage(
                 selectedLane,
                 settings: settings.menuBar
@@ -408,8 +565,9 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             tone: selectedLane.tone,
             accessibilityLabel: "Antigravity 메뉴 막대 사용량",
             accessibilityValue: [
-                selectedLane.accessibilityLabel,
-                selectedLane.accessibilityValue,
+                selectedLanes.map {
+                    "\($0.accessibilityLabel), \($0.accessibilityValue)"
+                }.joined(separator: "; "),
                 identityRail.accessibilityValue,
             ].joined(separator: ", ")
         )
@@ -572,36 +730,14 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         guard let resetAt = lane.resetAt else {
             return "갱신 시각 알 수 없음"
         }
-
-        switch lane.cadence {
-        case .fiveHour:
-            let interval = resetAt.timeIntervalSince(now)
-            guard interval > 0 else {
-                return formattedResetDate(
-                    resetAt,
-                    cadence: lane.cadence,
-                    locale: locale,
-                    timeZone: timeZone
-                )
-            }
-            let totalMinutes = max(1, Int(interval / 60))
-            let hours = totalMinutes / 60
-            let minutes = totalMinutes % 60
-            if hours > 0, minutes > 0 {
-                return "\(hours)시간 \(minutes)분 후"
-            }
-            if hours > 0 {
-                return "\(hours)시간 후"
-            }
-            return "\(minutes)분 후"
-        case .weekly, .unknown:
-            return formattedResetDate(
-                resetAt,
-                cadence: lane.cadence,
-                locale: locale,
-                timeZone: timeZone
-            )
-        }
+        return TimeFormatter.formatUsageResetDetail(
+            resetAt: resetAt,
+            isWeekly: lane.cadence != .fiveHour,
+            now: now,
+            locale: locale,
+            timeZone: timeZone,
+            label: nil
+        )
     }
 
     private static func menuBarResetText(

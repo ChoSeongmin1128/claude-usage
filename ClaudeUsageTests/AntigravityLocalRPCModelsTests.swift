@@ -469,7 +469,8 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
         let client = AntigravityLocalRPCClient(
             connectionFactory: LocalRPCConnectionFactoryStub(
                 connection: connection
-            )
+            ),
+            identityAttemptLimit: 1
         )
         let endpoint = try makeEndpoint(
             role: .agyCLI,
@@ -495,7 +496,8 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
         let client = AntigravityLocalRPCClient(
             connectionFactory: LocalRPCConnectionFactoryStub(
                 connection: connection
-            )
+            ),
+            identityAttemptLimit: 1
         )
         let endpoint = try makeEndpoint(
             role: .agyCLI,
@@ -512,6 +514,41 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
         XCTAssertEqual(identityIssue?.error, .deadlineExceeded)
         XCTAssertEqual(connection.methods, [
             .retrieveUserQuotaSummary,
+            .getUserStatus,
+        ])
+        XCTAssertTrue(connection.wasInvalidated)
+    }
+
+    func testClientRetriesBestEffortIdentityBeforeReturningGroupedQuota()
+        async throws
+    {
+        let connection = LocalRPCConnectionStub(outcomes: [
+            .response(groupedQuotaResponse()),
+            .failure(.deadlineExceeded),
+            .response(identityResponse()),
+        ])
+        let client = AntigravityLocalRPCClient(
+            connectionFactory: LocalRPCConnectionFactoryStub(
+                connection: connection
+            ),
+            identityRetryDelay: .zero
+        )
+        let endpoint = try makeEndpoint(
+            role: .agyCLI,
+            transport: .agyCLI,
+            authentication: .cliTokenless
+        )
+
+        let result = try await client.fetch(from: endpoint)
+        guard case let .grouped(snapshot, identityIssue) = result else {
+            return XCTFail("Expected grouped quota")
+        }
+
+        XCTAssertEqual(snapshot.identity?.email, "nathan@example.com")
+        XCTAssertNil(identityIssue)
+        XCTAssertEqual(connection.methods, [
+            .retrieveUserQuotaSummary,
+            .getUserStatus,
             .getUserStatus,
         ])
         XCTAssertTrue(connection.wasInvalidated)

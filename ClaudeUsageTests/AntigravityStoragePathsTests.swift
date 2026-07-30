@@ -10,13 +10,15 @@ final class AntigravityStoragePathsTests: XCTestCase {
 
         XCTAssertEqual(
             AntigravityStoragePaths.applicationSupportDirectoryURL(
-                homeDirectoryURL: home
+                homeDirectoryURL: home,
+                directoryName: "ClaudeUsage"
             ).path,
             "/Users/example/Library/Application Support/ClaudeUsage"
         )
         XCTAssertEqual(
             AntigravityStoragePaths.canonicalStateDirectoryURL(
-                homeDirectoryURL: home
+                homeDirectoryURL: home,
+                directoryName: "ClaudeUsage"
             ).path,
             "/Users/example/Library/Application Support/ClaudeUsage/Antigravity"
         )
@@ -30,9 +32,34 @@ final class AntigravityStoragePathsTests: XCTestCase {
 
         XCTAssertEqual(
             AntigravityStoragePaths.canonicalStateDirectoryURL(
-                homeDirectoryURL: home
+                homeDirectoryURL: home,
+                directoryName: "ClaudeUsage"
             ).path,
             "/Users/example/Library/Application Support/ClaudeUsage/Antigravity"
+        )
+    }
+
+    func testStagingStateAndSharedLaunchLockUseSeparateRoots() {
+        let home = URL(
+            fileURLWithPath: "/Users/example",
+            isDirectory: true
+        )
+
+        XCTAssertEqual(
+            AntigravityStoragePaths
+                .canonicalStateDirectoryURL(
+                    homeDirectoryURL: home,
+                    directoryName:
+                        "ClaudeUsage-stg"
+                ).path,
+            "/Users/example/Library/Application Support/ClaudeUsage-stg/Antigravity"
+        )
+        XCTAssertEqual(
+            AntigravityStoragePaths
+                .managedLaunchCoordinationDirectoryURL(
+                    homeDirectoryURL: home
+                ).path,
+            "/Users/example/Library/Application Support/ClaudeUsageShared/Antigravity"
         )
     }
 }

@@ -63,9 +63,45 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
             presentation.groups[2].lanes.map(\.cadenceTitle),
             ["daily"]
         )
+        XCTAssertEqual(
+            presentation.groups[0].lanes
+                .prefix(2)
+                .map(\.standardRowTitle),
+            ["5시간 한도", "주간 한도"]
+        )
         XCTAssertFalse(presentation.groups[0].isUnknownScope)
         XCTAssertTrue(presentation.groups[2].isUnknownScope)
         XCTAssertEqual(presentation.observedLaneCount, lanes.count)
+    }
+
+    func testResetDetailUsesSharedProviderFormattingRules() {
+        let presentation = map([
+            makeLane(
+                id:
+                    AntigravityQuotaLaneID
+                        .geminiWeekly.rawValue,
+                scope: .gemini,
+                cadence: .weekly,
+                remaining: 0.6,
+                resetAt:
+                    now.addingTimeInterval(
+                        4 * 24 * 3600
+                            + 8 * 3600
+                    )
+            ),
+        ])
+        let resetText =
+            presentation.groups[0].lanes[0]
+                .resetText
+
+        XCTAssertTrue(
+            resetText.hasPrefix(
+                "4일 8시간 후 · "
+            )
+        )
+        XCTAssertTrue(resetText.contains("월"))
+        XCTAssertFalse(resetText.contains("("))
+        XCTAssertFalse(resetText.contains(")"))
     }
 
     func testUnknownGroupIDsCannotCollideThroughDelimiterContent() {
@@ -362,7 +398,7 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         XCTAssertEqual(projected.tone, .critical)
     }
 
-    func testCompactAndMenuSelectExactlyOneMostConstrainedLane() throws {
+    func testCompactShowsAllVisibleLanesMostConstrainedFirstWhileMenuSelectsOne() throws {
         let presentation = map([
             makeLane(
                 id: AntigravityQuotaLaneID.geminiFiveHour.rawValue,
@@ -390,14 +426,76 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
             ),
         ])
 
-        let compactMetric = try XCTUnwrap(presentation.compact.metric)
-        XCTAssertEqual(compactMetric.laneID, .thirdPartyWeekly)
+        XCTAssertEqual(
+            presentation.compact.metrics.map(\.laneID),
+            [
+                .thirdPartyWeekly,
+                .geminiWeekly,
+                .geminiFiveHour,
+                .thirdPartyFiveHour,
+            ]
+        )
+        let compactMetric = try XCTUnwrap(
+            presentation.compact.metrics.first
+        )
         XCTAssertEqual(compactMetric.label, "Claude·GPT · 주간")
         XCTAssertEqual(compactMetric.usedPercentage, 68, accuracy: 0.0001)
         XCTAssertEqual(compactMetric.percentageText, "68%")
         XCTAssertEqual(presentation.menuBar.selectedLaneID, .thirdPartyWeekly)
         XCTAssertEqual(presentation.menuBar.regularText, "C/G·주 68%")
         XCTAssertEqual(presentation.menuBar.condensedText, "68%")
+    }
+
+    func testMenuBarCanShowMultipleUserSelectedLanesWhileGaugeUsesRepresentativeLane() throws {
+        var settings = AntigravityDisplaySettings.default
+        settings.menuBar.laneSelection =
+            .fixed(.geminiFiveHour)
+        settings.menuBar.additionalLaneIDs = [
+            .geminiWeekly,
+            .thirdPartyWeekly,
+        ]
+        settings.menuBar.style = .circular
+
+        let presentation = map([
+            makeLane(
+                id: AntigravityQuotaLaneID.geminiFiveHour.rawValue,
+                scope: .gemini,
+                cadence: .fiveHour,
+                remaining: 0.8
+            ),
+            makeLane(
+                id: AntigravityQuotaLaneID.geminiWeekly.rawValue,
+                scope: .gemini,
+                cadence: .weekly,
+                remaining: 0.6
+            ),
+            makeLane(
+                id: AntigravityQuotaLaneID.thirdPartyWeekly.rawValue,
+                scope: .thirdPartyModels,
+                cadence: .weekly,
+                remaining: 0.3
+            ),
+        ], settings: settings)
+
+        XCTAssertEqual(
+            presentation.menuBar.regularText,
+            "G·5h 20% · G·주 40% · C/G·주 70%"
+        )
+        XCTAssertEqual(
+            presentation.menuBar.condensedText,
+            "20% · 40% · 70%"
+        )
+        XCTAssertEqual(
+            presentation.menuBar.selectedLaneID,
+            .geminiFiveHour
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                presentation.menuBar.gaugePercentage
+            ),
+            20,
+            accuracy: 0.0001
+        )
     }
 
     func testMostConstrainedTieUsesStableKnownLaneOrder() throws {
@@ -417,12 +515,12 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         ])
 
         XCTAssertEqual(
-            try XCTUnwrap(presentation.compact.metric).laneID,
-            .geminiFiveHour
+            presentation.compact.metrics.map(\.laneID),
+            [.geminiFiveHour, .geminiWeekly]
         )
     }
 
-    func testFixedLaneLossFallsBackWithoutMutatingSettings() throws {
+    func testMissingPersistedCompactLaneStaysEmptyWithoutMutatingSettings() throws {
         var settings = AntigravityDisplaySettings.default
         let missingCompactID = AntigravityQuotaLaneID(
             rawValue: "removed.compact"
@@ -430,7 +528,16 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         let missingMenuID = AntigravityQuotaLaneID(
             rawValue: "removed.menu"
         )
-        settings.compact.laneSelection = .fixed(missingCompactID)
+        settings.compact = .init(
+            orderedLaneIDs: [missingCompactID]
+                + AntigravityDisplaySettings
+                    .builtInLaneIDs,
+            hiddenLaneIDs: Set(
+                AntigravityDisplaySettings
+                    .builtInLaneIDs
+            ),
+            orderingPolicy: .manual
+        )
         settings.menuBar.laneSelection = .fixed(missingMenuID)
         let originalSettings = settings
         let availableLane = makeLane(
@@ -443,22 +550,17 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         let presentation = map([availableLane], settings: settings)
 
         XCTAssertEqual(settings, originalSettings)
-        XCTAssertEqual(
-            try XCTUnwrap(presentation.compact.metric).laneID,
-            .thirdPartyWeekly
+        XCTAssertTrue(
+            presentation.compact.metrics.isEmpty
         )
         XCTAssertEqual(presentation.menuBar.selectedLaneID, .thirdPartyWeekly)
         XCTAssertEqual(
             presentation.notices.map(\.surface),
-            [.compact, .menuBar]
+            [.menuBar]
         )
         XCTAssertEqual(
             presentation.notices.map(\.kind),
             [
-                .fixedLaneUnavailable(
-                    requestedLaneID: missingCompactID,
-                    fallbackLaneID: .thirdPartyWeekly
-                ),
                 .fixedLaneUnavailable(
                     requestedLaneID: missingMenuID,
                     fallbackLaneID: .thirdPartyWeekly
@@ -467,9 +569,21 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         )
     }
 
-    func testFixedAvailableLaneWinsEvenWhenAnotherLaneIsMoreConstrained() throws {
+    func testManualCompactVisibilityAndOrderArePreserved() throws {
         var settings = AntigravityDisplaySettings.default
-        settings.compact.laneSelection = .fixed(.geminiFiveHour)
+        settings.compact = .init(
+            orderedLaneIDs: [
+                .geminiFiveHour,
+                .thirdPartyWeekly,
+                .geminiWeekly,
+                .thirdPartyFiveHour,
+            ],
+            hiddenLaneIDs: [
+                .geminiWeekly,
+                .thirdPartyFiveHour,
+            ],
+            orderingPolicy: .manual
+        )
 
         let presentation = map([
             makeLane(
@@ -487,8 +601,8 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         ], settings: settings)
 
         XCTAssertEqual(
-            try XCTUnwrap(presentation.compact.metric).laneID,
-            .geminiFiveHour
+            presentation.compact.metrics.map(\.laneID),
+            [.geminiFiveHour, .thirdPartyWeekly]
         )
         XCTAssertTrue(presentation.notices.isEmpty)
     }
