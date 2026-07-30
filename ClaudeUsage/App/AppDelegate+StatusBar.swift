@@ -11,46 +11,198 @@ extension AppDelegate {
 
     // MARK: - Placement Watchdog
 
-    /// macOS 26의 ControlCenter는 서드파티 상태 아이템을 자체 저장소
-    /// (`trackedApplications`) 기준으로 차단할 수 있고, 그 상태에서는 아이템
-    /// 창이 메뉴바에 편입되지 못한 채 오프스크린에 남는다(실측). 앱은 이를
-    /// API로 통지받지 못해 사용자에겐 "앱이 안 뜬다"로만 보이므로, 배치 여부를
-    /// 창 노출 상태로 확인해 복구 경로를 알려 준다.
+    /// macOS 26의 ControlCenter가 상태 아이템 scene을 차단하거나 생성하지
+    /// 못하는 경우를 시작 직후 한 번 복구합니다. 반복 재생성은 ControlCenter
+    /// 저장 상태를 더 손상시킬 수 있으므로 최대 한 번만 시도합니다.
     func scheduleStatusItemPlacementCheck() {
         statusItemPlacementCheckTask?.cancel()
         statusItemPlacementCheckTask = Task { @MainActor [weak self] in
-            // 로그인 직후나 느린 부팅에서 메뉴바가 정착할 시간을 준다.
-            try? await Task.sleep(nanoseconds: 20_000_000_000)
-            guard let self, !Task.isCancelled, self.isStatusItemUnplaced else { return }
-            // 전체 화면 같은 일시 상태의 오탐을 줄이기 위해 한 번 더 본다.
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-            guard !Task.isCancelled, self.isStatusItemUnplaced else { return }
+            do {
+                try await Task.sleep(
+                    for:
+                        StatusItemPlacementRecoveryPolicy
+                            .startupCheckDelay
+                )
+            } catch {
+                return
+            }
+            guard let self,
+                  !Task.isCancelled,
+                  self.isStatusItemPlacementBlocked
+            else {
+                return
+            }
+
             Logger.error(
-                "메뉴바 아이템이 배치되지 않았습니다. 시스템 설정 > 메뉴 막대에서 ClaudeUsage 표시 여부를 확인하세요."
+                "메뉴바 아이템이 생성되지 않았습니다. "
+                    + self.statusItemPlacementEvidence
+                        .description
             )
-            self.notifyStatusItemUnplacedOncePerDay()
+            self.rebuildStatusItems()
+            self.updateMenuBar(force: true)
+
+            do {
+                try await Task.sleep(
+                    for:
+                        StatusItemPlacementRecoveryPolicy
+                            .recreationSettleDelay
+                )
+            } catch {
+                return
+            }
+            guard !Task.isCancelled,
+                  self.isStatusItemPlacementBlocked
+            else {
+                Logger.info(
+                    "메뉴바 아이템 재생성 후 배치가 복구됐습니다."
+                )
+                return
+            }
+
+            Logger.error(
+                "메뉴바 아이템이 한 차례 재생성 후에도 차단 상태입니다. "
+                    + self.statusItemPlacementEvidence
+                        .description
+            )
+            self.presentStatusItemPlacementGuidance()
         }
     }
 
-    /// 배치된 상태 아이템 창은 window server 목록에 올라 `.visible`을 갖는다.
-    /// 차단/미배치 상태에서는 창이 오프스크린 좌표에 파킹되고 목록에서 빠진다.
-    private var isStatusItemUnplaced: Bool {
-        // 메뉴바를 항상 자동으로 가리는 사용자는 정상 상태에서도 노출이 아니므로 제외.
-        if UserDefaults.standard.bool(forKey: "_HIHideMenuBar") { return false }
-        guard let window = statusItem?.button?.window else { return true }
-        return !window.occlusionState.contains(.visible)
+    var statusItemPlacementSnapshot:
+        StatusItemPlacementSnapshot
+    {
+        let button = statusItem?.button
+        let screen = button?.window?.screen
+        return StatusItemPlacementSnapshot(
+            // ClaudeUsage는 provider가 비어 있어도 placeholder를 표시하므로
+            // status item이 존재하는 동안 항상 표시 의도가 있습니다.
+            expectsVisibility: statusItem != nil,
+            reportsVisible:
+                statusItem?.isVisible == true,
+            hasButton: button != nil,
+            hasWindow: button?.window != nil,
+            hasScreen: screen != nil,
+            isOnCurrentScreen:
+                screen.map {
+                    currentScreensContain($0)
+                }
+                ?? false,
+            buttonWidth: button?.frame.width ?? 0
+        )
     }
 
-    private func notifyStatusItemUnplacedOncePerDay() {
-        let stampKey = "statusItemUnplacedNoticeDate"
-        let today = ISO8601DateFormatter().string(from: Date()).prefix(10)
-        let defaults = UserDefaults.standard
-        guard defaults.string(forKey: stampKey)?.hasPrefix(today) != true else { return }
-        defaults.set(String(today), forKey: stampKey)
-        UserNotificationDeliverer().deliver(
-            title: "ClaudeUsage가 메뉴바에 표시되지 않습니다",
-            body: "시스템 설정 > 메뉴 막대에서 ClaudeUsage를 켠 뒤에도 계속되면 Mac을 재시동해 주세요."
+    var statusItemPlacementEvidence:
+        StatusItemPlacementEvidence
+    {
+        let autosaveName =
+            statusItem?.autosaveName ?? ""
+        return StatusItemPlacementEvidence(
+            autosaveName: autosaveName,
+            visibilityDefault:
+                StatusItemPlacementRecoveryPolicy
+                    .visibilityDefault(
+                        defaults:
+                            UserDefaults.standard,
+                        autosaveName:
+                            autosaveName
+                    ),
+            snapshot:
+                statusItemPlacementSnapshot,
+            windowSnapshots:
+                StatusItemWindowProbe.snapshots(
+                    matching:
+                        Set([autosaveName])
+                )
         )
+    }
+
+    var isStatusItemPlacementBlocked: Bool {
+        StatusItemPlacementRecoveryPolicy
+            .isBlocked(
+                statusItemPlacementEvidence,
+                detectTahoeBlockedStatusItem:
+                    ProcessInfo.processInfo
+                        .operatingSystemVersion
+                        .majorVersion
+                        >= 26
+            )
+    }
+
+    private func currentScreensContain(
+        _ screen: NSScreen
+    ) -> Bool {
+        let key =
+            NSDeviceDescriptionKey(
+                "NSScreenNumber"
+            )
+        let screenNumber =
+            screen.deviceDescription[key]
+                as? NSNumber
+        return NSScreen.screens.contains {
+            let candidateNumber =
+                $0.deviceDescription[key]
+                    as? NSNumber
+            if let screenNumber,
+               let candidateNumber
+            {
+                return screenNumber
+                    == candidateNumber
+            }
+            return $0 === screen
+        }
+    }
+
+    func presentStatusItemPlacementGuidance(
+        force: Bool = false
+    ) {
+        let defaults = UserDefaults.standard
+        guard force
+            || StatusItemPlacementRecoveryPolicy
+                .shouldShowGuidance(
+                    defaults: defaults
+                )
+        else {
+            return
+        }
+        StatusItemPlacementRecoveryPolicy
+            .markGuidanceShown(
+                defaults: defaults
+            )
+
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText =
+            "\(AppDistribution.current.appName)를 메뉴 막대에 표시하지 못했습니다"
+        alert.informativeText =
+            "앱은 실행 중이지만 macOS가 상태 아이템을 차단했습니다. "
+            + "시스템 설정 > 메뉴 막대에서 \(AppDistribution.current.appName)를 켜 주세요. "
+            + "이미 켜져 있는데도 계속 보이지 않으면 앱 설정에서 업데이트를 확인하거나 문제를 보고해 주세요."
+        alert.alertStyle = .warning
+        alert.addButton(
+            withTitle: "메뉴 막대 설정 열기"
+        )
+        alert.addButton(
+            withTitle: "앱 설정 열기"
+        )
+        alert.addButton(
+            withTitle: "닫기"
+        )
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            if let url = URL(
+                string:
+                    "x-apple.systempreferences:com.apple.MenuBarSettings"
+            ) {
+                NSWorkspace.shared.open(url)
+            }
+        case .alertSecondButtonReturn:
+            showSettingsWindow(
+                settingsPanelRawValue: "updates"
+            )
+        default:
+            break
+        }
     }
 
     func rebuildStatusItems() {
@@ -60,8 +212,44 @@ extension AppDelegate {
         statusItem = nil
         appearanceObservation = nil
 
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = statusItem?.button {
+        let autosaveName =
+            AppDistribution.current.channel
+                == .staging
+            ? "claudeusage-staging"
+            : "claudeusage"
+        let repairedKeys =
+            StatusItemPlacementRecoveryPolicy
+                .clearInvalidPreferredPosition(
+                    defaults:
+                        UserDefaults.standard,
+                    autosaveName: autosaveName,
+                    legacyDefaultItemIndex: 0,
+                    maximumPreferredPosition:
+                        NSScreen.screens
+                            .map {
+                                Double(
+                                    $0.frame.maxX
+                                )
+                            }
+                            .max()
+                )
+        if !repairedKeys.isEmpty {
+            Logger.warning(
+                "잘못된 메뉴바 위치 기본값을 정리했습니다: "
+                    + repairedKeys.joined(
+                        separator: ", "
+                    )
+            )
+        }
+
+        let item =
+            NSStatusBar.system.statusItem(
+                withLength:
+                    NSStatusItem.variableLength
+            )
+        item.autosaveName = autosaveName
+        statusItem = item
+        if let button = item.button {
             button.title = "..."
             button.toolTip = "ClaudeUsage"
             button.action = #selector(statusItemClicked(_:))

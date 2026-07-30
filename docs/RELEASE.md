@@ -437,6 +437,43 @@ spctl -a -t exec -vv "/Volumes/ClaudeUsage/ClaudeUsage.app"
 gh auth switch --hostname github.com --user nathan-glorang
 ```
 
+### Prod 전 수동 메뉴바 검증
+
+macOS 26의 ControlCenter는 다른 GUI 자동화 호스트가 메뉴바 앱을 실행하면
+status item의 bundle attribution을 그 호스트에 잘못 영구 저장할 수 있다.
+따라서 staging runtime QA에서는 Codex, Claude, CuaDriver, Terminal의 `open`,
+release script로 설치 앱을 실행하지 않는다. 검증 담당자가 Applications의
+`ClaudeUsage-stg.app`을 Finder에서 직접 실행해야 한다.
+
+직접 실행 직후 아래 세 조건을 모두 확인하기 전에는 prod를 실행하지 않는다.
+
+- 실제 메뉴바에 ClaudeUsage-stg 아이템이 표시됨
+- 같은 채널 프로세스가 정확히 하나이고 `/Applications/ClaudeUsage-stg.app`에서
+  실행됨
+- ControlCenter `appStatusItems` 로그에 해당 PID의 `Adding displayable items`가
+  있고 `Moving host to blocked list`가 없음
+
+자동화 호스트가 설치 앱을 한 번이라도 실행했다면 그 뒤의 Finder 실행도 이미
+오염된 ControlCenter 상태 때문에 실패할 수 있으므로 해당 QA는 유효하지 않다.
+보호 저장소를 백업·복구한 뒤 Finder 직접 실행부터 다시 검증한다.
+
+자동 테스트가 통과해도 위 세 항목은 대체되지 않는다. 특히 새 autosave
+name으로 처음 올라가는 upgrade 경로와 사용자가 시스템 설정에서 의도적으로
+숨긴 상태는 signed staging 앱으로 확인한다. 의도적 숨김은 앱이 상태 항목을
+재생성하거나 경고를 띄우면 실패다.
+
+2.4.6의 prod 승격은 아래 조건을 모두 충족할 때만 허용한다.
+
+1. notarized staging ZIP/DMG와 public staging appcast 원격 검증 통과
+2. 기존 2.4.5-staging에서 2.4.6으로 업데이트 후 설정·계정·Keychain 유지
+3. Finder의 Applications에서 직접 실행해 메뉴바 표시 및 popover 상호작용 확인
+4. 같은 채널 프로세스 1개, prod와 staging 동시 실행 시 각 1개 이하
+5. 정상 표시, 의도적 숨김, 재표시, 재부팅/로그인 항목 실행에서 반복 재생성 없음
+6. 위 실행 구간의 ControlCenter 로그에 차단 기록 없음
+
+한 항목이라도 확인하지 못하면 prod를 게시하지 않고 다음 staging 버전에서
+수정한다.
+
 prod 예:
 
 ```bash

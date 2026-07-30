@@ -26,7 +26,7 @@ final class ClaudeOAuthMigrationCardRenderingTests: XCTestCase {
         let tiff = try XCTUnwrap(image.tiffRepresentation)
         let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiff))
         let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
-        try png.write(to: URL(fileURLWithPath: "/private/tmp/ClaudeUsage-oauth-migration-card.png"))
+        XCTAssertFalse(png.isEmpty)
     }
 
     func testFailureMigrationCardKeepsAllActionsWithinSettingsWidth() throws {
@@ -48,7 +48,7 @@ final class ClaudeOAuthMigrationCardRenderingTests: XCTestCase {
         let tiff = try XCTUnwrap(image.tiffRepresentation)
         let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiff))
         let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
-        try png.write(to: URL(fileURLWithPath: "/private/tmp/ClaudeUsage-oauth-migration-failure-card.png"))
+        XCTAssertFalse(png.isEmpty)
     }
 
     func testMigrationActionReplacesDuplicateReconnectOnlyWhileActionable() {

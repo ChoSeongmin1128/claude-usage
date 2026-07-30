@@ -112,6 +112,7 @@ extension AppDelegate {
         antigravityRuntimeObservationTask?.cancel()
         antigravityRuntimeBootstrapTask?.cancel()
         antigravityTerminationTimeoutTask?.cancel()
+        statusItemPlacementCheckTask?.cancel()
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }
@@ -156,6 +157,33 @@ extension AppDelegate {
                 )
             }
         return .terminateLater
+    }
+
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        guard ownsSingleInstanceLease,
+              didFinishRuntimeLaunch
+        else {
+            return false
+        }
+
+        switch ApplicationReopenPolicy.action(
+            hasVisibleWindows: flag,
+            statusItemIsBlocked:
+                isStatusItemPlacementBlocked
+        ) {
+        case .useDefaultWindowHandling:
+            return true
+        case .showStatusItemRecovery:
+            presentStatusItemPlacementGuidance(
+                force: true
+            )
+        case .showPopover:
+            toggleUnifiedPopover()
+        }
+        return false
     }
 
     private func activateExistingChannelInstance() {

@@ -1,10 +1,28 @@
-# ClaudeUsage AGY v2 작업 인계
+# ClaudeUsage 유지보수 인계
 
-- 갱신일: 2026-07-27
+- 갱신일: 2026-07-30
 - 저장소: `/Users/seongmin/Personal/maintenance/ClaudeUsage`
 - 원격: `git@github-seongmin:ChoSeongmin1128/claude-usage.git`
-- 브랜치: `dev`
-- 상태: Stage 8~9 완료. `v2.4.1-staging` 게시·원격 검증 완료. staging QA 진행 중
+- 브랜치: `main`
+- 배포 기준: Developer ID 공증 GitHub Release + Sparkle appcast. App Store 배포 아님
+- 최신 게시: `v2.4.5-staging` (`0c17c8a`)
+- 현재 후보: `2.4.6` (`20406`). 메뉴바 차단 재발 방어 구현과 자동 검증 완료,
+  서명된 staging 게시 및 사용자의 Applications 직접 실행 QA 전
+
+## 0. 현재 source of truth
+
+- `main`, `origin/main`, `v2.4.5-staging`은 현재 `0c17c8a`를 가리킨다.
+- 2.4.6 후보는 메뉴바 상태 항목 방어만 추가한다. AGY/provider UX 통합은
+  2.4.5에 이미 포함됐다.
+- 최종 자동 검증: 전체 XCTest 935개 실행, opt-in 2개 skip, 실패 0;
+  상태 항목 전용 16개 실패 0; release driver 317개 실패 0.
+- 앱 runtime QA를 위해 Codex/Claude/CuaDriver/Terminal `open`으로 설치 앱을
+  실행하지 않는다. 사용자가 Finder의 Applications에서 직접 실행한다.
+- prod는 2.4.6 staging signed artifact의 실제 메뉴바 표시, 단일 프로세스,
+  ControlCenter 차단 로그 부재를 확인하기 전까지 금지한다.
+
+아래 1~10절은 AGY v2 전환 당시의 역사 기록입니다. 현재 배포 판단은 이 절과
+11절 이후의 최신 기록을 우선합니다.
 
 ## 1. 가장 먼저 읽을 내용
 
@@ -402,7 +420,7 @@ gh CLI 계정은 배포 중에만 `ChoSeongmin1128`로 바꾸고, 끝나면 즉�
 staging 검증 전 prod 배포를 진행하지 않습니다.
 
 
-## 11. 메뉴바 상태 아이템 미배치 (해결됨, 2026-07-28)
+## 11. 메뉴바 상태 아이템 미배치 (macOS 26 재발 가능, 2026-07-30 갱신)
 
 ### 결론
 
@@ -415,26 +433,36 @@ macOS 26 Tahoe에서 서드파티 상태 아이템은 ControlCenter가 replicant
 
 `trackedApplications`(Swift Codable dict가 [key, value, ...] 교차 배열로 직렬화된
 bplist blob)에서 ClaudeUsage 자체는 `isAllowed: true`였지만, **다른 앱 항목의
-`menuItemLocations`에 `com.seongmin.ClaudeUsage`가 교차 오염**돼 있었다:
+`menuItemLocations`에 ClaudeUsage 식별자가 교차 오염**돼 있었다. 2026-07-30
+재현 직후의 정확한 쌍은 다음과 같다.
 
-- `com.openai.codex` (isAllowed: false) 항목에 ClaudeUsage 참조
-- `com.google.antigravity` (isAllowed: false) 항목에 ClaudeUsage 참조
-- `com.anthropic.claude-code` 항목에 ClaudeUsage + orca 참조
+- `com.openai.codex` (`isAllowed: false`) 항목에
+  `com.seongmin.ClaudeUsage.staging`
+- `com.anthropic.claude-code` 항목에 `com.seongmin.ClaudeUsage`
 
 CC가 ClaudeUsage 아이템을 차단된 앱 소속으로 오인해 등록 15ms 만에
 `Moving host to blocked list`로 격리했다 (`log` category `appStatusItems`).
-오염 경위는 ClaudeUsage가 codex/agy CLI를 자식으로 spawn하던 QA 세션에서의
-귀속 혼선으로 추정 (Tahoe CC 버그로 보임).
+2026-07-30 재현 시간축으로 오염 경위를 바로잡았다. 14:22~15:28의 staging
+실행은 정상 displayable로 유지됐지만, Codex가 `/Applications/ClaudeUsage-stg.app`
+을 진단 실행한 15:32:49(PID 49973)에 처음 `Moving host to blocked list`가
+발생했다. 그 직후 staging 식별자가 `com.openai.codex`의
+`menuItemLocations`에 기록됐다. 따라서 현재 증거상 직접 재현 조건은
+**ClaudeUsage가 CLI 자식을 실행한 것**이 아니라 **다른 GUI 자동화 호스트가
+ClaudeUsage 앱 자체를 실행한 것**이다. Tahoe ControlCenter가 launch attribution을
+잘못 영구 저장하는 OS 결함으로 판단한다.
 
 ### 해결 절차 (재발 시 그대로)
 
-1. FDA를 세션 호스트에 부여 (Claude Code는 소문자 `claude.app` 런타임 번들 —
-   대문자 Claude.app의 FDA는 `disclaimer` 헬퍼가 체인을 끊어 상속 안 됨)
-2. plist 백업 후 python plistlib로: CU key/value 쌍 제거 + 타 앱
-   menuItemLocations의 CU 참조 스크럽 (백업: scratchpad/group-cc-backup.plist)
-3. `kill -9 ControlCenter cfprefsd` 후 파일 교체 (cfprefsd 캐시 클로버 방지;
-   SIGTERM은 구 상태를 flush하므로 -9)
-4. 앱 재실행 → `Moving host to blocked list` 부재 확인 → 메뉴바 표시 확인
+1. 먼저 앱 프로세스, ControlCenter 로그, `trackedApplications`를 읽기 전용으로
+   대조한다. 로그만으로 저장소 손상을 추정하지 않는다.
+2. 보호 plist 수정이 꼭 필요하면 사용자가 승인한 로컬 Terminal 등 정확히 권한이
+   있는 프로세스에서 원본 해시와 백업을 남기고, ClaudeUsage 쌍과 타 앱의
+   ClaudeUsage 참조만 제거한다. 앱이나 자동화 도구가 FDA를 요구하거나 plist를
+   직접 고치게 만들지 않는다.
+3. cfprefsd가 오래된 값을 되쓰지 않도록 검증된 정리 절차로 ControlCenter와
+   preferences cache를 재기동하고, 백업에서 다른 앱 쌍이 보존됐는지 확인한다.
+4. 사용자가 Applications의 앱을 직접 실행한 뒤 `Adding displayable items`가
+   있고 `Moving host to blocked list`가 없으며 실제 메뉴바에 보이는지 확인한다.
 
 ### 진단에서 확정한 사실 (증거)
 
@@ -442,16 +470,27 @@ CC가 ClaudeUsage 아이템을 차단된 앱 소속으로 오인해 등록 15ms 
   차단 유지; OFF→ON, 라이브 토글, CC 재시작 조합 전부 무효)
 - 차단 키는 bundle ID 단독 (autosaveName 변경 우회 무효, bundle ID 변경 시 정상)
 - `com.apple.controlcenter` 도메인의 `NSStatusItem Visible Item-N` 키는 무관
-- 미배치 상태의 AX 좌표(x=-1, w=224)와 CGWindowList는 신뢰 불가 — 판정은
-  `log` appStatusItems 카테고리와 실제 스크린샷으로 한다
+- AX/CGWindow 좌표 하나만으로는 판정하지 않는다. 앱 표시 의도,
+  `NSStatusItem.isVisible`, button/window/screen 상태, ControlCenter proxy
+  geometry를 함께 본다. 창 서버 좌표 비교에는 `CGDisplayBounds`를 쓴다.
 - 앱 창은 Tahoe에서 항상 오프스크린 파킹({{0,-6}} 또는 우상단, h=22)이며
-  CC replicant가 실제 표시를 담당 — 창 프레임으로 배치 여부를 판단할 수 없다
+  CC replicant가 실제 표시를 담당하므로 창 프레임 단독 판정은 금지한다.
 
-### 남은 코드 과제
+### 앱 코드 방어 (2.4.6 staging 후보)
 
-배치 실패(차단 포함)를 앱이 감지할 수단이 마땅치 않다. isVisible은 차단 중에도
-true였다. 최소한: 시작 N초 후 button.window 높이가 메뉴바 두께(33)가 아니면
-경고 로그 + 설정 창을 여는 복구 알림을 제공하는 방어를 검토한다.
+- status item에 채널별 안정적 autosave name을 부여
+  (`claudeusage`, `claudeusage-staging`)
+- 앱의 표시 의도, `NSStatusItem VisibleCC`, button/window/screen,
+  ControlCenter proxy geometry를 함께 판정해 정상 menu bar manager 이동과
+  Tahoe 차단을 구분
+- 사용자가 시스템 설정에서 의도적으로 숨긴 항목과 살아 있는 window/proxy는
+  복구 대상에서 제외하며, Tahoe 전용 증거는 macOS 26 미만에서 사용하지 않음
+- 시작 2초 후 차단이면 status item을 최대 한 번만 재생성하고 750ms 뒤 재검증.
+  반복 재생성은 ControlCenter를 더 손상시킬 수 있어 금지
+- 계속 차단되면 알림 권한에 의존하지 않는 modal 안내를 하루 한 번 표시
+- 이미 실행 중인 앱을 Finder에서 다시 열면 정상 상태는 popover, 차단 상태는
+  복구 안내를 표시
+- 앱은 보호된 ControlCenter plist를 수정하거나 Full Disk Access를 요구하지 않음
 
 ## 12. 진단 중 발견한 별개 결함 (2026-07-28 판정 확정)
 
@@ -478,10 +517,9 @@ split-brain** 상태였음이 확인됐다. 이 오염을 걷어낸 최종 판�
    `standardRichAuthPanelHeight`(192pt)와 `richAuthPanel` 플래그를 추가하고
    88pt를 고정하던 기존 테스트를 바로잡았다.
 
-추가 방어: 메뉴바 배치 감시(`scheduleStatusItemPlacementCheck`) — 시작
-20s+10s 2단계로 `button.window.occlusionState`에 `.visible`이 없으면(§11
-차단 상태의 실측 신호) error 로그 + 하루 1회 복구 안내 알림.
-`_HIHideMenuBar` 사용자는 제외.
+기존 20s+10s `occlusionState` + 사용자 알림 방어는 §11의 2.4.6 방어로
+교체했다. `occlusionState` 단독 판정은 전체 화면/자동 숨김에서 오탐 가능하고,
+알림 권한이 없으면 사용자가 아무 안내도 받지 못했기 때문이다.
 
 ### 잔존 컨테이너 정리 (사용자 액션 필요)
 
