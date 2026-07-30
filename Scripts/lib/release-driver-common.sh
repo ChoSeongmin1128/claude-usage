@@ -114,6 +114,26 @@ compare_numeric_release_versions() {
     fi
 }
 
+# 2.4.0에서 prod/staging 채널 식별자가 Info.plist에 명시적으로 추가됐다.
+# 그보다 오래된 prod 배포본은 CFBundleDisplayName과
+# ClaudeUsageReleaseChannel이 없으므로, 이전 버전 upgrade 검증에서만
+# 서명된 CFBundleName과 prod bundle/feed identity를 사용한다.
+release_artifact_identity_metadata_policy() {
+    local environment="${1:-}"
+    local version="${2:-}"
+    local comparison
+
+    [[ "$environment" == "prod" || "$environment" == "staging" ]] || return 1
+    validate_numeric_release_version "$version" || return 1
+    comparison="$(compare_numeric_release_versions "$version" "2.4.0")" || return 1
+
+    if [[ "$environment" == "prod" && "$comparison" == "-1" ]]; then
+        printf 'legacy-prod\n'
+    else
+        printf 'strict\n'
+    fi
+}
+
 release_cleanup_exit_code() {
     local original_status="${1:-}"
     local cleanup_failed="${2:-}"

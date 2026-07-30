@@ -132,6 +132,21 @@ assert_equal "2.4.0" "$(release_version_from_tag v2.4.0-staging)" "staging tag v
 assert_equal "1" "$(compare_numeric_release_versions 2.4.1 2.4.0)" "version greater"
 assert_equal "0" "$(compare_numeric_release_versions 2.4.0 2.4.0)" "version equal"
 assert_equal "-1" "$(compare_numeric_release_versions 2.3.99 2.4.0)" "version lower"
+assert_equal \
+    "legacy-prod" \
+    "$(release_artifact_identity_metadata_policy prod 2.3.3)" \
+    "historical prod accepts legacy identity metadata"
+assert_equal \
+    "strict" \
+    "$(release_artifact_identity_metadata_policy prod 2.4.0)" \
+    "current prod requires explicit identity metadata"
+assert_equal \
+    "strict" \
+    "$(release_artifact_identity_metadata_policy staging 2.3.3)" \
+    "staging never accepts prod legacy identity metadata"
+assert_failure \
+    "identity policy rejects unknown environment" \
+    release_artifact_identity_metadata_policy beta 2.4.0
 assert_equal "0" "$(release_cleanup_exit_code 0 0 0)" "clean success status"
 assert_equal "1" "$(release_cleanup_exit_code 0 1 0)" "cleanup failure changes success"
 assert_equal "1" "$(release_cleanup_exit_code 0 0 1)" "account restore failure changes success"

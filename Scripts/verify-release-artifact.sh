@@ -139,6 +139,9 @@ EXPECTED_TAG="$(release_tag_for "$CHANNEL" "$EXPECTED_VERSION")"
 [[ "$TAG" == "$EXPECTED_TAG" ]] \
     || die "tag/channel/version 조합이 일치하지 않습니다: 기대=$EXPECTED_TAG, 입력=$TAG"
 EXPECTED_FEED_URL="$(release_feed_url_for "$CHANNEL")"
+IDENTITY_METADATA_POLICY="$(
+    release_artifact_identity_metadata_policy "$CHANNEL" "$EXPECTED_VERSION"
+)" || die "release identity metadata 정책을 확정하지 못했습니다."
 TRUSTED_TEAM_IDENTIFIER="$(
     read_unique_xcode_build_setting "$PROJECT_FILE" DEVELOPMENT_TEAM
 )" || die "project의 DEVELOPMENT_TEAM 신뢰 기준을 하나로 확정하지 못했습니다."
@@ -279,8 +282,22 @@ verify_app_bundle() {
     actual_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_info")"
     actual_feed_url="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$app_info")"
     actual_public_key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$app_info")"
-    actual_app_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$app_info")"
-    actual_release_channel="$(/usr/libexec/PlistBuddy -c 'Print :ClaudeUsageReleaseChannel' "$app_info")"
+    if ! actual_app_name="$(
+        /usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$app_info" 2>/dev/null
+    )"; then
+        [[ "$IDENTITY_METADATA_POLICY" == "legacy-prod" ]] \
+            || die "$source_label 앱에 CFBundleDisplayName이 없습니다."
+        actual_app_name="$(
+            /usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$app_info"
+        )"
+    fi
+    if ! actual_release_channel="$(
+        /usr/libexec/PlistBuddy -c 'Print :ClaudeUsageReleaseChannel' "$app_info" 2>/dev/null
+    )"; then
+        [[ "$IDENTITY_METADATA_POLICY" == "legacy-prod" ]] \
+            || die "$source_label 앱에 ClaudeUsageReleaseChannel이 없습니다."
+        actual_release_channel="prod"
+    fi
 
     [[ "$bundle_id" == "$EXPECTED_BUNDLE_IDENTIFIER" ]] \
         || die "$source_label bundle identifier가 다릅니다: $bundle_id"
