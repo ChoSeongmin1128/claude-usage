@@ -1,14 +1,14 @@
 <?xml version="1.0" standalone="yes"?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
-        <title>ClaudeUsage</title>
+        <title>ClaudeUsage-stg</title>
         <item>
-            <title>2.4.3</title>
-            <pubDate>Wed, 29 Jul 2026 20:23:24 +0900</pubDate>
-            <sparkle:version>20403</sparkle:version>
-            <sparkle:shortVersionString>2.4.3</sparkle:shortVersionString>
+            <title>2.4.5</title>
+            <pubDate>Thu, 30 Jul 2026 15:24:38 +0900</pubDate>
+            <sparkle:version>20405</sparkle:version>
+            <sparkle:shortVersionString>2.4.5</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.4.3-staging/ClaudeUsage.zip" length="5973583" type="application/octet-stream" sparkle:edSignature="i7RG7cvaY54cnpRVns6uHW4rwjxhsJoL3XDPAbZl5Ie0zXVoAdSzN6x4nfXR5nDqJxsJGVG2POLUefe4cLGwCg=="/>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.4.5-staging/ClaudeUsage.zip" length="6083204" type="application/octet-stream" sparkle:edSignature="b5BsNhEs6XWohMu7t9hqIBm9awFD9cXhxLaT5DSELUTueLI9iLpZsNw6Dq0wsp8TsVmkyuLsKuMNnFDS2EiYAg=="/>
         </item>
     </channel>
 </rss>
