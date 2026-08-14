@@ -66,6 +66,7 @@ struct MenuBarProviderSnapshot {
     let accessibilityLabel: String?
     let accessibilityValue: String?
     let isStale: Bool
+    let renderKey: MenuBarProviderRenderKey
 
     var text: String {
         regularText ?? ""
@@ -79,7 +80,8 @@ struct MenuBarProviderSnapshot {
         icon: NSImage?,
         styleIcon: NSImage?,
         resetText: String?,
-        systemStatus: ProviderSystemStatus?
+        systemStatus: ProviderSystemStatus?,
+        renderKey: MenuBarProviderRenderKey? = nil
     ) {
         self.init(
             kind: kind,
@@ -93,7 +95,8 @@ struct MenuBarProviderSnapshot {
             systemStatus: systemStatus,
             accessibilityLabel: nil,
             accessibilityValue: nil,
-            isStale: false
+            isStale: false,
+            renderKey: renderKey
         )
     }
 
@@ -109,7 +112,8 @@ struct MenuBarProviderSnapshot {
         systemStatus: ProviderSystemStatus?,
         accessibilityLabel: String?,
         accessibilityValue: String?,
-        isStale: Bool = false
+        isStale: Bool = false,
+        renderKey: MenuBarProviderRenderKey? = nil
     ) {
         self.kind = kind
         self.regularText = regularText
@@ -123,6 +127,27 @@ struct MenuBarProviderSnapshot {
         self.accessibilityLabel = accessibilityLabel
         self.accessibilityValue = accessibilityValue
         self.isStale = isStale
+        self.renderKey = renderKey ?? MenuBarProviderRenderKey(
+            kind: kind,
+            regularText: regularText,
+            condensedText: condensedText,
+            tooltip: tooltip,
+            resetText: resetText,
+            showsProviderIcon: icon != nil,
+            visualConfiguration: [
+                styleIcon == nil ? "style.none" : "style.legacy",
+            ],
+            visualValues: [],
+            statusIndicator:
+                systemStatus?.effectiveIndicator,
+            systemStatusSummary:
+                systemStatus?.hasIssue == true
+                ? systemStatus?.menuBarSummary
+                : nil,
+            accessibilityLabel: accessibilityLabel,
+            accessibilityValue: accessibilityValue,
+            isStale: isStale
+        )
     }
 }
 
@@ -262,7 +287,8 @@ enum MenuBarStatusComposer {
         hasCredential: Bool,
         secondaryColor: NSColor,
         icon: NSImage?,
-        systemStatus: ProviderSystemStatus? = nil
+        systemStatus: ProviderSystemStatus? = nil,
+        renderImages: Bool = true
     ) -> MenuBarProviderSnapshot {
         let status = claudeStatus(
             config: config,
@@ -272,15 +298,46 @@ enum MenuBarStatusComposer {
             hasCredential: hasCredential,
             secondaryColor: secondaryColor
         )
+        let reset = resetText(
+            usage: usage,
+            config: config
+        )
+        let renderKey = providerRenderKey(
+            kind: .claude,
+            regularText: status.text,
+            condensedText: status.text,
+            tooltip: status.tooltip,
+            resetText: reset,
+            showsProviderIcon: config.showIcon,
+            visualConfiguration:
+                providerVisualConfiguration(config),
+            visualValues: usage.map {
+                [
+                    $0.fiveHourPercentage,
+                    $0.sevenDay?.utilization ?? 0,
+                ]
+            } ?? [],
+            systemStatus: systemStatus,
+            accessibilityLabel: nil,
+            accessibilityValue: nil,
+            isStale: false
+        )
         return MenuBarProviderSnapshot(
             kind: .claude,
             text: status.text,
             color: status.color,
             tooltip: status.tooltip,
-            icon: config.showIcon ? icon : nil,
-            styleIcon: styleIcon(usage: usage, config: config),
-            resetText: resetText(usage: usage, config: config),
-            systemStatus: systemStatus
+            icon:
+                renderImages && config.showIcon
+                ? icon
+                : nil,
+            styleIcon:
+                renderImages
+                ? styleIcon(usage: usage, config: config)
+                : nil,
+            resetText: reset,
+            systemStatus: systemStatus,
+            renderKey: renderKey
         )
     }
 
@@ -385,7 +442,8 @@ enum MenuBarStatusComposer {
         isAuthenticated: Bool,
         secondaryColor: NSColor,
         icon: NSImage?,
-        systemStatus: ProviderSystemStatus? = nil
+        systemStatus: ProviderSystemStatus? = nil,
+        renderImages: Bool = true
     ) -> MenuBarProviderSnapshot {
         let status = codexStatus(
             config: config,
@@ -395,15 +453,47 @@ enum MenuBarStatusComposer {
             isAuthenticated: isAuthenticated,
             secondaryColor: secondaryColor
         )
+        let reset = resetText(
+            usage: usage,
+            config: config
+        )
+        let renderKey = providerRenderKey(
+            kind: .codex,
+            regularText: status.text,
+            condensedText: status.text,
+            tooltip: status.tooltip,
+            resetText: reset,
+            showsProviderIcon: config.showIcon,
+            visualConfiguration:
+                providerVisualConfiguration(config),
+            visualValues: usage.map {
+                [
+                    $0.gaugePercentage,
+                    $0.weeklyPercentage,
+                    $0.hasSessionWindow ? 1 : 0,
+                ]
+            } ?? [],
+            systemStatus: systemStatus,
+            accessibilityLabel: nil,
+            accessibilityValue: nil,
+            isStale: false
+        )
         return MenuBarProviderSnapshot(
             kind: .codex,
             text: status.text,
             color: status.color,
             tooltip: status.tooltip,
-            icon: config.showIcon ? icon : nil,
-            styleIcon: styleIcon(usage: usage, config: config),
-            resetText: resetText(usage: usage, config: config),
-            systemStatus: systemStatus
+            icon:
+                renderImages && config.showIcon
+                ? icon
+                : nil,
+            styleIcon:
+                renderImages
+                ? styleIcon(usage: usage, config: config)
+                : nil,
+            resetText: reset,
+            systemStatus: systemStatus,
+            renderKey: renderKey
         )
     }
 
@@ -415,7 +505,8 @@ enum MenuBarStatusComposer {
     static func antigravitySnapshot(
         presentation: AntigravityMenuBarQuotaPresentation,
         context: AntigravityQuotaPresentationContext = .init(),
-        icon: NSImage?
+        icon: NSImage?,
+        renderImages: Bool = true
     ) -> MenuBarProviderSnapshot? {
         guard presentation.isVisible else {
             return nil
@@ -429,28 +520,65 @@ enum MenuBarStatusComposer {
             isStale = false
         }
         let color = antigravityColor(for: presentation.tone)
+        let tooltip = staleAnnotatedTooltip(
+            presentation.tooltip,
+            isStale: isStale
+        )
+        let accessibilityValue =
+            staleAnnotatedAccessibilityValue(
+                presentation.accessibilityValue,
+                isStale: isStale
+            )
+        let renderKey = providerRenderKey(
+            kind: .antigravity,
+            regularText: presentation.regularText,
+            condensedText: presentation.condensedText,
+            tooltip: tooltip,
+            resetText: nil,
+            showsProviderIcon:
+                presentation.showsProviderIcon,
+            visualConfiguration: [
+                presentation.style.rawValue,
+                presentation.selectedLaneID?.rawValue
+                    ?? "lane.none",
+                presentation.showsGaugePercentage
+                    ? "gauge.percent"
+                    : "gauge.no-percent",
+                String(describing: presentation.tone),
+            ],
+            visualValues:
+                presentation.gaugePercentage.map { [$0] }
+                ?? [],
+            systemStatus: nil,
+            accessibilityLabel:
+                presentation.accessibilityLabel,
+            accessibilityValue: accessibilityValue,
+            isStale: isStale
+        )
         return MenuBarProviderSnapshot(
             kind: .antigravity,
             regularText: presentation.regularText,
             condensedText: presentation.condensedText,
             color: color,
-            tooltip: staleAnnotatedTooltip(
-                presentation.tooltip,
-                isStale: isStale
-            ),
-            icon: presentation.showsProviderIcon ? icon : nil,
-            styleIcon: antigravityStyleIcon(
-                presentation: presentation,
-                color: color
-            ),
+            tooltip: tooltip,
+            icon:
+                renderImages
+                    && presentation.showsProviderIcon
+                ? icon
+                : nil,
+            styleIcon:
+                renderImages
+                ? antigravityStyleIcon(
+                    presentation: presentation,
+                    color: color
+                )
+                : nil,
             resetText: nil,
             systemStatus: nil,
             accessibilityLabel: presentation.accessibilityLabel,
-            accessibilityValue: staleAnnotatedAccessibilityValue(
-                presentation.accessibilityValue,
-                isStale: isStale
-            ),
-            isStale: isStale
+            accessibilityValue: accessibilityValue,
+            isStale: isStale,
+            renderKey: renderKey
         )
     }
 
@@ -752,6 +880,59 @@ enum MenuBarStatusComposer {
             block += "\n   \(line)"
         }
         return block
+    }
+
+    private static func providerVisualConfiguration(
+        _ config: ProviderMenuBarDisplayConfig
+    ) -> [String] {
+        [
+            config.showIcon ? "icon.visible" : "icon.hidden",
+            config.style.rawValue,
+            config.percentageDisplay.rawValue,
+            config.showBatteryPercent
+                ? "battery.percent"
+                : "battery.no-percent",
+            config.resetTimeDisplay.rawValue,
+            config.timeFormat.rawValue,
+            config.circularDisplayMode.rawValue,
+            config.iconMetric.rawValue,
+            config.colorMode.rawValue,
+        ]
+    }
+
+    private static func providerRenderKey(
+        kind: AppProviderKind,
+        regularText: String?,
+        condensedText: String?,
+        tooltip: String,
+        resetText: String?,
+        showsProviderIcon: Bool,
+        visualConfiguration: [String],
+        visualValues: [Double],
+        systemStatus: ProviderSystemStatus?,
+        accessibilityLabel: String?,
+        accessibilityValue: String?,
+        isStale: Bool
+    ) -> MenuBarProviderRenderKey {
+        MenuBarProviderRenderKey(
+            kind: kind,
+            regularText: regularText,
+            condensedText: condensedText,
+            tooltip: tooltip,
+            resetText: resetText,
+            showsProviderIcon: showsProviderIcon,
+            visualConfiguration: visualConfiguration,
+            visualValues: visualValues,
+            statusIndicator:
+                systemStatus?.effectiveIndicator,
+            systemStatusSummary:
+                systemStatus?.hasIssue == true
+                ? systemStatus?.menuBarSummary
+                : nil,
+            accessibilityLabel: accessibilityLabel,
+            accessibilityValue: accessibilityValue,
+            isStale: isStale
+        )
     }
 
     private static func claudeStatus(

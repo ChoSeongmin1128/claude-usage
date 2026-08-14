@@ -100,7 +100,7 @@ extension AppDelegate {
                 self?.syncUpdateCheckState(runImmediate: true)
             },
             onMenuBarDisplayChanged: { [weak self] in
-                self?.updateMenuBar(force: true)
+                self?.updateMenuBar()
             },
             onProviderSelectionChanged: { [weak self] selectionState in
                 guard let self else { return }

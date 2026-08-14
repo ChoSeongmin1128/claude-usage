@@ -2,6 +2,16 @@ import AppKit
 import Foundation
 
 enum MenuBarIconFactory {
+    private struct ProviderIconCacheKey: Hashable {
+        let provider: AppProviderKind
+        let width: Int
+        let height: Int
+        let appearance: MenuBarAppearanceKey
+    }
+
+    private static var providerIconCache:
+        [ProviderIconCacheKey: NSImage] = [:]
+
     static func secondaryTextColor(highContrast: Bool) -> NSColor {
         highContrast ? NSColor.labelColor : NSColor.secondaryLabelColor
     }
@@ -11,6 +21,16 @@ enum MenuBarIconFactory {
         size: NSSize,
         appearance: NSAppearance
     ) -> NSImage? {
+        let cacheKey = ProviderIconCacheKey(
+            provider: provider,
+            width: Int((size.width * 100).rounded()),
+            height: Int((size.height * 100).rounded()),
+            appearance: MenuBarAppearanceKey(appearance)
+        )
+        if let cached = providerIconCache[cacheKey] {
+            return cached
+        }
+
         var resolvedImage: NSImage?
         appearance.performAsCurrentDrawingAppearance {
             if let base = ProviderBrandIconResolver.baseImage(for: provider) {
@@ -26,7 +46,14 @@ enum MenuBarIconFactory {
 
             Logger.error("\(provider.displayName) 메뉴바 아이콘 생성 실패")
         }
+        if let resolvedImage {
+            providerIconCache[cacheKey] = resolvedImage
+        }
         return resolvedImage
+    }
+
+    static func resetProviderIconCacheForTesting() {
+        providerIconCache.removeAll()
     }
 
     static func badgedIcon(

@@ -40,6 +40,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     var statusTimer: Timer?
     var appearanceObservation: NSKeyValueObservation?
+    var accessibilityDisplayObservation: NSObjectProtocol?
+    var menuBarAppearanceChangeState =
+        MenuBarAppearanceChangeState()
+    var menuBarUpdateRequestState =
+        MenuBarUpdateRequestState()
+    var menuBarContentApplicationState =
+        MenuBarContentApplicationState()
     var statusItemPlacementCheckTask: Task<Void, Never>?
     var lastObservedProviderSelectionState: ProviderSelectionState?
     var eventMonitor: Any?

@@ -5,8 +5,35 @@ extension AppDelegate {
 
     func setupStatusItems() {
         rebuildStatusItems()
+        setupAccessibilityDisplayObservation()
         Logger.info("메뉴바 아이템 생성 완료")
         scheduleStatusItemPlacementCheck()
+    }
+
+    private func setupAccessibilityDisplayObservation() {
+        guard accessibilityDisplayObservation == nil else {
+            return
+        }
+        accessibilityDisplayObservation =
+            NSWorkspace.shared.notificationCenter
+                .addObserver(
+                    forName:
+                        NSWorkspace
+                            .accessibilityDisplayOptionsDidChangeNotification,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in
+                    guard let self,
+                          let appearance =
+                            self.statusItem?.button?
+                                .effectiveAppearance
+                    else {
+                        return
+                    }
+                    self.handleMenuBarAppearanceChange(
+                        appearance
+                    )
+                }
     }
 
     // MARK: - Placement Watchdog
@@ -211,6 +238,10 @@ extension AppDelegate {
         }
         statusItem = nil
         appearanceObservation = nil
+        menuBarUpdateRequestState.reset()
+        menuBarContentApplicationState.reset()
+        menuBarAppearanceChangeState =
+            MenuBarAppearanceChangeState()
 
         let autosaveName =
             AppDistribution.current.channel
@@ -255,12 +286,42 @@ extension AppDelegate {
             button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.target = self
-            appearanceObservation = button.observe(\.effectiveAppearance) { [weak self] _, _ in
+            menuBarAppearanceChangeState =
+                MenuBarAppearanceChangeState(
+                    initialKey:
+                        MenuBarAppearanceKey(
+                            button.effectiveAppearance
+                        )
+                )
+            appearanceObservation = button.observe(
+                \.effectiveAppearance,
+                options: [.new]
+            ) { [weak self, weak button] _, _ in
                 DispatchQueue.main.async {
-                    self?.updateMenuBar()
+                    guard let self,
+                          let button,
+                          self.statusItem?.button === button
+                    else {
+                        return
+                    }
+                    self.handleMenuBarAppearanceChange(
+                        button.effectiveAppearance
+                    )
                 }
             }
         }
+    }
+
+    func handleMenuBarAppearanceChange(
+        _ appearance: NSAppearance
+    ) {
+        let key = MenuBarAppearanceKey(appearance)
+        guard menuBarAppearanceChangeState
+            .shouldRequestUpdate(for: key)
+        else {
+            return
+        }
+        updateMenuBar()
     }
 
     @objc func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -378,6 +439,26 @@ extension AppDelegate {
     // MARK: - Menu Bar Update
 
     func updateMenuBar(force: Bool = false) {
+        guard menuBarUpdateRequestState
+            .request(force: force)
+        else {
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.performScheduledMenuBarUpdate()
+        }
+    }
+
+    private func performScheduledMenuBarUpdate() {
+        guard let force =
+                menuBarUpdateRequestState.consume()
+        else {
+            return
+        }
+        renderMenuBar(force: force)
+    }
+
+    private func renderMenuBar(force: Bool) {
         PopoverGeometryDiagnostics.log(
             "MenuBar update force=\(force) popoverShown=\(popover?.isShown == true) presenting=\(isPresentingPopover)"
         )
@@ -385,6 +466,8 @@ extension AppDelegate {
         let settings = AppSettings.shared
         guard let button = statusItem?.button else { return }
         let appearance = button.effectiveAppearance
+        let appearanceKey =
+            MenuBarAppearanceKey(appearance)
         let highContrast = AppSettings.shared.menuBarTextHighContrast
         let secondaryColor = MenuBarIconFactory.secondaryTextColor(highContrast: highContrast)
 
@@ -396,16 +479,39 @@ extension AppDelegate {
                 + "rendered=\(runtimeKinds) claudeStyle=\(settings.menuBarStyle.rawValue) "
                 + "claudePct=\(settings.percentageDisplay.rawValue) claudeReset=\(settings.resetTimeDisplay.rawValue)"
         )
-        let compactSnapshots = runtimeKinds.compactMap {
+        let compactKeySnapshots = runtimeKinds.compactMap {
             menuBarProviderSnapshot(
                 for: $0,
                 iconSize: NSSize(width: 14, height: 14),
                 secondaryColor: secondaryColor,
-                appearance: appearance
+                appearance: appearance,
+                renderImages: false
             )
         }
 
-        if compactSnapshots.count > 1 {
+        if compactKeySnapshots.count > 1 {
+            let renderKey = MenuBarRenderKey(
+                appearance: appearanceKey,
+                usesHighContrastText: highContrast,
+                layout: .multiple(
+                    compactKeySnapshots.map(\.renderKey)
+                )
+            )
+            guard menuBarContentApplicationState
+                .shouldApply(renderKey, force: force)
+            else {
+                return
+            }
+            let compactSnapshots = runtimeKinds.compactMap {
+                menuBarProviderSnapshot(
+                    for: $0,
+                    iconSize:
+                        NSSize(width: 14, height: 14),
+                    secondaryColor: secondaryColor,
+                    appearance: appearance,
+                    renderImages: true
+                )
+            }
             let content = MenuBarStatusComposer.multipleProviderContent(
                 snapshots: compactSnapshots,
                 secondaryColor: secondaryColor,
@@ -416,17 +522,57 @@ extension AppDelegate {
         }
 
         guard let activeService = resolvedMenuBarService() else {
+            let renderKey = MenuBarRenderKey(
+                appearance: appearanceKey,
+                usesHighContrastText: highContrast,
+                layout: .placeholder
+            )
+            guard menuBarContentApplicationState
+                .shouldApply(renderKey, force: force)
+            else {
+                return
+            }
             applyMenuBarContent(MenuBarStatusComposer.placeholder(secondaryColor: secondaryColor), to: button)
             return
         }
 
+        guard let keySnapshot = menuBarProviderSnapshot(
+            for: activeService.providerKind,
+            iconSize: NSSize(width: 18, height: 18),
+            secondaryColor: secondaryColor,
+            appearance: appearance,
+            renderImages: false
+        ) else {
+            let renderKey = MenuBarRenderKey(
+                appearance: appearanceKey,
+                usesHighContrastText: highContrast,
+                layout: .placeholder
+            )
+            guard menuBarContentApplicationState
+                .shouldApply(renderKey, force: force)
+            else {
+                return
+            }
+            applyMenuBarContent(MenuBarStatusComposer.placeholder(secondaryColor: secondaryColor), to: button)
+            return
+        }
+        let renderKey = MenuBarRenderKey(
+            appearance: appearanceKey,
+            usesHighContrastText: highContrast,
+            layout: .single(keySnapshot.renderKey)
+        )
+        guard menuBarContentApplicationState
+            .shouldApply(renderKey, force: force)
+        else {
+            return
+        }
         guard let snapshot = menuBarProviderSnapshot(
             for: activeService.providerKind,
             iconSize: NSSize(width: 18, height: 18),
             secondaryColor: secondaryColor,
-            appearance: appearance
+            appearance: appearance,
+            renderImages: true
         ) else {
-            applyMenuBarContent(MenuBarStatusComposer.placeholder(secondaryColor: secondaryColor), to: button)
             return
         }
         let content = MenuBarStatusComposer.singleProviderContent(
@@ -441,7 +587,8 @@ extension AppDelegate {
         for kind: AppProviderKind,
         iconSize: NSSize,
         secondaryColor: NSColor,
-        appearance: NSAppearance
+        appearance: NSAppearance,
+        renderImages: Bool = true
     ) -> MenuBarProviderSnapshot? {
         guard isRuntimeProviderVisibleInMenuBar(kind) else {
             return nil
@@ -458,12 +605,15 @@ extension AppDelegate {
                 hasAuthError: runtimeSnapshot.hasAuthError,
                 hasCredential: runtimeSnapshot.hasCredential,
                 secondaryColor: secondaryColor,
-                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(
+                icon:
+                    renderImages && config.showIcon
+                    ? MenuBarIconFactory.providerMenuBarIcon(
                     for: .claude,
                     size: iconSize,
                     appearance: appearance
                 ) : nil,
-                systemStatus: providerSystemStatus(for: .claude)
+                systemStatus: providerSystemStatus(for: .claude),
+                renderImages: renderImages
             )
         case .codex:
             let runtimeSnapshot = runtimeProviderSnapshot(for: service)
@@ -475,12 +625,15 @@ extension AppDelegate {
                 hasAuthError: runtimeSnapshot.hasAuthError,
                 isAuthenticated: runtimeSnapshot.hasCredential,
                 secondaryColor: secondaryColor,
-                icon: config.showIcon ? MenuBarIconFactory.providerMenuBarIcon(
+                icon:
+                    renderImages && config.showIcon
+                    ? MenuBarIconFactory.providerMenuBarIcon(
                     for: .codex,
                     size: iconSize,
                     appearance: appearance
                 ) : nil,
-                systemStatus: providerSystemStatus(for: .codex)
+                systemStatus: providerSystemStatus(for: .codex),
+                renderImages: renderImages
             )
         case .antigravity:
             guard case .content(let presentation) =
@@ -492,11 +645,14 @@ extension AppDelegate {
             return MenuBarStatusComposer.antigravitySnapshot(
                 presentation: presentation.menuBar,
                 context: presentation.context,
-                icon: MenuBarIconFactory.providerMenuBarIcon(
+                icon:
+                    renderImages
+                    ? MenuBarIconFactory.providerMenuBarIcon(
                     for: .antigravity,
                     size: iconSize,
                     appearance: appearance
-                )
+                ) : nil,
+                renderImages: renderImages
             )
         }
     }

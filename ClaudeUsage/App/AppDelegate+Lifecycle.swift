@@ -105,6 +105,11 @@ extension AppDelegate {
         refreshScheduler.stop()
         updateCoordinator.invalidate()
         statusTimer?.invalidate()
+        if let observer = accessibilityDisplayObservation {
+            NSWorkspace.shared.notificationCenter
+                .removeObserver(observer)
+            accessibilityDisplayObservation = nil
+        }
         popoverCoordinator.invalidate()
         settingsWindowCoordinator.invalidate()
         loginWindowCoordinator.invalidate()
