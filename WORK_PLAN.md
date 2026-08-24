@@ -7,33 +7,21 @@
 
 ## 1. 현재 운영 상태
 
-- 현재 prod는 `2.4.11 (20411)`, staging은 `2.4.12 (20412)`(기준 커밋 `c03f892`)입니다.
+- 현재 prod와 staging은 `2.4.12 (20412)`, 기준 커밋은 `c03f892`입니다.
 - `main`, `dev`, `origin/main`, `origin/dev`는 같은 기준 커밋에 정렬돼 있습니다.
-- prod/staging public appcast는 각각 `v2.4.11`, `v2.4.12-staging`의 원격
+- prod/staging public appcast는 각각 `v2.4.12`, `v2.4.12-staging`의 원격
   ZIP을 가리킵니다.
-- 현재 진행 중 작업: 아래 `1.1 managed recovery 자가 치유` (2.4.12 staging 후보).
+- 현재 진행 중인 구현 WIP나 미게시 release candidate는 없습니다.
 - App Store가 아니라 Developer ID 공증, GitHub Release, Sparkle appcast로
   직접 배포합니다.
 
-### 1.1 진행 중: managed recovery 자가 치유와 차단 상태 표시 (2.4.12 후보)
-
-실사례(2026-08-24): prod 원장에 8월 19의 `incomplete` managed 세션 기록이
-남아 recovery가 영구 차단됐고, managed 자동 실행이 5일간 조용히
-비활성화됐다. 사용자에게는 원인과 무관한 "조회 계정 또는 로그인 필요"가
-표시됐다. 즉시 복구는 stale 원장 파일 제거로 완료(백업 보관), 코드 수정이
-이 항목이다.
-
-1. [완료] recovery가 기록된 실행(owner/child/descendants)이 전부 확실히
-   죽었음이 증명되는 incomplete 기록을 stale로 정리 (ambiguous하면 기존
-   fail-closed 유지).
-2. [완료] recovery 차단 상태를 setup 사유 `managedRecoveryBlocked`로
-   구분해 팝오버/설정에 "이전 AGY 실행 정리 필요"로 표시.
-3. [완료] dev 검증(전체 XCTest 980개, live AGY, 코드 리뷰 10건 반영) 후
-   main squash(`c03f892`), `v2.4.12-staging` 게시와 원격 검증 완료.
-4. [남음] 사용자 staging 실앱 QA(권장: 백업해 둔 8월 19 stale 원장을
-   staging 원장에 심어 자가 치유를 실증) 후 prod 승격 판단.
-
 ## 2. 최근 완료
+
+- stale incomplete managed 원장 기록(8월 19)이 recovery를 영구 차단해
+  managed 자동 실행을 5일간 침묵시킨 사고를 수정했습니다: 계층적 양성
+  증거 기반 자가 치유, recovery 차단 상태의 전 표면 일관 표시,
+  managed launch 상태 enum 통합. 실제 사고 원장으로 staging에서 자가
+  치유를 실증한 뒤 `2.4.12`로 staging·prod에 게시했습니다.
 
 - managed AGY readiness를 인증된 계정 identity 기준으로 강화하고(공용
   userStatus 인증 증거 분류, 인증 대기 시 같은 endpoint 폴링, 예산 소진 시
