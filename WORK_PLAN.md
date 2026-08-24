@@ -7,9 +7,9 @@
 
 ## 1. 현재 운영 상태
 
-- 현재 prod와 staging은 `2.4.11 (20411)`, 기준 커밋은 `ec15d51`입니다.
+- 현재 prod는 `2.4.11 (20411)`, staging은 `2.4.12 (20412)`(기준 커밋 `c03f892`)입니다.
 - `main`, `dev`, `origin/main`, `origin/dev`는 같은 기준 커밋에 정렬돼 있습니다.
-- prod/staging public appcast는 각각 `v2.4.11`, `v2.4.11-staging`의 원격
+- prod/staging public appcast는 각각 `v2.4.11`, `v2.4.12-staging`의 원격
   ZIP을 가리킵니다.
 - 현재 진행 중 작업: 아래 `1.1 managed recovery 자가 치유` (2.4.12 staging 후보).
 - App Store가 아니라 Developer ID 공증, GitHub Release, Sparkle appcast로
@@ -28,8 +28,10 @@
    fail-closed 유지).
 2. [완료] recovery 차단 상태를 setup 사유 `managedRecoveryBlocked`로
    구분해 팝오버/설정에 "이전 AGY 실행 정리 필요"로 표시.
-3. [진행] dev 검증(전체 XCTest, live AGY, 코드 리뷰) 후 main squash,
-   `2.4.12-staging` 게시.
+3. [완료] dev 검증(전체 XCTest 980개, live AGY, 코드 리뷰 10건 반영) 후
+   main squash(`c03f892`), `v2.4.12-staging` 게시와 원격 검증 완료.
+4. [남음] 사용자 staging 실앱 QA(권장: 백업해 둔 8월 19 stale 원장을
+   staging 원장에 심어 자가 치유를 실증) 후 prod 승격 판단.
 
 ## 2. 최근 완료
 

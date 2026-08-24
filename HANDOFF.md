@@ -10,14 +10,15 @@
 
 - 저장소: `/Users/seongmin/Personal/maintenance/ClaudeUsage`
 - 원격: `git@github-seongmin:ChoSeongmin1128/claude-usage.git`
-- 게시된 릴리스: prod `v2.4.11`, staging `v2.4.11-staging` — 모두
-  `2.4.11 (20411)`, 기준 커밋(`main`) `ec15d51`
-- public appcast: prod/staging 모두 `2.4.11 (20411)`
+- 게시된 릴리스: prod `v2.4.11` `2.4.11 (20411)`(기준 커밋 `ec15d51`),
+  staging `v2.4.12-staging` `2.4.12 (20412)`(기준 커밋 `c03f892`)
+- public appcast: prod `2.4.11 (20411)`, staging `2.4.12 (20412)`
 - `2.4.11`은 managed AGY readiness를 인증된 계정 identity 기준으로 강화한
   릴리스입니다. staging 실앱 QA(사용자 Finder 직접 실행, Sparkle
   업그레이드, managed AGY 조회, idle CPU) 후 prod로 승격했습니다
-- `dev`는 `2.4.12-staging` 후보(managed recovery 자가 치유, 차단 상태
-  표시)를 진행 중입니다 ([WORK_PLAN.md](WORK_PLAN.md) `1.1` 참조)
+- `2.4.12-staging`은 stale managed 원장 기록의 recovery 자가 치유와
+  차단 상태 표시를 담은 후보입니다. 사용자 실앱 QA 후 prod 승격을
+  판단합니다 ([WORK_PLAN.md](WORK_PLAN.md) `1.1` 참조)
 - 배포: Developer ID 공증 GitHub Release + Sparkle appcast
 - App Store 배포가 아님
 
