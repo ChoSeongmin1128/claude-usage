@@ -1,5 +1,7 @@
 # ClaudeUsage 배포 가이드
 
+최종 갱신: 2026-08-14
+
 ## 개요
 
 일반 배포는 통합 driver 한 명령으로 실행합니다.
@@ -9,8 +11,8 @@
 ./Scripts/release.sh
 
 # 환경/버전을 인자로 입력
-./Scripts/release.sh stg 2.4.0
-./Scripts/release.sh prod 2.4.0
+./Scripts/release.sh stg X.Y.Z
+./Scripts/release.sh prod X.Y.Z
 ```
 
 배포 흐름은 네 단계로 구분됩니다.
@@ -73,16 +75,16 @@ provenance가 유지되기 때문입니다.
 mutation 없는 계획만 보려면:
 
 ```bash
-./Scripts/release.sh stg 2.4.0 --non-interactive --dry-run
+./Scripts/release.sh stg X.Y.Z --non-interactive --dry-run
 ```
 
 자동화 환경에서도 publish 확인은 생략할 수 없습니다.
 
 ```bash
-./Scripts/release.sh stg 2.4.0 \
+./Scripts/release.sh stg X.Y.Z \
   --non-interactive \
-  --confirm-publish v2.4.0-staging \
-  --notes "2.4.0 staging"
+  --confirm-publish vX.Y.Z-staging \
+  --notes "X.Y.Z staging"
 ```
 
 실제 driver는 계정/원격/clean main/tag/notary/test gate, 이전 동일 채널
@@ -461,14 +463,20 @@ name으로 처음 올라가는 upgrade 경로와 사용자가 시스템 설정�
 숨긴 상태는 signed staging 앱으로 확인한다. 의도적 숨김은 앱이 상태 항목을
 재생성하거나 경고를 띄우면 실패다.
 
-2.4.6의 prod 승격은 아래 조건을 모두 충족할 때만 허용한다.
+모든 prod 승격은 아래 조건을 충족해야 합니다.
 
 1. notarized staging ZIP/DMG와 public staging appcast 원격 검증 통과
-2. 기존 2.4.5-staging에서 2.4.6으로 업데이트 후 설정·계정·Keychain 유지
+2. 이전 같은 identity staging에서 후보로 업데이트 후 설정·계정·인증 상태 유지
 3. Finder의 Applications에서 직접 실행해 메뉴바 표시 및 popover 상호작용 확인
 4. 같은 채널 프로세스 1개, prod와 staging 동시 실행 시 각 1개 이하
 5. 정상 표시, 의도적 숨김, 재표시, 재부팅/로그인 항목 실행에서 반복 재생성 없음
 6. 위 실행 구간의 ControlCenter 로그에 차단 기록 없음
+7. idle 상태에서 ClaudeUsage와 WindowServer CPU가 안정되고, 동일 메뉴바 상태를
+   반복 렌더하지 않으며 appearance 전환이 의미 변화마다 한 번만 반영됨
+8. legacy `claude-session-key`가 UserDefaults에 없고 migration version이 현재이며,
+   Chrome↔Claude Code 계정 전환 10회에서 credential provenance가 유지되고
+   Keychain/password prompt가 없음
+9. 설치되고 로그인된 공식 AGY를 사용하는 live integration이 skip 없이 통과함
 
 한 항목이라도 확인하지 못하면 prod를 게시하지 않고 다음 staging 버전에서
 수정한다.
@@ -476,12 +484,7 @@ name으로 처음 올라가는 upgrade 경로와 사용자가 시스템 설정�
 prod 예:
 
 ```bash
-RELEASE_CHANNEL=prod ./Scripts/build-notarize-release.sh
-./Scripts/publish-release.sh vX.Y.Z \
-  --channel prod \
-  --expected-commit "$(git rev-parse HEAD)" \
-  --skip-pages-publish \
-  --notes "릴리스 요약"
+./Scripts/release.sh prod X.Y.Z
 ```
 
 ---
@@ -612,11 +615,16 @@ Xcode 에서 한 번 Release 빌드를 돌리면 Sparkle SPM artifact 가 `~/Lib
 
 릴리스마다:
 - [ ] 버전 bump와 전체 검증을 `dev`에서 완료하고 `main`에 squash + push
+- [ ] 현재 계약이 바뀌었다면 README/HANDOFF/WORK_PLAN과 관련 reference 갱신
+- [ ] 공식 AGY live integration이 skip 없이 통과
 - [ ] `./Scripts/release.sh stg|prod X.Y.Z` 실행
 - [ ] 출력된 이전 prod/staging/code version과 계산된 build/tag 확인
 - [ ] 게시 직전 exact tag 입력
 - [ ] `gh-pages`의 `appcast.xml` / `channels/staging/appcast.xml` 확인
 - [ ] 원격 DMG·ZIP·appcast digest와 앱 notarization/Gatekeeper 검증 통과
-- [ ] `~/Downloads/ClaudeUsage.app`이 이전 동일 채널 버전인지 확인
+- [ ] `~/Downloads/ClaudeUsage[-stg].app`이 이전 동일 채널 버전인지 확인
 - [ ] 별도 Mac에서 앱 실행 후 "업데이트 확인"으로 Sparkle upgrade 검증
+- [ ] Finder 직접 실행, 채널별 단일 프로세스, ControlCenter 차단 부재 확인
+- [ ] idle/appearance 전환 CPU와 반복 메뉴바 렌더 회귀 확인
+- [ ] Claude account migration/provenance와 Keychain prompt 부재 확인
 - [ ] GitHub CLI active 계정이 `nathan-glorang`으로 복원됐는지 확인

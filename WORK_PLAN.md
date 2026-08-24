@@ -1,102 +1,109 @@
 # ClaudeUsage 작업 계획
 
-최종 갱신: 2026-07-30
+최종 갱신: 2026-08-24
 
-이 문서는 현재 진행 기준과 남은 작업만 관리합니다. 과거 통합 로그는 Git commit history와 release note를 기준으로 확인하고, 이 파일에는 오래된 상세 변경 이력을 누적하지 않습니다.
+이 문서는 현재 진행 중이거나 실제로 남은 작업만 관리합니다. 완료된 변경의
+연대기는 Git history와 GitHub Release를 사용하고 이 파일에 누적하지 않습니다.
 
-## 0. 현재 운영 상태
+## 1. 현재 운영 상태
 
-- `main`은 검증이 끝난 squash commit만 두는 배포 기준 브랜치입니다.
-- 기능과 유지보수 작업은 최신 `main`에서 정렬한 `dev`에 작업 단위별 커밋으로 쌓고, 전체 검증 후 `main`에 squash 반영합니다.
-- `gh-pages` 는 Sparkle appcast와 GitHub Pages 정적 파일을 올리는 배포 산출물 브랜치입니다.
-- staging은 브랜치가 아니라 `vX.Y.Z-staging` prerelease와 `channels/staging/appcast.xml` 로 운영하는 release channel입니다.
-- prod는 staging 검증이 끝난 버전만 `vX.Y.Z` stable release와 root `appcast.xml` 로 게시합니다.
-- 배포 절차, GitHub 계정 전환, 개인 로컬 파일 관리 기준은 [docs/PROJECT_WORKFLOW.md](docs/PROJECT_WORKFLOW.md) 를 따릅니다.
+- 현재 prod와 staging은 `2.4.10 (20410)`, 기준 커밋은 `8fa58906`입니다.
+- `main`, `dev`, `origin/main`, `origin/dev`는 같은 기준 커밋에 정렬돼 있습니다.
+- prod/staging public appcast는 각각 `v2.4.10`, `v2.4.10-staging`의 원격
+  ZIP을 가리킵니다.
+- 현재 진행 중 작업: 아래 `1.1 managed AGY readiness 인증 게이트` (2.4.11
+  staging 후보).
+- App Store가 아니라 Developer ID 공증, GitHub Release, Sparkle appcast로
+  직접 배포합니다.
 
-## 1. 현재 진행 작업
+### 1.1 진행 중: managed AGY readiness 인증 게이트 (2.4.11 후보)
 
-- AGY v2 group × cadence quota runtime, 구조화 RPC, process lifecycle, OAuth
-  계정 저장소, migration, refresh orchestration과 모든 표시 surface 연결은
-  완료되어 staging에서 검증 중입니다.
-- Claude/Codex/Antigravity의 standard·compact·메뉴바·설정 표시 모델과 공용
-  design-system component를 유지하고, provider별 예외는 typed adapter와
-  metadata 경계 안에 둡니다.
-- 현재 후보 2.4.8은 AGY가 공지한 정확한 로컬 RPC 포트를 먼저 검증하고,
-  sibling plaintext listener를 TLS로 probe하지 않습니다. 공식 bootstrap log를
-  읽기 위해 활성화한 PTY 출력은 readiness와 warm session 전 구간에서 계속
-  bounded drain해 AGY 자체가 terminal backpressure로 멈추지 않게 합니다.
-- 시작 시 executable/Keychain 검사를 main thread 밖으로 옮깁니다.
-- 백그라운드 Sparkle 예약 업데이트는 popover의 커스텀 gentle reminder로
-  처리한다는 delegate capability를 명시해 실제 구현과 scheduler 계약을
-  일치시킵니다.
-- 표시 설정은 공통 설정 뒤에 provider logo 선택기를 두고 Claude, Codex,
-  Antigravity 중 한 provider의 메뉴바·팝오버 설정만 표시합니다. 팝오버에서
-  진입하면 현재 provider가 선택됩니다.
-- staging 설정 창 제목은 배포 identity를 따라 `ClaudeUsage-stg 설정`으로
-  표시합니다.
-- 2.4.8 staging 게시 후 사용자가 `/Applications/ClaudeUsage-stg.app`을 직접
-  실행해 메뉴바 표시, provider 전환, AGY 조회, 단일 인스턴스와 시작 로그를
-  확인하기 전에는 prod를 게시하지 않습니다.
+실측 근거: managed `agy`는 PTY 기동 직후 `CLI ready` 출력과 로컬 RPC 200 응답
+이후에도 keyring 인증이 비동기로 끝나기 전까지 `GetUserStatus`가 미인증
+payload를 반환한다. 현재 readiness probe는 HTTP 200이면 통과시키므로 인증
+완료 전 쿼터 조회가 실패할 수 있다. 환경변수 화이트리스트는 원인이 아니며
+변경하지 않는다 (7개 화이트리스트만으로 keyring 인증 성공 실측).
 
-## 2. 완료된 주요 정리
+작업 항목:
 
-- Sparkle 기반 업데이트와 GitHub Release fallback 경계를 정리했습니다.
-- `prod` / `staging` appcast 채널을 분리했고, `gh-pages` 게시 스크립트를 기준 절차로 고정했습니다.
-- `main` 단일 코드 브랜치와 release channel 운영 방식을 문서화했습니다.
-- DMG, Downloads, App Translocation 실행 시 `Applications` 이동 안내를 추가했습니다.
-- 이동 과정에서 기존 실행본이 있으면 먼저 종료를 요청해 중복 실행을 줄였습니다.
-- 설치 후 남은 DMG를 휴지통으로 이동하는 안내를 추가했습니다.
-- Claude `resets_at` 을 정각 리셋이 아니라 갱신 예상 시각으로 취급하도록 정리했습니다.
-- 임계값 알림은 reset time 변경이 아니라 사용률 상태 전이 기준으로 동작하도록 분리했습니다.
-- Codex/Gemini 계열의 토큰 만료 상황은 먼저 refresh를 시도하고, 실패 시 재로그인 안내로 내려가도록 정리했습니다.
-- 설정 UI는 일반 사용자에게 필요한 상태와 다음 행동을 먼저 보여주고, 상세/복구 정보는 접힌 고급 영역으로 내리는 방향으로 정리했습니다.
+1. [완료] `AntigravityManagedCLIRPCReadinessProbe`가 `GetUserStatus` 응답에서
+   계정 identity(email) 디코드까지 성공해야 ready로 판정. 미인증 200은
+   재시도 대상 오류로 던져 기존 readiness 폴링 루프가 20초 예산 안에서 재시도.
+2. [완료] `AntigravityLocalRPCClient.identity()` 재시도 확대
+   (3회×100ms → 5회×200ms).
+3. [완료] managed launch의 `posix_spawn`에 `ETXTBSY` 한정 재시도 추가
+   (AGY 자동 업데이트로 인한 바이너리 교체 중 spawn 실패 대비).
+4. [완료] 관련 단위 테스트, 문서 계약(`docs/antigravity-usage-sources.md`) 갱신.
+5. [진행] dev 검증(전체 XCTest, live AGY integration, 실앱 QA) 후 main squash,
+   `2.4.11-staging` 게시.
 
-## 3. 현재 제품 기준
+범위 제외: 환경변수 화이트리스트 확장, `groupedQuota()` 재시도(스테이징
+재발 시 후속), 외부 warm AGY 재사용.
 
-- 기본 제품 축은 `Claude` 중심 multi-provider menubar app입니다.
-- runtime provider는 `Claude`, `Codex`, `Antigravity`입니다. AGY quota의
-  `Gemini`는 Antigravity 내부 quota group이지 별도 app provider가 아닙니다.
-- `Antigravity`는 2.0 로컬 앱 API, `agy` CLI 감지, Google OAuth 원격 quota 조회, multi-account OAuth 설정 UX까지 현재 runtime provider 기준으로 정리되어 있습니다.
-- 기본 활성화는 Claude 중심이고, 다른 provider는 사용자가 필요할 때 켜는 정책을 유지합니다.
-- 메뉴바는 정상 상태에서 과도한 설명을 줄이고, 문제가 있을 때만 상태 badge/dot으로 신호를 줍니다.
-- popover는 일반 보기와 간소화 보기 모두 전역 모드이며, provider별 표시 항목과 순서는 provider 설정에서 조정합니다.
-- release build는 Sparkle appcast를 기준으로 업데이트하고, 개발 빌드는 feed/public key가 없으면 GitHub Release fallback을 사용합니다.
+## 2. 최근 완료
 
-## 4. 운영 규칙
+- Claude, Codex, Antigravity의 provider 표시 component와 설정 UX를 통합했습니다.
+- Antigravity를 group × cadence quota, 구조화 local RPC, borrowed/managed AGY,
+  선택 계정 OAuth, typed display settings 구조로 전환했습니다.
+- managed AGY의 정확한 HTTPS bootstrap port와 PTY backpressure 처리를 고정했습니다.
+- prod/staging 앱 identity와 단일 인스턴스 경계를 분리했습니다.
+- release driver가 legacy production release metadata도 검증하도록 보강했습니다.
+- 메뉴바 appearance 관찰 → 렌더 → 재관찰 loop를 제거하고 semantic render key,
+  요청 coalescing, provider icon cache를 추가해 지속 고 CPU 문제를 수정했습니다.
+- 수정본을 staging과 prod `2.4.10`으로 게시하고 사용자가 prod Sparkle 업데이트와
+  직접 실행 상태를 확인했습니다.
 
-- 배포 작업 전 `gh auth switch --hostname github.com --user ChoSeongmin1128` 로 active 계정을 맞춥니다.
-- 배포 후 평소 작업 계정이 필요하면 `gh auth switch --hostname github.com --user nathan-glorang` 로 되돌립니다.
-- staging 배포는 `./Scripts/release.sh stg X.Y.Z`로 실행하고 driver가
-  `vX.Y.Z-staging` prerelease와 staging feed를 고정합니다.
-- prod 배포는 staging 검증 후 `./Scripts/release.sh prod X.Y.Z`로 실행하고
-  driver가 `vX.Y.Z` stable release와 prod feed를 고정합니다.
-- staging과 prod는 앱에 들어가는 `SUFeedURL` 이 다르므로 같은 커밋이어도 산출물을 각각 다시 빌드합니다.
-- `Config/Sparkle.release.local.xcconfig`, notarization key, SSH alias, 로컬 DMG/ZIP 산출물은 저장소에 올리지 않습니다.
+## 3. 현재 유지보수 목표
 
-## 5. 남은 리스크
+### 릴리스 회귀 방지
 
-- v2.3.3 prod 이후 2.4.x 누적 변경이 크므로 자동 테스트만으로 prod 승인을
-  내리지 않습니다. 기존 2.3.3 데이터 upgrade, AGY 설치/미설치/신뢰 거부,
-  multi-monitor 상태 항목, Sparkle upgrade를 staging에서 수동 확인해야 합니다.
-- 메뉴바와 refresh 경로는 일반화됐지만 Claude 전용 로그인 복구 화면처럼
-  의도적인 provider 전용 흐름과 제거 대상 하드코딩을 계속 구분해야 합니다.
-- first-run onboarding과 권한 설명은 계속 실제 사용자 실패 사례 기준으로 줄이고 보강해야 합니다.
-- 설치 위치 이동은 앱 내부 버튼 흐름에서는 재실행을 다루지만, Finder에서 DMG를 수동 드래그하는 경우 자동 실행되지 않는 macOS 기본 동작은 바꿀 수 없습니다.
-- Sparkle 자동 업데이트는 설치 권한, 실행 위치, 기존 실행본 상태에 영향을 받으므로 릴리스마다 별도 Mac에서 확인해야 합니다.
+- 다음 후보마다 통합 release driver의 전체 XCTest, shell test, 공식 AGY live
+  integration, notarization, 원격 artifact, Pages public feed 검증을 유지합니다.
+- 설치 앱은 자동화 도구가 실행하지 않고 사용자가 Finder의 Applications에서
+  직접 실행해 메뉴바와 ControlCenter 상태를 확인합니다.
+- published tag, release, asset은 immutable입니다. blocker가 있으면 다음 numeric
+  patch candidate를 만듭니다.
 
-## 6. 다음 작업 후보
+### CPU·메뉴바 회귀 감시
 
-- 2.4.8 staging 수동 QA 결과를 기록하고 prod gate를 통과/보류로 명시합니다.
-- Antigravity managed CLI 자동 실행 정책을 일반 사용자에게 충분히 설명하는지
-  별도 prod 정책 검토를 완료합니다.
-- first-run wizard에서 권한 요청 이유와 실패 시 다음 행동을 더 짧게 정리합니다.
-- 문서와 UI copy에서 내부 구현어가 다시 새지 않는지 정기적으로 점검합니다.
+- idle 시 ClaudeUsage가 지속적으로 한 코어를 점유하지 않는지 확인합니다.
+- 사용량 변화가 없을 때 status item content와 image를 반복 적용하지 않아야 합니다.
+- light/dark/high-contrast 전환은 실제 의미 변화마다 한 번만 갱신돼야 합니다.
+- ClaudeUsage idle 상태에서 WindowServer가 지속적으로 과도하게 동작하지 않는지
+  함께 확인합니다.
 
-## 7. 기준 문서
+### 인증·AGY 호환성
 
+- Claude 계정 전환에서 Keychain prompt와 이전 계정 provenance 혼입을 방지합니다.
+- Antigravity local RPC와 OAuth 응답 shape가 바뀌면 가짜 0%/100%로 숨기지 않고
+  typed failure나 identity-only 상태로 드러냅니다.
+- borrowed AGY는 종료하지 않고 owned process tree만 정리합니다.
+- 사용자가 고르는 것은 조회 계정이며 source 순서는 앱 정책으로 유지합니다.
+
+### 문서 유지
+
+- 버전이나 release gate가 바뀌는 작업은 `HANDOFF.md`, 이 문서와 관련 reference를
+  같은 release task에서 갱신합니다.
+- 현재 상태 문서에 과거 버전별 진행 로그를 누적하지 않습니다.
+- `AGENTS.md`가 로컬 agent rule의 원본이며 `CLAUDE.md`는 `@AGENTS.md` 한 줄만
+  유지합니다.
+
+## 4. 다음 작업 후보
+
+아래 항목은 blocker가 아니라 다음 유지보수 후보입니다.
+
+- 장시간 idle·appearance 전환·화면 잠금/해제에서 2.4.10 CPU 회귀 관찰
+- 별도 Mac에서 실제 이전 prod → 다음 staging Sparkle upgrade 반복 검증
+- Antigravity upstream AGY 및 Cloud Code Assist payload 변화 감시
+- first-run 권한 설명과 실패 후 다음 행동의 문구 단순화
+- 메뉴바/팝오버 accessibility label과 compact 폭 회귀 점검
+
+## 5. 기준 문서
+
+- 현재 인계: [HANDOFF.md](HANDOFF.md)
 - 프로젝트 작업 방식: [docs/PROJECT_WORKFLOW.md](docs/PROJECT_WORKFLOW.md)
 - 배포 절차: [docs/RELEASE.md](docs/RELEASE.md)
 - Apple Developer / 업데이트 전략: [apple-developer-update.md](apple-developer-update.md)
-- 인증과 사용량 소스: [docs/authentication-and-sources.md](docs/authentication-and-sources.md)
-- Antigravity 현행(개편 전) 사용량 소스와 설정 UX: [docs/antigravity-usage-sources.md](docs/antigravity-usage-sources.md)
-- Antigravity/AGY 전면 개편 구현 계획: [docs/antigravity-usage-rewrite-plan.md](docs/antigravity-usage-rewrite-plan.md)
+- Claude 인증과 사용량 소스: [docs/authentication-and-sources.md](docs/authentication-and-sources.md)
+- Antigravity 현재 계약: [docs/antigravity-usage-sources.md](docs/antigravity-usage-sources.md)
+- 완료된 Antigravity 구현 계획: [docs/antigravity-usage-rewrite-plan.md](docs/antigravity-usage-rewrite-plan.md)

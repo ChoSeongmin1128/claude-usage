@@ -561,6 +561,237 @@ final class AntigravityManagedCLIReadinessTests:
         XCTAssertEqual(discovery.discoverCallCount(), 0)
     }
 
+    func testAuthenticationPendingProbeIsRetriedUntilReady() async throws {
+        let identity = makeIdentity(processID: 4_108)
+        let endpoint = makeEndpoint(identity: identity)
+        let discovery = ManagedReadinessDiscoveryStub(
+            snapshots: [
+                makeSnapshot(
+                    identity: identity,
+                    endpoints: [endpoint]
+                )
+            ]
+        )
+        let probe =
+            ManagedReadinessAuthenticationPendingProbeStub(
+                pendingCount: 3
+            )
+        let checker = makeChecker(
+            discovery: discovery,
+            processInspector:
+                ManagedReadinessProcessInspectorStub(),
+            rpcProbe: probe
+        )
+
+        let result = try await checker.waitUntilReady(
+            handle: ManagedReadinessProcessHandleStub(
+                processID: identity.processID
+            ),
+            processIdentity: identity,
+            deadline: AntigravityRPCDeadline(
+                totalTimeout: .seconds(5),
+                discoveryTimeout: .seconds(1)
+            )
+        )
+
+        XCTAssertEqual(probe.callCount(), 4)
+        XCTAssertEqual(result.runtime.endpoint, endpoint)
+        // A pending probe keeps polling the already-verified endpoint and
+        // must not pay ps/lsof rediscovery on every attempt.
+        XCTAssertEqual(discovery.discoverCallCount(), 1)
+    }
+
+    func testExhaustedBudgetWithPendingAuthenticationReportsLoginRequired()
+        async throws
+    {
+        let identity = makeIdentity(processID: 4_112)
+        let endpoint = makeEndpoint(identity: identity)
+        let discovery = ManagedReadinessDiscoveryStub(
+            snapshots: [
+                makeSnapshot(
+                    identity: identity,
+                    endpoints: [endpoint]
+                )
+            ]
+        )
+        let checker = makeChecker(
+            discovery: discovery,
+            processInspector:
+                ManagedReadinessProcessInspectorStub(),
+            rpcProbe:
+                ManagedReadinessAuthenticationPendingProbeStub(
+                    pendingCount: .max
+                )
+        )
+
+        do {
+            _ = try await checker.waitUntilReady(
+                handle: ManagedReadinessProcessHandleStub(
+                    processID: identity.processID
+                ),
+                processIdentity: identity,
+                deadline: AntigravityRPCDeadline(
+                    totalTimeout: .milliseconds(80),
+                    discoveryTimeout: .milliseconds(80)
+                )
+            )
+            XCTFail("Permanently pending probe became ready")
+        } catch let error as AntigravityManagedSessionError {
+            XCTAssertEqual(
+                error,
+                .interactionRequired(.loginRequired)
+            )
+        }
+    }
+
+    func testExhaustedBudgetWithMalformedUserStatusStaysGenericTimeout()
+        async throws
+    {
+        let identity = makeIdentity(processID: 4_113)
+        let endpoint = makeEndpoint(identity: identity)
+        let discovery = ManagedReadinessDiscoveryStub(
+            snapshots: [
+                makeSnapshot(
+                    identity: identity,
+                    endpoints: [endpoint]
+                )
+            ]
+        )
+        let checker = makeChecker(
+            discovery: discovery,
+            processInspector:
+                ManagedReadinessProcessInspectorStub(),
+            rpcProbe:
+                ManagedReadinessAuthenticationPendingProbeStub(
+                    pendingCount: .max,
+                    pendingError: .malformedUserStatus
+                )
+        )
+
+        do {
+            _ = try await checker.waitUntilReady(
+                handle: ManagedReadinessProcessHandleStub(
+                    processID: identity.processID
+                ),
+                processIdentity: identity,
+                deadline: AntigravityRPCDeadline(
+                    totalTimeout: .milliseconds(80),
+                    discoveryTimeout: .milliseconds(80)
+                )
+            )
+            XCTFail("Permanently malformed probe became ready")
+        } catch let error as AntigravityManagedSessionError {
+            XCTAssertEqual(error, .readinessTimedOut)
+        }
+    }
+
+    func testRPCProbeAcceptsAuthenticatedUserStatus() async throws {
+        let (probe, connection) = makeRPCProbe(
+            body: #"{"userStatus":{"email":"user@example.com"}}"#
+        )
+
+        try await probe.probe(
+            makeRuntime(processID: 4_109),
+            deadline: AntigravityRPCDeadline(
+                totalTimeout: .seconds(1),
+                discoveryTimeout: .zero
+            )
+        )
+
+        XCTAssertEqual(connection.methods, [.getUserStatus])
+        XCTAssertTrue(connection.wasInvalidated)
+    }
+
+    func testRPCProbeReportsUnauthenticatedOKResponseAsPending() async {
+        let (probe, _) = makeRPCProbe(
+            body: #"{"userStatus":{}}"#
+        )
+
+        await assertProbeThrows(probe, .authenticationPending)
+    }
+
+    func testRPCProbeReportsMissingUserStatusAsMalformed() async {
+        let (probe, _) = makeRPCProbe(body: "{}")
+
+        await assertProbeThrows(probe, .malformedUserStatus)
+    }
+
+    func testRPCProbeStillFailsClosedOnRejectedStatus() async {
+        let (probe, _) = makeRPCProbe(
+            body: #"{"userStatus":{"email":"user@example.com"}}"#,
+            statusCode: 401
+        )
+
+        do {
+            try await probe.probe(
+                makeRuntime(processID: 4_111),
+                deadline: AntigravityRPCDeadline(
+                    totalTimeout: .seconds(1),
+                    discoveryTimeout: .zero
+                )
+            )
+            XCTFail("Rejected status was accepted")
+        } catch let error as AntigravityLocalRPCError {
+            XCTAssertEqual(error, .authenticationRejected)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    private func assertProbeThrows(
+        _ probe: AntigravityManagedCLIRPCReadinessProbe,
+        _ expected: AntigravityManagedCLIRPCReadinessProbeError
+    ) async {
+        do {
+            try await probe.probe(
+                makeRuntime(processID: 4_110),
+                deadline: AntigravityRPCDeadline(
+                    totalTimeout: .seconds(1),
+                    discoveryTimeout: .zero
+                )
+            )
+            XCTFail("Response without identity evidence was accepted")
+        } catch let error
+            as AntigravityManagedCLIRPCReadinessProbeError
+        {
+            XCTAssertEqual(error, expected)
+        } catch {
+            XCTFail("Unexpected error: \(error)")
+        }
+    }
+
+    private func makeRPCProbe(
+        body: String,
+        statusCode: Int = 200
+    ) -> (
+        AntigravityManagedCLIRPCReadinessProbe,
+        ManagedReadinessRPCConnectionStub
+    ) {
+        let connection = ManagedReadinessRPCConnectionStub(
+            response: AntigravityLocalRPCResponse(
+                statusCode: statusCode,
+                body: Data(body.utf8)
+            )
+        )
+        let probe = AntigravityManagedCLIRPCReadinessProbe(
+            connectionFactory:
+                ManagedReadinessRPCConnectionFactoryStub(
+                    connection: connection
+                )
+        )
+        return (probe, connection)
+    }
+
+    private func makeRuntime(
+        processID: Int32
+    ) -> AntigravityManagedRuntime {
+        let identity = makeIdentity(processID: processID)
+        return AntigravityManagedRuntime(
+            processIdentity: identity,
+            endpoint: makeEndpoint(identity: identity)
+        )!
+    }
+
     private func makeChecker(
         discovery: ManagedReadinessDiscoveryStub,
         processInspector: ManagedReadinessProcessInspectorStub,
@@ -833,5 +1064,99 @@ private final class ManagedReadinessProcessHandleStub:
         gracePeriod: Duration
     ) async -> AntigravityManagedCLIProcessTerminationEvidence {
         .confirmed
+    }
+}
+
+private final class ManagedReadinessAuthenticationPendingProbeStub:
+    AntigravityManagedCLIRPCReadinessProbing,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var pendingCount: Int
+    private let pendingError:
+        AntigravityManagedCLIRPCReadinessProbeError
+    private var calls = 0
+
+    init(
+        pendingCount: Int,
+        pendingError: AntigravityManagedCLIRPCReadinessProbeError =
+            .authenticationPending
+    ) {
+        self.pendingCount = pendingCount
+        self.pendingError = pendingError
+    }
+
+    func probe(
+        _ runtime: AntigravityManagedRuntime,
+        deadline: AntigravityRPCDeadline
+    ) async throws {
+        let shouldReportPending: Bool = lock.withLock {
+            calls += 1
+            guard pendingCount > 0 else { return false }
+            pendingCount -= 1
+            return true
+        }
+        if shouldReportPending {
+            throw pendingError
+        }
+    }
+
+    func callCount() -> Int {
+        lock.withLock { calls }
+    }
+}
+
+private final class ManagedReadinessRPCConnectionStub:
+    AntigravityLocalRPCConnection,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private let response: AntigravityLocalRPCResponse
+    private var storedMethods: [AntigravityLocalRPCMethod] = []
+    private var storedWasInvalidated = false
+
+    init(response: AntigravityLocalRPCResponse) {
+        self.response = response
+    }
+
+    var methods: [AntigravityLocalRPCMethod] {
+        lock.withLock { storedMethods }
+    }
+
+    var wasInvalidated: Bool {
+        lock.withLock { storedWasInvalidated }
+    }
+
+    func perform(
+        _ method: AntigravityLocalRPCMethod,
+        deadline: AntigravityRPCDeadline
+    ) async throws -> AntigravityLocalRPCResponse {
+        lock.withLock {
+            storedMethods.append(method)
+        }
+        return response
+    }
+
+    func invalidate() {
+        lock.withLock {
+            storedWasInvalidated = true
+        }
+    }
+}
+
+private final class ManagedReadinessRPCConnectionFactoryStub:
+    AntigravityLocalRPCConnectionFactory,
+    @unchecked Sendable
+{
+    private let connection: any AntigravityLocalRPCConnection
+
+    init(connection: any AntigravityLocalRPCConnection) {
+        self.connection = connection
+    }
+
+    func makeConnection(
+        endpoint: AntigravityVerifiedRuntimeEndpoint
+    ) throws -> any AntigravityLocalRPCConnection {
+        connection
     }
 }

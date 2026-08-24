@@ -451,6 +451,40 @@ nonisolated enum AntigravityLocalIdentityDecoder {
     }
 }
 
+/// Shared classification of a validated `GetUserStatus` body.
+///
+/// AGY answers this RPC with HTTP 200 before its asynchronous keyring
+/// authentication completes; during that window the body decodes but carries
+/// no account identity. Readiness probing and quota fetching must agree on
+/// this contract, so both classify through this single type instead of
+/// re-implementing divergent decode policies.
+nonisolated enum AntigravityUserStatusAuthenticationEvidence:
+    Equatable,
+    Sendable
+{
+    /// The body carries a decoded account identity.
+    case authenticated(AntigravityLocalAccountIdentity)
+    /// The body decodes, but authentication has not completed yet, so no
+    /// account identity is present. Retryable while budget remains.
+    case authenticationPending(AntigravityLocalAccountIdentity)
+    /// The body does not carry a decodable `userStatus` envelope. Observed
+    /// only for upstream schema changes, never inside the bootstrap window.
+    case malformed
+
+    static func classify(
+        _ body: Data
+    ) -> AntigravityUserStatusAuthenticationEvidence {
+        guard let decoded = try? AntigravityLocalIdentityDecoder.decode(
+            body
+        ) else {
+            return .malformed
+        }
+        return decoded.identity == nil
+            ? .authenticationPending(decoded)
+            : .authenticated(decoded)
+    }
+}
+
 nonisolated struct AntigravityLegacyCapabilityEvidence:
     Equatable,
     Sendable

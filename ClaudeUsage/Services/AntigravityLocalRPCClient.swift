@@ -44,8 +44,13 @@ nonisolated struct AntigravityLocalRPCClient:
         connectionFactory:
             any AntigravityLocalRPCConnectionFactory,
         now: @escaping @Sendable () -> Date = Date.init,
-        identityAttemptLimit: Int = 3,
-        identityRetryDelay: Duration = .milliseconds(100),
+        // AGY answers GetUserStatus before its asynchronous keyring
+        // authentication completes; identity can appear several hundred
+        // milliseconds after the RPC listener is reachable, longer when a
+        // token refresh needs the network. Keep the retry window wider than
+        // that measured gap for borrowed and local-app endpoints too.
+        identityAttemptLimit: Int = 5,
+        identityRetryDelay: Duration = .milliseconds(200),
         sleep:
             @escaping @Sendable (Duration) async throws -> Void = {
                 try await Task.sleep(for: $0)
@@ -151,10 +156,21 @@ nonisolated struct AntigravityLocalRPCClient:
             AntigravityLocalIdentityIssue(
                 error: .transportFailure
             )
-        for attempt in 0..<identityAttemptLimit {
+        // A decodable-but-identity-less body from AGY's keyring window; kept
+        // so the final answer still carries the decoded plan when identity
+        // never appears within the retry budget.
+        var pendingEvidence: AntigravityLocalAccountIdentity?
+        attemptLoop: for attempt in 0..<identityAttemptLimit {
             let remaining = parentDeadline.remaining
             guard remaining > .zero else {
-                throw AntigravityLocalRPCError.deadlineExceeded
+                // The grouped quota is already fetched by this point; an
+                // exhausted identity budget degrades to an identity issue
+                // instead of discarding that snapshot.
+                lastIssue =
+                    AntigravityLocalIdentityIssue(
+                        error: .deadlineExceeded
+                    )
+                break attemptLoop
             }
             let identityDeadline = AntigravityRPCDeadline(
                 totalTimeout: min(.seconds(1), remaining),
@@ -169,12 +185,22 @@ nonisolated struct AntigravityLocalRPCClient:
                 try AntigravityLocalRPCResponseValidator.validate(
                     response
                 )
-                return (
-                    try AntigravityLocalIdentityDecoder.decode(
-                        response.body
-                    ),
-                    nil
-                )
+                switch AntigravityUserStatusAuthenticationEvidence
+                    .classify(response.body)
+                {
+                case .authenticated(let decoded):
+                    return (decoded, nil)
+                case .authenticationPending(let decoded):
+                    // Keyring authentication has not completed yet;
+                    // retry within the budget instead of settling for an
+                    // identity-less answer on the first attempt.
+                    pendingEvidence = decoded
+                case .malformed:
+                    lastIssue =
+                        AntigravityLocalIdentityIssue(
+                            error: .malformedPayload
+                        )
+                }
             } catch let error as AntigravityLocalRPCError {
                 if error == .deadlineExceeded {
                     do {
@@ -182,8 +208,11 @@ nonisolated struct AntigravityLocalRPCClient:
                     } catch is CancellationError {
                         throw AntigravityLocalRPCError.cancelled
                     } catch is AntigravityRPCDeadlineError {
-                        throw AntigravityLocalRPCError
-                            .deadlineExceeded
+                        lastIssue =
+                            AntigravityLocalIdentityIssue(
+                                error: .deadlineExceeded
+                            )
+                        break attemptLoop
                     }
                 }
                 if Self.isFatalIdentityError(error) {
@@ -199,8 +228,11 @@ nonisolated struct AntigravityLocalRPCClient:
                 } catch is CancellationError {
                     throw AntigravityLocalRPCError.cancelled
                 } catch is AntigravityRPCDeadlineError {
-                    throw AntigravityLocalRPCError
-                        .deadlineExceeded
+                    lastIssue =
+                        AntigravityLocalIdentityIssue(
+                            error: .deadlineExceeded
+                        )
+                    break attemptLoop
                 }
                 lastIssue =
                     AntigravityLocalIdentityIssue(
@@ -214,11 +246,16 @@ nonisolated struct AntigravityLocalRPCClient:
             }
 
             guard attempt + 1 < identityAttemptLimit else {
-                break
+                break attemptLoop
             }
             if identityRetryDelay > .zero {
                 do {
-                    try await sleep(identityRetryDelay)
+                    try await sleep(
+                        min(
+                            identityRetryDelay,
+                            max(.zero, parentDeadline.remaining)
+                        )
+                    )
                 } catch is CancellationError {
                     throw AntigravityLocalRPCError.cancelled
                 } catch {
@@ -228,7 +265,12 @@ nonisolated struct AntigravityLocalRPCClient:
             }
         }
         // Grouped quota remains usable as capability evidence, but the
-        // coordinator will not bind it to an account without identity.
+        // coordinator will not bind it to an account without identity. A
+        // decoded identity-less body is not an issue; it preserves the
+        // pre-authentication plan evidence.
+        if let pendingEvidence {
+            return (pendingEvidence, nil)
+        }
         return (nil, lastIssue)
     }
 

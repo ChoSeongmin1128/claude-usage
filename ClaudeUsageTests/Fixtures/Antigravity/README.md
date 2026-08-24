@@ -14,6 +14,10 @@ The unsanitised response is not retained.
 This is one account and version snapshot of an undocumented local endpoint, not
 an upstream compatibility guarantee.
 
+This fixture is only the deterministic decoder characterization baseline.
+Live-AGY release evidence is owned by the release process documents, not by
+this fixture.
+
 ## Legacy OAuth account fixture
 
 `legacy-oauth-user-shape-redacted.json`은 실제 `oauth_accounts.json`의 필드 구조,

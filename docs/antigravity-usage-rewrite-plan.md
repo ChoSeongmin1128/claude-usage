@@ -1,8 +1,8 @@
 # Antigravity/AGY 사용량 조회 전면 개편 계획
 
-- 상태: 역사적 구현 계획 (현재 동작의 source of truth 아님)
+- 상태: 구현 완료된 역사적 계획 (현재 동작의 source of truth 아님)
 - 작성일: 2026-07-26
-- 최종 갱신: 2026-07-29
+- 최종 갱신: 2026-08-14
 - 기준 브랜치: `dev`
 - 계획 기준 commit: `1fc02fafe6ab29f565d61cecd47db7361f4e340b` (작업 시작 당시 `main`/`dev` 공통 기준)
 
@@ -10,6 +10,18 @@
 2026-07-29 이후 현재 자동 조회 정책, AGY 신뢰 경계와 설정 UX의 source of
 truth는 `docs/antigravity-usage-sources.md`와 실제 코드입니다. 특히 아래의
 `sourcePolicy`/managed CLI opt-in 설계는 schema v2에서 제거됐습니다.
+
+최종 구현은 2.4.0~2.4.8에 걸쳐 배포됐으며 계획에서 다음과 같이 달라졌습니다.
+
+- 사용자는 source가 아니라 로컬 ambient 계정 또는 연결한 Google 계정을 고릅니다.
+- local app → borrowed AGY → 검증된 managed AGY 순서로 자동 조회하고, 선택
+  Google 계정에서는 마지막에 해당 OAuth를 시도합니다.
+- Antigravity OAuth는 제한 권한 파일 저장소를 사용하며 background refresh에서
+  Keychain을 읽지 않습니다. legacy Keychain은 prompt-free migration만 허용합니다.
+- standard와 compact는 다중 lane 표시·순서를 지원하고 메뉴바만 단일 lane을
+  유지합니다.
+- 단계 1~10은 완료됐습니다. 아래 단계별 수치와 미완료 표현은 당시 검증 시점의
+  기록이며 현재 release gate로 사용하지 않습니다.
 
 ## 1. 목표와 완료 정의
 
@@ -918,8 +930,10 @@ Codex에 dark 파일을 하나 더 추가하는 수정은 필요하지 않습니
 4. legacy JSON과 구 settings가 정리됐는지 값은 출력하지 않고 존재 여부만 확인합니다.
 5. Antigravity app 계정, 외부 AGY 계정, OAuth 선택 계정을 조합해 match/mismatch를 검증합니다.
 6. account A↔B를 10회 전환하며 이전 수치, token active race, Keychain prompt가 없는지 확인합니다.
-7. automatic refresh가 AGY를 시작하거나 update하지 않는지 확인합니다.
-8. managed launch opt-in에서 auto-update가 비활성이고 idle 종료되는지 확인합니다.
+7. automatic refresh가 실행 중 source를 먼저 사용하고, 필요한 경우에만 검증된
+   AGY를 시작하며 AGY 자체를 update하지 않는지 확인합니다.
+8. managed launch에서 auto-update가 비활성이고 owned process tree만 idle
+   종료되는지 확인합니다.
 9. standard/compact/menu bar/settings/notification을 실제 화면으로 검수합니다.
 10. 모든 계정 연결 해제 후 app-owned data가 남지 않고 AGY 자체 데이터는 보존되는지 확인합니다.
 
@@ -930,7 +944,8 @@ Codex에 dark 파일을 하나 더 추가하는 수정은 필요하지 않습니
 - `docs/antigravity-usage-sources.md`: source 우선순위, structured RPC, capability와 provenance
 - `docs/authentication-and-sources.md`: metadata/vault 저장 경계, account match, token refresh CAS
 - `docs/PROJECT_WORKFLOW.md`: AGY 실연동 opt-in test와 migration release QA
-- release note: 자동 migration, UI 변경, managed CLI 기본 off, old settings reset 안내
+- release note: 자동 migration, UI 변경, 검증된 managed CLI 자동 조회와 old
+  settings reset 안내
 
 진단 정보는 다음만 포함합니다.
 
@@ -964,7 +979,7 @@ raw payload, token, credential fingerprint, cookie, CSRF, 전체 이메일은 lo
 - `oauth_accounts.json`과 active credential mirror를 계속 dual-write
 - migration delete 실패를 `try?`로 숨김
 - unknown을 0으로 대체
-- automatic refresh가 AGY를 몰래 실행하거나 update
+- 검증되지 않은 AGY를 실행하거나 AGY를 자동 update
 - borrowed process 종료
 - 구 settings를 downgrade 명목으로 영구 dual-write
 - credits, token history, quota를 하나의 percentage로 합침

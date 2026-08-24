@@ -34,6 +34,73 @@ final class AntigravityManagedCLIProcessTests:
         XCTAssertNil(environment.values["GOOGLE_APPLICATION_CREDENTIALS"])
     }
 
+    func testSpawnSucceedingOnFirstAttemptNeverSleepsOrRetries() {
+        var spawnCalls = 0
+        var sleepCalls = 0
+
+        let status = AntigravityManagedCLIProcessLauncher
+            .spawnRetryingTextFileBusy(
+                sleepBetweenAttempts: { sleepCalls += 1 },
+                spawn: {
+                    spawnCalls += 1
+                    return 0
+                }
+            )
+
+        XCTAssertEqual(status, 0)
+        XCTAssertEqual(spawnCalls, 1)
+        XCTAssertEqual(sleepCalls, 0)
+    }
+
+    func testSpawnRetriesTextFileBusyUntilSuccess() {
+        var outcomes: [Int32] = [ETXTBSY, ETXTBSY, 0]
+        var sleepCalls = 0
+
+        let status = AntigravityManagedCLIProcessLauncher
+            .spawnRetryingTextFileBusy(
+                sleepBetweenAttempts: { sleepCalls += 1 },
+                spawn: { outcomes.removeFirst() }
+            )
+
+        XCTAssertEqual(status, 0)
+        XCTAssertTrue(outcomes.isEmpty)
+        XCTAssertEqual(sleepCalls, 2)
+    }
+
+    func testSpawnStopsRetryingTextFileBusyAtAttemptLimit() {
+        var spawnCalls = 0
+
+        let status = AntigravityManagedCLIProcessLauncher
+            .spawnRetryingTextFileBusy(
+                sleepBetweenAttempts: {},
+                spawn: {
+                    spawnCalls += 1
+                    return ETXTBSY
+                }
+            )
+
+        XCTAssertEqual(status, ETXTBSY)
+        XCTAssertEqual(spawnCalls, 3)
+    }
+
+    func testSpawnNeverRetriesOtherFailures() {
+        var spawnCalls = 0
+        var sleepCalls = 0
+
+        let status = AntigravityManagedCLIProcessLauncher
+            .spawnRetryingTextFileBusy(
+                sleepBetweenAttempts: { sleepCalls += 1 },
+                spawn: {
+                    spawnCalls += 1
+                    return EPERM
+                }
+            )
+
+        XCTAssertEqual(status, EPERM)
+        XCTAssertEqual(spawnCalls, 1)
+        XCTAssertEqual(sleepCalls, 0)
+    }
+
     func testLaunchRequestRejectsNonCLIExecutable() {
         let bundle = AntigravityAppBundleIdentity(
             canonicalRootURL: URL(

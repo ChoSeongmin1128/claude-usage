@@ -519,6 +519,76 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
         XCTAssertTrue(connection.wasInvalidated)
     }
 
+    func testClientRetriesPreAuthenticationIdentityUntilItAppears()
+        async throws
+    {
+        let connection = LocalRPCConnectionStub(outcomes: [
+            .response(groupedQuotaResponse()),
+            .response(preAuthenticationIdentityResponse()),
+            .response(identityResponse()),
+        ])
+        let client = AntigravityLocalRPCClient(
+            connectionFactory: LocalRPCConnectionFactoryStub(
+                connection: connection
+            ),
+            identityRetryDelay: .zero
+        )
+        let endpoint = try makeEndpoint(
+            role: .agyCLI,
+            transport: .agyCLI,
+            authentication: .cliTokenless
+        )
+
+        let result = try await client.fetch(from: endpoint)
+        guard case let .grouped(snapshot, identityIssue) = result else {
+            return XCTFail("Expected grouped quota")
+        }
+
+        XCTAssertNil(identityIssue)
+        XCTAssertEqual(snapshot.identity?.email, "nathan@example.com")
+        XCTAssertEqual(connection.methods, [
+            .retrieveUserQuotaSummary,
+            .getUserStatus,
+            .getUserStatus,
+        ])
+    }
+
+    func testClientKeepsPlanEvidenceWhenIdentityStaysPreAuthentication()
+        async throws
+    {
+        let connection = LocalRPCConnectionStub(outcomes: [
+            .response(groupedQuotaResponse()),
+            .response(preAuthenticationIdentityResponse()),
+            .response(preAuthenticationIdentityResponse()),
+        ])
+        let client = AntigravityLocalRPCClient(
+            connectionFactory: LocalRPCConnectionFactoryStub(
+                connection: connection
+            ),
+            identityAttemptLimit: 2,
+            identityRetryDelay: .zero
+        )
+        let endpoint = try makeEndpoint(
+            role: .agyCLI,
+            transport: .agyCLI,
+            authentication: .cliTokenless
+        )
+
+        let result = try await client.fetch(from: endpoint)
+        guard case let .grouped(snapshot, identityIssue) = result else {
+            return XCTFail("Expected grouped quota")
+        }
+
+        XCTAssertNil(snapshot.identity)
+        XCTAssertNil(identityIssue)
+        XCTAssertEqual(snapshot.plan, "Pro")
+        XCTAssertEqual(connection.methods, [
+            .retrieveUserQuotaSummary,
+            .getUserStatus,
+            .getUserStatus,
+        ])
+    }
+
     func testClientRetriesBestEffortIdentityBeforeReturningGroupedQuota()
         async throws
     {
@@ -807,6 +877,27 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
               "userStatus": {
                 "email": "nathan@example.com",
                 "userTier": { "name": "Pro" }
+              }
+            }
+            """.utf8)
+        )
+    }
+
+    /// The real body shape AGY answers with while its keyring
+    /// authentication is still completing (observed 2026-08-24): HTTP 200,
+    /// `userStatus` present, no account identity.
+    private func preAuthenticationIdentityResponse()
+        -> AntigravityLocalRPCResponse
+    {
+        AntigravityLocalRPCResponse(
+            statusCode: 200,
+            body: Data("""
+            {
+              "userStatus": {
+                "userTier": { "name": "Pro" },
+                "cascadeModelConfigData": {
+                  "errorMessage": "error getting token source: You are not logged into Antigravity."
+                }
               }
             }
             """.utf8)

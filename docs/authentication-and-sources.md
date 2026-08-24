@@ -1,6 +1,6 @@
 # Claude 인증 및 사용량 소스
 
-최종 갱신: 2026-07-23
+최종 갱신: 2026-08-14
 
 이 문서는 현재 `ClaudeUsage`가 Claude 인증과 사용량 조회를 어떤 경로로 다루는지 정리한 문서입니다.
 Antigravity의 로컬 앱, AGY CLI, Google OAuth 원격 quota 정책은 [Antigravity 사용량 소스와 설정 UX](antigravity-usage-sources.md)를 기준으로 합니다.
@@ -117,6 +117,13 @@ Claude 사용량은 아래 소스를 함께 가집니다.
 - `Web(sessionKey/cookie)`와 `OAuth`를 모두 주경로로 취급합니다
 - sessionKey는 제거 대상이 아닙니다
 - 다만 세션 경로가 불안정할 때는 `Claude Code CLI OAuth`를 함께 준비하는 방향을 권장합니다
+- 명시적으로 Web 계정을 선택한 refresh에는 다른 계정일 수 있는 Claude Code
+  OAuth를 섞지 않습니다. Claude Code 계정을 선택한 경우도 해당 OAuth만 사용합니다.
+- 계정 범위가 없는 auto에서는 기본적으로 Web → OAuth 순서이며, Web validation이
+  실패했거나 최근 성공 source가 있으면 검증 상태와 최근 성공을 반영해 순서를
+  바꿉니다.
+- Messages header fallback은 primary candidate가 아니며 별도 fallback policy가
+  허용할 때만 실행합니다.
 
 ## 4. 보조 사용량 복구 정책
 
@@ -174,3 +181,14 @@ Claude의 `resets_at` 값은 정각 고정 리셋 시간이 아니라 API가 알
 4. `수동 sessionKey`
 
 즉, 앱 UI의 첫 행동과 장기 운영 기준의 권장 경로는 다릅니다. 첫 행동은 `Chrome 가져오기`, 가장 안정적인 운영 경로는 `CLI OAuth`입니다.
+
+## 8. 릴리스 회귀 기준
+
+- legacy `claude-session-key`가 UserDefaults에 남아 있지 않은지 값 출력 없이
+  확인합니다.
+- account migration version이 현재 schema와 일치하는지 확인합니다.
+- Chrome Web 계정과 Claude Code 계정을 10회 전환해 이전 계정 사용량이나
+  credential provenance가 섞이지 않는지 확인합니다.
+- 위 전환과 background refresh에서 Keychain/password prompt가 없어야 합니다.
+- 사용자가 명시적으로 `Claude Code 다시 연결`을 실행한 경우의 단일 인증 요청과
+  background prompt 부재를 구분합니다.

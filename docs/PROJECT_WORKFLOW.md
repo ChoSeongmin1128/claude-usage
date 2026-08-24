@@ -1,6 +1,6 @@
 # ClaudeUsage 프로젝트 작업 방식
 
-최종 갱신: 2026-07-27
+최종 갱신: 2026-08-14
 
 ## 현재 기준
 
@@ -10,7 +10,8 @@
 - `gh-pages` 는 Sparkle appcast와 GitHub Pages 정적 파일을 올리는 배포 산출물 브랜치입니다. 코드 작업이나 스테이징 검증 브랜치로 쓰지 않습니다.
 - staging은 브랜치가 아니라 release channel입니다. 최신 `main` 커밋을 prerelease로 빌드해 `channels/staging/appcast.xml` 에 게시합니다.
 - prod는 staging 검증이 끝난 버전만 stable release로 게시합니다.
-- 2026-07-27 확인 기준 최신 prod/staging feed는 모두 `2.3.3` (`sparkle:version` `20330`) 입니다.
+- 현재 게시 버전은 이 문서에 적지 않습니다. public appcast 두 채널과
+  GitHub Release, `README.md`/`HANDOFF.md`의 상태 기록을 확인합니다.
 
 ## 브랜치와 채널
 
@@ -33,7 +34,7 @@
 
 `2.4.0` 이후 build number는
 `major * 10000 + minor * 100 + patch`로 계산합니다. 예:
-`2.4.0 → 20400`, `2.4.1 → 20401`. 과거 `2.3.x`의 `20310/20320/20330`은
+`2.4.0 → 20400`, `2.4.1 → 20401`, `2.4.10 → 20410`. 과거 `2.3.x`의 `20310/20320/20330`은
 published metadata에 남는 역사적 값이며 새 후보 계산에 재사용하지 않습니다.
 
 ## GitHub 계정과 원격
@@ -113,6 +114,9 @@ git push -u origin dev
 `main..dev` 커밋과 squash 반영 상태를 조사합니다.
 
 전체 XCTest, Release build, 실제 UI/계정 QA, 코드 리뷰가 끝난 뒤에만 squash합니다.
+현재 상태나 계약이 바뀌었다면 `README.md`, `HANDOFF.md`, `WORK_PLAN.md`와
+관련 `docs/` reference도 같은 release task에서 갱신합니다. 과거 release
+연대기는 현재 상태 문서에 누적하지 않고 Git history와 GitHub Release에 둡니다.
 
 ```bash
 git status --short
@@ -177,12 +181,19 @@ release는 prerelease로 만들지 않으며 prod appcast는 root `appcast.xml`�
 ## 검증 기준
 
 - `xcodebuild ... test` 통과
+- 설치되고 로그인된 공식 AGY를 사용하는 opt-in live integration 통과
 - `build/release/ClaudeUsage.zip` 과 `build/release/ClaudeUsage.dmg` 생성
 - `spctl -a -t open --context context:primary-signature -vv build/release/ClaudeUsage.dmg` 통과
 - GitHub Release에 `ClaudeUsage.zip`, `ClaudeUsage.dmg`, `appcast.xml` 업로드
 - Pages appcast의 `sparkle:shortVersionString` 과 `sparkle:version` 이 의도한 버전
 - staging/prod 앱에서 업데이트 확인이 각 채널 feed를 봄
 - release app 안의 `SUFeedURL` 이 의도한 채널 URL인지 확인
+- 설치 앱은 자동화 호스트가 아니라 사용자가 Finder의 Applications에서 직접
+  실행하고, 채널당 프로세스가 하나이며 메뉴바 status item이 정상 표시되는지 확인
+- 장시간 idle에서 ClaudeUsage와 WindowServer CPU가 안정되고, 동일 상태의 메뉴바
+  렌더가 반복되지 않으며 appearance 전환이 의미 변화마다 한 번만 반영되는지 확인
+- Claude 계정 전환에서 legacy `claude-session-key` 부재, migration version,
+  credential provenance와 Keychain/password prompt 부재 확인
 
 ```bash
 /usr/libexec/PlistBuddy -c 'Print :SUFeedURL' \

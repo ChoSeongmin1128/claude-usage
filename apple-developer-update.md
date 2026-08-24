@@ -1,6 +1,6 @@
 # Apple Developer 기반 배포/업데이트 전략
 
-최종 갱신: 2026-07-27
+최종 갱신: 2026-08-14
 
 ## 1. 현재 결론
 
@@ -42,10 +42,11 @@
 - prod: `https://choseongmin1128.github.io/claude-usage/appcast.xml`
 - staging: `https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml`
 
-2026-07-27 직접 확인 기준:
+2026-08-14 직접 확인 기준:
 
-- prod feed는 `2.3.3` (`sparkle:version` `20330`) 을 가리킵니다.
-- staging feed는 `2.3.3` (`sparkle:version` `20330`) 을 가리킵니다.
+- prod feed는 `v2.4.10`의 `2.4.10` (`sparkle:version` `20410`)을 가리킵니다.
+- staging feed는 `v2.4.10-staging`의 `2.4.10`
+  (`sparkle:version` `20410`)을 가리킵니다.
 - `dev`는 작업 브랜치, `main`은 squash된 배포 기준이며 별도 `stg` 코드
   브랜치는 없습니다.
 
@@ -85,8 +86,9 @@
 
 1. direct distribution 품질 안정화
 2. Sparkle 채널 운영 안정화
-3. 필요 시 TestFlight 검토
-4. App Store는 별도 제품 전략으로 재검토
+3. 별도 Mac의 실제 Sparkle upgrade·메뉴바·CPU 회귀 검증 자동화 보강
+4. TestFlight/App Store는 sandbox·entitlement·제품 요구사항을 함께 재설계하는
+   별도 제품 전략에서만 검토
 
 ## 7. 참고 문서
 

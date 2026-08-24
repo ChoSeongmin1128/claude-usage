@@ -2,6 +2,8 @@
 
 `Claude`를 중심으로 `Codex`, `Antigravity`까지 확장할 수 있는 macOS 메뉴바 사용량 추적 앱입니다.
 
+최종 갱신: 2026-08-14 · 현재 prod/staging `2.4.10 (20410)`
+
 현재 구현 기준으로는 `Claude`, `Codex`, `Antigravity`가 런타임 provider로 연결되어 있습니다. `Antigravity`는 앱 로컬 API, Google OAuth 원격 조회, AGY CLI 감지, multi-account 설정 UX까지 런타임 provider 흐름에 맞춰 정리되어 있습니다.
 
 ## 현재 방향
@@ -43,6 +45,8 @@
 - Claude 인증 탭의 단계형 빠른 시작 wizard
 - provider별 refresh/backoff/loading/error 상태를 runtime catalog로 통합
 - `Antigravity`의 `감지됨 / 갱신 가능 / 연결 가능 / 첫 성공 조회` 상태 분리
+- 메뉴바 semantic render key와 요청 coalescing으로 동일 상태의 반복 렌더 및
+  appearance 관찰 loop 방지
 - `ClaudeUsageTests` 단위 테스트 타깃 추가
 
 ## 인증 경로
@@ -129,7 +133,9 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
 - `NOTARY_PROFILE` 은 런타임 readiness가 아니라 release 스크립트 실행 전제입니다.
 - `appcast(feed)`와 `공개키`가 준비되지 않은 개발 빌드에서는 `GitHub Release fallback`으로 동작합니다.
 - release build는 채널별 `SUFeedURL` 을 앱에 넣기 때문에 staging 산출물을 prod에 그대로 재사용하지 않습니다.
-- 2026-07-27 확인 기준 prod/staging appcast는 모두 `2.3.3` (`sparkle:version` `20330`) 을 가리킵니다.
+- 2026-08-14 직접 확인 기준 prod/staging appcast는 모두 `2.4.10`
+  (`sparkle:version` `20410`)을 가리킵니다. 각 feed의 ZIP URL은 prod
+  `v2.4.10`, staging `v2.4.10-staging`으로 분리됩니다.
 - 설정 화면의 `업데이트` 섹션에서 지금 빌드가 `Sparkle 통합`, `appcast 준비`, `공개키 준비` 중 어디까지 와 있는지 직접 볼 수 있습니다.
 - 일반 배포는 [release.sh](Scripts/release.sh) 에 `stg|prod`와 숫자 버전을 입력해 실행합니다. 이 driver가 테스트, 공증 build, 이전 동일 채널 앱 준비, 게시, 원격 DMG·ZIP·appcast와 Sparkle 서명 검증, 단계별 임시 산출물 정리를 통합합니다. 중단 후에는 정확한 기존 tag를 재사용하거나 Pages만 복구하며, partial Release를 덮어쓰지 않습니다.
 - [build-notarize-release.sh](Scripts/build-notarize-release.sh) 는 driver가 호출하는 저수준 primitive이며, 사내 배포용 signed-only 산출물은 진단·내부 배포 시 `RELEASE_DISTRIBUTION=internal` 로 직접 생성할 수 있습니다.
@@ -284,15 +290,20 @@ Antigravity 합성 항목을 저장하지 않습니다.
 
 - release build는 Sparkle appcast를 기준으로 업데이트하며, 새 버전이 있으면 백그라운드에서 다운로드/검증 후 popover 설치 버튼만 노출합니다. 개발 빌드는 appcast/feed와 공개키가 없으면 GitHub Release 엔진으로 fallback됩니다.
 - `Sparkle 준비됨`은 `feed + 공개키` 기준이고, notarization 계정 프로필은 배포 스크립트 전제이므로 런타임 readiness와 별개입니다.
+- `2.4.10`은 메뉴바 appearance 관찰과 반복 렌더가 서로를 다시 깨우던 지속 고 CPU
+  문제를 수정했습니다. 장시간 idle, 화면 잠금/해제와 appearance 전환은 이후
+  릴리스에서도 실제 앱 회귀 항목으로 유지합니다.
 - 메뉴바와 refresh 경로는 runtime-capable provider 기준으로 많이 정리됐지만, 일부 내부 구조는 여전히 `Claude/Codex` 중심 흔적이 남아 있습니다.
 - `Antigravity`는 로컬 앱 API와 Google OAuth 원격 quota 조회를 모두 지원하지만, 공식 API가 공개 안정화된 상태는 아니므로 원격 endpoint 변경 시 보강이 필요할 수 있습니다.
 - first-run onboarding과 권한 설명은 아직 더 다듬어야 합니다.
 
 ## 문서
 
+- 현재 인계: [HANDOFF.md](HANDOFF.md)
 - 작업 계획: [WORK_PLAN.md](WORK_PLAN.md)
 - 인증/소스 설명: [docs/authentication-and-sources.md](docs/authentication-and-sources.md)
 - Antigravity 사용량 소스: [docs/antigravity-usage-sources.md](docs/antigravity-usage-sources.md)
+- 완료된 Antigravity 구현 계획: [docs/antigravity-usage-rewrite-plan.md](docs/antigravity-usage-rewrite-plan.md)
 - 프로젝트 작업 방식: [docs/PROJECT_WORKFLOW.md](docs/PROJECT_WORKFLOW.md)
 - 배포 가이드: [docs/RELEASE.md](docs/RELEASE.md)
 - Apple Developer / 업데이트: [apple-developer-update.md](apple-developer-update.md)

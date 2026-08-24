@@ -36,9 +36,29 @@ nonisolated protocol AntigravityManagedCLIRPCReadinessProbing:
     ) async throws
 }
 
+/// The managed AGY listener answered its RPC with HTTP 200, but the response
+/// is not yet authentication evidence. Both states are retryable within the
+/// launch budget, not fatal launch failures, and they stay distinct so a
+/// readiness timeout can be attributed to the right cause.
+nonisolated enum AntigravityManagedCLIRPCReadinessProbeError:
+    Error,
+    Equatable
+{
+    /// The response decoded, but carries no account identity yet because
+    /// AGY's asynchronous keyring authentication has not completed.
+    case authenticationPending
+    /// The response body does not carry a decodable `userStatus` envelope.
+    /// AGY can answer with such bodies inside its bootstrap window; a body
+    /// that stays malformed until the deadline indicates an upstream shape
+    /// change rather than a signed-out session.
+    case malformedUserStatus
+}
+
 /// Confirms that the newly discovered AGY listener has completed its local RPC
-/// initialization. A bound port is necessary discovery evidence, but is not
-/// sufficient readiness evidence.
+/// initialization and restored an authenticated account session. A bound port
+/// is necessary discovery evidence, but is not sufficient readiness evidence:
+/// AGY answers `GetUserStatus` with HTTP 200 before its asynchronous keyring
+/// authentication completes, and quota RPCs against that window fail.
 nonisolated struct AntigravityManagedCLIRPCReadinessProbe:
     AntigravityManagedCLIRPCReadinessProbing
 {
@@ -66,6 +86,24 @@ nonisolated struct AntigravityManagedCLIRPCReadinessProbe:
             deadline: deadline
         )
         try AntigravityLocalRPCResponseValidator.validate(response)
+
+        // A validated 200 alone is not authentication evidence. Until the
+        // response carries a decoded account identity, report a retryable
+        // pending state so the readiness loop keeps polling within its
+        // budget. A genuinely signed-out CLI is detected separately through
+        // its blocking login prompt on the managed PTY.
+        switch AntigravityUserStatusAuthenticationEvidence.classify(
+            response.body
+        ) {
+        case .authenticated:
+            return
+        case .authenticationPending:
+            throw AntigravityManagedCLIRPCReadinessProbeError
+                .authenticationPending
+        case .malformed:
+            throw AntigravityManagedCLIRPCReadinessProbeError
+                .malformedUserStatus
+        }
     }
 }
 
@@ -136,13 +174,24 @@ nonisolated struct AntigravityManagedCLIReadinessChecker:
         }
         defer { drainTask.cancel() }
 
+        // Attribution for an exhausted readiness budget: when the verified
+        // endpoint kept answering without authentication evidence, the
+        // timeout is an authentication problem the user must resolve, not
+        // launch infrastructure slowness.
+        var authenticationStayedPending = false
+        func budgetExhaustedError() -> AntigravityManagedSessionError {
+            authenticationStayedPending
+                ? .interactionRequired(.loginRequired)
+                : .readinessTimedOut
+        }
+
         while true {
             do {
                 try deadline.check(.request)
             } catch is CancellationError {
                 throw AntigravityManagedSessionError.cancelled
             } catch {
-                throw AntigravityManagedSessionError.readinessTimedOut
+                throw budgetExhaustedError()
             }
 
             outputMonitor.drain()
@@ -218,56 +267,108 @@ nonisolated struct AntigravityManagedCLIReadinessChecker:
                     ) else {
                         continue
                     }
-                    do {
-                        try await rpcProbe.probe(
-                            runtime,
-                            deadline: deadline
-                        )
-
-                        outputMonitor.drain()
-                        let afterProbe =
-                            outputMonitor.snapshot()
-                        if let interaction = firstInteraction(
-                            in: afterProbe.interactions
-                        ) {
+                    endpointProbe: while true {
+                        do {
+                            try deadline.check(.request)
+                        } catch is CancellationError {
                             throw AntigravityManagedSessionError
-                                .interactionRequired(interaction)
-                        }
-                        if let status = handle.terminationStatus() {
-                            throw AntigravityManagedSessionError
-                                .processExited(status)
-                        }
-                        guard await processInspector.revalidate(
-                            processIdentity
-                        ) else {
-                            throw AntigravityLocalRPCError
-                                .endpointOwnershipChanged
+                                .cancelled
+                        } catch {
+                            throw budgetExhaustedError()
                         }
 
-                        return AntigravityManagedCLIReadinessResult(
-                            runtime: runtime,
-                            diagnostics:
-                                AntigravityManagedSessionDiagnostics(
-                                    interactions:
-                                        afterProbe.interactions,
-                                    outputWasTruncated:
-                                        afterProbe
-                                            .outputWasTruncated
+                        do {
+                            try await rpcProbe.probe(
+                                runtime,
+                                deadline: deadline
+                            )
+
+                            outputMonitor.drain()
+                            let afterProbe =
+                                outputMonitor.snapshot()
+                            if let interaction = firstInteraction(
+                                in: afterProbe.interactions
+                            ) {
+                                throw AntigravityManagedSessionError
+                                    .interactionRequired(interaction)
+                            }
+                            if let status = handle.terminationStatus() {
+                                throw AntigravityManagedSessionError
+                                    .processExited(status)
+                            }
+                            guard await processInspector.revalidate(
+                                processIdentity
+                            ) else {
+                                throw AntigravityLocalRPCError
+                                    .endpointOwnershipChanged
+                            }
+
+                            return AntigravityManagedCLIReadinessResult(
+                                runtime: runtime,
+                                diagnostics:
+                                    AntigravityManagedSessionDiagnostics(
+                                        interactions:
+                                            afterProbe.interactions,
+                                        outputWasTruncated:
+                                            afterProbe
+                                                .outputWasTruncated
+                                    )
+                            )
+                        } catch is CancellationError {
+                            throw AntigravityManagedSessionError.cancelled
+                        } catch AntigravityLocalRPCError.cancelled {
+                            throw AntigravityManagedSessionError.cancelled
+                        } catch let error
+                            as AntigravityManagedSessionError
+                        {
+                            throw error
+                        } catch let error
+                            as AntigravityManagedCLIRPCReadinessProbeError
+                        {
+                            // The listener already passed process, port and
+                            // response validation; it only lacks
+                            // authentication evidence. Keep polling this
+                            // exact endpoint instead of paying cache
+                            // invalidation and ps/lsof rediscovery on every
+                            // attempt.
+                            authenticationStayedPending =
+                                error == .authenticationPending
+                            outputMonitor.drain()
+                            let pendingSnapshot = outputMonitor.snapshot()
+                            if let interaction = firstInteraction(
+                                in: pendingSnapshot.interactions
+                            ) {
+                                throw AntigravityManagedSessionError
+                                    .interactionRequired(interaction)
+                            }
+                            if let status = handle.terminationStatus() {
+                                throw AntigravityManagedSessionError
+                                    .processExited(status)
+                            }
+                            guard await processInspector.revalidate(
+                                processIdentity
+                            ) else {
+                                break endpointProbe
+                            }
+                            do {
+                                try await sleep(
+                                    min(pollInterval, deadline.remaining)
                                 )
-                        )
-                    } catch is CancellationError {
-                        throw AntigravityManagedSessionError.cancelled
-                    } catch AntigravityLocalRPCError.cancelled {
-                        throw AntigravityManagedSessionError.cancelled
-                    } catch let error
-                        as AntigravityManagedSessionError
-                    {
-                        throw error
-                    } catch {
-                        // AGY can own multiple loopback listeners, and a
-                        // listener may bind before its RPC service is ready.
-                        // Try every endpoint owned by this exact process, then
-                        // rediscover within the monotonic readiness budget.
+                            } catch is CancellationError {
+                                throw AntigravityManagedSessionError
+                                    .cancelled
+                            } catch {
+                                throw AntigravityManagedSessionError
+                                    .endpointUnavailable
+                            }
+                        } catch {
+                            // AGY can own multiple loopback listeners, and a
+                            // listener may bind before its RPC service is
+                            // ready. Try every endpoint owned by this exact
+                            // process, then rediscover within the monotonic
+                            // readiness budget.
+                            break endpointProbe
+                        }
                     }
                 }
             }

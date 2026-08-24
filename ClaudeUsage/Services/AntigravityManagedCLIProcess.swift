@@ -123,6 +123,29 @@ nonisolated struct AntigravityManagedCLIProcessLauncher:
             runningExecutableImageValidator
     }
 
+    /// AGY's auto-updater can be rewriting the pinned binary while a launch
+    /// is in flight, which surfaces as a transient `ETXTBSY` from
+    /// `posix_spawn`. Only that exact status is retried, briefly and a
+    /// bounded number of times; every other status keeps failing closed on
+    /// the first attempt. A successful retry still passes the same
+    /// pre-spawn catalog revalidation and post-spawn kernel image
+    /// validation as a first-attempt launch.
+    static func spawnRetryingTextFileBusy(
+        maximumAttempts: Int = 3,
+        sleepBetweenAttempts: () -> Void = {
+            usleep(10_000)
+        },
+        spawn: () -> Int32
+    ) -> Int32 {
+        precondition(maximumAttempts > 0)
+        var status = spawn()
+        for _ in 1..<maximumAttempts where status == ETXTBSY {
+            sleepBetweenAttempts()
+            status = spawn()
+        }
+        return status
+    }
+
     func launchSuspended(
         _ request: AntigravityManagedCLIProcessLaunchRequest
     ) throws -> any AntigravityManagedCLIProcessHandling {
@@ -299,15 +322,17 @@ nonisolated struct AntigravityManagedCLIProcessLauncher:
                   errno == EINTR {}
             closePTYPair()
         }
-        let spawnStatus = executablePath.withCString { executable in
-            posix_spawn(
-                &processID,
-                executable,
-                &fileActions,
-                &attributes,
-                &arguments,
-                &environment
-            )
+        let spawnStatus = Self.spawnRetryingTextFileBusy {
+            executablePath.withCString { executable in
+                posix_spawn(
+                    &processID,
+                    executable,
+                    &fileActions,
+                    &attributes,
+                    &arguments,
+                    &environment
+                )
+            }
         }
         guard spawnStatus == 0, processID > 0 else {
             closePTYPair()

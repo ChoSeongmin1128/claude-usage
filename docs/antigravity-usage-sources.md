@@ -1,8 +1,11 @@
 # Antigravity 사용량 소스와 설정 UX
 
-최종 갱신: 2026-07-30
+최종 갱신: 2026-08-24
 
 이 문서는 ClaudeUsage의 Antigravity provider가 어떤 근거로 로컬 앱, AGY CLI, Google OAuth 원격 quota를 다루는지 정리합니다. 구현을 바꿀 때는 이 문서와 테스트를 같이 갱신해야 합니다.
+
+현재 prod/staging `2.4.10`의 source·account·process lifecycle 계약은 이 문서를
+따릅니다. 2.4.10의 메뉴바 CPU 수정은 이 계약을 변경하지 않았습니다.
 
 ## 1. 공식 제품 기준
 
@@ -26,9 +29,12 @@
 - 검증된 CLI만 필요 시 자동 실행합니다. 실행 직전에는 같은 파일 identity와 정적 서명을 다시 확인하고, 실행 중 프로세스도 동적 code requirement로 확인합니다.
 - Windows는 현재 제품 요구사항에서 제외합니다.
 
-## 2. CodexBar 기준에서 가져온 판단
+## 2. CodexBar 조사에서 가져온 판단
 
-CodexBar 최신 구현은 local app → AGY CLI → IDE → OAuth 순서의 자동 probe, 선택 계정 guard, 소유한 AGY 프로세스만 정리하는 lifecycle을 둡니다.
+2.4.x 재작성 때 조사한 CodexBar 구현은 local app → AGY CLI → IDE → OAuth
+순서의 자동 probe, 선택 계정 guard, 소유한 AGY 프로세스만 정리하는 lifecycle을
+두고 있었습니다. 이 문장은 현재 CodexBar 최신 버전을 지속적으로 보증하는
+참조가 아니라 당시 설계 판단의 출처입니다.
 
 ClaudeUsage는 CodexBar와 호환을 목표로 하지 않습니다. 대신 아래 판단만 제품 방향으로 가져옵니다.
 
@@ -221,7 +227,7 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
 - local language server port와 CSRF token은 재시작 때 바뀝니다. stale cache가 의심되면 `AntigravityStatusProbe.invalidateCache()` 경로와 retry를 먼저 확인합니다.
 - AGY CLI 설정 파일은 공식 문서상 JSON 파일입니다. 설정 내용을 임의로 수정하지 말고, 존재 여부와 경로 상태만 UX에 노출합니다.
 
-## 실제 AGY 회귀 검증
+## 10. 실제 AGY 회귀 검증
 
 - AGY는 명령행에 quota RPC 포트를 노출하지 않으면서 동일 PID에서 복수의
   loopback listener를 열 수 있습니다. AGY 1.1.8에서는 HTTPS(gRPC)와
@@ -234,6 +240,18 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
   readiness 전 과정과 warm session 수명 동안 PTY를 계속 bounded drain합니다.
   raw 출력은 로그나 진단으로 노출하지 않고 typed interaction, announced port,
   truncation 상태만 유지합니다.
+- managed readiness는 socket/RPC 초기화만으로 끝나지 않습니다. AGY는 keyring
+  인증이 비동기로 끝나기 전에도 `GetUserStatus`에 HTTP 200을 반환하므로,
+  readiness probe는 응답에서 계정 identity(email)가 디코드될 때까지 시작
+  예산(기본 20초) 안에서 재시도합니다. 진짜 로그아웃 상태는 PTY의 blocking
+  login prompt 분류가 `loginRequired`로 별도 차단하며, identity가 끝내
+  나타나지 않으면 readiness timeout으로 실패합니다.
+- managed launch의 `posix_spawn`은 `ETXTBSY`(자동 업데이트로 인한 바이너리
+  교체 중)에 한해 짧게 재시도하고, 다른 실패는 첫 시도에서 fail-closed를
+  유지합니다. 재시도 성공 경로도 동일한 catalog 재검증과 kernel image 검증을
+  통과해야 합니다. 환경변수는 계속 명시적 화이트리스트만 전달합니다. AGY
+  인증은 keyring 기반이라 화이트리스트 7개만으로 세션 복원이 가능함을
+  실측으로 확인했습니다 (2026-08-24).
 - `AntigravityLiveAGYIntegrationTests`는 opt-in 테스트입니다. 설치되고 로그인된
   공식 AGY를 production launcher로 실행해 HTTPS bootstrap port를 먼저 확인하고
   원본 grouped quota를 받은 뒤,
