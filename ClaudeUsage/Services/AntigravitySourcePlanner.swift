@@ -6,13 +6,13 @@ import Foundation
 nonisolated enum AntigravitySourcePlanner {
     static func plannedSources(
         accountTarget: AntigravityRefreshAccountTarget,
-        managedLaunchEnabled: Bool
+        managedLaunch: AntigravityManagedLaunchState
     ) -> [AntigravityUsageSourceID] {
         var sources: [AntigravityUsageSourceID] = [
             .localApp,
             .borrowedCLI,
         ]
-        if managedLaunchEnabled {
+        if managedLaunch.allowsLaunch {
             sources.append(.managedCLI)
         }
         if case .selectedOAuth = accountTarget {
@@ -26,8 +26,7 @@ nonisolated enum AntigravitySourcePlanner {
     ) -> [AntigravityUsageSourceID] {
         plannedSources(
             accountTarget: request.accountTarget,
-            managedLaunchEnabled:
-                request.managedLaunchEnabled
+            managedLaunch: request.managedLaunch
         )
     }
 }

@@ -30,15 +30,14 @@ private nonisolated struct AntigravityRefreshFlightKey:
     let accountTarget: AntigravityRefreshAccountTarget
     let repositoryRevision: UInt64
     let connection: AntigravityConnectionSettings
-    let managedLaunchEnabled: Bool
+    let managedLaunch: AntigravityManagedLaunchState
     let clearsPreviousSnapshot: Bool
 
     init(_ request: AntigravityRefreshRequest) {
         accountTarget = request.accountTarget
         repositoryRevision = request.repositoryRevision
         connection = request.connection
-        managedLaunchEnabled =
-            request.managedLaunchEnabled
+        managedLaunch = request.managedLaunch
         clearsPreviousSnapshot =
             request.trigger.clearsPreviousSnapshot
     }
@@ -785,7 +784,7 @@ actor AntigravityRefreshCoordinator:
                 let managedAuthorization:
                     AntigravityManagedLaunchAuthorization
                 if sourceID == .managedCLI,
-                   request.managedLaunchEnabled
+                   request.managedLaunch.allowsLaunch
                 {
                     managedAuthorization = .automatic(
                         idleTimeout: .seconds(
@@ -996,9 +995,15 @@ actor AntigravityRefreshCoordinator:
             if case .ambientLocal = request.accountTarget,
                sawUnavailableSource
             {
+                // When the app's own managed launch is recovery-blocked,
+                // "log in and retry" is the wrong instruction: the user may
+                // already be logged in and only the app-side ledger needs
+                // attention. Name that state instead.
                 return AntigravityRefreshExecutionResult(
                     output: .setupRequired(
-                        .noAmbientLocalSession
+                        request.managedLaunch == .recoveryBlocked
+                            ? .managedRecoveryBlocked
+                            : .noAmbientLocalSession
                     ),
                     credentialMutation: nil,
                     repositoryWasValidated: true

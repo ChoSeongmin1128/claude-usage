@@ -23,7 +23,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 ),
                 repositoryRevision: 0,
                 connection: makeConnectionSettings(),
-                managedLaunchEnabled: false
+                managedLaunch: .disabled
             )
         )
 
@@ -69,13 +69,53 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 accountTarget: .ambientLocal,
                 repositoryRevision: 0,
                 connection: makeConnectionSettings(),
-                managedLaunchEnabled: false
+                managedLaunch: .disabled
             )
         )
 
         XCTAssertEqual(
             result,
             .setupRequired(.noAmbientLocalSession)
+        )
+    }
+
+    func testRecoveryBlockedAmbientRefreshNamesRecoveryInsteadOfLogin() async {
+        let repository = RefreshRepositoryDouble(
+            accounts: [],
+            activeAccountID: nil,
+            credentials: [:]
+        )
+        let coordinator = AntigravityRefreshCoordinator(
+            repository: repository,
+            sources: [
+                ScriptedRefreshSource(
+                    id: .localApp,
+                    script: RefreshSourceScript(outcomes: [
+                        .failure(.unavailable),
+                    ])
+                ),
+                ScriptedRefreshSource(
+                    id: .borrowedCLI,
+                    script: RefreshSourceScript(outcomes: [
+                        .failure(.unavailable),
+                    ])
+                ),
+            ]
+        )
+
+        let result = await coordinator.refresh(
+            AntigravityRefreshRequest(
+                trigger: .manual,
+                accountTarget: .ambientLocal,
+                repositoryRevision: 0,
+                connection: makeConnectionSettings(),
+                managedLaunch: .recoveryBlocked
+            )
+        )
+
+        XCTAssertEqual(
+            result,
+            .setupRequired(.managedRecoveryBlocked)
         )
     }
 
@@ -115,7 +155,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             connection: makeConnectionSettings(
                 managedIdleTimeoutSeconds: 31
             ),
-            managedLaunchEnabled: true
+            managedLaunch: .enabled
         )
         let secondRequest = AntigravityRefreshRequest(
             trigger: .manual,
@@ -124,7 +164,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             connection: makeConnectionSettings(
                 managedIdleTimeoutSeconds: 47
             ),
-            managedLaunchEnabled: true
+            managedLaunch: .enabled
         )
 
         let first = Task {
@@ -646,7 +686,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 accountTarget: .ambientLocal,
                 repositoryRevision: 0,
                 connection: makeConnectionSettings(),
-                managedLaunchEnabled: false
+                managedLaunch: .disabled
             )
         )
 
@@ -995,7 +1035,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             accountTarget: .selectedOAuth(account.id),
             repositoryRevision: 0,
             connection: makeConnectionSettings(),
-            managedLaunchEnabled: false
+            managedLaunch: .disabled
         )
         let commitOwner = Task {
             await coordinator.refresh(scheduledRequest)
@@ -1620,7 +1660,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 accountTarget: .selectedOAuth(account.id),
                 repositoryRevision: 0,
                 connection: makeConnectionSettings(),
-                managedLaunchEnabled: false
+                managedLaunch: .disabled
             )
         )
         XCTAssertEqual(
@@ -1637,7 +1677,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 accountTarget: .selectedOAuth(account.id),
                 repositoryRevision: 0,
                 connection: makeConnectionSettings(),
-                managedLaunchEnabled: false
+                managedLaunch: .disabled
             )
         )
         XCTAssertEqual(
@@ -2244,7 +2284,7 @@ private func selectedRequest(
         accountTarget: .selectedOAuth(accountID),
         repositoryRevision: revision,
         connection: makeConnectionSettings(),
-        managedLaunchEnabled: false
+        managedLaunch: .disabled
     )
 }
 

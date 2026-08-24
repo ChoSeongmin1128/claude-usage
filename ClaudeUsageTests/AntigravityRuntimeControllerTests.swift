@@ -591,8 +591,8 @@ final class AntigravityRuntimeControllerTests:
         )
         XCTAssertEqual(requests.count, 1)
         XCTAssertEqual(
-            requests.first?.managedLaunchEnabled,
-            false
+            requests.first?.managedLaunch,
+            .recoveryBlocked
         )
     }
 

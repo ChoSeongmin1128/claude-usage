@@ -42,9 +42,9 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
             )
         case .setupRequired(let reason):
             return summary(
-                icon: "person.badge.key",
+                icon: setupIcon(reason),
                 tone: .warning,
-                title: "조회 계정 또는 로그인 필요",
+                title: setupTitle(reason),
                 message: setupMessage(reason),
                 actionTitle: "설정 열기",
                 action: .openSettings,
@@ -120,6 +120,30 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
         }
     }
 
+    private static func setupIcon(
+        _ reason: AntigravitySetupReason
+    ) -> String {
+        switch reason {
+        case .noSelectedOAuthAccount,
+             .noAmbientLocalSession:
+            "person.badge.key"
+        case .managedRecoveryBlocked:
+            "exclamationmark.arrow.circlepath"
+        }
+    }
+
+    private static func setupTitle(
+        _ reason: AntigravitySetupReason
+    ) -> String {
+        switch reason {
+        case .noSelectedOAuthAccount,
+             .noAmbientLocalSession:
+            "조회 계정 또는 로그인 필요"
+        case .managedRecoveryBlocked:
+            "이전 AGY 실행 정리 필요"
+        }
+    }
+
     private static func setupMessage(
         _ reason: AntigravitySetupReason
     ) -> String {
@@ -128,6 +152,8 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
             "Google 계정을 연결한 뒤 사용할 계정을 선택해 주세요."
         case .noAmbientLocalSession:
             "Antigravity 앱 또는 AGY CLI에 로그인한 뒤 로컬 세션 조회를 다시 시도해 주세요."
+        case .managedRecoveryBlocked:
+            "이전 AGY 실행 기록을 정리하지 못해 자동 실행이 중지됐습니다. Antigravity 앱이나 AGY CLI를 실행하면 조회는 가능합니다. 정리를 다시 시도하려면 ClaudeUsage를 재시동해 주세요."
         }
     }
 

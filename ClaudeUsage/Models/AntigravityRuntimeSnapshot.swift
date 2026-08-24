@@ -38,6 +38,17 @@ nonisolated enum AntigravityManagedRuntimeAvailability:
     case available(displayPath: String)
     case recoveryBlocked(displayPath: String?)
 
+    var launchState: AntigravityManagedLaunchState {
+        switch self {
+        case .available:
+            .enabled
+        case .unavailable:
+            .disabled
+        case .recoveryBlocked:
+            .recoveryBlocked
+        }
+    }
+
     var allowsManagedLaunch: Bool {
         guard case .available = self else {
             return false

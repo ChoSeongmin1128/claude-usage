@@ -283,7 +283,7 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
                 accountTarget: .selectedOAuth(accountID),
                 repositoryRevision: 0,
                 connection: .default,
-                managedLaunchEnabled: true
+                managedLaunch: .enabled
             )
         )
         let automaticSnapshot: AntigravityQuotaSnapshot

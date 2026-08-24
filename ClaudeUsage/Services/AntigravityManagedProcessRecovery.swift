@@ -25,6 +25,71 @@ nonisolated protocol AntigravityRecordedProcessInspecting: Sendable {
     ) -> AntigravityRecordedProcessLookup
 }
 
+extension AntigravityRecordedProcessInspecting {
+    /// Positive evidence that every listed execution no longer exists.
+    ///
+    /// A PID running with a different kernel unique ID is a reused PID,
+    /// which is positive absence of the recorded execution. A matching
+    /// unique ID is never absence: the same unique process may have exec'd
+    /// after the last observation, so the record must be kept. An
+    /// unavailable lookup is never treated as absence. This single policy
+    /// is shared by shutdown cleanup and crash recovery so the two ledger
+    /// owners cannot drift apart.
+    func executionsAreProvablyGone(
+        _ identities: [AntigravityRecordedProcessIdentity]
+    ) -> Bool {
+        for identity in identities {
+            switch process(for: identity.pid) {
+            case .notFound:
+                continue
+            case .unavailable:
+                return false
+            case .running(let current):
+                guard current.kernelIdentity.uniqueID
+                    != identity.kernelIdentity.uniqueID
+                else {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+}
+
+/// Reports whether any live process may still belong to a recorded process
+/// group. Used only as negative evidence for reclaiming an incomplete
+/// record: a live member (including a false positive from PGID reuse) keeps
+/// the record, never authorizes a signal.
+nonisolated protocol AntigravityProcessGroupLivenessChecking: Sendable {
+    func groupMayHaveLiveMember(_ processGroupID: Int32) -> Bool
+}
+
+nonisolated struct AntigravitySystemProcessGroupLivenessChecker:
+    AntigravityProcessGroupLivenessChecking
+{
+    private let processIDList: any AntigravityProcessIDListing
+
+    init(
+        processIDList: any AntigravityProcessIDListing =
+            AntigravitySystemProcessIDList()
+    ) {
+        self.processIDList = processIDList
+    }
+
+    func groupMayHaveLiveMember(_ processGroupID: Int32) -> Bool {
+        guard processGroupID > 1 else { return true }
+        guard let processIDs = processIDList.allProcessIDs() else {
+            return true
+        }
+        for processID in processIDs where processID > 1 {
+            if getpgid(processID) == processGroupID {
+                return true
+            }
+        }
+        return false
+    }
+}
+
 nonisolated struct AntigravitySystemRecordedProcessInspector:
     AntigravityRecordedProcessInspecting
 {
@@ -102,6 +167,8 @@ actor AntigravityManagedProcessRecovery:
         any AntigravityRecordedProcessInspecting
     private let processTreeInspector:
         any AntigravityManagedProcessTreeInspecting
+    private let processGroupLiveness:
+        any AntigravityProcessGroupLivenessChecking
     private let signaler: any AntigravityExactProcessSignaling
     private let sleep:
         @Sendable (Duration) async throws -> Void
@@ -117,6 +184,9 @@ actor AntigravityManagedProcessRecovery:
                 AntigravitySystemRecordedProcessInspector(),
         processTreeInspector:
             (any AntigravityManagedProcessTreeInspecting)? = nil,
+        processGroupLiveness:
+            any AntigravityProcessGroupLivenessChecking =
+                AntigravitySystemProcessGroupLivenessChecker(),
         signaler:
             any AntigravityExactProcessSignaling =
                 AntigravitySystemExactProcessSignaler(),
@@ -140,6 +210,7 @@ actor AntigravityManagedProcessRecovery:
                     identityProvider: identityProvider
                 )
         }
+        self.processGroupLiveness = processGroupLiveness
         self.signaler = signaler
         self.terminationGracePeriod = terminationGracePeriod
         self.killObservationDelay = killObservationDelay
@@ -209,9 +280,38 @@ actor AntigravityManagedProcessRecovery:
         guard let observation = observe(record) else {
             return .blocked
         }
-        guard observation.record.observationCompleteness
-            != .incomplete else {
-            return .blocked
+        if observation.record.observationCompleteness
+            == .incomplete {
+            // An incomplete record never authorizes signals: descendants
+            // may exist that were never observed. Reclaiming it as stale
+            // is allowed only on layered positive evidence that nothing it
+            // could still be protecting exists:
+            //  1. the recorded descendant list was never truncated,
+            //  2. the fresh tree scan had full process-table visibility
+            //     and attributes no live root or descendant,
+            //  3. every recorded execution (owner, root child, observed
+            //     descendants) is provably gone,
+            //  4. no live process may belong to the recorded process
+            //     group (PGID-reuse false positives only keep the record).
+            // Any ambiguity keeps the record blocking, fail-closed.
+            // Without reclamation such a record would block managed launch
+            // until the next reboot while adding no cleanup ability.
+            guard observation.record.observedDescendants.count
+                < AntigravityManagedProcessRecord
+                    .maximumObservedDescendantCount,
+                observation.snapshot.isComplete,
+                observation.snapshot.rootExecution == nil,
+                observation.snapshot.descendants.isEmpty,
+                recordedExecutionsAreProvablyGone(
+                    observation.record
+                ),
+                !processGroupLiveness.groupMayHaveLiveMember(
+                    observation.record.processGroupID
+                )
+            else {
+                return .blocked
+            }
+            return .stale(observation.record)
         }
 
         let currentTargets: [AntigravityRecordedProcessIdentity]
@@ -297,6 +397,15 @@ actor AntigravityManagedProcessRecovery:
             throw AntigravityManagedSessionError
                 .recordRecoveryBlocked
         }
+    }
+
+    private func recordedExecutionsAreProvablyGone(
+        _ record: AntigravityManagedProcessRecord
+    ) -> Bool {
+        processInspector.executionsAreProvablyGone(
+            [record.owner, record.child]
+                + record.observedDescendants
+        )
     }
 
     private func observe(

@@ -1159,9 +1159,7 @@ actor AntigravityRuntimeController {
             repositoryRevision:
                 context.repositoryState.revision,
             connection: context.settings.connection,
-            managedLaunchEnabled:
-                managedAvailability
-                    .allowsManagedLaunch
+            managedLaunch: managedAvailability.launchState
         )
         return RefreshTransaction(
             id: transactionID,

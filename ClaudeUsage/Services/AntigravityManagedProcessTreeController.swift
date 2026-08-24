@@ -243,25 +243,8 @@ nonisolated struct AntigravityManagedProcessTreeController:
     private func allRecordedExecutionsAreGone(
         _ record: AntigravityManagedProcessRecord
     ) -> Bool {
-        for identity in
-            record.observedDescendants + [record.child] {
-            switch processInspector.process(for: identity.pid) {
-            case .notFound:
-                continue
-            case .running(let current):
-                // A reused PID is not this managed execution.
-                if current.kernelIdentity.uniqueID
-                    != identity.kernelIdentity.uniqueID {
-                    continue
-                }
-                // The same unique process may have exec'd after the final
-                // observation. Keep the record so a fresh snapshot can
-                // persist and signal its new pidversion.
-                return false
-            case .unavailable:
-                return false
-            }
-        }
-        return true
+        processInspector.executionsAreProvablyGone(
+            record.observedDescendants + [record.child]
+        )
     }
 }

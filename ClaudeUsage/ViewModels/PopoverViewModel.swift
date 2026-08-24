@@ -542,6 +542,11 @@ final class PopoverViewModel: ObservableObject {
         switch snapshot.presentationState {
         case .disabled:
             return .init(phase: .probingRuntime, summary: "사용량 조회 준비")
+        case .setupRequired(.managedRecoveryBlocked):
+            return .init(
+                phase: .temporaryError,
+                summary: "이전 AGY 실행 정리 필요"
+            )
         case .setupRequired:
             return .init(phase: .authRequired, summary: "연결 설정 필요")
         case .refreshing:
@@ -756,6 +761,8 @@ final class PopoverViewModel: ObservableObject {
             return "활성"
         case .partial, .stale, .limited, .identityOnly:
             return "일부 확인"
+        case .setupRequired(.managedRecoveryBlocked):
+            return "정리 필요"
         case .setupRequired:
             return "연결 필요"
         case .accountMismatch, .failed:

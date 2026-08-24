@@ -72,7 +72,7 @@ final class AntigravityRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(
             AntigravitySourcePlanner.plannedSources(
                 accountTarget: .ambientLocal,
-                managedLaunchEnabled: true
+                managedLaunch: .enabled
             ),
             [.localApp, .borrowedCLI, .managedCLI]
         )
@@ -82,7 +82,7 @@ final class AntigravityRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(
             AntigravitySourcePlanner.plannedSources(
                 accountTarget: .ambientLocal,
-                managedLaunchEnabled: false
+                managedLaunch: .disabled
             ),
             [.localApp, .borrowedCLI]
         )
@@ -94,7 +94,7 @@ final class AntigravityRefreshPolicyTests: XCTestCase {
                 accountTarget: .selectedOAuth(
                     AntigravityAccountID(rawValue: "selected")
                 ),
-                managedLaunchEnabled: true
+                managedLaunch: .enabled
             ),
             [
                 .localApp,

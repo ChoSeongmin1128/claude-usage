@@ -264,6 +264,8 @@ struct AntigravityPopoverDisplaySettingsSection: View {
         switch state {
         case .refreshing:
             "사용량을 확인하고 있습니다."
+        case .setupRequired(.managedRecoveryBlocked):
+            "이전 AGY 실행 정리가 끝나야 자동 조회가 가능합니다."
         case .setupRequired:
             "Google 계정 또는 로컬 세션을 먼저 연결해 주세요."
         case .accountMismatch:

@@ -10,11 +10,14 @@
 
 - 저장소: `/Users/seongmin/Personal/maintenance/ClaudeUsage`
 - 원격: `git@github-seongmin:ChoSeongmin1128/claude-usage.git`
-- 게시된 릴리스 기준 커밋(`main`): `8fa58906baf60a780cfb28029e753e44122b22a5`
-- 게시된 버전/build: `2.4.10 (20410)` — prod `v2.4.10`, staging `v2.4.10-staging`
-- prod/staging public appcast: 모두 `2.4.10 (20410)`
-- `dev`는 `2.4.11-staging` 후보(managed AGY readiness 인증 게이트)를
-  진행 중이며, 상세 범위는 [WORK_PLAN.md](WORK_PLAN.md)를 따릅니다
+- 게시된 릴리스: prod `v2.4.11`, staging `v2.4.11-staging` — 모두
+  `2.4.11 (20411)`, 기준 커밋(`main`) `ec15d51`
+- public appcast: prod/staging 모두 `2.4.11 (20411)`
+- `2.4.11`은 managed AGY readiness를 인증된 계정 identity 기준으로 강화한
+  릴리스입니다. staging 실앱 QA(사용자 Finder 직접 실행, Sparkle
+  업그레이드, managed AGY 조회, idle CPU) 후 prod로 승격했습니다
+- `dev`는 `2.4.12-staging` 후보(managed recovery 자가 치유, 차단 상태
+  표시)를 진행 중입니다 ([WORK_PLAN.md](WORK_PLAN.md) `1.1` 참조)
 - 배포: Developer ID 공증 GitHub Release + Sparkle appcast
 - App Store 배포가 아님
 
@@ -64,11 +67,17 @@ appearance·사용량·provider·표시 설정 변화만 render key를 무효화
   credential provenance, Keychain/password prompt 부재를 함께 확인해야 합니다.
 - Sparkle upgrade는 설치 위치·권한·실행 중인 기존 프로세스 영향을 받으므로
   staging에서 실제 이전 버전 → 후보 버전 업데이트를 검증합니다.
+- `2.4.11` prod 승격에서 Chrome↔Claude Code 계정 전환 10회 QA는 이번
+  변경이 Claude 인증 경로를 건드리지 않아 사용자 결정으로 생략했습니다.
+  다음 인증 경로 변경 릴리스에서는 반드시 다시 수행합니다.
+- managed AGY readiness는 인증 완료(계정 identity)까지 요구합니다. 로그인
+  프롬프트가 PTY에 나타나지 않는 비정상 signed-out 상태에서는 시작
+  예산(20초)을 소모한 뒤 loginRequired로 귀속됩니다.
 
 ## 5. 다음 작업 시작점
 
-진행 중 작업은 [WORK_PLAN.md](WORK_PLAN.md)의 `1.1`(managed AGY readiness
-인증 게이트, 2.4.11 후보)입니다. 새 작업은 아래 순서로 시작합니다.
+현재 기준 커밋 이후 진행 중인 구현 WIP는 없습니다. 새 작업은 아래 순서로
+시작합니다.
 
 1. `main`, `dev`, 원격과 public feed의 현재 상태를 다시 확인합니다.
 2. 새 작업은 최신 `main`에 정렬한 `dev`에서 coherent commit으로 진행합니다.

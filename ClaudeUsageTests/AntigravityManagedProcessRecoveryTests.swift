@@ -372,6 +372,8 @@ final class AntigravityManagedProcessRecoveryTests:
         await assertRecoveryBlocked(recovery)
 
         XCTAssertEqual(signaler.signals, [])
+        // An incomplete fresh scan short-circuits reclamation before any
+        // per-process lookup happens.
         XCTAssertEqual(processInspector.totalLookupCount, 0)
         let retained = try XCTUnwrap(store.records.first)
         XCTAssertEqual(
@@ -383,6 +385,123 @@ final class AntigravityManagedProcessRecoveryTests:
             .incomplete
         )
         XCTAssertEqual(store.removedSessionIDs, [])
+    }
+
+    func testIncompleteRecordWithProvablyGoneExecutionsIsReclaimedAsStale()
+        async throws
+    {
+        let observedDescendant = try makeIdentity(
+            pid: 4_303,
+            uniqueID: 104_303,
+            parentUniqueID: 74_201
+        )
+        let record = try makeRecord(
+            observedDescendants: [observedDescendant],
+            observationCompleteness: .incomplete
+        )
+        let store = RecoveryRecordStore(records: [record])
+        let processInspector = ScriptedRecoveryProcessInspector(
+            processes: [
+                record.owner.pid: [.notFound],
+                record.child.pid: [.notFound],
+                observedDescendant.pid: [.notFound],
+            ]
+        )
+        let treeInspector = ScriptedRecoveryProcessTreeInspector(
+            snapshots: [
+                .init(descendants: [], isComplete: true),
+            ]
+        )
+        let signaler = RecordingExactProcessSignaler()
+        let recovery = makeRecovery(
+            store: store,
+            processInspector: processInspector,
+            treeInspector: treeInspector,
+            signaler: signaler
+        )
+
+        try await recovery.recoverOrphanedProcesses()
+
+        XCTAssertEqual(signaler.signals, [])
+        XCTAssertEqual(
+            store.removedSessionIDs,
+            [record.sessionID]
+        )
+        XCTAssertTrue(store.records.isEmpty)
+    }
+
+    func testIncompleteRecordWithRecycledChildPIDIsReclaimedAsStale()
+        async throws
+    {
+        let record = try makeRecord(
+            observationCompleteness: .incomplete
+        )
+        let recycledChild = try makeIdentity(
+            pid: record.child.pid,
+            uniqueID: 999_777,
+            parentUniqueID: 1,
+            executablePath: "/usr/bin/unrelated"
+        )
+        let store = RecoveryRecordStore(records: [record])
+        let processInspector = ScriptedRecoveryProcessInspector(
+            processes: [
+                record.owner.pid: [.notFound],
+                record.child.pid: [.running(recycledChild)],
+            ]
+        )
+        let treeInspector = ScriptedRecoveryProcessTreeInspector(
+            snapshots: [
+                .init(descendants: [], isComplete: true),
+            ]
+        )
+        let signaler = RecordingExactProcessSignaler()
+        let recovery = makeRecovery(
+            store: store,
+            processInspector: processInspector,
+            treeInspector: treeInspector,
+            signaler: signaler
+        )
+
+        try await recovery.recoverOrphanedProcesses()
+
+        XCTAssertEqual(signaler.signals, [])
+        XCTAssertEqual(
+            store.removedSessionIDs,
+            [record.sessionID]
+        )
+    }
+
+    func testIncompleteRecordWithLiveMatchingOwnerStaysBlocked()
+        async throws
+    {
+        let record = try makeRecord(
+            observationCompleteness: .incomplete
+        )
+        let store = RecoveryRecordStore(records: [record])
+        let processInspector = ScriptedRecoveryProcessInspector(
+            processes: [
+                record.owner.pid: [.running(record.owner)],
+                record.child.pid: [.notFound],
+            ]
+        )
+        let treeInspector = ScriptedRecoveryProcessTreeInspector(
+            snapshots: [
+                .init(descendants: [], isComplete: true),
+            ]
+        )
+        let signaler = RecordingExactProcessSignaler()
+        let recovery = makeRecovery(
+            store: store,
+            processInspector: processInspector,
+            treeInspector: treeInspector,
+            signaler: signaler
+        )
+
+        await assertRecoveryBlocked(recovery)
+
+        XCTAssertEqual(signaler.signals, [])
+        XCTAssertEqual(store.removedSessionIDs, [])
+        XCTAssertEqual(store.records.count, 1)
     }
 
     func testExactLiveOwnerBlocksRecoveryAfterTargetPreflight()
@@ -717,16 +836,141 @@ final class AntigravityManagedProcessRecoveryTests:
         XCTAssertEqual(store.records, [])
     }
 
+    func testIncompleteRecordWithLiveGroupMemberStaysBlocked()
+        async throws
+    {
+        let record = try makeRecord(
+            observationCompleteness: .incomplete
+        )
+        let store = RecoveryRecordStore(records: [record])
+        let processInspector = ScriptedRecoveryProcessInspector(
+            processes: [
+                record.owner.pid: [.notFound],
+                record.child.pid: [.notFound],
+            ]
+        )
+        let treeInspector = ScriptedRecoveryProcessTreeInspector(
+            snapshots: [
+                .init(descendants: [], isComplete: true),
+            ]
+        )
+        let signaler = RecordingExactProcessSignaler()
+        let recovery = makeRecovery(
+            store: store,
+            processInspector: processInspector,
+            treeInspector: treeInspector,
+            signaler: signaler,
+            groupLiveness:
+                ScriptedProcessGroupLivenessChecker(
+                    mayHaveLiveMember: true
+                )
+        )
+
+        await assertRecoveryBlocked(recovery)
+
+        XCTAssertEqual(signaler.signals, [])
+        XCTAssertEqual(store.removedSessionIDs, [])
+        XCTAssertEqual(store.records.count, 1)
+    }
+
+    func testIncompleteRecordWithLiveAttributableDescendantStaysBlocked()
+        async throws
+    {
+        let record = try makeRecord(
+            observationCompleteness: .incomplete
+        )
+        let liveDescendant = try makeIdentity(
+            pid: 4_305,
+            uniqueID: 104_305,
+            parentUniqueID:
+                record.child.kernelIdentity.uniqueID
+        )
+        let store = RecoveryRecordStore(records: [record])
+        let processInspector = ScriptedRecoveryProcessInspector(
+            processes: [:]
+        )
+        let treeInspector = ScriptedRecoveryProcessTreeInspector(
+            snapshots: [
+                .init(
+                    descendants: [liveDescendant],
+                    isComplete: true
+                ),
+            ]
+        )
+        let signaler = RecordingExactProcessSignaler()
+        let recovery = makeRecovery(
+            store: store,
+            processInspector: processInspector,
+            treeInspector: treeInspector,
+            signaler: signaler
+        )
+
+        await assertRecoveryBlocked(recovery)
+
+        XCTAssertEqual(signaler.signals, [])
+        XCTAssertEqual(store.removedSessionIDs, [])
+    }
+
+    func testIncompleteRecordWithTruncatedDescendantListStaysBlocked()
+        async throws
+    {
+        var descendants:
+            [AntigravityRecordedProcessIdentity] = []
+        for index in 0..<AntigravityManagedProcessRecord
+            .maximumObservedDescendantCount
+        {
+            descendants.append(
+                try makeIdentity(
+                    pid: Int32(10_000 + index),
+                    uniqueID: UInt64(210_000 + index),
+                    parentUniqueID: 74_201
+                )
+            )
+        }
+        let record = try makeRecord(
+            observedDescendants: descendants,
+            observationCompleteness: .incomplete
+        )
+        let store = RecoveryRecordStore(records: [record])
+        let processInspector = ScriptedRecoveryProcessInspector(
+            processes: [:]
+        )
+        let treeInspector = ScriptedRecoveryProcessTreeInspector(
+            snapshots: [
+                .init(descendants: descendants, isComplete: true),
+            ]
+        )
+        let signaler = RecordingExactProcessSignaler()
+        let recovery = makeRecovery(
+            store: store,
+            processInspector: processInspector,
+            treeInspector: treeInspector,
+            signaler: signaler
+        )
+
+        await assertRecoveryBlocked(recovery)
+
+        XCTAssertEqual(signaler.signals, [])
+        // A possibly-truncated list short-circuits before any lookup.
+        XCTAssertEqual(processInspector.totalLookupCount, 0)
+        XCTAssertEqual(store.removedSessionIDs, [])
+    }
+
     private func makeRecovery(
         store: RecoveryRecordStore,
         processInspector: ScriptedRecoveryProcessInspector,
         treeInspector: ScriptedRecoveryProcessTreeInspector,
-        signaler: RecordingExactProcessSignaler
+        signaler: RecordingExactProcessSignaler,
+        groupLiveness: ScriptedProcessGroupLivenessChecker =
+            ScriptedProcessGroupLivenessChecker(
+                mayHaveLiveMember: false
+            )
     ) -> AntigravityManagedProcessRecovery {
         AntigravityManagedProcessRecovery(
             recordStore: store,
             processInspector: processInspector,
             processTreeInspector: treeInspector,
+            processGroupLiveness: groupLiveness,
             signaler: signaler,
             terminationGracePeriod: .zero,
             killObservationDelay: .zero,
@@ -1038,5 +1282,18 @@ private nonisolated final class RecordingExactProcessSignaler:
             throw AntigravityExactProcessSignalError
                 .posix(status)
         }
+    }
+}
+
+
+private nonisolated struct ScriptedProcessGroupLivenessChecker:
+    AntigravityProcessGroupLivenessChecking
+{
+    let mayHaveLiveMember: Bool
+
+    func groupMayHaveLiveMember(
+        _ processGroupID: Int32
+    ) -> Bool {
+        mayHaveLiveMember
     }
 }

@@ -7,40 +7,36 @@
 
 ## 1. 현재 운영 상태
 
-- 현재 prod와 staging은 `2.4.10 (20410)`, 기준 커밋은 `8fa58906`입니다.
+- 현재 prod와 staging은 `2.4.11 (20411)`, 기준 커밋은 `ec15d51`입니다.
 - `main`, `dev`, `origin/main`, `origin/dev`는 같은 기준 커밋에 정렬돼 있습니다.
-- prod/staging public appcast는 각각 `v2.4.10`, `v2.4.10-staging`의 원격
+- prod/staging public appcast는 각각 `v2.4.11`, `v2.4.11-staging`의 원격
   ZIP을 가리킵니다.
-- 현재 진행 중 작업: 아래 `1.1 managed AGY readiness 인증 게이트` (2.4.11
-  staging 후보).
+- 현재 진행 중 작업: 아래 `1.1 managed recovery 자가 치유` (2.4.12 staging 후보).
 - App Store가 아니라 Developer ID 공증, GitHub Release, Sparkle appcast로
   직접 배포합니다.
 
-### 1.1 진행 중: managed AGY readiness 인증 게이트 (2.4.11 후보)
+### 1.1 진행 중: managed recovery 자가 치유와 차단 상태 표시 (2.4.12 후보)
 
-실측 근거: managed `agy`는 PTY 기동 직후 `CLI ready` 출력과 로컬 RPC 200 응답
-이후에도 keyring 인증이 비동기로 끝나기 전까지 `GetUserStatus`가 미인증
-payload를 반환한다. 현재 readiness probe는 HTTP 200이면 통과시키므로 인증
-완료 전 쿼터 조회가 실패할 수 있다. 환경변수 화이트리스트는 원인이 아니며
-변경하지 않는다 (7개 화이트리스트만으로 keyring 인증 성공 실측).
+실사례(2026-08-24): prod 원장에 8월 19의 `incomplete` managed 세션 기록이
+남아 recovery가 영구 차단됐고, managed 자동 실행이 5일간 조용히
+비활성화됐다. 사용자에게는 원인과 무관한 "조회 계정 또는 로그인 필요"가
+표시됐다. 즉시 복구는 stale 원장 파일 제거로 완료(백업 보관), 코드 수정이
+이 항목이다.
 
-작업 항목:
-
-1. [완료] `AntigravityManagedCLIRPCReadinessProbe`가 `GetUserStatus` 응답에서
-   계정 identity(email) 디코드까지 성공해야 ready로 판정. 미인증 200은
-   재시도 대상 오류로 던져 기존 readiness 폴링 루프가 20초 예산 안에서 재시도.
-2. [완료] `AntigravityLocalRPCClient.identity()` 재시도 확대
-   (3회×100ms → 5회×200ms).
-3. [완료] managed launch의 `posix_spawn`에 `ETXTBSY` 한정 재시도 추가
-   (AGY 자동 업데이트로 인한 바이너리 교체 중 spawn 실패 대비).
-4. [완료] 관련 단위 테스트, 문서 계약(`docs/antigravity-usage-sources.md`) 갱신.
-5. [진행] dev 검증(전체 XCTest, live AGY integration, 실앱 QA) 후 main squash,
-   `2.4.11-staging` 게시.
-
-범위 제외: 환경변수 화이트리스트 확장, `groupedQuota()` 재시도(스테이징
-재발 시 후속), 외부 warm AGY 재사용.
+1. [완료] recovery가 기록된 실행(owner/child/descendants)이 전부 확실히
+   죽었음이 증명되는 incomplete 기록을 stale로 정리 (ambiguous하면 기존
+   fail-closed 유지).
+2. [완료] recovery 차단 상태를 setup 사유 `managedRecoveryBlocked`로
+   구분해 팝오버/설정에 "이전 AGY 실행 정리 필요"로 표시.
+3. [진행] dev 검증(전체 XCTest, live AGY, 코드 리뷰) 후 main squash,
+   `2.4.12-staging` 게시.
 
 ## 2. 최근 완료
+
+- managed AGY readiness를 인증된 계정 identity 기준으로 강화하고(공용
+  userStatus 인증 증거 분류, 인증 대기 시 같은 endpoint 폴링, 예산 소진 시
+  loginRequired 귀속, identity 재시도 확대, ETXTBSY spawn 재시도)
+  `2.4.11`로 staging·prod에 게시했습니다.
 
 - Claude, Codex, Antigravity의 provider 표시 component와 설정 UX를 통합했습니다.
 - Antigravity를 group × cadence quota, 구조화 local RPC, borrowed/managed AGY,

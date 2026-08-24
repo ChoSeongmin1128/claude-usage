@@ -46,14 +46,14 @@ nonisolated struct AntigravityRefreshRequest:
     let accountTarget: AntigravityRefreshAccountTarget
     let repositoryRevision: UInt64
     let connection: AntigravityConnectionSettings
-    let managedLaunchEnabled: Bool
+    let managedLaunch: AntigravityManagedLaunchState
 
     init(
         trigger: AntigravityRefreshTrigger,
         accountTarget: AntigravityRefreshAccountTarget,
         repositoryRevision: UInt64,
         connection: AntigravityConnectionSettings,
-        managedLaunchEnabled: Bool
+        managedLaunch: AntigravityManagedLaunchState
     ) {
         precondition(
             connection.isCurrentAndValid,
@@ -63,7 +63,26 @@ nonisolated struct AntigravityRefreshRequest:
         self.accountTarget = accountTarget
         self.repositoryRevision = repositoryRevision
         self.connection = connection
-        self.managedLaunchEnabled = managedLaunchEnabled
+        self.managedLaunch = managedLaunch
+    }
+}
+
+/// Whether this refresh may start an app-owned AGY process, carried as one
+/// state so the illegal "enabled but recovery-blocked" combination is not
+/// representable and every consumer can name the disable cause.
+nonisolated enum AntigravityManagedLaunchState:
+    Sendable,
+    Equatable
+{
+    case enabled
+    case disabled
+    /// Disabled because startup recovery could not reconcile a persisted
+    /// managed-process record. An ambient refresh that finds no local
+    /// session names this cause instead of asking the user to log in.
+    case recoveryBlocked
+
+    var allowsLaunch: Bool {
+        self == .enabled
     }
 }
 
@@ -86,6 +105,10 @@ nonisolated enum AntigravitySetupReason:
 {
     case noSelectedOAuthAccount
     case noAmbientLocalSession
+    /// No local session is reachable and the app's own managed launch is
+    /// disabled because startup recovery could not reconcile a persisted
+    /// managed-process record. Logging in does not resolve this state.
+    case managedRecoveryBlocked
 }
 
 nonisolated struct AntigravityIdentityOnlyUsage:

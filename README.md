@@ -2,7 +2,7 @@
 
 `Claude`를 중심으로 `Codex`, `Antigravity`까지 확장할 수 있는 macOS 메뉴바 사용량 추적 앱입니다.
 
-최종 갱신: 2026-08-14 · 현재 prod/staging `2.4.10 (20410)`
+최종 갱신: 2026-08-24 · 현재 prod/staging `2.4.11 (20411)`
 
 현재 구현 기준으로는 `Claude`, `Codex`, `Antigravity`가 런타임 provider로 연결되어 있습니다. `Antigravity`는 앱 로컬 API, Google OAuth 원격 조회, AGY CLI 감지, multi-account 설정 UX까지 런타임 provider 흐름에 맞춰 정리되어 있습니다.
 

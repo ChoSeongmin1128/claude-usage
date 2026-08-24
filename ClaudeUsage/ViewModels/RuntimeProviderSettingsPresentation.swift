@@ -173,6 +173,20 @@ enum RuntimeProviderSettingsPresentation {
                     "앱에서 로그인을 완료한 뒤 다시 확인해 주세요.",
                 availableAction: .openAntigravityApp
             )
+        case .setupRequired(
+            .managedRecoveryBlocked
+        ):
+            return .init(
+                stage: .waitingForApp,
+                badgeTitle: "정리 필요",
+                badgeTone: .red,
+                summary:
+                    "이전 AGY 실행 기록을 정리하지 못해 자동 실행이 중지됐습니다",
+                nextStepTitle: "ClaudeUsage 재시동",
+                nextStepDetail:
+                    "Antigravity 앱이나 AGY CLI를 실행하면 조회는 가능합니다. 앱을 재시동해 정리를 다시 시도해 주세요.",
+                availableAction: nil
+            )
         case .accountMismatch:
             return .init(
                 stage: .authRequired,

@@ -246,6 +246,13 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
   예산(기본 20초) 안에서 재시도합니다. 진짜 로그아웃 상태는 PTY의 blocking
   login prompt 분류가 `loginRequired`로 별도 차단하며, identity가 끝내
   나타나지 않으면 readiness timeout으로 실패합니다.
+- managed 원장의 `incomplete` 관찰 기록은 신호 권한이 없지만, 기록된
+  실행(owner/root child/observed descendants)이 전부 notFound이거나 PID
+  재활용(kernel uniqueID 불일치)으로 확실히 죽었음이 증명되면 startup
+  recovery가 stale로 정리합니다. ambiguous(unavailable 조회, uniqueID
+  일치 생존)는 기존대로 차단을 유지하고, 그 차단은 로그인 안내가 아니라
+  `managedRecoveryBlocked` setup 상태("이전 AGY 실행 정리 필요")로
+  표시합니다.
 - managed launch의 `posix_spawn`은 `ETXTBSY`(자동 업데이트로 인한 바이너리
   교체 중)에 한해 짧게 재시도하고, 다른 실패는 첫 시도에서 fail-closed를
   유지합니다. 재시도 성공 경로도 동일한 catalog 재검증과 kernel image 검증을
