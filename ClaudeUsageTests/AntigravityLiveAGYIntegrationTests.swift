@@ -1,9 +1,62 @@
+import Darwin
 import Foundation
 import XCTest
 
 @testable import ClaudeUsage
 
 final class AntigravityLiveAGYIntegrationTests: XCTestCase {
+    func testRuntimeEnvironmentRecoversAfterOfficialBinaryReplacement() async throws {
+        guard ProcessInfo.processInfo.environment["CLAUDEUSAGE_RUN_LIVE_AGY_TESTS"] == "1" else {
+            throw XCTSkip("CLAUDEUSAGE_RUN_LIVE_AGY_TESTS=1 is required")
+        }
+        let home = FileManager.default.realHomeDirectory
+        let original = try XCTUnwrap(AntigravityProductionExecutableCatalogResolver(homeDirectoryURL: home)
+            .resolve().managedLaunchExecutable)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ClaudeUsage-live-replacement-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        let executable = root.appendingPathComponent("agy")
+        try FileManager.default.copyItem(at: original.canonicalURL, to: executable)
+        let environment = AntigravityRuntimeEnvironment.production(homeDirectoryURL: home,
+            stateDirectory: root.appendingPathComponent("state"),
+            environment: ["ANTIGRAVITY_CLI_PATH": executable.path])
+        do {
+            let first = try await fetchManagedQuota(environment)
+            let replacement = root.appendingPathComponent("agy-next")
+            try FileManager.default.copyItem(at: original.canonicalURL, to: replacement)
+            // Same official version, new inode: deterministic updater-style atomic replacement.
+            guard rename(replacement.path, executable.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
+            let second = try await fetchManagedQuota(environment)
+            XCTAssertEqual(first.identity, second.identity)
+            XCTAssertFalse(second.lanes.isEmpty)
+            XCTAssertEqual(second.provenance.transport, .managedAGYRPC)
+            Swift.print("LIVE_AGY_REPLACEMENT_RECOVERED lanes=\(second.lanes.count)")
+            await environment.shutdown()
+            try FileManager.default.removeItem(at: root)
+        } catch {
+            await environment.shutdown()
+            // Keep failed-test ownership evidence for exact recovery; never erase it blindly.
+            throw error
+        }
+    }
+
+    private func fetchManagedQuota(_ environment: AntigravityRuntimeEnvironment) async throws -> AntigravityQuotaSnapshot {
+        let deadline = AntigravityRPCDeadline(totalTimeout: .seconds(30))
+        let result: Result<AntigravityQuotaSnapshot, Error> = try await environment.withSources(
+            forceDiscovery: true, deadline: deadline
+        ) { sources in
+            do {
+                let source = try XCTUnwrap(sources.first { $0.id == .managedCLI })
+                let response = try await source.fetch(.init(generation: 1, accountTarget: .ambientLocal,
+                    expectedIdentity: nil, oauthAuthorization: nil,
+                    managedLaunchAuthorization: .automatic(idleTimeout: .seconds(180)),
+                    deadline: deadline.beginningDiscoveryNow()))
+                guard case .grouped(let snapshot) = response.payload else { throw AntigravityRuntimeFailure.executableChanged }
+                return .success(snapshot)
+            } catch { return .failure(error) }
+        }
+        return try result.get()
+    }
+
     func testProductionLauncherPublishesHTTPSPortToPTY()
         async throws
     {

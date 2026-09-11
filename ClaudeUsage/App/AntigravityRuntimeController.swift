@@ -128,6 +128,7 @@ actor AntigravityRuntimeController {
         AntigravitySettingsBootstrapResult
     private let agyExecutableStatus:
         AntigravityAGYExecutableDiscoveryStatus
+    private let runtimeEnvironment: AntigravityRuntimeEnvironment?
     private let now: @Sendable () -> Date
     private let operationGate =
         AntigravityRuntimeOperationGate()
@@ -181,11 +182,13 @@ actor AntigravityRuntimeController {
             AntigravitySettingsBootstrapResult,
         agyExecutableStatus:
             AntigravityAGYExecutableDiscoveryStatus,
+        runtimeEnvironment: AntigravityRuntimeEnvironment? = nil,
         now:
             @escaping @Sendable () -> Date =
                 Date.init
     ) {
         self.repository = repository
+        self.runtimeEnvironment = runtimeEnvironment
         self.settingsStore = settingsStore
         self.migrationCoordinator =
             migrationCoordinator
@@ -262,6 +265,9 @@ actor AntigravityRuntimeController {
                             from: agyExecutableStatus
                         )
                 )
+            }
+            if let runtimeEnvironment {
+                managedAvailability = await runtimeEnvironment.managedAvailability()
             }
             guard isCurrentBoundary(boundaryID) else {
                 return nil
@@ -1210,6 +1216,11 @@ actor AntigravityRuntimeController {
             )
         guard isCurrent(transaction) else {
             return currentSnapshot
+        }
+        if let runtimeEnvironment {
+            let availability = await runtimeEnvironment.managedAvailability()
+            guard isCurrent(transaction) else { return currentSnapshot }
+            managedAvailability = availability
         }
 
         let latestRepository:

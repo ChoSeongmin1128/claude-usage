@@ -61,6 +61,7 @@ nonisolated enum AntigravityUsageSourceError:
     case malformedResponse
     case transportFailure
     case managedLaunchDisabled
+    case runtimeUnavailable(AntigravityRuntimeFailure)
 }
 
 /// Selects one stable user-facing failure when multiple verified local
@@ -101,7 +102,7 @@ nonisolated enum AntigravityUsageSourceFailurePolicy {
             .deadline
         case .malformedResponse:
             .schema
-        case .managedLaunchDisabled:
+        case .managedLaunchDisabled, .runtimeUnavailable:
             .managedLaunchPolicy
         case .interactionRequired:
             .interaction
@@ -715,6 +716,8 @@ nonisolated struct AntigravityManagedCLIUsageSource:
             }
             if let error = error as? AntigravityManagedSessionError {
                 switch error {
+                case .executableNotAllowed, .differentExecutableInUse:
+                    throw AntigravityUsageSourceError.runtimeUnavailable(.executableChanged)
                 case .launchDisabled:
                     throw AntigravityUsageSourceError
                         .managedLaunchDisabled

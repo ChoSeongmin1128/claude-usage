@@ -47,6 +47,7 @@ nonisolated struct AntigravityRefreshRequest:
     let repositoryRevision: UInt64
     let connection: AntigravityConnectionSettings
     let managedLaunch: AntigravityManagedLaunchState
+    var forcesDiscovery: Bool { trigger != .scheduled }
 
     init(
         trigger: AntigravityRefreshTrigger,
@@ -121,6 +122,13 @@ nonisolated struct AntigravityIdentityOnlyUsage:
     let fetchedAt: Date
 }
 
+nonisolated enum AntigravityRuntimeFailure: String, Error, Sendable, Equatable {
+    case executableMissing
+    case executableChanged
+    case verificationRejected
+    case recoveryBlocked
+}
+
 /// Stable, secret-free failures suitable for UI state and diagnostics.
 nonisolated enum AntigravityFailure:
     Error,
@@ -146,6 +154,35 @@ nonisolated enum AntigravityFailure:
     case transportUnavailable(AntigravityUsageSourceID)
     case sourceContractViolation(AntigravityUsageSourceID)
     case numericQuotaUnavailable
+    case runtimeUnavailable(AntigravityRuntimeFailure)
+}
+
+extension AntigravityFailure {
+    /// No account IDs, token material or raw server errors may enter diagnostics.
+    var diagnosticCode: String {
+        switch self {
+        case .runtimeUnavailable(let reason): "managedCLI.\(reason.rawValue)"
+        case .authenticationRequired(let source): "\(source.rawValue).authenticationRequired"
+        case .interactionRequired(let source): "\(source.rawValue).interactionRequired"
+        case .deadlineExceeded(let source): "\(source.rawValue).deadlineExceeded"
+        case .schemaChanged(let source): "\(source.rawValue).schemaChanged"
+        case .transportUnavailable(let source): "\(source.rawValue).transportUnavailable"
+        case .sourceUnavailable(let source): "\(source.rawValue).sourceUnavailable"
+        case .sourceContractViolation(let source): "\(source.rawValue).sourceContractViolation"
+        case .selectedAccountUnavailable: "selectedAccountUnavailable"
+        case .selectedAccountIdentityUnavailable: "selectedAccountIdentityUnavailable"
+        case .cancelled: "cancelled"
+        case .appShuttingDown: "appShuttingDown"
+        case .invalidRefreshContext: "invalidRefreshContext"
+        case .generationExhausted: "generationExhausted"
+        case .repositoryUnavailable: "repositoryUnavailable"
+        case .repositoryRevisionChanged: "repositoryRevisionChanged"
+        case .credentialCommitFailed: "credentialCommitFailed"
+        case .credentialCommitAmbiguous: "credentialCommitAmbiguous"
+        case .noEligibleSource: "noEligibleSource"
+        case .numericQuotaUnavailable: "numericQuotaUnavailable"
+        }
+    }
 }
 
 nonisolated enum AntigravityPresentationState:

@@ -975,7 +975,7 @@ echo
 echo "실제 AGY 자동 조회 smoke 실행"
 CLAUDEUSAGE_RUN_LIVE_AGY_TESTS=1 xcrun xctest \
     -XCTest \
-    AntigravityLiveAGYIntegrationTests/testProductionManagedPathReturnsRealGroupedQuota \
+    AntigravityLiveAGYIntegrationTests \
     "$LIVE_AGY_TEST_BUNDLE"
 
 rm -rf "$TEST_DERIVED_DATA" "$TEST_RESULT_BUNDLE"

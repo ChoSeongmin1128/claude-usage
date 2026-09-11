@@ -2,7 +2,7 @@
 
 `Claude`를 중심으로 `Codex`, `Antigravity`까지 확장할 수 있는 macOS 메뉴바 사용량 추적 앱입니다.
 
-최종 갱신: 2026-08-24 · 현재 prod/staging `2.4.11 (20411)`
+최종 갱신: 2026-08-25 · 현재 prod/staging `2.4.12 (20412)`
 
 현재 구현 기준으로는 `Claude`, `Codex`, `Antigravity`가 런타임 provider로 연결되어 있습니다. `Antigravity`는 앱 로컬 API, Google OAuth 원격 조회, AGY CLI 감지, multi-account 설정 UX까지 런타임 provider 흐름에 맞춰 정리되어 있습니다.
 
@@ -311,3 +311,7 @@ Antigravity 합성 항목을 저장하지 않습니다.
 ## 라이선스
 
 MIT License
+
+### Antigravity 자동 복구
+
+AGY 설치·업데이트는 다음 조회에서 재검증되며 ClaudeUsage 재시작 없이 반영됩니다. 수동 새로고침은 실행 중인 앱과 AGY를 다시 찾습니다. 실행 파일 검증 또는 이전 프로세스 정리에 실패하면 원인을 표시하고 안전한 자동 실행만 차단합니다. 마지막 성공 데이터는 확인 시각과 함께 이전 데이터로 유지합니다. Antigravity IDE 지원은 후속 작업입니다.

@@ -898,7 +898,7 @@ assert_contains "$SCENARIO_TRACE" "gate <release-driver-shell-tests>" "fresh she
 assert_contains "$SCENARIO_TRACE" "xcodebuild <-project>" "fresh XCTest"
 assert_contains "$SCENARIO_TRACE" "xcodebuild-env <TMPDIR=$ORCHESTRATION_TMP/claudeusage-release-driver." "fresh XCTest TMPDIR is isolated"
 assert_contains "$SCENARIO_TRACE" "/tmp>" "fresh XCTest uses RUN_ROOT tmp"
-assert_contains "$SCENARIO_TRACE" "xcrun <xctest> <-XCTest> <AntigravityLiveAGYIntegrationTests/testProductionManagedPathReturnsRealGroupedQuota>" "fresh live AGY smoke"
+assert_contains "$SCENARIO_TRACE" "xcrun <xctest> <-XCTest> <AntigravityLiveAGYIntegrationTests>" "fresh live AGY smoke"
 assert_contains "$SCENARIO_TRACE" "xcrun-env <CLAUDEUSAGE_RUN_LIVE_AGY_TESTS=1>" "fresh live AGY opt-in"
 assert_contains "$SCENARIO_OUTPUT" "staging 전환:     2.4.0 식별자 최초 배포" "fresh identity bootstrap output"
 assert_not_contains "$SCENARIO_TRACE" "verify <--tag> <v2.3.3-staging>" "fresh legacy staging verification skipped"

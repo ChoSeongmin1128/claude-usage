@@ -157,15 +157,27 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
         }
     }
 
-    private static func failureSummary(
+    static func failureSummary(
         _ failure: AntigravityFailure
     ) -> ProviderRuntimeSummary {
         switch failure {
-        case .authenticationRequired, .interactionRequired:
-            settingsFailure(
-                title: "Google 계정 다시 연결 필요",
-                message: "현재 계정의 인증을 갱신할 수 없습니다. 설정에서 Google 계정을 다시 연결해 주세요."
-            )
+        case .runtimeUnavailable(let reason):
+            switch reason {
+            case .executableMissing:
+                settingsFailure(title: "AGY CLI 설치 필요", message: "공식 AGY CLI를 설치한 뒤 다시 조회해 주세요. 앱 재시작 없이 설치 상태를 확인합니다.")
+            case .executableChanged:
+                retryFailure(title: "AGY 실행 파일 변경 감지", message: "업데이트 중이거나 실행 파일이 변경됐습니다. 업데이트가 끝난 뒤 다시 시도해 주세요.")
+            case .verificationRejected:
+                settingsFailure(title: "AGY 실행 파일 검증 실패", message: "공식 서명 또는 파일 권한을 검증하지 못해 실행을 차단했습니다. 공식 AGY CLI 설치 상태를 확인해 주세요.")
+            case .recoveryBlocked:
+                retryFailure(title: "이전 AGY 실행 정리 필요", message: "이전 프로세스 정리를 확인하지 못해 자동 실행을 중지했습니다. 다시 시도하면 안전한 정리를 재확인합니다.")
+            }
+        case .authenticationRequired(let source), .interactionRequired(let source):
+            if source == .googleOAuth {
+                settingsFailure(title: "Google 계정 다시 연결 필요", message: "현재 계정의 인증을 갱신할 수 없습니다. 설정에서 Google 계정을 다시 연결해 주세요.")
+            } else {
+                settingsFailure(title: "로컬 Antigravity 로그인 필요", message: "조회에 사용한 Antigravity 앱 또는 AGY CLI에서 로그인을 완료한 뒤 다시 시도해 주세요.")
+            }
         case .selectedAccountUnavailable,
              .selectedAccountIdentityUnavailable:
             settingsFailure(
@@ -192,7 +204,9 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
                 title: "로컬 상태 확인 필요",
                 message: "계정 또는 자동 조회 상태가 갱신 중 변경되어 결과를 폐기했습니다. 설정을 확인한 뒤 다시 시도해 주세요."
             )
-        case .deadlineExceeded, .transportUnavailable:
+        case .deadlineExceeded:
+            retryFailure(title: "조회 시간 초과", message: "조회 경로가 제한 시간 안에 응답하지 않았습니다. 잠시 후 다시 시도해 주세요.")
+        case .transportUnavailable:
             retryFailure(
                 title: "연결 일시 실패",
                 message: "조회 경로가 제시간에 응답하지 않았습니다. 잠시 후 다시 시도해 주세요."
@@ -200,7 +214,7 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
         case .schemaChanged:
             retryFailure(
                 title: "응답 형식 변경",
-                message: "Antigravity 응답 형식이 달라 수치를 안전하게 해석하지 못했습니다. 이전 숫자는 표시하지 않습니다."
+                message: "Antigravity 응답 형식이 달라 새 수치를 안전하게 해석하지 못했습니다. 앱 업데이트 여부를 확인해 주세요."
             )
         case .numericQuotaUnavailable:
             settingsFailure(

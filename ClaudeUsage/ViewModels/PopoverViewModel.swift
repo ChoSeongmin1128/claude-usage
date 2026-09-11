@@ -687,7 +687,8 @@ final class PopoverViewModel: ObservableObject {
              .schemaChanged,
              .transportUnavailable,
              .sourceContractViolation,
-             .numericQuotaUnavailable:
+             .numericQuotaUnavailable,
+             .runtimeUnavailable:
             return false
         }
     }
@@ -695,34 +696,7 @@ final class PopoverViewModel: ObservableObject {
     private static func antigravityFailureSummary(
         _ failure: AntigravityFailure
     ) -> String {
-        switch failure {
-        case .authenticationRequired, .interactionRequired:
-            return "Google 계정 다시 연결 필요"
-        case .selectedAccountUnavailable,
-             .selectedAccountIdentityUnavailable:
-            return "선택한 계정 확인 필요"
-        case .sourceUnavailable, .noEligibleSource:
-            return "사용 가능한 조회 경로 없음"
-        case .schemaChanged:
-            return "응답 형식 확인 필요"
-        case .deadlineExceeded, .transportUnavailable:
-            return "연결 일시 실패"
-        case .credentialCommitFailed,
-             .credentialCommitAmbiguous:
-            return "계정 정보 저장 확인 필요"
-        case .repositoryUnavailable,
-             .repositoryRevisionChanged,
-             .invalidRefreshContext,
-             .generationExhausted,
-             .sourceContractViolation:
-            return "로컬 상태 확인 필요"
-        case .numericQuotaUnavailable:
-            return "수치형 사용량 미지원"
-        case .cancelled:
-            return "조회 취소됨"
-        case .appShuttingDown:
-            return "종료 중"
-        }
+        AntigravityPopoverPresentationAdapter.failureSummary(failure).title
     }
 
     private static func antigravityShouldShowWarning(

@@ -154,6 +154,17 @@ final class AntigravityRuntimeFoundationTests: XCTestCase {
         )
     }
 
+    func testRuntimePreparationRenewsDiscoveryWithoutExtendingTotalBudget() throws {
+        let clock = TestMonotonicClock()
+        let deadline = AntigravityRPCDeadline(startedAt: clock.now, totalTimeout: .seconds(8), now: { clock.now })
+        clock.advance(by: .seconds(3))
+        let prepared = deadline.beginningDiscoveryNow()
+        XCTAssertEqual(try prepared.timeout(for: .discovery), .seconds(2))
+        XCTAssertEqual(try prepared.timeout(for: .request), .seconds(5))
+        clock.advance(by: .seconds(5))
+        XCTAssertThrowsError(try prepared.timeout(for: .request))
+    }
+
     func testExpiredDiscoveryDoesNotResetTotalDeadline() throws {
         let clock = TestMonotonicClock()
         let deadline = AntigravityRPCDeadline(

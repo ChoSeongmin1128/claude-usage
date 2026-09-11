@@ -266,3 +266,14 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
   local app → borrowed CLI → managed CLI 자동 조회 coordinator까지 검증합니다.
 - 통합 `Scripts/release.sh`는 전체 XCTest 직후 이 live 테스트를 직접 실행합니다.
   XCTest의 skip 결과만으로는 AGY 배포 게이트를 통과한 것으로 보지 않습니다.
+
+## 실행 파일 업데이트와 조회 복구
+
+- `AntigravityRuntimeEnvironment`가 로컬 실행 구성을 관리합니다. 조회마다 경로·파일 메타데이터를 확인하고, 변경 시에만 공식 서명·권한·파일 동일성을 다시 검증합니다.
+- 각 조회는 하나의 로컬 구성을 끝까지 사용합니다. 교체 시 기존 조회 종료와 app-owned 세션 정리를 기다리며, 정리가 확인되지 않으면 managed 실행을 차단하고 기록을 유지합니다. 계정 저장소·OAuth 자격증명은 재생성하지 않습니다.
+- 앱 실행 후 AGY를 설치하거나 같은 경로에서 업데이트해도 다음 조회에서 반영합니다. 검증 도중 변경된 파일과 늦게 완료된 검증 결과는 사용하지 않습니다.
+- 성공한 프로세스 탐색 캐시는 30초 동안 유지하되 매번 PID·실행 파일·포트 소유권을 재검증합니다. 수동 새로고침·재시도·계정 변경은 캐시를 우회하며 일반 자동 요청에 병합되지 않습니다.
+- 설정·팝오버는 실행 파일 없음/변경/검증 거부/정리 차단과 인증·시간 초과·응답 형식 오류를 구분합니다. 고급 진단에는 secret-free 원인 코드와 조회 시각을 표시합니다. 실패 시 마지막 성공 데이터는 stale로 유지하되 다른 계정의 값은 표시하지 않습니다.
+- 설치 파일 검증 시간은 전체 조회 시간에 포함됩니다. 검증 후 로컬 탐색에는 남은 전체 시간 안에서 최대 2초를 배정합니다.
+- Antigravity IDE는 이번 지원 범위에 포함하지 않습니다. 기존 앱 → borrowed AGY → managed AGY → 선택 계정 OAuth 순서를 유지합니다.
+- `AntigravityLiveAGYIntegrationTests/testRuntimeEnvironmentRecoversAfterOfficialBinaryReplacement`는 격리한 공식 AGY 복사본을 같은 경로의 새 inode로 교체하고 실제 quota 재조회를 검증합니다. 사용 중인 AGY 파일은 변경하지 않습니다.

@@ -13,14 +13,11 @@ nonisolated struct AntigravityProductRuntimeComposition:
     let settingsStore: AntigravitySettingsStore
     let migrationCoordinator:
         AntigravityMigrationCoordinator
-    let managedRuntime:
-        AntigravityManagedRuntimeComposition
+    let runtimeEnvironment: AntigravityRuntimeEnvironment
     let refreshCoordinator:
         AntigravityRefreshCoordinator
     let runtimeController:
         AntigravityRuntimeController
-    let executableResolution:
-        AntigravityProductionExecutableResolution
 }
 
 nonisolated enum
@@ -50,23 +47,10 @@ nonisolated enum
                     homeDirectoryURL:
                         homeDirectoryURL
                 )
-        let executableResolution =
-            AntigravityProductionExecutableCatalogResolver(
-                homeDirectoryURL:
-                    homeDirectoryURL
-            ).resolve()
-        let managedRuntime =
-            AntigravityManagedRuntimeCompositionFactory
-                .makeProduction(
-                    catalog:
-                        executableResolution.catalog,
-                    managedStateDirectoryURL:
-                        stateDirectory,
-                    managedLaunchCoordinationDirectoryURL:
-                        managedLaunchCoordinationDirectory,
-                    currentDirectoryURL:
-                        homeDirectoryURL
-                )
+        let runtimeEnvironment = AntigravityRuntimeEnvironment.production(
+            homeDirectoryURL: homeDirectoryURL, stateDirectory: stateDirectory,
+            managedLaunchCoordinationDirectory: managedLaunchCoordinationDirectory
+        )
 
         let repository =
             AntigravityAccountRepository(
@@ -117,45 +101,15 @@ nonisolated enum
                     )
             )
 
-        var sources: [any AntigravityUsageSource] = [
-            AntigravityDiscoveredLocalUsageSource(
-                id: .localApp,
-                discovery:
-                    managedRuntime.discovery,
-                client:
-                    managedRuntime.localRPCClient
-            ),
-            AntigravityDiscoveredLocalUsageSource(
-                id: .borrowedCLI,
-                discovery:
-                    managedRuntime.discovery,
-                client:
-                    managedRuntime.localRPCClient
-            ),
-            AntigravityGoogleOAuthUsageSource(
-                client:
-                    AntigravityGoogleOAuthQuotaClient()
-            ),
+        let sources: [any AntigravityUsageSource] = [
+            AntigravityGoogleOAuthUsageSource(client: AntigravityGoogleOAuthQuotaClient()),
         ]
-        if let executable =
-                executableResolution
-                    .managedLaunchExecutable
-        {
-            sources.append(
-                AntigravityManagedCLIUsageSource(
-                    session:
-                        managedRuntime.managedSession,
-                    executable: executable,
-                    client:
-                        managedRuntime.localRPCClient
-                )
-            )
-        }
 
         let refreshCoordinator =
             AntigravityRefreshCoordinator(
                 repository: repository,
-                sources: sources
+                sources: sources,
+                runtimeEnvironment: runtimeEnvironment
             )
         let runtimeController =
             AntigravityRuntimeController(
@@ -166,12 +120,11 @@ nonisolated enum
                 refreshCoordinator:
                     refreshCoordinator,
                 managedSession:
-                    managedRuntime.managedSession,
+                    runtimeEnvironment,
                 settingsBootstrap:
                     settingsBootstrap,
-                agyExecutableStatus:
-                    executableResolution
-                        .agyExecutableStatus
+                agyExecutableStatus: .notFound,
+                runtimeEnvironment: runtimeEnvironment
             )
 
         return AntigravityProductRuntimeComposition(
@@ -179,13 +132,11 @@ nonisolated enum
             settingsStore: settingsStore,
             migrationCoordinator:
                 migrationCoordinator,
-            managedRuntime: managedRuntime,
+            runtimeEnvironment: runtimeEnvironment,
             refreshCoordinator:
                 refreshCoordinator,
             runtimeController:
-                runtimeController,
-            executableResolution:
-                executableResolution
+                runtimeController
         )
     }
 }

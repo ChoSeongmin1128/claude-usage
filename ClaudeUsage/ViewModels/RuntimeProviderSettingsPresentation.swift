@@ -212,30 +212,12 @@ enum RuntimeProviderSettingsPresentation {
                 availableAction: nil
             )
         case .failed(let failure):
-            let authFailure =
-                isAuthenticationFailure(failure)
-            return .init(
-                stage:
-                    authFailure
-                        ? .authRequired
-                        : .probingRuntime,
-                badgeTitle:
-                    authFailure
-                        ? "인증 필요"
-                        : "조회 실패",
-                badgeTone: .red,
-                summary:
-                    authFailure
-                        ? "현재 계정으로 인증할 수 없습니다"
-                        : "자동 조회 경로에서 사용량을 확인하지 못했습니다",
-                nextStepTitle:
-                    authFailure
-                        ? "계정 다시 연결"
-                        : "연결 확인 후 다시 시도",
-                nextStepDetail:
-                    "아래 조회 계정과 로그인 상태를 확인해 주세요.",
-                availableAction: nil
-            )
+            let detail = AntigravityPopoverPresentationAdapter.failureSummary(failure)
+            let authFailure = isAuthenticationFailure(failure)
+            return .init(stage: authFailure ? .authRequired : .probingRuntime,
+                badgeTitle: authFailure ? "인증 필요" : "조회 실패", badgeTone: .red,
+                summary: detail.title, nextStepTitle: detail.actionTitle ?? "다시 시도",
+                nextStepDetail: detail.message, availableAction: nil)
         case .disabled:
             return .init(
                 stage: .probingRuntime,
@@ -285,7 +267,8 @@ enum RuntimeProviderSettingsPresentation {
              .schemaChanged,
              .transportUnavailable,
              .sourceContractViolation,
-             .numericQuotaUnavailable:
+             .numericQuotaUnavailable,
+             .runtimeUnavailable:
             return false
         }
     }

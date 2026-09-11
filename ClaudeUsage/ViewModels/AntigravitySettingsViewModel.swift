@@ -142,6 +142,7 @@ nonisolated struct AntigravitySettingsViewState:
         AntigravityManagedRuntimeAvailability
     var repositoryRevision: UInt64?
     var notice: AntigravitySettingsNotice?
+    var lastAttemptAt: Date? = nil
 
     static let initial = AntigravitySettingsViewState(
         activity: .idle,
@@ -664,6 +665,7 @@ final class AntigravitySettingsViewModel:
             snapshot.migrationStatus
         state.presentation =
             snapshot.presentationState
+        state.lastAttemptAt = snapshot.lastAttemptAt
         state.quotaPresentation =
             snapshot.quotaPresentation
         state.managedRuntimeAvailability =

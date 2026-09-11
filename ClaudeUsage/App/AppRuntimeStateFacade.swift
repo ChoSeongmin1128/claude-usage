@@ -199,7 +199,8 @@ final class AppRuntimeStateFacade {
              .schemaChanged,
              .transportUnavailable,
              .sourceContractViolation,
-             .numericQuotaUnavailable:
+             .numericQuotaUnavailable,
+             .runtimeUnavailable:
             return false
         }
     }

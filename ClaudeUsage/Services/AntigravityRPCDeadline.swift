@@ -55,6 +55,15 @@ nonisolated struct AntigravityRPCDeadline: Sendable {
         self.now = now
     }
 
+    /// Runtime validation consumes the total budget, not the subsequent discovery
+    /// phase. Preserve the original expiration while allowing its two-second prefix.
+    func beginningDiscoveryNow() -> Self {
+        let instant = now()
+        return Self(startedAt: instant,
+            totalTimeout: max(.zero, instant.duration(to: totalExpiresAt)),
+            discoveryTimeout: Self.maximumDiscoveryTimeout, now: now)
+    }
+
     var elapsed: Duration {
         max(.zero, startedAt.duration(to: now()))
     }

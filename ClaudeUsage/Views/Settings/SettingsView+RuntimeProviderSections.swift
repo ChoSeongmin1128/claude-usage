@@ -260,6 +260,9 @@ extension SettingsView {
                                         .phase
                                 )
                         )
+                        if let date = state.lastAttemptAt {
+                            antigravityDiagnosticRow(title: "조회 시각", value: date.formatted(date: .abbreviated, time: .standard))
+                        }
                         antigravityDiagnosticRow(
                             title: "최근 결과",
                             value:
@@ -587,16 +590,16 @@ extension SettingsView {
             "제한된 기능"
         case .identityOnly:
             "계정 정보만"
-        case .stale:
-            "이전 데이터"
+        case .stale(_, let reason):
+            "이전 데이터 · " + reason.diagnosticCode
         case .accountMismatch:
             "계정 불일치"
         case .setupRequired(.managedRecoveryBlocked):
             "정리 필요"
         case .setupRequired:
             "설정 필요"
-        case .failed:
-            "실패"
+        case .failed(let reason):
+            reason.diagnosticCode
         case .refreshing:
             "조회 중"
         case .disabled:

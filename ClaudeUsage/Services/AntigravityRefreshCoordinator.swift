@@ -32,8 +32,10 @@ private nonisolated struct AntigravityRefreshFlightKey:
     let connection: AntigravityConnectionSettings
     let managedLaunch: AntigravityManagedLaunchState
     let clearsPreviousSnapshot: Bool
+    let forcesDiscovery: Bool
 
     init(_ request: AntigravityRefreshRequest) {
+        forcesDiscovery = request.forcesDiscovery
         accountTarget = request.accountTarget
         repositoryRevision = request.repositoryRevision
         connection = request.connection
@@ -122,6 +124,7 @@ actor AntigravityRefreshCoordinator:
                 >]
     }
 
+    private let runtimeEnvironment: AntigravityRuntimeEnvironment?
     private let repository:
         any AntigravityRefreshAccountRepository
     private let sources:
@@ -150,6 +153,7 @@ actor AntigravityRefreshCoordinator:
         repository:
             any AntigravityRefreshAccountRepository,
         sources: [any AntigravityUsageSource],
+        runtimeEnvironment: AntigravityRuntimeEnvironment? = nil,
         deadlineFactory:
             @escaping @Sendable () -> AntigravityRPCDeadline = {
                 AntigravityRPCDeadline(
@@ -170,6 +174,7 @@ actor AntigravityRefreshCoordinator:
             registry[source.id] = source
         }
         self.repository = repository
+        self.runtimeEnvironment = runtimeEnvironment
         self.sources = registry
         self.deadlineFactory = deadlineFactory
     }
@@ -278,6 +283,7 @@ actor AntigravityRefreshCoordinator:
         let operationGeneration = generation
         let repository = self.repository
         let sources = self.sources
+        let runtimeEnvironment = self.runtimeEnvironment
         let deadline = deadlineFactory()
         inFlight = InFlight(
             id: operationID,
@@ -291,7 +297,8 @@ actor AntigravityRefreshCoordinator:
         let driver = Task.detached(
             priority: .utility
         ) { [weak self] in
-            let result = await Self.execute(
+            let result = await Self.executeWithEnvironment(
+                runtimeEnvironment: runtimeEnvironment,
                 generation: operationGeneration,
                 request: request,
                 repository: repository,
@@ -659,6 +666,39 @@ actor AntigravityRefreshCoordinator:
         credentialCommitWaiters.removeValue(forKey: waiterID)
     }
 
+    private nonisolated static func executeWithEnvironment(
+        runtimeEnvironment: AntigravityRuntimeEnvironment?,
+        generation: UInt64,
+        request: AntigravityRefreshRequest,
+        repository: any AntigravityRefreshAccountRepository,
+        sources: [AntigravityUsageSourceID: any AntigravityUsageSource],
+        deadline: AntigravityRPCDeadline
+    ) async -> AntigravityRefreshExecutionResult {
+        guard let runtimeEnvironment else {
+            return await execute(generation: generation, request: request, repository: repository, sources: sources, deadline: deadline)
+        }
+        do {
+            return try await runtimeEnvironment.withSources(
+                forceDiscovery: request.forcesDiscovery, deadline: deadline
+            ) { localSources in
+                var registry = sources
+                for source in localSources { registry[source.id] = source }
+                // Environment sources own the current launch capability. A disabled
+                // capability is represented by a non-launching typed failure source.
+                let currentRequest = AntigravityRefreshRequest(
+                    trigger: request.trigger, accountTarget: request.accountTarget,
+                    repositoryRevision: request.repositoryRevision, connection: request.connection,
+                    managedLaunch: .enabled
+                )
+                return await execute(generation: generation, request: currentRequest, repository: repository, sources: registry, deadline: deadline.beginningDiscoveryNow())
+            }
+        } catch is CancellationError {
+            return .failure(.cancelled)
+        } catch {
+            return .failure(.deadlineExceeded(.managedCLI))
+        }
+    }
+
     private nonisolated static func execute(
         generation: UInt64,
         request: AntigravityRefreshRequest,
@@ -845,6 +885,8 @@ actor AntigravityRefreshCoordinator:
                         failure = .deadlineExceeded(sourceID)
                     case .malformedResponse:
                         failure = .schemaChanged(sourceID)
+                    case .runtimeUnavailable(let reason):
+                        failure = .runtimeUnavailable(reason)
                     case .transportFailure:
                         failure = .transportUnavailable(
                             sourceID
@@ -1237,7 +1279,8 @@ actor AntigravityRefreshCoordinator:
              .schemaChanged,
              .transportUnavailable,
              .sourceContractViolation,
-             .numericQuotaUnavailable:
+             .numericQuotaUnavailable,
+             .runtimeUnavailable:
             false
         }
     }

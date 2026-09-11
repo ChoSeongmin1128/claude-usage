@@ -1266,6 +1266,25 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         )
     }
 
+    func testManualRefreshDoesNotJoinScheduledFlight() async throws {
+        let account = makeAccount(id: "account-a", subject: "subject-a", email: "a@example.com")
+        let repository = RefreshRepositoryDouble(accounts: [account], activeAccountID: account.id,
+            credentials: [account.id: makeCredentials("a")])
+        let snapshot = makeSnapshot(identity: account.externalIdentity.providerAccountIdentity, source: .googleOAuth)
+        let source = DiscoveryPolicySource(snapshot: snapshot)
+        let coordinator = AntigravityRefreshCoordinator(repository: repository, sources: [source])
+        let scheduled = AntigravityRefreshRequest(trigger: .scheduled, accountTarget: .selectedOAuth(account.id),
+            repositoryRevision: 0, connection: makeConnectionSettings(), managedLaunch: .disabled)
+        let first = Task { await coordinator.refresh(scheduled) }
+        await source.waitUntilStarted()
+        let manual = selectedRequest(accountID: account.id, revision: 0, policy: .googleAccount)
+        let result = await coordinator.refresh(manual)
+        _ = await first.value
+        let calls = await source.calls
+        XCTAssertEqual(calls, 2)
+        XCTAssertEqual(result, .ready(snapshot))
+    }
+
     func testConcurrentEquivalentRequestsUseOneSourceFetch() async throws {
         let account = makeAccount(
             id: "account-a",
@@ -2482,4 +2501,17 @@ private func makeProvenance(
         capability: capability,
         processIdentity: processIdentity
     )
+}
+
+private actor DiscoveryPolicySource: AntigravityUsageSource {
+    nonisolated let id = AntigravityUsageSourceID.googleOAuth
+    let snapshot: AntigravityQuotaSnapshot
+    var calls = 0
+    init(snapshot: AntigravityQuotaSnapshot) { self.snapshot = snapshot }
+    func waitUntilStarted() async { while calls == 0 { await Task.yield() } }
+    func fetch(_ request: AntigravityUsageSourceRequest) async throws -> AntigravityUsageSourceResponse {
+        calls += 1
+        if calls == 1 { try await Task.sleep(for: .seconds(2)) }
+        return .init(payload: .grouped(snapshot))
+    }
 }

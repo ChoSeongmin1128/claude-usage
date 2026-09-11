@@ -369,6 +369,36 @@ final class AntigravityDiscoverySecurityTests: XCTestCase {
         XCTAssertEqual(portInspector.callCount(), 2)
     }
 
+    func testPositiveCacheExpiresAndDiscoversNewProcessesAfterThirtySeconds() async throws {
+        let candidate = makeRuntimeCandidate()
+        let clock = DiscoveryReviewClock()
+        let inspector = DiscoveryProcessInspectorStub(discoveries: [[candidate], []])
+        let discovery = AntigravityRuntimeDiscovery(processInspector: inspector,
+            portInspector: DiscoveryPortInspectorStub(observations: [ownedEndpointMap(for: candidate)]),
+            installations: [candidate.processIdentity.executable], now: { clock.now() })
+        _ = try await discovery.discover()
+        clock.advance(29)
+        _ = try await discovery.discover()
+        XCTAssertEqual(inspector.discoverCallCount(), 1)
+        clock.advance(1)
+        let refreshed = try await discovery.discover()
+        XCTAssertEqual(inspector.discoverCallCount(), 2)
+        XCTAssertTrue(refreshed.endpoints.isEmpty)
+    }
+
+    func testManualInvalidationBypassesStillHealthyCachedProcess() async throws {
+        let candidate = makeRuntimeCandidate()
+        let inspector = DiscoveryProcessInspectorStub(discoveries: [[candidate], []])
+        let discovery = AntigravityRuntimeDiscovery(processInspector: inspector,
+            portInspector: DiscoveryPortInspectorStub(observations: [ownedEndpointMap(for: candidate)]),
+            installations: [candidate.processIdentity.executable])
+        _ = try await discovery.discover()
+        await discovery.invalidateCache()
+        let refreshed = try await discovery.discover()
+        XCTAssertEqual(inspector.discoverCallCount(), 2)
+        XCTAssertTrue(refreshed.endpoints.isEmpty)
+    }
+
     func testAGYDiscoveryRetainsEveryOwnedIPv4PortWithoutHint()
         async throws
     {
@@ -1182,4 +1212,11 @@ private extension Collection {
     var single: Element? {
         count == 1 ? first : nil
     }
+}
+
+private final class DiscoveryReviewClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var date = Date(timeIntervalSince1970: 1000)
+    func now() -> Date { lock.withLock { date } }
+    func advance(_ seconds: TimeInterval) { lock.withLock { date = date.addingTimeInterval(seconds) } }
 }

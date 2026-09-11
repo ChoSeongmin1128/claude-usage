@@ -45,7 +45,10 @@ actor AntigravityRuntimeDiscovery {
             let processInspector = self.processInspector
             let portInspector = self.portInspector
             let installations = self.installations
-            let cached = self.positiveCache
+            let cached = self.positiveCache.flatMap { snapshot in
+                let age = self.now().timeIntervalSince(snapshot.observedAt)
+                return age >= 0 && age < 30 ? snapshot : nil
+            }
             let now = self.now
             let operationDeadline = AntigravityRPCDeadline(
                 totalTimeout: .seconds(2),
@@ -95,6 +98,9 @@ actor AntigravityRuntimeDiscovery {
 
     func invalidateCache() {
         positiveCache = nil
+        // Existing callers retain their bounded task. A forced discovery must
+        // neither join it nor let its eventual result repopulate this cache.
+        inFlight = nil
     }
 
     private func finishSuccessfulOperation(

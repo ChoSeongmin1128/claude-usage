@@ -120,12 +120,12 @@ nonisolated enum AntigravitySettingsNoticePresenter {
                 message:
                     "계정 정보는 확인했지만 표시할 수 있는 사용량 한도를 받지 못했습니다."
             )
-        case .stale:
+        case .stale(_, let reason):
             return warning(
                 title:
                     "새 사용량을 확인하지 못했습니다",
                 message:
-                    "마지막 확인 데이터는 유지했습니다. 연결 상태를 확인해 주세요."
+                    "마지막 확인 데이터는 유지했습니다. " + AntigravityPopoverPresentationAdapter.failureSummary(reason).message
             )
         case .refreshing:
             return nil
@@ -150,13 +150,9 @@ nonisolated enum AntigravitySettingsNoticePresenter {
                 message:
                     "이전 계정의 수치는 표시하지 않았습니다. Google 계정 또는 Antigravity 로그인을 확인해 주세요."
             )
-        case .failed:
-            return failure(
-                title:
-                    "사용량 조회에 실패했습니다",
-                message:
-                    "계정과 연결 상태를 확인한 뒤 다시 새로고침해 주세요."
-            )
+        case .failed(let reason):
+            let summary = AntigravityPopoverPresentationAdapter.failureSummary(reason)
+            return failure(title: summary.title, message: summary.message)
         case .disabled:
             return nil
         }
