@@ -277,3 +277,4 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
 - 설치 파일 검증 시간은 전체 조회 시간에 포함됩니다. 검증 후 로컬 탐색에는 남은 전체 시간 안에서 최대 2초를 배정합니다.
 - Antigravity IDE는 이번 지원 범위에 포함하지 않습니다. 기존 앱 → borrowed AGY → managed AGY → 선택 계정 OAuth 순서를 유지합니다.
 - `AntigravityLiveAGYIntegrationTests/testRuntimeEnvironmentRecoversAfterOfficialBinaryReplacement`는 격리한 공식 AGY 복사본을 같은 경로의 새 inode로 교체하고 실제 quota 재조회를 검증합니다. 사용 중인 AGY 파일은 변경하지 않습니다.
+- 통합 릴리스 게이트는 실제 managed quota 조회와 파일 교체 후 quota 재조회 두 검사를 각각 완료합니다. 인증 완료 전에 종료하는 포트 전용 진단은 릴리스 게이트에서 실행하지 않습니다.
