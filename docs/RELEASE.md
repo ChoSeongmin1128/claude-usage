@@ -84,7 +84,7 @@ mutation 없는 계획만 보려면:
 ./Scripts/release.sh stg X.Y.Z \
   --non-interactive \
   --confirm-publish vX.Y.Z-staging \
-  --notes "X.Y.Z staging"
+  --notes-file docs/release-notes/X.Y.Z.md
 ```
 
 실제 driver는 계정/원격/clean main/tag/notary/test gate, 이전 동일 채널
@@ -92,8 +92,8 @@ mutation 없는 계획만 보려면:
 검증된 appcast의 Pages/feed 전파, public feed 포함 최종 재검증을 순서대로
 수행합니다. DMG·ZIP·appcast는 GitHub의
 SHA-256/size metadata와 대조하고, DMG 및 ZIP의 앱 모두 notarization,
-Gatekeeper, bundle version/build/feed를 확인합니다. appcast의 ZIP length,
-Sparkle Ed25519 signature와 앱의 `SUPublicEDKey`도 검증하며, public feed는
+Gatekeeper, bundle version/build/feed를 확인합니다. appcast의 업데이트 DMG length,
+Sparkle Ed25519 signature와 앱의 `SUPublicEDKey`, feed 서명 및 ZIP의 서명된 SHA-256도 검증하며, public feed는
 Release의 `appcast.xml` asset과 byte-for-byte로 대조합니다.
 
 테스트 DerivedData/xcresult, archive용 임시 xcconfig, appcast staging,
@@ -314,7 +314,7 @@ notarized 수행 단계:
 1. Xcode archive (`build/release/ClaudeUsage.xcarchive`)
 2. 앱을 ZIP 으로 감싸 notarytool 제출 (`--wait`)
 3. stapler 로 앱에 티켓 부착 후 `stapler validate` / `spctl --type execute` 검증
-4. stapled ZIP 재생성 (Sparkle appcast 다운로드 대상)
+4. stapled ZIP 재생성 (별도 다운로드 자산)
 5. `Scripts/make-dmg.sh` 호출 → `dmgbuild` 로 UI DMG 생성 + Developer ID 서명
 6. DMG notarization 제출 (`--wait`)
 7. DMG 에 티켓 부착 후 `stapler validate`
@@ -322,7 +322,7 @@ notarized 수행 단계:
 
 산출물:
 - `build/release/ClaudeUsage.xcarchive/Products/Applications/ClaudeUsage.app` (스테이플됨)
-- `build/release/ClaudeUsage.zip` (Sparkle 용)
+- `build/release/ClaudeUsage.zip` (별도 다운로드용; 서명된 feed에 SHA-256 포함)
 - `build/release/ClaudeUsage.dmg` (설치 배포용)
 
 internal 수행 단계:
@@ -389,7 +389,7 @@ EXPECTED_COMMIT="$(git rev-parse HEAD)"
 - `--channel prod|staging` — 기본 채널 지정 (미지정 시 stable=prod, prerelease=staging)
 - `--expected-commit SHA` — 검증·빌드한 main commit 고정(필수)
 - `--resume-exact-tag` — 같은 commit의 기존 tag만 재사용
-- `--notes "..."` — 릴리스 노트 직접 지정 (미지정 시 `--generate-notes`)
+- `--notes-file docs/release-notes/X.Y.Z.md` — 버전별 노트 정본. 생략하면 같은 기본 경로를 사용하며 파일 누락·빈 내용·버전/commit 불일치는 게시 전에 차단합니다. 자동 생성 노트로 대체하지 않습니다.
 
 staging 예:
 
@@ -400,7 +400,7 @@ RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh
   --channel staging \
   --expected-commit "$(git rev-parse HEAD)" \
   --skip-pages-publish \
-  --notes "릴리스 요약"
+  --notes-file docs/release-notes/X.Y.Z.md
 ```
 
 게시 후에는 release의 원격 DMG를 다시 다운로드해 최종 사용자 경로를 검증합니다. 로컬 build 산출물을 Downloads에 복사한 것으로 원격 배포 검증을 대신하지 않습니다.
@@ -494,7 +494,7 @@ prod 예:
 Sparkle 이 클라이언트 앱에서 하는 일:
 1. `SUFeedURL` (= GitHub Pages channel URL) 을 30분마다 폴링
 2. `appcast.xml` 파싱 → 현재 설치 버전과 비교
-3. 새 버전이 있으면 `ClaudeUsage.zip` 다운로드
+3. 새 버전이 있으면 서명된 feed를 검증한 뒤 `ClaudeUsage.dmg` 다운로드
 4. `SUPublicEDKey` 로 ED25519 서명 검증
 5. popover 설치 버튼을 누르면 `XPCServices/Installer.xpc` 가 교체 설치
 
@@ -628,3 +628,27 @@ Xcode 에서 한 번 Release 빌드를 돌리면 Sparkle SPM artifact 가 `~/Lib
 - [ ] idle/appearance 전환 CPU와 반복 메뉴바 렌더 회귀 확인
 - [ ] Claude account migration/provenance와 Keychain prompt 부재 확인
 - [ ] GitHub CLI active 계정이 `nathan-glorang`으로 복원됐는지 확인
+
+### 릴리스 노트 정본
+
+`docs/release-notes/X.Y.Z.md`를 코드와 함께 dev에서 리뷰하고 main squash에 포함합니다. 첫 줄은 `# X.Y.Z`, 본문은 사용자에게 달라지는 내용과 알려진 제한을 bullet로 작성합니다. 버전명만 적거나 개발 커밋 목록으로 대체하지 않습니다. BOM 없는 UTF-8과 LF 줄바꿈을 사용합니다.
+
+통합 driver는 빌드 전에 경로·내용·버전을 확인하고 배포 commit의 파일과 일치하는지 검사합니다. GitHub에는 `--notes-file`로 원본을 전달하고 Sparkle에는 같은 내용을 `description sparkle:format="plain-text"`로 내장합니다. 별도의 Markdown 파서나 두 번째 노트 원본은 두지 않습니다. 이 형식은 기존 Sparkle 2.8.1 설치본에서도 표시할 수 있습니다.
+
+앱의 예약 업데이트는 기본 Sparkle 알림창을 숨기므로 설정 → 업데이트 → 버전별 변경 사항에서도 내장 노트를 표시합니다. 설치 후보가 보이는 실제 설정 화면에서 정본과 같은 내용인지 확인합니다. feed 복구 시 Sparkle이 제거한 노트를 GitHub나 외부 URL에서 다시 가져오지 않습니다.
+
+게시 후 GitHub 본문과 appcast를 해당 태그의 노트 파일에 대조합니다. 2.4.14 이하의 기존 게시 자산은 노트 파일 도입 전 호환 검증을 유지하며 소급 수정하지 않습니다. 실제 업데이트 창에서도 노트를 확인합니다.
+
+### 서명된 feed와 키 복구
+
+새 릴리스는 `SURequireSignedFeed`와 `SUVerifyUpdateBeforeExtraction`을 활성화하고 서명된 DMG를 업데이트 대상으로 사용합니다. ZIP은 별도 다운로드 자산으로 유지하며 `claudeusage:zipSHA256`을 서명된 feed에 포함합니다. verifier는 업데이트 아카이브 서명과 ZIP 해시를 모두 압축 해제 전에 확인합니다. 2.4.14 이하의 기존 ZIP enclosure 검증은 호환 목적으로 유지합니다.
+
+순서는 appcast 생성 → 노트 내장 → ZIP 해시 반영 → Sparkle 2.10 `sign_update appcast.xml` 최종 서명 → 고정 공개키로 검증 → 게시입니다. 서명 후 XML을 다시 저장하면 안 됩니다. Pages는 검증된 원본 바이트만 복사합니다.
+
+서명 실패 유예는 Sparkle 기본값과 같은 1,728,000초(20일)로 명시합니다. 유예 중에는 잘못 서명된 feed를 거부하며, 유예 이후에는 신뢰하지 못하는 노트·안내 링크를 제거하고 복구 업데이트만 허용합니다. 아카이브 자체의 서명 검증은 계속 적용됩니다. 실제 프레임워크의 headless 테스트는 정상·변조·키 변경·유예 후 노트 제거를 검증하며 앱이나 창을 실행하지 않습니다.
+
+EdDSA 키를 불가피하게 바꿀 때는 기존의 신뢰한 앱 또는 리뷰된 Git 기록에서 확인한 이전 공개키를 `release.sh --previous-public-key BASE64`로 명시합니다. 이 키는 이전 릴리스 자산 검증에만 전달하며 새 후보는 현재 `Config/Release.xcconfig`의 공개키로 검증합니다. standalone verifier의 대응 옵션은 `--trusted-public-key`입니다. 임의 서버에서 받은 키를 신뢰 기준으로 삼지 않습니다.
+
+키 교체 후보는 이전 앱과 Apple leaf 서명 인증서가 같아야 합니다. EdDSA 키와 Apple 인증서를 동시에 바꾸면 driver가 차단합니다. 실제 배포 키의 생성·교체는 테스트가 수행하지 않습니다. 양쪽 신뢰 수단을 모두 잃었거나 복구 유예를 기다릴 수 없는 경우에는 공식 원격 DMG의 공증·Developer ID를 별도로 확인한 수동 설치가 필요합니다.
+
+실제 staging 검증은 기존 2.8.1 설치본 → 서명 검증을 활성화한 새 설치본뿐 아니라, 새 설치본 → 다음 후보까지 확인합니다. 앞 단계 성공만으로 새 소비자의 서명 검증을 통과했다고 기록하지 않습니다.

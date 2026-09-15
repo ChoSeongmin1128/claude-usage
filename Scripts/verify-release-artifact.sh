@@ -22,6 +22,7 @@ INSTALL_TO=""
 EXPORT_APPCAST_TO=""
 VERIFY_PUBLIC_FEED=0
 DRY_RUN=0
+PUBLIC_KEY_OVERRIDE=""
 
 usage() {
     cat <<'USAGE'
@@ -34,6 +35,7 @@ usage() {
     [--install-to /absolute/path/ClaudeUsage.app] \
     [--export-verified-appcast-to /absolute/path/appcast.xml] \
     [--verify-public-feed] \
+    [--trusted-public-key BASE64] \
     [--repo OWNER/REPO] \
     [--dry-run]
 
@@ -64,6 +66,9 @@ read_xcconfig_value() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --trusted-public-key)
+            [[ $# -ge 2 && -n "$2" ]] || die "신뢰한 이전 공개키를 지정해 주세요."
+            PUBLIC_KEY_OVERRIDE="$2"; shift 2 ;;
         --tag)
             [[ $# -ge 2 ]] || die "--tag 값이 필요합니다."
             TAG="$2"
@@ -148,6 +153,10 @@ TRUSTED_TEAM_IDENTIFIER="$(
 TRUSTED_SPARKLE_PUBLIC_KEY="$(
     read_xcconfig_value "$RELEASE_XCCONFIG" SUPublicEDKey
 )" || die "tracked Release.xcconfig의 Sparkle 공개키를 읽지 못했습니다."
+if [[ -n "$PUBLIC_KEY_OVERRIDE" ]]; then
+    python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" validate-public-key "$PUBLIC_KEY_OVERRIDE"
+    TRUSTED_SPARKLE_PUBLIC_KEY="$PUBLIC_KEY_OVERRIDE"
+fi
 [[ "$TRUSTED_TEAM_IDENTIFIER" =~ ^[A-Z0-9]{10}$ ]] \
     || die "project의 DEVELOPMENT_TEAM 신뢰 기준이 유효하지 않습니다."
 [[ -n "$TRUSTED_SPARKLE_PUBLIC_KEY" ]] \
@@ -189,7 +198,7 @@ done
 RELEASE_JSON="$(
     gh release view "$TAG" \
         --repo "$REPOSITORY" \
-        --json tagName,isDraft,isPrerelease,assets
+        --json tagName,isDraft,isPrerelease,assets,body
 )"
 RELEASE_METADATA="$(
     printf '%s\n' "$RELEASE_JSON" \
@@ -338,6 +347,14 @@ verify_app_bundle() {
         || die "$source_label 앱 feed URL이 다릅니다: 기대=$EXPECTED_FEED_URL, 실제=$actual_feed_url"
     [[ "$actual_public_key" == "$TRUSTED_SPARKLE_PUBLIC_KEY" ]] \
         || die "$source_label 앱의 SUPublicEDKey가 신뢰 기준과 다릅니다."
+    if (( EXPECTED_BUILD >= 20415 )); then
+        [[ "$(/usr/libexec/PlistBuddy -c 'Print :SURequireSignedFeed' "$app_info")" == true ]] \
+            || die "$source_label 앱이 feed 서명을 요구하지 않습니다."
+        [[ "$(/usr/libexec/PlistBuddy -c 'Print :SUVerifyUpdateBeforeExtraction' "$app_info")" == true ]] \
+            || die "$source_label 앱이 압축 해제 전 검증을 요구하지 않습니다."
+        [[ "$(/usr/libexec/PlistBuddy -c 'Print :SUSignedFeedFailureExpirationInterval' "$app_info")" == 1728000 ]] \
+            || die "$source_label 앱의 feed 복구 유예 기간이 다릅니다."
+    fi
 }
 
 DMG_ASSET_METADATA="$(read_asset_metadata ClaudeUsage.dmg)"
@@ -449,37 +466,53 @@ APPCAST_SHA256="$(
     verify_asset_file appcast.xml "$APPCAST_PATH" "$EXPECTED_APPCAST_SIZE" "$EXPECTED_APPCAST_DIGEST"
 )"
 
-APPCAST_VERSION="$(
-    sed -n 's|.*<sparkle:shortVersionString>\([^<]*\)</sparkle:shortVersionString>.*|\1|p' "$APPCAST_PATH" \
-        | sed -n '1p'
-)"
-APPCAST_BUILD="$(
-    sed -n 's|.*<sparkle:version>\([^<]*\)</sparkle:version>.*|\1|p' "$APPCAST_PATH" \
-        | sed -n '1p'
-)"
-APPCAST_ENCLOSURE="$(
-    sed -n 's|.*<enclosure[^>]*url="\([^"]*\)".*|\1|p' "$APPCAST_PATH" \
-        | sed -n '1p'
-)"
-APPCAST_SIGNATURE="$(
-    sed -n 's|.*sparkle:edSignature="\([^"]*\)".*|\1|p' "$APPCAST_PATH" \
-        | sed -n '1p'
-)"
-APPCAST_LENGTH="$(
-    sed -n 's|.*<enclosure[^>]*length="\([^"]*\)".*|\1|p' "$APPCAST_PATH" \
-        | sed -n '1p'
-)"
-EXPECTED_ENCLOSURE="https://github.com/$REPOSITORY/releases/download/$TAG/ClaudeUsage.zip"
+if (( EXPECTED_BUILD >= 20415 )); then
+    UPDATE_ARCHIVE_PATH="$DMG_PATH"
+    UPDATE_ARCHIVE_NAME=ClaudeUsage.dmg
+    UPDATE_ARCHIVE_SIZE="$EXPECTED_DMG_SIZE"
+    xcrun swift -module-cache-path "$VERIFY_ROOT/swift-module-cache" \
+        "$SPARKLE_SIGNATURE_VERIFIER" "$APPCAST_PATH" "$TRUSTED_SPARKLE_PUBLIC_KEY"
+else
+    UPDATE_ARCHIVE_PATH="$ZIP_PATH"
+    UPDATE_ARCHIVE_NAME=ClaudeUsage.zip
+    UPDATE_ARCHIVE_SIZE="$EXPECTED_ZIP_SIZE"
+fi
+APPCAST_METADATA="$(python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" appcast-fields "$APPCAST_PATH")" \
+    || die "Release appcast 메타데이터가 유효하지 않습니다."
+IFS=$'\t' read -r APPCAST_VERSION APPCAST_BUILD APPCAST_ENCLOSURE APPCAST_SIGNATURE APPCAST_LENGTH <<< "$APPCAST_METADATA"
+EXPECTED_ENCLOSURE="https://github.com/$REPOSITORY/releases/download/$TAG/$UPDATE_ARCHIVE_NAME"
 [[ "$APPCAST_VERSION" == "$EXPECTED_VERSION" ]] \
     || die "Release appcast version이 다릅니다: 기대=$EXPECTED_VERSION, 실제=$APPCAST_VERSION"
 [[ "$APPCAST_BUILD" == "$EXPECTED_BUILD" ]] \
     || die "Release appcast build가 다릅니다: 기대=$EXPECTED_BUILD, 실제=$APPCAST_BUILD"
 [[ "$APPCAST_ENCLOSURE" == "$EXPECTED_ENCLOSURE" ]] \
     || die "Release appcast enclosure가 다릅니다: 기대=$EXPECTED_ENCLOSURE, 실제=$APPCAST_ENCLOSURE"
-[[ "$APPCAST_LENGTH" == "$EXPECTED_ZIP_SIZE" ]] \
-    || die "Release appcast length가 ZIP asset size와 다릅니다: 기대=$EXPECTED_ZIP_SIZE, 실제=$APPCAST_LENGTH"
+[[ "$APPCAST_LENGTH" == "$UPDATE_ARCHIVE_SIZE" ]] \
+    || die "Release appcast length가 update asset size와 다릅니다: 기대=$UPDATE_ARCHIVE_SIZE, 실제=$APPCAST_LENGTH"
 [[ -n "$APPCAST_SIGNATURE" ]] \
     || die "Release appcast에 sparkle:edSignature가 없습니다."
+
+xcrun swift \
+    -module-cache-path "$VERIFY_ROOT/swift-module-cache" \
+    "$SPARKLE_SIGNATURE_VERIFIER" \
+    "$UPDATE_ARCHIVE_PATH" \
+    "$TRUSTED_SPARKLE_PUBLIC_KEY" \
+    "$APPCAST_SIGNATURE"
+if (( EXPECTED_BUILD >= 20415 )); then
+    python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" verify-zip \
+        --appcast "$APPCAST_PATH" --zip-file "$ZIP_PATH"
+fi
+
+# Builds before 20415 were published without canonical note files. Keep their
+# existing artifact verification so they remain valid upgrade baselines.
+if (( EXPECTED_BUILD >= 20415 )); then
+    curl -fsSL "https://raw.githubusercontent.com/$REPOSITORY/$TAG/docs/release-notes/$EXPECTED_VERSION.md" \
+        -o "$DOWNLOAD_DIR/release-notes.md"
+    printf '%s' "$RELEASE_JSON" > "$DOWNLOAD_DIR/release-metadata.json"
+    python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" verify-notes \
+        --appcast "$APPCAST_PATH" --notes-file "$DOWNLOAD_DIR/release-notes.md" \
+        --version "$EXPECTED_VERSION" --release-json "$DOWNLOAD_DIR/release-metadata.json"
+fi
 
 if [[ "$VERIFY_PUBLIC_FEED" == "1" ]]; then
     curl -fsSL "$EXPECTED_FEED_URL" -o "$PUBLIC_APPCAST_PATH"
@@ -491,12 +524,6 @@ fi
 ditto -x -k "$ZIP_PATH" "$ZIP_EXTRACT_DIR"
 ZIP_APP_PATH="$ZIP_EXTRACT_DIR/$APP_BUNDLE_NAME"
 verify_app_bundle "$ZIP_APP_PATH" "ZIP"
-xcrun swift \
-    -module-cache-path "$VERIFY_ROOT/swift-module-cache" \
-    "$SPARKLE_SIGNATURE_VERIFIER" \
-    "$ZIP_PATH" \
-    "$TRUSTED_SPARKLE_PUBLIC_KEY" \
-    "$APPCAST_SIGNATURE"
 
 xcrun stapler validate "$DMG_PATH"
 codesign --verify --verbose=2 "$DMG_PATH"

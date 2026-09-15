@@ -47,7 +47,8 @@ PAGES_BRANCH="gh-pages"
 ENVIRONMENT_INPUT=""
 RELEASE_ENVIRONMENT=""
 VERSION=""
-NOTES=""
+NOTES_FILE=""
+PREVIOUS_PUBLIC_KEY=""
 NON_INTERACTIVE=0
 DRY_RUN=0
 CONFIRM_PUBLISH=""
@@ -81,12 +82,13 @@ usage() {
 예:
   ./Scripts/release.sh
   ./Scripts/release.sh stg 2.4.0
-  ./Scripts/release.sh prod 2.4.0 --notes "2.4.0"
+  ./Scripts/release.sh prod 2.4.0 --notes-file docs/release-notes/2.4.0.md
 
 옵션:
   --environment stg|staging|prod
   --version X.Y.Z
-  --notes TEXT
+  --notes-file PATH
+  --previous-public-key BASE64 (키 교체 때 이전 자산 검증에만 사용)
   --non-interactive
   --confirm-publish vX.Y.Z[-staging]
   --dry-run
@@ -156,9 +158,13 @@ while [[ $# -gt 0 ]]; do
             VERSION="$2"
             shift 2
             ;;
-        --notes)
-            [[ $# -ge 2 ]] || die "--notes 값이 필요합니다."
-            NOTES="$2"
+        --previous-public-key)
+            [[ $# -ge 2 && -n "$2" && -z "$PREVIOUS_PUBLIC_KEY" ]] || die "이전 공개키를 한 번 지정해 주세요."
+            PREVIOUS_PUBLIC_KEY="$2"; shift 2 ;;
+        --notes-file)
+            [[ $# -ge 2 && -n "$2" ]] || die "--notes-file 값이 필요합니다."
+            [[ -z "$NOTES_FILE" ]] || die "--notes-file이 중복 지정됐습니다."
+            NOTES_FILE="$2"
             shift 2
             ;;
         --non-interactive)
@@ -200,6 +206,10 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+if [[ -n "$PREVIOUS_PUBLIC_KEY" ]]; then
+    python3 "$SCRIPT_ROOT/Scripts/lib/release_metadata.py" validate-public-key "$PREVIOUS_PUBLIC_KEY"
+fi
 
 if [[ -z "$ENVIRONMENT_INPUT" ]]; then
     [[ "$NON_INTERACTIVE" == "0" && -t 0 ]] \
@@ -534,6 +544,11 @@ VERSION_MINIMUM_COMPARISON="$(compare_numeric_release_versions "$VERSION" "$MINI
 [[ "$VERSION_MINIMUM_COMPARISON" != "-1" ]] \
     || die "release driver의 새 build 규칙은 2.4.0부터 적용합니다: 입력=$VERSION"
 
+NOTES_ARGS=(--root "$ROOT_DIR" --version "$VERSION")
+[[ -z "$NOTES_FILE" ]] || NOTES_ARGS+=(--path "$NOTES_FILE")
+NOTES_FILE="$(python3 "$SCRIPT_ROOT/Scripts/lib/release_metadata.py" notes-path "${NOTES_ARGS[@]}")" \
+    || die "버전에 해당하는 릴리스 노트 파일이 필요합니다."
+
 EXPECTED_BUILD="$(derive_release_build_number "$VERSION")" \
     || die "입력 버전에서 build number를 안전하게 계산할 수 없습니다: $VERSION"
 TAG="$(release_tag_for "$RELEASE_ENVIRONMENT" "$VERSION")"
@@ -582,6 +597,9 @@ case "$RELEASE_ENVIRONMENT" in
         PREVIOUS_BUILD="$PROD_FEED_BUILD"
         ;;
 esac
+
+PREVIOUS_VERIFY_ARGS=(--tag "$PREVIOUS_TAG")
+[[ -z "$PREVIOUS_PUBLIC_KEY" ]] || PREVIOUS_VERIFY_ARGS+=(--trusted-public-key "$PREVIOUS_PUBLIC_KEY")
 
 if [[ "$RELEASE_ENVIRONMENT" == "staging" \
     && "$(compare_numeric_release_versions "$PREVIOUS_VERSION" "$STAGING_IDENTITY_BOOTSTRAP_VERSION")" == "-1" ]]; then
@@ -708,6 +726,10 @@ ORIGIN_URL="$(git -C "$ROOT_DIR" remote get-url origin)"
     || die "origin URL이 release 기준과 다릅니다: $ORIGIN_URL"
 HEAD_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD)"
 ORIGIN_MAIN_SHA="$(git -C "$ROOT_DIR" rev-parse origin/main)"
+python3 "$SCRIPT_ROOT/Scripts/lib/release_metadata.py" notes-path \
+    --root "$ROOT_DIR" --version "$VERSION" --path "$NOTES_FILE" --commit "$HEAD_SHA" >/dev/null \
+    || die "릴리스 노트를 배포 commit에 포함해 주세요."
+
 [[ "$HEAD_SHA" == "$ORIGIN_MAIN_SHA" ]] \
     || die "HEAD가 최신 origin/main과 일치하지 않습니다: HEAD=$HEAD_SHA, origin/main=$ORIGIN_MAIN_SHA"
 
@@ -872,7 +894,7 @@ case "$CANDIDATE_STATE" in
             echo
             echo "현재 public feed 기준 산출물 검증: $PREVIOUS_TAG"
             "$VERIFY_SCRIPT" \
-                --tag "$PREVIOUS_TAG" \
+                "${PREVIOUS_VERIFY_ARGS[@]}" \
                 --channel "$RELEASE_ENVIRONMENT" \
                 --expected-version "$PREVIOUS_VERSION" \
                 --expected-build "$PREVIOUS_BUILD" \
@@ -997,7 +1019,7 @@ else
     echo "이전 동일 채널 앱 준비: $PREVIOUS_TAG"
     UPGRADE_APP_OWNED=1
     "$VERIFY_SCRIPT" \
-        --tag "$PREVIOUS_TAG" \
+        "${PREVIOUS_VERIFY_ARGS[@]}" \
         --channel "$RELEASE_ENVIRONMENT" \
         --expected-version "$PREVIOUS_VERSION" \
         --expected-build "$PREVIOUS_BUILD" \
@@ -1066,6 +1088,15 @@ LOCAL_FEED="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$LOCAL_INFO")"
 LOCAL_BUNDLE_IDENTIFIER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$LOCAL_INFO")"
 [[ "$LOCAL_BUNDLE_IDENTIFIER" == "$APP_BUNDLE_IDENTIFIER" ]] \
     || die "release app bundle identifier가 다릅니다: $LOCAL_BUNDLE_IDENTIFIER"
+if [[ -n "$PREVIOUS_PUBLIC_KEY" ]]; then
+    PREVIOUS_CERT_SHA="$(resolve_app_signing_certificate_sha1 "$SIGNING_REFERENCE_APP_PATH")" \
+        || die "키 교체 기준 앱의 서명 인증서를 확인하지 못했습니다."
+    CANDIDATE_CERT_SHA="$(resolve_app_signing_certificate_sha1 "$LOCAL_APP")" \
+        || die "키 교체 후보 앱의 서명 인증서를 확인하지 못했습니다."
+    [[ "$PREVIOUS_CERT_SHA" == "$CANDIDATE_CERT_SHA" ]] \
+        || die "EdDSA 키와 Apple 서명 인증서를 동시에 바꿀 수 없습니다."
+fi
+
 SPARKLE_TOOLS_DIR="$ARCHIVE_DERIVED_DATA/SourcePackages/artifacts/sparkle/Sparkle/bin"
 [[ -x "$SPARKLE_TOOLS_DIR/generate_appcast" && -x "$SPARKLE_TOOLS_DIR/sign_update" ]] \
     || die "격리된 DerivedData에서 Sparkle release tool을 찾지 못했습니다: $SPARKLE_TOOLS_DIR"
@@ -1105,9 +1136,7 @@ fi
 if [[ "$CANDIDATE_STATE" == "tag_only" ]]; then
     PUBLISH_ARGS+=(--resume-exact-tag)
 fi
-if [[ -n "$NOTES" ]]; then
-    PUBLISH_ARGS+=(--notes "$NOTES")
-fi
+PUBLISH_ARGS+=(--notes-file "$NOTES_FILE")
 
 echo
 echo "GitHub Release 및 appcast 게시"

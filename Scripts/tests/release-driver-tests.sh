@@ -6,7 +6,17 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 # shellcheck source=Scripts/lib/release-driver-common.sh
 source "$ROOT_DIR/Scripts/lib/release-driver-common.sh"
 
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+    -s "$ROOT_DIR/Scripts/tests" -p 'test_release_*.py'
+
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/claudeusage-release-driver-tests.XXXXXX")"
+TEST_ROOT="$(cd "$TEST_ROOT" && pwd -P)"
+
+create_fixture_notes() {
+    mkdir -p "$1/docs/release-notes"
+    printf '# %s\n\n- Improved updates.\n' "$2" > "$1/docs/release-notes/$2.md"
+}
+
 cleanup() {
     local exit_code=$?
     local cleanup_failed=0
@@ -23,6 +33,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 
+TEST_PYTHON_EXECUTABLE="$(command -v python3)"
 PASS_COUNT=0
 
 pass() {
@@ -235,6 +246,8 @@ snapshot_tree() {
     done
 }
 
+create_fixture_notes "$FIXTURE_ROOT" 2.4.0
+create_fixture_notes "$FIXTURE_ROOT" 2.4.1
 BEFORE_SNAPSHOT="$(snapshot_tree "$TEST_ROOT")"
 STAGING_OUTPUT="$(
     env "${DRY_RUN_COMMON_ENV[@]}" \
@@ -354,6 +367,9 @@ mkdir -p \
     "$ORCHESTRATION_STATE" \
     "$ORCHESTRATION_DOWNLOADS"
 
+ln -s "$TEST_PYTHON_EXECUTABLE" "$ORCHESTRATION_BIN/python3"
+create_fixture_notes "$ORCHESTRATION_REPOSITORY" 2.4.0
+
 cat > "$ORCHESTRATION_REPOSITORY/ClaudeUsage.xcodeproj/project.pbxproj" <<'PBX'
 {
     MARKETING_VERSION = 2.4.0;
@@ -438,7 +454,8 @@ run_root="${TMPDIR%/tmp}"
 [[ "$ENTITLEMENTS_PATH" == "$RELEASE_DRIVER_ROOT_DIR/ClaudeUsage/ClaudeUsage.entitlements" ]]
 [[ "$RELEASE_CHANNEL" == "staging" ]]
 [[ "$SU_FEED_URL" == "${RELEASE_DRIVER_TEST_EXPECTED_FEED:?}" ]]
-[[ "$SIGNING_REFERENCE_APP" == "${RELEASE_DRIVER_TEST_SANDBOX_ROOT:?}/Applications/ClaudeUsage.app" ]]
+[[ "$SIGNING_REFERENCE_APP" == "${RELEASE_DRIVER_TEST_SANDBOX_ROOT:?}/Applications/ClaudeUsage.app" \
+    || "$SIGNING_REFERENCE_APP" == "${RELEASE_DRIVER_TEST_SANDBOX_ROOT:?}/Downloads/ClaudeUsage-stg.app" ]]
 app_path="$ARCHIVE_PATH/Products/Applications/ClaudeUsage-stg.app"
 sparkle_path="$DERIVED_DATA_PATH/SourcePackages/artifacts/sparkle/Sparkle/bin"
 mkdir -p "$app_path/Contents" "$sparkle_path"
@@ -529,6 +546,10 @@ if [[ "${1:-}" == "-C" ]]; then
     shift 2
 fi
 case "${1:-}" in
+    show)
+        printf '# 2.4.0\n\n- Improved updates.\n'
+        ;;
+
     fetch)
         exit 0
         ;;
@@ -773,7 +794,33 @@ SCRIPT
 
 cat > "$ORCHESTRATION_BIN/codesign" <<'SCRIPT'
 #!/usr/bin/env bash
+set -euo pipefail
+for argument in "$@"; do
+    case "$argument" in
+        --extract-certificates=*)
+            certificate="${argument#*=}0"
+            if [[ "${*: -1}" == *"/ClaudeUsage.xcarchive/"* && "${RELEASE_DRIVER_TEST_CERT_CHANGED:-0}" == 1 ]]; then
+                printf 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB\n' > "$certificate"
+            else
+                printf 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n' > "$certificate"
+            fi
+            ;;
+    esac
+done
 exit 0
+SCRIPT
+
+cat > "$ORCHESTRATION_BIN/openssl" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+while [[ $# -gt 0 ]]; do
+    if [[ "$1" == -in ]]; then
+        printf 'sha1 Fingerprint=%s\n' "$(cat "$2")"
+        exit 0
+    fi
+    shift
+done
+exit 1
 SCRIPT
 
 cat > "$ORCHESTRATION_BIN/sleep" <<'SCRIPT'
@@ -797,6 +844,7 @@ chmod +x \
     "$ORCHESTRATION_BIN/xcrun" \
     "$ORCHESTRATION_BIN/xcodebuild" \
     "$ORCHESTRATION_BIN/codesign" \
+    "$ORCHESTRATION_BIN/openssl" \
     "$ORCHESTRATION_BIN/sleep"
 
 SCENARIO_OUTPUT=""
@@ -811,6 +859,10 @@ run_orchestration_scenario() {
     local xcodebuild_fail="${5:-0}"
     local pages_sequence="${6:-built}"
     local bootstrap_version="${7:-2.4.0}"
+    local previous_key="${8:-}"
+    local cert_changed="${9:-0}"
+    local release_args=(stg 2.4.0 --non-interactive --confirm-publish v2.4.0-staging)
+    [[ -z "$previous_key" ]] || release_args+=(--previous-public-key "$previous_key")
 
     rm -rf "$ORCHESTRATION_TMP" "$ORCHESTRATION_DOWNLOADS"
     mkdir -p "$ORCHESTRATION_TMP" "$ORCHESTRATION_DOWNLOADS"
@@ -838,6 +890,7 @@ run_orchestration_scenario() {
             "RELEASE_DRIVER_TEST_HEAD=$ORCHESTRATION_HEAD" \
             "RELEASE_DRIVER_TEST_PAGES_HEAD=$ORCHESTRATION_PAGES_HEAD" \
             "RELEASE_DRIVER_TEST_XCODEBUILD_FAIL=$xcodebuild_fail" \
+            "RELEASE_DRIVER_TEST_CERT_CHANGED=$cert_changed" \
             "RELEASE_DRIVER_TEST_STAGING_IDENTITY_BOOTSTRAP_VERSION=$bootstrap_version" \
             "RELEASE_DRIVER_TEST_EXPECTED_FEED=https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml" \
             "RELEASE_DRIVER_TEST_PROD_TAG=v2.3.3" \
@@ -855,9 +908,7 @@ run_orchestration_scenario() {
             "SU_FEED_URL=https://hostile.invalid/appcast.xml" \
             "DOWNLOAD_BASE_URL=https://hostile.invalid/releases" \
             /bin/bash "$ROOT_DIR/Scripts/release.sh" \
-            stg 2.4.0 \
-            --non-interactive \
-            --confirm-publish v2.4.0-staging \
+            "${release_args[@]}" \
             2>&1
     )"
     SCENARIO_STATUS=$?
@@ -963,6 +1014,24 @@ pass
 assert_contains "$SCENARIO_OUTPUT" "배포 중 준비한 Downloads 앱은 종료 시 삭제합니다." "same-identity cleanup output"
 assert_orchestration_cleanup "same-identity upgrade"
 assert_no_destructive_release_commands "$SCENARIO_TRACE" "same-identity upgrade"
+
+ROTATION_TEST_PUBLIC_KEY="11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
+run_orchestration_scenario fresh v2.3.3-staging \
+    $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-staging' \
+    0 built 2.3.0 "$ROTATION_TEST_PUBLIC_KEY"
+assert_equal "0" "$SCENARIO_STATUS" "EdDSA rotation with same Apple certificate"
+assert_contains "$SCENARIO_TRACE" "verify <--tag> <v2.3.3-staging> <--trusted-public-key> <$ROTATION_TEST_PUBLIC_KEY>" "previous key scoped to previous release"
+assert_not_contains "$SCENARIO_TRACE" "verify <--tag> <v2.4.0-staging> <--trusted-public-key>" "candidate uses tracked key"
+assert_orchestration_cleanup "key rotation"
+
+run_orchestration_scenario fresh v2.3.3-staging \
+    $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-staging' \
+    0 built 2.3.0 "$ROTATION_TEST_PUBLIC_KEY" 1
+[[ "$SCENARIO_STATUS" != 0 ]] || fail "simultaneous key and certificate rotation must fail"
+pass
+assert_contains "$SCENARIO_OUTPUT" "동시에 바꿀 수 없습니다" "simultaneous rotation reason"
+assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-staging>" "simultaneous rotation stops before publication"
+assert_orchestration_cleanup "blocked key rotation"
 
 run_orchestration_scenario \
     tag_only \
@@ -1087,6 +1156,10 @@ cp \
 cp \
     "$ROOT_DIR/Scripts/verify-sparkle-signature.swift" \
     "$PUBLISH_REPOSITORY/Scripts/verify-sparkle-signature.swift"
+cp "$ROOT_DIR/Scripts/lib/release_metadata.py" "$PUBLISH_REPOSITORY/Scripts/lib/release_metadata.py"
+cp "$ROOT_DIR/Scripts/tests/sign-release-fixture.swift" "$PUBLISH_REPOSITORY/Scripts/sign-release-fixture.swift"
+ln -s "$TEST_PYTHON_EXECUTABLE" "$PUBLISH_BIN/python3"
+create_fixture_notes "$PUBLISH_REPOSITORY" 2.4.0
 chmod +x "$PUBLISH_SCRIPT"
 
 cat > "$PUBLISH_REPOSITORY/Config/Release.xcconfig" <<EOF
@@ -1108,6 +1181,7 @@ cat > "$PUBLISH_REPOSITORY/Scripts/generate-sparkle-appcast.sh" <<'SCRIPT'
 set -euo pipefail
 download_base_url=""
 release_tag=""
+notes_file=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --download-base-url)
@@ -1116,6 +1190,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --tag)
             release_tag="$2"
+            shift 2
+            ;;
+        --notes-file)
+            notes_file="$2"
             shift 2
             ;;
         --feed-url)
@@ -1136,8 +1214,8 @@ done
 } >> "${PUBLISH_FIXTURE_TRACE:?}"
 version="${release_tag#v}"
 version="${version%-staging}"
-enclosure_url="${download_base_url%/}/ClaudeUsage.zip"
-length="$(stat -f%z "${ARTIFACTS_DIR:?}/ClaudeUsage.zip")"
+enclosure_url="${download_base_url%/}/ClaudeUsage.dmg"
+length="$(stat -f%z "${ARTIFACTS_DIR:?}/ClaudeUsage.dmg")"
 signature="${PUBLISH_FIXTURE_VALID_SIGNATURE:?}"
 case "${PUBLISH_FIXTURE_APPCAST_MODE:-valid}" in
     valid)
@@ -1158,6 +1236,14 @@ esac
 printf '%s\n' \
     "<rss xmlns:sparkle=\"http://www.andymatuschak.org/xml-namespaces/sparkle\"><channel><item><sparkle:shortVersionString>$version</sparkle:shortVersionString><sparkle:version>20400</sparkle:version><enclosure url=\"$enclosure_url\" length=\"$length\" sparkle:edSignature=\"$signature\" /></item></channel></rss>" \
     > "${APPCAST_OUTPUT:?}"
+python3 "$(dirname "$0")/lib/release_metadata.py" embed-notes \
+    --appcast "$APPCAST_OUTPUT" --notes-file "$notes_file" --version "$version"
+
+python3 "$(dirname "$0")/lib/release_metadata.py" bind-zip \
+    --appcast "$APPCAST_OUTPUT" --zip-file "$ARTIFACTS_DIR/ClaudeUsage.zip"
+xcrun swift -module-cache-path "${TMPDIR}/fixture-sign-modules" \
+    "$(dirname "$0")/sign-release-fixture.swift" "$APPCAST_OUTPUT"
+
 SCRIPT
 
 cat > "$PUBLISH_BIN/git" <<'SCRIPT'
@@ -1173,6 +1259,10 @@ if [[ "${1:-}" == "-C" ]]; then
     shift 2
 fi
 case "${1:-}" in
+    show)
+        printf '# 2.4.0\n\n- Improved updates.\n'
+        ;;
+
     config)
         printf 'git@github.com:FixtureOwner/ClaudeUsage.git\n'
         ;;
@@ -1265,6 +1355,10 @@ case "${1:-}" in
                 printf 'https://github.com/FixtureOwner/ClaudeUsage/releases/tag/%s\n' "${3:-}"
                 ;;
             view)
+                if [[ "$*" == *"--json body"* ]]; then
+                    printf '{"body":"# 2.4.0\\n\\n- Improved updates.\\n"}\n'
+                    exit 0
+                fi
                 printf 'https://github.com/FixtureOwner/ClaudeUsage/releases/tag/%s\n' "${3:-}"
                 ;;
             *)
@@ -1366,7 +1460,7 @@ assert_contains \
     "staging tag pins explicit expected SHA"
 assert_contains \
     "$PUBLISH_CASE_TRACE" \
-    "mutation <release-create> <v2.4.0-staging> <--repo> <FixtureOwner/ClaudeUsage> <--title> <v2.4.0-staging> <--prerelease> <--generate-notes> <$PUBLISH_BUILD/ClaudeUsage.dmg> <$PUBLISH_BUILD/ClaudeUsage.zip> <$PUBLISH_BUILD/appcast.xml>" \
+    "mutation <release-create> <v2.4.0-staging> <--repo> <FixtureOwner/ClaudeUsage> <--title> <v2.4.0-staging> <--prerelease> <--notes-file>" \
     "staging exact repository and three assets"
 assert_contains \
     "$PUBLISH_CASE_TRACE" \
@@ -1392,7 +1486,7 @@ assert_contains \
     "prod tag pins explicit expected SHA"
 assert_contains \
     "$PUBLISH_CASE_TRACE" \
-    "mutation <release-create> <v2.4.0> <--repo> <FixtureOwner/ClaudeUsage> <--title> <v2.4.0> <--generate-notes> <$PUBLISH_BUILD/ClaudeUsage.dmg> <$PUBLISH_BUILD/ClaudeUsage.zip> <$PUBLISH_BUILD/appcast.xml>" \
+    "mutation <release-create> <v2.4.0> <--repo> <FixtureOwner/ClaudeUsage> <--title> <v2.4.0> <--notes-file>" \
     "prod exact repository and three assets"
 assert_not_contains "$PUBLISH_CASE_TRACE" "<--prerelease>" "prod non-prerelease release"
 assert_not_contains "$PUBLISH_CASE_TRACE" "mutation <pages-api>" "prod Pages mutation"
@@ -1528,6 +1622,8 @@ mkdir -p \
     "$CANONICAL_VERIFY_STATE" \
     "$CANONICAL_VERIFY_ASSETS" \
     "$CANONICAL_VERIFY_PHYSICAL_TMP"
+ln -s "$TEST_PYTHON_EXECUTABLE" "$CANONICAL_VERIFY_BIN/python3"
+cp "$ROOT_DIR/Scripts/lib/release_metadata.py" "$CANONICAL_VERIFY_REPOSITORY/Scripts/lib/release_metadata.py"
 ln -s "$CANONICAL_VERIFY_PHYSICAL_TMP" "$CANONICAL_VERIFY_LOGICAL_TMP"
 CANONICAL_VERIFY_PHYSICAL_TMP_P="$(
     cd "$CANONICAL_VERIFY_PHYSICAL_TMP"

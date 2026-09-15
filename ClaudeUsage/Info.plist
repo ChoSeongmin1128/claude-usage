@@ -20,6 +20,12 @@
 	<true/>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
+	<key>SURequireSignedFeed</key>
+	<true/>
+	<key>SUVerifyUpdateBeforeExtraction</key>
+	<true/>
+	<key>SUSignedFeedFailureExpirationInterval</key>
+	<integer>1728000</integer>
 	<key>SUFeedURL</key>
 	<string>$(SUFeedURL)</string>
 	<key>SUPublicEDKey</key>

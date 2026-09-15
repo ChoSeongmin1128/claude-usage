@@ -3,7 +3,7 @@
 # ClaudeUsage GitHub Release 게시 + Sparkle appcast 생성.
 #
 # 사용:
-#   Scripts/publish-release.sh vX.Y.Z [--prerelease] [--notes "릴리스 노트"]
+#   Scripts/publish-release.sh vX.Y.Z [--prerelease] [--notes-file docs/release-notes/X.Y.Z.md]
 #                                   [--feed-url URL] [--download-base-url URL]
 #                                   [--channel prod|staging]
 #                                   --expected-commit SHA
@@ -38,7 +38,7 @@ SPARKLE_SIGNATURE_VERIFIER="$ROOT_DIR/Scripts/verify-sparkle-signature.swift"
 
 TAG=""
 PRERELEASE=0
-NOTES=""
+NOTES_FILE=""
 FEED_URL_OVERRIDE=""
 DOWNLOAD_BASE_URL_OVERRIDE=""
 RESUME_EXACT_TAG=0
@@ -76,7 +76,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-pages-publish) shift ;;
         --resume-exact-tag) RESUME_EXACT_TAG=1; shift ;;
-        --notes) NOTES="$2"; shift 2 ;;
+        --notes-file)
+            [[ $# -ge 2 && -n "$2" && -z "$NOTES_FILE" ]] || { echo "유효한 --notes-file을 한 번 지정해 주세요." >&2; exit 2; }
+            NOTES_FILE="$2"; shift 2 ;;
+
         --feed-url) FEED_URL_OVERRIDE="$2"; shift 2 ;;
         --download-base-url) DOWNLOAD_BASE_URL_OVERRIDE="$2"; shift 2 ;;
         --channel) CHANNEL="$2"; shift 2 ;;
@@ -84,7 +87,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             cat <<USAGE
 사용법:
-    $0 vX.Y.Z [--prerelease] [--notes "릴리스 노트"]
+    $0 vX.Y.Z [--prerelease] [--notes-file docs/release-notes/X.Y.Z.md]
                [--feed-url URL] [--download-base-url URL]
                [--channel prod|staging]
                --expected-commit SHA
@@ -406,6 +409,19 @@ validate_release_source() {
 }
 validate_release_source
 
+TAG_VERSION="${TAG#v}"
+TAG_VERSION="${TAG_VERSION%%-*}"
+NOTES_ARGS=(--root "$ROOT_DIR" --version "$TAG_VERSION" --commit "$EXPECTED_COMMIT")
+[[ -z "$NOTES_FILE" ]] || NOTES_ARGS+=(--path "$NOTES_FILE")
+NOTES_FILE="$(python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" notes-path "${NOTES_ARGS[@]}")" \
+    || { echo "검증된 버전별 릴리스 노트가 필요합니다." >&2; exit 1; }
+
+# Read the immutable git object once; later edits cannot split GitHub/feed notes.
+PUBLISH_VERIFY_CACHE="$(mktemp -d "$BUILD_DIR/.publish-sparkle-verify.XXXXXX")"
+git -C "$ROOT_DIR" show "$EXPECTED_COMMIT:docs/release-notes/$TAG_VERSION.md" \
+    > "$PUBLISH_VERIFY_CACHE/$TAG_VERSION.md"
+NOTES_FILE="$PUBLISH_VERIFY_CACHE/$TAG_VERSION.md"
+
 for f in "$DMG_PATH" "$ZIP_PATH"; do
     if [[ ! -f "$f" ]]; then
         echo "빌드 산출물이 없습니다: $f" >&2
@@ -426,7 +442,7 @@ echo "   channel: $CHANNEL"
 echo "   feed url: ${FEED_URL:-<미설정>}"
 echo "   download base url: $DOWNLOAD_BASE_URL"
 
-GEN_ARGS=(--download-base-url "$DOWNLOAD_BASE_URL" --tag "$TAG")
+GEN_ARGS=(--download-base-url "$DOWNLOAD_BASE_URL" --tag "$TAG" --notes-file "$NOTES_FILE")
 if [[ -n "$FEED_URL" ]]; then
     GEN_ARGS+=(--feed-url "$FEED_URL")
 fi
@@ -459,28 +475,10 @@ TAG_VERSION="$(release_version_from_tag "$TAG")" || {
     echo "tag에서 numeric version을 읽지 못했습니다: $TAG" >&2
     exit 1
 }
-APPCAST_VERSION="$(
-    sed -n 's|.*<sparkle:shortVersionString>\([^<]*\)</sparkle:shortVersionString>.*|\1|p' "$APPCAST_PATH" \
-        | sed -n '1p'
-)"
-APPCAST_BUILD="$(
-    sed -n 's|.*<sparkle:version>\([^<]*\)</sparkle:version>.*|\1|p' "$APPCAST_PATH" \
-        | sed -n '1p'
-)"
-APPCAST_ENCLOSURE="$(
-    sed -n 's|.*<enclosure[^>]*url="\([^"]*\)".*|\1|p' "$APPCAST_PATH" \
-        | sed -n '1p'
-)"
-APPCAST_SIGNATURE="$(
-    sed -n 's|.*sparkle:edSignature="\([^"]*\)".*|\1|p' "$APPCAST_PATH" \
-        | sed -n '1p'
-)"
-APPCAST_LENGTH="$(
-    sed -n 's|.*<enclosure[^>]*length="\([^"]*\)".*|\1|p' "$APPCAST_PATH" \
-        | sed -n '1p'
-)"
-EXPECTED_ENCLOSURE="https://github.com/$TARGET_REPOSITORY/releases/download/$TAG/ClaudeUsage.zip"
-ZIP_SIZE="$(stat -f%z "$ZIP_PATH")"
+APPCAST_METADATA="$(python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" appcast-fields "$APPCAST_PATH")"
+IFS=$'\t' read -r APPCAST_VERSION APPCAST_BUILD APPCAST_ENCLOSURE APPCAST_SIGNATURE APPCAST_LENGTH <<< "$APPCAST_METADATA"
+EXPECTED_ENCLOSURE="https://github.com/$TARGET_REPOSITORY/releases/download/$TAG/ClaudeUsage.dmg"
+UPDATE_ARCHIVE_SIZE="$(stat -f%z "$DMG_PATH")"
 [[ "$TAG_VERSION" == "$PROJECT_VERSION" && "$APPCAST_VERSION" == "$PROJECT_VERSION" ]] || {
     echo "tag/project/appcast version이 일치하지 않습니다: tag=$TAG_VERSION, project=$PROJECT_VERSION, appcast=$APPCAST_VERSION" >&2
     exit 1
@@ -493,25 +491,22 @@ ZIP_SIZE="$(stat -f%z "$ZIP_PATH")"
     echo "appcast enclosure가 target Release와 다릅니다: expected=$EXPECTED_ENCLOSURE, actual=$APPCAST_ENCLOSURE" >&2
     exit 1
 }
-[[ "$APPCAST_LENGTH" == "$ZIP_SIZE" && -n "$APPCAST_SIGNATURE" ]] || {
-    echo "appcast ZIP length 또는 Ed25519 signature가 유효하지 않습니다." >&2
+[[ "$APPCAST_LENGTH" == "$UPDATE_ARCHIVE_SIZE" && -n "$APPCAST_SIGNATURE" ]] || {
+    echo "appcast DMG length 또는 Ed25519 signature가 유효하지 않습니다." >&2
     exit 1
 }
-PUBLISH_VERIFY_CACHE="$(mktemp -d "$BUILD_DIR/.publish-sparkle-verify.XXXXXX")"
 xcrun swift \
     -module-cache-path "$PUBLISH_VERIFY_CACHE" \
     "$SPARKLE_SIGNATURE_VERIFIER" \
-    "$ZIP_PATH" \
+    "$DMG_PATH" \
     "$TRACKED_PUBLIC_KEY" \
     "$APPCAST_SIGNATURE"
-rm -rf "$PUBLISH_VERIFY_CACHE"
-[[ ! -e "$PUBLISH_VERIFY_CACHE" ]] || {
-    echo "게시 전 Sparkle 검증 cache를 정리하지 못했습니다: $PUBLISH_VERIFY_CACHE" >&2
-    exit 1
-}
-PUBLISH_VERIFY_CACHE=""
-echo "   tracked 공개키 기준 Sparkle 서명 검증 완료"
-
+xcrun swift -module-cache-path "$PUBLISH_VERIFY_CACHE" \
+    "$SPARKLE_SIGNATURE_VERIFIER" "$APPCAST_PATH" "$TRACKED_PUBLIC_KEY"
+python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" verify-notes \
+    --appcast "$APPCAST_PATH" --notes-file "$NOTES_FILE" --version "$TAG_VERSION"
+python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" verify-zip \
+    --appcast "$APPCAST_PATH" --zip-file "$ZIP_PATH"
 # 2) git tag + push
 echo
 echo "2. git tag 생성 + push"
@@ -533,11 +528,7 @@ echo "3. GitHub Release 생성 + 업로드"
 
 GH_FLAGS=()
 [[ "$PRERELEASE" == "1" ]] && GH_FLAGS+=(--prerelease)
-if [[ -n "$NOTES" ]]; then
-    GH_FLAGS+=(--notes "$NOTES")
-else
-    GH_FLAGS+=(--generate-notes)
-fi
+GH_FLAGS+=(--notes-file "$NOTES_FILE")
 
 ASSETS=("$DMG_PATH" "$ZIP_PATH" "$APPCAST_PATH")
 
@@ -546,6 +537,11 @@ gh release create "$TAG" \
     --title "$TAG" \
     "${GH_FLAGS[@]}" \
     "${ASSETS[@]}"
+
+gh release view "$TAG" --repo "$TARGET_REPOSITORY" --json body > "$PUBLISH_VERIFY_CACHE/release.json"
+python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" verify-notes \
+    --appcast "$APPCAST_PATH" --notes-file "$NOTES_FILE" --version "$TAG_VERSION" \
+    --release-json "$PUBLISH_VERIFY_CACHE/release.json"
 
 # 4) GitHub Pages channel appcast 보류
 echo

@@ -11,9 +11,15 @@ LOCAL_XC_CONFIG_PATH="${LOCAL_XC_CONFIG_PATH:-$ROOT_DIR/Config/Sparkle.release.l
 FEED_URL_OVERRIDE=""
 DOWNLOAD_BASE_URL_OVERRIDE=""
 RELEASE_TAG_OVERRIDE=""
+NOTES_FILE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --notes-file)
+      [[ $# -ge 2 && -n "$2" && -z "$NOTES_FILE" ]] || { echo "유효한 --notes-file을 한 번 지정해 주세요." >&2; exit 2; }
+      NOTES_FILE="$2"
+      shift 2
+      ;;
     --feed-url)
       FEED_URL_OVERRIDE="$2"
       shift 2
@@ -29,7 +35,7 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       cat <<USAGE
 사용법:
-  $0 [--feed-url URL] [--download-base-url URL] [--tag vX.Y.Z]
+  $0 [--feed-url URL] [--download-base-url URL] --tag vX.Y.Z [--notes-file docs/release-notes/X.Y.Z.md]
 
 우선순위:
   1. 명시적 옵션
@@ -104,55 +110,6 @@ find_sparkle_binary() {
   return 1
 }
 
-attach_signatures_to_appcast() {
-  local appcast_path="$1"
-  local archives_dir="$2"
-  local sign_update_bin="$3"
-
-  python3 - "$appcast_path" "$archives_dir" "$sign_update_bin" <<'PY'
-import os
-import re
-import subprocess
-import sys
-import xml.etree.ElementTree as ET
-
-appcast_path, archives_dir, sign_update_bin = sys.argv[1:4]
-sparkle_namespace = "http://www.andymatuschak.org/xml-namespaces/sparkle"
-signature_key = f"{{{sparkle_namespace}}}edSignature"
-
-ET.register_namespace("sparkle", sparkle_namespace)
-tree = ET.parse(appcast_path)
-root = tree.getroot()
-updated = False
-
-for enclosure in root.findall(".//enclosure"):
-    url = enclosure.get("url", "")
-    archive_name = os.path.basename(url)
-    archive_path = os.path.join(archives_dir, archive_name)
-    if not archive_name or not os.path.isfile(archive_path):
-        continue
-
-    command_output = subprocess.check_output([sign_update_bin, archive_path], text=True).strip()
-    signature_match = re.search(r'sparkle:edSignature="([^"]+)"', command_output)
-    length_match = re.search(r'length="([^"]+)"', command_output)
-    if not signature_match or not length_match:
-        raise SystemExit(f"sign_update 출력에서 서명 정보를 찾지 못했습니다: {archive_name}")
-
-    signature = signature_match.group(1)
-    length = length_match.group(1)
-
-    if enclosure.get(signature_key) != signature:
-        enclosure.set(signature_key, signature)
-        updated = True
-    if enclosure.get("length") != length:
-        enclosure.set("length", length)
-        updated = True
-
-if updated:
-    tree.write(appcast_path, encoding="utf-8", xml_declaration=True)
-PY
-}
-
 derive_download_base_url_from_feed_url() {
   local feed_url="$1"
   if is_placeholder_value "$feed_url"; then
@@ -217,11 +174,20 @@ if [[ -z "$SIGN_UPDATE" ]]; then
   exit 1
 fi
 
-ZIP_COUNT="$(find "$ARTIFACTS_DIR" -maxdepth 1 -name '*.zip' | wc -l | tr -d ' ')"
-if [[ "$ZIP_COUNT" == "0" ]]; then
-  echo "appcast에 포함할 ZIP 산출물이 없습니다: $ARTIFACTS_DIR" >&2
+DMG_COUNT="$(find "$ARTIFACTS_DIR" -maxdepth 1 -name 'ClaudeUsage.dmg' | wc -l | tr -d ' ')"
+if [[ "$DMG_COUNT" == "0" ]]; then
+  echo "appcast에 포함할 DMG 산출물이 없습니다: $ARTIFACTS_DIR" >&2
   exit 1
 fi
+
+NOTES_VERSION="${RELEASE_TAG#v}"
+NOTES_VERSION="${NOTES_VERSION%%-*}"
+if [[ -z "$NOTES_FILE" ]]; then
+  NOTES_FILE="$(python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" notes-path \
+    --root "$ROOT_DIR" --version "$NOTES_VERSION")"
+fi
+python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" validate-notes \
+  --notes-file "$NOTES_FILE" --version "$NOTES_VERSION"
 
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/claudeusage-appcast.XXXXXX")"
 cleanup() {
@@ -241,14 +207,14 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 
-find "$ARTIFACTS_DIR" -maxdepth 1 -name '*.zip' -print0 | while IFS= read -r -d '' zip_path; do
-  cp "$zip_path" "$STAGING_DIR/"
+find "$ARTIFACTS_DIR" -maxdepth 1 -name 'ClaudeUsage.dmg' -print0 | while IFS= read -r -d '' dmg_path; do
+  cp "$dmg_path" "$STAGING_DIR/"
 done
 
 echo "- generate_appcast: $GEN_APPCAST"
 echo "- sign_update: $SIGN_UPDATE"
 echo "- artifacts: $ARTIFACTS_DIR"
-echo "- staged zip dir: $STAGING_DIR"
+echo "- staged archive dir: $STAGING_DIR"
 echo "- output: $APPCAST_OUTPUT"
 if [[ -n "$FEED_URL" ]]; then
   echo "- feed url: $FEED_URL"
@@ -256,7 +222,7 @@ fi
 echo "- download base url: $DOWNLOAD_URL_PREFIX"
 
 # generate_appcast는 기존 output을 읽어 과거 item을 유지할 수 있습니다.
-# ClaudeUsage.zip 파일명이 릴리스마다 같기 때문에 과거 item을 유지하면 현재 ZIP의
+# ClaudeUsage.dmg 파일명이 릴리스마다 같기 때문에 과거 item을 유지하면 현재 DMG의
 # length/signature가 과거 item에도 주입됩니다. 채널 appcast는 최신 릴리스 1개만
 # 생성해 잘못된 과거 enclosure 오염을 막습니다.
 rm -f "$APPCAST_OUTPUT"
@@ -266,7 +232,12 @@ rm -f "$APPCAST_OUTPUT"
   -o "$APPCAST_OUTPUT" \
   "$STAGING_DIR"
 
-attach_signatures_to_appcast "$APPCAST_OUTPUT" "$STAGING_DIR" "$SIGN_UPDATE"
+python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" embed-notes \
+  --appcast "$APPCAST_OUTPUT" --notes-file "$NOTES_FILE" --version "${NOTES_VERSION}"
+python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" bind-zip \
+  --appcast "$APPCAST_OUTPUT" --zip-file "$ARTIFACTS_DIR/ClaudeUsage.zip"
+# This is the final mutation. No XML serialization may follow feed signing.
+"$SIGN_UPDATE" "$APPCAST_OUTPUT"
 rm -rf "$STAGING_DIR"
 [[ ! -e "$STAGING_DIR" ]] || {
   echo "appcast 임시 디렉터리를 정리하지 못했습니다: $STAGING_DIR" >&2

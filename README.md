@@ -2,7 +2,7 @@
 
 `Claude`를 중심으로 `Codex`, `Antigravity`까지 확장할 수 있는 macOS 메뉴바 사용량 추적 앱입니다.
 
-최종 갱신: 2026-09-15 · 현재 게시 prod/staging `2.4.13 (20413)` · 검증된 staging 후보 `2.4.14 (20414)`
+최종 갱신: 2026-09-15 · prod `2.4.13 (20413)` · staging [`2.4.14 (20414)` 릴리스 노트](https://github.com/ChoSeongmin1128/claude-usage/releases/tag/v2.4.14-staging)
 
 현재 구현 기준으로는 `Claude`, `Codex`, `Antigravity`가 런타임 provider로 연결되어 있습니다. `Antigravity`는 앱 로컬 API, Google OAuth 원격 조회, AGY CLI 감지, multi-account 설정 UX까지 런타임 provider 흐름에 맞춰 정리되어 있습니다.
 
@@ -37,7 +37,8 @@
 - Claude 인증 상태의 `세션키 / OAuth / organization / metadata` 분리 표시
 - `Messages header fallback` 수동/자동 보조 복구
 - `Claude Code CLI OAuth` 안내와 상태 표시
-- Sparkle 패키지 통합 + appcast 미설정 시 GitHub Release fallback
+- Sparkle 2.10, 서명된 feed·DMG 업데이트와 버전별 변경 내역 표시 (다음 staging 후보에 반영)
+- appcast 미설정 시 GitHub Release fallback
 - notarization + GitHub Release / Pages appcast 게시 스크립트 정리
 - DMG/Downloads 실행 시 Applications 이동 안내
 - 설치 후 남은 DMG 휴지통 이동 안내

@@ -260,3 +260,24 @@ read_project_release_version() {
 read_project_release_build() {
     read_unique_xcode_build_setting "$1" "CURRENT_PROJECT_VERSION"
 }
+
+# 이미 배포된 앱의 leaf 서명 인증서 SHA-1. 후보가 여러 개일 때 어느 인증서가
+# "현재 쓰이고 있는 것"인지 판단하는 기준이 된다.
+resolve_app_signing_certificate_sha1() {
+    local app_path="$1"
+    [[ -d "$app_path" ]] || return 1
+
+    local work
+    work="$(mktemp -d "${TMPDIR:-/tmp}/claudeusage-cert.XXXXXX")" || return 1
+    local sha=""
+    if codesign -d --extract-certificates="$work/cert" "$app_path" >/dev/null 2>&1 \
+        && [[ -f "$work/cert0" ]]; then
+        sha="$(openssl x509 -inform DER -in "$work/cert0" -noout -fingerprint -sha1 2>/dev/null \
+            | sed 's/.*=//; s/://g' \
+            | tr '[:lower:]' '[:upper:]')" || sha=""
+    fi
+    rm -rf "$work"
+
+    [[ "$sha" =~ ^[0-9A-F]{40}$ ]] || return 1
+    printf '%s\n' "$sha"
+}

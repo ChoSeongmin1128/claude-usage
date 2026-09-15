@@ -134,6 +134,18 @@ extension SettingsView {
             Text(updateRuntimeState.statusSummary)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            if let update = updateRuntimeState.latestKnownUpdate,
+               !update.releaseNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                DisclosureGroup("v\(update.version) 변경 사항") {
+                    Text(verbatim: update.releaseNotes)
+                        .font(.caption)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 6)
+                }
+                .font(.caption)
+            }
         }
     }
 

@@ -459,7 +459,9 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
 
     private func updateInfo(for item: SUAppcastItem) -> UpdateInfo {
         let downloadURL = item.fileURL ?? item.infoURL ?? preferredFeedURL ?? URL(string: "https://github.com/ChoSeongmin1128/claude-usage/releases/latest")!
-        let releaseNotes = item.itemDescription ?? item.releaseNotesURL?.absoluteString ?? ""
+        // Sparkle removes descriptions when feed verification enters recovery.
+        // Do not restore notes from another URL or the GitHub response here.
+        let releaseNotes = item.itemDescription ?? ""
 
         return UpdateInfo(
             version: item.displayVersionString,

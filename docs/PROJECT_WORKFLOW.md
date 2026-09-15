@@ -201,3 +201,9 @@ release는 prerelease로 만들지 않으며 prod appcast는 root `appcast.xml`�
 ```
 
 GitHub Pages는 cache 때문에 feed 반영이 몇 분 늦을 수 있습니다. 의심되면 `git show origin/gh-pages:appcast.xml` 또는 `git show origin/gh-pages:channels/staging/appcast.xml` 로 브랜치 내용과 Pages 응답을 분리해서 확인합니다.
+
+### 노트와 배포 커밋
+
+배포할 버전의 `docs/release-notes/X.Y.Z.md`를 dev 리뷰에 포함합니다. 사용자에게 달라지는 내용·수정·알려진 제한을 검토하고 코드와 함께 main에 squash합니다. 릴리스 노트는 게시 시 임의 문자열이나 자동 생성 커밋 목록으로 대체하지 않습니다. 통합 스크립트의 `--notes-file` 검사와 GitHub/Sparkle 원격 내용 검증을 통과해야 합니다.
+
+실앱 실행은 검증 담당자가 Finder에서 직접 수행합니다. 자동화 호스트의 직접 실행은 ControlCenter 메뉴바 attribution을 오염시킬 수 있으므로 사용하지 않습니다.
