@@ -10,6 +10,8 @@
 
 환경은 `stg`/`staging` 또는 `prod`이며, 버전은 `X.Y.Z` 형식입니다. staging은 별도 브랜치가 아닙니다. 운영 승격은 staging 검증과 별도의 배포 결정이 필요합니다.
 
+운영 승격은 같은 버전의 staging 태그와 현재 main의 커밋이 정확히 같아야 합니다. 승격 예정 후보의 노트는 두 채널에서 사용할 수 있도록 작성하고, staging 게시 뒤에는 운영 게시가 끝날 때까지 완료 문서 커밋도 추가하지 않습니다. main이 이미 진행됐다면 기존 태그를 변경하지 않고 다음 patch 후보를 검증합니다.
+
 | 채널 | 태그 | 앱 | bundle identifier | feed |
 |---|---|---|---|---|
 | staging | `vX.Y.Z-staging` | `ClaudeUsage-stg.app` | `com.seongmin.ClaudeUsage.staging` | [staging appcast](https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml) |
