@@ -6,7 +6,7 @@ Anthropic, OpenAI, Google과 제휴하지 않은 독립 프로젝트입니다.
 
 ## 설치
 
-- [안정 버전 2.5.2 다운로드](https://github.com/ChoSeongmin1128/claude-usage/releases/latest) · [변경 사항](docs/release-notes/2.5.2.md)
+- [안정 버전 2.5.3 다운로드](https://github.com/ChoSeongmin1128/claude-usage/releases/latest) · [변경 사항](docs/release-notes/2.5.3.md)
 - [staging 2.5.3-stg.4 다운로드](https://github.com/ChoSeongmin1128/claude-usage/releases/tag/v2.5.3-stg.4)
 - macOS 14 이상, Apple Silicon 및 Intel Mac 지원
 
@@ -45,7 +45,7 @@ Antigravity는 응답에 있는 quota만 표시합니다. 계정마다 한도의
 
 운영 진단에는 고정 오류 코드, 조회 경로, 소요 시간만 기록합니다. 토큰·계정 주소·원본 인증 응답은 기록 대상이 아닙니다. 사용량 조회는 각 서비스의 서버 또는 검증된 로컬 프로세스에 직접 요청합니다.
 
-staging 2.5.3 후보에는 Codex의 현재 로그인 확인과 공식 CLI를 통한 인증 갱신, 자동 조회 주기와 AGY 검사 오류 전달 개선이 포함됩니다. 인증 경계와 복구 안내는 [Codex 사용량 소스](docs/codex-usage-sources.md)를 참고하세요.
+2.5.3에는 Codex의 현재 로그인 확인과 공식 CLI를 통한 인증 갱신, 자동 조회 주기와 AGY 검사 오류 전달 개선이 포함됩니다. 인증 경계와 복구 안내는 [Codex 사용량 소스](docs/codex-usage-sources.md)를 참고하세요.
 
 ## 업데이트
 
