@@ -1,14 +1,31 @@
-<?xml version="1.0" standalone="yes"?>
-<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><!-- sparkle-sign-warning:
+IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires re-signing this file with generate_appcast or sign_update! The signed signature will be embedded at the end of this file.
+--><rss xmlns:claudeusage="https://choseongmin1128.github.io/claude-usage/release" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>2.4.14</title>
-            <pubDate>Tue, 15 Sep 2026 11:27:16 +0900</pubDate>
-            <sparkle:version>20414</sparkle:version>
-            <sparkle:shortVersionString>2.4.14</sparkle:shortVersionString>
+            <title>2.4.15</title>
+            <pubDate>Tue, 15 Sep 2026 13:34:39 +0900</pubDate>
+            <sparkle:version>20415</sparkle:version>
+            <sparkle:shortVersionString>2.4.15</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.4.14-staging/ClaudeUsage.zip" length="6035935" type="application/octet-stream" sparkle:edSignature="U/2OzVN6ywfFSS8X2lyPSMitem3H80xGBWSxJI7aKy6pJhQc/GGrYp3efSqkRgk4c5PlOUBm6wpBp6J/toAiAA=="/>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.4.15-staging/ClaudeUsage.dmg" length="6203006" type="application/octet-stream" sparkle:edSignature="BdaVPQG9aYyjsJjnP/+vc75O8heR/+N6Uo0zzH1RcaWqnphYjHFsP+MqMJdh3zbfjjS8CK3D2AlPJ8xxR1jtAw=="></enclosure>
+            <description sparkle:format="plain-text"># 2.4.15
+
+## 업데이트 개선
+
+- 업데이트 안내에 해당 버전의 변경 내역을 표시합니다.
+- 업데이트 구성 요소를 Sparkle 2.10으로 갱신했습니다.
+- 업데이트 안내의 서명을 확인하고 서명된 DMG로 업데이트합니다.
+
+## 알려진 제한
+
+- 이 버전은 staging 검증용이며 운영 앱을 교체하지 않습니다.
+</description>
+            <claudeusage:zipSHA256>937e5b48991633a8af4fc4cde8d028c0c098fd85a32f79f4d94fe8bf67bd0c89</claudeusage:zipSHA256>
         </item>
     </channel>
-</rss>
+</rss><!-- sparkle-signatures:
+edSignature: kj2Hu+M4Ue6aHGEHYFJ931ZMl4aLXDdfvpgLKNddbP/G3HDAa23KizdxfCdbrQ5Cea6OzRdjca4MxmH88oF1Dw==
+length: 1727
+-->
