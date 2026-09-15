@@ -4,31 +4,35 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>2.5.0</title>
-            <pubDate>Tue, 15 Sep 2026 14:57:33 +0900</pubDate>
-            <sparkle:version>20500</sparkle:version>
-            <sparkle:shortVersionString>2.5.0</sparkle:shortVersionString>
+            <title>2.5.1</title>
+            <pubDate>Tue, 15 Sep 2026 19:02:54 +0900</pubDate>
+            <sparkle:version>20501</sparkle:version>
+            <sparkle:shortVersionString>2.5.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.5.0-staging/ClaudeUsage.dmg" length="6305185" type="application/octet-stream" sparkle:edSignature="pn23C5SPXVsPjYv3NnFuhYydcarARnfDLI9hAVLFAH23UtcCBmvfoi0fSlUVjwdrqXU8STOiC5Nc1agB19C0Bg=="></enclosure>
-            <description sparkle:format="plain-text"># 2.5.0
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.5.1-staging/ClaudeUsage.dmg" length="6058707" type="application/octet-stream" sparkle:edSignature="gZHq1XZp1bWEyjEEXGkcBA+4Kl9VPbPv4I3Zz8QRcuJA/ezL0hqu/3qBEUUncOU4gugADxwI7Xt409PwjorUAA=="></enclosure>
+            <description sparkle:format="plain-text"># 2.5.1
 
-## 업데이트와 안정성 개선
+## Antigravity 조회와 설정 개선
 
-- 계정 정보 확인과 화면 갱신의 동시 작업을 더 엄격하게 검증하도록 개선했습니다.
-- 메뉴바 아이콘은 생성 시점의 화면 테마를 사용해 일관되게 그립니다.
-- AGY 조회와 업데이트 실패 원인을 계정 정보 없이 진단할 수 있도록 개선했습니다.
-- 서명된 업데이트 안내와 DMG 업데이트의 게시 완료 확인을 개선했습니다.
-- 프로젝트 문서를 공개 사용 안내 중심으로 정리하고 MIT 라이선스와 외부 구성 요소 고지를 추가했습니다.
+- 조회 대상을 AGY CLI와 Antigravity 독립 앱으로 구분했습니다. 로그인 계정은 선택 메뉴 대신 읽기 전용으로 표시합니다.
+- 해당 제품에서 로그인을 변경한 뒤 새로고침하면 확인된 계정과 사용량을 함께 갱신합니다.
+- 선택한 제품의 조회가 실패해도 다른 제품의 계정으로 전환하지 않습니다.
+- 조회 도중 로그인 계정이 바뀌면 다시 검증하고, 이전 계정의 수치가 섞이지 않게 했습니다.
+- 수치형 사용량을 제공하지 않던 Google 계정 연결을 제거했습니다.
+- 대상 변경과 자동 조회가 겹칠 때 잘못된 오류가 나타나던 문제를 수정했습니다.
+- 기존 표시 설정은 유지합니다. 조회할 제품이 불명확한 구버전 설정은 업그레이드 후 대상을 한 번 선택하도록 안내합니다.
 
 ## 알려진 제한
 
-- 이 버전은 staging 검증용이며 운영 앱을 교체하지 않습니다.
-- AGY의 초기 인증이 지연되는 경우 마지막 사용량이 표시될 수 있으며, 새로고침으로 다시 확인할 수 있습니다.
+- Antigravity IDE는 아직 지원하지 않습니다.
+- 일부 초기 배포본은 현재 채널과 앱 식별자가 다릅니다. 자동 업데이트가 되지 않으면 공식 설치 안내를 확인해 주세요.
+- 계정은 확인돼도 서비스가 quota를 제공하지 않으면 사용량 수치를 표시할 수 없습니다.
+- 이 버전은 staging 검증용입니다.
 </description>
-            <claudeusage:zipSHA256>0d31e48179f79ac6d76c32c5e9f5e9fdbb321ba502f89f027d187514c39fb3cf</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>62c2f8078aeaf493d6b7e4f86a143484f21f4baea47af234a80291d2c892be06</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: N+83fiPDSBla/Pw8jBIu2eLLQC1akufkTZMIRDRmb/1cQILK/nV/vFX/T2EYNh4t0kU3jJFdYuGK6QKQ42d7Cg==
-length: 2211
+edSignature: v5ieoMk20AnQCsZ3HOfnUVaPdAevxs6RLvm8Vxr9YeKxxyPNr92NwofX3YJJhEzskX7KgEdZ3ZuCSoQeofzsBw==
+length: 2677
 -->
