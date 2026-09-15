@@ -10,8 +10,7 @@ import Foundation
 /// Claude API 관련 에러
 enum APIError: Error, Sendable {
     case invalidSessionKey
-    /// refresh_token 이 영구 무효화되어 사용자가 다시 로그인해야 하는 상태.
-    /// OAuth 응답에서 `refresh_token_reused`, `invalid_grant` 같은 영구 실패 코드를 받았을 때 사용.
+    /// Native credentials are unavailable or the owner CLI cannot restore authentication.
     case codexReauthRequired(reason: String)
     /// access token 은 만료됐지만 refresh 서버/네트워크가 일시 실패한 상태.
     /// 마지막 성공 데이터는 유지하고 백오프 후 자동 재시도해야 한다.
@@ -42,10 +41,25 @@ extension APIError: LocalizedError {
         case .invalidSessionKey:
             return "세션 키가 유효하지 않습니다"
 
-        case .codexReauthRequired:
+        case .codexReauthRequired(let reason):
+            if reason == "owner_cli_unavailable" {
+                return "Codex CLI를 찾지 못해 로그인을 갱신할 수 없습니다. CLI 설치와 로그인 상태를 확인해 주세요."
+            }
+            if reason == "account_identity_unavailable" || reason == "credential_unavailable" {
+                return "Codex 로그인 정보를 확인할 수 없습니다. CLI에서 로그인 상태를 확인한 뒤 새로고침해 주세요."
+            }
             return "Codex 재로그인이 필요합니다. 터미널에서 `codex login` 을 다시 실행하세요."
 
         case .codexTokenRefreshTemporary(let reason):
+            if reason == "credential_changed" || reason == "owner_recovery_exhausted" {
+                return "조회 중 Codex 로그인이 변경됐습니다. 새로고침으로 현재 계정을 확인해 주세요."
+            }
+            if reason == "owner_refresh_failed" {
+                return "Codex CLI의 로그인 갱신을 확인하지 못했습니다. CLI 상태를 확인한 뒤 다시 시도해 주세요."
+            }
+            if reason == "request_timed_out" {
+                return "Codex 조회 시간이 초과됐습니다. 잠시 후 다시 시도해 주세요."
+            }
             return reason.isEmpty
                 ? "Codex 토큰 갱신에 일시 실패했습니다. 마지막 성공 데이터는 유지됩니다."
                 : "Codex 토큰 갱신에 일시 실패했습니다: \(reason)"

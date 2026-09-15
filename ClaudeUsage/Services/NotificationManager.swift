@@ -61,6 +61,7 @@ final class NotificationManager {
     ]
     private var antigravityTrackers:
         [AntigravityQuotaLaneID: SessionTracker] = [:]
+    private var codexAccountBoundary: String?
     private var hasAntigravityAccountBoundary = false
     private var antigravityAccountBoundary:
         AntigravityNotificationAccountBoundary?
@@ -78,6 +79,13 @@ final class NotificationManager {
     }
 
     // MARK: - Threshold Check
+
+    func updateCodexAccountBoundary(_ accountID: String?) {
+        guard codexAccountBoundary != accountID else { return }
+        trackers[.codexPrimary] = SessionTracker()
+        trackers[.codexSecondary] = SessionTracker()
+        codexAccountBoundary = accountID
+    }
 
     func checkThreshold(
         session: SessionType,

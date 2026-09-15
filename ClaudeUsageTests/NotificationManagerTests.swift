@@ -99,6 +99,22 @@ final class NotificationManagerTests: XCTestCase {
         )
     }
 
+    func testCodexAccountChangeDoesNotReusePreviousThresholdHistory() {
+        manager.updateCodexAccountBoundary("account-a")
+        manager.checkThreshold(session: .codexPrimary, percentage: 89, resetAt: nil)
+        manager.updateCodexAccountBoundary("account-b")
+        manager.checkThreshold(session: .codexPrimary, percentage: 96, resetAt: nil)
+        XCTAssertTrue(deliverer.delivered.isEmpty)
+        manager.updateCodexAccountBoundary("account-b")
+        manager.checkThreshold(session: .codexPrimary, percentage: 89, resetAt: nil)
+        manager.checkThreshold(session: .codexPrimary, percentage: 96, resetAt: nil)
+        XCTAssertEqual(deliverer.delivered.count, 1)
+        manager.updateCodexAccountBoundary(nil)
+        manager.updateCodexAccountBoundary("account-b")
+        manager.checkThreshold(session: .codexPrimary, percentage: 96, resetAt: nil)
+        XCTAssertEqual(deliverer.delivered.count, 1)
+    }
+
     func testAntigravityAggregatesAllCrossingsIntoOneNotification() {
         manager.checkAntigravityThresholds(
             snapshot: makeAntigravitySnapshot(

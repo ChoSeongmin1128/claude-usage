@@ -25,6 +25,7 @@ enum RefreshOrchestration {
         supportedServices: [PopoverService],
         refreshableServices: [PopoverService],
         settings: AppSettings,
+        configuration: RuntimeRefreshConfiguration,
         force: Bool,
         lastRefreshedAt: [PopoverService: Date] = [:]
     ) -> [ProviderRuntimeAction] {
@@ -41,9 +42,8 @@ enum RefreshOrchestration {
                 return nil
             }
 
-            if settings.usePerProviderRefreshIntervals,
-               let lastRefresh = lastRefreshedAt[service] {
-                let interval = settings.effectiveRefreshInterval(for: service)
+            if !force, let lastRefresh = lastRefreshedAt[service] {
+                let interval = configuration.interval(for: service)
                 guard now.timeIntervalSince(lastRefresh) >= interval else {
                     return nil
                 }

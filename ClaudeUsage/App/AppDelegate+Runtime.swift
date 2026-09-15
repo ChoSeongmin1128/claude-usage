@@ -66,10 +66,11 @@ extension AppDelegate {
 
     func syncRefreshTimerState() {
         let change = refreshScheduler.sync(
-            autoRefresh: AppSettings.shared.autoRefresh,
+            autoRefresh: refreshConfiguration.autoRefresh,
             shouldPoll: shouldPollRuntimeProviders,
-            interval: PowerMonitor.shared.effectiveRefreshInterval
+            interval: refreshConfiguration.timerInterval(for: refreshableServices)
         ) { [weak self] in
+            guard self?.refreshConfiguration.autoRefresh == true else { return }
             self?.refreshAll(force: false)
         }
 
@@ -90,11 +91,16 @@ extension AppDelegate {
     // MARK: - Observers
 
     func bindRuntimeObservers() {
+        refreshConfiguration = RuntimeRefreshConfiguration(
+            settings: .shared, isOnBattery: PowerMonitor.shared.isOnBattery
+        )
         lastObservedProviderSelectionState =
             AppSettings.shared.providerSelectionState
         runtimeObservationCoordinator.bind(
-            onRefreshConfigurationChanged: { [weak self] in
-                self?.syncRefreshTimerState()
+            onRefreshConfigurationChanged: { [weak self] configuration in
+                guard let self else { return }
+                self.refreshConfiguration = configuration
+                self.syncRefreshTimerState()
             },
             onUpdateConfigurationChanged: { [weak self] in
                 self?.syncUpdateCheckState(runImmediate: true)
@@ -109,9 +115,6 @@ extension AppDelegate {
                     ?? selectionState
                 self.lastObservedProviderSelectionState = selectionState
                 self.handleProviderSelectionTransition(from: previous, to: selectionState)
-            },
-            onPowerStateChanged: { [weak self] in
-                self?.syncRefreshTimerState()
             },
             onClaudeCredentialContextChanged: { [weak self] in
                 self?.handleClaudeCredentialContextChanged()
@@ -275,6 +278,7 @@ extension AppDelegate {
             supportedServices: ServiceSelectionHelper.supportedPopoverServices,
             refreshableServices: refreshableServices,
             settings: AppSettings.shared,
+            configuration: refreshConfiguration,
             force: force,
             lastRefreshedAt: lastRefreshed
         )
@@ -301,6 +305,7 @@ extension AppDelegate {
     }
 
     func clearRuntimeServiceState(_ service: PopoverService) {
+        if service == .codex { codexRefreshController.cancel() }
         if service == .antigravity {
             syncRuntimePresentation(
                 overage: currentOverage
@@ -325,6 +330,7 @@ extension AppDelegate {
     }
 
     func clearStateForAuthPrompt(_ service: PopoverService) {
+        if service == .codex { codexRefreshController.cancel() }
         if service == .antigravity {
             syncRuntimePresentation(
                 overage: currentOverage
@@ -525,83 +531,57 @@ extension AppDelegate {
     }
 
     func refreshCodexUsage(force: Bool = false) {
-        guard ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) else { return }
+        codexRefreshController.refresh(force: force)
+    }
 
-        if !CodexAuthManager.shared.isAuthenticated {
-            var state = runtimeProviderState(for: .codex)
-            _ = RuntimeProviderRefreshCoordinator.applyFailure(
-                state: &state,
-                error: .invalidSessionKey,
-                minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
+    func makeCodexRefreshController() -> CodexRefreshController {
+        CodexRefreshController(
+            authManager: .shared, apiService: codexAPIService,
+            isEnabled: { ServiceSelectionHelper.isEnabled(.codex, settings: .shared) },
+            prepare: { [weak self] force in self?.prepareRefresh(for: .codex, force: force) ?? false },
+            clearPresentation: { [weak self] in
+                guard let self else { return }
+                NotificationManager.shared.updateCodexAccountBoundary(
+                    CodexAuthManager.shared.cachedSnapshot?.token.accountID)
+                self.setRuntimeProviderState(RuntimeProviderState(), for: .codex)
+                self.syncRuntimePresentation(overage: self.currentOverage)
+            },
+            applySuccess: { [weak self] result in self?.applyCodexUsage(result) },
+            applyFailure: { [weak self] error in self?.applyCodexFailure(error) }
+        )
+    }
+
+    private func applyCodexUsage(_ result: CodexUsageSnapshot) {
+        let usage = result.usage
+        let accountID = usage.accountID ?? result.credential.token.accountID
+        NotificationManager.shared.updateCodexAccountBoundary(accountID)
+        var state = runtimeProviderState(for: .codex)
+        RuntimeProviderRefreshCoordinator.applySuccess(
+            state: &state, payload: .codex(usage),
+            metadata: RuntimeProviderFetchMetadata(
+                sourceLabel: "Codex 로그인", accountID: accountID)
+        )
+        setRuntimeProviderState(state, for: .codex)
+        syncRuntimePresentation(overage: currentOverage)
+        if let window = usage.sessionWindow {
+            NotificationManager.shared.checkThreshold(
+                session: .codexPrimary, percentage: window.utilization, resetAt: window.resetAtISO
             )
-            setRuntimeProviderState(state, for: .codex)
-            syncRuntimePresentation(overage: currentOverage)
-            return
         }
-        guard prepareRefresh(for: .codex, force: force) else { return }
-
-        Task {
-            do {
-                let usage = try await CodexRuntimeRefresher.refresh(apiService: codexAPIService)
-
-                await MainActor.run {
-                    var state = self.runtimeProviderState(for: .codex)
-                    RuntimeProviderRefreshCoordinator.applySuccess(
-                        state: &state,
-                        payload: .codex(usage),
-                        metadata: RuntimeProviderFetchMetadata(sourceLabel: "Codex 로그인")
-                    )
-                    self.setRuntimeProviderState(state, for: .codex)
-                    self.syncRuntimePresentation(overage: self.currentOverage)
-
-                    // 창이 없는 세션/주간 축은 0%로 오인된 임계값 상태 전이를 막기 위해 건너뛴다.
-                    // (2026-07 개편: 주간 창이 primary 자리에 오므로 위치가 아닌 의미 기반 접근)
-                    if let sessionWindow = usage.sessionWindow {
-                        NotificationManager.shared.checkThreshold(
-                            session: .codexPrimary,
-                            percentage: sessionWindow.utilization,
-                            resetAt: sessionWindow.resetAtISO
-                        )
-                    }
-                    if let weeklyWindow = usage.weeklyWindow {
-                        NotificationManager.shared.checkThreshold(
-                            session: .codexSecondary,
-                            percentage: weeklyWindow.utilization,
-                            resetAt: weeklyWindow.resetAtISO
-                        )
-                    }
-                }
-            } catch let error as APIError {
-                await MainActor.run {
-                    var state = self.runtimeProviderState(for: .codex)
-                    let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
-                        state: &state,
-                        error: error,
-                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
-                    )
-                    self.setRuntimeProviderState(state, for: .codex)
-                    if let backoffSeconds = resolution.backoffSeconds {
-                        Logger.info("Codex 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
-                    }
-                    self.syncRuntimePresentation(overage: self.currentOverage)
-                }
-            } catch {
-                let wrapped = APIError.unknownError(error.localizedDescription)
-                await MainActor.run {
-                    var state = self.runtimeProviderState(for: .codex)
-                    let resolution = RuntimeProviderRefreshCoordinator.applyFailure(
-                        state: &state,
-                        error: wrapped,
-                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
-                    )
-                    self.setRuntimeProviderState(state, for: .codex)
-                    if let backoffSeconds = resolution.backoffSeconds {
-                        Logger.info("Codex 임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
-                    }
-                    self.syncRuntimePresentation(overage: self.currentOverage)
-                }
-            }
+        if let window = usage.weeklyWindow {
+            NotificationManager.shared.checkThreshold(
+                session: .codexSecondary, percentage: window.utilization, resetAt: window.resetAtISO
+            )
         }
+    }
+
+    private func applyCodexFailure(_ error: APIError) {
+        var state = runtimeProviderState(for: .codex)
+        _ = RuntimeProviderRefreshCoordinator.applyFailure(
+            state: &state, error: error, minimumInterval: refreshConfiguration.interval(for: .codex)
+        )
+        setRuntimeProviderState(state, for: .codex)
+        syncRuntimePresentation(overage: currentOverage)
     }
 
     func refreshAntigravityUsage(force: Bool = false) {

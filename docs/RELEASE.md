@@ -40,6 +40,7 @@
 - Sparkle 개인키는 Keychain에, 공개키는 `Config/Release.xcconfig`에 보관합니다. 로컬 feed/profile 설정은 추적하지 않는 `Config/Sparkle.release.local.xcconfig`를 사용합니다.
 - ShellCheck 0.11.0과 Xcode 내장 swift-format이 필요합니다.
 - 공식 AGY CLI가 설치되고 로그인되어 있어야 필수 live gate를 실행할 수 있습니다.
+- 공식 Codex CLI도 로그인되어 있어야 합니다. 필수 live gate는 CLI의 인증 갱신 후 계정 ID와 숫자 quota를 확인하며 skip을 허용하지 않습니다.
 
 ```bash
 gh auth status
@@ -103,7 +104,7 @@ driver는 파일 경로·내용·버전을 확인하고 배포 커밋의 파일�
 
 1. 저장소·계정·목표 버전·후보 회차·증가하는 build·clean main·기존 태그 상태와 공증 자격 확인
 2. 변경 코드 정적 검사, 배포 스크립트 테스트, 전체 XCTest
-3. 실제 AGY의 인증된 identity·숫자 quota, 격리한 공식 실행 파일 교체 복구, OAuth 없는 조회 대상 저장·현재 로그인·세션 재사용 검증
+3. 실제 AGY의 인증된 identity·숫자 quota, 격리한 공식 실행 파일 교체 복구, OAuth 없는 조회 대상 저장·현재 로그인·세션 재사용 검증. 공식 Codex CLI의 인증 갱신과 동일 계정 quota도 확인
 4. 이전 동일 채널의 원격 자산 검증과 서명 기준 앱 준비
 5. 최종 main에서 archive, 서명, ZIP·DMG 공증, staple·Gatekeeper 검증
 6. appcast 생성, 노트·ZIP 해시 반영, 최종 feed 서명

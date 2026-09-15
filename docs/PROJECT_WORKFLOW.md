@@ -53,8 +53,10 @@ Scripts/tests/release-driver-tests.sh
 | 화면·Sparkle UI 엔진·타이머 등록 | MainActor |
 | 계정·quota·출처 값 모델 | Sendable 값과 명시적인 nonisolated 계약 |
 | 동기 파일·Keychain 저장소 | nonisolated 프로토콜과 구현의 잠금·파일 검증 |
-| Codex 토큰 캐시 | 상태를 소유하는 잠금으로 읽기·갱신 보호 |
-| Codex 토큰 갱신 작업 | MainActor에서 중복 작업 공유 |
+| Codex 자격 소스 | 백그라운드 파일 검사 직렬화, UI 메모리 캐시는 별도 잠금으로 보호 |
+| Codex 사용량 조회 | actor에서 자격 세대가 같은 요청만 공유하고 취소·결과 적용 검증 |
+| Codex 인증 갱신 | 공식 CLI 소유 경로에 요청당 한 번 위임, 앱의 직접 token 교환·파일 저장 없음 |
+| 자동 조회 설정 | publisher의 새 값으로 불변 구성을 만들고 타이머와 조회 간격에 함께 전달 |
 | AGY 구성·조회·계정 변경 | 기존 actor와 lease·세대·취소 경계 |
 
 `MainActor.assumeIsolated`는 MainActor에서 등록한 main-run-loop 타이머와 `queue: .main` 알림처럼 실행 위치를 입증할 수 있는 동기 콜백에만 사용합니다. 임의의 백그라운드 작업을 통과시키는 용도로 사용하지 않습니다.

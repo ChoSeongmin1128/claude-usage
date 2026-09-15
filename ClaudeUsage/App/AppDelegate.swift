@@ -12,9 +12,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var didFinishRuntimeLaunch = false
     var statusItem: NSStatusItem?
     let refreshScheduler = RefreshScheduler()
+    lazy var refreshConfiguration = RuntimeRefreshConfiguration(
+        settings: .shared, isOnBattery: PowerMonitor.shared.isOnBattery
+    )
     let updateCoordinator = AppUpdateCoordinator()
     lazy var apiService = ClaudeAPIService()
     let codexAPIService = CodexAPIService(authManager: CodexAuthManager.shared)
+    lazy var codexRefreshController = makeCodexRefreshController()
     lazy var antigravityRuntimeTask:
         Task<
             AntigravityProductRuntimeComposition,

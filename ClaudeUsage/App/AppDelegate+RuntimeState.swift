@@ -232,7 +232,7 @@ extension AppDelegate {
     }
 
     var refreshableServices: [PopoverService] {
-        ServiceSelectionHelper.refreshableServices(
+        var services = ServiceSelectionHelper.refreshableServices(
             selectionState: AppSettings.shared.providerSelectionState,
             hasClaudeSessionKey: KeychainManager.shared.hasSessionKey,
             hasClaudeOAuthCredential: claudeCredentialAvailability.oauthCredentialAvailable,
@@ -240,6 +240,12 @@ extension AppDelegate {
             antigravityRuntimeReachability: antigravityRuntimeReachability,
             antigravityRefreshReachability: antigravityRefreshReachability
         )
+        // A CLI login can appear after startup. Permit a background file check
+        // even when the last presentation snapshot had no native credential.
+        if ServiceSelectionHelper.isEnabled(.codex, settings: .shared), !services.contains(.codex) {
+            services.append(.codex)
+        }
+        return services
     }
 
     var hasRefreshableService: Bool {

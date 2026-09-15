@@ -10,6 +10,7 @@ import Foundation
 
 /// Codex (ChatGPT) 사용량 API 응답
 nonisolated struct CodexUsageResponse: Codable, Sendable {
+    let accountID: String?
     let planType: String?
     let rateLimit: CodexRateLimit?
     let credits: CodexCredits?
@@ -19,6 +20,7 @@ nonisolated struct CodexUsageResponse: Codable, Sendable {
     var resetCredits: CodexResetCreditsResponse?
 
     enum CodingKeys: String, CodingKey {
+        case accountID = "account_id"
         case planType = "plan_type"
         case rateLimit = "rate_limit"
         case credits
@@ -27,6 +29,7 @@ nonisolated struct CodexUsageResponse: Codable, Sendable {
 
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        accountID = try container.decodeIfPresent(String.self, forKey: .accountID)
         planType = try container.decodeIfPresent(String.self, forKey: .planType)
         rateLimit = try container.decodeIfPresent(CodexRateLimit.self, forKey: .rateLimit)
         credits = try container.decodeIfPresent(CodexCredits.self, forKey: .credits)
@@ -121,7 +124,9 @@ nonisolated struct CodexUsageWindow: Codable, Sendable {
         } else if let doubleVal = try? container.decode(Double.self, forKey: .usedPercent) {
             usedPercent = doubleVal
         } else {
-            usedPercent = 0
+            throw DecodingError.dataCorruptedError(
+                forKey: .usedPercent, in: container, debugDescription: "numeric_usage_required"
+            )
         }
 
         // resetAt: Int 또는 Double

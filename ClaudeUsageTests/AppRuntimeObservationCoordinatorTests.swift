@@ -9,11 +9,10 @@ final class AppRuntimeObservationCoordinatorTests: XCTestCase {
         let transaction = expectation(description: "one credential transaction")
         transaction.expectedFulfillmentCount = 1
         coordinator.bind(
-            onRefreshConfigurationChanged: {},
+            onRefreshConfigurationChanged: { _ in },
             onUpdateConfigurationChanged: {},
             onMenuBarDisplayChanged: {},
             onProviderSelectionChanged: { _ in },
-            onPowerStateChanged: {},
             onClaudeCredentialContextChanged: {
                 transactionCount += 1
                 transaction.fulfill()
@@ -34,11 +33,10 @@ final class AppRuntimeObservationCoordinatorTests: XCTestCase {
         var transactionCount = 0
         let transaction = expectation(description: "explicit credential refresh")
         coordinator.bind(
-            onRefreshConfigurationChanged: {},
+            onRefreshConfigurationChanged: { _ in },
             onUpdateConfigurationChanged: {},
             onMenuBarDisplayChanged: {},
             onProviderSelectionChanged: { _ in },
-            onPowerStateChanged: {},
             onClaudeCredentialContextChanged: {
                 transactionCount += 1
                 transaction.fulfill()
@@ -57,11 +55,10 @@ final class AppRuntimeObservationCoordinatorTests: XCTestCase {
         let unwanted = expectation(description: "metadata-only change")
         unwanted.isInverted = true
         coordinator.bind(
-            onRefreshConfigurationChanged: {},
+            onRefreshConfigurationChanged: { _ in },
             onUpdateConfigurationChanged: {},
             onMenuBarDisplayChanged: {},
             onProviderSelectionChanged: { _ in },
-            onPowerStateChanged: {},
             onClaudeCredentialContextChanged: { unwanted.fulfill() }
         )
 
@@ -75,11 +72,10 @@ final class AppRuntimeObservationCoordinatorTests: XCTestCase {
         let unwanted = expectation(description: "inactive credential change")
         unwanted.isInverted = true
         coordinator.bind(
-            onRefreshConfigurationChanged: {},
+            onRefreshConfigurationChanged: { _ in },
             onUpdateConfigurationChanged: {},
             onMenuBarDisplayChanged: {},
             onProviderSelectionChanged: { _ in },
-            onPowerStateChanged: {},
             onClaudeCredentialContextChanged: { unwanted.fulfill() }
         )
 

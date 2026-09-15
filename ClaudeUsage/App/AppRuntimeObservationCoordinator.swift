@@ -6,45 +6,55 @@ final class AppRuntimeObservationCoordinator {
     private var cancellables = Set<AnyCancellable>()
 
     func bind(
-        onRefreshConfigurationChanged: @escaping () -> Void,
+        settings: AppSettings = .shared,
+        batteryPublisher: AnyPublisher<Bool, Never> = PowerMonitor.shared.$isOnBattery.eraseToAnyPublisher(),
+        onRefreshConfigurationChanged: @escaping (RuntimeRefreshConfiguration) -> Void,
         onUpdateConfigurationChanged: @escaping () -> Void,
         onMenuBarDisplayChanged: @escaping () -> Void,
         onProviderSelectionChanged: @escaping (ProviderSelectionState) -> Void,
-        onPowerStateChanged: @escaping () -> Void,
         onClaudeCredentialContextChanged: @escaping () -> Void
     ) {
         cancelAll()
 
-        AppSettings.shared.$refreshInterval
+        Publishers.CombineLatest(
+            Publishers.CombineLatest4(
+                settings.$autoRefresh, settings.$refreshInterval,
+                settings.$reducedRefreshOnBattery, batteryPublisher
+            ),
+            Publishers.CombineLatest4(
+                settings.$usePerProviderRefreshIntervals, settings.$claudeRefreshInterval,
+                settings.$codexRefreshInterval, settings.$antigravityRefreshInterval
+            )
+        )
+        .map { shared, providers in
+            RuntimeRefreshConfiguration(
+                autoRefresh: shared.0, interval: shared.1, usePerProviderIntervals: providers.0,
+                claudeInterval: providers.1, codexInterval: providers.2, antigravityInterval: providers.3,
+                reducedOnBattery: shared.2, isOnBattery: shared.3
+            )
+        }
+        .removeDuplicates()
             .dropFirst()
-            .sink { _ in onRefreshConfigurationChanged() }
+        .sink(receiveValue: onRefreshConfigurationChanged)
             .store(in: &cancellables)
 
-        AppSettings.shared.$autoRefresh
-            .dropFirst()
-            .sink { _ in onRefreshConfigurationChanged() }
-            .store(in: &cancellables)
-
-        AppSettings.shared.$updateCheckInterval
+        settings.$updateCheckInterval
+            .map(\.normalizedForAutomaticChecks)
+            .removeDuplicates()
             .dropFirst()
             .sink { _ in onUpdateConfigurationChanged() }
             .store(in: &cancellables)
 
-        AppSettings.shared.menuBarDisplayChangePublisher
+        settings.menuBarDisplayChangePublisher
             .dropFirst()
             .receive(on: RunLoop.main)
             .sink { onMenuBarDisplayChanged() }
             .store(in: &cancellables)
 
-        AppSettings.shared.$providerSelectionRevision
+        settings.$providerSelectionRevision
             .dropFirst()
             .receive(on: RunLoop.main)
-            .sink { _ in onProviderSelectionChanged(AppSettings.shared.providerSelectionState) }
-            .store(in: &cancellables)
-
-        PowerMonitor.shared.$isOnBattery
-            .dropFirst()
-            .sink { _ in onPowerStateChanged() }
+            .sink { _ in onProviderSelectionChanged(settings.providerSelectionState) }
             .store(in: &cancellables)
 
         Publishers.Merge3(

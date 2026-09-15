@@ -804,11 +804,17 @@ case "${1:-}" in
         printf '{"testsPassed":1,"testsFailed":0}\n'
         ;;
     xctest)
-        printf 'xcrun-env <CLAUDEUSAGE_RUN_LIVE_AGY_TESTS=%s>\n' \
-            "${CLAUDEUSAGE_RUN_LIVE_AGY_TESTS:-}" \
-            >> "${RELEASE_DRIVER_TEST_TRACE:?}"
+        if [[ "${3:-}" == CodexLiveNativeIntegrationTests/* ]]; then
+            printf 'xcrun-env <CLAUDEUSAGE_RUN_LIVE_CODEX_TESTS=%s>\n' \
+                "${CLAUDEUSAGE_RUN_LIVE_CODEX_TESTS:-}" >> "${RELEASE_DRIVER_TEST_TRACE:?}"
+            [[ "${CLAUDEUSAGE_RUN_LIVE_CODEX_TESTS:-}" == "1" ]]
+            if [[ "${RELEASE_DRIVER_TEST_CODEX_LIVE_FAIL:-0}" == "1" ]]; then exit 91; fi
+        else
+            printf 'xcrun-env <CLAUDEUSAGE_RUN_LIVE_AGY_TESTS=%s>\n' \
+                "${CLAUDEUSAGE_RUN_LIVE_AGY_TESTS:-}" >> "${RELEASE_DRIVER_TEST_TRACE:?}"
+            [[ "${CLAUDEUSAGE_RUN_LIVE_AGY_TESTS:-}" == "1" ]]
+        fi
         test_bundle="${@: -1}"
-        [[ "$CLAUDEUSAGE_RUN_LIVE_AGY_TESTS" == "1" ]]
         [[ -d "$test_bundle" ]]
         ;;
     *)
@@ -965,6 +971,7 @@ run_orchestration_scenario() {
             "RELEASE_DRIVER_TEST_PAGES_HEAD=$ORCHESTRATION_PAGES_HEAD" \
             "RELEASE_DRIVER_TEST_XCODEBUILD_FAIL=$xcodebuild_fail" \
             "RELEASE_DRIVER_TEST_STATIC_FAIL=${RELEASE_DRIVER_TEST_STATIC_FAIL:-0}" \
+            "RELEASE_DRIVER_TEST_CODEX_LIVE_FAIL=${RELEASE_DRIVER_TEST_CODEX_LIVE_FAIL:-0}" \
             "RELEASE_DRIVER_TEST_CERT_CHANGED=$cert_changed" \
             "RELEASE_DRIVER_TEST_STAGING_IDENTITY_BOOTSTRAP_VERSION=$bootstrap_version" \
             "RELEASE_DRIVER_TEST_EXPECTED_FEED=$(release_feed_url_for "$environment")" \
@@ -1029,6 +1036,8 @@ assert_contains "$SCENARIO_TRACE" "/tmp>" "fresh XCTest uses RUN_ROOT tmp"
 assert_contains "$SCENARIO_TRACE" "xcrun <xctest> <-XCTest> <AntigravityLiveAGYIntegrationTests/testProductionManagedPathReturnsRealGroupedQuota>" "fresh live AGY smoke"
 assert_contains "$SCENARIO_TRACE" "xcrun <xctest> <-XCTest> <AntigravityLiveLocalSelectionTests/testOfficialLocalAccountSelectionPersistsWithoutOAuthAndReusesSession>" "fresh live local account selection"
 assert_contains "$SCENARIO_TRACE" "xcrun-env <CLAUDEUSAGE_RUN_LIVE_AGY_TESTS=1>" "fresh live AGY opt-in"
+assert_contains "$SCENARIO_TRACE" "xcrun-env <CLAUDEUSAGE_RUN_LIVE_CODEX_TESTS=1>" "fresh live Codex opt-in"
+assert_contains "$SCENARIO_TRACE" "xcrun <xctest> <-XCTest> <CodexLiveNativeIntegrationTests/testCurrentNativeAccountReturnsAuthenticatedQuota>" "fresh native Codex identity gate"
 assert_contains "$SCENARIO_OUTPUT" "staging 전환:     2.4.0 식별자 최초 배포" "fresh identity bootstrap output"
 assert_not_contains "$SCENARIO_TRACE" "verify <--tag> <v2.3.3-staging>" "fresh legacy staging verification skipped"
 assert_not_contains "$SCENARIO_TRACE" "<--install-to>" "fresh legacy staging install skipped"
@@ -1262,6 +1271,14 @@ assert_not_contains "$SCENARIO_TRACE" "build <BUILD_DIR=" "abandoned revision co
 assert_orchestration_cleanup "abandoned revision collision"
 
 PUBLISH_FIXTURE_ROOT="$TEST_ROOT/publish-primitive"
+RELEASE_DRIVER_TEST_CODEX_LIVE_FAIL=1 run_orchestration_scenario fresh v2.3.3-staging \
+    $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1'
+[[ "$SCENARIO_STATUS" -ne 0 ]] || fail "failed Codex live gate must stop publication"
+pass
+assert_not_contains "$SCENARIO_TRACE" "build <BUILD_DIR=" "failed native Codex gate blocks archive"
+assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "failed native Codex gate blocks publication"
+assert_orchestration_cleanup "failed native Codex gate"
+
 PUBLISH_REPOSITORY="$PUBLISH_FIXTURE_ROOT/ClaudeUsage"
 PUBLISH_BUILD="$PUBLISH_REPOSITORY/build/release"
 PUBLISH_BIN="$PUBLISH_FIXTURE_ROOT/bin"

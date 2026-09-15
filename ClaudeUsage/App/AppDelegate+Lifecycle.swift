@@ -114,6 +114,7 @@ extension AppDelegate {
         settingsWindowCoordinator.invalidate()
         loginWindowCoordinator.invalidate()
         runtimeObservationCoordinator.cancelAll()
+        codexRefreshController.cancel()
         antigravityRuntimeObservationTask?.cancel()
         antigravityRuntimeBootstrapTask?.cancel()
         antigravityTerminationTimeoutTask?.cancel()
@@ -143,6 +144,7 @@ extension AppDelegate {
         refreshScheduler.stop()
         antigravityTerminationTask = Task { [weak self] in
             guard let self else { return }
+            await codexRefreshController.shutdown()
             let runtime =
                 await antigravityRuntimeTask.value
             await runtime

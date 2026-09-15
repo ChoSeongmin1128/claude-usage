@@ -1051,6 +1051,12 @@ for LIVE_AGY_TEST in \
         "$LIVE_AGY_TEST_BUNDLE"
 done
 
+echo "실제 Codex owner CLI 인증 갱신과 계정별 quota 검증"
+CLAUDEUSAGE_RUN_LIVE_CODEX_TESTS=1 xcrun xctest \
+    -XCTest \
+    CodexLiveNativeIntegrationTests/testCurrentNativeAccountReturnsAuthenticatedQuota \
+    "$LIVE_AGY_TEST_BUNDLE"
+
 rm -rf "$TEST_DERIVED_DATA" "$TEST_RESULT_BUNDLE"
 rm -rf "$RUN_ROOT/test"
 [[ ! -e "$RUN_ROOT/test" ]] || die "XCTest 임시 디렉터리를 정리하지 못했습니다."

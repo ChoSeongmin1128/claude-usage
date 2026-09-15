@@ -6,6 +6,8 @@
 //  참고: https://github.com/steipete/CodexBar
 //
 
+import CryptoKit
+import Darwin
 import Foundation
 import os
 
@@ -60,34 +62,9 @@ nonisolated struct CodexAuthToken: Codable, Sendable {
     }
 }
 
-/// OAuth refresh 결과.
-///
-/// 종전에는 `CodexAuthToken?` 만 반환했다. 호출자는 `nil` 만으로 "영구 실패(재로그인 필요)"인지
-/// "일시 실패(재시도 가능)"인지 구분하지 못해 사용자에게 동일한 "갱신 실패" 메시지만 노출했다.
-/// → codex-lb 의 `PERMANENT_FAILURE_CODES` 패턴을 차용해 분기한다.
-enum CodexRefreshResult: Sendable {
-    case success(CodexAuthToken)
-    /// refresh_token 이 영구 무효화. 사용자가 `codex login` 으로 재로그인해야 한다.
-    /// 예: `refresh_token_reused`, `refresh_token_expired`, `refresh_token_invalidated`, `invalid_grant`.
-    case permanentFailure(reason: String)
-    /// 네트워크/일시 서버 오류. 다음 주기에서 재시도하면 회복될 수 있다.
-    case transientFailure(reason: String)
-}
-
 private nonisolated struct CodexAuthJSONStore: Sendable {
-    let authJsonPath: String
-
-    var exists: Bool {
-        FileManager.default.fileExists(atPath: authJsonPath)
-    }
-
-    func modificationDate() -> Date? {
-        (try? FileManager.default.attributesOfItem(atPath: authJsonPath))?[.modificationDate] as? Date
-    }
-
-    func loadToken() -> CodexAuthToken? {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: authJsonPath)),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+    static func decode(_ data: Data) -> CodexAuthToken? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
 
@@ -109,7 +86,7 @@ private nonisolated struct CodexAuthJSONStore: Sendable {
 
         let refreshToken = tokens["refresh_token"] as? String
         let idToken = tokens["id_token"] as? String
-        let accountID = (json["account_id"] as? String) ?? (tokens["account_id"] as? String)
+        let accountID = (tokens["account_id"] as? String) ?? (json["account_id"] as? String)
         let lastRefresh = Self.parseISODate(json["last_refresh"] as? String)
 
         // 1순위: auth.json 이 명시한 expires_at.
@@ -125,44 +102,6 @@ private nonisolated struct CodexAuthJSONStore: Sendable {
             lastRefresh: lastRefresh,
             expiresAt: explicitExpiresAt,
             expiresAtIsExplicit: explicitExpiresAt != nil)
-    }
-
-    func persist(token: CodexAuthToken) -> Bool {
-        let url = URL(fileURLWithPath: authJsonPath)
-        var json: [String: Any] = [:]
-        if let data = try? Data(contentsOf: url),
-           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            json = existing
-        }
-
-        var tokens: [String: Any] = (json["tokens"] as? [String: Any]) ?? [:]
-        tokens["access_token"] = token.accessToken
-        if let refreshToken = token.refreshToken, !refreshToken.isEmpty {
-            tokens["refresh_token"] = refreshToken
-        }
-        if let idToken = token.idToken, !idToken.isEmpty {
-            tokens["id_token"] = idToken
-        }
-        json["tokens"] = tokens
-        if let accountID = token.accountID, !accountID.isEmpty {
-            json["account_id"] = accountID
-        }
-        json["last_refresh"] = Self.isoString(from: token.lastRefresh ?? Date())
-
-        guard let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]) else {
-            Logger.error("Codex auth.json 직렬화 실패 — in-memory 캐시만 유지됨")
-            return false
-        }
-
-        do {
-            let directory = url.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try data.write(to: url, options: [.atomic])
-            return true
-        } catch {
-            Logger.error("Codex auth.json write-back 실패: \(error.localizedDescription) — in-memory 캐시만 유지됨")
-            return false
-        }
     }
 
     private static func parseExpiresAt(_ rawValue: Any?) -> Date? {
@@ -187,12 +126,6 @@ private nonisolated struct CodexAuthJSONStore: Sendable {
         }
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.date(from: value)
-    }
-
-    private static func isoString(from date: Date) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: date)
     }
 
     private static func jwtExpirationDate(from token: String) -> Date? {
@@ -224,293 +157,141 @@ private nonisolated struct CodexAuthJSONStore: Sendable {
     }
 }
 
-private nonisolated struct CodexOAuthTokenRefresher: Sendable {
-    let urlSession: URLSession
-    let clientID: String
-
-    func refreshAccessToken(using refreshToken: String) async -> CodexRefreshResult {
-        let url = URL(string: "https://auth.openai.com/oauth/token")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        // CodexBar 와 동일한 페이로드 (`scope` 포함) — 일부 OAuth provider 가 scope 누락 요청을
-        // 거부하는 케이스가 있어 안전한 default 로 채워 둔다.
-        let body: [String: String] = [
-            "grant_type": "refresh_token",
-            "client_id": clientID,
-            "refresh_token": refreshToken,
-            "scope": "openid profile email",
-        ]
-
-        guard let bodyData = try? JSONSerialization.data(withJSONObject: body) else {
-            return .transientFailure(reason: "request body serialization failed")
-        }
-        request.httpBody = bodyData
-
-        do {
-            let (data, response) = try await urlSession.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                Logger.error("Codex 토큰 갱신: 응답이 HTTP 가 아님")
-                return .transientFailure(reason: "non-HTTP response")
-            }
-
-            guard (200...299).contains(httpResponse.statusCode) else {
-                let errorCode = Self.refreshErrorCode(from: data)
-                let codeDescription = errorCode ?? "unknown"
-                Logger.error("Codex 토큰 갱신 실패: HTTP \(httpResponse.statusCode) (\(codeDescription))")
-                if httpResponse.statusCode == 401 || Self.isPermanentRefreshError(code: errorCode) {
-                    return .permanentFailure(reason: codeDescription)
-                }
-                return .transientFailure(reason: "HTTP \(httpResponse.statusCode) (\(codeDescription))")
-            }
-
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let accessToken = json["access_token"] as? String,
-                  !accessToken.isEmpty else {
-                Logger.error("Codex 토큰 갱신 응답 파싱 실패")
-                return .transientFailure(reason: "response parse failure")
-            }
-
-            let newRefreshToken = (json["refresh_token"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? refreshToken
-            let newIdToken = json["id_token"] as? String
-            let accountID = (json["account_id"] as? String) ?? (json["account_id"] as? Int).map(String.init)
-            let expiresIn = (json["expires_in"] as? TimeInterval) ?? 3600
-            let now = Date()
-            let expiresAt = now.addingTimeInterval(expiresIn)
-            return .success(CodexAuthToken(
-                accessToken: accessToken,
-                refreshToken: newRefreshToken,
-                idToken: newIdToken,
-                accountID: accountID,
-                lastRefresh: now,
-                expiresAt: expiresAt,
-                expiresAtIsExplicit: true))
-        } catch {
-            Logger.error("Codex 토큰 갱신 네트워크 에러: \(error.localizedDescription)")
-            return .transientFailure(reason: error.localizedDescription)
-        }
-    }
-
-    /// refresh 응답 본문에서 OAuth 에러 코드를 짧게 추출. 로깅/진단용.
-    private static func refreshErrorCode(from data: Data) -> String? {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        if let nested = json["error"] as? [String: Any] {
-            if let code = nested["code"] as? String { return code }
-            if let type = nested["type"] as? String { return type }
-            if let message = nested["message"] as? String { return message }
-        }
-        if let value = json["error"] as? String { return value }
-        return nil
-    }
-
-    private static let permanentRefreshErrorCodes: Set<String> = [
-        "refresh_token_reused",
-        "refresh_token_expired",
-        "refresh_token_invalidated",
-        "refresh_token_revoked",
-        "invalid_grant",
-        "invalid_client",
-        "unauthorized_client",
-    ]
-
-    private static func isPermanentRefreshError(code: String?) -> Bool {
-        guard let code else { return false }
-        return permanentRefreshErrorCodes.contains(code)
-    }
+nonisolated struct CodexCredentialSnapshot: Sendable {
+    let token: CodexAuthToken
+    let generation: UUID
+    let sourceURL: URL
 }
 
-final class CodexAuthManager {
-    nonisolated static let shared = CodexAuthManager()
+nonisolated enum CodexCredentialError: Error, Equatable {
+    case missing
+    case unreadable
+    case malformed
+    case changed
+}
 
-    private let refreshTokenClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
+/// The CLI owns auth.json. ClaudeUsage only reads it, including during recovery.
+/// Background inspections are serialized. The separate presentation lock is
+/// never held during file I/O, and invalidation prevents late cache publication.
+nonisolated final class CodexAuthManager: @unchecked Sendable {
+    static let shared = CodexAuthManager(authJsonPath: defaultAuthJsonPath())
+    private let sourceURL: URL
+    private let inspection = NSLock()
+    private let cache = OSAllocatedUnfairLock(initialState: CacheState())
 
-    private nonisolated let authStore: CodexAuthJSONStore
-    private let tokenRefresher: CodexOAuthTokenRefresher
-
-    // MARK: - Thread-safe caches
-    //
-    // 기존에는 매 isAuthenticated / getToken 호출마다 ~/.codex/auth.json 을
-    // Data(contentsOf:) + JSONSerialization 으로 동기 파싱했다. UI body /
-    // settings 렌더 사이클에 수 차례 호출되어 main thread 를 낭비하고, 동시에
-    // refreshedToken 쓰기 (async refreshAccessToken) 와 읽기 (UI) 간 race 도
-    // 있었다. → 잠금으로 보호하는 60s TTL in-memory 캐시 + file mtime 기반 무효화.
-
-    // The cache owns its synchronization; refreshTask remains on MainActor.
-    private nonisolated let cache = OSAllocatedUnfairLock(initialState: CacheState())
-    private var refreshTask: Task<CodexRefreshResult, Never>?
-
-    private nonisolated struct CachedAuthJson: Sendable {
-        let token: CodexAuthToken?
-        let fileMtime: Date?
-        let cachedAt: Date
-    }
-    private nonisolated struct CacheState: Sendable {
-        var refreshedToken: CodexAuthToken?
-        var authJsonCache: CachedAuthJson?
-    }
-    private nonisolated static let authJsonCacheTTL: TimeInterval = 60
-
-    private nonisolated convenience init() {
-        self.init(authJsonPath: Self.defaultAuthJsonPath(), urlSession: .shared)
+    private struct CacheState {
+        var epoch = 0
+        var digest: Data?
+        var snapshot: CodexCredentialSnapshot?
+        var fileExists = false
     }
 
-    nonisolated init(authJsonPath: String, urlSession: URLSession = .shared) {
-        self.authStore = CodexAuthJSONStore(authJsonPath: authJsonPath)
-        self.tokenRefresher = CodexOAuthTokenRefresher(
-            urlSession: urlSession,
-            clientID: refreshTokenClientID
-        )
-        // 이전 웹 로그인 방식의 잔여 데이터 정리
-        let defaults = UserDefaults.standard
-        defaults.removeObject(forKey: "codex-auth-token")
-        defaults.removeObject(forKey: "codex-device-id")
-    }
-
-    private nonisolated static func defaultAuthJsonPath() -> String {
-        let realHome: String
-        if let pw = getpwuid(getuid()) {
-            realHome = String(cString: pw.pointee.pw_dir)
-        } else {
-            realHome = NSHomeDirectory()
+    init(authJsonPath: String) {
+        sourceURL = URL(fileURLWithPath: authJsonPath)
+        if sourceURL.path == Self.defaultAuthJsonPath() {
+            UserDefaults.standard.removeObject(forKey: "codex-auth-token")
+            UserDefaults.standard.removeObject(forKey: "codex-device-id")
         }
-        return "\(realHome)/.codex/auth.json"
+        // Populate initial presentation once. Subsequent UI reads never touch disk.
+        _ = try? reload()
     }
 
-    // MARK: - Token Access
-
-    /// 현재 유효한 액세스 토큰 반환.
-    /// 호출 빈도가 높아도 in-memory 캐시 + mtime 체크로 비용이 작다.
-    nonisolated func getToken() -> CodexAuthToken? {
-        let refreshed = cache.withLock { $0.refreshedToken }
-
-        // 1순위: 갱신된 토큰 캐시 (미만료)
-        if let refreshed, !refreshed.isExpired {
-            return refreshed
-        }
-
-        // 2순위: auth.json (in-memory cache hit 시 blocking 없음)
-        if let authJsonToken = loadAuthJsonToken() {
-            return authJsonToken
-        }
-
-        // 3순위: 만료된 캐시 토큰 (refresh 시도용)
-        return refreshed
+    static func defaultAuthJsonPath() -> String {
+        let home = getpwuid(getuid()).map { String(cString: $0.pointee.pw_dir) } ?? NSHomeDirectory()
+        return URL(fileURLWithPath: home).appendingPathComponent(".codex/auth.json").path
     }
 
-    /// auth.json 파일 존재 여부. `FileManager.fileExists` 는 stat 한 번이라 가볍다.
-    nonisolated var authJsonExists: Bool {
-        authStore.exists
+    func getToken() -> CodexAuthToken? { cachedSnapshot?.token }
+    var cachedSnapshot: CodexCredentialSnapshot? { cache.withLock { $0.snapshot } }
+    var authJsonExists: Bool { cache.withLock { $0.fileExists } }
+    var isAuthenticated: Bool { getToken()?.isUsableOrRefreshable == true }
+
+    func clearCache() {
+        cache.withLock { $0 = CacheState(epoch: $0.epoch + 1) }
     }
 
-    /// 인증 상태 확인
-    nonisolated var isAuthenticated: Bool {
-        getToken()?.isUsableOrRefreshable == true
-    }
-
-    /// 캐시 초기화 (refresh 토큰 캐시 + auth.json 파싱 캐시 모두).
-    nonisolated func clearCache() {
-        cache.withLock { state in
-            state.refreshedToken = nil
-            state.authJsonCache = nil
-        }
-        Logger.info("Codex 토큰 캐시 초기화")
-    }
-
-    // MARK: - Token Refresh
-
-    /// 토큰 갱신.
-    ///
-    /// **OAuth refresh_token rotation 정책 대응**:
-    /// OpenAI 의 OAuth 서버는 한 번 쓴 refresh_token 을 invalidate 한다.
-    /// 우리 앱이 새 토큰을 받고도 auth.json 에 write-back 하지 않으면, 다음 부팅 시
-    /// 같은 옛 refresh_token 으로 또 호출 → 401 `refresh_token_reused` → expired UI.
-    /// 동시에 codex CLI 와도 토큰이 어긋나 CLI 까지 다시 로그인해야 한다.
-    /// → 응답 성공 시 새 토큰을 **반드시 auth.json 에 atomic write-back** 한다.
-    func refreshAccessToken(using refreshToken: String) async -> CodexRefreshResult {
-        if let refreshTask {
-            return await refreshTask.value
-        }
-
-        let task = Task { [tokenRefresher] in
-            await tokenRefresher.refreshAccessToken(using: refreshToken)
-        }
-        refreshTask = task
-        let result = await task.value
-        refreshTask = nil
-
-        if case .success(let newToken) = result {
-            setRefreshedToken(newToken)
-            _ = authStore.persist(token: newToken)
-            Logger.info("Codex 토큰 갱신 성공 (auth.json write-back 시도)")
-        }
+    func loadSnapshot() async throws -> CodexCredentialSnapshot {
+        try Task.checkCancellation()
+        let result = try await Task.detached(priority: .utility) { try self.reload() }.value
+        try Task.checkCancellation()
         return result
     }
 
-    /// 요청 전 선제 갱신. 신뢰 가능한 expires_at/JWT exp 가 만료 임박일 때만 refresh 한다.
-    func refreshTokenIfNeeded() async -> CodexRefreshResult {
-        guard let currentToken = getToken() else {
-            return .permanentFailure(reason: "missing_auth_token")
+    func validate(_ snapshot: CodexCredentialSnapshot) async throws {
+        guard try await loadSnapshot().generation == snapshot.generation else {
+            throw CodexCredentialError.changed
         }
-        guard currentToken.isExpired else {
-            return .success(currentToken)
-        }
-        guard let refreshToken = currentToken.refreshToken, !refreshToken.isEmpty else {
-            return .permanentFailure(reason: "missing_refresh_token")
-        }
-        return await refreshAccessToken(using: refreshToken)
     }
 
-    /// Codex usage API 가 401/403 을 반환했을 때의 단일 복구 진입점.
-    /// 1) CLI/다른 프로세스가 auth.json 을 이미 갱신했을 수 있으므로 캐시를 우회해 재로드한다.
-    /// 2) 같은 토큰이면 refresh_token 으로 1회 갱신한다.
-    /// 3) 성공한 토큰만 호출자가 사용량 요청을 1회 재시도한다. 여기서는 API retry loop 를 돌리지 않는다.
-    func recoverFromUnauthorized(failedAccessToken: String?) async -> CodexRefreshResult {
-        let reloadedToken = loadAuthJsonToken(forceReload: true)
-        if let reloadedToken,
-           reloadedToken.accessToken != failedAccessToken,
-           !reloadedToken.isExpired {
-            setRefreshedToken(reloadedToken)
-            Logger.info("Codex auth.json 에 새 access token 이 있어 refresh 없이 재시도합니다")
-            return .success(reloadedToken)
-        }
-
-        guard let candidate = reloadedToken ?? getToken() else {
-            return .permanentFailure(reason: "missing_auth_token")
-        }
-        guard let refreshToken = candidate.refreshToken, !refreshToken.isEmpty else {
-            return .permanentFailure(reason: "missing_refresh_token")
-        }
-        return await refreshAccessToken(using: refreshToken)
-    }
-
-    // MARK: - Private
-
-    /// auth.json 파싱 결과 반환. mtime 이 동일하면서 캐시 TTL 안쪽이면 파싱 skip.
-    /// 외부에서 CLI 로 로그인 / 로그아웃 하면 mtime 이 바뀌므로 즉시 반영됨.
-    private nonisolated func loadAuthJsonToken(forceReload: Bool = false) -> CodexAuthToken? {
-        let currentMtime = authStore.modificationDate()
-        let now = Date()
-
-        if !forceReload, let cache = cache.withLock({ $0.authJsonCache }) {
-            let freshEnough = now.timeIntervalSince(cache.cachedAt) < Self.authJsonCacheTTL
-            let fileUnchanged = cache.fileMtime == currentMtime
-            if freshEnough && fileUnchanged {
-                return cache.token
+    private func reload() throws -> CodexCredentialSnapshot {
+        try inspection.withLock {
+            let epoch = cache.withLock { $0.epoch }
+            do {
+                let data = try readStableFile()
+                let digest = Data(SHA256.hash(data: data))
+                if let existing = cache.withLock({ state in
+                    state.epoch == epoch && state.digest == digest ? state.snapshot : nil
+                }) {
+                    return existing
+                }
+                guard let token = CodexAuthJSONStore.decode(data) else { throw CodexCredentialError.malformed }
+                return try cache.withLock { state in
+                    guard state.epoch == epoch else { throw CodexCredentialError.changed }
+                    let snapshot = CodexCredentialSnapshot(token: token, generation: UUID(), sourceURL: sourceURL)
+                    state.digest = digest
+                    state.snapshot = snapshot
+                    state.fileExists = true
+                    return snapshot
+                }
+            } catch {
+                cache.withLock { state in
+                    guard state.epoch == epoch else { return }
+                    state.digest = nil
+                    state.snapshot = nil
+                    state.fileExists = (error as? CodexCredentialError) != .missing
+                }
+                throw error
             }
         }
-
-        let parsed = authStore.loadToken()
-        cache.withLock { state in
-            state.authJsonCache = CachedAuthJson(token: parsed, fileMtime: currentMtime, cachedAt: now)
-        }
-        return parsed
     }
 
-    private func setRefreshedToken(_ token: CodexAuthToken?) {
-        cache.withLock { state in
-            state.refreshedToken = token
-            state.authJsonCache = nil
+    private func readStableFile() throws -> Data {
+        let fd = open(sourceURL.path, O_RDONLY | O_CLOEXEC | O_NONBLOCK)
+        guard fd >= 0 else {
+            throw errno == ENOENT ? CodexCredentialError.missing : CodexCredentialError.unreadable
         }
+        defer { close(fd) }
+        var before = stat()
+        guard fstat(fd, &before) == 0, before.st_mode & S_IFMT == S_IFREG,
+            before.st_size > 0, before.st_size <= 1_048_576
+        else {
+            throw CodexCredentialError.unreadable
+        }
+        var bytes = [UInt8](repeating: 0, count: Int(before.st_size))
+        var count = 0
+        while count < bytes.count {
+            let readCount = bytes.withUnsafeMutableBytes {
+                Darwin.read(fd, $0.baseAddress!.advanced(by: count), $0.count - count)
+            }
+            if readCount < 0 && errno == EINTR { continue }
+            guard readCount > 0 else { throw CodexCredentialError.changed }
+            count += readCount
+        }
+        var after = stat()
+        var current = stat()
+        guard fstat(fd, &after) == 0, stat(sourceURL.path, &current) == 0,
+            Self.sameFile(before, after), Self.sameFile(after, current)
+        else {
+            throw CodexCredentialError.changed
+        }
+        return Data(bytes)
+    }
+
+    private static func sameFile(_ lhs: stat, _ rhs: stat) -> Bool {
+        lhs.st_dev == rhs.st_dev && lhs.st_ino == rhs.st_ino && lhs.st_size == rhs.st_size
+            && lhs.st_mtimespec.tv_sec == rhs.st_mtimespec.tv_sec
+            && lhs.st_mtimespec.tv_nsec == rhs.st_mtimespec.tv_nsec
+            && lhs.st_ctimespec.tv_sec == rhs.st_ctimespec.tv_sec
+            && lhs.st_ctimespec.tv_nsec == rhs.st_ctimespec.tv_nsec
     }
 }

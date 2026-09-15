@@ -139,6 +139,7 @@ extension SettingsView {
 
         codexAuthStatus = .checking
         codexAuthCheckTask = Task {
+            _ = try? await CodexAuthManager.shared.loadSnapshot()
             let authJsonExists = CodexAuthManager.shared.authJsonExists
             let token = CodexAuthManager.shared.getToken()
             // [C] status 조회는 read-only — refresh 시도하지 않는다.
@@ -160,21 +161,6 @@ extension SettingsView {
     }
 
     private static func isCodexInstalled() -> Bool {
-        let codexInstalled = FileManager.default.isExecutableFile(atPath: "/usr/local/bin/codex")
-            || FileManager.default.isExecutableFile(atPath: "/opt/homebrew/bin/codex")
-            || FileManager.default.isExecutableFile(atPath: "\(NSHomeDirectory())/.npm-global/bin/codex")
-            || {
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-                process.arguments = ["codex"]
-                let pipe = Pipe()
-                process.standardOutput = pipe
-                process.standardError = Pipe()
-                try? process.run()
-                process.waitUntilExit()
-                return process.terminationStatus == 0
-            }()
-
-        return codexInstalled
+        CodexOwnerCLI.isAvailable()
     }
 }
