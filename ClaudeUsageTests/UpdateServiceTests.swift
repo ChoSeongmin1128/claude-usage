@@ -101,6 +101,7 @@ final class UpdateRuntimeStateTests: XCTestCase {
     }
 }
 
+@MainActor
 final class UpdateServiceTests: XCTestCase {
     #if canImport(Sparkle)
     @MainActor
@@ -165,8 +166,7 @@ final class UpdateServiceTests: XCTestCase {
     }
 }
 
-private final class FakeUpdateEngine: AppUpdateEngine, @unchecked Sendable {
-    private let lock = NSLock()
+private final class FakeUpdateEngine: AppUpdateEngine {
     private let isInteractive: Bool
     private var _checkCount = 0
     private var _interactiveCheckCount = 0
@@ -177,15 +177,15 @@ private final class FakeUpdateEngine: AppUpdateEngine, @unchecked Sendable {
     }
 
     var checkCount: Int {
-        lock.withLock { _checkCount }
+        _checkCount
     }
 
     var interactiveCheckCount: Int {
-        lock.withLock { _interactiveCheckCount }
+        _interactiveCheckCount
     }
 
     var installCount: Int {
-        lock.withLock { _installCount }
+        _installCount
     }
 
     func modeSummary() async -> String {
@@ -193,9 +193,7 @@ private final class FakeUpdateEngine: AppUpdateEngine, @unchecked Sendable {
     }
 
     func checkForUpdates() async -> UpdateCheckResult {
-        lock.withLock {
-            _checkCount += 1
-        }
+        _checkCount += 1
         return .upToDate(message: nil)
     }
 
@@ -212,9 +210,7 @@ private final class FakeUpdateEngine: AppUpdateEngine, @unchecked Sendable {
     }
 
     func performInteractiveCheck() async -> String? {
-        lock.withLock {
-            _interactiveCheckCount += 1
-        }
+        _interactiveCheckCount += 1
         return "interactive"
     }
 
@@ -226,9 +222,7 @@ private final class FakeUpdateEngine: AppUpdateEngine, @unchecked Sendable {
     func synchronizeScheduler(interval: UpdateCheckInterval, runImmediate: Bool) async { }
 
     func installPreparedUpdate() async -> Bool {
-        lock.withLock {
-            _installCount += 1
-        }
+        _installCount += 1
         return true
     }
 

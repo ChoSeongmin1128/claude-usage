@@ -57,7 +57,7 @@ actor CodexAPIService {
     /// 사용량 데이터 가져오기 (OAuth Bearer 토큰, CodexBar 방식)
     func fetchUsage() async throws -> CodexUsageResponse {
         // 토큰 갱신 확인. permanent 실패는 refreshTokenIfNeeded 가 .codexReauthRequired throw.
-        let storedToken = await authManager.getToken()
+        let storedToken = authManager.getToken()
         if let token = storedToken, token.isExpired {
             let refreshed = try await refreshTokenIfNeeded()
             if !refreshed {
@@ -178,7 +178,7 @@ actor CodexAPIService {
     /// 사용량 응답에 한도 초기화 크레딧 정보를 보충합니다. 크레딧 조회 실패는 사용량 표시를 막지 않습니다.
     private func supplementResetCredits(_ usage: CodexUsageResponse) async -> CodexUsageResponse {
         guard let accessToken, !accessToken.isEmpty else { return usage }
-        let accountID = await authManager.getToken()?.accountID
+        let accountID = authManager.getToken()?.accountID
         var supplemented = usage
         do {
             supplemented.resetCredits = try await performResetCreditsRequest(

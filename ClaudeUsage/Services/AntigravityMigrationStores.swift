@@ -1,12 +1,12 @@
 import Foundation
 
-protocol AntigravityMigrationJournalStoring: Sendable {
+nonisolated protocol AntigravityMigrationJournalStoring: Sendable {
     nonisolated func load() throws -> AntigravityMigrationJournal?
     nonisolated func save(_ journal: AntigravityMigrationJournal) throws
     nonisolated func delete() throws
 }
 
-protocol AntigravityMigrationCompletionMarking: Sendable {
+nonisolated protocol AntigravityMigrationCompletionMarking: Sendable {
     nonisolated func load() throws -> AntigravityMigrationCompletionMarker?
     nonisolated func save(_ marker: AntigravityMigrationCompletionMarker) throws
 }

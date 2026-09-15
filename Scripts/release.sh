@@ -238,7 +238,7 @@ DOWNLOADS_APP_PATH="$(
 
 read_channel_feed_state() {
     local channel="$1"
-    local feed_url xml version build enclosure tag
+    local feed_url
     local test_feed_state
 
     if [[ "${RELEASE_DRIVER_TEST_MODE:-0}" == "1" ]]; then
@@ -265,29 +265,8 @@ read_channel_feed_state() {
     fi
 
     feed_url="$(release_feed_url_for "$channel")"
-    xml="$(curl -fsSL "$feed_url")"
-    version="$(
-        printf '%s\n' "$xml" \
-            | sed -n 's|.*<sparkle:shortVersionString>\([^<]*\)</sparkle:shortVersionString>.*|\1|p' \
-            | sed -n '1p'
-    )"
-    build="$(
-        printf '%s\n' "$xml" \
-            | sed -n 's|.*<sparkle:version>\([^<]*\)</sparkle:version>.*|\1|p' \
-            | sed -n '1p'
-    )"
-    enclosure="$(
-        printf '%s\n' "$xml" \
-            | sed -n 's|.*<enclosure[^>]*url="\([^"]*\)".*|\1|p' \
-            | sed -n '1p'
-    )"
-    if [[ "$enclosure" =~ /releases/download/(v[^/]+)/ClaudeUsage\.zip$ ]]; then
-        tag="${BASH_REMATCH[1]}"
-    else
-        return 1
-    fi
-    [[ -n "$version" && "$build" =~ ^[1-9][0-9]*$ ]] || return 1
-    printf '%s\t%s\t%s\n' "$version" "$build" "$tag"
+    curl -fsSL "$feed_url" | python3 "$SCRIPT_ROOT/Scripts/lib/release_metadata.py" \
+        channel-feed-state --appcast - --channel "$channel"
 }
 
 read_latest_release_tag() {
@@ -960,6 +939,10 @@ xcrun notarytool history \
     --keychain-profile "$NOTARY_PROFILE" \
     --output-format json \
     --no-progress >/dev/null
+
+echo
+echo "변경 코드 정적 검사"
+python3 "$ROOT_DIR/Scripts/check-changes.py" --base HEAD^
 
 echo
 echo "release driver shell 회귀 테스트"

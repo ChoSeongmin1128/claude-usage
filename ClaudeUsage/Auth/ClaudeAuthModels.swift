@@ -1,6 +1,6 @@
 import Foundation
 
-enum ClaudeAuthSourceKind: String, Codable, CaseIterable, Sendable {
+nonisolated enum ClaudeAuthSourceKind: String, Codable, CaseIterable, Sendable {
     case oauth
     case sessionKey
     case browserCookie
@@ -17,7 +17,7 @@ enum ClaudeAuthSourceKind: String, Codable, CaseIterable, Sendable {
     }
 }
 
-struct ClaudeAuthSourceDescriptor: Codable, Sendable, Equatable {
+nonisolated struct ClaudeAuthSourceDescriptor: Codable, Sendable, Equatable {
     let kind: ClaudeAuthSourceKind
     let isPrimary: Bool
     let isVisible: Bool
@@ -29,11 +29,11 @@ struct ClaudeAuthSourceDescriptor: Codable, Sendable, Equatable {
     }
 }
 
-enum ClaudeBrowserFamily: String, Codable, CaseIterable, Sendable {
+nonisolated enum ClaudeBrowserFamily: String, Codable, CaseIterable, Sendable {
     case chrome
 }
 
-struct ClaudeBrowserSessionCandidate: Codable, Sendable, Equatable {
+nonisolated struct ClaudeBrowserSessionCandidate: Codable, Sendable, Equatable {
     let family: ClaudeBrowserFamily
     let profileName: String
     let profileDisplayName: String?
@@ -76,14 +76,14 @@ struct ClaudeBrowserSessionCandidate: Codable, Sendable, Equatable {
     }
 }
 
-enum ClaudeBrowserImportOutcome: Sendable, Equatable {
+nonisolated enum ClaudeBrowserImportOutcome: Sendable, Equatable {
     case importedSession(ClaudeBrowserImportedSession)
     case importedSessionCandidates([ClaudeBrowserImportedSession])
     case manualSessionKeyRequired(message: String)
     case unavailable(message: String)
 }
 
-struct ClaudeBrowserImportedSession: Sendable, Equatable, Identifiable {
+nonisolated struct ClaudeBrowserImportedSession: Sendable, Equatable, Identifiable {
     let id: String
     let profileName: String
     let profileDisplayName: String?

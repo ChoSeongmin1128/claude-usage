@@ -9,8 +9,9 @@ final class AntigravityOAuthSettingsViewModelTests: XCTestCase {
     private var credentialStore: AntigravityOAuthCredentialsStore!
     private var accountStore: AntigravityOAuthAccountStore!
 
-    override func setUpWithError() throws {
-        try super.setUpWithError()
+    @MainActor
+    override func setUp() async throws {
+        try await super.setUp()
         temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ClaudeUsageTests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -30,7 +31,8 @@ final class AntigravityOAuthSettingsViewModelTests: XCTestCase {
         )
     }
 
-    override func tearDownWithError() throws {
+    @MainActor
+    override func tearDown() async throws {
         if let temporaryDirectory {
             try? FileManager.default.removeItem(at: temporaryDirectory)
         }
@@ -39,7 +41,7 @@ final class AntigravityOAuthSettingsViewModelTests: XCTestCase {
         accountURL = nil
         credentialURL = nil
         temporaryDirectory = nil
-        try super.tearDownWithError()
+        try await super.tearDown()
     }
 
     func testConnectSuccessStoresAccountAndRefreshesEnvironment() async throws {

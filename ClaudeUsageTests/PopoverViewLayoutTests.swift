@@ -2,6 +2,7 @@ import SwiftUI
 import XCTest
 @testable import ClaudeUsage
 
+@MainActor
 final class PopoverViewLayoutTests: XCTestCase {
     func testCompactHeaderHidesNormalSingleAccountMetadata() {
         let account = makeClaudeAccount(
@@ -867,6 +868,7 @@ private func decodeCodexUsageResponse(_ json: String) -> CodexUsageResponse {
     return try! JSONDecoder().decode(CodexUsageResponse.self, from: data)
 }
 
+@MainActor
 private func makePopoverItems(_ items: (String, Bool)...) -> [PopoverItemConfig] {
     items.map { PopoverItemConfig(id: $0.0, visible: $0.1) }
 }

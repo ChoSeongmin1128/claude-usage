@@ -30,13 +30,13 @@ enum KeychainError: Error, LocalizedError {
     }
 }
 
-final class KeychainManager: @unchecked Sendable {
+nonisolated final class KeychainManager: @unchecked Sendable {
     nonisolated static let shared = KeychainManager()
 
     private nonisolated let storageKey = "claude-session-key"
     private let keychainStore = ClaudeKeychainStore.shared
     private let cacheLock = NSLock()
-    private nonisolated(unsafe) var cachedSessionKeys: [String: String] = [:]
+    private var cachedSessionKeys: [String: String] = [:]
 
     private init() {}
 

@@ -1,10 +1,12 @@
 import XCTest
 @testable import ClaudeUsage
 
+@MainActor
 private final class LayoutEventRecorder {
     var events: [(PopoverService, PopoverLayoutRefreshReason)] = []
 }
 
+@MainActor
 final class RefreshOrchestrationTests: XCTestCase {
     func testActionForTabSwitchRefreshesWhenStateIsStale() {
         let state = RuntimeProviderPresentationState(
@@ -949,6 +951,7 @@ private func makeCodexUsageResponse(
     return try! JSONDecoder().decode(CodexUsageResponse.self, from: data)
 }
 
+@MainActor
 private func makePopoverItems(_ items: (String, Bool)...) -> [PopoverItemConfig] {
     items.map { PopoverItemConfig(id: $0.0, visible: $0.1) }
 }

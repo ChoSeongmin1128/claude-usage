@@ -2,7 +2,6 @@ import XCTest
 @testable import ClaudeUsage
 
 final class ClaudeAccountStoreTests: XCTestCase {
-    private static var retainedObjects: [AnyObject] = []
     private var defaults: UserDefaults!
     private var vault: FakeClaudeSessionKeyVault!
     private var legacySandboxStore: FakeClaudeLegacySandboxCredentialStore!
@@ -620,7 +619,6 @@ final class ClaudeAccountStoreTests: XCTestCase {
         // .claudeAccountsDidChange 알림으로 외부에 전파되어야 한다.
         // ClaudeAPIService 의 in-memory 캐시 자동 무효화는 이 알림에 의존한다.
         let store = ClaudeAccountStore(defaults: defaults, keychainVault: vault, postsNotifications: true)
-        Self.retainedObjects.append(store)
         let account = store.upsertWebSessionAccount(sessionKey: "sk-ant-x", preferredOrganizationID: "org-a")
 
         let observed = expectation(description: ".claudeAccountsDidChange posted")
@@ -641,7 +639,6 @@ final class ClaudeAccountStoreTests: XCTestCase {
         // 이는 ClaudeAPIService 가 불필요하게 캐시를 비우고 fetch 를 재트리거하는
         // 폭주를 방지한다.
         let store = ClaudeAccountStore(defaults: defaults, keychainVault: vault, postsNotifications: true)
-        Self.retainedObjects.append(store)
         let account = store.upsertWebSessionAccount(sessionKey: "sk-ant-x", preferredOrganizationID: "org-a")
 
         let unwanted = expectation(description: "no notification")
@@ -660,7 +657,6 @@ final class ClaudeAccountStoreTests: XCTestCase {
 
     func testActiveAccountSwitchPostsAccountBoundaryWithoutSessionCredentialNotification() {
         let store = ClaudeAccountStore(defaults: defaults, keychainVault: vault, postsNotifications: true)
-        Self.retainedObjects.append(store)
         _ = store.upsertWebSessionAccount(sessionKey: "sk-ant-first", setActive: true)
         let second = store.upsertWebSessionAccount(sessionKey: "sk-ant-second", setActive: false)
 
@@ -709,7 +705,6 @@ final class ClaudeAccountStoreTests: XCTestCase {
             legacySandboxCredentialStore: legacySandboxStore,
             postsNotifications: false
         )
-        Self.retainedObjects.append(store)
         return store
     }
 }

@@ -1,11 +1,11 @@
 import Foundation
 
-struct ClaudeAutomaticOrganizationCandidate: Equatable {
+nonisolated struct ClaudeAutomaticOrganizationCandidate: Equatable, Sendable {
     let organization: ClaudeAPIService.OrganizationSummary
     let overage: OverageSpendLimitResponse?
 }
 
-enum ClaudeAutomaticOrganizationSelectionPolicy {
+nonisolated enum ClaudeAutomaticOrganizationSelectionPolicy {
     nonisolated static func selectBest(
         from candidates: [ClaudeAutomaticOrganizationCandidate]
     ) -> ClaudeAutomaticOrganizationCandidate? {

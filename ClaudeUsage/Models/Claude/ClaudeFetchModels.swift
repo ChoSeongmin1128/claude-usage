@@ -1,6 +1,6 @@
 import Foundation
 
-enum ClaudeUsageSource: String, CaseIterable, Sendable {
+nonisolated enum ClaudeUsageSource: String, CaseIterable, Sendable {
     case webSession = "web_session"
     case oauth = "oauth"
     case messagesHeaderFallback = "messages_header_fallback"
@@ -17,21 +17,21 @@ enum ClaudeUsageSource: String, CaseIterable, Sendable {
     }
 }
 
-enum ClaudeSourcePreference: String, CaseIterable, Sendable {
+nonisolated enum ClaudeSourcePreference: String, CaseIterable, Sendable {
     case auto = "auto"
     case webSession = "web_session"
     case oauth = "oauth"
     case recentSuccess = "recent_success"
 }
 
-enum ClaudeCredentialValidationState: String, Codable, Sendable, Equatable {
+nonisolated enum ClaudeCredentialValidationState: String, Codable, Sendable, Equatable {
     case unavailable
     case detected
     case verified
     case failed
 }
 
-struct ClaudeMessagesHeaderFallbackPolicy: Equatable, Sendable {
+nonisolated struct ClaudeMessagesHeaderFallbackPolicy: Equatable, Sendable {
     var isEnabled: Bool
     var allowAutomaticFallback: Bool
     var minimumUsagePercent: Double
@@ -53,7 +53,7 @@ struct ClaudeMessagesHeaderFallbackPolicy: Equatable, Sendable {
     }
 }
 
-struct ClaudeFetchContext: Equatable, Sendable {
+nonisolated struct ClaudeFetchContext: Equatable, Sendable {
     var accountKind: ClaudeAccountKind?
     var sourcePreference: ClaudeSourcePreference
     var webSessionAvailable: Bool
@@ -87,30 +87,30 @@ struct ClaudeFetchContext: Equatable, Sendable {
     }
 }
 
-struct ClaudeFetchAttempt: Sendable {
+nonisolated struct ClaudeFetchAttempt: Sendable {
     let source: ClaudeUsageSource
     let wasAvailable: Bool
     let error: APIError?
 }
 
-struct ClaudeFetchProvenance: Equatable, Sendable {
+nonisolated struct ClaudeFetchProvenance: Equatable, Sendable {
     let source: ClaudeUsageSource
     let accountID: String?
     let attemptedSources: [ClaudeUsageSource]
 }
 
-struct ClaudeUsageFetchOutcome: Sendable {
+nonisolated struct ClaudeUsageFetchOutcome: Sendable {
     let usage: ClaudeUsageResponse
     let provenance: ClaudeFetchProvenance
 }
 
-struct ClaudeSourceCandidate: Equatable, Sendable {
+nonisolated struct ClaudeSourceCandidate: Equatable, Sendable {
     let source: ClaudeUsageSource
     let isAvailable: Bool
     let reason: String
 }
 
-struct ClaudeFetchPlan: Equatable, Sendable {
+nonisolated struct ClaudeFetchPlan: Equatable, Sendable {
     let context: ClaudeFetchContext
     let primaryCandidates: [ClaudeSourceCandidate]
     let fallbackPolicy: ClaudeMessagesHeaderFallbackPolicy
@@ -128,7 +128,7 @@ struct ClaudeFetchPlan: Equatable, Sendable {
     }
 }
 
-struct ClaudeProfileMetadata: Equatable, Sendable {
+nonisolated struct ClaudeProfileMetadata: Equatable, Sendable {
     var organizationUUID: String?
     var subscriptionType: String?
     var rateLimitTier: String?
@@ -169,7 +169,7 @@ struct ClaudeProfileMetadata: Equatable, Sendable {
     }
 }
 
-struct ClaudeNotificationPolicy: Equatable, Sendable {
+nonisolated struct ClaudeNotificationPolicy: Equatable, Sendable {
     let subscriptionType: String?
     let billingType: String?
     let hasExtraUsageEnabled: Bool?
@@ -241,7 +241,7 @@ struct ClaudeNotificationPolicy: Equatable, Sendable {
     }
 }
 
-struct ClaudeCredentialAvailability: Sendable, Equatable {
+nonisolated struct ClaudeCredentialAvailability: Sendable, Equatable {
     let sessionCredentialAvailable: Bool
     let oauthCredentialAvailable: Bool
 

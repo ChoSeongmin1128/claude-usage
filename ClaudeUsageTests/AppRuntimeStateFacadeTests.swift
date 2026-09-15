@@ -1,6 +1,7 @@
 import XCTest
 @testable import ClaudeUsage
 
+@MainActor
 final class AppRuntimeStateFacadeTests: XCTestCase {
     func testClaudeAccountChangeClearsRuntimeStateBeforeNextRefresh() async {
         await MainActor.run {

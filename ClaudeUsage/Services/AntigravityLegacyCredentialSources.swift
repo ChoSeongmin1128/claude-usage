@@ -21,7 +21,7 @@ nonisolated enum AntigravityLegacyDeleteResult: Equatable, Sendable {
     case failure(Int)
 }
 
-protocol AntigravityLegacyFileAccessing: Sendable {
+nonisolated protocol AntigravityLegacyFileAccessing: Sendable {
     nonisolated func read(_ source: AntigravityLegacySourceID) -> AntigravityLegacyReadResult
     nonisolated func readQuarantine(
         _ source: AntigravityLegacySourceID
@@ -36,7 +36,7 @@ protocol AntigravityLegacyFileAccessing: Sendable {
     nonisolated func removeAntigravityDirectoryIfEmpty() throws
 }
 
-protocol AntigravityLegacyKeychainAccessing: Sendable {
+nonisolated protocol AntigravityLegacyKeychainAccessing: Sendable {
     nonisolated func read(
         _ source: AntigravityLegacySourceID,
         authenticationContext: LAContext?
@@ -61,7 +61,7 @@ nonisolated struct AntigravitySecurityItemReadResult: Sendable {
     let data: Data?
 }
 
-protocol AntigravitySecurityItemAccessing: Sendable {
+nonisolated protocol AntigravitySecurityItemAccessing: Sendable {
     nonisolated func copyMatching(
         _ query: [String: Any]
     ) -> AntigravitySecurityItemReadResult

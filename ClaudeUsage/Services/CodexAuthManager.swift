@@ -7,9 +7,10 @@
 //
 
 import Foundation
+import os
 
 /// Codex 인증 토큰
-struct CodexAuthToken: Codable, Sendable {
+nonisolated struct CodexAuthToken: Codable, Sendable {
     let accessToken: String
     let refreshToken: String?
     let idToken: String?
@@ -73,7 +74,7 @@ enum CodexRefreshResult: Sendable {
     case transientFailure(reason: String)
 }
 
-private struct CodexAuthJSONStore {
+private nonisolated struct CodexAuthJSONStore: Sendable {
     let authJsonPath: String
 
     var exists: Bool {
@@ -223,7 +224,7 @@ private struct CodexAuthJSONStore {
     }
 }
 
-private struct CodexOAuthTokenRefresher {
+private nonisolated struct CodexOAuthTokenRefresher: Sendable {
     let urlSession: URLSession
     let clientID: String
 
@@ -320,11 +321,11 @@ private struct CodexOAuthTokenRefresher {
 }
 
 final class CodexAuthManager {
-    static let shared = CodexAuthManager()
+    nonisolated static let shared = CodexAuthManager()
 
     private let refreshTokenClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
 
-    private let authStore: CodexAuthJSONStore
+    private nonisolated let authStore: CodexAuthJSONStore
     private let tokenRefresher: CodexOAuthTokenRefresher
 
     // MARK: - Thread-safe caches
@@ -333,25 +334,28 @@ final class CodexAuthManager {
     // Data(contentsOf:) + JSONSerialization 으로 동기 파싱했다. UI body /
     // settings 렌더 사이클에 수 차례 호출되어 main thread 를 낭비하고, 동시에
     // refreshedToken 쓰기 (async refreshAccessToken) 와 읽기 (UI) 간 race 도
-    // 있었다. → NSLock + 60s TTL in-memory 캐시 + file mtime 기반 무효화.
+    // 있었다. → 잠금으로 보호하는 60s TTL in-memory 캐시 + file mtime 기반 무효화.
 
-    private let lock = NSLock()
-    private var refreshedToken: CodexAuthToken?
+    // The cache owns its synchronization; refreshTask remains on MainActor.
+    private nonisolated let cache = OSAllocatedUnfairLock(initialState: CacheState())
     private var refreshTask: Task<CodexRefreshResult, Never>?
 
-    private struct CachedAuthJson {
+    private nonisolated struct CachedAuthJson: Sendable {
         let token: CodexAuthToken?
         let fileMtime: Date?
         let cachedAt: Date
     }
-    private var authJsonCache: CachedAuthJson?
-    private static let authJsonCacheTTL: TimeInterval = 60
+    private nonisolated struct CacheState: Sendable {
+        var refreshedToken: CodexAuthToken?
+        var authJsonCache: CachedAuthJson?
+    }
+    private nonisolated static let authJsonCacheTTL: TimeInterval = 60
 
-    private convenience init() {
+    private nonisolated convenience init() {
         self.init(authJsonPath: Self.defaultAuthJsonPath(), urlSession: .shared)
     }
 
-    init(authJsonPath: String, urlSession: URLSession = .shared) {
+    nonisolated init(authJsonPath: String, urlSession: URLSession = .shared) {
         self.authStore = CodexAuthJSONStore(authJsonPath: authJsonPath)
         self.tokenRefresher = CodexOAuthTokenRefresher(
             urlSession: urlSession,
@@ -363,7 +367,7 @@ final class CodexAuthManager {
         defaults.removeObject(forKey: "codex-device-id")
     }
 
-    private static func defaultAuthJsonPath() -> String {
+    private nonisolated static func defaultAuthJsonPath() -> String {
         let realHome: String
         if let pw = getpwuid(getuid()) {
             realHome = String(cString: pw.pointee.pw_dir)
@@ -377,8 +381,8 @@ final class CodexAuthManager {
 
     /// 현재 유효한 액세스 토큰 반환.
     /// 호출 빈도가 높아도 in-memory 캐시 + mtime 체크로 비용이 작다.
-    func getToken() -> CodexAuthToken? {
-        let refreshed = withCacheLock { refreshedToken }
+    nonisolated func getToken() -> CodexAuthToken? {
+        let refreshed = cache.withLock { $0.refreshedToken }
 
         // 1순위: 갱신된 토큰 캐시 (미만료)
         if let refreshed, !refreshed.isExpired {
@@ -395,20 +399,20 @@ final class CodexAuthManager {
     }
 
     /// auth.json 파일 존재 여부. `FileManager.fileExists` 는 stat 한 번이라 가볍다.
-    var authJsonExists: Bool {
+    nonisolated var authJsonExists: Bool {
         authStore.exists
     }
 
     /// 인증 상태 확인
-    var isAuthenticated: Bool {
+    nonisolated var isAuthenticated: Bool {
         getToken()?.isUsableOrRefreshable == true
     }
 
     /// 캐시 초기화 (refresh 토큰 캐시 + auth.json 파싱 캐시 모두).
-    func clearCache() {
-        withCacheLock {
-            refreshedToken = nil
-            authJsonCache = nil
+    nonisolated func clearCache() {
+        cache.withLock { state in
+            state.refreshedToken = nil
+            state.authJsonCache = nil
         }
         Logger.info("Codex 토큰 캐시 초기화")
     }
@@ -484,11 +488,11 @@ final class CodexAuthManager {
 
     /// auth.json 파싱 결과 반환. mtime 이 동일하면서 캐시 TTL 안쪽이면 파싱 skip.
     /// 외부에서 CLI 로 로그인 / 로그아웃 하면 mtime 이 바뀌므로 즉시 반영됨.
-    private func loadAuthJsonToken(forceReload: Bool = false) -> CodexAuthToken? {
+    private nonisolated func loadAuthJsonToken(forceReload: Bool = false) -> CodexAuthToken? {
         let currentMtime = authStore.modificationDate()
         let now = Date()
 
-        if !forceReload, let cache = withCacheLock({ authJsonCache }) {
+        if !forceReload, let cache = cache.withLock({ $0.authJsonCache }) {
             let freshEnough = now.timeIntervalSince(cache.cachedAt) < Self.authJsonCacheTTL
             let fileUnchanged = cache.fileMtime == currentMtime
             if freshEnough && fileUnchanged {
@@ -497,22 +501,16 @@ final class CodexAuthManager {
         }
 
         let parsed = authStore.loadToken()
-        withCacheLock {
-            authJsonCache = CachedAuthJson(token: parsed, fileMtime: currentMtime, cachedAt: now)
+        cache.withLock { state in
+            state.authJsonCache = CachedAuthJson(token: parsed, fileMtime: currentMtime, cachedAt: now)
         }
         return parsed
     }
 
-    private func withCacheLock<T>(_ body: () -> T) -> T {
-        lock.lock()
-        defer { lock.unlock() }
-        return body()
-    }
-
     private func setRefreshedToken(_ token: CodexAuthToken?) {
-        withCacheLock {
-            refreshedToken = token
-            authJsonCache = nil
+        cache.withLock { state in
+            state.refreshedToken = token
+            state.authJsonCache = nil
         }
     }
 }

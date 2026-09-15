@@ -1,6 +1,7 @@
 import XCTest
 @testable import ClaudeUsage
 
+@MainActor
 final class RuntimeProviderSettingsPresentationTests: XCTestCase {
     func testDisabledServiceDoesNotExposeRuntimeState() {
         let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
@@ -454,6 +455,7 @@ final class SparkleUpdateResultInterpreterTests: XCTestCase {
 }
 #endif
 
+@MainActor
 final class PublicCopySanityTests: XCTestCase {
     func testNormalUserFacingCopyDoesNotExposeInternalImplementationTerms() {
         let antigravityStatus =

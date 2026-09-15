@@ -1,654 +1,177 @@
-# ClaudeUsage 배포 가이드
+# 배포와 업데이트 복구
 
-최종 갱신: 2026-08-14
+## 배포 계약
 
-## 개요
-
-일반 배포는 통합 driver 한 명령으로 실행합니다.
+공식 배포는 통합 driver를 사용합니다.
 
 ```bash
-# 환경과 버전을 화면에서 입력
-./Scripts/release.sh
-
-# 환경/버전을 인자로 입력
-./Scripts/release.sh stg X.Y.Z
-./Scripts/release.sh prod X.Y.Z
+./Scripts/release.sh stg X.Y.Z --notes-file docs/release-notes/X.Y.Z.md
 ```
 
-배포 흐름은 네 단계로 구분됩니다.
+환경은 `stg`/`staging` 또는 `prod`이며, 버전은 `X.Y.Z` 형식입니다. staging은 별도 브랜치가 아닙니다. 운영 승격은 staging 검증과 별도의 배포 결정이 필요합니다.
 
-1. **계정/원격 확인** — GitHub CLI active 계정과 repository 확인
-2. **1회성 사전조건** — Sparkle 키 + notarization 자격 등록
-3. **릴리스 빌드** — driver는 notarized 배포 산출물만 생성
-4. **게시** — immutable tag/Release 업로드 → 원격 검증 → 검증된 Sparkle appcast 발행
+| 채널 | 태그 | 앱 | bundle identifier | feed |
+|---|---|---|---|---|
+| staging | `vX.Y.Z-staging` | `ClaudeUsage-stg.app` | `com.seongmin.ClaudeUsage.staging` | [staging appcast](https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml) |
+| prod | `vX.Y.Z` | `ClaudeUsage.app` | `com.seongmin.ClaudeUsage` | [prod appcast](https://choseongmin1128.github.io/claude-usage/appcast.xml) |
 
-`Scripts/build-notarize-release.sh`와 `Scripts/publish-release.sh`는 driver가
-호출하는 저수준 primitive입니다. 복구나 진단 목적이 아니면 두 스크립트를
-따로 조합하지 않습니다. signed-only 내부 배포는 통합 driver 범위가 아니며,
-필요할 때만 build primitive를 `RELEASE_DISTRIBUTION=internal`로 직접
-실행합니다.
+산출물은 `ClaudeUsage.zip`, `ClaudeUsage.dmg`, `appcast.xml` 세 개입니다. 태그와 Release를 게시한 뒤에는 자산을 덮어쓰거나 태그를 이동하지 않습니다. 문제가 남으면 다음 버전 후보를 만듭니다.
 
-### 통합 driver 계약
+버전은 변경 범위에 맞춰 선택하고 프로젝트의 모든 version/build 값과 노트 파일을 함께 갱신합니다. build number는 `major * 10000 + minor * 100 + patch`이며 minor와 patch는 0~99입니다. 예: `2.5.0 → 20500`. 과거 2.3.x의 다른 build 규칙은 이전 자산 검증에만 사용합니다.
 
-driver는 먼저 현재 project, prod Release/feed, staging Release/feed의
-version과 build를 보여줍니다. 환경은 `stg`, `staging`, `prod`만 받으며,
-버전은 suffix 없는 숫자 `X.Y.Z`만 받습니다.
+## 사전 준비
 
-| 입력 환경 | 실제 channel | 자동 생성 tag |
-|---|---|---|
-| `stg`, `staging` | `staging` | `vX.Y.Z-staging` |
-| `prod` | `prod` | `vX.Y.Z` |
-
-채널별 앱 identity도 분리합니다.
-
-| channel | app bundle | bundle identifier | Application Support |
-|---|---|---|---|
-| `staging` | `ClaudeUsage-stg.app` | `com.seongmin.ClaudeUsage.staging` | `ClaudeUsage-stg` |
-| `prod` | `ClaudeUsage.app` | `com.seongmin.ClaudeUsage` | `ClaudeUsage` |
-
-각 채널은 advisory lock으로 한 프로세스만 허용하므로 staging과 prod는 하나씩
-동시에 실행할 수 있지만, 같은 채널 앱을 두 번 실행해 provider runtime을
-중복 생성할 수는 없습니다. 로컬 QA 설치·실행 기준도 `/Applications`의 위
-두 앱이며 임시 build/Downloads 앱을 실행본으로 사용하지 않습니다.
-
-`2.4.4`부터 분리된 staging identity를 사용합니다. 실제 최초 공개 staging이
-`2.4.5`처럼 더 높은 버전이면 그 버전을 bootstrap release로 취급합니다. 이전 staging은 prod와
-같은 bundle identifier를 썼으므로 Sparkle upgrade 대상이 될 수 없습니다.
-driver는 이 최초 전환에서만 구 staging 앱 설치/upgrade QA를 생략하고,
-`/Applications/ClaudeUsage.app`의 Developer ID 인증서를 서명 기준으로
-사용합니다. 다음 staging 버전부터는 `ClaudeUsage-stg.app`끼리 정상 upgrade
-QA를 수행합니다.
-
-`2.4.0`부터 `CURRENT_PROJECT_VERSION`은
-`major * 10000 + minor * 100 + patch`로 계산합니다. 따라서
-`2.4.0 → 20400`, `2.4.1 → 20401`, `2.4.10 → 20410`입니다.
-minor와 patch는 각각 `0...99`만 허용합니다. 과거 `2.3.x`의 `20310`,
-`20320`, `20330`은 이전 규칙으로 게시된 역사적 build이며, driver는 이전
-앱을 준비할 때 이를 새 공식으로 역산하지 않고 해당 채널 appcast의 실제
-published build를 사용합니다.
-
-입력 version/build와 `ClaudeUsage.xcodeproj/project.pbxproj`가 다르면 driver는
-source를 자동 수정하거나 commit하지 않고 정확한 차이를 출력한 뒤 중단합니다.
-버전 변경도 `dev` 검증과 `main` squash에 포함되어야 release source
-provenance가 유지되기 때문입니다.
-
-mutation 없는 계획만 보려면:
-
-```bash
-./Scripts/release.sh stg X.Y.Z --non-interactive --dry-run
-```
-
-자동화 환경에서도 publish 확인은 생략할 수 없습니다.
-
-```bash
-./Scripts/release.sh stg X.Y.Z \
-  --non-interactive \
-  --confirm-publish vX.Y.Z-staging \
-  --notes-file docs/release-notes/X.Y.Z.md
-```
-
-실제 driver는 계정/원격/clean main/tag/notary/test gate, 이전 동일 채널
-원격 앱 준비, 기존 build/publish primitive 실행, 새 원격 artifact 검증,
-검증된 appcast의 Pages/feed 전파, public feed 포함 최종 재검증을 순서대로
-수행합니다. DMG·ZIP·appcast는 GitHub의
-SHA-256/size metadata와 대조하고, DMG 및 ZIP의 앱 모두 notarization,
-Gatekeeper, bundle version/build/feed를 확인합니다. appcast의 업데이트 DMG length,
-Sparkle Ed25519 signature와 앱의 `SUPublicEDKey`, feed 서명 및 ZIP의 서명된 SHA-256도 검증하며, public feed는
-Release의 `appcast.xml` asset과 byte-for-byte로 대조합니다.
-
-테스트 DerivedData/xcresult, archive용 임시 xcconfig, appcast staging,
-archive DerivedData와 release build는 각 사용 단계가 끝나는 즉시
-삭제합니다. 실패·중단 시에도 trap이 남은 download, mount, worktree와
-실행 임시 루트를 정리하고 GitHub CLI 계정을 `nathan-glorang`으로
-복원합니다. fresh/tag-only 게시에서 이전 동일 identity 앱을
-`~/Downloads`에 일시 준비하지만, 서명 기준과 원격 upgrade source 확인 뒤
-성공·실패 모두 종료 trap에서 삭제합니다. 실제 QA 설치·실행본은
-`/Applications`만 사용하며 필요하면 검증된 원격 Release에서 다시 받습니다.
-backup app은 만들지 않습니다.
-
-### 중단 후 재실행
-
-tag, GitHub Release와 기존 asset은 한번 만들어지면 이동·수정·덮어쓰기하지
-않습니다. driver는 재실행 때 원격 상태를 다시 분류합니다.
-
-| 상태 | 조건 | 재실행 동작 |
-|---|---|---|
-| `fresh` | 후보 tag와 Release가 모두 없음 | 전체 검증·빌드·게시 |
-| `tag_only` | tag가 정확히 현재 `main`을 가리키고 Release는 없음 | 전체 검증·빌드 후 기존 tag를 재사용해 Release 생성 |
-| `pages_pending` | tag와 세 asset이 완전하고 public feed만 이전 버전 | Release를 재검증한 뒤 Pages/feed만 복구 |
-| `complete` | tag, Release 세 asset, public feed가 모두 후보와 일치 | 원격 산출물과 public feed만 재검증 |
-| `burned` | tag commit 불일치, partial/추가 asset, metadata 불일치, feed 분기 | 원격 변경 없이 중단하고 다음 숫자 버전 사용 |
-
-`pages_pending`과 `complete`에서는 XCTest, notarization build, Downloads 앱
-교체를 다시 실행하지 않습니다. partial Release에 asset을 추가 업로드하거나
-`--clobber`, tag 강제 이동·삭제로 같은 버전을 되살리는 경로는 없습니다.
-
----
-
-## 0. 계정/브랜치 기준
-
-현재 운영 기준:
-
-- 작업 브랜치: 최신 `main`에서 만든 `dev`, 작업 단위별 커밋과 push
-- 릴리스 브랜치: 검증된 `dev`를 squash한 `main`
-- staging: 코드 브랜치가 아니라 `vX.Y.Z-staging` prerelease + `/channels/staging/appcast.xml` channel
-- prod: staging 검증 후 `vX.Y.Z` stable release + root `/appcast.xml` channel
-- `gh-pages`: appcast 정적 호스팅 브랜치이며 수동 코드 작업 대상이 아님
-
-릴리스 전에 GitHub CLI 계정과 원격을 확인합니다.
+- 검증된 dev 내용을 squash한 clean main과 원격 main이 일치해야 합니다.
+- GitHub 게시 권한과 원격 저장소를 확인합니다. driver의 `REPOSITORY`, `RELEASE_GH_ACCOUNT`, `RESTORE_GH_ACCOUNT`, `EXPECTED_ORIGIN_URL`은 공식 배포 정책입니다. 포크의 배포에는 이를 포함한 저장소·계정·서명·채널 설정을 별도로 검토해야 합니다.
+- Xcode 초기 설정과 약관 동의를 완료하고 Developer ID Application 인증서를 준비합니다.
+- Keychain에 `ClaudeUsageNotary` 공증 프로파일을 등록합니다. 자격증명과 개인키는 공개 문서나 Git에 넣지 않습니다.
+- Sparkle 개인키는 Keychain에, 공개키는 `Config/Release.xcconfig`에 보관합니다. 로컬 feed/profile 설정은 추적하지 않는 `Config/Sparkle.release.local.xcconfig`를 사용합니다.
+- ShellCheck 0.11.0과 Xcode 내장 swift-format이 필요합니다.
+- 공식 AGY CLI가 설치되고 로그인되어 있어야 필수 live gate를 실행할 수 있습니다.
 
 ```bash
 gh auth status
-gh auth switch --hostname github.com --user ChoSeongmin1128
 gh repo view --json nameWithOwner -q .nameWithOwner
 git remote -v
-```
 
-정상 기준:
+# 공증 자격 등록은 대화형으로 수행
+xcrun notarytool store-credentials ClaudeUsageNotary
 
-- `gh repo view`: `ChoSeongmin1128/claude-usage`
-- `origin`: `git@github-seongmin:ChoSeongmin1128/claude-usage.git`
-
-개인 SSH 설정, Apple ID, app-specific password, notarization key, local xcconfig는 저장소에 커밋하지 않습니다. 자세한 작업 방식은 [PROJECT_WORKFLOW.md](PROJECT_WORKFLOW.md)를 기준으로 합니다.
-
-배포 후 평소 작업 계정으로 되돌려야 하는 환경이면 `gh auth switch --hostname github.com --user nathan-glorang` 를 실행합니다.
-
----
-
-## 1. 1회성 세팅 (머신당 1회)
-
-### 1.1 Notarization 자격 저장
-
-Apple ID 또는 App Store Connect API 키 중 하나:
-
-```bash
-# 옵션 A: Apple ID + app-specific password
-xcrun notarytool store-credentials "ClaudeUsageNotary" \
-    --apple-id "YOUR@EMAIL" \
-    --team-id "YOUR_TEAM_ID"
-# 프롬프트에서 app-specific password 입력
-
-# 옵션 B: App Store Connect API key (.p8 파일)
-xcrun notarytool store-credentials "ClaudeUsageNotary" \
-    --key /path/to/AuthKey_XXXX.p8 \
-    --key-id XXXXXXXXXX \
-    --issuer xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-```
-
-키체인 프로파일 이름 `ClaudeUsageNotary` 는 이후 스크립트 전체에서 사용됩니다.
-앱이 자체 세션 저장에 쓰는 `ClaudeUsage` Keychain 서비스명과 혼동되지 않도록,
-공증 프로필에는 별도 이름을 사용합니다.
-
-키체인 프로파일을 쓰지 않고 CodexBar처럼 CI/로컬 환경 변수로만 넘기려면
-아래 세 값을 모두 지정합니다. `APP_STORE_CONNECT_API_KEY_P8` 는 `.p8` 파일
-내용 전체이며, `\n` 이스케이프가 들어간 한 줄 값도 허용합니다.
-
-```bash
-APP_STORE_CONNECT_API_KEY_P8="$(cat /path/to/AuthKey_XXXX.p8)" \
-APP_STORE_CONNECT_KEY_ID="XXXXXXXXXX" \
-APP_STORE_CONNECT_ISSUER_ID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
-RELEASE_CHANNEL=prod \
-BUILD_DIR="$HOME/Downloads/ClaudeUsage-release-$(date +%Y%m%d-%H%M)" \
-./Scripts/build-notarize-release.sh
-```
-
-### 1.2 Sparkle 키 + 로컬 xcconfig 생성
-
-```bash
+# 최초 Sparkle 설정
 ./Scripts/setup-sparkle-keys.sh
 ```
 
-수행 내용:
-- Sparkle SPM artifact 에서 `generate_keys` 를 찾아 ED25519 키쌍 생성 (개인키는 macOS 키체인에 자동 보관)
-- 공개키 출력
-- `Config/Sparkle.release.local.xcconfig` 자동 작성:
-  - `SUFeedURL` = 기본적으로 GitHub Pages `prod` 채널 (`https://choseongmin1128.github.io/claude-usage/appcast.xml`) 로 추정
-  - `SUPublicEDKey` = 방금 생성한 공개키
-  - `NOTARY_PROFILE` = "ClaudeUsageNotary"
-- 공개 trust root인 `Config/Release.xcconfig`의 `SUPublicEDKey`도 같은 값으로 갱신
-- `.gitignore` 에 로컬 xcconfig 규칙 추가
-
-키가 이미 있다면 공개키만 재사용하고 새로 생성하지 않습니다. `--force`는
-local xcconfig 전체를 다시 작성하는 옵션이며 signing key를 회전하지 않습니다.
-[Sparkle의 `generate_keys` 기본 동작](https://github.com/sparkle-project/Sparkle/blob/2.x/generate_keys/main.swift#L1083-L1092)도
-기존 Keychain key를 덮어쓰지 않습니다. 실제 키 회전은 기존 설치 앱의 update
-trust chain에 영향을 주므로 일반 release와 분리합니다. 기존 private key를
-`generate_keys -x`로 안전한 위치에 export한 뒤 Keychain Access에서 정확한
-Sparkle signing key를 수동으로 제거하고 새 키를 생성하는 별도 incident
-절차와 구버전 upgrade 호환성 검토가 필요합니다. 바뀐 tracked public key는
-source diff로 검토·commit해야 하며, local/env key가 tracked trust root와
-다르면 archive 전에 중단합니다.
-
-staging 채널을 기본값으로 쓰고 싶다면:
+인증서가 여러 개면 임의의 첫 항목을 사용하지 않습니다. 현재 정상 설치본의 서명 인증서와 Keychain의 유효한 인증서를 대조한 후 SHA-1을 명시합니다.
 
 ```bash
-./Scripts/setup-sparkle-keys.sh --channel staging
+CERT_HASH="VERIFIED_CERTIFICATE_SHA1" \
+  ./Scripts/release.sh stg X.Y.Z --notes-file docs/release-notes/X.Y.Z.md
 ```
 
-SUFeedURL 을 직접 정하고 싶다면 스크립트 실행 후 xcconfig 를 편집하거나 `--feed-url URL` 로 지정:
+`setup-sparkle-keys.sh --force`는 로컬 설정을 다시 쓰는 옵션이며 기존 signing key를 회전하는 절차가 아닙니다.
+
+## dev 검증과 main 확정
+
+[개발 절차](PROJECT_WORKFLOW.md)에 따라 작업 단위를 커밋·push하고 전체 XCTest, Release 빌드, 실앱 QA, 코드 리뷰를 완료합니다. 계정 경계·취소·프로세스 소유권·변경된 파일 검증을 중점적으로 확인합니다.
+
+squash 직후 커밋 전에 `git write-tree`와 검증한 `dev^{tree}`가 정확히 같아야 합니다. 중복 이력 때문에 충돌이 생기면 임의로 코드를 혼합하지 말고 검증한 dev tree를 기준으로 정합성을 확인합니다. 다음 작업 전에는 dev를 새 main 이력에 정렬합니다.
+
+게시할 버전의 노트·라이선스·외부 구성 요소 고지도 이 커밋에 포함합니다. 검증용 dev 산출물을 게시 산출물로 재사용하지 않습니다.
+
+dev 빌드도 완성된 앱의 Info.plist에서 채널·feed·공개키를 확인합니다. `-xcconfig`는 명령행 build setting보다 우선하므로 feed 값을 명령행으로만 덮어쓰지 않습니다. 통합 빌드는 로컬 설정을 포함한 뒤 채널 값을 명시하는 임시 xcconfig를 생성합니다.
+
+## 릴리스 노트와 고지
+
+`docs/release-notes/X.Y.Z.md`가 노트 정본입니다. 첫 줄은 `# X.Y.Z`이고, 사용자에게 달라지는 변경과 알려진 제한을 작성합니다. UTF-8, LF, 마지막 줄바꿈을 사용합니다.
+
+driver는 파일 경로·내용·버전을 확인하고 배포 커밋의 파일과 같은지 검사합니다. GitHub에는 원본을 `--notes-file`로 전달하고 Sparkle에는 같은 내용을 `description sparkle:format="plain-text"`로 내장합니다. 이 형식은 기존 Sparkle 2.8.1 설치본과도 호환됩니다.
+
+예약 업데이트의 기본 Sparkle 알림창은 숨기므로 설정 → 업데이트의 버전별 변경 사항에서도 노트를 표시합니다. 서명 복구 시 Sparkle이 제거한 노트를 외부 URL에서 다시 가져오지 않습니다.
+
+`LICENSE`와 `THIRD_PARTY_NOTICES.md`는 소스 저장소의 정본이며 Xcode가 앱 리소스에 복사합니다. 원본 소스의 MIT 조건과 외부 구성 요소·브랜드 자산의 권리 범위를 구분합니다.
+
+## 통합 driver 실행
 
 ```bash
-./Scripts/setup-sparkle-keys.sh --feed-url https://my-server.com/appcast.xml
+# 원격 상태와 계획만 확인
+./Scripts/release.sh stg X.Y.Z --non-interactive --dry-run
+
+# 명시적인 자동화 게시
+./Scripts/release.sh stg X.Y.Z \
+  --notes-file docs/release-notes/X.Y.Z.md \
+  --non-interactive --confirm-publish vX.Y.Z-staging
 ```
 
-### 1.3 추가 도구
+실행 순서:
 
-| 도구 | 설치 | 용도 |
-|---|---|---|
-| `dmgbuild` | `pipx install dmgbuild` | DMG 레이아웃을 바이너리로 기록 |
-| `gh` (GitHub CLI) | `brew install gh` + `gh auth login` | GitHub Release 업로드 |
+1. 저장소·계정·버전·clean main·기존 태그 상태와 공증 자격 확인
+2. 변경 코드 정적 검사, 배포 스크립트 테스트, 전체 XCTest
+3. 실제 AGY의 인증된 identity·숫자 quota와 격리한 공식 실행 파일 교체 후 복구 검증
+4. 이전 동일 채널의 원격 자산 검증과 서명 기준 앱 준비
+5. 최종 main에서 archive, 서명, ZIP·DMG 공증, staple·Gatekeeper 검증
+6. appcast 생성, 노트·ZIP 해시 반영, 최종 feed 서명
+7. 불변 태그와 세 자산의 Release 생성
+8. 원격 자산을 다시 내려받아 검증한 뒤 정확한 appcast 바이트만 Pages에 게시
+9. 해당 Pages 커밋의 상태 `built`와 공개 feed 전파 확인, 최종 원격 검증
 
----
+공식 AGY의 live gate는 skip이나 포트 개방, HTTP 200만으로 통과하지 않습니다. 사용자의 실제 AGY 설치 파일을 교체하지 않고 격리 복사본으로 업데이트를 재현합니다.
 
-## 2. 릴리스 후보 확정과 빌드
+driver는 임시 빌드·다운로드·마운트·worktree를 정리하고 설정된 복귀 계정으로 GitHub CLI를 복원합니다. 이전 앱을 Downloads에 준비하는 것은 검증용이며, 설치 앱을 자동으로 실행하지 않습니다.
 
-릴리스 전에는 `dev`의 작업 단위 커밋을 모두 push하고 전체 테스트, Release build, 실제 앱 QA, 코드 리뷰를 마칩니다. 그 뒤 `main`에 squash commit 하나로 반영합니다.
-
-다음 릴리스 작업을 시작할 때 `dev`를 최신 `main`으로 다시 맞추는 작업은 직전
-`dev`의 최종 tree가 `git diff --exit-code main dev` 기준으로 `main`과 동일해
-squash 반영이 끝났음을 확인한 뒤에만 수행합니다. 진행 중인 `dev`를 무조건
-재생성하거나 reset하지 않습니다.
+## 원격 검증
 
 ```bash
-git status --short
-git switch main
-git pull --ff-only origin main
-git merge --squash dev
-git commit -m "릴리스 변경 요약"
-xcodebuild test -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -destination 'platform=macOS'
-git push origin main
+./Scripts/verify-release-artifact.sh \
+  --tag vX.Y.Z-staging --channel staging \
+  --expected-version X.Y.Z --expected-build BUILD_NUMBER \
+  --verify-public-feed
 ```
 
-이후 산출물은 반드시 최종 `main`에서 새로 만듭니다. squash 전 산출물은 commit provenance가 다르므로 게시하지 않습니다.
+검증 기준:
 
-정상 배포에서는 이 시점부터 통합 driver를 실행합니다.
+- GitHub 자산의 크기와 SHA-256
+- feed와 업데이트 DMG의 Ed25519 서명
+- 서명된 feed의 ZIP SHA-256을 압축 해제 전에 대조
+- ZIP·DMG 양쪽 앱의 bundle identifier, 버전/build, 채널 feed, 공개키
+- 앱과 DMG의 공증·staple·Gatekeeper 결과
+- Git 태그의 노트 정본, GitHub 본문과 appcast 노트의 동일성
+- 배포 앱에 포함된 라이선스·외부 구성 요소 고지
+- Release appcast와 공개 feed의 바이트 동일성
 
-```bash
-./Scripts/release.sh stg X.Y.Z
-```
+`codesign`, `stapler`, `spctl`은 macOS 보안 서비스에 접근할 수 있는 환경에서 실행합니다. 제한된 샌드박스의 접근 거부를 서명 손상으로 단정하지 않습니다.
 
-아래 build 명령은 driver 내부 primitive를 수동 진단할 때의 참고입니다.
+## 실앱 업그레이드와 메뉴바
 
-배포 기준은 `RELEASE_DISTRIBUTION` 으로 고릅니다.
+설치본은 Finder에서 직접 실행합니다. Codex·Terminal 등 자동화 호스트의 실행 파일 호출이나 `open` 명령으로 시작하지 않습니다. macOS ControlCenter가 메뉴바 항목을 실행한 호스트에 잘못 연결할 수 있기 때문입니다.
 
-- `notarized` 기본값: Developer ID 서명, Apple notarization, staple, Gatekeeper 검증까지 수행합니다. 웹/공개 다운로드 또는 일반 사용자 배포 기준입니다.
-- `internal`: 사내 배포용 signed-only DMG 를 만듭니다. Developer ID 서명과 codesign 검증은 수행하지만 Apple notarization 과 staple 은 건너뜁니다. 다운로드 quarantine 경로에서는 macOS Gatekeeper 경고나 차단이 나올 수 있습니다.
+QA 중에는 한 채널만 실행하고 다음을 확인합니다.
 
-같은 이름의 유효한 `Developer ID Application` 인증서가 둘 이상이면 빌드
-스크립트는 임의 선택하지 않고 중단합니다. 먼저 기존 배포 앱 또는 직전 정상
-산출물의 서명 인증서 SHA-1을 확인하고, 현재 Keychain에 같은 인증서가 유효한지
-대조한 뒤 그 값을 `CERT_HASH`로 명시합니다.
+- `/Applications`의 의도한 앱에서 해당 채널 프로세스가 하나만 실행됨
+- 메뉴바 아이콘과 팝오버가 정상 표시됨
+- ControlCenter의 해당 PID에 `Adding displayable items`가 있고 `Moving host to blocked list`가 없음
+- 계정 선택·새로고침 후 실제 계정과 quota가 일치하고 이전 계정 값이 섞이지 않음
+- idle·반복 새로고침·화면 테마 변경에서 CPU 및 메뉴바 렌더 회귀가 없음
+- 설치 후보의 버전별 노트가 정본과 일치함
+- 이전 설치본 → 새 후보의 실제 Sparkle 업데이트가 성공함
+- 서명된 feed를 요구하는 설치본 → 다음 후보의 업데이트도 성공함
 
-```bash
-# 직전 정상 앱의 서명 인증서 SHA-1
-codesign -d --extract-certificates /path/to/ClaudeUsage.app
-openssl x509 -inform DER -in codesign0 -noout -fingerprint -sha1
+원격 DMG에서 검증한 앱만 설치에 사용하고, 검증 창·마운트·임시 산출물을 마무리합니다. 사용자의 다른 앱 설정이나 보호 저장소를 일반 정리 대상으로 취급하지 않습니다.
 
-# 현재 사용 가능한 Developer ID Application 인증서
-security find-identity -v -p codesigning
+## 서명된 feed와 키 복구
 
-CERT_HASH="확인한_SHA1_공백_없이" \
-RELEASE_CHANNEL=staging \
-./Scripts/build-notarize-release.sh
-```
+업데이트 payload는 Developer ID로 서명·공증한 DMG입니다. ZIP은 별도 다운로드용이며 SHA-256이 서명된 feed에 포함됩니다. 순서는 **XML 생성 → 노트 내장 → ZIP 해시 반영 → 최종 서명 → 검증 → 게시**입니다. 서명 뒤 XML을 다시 저장하면 안 됩니다.
 
-인증서 이름이 같다는 이유만으로 첫 번째 identity를 택하지 않습니다. 일치하는
-기존 정상 산출물이 없으면 인증서 만료일과 팀 ID를 확인하고 릴리스 담당자가
-대상을 명시적으로 결정해야 합니다.
+앱은 `SURequireSignedFeed`와 `SUVerifyUpdateBeforeExtraction`을 활성화합니다. feed 서명 실패 유예는 1,728,000초(20일)입니다. 유예 중에는 거부하고, 유예 이후에는 신뢰하지 못하는 노트·안내 링크를 제거한 복구 경로를 허용합니다. 업데이트 아카이브의 검증은 유지합니다.
 
-```bash
-# staging
-RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh
+실제 Sparkle 프레임워크의 headless fixture는 정상 feed, 변조, 다른 키, 유예 이후 노트 제거를 검증합니다. 운영 키나 시스템 시계를 바꾸지 않습니다.
 
-# prod
-RELEASE_CHANNEL=prod ./Scripts/build-notarize-release.sh
-
-# signed-only 사내 배포
-RELEASE_DISTRIBUTION=internal \
-BUILD_DIR="$HOME/Downloads/ClaudeUsage-internal-$(date +%Y%m%d-%H%M)" \
-./Scripts/build-notarize-release.sh
-```
-
-notarized 수행 단계:
-
-1. Xcode archive (`build/release/ClaudeUsage.xcarchive`)
-2. 앱을 ZIP 으로 감싸 notarytool 제출 (`--wait`)
-3. stapler 로 앱에 티켓 부착 후 `stapler validate` / `spctl --type execute` 검증
-4. stapled ZIP 재생성 (별도 다운로드 자산)
-5. `Scripts/make-dmg.sh` 호출 → `dmgbuild` 로 UI DMG 생성 + Developer ID 서명
-6. DMG notarization 제출 (`--wait`)
-7. DMG 에 티켓 부착 후 `stapler validate`
-8. `spctl --type open --context context:primary-signature` 최종 검증
-
-산출물:
-- `build/release/ClaudeUsage.xcarchive/Products/Applications/ClaudeUsage.app` (스테이플됨)
-- `build/release/ClaudeUsage.zip` (별도 다운로드용; 서명된 feed에 SHA-256 포함)
-- `build/release/ClaudeUsage.dmg` (설치 배포용)
-
-internal 수행 단계:
-
-1. Xcode archive
-2. Sparkle helper 와 앱을 Developer ID 로 재서명
-3. signed-only ZIP 생성
-4. `codesign --verify --deep --strict` 로 앱 검증
-5. `Scripts/make-dmg.sh` 호출 → `dmgbuild` 로 UI DMG 생성 + Developer ID 서명
-6. `codesign --verify` 로 DMG 검증, `spctl` 은 참고 결과로만 출력
-
-빠른 로컬 테스트로 DMG 를 건너뛰려면:
+EdDSA 키를 교체할 때는 기존 설치본의 신뢰 경로를 보존해야 합니다. 압축 해제 전 검증을 사용하는 경우 기존 Apple 인증서로 서명된 DMG가 복구 경로입니다. EdDSA 키와 Apple 인증서를 동시에 변경하지 않습니다.
 
 ```bash
-SKIP_DMG=1 ./Scripts/build-notarize-release.sh
-```
-
-### DMG UI 커스터마이징
-
-`Scripts/make-dmg.sh` 환경변수로 조정:
-- `WINDOW_W`, `WINDOW_H` — 창 크기 (기본 540×380)
-- `APP_ICON_X/Y`, `APPS_ICON_X/Y` — 아이콘 좌표
-- `BACKGROUND_PNG` — 배경 이미지 (기본 `Scripts/dmg-assets/background.png`)
-
-배경 이미지를 재생성하려면:
-
-```bash
-swift Scripts/dmg-assets/generate-background.swift Scripts/dmg-assets/background.png
-```
-
----
-
-## 3. GitHub 게시
-
-정상 경로에서는 이 절의 build/publish/download/verification을
-`./Scripts/release.sh stg|prod X.Y.Z`가 수행합니다. 아래 명령은 게시
-primitive를 독립적으로 복구·진단할 때만 사용합니다.
-
-```bash
-# working tree가 clean한 main이고, 산출물을 만든 commit을 고정할 때
-EXPECTED_COMMIT="$(git rev-parse HEAD)"
-./Scripts/publish-release.sh vX.Y.Z \
-  --channel prod \
-  --expected-commit "$EXPECTED_COMMIT" \
-  --skip-pages-publish
-```
-
-수행 단계:
-
-1. 태그 형식/중복 검증
-2. `build/release/` 에 DMG + ZIP 존재 확인
-3. Sparkle `generate_appcast` 로 `appcast.xml` 생성
-   - 다운로드 URL prefix 는 `--download-base-url`, `SPARKLE_DOWNLOAD_BASE_URL`, 또는 저장소의 `releases/download/<TAG>` 추론값을 사용
-   - `SUFeedURL` 은 Sparkle 클라이언트가 읽을 feed 위치로만 사용하며, GitHub Pages 채널 URL이어도 됩니다
-4. tracked 공개키로 appcast enclosure/length/Ed25519 signature 사전 검증
-5. 고정한 `--expected-commit`에만 `git tag` + `git push origin <TAG>`
-6. `gh release create` 로 DMG + ZIP + appcast.xml 업로드
-7. public Pages는 변경하지 않음. driver가 원격 세 asset을 완전히 검증한 뒤
-   verifier에서 export한 정확한 appcast 바이트만
-   [publish-pages-appcast.sh](../Scripts/publish-pages-appcast.sh)로 게시
-
-옵션:
-- `--prerelease` — pre-release 표시
-- `--channel prod|staging` — 기본 채널 지정 (미지정 시 stable=prod, prerelease=staging)
-- `--expected-commit SHA` — 검증·빌드한 main commit 고정(필수)
-- `--resume-exact-tag` — 같은 commit의 기존 tag만 재사용
-- `--notes-file docs/release-notes/X.Y.Z.md` — 버전별 노트 정본. 생략하면 같은 기본 경로를 사용하며 파일 누락·빈 내용·버전/commit 불일치는 게시 전에 차단합니다. 자동 생성 노트로 대체하지 않습니다.
-
-staging 예:
-
-```bash
-RELEASE_CHANNEL=staging ./Scripts/build-notarize-release.sh
-./Scripts/publish-release.sh vX.Y.Z-staging \
-  --prerelease \
-  --channel staging \
-  --expected-commit "$(git rev-parse HEAD)" \
-  --skip-pages-publish \
+./Scripts/release.sh stg X.Y.Z \
+  --previous-public-key "TRUSTED_PREVIOUS_PUBLIC_KEY" \
   --notes-file docs/release-notes/X.Y.Z.md
 ```
 
-게시 후에는 release의 원격 DMG를 다시 다운로드해 최종 사용자 경로를 검증합니다. 로컬 build 산출물을 Downloads에 복사한 것으로 원격 배포 검증을 대신하지 않습니다.
+이전 공개키는 이전 자산 검증에만 사용하며 새 후보는 현재 추적한 공개키로 검증합니다. driver는 이전 앱과 후보의 Apple leaf 인증서 일치를 확인합니다. 독립 verifier의 `--trusted-public-key`도 신뢰한 기존 기준으로만 사용해야 합니다. 두 신뢰 수단을 모두 잃은 경우에는 검증된 DMG의 수동 설치 절차가 필요합니다.
 
-```bash
-DOWNLOAD_DIR="$HOME/Downloads/ClaudeUsage-X.Y.Z-staging"
-mkdir -p "$DOWNLOAD_DIR"
-gh release download vX.Y.Z-staging \
-  --repo ChoSeongmin1128/claude-usage \
-  --pattern ClaudeUsage.dmg \
-  --dir "$DOWNLOAD_DIR"
+## 게시 중단과 복구
 
-xcrun stapler validate "$DOWNLOAD_DIR/ClaudeUsage.dmg"
-spctl -a -t open --context context:primary-signature -vv "$DOWNLOAD_DIR/ClaudeUsage.dmg"
-shasum -a 256 "$DOWNLOAD_DIR/ClaudeUsage.dmg"
-```
+| 상태 | 처리 |
+|---|---|
+| 태그와 Release 없음 | 전체 검증·빌드·게시 |
+| 현재 main을 가리키는 태그만 있음 | 같은 태그로 전체 검증 후 Release 생성 |
+| 세 자산이 완전하고 feed만 이전 상태 | 자산 재검증 후 Pages만 복구 |
+| 태그·자산·feed가 모두 일치 | 원격 재검증 |
+| 태그 불일치·불완전한 자산·분기 | 기존 후보를 보존하고 다음 버전 사용 |
 
-DMG를 mount한 뒤 앱도 별도로 확인합니다.
+일시적인 네트워크 실패와 실제 자산 결함을 구분하되, 검증 실패를 이유로 기존 자산을 덮어쓰지 않습니다. Pages push 성공만으로 공개 완료를 선언하지 않습니다. 공통 XML 파서는 구버전 ZIP과 현재 DMG의 채널·태그·버전을 함께 확인합니다.
 
-```bash
-xcrun stapler validate "/Volumes/ClaudeUsage/ClaudeUsage.app"
-spctl -a -t exec -vv "/Volumes/ClaudeUsage/ClaudeUsage.app"
-/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "/Volumes/ClaudeUsage/ClaudeUsage.app/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "/Volumes/ClaudeUsage/ClaudeUsage.app/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "/Volumes/ClaudeUsage/ClaudeUsage.app/Contents/Info.plist"
-```
+## 구버전 호환
 
-통합 driver는 새 publish 전에 이전 동일 채널 앱을 실제 Sparkle upgrade
-기준으로 준비하기 위해, 검증한 DMG의 앱으로
-`~/Downloads/ClaudeUsage.app`을 교체합니다. standalone verifier를 직접
-실행할 때는 `--install-to`를 지정한 경우에만 앱을 교체합니다. 배포 작업이
-끝나면 GitHub CLI 계정을 평소 계정으로 복원합니다.
+- 2.4.0 이전의 build number는 해당 릴리스의 메타데이터를 따릅니다.
+- 2.4.4 이전 staging은 현재와 bundle identifier가 달라 동일 앱 업그레이드 기준으로 사용할 수 없습니다.
+- 2.4.15 이전 자산은 ZIP enclosure와 기존 서명 검증을 유지합니다.
+- 2.4.15부터는 DMG enclosure, 서명된 feed와 버전별 노트 정본을 검증합니다.
 
-```bash
-gh auth switch --hostname github.com --user nathan-glorang
-```
-
-### Prod 전 수동 메뉴바 검증
-
-macOS 26의 ControlCenter는 다른 GUI 자동화 호스트가 메뉴바 앱을 실행하면
-status item의 bundle attribution을 그 호스트에 잘못 영구 저장할 수 있다.
-따라서 staging runtime QA에서는 Codex, Claude, CuaDriver, Terminal의 `open`,
-release script로 설치 앱을 실행하지 않는다. 검증 담당자가 Applications의
-`ClaudeUsage-stg.app`을 Finder에서 직접 실행해야 한다.
-
-직접 실행 직후 아래 세 조건을 모두 확인하기 전에는 prod를 실행하지 않는다.
-
-- 실제 메뉴바에 ClaudeUsage-stg 아이템이 표시됨
-- 같은 채널 프로세스가 정확히 하나이고 `/Applications/ClaudeUsage-stg.app`에서
-  실행됨
-- ControlCenter `appStatusItems` 로그에 해당 PID의 `Adding displayable items`가
-  있고 `Moving host to blocked list`가 없음
-
-자동화 호스트가 설치 앱을 한 번이라도 실행했다면 그 뒤의 Finder 실행도 이미
-오염된 ControlCenter 상태 때문에 실패할 수 있으므로 해당 QA는 유효하지 않다.
-보호 저장소를 백업·복구한 뒤 Finder 직접 실행부터 다시 검증한다.
-
-자동 테스트가 통과해도 위 세 항목은 대체되지 않는다. 특히 새 autosave
-name으로 처음 올라가는 upgrade 경로와 사용자가 시스템 설정에서 의도적으로
-숨긴 상태는 signed staging 앱으로 확인한다. 의도적 숨김은 앱이 상태 항목을
-재생성하거나 경고를 띄우면 실패다.
-
-모든 prod 승격은 아래 조건을 충족해야 합니다.
-
-1. notarized staging ZIP/DMG와 public staging appcast 원격 검증 통과
-2. 이전 같은 identity staging에서 후보로 업데이트 후 설정·계정·인증 상태 유지
-3. Finder의 Applications에서 직접 실행해 메뉴바 표시 및 popover 상호작용 확인
-4. 같은 채널 프로세스 1개, prod와 staging 동시 실행 시 각 1개 이하
-5. 정상 표시, 의도적 숨김, 재표시, 재부팅/로그인 항목 실행에서 반복 재생성 없음
-6. 위 실행 구간의 ControlCenter 로그에 차단 기록 없음
-7. idle 상태에서 ClaudeUsage와 WindowServer CPU가 안정되고, 동일 메뉴바 상태를
-   반복 렌더하지 않으며 appearance 전환이 의미 변화마다 한 번만 반영됨
-8. legacy `claude-session-key`가 UserDefaults에 없고 migration version이 현재이며,
-   Chrome↔Claude Code 계정 전환 10회에서 credential provenance가 유지되고
-   Keychain/password prompt가 없음
-9. 설치되고 로그인된 공식 AGY를 사용하는 live integration이 skip 없이 통과함
-
-한 항목이라도 확인하지 못하면 prod를 게시하지 않고 다음 staging 버전에서
-수정한다.
-
-prod 예:
-
-```bash
-./Scripts/release.sh prod X.Y.Z
-```
-
----
-
-## 자동 업데이트 동작
-
-Sparkle 이 클라이언트 앱에서 하는 일:
-1. `SUFeedURL` (= GitHub Pages channel URL) 을 30분마다 폴링
-2. `appcast.xml` 파싱 → 현재 설치 버전과 비교
-3. 새 버전이 있으면 서명된 feed를 검증한 뒤 `ClaudeUsage.dmg` 다운로드
-4. `SUPublicEDKey` 로 ED25519 서명 검증
-5. popover 설치 버튼을 누르면 `XPCServices/Installer.xpc` 가 교체 설치
-
-권장 feed 구조:
-
-- `prod`: `https://choseongmin1128.github.io/claude-usage/appcast.xml`
-- `staging`: `https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml`
-
-`gh-pages` 브랜치는 위 appcast를 배포하는 정적 브랜치입니다. 코드용 `stg` 브랜치와는 역할이 다릅니다. 현재는 별도 `stg` 코드 브랜치를 운용하지 않고, `main`에서 staging channel을 먼저 게시한 뒤 검증 완료분만 prod channel로 게시합니다.
-
-### 업데이트 채널 분리
-
-정상 배포에서는 `./Scripts/release.sh stg|prod X.Y.Z`가 채널을 고정합니다.
-저수준 build 진단에서만 `RELEASE_CHANNEL=staging|prod
-./Scripts/build-notarize-release.sh` 또는 `SU_FEED_URL`을 직접 사용합니다.
-staging과 prod는 앱에 들어가는 `SUFeedURL`이 다르므로 staging 산출물을 prod에
-재사용하지 않습니다.
-
----
-
-## 문제 해결
-
-### "No Keychain password item found for profile"
-
-notarytool 자격이 키체인에서 지워졌거나 잠겨있습니다.
-
-```bash
-security unlock-keychain ~/Library/Keychains/login.keychain-db
-# 또는 자격 재등록
-xcrun notarytool store-credentials "ClaudeUsageNotary" --apple-id ... --team-id ...
-```
-
-### "HTTP status code: 401. Invalid credentials"
-
-`ClaudeUsageNotary` notarytool keychain profile 은 존재하지만 Apple ID, team ID,
-또는 app-specific password 가 더 이상 유효하지 않은 상태입니다.
-`Scripts/build-notarize-release.sh` 는 archive 전에 `notarytool history` 로
-공증 자격을 사전 검증하므로, 이 오류가 나면 새 산출물은 만들어지지 않습니다.
-
-`keychain profile "ClaudeUsage" 이름이 ClaudeUsage 앱 세션 Keychain 항목과 충돌합니다`
-메시지가 함께 나오면, 로컬 `Config/Sparkle.release.local.xcconfig` 가 예전 기본값
-`NOTARY_PROFILE = ClaudeUsage` 를 가리키는 상태입니다. 이 이름은 앱의 기존
-세션 Keychain 서비스명과 충돌하므로 `NOTARY_PROFILE = ClaudeUsageNotary` 로
-바꾼 뒤 아래 복구 명령을 실행합니다.
-
-복구:
-
-```bash
-xcrun notarytool store-credentials "ClaudeUsageNotary" \
-    --apple-id "YOUR@EMAIL" \
-    --team-id "5YG4V2PLZV"
-# 프롬프트에서 appleid.apple.com 에서 새로 발급한 app-specific password 입력
-
-xcrun notarytool history --keychain-profile "ClaudeUsageNotary"
-```
-
-환경변수로 우회하려면 세 값을 모두 지정해야 합니다.
-
-```bash
-NOTARY_APPLE_ID="YOUR@EMAIL" \
-NOTARY_PASSWORD="APP_SPECIFIC_PASSWORD" \
-NOTARY_TEAM_ID="5YG4V2PLZV" \
-RELEASE_CHANNEL=prod \
-BUILD_DIR="$HOME/Downloads/ClaudeUsage-release-$(date +%Y%m%d-%H%M)" \
-./Scripts/build-notarize-release.sh
-```
-
-App Store Connect API key 를 쓰는 경우에는 `NOTARY_KEY_PATH`,
-`NOTARY_KEY_ID`, `NOTARY_ISSUER` 를 모두 지정하거나, CodexBar와 같은
-`APP_STORE_CONNECT_API_KEY_P8`, `APP_STORE_CONNECT_KEY_ID`,
-`APP_STORE_CONNECT_ISSUER_ID` 조합을 지정합니다. 후자는 스크립트가 임시
-`.p8` 파일로 변환해 `notarytool` 에 넘기고 종료 시 삭제합니다.
-
-### "SUFeedURL 을 찾지 못했습니다"
-
-`Config/Sparkle.release.local.xcconfig` 가 없거나 값이 placeholder 입니다. `Scripts/setup-sparkle-keys.sh` 재실행.
-
-### DMG UI 가 이상하게 뜸
-
-Finder 가 동명 볼륨의 과거 상태를 캐싱했을 수 있습니다.
-
-```bash
-killall Finder
-hdiutil detach "/Volumes/Install ClaudeUsage" -force 2>/dev/null
-```
-
-후 DMG 재마운트.
-
-### Notarization 이 "In Progress" 로 멈춤
-
-`--wait` 는 최대 3시간 대기합니다. 체크:
-
-```bash
-xcrun notarytool history --keychain-profile "ClaudeUsageNotary"
-xcrun notarytool log <submission-id> --keychain-profile "ClaudeUsageNotary"
-```
-
-대부분의 실패 원인은 hardened runtime 비활성이거나 entitlements 누락.
-
-### `generate_keys` / `generate_appcast` 를 못 찾음
-
-Xcode 에서 한 번 Release 빌드를 돌리면 Sparkle SPM artifact 가 `~/Library/Developer/Xcode/DerivedData` 에 다운로드됩니다. 그 후 재시도.
-
----
-
-## 체크리스트 요약
-
-릴리스 전:
-- [ ] `gh auth switch --hostname github.com --user ChoSeongmin1128`
-- [ ] `gh repo view --json nameWithOwner -q .nameWithOwner` 가 `ChoSeongmin1128/claude-usage` 출력
-- [ ] `git remote -v` 가 `git@github-seongmin:ChoSeongmin1128/claude-usage.git` 기준
-- [ ] working tree clean
-
-1회성:
-- [ ] `xcrun notarytool store-credentials ClaudeUsageNotary ...`
-- [ ] `./Scripts/setup-sparkle-keys.sh`
-- [ ] `pipx install dmgbuild` / `brew install gh`
-
-릴리스마다:
-- [ ] 버전 bump와 전체 검증을 `dev`에서 완료하고 `main`에 squash + push
-- [ ] 현재 계약이 바뀌었다면 README/HANDOFF/WORK_PLAN과 관련 reference 갱신
-- [ ] 공식 AGY live integration이 skip 없이 통과
-- [ ] `./Scripts/release.sh stg|prod X.Y.Z` 실행
-- [ ] 출력된 이전 prod/staging/code version과 계산된 build/tag 확인
-- [ ] 게시 직전 exact tag 입력
-- [ ] `gh-pages`의 `appcast.xml` / `channels/staging/appcast.xml` 확인
-- [ ] 원격 DMG·ZIP·appcast digest와 앱 notarization/Gatekeeper 검증 통과
-- [ ] `~/Downloads/ClaudeUsage[-stg].app`이 이전 동일 채널 버전인지 확인
-- [ ] 별도 Mac에서 앱 실행 후 "업데이트 확인"으로 Sparkle upgrade 검증
-- [ ] Finder 직접 실행, 채널별 단일 프로세스, ControlCenter 차단 부재 확인
-- [ ] idle/appearance 전환 CPU와 반복 메뉴바 렌더 회귀 확인
-- [ ] Claude account migration/provenance와 Keychain prompt 부재 확인
-- [ ] GitHub CLI active 계정이 `nathan-glorang`으로 복원됐는지 확인
-
-### 릴리스 노트 정본
-
-`docs/release-notes/X.Y.Z.md`를 코드와 함께 dev에서 리뷰하고 main squash에 포함합니다. 첫 줄은 `# X.Y.Z`, 본문은 사용자에게 달라지는 내용과 알려진 제한을 bullet로 작성합니다. 버전명만 적거나 개발 커밋 목록으로 대체하지 않습니다. BOM 없는 UTF-8과 LF 줄바꿈을 사용합니다.
-
-통합 driver는 빌드 전에 경로·내용·버전을 확인하고 배포 commit의 파일과 일치하는지 검사합니다. GitHub에는 `--notes-file`로 원본을 전달하고 Sparkle에는 같은 내용을 `description sparkle:format="plain-text"`로 내장합니다. 별도의 Markdown 파서나 두 번째 노트 원본은 두지 않습니다. 이 형식은 기존 Sparkle 2.8.1 설치본에서도 표시할 수 있습니다.
-
-앱의 예약 업데이트는 기본 Sparkle 알림창을 숨기므로 설정 → 업데이트 → 버전별 변경 사항에서도 내장 노트를 표시합니다. 설치 후보가 보이는 실제 설정 화면에서 정본과 같은 내용인지 확인합니다. feed 복구 시 Sparkle이 제거한 노트를 GitHub나 외부 URL에서 다시 가져오지 않습니다.
-
-게시 후 GitHub 본문과 appcast를 해당 태그의 노트 파일에 대조합니다. 2.4.14 이하의 기존 게시 자산은 노트 파일 도입 전 호환 검증을 유지하며 소급 수정하지 않습니다. 실제 업데이트 창에서도 노트를 확인합니다.
-
-### 서명된 feed와 키 복구
-
-새 릴리스는 `SURequireSignedFeed`와 `SUVerifyUpdateBeforeExtraction`을 활성화하고 서명된 DMG를 업데이트 대상으로 사용합니다. ZIP은 별도 다운로드 자산으로 유지하며 `claudeusage:zipSHA256`을 서명된 feed에 포함합니다. verifier는 업데이트 아카이브 서명과 ZIP 해시를 모두 압축 해제 전에 확인합니다. 2.4.14 이하의 기존 ZIP enclosure 검증은 호환 목적으로 유지합니다.
-
-순서는 appcast 생성 → 노트 내장 → ZIP 해시 반영 → Sparkle 2.10 `sign_update appcast.xml` 최종 서명 → 고정 공개키로 검증 → 게시입니다. 서명 후 XML을 다시 저장하면 안 됩니다. Pages는 검증된 원본 바이트만 복사합니다.
-
-서명 실패 유예는 Sparkle 기본값과 같은 1,728,000초(20일)로 명시합니다. 유예 중에는 잘못 서명된 feed를 거부하며, 유예 이후에는 신뢰하지 못하는 노트·안내 링크를 제거하고 복구 업데이트만 허용합니다. 아카이브 자체의 서명 검증은 계속 적용됩니다. 실제 프레임워크의 headless 테스트는 정상·변조·키 변경·유예 후 노트 제거를 검증하며 앱이나 창을 실행하지 않습니다.
-
-EdDSA 키를 불가피하게 바꿀 때는 기존의 신뢰한 앱 또는 리뷰된 Git 기록에서 확인한 이전 공개키를 `release.sh --previous-public-key BASE64`로 명시합니다. 이 키는 이전 릴리스 자산 검증에만 전달하며 새 후보는 현재 `Config/Release.xcconfig`의 공개키로 검증합니다. standalone verifier의 대응 옵션은 `--trusted-public-key`입니다. 임의 서버에서 받은 키를 신뢰 기준으로 삼지 않습니다.
-
-키 교체 후보는 이전 앱과 Apple leaf 서명 인증서가 같아야 합니다. EdDSA 키와 Apple 인증서를 동시에 바꾸면 driver가 차단합니다. 실제 배포 키의 생성·교체는 테스트가 수행하지 않습니다. 양쪽 신뢰 수단을 모두 잃었거나 복구 유예를 기다릴 수 없는 경우에는 공식 원격 DMG의 공증·Developer ID를 별도로 확인한 수동 설치가 필요합니다.
-
-실제 staging 검증은 기존 2.8.1 설치본 → 서명 검증을 활성화한 새 설치본뿐 아니라, 새 설치본 → 다음 후보까지 확인합니다. 앞 단계 성공만으로 새 소비자의 서명 검증을 통과했다고 기록하지 않습니다.
+현재 배포 상태의 정본은 [GitHub Releases](https://github.com/ChoSeongmin1128/claude-usage/releases)와 각 공개 채널 feed입니다.

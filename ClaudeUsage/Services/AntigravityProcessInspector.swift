@@ -66,7 +66,8 @@ nonisolated struct AntigravitySystemLibprocReader: AntigravityLibprocReading {
             return nil
         }
 
-        return URL(fileURLWithPath: String(cString: buffer))
+        let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+        return URL(fileURLWithPath: String(decoding: bytes, as: UTF8.self))
     }
 }
 

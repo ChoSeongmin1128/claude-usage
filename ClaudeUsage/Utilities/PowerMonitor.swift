@@ -21,7 +21,7 @@ class PowerMonitor: ObservableObject {
         startMonitoring()
     }
 
-    deinit {
+    isolated deinit {
         stopMonitoring()
     }
 

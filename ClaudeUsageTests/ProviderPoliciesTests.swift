@@ -1,6 +1,7 @@
 import XCTest
 @testable import ClaudeUsage
 
+@MainActor
 final class ProviderPoliciesTests: XCTestCase {
     func testShouldRefreshOnTabSwitchSkipsFreshSuccessfulContent() {
         let state = RuntimeProviderPresentationState(

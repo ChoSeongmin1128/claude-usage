@@ -112,6 +112,7 @@ actor AntigravityRefreshCoordinator:
 {
     private struct InFlight {
         let id: UUID
+        let startedAt: ContinuousClock.Instant
         let generation: UInt64
         let key: AntigravityRefreshFlightKey
         let request: AntigravityRefreshRequest
@@ -287,6 +288,7 @@ actor AntigravityRefreshCoordinator:
         let deadline = deadlineFactory()
         inFlight = InFlight(
             id: operationID,
+            startedAt: ContinuousClock.now,
             generation: operationGeneration,
             key: key,
             request: request,
@@ -371,6 +373,8 @@ actor AntigravityRefreshCoordinator:
            inFlight?.id == operationID
         {
             state = finalState
+            // One event per accepted flight, never per coalesced waiter or RPC poll.
+            OperationalLog.record(.antigravity(finalState), elapsed: operation.startedAt.duration(to: .now))
             lastCompletedFlight = (
                 key: operation.key,
                 state: finalState

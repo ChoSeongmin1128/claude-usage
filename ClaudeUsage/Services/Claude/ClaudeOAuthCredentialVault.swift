@@ -2,7 +2,7 @@ import Foundation
 import LocalAuthentication
 import Security
 
-protocol ClaudeOAuthCredentialVault: Sendable {
+nonisolated protocol ClaudeOAuthCredentialVault: Sendable {
     nonisolated func loadPayload() throws -> String?
     nonisolated func savePayload(_ payload: String) throws
     nonisolated func deletePayload() throws
@@ -127,7 +127,7 @@ nonisolated enum ClaudeOAuthLegacyAccessError: Error, Equatable, Sendable {
     case status(Int32)
 }
 
-protocol ClaudeOAuthLegacyCredentialMigrating: Sendable {
+nonisolated protocol ClaudeOAuthLegacyCredentialMigrating: Sendable {
     nonisolated func availability(
         destination: any ClaudeOAuthCredentialVault
     ) -> ClaudeOAuthCredentialMigrationAvailability

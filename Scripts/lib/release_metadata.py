@@ -60,7 +60,7 @@ def canonical_notes(root, version, path=None, commit=None):
 
 
 def appcast_item(path):
-    data = Path(path).read_bytes()
+    data = sys.stdin.buffer.read(2 * 1024 * 1024 + 1) if str(path) == "-" else Path(path).read_bytes()
     if b"<!DOCTYPE" in data or len(data) > 2 * 1024 * 1024:
         raise ValueError("appcast 크기가 제한을 초과했습니다")
     tree = ET.ElementTree(ET.fromstring(data))
@@ -135,6 +135,25 @@ def appcast_fields(path):
     return "\t".join(values)
 
 
+def channel_feed_state(path, channel):
+    version, build, url, _, length = appcast_fields(path).split("\t")
+    if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)", version):
+        raise ValueError("유효한 feed 버전이 필요합니다")
+    major, minor, patch = map(int, version.split("."))
+    expected_build = major * 10000 + minor * 100 + patch
+    if not re.fullmatch(r"[1-9][0-9]*", build) or not re.fullmatch(r"[1-9][0-9]*", length):
+        raise ValueError("feed 버전·빌드·크기가 일치하지 않습니다")
+    # Earlier published versions used a different build-number convention.
+    if (major, minor, patch) >= (2, 4, 0) and build != str(expected_build):
+        raise ValueError("feed 버전과 빌드가 일치하지 않습니다")
+    tag = "v" + version + ("-staging" if channel == "staging" else "")
+    archive = "ClaudeUsage.dmg" if (major, minor, patch) >= (2, 4, 15) else "ClaudeUsage.zip"
+    expected_url = "https://github.com/ChoSeongmin1128/claude-usage/releases/download/" + tag + "/" + archive
+    if url != expected_url:
+        raise ValueError("feed의 채널·태그·업데이트 자산이 일치하지 않습니다")
+    return "\t".join([version, build, tag])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -156,6 +175,9 @@ def main():
         command.add_argument("--appcast", required=True)
         command.add_argument("--zip-file", required=True)
     commands.add_parser("appcast-fields").add_argument("appcast")
+    feed_state = commands.add_parser("channel-feed-state")
+    feed_state.add_argument("--appcast", required=True)
+    feed_state.add_argument("--channel", required=True, choices=["prod", "staging"])
     commands.add_parser("validate-public-key").add_argument("key")
     args = parser.parse_args()
     if args.command == "validate-public-key":
@@ -173,6 +195,8 @@ def main():
         embed_notes(args.appcast, args.notes_file, args.version)
     elif args.command == "verify-notes":
         verify_notes(args.appcast, args.notes_file, args.version, args.release_json)
+    elif args.command == "channel-feed-state":
+        print(channel_feed_state(args.appcast, args.channel))
     else:
         print(appcast_fields(args.appcast))
 

@@ -409,7 +409,7 @@ enum ProviderEnvironmentDetector {
         refreshStatusInBackground(for: kind)
     }
 
-    private static func _uncachedStatus(
+    private nonisolated static func _uncachedStatus(
         for kind: AppProviderKind,
         precomputedSignals: Any? = nil
     ) -> ProviderEnvironmentStatus? {
@@ -490,7 +490,7 @@ enum ProviderEnvironmentDetector {
         }
     }
 
-    static func interpretAntigravity(signals: AntigravityEnvironmentSignals) -> ProviderEnvironmentStatus {
+    nonisolated static func interpretAntigravity(signals: AntigravityEnvironmentSignals) -> ProviderEnvironmentStatus {
         switch (
             signals.runningProcess,
             signals.hasPersistedAuthState,
@@ -574,7 +574,7 @@ enum ProviderEnvironmentDetector {
 
     /// Blocking. 백그라운드 경로 전용 — UI 메인 스레드에서 호출하지 말 것.
     /// /bin/ps · NSWorkspace · SQLite · 파일 IO 를 모두 포함.
-    static func antigravitySignals() -> AntigravityEnvironmentSignals {
+    nonisolated static func antigravitySignals() -> AntigravityEnvironmentSignals {
         let signals = uncachedAntigravitySignals()
         stateStore.storeAntigravitySignals(signals, cachedAt: Date())
         return signals

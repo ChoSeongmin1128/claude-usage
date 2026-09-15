@@ -1,6 +1,6 @@
 import Foundation
 
-protocol ClaudeLegacySandboxCredentialStoring: Sendable {
+nonisolated protocol ClaudeLegacySandboxCredentialStoring: Sendable {
     nonisolated func loadLegacySessionKey() throws -> String?
     nonisolated func deleteLegacySessionKey() throws
 }

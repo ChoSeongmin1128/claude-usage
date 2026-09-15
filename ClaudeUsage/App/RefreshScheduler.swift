@@ -14,7 +14,7 @@ final class RefreshScheduler {
         autoRefresh: Bool,
         shouldPoll: Bool,
         interval: TimeInterval,
-        onTick: @escaping () -> Void
+        onTick: @escaping @MainActor @Sendable () -> Void
     ) -> RefreshSchedulerChange {
         guard autoRefresh, shouldPoll else {
             return stop()
@@ -27,7 +27,8 @@ final class RefreshScheduler {
 
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: normalizedInterval, repeats: true) { _ in
-            onTick()
+            // This timer belongs to the main run loop where sync is isolated.
+            MainActor.assumeIsolated { onTick() }
         }
         activeInterval = normalizedInterval
         return .started(normalizedInterval)

@@ -38,7 +38,7 @@ final class LoginWebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
         self.parent.onStatusChanged(notice.text)
     }
 
-    deinit {
+    isolated deinit {
         for store in observedCookieStores {
             store.remove(self)
         }
@@ -85,13 +85,19 @@ final class LoginWebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
         handleAuthenticatedPage(webView: webView, isPopupWebView: isPopupWebView)
     }
 
-    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+    func webView(
+        _ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
+    ) {
         defer { decisionHandler(.allow) }
         guard !sessionKeyExtracted else { return }
         inspectRequestForSessionKey(navigationAction.request, source: "navigationAction")
     }
 
-    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+    func webView(
+        _ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping @MainActor @Sendable (WKNavigationResponsePolicy) -> Void
+    ) {
         defer { decisionHandler(.allow) }
         guard !sessionKeyExtracted else { return }
         inspectResponseForSessionKey(navigationResponse.response, source: "navigationResponse")

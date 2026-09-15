@@ -704,7 +704,7 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
 
         let result = await reader.importActiveCLICredential()
         let metadata = await metadataStore.load()
-        let subscriptionType = await metadata?.subscriptionType
+        let subscriptionType = metadata?.subscriptionType
 
         XCTAssertEqual(result, .imported(credentialChanged: false))
         XCTAssertEqual(subscriptionType, "team")
@@ -739,7 +739,7 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
 
         let result = await reader.importActiveCLICredential()
         let metadata = await metadataStore.load()
-        let subscriptionType = await metadata?.subscriptionType
+        let subscriptionType = metadata?.subscriptionType
 
         XCTAssertEqual(result, .imported(credentialChanged: false))
         XCTAssertEqual(subscriptionType, "team")

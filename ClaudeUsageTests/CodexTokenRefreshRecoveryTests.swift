@@ -1,8 +1,32 @@
 import XCTest
+import os
 @testable import ClaudeUsage
 
 @MainActor
 final class CodexTokenRefreshRecoveryTests: XCTestCase {
+    func testBackgroundCacheReadsAndInvalidationKeepCredentialsConsistent() async throws {
+        let directory = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("auth.json")
+        try writeAuthJSON(accessToken: "fixture-access", refreshToken: "fixture-refresh", to: path)
+        let manager = CodexAuthManager(authJsonPath: path.path)
+
+        let results = await withTaskGroup(of: Bool.self, returning: [Bool].self) { group in
+            for index in 0..<64 {
+                group.addTask {
+                    if index.isMultiple(of: 3) { manager.clearCache() }
+                    let token = manager.getToken()
+                    return token?.accessToken == "fixture-access" && token?.refreshToken == "fixture-refresh"
+                }
+            }
+            var results: [Bool] = []
+            for await result in group { results.append(result) }
+            return results
+        }
+        XCTAssertEqual(results.count, 64)
+        XCTAssertTrue(results.allSatisfy { $0 })
+    }
+
     override func tearDown() {
         CodexURLProtocolStub.handler = nil
         super.tearDown()
@@ -177,7 +201,12 @@ private final class CodexRequestRecorder: @unchecked Sendable {
 }
 
 private final class CodexURLProtocolStub: URLProtocol {
-    static var handler: ((URLRequest) -> (HTTPURLResponse, Data))?
+    typealias Handler = @Sendable (URLRequest) -> (HTTPURLResponse, Data)
+    private static let handlerState = OSAllocatedUnfairLock<Handler?>(initialState: nil)
+    static var handler: Handler? {
+        get { handlerState.withLock { $0 } }
+        set { handlerState.withLock { $0 = newValue } }
+    }
 
     override class func canInit(with request: URLRequest) -> Bool {
         true
@@ -203,7 +232,7 @@ private final class CodexURLProtocolStub: URLProtocol {
 }
 
 private func makeStubbedSession(
-    handler: @escaping (URLRequest) -> (HTTPURLResponse, Data)
+    handler: @escaping @Sendable (URLRequest) -> (HTTPURLResponse, Data)
 ) -> URLSession {
     CodexURLProtocolStub.handler = handler
     let configuration = URLSessionConfiguration.ephemeral

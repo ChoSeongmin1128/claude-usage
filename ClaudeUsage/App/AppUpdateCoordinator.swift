@@ -7,7 +7,7 @@ final class AppUpdateCoordinator {
     func apply(
         interval: UpdateCheckInterval,
         runImmediate: Bool,
-        performCheck: @escaping () -> Void
+        performCheck: @escaping @MainActor @Sendable () -> Void
     ) {
         timer?.invalidate()
         timer = nil
@@ -18,7 +18,8 @@ final class AppUpdateCoordinator {
 
         guard let seconds = interval.timerInterval else { return }
         timer = Timer.scheduledTimer(withTimeInterval: seconds, repeats: true) { _ in
-            performCheck()
+            // apply registers this timer on the main run loop.
+            MainActor.assumeIsolated { performCheck() }
         }
     }
 

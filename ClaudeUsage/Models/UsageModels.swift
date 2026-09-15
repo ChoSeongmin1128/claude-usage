@@ -8,7 +8,7 @@
 import Foundation
 
 /// Claude.ai API 전체 응답 구조
-struct ClaudeUsageResponse: Codable, Sendable {
+nonisolated struct ClaudeUsageResponse: Codable, Sendable {
     let fiveHour: UsageWindow
     let sevenDay: UsageWindow?
     let sevenDaySonnet: UsageWindow?  // 레거시 필드 (limits[]로 대체 중)
@@ -73,7 +73,7 @@ private struct DecodingSink: Decodable {
 
 /// `limits[]` 배열의 개별 한도 항목.
 /// 현재 확인된 형태: `kind: "weekly_scoped"` + `scope.model.display_name` (예: "Fable")
-struct ClaudeScopedLimit: Codable, Sendable, Equatable {
+nonisolated struct ClaudeScopedLimit: Codable, Sendable, Equatable {
     let kind: String?
     let group: String?
     let percent: Double?
@@ -168,7 +168,7 @@ struct ClaudeScopedLimit: Codable, Sendable, Equatable {
 }
 
 /// 팝오버에 표시하는 모델별 주간 한도 창 (limits[] + 레거시 필드 병합 결과)
-struct ClaudeModelWeeklyWindow: Sendable, Equatable {
+nonisolated struct ClaudeModelWeeklyWindow: Sendable, Equatable {
     let slug: String        // 표시 ID용 (예: "fable", "sonnet")
     let modelName: String   // 표시 이름 (예: "Fable")
     let utilization: Double
@@ -176,7 +176,7 @@ struct ClaudeModelWeeklyWindow: Sendable, Equatable {
 }
 
 /// 개별 사용량 윈도우 (5시간, 주간, Sonnet, Opus)
-struct UsageWindow: Codable, Sendable {
+nonisolated struct UsageWindow: Codable, Sendable {
     let utilization: Double   // 0.0 ~ 100.0+
     let resetsAt: String?     // ISO 8601 형식 (Pro 플랜은 null)
 
@@ -344,7 +344,7 @@ extension ClaudeUsageResponse {
 // MARK: - 추가 사용량 (Extra Usage / Overage)
 
 /// 추가 사용량 API 응답 (금액은 센트 단위로 수신)
-struct OverageSpendLimitResponse: Codable, Sendable, Equatable {
+nonisolated struct OverageSpendLimitResponse: Codable, Sendable, Equatable {
     let monthlyCreditLimitCents: Double  // 월별 한도 (센트)
     let usedCreditsCents: Double         // 사용한 금액 (센트)
     let isEnabled: Bool                  // Extra Usage 활성 여부

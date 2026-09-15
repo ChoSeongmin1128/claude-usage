@@ -61,7 +61,8 @@ nonisolated struct AntigravitySystemRunningExecutableImageValidator:
         guard result > 0 else {
             return nil
         }
-        let path = String(cString: buffer)
+        let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+        let path = String(decoding: bytes, as: UTF8.self)
         guard path.first == "/" else {
             return nil
         }

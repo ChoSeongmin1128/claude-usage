@@ -7,7 +7,15 @@
 
 import AppKit
 
+@MainActor
 enum MenuBarIconRenderer {
+    // Capture application appearance before the lazy drawing closure can run
+    // on another thread. Menu-bar appearance changes rebuild the image.
+    private static var isDarkAppearance: Bool {
+        (NSApp?.effectiveAppearance ?? NSAppearance.currentDrawing())
+            .bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+    }
+
     // MARK: - Battery Icon (Mac 스타일)
 
     /// Mac 배터리 UI 스타일 아이콘 생성
@@ -15,7 +23,7 @@ enum MenuBarIconRenderer {
     ///   - percentage: 사용률 (0~100)
     ///   - color: 채움 색상
     /// - Returns: 메뉴바용 NSImage
-    nonisolated static func batteryIcon(percentage: Double, color: NSColor, showPercent: Bool = true) -> NSImage {
+    static func batteryIcon(percentage: Double, color: NSColor, showPercent: Bool = true) -> NSImage {
         let height: CGFloat = 14
         let bodyWidth: CGFloat = 36
         let capWidth: CGFloat = 3
@@ -24,18 +32,13 @@ enum MenuBarIconRenderer {
         let capCornerRadius: CGFloat = 1.5
         let inset: CGFloat = 1.5
 
+        let isDark = isDarkAppearance
         let image = NSImage(size: NSSize(width: totalWidth, height: height), flipped: false) { rect in
             // 배터리 본체 외곽선
             let bodyRect = NSRect(x: 0.5, y: 0.5, width: bodyWidth - 1, height: height - 1)
             let bodyPath = NSBezierPath(roundedRect: bodyRect, xRadius: cornerRadius, yRadius: cornerRadius)
             bodyPath.lineWidth = 1.0
 
-            let isDark =
-                (NSApp?.effectiveAppearance
-                    ?? NSAppearance.currentDrawing())
-                    .bestMatch(
-                        from: [.darkAqua, .aqua]
-                    ) == .darkAqua
             let strokeColor: NSColor = isDark ? .white.withAlphaComponent(0.7) : .black.withAlphaComponent(0.5)
             strokeColor.setStroke()
             bodyPath.stroke()
@@ -94,7 +97,7 @@ enum MenuBarIconRenderer {
     ///   - percentage: 사용률 (0~100)
     ///   - color: 채움 색상
     /// - Returns: 메뉴바용 NSImage
-    nonisolated static func circularRingIcon(percentage: Double, color: NSColor) -> NSImage {
+    static func circularRingIcon(percentage: Double, color: NSColor) -> NSImage {
         let padding: CGFloat = 2  // 그림자를 위한 여유 공간
         let ringSize: CGFloat = 16
         let size = ringSize + padding * 2
@@ -102,13 +105,8 @@ enum MenuBarIconRenderer {
         let center = NSPoint(x: size / 2, y: size / 2)
         let radius = (ringSize - lineWidth) / 2
 
+        let isDark = isDarkAppearance
         let image = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
-            let isDark =
-                (NSApp?.effectiveAppearance
-                    ?? NSAppearance.currentDrawing())
-                    .bestMatch(
-                        from: [.darkAqua, .aqua]
-                    ) == .darkAqua
             let trackColor: NSColor = isDark ? .white.withAlphaComponent(0.2) : .black.withAlphaComponent(0.12)
 
             // 밝은/어두운 배경 대응 그림자
@@ -152,7 +150,7 @@ enum MenuBarIconRenderer {
     // MARK: - Concentric Rings Icon (동심원)
 
     /// 동심원 아이콘: 바깥=5시간, 안쪽=주간
-    nonisolated static func concentricRingsIcon(
+    static func concentricRingsIcon(
         outerPercent: Double,
         innerPercent: Double,
         outerColor: NSColor,
@@ -168,13 +166,8 @@ enum MenuBarIconRenderer {
         let totalSize = size + padding * 2
         let adjustedCenter = NSPoint(x: totalSize / 2, y: totalSize / 2)
 
+        let isDark = isDarkAppearance
         let image = NSImage(size: NSSize(width: totalSize, height: totalSize), flipped: false) { _ in
-            let isDark =
-                (NSApp?.effectiveAppearance
-                    ?? NSAppearance.currentDrawing())
-                    .bestMatch(
-                        from: [.darkAqua, .aqua]
-                    ) == .darkAqua
             let trackColor: NSColor = isDark ? .white.withAlphaComponent(0.15) : .black.withAlphaComponent(0.08)
 
             let shadow = NSShadow()
@@ -301,7 +294,7 @@ enum MenuBarIconRenderer {
     // MARK: - Dual Battery Icon (이중 배터리)
 
     /// 이중 배터리 아이콘: 위=5시간, 아래=주간 (소형, 퍼센트 없음)
-    nonisolated static func dualBatteryIcon(
+    static func dualBatteryIcon(
         topPercent: Double,
         bottomPercent: Double,
         topColor: NSColor,
@@ -317,13 +310,8 @@ enum MenuBarIconRenderer {
         let capCornerRadius: CGFloat = 1.0
         let inset: CGFloat = 1.0
 
+        let isDark = isDarkAppearance
         let image = NSImage(size: NSSize(width: totalWidth, height: totalHeight), flipped: false) { _ in
-            let isDark =
-                (NSApp?.effectiveAppearance
-                    ?? NSAppearance.currentDrawing())
-                    .bestMatch(
-                        from: [.darkAqua, .aqua]
-                    ) == .darkAqua
             let strokeColor: NSColor = isDark ? .white.withAlphaComponent(0.7) : .black.withAlphaComponent(0.5)
 
             func drawSmallBattery(yOffset: CGFloat, percentage: Double, color: NSColor) {
@@ -364,7 +352,7 @@ enum MenuBarIconRenderer {
     // MARK: - Side-by-Side Battery Icon (좌우 배터리)
 
     /// 좌우 배터리 아이콘: 왼쪽=5시간, 오른쪽=주간 (각각 단일과 동일 크기)
-    nonisolated static func sideBySideBatteryIcon(
+    static func sideBySideBatteryIcon(
         leftPercent: Double,
         rightPercent: Double,
         leftColor: NSColor,
@@ -378,13 +366,8 @@ enum MenuBarIconRenderer {
         let singleWidth = bodyWidth + capWidth + 1
         let totalWidth = singleWidth * 2 + gap
 
+        let isDark = isDarkAppearance
         let image = NSImage(size: NSSize(width: totalWidth, height: batteryHeight), flipped: false) { _ in
-            let isDark =
-                (NSApp?.effectiveAppearance
-                    ?? NSAppearance.currentDrawing())
-                    .bestMatch(
-                        from: [.darkAqua, .aqua]
-                    ) == .darkAqua
             let strokeColor: NSColor = isDark ? .white.withAlphaComponent(0.7) : .black.withAlphaComponent(0.5)
 
             drawFullBattery(xOffset: 0, yOffset: 0, percentage: leftPercent, color: leftColor, showPercent: showPercent, strokeColor: strokeColor, isDark: isDark)

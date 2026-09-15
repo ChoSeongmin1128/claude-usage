@@ -1,209 +1,76 @@
-# ClaudeUsage 프로젝트 작업 방식
+# 개발 및 기여
 
-최종 갱신: 2026-08-14
+## 브랜치와 변경 단위
 
-## 현재 기준
+- `main`: 검증된 배포 기준
+- `dev`: 최신 main에서 시작하는 구현·리뷰 작업
+- `gh-pages`: 검증된 appcast의 배포 결과
+- staging: 코드 브랜치가 아닌 릴리스 채널
 
-- `main`은 배포 가능한 squash commit만 두는 기준 브랜치입니다.
-- 기능/유지보수 작업은 최신 `main`에서 `dev`를 만들고 작업 단위별로 커밋해 원격 `dev`에 올립니다.
-- 검증과 코드 리뷰가 끝나면 `dev` 전체를 `main`에 squash commit 하나로 반영합니다.
-- `gh-pages` 는 Sparkle appcast와 GitHub Pages 정적 파일을 올리는 배포 산출물 브랜치입니다. 코드 작업이나 스테이징 검증 브랜치로 쓰지 않습니다.
-- staging은 브랜치가 아니라 release channel입니다. 최신 `main` 커밋을 prerelease로 빌드해 `channels/staging/appcast.xml` 에 게시합니다.
-- prod는 staging 검증이 끝난 버전만 stable release로 게시합니다.
-- 현재 게시 버전은 이 문서에 적지 않습니다. public appcast 두 채널과
-  GitHub Release, `README.md`/`HANDOFF.md`의 상태 기록을 확인합니다.
+관련된 변경을 한 커밋으로 묶고 dev에 push합니다. 코드 리뷰와 전체 테스트·Release 빌드·실앱 검증을 마친 뒤 main에 squash합니다. staged tree가 검증한 dev tree와 같은지 확인하고, 게시 산출물은 그 main 커밋에서 다시 만듭니다. 다음 작업 전에는 반영이 끝난 dev를 새 main 이력에 정렬합니다.
 
-## 브랜치와 채널
+진행 중인 변경을 덮어쓰거나, 충돌 해결 과정에서 검증한 tree와 다른 내용을 조합하지 않습니다. 커밋 메시지는 무엇을 왜 바꿨는지 설명합니다.
 
-| 구분 | 역할 | 현재 상태 |
-|---|---|---|
-| `main` | squash된 배포 후보와 릴리스 기준 | 사용 중 |
-| `dev` | 최신 `main` 기반 작업 단위 커밋/검증 | 사용 중 |
-| `stg` | 코드 브랜치가 아니라 staging channel로 운용 | 현재 브랜치 없음 |
-| `gh-pages` | appcast 정적 호스팅 | 스크립트가 갱신 |
+## 로컬 환경
 
-채널 URL:
+Xcode 프로젝트에서 자신의 서명 설정을 사용합니다. 공식 배포 driver는 대상 저장소·계정·원격·서명 정책을 고정하여 검증하므로, 포크에서 배포하려면 해당 정책과 채널 설정을 먼저 검토해야 합니다.
 
-- prod: `https://choseongmin1128.github.io/claude-usage/appcast.xml`
-- staging: `https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml`
+커밋하지 않는 항목:
 
-태그 규칙:
+- `Config/Sparkle.release.local.xcconfig`, `.env` 등 로컬 설정
+- 개인키·인증서·프로비저닝 파일과 공증 자격
+- 토큰·계정 주소·원본 인증 응답
+- 개인 머신의 절대 경로, SSH 설정, 계정 전환 기록
+- 빌드·다운로드·마운트·검증 로그 등 임시 산출물
 
-- prod: `vX.Y.Z`
-- staging: `vX.Y.Z-staging`
+Sparkle 공개키는 검증의 신뢰 기준이므로 추적합니다. 개인키는 Keychain에 보관합니다. 로컬 설정 재생성과 서명 키 교체는 다른 작업이며, 키 교체에는 기존 설치본의 업데이트 복구 검증이 필요합니다.
 
-`2.4.0` 이후 build number는
-`major * 10000 + minor * 100 + patch`로 계산합니다. 예:
-`2.4.0 → 20400`, `2.4.1 → 20401`, `2.4.10 → 20410`. 과거 `2.3.x`의 `20310/20320/20330`은
-published metadata에 남는 역사적 값이며 새 후보 계산에 재사용하지 않습니다.
-
-## GitHub 계정과 원격
-
-이 저장소의 배포 작업은 `ChoSeongmin1128/claude-usage` 기준으로 실행합니다.
-
-릴리스 전에 아래를 확인합니다.
+## 코드 검사
 
 ```bash
-gh auth status
-gh auth switch --hostname github.com --user ChoSeongmin1128
-gh repo view --json nameWithOwner -q .nameWithOwner
-git remote -v
+python3 Scripts/check-changes.py --base main
+# 필요한 경우 변경 범위만 포맷
+python3 Scripts/check-changes.py --base main --fix
 ```
 
-정상 기대값:
+Swift는 Xcode 내장 swift-format과 `.swift-format` 설정으로 변경한 줄을 검사합니다. 새 파일은 전체를 검사합니다. 관련 없는 파일의 일괄 포맷은 하지 않습니다. 변경된 셸 파일에는 ShellCheck 0.11.0이 필요하며, 버전 불일치나 검사 실패는 배포를 차단합니다.
 
-- `gh repo view` 출력: `ChoSeongmin1128/claude-usage`
-- `origin`: `git@github-seongmin:ChoSeongmin1128/claude-usage.git`
-
-여러 GitHub 계정을 쓰는 환경에서는 `nathan-glorang` 같은 다른 계정이 active인지 반드시 확인합니다. GitHub Release, tag push, `gh-pages` 갱신은 active 계정과 SSH alias가 서로 어긋나면 실패하거나 엉뚱한 권한 문제로 보입니다.
-
-배포가 끝난 뒤 평소 작업 계정으로 되돌려야 한다면 아래처럼 전환합니다.
+## 테스트
 
 ```bash
-gh auth switch --hostname github.com --user nathan-glorang
+xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage   -destination 'platform=macOS' test
+Scripts/tests/release-driver-tests.sh
 ```
 
-`github-seongmin` SSH host alias 설정은 개인 머신 설정이므로 저장소에 넣지 않습니다. 필요하면 `~/.ssh/config` 에서만 관리합니다.
+실제 외부 서비스가 필요한 테스트는 명시적인 opt-in으로 실행합니다. 필수 AGY release gate에서는 공식 CLI의 인증된 identity와 숫자 quota, 격리한 공식 실행 파일 교체 후 복구를 확인해야 합니다. skip이나 HTTP 200만으로 통과 처리하지 않습니다.
 
-## 로컬/개인 파일 관리
+동시성 변경은 취소·공유 조회·계정 전환·프로세스 소유권을 검토하고 필요한 경로를 Thread Sanitizer로 검증합니다. 사용자 로그인은 사용자가 수행하며 반복·경합은 가능한 한 결정적 fixture로 검증합니다.
 
-저장소에 커밋하지 않는 항목:
+## Swift 6의 실행 경계
 
-- `Config/Sparkle.release.local.xcconfig`
-- `.env`, `.env.*`
-- `*.local`, `*.local.*`, `*.secret`, `*.secrets`, `secrets/`
-- Apple notarization API key: `AuthKey_*.p8`, `*.p8`
-- 인증서와 프로비저닝 파일: `*.p12`, `*.mobileprovision`
-- 로컬 빌드 산출물: `build/`, `DerivedData/`, `*.xcarchive`
-- 배포 산출물: `ClaudeUsage.zip`, `ClaudeUsage.dmg`, `*.dmg`, `*.pkg`
-- 개인 머신 경로, SSH host alias 세부값, Apple ID, app-specific password
+| 영역 | 책임 |
+|---|---|
+| 화면·Sparkle UI 엔진·타이머 등록 | MainActor |
+| 계정·quota·출처 값 모델 | Sendable 값과 명시적인 nonisolated 계약 |
+| 동기 파일·Keychain 저장소 | nonisolated 프로토콜과 구현의 잠금·파일 검증 |
+| Codex 토큰 캐시 | 상태를 소유하는 잠금으로 읽기·갱신 보호 |
+| Codex 토큰 갱신 작업 | MainActor에서 중복 작업 공유 |
+| AGY 구성·조회·계정 변경 | 기존 actor와 lease·세대·취소 경계 |
 
-Sparkle 개인키, 실제 feed/profile과 공증 자격은 local override/Keychain에서
-관리합니다. `SUPublicEDKey`는 다운로드 서명의 공개 trust root이므로
-`Config/Release.xcconfig`에 추적합니다. `Scripts/setup-sparkle-keys.sh
---force`는 local 설정만 다시 작성하며 기존 Keychain signing key를 회전하지
-않습니다. 실제 키 회전은 기존 설치 앱의 update trust chain을 포함한 별도
-incident 절차로 수행하고, 새 key 생성 뒤 local 설정과 tracked trust root를
-함께 갱신해 source diff와 구버전 upgrade 호환성을 검토·commit한 뒤에만 새
-릴리스를 만듭니다.
+`MainActor.assumeIsolated`는 MainActor에서 등록한 main-run-loop 타이머와 `queue: .main` 알림처럼 실행 위치를 입증할 수 있는 동기 콜백에만 사용합니다. 임의의 백그라운드 작업을 통과시키는 용도로 사용하지 않습니다.
 
-주의: Xcode project의 code signing identity와 development team은 빌드 동작에 직접 영향을 줍니다. 완전한 개인 정보 분리를 원하면 별도 작업으로 signing 값을 local xcconfig로 이관한 뒤 release/test 빌드를 다시 검증해야 합니다.
+지연 렌더링 클로저에는 생성 시점의 화면 테마를 전달합니다. UI 객체 정리는 isolated deinit을 사용하지만, AGY 프로세스와 파일 소유권의 정리는 기존 명시적인 종료 절차를 유지합니다. Swift 6 전환만으로 기존 `@unchecked Sendable` 구현의 안전성이 보장되지는 않습니다.
 
-## 개발 및 Staging 배포 절차
+## 공개 문서와 릴리스 노트
 
-`dev`는 릴리스마다 최신 `main`에서 시작합니다. 서로 다른 변경은 커밋을 나누고 각 커밋을 원격 `dev`에 올립니다.
+README는 설치·사용·개발 안내, 기술 문서는 현재 계약과 재현 가능한 절차를 설명합니다. 개인 작업 일지·계정 전환 이력·머신별 검증 로그는 공개 문서에 추가하지 않습니다. 예시는 가상 데이터와 일반화된 경로를 사용합니다.
 
-```bash
-git switch main
-git pull --ff-only origin main
+버전별 `docs/release-notes/X.Y.Z.md`에 사용자에게 달라지는 내용과 알려진 제한을 작성하고 코드와 함께 리뷰합니다. 통합 driver가 같은 내용을 GitHub와 Sparkle에 전달합니다. 릴리스 노트는 버전명 한 줄이나 자동 생성 커밋 목록으로 대체하지 않습니다.
 
-# 직전 dev의 최종 tree가 main에 squash 반영됐는지 먼저 확인
-git diff --exit-code main dev
-git switch dev
-git reset --hard main
+라이선스 또는 의존성을 변경할 때는 `LICENSE`와 `THIRD_PARTY_NOTICES.md`를 검토합니다. 두 정본은 앱 리소스에도 포함됩니다. 외부 저작권 고지는 개인 작업 이력과 구분하여 보존합니다.
 
-# 작업 단위별
-git add <files>
-git commit -m "..."
-git push -u origin dev
-```
+## 실앱 검증
 
-`dev`를 최신 `main`으로 다시 맞추는 `reset --hard`는 직전 작업의 최종 tree가
-`main`과 동일해 squash 반영이 끝났음을 확인한 뒤에만 실행합니다. 진행 중인
-`dev`를 `git switch -C`로 무조건 재생성하지 않습니다. diff가 있으면 먼저
-`main..dev` 커밋과 squash 반영 상태를 조사합니다.
+설치 앱은 Finder에서 직접 실행합니다. 자동화 호스트의 실행 파일 호출이나 `open` 실행은 macOS ControlCenter의 메뉴바 연결을 오염시킬 수 있습니다. 한 채널만 실행한 상태에서 메뉴바·팝오버·계정 선택·새로고침·업데이트를 확인합니다.
 
-전체 XCTest, Release build, 실제 UI/계정 QA, 코드 리뷰가 끝난 뒤에만 squash합니다.
-현재 상태나 계약이 바뀌었다면 `README.md`, `HANDOFF.md`, `WORK_PLAN.md`와
-관련 `docs/` reference도 같은 release task에서 갱신합니다. 과거 release
-연대기는 현재 상태 문서에 누적하지 않고 Git history와 GitHub Release에 둡니다.
-
-```bash
-git status --short
-git switch main
-git pull --ff-only origin main
-git merge --squash dev
-git commit -m "릴리스 변경 요약"
-xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage -destination 'platform=macOS' test
-git push origin main
-```
-
-게시 산출물은 반드시 위 최종 `main` commit에서 새로 빌드합니다. `dev`나 이전 commit에서 만든 ZIP/DMG를 재사용하지 않습니다.
-
-```bash
-./Scripts/release.sh stg X.Y.Z
-```
-
-driver는 현재 code/prod/staging version과 build, 이전 동일 채널 tag,
-입력으로 생성될 `vX.Y.Z-staging`을 먼저 표시합니다. clean main,
-notary/test, 이전 원격 앱 준비, notarized build, exact-tag 게시 확인,
-새 원격 artifact 검증, 검증된 appcast의 Pages/feed 전파, public feed 포함
-최종 재검증을 순서대로 강제합니다. appcast의 Sparkle Ed25519
-signature/ZIP length/public key와 public feed의 byte-for-byte 동일성까지
-확인합니다.
-
-새 publish 전에 이전 staging Release의 원격 DMG·ZIP·appcast를 GitHub
-digest와 대조하고 mount/extract한 앱의 `stapler`, `spctl`, version/build,
-staging `SUFeedURL`을 확인합니다. 그 DMG에서 꺼낸 이전 앱만
-`~/Downloads/ClaudeUsage-stg.app`에 두어 실제 Sparkle upgrade 기준으로
-사용합니다. 새 후보 artifact는 게시 후 별도로 검증하며 Downloads 앱을 새
-후보로 덮지 않습니다. 단, `2.4.4`부터 staging app/bundle identifier가
-분리되며 최초 공개 버전에는 같은 identity의 이전 앱이 없습니다. 이 한 번만 구
-staging upgrade QA를 생략하고, 다음 staging부터 동일 identity upgrade를
-검증합니다.
-
-XCTest DerivedData/xcresult, archive 임시 설정, appcast staging,
-archive DerivedData와 release build는 각 사용 직후 삭제합니다.
-성공·실패·중단과 관계없이 남은 mount/download/worktree/실행 임시 루트를
-정리하고 GitHub CLI 계정을 `nathan-glorang`으로 복원합니다.
-
-배포가 중간에 끊기면 같은 명령을 재실행합니다. 현재 `main`과 정확히 같은
-tag만 있고 Release가 없으면 tag를 재사용합니다. 세 Release asset이
-완전하고 public feed만 이전 버전이면 build와 Downloads 교체 없이 Pages만
-복구합니다. 이미 모두 게시된 후보는 원격 검증만 다시 수행합니다.
-tag commit 불일치, partial/추가 asset, metadata/feed 분기는 기존 원격을
-수정하지 않고 다음 숫자 버전을 요구합니다.
-
-## Prod 배포 절차
-
-prod는 staging에서 같은 코드/동작 검증이 끝난 뒤에만 진행합니다. staging 산출물을 그대로 재사용하지 말고 prod feed URL이 들어간 release build를 다시 만듭니다.
-
-```bash
-./Scripts/release.sh prod X.Y.Z
-```
-
-driver는 동일 버전 `vX.Y.Z-staging`이 현재 `main`과 같은 commit을 가리키고
-draft가 아닌 prerelease인지 확인합니다. 실제 staging QA 완료 여부는 release
-기록만으로 추정하지 않으며 prod 실행 전에 별도로 확인해야 합니다. prod
-release는 prerelease로 만들지 않으며 prod appcast는 root `appcast.xml`을
-갱신합니다.
-
-## 검증 기준
-
-- `xcodebuild ... test` 통과
-- 설치되고 로그인된 공식 AGY를 사용하는 opt-in live integration 통과
-- `build/release/ClaudeUsage.zip` 과 `build/release/ClaudeUsage.dmg` 생성
-- `spctl -a -t open --context context:primary-signature -vv build/release/ClaudeUsage.dmg` 통과
-- GitHub Release에 `ClaudeUsage.zip`, `ClaudeUsage.dmg`, `appcast.xml` 업로드
-- Pages appcast의 `sparkle:shortVersionString` 과 `sparkle:version` 이 의도한 버전
-- staging/prod 앱에서 업데이트 확인이 각 채널 feed를 봄
-- release app 안의 `SUFeedURL` 이 의도한 채널 URL인지 확인
-- 설치 앱은 자동화 호스트가 아니라 사용자가 Finder의 Applications에서 직접
-  실행하고, 채널당 프로세스가 하나이며 메뉴바 status item이 정상 표시되는지 확인
-- 장시간 idle에서 ClaudeUsage와 WindowServer CPU가 안정되고, 동일 상태의 메뉴바
-  렌더가 반복되지 않으며 appearance 전환이 의미 변화마다 한 번만 반영되는지 확인
-- Claude 계정 전환에서 legacy `claude-session-key` 부재, migration version,
-  credential provenance와 Keychain/password prompt 부재 확인
-
-```bash
-/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' \
-  build/release/ClaudeUsage.xcarchive/Products/Applications/ClaudeUsage.app/Contents/Info.plist
-```
-
-GitHub Pages는 cache 때문에 feed 반영이 몇 분 늦을 수 있습니다. 의심되면 `git show origin/gh-pages:appcast.xml` 또는 `git show origin/gh-pages:channels/staging/appcast.xml` 로 브랜치 내용과 Pages 응답을 분리해서 확인합니다.
-
-### 노트와 배포 커밋
-
-배포할 버전의 `docs/release-notes/X.Y.Z.md`를 dev 리뷰에 포함합니다. 사용자에게 달라지는 내용·수정·알려진 제한을 검토하고 코드와 함께 main에 squash합니다. 릴리스 노트는 게시 시 임의 문자열이나 자동 생성 커밋 목록으로 대체하지 않습니다. 통합 스크립트의 `--notes-file` 검사와 GitHub/Sparkle 원격 내용 검증을 통과해야 합니다.
-
-실앱 실행은 검증 담당자가 Finder에서 직접 수행합니다. 자동화 호스트의 직접 실행은 ControlCenter 메뉴바 attribution을 오염시킬 수 있으므로 사용하지 않습니다.
+설치된 이전 버전에서 새 버전으로의 실제 업그레이드, 서명된 feed를 요구하는 설치본에서의 다음 업그레이드를 확인합니다. 검증이 끝나면 작업에서 만든 임시 산출물과 검증 창을 정리합니다. 상세 절차는 [배포 가이드](RELEASE.md)를 따릅니다.

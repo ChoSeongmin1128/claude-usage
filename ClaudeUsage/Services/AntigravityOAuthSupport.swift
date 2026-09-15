@@ -194,7 +194,7 @@ private nonisolated struct AntigravityLegacyOAuthCredentialMetadata: Decodable, 
     }
 }
 
-protocol AntigravityLegacyOAuthKeychainStore: Sendable {
+nonisolated protocol AntigravityLegacyOAuthKeychainStore: Sendable {
     nonisolated func loadStringWithoutAuthenticationPrompt(account: String) throws -> String?
     nonisolated func delete(account: String) throws
 }
@@ -303,7 +303,7 @@ private enum AntigravityLegacyKeychainNoUIQuery {
         query[kSecUseAuthenticationUI as String] = authenticationUIFailValue as CFString
     }
 
-    private static func resolveAuthenticationUIFailValue() -> String {
+    private nonisolated static func resolveAuthenticationUIFailValue() -> String {
         let securityPath = "/System/Library/Frameworks/Security.framework/Security"
         guard let handle = dlopen(securityPath, RTLD_NOW) else {
             return "u_AuthUIF"

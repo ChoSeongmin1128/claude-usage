@@ -1,7 +1,5 @@
 # Claude 인증 및 사용량 소스
 
-최종 갱신: 2026-08-14
-
 이 문서는 현재 `ClaudeUsage`가 Claude 인증과 사용량 조회를 어떤 경로로 다루는지 정리한 문서입니다.
 Antigravity의 로컬 앱, AGY CLI, Google OAuth 원격 quota 정책은 [Antigravity 사용량 소스와 설정 UX](antigravity-usage-sources.md)를 기준으로 합니다.
 
@@ -187,8 +185,7 @@ Claude의 `resets_at` 값은 정각 고정 리셋 시간이 아니라 API가 알
 - legacy `claude-session-key`가 UserDefaults에 남아 있지 않은지 값 출력 없이
   확인합니다.
 - account migration version이 현재 schema와 일치하는지 확인합니다.
-- Chrome Web 계정과 Claude Code 계정을 10회 전환해 이전 계정 사용량이나
-  credential provenance가 섞이지 않는지 확인합니다.
+- 변경된 인증 경로의 계정 전환에서 이전 계정 사용량이나 credential provenance가 섞이지 않는지 확인합니다. 반복·경합은 자동 테스트로 검증하고, 실제 로그인은 사용자가 수행합니다.
 - 위 전환과 background refresh에서 Keychain/password prompt가 없어야 합니다.
 - 사용자가 명시적으로 `Claude Code 다시 연결`을 실행한 경우의 단일 인증 요청과
   background prompt 부재를 구분합니다.

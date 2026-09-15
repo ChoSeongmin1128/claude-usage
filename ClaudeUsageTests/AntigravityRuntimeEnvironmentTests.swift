@@ -17,8 +17,8 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
     func testUnchangedFilesReuseTheGraphWithoutRevalidation() async throws {
         let fixture = EnvironmentFixture()
         let environment = fixture.environment()
-        _ = try await read(environment)
-        _ = try await read(environment)
+        _ = try await Self.read(environment)
+        _ = try await Self.read(environment)
         let builds = await fixture.builds
         XCTAssertEqual(builds, 1)
         await environment.shutdown()
@@ -27,9 +27,9 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
     func testReplacementRetiresOldSessionBeforeNewRecovery() async throws {
         let fixture = EnvironmentFixture()
         let environment = fixture.environment()
-        _ = try await read(environment)
+        _ = try await Self.read(environment)
         await fixture.change()
-        _ = try await read(environment)
+        _ = try await Self.read(environment)
         let events = await fixture.events
         XCTAssertEqual(events, ["recover:1", "shutdown:1", "recover:2"])
         await environment.shutdown()
@@ -41,7 +41,7 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
         let failure_executableMissing = try await runtimeFailure(environment)
         XCTAssertEqual(failure_executableMissing, .executableMissing)
         await fixture.change(status: .verified(displayPath: "test-agy"))
-        _ = try await read(environment)
+        _ = try await Self.read(environment)
         let availability = await environment.managedAvailability()
         XCTAssertEqual(availability, .available(displayPath: "test-agy"))
         await fixture.change(status: .notFound)
@@ -56,7 +56,7 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
         let failure_verificationRejected = try await runtimeFailure(environment)
         XCTAssertEqual(failure_verificationRejected, .verificationRejected)
         await fixture.change(status: .verified(displayPath: "test-agy"))
-        _ = try await read(environment)
+        _ = try await Self.read(environment)
         let availability = await environment.managedAvailability()
         XCTAssertEqual(availability, .available(displayPath: "test-agy"))
         await environment.shutdown()
@@ -71,7 +71,7 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
         let events = await fixture.events
         XCTAssertEqual(events, [])
         await fixture.setMutationDuringBuild(false)
-        _ = try await read(environment)
+        _ = try await Self.read(environment)
         let builds = await fixture.builds
         XCTAssertEqual(builds, 2)
         await environment.shutdown()
@@ -84,7 +84,7 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
         let failure_recoveryBlocked = try await runtimeFailure(environment)
         XCTAssertEqual(failure_recoveryBlocked, .recoveryBlocked)
         await fixture.setRecoveryFailure(false)
-        _ = try await read(environment)
+        _ = try await Self.read(environment)
         let builds = await fixture.builds
         XCTAssertEqual(builds, 1)
         let availability = await environment.managedAvailability()
@@ -104,7 +104,7 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
         }
         await gate.waitForEntry()
         await fixture.change()
-        let second = Task { try await self.read(environment) }
+        let second = Task { try await Self.read(environment) }
         // The first lease owns generation 1 until its operation completes.
         let before = await fixture.events
         XCTAssertEqual(before, ["recover:1"])
@@ -127,14 +127,14 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
             }
         }
         await gate.waitForEntry()
-        let waiter = Task { try await self.read(environment) }
+        let waiter = Task { try await Self.read(environment) }
         waiter.cancel()
         do { _ = try await waiter.value; XCTFail("Expected cancellation") } catch is CancellationError {}
         let builds = await fixture.builds
         XCTAssertEqual(builds, 1)
         await gate.release()
         _ = try await first.value
-        _ = try await read(environment)
+        _ = try await Self.read(environment)
         await environment.shutdown()
     }
 
@@ -160,16 +160,16 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
     func testForceDiscoveryInvalidatesWithoutRebuilding() async throws {
         let fixture = EnvironmentFixture()
         let environment = fixture.environment()
-        _ = try await read(environment)
+        _ = try await Self.read(environment)
         _ = try await environment.withSources(forceDiscovery: true, deadline: .init()) { _ in true }
-        let count = await fixture.discovery.invalidations
+        let count = fixture.discovery.invalidations
         let builds = await fixture.builds
         XCTAssertEqual(count, 1)
         XCTAssertEqual(builds, 1)
         await environment.shutdown()
     }
 
-    private func read(_ environment: AntigravityRuntimeEnvironment) async throws -> Int {
+    private static func read(_ environment: AntigravityRuntimeEnvironment) async throws -> Int {
         try await environment.withSources(forceDiscovery: false, deadline: .init()) { $0.count }
     }
 

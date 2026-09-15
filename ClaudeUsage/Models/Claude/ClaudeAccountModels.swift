@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-enum ClaudeAccountKind: String, Codable, CaseIterable, Sendable {
+nonisolated enum ClaudeAccountKind: String, Codable, CaseIterable, Sendable {
     case webSession = "web_session"
     case claudeCodeExternal = "claude_code_external"
 
@@ -15,7 +15,7 @@ enum ClaudeAccountKind: String, Codable, CaseIterable, Sendable {
     }
 }
 
-enum ClaudeAccountSource: String, Codable, Sendable, Equatable {
+nonisolated enum ClaudeAccountSource: String, Codable, Sendable, Equatable {
     case chromeProfile = "chrome_profile"
     case embeddedWebLogin = "embedded_web_login"
     case manualInput = "manual_input"
@@ -23,7 +23,7 @@ enum ClaudeAccountSource: String, Codable, Sendable, Equatable {
     case claudeCodeCLI = "claude_code_cli"
 }
 
-struct ClaudeAccountIdentity: Codable, Equatable, Sendable {
+nonisolated struct ClaudeAccountIdentity: Codable, Equatable, Sendable {
     var email: String?
     var organizationName: String?
     var organizationID: String?
@@ -67,7 +67,7 @@ struct ClaudeAccountIdentity: Codable, Equatable, Sendable {
     }
 }
 
-struct ClaudeAccount: Codable, Identifiable, Equatable, Sendable {
+nonisolated struct ClaudeAccount: Codable, Identifiable, Equatable, Sendable {
     var id: String
     var kind: ClaudeAccountKind
     var displayName: String
@@ -146,13 +146,13 @@ struct ClaudeAccount: Codable, Identifiable, Equatable, Sendable {
     }
 }
 
-protocol ClaudeSessionKeyVault: Sendable {
+nonisolated protocol ClaudeSessionKeyVault: Sendable {
     nonisolated func saveString(_ value: String, account: String) throws
     nonisolated func loadString(account: String) throws -> String?
     nonisolated func delete(account: String) throws
 }
 
-struct ClaudeAccountState: Equatable, Sendable {
+nonisolated struct ClaudeAccountState: Equatable, Sendable {
     var accounts: [ClaudeAccount]
     var activeAccountID: String?
 
@@ -166,7 +166,7 @@ struct ClaudeAccountState: Equatable, Sendable {
     }
 }
 
-struct ClaudeWebSessionUpsertResult: Sendable {
+nonisolated struct ClaudeWebSessionUpsertResult: Sendable {
     let account: ClaudeAccount
     let supersededAccountIDs: [String]
 }

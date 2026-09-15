@@ -1,5 +1,5 @@
-struct UsageWindowAlertPolicy {
-    struct Decision: Equatable {
+nonisolated struct UsageWindowAlertPolicy {
+    struct Decision: Equatable, Sendable {
         let thresholdToAlert: Int?
         let alertedThresholds: Set<Int>
     }

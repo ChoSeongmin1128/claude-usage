@@ -38,7 +38,7 @@ nonisolated enum OAuthCredentialVaultError: Error, Equatable, Sendable {
 /// Callers own payload encoding. The vault owns exact generic-password access and
 /// attribute-only discovery inside an explicit account namespace. Implementations
 /// must never log payloads or derive a reference from credential contents.
-protocol OAuthCredentialVault: Sendable {
+nonisolated protocol OAuthCredentialVault: Sendable {
     nonisolated func loadPayload(reference: String) throws -> Data?
     nonisolated func savePayload(_ payload: Data, reference: String) throws
     nonisolated func deletePayload(reference: String) throws

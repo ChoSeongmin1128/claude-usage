@@ -11,13 +11,13 @@ import AppKit
 import Sparkle
 #endif
 
-struct UpdateInfo: Sendable, Equatable {
+nonisolated struct UpdateInfo: Sendable, Equatable {
     let version: String
     let downloadURL: URL
     let releaseNotes: String
 }
 
-struct UpdateEngineStatus: Sendable, Equatable {
+nonisolated struct UpdateEngineStatus: Sendable, Equatable {
     let modeSummary: String
     let sparkleIntegrated: Bool
     let feedConfigured: Bool
@@ -66,13 +66,14 @@ private enum UpdateSessionOrigin: Sendable {
     case scheduled
 }
 
-enum UpdateCheckResult: Sendable {
+nonisolated enum UpdateCheckResult: Sendable {
     case available(UpdateInfo)
     case upToDate(message: String?)
     case error(String)
 }
 
-protocol AppUpdateEngine {
+@MainActor
+protocol AppUpdateEngine: Sendable {
     func modeSummary() async -> String
     func checkForUpdates() async -> UpdateCheckResult
     func latestDownloadURL() async -> URL
@@ -218,7 +219,7 @@ final class GitHubReleaseUpdateEngine: AppUpdateEngine {
 }
 
 #if canImport(Sparkle)
-enum SparkleUpdateResultInterpreter {
+nonisolated enum SparkleUpdateResultInterpreter {
     // Sparkle's NSError codes from SUErrors.h are not all surfaced as Swift symbols,
     // so we mirror the stable raw values we actually need here.
     private enum ErrorCode {
@@ -237,6 +238,33 @@ enum SparkleUpdateResultInterpreter {
         static let onNewerThanLatestVersion = 2
         static let systemIsTooOld = 3
         static let systemIsTooNew = 4
+    }
+
+    static func diagnosticOutcome(error: Error?, foundUpdate: Bool) -> OperationalDiagnostic.UpdateOutcome {
+        guard let error = error as NSError? else { return foundUpdate ? .available : .upToDate }
+        if isNoUpdateError(error) { return .upToDate }
+        // The outer appcast error can wrap feed signature rejection. Bound traversal
+        // and inspect only domain/code, never localized descriptions or userInfo text.
+        var current: NSError? = error
+        for _ in 0..<8 {
+            guard let candidate = current else { break }
+            if candidate.domain == SUSparkleErrorDomain && [3001, 3002].contains(candidate.code) {
+                return .validationFailed
+            }
+            current = candidate.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        if error.domain == NSURLErrorDomain {
+            return error.code == NSURLErrorCancelled ? .cancelled : .connectionFailed
+        }
+        guard error.domain == SUSparkleErrorDomain else { return .failed }
+        switch error.code {
+        case 1...7: return .configurationInvalid
+        case 1000, 1002, 1004, 1006, 1007: return .feedUnavailable
+        case 2000, 2001: return .downloadFailed
+        case 4007, 4008: return .cancelled
+        case 3000, 4000...4012: return .installationFailed
+        default: return .failed
+        }
     }
 
     static func resolve(error: Error?, fallback: UpdateCheckResult?) -> UpdateCheckResult {
@@ -313,6 +341,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     private var installRequestInProgress = false
     private var appliedFeedOverrideURL: URL?
     private var hasStartedUpdater = false
+    private var cycleStartedAt: ContinuousClock.Instant?
 
     static func makeIfConfigured() -> SparkleUpdateEngine? {
         guard let feedURL = UpdateConfigurationInspector.configuredFeedURL(),
@@ -539,6 +568,10 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
         return configuredFeedURL?.absoluteString
     }
 
+    func updater(_ updater: SPUUpdater, mayPerform updateCheck: SPUUpdateCheck) throws {
+        cycleStartedAt = .now
+    }
+
     func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
         if activeSessionOrigin == nil {
             activeSessionOrigin = .scheduled
@@ -654,6 +687,13 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
     }
 
     func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck, error: Error?) {
+        let foundUpdate: Bool
+        if case .available = lastCycleResult { foundUpdate = true } else { foundUpdate = false }
+        OperationalLog.record(
+            .update(SparkleUpdateResultInterpreter.diagnosticOutcome(error: error, foundUpdate: foundUpdate)),
+            elapsed: cycleStartedAt.map { $0.duration(to: .now) }
+        )
+        cycleStartedAt = nil
         let result = defaultResult(for: error)
 
         if case .checking = UpdateRuntimeState.shared.phase {

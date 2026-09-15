@@ -9,7 +9,7 @@
 import Foundation
 
 /// Codex (ChatGPT) 사용량 API 응답
-struct CodexUsageResponse: Codable, Sendable {
+nonisolated struct CodexUsageResponse: Codable, Sendable {
     let planType: String?
     let rateLimit: CodexRateLimit?
     let credits: CodexCredits?
@@ -59,7 +59,7 @@ private struct CodexDecodingSink: Decodable {
 }
 
 /// 모델별 추가 한도 항목 (additional_rate_limits[])
-struct CodexAdditionalRateLimit: Codable, Sendable {
+nonisolated struct CodexAdditionalRateLimit: Codable, Sendable {
     let limitName: String?
     let meteredFeature: String?
     let rateLimit: CodexRateLimit?
@@ -84,7 +84,7 @@ struct CodexAdditionalRateLimit: Codable, Sendable {
 }
 
 /// Codex 사용량 윈도우 (5시간/7일)
-struct CodexRateLimit: Codable, Sendable {
+nonisolated struct CodexRateLimit: Codable, Sendable {
     let primaryWindow: CodexUsageWindow?
     let secondaryWindow: CodexUsageWindow?
 
@@ -101,7 +101,7 @@ struct CodexRateLimit: Codable, Sendable {
 }
 
 /// 개별 사용량 윈도우
-struct CodexUsageWindow: Codable, Sendable {
+nonisolated struct CodexUsageWindow: Codable, Sendable {
     let usedPercent: Double
     let resetAt: Double?           // Unix timestamp (Int or Double)
     let limitWindowSeconds: Int?
@@ -178,7 +178,7 @@ struct CodexUsageWindow: Codable, Sendable {
 }
 
 /// Codex 크레딧 정보
-struct CodexCredits: Codable, Sendable {
+nonisolated struct CodexCredits: Codable, Sendable {
     let hasCredits: Bool
     let unlimited: Bool
     let balance: Double?
@@ -304,7 +304,7 @@ private extension String {
 // MARK: - Rate Limit 초기화 크레딧 (wham/rate-limit-reset-credits)
 
 /// 사용량 초기화 크레딧 목록 응답
-struct CodexResetCreditsResponse: Codable, Sendable, Equatable {
+nonisolated struct CodexResetCreditsResponse: Codable, Sendable, Equatable {
     let credits: [CodexResetCredit]
     /// API가 내려주는 사용 가능 개수 (없으면 credits에서 계산)
     let availableCountField: Int?
@@ -370,7 +370,7 @@ private struct CodexResetCreditDecodingSink: Decodable {
 }
 
 /// 개별 초기화 크레딧
-struct CodexResetCredit: Codable, Sendable, Equatable {
+nonisolated struct CodexResetCredit: Codable, Sendable, Equatable {
     let id: String?
     let resetType: String?
     let status: String

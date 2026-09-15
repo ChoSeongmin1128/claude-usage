@@ -611,7 +611,7 @@ private nonisolated struct AntigravityManagedProcessLedgerEnvelope:
     }
 }
 
-protocol AntigravityManagedProcessRecordStoring: Sendable {
+nonisolated protocol AntigravityManagedProcessRecordStoring: Sendable {
     nonisolated func load() throws -> [AntigravityManagedProcessRecord]
     nonisolated func update(
         _ record: AntigravityManagedProcessRecord
@@ -619,7 +619,7 @@ protocol AntigravityManagedProcessRecordStoring: Sendable {
     nonisolated func remove(sessionID: UUID) throws
 }
 
-protocol AntigravityManagedProcessLedgerStoring:
+nonisolated protocol AntigravityManagedProcessLedgerStoring:
     AntigravityManagedProcessRecordStoring
 {
     nonisolated func loadLedger()

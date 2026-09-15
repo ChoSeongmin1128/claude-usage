@@ -1,7 +1,5 @@
 # Antigravity 사용량 소스와 설정 UX
 
-최종 갱신: 2026-09-15
-
 이 문서는 ClaudeUsage의 Antigravity provider가 어떤 근거로 로컬 앱, AGY CLI, Google OAuth 원격 quota를 다루는지 정리합니다. 구현을 바꿀 때는 이 문서와 테스트를 같이 갱신해야 합니다.
 
 source·account·process lifecycle 계약은 이 문서를 따릅니다. 실제 게시 버전과
@@ -17,7 +15,7 @@ source·account·process lifecycle 계약은 이 문서를 따릅니다. 실제 
 - [Using AGY CLI](https://antigravity.google/docs/cli-using)
 - [Antigravity Changelog](https://antigravity.google/changelog?app=antigravity)
 
-2026-05-19 공개 기준으로 Antigravity 2.0은 기존 IDE와 분리된 standalone 앱입니다. AGY CLI는 `agy` 명령을 쓰는 terminal-first surface이고, Antigravity 2.0과 같은 agent harness 및 핵심 설정을 공유합니다. CLI 설정 파일은 공식 문서 기준 `~/.gemini/antigravity-cli/settings.json` 입니다.
+Antigravity 2.0은 기존 IDE와 분리된 standalone 앱입니다. AGY CLI는 `agy` 명령을 쓰는 terminal-first surface이고, Antigravity 2.0과 같은 agent harness 및 핵심 설정을 공유합니다. CLI 설정 파일은 공식 문서 기준 `~/.gemini/antigravity-cli/settings.json` 입니다.
 
 따라서 ClaudeUsage의 UX 기준은 다음입니다.
 
@@ -100,7 +98,7 @@ TUI 문자열을 파싱해 수치를 만들지 않습니다.
 - 인증 복구 후에도 응답 identity를 선택 계정과 대조합니다. 성공한 다른 소스가 없고 계정 불일치가 확인되면 후속 연결 오류보다 계정 불일치를 우선해 이전 값을 숨깁니다. 같은 계정의 단순 CSRF 실패는 마지막 성공 값과 시각을 stale로 유지합니다.
 - 외부 CLI의 로그인 변경은 명시적 새로고침에서 재확인합니다. 인증 파일 감시나 OAuth 저장 형식 변경은 추가하지 않습니다.
 
-2026-09-15 실증: 설치된 공식 AGY 1.2.2 SHA-256 `cabadc15a61944372bede1fdff186701c17467dd9d718e97dc79283055d3c101`의 동일 PID/HTTPS 포트에서 헤더 없음→401, 시작 인자와 같은 헤더→200, 다른 헤더→401을 확인했습니다. 인증된 identity와 숫자 quota를 별도로 확인했습니다. 이 값은 재현 근거이며 제품의 버전/해시 허용 목록이 아닙니다.
+인증 계약 검증은 격리한 동일 프로세스에서 헤더 없음→401, 올바른 헤더→인증된 identity와 숫자 quota, 다른 헤더→401을 확인합니다. CLI 버전이나 실행 파일 해시를 제품의 고정 허용 목록으로 사용하지 않습니다.
 
 ## 5. Google OAuth 원격 조회
 
@@ -255,9 +253,9 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
 - managed readiness는 socket/RPC 초기화만으로 끝나지 않습니다. AGY는 keyring
   인증이 비동기로 끝나기 전에도 `GetUserStatus`에 HTTP 200을 반환하므로,
   readiness probe는 응답에서 계정 identity(email)가 디코드될 때까지 시작
-  예산(기본 20초) 안에서 재시도합니다. 진짜 로그아웃 상태는 PTY의 blocking
+  예산 안에서 재시도합니다. 진짜 로그아웃 상태는 PTY의 blocking
   login prompt 분류가 `loginRequired`로 별도 차단하며, identity가 끝내
-  나타나지 않으면 readiness timeout으로 실패합니다.
+  나타나지 않으면 인증 복원이 필요하다는 원인으로 실패합니다.
 - managed 원장의 `incomplete` 관찰 기록은 신호 권한이 없지만, 기록된
   실행(owner/root child/observed descendants)이 전부 notFound이거나 PID
   재활용(kernel uniqueID 불일치)으로 확실히 죽었음이 증명되면 startup
@@ -269,14 +267,13 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
   교체 중)에 한해 짧게 재시도하고, 다른 실패는 첫 시도에서 fail-closed를
   유지합니다. 재시도 성공 경로도 동일한 catalog 재검증과 kernel image 검증을
   통과해야 합니다. 환경변수는 계속 명시적 화이트리스트만 전달합니다. AGY
-  인증은 keyring 기반이라 화이트리스트 7개만으로 세션 복원이 가능함을
-  실측으로 확인했습니다 (2026-08-24).
+  인증 복원에 필요한 명시적인 환경변수만 전달하며, 변경 시 실제 로그인된 CLI로 검증합니다.
 - `AntigravityLiveAGYIntegrationTests`는 opt-in 테스트입니다. 설치되고 로그인된
   공식 AGY를 production launcher로 실행해 HTTPS bootstrap port를 먼저 확인하고
   원본 grouped quota를 받은 뒤,
   Gemini와 Claude·GPT에 서버가 실제 제공한 quota가 숫자이며 지원되는 주기인지 확인하고
   local app → borrowed CLI → managed CLI 자동 조회 coordinator까지 검증합니다.
-- 2026-09-15 실제 전환 검증에서 계정 A는 두 그룹의 주간 quota 2개, 계정 B는 5시간/주간 quota 4개, 복귀한 A는 다시 2개를 반환했습니다. live 게이트는 모든 계정에 5시간 quota가 존재한다고 가정하지 않습니다. 없는 quota를 0%로 합성하지 않으며, 고정 5시간/주간 응답의 decode·렌더링은 fixture 테스트로 검증합니다.
+- live 게이트는 모든 계정에 같은 종류·개수의 quota가 존재한다고 가정하지 않습니다. 없는 quota를 0%로 합성하지 않으며, 주기별 decode·렌더링은 fixture 테스트로 검증합니다.
 - 실제 계정 변경 검증은 `testUserDrivenAccountSwitchAtoBtoA`를 별도 실행합니다. `CLAUDEUSAGE_AGY_ACCOUNT_SWITCH_GATE`의 임시 디렉터리에서 `A1.ready`, `B.continue`/`B.ready`, `A2.continue`/`A2.ready` 마커만 교환하고 로그인은 사용자가 수행합니다. identity는 메모리에서만 비교하며 마커/로그에는 계정 주소나 토큰을 쓰지 않습니다.
 - 통합 `Scripts/release.sh`는 전체 XCTest 직후 두 필수 live 테스트(인증된 quota, 격리 실행 파일 교체)를 직접 실행합니다.
   XCTest의 skip 결과만으로는 AGY 배포 게이트를 통과한 것으로 보지 않습니다.

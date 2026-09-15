@@ -7,20 +7,22 @@ final class NotificationManagerTests: XCTestCase {
     private var deliverer: MockNotificationDeliverer!
     private var manager: NotificationManager!
 
-    override func setUp() {
-        super.setUp()
+    @MainActor
+    override func setUp() async throws {
+        try await super.setUp()
         settingsSnapshot = AppSettings.shared.createSnapshot()
         deliverer = MockNotificationDeliverer()
         manager = NotificationManager(deliverer: deliverer)
         configureNotifications()
     }
 
-    override func tearDown() {
+    @MainActor
+    override func tearDown() async throws {
         AppSettings.shared.restore(from: settingsSnapshot)
         manager = nil
         deliverer = nil
         settingsSnapshot = nil
-        super.tearDown()
+        try await super.tearDown()
     }
 
     func testResetAtChangeDoesNotSendLegacyResetNotification() {

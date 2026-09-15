@@ -1144,7 +1144,7 @@ final class AntigravityManagedCLISessionTests:
     }
 }
 
-private final class ManagedSessionHarness {
+private final class ManagedSessionHarness: Sendable {
     let executable: AntigravityCanonicalExecutable
     let childIdentity: AntigravityVerifiedProcessIdentity
     let handle: ManagedSessionProcessHandleStub
@@ -1650,7 +1650,7 @@ private final class ManagedSessionRecordStoreStub:
     }
 
     func remove(sessionID: UUID) throws {
-        _ = lock.withLock {
+        lock.withLock {
             records.removeValue(forKey: sessionID)
             revision += 1
         }
@@ -1659,7 +1659,7 @@ private final class ManagedSessionRecordStoreStub:
     func removeIntent(
         _ intent: AntigravityManagedLaunchIntent
     ) throws {
-        _ = lock.withLock {
+        lock.withLock {
             intents.removeValue(forKey: intent.sessionID)
             revision += 1
         }
@@ -1935,9 +1935,7 @@ private final class ManagedSessionSynchronousGate:
             by: .seconds(2)
         )
         while ContinuousClock.now < deadline {
-            condition.lock()
-            let arrived = waiterArrived
-            condition.unlock()
+            let arrived = condition.withLock { waiterArrived }
             if arrived { return }
             try await Task.sleep(for: .milliseconds(5))
         }
@@ -1949,9 +1947,7 @@ private final class ManagedSessionSynchronousGate:
             by: .seconds(2)
         )
         while ContinuousClock.now < deadline {
-            condition.lock()
-            let observed = waiterObservedCancellation
-            condition.unlock()
+            let observed = condition.withLock { waiterObservedCancellation }
             if observed { return }
             try await Task.sleep(for: .milliseconds(5))
         }

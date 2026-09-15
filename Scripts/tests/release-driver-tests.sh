@@ -370,6 +370,15 @@ mkdir -p \
 ln -s "$TEST_PYTHON_EXECUTABLE" "$ORCHESTRATION_BIN/python3"
 create_fixture_notes "$ORCHESTRATION_REPOSITORY" 2.4.0
 
+cat > "$ORCHESTRATION_REPOSITORY/Scripts/check-changes.py" <<'SCRIPT'
+import os
+import sys
+from pathlib import Path
+with Path(os.environ["RELEASE_DRIVER_TEST_TRACE"]).open("a") as trace:
+    trace.write("gate <changed-code-static-checks>\n")
+sys.exit(1 if os.environ.get("RELEASE_DRIVER_TEST_STATIC_FAIL") == "1" else 0)
+SCRIPT
+
 cat > "$ORCHESTRATION_REPOSITORY/ClaudeUsage.xcodeproj/project.pbxproj" <<'PBX'
 {
     MARKETING_VERSION = 2.4.0;
@@ -890,6 +899,7 @@ run_orchestration_scenario() {
             "RELEASE_DRIVER_TEST_HEAD=$ORCHESTRATION_HEAD" \
             "RELEASE_DRIVER_TEST_PAGES_HEAD=$ORCHESTRATION_PAGES_HEAD" \
             "RELEASE_DRIVER_TEST_XCODEBUILD_FAIL=$xcodebuild_fail" \
+            "RELEASE_DRIVER_TEST_STATIC_FAIL=${RELEASE_DRIVER_TEST_STATIC_FAIL:-0}" \
             "RELEASE_DRIVER_TEST_CERT_CHANGED=$cert_changed" \
             "RELEASE_DRIVER_TEST_STAGING_IDENTITY_BOOTSTRAP_VERSION=$bootstrap_version" \
             "RELEASE_DRIVER_TEST_EXPECTED_FEED=https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml" \
@@ -946,6 +956,7 @@ assert_equal "0" "$SCENARIO_STATUS" "fresh staging actual path"
 assert_contains "$SCENARIO_OUTPUT" "candidate metadata state: fresh" "fresh state output"
 assert_contains "$SCENARIO_OUTPUT" "배포 및 원격 검증 완료" "fresh completion output"
 assert_contains "$SCENARIO_TRACE" "gate <release-driver-shell-tests>" "fresh shell gate"
+assert_ordered "$SCENARIO_TRACE" "gate <changed-code-static-checks>" "gate <release-driver-shell-tests>" "static checks before shell and build gates"
 assert_contains "$SCENARIO_TRACE" "xcodebuild <-project>" "fresh XCTest"
 assert_contains "$SCENARIO_TRACE" "xcodebuild-env <TMPDIR=$ORCHESTRATION_TMP/claudeusage-release-driver." "fresh XCTest TMPDIR is isolated"
 assert_contains "$SCENARIO_TRACE" "/tmp>" "fresh XCTest uses RUN_ROOT tmp"
@@ -995,6 +1006,14 @@ pass
 pass
 assert_orchestration_cleanup "fresh"
 assert_no_destructive_release_commands "$SCENARIO_TRACE" "fresh"
+
+RELEASE_DRIVER_TEST_STATIC_FAIL=1 run_orchestration_scenario \
+    fresh v2.3.3-staging $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-staging'
+[[ "$SCENARIO_STATUS" != 0 ]] || fail "static check failure must block the release"
+pass
+assert_not_contains "$SCENARIO_TRACE" "xcodebuild <-project>" "static failure blocks build"
+assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-staging>" "static failure blocks publication"
+assert_orchestration_cleanup "static failure"
 
 run_orchestration_scenario \
     fresh \

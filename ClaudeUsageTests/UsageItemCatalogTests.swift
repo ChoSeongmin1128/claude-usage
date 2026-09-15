@@ -332,6 +332,7 @@ private func decodeCodexUsage(_ json: String) throws -> CodexUsageResponse {
     try JSONDecoder().decode(CodexUsageResponse.self, from: Data(json.utf8))
 }
 
+@MainActor
 private func usageTitles(from sections: [PopoverDisplaySection]) -> [String] {
     sections.compactMap { section in
         guard case let .usage(data) = section.payload else { return nil }
@@ -339,6 +340,7 @@ private func usageTitles(from sections: [PopoverDisplaySection]) -> [String] {
     }
 }
 
+@MainActor
 private func compactLabels(from sections: [PopoverDisplaySection]) -> [String] {
     sections.compactMap { section in
         guard case let .usage(data) = section.payload else { return nil }
@@ -346,6 +348,7 @@ private func compactLabels(from sections: [PopoverDisplaySection]) -> [String] {
     }
 }
 
+@MainActor
 private func statusTitles(from sections: [PopoverDisplaySection]) -> [String] {
     sections.compactMap { section in
         guard case let .status(data) = section.payload else { return nil }
@@ -353,6 +356,7 @@ private func statusTitles(from sections: [PopoverDisplaySection]) -> [String] {
     }
 }
 
+@MainActor
 private func accountEmails(from sections: [PopoverDisplaySection]) -> [String] {
     sections.compactMap { section in
         guard case let .account(data) = section.payload else { return nil }

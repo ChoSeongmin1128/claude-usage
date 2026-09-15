@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum StatusIndicator: String, Codable, Sendable {
+nonisolated enum StatusIndicator: String, Codable, Sendable {
     case none       // 정상
     case minor      // 경미한 장애
     case major      // 주요 장애
@@ -36,7 +36,7 @@ enum StatusIndicator: String, Codable, Sendable {
     }
 }
 
-struct ProviderSystemStatus: Sendable {
+nonisolated struct ProviderSystemStatus: Sendable {
     let indicator: StatusIndicator
     let description: String
     let activeIncidentCount: Int
@@ -83,7 +83,7 @@ typealias ClaudeSystemStatus = ProviderSystemStatus
 
 // MARK: - API 응답 모델
 
-struct StatusPageResponse: Sendable {
+nonisolated struct StatusPageResponse: Sendable {
     let page: StatusPage
     let status: StatusInfo
     let components: [StatusComponent]
@@ -233,7 +233,7 @@ struct StatusPageResponse: Sendable {
     }
 }
 
-enum StatusPageInterpreter {
+nonisolated enum StatusPageInterpreter {
     nonisolated static func parseStatus(
         data: Data,
         relevantComponentNames: Set<String>? = nil,

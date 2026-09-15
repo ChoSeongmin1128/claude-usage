@@ -35,7 +35,7 @@ extension AntigravityRecordedProcessInspecting {
     /// unavailable lookup is never treated as absence. This single policy
     /// is shared by shutdown cleanup and crash recovery so the two ledger
     /// owners cannot drift apart.
-    func executionsAreProvablyGone(
+    nonisolated func executionsAreProvablyGone(
         _ identities: [AntigravityRecordedProcessIdentity]
     ) -> Bool {
         for identity in identities {

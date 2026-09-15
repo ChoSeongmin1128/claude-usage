@@ -355,6 +355,13 @@ verify_app_bundle() {
         [[ "$(/usr/libexec/PlistBuddy -c 'Print :SUSignedFeedFailureExpirationInterval' "$app_info")" == 1728000 ]] \
             || die "$source_label 앱의 feed 복구 유예 기간이 다릅니다."
     fi
+    if (( EXPECTED_BUILD >= 20500 )); then
+        local notice_name
+        for notice_name in LICENSE THIRD_PARTY_NOTICES.md; do
+            cmp -s "$DOWNLOAD_DIR/$notice_name" "$app_path/Contents/Resources/$notice_name" \
+                || die "$source_label 앱의 $notice_name 고지가 배포 태그의 정본과 다릅니다."
+        done
+    fi
 }
 
 DMG_ASSET_METADATA="$(read_asset_metadata ClaudeUsage.dmg)"
@@ -512,6 +519,13 @@ if (( EXPECTED_BUILD >= 20415 )); then
     python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" verify-notes \
         --appcast "$APPCAST_PATH" --notes-file "$DOWNLOAD_DIR/release-notes.md" \
         --version "$EXPECTED_VERSION" --release-json "$DOWNLOAD_DIR/release-metadata.json"
+fi
+if (( EXPECTED_BUILD >= 20500 )); then
+    for NOTICE_NAME in LICENSE THIRD_PARTY_NOTICES.md; do
+        curl -fsSL "https://raw.githubusercontent.com/$REPOSITORY/$TAG/$NOTICE_NAME" \
+            -o "$DOWNLOAD_DIR/$NOTICE_NAME"
+        [[ -s "$DOWNLOAD_DIR/$NOTICE_NAME" ]] || die "배포 태그의 $NOTICE_NAME 고지가 비어 있습니다."
+    done
 fi
 
 if [[ "$VERIFY_PUBLIC_FEED" == "1" ]]; then

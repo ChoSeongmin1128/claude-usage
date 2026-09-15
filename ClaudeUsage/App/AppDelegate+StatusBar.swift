@@ -23,6 +23,8 @@ extension AppDelegate {
                     object: nil,
                     queue: .main
                 ) { [weak self] _ in
+                // NotificationCenter delivers this observer on OperationQueue.main.
+                MainActor.assumeIsolated {
                     guard let self,
                           let appearance =
                             self.statusItem?.button?
@@ -34,6 +36,7 @@ extension AppDelegate {
                         appearance
                     )
                 }
+            }
     }
 
     // MARK: - Placement Watchdog

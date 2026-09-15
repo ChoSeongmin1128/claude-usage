@@ -2,6 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -91,7 +92,6 @@ class ReleaseMetadataTests(unittest.TestCase):
 
     def test_public_key_override_rejects_malformed_keys(self):
         script = Path(__file__).parents[1] / "lib/release_metadata.py"
-        import sys
         for key, success in [("11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=", True),
                              ("invalid", False), ("", False)]:
             result = subprocess.run([sys.executable, script, "validate-public-key", key], capture_output=True)
@@ -101,6 +101,32 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.appcast.write_text("<rss><channel><item/><item/></channel></rss>")
         with self.assertRaises(ValueError):
             metadata.appcast_item(self.appcast)
+
+    def test_public_feed_state_supports_legacy_zip_and_current_dmg(self):
+        for version, build, archive, channel in [("2.3.3", "20330", "zip", "prod"),
+                                                  ("2.4.14", "20414", "zip", "staging"),
+                                                  ("2.4.15", "20415", "dmg", "staging")]:
+            with self.subTest(version=version):
+                tag = "v" + version + ("-staging" if channel == "staging" else "")
+                xml = ('<rss xmlns:sparkle="' + metadata.SPARKLE + '"><channel><item>'
+                       '<sparkle:shortVersionString>' + version + '</sparkle:shortVersionString>'
+                       '<sparkle:version>' + build + '</sparkle:version>'
+                       '<enclosure\n length="100" sparkle:edSignature="fixture"\n url="'
+                       'https://github.com/ChoSeongmin1128/claude-usage/releases/download/' + tag
+                       + '/ClaudeUsage.' + archive + '"/></item></channel></rss>')
+                self.appcast.write_text(xml)
+                self.assertEqual(metadata.channel_feed_state(self.appcast, channel),
+                                 "\t".join([version, build, tag]))
+                # Exercise the same stdin path as the integrated driver.
+                result = subprocess.run([sys.executable, spec.origin,
+                                         "channel-feed-state", "--appcast", "-", "--channel", channel],
+                                        input=xml.encode(), capture_output=True, check=True)
+                self.assertEqual(result.stdout.decode().strip(), "\t".join([version, build, tag]))
+                with self.assertRaises(ValueError):
+                    metadata.channel_feed_state(self.appcast, "prod" if channel == "staging" else "staging")
+                self.appcast.write_text(xml.replace("ClaudeUsage." + archive, "ClaudeUsage.pkg"))
+                with self.assertRaises(ValueError):
+                    metadata.channel_feed_state(self.appcast, channel)
 
 
 if __name__ == "__main__":

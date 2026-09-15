@@ -151,7 +151,7 @@ nonisolated struct AntigravityMigrationRepositoryPlan: Equatable, Sendable {
     let accounts: [AntigravityMigrationPlannedAccount]
 }
 
-protocol AntigravityAccountMetadataStoring: Sendable {
+nonisolated protocol AntigravityAccountMetadataStoring: Sendable {
     nonisolated func load() throws -> AntigravityAccountRepositoryState?
     nonisolated func save(_ state: AntigravityAccountRepositoryState) throws
     nonisolated func delete() throws
@@ -209,7 +209,7 @@ nonisolated struct AntigravityAccountOperationJournal: Codable, Equatable, Senda
     }
 }
 
-protocol AntigravityAccountOperationJournalStoring: Sendable {
+nonisolated protocol AntigravityAccountOperationJournalStoring: Sendable {
     nonisolated func load() throws -> AntigravityAccountOperationJournal?
     nonisolated func save(_ journal: AntigravityAccountOperationJournal) throws
     nonisolated func delete() throws

@@ -12,7 +12,7 @@ import CryptoKit
 actor ClaudeAPIService {
     // MARK: - Properties
 
-    struct OrganizationSummary: Sendable, Equatable, Identifiable, Codable {
+    nonisolated struct OrganizationSummary: Sendable, Equatable, Identifiable, Codable {
         let id: String
         let name: String?
         let planLabel: String?

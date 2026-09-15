@@ -1,6 +1,6 @@
 import Foundation
 
-struct ClaudeCredentialRefreshRequest: Equatable, Sendable {
+nonisolated struct ClaudeCredentialRefreshRequest: Equatable, Sendable {
     let accountID: String?
     let refreshOAuthCredentialInventory: Bool
     let requireUsageValidation: Bool

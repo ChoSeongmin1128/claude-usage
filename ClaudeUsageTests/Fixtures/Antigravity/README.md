@@ -1,8 +1,7 @@
 # Antigravity quota fixtures
 
-`agy-1.1.7-quota-summary.json` was captured on 2026-07-26 from the local
-AGY 1.1.7 `RetrieveUserQuotaSummary` endpoint. AGY was launched with
-`AGY_CLI_DISABLE_AUTO_UPDATE=true`.
+`agy-1.1.7-quota-summary.json` models the response shape of the local
+AGY 1.1.7 `RetrieveUserQuotaSummary` endpoint.
 
 The fixture preserves the observed response envelope, field names, array shape,
 product-level group and bucket identifiers, `window` values, and optional-field
@@ -11,8 +10,7 @@ contained live reset timing were replaced with deterministic fixture values.
 The captured payload contained no email, token, or account identifier fields.
 The unsanitised response is not retained.
 
-This is one account and version snapshot of an undocumented local endpoint, not
-an upstream compatibility guarantee.
+This version-specific schema fixture is not an upstream compatibility guarantee.
 
 This fixture is only the deterministic decoder characterization baseline.
 Live-AGY release evidence is owned by the release process documents, not by
