@@ -70,12 +70,12 @@ Antigravity 2.0은 기존 IDE와 분리된 standalone 앱입니다. AGY CLI는 `
 
 1. `/bin/ps -ax -o pid=,command=` 로 Antigravity language server를 찾습니다.
 2. Antigravity 2.0의 `language_server`와 기존 `language_server_macos` 계열을 모두 허용합니다.
-3. standalone Antigravity 2.0 프로세스를 legacy IDE 프로세스보다 우선합니다.
+3. 검증된 독립 앱 bundle의 language server만 허용하며 Antigravity IDE는 제외합니다.
 4. `--https_server_port`, `--extension_server_port`, `--csrf_token`, `--extension_server_csrf_token` 을 읽습니다.
 5. `0` 또는 범위를 벗어난 포트는 버립니다. Antigravity 2.0이 `--https_server_port 0` 을 남기는 경우가 있어서 필수 방어입니다.
 6. `lsof` 로 실제 LISTEN 포트를 추가 수집하고, flag hint와 합쳐 probe합니다.
-7. `GetUnleashData` 로 연결 가능한 endpoint를 고른 뒤 `GetUserStatus` 를 우선 호출합니다.
-8. `GetUserStatus` 실패 시 `GetCommandModelConfigs` 로 quota-only fallback을 시도합니다.
+7. 검증된 endpoint에서 `GetUserStatus`로 인증된 identity를 확인한 뒤 `RetrieveUserQuotaSummary`를 요청하고, 다시 identity를 확인합니다.
+8. grouped quota가 지원되지 않는 등 허용된 경우에만 같은 endpoint의 제한된 응답 경로를 사용합니다. 인증 실패를 우회하지 않으며, quota 전후 identity가 일치하지 않으면 수치를 표시하지 않습니다.
 
 로컬 API는 self-signed HTTPS를 쓸 수 있으므로 local session은 ephemeral session과 trust override를 씁니다. 이 경로는 Antigravity 앱 프로세스의 CSRF token이 필요하며, 실패하면 cache를 무효화하고 다음 refresh에서 재탐지합니다.
 
@@ -170,6 +170,7 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
 - `AntigravityQuotaPresentationMapperTests`: lane grouping, 미지원/불가 값, multi-lane 정렬, menu bar single lane, freshness
 - `AntigravityQuotaPresentationRenderingTests`: standard/compact 실제 렌더 폭, 다중 lane, 합성 0% 방지
 - `AntigravityRefreshCoordinatorTests`, `AntigravityRuntimeControllerTests`: 계정/세션 경계, stale 응답 차단, display mutation 직렬화
+- `AntigravityRefreshCoordinatorTests`, `AntigravityLocalRPCModelsTests`: 제품 간 fallback 차단, quota 조회 전후 identity 일치와 계정 변경 재시도
 - `AntigravityAccountRepositoryTests`, `AntigravityMigrationCoordinatorTests`: vault write/read-back, 잔여 데이터 제거
 - `AntigravityDisplaySettingsV2MigrationTests`, `AntigravitySettingsMigrationCoordinatorTests`: display schema v1→v2, 구 UserDefaults 이전, rollback/marker 순서, idle timeout 보존, generic Antigravity 키 제거
 - `AntigravityDisplayAdapterTests`, `ProviderDisplayArchitectureTests`: known/unknown/unavailable lane, all-hidden, 1~6 compact row, Claude/Codex preference persistence, adapter status contract
@@ -178,7 +179,7 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
 - `AntigravityOAuthAccountStoreTests`: multi-account active credential 동기화
 - `ProviderEnvironmentDetectorTests`, `RuntimeProviderSettingsPresentationTests`, `PopoverViewModelTests`: 자동 조회 readiness 해석과 lane 경계
 
-원격 endpoint가 private/internal 성격이므로 “실패하지 않는다”보다 “응답 shape 변화가 어디에서 깨졌는지 빠르게 드러난다”가 테스트의 목적입니다.
+프로세스와 RPC 응답의 변경에 대비해, 검증이 깨진 위치와 복구 동작을 테스트합니다.
 
 ## 9. 운영 리스크
 
@@ -219,12 +220,11 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
   인증 복원에 필요한 명시적인 환경변수만 전달하며, 변경 시 실제 로그인된 CLI로 검증합니다.
 - `AntigravityLiveAGYIntegrationTests`는 opt-in 테스트입니다. 설치되고 로그인된
   공식 AGY를 production launcher로 실행해 HTTPS bootstrap port를 먼저 확인하고
-  원본 grouped quota를 받은 뒤,
-  Gemini와 Claude·GPT에 서버가 실제 제공한 quota가 숫자이며 지원되는 주기인지 확인하고
-  local app → borrowed CLI → managed CLI 자동 조회 coordinator까지 검증합니다.
+  인증된 identity와 원본 grouped quota를 검증합니다. CLI를 조회 대상으로 지정한
+  coordinator의 borrowed CLI → managed CLI 경로도 확인하며 독립 앱으로 전환하지 않습니다.
 - live 게이트는 모든 계정에 같은 종류·개수의 quota가 존재한다고 가정하지 않습니다. 없는 quota를 0%로 합성하지 않으며, 주기별 decode·렌더링은 fixture 테스트로 검증합니다.
-- 실제 계정 변경 검증은 `testUserDrivenAccountSwitchAtoBtoA`를 별도 실행합니다. `CLAUDEUSAGE_AGY_ACCOUNT_SWITCH_GATE`의 임시 디렉터리에서 `A1.ready`, `B.continue`/`B.ready`, `A2.continue`/`A2.ready` 마커만 교환하고 로그인은 사용자가 수행합니다. identity는 메모리에서만 비교하며 마커/로그에는 계정 주소나 토큰을 쓰지 않습니다.
-- 통합 `Scripts/release.sh`는 전체 XCTest 직후 필수 live 테스트(인증된 quota, 격리 실행 파일 교체, OAuth 없는 로컬 선택·저장·세션 재사용)를 직접 실행합니다.
+- 실제 로그인 변경 검증은 `AntigravityLiveLocalSelectionTests/testUserDrivenCLILoginChangesKeepUsageTarget`을 별도 실행합니다. `CLAUDEUSAGE_AGY_TARGET_SWITCH_GATE`의 임시 디렉터리에서 `A1.ready`, `B.continue`/`B.ready`, `A2.continue`/`A2.ready` 마커만 교환하고 로그인은 사용자가 수행합니다. CLI 조회 대상을 유지한 채 수동 새로고침으로 A→B→A의 identity와 숫자 quota를 확인하고, 이후 정기 조회의 세션 재사용도 검증합니다. identity는 메모리에서만 비교하며 마커/로그에는 계정 주소나 토큰을 쓰지 않습니다.
+- 통합 `Scripts/release.sh`는 전체 XCTest 직후 필수 live 테스트(인증된 quota, 격리 실행 파일 교체, 조회 대상 저장·현재 로그인·세션 재사용)를 직접 실행합니다.
   XCTest의 skip 결과만으로는 AGY 배포 게이트를 통과한 것으로 보지 않습니다.
 
 ## 실행 파일 업데이트와 조회 복구

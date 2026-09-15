@@ -1,7 +1,7 @@
 # Claude 인증 및 사용량 소스
 
 이 문서는 현재 `ClaudeUsage`가 Claude 인증과 사용량 조회를 어떤 경로로 다루는지 정리한 문서입니다.
-Antigravity의 로컬 앱·AGY CLI 계정 선택과 quota 정책은 [Antigravity 사용량 소스와 설정 UX](antigravity-usage-sources.md)를 기준으로 합니다.
+Antigravity의 조회 대상 선택·현재 로그인 확인과 quota 정책은 [Antigravity 사용량 소스와 설정 UX](antigravity-usage-sources.md)를 기준으로 합니다.
 
 ## 1. 인증 경로
 
