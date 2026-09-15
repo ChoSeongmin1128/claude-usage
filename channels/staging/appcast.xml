@@ -4,28 +4,31 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>2.4.15</title>
-            <pubDate>Tue, 15 Sep 2026 13:34:39 +0900</pubDate>
-            <sparkle:version>20415</sparkle:version>
-            <sparkle:shortVersionString>2.4.15</sparkle:shortVersionString>
+            <title>2.5.0</title>
+            <pubDate>Tue, 15 Sep 2026 14:57:33 +0900</pubDate>
+            <sparkle:version>20500</sparkle:version>
+            <sparkle:shortVersionString>2.5.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.4.15-staging/ClaudeUsage.dmg" length="6203006" type="application/octet-stream" sparkle:edSignature="BdaVPQG9aYyjsJjnP/+vc75O8heR/+N6Uo0zzH1RcaWqnphYjHFsP+MqMJdh3zbfjjS8CK3D2AlPJ8xxR1jtAw=="></enclosure>
-            <description sparkle:format="plain-text"># 2.4.15
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.5.0-staging/ClaudeUsage.dmg" length="6305185" type="application/octet-stream" sparkle:edSignature="pn23C5SPXVsPjYv3NnFuhYydcarARnfDLI9hAVLFAH23UtcCBmvfoi0fSlUVjwdrqXU8STOiC5Nc1agB19C0Bg=="></enclosure>
+            <description sparkle:format="plain-text"># 2.5.0
 
-## 업데이트 개선
+## 업데이트와 안정성 개선
 
-- 업데이트 안내에 해당 버전의 변경 내역을 표시합니다.
-- 업데이트 구성 요소를 Sparkle 2.10으로 갱신했습니다.
-- 업데이트 안내의 서명을 확인하고 서명된 DMG로 업데이트합니다.
+- 계정 정보 확인과 화면 갱신의 동시 작업을 더 엄격하게 검증하도록 개선했습니다.
+- 메뉴바 아이콘은 생성 시점의 화면 테마를 사용해 일관되게 그립니다.
+- AGY 조회와 업데이트 실패 원인을 계정 정보 없이 진단할 수 있도록 개선했습니다.
+- 서명된 업데이트 안내와 DMG 업데이트의 게시 완료 확인을 개선했습니다.
+- 프로젝트 문서를 공개 사용 안내 중심으로 정리하고 MIT 라이선스와 외부 구성 요소 고지를 추가했습니다.
 
 ## 알려진 제한
 
 - 이 버전은 staging 검증용이며 운영 앱을 교체하지 않습니다.
+- AGY의 초기 인증이 지연되는 경우 마지막 사용량이 표시될 수 있으며, 새로고침으로 다시 확인할 수 있습니다.
 </description>
-            <claudeusage:zipSHA256>937e5b48991633a8af4fc4cde8d028c0c098fd85a32f79f4d94fe8bf67bd0c89</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>0d31e48179f79ac6d76c32c5e9f5e9fdbb321ba502f89f027d187514c39fb3cf</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: kj2Hu+M4Ue6aHGEHYFJ931ZMl4aLXDdfvpgLKNddbP/G3HDAa23KizdxfCdbrQ5Cea6OzRdjca4MxmH88oF1Dw==
-length: 1727
+edSignature: N+83fiPDSBla/Pw8jBIu2eLLQC1akufkTZMIRDRmb/1cQILK/nV/vFX/T2EYNh4t0kU3jJFdYuGK6QKQ42d7Cg==
+length: 2211
 -->
