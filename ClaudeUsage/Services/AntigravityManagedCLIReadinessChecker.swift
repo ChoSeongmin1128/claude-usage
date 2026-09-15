@@ -249,7 +249,6 @@ nonisolated struct AntigravityManagedCLIReadinessChecker:
                     $0.processIdentity == processIdentity
                         && $0.transport == .agyCLI
                         && $0.ownership == .managed
-                        && $0.authentication == .cliTokenless
                 } ?? []
             let endpoints = prioritizedEndpoints(
                 discoveredEndpoints,
@@ -261,6 +260,12 @@ nonisolated struct AntigravityManagedCLIReadinessChecker:
                await processInspector.revalidate(processIdentity)
             {
                 for endpoint in endpoints {
+                    let expectedAuthentication = handle.csrfToken
+                        .map(AntigravityRuntimeEndpointAuthentication.cliCSRF)
+                        ?? .cliTokenless
+                    guard endpoint.authentication == expectedAuthentication else {
+                        throw AntigravityLocalRPCError.csrf(.unavailable)
+                    }
                     guard let runtime = AntigravityManagedRuntime(
                         processIdentity: processIdentity,
                         endpoint: endpoint
@@ -318,6 +323,9 @@ nonisolated struct AntigravityManagedCLIReadinessChecker:
                             throw AntigravityManagedSessionError.cancelled
                         } catch AntigravityLocalRPCError.cancelled {
                             throw AntigravityManagedSessionError.cancelled
+                        } catch AntigravityLocalRPCError.csrf(let problem) {
+                            // No amount of readiness polling can supply missing authentication.
+                            throw AntigravityLocalRPCError.csrf(problem)
                         } catch let error
                             as AntigravityManagedSessionError
                         {

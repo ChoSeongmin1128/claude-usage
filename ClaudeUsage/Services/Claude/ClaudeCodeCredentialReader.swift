@@ -41,7 +41,7 @@ nonisolated struct ClaudeCodeOAuthCredential: Equatable, Sendable {
     }
 }
 
-protocol ClaudeOAuthCredentialReading: Sendable {
+nonisolated protocol ClaudeOAuthCredentialReading: Sendable {
     func readAccessToken() async throws -> String?
     func refreshCredentialInventoryWithoutUI() async throws -> ClaudeOAuthCredentialInventoryRefresh
     func forceRefreshAccessToken() async throws -> String?

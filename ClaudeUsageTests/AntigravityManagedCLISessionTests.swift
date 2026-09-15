@@ -6,6 +6,108 @@ import XCTest
 final class AntigravityManagedCLISessionTests:
     XCTestCase
 {
+    func testCancelledExplicitRefreshDoesNotResetExistingSession() async throws {
+        let harness = ManagedSessionHarness()
+        let session = harness.makeSession()
+        let source = AntigravityManagedCLIUsageSource(session: session,
+            executable: harness.executable, client: ManagedSourceQuotaStub(failures: [nil]))
+        _ = try await source.fetch(managedSourceRequest())
+        let gate = ManagedSessionGate()
+        let request = managedSourceRequest(refreshAuthentication: true)
+        let task = Task {
+            await gate.wait()
+            do {
+                _ = try await source.fetch(request)
+                return false
+            } catch let error as AntigravityUsageSourceError {
+                return error == .cancelled
+            } catch { return false }
+        }
+        await gate.waitUntilWaiterArrives()
+        task.cancel()
+        await gate.release()
+        let wasCancelled = await task.value
+        XCTAssertTrue(wasCancelled)
+        XCTAssertEqual(harness.launcher.launchCount, 1)
+        XCTAssertEqual(harness.handle.terminationCount, 0)
+        await session.shutdown()
+    }
+
+    func testSourceRecoversCSRFOnceAndReusesSuccessfulSession() async throws {
+        let harness = ManagedSessionHarness()
+        let session = harness.makeSession()
+        let client = ManagedSourceQuotaStub(failures: [.csrf(.rejected), nil, nil])
+        let source = AntigravityManagedCLIUsageSource(session: session,
+            executable: harness.executable, client: client)
+        let first = try await source.fetch(managedSourceRequest())
+        let second = try await source.fetch(managedSourceRequest())
+        XCTAssertEqual(first, second)
+        XCTAssertEqual(harness.launcher.launchCount, 2)
+        XCTAssertEqual(harness.handle.terminationCount, 1)
+        XCTAssertEqual(client.callCount, 3)
+        await session.shutdown()
+    }
+
+    func testSourceStopsRepeatedCSRFAndManualRefreshConsumesRecoveryBudget() async throws {
+        for explicitRefresh in [false, true] {
+            let harness = ManagedSessionHarness()
+            let session = harness.makeSession()
+            let client = ManagedSourceQuotaStub(failures: [.csrf(.required)])
+            let source = AntigravityManagedCLIUsageSource(session: session,
+                executable: harness.executable, client: client)
+            do {
+                _ = try await source.fetch(managedSourceRequest(refreshAuthentication: explicitRefresh))
+                XCTFail("Repeated CSRF must remain a typed failure")
+            } catch let error as AntigravityUsageSourceError {
+                XCTAssertEqual(error, .localAuthentication(.required))
+            }
+            XCTAssertEqual(client.callCount, explicitRefresh ? 1 : 2)
+            XCTAssertEqual(harness.launcher.launchCount, explicitRefresh ? 1 : 2)
+            await session.shutdown()
+        }
+    }
+
+    func testManualRefreshRecreatesExistingSessionButAutomaticRefreshReusesIt() async throws {
+        let harness = ManagedSessionHarness()
+        let session = harness.makeSession()
+        let source = AntigravityManagedCLIUsageSource(session: session,
+            executable: harness.executable, client: ManagedSourceQuotaStub(failures: [nil]))
+        _ = try await source.fetch(managedSourceRequest())
+        _ = try await source.fetch(managedSourceRequest())
+        XCTAssertEqual(harness.launcher.launchCount, 1)
+        _ = try await source.fetch(managedSourceRequest(refreshAuthentication: true))
+        XCTAssertEqual(harness.launcher.launchCount, 2)
+        XCTAssertEqual(harness.handle.terminationCount, 1)
+        await session.shutdown()
+    }
+
+    func testSourcePreservesObservedAccountAfterCSRFRecovery() async throws {
+        let harness = ManagedSessionHarness()
+        let session = harness.makeSession()
+        let client = ManagedSourceQuotaStub(failures: [.csrf(.rejected), nil])
+        let source = AntigravityManagedCLIUsageSource(session: session,
+            executable: harness.executable, client: client)
+        var request = managedSourceRequest()
+        request = AntigravityUsageSourceRequest(generation: request.generation,
+            accountTarget: request.accountTarget,
+            expectedIdentity: ProviderAccountIdentity(stableAccountID: nil, email: "different@example.com"),
+            oauthAuthorization: nil, managedLaunchAuthorization: request.managedLaunchAuthorization,
+            deadline: request.deadline)
+        let response = try await source.fetch(request)
+        guard case .limited(let capability) = response.payload else { return XCTFail("Expected fixture") }
+        XCTAssertEqual(capability.evidence.identity?.email, "current@example.com")
+        XCTAssertEqual(harness.launcher.launchCount, 2)
+        XCTAssertEqual(client.callCount, 2)
+        await session.shutdown()
+    }
+
+    private func managedSourceRequest(refreshAuthentication: Bool = false) -> AntigravityUsageSourceRequest {
+        AntigravityUsageSourceRequest(generation: 1, accountTarget: .ambientLocal,
+            expectedIdentity: nil, oauthAuthorization: nil,
+            managedLaunchAuthorization: .automatic(idleTimeout: .seconds(180)),
+            deadline: .init(), refreshAuthentication: refreshAuthentication)
+    }
+
     func testDisabledAuthorizationDoesNotTouchDependencies()
         async throws
     {
@@ -1652,7 +1754,8 @@ private final class ManagedSessionRegistryStub:
     }
 
     func register(
-        _ identity: AntigravityVerifiedProcessIdentity
+        _ identity: AntigravityVerifiedProcessIdentity,
+        csrfToken: AntigravityCSRFToken?
     ) async {
         lock.withLock {
             recordedRegisterCount += 1
@@ -1860,5 +1963,30 @@ private final class ManagedSessionSynchronousGate:
         released = true
         condition.broadcast()
         condition.unlock()
+    }
+}
+
+private final class ManagedSourceQuotaStub: AntigravityLocalQuotaFetching, @unchecked Sendable {
+    private let lock = NSLock()
+    private var failures: [AntigravityLocalRPCError?]
+    private var calls = 0
+    init(failures: [AntigravityLocalRPCError?]) { self.failures = failures }
+    var callCount: Int { lock.withLock { calls } }
+    func fetch(from endpoint: AntigravityVerifiedRuntimeEndpoint,
+               deadline: AntigravityRPCDeadline) async throws -> AntigravityLocalQuotaFetchResult {
+        let failure = lock.withLock {
+            calls += 1
+            return failures.count > 1 ? failures.removeFirst() : failures[0]
+        }
+        if let failure { throw failure }
+        let identity = ProviderAccountIdentity(stableAccountID: nil, email: "current@example.com")
+        return .limited(.localLegacy(
+            evidence: AntigravityLegacyCapabilityEvidence(method: .getUserStatus,
+                identity: identity, plan: nil, modelConfigCount: 0),
+            fallbackReason: .groupedQuotaUnavailable,
+            provenance: AntigravityQuotaProvenance(transport: .managedAGYRPC,
+                endpointOwner: .managed, accountIdentity: identity,
+                capability: .limitedQuota, processIdentity: nil),
+            fetchedAt: Date(timeIntervalSince1970: 100)))
     }
 }

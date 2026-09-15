@@ -254,8 +254,7 @@ nonisolated struct AntigravityManagedRuntime:
     ) {
         guard endpoint.processIdentity == processIdentity,
               endpoint.transport == .agyCLI,
-              endpoint.ownership == .managed,
-              endpoint.authentication == .cliTokenless else {
+              endpoint.ownership == .managed else {
             return nil
         }
         self.processIdentity = processIdentity

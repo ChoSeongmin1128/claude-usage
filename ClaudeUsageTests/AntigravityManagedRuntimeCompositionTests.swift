@@ -192,6 +192,7 @@ final class AntigravityManagedRuntimeCompositionTests:
                     runtime.endpoint.ownership,
                     .managed
                 )
+                XCTAssertEqual(runtime.endpoint.authentication, .cliCSRF(processHandle.csrfToken!))
                 return try await composition.discovery.discover()
             }
 
@@ -391,6 +392,7 @@ private final class ManagedCompositionProcessHandleStub:
 {
     let processID: Int32
     let processGroupID: Int32
+    let csrfToken: AntigravityCSRFToken? = .generate()
 
     private let lock = NSLock()
     private var recordedTerminationCount = 0

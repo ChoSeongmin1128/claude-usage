@@ -37,16 +37,19 @@ nonisolated struct AntigravityManagedCLIProcessLaunchRequest:
     let executable: AntigravityCanonicalExecutable
     let environment: AntigravityManagedCLIEnvironment
     let currentDirectoryURL: URL
+    let csrfToken: AntigravityCSRFToken
 
     init?(
         executable: AntigravityCanonicalExecutable,
         environment: AntigravityManagedCLIEnvironment,
-        currentDirectoryURL: URL
+        currentDirectoryURL: URL,
+        csrfToken: AntigravityCSRFToken = .generate()
     ) {
         guard executable.role == .agyCLI else {
             return nil
         }
         self.executable = executable
+        self.csrfToken = csrfToken
         self.environment = environment
         self.currentDirectoryURL = currentDirectoryURL.standardizedFileURL
     }
@@ -58,6 +61,7 @@ nonisolated protocol AntigravityManagedCLIProcessHandling:
 {
     var processID: Int32 { get }
     var processGroupID: Int32 { get }
+    var csrfToken: AntigravityCSRFToken? { get }
 
     /// Resumes a root that was created with
     /// `POSIX_SPAWN_START_SUSPENDED`. This is the only transition that lets
@@ -80,6 +84,11 @@ nonisolated protocol AntigravityManagedCLIProcessHandling:
     func terminateTree(
         gracePeriod: Duration
     ) async -> AntigravityManagedCLIProcessTerminationEvidence
+}
+
+nonisolated extension AntigravityManagedCLIProcessHandling {
+    // Legacy/test handles have no launch authentication material.
+    var csrfToken: AntigravityCSRFToken? { nil }
 }
 
 nonisolated enum AntigravityManagedCLIProcessTerminationEvidence:
@@ -287,6 +296,7 @@ nonisolated struct AntigravityManagedCLIProcessLauncher:
             strdup(executablePath),
             strdup("--log-file"),
             strdup("/dev/stderr"),
+            strdup("--csrf_token=\(request.csrfToken.value)"),
             nil,
         ]
         defer {
@@ -358,7 +368,8 @@ nonisolated struct AntigravityManagedCLIProcessLauncher:
         let handle = AntigravitySpawnedManagedCLIProcess(
             processID: processID,
             processGroupID: processID,
-            primaryFileDescriptor: primaryFD
+            primaryFileDescriptor: primaryFD,
+            csrfToken: request.csrfToken
         )
         primaryFD = -1
         return handle
@@ -371,6 +382,7 @@ nonisolated final class AntigravitySpawnedManagedCLIProcess:
 {
     let processID: Int32
     let processGroupID: Int32
+    let csrfToken: AntigravityCSRFToken?
 
     private let lock = NSLock()
     private var primaryFileDescriptor: Int32
@@ -381,13 +393,15 @@ nonisolated final class AntigravitySpawnedManagedCLIProcess:
     fileprivate init(
         processID: Int32,
         processGroupID: Int32,
-        primaryFileDescriptor: Int32
+        primaryFileDescriptor: Int32,
+        csrfToken: AntigravityCSRFToken
     ) {
         precondition(
             processID > 0
                 && processGroupID == processID
                 && primaryFileDescriptor >= 0
         )
+        self.csrfToken = csrfToken
         self.processID = processID
         self.processGroupID = processGroupID
         self.primaryFileDescriptor = primaryFileDescriptor

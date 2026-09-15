@@ -310,7 +310,9 @@ actor AntigravityRuntimeDiscovery {
                     }
                     authentication = .appCSRF(token)
                 case .agyCLI:
-                    authentication = .cliTokenless
+                    authentication = candidate.connectionHints.csrfToken
+                        .map(AntigravityRuntimeEndpointAuthentication.cliCSRF)
+                        ?? .cliTokenless
                 }
 
                 return AntigravityVerifiedRuntimeEndpoint(

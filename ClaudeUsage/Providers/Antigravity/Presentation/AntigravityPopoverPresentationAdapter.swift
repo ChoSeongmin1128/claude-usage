@@ -161,6 +161,15 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
         _ failure: AntigravityFailure
     ) -> ProviderRuntimeSummary {
         switch failure {
+        case .localAuthentication(_, let problem):
+            switch problem {
+            case .required:
+                retryFailure(title: "AGY 연결 인증 필요", message: "AGY 연결 인증이 필요합니다. 새로고침으로 연결을 다시 확인해 주세요.")
+            case .rejected:
+                retryFailure(title: "AGY 연결 인증 변경", message: "AGY 연결 인증 정보가 일치하지 않습니다. 새로고침으로 연결을 다시 확인해 주세요.")
+            case .unavailable:
+                settingsFailure(title: "AGY 연결 인증 확인 불가", message: "실행 중인 AGY의 인증 정보를 안전하게 확인하지 못했습니다. 공식 CLI 연결 상태를 확인해 주세요.")
+            }
         case .runtimeUnavailable(let reason):
             switch reason {
             case .executableMissing:

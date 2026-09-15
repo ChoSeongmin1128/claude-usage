@@ -464,7 +464,7 @@ final class AntigravityDiscoverySecurityTests: XCTestCase {
         let processInfo = makeBSDInfo(processID: processID)
         let subprocess = DiscoverySubprocessStub(
             output:
-                "\(processID) \(executableURL.path) --https_server_port=54321"
+                "\(processID) \(executableURL.path) --https_server_port=54321 --csrf_token=borrowed-fixture"
         )
         let libproc = DiscoveryLibprocStub(
             bsdInfo: [processID: [processInfo]],
@@ -478,7 +478,7 @@ final class AntigravityDiscoverySecurityTests: XCTestCase {
             startedAt: processInfo.startedAt,
             executable: executable
         )!
-        await registry.register(identity)
+        await registry.register(identity, csrfToken: AntigravityCSRFToken("managed-fixture"))
 
         let processInspector = AntigravityProcessInspector(
             catalog: catalog,
@@ -512,12 +512,16 @@ final class AntigravityDiscoverySecurityTests: XCTestCase {
 
         let managed = try await discovery.discover()
         XCTAssertEqual(managed.endpoints.single?.ownership, .managed)
+        XCTAssertEqual(managed.endpoints.single?.authentication,
+                       .cliCSRF(AntigravityCSRFToken("managed-fixture")!))
 
         await registry.unregister(identity)
         let borrowed = try await discovery.discover()
 
         XCTAssertEqual(borrowed.processes.single?.ownership, .borrowed)
         XCTAssertEqual(borrowed.endpoints.single?.ownership, .borrowed)
+        XCTAssertEqual(borrowed.endpoints.single?.authentication,
+                       .cliCSRF(AntigravityCSRFToken("borrowed-fixture")!))
         XCTAssertFalse(
             borrowed.endpoints.contains { $0.ownership == .managed }
         )

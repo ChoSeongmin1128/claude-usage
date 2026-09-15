@@ -1,6 +1,7 @@
 import Foundation
 
 nonisolated protocol AntigravityRuntimeOwnershipResolving: Sendable {
+    func csrfToken(for identity: AntigravityVerifiedProcessIdentity) async -> AntigravityCSRFToken?
     func ownership(
         for identity: AntigravityVerifiedProcessIdentity
     ) async -> AntigravityRuntimeOwnership
@@ -8,7 +9,8 @@ nonisolated protocol AntigravityRuntimeOwnershipResolving: Sendable {
 
 nonisolated protocol AntigravityManagedRuntimeRegistering: Sendable {
     func register(
-        _ identity: AntigravityVerifiedProcessIdentity
+        _ identity: AntigravityVerifiedProcessIdentity,
+        csrfToken: AntigravityCSRFToken?
     ) async
 
     func unregister(
@@ -23,6 +25,10 @@ nonisolated protocol AntigravityManagedRuntimeRegistering: Sendable {
 nonisolated struct AntigravityDefaultRuntimeOwnershipResolver:
     AntigravityRuntimeOwnershipResolving
 {
+    func csrfToken(for identity: AntigravityVerifiedProcessIdentity) async -> AntigravityCSRFToken? {
+        nil
+    }
+
     func ownership(
         for identity: AntigravityVerifiedProcessIdentity
     ) async -> AntigravityRuntimeOwnership {
@@ -48,6 +54,7 @@ actor AntigravityManagedRuntimeRegistry:
         any AntigravityBootSessionIdentityProviding
     private let identityProvider:
         any AntigravityManagedProcessIdentityProviding
+    private var csrfTokens: [AntigravityVerifiedProcessIdentity: AntigravityCSRFToken] = [:]
     private var managedIdentities:
         Set<AntigravityVerifiedProcessIdentity> = []
     private var quarantinedIdentities:
@@ -69,17 +76,25 @@ actor AntigravityManagedRuntimeRegistry:
     }
 
     func register(
-        _ identity: AntigravityVerifiedProcessIdentity
+        _ identity: AntigravityVerifiedProcessIdentity,
+        csrfToken: AntigravityCSRFToken? = nil
     ) {
         guard identity.executable.role == .agyCLI else { return }
         quarantinedIdentities.remove(identity)
         managedIdentities.insert(identity)
+        csrfTokens[identity] = csrfToken
+    }
+
+    func csrfToken(for identity: AntigravityVerifiedProcessIdentity) -> AntigravityCSRFToken? {
+        guard managedIdentities.contains(identity) else { return nil }
+        return csrfTokens[identity]
     }
 
     func unregister(
         _ identity: AntigravityVerifiedProcessIdentity
     ) {
         managedIdentities.remove(identity)
+        csrfTokens.removeValue(forKey: identity)
         quarantinedIdentities.remove(identity)
     }
 
@@ -88,6 +103,7 @@ actor AntigravityManagedRuntimeRegistry:
     ) {
         guard identity.executable.role == .agyCLI else { return }
         managedIdentities.remove(identity)
+        csrfTokens.removeValue(forKey: identity)
         quarantinedIdentities.insert(identity)
     }
 

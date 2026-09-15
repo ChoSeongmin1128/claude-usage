@@ -51,6 +51,12 @@ nonisolated final class AntigravityRuntimeEndpointRevalidator:
                 throw AntigravityLocalRPCError.endpointOwnershipChanged
             }
 
+            if endpoint.ownership == .managed,
+               case .cliCSRF(let token) = endpoint.authentication,
+               await ownershipResolver.csrfToken(for: endpoint.processIdentity) != token {
+                throw AntigravityLocalRPCError.endpointOwnershipChanged
+            }
+
             let timeout = try deadline.timeInterval(
                 for: .request,
                 maximum: maximumPortInspectionTime
@@ -74,6 +80,11 @@ nonisolated final class AntigravityRuntimeEndpointRevalidator:
                   ) == endpoint.ownership,
                   endpoint.ownership != .quarantined
             else {
+                throw AntigravityLocalRPCError.endpointOwnershipChanged
+            }
+            if endpoint.ownership == .managed,
+               case .cliCSRF(let token) = endpoint.authentication,
+               await ownershipResolver.csrfToken(for: endpoint.processIdentity) != token {
                 throw AntigravityLocalRPCError.endpointOwnershipChanged
             }
         } catch is CancellationError {
@@ -133,7 +144,7 @@ nonisolated enum AntigravityLocalRPCRequestBuilder {
         )
 
         switch endpoint.authentication {
-        case .appCSRF(let token):
+        case .appCSRF(let token), .cliCSRF(let token):
             request.setValue(
                 token.value,
                 forHTTPHeaderField: "X-Codeium-Csrf-Token"

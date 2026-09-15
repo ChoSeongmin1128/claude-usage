@@ -2,6 +2,88 @@ import XCTest
 @testable import ClaudeUsage
 
 final class AntigravityLocalRPCModelsTests: XCTestCase {
+    func testCSRFErrorsStayDistinctFromGoogleAuthenticationAndNeverFallback() {
+        for (message, problem) in [("missing CSRF token", AntigravityCSRFProblem.required),
+                                   ("invalid CSRF token", .rejected)] {
+            assertValidationError(status: 401,
+                headers: ["grpc-status": "12"],
+                body: "{\"code\":\"unauthenticated\",\"message\":\"\(message)\"}",
+                equals: .csrf(problem))
+            XCTAssertNil(AntigravityLegacyFallbackPolicy.reason(for: .csrf(problem)))
+        }
+        assertValidationError(status: 401,
+            body: #"{"code":"unauthenticated","message":"other server text"}"#,
+            equals: .authenticationRejected)
+        assertValidationError(status: 403,
+            body: #"{"code":"unauthenticated","message":"missing CSRF token"}"#,
+            equals: .authenticationRejected)
+    }
+
+    func testCLICSRFHeaderAndTokenRedaction() throws {
+        let token = AntigravityCSRFToken.generate()
+        XCTAssertEqual(token.value.count, 64)
+        XCTAssertNotEqual(token, AntigravityCSRFToken.generate())
+        XCTAssertFalse(String(reflecting: token).contains(token.value))
+        for invalid in ["", "two words", "secret\r\nInjected: yes", String(repeating: "a", count: 513)] {
+            XCTAssertNil(AntigravityCSRFToken(invalid))
+        }
+        let endpoint = try makeEndpoint(role: .agyCLI, transport: .agyCLI,
+            authentication: .cliCSRF(token))
+        for method in AntigravityLocalRPCMethod.allCases {
+            let request = try AntigravityLocalRPCRequestBuilder.request(
+                for: method, endpoint: endpoint, timeout: 1)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Codeium-Csrf-Token"), token.value)
+        }
+        XCTAssertFalse(String(reflecting: endpoint).contains(token.value))
+    }
+
+    func testManagedRegistryBindsTokenToExecutionAndErasesItOnCleanup() async throws {
+        let endpoint = try makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliTokenless)
+        let identity = endpoint.processIdentity
+        let registry = AntigravityManagedRuntimeRegistry()
+        let token = AntigravityCSRFToken.generate()
+        await registry.register(identity, csrfToken: token)
+        let registered = await registry.csrfToken(for: identity)
+        XCTAssertEqual(registered, token)
+        let reusedPID = try XCTUnwrap(AntigravityVerifiedProcessIdentity(
+            processID: identity.processID, effectiveUserID: identity.effectiveUserID,
+            realUserID: identity.realUserID,
+            startedAt: AntigravityProcessStartTime(seconds: identity.startedAt.seconds + 1, microseconds: 0)!,
+            executable: identity.executable))
+        let reusedToken = await registry.csrfToken(for: reusedPID)
+        XCTAssertNil(reusedToken)
+        await registry.quarantine(identity)
+        let quarantined = await registry.csrfToken(for: identity)
+        XCTAssertNil(quarantined)
+        await registry.register(identity, csrfToken: token)
+        await registry.unregister(identity)
+        let removed = await registry.csrfToken(for: identity)
+        XCTAssertNil(removed)
+        await registry.register(identity, csrfToken: token)
+        await registry.register(identity)
+        let legacy = await registry.csrfToken(for: identity)
+        XCTAssertNil(legacy)
+    }
+
+    func testManagedEndpointRejectsTokenReplacementDuringPortInspection() async throws {
+        let token = AntigravityCSRFToken.generate()
+        let borrowed = try makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliCSRF(token))
+        let endpoint = try XCTUnwrap(AntigravityVerifiedRuntimeEndpoint(
+            processIdentity: borrowed.processIdentity, host: borrowed.host, port: borrowed.port,
+            transport: .agyCLI, ownership: .managed, authentication: .cliCSRF(token)))
+        let registry = AntigravityManagedRuntimeRegistry()
+        await registry.register(endpoint.processIdentity, csrfToken: token)
+        let ports = PortOwnershipInspectorStub(endpoints: [endpoint.processIdentity.processID: [
+            AntigravityOwnedListeningEndpoint(host: endpoint.host, port: endpoint.port)]],
+            onInspect: { await registry.register(endpoint.processIdentity, csrfToken: .generate()) })
+        let revalidator = AntigravityRuntimeEndpointRevalidator(
+            processInspector: RuntimeProcessInspectorStub(isValid: true),
+            portInspector: ports, ownershipResolver: registry)
+        await XCTAssertThrowsErrorAsync(try await revalidator.revalidate(endpoint, deadline: .init())) {
+            XCTAssertEqual($0 as? AntigravityLocalRPCError, .endpointOwnershipChanged)
+        }
+    }
+
     func testRPCMethodCatalogIsClosedAndUsesExactConnectPathsAndBodies() {
         XCTAssertEqual(AntigravityLocalRPCMethod.allCases, [
             .retrieveUserQuotaSummary,
@@ -1028,11 +1110,14 @@ private final class PortOwnershipInspectorStub:
     let endpoints:
         [Int32: Set<AntigravityOwnedListeningEndpoint>]
 
+    private let onInspect: @Sendable () async -> Void
+
     init(
-        endpoints:
-            [Int32: Set<AntigravityOwnedListeningEndpoint>]
+        endpoints: [Int32: Set<AntigravityOwnedListeningEndpoint>],
+        onInspect: @escaping @Sendable () async -> Void = {}
     ) {
         self.endpoints = endpoints
+        self.onInspect = onInspect
     }
 
     func listeningEndpoints(
@@ -1041,7 +1126,8 @@ private final class PortOwnershipInspectorStub:
     ) async throws
         -> [Int32: Set<AntigravityOwnedListeningEndpoint>]
     {
-        endpoints.filter { processIDs.contains($0.key) }
+        await onInspect()
+        return endpoints.filter { processIDs.contains($0.key) }
     }
 }
 

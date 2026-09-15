@@ -386,6 +386,7 @@ nonisolated struct AntigravityLocalRPCClient:
     ) -> Bool {
         switch error {
         case .cancelled,
+             .csrf,
              .invalidEndpoint,
              .endpointOwnershipChanged,
              .tlsRejected,

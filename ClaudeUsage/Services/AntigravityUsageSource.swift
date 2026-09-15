@@ -19,6 +19,7 @@ nonisolated struct AntigravityUsageSourceRequest: Sendable {
     let managedLaunchAuthorization:
         AntigravityManagedLaunchAuthorization
     let deadline: AntigravityRPCDeadline
+    var refreshAuthentication = false
 }
 
 nonisolated enum AntigravityUsageSourcePayload:
@@ -55,6 +56,7 @@ nonisolated enum AntigravityUsageSourceError:
 {
     case unavailable
     case authenticationRequired
+    case localAuthentication(AntigravityCSRFProblem)
     case interactionRequired
     case deadlineExceeded
     case cancelled
@@ -106,7 +108,7 @@ nonisolated enum AntigravityUsageSourceFailurePolicy {
             .managedLaunchPolicy
         case .interactionRequired:
             .interaction
-        case .authenticationRequired:
+        case .authenticationRequired, .localAuthentication:
             .authentication
         case .cancelled:
             .cancellation
@@ -541,7 +543,14 @@ nonisolated struct AntigravityDiscoveredLocalUsageSource:
                     return response
                 }
             } catch {
-                let mapped = Self.map(error)
+                let mapped: AntigravityUsageSourceError
+                if error as? AntigravityLocalRPCError == .csrf(.required),
+                   endpoint.ownership == .borrowed,
+                   endpoint.authentication == .cliTokenless {
+                    mapped = .localAuthentication(.unavailable)
+                } else {
+                    mapped = Self.map(error)
+                }
                 if mapped == .cancelled
                     || mapped == .deadlineExceeded
                 {
@@ -637,6 +646,8 @@ nonisolated struct AntigravityDiscoveredLocalUsageSource:
             return .deadlineExceeded
         case .authenticationRejected:
             return .authenticationRequired
+        case .csrf(let problem):
+            return .localAuthentication(problem)
         case .malformedPayload:
             return .malformedResponse
         case .invalidEndpoint,
@@ -684,12 +695,43 @@ nonisolated struct AntigravityManagedCLIUsageSource:
         _ request: AntigravityUsageSourceRequest
     ) async throws -> AntigravityUsageSourceResponse {
         guard request.oauthAuthorization == nil,
-              case .automatic =
-                request.managedLaunchAuthorization
-        else {
+              case .automatic = request.managedLaunchAuthorization else {
             throw AntigravityUsageSourceError.managedLaunchDisabled
         }
 
+        try checkActive(request)
+
+        // Explicit refresh observes login changes made outside this app. This
+        // consumes the same single recreation budget as CSRF recovery.
+        if request.refreshAuthentication {
+            await session.reset(reason: .userRequested)
+            return try await fetchOnce(request)
+        }
+
+        do {
+            return try await fetchOnce(request)
+        } catch AntigravityUsageSourceError.localAuthentication {
+            // Only the first rejection is recoverable. The second fetch stays
+            // outside this catch, and identity validation remains mandatory in
+            // the refresh coordinator for either attempt.
+        }
+
+        try checkActive(request)
+        await session.reset(reason: .authenticationRequired)
+        return try await fetchOnce(request)
+    }
+
+    private func checkActive(_ request: AntigravityUsageSourceRequest) throws {
+        do {
+            try request.deadline.check(.request)
+        } catch {
+            throw AntigravityDiscoveredLocalUsageSource.map(error)
+        }
+    }
+
+    private func fetchOnce(
+        _ request: AntigravityUsageSourceRequest
+    ) async throws -> AntigravityUsageSourceResponse {
         do {
             return try await session.withRuntime(
                 authorization:

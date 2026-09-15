@@ -1058,7 +1058,10 @@ actor AntigravityManagedCLISession {
 
         var registered = false
         do {
-            await registry.register(prepared.processIdentity)
+            await registry.register(
+                prepared.processIdentity,
+                csrfToken: prepared.handle.csrfToken
+            )
             registered = true
 
             let ready = try await waitUntilReadyWhileObserving(

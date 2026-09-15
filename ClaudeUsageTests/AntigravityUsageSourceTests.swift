@@ -265,6 +265,27 @@ final class AntigravityUsageSourceTests: XCTestCase {
         }
     }
 
+    func testBorrowedCLIWithoutRequiredTokenReportsUnavailableAuthentication() async throws {
+        let identity = try XCTUnwrap(AntigravityVerifiedProcessIdentity(
+            processID: 401, effectiveUserID: .init(rawValue: 501), realUserID: .init(rawValue: 501),
+            startedAt: AntigravityProcessStartTime(seconds: 100, microseconds: 1)!,
+            executable: AntigravityCanonicalExecutable(
+                canonicalURL: URL(fileURLWithPath: "/usr/local/bin/agy"), role: .agyCLI)))
+        let endpoint = try XCTUnwrap(AntigravityVerifiedRuntimeEndpoint(
+            processIdentity: identity, host: .ipv4, port: AntigravityTCPPort(54321)!,
+            transport: .agyCLI, ownership: .borrowed, authentication: .cliTokenless))
+        let source = AntigravityDiscoveredLocalUsageSource(id: .borrowedCLI,
+            discovery: RuntimeDiscoveryStub(snapshot: AntigravityRuntimeDiscoverySnapshot(
+                installations: [], processes: [], endpoints: [endpoint], observedAt: Date())),
+            client: OrderedFailureLocalQuotaClient(failures: [.csrf(.required)]))
+        do {
+            _ = try await source.fetch(localSourceRequest())
+            XCTFail("A token-required borrowed CLI must fail with an actionable local cause")
+        } catch let error as AntigravityUsageSourceError {
+            XCTAssertEqual(error, .localAuthentication(.unavailable))
+        }
+    }
+
     func testLocalEndpointFailureOrderDoesNotChangePreferredUXFailure() async throws {
         let endpoints = [
             try makeLocalAppEndpoint(

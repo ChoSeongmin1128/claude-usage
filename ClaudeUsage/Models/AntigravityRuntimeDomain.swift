@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 nonisolated struct AntigravityTCPPort:
@@ -212,10 +213,20 @@ nonisolated struct AntigravityCSRFToken:
     let value: String
 
     init?(_ value: String) {
-        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard !value.isEmpty, value.utf8.count <= 512,
+              value.utf8.allSatisfy({ $0 >= 0x21 && $0 <= 0x7e }) else {
             return nil
         }
         self.value = value
+    }
+
+    private init(generatedValue: String) { value = generatedValue }
+
+    static func generate() -> Self {
+        let key = SymmetricKey(size: .bits256)
+        return Self(generatedValue: key.withUnsafeBytes { bytes in
+            bytes.map { String(format: "%02x", $0) }.joined()
+        })
     }
 
     var description: String {
@@ -269,9 +280,17 @@ nonisolated enum AntigravityLoopbackHost: String, Codable, Sendable {
     }
 }
 
+/// Local RPC authentication, separate from the user's Google credentials.
+nonisolated enum AntigravityCSRFProblem: String, Error, Sendable, Equatable {
+    case required
+    case rejected
+    case unavailable
+}
+
 nonisolated enum AntigravityRuntimeEndpointAuthentication: Sendable, Equatable {
     case appCSRF(AntigravityCSRFToken)
     case cliTokenless
+    case cliCSRF(AntigravityCSRFToken)
 }
 
 /// A HTTPS loopback endpoint whose port ownership is bound to a verified
@@ -312,7 +331,9 @@ nonisolated struct AntigravityVerifiedRuntimeEndpoint: Sendable, Equatable {
         ) {
         case (.appLanguageServer, .antigravityApp, .external, .appCSRF):
             break
-        case (.agyCLI, .agyCLI, .borrowed, .cliTokenless),
+        case (.agyCLI, .agyCLI, .borrowed, .cliCSRF),
+             (.agyCLI, .agyCLI, .managed, .cliCSRF),
+             (.agyCLI, .agyCLI, .borrowed, .cliTokenless),
              (.agyCLI, .agyCLI, .managed, .cliTokenless):
             break
         default:

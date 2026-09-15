@@ -2,7 +2,7 @@
 
 `Claude`를 중심으로 `Codex`, `Antigravity`까지 확장할 수 있는 macOS 메뉴바 사용량 추적 앱입니다.
 
-최종 갱신: 2026-08-25 · 현재 prod/staging `2.4.12 (20412)`
+최종 갱신: 2026-09-15 · 현재 게시 prod/staging `2.4.13 (20413)` · 검증된 staging 후보 `2.4.14 (20414)`
 
 현재 구현 기준으로는 `Claude`, `Codex`, `Antigravity`가 런타임 provider로 연결되어 있습니다. `Antigravity`는 앱 로컬 API, Google OAuth 원격 조회, AGY CLI 감지, multi-account 설정 UX까지 런타임 provider 흐름에 맞춰 정리되어 있습니다.
 
@@ -111,6 +111,7 @@ Claude는 한 가지 방식만 쓰지 않습니다. 현재 앱은 아래 경로�
   - TUI의 `/usage` 문자열이나 CLI 상태 파일은 quota 수치로 파싱하지 않습니다.
   - CLI 후보는 명시 경로, `~/.local/bin`, Homebrew, 절대 `PATH` 순으로 찾고 파일 소유권·쓰기 권한·hard link·Google Developer ID 서명을 모두 검증합니다.
   - ClaudeUsage가 시작한 AGY process tree만 idle timeout 뒤 정리하며, 사용자가 시작한 AGY는 종료하지 않습니다.
+  - managed AGY의 실행별 CSRF 인증을 준비 확인부터 quota 요청까지 전달하며, 토큰을 디스크에 저장하지 않습니다. CLI에서 로그인 계정을 바꾼 뒤 수동 새로고침하면 owned 세션을 새로 만들어 계정을 다시 확인합니다. 정상 자동 조회는 기존 세션을 재사용합니다.
   - 선택한 Google 계정과 local/AGY 응답 계정이 다르면 그 수치를 거부하고 선택 계정 OAuth 경로로 내려갑니다.
   - compact/standard popover는 알려진 네 quota lane을 기본 표시하며, lane별 표시 여부와 순서를 독립적으로 저장합니다. 메뉴 막대만 공간 제약 때문에 단일 lane 선택을 유지합니다.
   - Google OAuth client 정보는 환경변수를 우선하고, 없으면 Antigravity 번들을 fallback으로 탐색합니다.

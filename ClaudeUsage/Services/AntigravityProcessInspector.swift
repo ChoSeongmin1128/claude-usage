@@ -197,7 +197,8 @@ nonisolated final class AntigravityProcessInspector:
             guard let candidate = candidate(
                 for: identity,
                 command: hint.command,
-                ownership: ownership
+                ownership: ownership,
+                managedCSRFToken: await ownershipResolver.csrfToken(for: identity)
             ) else {
                 continue
             }
@@ -231,7 +232,12 @@ nonisolated final class AntigravityProcessInspector:
         return AntigravityRuntimeProcessCandidate(
             processIdentity: candidate.processIdentity,
             ownership: ownership,
-            connectionHints: candidate.connectionHints,
+            connectionHints: AntigravityRuntimeConnectionHints(
+                requestedPort: candidate.connectionHints.requestedPort,
+                csrfToken: ownership == .managed
+                    ? await ownershipResolver.csrfToken(for: candidate.processIdentity)
+                    : candidate.connectionHints.csrfToken
+            ),
             queryability: candidate.queryability
         )
     }
@@ -313,7 +319,8 @@ nonisolated final class AntigravityProcessInspector:
         for identity: AntigravityVerifiedProcessIdentity,
         command: String,
         ownership resolvedOwnership:
-            AntigravityRuntimeOwnership
+            AntigravityRuntimeOwnership,
+        managedCSRFToken: AntigravityCSRFToken?
     ) -> AntigravityRuntimeProcessCandidate? {
         let role = identity.executable.role
         let requestedPort: AntigravityTCPPort?
@@ -344,9 +351,16 @@ nonisolated final class AntigravityProcessInspector:
                 flag: "--https_server_port",
                 command: command
             ) ?? Self.extractPort(flag: "--port", command: command)
-            // A borrowed CLI endpoint is tokenless by contract. Even a spoofed
-            // command-line token must never cross this boundary.
-            csrfToken = nil
+            // Managed tokens come from our launch, never mutable command-line text.
+            // Borrowed hints belong to this exact verified executable/PID; they
+            // remain untrusted until the authenticated RPC succeeds.
+            if resolvedOwnership == .managed {
+                csrfToken = managedCSRFToken
+            } else {
+                csrfToken = Self.extractFlag(
+                    flag: "--csrf_token", command: command
+                ).flatMap(AntigravityCSRFToken.init)
+            }
             ownership = resolvedOwnership
         }
 

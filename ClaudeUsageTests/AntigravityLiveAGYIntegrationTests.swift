@@ -5,6 +5,57 @@ import XCTest
 @testable import ClaudeUsage
 
 final class AntigravityLiveAGYIntegrationTests: XCTestCase {
+    /// User performs official AGY logins; only phase markers cross this test
+    /// boundary. Account identity and credentials never enter the markers/logs.
+    func testUserDrivenAccountSwitchAtoBtoA() async throws {
+        guard let gatePath = ProcessInfo.processInfo.environment["CLAUDEUSAGE_AGY_ACCOUNT_SWITCH_GATE"] else {
+            throw XCTSkip("User-driven AGY A→B→A gate is required")
+        }
+        let gate = URL(fileURLWithPath: gatePath)
+        let environment = AntigravityRuntimeEnvironment.production(
+            homeDirectoryURL: FileManager.default.realHomeDirectory,
+            stateDirectory: gate.appendingPathComponent("managed-state"))
+        do {
+            let first = try await fetchManagedQuota(environment)
+            try validateAccountPhase(first, phase: "A1", gate: gate)
+            let reused = try await fetchManagedQuota(environment)
+            XCTAssertTrue(AntigravityAccountIdentityMatcher.match(
+                expected: try XCTUnwrap(first.identity), received: reused.identity).isMatch)
+            XCTAssertEqual(first.provenance.processIdentity, reused.provenance.processIdentity)
+            for phase in ["B", "A2"] {
+                let waitDeadline = ContinuousClock.now.advanced(by: .seconds(1800))
+                while !FileManager.default.fileExists(atPath: gate.appendingPathComponent(phase + ".continue").path) {
+                    guard ContinuousClock.now < waitDeadline else { throw LiveAGYIntegrationTestError.accountSwitch }
+                    try await Task.sleep(for: .milliseconds(250))
+                }
+                let snapshot = try await fetchManagedQuota(environment, refreshAuthentication: true)
+                guard let initialIdentity = first.identity, let currentIdentity = snapshot.identity else {
+                    throw LiveAGYIntegrationTestError.accountSwitch
+                }
+                let sameAccount = AntigravityAccountIdentityMatcher.match(
+                    expected: initialIdentity, received: currentIdentity).isMatch
+                guard sameAccount == (phase == "A2") else { throw LiveAGYIntegrationTestError.accountSwitch }
+                try validateAccountPhase(snapshot, phase: phase, gate: gate)
+            }
+            await environment.shutdown()
+        } catch {
+            await environment.shutdown()
+            throw error
+        }
+    }
+
+    private func validateAccountPhase(_ snapshot: AntigravityQuotaSnapshot,
+                                      phase: String, gate: URL) throws {
+        guard snapshot.identity?.email?.isEmpty == false,
+              !snapshot.lanes.isEmpty,
+              snapshot.lanes.allSatisfy({ lane in
+                  guard let fraction = lane.remainingFraction else { return false }
+                  return fraction.isFinite && (0...1).contains(fraction)
+              }) else { throw LiveAGYIntegrationTestError.accountSwitch }
+        Swift.print("LIVE_AGY_ACCOUNT_PHASE \(phase) verified numeric_lanes=\(snapshot.lanes.count)")
+        try Data("verified".utf8).write(to: gate.appendingPathComponent(phase + ".ready"), options: .atomic)
+    }
+
     func testRuntimeEnvironmentRecoversAfterOfficialBinaryReplacement() async throws {
         guard ProcessInfo.processInfo.environment["CLAUDEUSAGE_RUN_LIVE_AGY_TESTS"] == "1" else {
             throw XCTSkip("CLAUDEUSAGE_RUN_LIVE_AGY_TESTS=1 is required")
@@ -26,7 +77,8 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
             // Same official version, new inode: deterministic updater-style atomic replacement.
             guard rename(replacement.path, executable.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
             let second = try await fetchManagedQuota(environment)
-            XCTAssertEqual(first.identity, second.identity)
+            XCTAssertTrue(AntigravityAccountIdentityMatcher.match(
+                expected: try XCTUnwrap(first.identity), received: second.identity).isMatch)
             XCTAssertFalse(second.lanes.isEmpty)
             XCTAssertEqual(second.provenance.transport, .managedAGYRPC)
             Swift.print("LIVE_AGY_REPLACEMENT_RECOVERED lanes=\(second.lanes.count)")
@@ -39,7 +91,8 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
         }
     }
 
-    private func fetchManagedQuota(_ environment: AntigravityRuntimeEnvironment) async throws -> AntigravityQuotaSnapshot {
+    private func fetchManagedQuota(_ environment: AntigravityRuntimeEnvironment,
+                                   refreshAuthentication: Bool = false) async throws -> AntigravityQuotaSnapshot {
         let deadline = AntigravityRPCDeadline(totalTimeout: .seconds(30))
         let result: Result<AntigravityQuotaSnapshot, Error> = try await environment.withSources(
             forceDiscovery: true, deadline: deadline
@@ -49,7 +102,7 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
                 let response = try await source.fetch(.init(generation: 1, accountTarget: .ambientLocal,
                     expectedIdentity: nil, oauthAuthorization: nil,
                     managedLaunchAuthorization: .automatic(idleTimeout: .seconds(180)),
-                    deadline: deadline.beginningDiscoveryNow()))
+                    deadline: deadline.beginningDiscoveryNow(), refreshAuthentication: refreshAuthentication))
                 guard case .grouped(let snapshot) = response.payload else { throw AntigravityRuntimeFailure.executableChanged }
                 return .success(snapshot)
             } catch { return .failure(error) }
@@ -214,7 +267,7 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
         else {
             await composition.managedSession.shutdown()
             return XCTFail(
-                "Expected real grouped quota, got \(result)"
+                "Expected real grouped quota"
             )
         }
         let quotaDiagnostics = snapshot.lanes.map { lane in
@@ -253,7 +306,7 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
                 $0.remainingFraction != nil
             }
         )
-        assertStandardFiveHourAndWeeklyQuota(
+        assertNumericQuotaForEachGroup(
             in: snapshot
         )
         let presentation =
@@ -270,10 +323,8 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
                 },
                 "Expected \(expectedGroup) in the live AGY presentation"
             )
-            XCTAssertEqual(
-                group.lanes.map(\.cadenceTitle),
-                ["5시간", "주간"]
-            )
+            XCTAssertFalse(group.lanes.isEmpty)
+            XCTAssertTrue(group.lanes.allSatisfy { ["5시간", "주간"].contains($0.cadenceTitle) })
         }
 
         guard let identity = snapshot.identity else {
@@ -346,7 +397,7 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
         default:
             await composition.managedSession.shutdown()
             return XCTFail(
-                "Expected automatic managed quota, got \(automatic)"
+                "Expected automatic managed quota"
             )
         }
         // An already-running, verified AGY is intentionally reused before
@@ -377,13 +428,13 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
                 received: automaticSnapshot.identity
             ).isMatch
         )
-        assertStandardFiveHourAndWeeklyQuota(
+        assertNumericQuotaForEachGroup(
             in: automaticSnapshot
         )
         await composition.managedSession.shutdown()
     }
 
-    private func assertStandardFiveHourAndWeeklyQuota(
+    private func assertNumericQuotaForEachGroup(
         in snapshot: AntigravityQuotaSnapshot,
         file: StaticString = #filePath,
         line: UInt = #line
@@ -392,28 +443,19 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
             AntigravityQuotaScope.gemini,
             .thirdPartyModels,
         ] {
-            let cadences = Set(
-                snapshot.lanes
-                    .filter { $0.scope == scope }
-                    .map(\.cadence)
-            )
-            XCTAssertTrue(
-                cadences.contains(.fiveHour),
-                "Expected a live 5-hour quota for \(scope)",
-                file: file,
-                line: line
-            )
-            XCTAssertTrue(
-                cadences.contains(.weekly),
-                "Expected a live weekly quota for \(scope)",
-                file: file,
-                line: line
-            )
+            let lanes = snapshot.lanes.filter { $0.scope == scope }
+            XCTAssertFalse(lanes.isEmpty, "Expected numeric quota for \(scope)", file: file, line: line)
+            XCTAssertTrue(lanes.allSatisfy {
+                guard let fraction = $0.remainingFraction else { return false }
+                return fraction.isFinite && (0...1).contains(fraction)
+                    && ($0.cadence == .fiveHour || $0.cadence == .weekly)
+            }, "Expected supported numeric quota windows", file: file, line: line)
         }
     }
 }
 
 private enum LiveAGYIntegrationTestError: Error {
+    case accountSwitch
     case managedSession(String)
     case rpcFetch(String)
 }

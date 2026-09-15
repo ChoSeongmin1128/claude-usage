@@ -1,11 +1,11 @@
 # Antigravity 사용량 소스와 설정 UX
 
-최종 갱신: 2026-08-24
+최종 갱신: 2026-09-15
 
 이 문서는 ClaudeUsage의 Antigravity provider가 어떤 근거로 로컬 앱, AGY CLI, Google OAuth 원격 quota를 다루는지 정리합니다. 구현을 바꿀 때는 이 문서와 테스트를 같이 갱신해야 합니다.
 
-현재 prod/staging `2.4.10`의 source·account·process lifecycle 계약은 이 문서를
-따릅니다. 2.4.10의 메뉴바 CPU 수정은 이 계약을 변경하지 않았습니다.
+source·account·process lifecycle 계약은 이 문서를 따릅니다. 실제 게시 버전과
+검증 상태는 `HANDOFF.md`, 미배포 작업은 `WORK_PLAN.md`를 확인합니다.
 
 ## 1. 공식 제품 기준
 
@@ -89,6 +89,18 @@ TUI 문자열을 파싱해 수치를 만들지 않습니다.
 8. `GetUserStatus` 실패 시 `GetCommandModelConfigs` 로 quota-only fallback을 시도합니다.
 
 로컬 API는 self-signed HTTPS를 쓸 수 있으므로 local session은 ephemeral session과 trust override를 씁니다. 이 경로는 Antigravity 앱 프로세스의 CSRF token이 필요하며, 실패하면 cache를 무효화하고 다음 refresh에서 재탐지합니다.
+
+### AGY CLI 연결 인증
+
+- managed AGY는 매 실행마다 암호학적 난수 토큰을 만들고 공식 CLI가 받아들이는 `--csrf_token` 시작 인자로 전달합니다. 동일 토큰을 HTTPS 준비 확인, quota·identity RPC의 `X-Codeium-Csrf-Token` 헤더와 연결 재검증에 사용합니다.
+- 토큰은 검증된 실행 파일·PID·시작 시각에 묶인 메모리 registry에서만 조회합니다. 정리·격리 시 제거하며, RPC 전후에 같은 프로세스의 포트 소유권과 등록 토큰을 확인합니다. 복구 원장·UserDefaults·로그·진단에는 저장하지 않습니다.
+- borrowed AGY는 검증한 해당 프로세스의 명령행 토큰만 사용합니다. 토큰 없이 정상 응답하는 기존 CLI는 `cliTokenless`로 유지합니다. CSRF가 필요한데 토큰을 확보하지 못하면 `unavailable` 원인을 보존하고 다음 허용 소스로 넘어갑니다. 외부 프로세스는 종료하지 않습니다.
+- 정확한 401 Connect 오류의 `missing CSRF token` / `invalid CSRF token`은 Google 로그인 실패와 별도의 고정 오류 코드로 분류합니다. 원문 응답은 기록하지 않으며 readiness에서 계속 재시도해 timeout으로 바꾸지 않습니다.
+- 자동 조회에서 CSRF가 거부되면 owned 세션을 최대 한 번 재생성합니다. 수동 새로고침·재시도·계정 경계 변경은 외부 AGY 로그인 변경을 반영하기 위해 기존 owned 세션을 새로 만들며, 이것도 같은 한 번의 예산을 사용합니다. 정상 자동 조회는 기존 세션을 재사용합니다.
+- 인증 복구 후에도 응답 identity를 선택 계정과 대조합니다. 성공한 다른 소스가 없고 계정 불일치가 확인되면 후속 연결 오류보다 계정 불일치를 우선해 이전 값을 숨깁니다. 같은 계정의 단순 CSRF 실패는 마지막 성공 값과 시각을 stale로 유지합니다.
+- 외부 CLI의 로그인 변경은 명시적 새로고침에서 재확인합니다. 인증 파일 감시나 OAuth 저장 형식 변경은 추가하지 않습니다.
+
+2026-09-15 실증: 설치된 공식 AGY 1.2.2 SHA-256 `cabadc15a61944372bede1fdff186701c17467dd9d718e97dc79283055d3c101`의 동일 PID/HTTPS 포트에서 헤더 없음→401, 시작 인자와 같은 헤더→200, 다른 헤더→401을 확인했습니다. 인증된 identity와 숫자 quota를 별도로 확인했습니다. 이 값은 재현 근거이며 제품의 버전/해시 허용 목록이 아닙니다.
 
 ## 5. Google OAuth 원격 조회
 
@@ -262,9 +274,11 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
 - `AntigravityLiveAGYIntegrationTests`는 opt-in 테스트입니다. 설치되고 로그인된
   공식 AGY를 production launcher로 실행해 HTTPS bootstrap port를 먼저 확인하고
   원본 grouped quota를 받은 뒤,
-  Gemini와 Claude·GPT의 5시간/주간 quota가 모두 있는지 확인하고
+  Gemini와 Claude·GPT에 서버가 실제 제공한 quota가 숫자이며 지원되는 주기인지 확인하고
   local app → borrowed CLI → managed CLI 자동 조회 coordinator까지 검증합니다.
-- 통합 `Scripts/release.sh`는 전체 XCTest 직후 이 live 테스트를 직접 실행합니다.
+- 2026-09-15 실제 전환 검증에서 계정 A는 두 그룹의 주간 quota 2개, 계정 B는 5시간/주간 quota 4개, 복귀한 A는 다시 2개를 반환했습니다. live 게이트는 모든 계정에 5시간 quota가 존재한다고 가정하지 않습니다. 없는 quota를 0%로 합성하지 않으며, 고정 5시간/주간 응답의 decode·렌더링은 fixture 테스트로 검증합니다.
+- 실제 계정 변경 검증은 `testUserDrivenAccountSwitchAtoBtoA`를 별도 실행합니다. `CLAUDEUSAGE_AGY_ACCOUNT_SWITCH_GATE`의 임시 디렉터리에서 `A1.ready`, `B.continue`/`B.ready`, `A2.continue`/`A2.ready` 마커만 교환하고 로그인은 사용자가 수행합니다. identity는 메모리에서만 비교하며 마커/로그에는 계정 주소나 토큰을 쓰지 않습니다.
+- 통합 `Scripts/release.sh`는 전체 XCTest 직후 두 필수 live 테스트(인증된 quota, 격리 실행 파일 교체)를 직접 실행합니다.
   XCTest의 skip 결과만으로는 AGY 배포 게이트를 통과한 것으로 보지 않습니다.
 
 ## 실행 파일 업데이트와 조회 복구

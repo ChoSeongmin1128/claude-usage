@@ -687,6 +687,7 @@ final class PopoverViewModel: ObservableObject {
              .schemaChanged,
              .transportUnavailable,
              .sourceContractViolation,
+             .localAuthentication,
              .numericQuotaUnavailable,
              .runtimeUnavailable:
             return false

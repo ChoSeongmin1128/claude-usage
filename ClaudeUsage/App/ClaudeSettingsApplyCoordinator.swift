@@ -45,7 +45,7 @@ extension ClaudeSessionKeyStoring {
     }
 }
 
-protocol ClaudeSettingsApplyingService: Sendable {
+nonisolated protocol ClaudeSettingsApplyingService: Sendable {
     func updatePreferredOrganizationID(_ id: String) async
     func updateSessionKey(_ key: String) async
     func clearSession() async

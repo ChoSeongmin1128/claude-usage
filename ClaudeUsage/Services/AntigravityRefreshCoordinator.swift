@@ -846,7 +846,8 @@ actor AntigravityRefreshCoordinator:
                             oauthAuthorization,
                         managedLaunchAuthorization:
                             managedAuthorization,
-                        deadline: deadline
+                        deadline: deadline,
+                        refreshAuthentication: request.forcesDiscovery
                     )
 
                 let response: AntigravityUsageSourceResponse
@@ -875,6 +876,8 @@ actor AntigravityRefreshCoordinator:
                          .managedLaunchDisabled:
                         sawUnavailableSource = true
                         failure = .sourceUnavailable(sourceID)
+                    case .localAuthentication(let problem):
+                        failure = .localAuthentication(sourceID, problem)
                     case .authenticationRequired:
                         failure = .authenticationRequired(
                             sourceID
@@ -1016,12 +1019,6 @@ actor AntigravityRefreshCoordinator:
                     repositoryWasValidated: true
                 )
             }
-            if let actionableFailure {
-                return .failure(
-                    actionableFailure,
-                    repositoryWasValidated: true
-                )
-            }
             if observedMismatch,
                let expected = selectedContext?.identity
             {
@@ -1031,6 +1028,12 @@ actor AntigravityRefreshCoordinator:
                         received: mismatchedIdentity
                     ),
                     credentialMutation: nil,
+                    repositoryWasValidated: true
+                )
+            }
+            if let actionableFailure {
+                return .failure(
+                    actionableFailure,
                     repositoryWasValidated: true
                 )
             }
@@ -1271,6 +1274,7 @@ actor AntigravityRefreshCoordinator:
              .selectedAccountIdentityUnavailable:
             true
         case .cancelled,
+             .localAuthentication,
              .noEligibleSource,
              .sourceUnavailable,
              .authenticationRequired,

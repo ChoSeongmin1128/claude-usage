@@ -148,6 +148,7 @@ nonisolated enum AntigravityFailure:
     case noEligibleSource
     case sourceUnavailable(AntigravityUsageSourceID)
     case authenticationRequired(AntigravityUsageSourceID)
+    case localAuthentication(AntigravityUsageSourceID, AntigravityCSRFProblem)
     case interactionRequired(AntigravityUsageSourceID)
     case deadlineExceeded(AntigravityUsageSourceID)
     case schemaChanged(AntigravityUsageSourceID)
@@ -161,6 +162,7 @@ extension AntigravityFailure {
     /// No account IDs, token material or raw server errors may enter diagnostics.
     var diagnosticCode: String {
         switch self {
+        case .localAuthentication(let source, let problem): "\(source.rawValue).csrf.\(problem.rawValue)"
         case .runtimeUnavailable(let reason): "managedCLI.\(reason.rawValue)"
         case .authenticationRequired(let source): "\(source.rawValue).authenticationRequired"
         case .interactionRequired(let source): "\(source.rawValue).interactionRequired"

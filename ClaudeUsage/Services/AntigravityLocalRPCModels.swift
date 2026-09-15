@@ -117,6 +117,7 @@ nonisolated enum AntigravityLocalRPCError:
     case invalidHTTPResponse
     case unsupportedHTTPStatus(Int)
     case authenticationRejected
+    case csrf(AntigravityCSRFProblem)
     case rateLimited
     case serverRejected
     case malformedPayload
@@ -176,6 +177,17 @@ nonisolated struct AntigravityLocalRPCResponse:
 
 nonisolated enum AntigravityLocalRPCResponseValidator {
     static func validate(_ response: AntigravityLocalRPCResponse) throws {
+        // Match only the verified CLI's bounded Connect error shape. Never
+        // surface server text or confuse local CSRF with Google authentication.
+        if response.statusCode == 401,
+           let object = try? JSONSerialization.jsonObject(with: response.body) as? [String: Any],
+           object["code"] as? String == "unauthenticated" {
+            switch object["message"] as? String {
+            case "missing CSRF token": throw AntigravityLocalRPCError.csrf(.required)
+            case "invalid CSRF token": throw AntigravityLocalRPCError.csrf(.rejected)
+            default: break
+            }
+        }
         let remoteErrors = remoteErrors(in: response)
 
         // A capability-looking Connect signal may never mask an operational

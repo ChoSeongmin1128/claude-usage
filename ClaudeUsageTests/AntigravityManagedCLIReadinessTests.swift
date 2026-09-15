@@ -5,6 +5,26 @@ import XCTest
 final class AntigravityManagedCLIReadinessTests:
     XCTestCase
 {
+    func testCSRFRejectionStopsReadinessAfterOneProbe() async throws {
+        for problem in [AntigravityCSRFProblem.required, .rejected, .unavailable] {
+            let identity = makeIdentity(processID: 4_120)
+            let probe = ManagedReadinessRPCProbeStub(failures: [.csrf(problem), nil])
+            let checker = makeChecker(
+                discovery: ManagedReadinessDiscoveryStub(snapshots: [
+                    makeSnapshot(identity: identity, endpoints: [makeEndpoint(identity: identity)])]),
+                processInspector: ManagedReadinessProcessInspectorStub(), rpcProbe: probe)
+            do {
+                _ = try await checker.waitUntilReady(
+                    handle: ManagedReadinessProcessHandleStub(processID: identity.processID),
+                    processIdentity: identity, deadline: .init())
+                XCTFail("CSRF rejection must not be polled into success or timeout")
+            } catch let error as AntigravityLocalRPCError {
+                XCTAssertEqual(error, .csrf(problem))
+            }
+            XCTAssertEqual(probe.callCount(), 1)
+        }
+    }
+
     func testExactManagedEndpointAndValidatedRPCBecomeReady()
         async throws
     {

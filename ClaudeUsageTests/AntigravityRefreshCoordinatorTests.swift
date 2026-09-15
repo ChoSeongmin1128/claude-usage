@@ -291,6 +291,28 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         }
     }
 
+    func testConfirmedLocalAccountMismatchClearsOldDataEvenWhenFallbackFails() async throws {
+        let account = makeAccount(id: "account-a", subject: "subject-a", email: "a@example.com")
+        let expected = account.externalIdentity.providerAccountIdentity
+        let other = ProviderAccountIdentity(stableAccountID: "subject-b", email: "b@example.com")
+        let previous = makeSnapshot(identity: expected, source: .localApp)
+        let local = RefreshSourceScript(outcomes: [
+            .success(.init(payload: .grouped(previous))),
+            .success(.init(payload: .grouped(makeSnapshot(identity: other, source: .localApp)))),
+        ])
+        let coordinator = AntigravityRefreshCoordinator(
+            repository: RefreshRepositoryDouble(accounts: [account], activeAccountID: account.id,
+                credentials: [account.id: makeCredentials("a")]),
+            sources: [ScriptedRefreshSource(id: .localApp, script: local),
+                      ScriptedRefreshSource(id: .googleOAuth,
+                        script: RefreshSourceScript(outcomes: [.failure(.transportFailure)]))])
+        let request = selectedRequest(accountID: account.id, revision: 0, policy: .automatic)
+        let first = await coordinator.refresh(request)
+        XCTAssertEqual(first, .ready(previous))
+        let second = await coordinator.refresh(request)
+        XCTAssertEqual(second, .accountMismatch(expected: expected, received: other))
+    }
+
     func testSelectedAccountRejectsMismatchedLocalAndKeepsOAuthProvenance() async throws {
         let accountA = makeAccount(
             id: "account-a",
@@ -1702,6 +1724,78 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         XCTAssertEqual(
             cleared,
             .failed(.sourceUnavailable(.googleOAuth))
+        )
+    }
+
+    func testCSRFFailureKeepsTimestampUntilExplicitAccountBoundary() async throws {
+        let account = makeAccount(
+            id: "account-a",
+            subject: "subject-a",
+            email: "a@example.com"
+        )
+        let repository = RefreshRepositoryDouble(
+            accounts: [account],
+            activeAccountID: account.id,
+            credentials: [account.id: makeCredentials("a")]
+        )
+        let snapshot = makeSnapshot(
+            identity: account.externalIdentity
+                .providerAccountIdentity,
+            source: .googleOAuth
+        )
+        let script = RefreshSourceScript(outcomes: [
+            .success(.init(payload: .grouped(snapshot))),
+            .failure(.localAuthentication(.rejected)),
+            .failure(.localAuthentication(.rejected)),
+        ])
+        let coordinator = AntigravityRefreshCoordinator(
+            repository: repository,
+            sources: [
+                ScriptedRefreshSource(
+                    id: .googleOAuth,
+                    script: script
+                ),
+            ]
+        )
+
+        let initial = await coordinator.refresh(
+            selectedRequest(
+                accountID: account.id,
+                revision: 0,
+                policy: .googleAccount
+            )
+        )
+        XCTAssertEqual(initial, .ready(snapshot))
+
+        let stale = await coordinator.refresh(
+            AntigravityRefreshRequest(
+                trigger: .scheduled,
+                accountTarget: .selectedOAuth(account.id),
+                repositoryRevision: 0,
+                connection: makeConnectionSettings(),
+                managedLaunch: .disabled
+            )
+        )
+        XCTAssertEqual(
+            stale,
+            .stale(
+                snapshot,
+                failure: .localAuthentication(.googleOAuth, .rejected)
+            )
+        )
+
+        let cleared = await coordinator.refresh(
+            AntigravityRefreshRequest(
+                trigger: .accountBoundaryChanged,
+                accountTarget: .selectedOAuth(account.id),
+                repositoryRevision: 0,
+                connection: makeConnectionSettings(),
+                managedLaunch: .disabled
+            )
+        )
+        XCTAssertEqual(
+            cleared,
+            .failed(.localAuthentication(.googleOAuth, .rejected))
         )
     }
 

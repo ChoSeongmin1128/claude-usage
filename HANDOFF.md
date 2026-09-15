@@ -1,99 +1,49 @@
 # ClaudeUsage 유지보수 인계
 
-최종 갱신: 2026-08-24
+최종 갱신: 2026-09-15
 
-이 문서는 현재 릴리스 상태와 다음 작업의 시작점만 기록합니다. 2.4.0~2.4.8
-구현 과정과 과거 staging 기록은 Git history, GitHub Release, 완료된
-[Antigravity 재작성 계획](docs/antigravity-usage-rewrite-plan.md)을 확인합니다.
+## 현재 배포 상태
 
-## 1. 현재 기준
+- 저장소: `ChoSeongmin1128/claude-usage`
+- 운영: `v2.4.13`, 2.4.13 (20413). 검증된 staging과 동일한 소스 `5e6e4ff2685aea469c6b3a60f7ea588f1ccc2e71`에서 운영 채널로 재빌드·공증·게시 완료
+- staging: `v2.4.13-staging`, 2.4.13 (20413), 릴리스 소스 `5e6e4ff2685aea469c6b3a60f7ea588f1ccc2e71`
+- 두 채널 GitHub Release의 ZIP·DMG·appcast와 Pages feed 검증 완료
+- ZIP·DMG Apple 공증 Accepted, staple·Gatekeeper·재다운로드 체크섬 검증 완료
+- GitHub CLI 계정은 `nathan-glorang`으로 복원
 
-- 저장소: `/Users/seongmin/Personal/maintenance/ClaudeUsage`
-- 원격: `git@github-seongmin:ChoSeongmin1128/claude-usage.git`
-- 게시된 릴리스: prod `v2.4.12`, staging `v2.4.12-staging` — 모두
-  `2.4.12 (20412)`, 기준 커밋(`main`) `c03f892`
-- public appcast: prod/staging 모두 `2.4.12 (20412)`
-- `2.4.11`은 managed AGY readiness를 인증된 계정 identity 기준으로 강화한
-  릴리스입니다. staging 실앱 QA(사용자 Finder 직접 실행, Sparkle
-  업그레이드, managed AGY 조회, idle CPU) 후 prod로 승격했습니다
-- `2.4.12`는 stale managed 원장 기록의 recovery 자가 치유와 차단 상태
-  표시를 담은 릴리스입니다. staging에서 실제 사고 원장(8월 19 incomplete
-  기록)을 심어 자가 치유를 실증한 뒤 prod로 승격했습니다
-- 배포: Developer ID 공증 GitHub Release + Sparkle appcast
-- App Store 배포가 아님
+## 현재 구현
 
-`v2.4.10`은 메뉴바 appearance 관찰과 반복 렌더가 서로를 다시 깨우면서
-ClaudeUsage가 CPU 한 코어를 지속적으로 점유하던 문제를 수정한 릴리스입니다.
-동일한 의미 상태는 다시 렌더하지 않고, 같은 run loop의 요청은 합치며, 실제
-appearance·사용량·provider·표시 설정 변화만 render key를 무효화합니다.
+- Antigravity 실행 파일 메타데이터 변경 시 공식 서명·권한을 다시 검증하고 로컬 실행 구성을 교체
+- 기존 조회 종료와 app-owned 프로세스 정리를 기다림. 정리 미확인 시 managed 실행 차단과 원장 보존
+- 앱 실행 후 신규 설치·같은 경로 업데이트 반영, 프로세스 탐색 캐시 30초 만료와 수동/계정 변경 강제 재탐색
+- 실패 원인과 시각 표시, 마지막 성공 데이터의 stale 처리 및 계정 경계 유지
+- 계정 저장 형식·OAuth 방식·소스 순서 유지. Antigravity IDE는 미지원
 
-## 2. 현재 제품 구조
+## 검증과 남은 확인
 
-- 런타임 provider는 Claude, Codex, Antigravity입니다.
-- Claude는 Web session과 Claude Code OAuth를 주 소스로 사용하고 Messages
-  header는 명시적인 보조 복구 경로로만 사용합니다.
-- Antigravity 자동 조회 순서는 local app → borrowed AGY → managed AGY이며,
-  선택한 Google 계정이 있으면 마지막에 해당 계정 OAuth를 시도합니다.
-- managed AGY는 검증된 Google 서명 실행 파일만 시작하고, ClaudeUsage가 소유한
-  process tree만 idle timeout 또는 종료 시 정리합니다.
-- Antigravity의 Gemini와 Claude·GPT 사용량은 group × cadence lane으로 보존하며
-  standard/compact 다중 lane과 메뉴바 단일 lane 설정을 각각 지원합니다.
-- provider 설정은 공통 design-system component와 provider별 typed adapter를
-  사용합니다.
-- prod와 staging은 앱 이름, bundle ID, 저장소, Sparkle feed, 단일 인스턴스
-  경계가 분리되어 각 채널당 하나씩 동시에 실행할 수 있습니다.
+- 전체 XCTest 998개, 4개 조건부 skip, 실패 0
+- release-driver 테스트 338개 통과
+- 최종 릴리스 게이트의 공식 AGY 사용량 조회 및 격리 실행 파일 교체 후 조회 모두 통과
+- dev Release 실앱에서 4개 quota, 수동 새로고침, 진단 시각 표시 확인. idle CPU 0.0% 표본 확인
+- 게시 후 /Applications/ClaudeUsage-stg.app의 Sparkle 2.4.12 → 2.4.13 업그레이드 확인. 원격 DMG 실행 파일 SHA-256과 설치본 일치, codesign·stapler·Gatekeeper 재검증 완료
+- 사용자 요청에 따라 Chrome↔Claude Code 전환은 5회 왕복(총 10번 전환)으로 완료. 각 전환의 UI 인증 경로 일치, Keychain/password prompt 없음, 최종 Chrome 선택 및 저장된 chrome_profile provenance 확인
+- 검증용 설정 창과 활성 상태 보기는 종료. 원래 열려 있던 Finder 휴지통 창은 유지. 현재 운영 앱만 실행 중이며 staging 2.4.13 설치본은 종료 상태
+- 운영 설치본도 원격 DMG에서 2.4.13으로 갱신 완료. 운영 feed·bundle ID·version/build 및 실제 AGY 4개 quota 조회 확인. 운영 설정 검증 창은 종료
+- 현재 UserDefaults의 legacy `claude-session-key` 부재, Claude 계정 migration 4, Antigravity settings migration 3 확인. 값·토큰 출력 없음
 
-## 3. 현재 배포·검증 상태
+## 남은 위험과 다음 시작점
 
-- `v2.4.10`과 `v2.4.10-staging`은 같은 기준 커밋에서 게시됐습니다.
-- GitHub Release의 두 채널 release note는 지속 메뉴바 렌더 loop와 고 CPU 수정
-  내용을 가리킵니다.
-- 2026-08-14 직접 조회한 prod/staging public appcast는 각각 올바른 채널의
-  `ClaudeUsage.zip`과 `2.4.10 (20410)`을 가리킵니다.
-- 사용자가 `/Applications/ClaudeUsage.app`을 Sparkle로 업데이트하고 직접
-  실행한 뒤 CPU 상태가 정상으로 보인다고 확인했습니다.
-- 다음 릴리스에서도 통합 driver의 전체 XCTest, release-driver test, 실제 로그인된
-  공식 AGY live integration, 공증, 원격 재다운로드 검증을 다시 통과해야 합니다.
+- 현재 게시된 2.4.13은 신규 AGY의 CSRF 요구를 전달하지 못해 `401 missing CSRF token`이 발생합니다. dev에서 인증 전달과 계정 변경 복구를 검증 중이며 아직 새 staging 후보를 게시하지 않았습니다. 현재 작업 상태는 `WORK_PLAN.md`를 확인합니다.
 
-## 4. 남은 운영 리스크
+- 공식 AGY cold-start에서 로그인 요구가 일시적으로 나타날 수 있음. 최초 배포 시도는 이 오류로 게시 전에 중단됨. 포트만 확인하고 인증 완료 전에 종료하는 진단을 릴리스 게이트에서 분리한 뒤, 실제 조회 반복 3회와 최종 필수 두 검증 통과
+- upstream 로컬 RPC와 Google endpoint 변경 가능성, 장시간 idle CPU는 계속 관찰 필요
+- 이번 작업 중 prod와 staging 앱을 동시에 실행하지 않음. 검증할 채널 하나만 실행
+- 다음 변경은 최신 main 기반 dev에서 진행. 현재 dev에는 릴리스 후 문서 갱신이 있을 수 있으므로 보존
+- 후속 구현: Antigravity IDE의 경로·서명·포트·다중 계정 검증. 운영 승격 완료
 
-- Antigravity local RPC와 Google Cloud Code Assist endpoint는 공개 안정 API가
-  아니므로 upstream shape와 AGY bootstrap 동작 변화에 민감합니다.
-- macOS 26 ControlCenter는 자동화 호스트가 메뉴바 앱을 실행할 때 status item
-  attribution을 오염시킬 수 있습니다. 설치 앱 최종 QA는 사용자가 Finder의
-  Applications에서 직접 실행해 확인합니다.
-- 메뉴바는 장시간 idle 상태에서 ClaudeUsage와 WindowServer CPU가 안정되는지,
-  appearance 전환 때 한 번만 갱신되는지 회귀 확인해야 합니다.
-- Claude 계정 전환은 legacy `claude-session-key` 부재, migration version,
-  credential provenance, Keychain/password prompt 부재를 함께 확인해야 합니다.
-- Sparkle upgrade는 설치 위치·권한·실행 중인 기존 프로세스 영향을 받으므로
-  staging에서 실제 이전 버전 → 후보 버전 업데이트를 검증합니다.
-- `2.4.11` prod 승격에서 Chrome↔Claude Code 계정 전환 10회 QA는 이번
-  변경이 Claude 인증 경로를 건드리지 않아 사용자 결정으로 생략했습니다.
-  다음 인증 경로 변경 릴리스에서는 반드시 다시 수행합니다.
-- managed AGY readiness는 인증 완료(계정 identity)까지 요구합니다. 로그인
-  프롬프트가 PTY에 나타나지 않는 비정상 signed-out 상태에서는 시작
-  예산(20초)을 소모한 뒤 loginRequired로 귀속됩니다.
+## 문서 기준
 
-## 5. 다음 작업 시작점
-
-현재 기준 커밋 이후 진행 중인 구현 WIP는 없습니다. 새 작업은 아래 순서로
-시작합니다.
-
-1. `main`, `dev`, 원격과 public feed의 현재 상태를 다시 확인합니다.
-2. 새 작업은 최신 `main`에 정렬한 `dev`에서 coherent commit으로 진행합니다.
-3. 영향 범위 테스트와 전체 검증, 실제 앱 QA, 코드 리뷰를 완료합니다.
-4. 문서 계약이 바뀌면 같은 release task에서 관련 문서를 함께 갱신합니다.
-5. 검증한 `dev` tree를 `main`에 squash하고 exact tree 일치를 확인합니다.
-6. 통합 `Scripts/release.sh`로 새 numeric staging 후보를 게시합니다.
-
-## 6. 문서 권위
-
-- 로컬 에이전트 규칙: `AGENTS.md` (`CLAUDE.md`는 `@AGENTS.md`만 포함)
-- 현재 작업: [WORK_PLAN.md](WORK_PLAN.md)
-- 제품 개요: [README.md](README.md)
-- 브랜치·채널·계정: [docs/PROJECT_WORKFLOW.md](docs/PROJECT_WORKFLOW.md)
-- 배포 절차: [docs/RELEASE.md](docs/RELEASE.md)
-- Claude 인증: [docs/authentication-and-sources.md](docs/authentication-and-sources.md)
-- Antigravity 현재 계약: [docs/antigravity-usage-sources.md](docs/antigravity-usage-sources.md)
-- Antigravity 구현 역사: [docs/antigravity-usage-rewrite-plan.md](docs/antigravity-usage-rewrite-plan.md)
+- 로컬 규칙: `AGENTS.md`, `CLAUDE.md`는 `@AGENTS.md`만 포함
+- 현재 작업: `WORK_PLAN.md`
+- 제품 계약: `docs/antigravity-usage-sources.md`
+- 배포: `docs/RELEASE.md`, `docs/PROJECT_WORKFLOW.md`
