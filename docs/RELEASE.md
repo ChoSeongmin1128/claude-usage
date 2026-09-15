@@ -5,21 +5,31 @@
 공식 배포는 통합 driver를 사용합니다.
 
 ```bash
-./Scripts/release.sh stg X.Y.Z --notes-file docs/release-notes/X.Y.Z.md
+./Scripts/release.sh stg X.Y.Z --candidate N --notes-file docs/release-notes/X.Y.Z.md
 ```
 
 환경은 `stg`/`staging` 또는 `prod`이며, 버전은 `X.Y.Z` 형식입니다. staging은 별도 브랜치가 아닙니다. 운영 승격은 staging 검증과 별도의 배포 결정이 필요합니다.
 
-운영 승격은 같은 버전의 staging 태그와 현재 main의 커밋이 정확히 같아야 합니다. 승격 예정 후보의 노트는 두 채널에서 사용할 수 있도록 작성하고, staging 게시 뒤에는 운영 게시가 끝날 때까지 완료 문서 커밋도 추가하지 않습니다. main이 이미 진행됐다면 기존 태그를 변경하지 않고 다음 patch 후보를 검증합니다.
+운영 승격은 `--from-staging vX.Y.Z-stg.N`으로 승인한 후보를 명시합니다. 현재 main은 해당 후보 커밋의 후속 이력이어야 하며, 제품 코드·프로젝트·설정·배포 스크립트·라이선스·릴리스 노트가 같아야 합니다. `README.md`, `HANDOFF.md`, `WORK_PLAN.md`와 릴리스 노트를 제외한 `docs/`의 일반 Markdown 변경만 허용합니다. 실행 파일·심볼릭 링크는 문서 예외가 아닙니다. 승인 후보의 원격 자산도 다시 검증한 뒤 운영 빌드를 만듭니다.
 
 | 채널 | 태그 | 앱 | bundle identifier | feed |
 |---|---|---|---|---|
-| staging | `vX.Y.Z-staging` | `ClaudeUsage-stg.app` | `com.seongmin.ClaudeUsage.staging` | [staging appcast](https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml) |
+| staging | `vX.Y.Z-stg.N` | `ClaudeUsage-stg.app` | `com.seongmin.ClaudeUsage.staging` | [staging appcast](https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml) |
 | prod | `vX.Y.Z` | `ClaudeUsage.app` | `com.seongmin.ClaudeUsage` | [prod appcast](https://choseongmin1128.github.io/claude-usage/appcast.xml) |
 
-산출물은 `ClaudeUsage.zip`, `ClaudeUsage.dmg`, `appcast.xml` 세 개입니다. 태그와 Release를 게시한 뒤에는 자산을 덮어쓰거나 태그를 이동하지 않습니다. 문제가 남으면 다음 버전 후보를 만듭니다.
+산출물은 `ClaudeUsage.zip`, `ClaudeUsage.dmg`, `appcast.xml` 세 개입니다. 태그와 Release를 게시한 뒤에는 자산을 덮어쓰거나 태그를 이동하지 않습니다. 같은 운영 예정 버전을 검증하는 중에 수정이 필요하면 다음 회차 후보를 만듭니다.
 
-버전은 변경 범위에 맞춰 선택하고 프로젝트의 모든 version/build 값과 노트 파일을 함께 갱신합니다. build number는 `major * 10000 + minor * 100 + patch`이며 minor와 patch는 0~99입니다. 예: `2.5.0 → 20500`. 과거 2.3.x의 다른 build 규칙은 이전 자산 검증에만 사용합니다.
+버전과 검증 회차, 내부 빌드 번호를 분리합니다.
+
+- `MARKETING_VERSION`: 다음 운영 예정 버전 `X.Y.Z`. 후보를 수정해도 같은 운영 목표이면 유지합니다.
+- `--candidate N`: staging 검증 회차인 양의 정수. 새로운 수정 후보는 회차를 올리고, 같은 커밋의 테스트만 다시 실행할 때는 유지합니다.
+- `CURRENT_PROJECT_VERSION`: 버전에서 계산하지 않는 독립 증가 정수. 새 후보는 두 채널의 게시된 build보다 커야 합니다. 모든 build configuration의 값을 일치시켜 후보 코드와 함께 커밋합니다.
+- 운영은 승인한 후보의 version/build를 그대로 사용합니다. 두 채널은 앱 식별자와 feed가 다르므로 운영 승격만을 위해 build를 다시 올리지 않습니다.
+- 앱 번들의 `CFBundleShortVersionString`은 숫자 `X.Y.Z`를 유지합니다. 업데이트 안내에는 `X.Y.Z-stg.N`을 표시하고, 실제 업데이트 비교는 `CFBundleVersion`/`sparkle:version`을 사용합니다.
+
+예: 운영 `2.5.2 (20502)` → `2.5.3-stg.1 (20503)` → 수정 후보 `2.5.3-stg.2 (20504)` → 운영 `2.5.3 (20504)`. 일반 문서 커밋이나 테스트 재실행만으로 운영 patch를 소모하지 않습니다. 회차는 명시적으로 지정하며 이미 게시된 회차·태그·자산을 재사용해 바꾸지 않습니다.
+
+역사적 호환: 기존 `vX.Y.Z-staging` 태그와 2.5.2까지의 버전 기반 build 계산은 이전 게시본 검증에서 유지합니다. 과거 2.3.x의 build 값도 실제 자산에서 읽습니다. 현재 게시본을 새 번호 체계로 다시 태그하거나 덮어쓰지 않습니다.
 
 ## 사전 준비
 
@@ -47,7 +57,7 @@ xcrun notarytool store-credentials ClaudeUsageNotary
 
 ```bash
 CERT_HASH="VERIFIED_CERTIFICATE_SHA1" \
-  ./Scripts/release.sh stg X.Y.Z --notes-file docs/release-notes/X.Y.Z.md
+  ./Scripts/release.sh stg X.Y.Z --candidate N --notes-file docs/release-notes/X.Y.Z.md
 ```
 
 `setup-sparkle-keys.sh --force`는 로컬 설정을 다시 쓰는 옵션이며 기존 signing key를 회전하는 절차가 아닙니다.
@@ -58,7 +68,7 @@ CERT_HASH="VERIFIED_CERTIFICATE_SHA1" \
 
 squash 직후 커밋 전에 `git write-tree`와 검증한 `dev^{tree}`가 정확히 같아야 합니다. 중복 이력 때문에 충돌이 생기면 임의로 코드를 혼합하지 말고 검증한 dev tree를 기준으로 정합성을 확인합니다. 다음 작업 전에는 dev를 새 main 이력에 정렬합니다.
 
-게시할 버전의 노트·라이선스·외부 구성 요소 고지도 이 커밋에 포함합니다. 검증용 dev 산출물을 게시 산출물로 재사용하지 않습니다.
+후보를 만들 때 version/build와 해당 버전의 노트·라이선스·외부 구성 요소 고지를 이 커밋에 포함합니다. 검증 후 코드를 수정하면 같은 운영 예정 버전의 다음 회차와 새 build로 다시 검증합니다. 검증용 dev 산출물을 게시 산출물로 재사용하지 않습니다.
 
 dev 빌드도 완성된 앱의 Info.plist에서 채널·feed·공개키를 확인합니다. `-xcconfig`는 명령행 build setting보다 우선하므로 feed 값을 명령행으로만 덮어쓰지 않습니다. 통합 빌드는 로컬 설정을 포함한 뒤 채널 값을 명시하는 임시 xcconfig를 생성합니다.
 
@@ -66,7 +76,7 @@ dev 빌드도 완성된 앱의 Info.plist에서 채널·feed·공개키를 확�
 
 `docs/release-notes/X.Y.Z.md`가 노트 정본입니다. 첫 줄은 `# X.Y.Z`이고, 사용자에게 달라지는 변경과 알려진 제한을 작성합니다. UTF-8, LF, 마지막 줄바꿈을 사용합니다.
 
-driver는 파일 경로·내용·버전을 확인하고 배포 커밋의 파일과 같은지 검사합니다. GitHub에는 원본을 `--notes-file`로 전달하고 Sparkle에는 같은 내용을 `description sparkle:format="plain-text"`로 내장합니다. 이 형식은 기존 Sparkle 2.8.1 설치본과도 호환됩니다.
+driver는 파일 경로·내용·버전을 확인하고 배포 커밋의 파일과 같은지 검사합니다. GitHub에는 원본을 `--notes-file`로 전달하고 Sparkle에는 같은 내용을 `description sparkle:format="plain-text"`로 내장합니다. 노트는 staging과 운영에서 함께 사용할 수 있도록 작성하고, staging 여부는 후보 태그·업데이트 표시로 구분합니다. 이 형식은 기존 Sparkle 2.8.1 설치본과도 호환됩니다.
 
 예약 업데이트의 기본 Sparkle 알림창은 숨기므로 설정 → 업데이트의 버전별 변경 사항에서도 노트를 표시합니다. 서명 복구 시 Sparkle이 제거한 노트를 외부 URL에서 다시 가져오지 않습니다.
 
@@ -76,23 +86,28 @@ driver는 파일 경로·내용·버전을 확인하고 배포 커밋의 파일�
 
 ```bash
 # 원격 상태와 계획만 확인
-./Scripts/release.sh stg X.Y.Z --non-interactive --dry-run
+./Scripts/release.sh stg X.Y.Z --candidate N --non-interactive --dry-run
 
 # 명시적인 자동화 게시
-./Scripts/release.sh stg X.Y.Z \
+./Scripts/release.sh stg X.Y.Z --candidate N \
   --notes-file docs/release-notes/X.Y.Z.md \
-  --non-interactive --confirm-publish vX.Y.Z-staging
+  --non-interactive --confirm-publish vX.Y.Z-stg.N
+
+# 승인한 staging 후보를 운영으로 승격
+./Scripts/release.sh prod X.Y.Z --from-staging vX.Y.Z-stg.N \
+  --notes-file docs/release-notes/X.Y.Z.md \
+  --non-interactive --confirm-publish vX.Y.Z
 ```
 
 실행 순서:
 
-1. 저장소·계정·버전·clean main·기존 태그 상태와 공증 자격 확인
+1. 저장소·계정·목표 버전·후보 회차·증가하는 build·clean main·기존 태그 상태와 공증 자격 확인
 2. 변경 코드 정적 검사, 배포 스크립트 테스트, 전체 XCTest
 3. 실제 AGY의 인증된 identity·숫자 quota, 격리한 공식 실행 파일 교체 복구, OAuth 없는 조회 대상 저장·현재 로그인·세션 재사용 검증
 4. 이전 동일 채널의 원격 자산 검증과 서명 기준 앱 준비
 5. 최종 main에서 archive, 서명, ZIP·DMG 공증, staple·Gatekeeper 검증
 6. appcast 생성, 노트·ZIP 해시 반영, 최종 feed 서명
-7. 불변 태그와 세 자산의 Release 생성
+7. 게시 직전 다른 release/feed의 변경 여부와 승인 후보를 다시 확인한 뒤 불변 태그와 세 자산의 Release 생성
 8. 원격 자산을 다시 내려받아 검증한 뒤 정확한 appcast 바이트만 Pages에 게시
 9. 해당 Pages 커밋의 상태 `built`와 공개 feed 전파 확인, 최종 원격 검증
 
@@ -104,7 +119,7 @@ driver는 임시 빌드·다운로드·마운트·worktree를 정리하고 설�
 
 ```bash
 ./Scripts/verify-release-artifact.sh \
-  --tag vX.Y.Z-staging --channel staging \
+  --tag vX.Y.Z-stg.N --channel staging \
   --expected-version X.Y.Z --expected-build BUILD_NUMBER \
   --verify-public-feed
 ```
@@ -150,7 +165,7 @@ QA 중에는 한 채널만 실행하고 다음을 확인합니다.
 EdDSA 키를 교체할 때는 기존 설치본의 신뢰 경로를 보존해야 합니다. 압축 해제 전 검증을 사용하는 경우 기존 Apple 인증서로 서명된 DMG가 복구 경로입니다. EdDSA 키와 Apple 인증서를 동시에 변경하지 않습니다.
 
 ```bash
-./Scripts/release.sh stg X.Y.Z \
+./Scripts/release.sh stg X.Y.Z --candidate N \
   --previous-public-key "TRUSTED_PREVIOUS_PUBLIC_KEY" \
   --notes-file docs/release-notes/X.Y.Z.md
 ```
@@ -165,9 +180,11 @@ EdDSA 키를 교체할 때는 기존 설치본의 신뢰 경로를 보존해야 
 | 현재 main을 가리키는 태그만 있음 | 같은 태그로 전체 검증 후 Release 생성 |
 | 세 자산이 완전하고 feed만 이전 상태 | 자산 재검증 후 Pages만 복구 |
 | 태그·자산·feed가 모두 일치 | 원격 재검증 |
-| 태그 불일치·불완전한 자산·분기 | 기존 후보를 보존하고 다음 버전 사용 |
+| 태그 불일치·불완전한 자산·분기 | 기존 후보를 보존하고 staging은 다음 회차·새 build 사용. 이미 게시된 운영 결함은 다음 운영 버전 사용 |
 
 일시적인 네트워크 실패와 실제 자산 결함을 구분하되, 검증 실패를 이유로 기존 자산을 덮어쓰지 않습니다. Pages push 성공만으로 공개 완료를 선언하지 않습니다. 공통 XML 파서는 구버전 ZIP과 현재 DMG의 채널·태그·버전을 함께 확인합니다.
+
+이전 Release가 자산 검증에 실패해 feed에 올라가지 못했어도 다음 후보를 만들 수 있습니다. driver는 해당 태그의 프로젝트에서 version/build를 확인하고 더 높은 회차·build만 허용합니다. 이때 업데이트 기준 앱은 실제 공개 feed의 이전 정상 배포본을 유지합니다. 실패한 Release의 소스를 확인할 수 없으면 게시를 중단합니다.
 
 ## 구버전 호환
 

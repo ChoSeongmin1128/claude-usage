@@ -24,10 +24,8 @@ validate_numeric_release_version() {
     [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || return 1
     IFS='.' read -r major minor patch <<< "$version"
 
-    # New releases from 2.4.0 use:
-    #   major * 10000 + minor * 100 + patch
-    # Older 2.3.x releases used a historical patch * 10 convention. That legacy
-    # value must be read from its published metadata, never re-derived here.
+    # Keep the established numeric marketing-version range. Build numbers are
+    # independent monotonic integers; do not derive new builds from this value.
     (( ${#major} <= 6 )) || return 1
     (( 10#$minor <= 99 )) || return 1
     (( 10#$patch <= 99 )) || return 1
@@ -35,25 +33,25 @@ validate_numeric_release_version() {
     (( 10#$major <= 214747 )) || return 1
 }
 
-derive_release_build_number() {
-    local version="${1:-}"
-    local major minor patch
-
-    validate_numeric_release_version "$version" || return 1
-    IFS='.' read -r major minor patch <<< "$version"
-    printf '%d\n' "$((10#$major * 10000 + 10#$minor * 100 + 10#$patch))"
+validate_release_build_number() {
+    local value="${1:-}"
+    [[ "$value" =~ ^[1-9][0-9]*$ && ${#value} -le 10 ]] || return 1
+    (( 10#$value <= 2147483647 ))
 }
 
 release_tag_for() {
     local environment="${1:-}"
     local version="${2:-}"
+    local candidate="${3:-}"
 
     validate_numeric_release_version "$version" || return 1
     case "$environment" in
         staging)
-            printf 'v%s-staging\n' "$version"
+            validate_release_build_number "$candidate" || return 1
+            printf 'v%s-stg.%s\n' "$version" "$candidate"
             ;;
         prod)
+            [[ -z "$candidate" ]] || return 1
             printf 'v%s\n' "$version"
             ;;
         *)
@@ -79,11 +77,37 @@ release_feed_url_for() {
 release_version_from_tag() {
     local tag="${1:-}"
 
-    if [[ "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)(-staging)?$ ]]; then
-        printf '%s\n' "${BASH_REMATCH[1]}"
+    if [[ "$tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)(-staging|-stg\.[1-9][0-9]*)?$ ]]; then
+        local version="${BASH_REMATCH[1]}"
+        validate_numeric_release_version "$version" || return 1
+        printf '%s\n' "$version"
         return 0
     fi
     return 1
+}
+
+release_candidate_from_tag() {
+    local tag="${1:-}"
+    release_version_from_tag "$tag" >/dev/null || return 1
+    if [[ "$tag" =~ -stg\.([1-9][0-9]*)$ ]]; then
+        local candidate="${BASH_REMATCH[1]}"
+        validate_release_build_number "$candidate" || return 1
+        printf '%s\n' "$candidate"
+    elif [[ "$tag" == *-staging ]]; then
+        printf '0\n'
+    else
+        return 1
+    fi
+}
+
+validate_release_tag_identity() {
+    local tag="$1" channel="$2" version="$3"
+    [[ "$(release_version_from_tag "$tag")" == "$version" ]] || return 1
+    case "$channel" in
+        staging) release_candidate_from_tag "$tag" >/dev/null ;;
+        prod) [[ "$tag" == "v$version" ]] ;;
+        *) return 1 ;;
+    esac
 }
 
 compare_numeric_release_versions() {
@@ -231,7 +255,7 @@ read_unique_xcode_build_setting() {
     local project_file="${1:-}"
     local key="${2:-}"
 
-    [[ -f "$project_file" ]] || return 1
+    [[ "$project_file" == "-" || -f "$project_file" ]] || return 1
     awk -v target="$key" '
         $0 ~ "^[[:space:]]*" target "[[:space:]]*=" {
             value = $0

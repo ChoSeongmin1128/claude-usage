@@ -28,7 +28,7 @@ usage() {
     cat <<'USAGE'
 사용법:
   Scripts/verify-release-artifact.sh \
-    --tag vX.Y.Z[-staging] \
+    --tag vX.Y.Z[-stg.N] \
     --channel prod|staging \
     --expected-version X.Y.Z \
     --expected-build N \
@@ -137,12 +137,11 @@ case "$CHANNEL" in
         ;;
 esac
 validate_numeric_release_version "$EXPECTED_VERSION" \
-    || die "--expected-version 은 build number를 모호하지 않게 계산할 수 있는 X.Y.Z 형식이어야 합니다."
-[[ "$EXPECTED_BUILD" =~ ^[1-9][0-9]*$ ]] || die "--expected-build 는 양의 정수여야 합니다."
+    || die "--expected-version 은 X.Y.Z 형식이어야 합니다."
+validate_release_build_number "$EXPECTED_BUILD" || die "--expected-build 는 유효한 양의 정수여야 합니다."
 
-EXPECTED_TAG="$(release_tag_for "$CHANNEL" "$EXPECTED_VERSION")"
-[[ "$TAG" == "$EXPECTED_TAG" ]] \
-    || die "tag/channel/version 조합이 일치하지 않습니다: 기대=$EXPECTED_TAG, 입력=$TAG"
+validate_release_tag_identity "$TAG" "$CHANNEL" "$EXPECTED_VERSION" \
+    || die "tag/channel/version 조합이 일치하지 않습니다: $TAG / $CHANNEL / $EXPECTED_VERSION"
 EXPECTED_FEED_URL="$(release_feed_url_for "$CHANNEL")"
 IDENTITY_METADATA_POLICY="$(
     release_artifact_identity_metadata_policy "$CHANNEL" "$EXPECTED_VERSION"

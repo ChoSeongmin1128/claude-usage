@@ -283,8 +283,12 @@ case "$CHANNEL" in
         }
         ;;
     staging)
-        [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-staging$ && "$PRERELEASE" == "1" ]] || {
-            echo "staging은 exact vX.Y.Z-staging tag와 --prerelease 조합만 허용합니다: tag=$TAG, prerelease=$PRERELEASE" >&2
+        if [[ "$PRERELEASE" != "1" ]] || ! release_candidate_from_tag "$TAG" >/dev/null; then
+            echo "staging은 vX.Y.Z-stg.N tag와 --prerelease 조합이어야 합니다: tag=$TAG, prerelease=$PRERELEASE" >&2
+            exit 2
+        fi
+        [[ "$TAG" != *-staging || "$RESUME_EXACT_TAG" == "1" ]] || {
+            echo "새 staging에는 검증 회차가 필요합니다. 기존 -staging tag는 복구만 허용합니다." >&2
             exit 2
         }
         ;;

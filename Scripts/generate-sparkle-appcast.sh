@@ -233,7 +233,7 @@ rm -f "$APPCAST_OUTPUT"
   "$STAGING_DIR"
 
 python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" embed-notes \
-  --appcast "$APPCAST_OUTPUT" --notes-file "$NOTES_FILE" --version "${NOTES_VERSION}"
+  --appcast "$APPCAST_OUTPUT" --notes-file "$NOTES_FILE" --version "${NOTES_VERSION}" --tag "$RELEASE_TAG"
 python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" bind-zip \
   --appcast "$APPCAST_OUTPUT" --zip-file "$ARTIFACTS_DIR/ClaudeUsage.zip"
 # This is the final mutation. No XML serialization may follow feed signing.

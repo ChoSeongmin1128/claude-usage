@@ -128,6 +128,84 @@ class ReleaseMetadataTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     metadata.channel_feed_state(self.appcast, channel)
 
+    def test_numbered_candidates_and_independent_builds(self):
+        for tag, channel, build in [("v2.6.0-stg.1", "staging", "20503"),
+                                     ("v2.6.0-stg.2", "staging", "20504"),
+                                     ("v2.6.0", "prod", "20504")]:
+            with self.subTest(tag=tag):
+                self.appcast.write_text(
+                    '<rss xmlns:sparkle="' + metadata.SPARKLE + '"><channel><item>'
+                    '<sparkle:shortVersionString>2.6.0</sparkle:shortVersionString>'
+                    '<sparkle:version>' + build + '</sparkle:version><enclosure length="1" '
+                    'sparkle:edSignature="fixture" url="https://github.com/ChoSeongmin1128/claude-usage/'
+                    'releases/download/' + tag + '/ClaudeUsage.dmg"/></item></channel></rss>')
+                self.assertEqual(metadata.channel_feed_state(self.appcast, channel),
+                                 "\t".join(["2.6.0", build, tag]))
+                with self.assertRaises(ValueError):
+                    metadata.channel_feed_state(self.appcast, "prod" if channel == "staging" else "staging")
+
+    def test_candidate_tag_validation_and_title(self):
+        for tag in ["v2.5.3-stg.0", "v2.5.3-stg.01", "v2.5.3-stg.2147483648", "v02.5.3-stg.1", "v2.5.3-beta.1"]:
+            with self.subTest(tag=tag), self.assertRaises(ValueError):
+                metadata.parse_release_tag(tag)
+        self.appcast.write_text(self.appcast.read_text().replace("https://test/ClaudeUsage.zip",
+            "https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.4.15-stg.3/ClaudeUsage.dmg"))
+        metadata.embed_notes(self.appcast, self.notes, "2.4.15", "v2.4.15-stg.3")
+        self.assertEqual(metadata.appcast_item(self.appcast)[1].findtext("title"), "Version 2.4.15-stg.3")
+        self.assertEqual(metadata.appcast_item(self.appcast)[1].findtext("{" + metadata.SPARKLE + "}shortVersionString"), "2.4.15-stg.3")
+        self.assertEqual(metadata.appcast_fields(self.appcast).split("\t")[0], "2.4.15")
+        metadata.verify_notes(self.appcast, self.notes, "2.4.15")
+        self.appcast.write_text(self.appcast.read_text().replace("/v2.4.15-stg.3/", "/v2.4.15-stg.4/"))
+        with self.assertRaises(ValueError):
+            metadata.appcast_fields(self.appcast)
+
+    def initialize_promotion_fixture(self):
+        self.git("init", "-qb", "main")
+        for name in ["ClaudeUsage/App.swift", "Config/Release.xcconfig", "Scripts/release.sh",
+                     "ClaudeUsage.xcodeproj/project.pbxproj", "LICENSE", "README.md"]:
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("reviewed\n")
+        self.commit_fixture()
+        base = self.git("rev-parse", "HEAD").decode().strip()
+        self.git("tag", "v2.4.15-stg.1")
+        return base
+
+    def commit_fixture(self):
+        self.git("add", ".")
+        self.git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "-qm", "fixture")
+        return self.git("rev-parse", "HEAD").decode().strip()
+
+    def test_promotion_accepts_completed_documentation_only(self):
+        base = self.initialize_promotion_fixture()
+        (self.root / "README.md").write_text("published state\n")
+        (self.root / "docs/RELEASE.md").write_text("procedure\n")
+        head = self.commit_fixture()
+        self.assertEqual(metadata.verify_promotion_source(self.root, "v2.4.15-stg.1", head), base)
+
+    def test_promotion_rejects_every_build_input_and_release_note_change(self):
+        base = self.initialize_promotion_fixture()
+        for name in ["ClaudeUsage/App.swift", "Config/Release.xcconfig", "Scripts/release.sh",
+                     "ClaudeUsage.xcodeproj/project.pbxproj", "LICENSE", "docs/release-notes/2.4.15.md",
+                     "docs/executable.sh"]:
+            with self.subTest(path=name):
+                self.git("reset", "--hard", base)
+                (self.root / name).write_text("unreviewed\n")
+                head = self.commit_fixture()
+                with self.assertRaises(ValueError):
+                    metadata.verify_promotion_source(self.root, "v2.4.15-stg.1", head)
+
+    def test_promotion_rejects_document_symlink_and_nonancestor(self):
+        base = self.initialize_promotion_fixture()
+        (self.root / "README.md").unlink()
+        (self.root / "README.md").symlink_to("ClaudeUsage/App.swift")
+        with self.assertRaises(ValueError):
+            metadata.verify_promotion_source(self.root, "v2.4.15-stg.1", self.commit_fixture())
+        self.git("checkout", "--orphan", "unrelated")
+        head = self.commit_fixture()
+        with self.assertRaises(subprocess.CalledProcessError):
+            metadata.verify_promotion_source(self.root, "v2.4.15-stg.1", head)
+
 
 if __name__ == "__main__":
     unittest.main()

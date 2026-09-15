@@ -133,13 +133,18 @@ assert_failure "major overflow rejected" validate_numeric_release_version 214748
 assert_failure "very large major rejected" validate_numeric_release_version 9999999999999999999.0.0
 assert_failure "wrapping major rejected" validate_numeric_release_version 18446744073709551616.0.0
 
-assert_equal "20400" "$(derive_release_build_number 2.4.0)" "2.4.0 build"
-assert_equal "20401" "$(derive_release_build_number 2.4.1)" "2.4.1 build"
-assert_equal "20410" "$(derive_release_build_number 2.4.10)" "2.4.10 build"
-assert_equal "20500" "$(derive_release_build_number 2.5.0)" "2.5.0 build"
-assert_equal "v2.4.0-staging" "$(release_tag_for staging 2.4.0)" "staging tag"
+assert_equal "v2.4.0-stg.1" "$(release_tag_for staging 2.4.0 1)" "staging tag"
 assert_equal "v2.4.0" "$(release_tag_for prod 2.4.0)" "prod tag"
-assert_equal "2.4.0" "$(release_version_from_tag v2.4.0-staging)" "staging tag version"
+assert_equal "2.4.0" "$(release_version_from_tag v2.4.0-stg.1)" "staging tag version"
+assert_failure "new staging requires candidate" release_tag_for staging 2.5.3
+assert_equal "0" "$(release_candidate_from_tag v2.4.14-staging)" "legacy candidate sentinel"
+assert_equal "10" "$(release_candidate_from_tag v2.5.3-stg.10)" "numeric candidate sequence"
+assert_failure "zero candidate rejected" release_tag_for staging 2.5.3 0
+assert_failure "leading zero candidate rejected" release_tag_for staging 2.5.3 01
+assert_failure "large candidate rejected" release_tag_for staging 2.5.3 2147483648
+assert_failure "production cannot carry candidate" release_tag_for prod 2.5.3 1
+assert_failure "staging tag cannot be production" validate_release_tag_identity v2.5.3-stg.1 prod 2.5.3
+assert_failure "candidate version mismatch" validate_release_tag_identity v2.5.3-stg.1 staging 2.5.4
 assert_equal "1" "$(compare_numeric_release_versions 2.4.1 2.4.0)" "version greater"
 assert_equal "0" "$(compare_numeric_release_versions 2.4.0 2.4.0)" "version equal"
 assert_equal "-1" "$(compare_numeric_release_versions 2.3.99 2.4.0)" "version lower"
@@ -252,13 +257,13 @@ BEFORE_SNAPSHOT="$(snapshot_tree "$TEST_ROOT")"
 STAGING_OUTPUT="$(
     env "${DRY_RUN_COMMON_ENV[@]}" \
         /bin/bash "$ROOT_DIR/Scripts/release.sh" \
-        stg 2.4.0 --non-interactive --dry-run
+        stg 2.4.0 --candidate 1 --non-interactive --dry-run
 )"
 AFTER_SNAPSHOT="$(snapshot_tree "$TEST_ROOT")"
 assert_equal "$BEFORE_SNAPSHOT" "$AFTER_SNAPSHOT" "release dry-run filesystem unchanged"
 assert_equal "" "$(find "$FIXTURE_TMP" -mindepth 1 -print -quit)" "release dry-run creates no temp"
 assert_contains "$STAGING_OUTPUT" "환경 입력:  stg -> staging" "stg normalization output"
-assert_contains "$STAGING_OUTPUT" "generated tag:     v2.4.0-staging" "staging generated tag output"
+assert_contains "$STAGING_OUTPUT" "generated tag:     v2.4.0-stg.1" "staging generated tag output"
 assert_contains "$STAGING_OUTPUT" "expected build:    20400" "standard build output"
 assert_contains "$STAGING_OUTPUT" "v2.3.3-staging / 2.3.3 (20330)" "historical prior build preserved"
 assert_contains "$STAGING_OUTPUT" "DRY-RUN 완료" "release dry-run completion"
@@ -266,33 +271,56 @@ assert_contains "$STAGING_OUTPUT" "DRY-RUN 완료" "release dry-run completion"
 PROD_OUTPUT="$(
     env "${DRY_RUN_COMMON_ENV[@]}" \
         /bin/bash "$ROOT_DIR/Scripts/release.sh" \
-        prod 2.4.0 --non-interactive --dry-run
+        prod 2.4.0 --from-staging v2.4.0-stg.1 --non-interactive --dry-run
 )"
 assert_contains "$PROD_OUTPUT" "generated tag:     v2.4.0" "prod generated tag output"
 assert_contains "$PROD_OUTPUT" "upgrade 기준:     v2.3.3 / 2.3.3 (20330)" "prod prior channel"
 assert_equal "" "$(find "$FIXTURE_TMP" -mindepth 1 -print -quit)" "prod dry-run creates no temp"
+assert_failure "driver requires staging candidate" env "${DRY_RUN_COMMON_ENV[@]}" \
+    /bin/bash "$ROOT_DIR/Scripts/release.sh" stg 2.4.0 --non-interactive --dry-run
+assert_failure "driver requires approved staging" env "${DRY_RUN_COMMON_ENV[@]}" \
+    /bin/bash "$ROOT_DIR/Scripts/release.sh" prod 2.4.0 --non-interactive --dry-run
 
 set +e
 MISMATCH_OUTPUT="$(
     env "${DRY_RUN_COMMON_ENV[@]}" \
         /bin/bash "$ROOT_DIR/Scripts/release.sh" \
-        stg 2.4.1 --non-interactive --dry-run 2>&1
+        stg 2.4.1 --candidate 1 --non-interactive --dry-run 2>&1
 )"
 MISMATCH_STATUS=$?
 set -e
 [[ "$MISMATCH_STATUS" -ne 0 ]] || fail "project mismatch dry-run은 실패해야 합니다."
 pass
-assert_contains "$MISMATCH_OUTPUT" "CURRENT_PROJECT_VERSION=20401" "mismatch expected build guidance"
+assert_contains "$MISMATCH_OUTPUT" "MARKETING_VERSION=2.4.1" "mismatch marketing version guidance"
 assert_contains "$MISMATCH_OUTPUT" "ClaudeUsage.xcodeproj/project.pbxproj" "mismatch edit location"
 assert_equal "" "$(find "$FIXTURE_TMP" -mindepth 1 -print -quit)" "failed dry-run creates no temp"
+
+cp "$FIXTURE_ROOT/ClaudeUsage.xcodeproj/project.pbxproj" "$TEST_ROOT/original-project"
+sed 's/CURRENT_PROJECT_VERSION = 20400/CURRENT_PROJECT_VERSION = 20401/g' \
+    "$TEST_ROOT/original-project" > "$FIXTURE_ROOT/ClaudeUsage.xcodeproj/project.pbxproj"
+NUMBERED_OUTPUT="$(env "${DRY_RUN_COMMON_ENV[@]}" \
+    RELEASE_DRIVER_TEST_STAGING_TAG=v2.4.0-stg.1 \
+    $'RELEASE_DRIVER_TEST_STAGING_FEED_STATE=2.4.0\t20400\tv2.4.0-stg.1' \
+    /bin/bash "$ROOT_DIR/Scripts/release.sh" stg 2.4.0 --candidate 2 --non-interactive --dry-run)"
+assert_contains "$NUMBERED_OUTPUT" "generated tag:     v2.4.0-stg.2" "same version next candidate"
+assert_contains "$NUMBERED_OUTPUT" "expected build:    20401" "independent build number"
+assert_failure "candidate cannot reuse published build" env "${DRY_RUN_COMMON_ENV[@]}" \
+    RELEASE_DRIVER_TEST_STAGING_TAG=v2.4.0-stg.1 \
+    $'RELEASE_DRIVER_TEST_STAGING_FEED_STATE=2.4.0\t20401\tv2.4.0-stg.1' \
+    /bin/bash "$ROOT_DIR/Scripts/release.sh" stg 2.4.0 --candidate 2 --non-interactive --dry-run
+assert_failure "published candidate cannot change build" env "${DRY_RUN_COMMON_ENV[@]}" \
+    RELEASE_DRIVER_TEST_STAGING_TAG=v2.4.0-stg.1 \
+    $'RELEASE_DRIVER_TEST_STAGING_FEED_STATE=2.4.0\t20400\tv2.4.0-stg.1' \
+    /bin/bash "$ROOT_DIR/Scripts/release.sh" stg 2.4.0 --candidate 1 --non-interactive --dry-run
+cp "$TEST_ROOT/original-project" "$FIXTURE_ROOT/ClaudeUsage.xcodeproj/project.pbxproj"
 
 set +e
 BLOCKED_TEST_EXECUTION_OUTPUT="$(
     env "${DRY_RUN_COMMON_ENV[@]}" \
         /bin/bash "$ROOT_DIR/Scripts/release.sh" \
-        stg 2.4.0 \
+        stg 2.4.0 --candidate 1 \
         --non-interactive \
-        --confirm-publish v2.4.0-staging \
+        --confirm-publish v2.4.0-stg.1 \
         2>&1
 )"
 BLOCKED_TEST_EXECUTION_STATUS=$?
@@ -309,7 +337,7 @@ assert_equal "" "$(find "$FIXTURE_TMP" -mindepth 1 -print -quit)" "blocked test 
 VERIFIER_OUTPUT="$(
     TMPDIR="$FIXTURE_TMP" \
         /bin/bash "$ROOT_DIR/Scripts/verify-release-artifact.sh" \
-        --tag v2.4.0-staging \
+        --tag v2.4.0-stg.1 \
         --channel staging \
         --expected-version 2.4.0 \
         --expected-build 20400 \
@@ -404,6 +432,9 @@ set -euo pipefail
 } >> "${RELEASE_DRIVER_TEST_TRACE:?}"
 install_path=""
 export_path=""
+if [[ "${RELEASE_DRIVER_TEST_APPROVED_STAGE_FAIL:-0}" == "1" && "${2:-}" == "v2.4.0-stg.1" ]]; then
+    exit 1
+fi
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --install-to)
@@ -461,11 +492,18 @@ run_root="${TMPDIR%/tmp}"
 [[ "$XC_CONFIG_PATH" == "$RELEASE_DRIVER_ROOT_DIR/Config/Release.xcconfig" ]]
 [[ "$LOCAL_XC_CONFIG_PATH" == "$RELEASE_DRIVER_ROOT_DIR/Config/Sparkle.release.local.xcconfig" ]]
 [[ "$ENTITLEMENTS_PATH" == "$RELEASE_DRIVER_ROOT_DIR/ClaudeUsage/ClaudeUsage.entitlements" ]]
-[[ "$RELEASE_CHANNEL" == "staging" ]]
+[[ "$RELEASE_CHANNEL" == "${RELEASE_DRIVER_TEST_ENVIRONMENT:-staging}" ]]
 [[ "$SU_FEED_URL" == "${RELEASE_DRIVER_TEST_EXPECTED_FEED:?}" ]]
 [[ "$SIGNING_REFERENCE_APP" == "${RELEASE_DRIVER_TEST_SANDBOX_ROOT:?}/Applications/ClaudeUsage.app" \
-    || "$SIGNING_REFERENCE_APP" == "${RELEASE_DRIVER_TEST_SANDBOX_ROOT:?}/Downloads/ClaudeUsage-stg.app" ]]
-app_path="$ARCHIVE_PATH/Products/Applications/ClaudeUsage-stg.app"
+    || "$SIGNING_REFERENCE_APP" == "${RELEASE_DRIVER_TEST_SANDBOX_ROOT:?}/Downloads/ClaudeUsage-stg.app" \
+    || "$SIGNING_REFERENCE_APP" == "${RELEASE_DRIVER_TEST_SANDBOX_ROOT:?}/Downloads/ClaudeUsage.app" ]]
+fixture_app_name="ClaudeUsage-stg"
+fixture_bundle_identifier="com.seongmin.ClaudeUsage.staging"
+if [[ "$RELEASE_CHANNEL" == "prod" ]]; then
+    fixture_app_name="ClaudeUsage"
+    fixture_bundle_identifier="com.seongmin.ClaudeUsage"
+fi
+app_path="$ARCHIVE_PATH/Products/Applications/$fixture_app_name.app"
 sparkle_path="$DERIVED_DATA_PATH/SourcePackages/artifacts/sparkle/Sparkle/bin"
 mkdir -p "$app_path/Contents" "$sparkle_path"
 : > "$ZIP_PATH"
@@ -480,11 +518,11 @@ cat > "$app_path/Contents/Info.plist" <<PLIST
     <key>CFBundleVersion</key>
     <string>20400</string>
     <key>CFBundleIdentifier</key>
-    <string>com.seongmin.ClaudeUsage.staging</string>
+    <string>$fixture_bundle_identifier</string>
     <key>CFBundleDisplayName</key>
-    <string>ClaudeUsage-stg</string>
+    <string>$fixture_app_name</string>
     <key>ClaudeUsageReleaseChannel</key>
-    <string>staging</string>
+    <string>$RELEASE_CHANNEL</string>
     <key>SUFeedURL</key>
     <string>${RELEASE_DRIVER_TEST_EXPECTED_FEED:?}</string>
 </dict>
@@ -493,6 +531,9 @@ PLIST
 printf '#!/usr/bin/env bash\nexit 0\n' > "$sparkle_path/generate_appcast"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$sparkle_path/sign_update"
 chmod +x "$sparkle_path/generate_appcast" "$sparkle_path/sign_update"
+if [[ "${RELEASE_DRIVER_TEST_STATE_CHANGE_AFTER_BUILD:-0}" == "1" ]]; then
+    : > "${RELEASE_DRIVER_TEST_FEED_SWITCH_FILE:?}"
+fi
 SCRIPT
 
 cat > "$ORCHESTRATION_REPOSITORY/Scripts/publish-release.sh" <<'SCRIPT'
@@ -520,8 +561,8 @@ run_root="${TMPDIR%/tmp}"
 [[ "$APPCAST_PATH" == "$BUILD_DIR/appcast.xml" ]]
 [[ "$LOCAL_XC_CONFIG_PATH" == "${RELEASE_DRIVER_ROOT_DIR:?}/Config/Sparkle.release.local.xcconfig" ]]
 [[ "$SU_FEED_URL" == "${RELEASE_DRIVER_TEST_EXPECTED_FEED:?}" ]]
-[[ "$DOWNLOAD_BASE_URL" == "https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.4.0-staging" ]]
-[[ "$RELEASE_TAG" == "v2.4.0-staging" ]]
+[[ "$DOWNLOAD_BASE_URL" == "https://github.com/ChoSeongmin1128/claude-usage/releases/download/${RELEASE_DRIVER_TEST_PUBLISH_TAG:?}" ]]
+[[ "$RELEASE_TAG" == "$RELEASE_DRIVER_TEST_PUBLISH_TAG" ]]
 SCRIPT
 
 cat > "$ORCHESTRATION_REPOSITORY/Scripts/publish-pages-appcast.sh" <<'SCRIPT'
@@ -556,6 +597,13 @@ if [[ "${1:-}" == "-C" ]]; then
 fi
 case "${1:-}" in
     show)
+        if [[ "${2:-}" == refs/tags/*:ClaudeUsage.xcodeproj/project.pbxproj ]]; then
+            version="${2#refs/tags/v}"
+            version="${version%%:*}"
+            printf 'MARKETING_VERSION = %s;\nCURRENT_PROJECT_VERSION = %s;\n' \
+                "${version%%-*}" "${RELEASE_DRIVER_TEST_ABANDONED_BUILD:-20399}"
+            exit 0
+        fi
         printf '# 2.4.0\n\n- Improved updates.\n'
         ;;
 
@@ -573,11 +621,16 @@ case "${1:-}" in
         printf 'git@github-seongmin:ChoSeongmin1128/claude-usage.git\n'
         ;;
     rev-parse)
-        case "${2:-}" in
+        ref="${!#}"
+        if [[ "${RELEASE_DRIVER_TEST_ENVIRONMENT:-staging}" == "prod" && "$ref" == refs/tags/v2.4.0-stg.1* ]]; then
+            printf '%s\n' "${RELEASE_DRIVER_TEST_HEAD:?}"
+            exit 0
+        fi
+        case "$ref" in
             HEAD|origin/main)
                 printf '%s\n' "${RELEASE_DRIVER_TEST_HEAD:?}"
                 ;;
-            refs/tags/v2.4.0-staging*|refs/tags/v2.4.0*)
+            refs/tags/v2.4.0-stg.1*|refs/tags/v2.4.0*)
                 case "${RELEASE_DRIVER_TEST_CANDIDATE_MODE:?}" in
                     fresh)
                         exit 1
@@ -599,7 +652,7 @@ case "${1:-}" in
                     exit 0
                     ;;
                 *)
-                    printf '%s\trefs/tags/v2.4.0-staging\n' "${RELEASE_DRIVER_TEST_HEAD:?}"
+                    printf '%s\trefs/tags/v2.4.0-stg.1\n' "${RELEASE_DRIVER_TEST_HEAD:?}"
                     ;;
             esac
         elif [[ "${2:-}" == "origin" && "${3:-}" == "refs/heads/gh-pages" ]]; then
@@ -652,7 +705,7 @@ case "${1:-}" in
     api)
         if [[ "${2:-}" == "user" ]]; then
             cat "${RELEASE_DRIVER_TEST_ACCOUNT_FILE:?}"
-        elif [[ "${2:-}" == *"/releases/tags/v2.4.0-staging" ]]; then
+        elif [[ "${2:-}" == *"/releases/tags/v2.4.0-stg.1" || "${2:-}" == *"/releases/tags/v2.4.0" ]]; then
             case "${RELEASE_DRIVER_TEST_CANDIDATE_MODE:?}" in
                 fresh|tag_only)
                     printf 'gh: Not Found (HTTP 404)\n' >&2
@@ -709,7 +762,9 @@ case "${1:-}" in
     release)
         case "${2:-}" in
             view)
-                if [[ "$*" == *'then "complete"'* ]]; then
+                if [[ "$*" == *'--json isDraft,isPrerelease'* ]]; then
+                    printf 'false\ttrue\n'
+                elif [[ "$*" == *'then "complete"'* ]]; then
                     printf 'complete\n'
                 elif [[ "$*" == *'digest else'* ]]; then
                     printf '<appcast>candidate</appcast>\n' \
@@ -870,7 +925,15 @@ run_orchestration_scenario() {
     local bootstrap_version="${7:-2.4.0}"
     local previous_key="${8:-}"
     local cert_changed="${9:-0}"
-    local release_args=(stg 2.4.0 --non-interactive --confirm-publish v2.4.0-staging)
+    local environment="${RELEASE_DRIVER_TEST_ENVIRONMENT:-staging}"
+    local publish_tag="v2.4.0-stg.1" app_name="ClaudeUsage-stg.app" prod_feed_after=""
+    local release_args=(stg 2.4.0 --candidate 1 --non-interactive --confirm-publish v2.4.0-stg.1)
+    if [[ "$environment" == "prod" ]]; then
+        publish_tag="v2.4.0"
+        app_name="ClaudeUsage.app"
+        prod_feed_after=$'2.4.0\t20400\tv2.4.0'
+        release_args=(prod 2.4.0 --from-staging v2.4.0-stg.1 --non-interactive --confirm-publish v2.4.0)
+    fi
     [[ -z "$previous_key" ]] || release_args+=(--previous-public-key "$previous_key")
 
     rm -rf "$ORCHESTRATION_TMP" "$ORCHESTRATION_DOWNLOADS"
@@ -884,7 +947,9 @@ run_orchestration_scenario() {
         env \
             "PATH=$ORCHESTRATION_BIN:/usr/bin:/bin:/usr/sbin:/sbin" \
             "TMPDIR=$ORCHESTRATION_TMP" \
-            "DOWNLOADS_APP_PATH=$ORCHESTRATION_DOWNLOADS/ClaudeUsage-stg.app" \
+            "DOWNLOADS_APP_PATH=$ORCHESTRATION_DOWNLOADS/$app_name" \
+            "RELEASE_DRIVER_TEST_ENVIRONMENT=$environment" \
+            "RELEASE_DRIVER_TEST_PUBLISH_TAG=$publish_tag" \
             "RELEASE_DRIVER_TEST_MODE=1" \
             "RELEASE_DRIVER_TEST_EXECUTE=1" \
             "RELEASE_DRIVER_TEST_SANDBOX_ROOT=$ORCHESTRATION_ROOT" \
@@ -902,10 +967,11 @@ run_orchestration_scenario() {
             "RELEASE_DRIVER_TEST_STATIC_FAIL=${RELEASE_DRIVER_TEST_STATIC_FAIL:-0}" \
             "RELEASE_DRIVER_TEST_CERT_CHANGED=$cert_changed" \
             "RELEASE_DRIVER_TEST_STAGING_IDENTITY_BOOTSTRAP_VERSION=$bootstrap_version" \
-            "RELEASE_DRIVER_TEST_EXPECTED_FEED=https://choseongmin1128.github.io/claude-usage/channels/staging/appcast.xml" \
+            "RELEASE_DRIVER_TEST_EXPECTED_FEED=$(release_feed_url_for "$environment")" \
             "RELEASE_DRIVER_TEST_PROD_TAG=v2.3.3" \
             "RELEASE_DRIVER_TEST_STAGING_TAG=$staging_release_tag" \
             $'RELEASE_DRIVER_TEST_PROD_FEED_STATE=2.3.3\t20330\tv2.3.3' \
+            "RELEASE_DRIVER_TEST_PROD_FEED_STATE_AFTER=$prod_feed_after" \
             "RELEASE_DRIVER_TEST_STAGING_FEED_STATE=$staging_feed_state" \
             "RELEASE_DRIVER_TEST_STAGING_FEED_STATE_AFTER=$staging_feed_state_after" \
             "ARCHIVE_PATH=$ORCHESTRATION_ROOT/hostile-override/archive.xcarchive" \
@@ -951,7 +1017,7 @@ run_orchestration_scenario \
     fresh \
     v2.3.3-staging \
     $'2.3.3\t20330\tv2.3.3-staging' \
-    $'2.4.0\t20400\tv2.4.0-staging'
+    $'2.4.0\t20400\tv2.4.0-stg.1'
 assert_equal "0" "$SCENARIO_STATUS" "fresh staging actual path"
 assert_contains "$SCENARIO_OUTPUT" "candidate metadata state: fresh" "fresh state output"
 assert_contains "$SCENARIO_OUTPUT" "배포 및 원격 검증 완료" "fresh completion output"
@@ -981,23 +1047,23 @@ assert_contains "$SCENARIO_TRACE" "<SU_FEED_URL=https://choseongmin1128.github.i
 assert_contains "$SCENARIO_TRACE" "<SIGNING_REFERENCE_APP=$ORCHESTRATION_ROOT/Applications/ClaudeUsage.app>" "fresh signing reference uses production Applications app"
 assert_contains "$SCENARIO_TRACE" "publish-env <BUILD_DIR=$ORCHESTRATION_TMP/" "fresh publish build is isolated"
 assert_contains "$SCENARIO_TRACE" "<APPCAST_PATH=$ORCHESTRATION_TMP/" "fresh publish appcast is isolated"
-assert_contains "$SCENARIO_TRACE" "<DOWNLOAD_BASE_URL=https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.4.0-staging>" "fresh publish download URL is pinned"
+assert_contains "$SCENARIO_TRACE" "<DOWNLOAD_BASE_URL=https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.4.0-stg.1>" "fresh publish download URL is pinned"
 assert_contains "$SCENARIO_TRACE" "pages-env <GHPAGES_BRANCH=gh-pages>" "fresh Pages branch is pinned"
 assert_not_contains "$SCENARIO_TRACE" "hostile-override" "fresh hostile filesystem overrides"
 assert_not_contains "$SCENARIO_TRACE" "hostile.invalid" "fresh hostile URL overrides"
 assert_not_contains "$SCENARIO_TRACE" "hostile-pages" "fresh hostile Pages branch"
-assert_contains "$SCENARIO_TRACE" "publish <v2.4.0-staging> <--channel> <staging> <--expected-commit> <$ORCHESTRATION_HEAD> <--skip-pages-publish> <--prerelease>" "fresh two-phase prerelease publish"
+assert_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1> <--channel> <staging> <--expected-commit> <$ORCHESTRATION_HEAD> <--skip-pages-publish> <--prerelease>" "fresh two-phase prerelease publish"
 assert_not_contains "$SCENARIO_TRACE" "<--resume-exact-tag>" "fresh resume flag"
 assert_contains "$SCENARIO_TRACE" "verify-export <verified-candidate-appcast>" "fresh verified appcast export"
 assert_contains "$SCENARIO_TRACE" "pages-source <verified-candidate-appcast>" "fresh verified Pages source"
-assert_contains "$SCENARIO_TRACE" "verify <--tag> <v2.4.0-staging> <--channel> <staging> <--expected-version> <2.4.0> <--expected-build> <20400> <--verify-public-feed>" "fresh final public verification"
+assert_contains "$SCENARIO_TRACE" "verify <--tag> <v2.4.0-stg.1> <--channel> <staging> <--expected-version> <2.4.0> <--expected-build> <20400> <--verify-public-feed>" "fresh final public verification"
 assert_ordered "$SCENARIO_TRACE" "gate <release-driver-shell-tests>" "xcodebuild <-project>" "fresh shell tests before XCTest"
 assert_ordered "$SCENARIO_TRACE" "xcodebuild <-project>" "xcrun <xctest>" "fresh XCTest before live AGY"
 assert_ordered "$SCENARIO_TRACE" "xcrun <xctest>" "build <BUILD_DIR=" "fresh live AGY before build"
 assert_contains "$SCENARIO_TRACE" "<AntigravityLiveAGYIntegrationTests/testRuntimeEnvironmentRecoversAfterOfficialBinaryReplacement>" "fresh live AGY replacement gate"
-assert_ordered "$SCENARIO_TRACE" "publish <v2.4.0-staging>" "verify-export <verified-candidate-appcast>" "fresh Release before candidate verification"
+assert_ordered "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "verify-export <verified-candidate-appcast>" "fresh Release before candidate verification"
 assert_ordered "$SCENARIO_TRACE" "verify-export <verified-candidate-appcast>" "pages-source <verified-candidate-appcast>" "fresh verification before Pages"
-assert_ordered "$SCENARIO_TRACE" "pages-source <verified-candidate-appcast>" "verify <--tag> <v2.4.0-staging> <--channel> <staging> <--expected-version> <2.4.0> <--expected-build> <20400> <--verify-public-feed>" "fresh Pages before final public verification"
+assert_ordered "$SCENARIO_TRACE" "pages-source <verified-candidate-appcast>" "verify <--tag> <v2.4.0-stg.1> <--channel> <staging> <--expected-version> <2.4.0> <--expected-build> <20400> <--verify-public-feed>" "fresh Pages before final public verification"
 assert_line_count "$SCENARIO_TRACE" "gh <api> <--method> <POST> <repos/ChoSeongmin1128/claude-usage/pages/builds>" "1" "fresh forced Pages rebuild"
 [[ ! -e "$ORCHESTRATION_DOWNLOADS/ClaudeUsage-stg.app" ]] \
     || fail "식별자 최초 staging이 구 번들 앱을 Downloads fixture에 두었습니다."
@@ -1009,18 +1075,18 @@ assert_orchestration_cleanup "fresh"
 assert_no_destructive_release_commands "$SCENARIO_TRACE" "fresh"
 
 RELEASE_DRIVER_TEST_STATIC_FAIL=1 run_orchestration_scenario \
-    fresh v2.3.3-staging $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-staging'
+    fresh v2.3.3-staging $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1'
 [[ "$SCENARIO_STATUS" != 0 ]] || fail "static check failure must block the release"
 pass
 assert_not_contains "$SCENARIO_TRACE" "xcodebuild <-project>" "static failure blocks build"
-assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-staging>" "static failure blocks publication"
+assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "static failure blocks publication"
 assert_orchestration_cleanup "static failure"
 
 run_orchestration_scenario \
     fresh \
     v2.3.3-staging \
     $'2.3.3\t20330\tv2.3.3-staging' \
-    $'2.4.0\t20400\tv2.4.0-staging' \
+    $'2.4.0\t20400\tv2.4.0-stg.1' \
     0 \
     built \
     2.3.0
@@ -1037,68 +1103,68 @@ assert_no_destructive_release_commands "$SCENARIO_TRACE" "same-identity upgrade"
 
 ROTATION_TEST_PUBLIC_KEY="11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo="
 run_orchestration_scenario fresh v2.3.3-staging \
-    $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-staging' \
+    $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1' \
     0 built 2.3.0 "$ROTATION_TEST_PUBLIC_KEY"
 assert_equal "0" "$SCENARIO_STATUS" "EdDSA rotation with same Apple certificate"
 assert_contains "$SCENARIO_TRACE" "verify <--tag> <v2.3.3-staging> <--trusted-public-key> <$ROTATION_TEST_PUBLIC_KEY>" "previous key scoped to previous release"
-assert_not_contains "$SCENARIO_TRACE" "verify <--tag> <v2.4.0-staging> <--trusted-public-key>" "candidate uses tracked key"
+assert_not_contains "$SCENARIO_TRACE" "verify <--tag> <v2.4.0-stg.1> <--trusted-public-key>" "candidate uses tracked key"
 assert_orchestration_cleanup "key rotation"
 
 run_orchestration_scenario fresh v2.3.3-staging \
-    $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-staging' \
+    $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1' \
     0 built 2.3.0 "$ROTATION_TEST_PUBLIC_KEY" 1
 [[ "$SCENARIO_STATUS" != 0 ]] || fail "simultaneous key and certificate rotation must fail"
 pass
 assert_contains "$SCENARIO_OUTPUT" "동시에 바꿀 수 없습니다" "simultaneous rotation reason"
-assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-staging>" "simultaneous rotation stops before publication"
+assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "simultaneous rotation stops before publication"
 assert_orchestration_cleanup "blocked key rotation"
 
 run_orchestration_scenario \
     tag_only \
     v2.3.3-staging \
     $'2.3.3\t20330\tv2.3.3-staging' \
-    $'2.4.0\t20400\tv2.4.0-staging'
+    $'2.4.0\t20400\tv2.4.0-stg.1'
 assert_equal "0" "$SCENARIO_STATUS" "tag-only actual path"
 assert_contains "$SCENARIO_OUTPUT" "candidate metadata state: tag_only" "tag-only state output"
-assert_contains "$SCENARIO_TRACE" "publish <v2.4.0-staging> <--channel> <staging> <--expected-commit> <$ORCHESTRATION_HEAD> <--skip-pages-publish> <--prerelease> <--resume-exact-tag>" "tag-only two-phase exact resume publish"
+assert_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1> <--channel> <staging> <--expected-commit> <$ORCHESTRATION_HEAD> <--skip-pages-publish> <--prerelease> <--resume-exact-tag>" "tag-only two-phase exact resume publish"
 assert_contains "$SCENARIO_TRACE" "build <BUILD_DIR=$ORCHESTRATION_TMP/" "tag-only build"
 assert_not_contains "$SCENARIO_TRACE" "verify <--tag> <v2.3.3-staging>" "tag-only legacy staging verification skipped"
-assert_ordered "$SCENARIO_TRACE" "publish <v2.4.0-staging>" "verify-export <verified-candidate-appcast>" "tag-only Release before candidate verification"
+assert_ordered "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "verify-export <verified-candidate-appcast>" "tag-only Release before candidate verification"
 assert_ordered "$SCENARIO_TRACE" "verify-export <verified-candidate-appcast>" "pages-source <verified-candidate-appcast>" "tag-only verification before Pages"
-assert_ordered "$SCENARIO_TRACE" "pages-source <verified-candidate-appcast>" "verify <--tag> <v2.4.0-staging> <--channel> <staging> <--expected-version> <2.4.0> <--expected-build> <20400> <--verify-public-feed>" "tag-only Pages before final public verification"
+assert_ordered "$SCENARIO_TRACE" "pages-source <verified-candidate-appcast>" "verify <--tag> <v2.4.0-stg.1> <--channel> <staging> <--expected-version> <2.4.0> <--expected-build> <20400> <--verify-public-feed>" "tag-only Pages before final public verification"
 assert_line_count "$SCENARIO_TRACE" "gh <api> <--method> <POST> <repos/ChoSeongmin1128/claude-usage/pages/builds>" "1" "tag-only forced Pages rebuild"
 assert_orchestration_cleanup "tag-only"
 assert_no_destructive_release_commands "$SCENARIO_TRACE" "tag-only"
 
 run_orchestration_scenario \
     pages_pending \
-    v2.4.0-staging \
+    v2.4.0-stg.1 \
     $'2.3.3\t20330\tv2.3.3-staging' \
-    $'2.4.0\t20400\tv2.4.0-staging'
+    $'2.4.0\t20400\tv2.4.0-stg.1'
 assert_equal "0" "$SCENARIO_STATUS" "pages-pending actual path"
 assert_contains "$SCENARIO_OUTPUT" "candidate metadata state: pages_pending" "pages-pending state output"
 assert_contains "$SCENARIO_OUTPUT" "부분 배포 복구 및 원격 검증 완료" "pages-pending completion"
-assert_contains "$SCENARIO_TRACE" "verify <--tag> <v2.4.0-staging> <--channel> <staging> <--expected-version> <2.4.0> <--expected-build> <20400> <--export-verified-appcast-to>" "pages-pending candidate export verification"
+assert_contains "$SCENARIO_TRACE" "verify <--tag> <v2.4.0-stg.1> <--channel> <staging> <--expected-version> <2.4.0> <--expected-build> <20400> <--export-verified-appcast-to>" "pages-pending candidate export verification"
 assert_not_contains "$SCENARIO_TRACE" "verify <--tag> <v2.3.3-staging>" "pages-pending legacy feed verification skipped"
 assert_contains "$SCENARIO_TRACE" "pages-publish <--feed-url>" "pages-pending Pages repair"
 assert_contains "$SCENARIO_TRACE" "pages-source <verified-candidate-appcast>" "pages-pending verified Pages source"
 assert_ordered "$SCENARIO_TRACE" "verify-export <verified-candidate-appcast>" "pages-source <verified-candidate-appcast>" "pages-pending verification before Pages"
-assert_ordered "$SCENARIO_TRACE" "pages-source <verified-candidate-appcast>" "verify <--tag> <v2.4.0-staging> <--channel> <staging> <--expected-version> <2.4.0> <--expected-build> <20400> <--verify-public-feed>" "pages-pending Pages before final public verification"
+assert_ordered "$SCENARIO_TRACE" "pages-source <verified-candidate-appcast>" "verify <--tag> <v2.4.0-stg.1> <--channel> <staging> <--expected-version> <2.4.0> <--expected-build> <20400> <--verify-public-feed>" "pages-pending Pages before final public verification"
 assert_not_contains "$SCENARIO_TRACE" "gh <release> <download>" "pages-pending direct Release download removed"
 assert_line_count "$SCENARIO_TRACE" "gh <api> <--method> <POST> <repos/ChoSeongmin1128/claude-usage/pages/builds>" "1" "built stale Pages forced rebuild"
 assert_not_contains "$SCENARIO_TRACE" "gate <release-driver-shell-tests>" "pages-pending shell tests skipped"
 assert_not_contains "$SCENARIO_TRACE" "xcodebuild <-project>" "pages-pending XCTest skipped"
 assert_not_contains "$SCENARIO_TRACE" "build <BUILD_DIR=" "pages-pending build skipped"
-assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-staging>" "pages-pending release publish skipped"
+assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "pages-pending release publish skipped"
 assert_not_contains "$SCENARIO_TRACE" "<--install-to>" "pages-pending Downloads install skipped"
 assert_orchestration_cleanup "pages-pending"
 assert_no_destructive_release_commands "$SCENARIO_TRACE" "pages-pending"
 
 run_orchestration_scenario \
     pages_pending \
-    v2.4.0-staging \
+    v2.4.0-stg.1 \
     $'2.3.3\t20330\tv2.3.3-staging' \
-    $'2.4.0\t20400\tv2.4.0-staging' \
+    $'2.4.0\t20400\tv2.4.0-stg.1' \
     0 \
     queued_errored
 assert_equal "0" "$SCENARIO_STATUS" "queued-to-errored Pages retry path"
@@ -1113,18 +1179,18 @@ assert_no_destructive_release_commands "$SCENARIO_TRACE" "queued-to-errored"
 
 run_orchestration_scenario \
     complete \
-    v2.4.0-staging \
-    $'2.4.0\t20400\tv2.4.0-staging' \
-    $'2.4.0\t20400\tv2.4.0-staging'
+    v2.4.0-stg.1 \
+    $'2.4.0\t20400\tv2.4.0-stg.1' \
+    $'2.4.0\t20400\tv2.4.0-stg.1'
 assert_equal "0" "$SCENARIO_STATUS" "complete actual path"
 assert_contains "$SCENARIO_OUTPUT" "candidate metadata state: complete" "complete state output"
 assert_contains "$SCENARIO_OUTPUT" "기존 배포 원격 검증 완료" "complete verification output"
-assert_contains "$SCENARIO_TRACE" "verify <--tag> <v2.4.0-staging>" "complete remote verification"
+assert_contains "$SCENARIO_TRACE" "verify <--tag> <v2.4.0-stg.1>" "complete remote verification"
 assert_not_contains "$SCENARIO_TRACE" "pages-publish" "complete Pages skipped"
 assert_not_contains "$SCENARIO_TRACE" "gate <release-driver-shell-tests>" "complete shell tests skipped"
 assert_not_contains "$SCENARIO_TRACE" "xcodebuild <-project>" "complete XCTest skipped"
 assert_not_contains "$SCENARIO_TRACE" "build <BUILD_DIR=" "complete build skipped"
-assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-staging>" "complete publish skipped"
+assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "complete publish skipped"
 assert_not_contains "$SCENARIO_TRACE" "<--install-to>" "complete Downloads install skipped"
 assert_orchestration_cleanup "complete"
 assert_no_destructive_release_commands "$SCENARIO_TRACE" "complete"
@@ -1133,19 +1199,67 @@ run_orchestration_scenario \
     fresh \
     v2.3.3-staging \
     $'2.3.3\t20330\tv2.3.3-staging' \
-    $'2.4.0\t20400\tv2.4.0-staging' \
+    $'2.4.0\t20400\tv2.4.0-stg.1' \
     1
 [[ "$SCENARIO_STATUS" -ne 0 ]] || fail "XCTest failure scenario는 실패해야 합니다."
 pass
 assert_contains "$SCENARIO_TRACE" "xcodebuild <-project>" "failure reaches XCTest"
 assert_not_contains "$SCENARIO_TRACE" "verify <--tag> <v2.3.3-staging>" "failure stops before Downloads verification"
 assert_not_contains "$SCENARIO_TRACE" "build <BUILD_DIR=" "failure stops before build"
-assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-staging>" "failure stops before publish"
+assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "failure stops before publish"
 [[ ! -e "$ORCHESTRATION_DOWNLOADS/ClaudeUsage-stg.app" ]] \
     || fail "XCTest failure가 Downloads fixture를 변경했습니다."
 pass
 assert_orchestration_cleanup "failure"
 assert_no_destructive_release_commands "$SCENARIO_TRACE" "failure"
+
+RELEASE_DRIVER_TEST_ENVIRONMENT=prod run_orchestration_scenario \
+    fresh v2.4.0-stg.1 $'2.4.0\t20400\tv2.4.0-stg.1' $'2.4.0\t20400\tv2.4.0-stg.1'
+if [[ "$SCENARIO_STATUS" != "0" ]]; then printf '%s\n' "$SCENARIO_OUTPUT" >&2; fi
+assert_equal "0" "$SCENARIO_STATUS" "explicit candidate production promotion"
+assert_ordered "$SCENARIO_TRACE" "verify <--tag> <v2.4.0-stg.1> <--channel> <staging>" "build <BUILD_DIR=" "approved candidate verified before production archive"
+assert_contains "$SCENARIO_TRACE" "publish <v2.4.0> <--channel> <prod>" "production target stays numeric"
+assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0> <--channel> <prod> <--prerelease>" "production is not prerelease"
+assert_orchestration_cleanup "production promotion"
+
+RELEASE_DRIVER_TEST_ENVIRONMENT=prod RELEASE_DRIVER_TEST_APPROVED_STAGE_FAIL=1 run_orchestration_scenario \
+    fresh v2.4.0-stg.1 $'2.4.0\t20400\tv2.4.0-stg.1' $'2.4.0\t20400\tv2.4.0-stg.1'
+[[ "$SCENARIO_STATUS" -ne 0 ]] || fail "unverified staging must block promotion"
+pass
+assert_not_contains "$SCENARIO_TRACE" "build <BUILD_DIR=" "bad approved artifact blocks archive"
+assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0>" "bad approved artifact blocks publication"
+assert_orchestration_cleanup "rejected production promotion"
+
+RELEASE_DRIVER_TEST_STATE_CHANGE_AFTER_BUILD=1 run_orchestration_scenario \
+    fresh v2.3.3-staging $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1'
+[[ "$SCENARIO_STATUS" -ne 0 ]] || fail "concurrent publication must stop stale candidate"
+pass
+assert_contains "$SCENARIO_TRACE" "build <BUILD_DIR=" "concurrent change happens during build"
+assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "concurrent publication blocks stale feed"
+assert_orchestration_cleanup "concurrent publication"
+
+run_orchestration_scenario fresh v2.3.4-stg.1 \
+    $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1'
+[[ "$SCENARIO_STATUS" == "0" ]] || printf '%s\n' "$SCENARIO_OUTPUT" >&2
+assert_equal "0" "$SCENARIO_STATUS" "next candidate after abandoned release"
+assert_contains "$SCENARIO_OUTPUT" "이전 미완료 Release 보존: v2.3.4-stg.1 (20399)" "abandoned source build checked"
+assert_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "next candidate publishes without overwriting abandoned release"
+assert_no_destructive_release_commands "$SCENARIO_TRACE" "abandoned release retained"
+assert_orchestration_cleanup "abandoned release recovery"
+
+RELEASE_DRIVER_TEST_ABANDONED_BUILD=20400 run_orchestration_scenario fresh v2.3.4-stg.1 \
+    $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1'
+[[ "$SCENARIO_STATUS" -ne 0 ]] || fail "abandoned build cannot be reused"
+pass
+assert_not_contains "$SCENARIO_TRACE" "build <BUILD_DIR=" "abandoned build collision blocks archive"
+assert_orchestration_cleanup "abandoned build collision"
+
+run_orchestration_scenario fresh v2.4.0-stg.2 \
+    $'2.3.3\t20330\tv2.3.3-staging' $'2.4.0\t20400\tv2.4.0-stg.1'
+[[ "$SCENARIO_STATUS" -ne 0 ]] || fail "abandoned candidate revision cannot go backwards"
+pass
+assert_not_contains "$SCENARIO_TRACE" "build <BUILD_DIR=" "abandoned revision collision blocks archive"
+assert_orchestration_cleanup "abandoned revision collision"
 
 PUBLISH_FIXTURE_ROOT="$TEST_ROOT/publish-primitive"
 PUBLISH_REPOSITORY="$PUBLISH_FIXTURE_ROOT/ClaudeUsage"
@@ -1233,7 +1347,7 @@ done
     printf ' <output=%s>\n' "${APPCAST_OUTPUT:?}"
 } >> "${PUBLISH_FIXTURE_TRACE:?}"
 version="${release_tag#v}"
-version="${version%-staging}"
+version="${version%%-*}"
 enclosure_url="${download_base_url%/}/ClaudeUsage.dmg"
 length="$(stat -f%z "${ARTIFACTS_DIR:?}/ClaudeUsage.dmg")"
 signature="${PUBLISH_FIXTURE_VALID_SIGNATURE:?}"
@@ -1257,7 +1371,7 @@ printf '%s\n' \
     "<rss xmlns:sparkle=\"http://www.andymatuschak.org/xml-namespaces/sparkle\"><channel><item><sparkle:shortVersionString>$version</sparkle:shortVersionString><sparkle:version>20400</sparkle:version><enclosure url=\"$enclosure_url\" length=\"$length\" sparkle:edSignature=\"$signature\" /></item></channel></rss>" \
     > "${APPCAST_OUTPUT:?}"
 python3 "$(dirname "$0")/lib/release_metadata.py" embed-notes \
-    --appcast "$APPCAST_OUTPUT" --notes-file "$notes_file" --version "$version"
+    --appcast "$APPCAST_OUTPUT" --notes-file "$notes_file" --version "$version" --tag "$release_tag"
 
 python3 "$(dirname "$0")/lib/release_metadata.py" bind-zip \
     --appcast "$APPCAST_OUTPUT" --zip-file "$ARTIFACTS_DIR/ClaudeUsage.zip"
@@ -1467,20 +1581,23 @@ run_publish_primitive_case \
     valid \
     "$PUBLISH_EXPECTED_SHA" \
     "$PUBLISH_EXPECTED_SHA" \
-    v2.4.0-staging \
+    v2.4.0-stg.1 \
     --channel staging \
     --prerelease \
     --expected-commit "$PUBLISH_EXPECTED_SHA" \
     --skip-pages-publish
+if [[ "$PUBLISH_CASE_STATUS" != "0" ]]; then
+    printf '%s\n' "$PUBLISH_CASE_OUTPUT" >&2
+fi
 assert_equal "0" "$PUBLISH_CASE_STATUS" "actual staging publish primitive"
 assert_contains "$PUBLISH_CASE_OUTPUT" "완료" "staging publish output"
 assert_contains \
     "$PUBLISH_CASE_TRACE" \
-    "mutation <git-tag> <tag> <-a> <v2.4.0-staging> <-m> <Release v2.4.0-staging> <$PUBLISH_EXPECTED_SHA>" \
+    "mutation <git-tag> <tag> <-a> <v2.4.0-stg.1> <-m> <Release v2.4.0-stg.1> <$PUBLISH_EXPECTED_SHA>" \
     "staging tag pins explicit expected SHA"
 assert_contains \
     "$PUBLISH_CASE_TRACE" \
-    "mutation <release-create> <v2.4.0-staging> <--repo> <FixtureOwner/ClaudeUsage> <--title> <v2.4.0-staging> <--prerelease> <--notes-file>" \
+    "mutation <release-create> <v2.4.0-stg.1> <--repo> <FixtureOwner/ClaudeUsage> <--title> <v2.4.0-stg.1> <--prerelease> <--notes-file>" \
     "staging exact repository and three assets"
 assert_contains \
     "$PUBLISH_CASE_TRACE" \
@@ -1524,7 +1641,7 @@ for invalid_case in "${PUBLISH_INVALID_CASES[@]}"; do
     case "$invalid_case" in
         staging_missing_prerelease)
             invalid_args=(
-                v2.4.0-staging
+                v2.4.0-stg.1
                 --channel staging
                 --expected-commit "$PUBLISH_EXPECTED_SHA"
             )
@@ -1708,7 +1825,7 @@ CANONICAL_VERIFY_ZIP_SIZE="$(
     stat -f%z "$CANONICAL_VERIFY_ASSETS/ClaudeUsage.zip"
 )"
 cat > "$CANONICAL_VERIFY_ASSETS/appcast.xml" <<EOF
-<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item><sparkle:shortVersionString>2.4.0</sparkle:shortVersionString><sparkle:version>20400</sparkle:version><enclosure url="https://github.com/FixtureOwner/ClaudeUsage/releases/download/v2.4.0-staging/ClaudeUsage.zip" length="$CANONICAL_VERIFY_ZIP_SIZE" sparkle:edSignature="$PUBLISH_VALID_SIGNATURE" /></item></channel></rss>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"><channel><item><sparkle:shortVersionString>2.4.0</sparkle:shortVersionString><sparkle:version>20400</sparkle:version><enclosure url="https://github.com/FixtureOwner/ClaudeUsage/releases/download/v2.4.0-stg.1/ClaudeUsage.zip" length="$CANONICAL_VERIFY_ZIP_SIZE" sparkle:edSignature="$PUBLISH_VALID_SIGNATURE" /></item></channel></rss>
 EOF
 CANONICAL_VERIFY_DMG_SIZE="$(
     stat -f%z "$CANONICAL_VERIFY_ASSETS/ClaudeUsage.dmg"
@@ -1737,7 +1854,7 @@ set -euo pipefail
 [[ "${1:-}" == "release" ]]
 case "${2:-}" in
     view)
-        printf '{"tagName":"v2.4.0-staging","isDraft":false,"isPrerelease":true,"assets":['
+        printf '{"tagName":"v2.4.0-stg.1","isDraft":false,"isPrerelease":true,"assets":['
         printf '{"name":"ClaudeUsage.dmg","size":%s,"digest":"sha256:%s"},' \
             "${CANONICAL_VERIFY_DMG_SIZE:?}" \
             "${CANONICAL_VERIFY_DMG_SHA:?}"
@@ -1906,7 +2023,7 @@ CANONICAL_VERIFY_OUTPUT="$(
         "CANONICAL_VERIFY_APPCAST_SIZE=$CANONICAL_VERIFY_APPCAST_SIZE" \
         "CANONICAL_VERIFY_APPCAST_SHA=$CANONICAL_VERIFY_APPCAST_SHA" \
         /bin/bash "$CANONICAL_VERIFY_REPOSITORY/Scripts/verify-release-artifact.sh" \
-        --tag v2.4.0-staging \
+        --tag v2.4.0-stg.1 \
         --channel staging \
         --expected-version 2.4.0 \
         --expected-build 20400 \
@@ -1983,7 +2100,7 @@ CANONICAL_VERIFY_RESTRICTED_OUTPUT="$(
         "CANONICAL_VERIFY_APPCAST_SIZE=$CANONICAL_VERIFY_APPCAST_SIZE" \
         "CANONICAL_VERIFY_APPCAST_SHA=$CANONICAL_VERIFY_APPCAST_SHA" \
         /bin/bash "$CANONICAL_VERIFY_REPOSITORY/Scripts/verify-release-artifact.sh" \
-        --tag v2.4.0-staging \
+        --tag v2.4.0-stg.1 \
         --channel staging \
         --expected-version 2.4.0 \
         --expected-build 20400 \
@@ -2120,7 +2237,7 @@ CANONICAL_PAGES_OUTPUT="$(
         /bin/bash "$CANONICAL_PAGES_REPOSITORY/Scripts/publish-pages-appcast.sh" \
         --feed-url https://fixtureowner.github.io/ClaudeUsage/channels/staging/appcast.xml \
         --channel staging \
-        --tag v2.4.0-staging \
+        --tag v2.4.0-stg.1 \
         2>&1
 )"
 CANONICAL_PAGES_STATUS=$?

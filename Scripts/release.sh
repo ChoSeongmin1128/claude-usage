@@ -47,6 +47,8 @@ PAGES_BRANCH="gh-pages"
 ENVIRONMENT_INPUT=""
 RELEASE_ENVIRONMENT=""
 VERSION=""
+CANDIDATE=""
+FROM_STAGING=""
 NOTES_FILE=""
 PREVIOUS_PUBLIC_KEY=""
 NON_INTERACTIVE=0
@@ -81,24 +83,26 @@ usage() {
 
 예:
   ./Scripts/release.sh
-  ./Scripts/release.sh stg 2.4.0
-  ./Scripts/release.sh prod 2.4.0 --notes-file docs/release-notes/2.4.0.md
+  ./Scripts/release.sh stg 2.5.3 --candidate 1
+  ./Scripts/release.sh prod 2.5.3 --from-staging v2.5.3-stg.1 --notes-file docs/release-notes/2.5.3.md
 
 옵션:
   --environment stg|staging|prod
   --version X.Y.Z
+  --candidate N              staging 검증 회차 (필수)
+  --from-staging TAG         운영으로 승격할 staging 후보 (필수)
   --notes-file PATH
   --previous-public-key BASE64 (키 교체 때 이전 자산 검증에만 사용)
   --non-interactive
-  --confirm-publish vX.Y.Z[-staging]
+  --confirm-publish vX.Y.Z[-stg.N]
   --dry-run
   --help
 
 규칙:
-  - stg/staging 입력은 staging 채널과 vX.Y.Z-staging tag로 정규화됩니다.
+  - stg/staging은 --candidate N과 함께 vX.Y.Z-stg.N tag를 만듭니다.
   - prod 입력은 prod 채널과 vX.Y.Z tag로 정규화됩니다.
   - 입력은 숫자 X.Y.Z만 허용합니다. v prefix나 suffix를 직접 입력하지 않습니다.
-  - 새 build number는 major*10000 + minor*100 + patch입니다.
+  - build number는 project에 커밋한 독립 증가 정수입니다.
   - --non-interactive 실제 게시는 --confirm-publish에 exact tag가 필요합니다.
   - --dry-run은 네트워크의 읽기 전용 상태만 조회하고 Git, 파일, 계정,
     Downloads, Keychain, 빌드 및 Release를 변경하지 않습니다.
@@ -158,6 +162,12 @@ while [[ $# -gt 0 ]]; do
             VERSION="$2"
             shift 2
             ;;
+        --candidate)
+            [[ $# -ge 2 && -n "$2" && -z "$CANDIDATE" ]] || die "--candidate를 한 번 지정해 주세요."
+            CANDIDATE="$2"; shift 2 ;;
+        --from-staging)
+            [[ $# -ge 2 && -n "$2" && -z "$FROM_STAGING" ]] || die "--from-staging을 한 번 지정해 주세요."
+            FROM_STAGING="$2"; shift 2 ;;
         --previous-public-key)
             [[ $# -ge 2 && -n "$2" && -z "$PREVIOUS_PUBLIC_KEY" ]] || die "이전 공개키를 한 번 지정해 주세요."
             PREVIOUS_PUBLIC_KEY="$2"; shift 2 ;;
@@ -297,7 +307,7 @@ read_latest_release_tag() {
                 --repo "$REPOSITORY" \
                 --limit 100 \
                 --json tagName,isDraft,isPrerelease \
-                --jq 'map(select(.isDraft == false and .isPrerelease == true and (.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-staging$"))))[0].tagName // ""'
+                --jq 'map(select(.isDraft == false and .isPrerelease == true and (.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+-(staging|stg\\.[1-9][0-9]*)$"))))[0].tagName // ""'
             ;;
     esac
 }
@@ -316,16 +326,35 @@ refresh_release_state() {
 }
 
 validate_release_state() {
-    local prod_release_version staging_release_version
+    local latest_tag feed_tag latest_version latest_build source_project source_version latest_candidate
 
-    prod_release_version="$(release_version_from_tag "$PROD_RELEASE_TAG")" \
-        || die "현재 prod Release tag 형식이 유효하지 않습니다: ${PROD_RELEASE_TAG:-<없음>}"
-    staging_release_version="$(release_version_from_tag "$STAGING_RELEASE_TAG")" \
-        || die "현재 staging Release tag 형식이 유효하지 않습니다: ${STAGING_RELEASE_TAG:-<없음>}"
-    [[ "$PROD_RELEASE_TAG" == "$PROD_FEED_TAG" && "$prod_release_version" == "$PROD_FEED_VERSION" ]] \
-        || die "prod Release와 public appcast가 다릅니다: release=$PROD_RELEASE_TAG, feed=$PROD_FEED_TAG/$PROD_FEED_VERSION"
-    [[ "$STAGING_RELEASE_TAG" == "$STAGING_FEED_TAG" && "$staging_release_version" == "$STAGING_FEED_VERSION" ]] \
-        || die "staging Release와 public appcast가 다릅니다: release=$STAGING_RELEASE_TAG, feed=$STAGING_FEED_TAG/$STAGING_FEED_VERSION"
+    validate_non_target_release_state
+    if [[ "$RELEASE_ENVIRONMENT" == "staging" ]]; then
+        latest_tag="$STAGING_RELEASE_TAG"; feed_tag="$STAGING_FEED_TAG"
+    else
+        latest_tag="$PROD_RELEASE_TAG"; feed_tag="$PROD_FEED_TAG"
+    fi
+    [[ "$latest_tag" != "$feed_tag" ]] || return 0
+
+    # A failed published candidate stays immutable even when it never reached
+    # Pages. Read its committed build so the next candidate cannot reuse it.
+    latest_version="$(release_version_from_tag "$latest_tag")" || die "이전 Release 태그를 확인하지 못했습니다."
+    source_project="$(git -C "$ROOT_DIR" show "refs/tags/$latest_tag:ClaudeUsage.xcodeproj/project.pbxproj")" \
+        || die "feed에 반영되지 않은 Release의 소스 빌드를 확인하지 못했습니다."
+    source_version="$(printf '%s\n' "$source_project" | read_project_release_version -)" || die "이전 소스 버전이 유효하지 않습니다."
+    latest_build="$(printf '%s\n' "$source_project" | read_project_release_build -)" || die "이전 소스 build가 유효하지 않습니다."
+    if [[ "$source_version" != "$latest_version" ]] || ! validate_release_build_number "$latest_build"; then
+        die "이전 Release 태그와 소스 version/build가 일치하지 않습니다."
+    fi
+    (( EXPECTED_BUILD > latest_build )) || die "새 build는 feed에 반영되지 않은 Release의 build보다 커야 합니다."
+    if [[ "$RELEASE_ENVIRONMENT" == "staging" && "$VERSION" == "$latest_version" ]]; then
+        latest_candidate="$(release_candidate_from_tag "$latest_tag")" || die "이전 검증 회차가 유효하지 않습니다."
+        (( CANDIDATE > latest_candidate )) || die "새 검증 회차는 feed에 반영되지 않은 Release보다 커야 합니다."
+    else
+        [[ "$(compare_numeric_release_versions "$VERSION" "$latest_version")" == "1" ]] \
+            || die "새 목표 버전은 feed에 반영되지 않은 Release보다 커야 합니다."
+    fi
+    echo "  이전 미완료 Release 보존: $latest_tag ($latest_build)"
 }
 
 validate_feed_state() {
@@ -528,17 +557,29 @@ NOTES_ARGS=(--root "$ROOT_DIR" --version "$VERSION")
 NOTES_FILE="$(python3 "$SCRIPT_ROOT/Scripts/lib/release_metadata.py" notes-path "${NOTES_ARGS[@]}")" \
     || die "버전에 해당하는 릴리스 노트 파일이 필요합니다."
 
-EXPECTED_BUILD="$(derive_release_build_number "$VERSION")" \
-    || die "입력 버전에서 build number를 안전하게 계산할 수 없습니다: $VERSION"
-TAG="$(release_tag_for "$RELEASE_ENVIRONMENT" "$VERSION")"
+EXPECTED_BUILD="$CODE_BUILD"
+validate_release_build_number "$EXPECTED_BUILD" || die "유효한 CURRENT_PROJECT_VERSION이 필요합니다."
+case "$RELEASE_ENVIRONMENT" in
+    staging)
+        validate_release_build_number "$CANDIDATE" || die "staging은 --candidate에 양의 검증 회차를 지정해야 합니다."
+        [[ -z "$FROM_STAGING" ]] || die "staging에는 --from-staging을 사용할 수 없습니다."
+        ;;
+    prod)
+        [[ -z "$CANDIDATE" ]] || die "운영에는 --candidate를 사용할 수 없습니다."
+        validate_release_tag_identity "$FROM_STAGING" staging "$VERSION" \
+            || die "운영은 --from-staging에 동일 버전의 승인 후보를 지정해야 합니다."
+        ;;
+esac
+TAG="$(release_tag_for "$RELEASE_ENVIRONMENT" "$VERSION" "$CANDIDATE")"
 FEED_URL="$(release_feed_url_for "$RELEASE_ENVIRONMENT")"
 
 echo
 echo "배포 후보"
 echo "  channel:           $RELEASE_ENVIRONMENT"
 echo "  numeric version:   $VERSION"
-echo "  expected build:    $EXPECTED_BUILD (= major*10000 + minor*100 + patch)"
+echo "  expected build:    $EXPECTED_BUILD (커밋된 독립 빌드 번호)"
 echo "  generated tag:     $TAG"
+[[ -z "$FROM_STAGING" ]] || echo "  approved candidate: $FROM_STAGING"
 echo "  feed URL:          $FEED_URL"
 
 if [[ "$CODE_VERSION" != "$VERSION" || "$CODE_BUILD" != "$EXPECTED_BUILD" ]]; then
@@ -558,9 +599,18 @@ PROD_VERSION="$PROD_FEED_VERSION"
 STAGING_VERSION="$STAGING_FEED_VERSION"
 case "$RELEASE_ENVIRONMENT" in
     staging)
-        [[ "$(compare_numeric_release_versions "$VERSION" "$STAGING_VERSION")" == "1" \
-            || "$STAGING_FEED_TAG" == "$TAG" ]] \
-            || die "staging version은 현재 staging보다 커야 합니다: 현재=$STAGING_VERSION, 입력=$VERSION"
+        [[ "$(compare_numeric_release_versions "$VERSION" "$STAGING_VERSION")" != "-1" ]] \
+            || die "staging 목표 버전은 현재 staging보다 낮을 수 없습니다."
+        if [[ "$STAGING_FEED_TAG" == "$TAG" ]]; then
+            [[ "$EXPECTED_BUILD" == "$STAGING_FEED_BUILD" ]] || die "게시된 후보의 빌드 번호는 변경할 수 없습니다."
+        else
+            (( EXPECTED_BUILD > STAGING_FEED_BUILD && EXPECTED_BUILD > PROD_FEED_BUILD )) \
+                || die "새 후보 build는 두 채널의 기존 build보다 커야 합니다."
+            if [[ "$VERSION" == "$STAGING_VERSION" ]]; then
+                PREVIOUS_CANDIDATE="$(release_candidate_from_tag "$STAGING_FEED_TAG")" || die "이전 후보 회차가 유효하지 않습니다."
+                (( CANDIDATE > PREVIOUS_CANDIDATE )) || die "새 staging 검증 회차는 이전 회차보다 커야 합니다."
+            fi
+        fi
         [[ "$(compare_numeric_release_versions "$VERSION" "$PROD_VERSION")" == "1" ]] \
             || die "staging version은 현재 prod보다 커야 합니다: 현재=$PROD_VERSION, 입력=$VERSION"
         PREVIOUS_TAG="$STAGING_FEED_TAG"
@@ -571,6 +621,11 @@ case "$RELEASE_ENVIRONMENT" in
         [[ "$(compare_numeric_release_versions "$VERSION" "$PROD_VERSION")" == "1" \
             || "$PROD_FEED_TAG" == "$TAG" ]] \
             || die "prod version은 현재 prod보다 커야 합니다: 현재=$PROD_VERSION, 입력=$VERSION"
+        if [[ "$PROD_FEED_TAG" == "$TAG" ]]; then
+            [[ "$EXPECTED_BUILD" == "$PROD_FEED_BUILD" ]] || die "게시된 운영 build는 변경할 수 없습니다."
+        else
+            (( EXPECTED_BUILD > PROD_FEED_BUILD )) || die "운영 build는 현재 운영 build보다 커야 합니다."
+        fi
         PREVIOUS_TAG="$PROD_FEED_TAG"
         PREVIOUS_VERSION="$PROD_FEED_VERSION"
         PREVIOUS_BUILD="$PROD_FEED_BUILD"
@@ -800,7 +855,7 @@ if [[ "$TARGET_FEED_TAG" == "$TAG" \
     && "$TARGET_FEED_VERSION" == "$VERSION" \
     && "$TARGET_FEED_BUILD" == "$EXPECTED_BUILD" ]]; then
     CANDIDATE_FEED_STATE="candidate"
-elif [[ "$(compare_numeric_release_versions "$VERSION" "$TARGET_FEED_VERSION")" == "1" ]]; then
+elif (( EXPECTED_BUILD > TARGET_FEED_BUILD )) && [[ "$(compare_numeric_release_versions "$VERSION" "$TARGET_FEED_VERSION")" != "-1" ]]; then
     CANDIDATE_FEED_STATE="previous"
 else
     CANDIDATE_FEED_STATE="diverged"
@@ -820,17 +875,16 @@ case "$CANDIDATE_STATE" in
         validate_non_target_release_state
         ;;
     burned)
-        die "후보 $TAG 상태가 불완전하거나 분기됐습니다(tag=$CANDIDATE_TAG_STATE, release=$CANDIDATE_RELEASE_STATE, feed=$CANDIDATE_FEED_STATE). 기존 tag/Release/asset은 수정하지 않으며 다음 숫자 버전이 필요합니다."
+        die "후보 $TAG 상태가 불완전하거나 분기됐습니다(tag=$CANDIDATE_TAG_STATE, release=$CANDIDATE_RELEASE_STATE, feed=$CANDIDATE_FEED_STATE). 기존 tag/Release/asset은 수정하지 않으며 staging은 다음 검증 회차·새 build가 필요하고 운영은 다음 버전이 필요합니다."
         ;;
 esac
 echo "  candidate metadata state: $CANDIDATE_STATE"
 
 if [[ "$RELEASE_ENVIRONMENT" == "prod" ]]; then
-    STAGING_CANDIDATE_TAG="$(release_tag_for staging "$VERSION")"
-    STAGING_TAG_SHA="$(git -C "$ROOT_DIR" rev-parse "refs/tags/$STAGING_CANDIDATE_TAG^{}" 2>/dev/null)" \
-        || die "동일 버전 staging tag가 없습니다: $STAGING_CANDIDATE_TAG"
-    [[ "$STAGING_TAG_SHA" == "$HEAD_SHA" ]] \
-        || die "prod HEAD와 staging 검증 commit이 다릅니다: HEAD=$HEAD_SHA, staging=$STAGING_TAG_SHA"
+    STAGING_CANDIDATE_TAG="$FROM_STAGING"
+    STAGING_TAG_SHA="$(python3 "$SCRIPT_ROOT/Scripts/lib/release_metadata.py" promotion-source \
+        --root "$ROOT_DIR" --tag "$STAGING_CANDIDATE_TAG" --head "$HEAD_SHA")" \
+        || die "승인 후보 이후 배포 입력이 변경됐거나 후보가 main 이력에 없습니다. 새 staging 후보를 검증해 주세요."
     STAGING_RELEASE_METADATA="$(
         gh release view "$STAGING_CANDIDATE_TAG" \
             --repo "$REPOSITORY" \
@@ -840,6 +894,7 @@ if [[ "$RELEASE_ENVIRONMENT" == "prod" ]]; then
     IFS=$'\t' read -r STAGING_IS_DRAFT STAGING_IS_PRERELEASE <<< "$STAGING_RELEASE_METADATA"
     [[ "$STAGING_IS_DRAFT" == "false" && "$STAGING_IS_PRERELEASE" == "true" ]] \
         || die "동일 버전 staging Release가 검증 가능한 prerelease 상태가 아닙니다."
+    echo "  approved staging source: $STAGING_TAG_SHA"
 fi
 
 FINAL_CODE_VERSION="$(read_project_release_version "$PROJECT_FILE")"
@@ -863,7 +918,7 @@ case "$CANDIDATE_STATE" in
             --expected-build "$EXPECTED_BUILD" \
             --export-verified-appcast-to "$VERIFIED_CANDIDATE_APPCAST" \
             --repo "$REPOSITORY"; then
-            die "후보 Release가 full verifier를 통과하지 못해 Pages를 변경하지 않았습니다. 일시적 조회 장애를 배제한 뒤에도 재현되면 기존 tag/Release/asset은 수정하지 말고 다음 숫자 버전을 사용하세요."
+            die "후보 Release가 full verifier를 통과하지 못해 Pages를 변경하지 않았습니다. 일시적 조회 장애를 배제한 뒤에도 재현되면 기존 tag/Release/asset은 수정하지 말고 staging은 다음 검증 회차·새 build, 운영은 다음 버전을 사용하세요."
         fi
 
         if [[ "$STAGING_IDENTITY_BOOTSTRAP" == "1" ]]; then
@@ -916,7 +971,7 @@ EOF
             --expected-build "$EXPECTED_BUILD" \
             --verify-public-feed \
             --repo "$REPOSITORY"; then
-            die "완료로 보이던 후보가 full verifier를 통과하지 못했습니다. 원격을 수정하지 않았으며, 일시적 조회 장애가 아니라면 다음 숫자 버전으로 복구해야 합니다."
+            die "완료로 보이던 후보가 full verifier를 통과하지 못했습니다. 원격을 수정하지 않았으며, 일시적 조회 장애가 아니라면 staging은 다음 검증 회차·새 build로, 운영은 다음 버전으로 복구해야 합니다."
         fi
 
         echo
@@ -939,6 +994,12 @@ xcrun notarytool history \
     --keychain-profile "$NOTARY_PROFILE" \
     --output-format json \
     --no-progress >/dev/null
+
+if [[ "$RELEASE_ENVIRONMENT" == "prod" ]]; then
+    echo "승인 staging 후보 원격 자산 검증: $FROM_STAGING"
+    "$VERIFY_SCRIPT" --tag "$FROM_STAGING" --channel staging \
+        --expected-version "$VERSION" --expected-build "$EXPECTED_BUILD" --repo "$REPOSITORY"
+fi
 
 echo
 echo "변경 코드 정적 검사"
@@ -1108,6 +1169,20 @@ else
     [[ "$CONFIRM_PUBLISH" == "$TAG" ]] || die "exact tag 확인이 일치하지 않아 게시하지 않습니다."
 fi
 
+# Recheck the published baseline after the potentially long notarization step.
+# A concurrent candidate must not make this build a downgrade or reuse its number.
+refresh_release_state
+validate_feed_state
+PRE_PUBLISH_STATE="$PROD_RELEASE_TAG|$STAGING_RELEASE_TAG|$PROD_FEED_VERSION|$PROD_FEED_BUILD|$PROD_FEED_TAG|$STAGING_FEED_VERSION|$STAGING_FEED_BUILD|$STAGING_FEED_TAG"
+[[ "$PRE_PUBLISH_STATE" == "$REFRESHED_STATE" ]] \
+    || die "빌드 중 다른 release/feed가 게시됐습니다. 최신 후보·빌드 번호를 확인해 주세요."
+if [[ "$RELEASE_ENVIRONMENT" == "prod" ]]; then
+    CURRENT_STAGING_SOURCE="$(python3 "$SCRIPT_ROOT/Scripts/lib/release_metadata.py" promotion-source \
+        --root "$ROOT_DIR" --tag "$FROM_STAGING" --head "$HEAD_SHA")" \
+        || die "승인 후보의 배포 입력을 다시 확인하지 못했습니다."
+    [[ "$CURRENT_STAGING_SOURCE" == "$STAGING_TAG_SHA" ]] || die "승인 후보 tag가 변경됐습니다."
+fi
+
 PUBLISH_ARGS=(
     "$TAG"
     --channel "$RELEASE_ENVIRONMENT"
@@ -1158,7 +1233,7 @@ if ! "$VERIFY_SCRIPT" \
     --expected-build "$EXPECTED_BUILD" \
     --export-verified-appcast-to "$VERIFIED_CANDIDATE_APPCAST" \
     --repo "$REPOSITORY"; then
-    die "새 Release가 full verifier를 통과하지 못해 public feed를 변경하지 않았습니다. 일시적 조회 장애를 배제한 뒤에도 재현되면 기존 tag/Release/asset은 수정하지 말고 다음 숫자 버전을 사용하세요."
+    die "새 Release가 full verifier를 통과하지 못해 public feed를 변경하지 않았습니다. 일시적 조회 장애를 배제한 뒤에도 재현되면 기존 tag/Release/asset은 수정하지 말고 staging은 다음 검증 회차·새 build, 운영은 다음 버전을 사용하세요."
 fi
 
 echo
