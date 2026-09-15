@@ -6,8 +6,8 @@ Anthropic, OpenAI, Google과 제휴하지 않은 독립 프로젝트입니다.
 
 ## 설치
 
-- [안정 버전 다운로드](https://github.com/ChoSeongmin1128/claude-usage/releases/latest)
-- [staging 2.5.1 다운로드](https://github.com/ChoSeongmin1128/claude-usage/releases/tag/v2.5.1-staging) · [변경 사항](docs/release-notes/2.5.1.md)
+- [안정 버전 2.5.2 다운로드](https://github.com/ChoSeongmin1128/claude-usage/releases/latest) · [변경 사항](docs/release-notes/2.5.2.md)
+- [staging 2.5.2 다운로드](https://github.com/ChoSeongmin1128/claude-usage/releases/tag/v2.5.2-staging)
 - macOS 14 이상, Apple Silicon 및 Intel Mac 지원
 
 DMG에서 앱을 Applications로 옮긴 뒤 Finder에서 직접 실행합니다. staging은 `ClaudeUsage-stg.app`으로 구분됩니다. 검증 중에는 한 채널만 실행하면 메뉴바 항목과 계정 상태를 구분하기 쉽습니다.
