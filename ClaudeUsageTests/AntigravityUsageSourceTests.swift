@@ -2,267 +2,25 @@ import XCTest
 @testable import ClaudeUsage
 
 final class AntigravityUsageSourceTests: XCTestCase {
-    func testGoogleOAuthSourcePassesCredentialToReadOnlyClientAndReturnsRefreshCandidate() async throws {
-        let identity = ProviderAccountIdentity(
-            stableAccountID: "subject-a",
-            email: "a@example.com"
-        )
-        let observation = AntigravityIdentityOnlyUsage(
-            identity: identity,
-            plan: "Pro",
-            provenance: AntigravityQuotaProvenance(
-                transport: .googleOAuth,
-                endpointOwner: .external,
-                accountIdentity: identity,
-                capability: .groupedQuotaSummary,
-                processIdentity: nil
-            ),
-            fetchedAt: Date(timeIntervalSince1970: 100)
-        )
-        let refreshed = AntigravityOAuthCredentials(
-            accessToken: "new-access",
-            refreshToken: nil,
-            expiryDate: Date(timeIntervalSince1970: 200)
-        )
-        let client = GoogleOAuthQuotaClientDouble(
-            result: .identityOnly(
-                observation,
-                refreshedCredential: refreshed
-            )
-        )
-        let source = AntigravityGoogleOAuthUsageSource(
-            client: client
-        )
-        let accountID = AntigravityAccountID(
-            rawValue: "account-a"
-        )
-        let original = AntigravityOAuthCredentials(
-            accessToken: "old-access",
-            refreshToken: "refresh",
-            expiryDate: nil
-        )
-
-        let response = try await source.fetch(
-            AntigravityUsageSourceRequest(
-                generation: 7,
-                accountTarget: .selectedOAuth(accountID),
-                expectedIdentity: identity,
-                oauthAuthorization:
-                    AntigravityOAuthSourceAuthorization(
-                        accountID: accountID,
-                        repositoryRevision: 3,
-                        credentials: original
-                    ),
-                managedLaunchAuthorization: .disabled,
-                deadline: AntigravityRPCDeadline()
-            )
-        )
-
-        XCTAssertEqual(
-            response,
-            AntigravityUsageSourceResponse(
-                payload: .identityOnly(observation),
-                refreshedCredential: refreshed
-            )
-        )
-        let receivedCredentials =
-            await client.receivedCredentials()
-        XCTAssertEqual(receivedCredentials, [original])
-    }
-
-    func testGoogleOAuthSourceRejectsMissingSelectedAuthorization() async {
-        let client = GoogleOAuthQuotaClientDouble(
-            result: .identityOnly(
-                AntigravityIdentityOnlyUsage(
-                    identity: ProviderAccountIdentity(
-                        email: "a@example.com"
-                    ),
-                    plan: nil,
-                    provenance: AntigravityQuotaProvenance(
-                        transport: .googleOAuth,
-                        endpointOwner: .external,
-                        accountIdentity:
-                            ProviderAccountIdentity(
-                                email: "a@example.com"
-                            ),
-                        capability: .groupedQuotaSummary,
-                        processIdentity: nil
-                    ),
-                    fetchedAt: Date(timeIntervalSince1970: 100)
-                ),
-                refreshedCredential: nil
-            )
-        )
-        let source = AntigravityGoogleOAuthUsageSource(
-            client: client
-        )
-
-        do {
-            _ = try await source.fetch(
-                AntigravityUsageSourceRequest(
-                    generation: 1,
-                    accountTarget: .ambientLocal,
-                    expectedIdentity: nil,
-                    oauthAuthorization: nil,
-                    managedLaunchAuthorization: .disabled,
-                    deadline: AntigravityRPCDeadline()
-                )
-            )
-            XCTFail("OAuth authorization 없이 source를 호출하면 안 됩니다")
-        } catch let error as AntigravityUsageSourceError {
-            XCTAssertEqual(error, .authenticationRequired)
-        } catch {
-            XCTFail("예상하지 못한 오류: \(error)")
+    func testInspectionCollectsAccountsFromEveryEndpointAndRetainsUnknownCandidates() async throws {
+        let endpoints = try [
+            makeLocalAppEndpoint(processID: 101, startedAtSeconds: 101, port: 50101),
+            makeLocalAppEndpoint(processID: 102, startedAtSeconds: 102, port: 50102),
+            makeLocalAppEndpoint(processID: 103, startedAtSeconds: 103, port: 50103),
+        ]
+        let source = AntigravityDiscoveredLocalUsageSource(
+            id: .localApp,
+            discovery: RuntimeDiscoveryStub(
+                snapshot: .init(
+                    installations: [], processes: [], endpoints: endpoints, observedAt: Date())),
+            client: AccountInspectionQuotaClient())
+        let result = try await source.inspectAccounts(localSourceRequest())
+        let accounts = result.responses.compactMap { response -> String? in
+            guard case .limited(let value) = response.payload else { return nil }
+            return value.evidence.identity?.email
         }
-        let received = await client.receivedCredentials()
-        XCTAssertTrue(received.isEmpty)
-    }
-
-    func testGoogleOAuthLimitedResultKeepsOAuthEvidenceWithoutInventingLocalRPCMethod() async throws {
-        let identity = ProviderAccountIdentity(
-            stableAccountID: "subject-a",
-            email: "a@example.com"
-        )
-        let capability =
-            AntigravityLimitedQuotaCapability.googleOAuth(
-                evidence:
-                    AntigravityGoogleOAuthLimitedQuotaEvidence(
-                        identity: identity,
-                        plan: "Pro",
-                        modelQuotaCount: 3
-                    ),
-                provenance: AntigravityQuotaProvenance(
-                    transport: .googleOAuth,
-                    endpointOwner: .external,
-                    accountIdentity: identity,
-                    capability: .limitedQuota,
-                    processIdentity: nil
-                ),
-                fetchedAt: Date(timeIntervalSince1970: 100)
-            )
-        let client = GoogleOAuthQuotaClientDouble(
-            result: .limited(
-                capability,
-                refreshedCredential: nil
-            )
-        )
-        let source = AntigravityGoogleOAuthUsageSource(
-            client: client
-        )
-        let accountID = AntigravityAccountID(
-            rawValue: "account-a"
-        )
-
-        let response = try await source.fetch(
-            AntigravityUsageSourceRequest(
-                generation: 1,
-                accountTarget: .selectedOAuth(accountID),
-                expectedIdentity: identity,
-                oauthAuthorization:
-                    AntigravityOAuthSourceAuthorization(
-                        accountID: accountID,
-                        repositoryRevision: 2,
-                        credentials:
-                            AntigravityOAuthCredentials(
-                                accessToken: "access",
-                                refreshToken: "refresh",
-                                expiryDate: nil
-                            )
-                    ),
-                managedLaunchAuthorization: .disabled,
-                deadline: AntigravityRPCDeadline()
-            )
-        )
-
-        XCTAssertEqual(
-            response,
-            AntigravityUsageSourceResponse(
-                payload: .limited(capability)
-            )
-        )
-        XCTAssertEqual(
-            capability.reason,
-            .googleOAuth(.modelQuotaOnly)
-        )
-        XCTAssertEqual(capability.evidence.identity, identity)
-        XCTAssertEqual(capability.evidence.plan, "Pro")
-        XCTAssertEqual(capability.evidence.modelCount, 3)
-        guard case .googleOAuth =
-                capability.evidence
-        else {
-            return XCTFail(
-                "OAuth limited result must not carry local RPC evidence"
-            )
-        }
-    }
-
-    func testGoogleOAuthSourceRejectsLocalLegacyEvidenceWithOAuthProvenance() async {
-        let identity = ProviderAccountIdentity(
-            stableAccountID: "subject-a",
-            email: "a@example.com"
-        )
-        let invalidCapability =
-            AntigravityLimitedQuotaCapability.localLegacy(
-                evidence:
-                    AntigravityLegacyCapabilityEvidence(
-                        method: .getUserStatus,
-                        identity: identity,
-                        plan: "Pro",
-                        modelConfigCount: 1
-                    ),
-                fallbackReason:
-                    .groupedQuotaUnavailable,
-                provenance: AntigravityQuotaProvenance(
-                    transport: .googleOAuth,
-                    endpointOwner: .external,
-                    accountIdentity: identity,
-                    capability: .limitedQuota,
-                    processIdentity: nil
-                ),
-                fetchedAt: Date(timeIntervalSince1970: 100)
-            )
-        let client = GoogleOAuthQuotaClientDouble(
-            result: .limited(
-                invalidCapability,
-                refreshedCredential: nil
-            )
-        )
-        let source = AntigravityGoogleOAuthUsageSource(
-            client: client
-        )
-        let accountID = AntigravityAccountID(
-            rawValue: "account-a"
-        )
-
-        do {
-            _ = try await source.fetch(
-                AntigravityUsageSourceRequest(
-                    generation: 1,
-                    accountTarget: .selectedOAuth(accountID),
-                    expectedIdentity: identity,
-                    oauthAuthorization:
-                        AntigravityOAuthSourceAuthorization(
-                            accountID: accountID,
-                            repositoryRevision: 2,
-                            credentials:
-                                AntigravityOAuthCredentials(
-                                    accessToken: "access",
-                                    refreshToken: "refresh",
-                                    expiryDate: nil
-                                )
-                        ),
-                    managedLaunchAuthorization: .disabled,
-                    deadline: AntigravityRPCDeadline()
-                )
-            )
-            XCTFail(
-                "OAuth source must reject local RPC evidence"
-            )
-        } catch let error as AntigravityUsageSourceError {
-            XCTAssertEqual(error, .malformedResponse)
-        } catch {
-            XCTFail("예상하지 못한 오류: \(error)")
-        }
+        XCTAssertEqual(Set(accounts), ["101@example.com", "102@example.com"])
+        XCTAssertTrue(result.hasUnverifiedCandidates)
     }
 
     func testBorrowedCLIWithoutRequiredTokenReportsUnavailableAuthentication() async throws {
@@ -380,29 +138,23 @@ final class AntigravityUsageSourceTests: XCTestCase {
     }
 }
 
-private actor GoogleOAuthQuotaClientDouble:
-    AntigravityGoogleOAuthQuotaFetching
-{
-    private let result: AntigravityGoogleOAuthQuotaResult
-    private var credentials:
-        [AntigravityOAuthCredentials] = []
-
-    init(result: AntigravityGoogleOAuthQuotaResult) {
-        self.result = result
-    }
-
-    func fetchQuota(
-        credentials: AntigravityOAuthCredentials,
+private struct AccountInspectionQuotaClient: AntigravityLocalQuotaFetching {
+    func fetch(
+        from endpoint: AntigravityVerifiedRuntimeEndpoint,
         deadline: AntigravityRPCDeadline
-    ) async throws -> AntigravityGoogleOAuthQuotaResult {
-        self.credentials.append(credentials)
-        return result
-    }
-
-    func receivedCredentials()
-        -> [AntigravityOAuthCredentials]
-    {
-        credentials
+    ) async throws -> AntigravityLocalQuotaFetchResult {
+        let pid = endpoint.processIdentity.processID
+        if pid == 103 { throw AntigravityLocalRPCError.authenticationRejected }
+        let identity = ProviderAccountIdentity(email: "\(pid)@example.com")
+        return .limited(
+            .localLegacy(
+                evidence: .init(method: .getUserStatus, identity: identity, plan: nil, modelConfigCount: 1),
+                fallbackReason: .groupedQuotaUnavailable,
+                provenance: .init(
+                    transport: .localAppRPC, endpointOwner: .external,
+                    accountIdentity: identity, capability: .limitedQuota,
+                    processIdentity: .init(processID: pid)),
+                fetchedAt: Date()))
     }
 }
 
@@ -446,9 +198,6 @@ private actor OrderedFailureLocalQuotaClient:
 private func localSourceRequest() -> AntigravityUsageSourceRequest {
     AntigravityUsageSourceRequest(
         generation: 1,
-        accountTarget: .ambientLocal,
-        expectedIdentity: nil,
-        oauthAuthorization: nil,
         managedLaunchAuthorization: .disabled,
         deadline: AntigravityRPCDeadline()
     )

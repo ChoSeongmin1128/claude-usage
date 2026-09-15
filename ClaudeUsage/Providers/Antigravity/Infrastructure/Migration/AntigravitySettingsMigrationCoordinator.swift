@@ -2,7 +2,7 @@
 import Foundation
 
 nonisolated enum AntigravitySettingsMigrationKeys {
-    static let currentMigrationVersion = 3
+    static let currentMigrationVersion = 5
 
     static let connectionSettings = "antigravity.connectionSettings"
     static let displaySettings = "antigravity.displaySettings"
@@ -99,6 +99,8 @@ final class AntigravitySettingsMigrationCoordinator {
         case missing
         case current(AntigravityConnectionSettings)
         case legacyV1(LegacyConnectionSettingsV1)
+        case legacyV2(LegacyConnectionSettingsV2)
+        case legacyV3(LegacyConnectionSettingsV3)
     }
 
     private enum StoredDisplaySettings {
@@ -123,6 +125,37 @@ final class AntigravitySettingsMigrationCoordinator {
         var isValid: Bool {
             schemaVersion == 1
                 && managedSession.isValid
+        }
+    }
+
+    private struct LegacyConnectionSettingsV2: Decodable {
+        let schemaVersion: Int
+        let managedSession: AntigravityConnectionSettings.ManagedSessionPolicy
+        var isValid: Bool { schemaVersion == 2 && managedSession.isValid }
+    }
+
+    private struct LegacyConnectionSettingsV3: Decodable {
+        let schemaVersion: Int
+        let managedSession: AntigravityConnectionSettings.ManagedSessionPolicy
+        let accountSelection: LegacyAccountSelectionV3
+        var isValid: Bool { schemaVersion == 3 && managedSession.isValid && accountSelection.isValid }
+    }
+
+    /// Decode-only input. Current settings never persist a login identity.
+    private enum LegacyAccountSelectionV3: Decodable {
+        case awaitingMigration
+        case unselected
+        case requiresSelection
+        case local(ProviderAccountIdentity)
+        case oauth(AntigravityAccountID)
+
+        var isValid: Bool {
+            switch self {
+            case .awaitingMigration, .unselected, .requiresSelection: true
+            case .local(let identity):
+                AntigravityAccountIdentityMatcher.match(expected: identity, received: identity).isMatch
+            case .oauth(let id): !id.rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
         }
     }
 
@@ -227,10 +260,8 @@ final class AntigravitySettingsMigrationCoordinator {
         }
         let hasMissingSettings: Bool
         switch (storedConnection, storedDisplay) {
-        case (.current, .current),
-             (.legacyV1, .current),
-             (.current, .legacyV1),
-             (.legacyV1, .legacyV1):
+        case (.current, .current), (.legacyV1, .current), (.legacyV2, .current), (.legacyV3, .current),
+            (.current, .legacyV1), (.legacyV1, .legacyV1), (.legacyV2, .legacyV1), (.legacyV3, .legacyV1):
             hasMissingSettings = false
         case (.missing, _),
              (_, .missing):
@@ -239,10 +270,10 @@ final class AntigravitySettingsMigrationCoordinator {
 
         let requiresMigration = markerVersion != AntigravitySettingsMigrationKeys.currentMigrationVersion
             || {
-                if case .legacyV1 = storedConnection {
-                    return true
+                switch storedConnection {
+                case .legacyV1, .legacyV2, .legacyV3: return true
+                case .missing, .current: return false
                 }
-                return false
             }()
             || {
                 if case .legacyV1 = storedDisplay {
@@ -268,8 +299,19 @@ final class AntigravitySettingsMigrationCoordinator {
                 schemaVersion:
                     AntigravityConnectionSettings
                         .currentSchemaVersion,
-                managedSession: value.managedSession
+                managedSession: value.managedSession,
+                usageTarget: .unselected
             )
+        case let .legacyV2(value):
+            connection = AntigravityConnectionSettings(
+                schemaVersion: AntigravityConnectionSettings.currentSchemaVersion,
+                managedSession: value.managedSession, usageTarget: .unselected)
+        case let .legacyV3(value):
+            // An account identity does not establish which product the user
+            // intended. Preserve the data and request a product choice once.
+            connection = AntigravityConnectionSettings(
+                schemaVersion: AntigravityConnectionSettings.currentSchemaVersion,
+                managedSession: value.managedSession, usageTarget: .unselected)
         case .missing:
             connection = makeConnectionSettings()
         }
@@ -291,7 +333,7 @@ final class AntigravitySettingsMigrationCoordinator {
 
         do {
             switch storedConnection {
-            case .missing, .legacyV1:
+            case .missing, .legacyV1, .legacyV2, .legacyV3:
                 try writeAndVerifyConnection(connection)
             case .current:
                 try verifyConnection(connection)
@@ -454,6 +496,12 @@ final class AntigravitySettingsMigrationCoordinator {
         ), value.isValid {
             return .legacyV1(value)
         }
+        if let value = try? decoder.decode(LegacyConnectionSettingsV2.self, from: data), value.isValid {
+            return .legacyV2(value)
+        }
+        if let value = try? decoder.decode(LegacyConnectionSettingsV3.self, from: data), value.isValid {
+            return .legacyV3(value)
+        }
         throw FailureReason.invalidCurrentConnectionSettings
     }
 
@@ -485,8 +533,14 @@ final class AntigravitySettingsMigrationCoordinator {
     private func makeConnectionSettings() -> AntigravityConnectionSettings {
         return AntigravityConnectionSettings(
             schemaVersion: AntigravityConnectionSettings.currentSchemaVersion,
-            managedSession: .default
+            managedSession: .default,
+            usageTarget: legacyUsageTarget()
         )
+    }
+
+    private func legacyUsageTarget() -> AntigravityUsageTarget {
+        guard let raw = string(forKey: "antigravityUsageDataSource") else { return .cli }
+        return raw == "agy_cli" ? .cli : .unselected
     }
 
     private func makeDisplaySettings(

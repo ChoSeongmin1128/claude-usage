@@ -1,25 +1,6 @@
 import Combine
 import Foundation
 
-nonisolated protocol AntigravitySettingsOAuthLoggingIn:
-    Sendable
-{
-    func login() async
-        -> AntigravityOAuthLoginRunner.Result
-}
-
-nonisolated struct LiveAntigravitySettingsOAuthLogin:
-    AntigravitySettingsOAuthLoggingIn
-{
-    nonisolated init() {}
-
-    nonisolated func login() async
-        -> AntigravityOAuthLoginRunner.Result
-    {
-        await AntigravityOAuthLoginRunner.run()
-    }
-}
-
 nonisolated protocol
     AntigravitySettingsRuntimeControlling:
     Sendable
@@ -37,14 +18,7 @@ nonisolated protocol
         trigger: AntigravityRefreshTrigger
     ) async -> AntigravityRuntimeSnapshot
 
-    func selectAccount(
-        _ accountID: AntigravityAccountID?
-    ) async throws -> AntigravityRuntimeSnapshot
-
-    func connectAccount(
-        credentials: AntigravityOAuthCredentials,
-        label: String?
-    ) async throws -> AntigravityRuntimeSnapshot
+    func selectTarget(_ selection: AntigravityUsageTarget) async throws -> AntigravityRuntimeSnapshot
 
     func deleteAccount(
         _ accountID: AntigravityAccountID
@@ -101,7 +75,6 @@ nonisolated struct AntigravitySettingsNotice:
         case continueMigration
         case removeLegacyData
         case acknowledgeDisplayMigrationNotice
-        case cancelOAuthLogin
     }
 
     let tone: Tone
@@ -118,8 +91,7 @@ nonisolated struct AntigravitySettingsViewState:
         case idle
         case loading
         case checkingMigration
-        case authenticating
-        case changingAccount
+        case changingTarget
         case changingConnection
         case changingDisplay
         case migrating
@@ -143,6 +115,11 @@ nonisolated struct AntigravitySettingsViewState:
     var repositoryRevision: UInt64?
     var notice: AntigravitySettingsNotice?
     var lastAttemptAt: Date? = nil
+    var publicationRevision: UInt64 = 0
+
+    var usageTarget: AntigravityUsageTarget {
+        connection?.usageTarget ?? .unselected
+    }
 
     static let initial = AntigravitySettingsViewState(
         activity: .idle,
@@ -216,8 +193,7 @@ nonisolated extension AntigravitySettingsViewState {
 
 /// Settings projection for the shared Antigravity runtime controller.
 ///
-/// OAuth credentials exist only between the browser result and
-/// `connectAccount`. Repository/settings/migration actors are deliberately not
+/// Repository/settings/migration actors are deliberately not
 /// exposed here, so the settings window cannot interleave its own transaction
 /// with AppDelegate refreshes.
 @MainActor
@@ -229,27 +205,17 @@ final class AntigravitySettingsViewModel:
 
     private let runtimeController:
         any AntigravitySettingsRuntimeControlling
-    private let oauthLogin:
-        any AntigravitySettingsOAuthLoggingIn
     private let accountCommands:
         AntigravityAccountCommandCoordinator
     private let displayCommands:
         AntigravityDisplaySettingsCommandAdapter
     private var observationTask:
         Task<Void, Never>?
-    private var oauthLoginTask:
-        Task<AntigravityOAuthLoginRunner.Result, Never>?
-    private var oauthLoginID: UUID?
-
     init(
         runtimeController:
-            any AntigravitySettingsRuntimeControlling,
-        oauthLogin:
-            any AntigravitySettingsOAuthLoggingIn =
-                LiveAntigravitySettingsOAuthLogin()
+            any AntigravitySettingsRuntimeControlling
     ) {
         self.runtimeController = runtimeController
-        self.oauthLogin = oauthLogin
         self.accountCommands =
             AntigravityAccountCommandCoordinator(
                 runtime: runtimeController
@@ -266,18 +232,15 @@ final class AntigravitySettingsViewModel:
         let snapshot = await runtimeController.bootstrap(
             performInitialRefresh: true
         )
-        apply(snapshot)
-        state.notice =
-            AntigravitySettingsNoticePresenter.notice(
-                for: snapshot
-            )
+        if apply(snapshot) {
+            state.notice = AntigravitySettingsNoticePresenter.notice(for: snapshot)
+        }
         state.activity = .idle
     }
 
     func stopObserving() {
         observationTask?.cancel()
         observationTask = nil
-        cancelOAuthLogin()
     }
 
     @discardableResult
@@ -286,146 +249,38 @@ final class AntigravitySettingsViewModel:
         let snapshot = await runtimeController.refresh(
             trigger: .manual
         )
-        apply(snapshot)
-        state.notice =
-            AntigravitySettingsNoticePresenter.notice(
-                for: snapshot
-            )
+        if apply(snapshot) {
+            state.notice = AntigravitySettingsNoticePresenter.notice(for: snapshot)
+        }
         state.activity = .idle
         return true
     }
 
     @discardableResult
-    func selectAccount(
-        _ accountID: AntigravityAccountID?
-    ) async -> Bool {
-        guard state.activeAccountID != accountID,
-              begin(.changingAccount)
-        else {
-            return false
-        }
-        let success = if accountID == nil {
-            AntigravitySettingsNotice(
-                tone: .success,
-                title: "로컬 계정으로 전환했습니다",
-                message: "실행 중인 Antigravity 또는 AGY 계정의 사용량을 확인합니다.",
-                action: .dismiss
-            )
-        } else {
-            AntigravitySettingsNotice(
-                tone: .success,
-                title: "Google 계정을 전환했습니다",
-                message: "선택한 계정과 일치하는 사용량으로 갱신했습니다.",
-                action: .dismiss
-            )
-        }
+    func selectTarget(_ selection: AntigravityUsageTarget) async -> Bool {
+        guard state.usageTarget != selection, begin(.changingTarget) else { return false }
         return await performMutation(
-            activity: .changingAccount,
-            success: success
+            activity: .changingTarget,
+            success: AntigravitySettingsNotice(
+                tone: .success, title: "조회 대상을 선택했습니다",
+                message: "선택한 제품에 로그인된 계정의 사용량을 표시합니다.", action: .dismiss)
         ) {
-            try await self.accountCommands
-                .selectAccount(accountID)
+            try await accountCommands.selectTarget(selection)
         }
-    }
-
-    @discardableResult
-    func addAccount() async -> Bool {
-        guard begin(.authenticating) else { return false }
-        state.notice = AntigravitySettingsNotice(
-            tone: .progress,
-            title: "Google 로그인 중",
-            message: "브라우저에서 로그인을 완료해 주세요.",
-            action: .cancelOAuthLogin
-        )
-
-        let loginID = UUID()
-        oauthLoginID = loginID
-        let task = Task { [oauthLogin] in
-            await oauthLogin.login()
-        }
-        oauthLoginTask = task
-        let result = await task.value
-        guard oauthLoginID == loginID else {
-            return false
-        }
-        oauthLoginID = nil
-        oauthLoginTask = nil
-
-        switch result.outcome {
-        case .success(let credentials):
-            state.activity = .changingAccount
-            return await performMutation(
-                activity: .changingAccount,
-                success: AntigravitySettingsNotice(
-                    tone: .success,
-                    title: "Google 계정을 연결했습니다",
-                    message: "새 계정을 선택하고 사용량을 확인했습니다.",
-                    action: .dismiss
-                )
-            ) {
-                try await self.accountCommands
-                    .connectAccount(
-                        credentials: credentials,
-                        label: credentials.email
-                    )
-            }
-        case .cancelled:
-            finishLoginFailure(
-                title: "Google 로그인을 취소했습니다",
-                message: "저장된 계정과 현재 사용량은 변경하지 않았습니다.",
-                tone: .warning
-            )
-        case .timedOut:
-            finishLoginFailure(
-                title: "Google 로그인 시간이 초과되었습니다",
-                message: "계정 추가를 다시 시작해 주세요."
-            )
-        case .launchFailed:
-            finishLoginFailure(
-                title: "브라우저를 열지 못했습니다",
-                message: "기본 브라우저 설정을 확인한 뒤 다시 시도해 주세요."
-            )
-        case .failed(let reason):
-            // 실제 사유를 버리면 사용자도 로그도 원인을 알 수 없다.
-            let detail = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-            finishLoginFailure(
-                title: "Google 계정을 연결하지 못했습니다",
-                message: detail.isEmpty
-                    ? "로그인 상태를 확인한 뒤 다시 시도해 주세요."
-                    : "\(detail) — 로그인 상태를 확인한 뒤 다시 시도해 주세요."
-            )
-        }
-        return false
-    }
-
-    func cancelOAuthLogin() {
-        guard state.activity == .authenticating else {
-            return
-        }
-        oauthLoginID = nil
-        oauthLoginTask?.cancel()
-        oauthLoginTask = nil
-        state.activity = .idle
-        state.notice = AntigravitySettingsNotice(
-            tone: .warning,
-            title: "Google 로그인을 취소했습니다",
-            message: "저장된 계정과 현재 사용량은 변경하지 않았습니다.",
-            action: .dismiss
-        )
     }
 
     @discardableResult
     func deleteAccount(
         _ accountID: AntigravityAccountID
     ) async -> Bool {
-        guard begin(.changingAccount) else {
+        guard begin(.changingTarget) else {
             return false
         }
         return await performMutation(
-            activity: .changingAccount,
+            activity: .changingTarget,
             success: AntigravitySettingsNotice(
                 tone: .success,
-                title: "Google 계정 연결을 해제했습니다",
+                title: "이전 연결 정보를 삭제했습니다",
                 message: "ClaudeUsage가 저장한 계정 자격 정보를 제거했습니다.",
                 action: .dismiss
             )
@@ -437,7 +292,7 @@ final class AntigravitySettingsViewModel:
 
     @discardableResult
     func deleteAllAccounts() async -> Bool {
-        guard begin(.changingAccount) else {
+        guard begin(.changingTarget) else {
             return false
         }
         let snapshot = await accountCommands
@@ -449,7 +304,7 @@ final class AntigravitySettingsViewModel:
             )
             ?? AntigravitySettingsNotice(
                 tone: .success,
-                title: "모든 Google 계정 연결을 해제했습니다",
+                title: "이전 연결 정보를 모두 삭제했습니다",
                 message: "ClaudeUsage가 저장한 Antigravity 계정 정보를 제거했습니다.",
                 action: .dismiss
             )
@@ -577,16 +432,14 @@ final class AntigravitySettingsViewModel:
             _ = await removeLegacyDataInteractively()
         case .acknowledgeDisplayMigrationNotice:
             await acknowledgeDisplayMigrationNotice()
-        case .cancelOAuthLogin:
-            cancelOAuthLogin()
+
         }
     }
 
     private func startObservationIfNeeded() {
         guard observationTask == nil else { return }
         observationTask = Task { [weak self, runtimeController] in
-            let stream =
-                await runtimeController.snapshots()
+            let stream = await runtimeController.snapshots()
             for await snapshot in stream {
                 guard !Task.isCancelled else { break }
                 await MainActor.run {
@@ -615,12 +468,10 @@ final class AntigravitySettingsViewModel:
     ) async -> Bool {
         do {
             let snapshot = try await operation()
-            apply(snapshot)
-            state.notice =
-                AntigravitySettingsNoticePresenter
-                    .refreshOutcomeNotice(
-                    snapshot.presentationState
-                ) ?? success
+            if apply(snapshot) {
+                state.notice =
+                    AntigravitySettingsNoticePresenter.refreshOutcomeNotice(snapshot.presentationState) ?? success
+            }
             state.activity = .idle
             return true
         } catch {
@@ -638,15 +489,11 @@ final class AntigravitySettingsViewModel:
         }
     }
 
+    @discardableResult
     private func apply(
         _ snapshot: AntigravityRuntimeSnapshot
-    ) {
-        if let appliedRevision = state.repositoryRevision,
-           let incomingRevision = snapshot.repositoryRevision,
-           incomingRevision < appliedRevision
-        {
-            return
-        }
+    ) -> Bool {
+        guard snapshot.publicationRevision >= state.publicationRevision else { return false }
         state.accounts = snapshot.accounts.map {
             AntigravitySettingsAccountSummary(
                 id: $0.id,
@@ -658,6 +505,7 @@ final class AntigravitySettingsViewModel:
         }
         state.activeAccountID =
             snapshot.activeAccountID
+        state.publicationRevision = snapshot.publicationRevision
         state.connection =
             snapshot.settings?.connection
         state.display = snapshot.settings?.display
@@ -672,20 +520,7 @@ final class AntigravitySettingsViewModel:
             snapshot.managedRuntimeAvailability
         state.repositoryRevision =
             snapshot.repositoryRevision
+        return true
     }
 
-    private func finishLoginFailure(
-        title: String,
-        message: String,
-        tone: AntigravitySettingsNotice.Tone =
-            .failure
-    ) {
-        state.activity = .idle
-        state.notice = AntigravitySettingsNotice(
-            tone: tone,
-            title: title,
-            message: message,
-            action: .dismiss
-        )
-    }
 }

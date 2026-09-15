@@ -37,11 +37,6 @@ nonisolated protocol AntigravityRuntimeAccountPersisting:
         expectedRevision: UInt64
     ) async throws -> AntigravityAccountRepositoryState
 
-    func setActiveAccountID(
-        _ accountID: AntigravityAccountID?,
-        expectedRevision: UInt64
-    ) async throws -> AntigravityAccountRepositoryState
-
     func deleteAccount(
         id accountID: AntigravityAccountID,
         expectedRevision: UInt64
@@ -150,6 +145,9 @@ actor AntigravityRuntimeController {
 
     private var currentSnapshot =
         AntigravityRuntimeSnapshot.idle
+    // A boundary exists before its selection is persisted. Refreshes must not
+    // read the previous selection during that interval.
+    private var pendingAccountBoundaryID: UUID?
     private var continuations:
         [
             UUID:
@@ -327,6 +325,7 @@ actor AntigravityRuntimeController {
     func refresh(
         trigger: AntigravityRefreshTrigger
     ) async -> AntigravityRuntimeSnapshot {
+        guard pendingAccountBoundaryID == nil else { return currentSnapshot }
         let boundaryID = currentBoundaryID
         let transaction = await withOperationGate {
             () async -> RefreshTransaction? in
@@ -378,156 +377,26 @@ actor AntigravityRuntimeController {
     }
 
     @discardableResult
-    func selectAccount(
-        _ accountID: AntigravityAccountID?
-    ) async throws -> AntigravityRuntimeSnapshot {
-        try await performBoundaryMutation {
-            transactionID in
-            try ensureMutable()
-            guard isCurrent(transactionID) else {
-                return nil
-            }
-            let context = try await requireCanonicalContext(
-                boundaryID: transactionID
-            )
-            guard isCurrent(transactionID) else {
-                return nil
-            }
-            if let accountID {
-                guard context.repositoryState.usableAccounts
-                    .contains(where: { $0.id == accountID })
-                else {
-                    throw AntigravityRuntimeControllerError
-                        .accountNotFound
-                }
-            }
-
-            let repositoryState:
-                AntigravityAccountRepositoryState
-            if context.repositoryState.activeAccountID
-                == accountID
-            {
-                repositoryState =
-                    context.repositoryState
-            } else {
-                repositoryState = try await repository
-                    .setActiveAccountID(
-                        accountID,
-                        expectedRevision:
-                            context.repositoryState
-                                .revision
-                    )
-            }
-            guard isCurrent(transactionID) else {
-                return nil
-            }
-            let refreshedContext = CanonicalContext(
-                repositoryState: repositoryState,
-                settings: try await settingsStore.load()
-            )
-            guard isCurrent(transactionID) else {
-                return nil
-            }
-            return prepareRefresh(
-                trigger: .accountBoundaryChanged,
-                migrationStatus:
-                    currentSnapshot.migrationStatus,
-                context: refreshedContext,
-                transactionID: transactionID
-            )
+    func selectTarget(_ selection: AntigravityUsageTarget) async throws -> AntigravityRuntimeSnapshot {
+        guard selection != .unselected
+        else {
+            throw AntigravityRuntimeControllerError.accountNotFound
         }
-    }
-
-    @discardableResult
-    func connectAccount(
-        credentials: AntigravityOAuthCredentials,
-        label requestedLabel: String? = nil
-    ) async throws -> AntigravityRuntimeSnapshot {
-        try ensureMutable()
-        guard credentials.hasTokenMaterial else {
-            throw AntigravityRuntimeControllerError
-                .invalidCredentials
-        }
-        return try await performBoundaryMutation {
-            transactionID in
+        return try await performBoundaryMutation { transactionID in
             try ensureMutable()
-            guard isCurrent(transactionID) else {
-                return nil
+            guard isCurrent(transactionID) else { return nil }
+            let context = try await requireCanonicalContext(boundaryID: transactionID)
+            guard isCurrent(transactionID) else { return nil }
+            var settings = context.settings
+            settings.connection.usageTarget = selection
+            if settings.connection != context.settings.connection {
+                settings.connection = try await settingsStore.saveConnection(settings.connection)
             }
-            let context = try await requireCanonicalContext(
-                boundaryID: transactionID
-            )
-            guard isCurrent(transactionID) else {
-                return nil
-            }
-            let identity = Self.externalIdentity(
-                from: credentials
-            )
-            let label =
-                Self.nonEmpty(requestedLabel)
-                ?? identity.email
-                ?? "Google 계정"
-
-            var repositoryState =
-                context.repositoryState
-            if let existing = repositoryState
-                .usableAccounts
-                .first(where: {
-                    Self.matches(
-                        identity,
-                        account: $0
-                    )
-                })
-            {
-                repositoryState = try await repository
-                    .replaceCredential(
-                        for: existing.id,
-                        with: credentials,
-                        externalIdentity: identity,
-                        expectedRevision:
-                            repositoryState.revision
-                    )
-                if repositoryState.activeAccountID
-                    != existing.id
-                {
-                    repositoryState = try await repository
-                        .setActiveAccountID(
-                            existing.id,
-                            expectedRevision:
-                                repositoryState.revision
-                        )
-                }
-            } else {
-                repositoryState = try await repository
-                    .createAccount(
-                        credentials: credentials,
-                        label: label,
-                        externalIdentity: identity,
-                        migrationAliases: [],
-                        makeActive: true,
-                        expectedRevision:
-                            repositoryState.revision
-                    )
-            }
-
-            guard isCurrent(transactionID) else {
-                return nil
-            }
-            let settings =
-                try await settingsStore.load()
-            guard isCurrent(transactionID) else {
-                return nil
-            }
+            guard isCurrent(transactionID) else { return nil }
             return prepareRefresh(
-                trigger: .accountBoundaryChanged,
-                migrationStatus:
-                    currentSnapshot.migrationStatus,
-                context: CanonicalContext(
-                    repositoryState: repositoryState,
-                    settings: settings
-                ),
-                transactionID: transactionID
-            )
+                trigger: .accountBoundaryChanged, migrationStatus: currentSnapshot.migrationStatus,
+                context: CanonicalContext(repositoryState: context.repositoryState, settings: settings),
+                transactionID: transactionID)
         }
     }
 
@@ -562,8 +431,7 @@ actor AntigravityRuntimeController {
             guard isCurrent(transactionID) else {
                 return nil
             }
-            let settings =
-                try await settingsStore.load()
+            let settings = try await settingsStore.load()
             guard isCurrent(transactionID) else {
                 return nil
             }
@@ -674,6 +542,7 @@ actor AntigravityRuntimeController {
         }
         let transactionID =
             beginBoundaryChange().id
+        defer { finishPendingBoundary(transactionID) }
         await refreshCoordinator.invalidateBoundary()
         let transaction = await withOperationGate {
             () async -> RefreshTransaction? in
@@ -726,6 +595,7 @@ actor AntigravityRuntimeController {
         }
         let transactionID =
             beginBoundaryChange().id
+        defer { finishPendingBoundary(transactionID) }
         await refreshCoordinator.invalidateBoundary()
         let transaction = await withOperationGate {
             () async -> RefreshTransaction? in
@@ -969,6 +839,7 @@ actor AntigravityRuntimeController {
     ) async throws -> AntigravityRuntimeSnapshot {
         try ensureMutable()
         let boundary = beginBoundaryChange()
+        defer { finishPendingBoundary(boundary.id) }
         await refreshCoordinator.invalidateBoundary()
 
         do {
@@ -990,14 +861,15 @@ actor AntigravityRuntimeController {
                 throw AntigravityRuntimeControllerError
                     .operationSuperseded
             }
-            let snapshot =
-                await executeRefresh(transaction)
-            guard isCurrent(transaction) else {
+            _ = await executeRefresh(transaction)
+            guard isCurrentBoundary(transaction.boundaryID) else {
                 try ensureMutable()
                 throw AntigravityRuntimeControllerError
                     .operationSuperseded
             }
-            return snapshot
+            // A scheduled refresh of the same committed account may supersede
+            // the quota request. It does not undo the user's account selection.
+            return currentSnapshot
         } catch {
             await recover(
                 from: error,
@@ -1021,6 +893,7 @@ actor AntigravityRuntimeController {
            controllerError == .accountNotFound
         {
             activeRefreshTransactionID = nil
+            lastSuccessfulAt = boundary.previousSnapshot.lastSuccessfulAt
             publish(
                 replacing:
                     boundary.previousSnapshot
@@ -1062,6 +935,9 @@ actor AntigravityRuntimeController {
         }
 
         activeRefreshTransactionID = nil
+        if settings.connection.usageTarget == boundary.previousSnapshot.settings?.connection.usageTarget {
+            lastSuccessfulAt = boundary.previousSnapshot.lastSuccessfulAt
+        }
         publish(
             readiness: .ready,
             migrationStatus:
@@ -1079,7 +955,9 @@ actor AntigravityRuntimeController {
         let previousSnapshot = currentSnapshot
         let transactionID = UUID()
         currentBoundaryID = transactionID
+        pendingAccountBoundaryID = transactionID
         activeRefreshTransactionID = transactionID
+        lastSuccessfulAt = nil
         publish(
             presentationState:
                 .refreshing(previous: nil)
@@ -1104,6 +982,10 @@ actor AntigravityRuntimeController {
     ) -> Bool {
         !isShuttingDown
             && currentBoundaryID == boundaryID
+    }
+
+    private func finishPendingBoundary(_ boundaryID: UUID) {
+        if pendingAccountBoundaryID == boundaryID { pendingAccountBoundaryID = nil }
     }
 
     private func prepareRefresh(
@@ -1133,6 +1015,7 @@ actor AntigravityRuntimeController {
                 return nil
             }
             transactionID = requestedTransactionID
+            finishPendingBoundary(boundaryID)
         } else {
             transactionID = UUID()
             activeRefreshTransactionID =
@@ -1159,9 +1042,6 @@ actor AntigravityRuntimeController {
 
         let request = AntigravityRefreshRequest(
             trigger: trigger,
-            accountTarget: Self.accountTarget(
-                repositoryState: context.repositoryState
-            ),
             repositoryRevision:
                 context.repositoryState.revision,
             connection: context.settings.connection,
@@ -1207,57 +1087,51 @@ actor AntigravityRuntimeController {
         return displayPath
     }
 
-    private func executeRefresh(
-        _ transaction: RefreshTransaction
-    ) async -> AntigravityRuntimeSnapshot {
-        let presentation =
-            await refreshCoordinator.refresh(
-                transaction.request
-            )
-        guard isCurrent(transaction) else {
-            return currentSnapshot
-        }
+    private func executeRefresh(_ transaction: RefreshTransaction) async -> AntigravityRuntimeSnapshot {
+        let presentation = await refreshCoordinator.refresh(transaction.request)
+        guard isCurrent(transaction) else { return currentSnapshot }
         if let runtimeEnvironment {
             let availability = await runtimeEnvironment.managedAvailability()
             guard isCurrent(transaction) else { return currentSnapshot }
             managedAvailability = availability
         }
+        return await withOperationGate {
+            guard isCurrent(transaction) else { return currentSnapshot }
+            let latestRepository: AntigravityAccountRepositoryState
+            var latestSettings: AntigravitySettingsSnapshot
+            do {
+                latestRepository = try await repository.state()
+                guard isCurrent(transaction) else { return currentSnapshot }
+                latestSettings = try await settingsStore.load()
+            } catch {
+                guard isCurrent(transaction) else { return currentSnapshot }
+                return publishBlocked(.typedSettings)
+            }
+            guard isCurrent(transaction) else { return currentSnapshot }
+            guard latestSettings.connection == transaction.context.settings.connection else {
+                return publishBlocked(.typedSettings)
+            }
+            let acceptedPresentation = presentation
+            if Self.isSuccessful(acceptedPresentation) { lastSuccessfulAt = now() }
+            switch acceptedPresentation {
+            case .accountMismatch, .failed, .setupRequired: lastSuccessfulAt = nil
+            default: break
+            }
+            return publish(
+                readiness: .ready, migrationStatus: transaction.migrationStatus,
+                repositoryState: latestRepository, settings: latestSettings,
+                presentationState: acceptedPresentation)
+        }
+    }
 
-        let latestRepository:
-            AntigravityAccountRepositoryState
-        do {
-            latestRepository =
-                try await repository.state()
-        } catch {
-            latestRepository =
-                transaction.context.repositoryState
+    private nonisolated static func observedIdentity(in state: AntigravityPresentationState) -> ProviderAccountIdentity?
+    {
+        switch state {
+        case .ready(let snapshot), .partial(let snapshot, _): snapshot.identity ?? snapshot.provenance.accountIdentity
+        case .limited(let value): value.evidence.identity
+        case .identityOnly(let value): value.identity
+        default: nil
         }
-        guard isCurrent(transaction) else {
-            return currentSnapshot
-        }
-        let latestSettings:
-            AntigravitySettingsSnapshot
-        do {
-            latestSettings =
-                try await settingsStore.load()
-        } catch {
-            latestSettings =
-                transaction.context.settings
-        }
-        guard isCurrent(transaction) else {
-            return currentSnapshot
-        }
-        if Self.isSuccessful(presentation) {
-            lastSuccessfulAt = now()
-        }
-        return publish(
-            readiness: .ready,
-            migrationStatus:
-                transaction.migrationStatus,
-            repositoryState: latestRepository,
-            settings: latestSettings,
-            presentationState: presentation
-        )
     }
 
     private func isCurrent(
@@ -1305,6 +1179,7 @@ actor AntigravityRuntimeController {
         let resolvedPresentation =
             presentationState
                 ?? base.presentationState
+        guard currentSnapshot.publicationRevision < UInt64.max else { return currentSnapshot }
         let snapshot = AntigravityRuntimeSnapshot(
             readiness:
                 readiness ?? base.readiness,
@@ -1315,13 +1190,11 @@ actor AntigravityRuntimeController {
                 repositoryState?.revision
                     ?? base.repositoryRevision,
             accounts:
-                repositoryState.map(
-                    Self.accountSummaries
-                ) ?? base.accounts,
-            activeAccountID:
                 repositoryState.map {
-                    $0.activeAccountID
-                } ?? base.activeAccountID,
+                    Self.accountSummaries(
+                        $0, selectedAccountID: nil)
+                } ?? base.accounts,
+            activeAccountID: nil,
             settings: resolvedSettings,
             presentationState:
                 resolvedPresentation,
@@ -1339,7 +1212,8 @@ actor AntigravityRuntimeController {
                 managedAvailability,
             lastAttemptAt: lastAttemptAt,
             lastSuccessfulAt:
-                lastSuccessfulAt
+                lastSuccessfulAt,
+            publicationRevision: currentSnapshot.publicationRevision + 1
         )
         currentSnapshot = snapshot
         for continuation in continuations.values {
@@ -1352,21 +1226,10 @@ actor AntigravityRuntimeController {
         continuations.removeValue(forKey: id)
     }
 
-    private nonisolated static func accountTarget(
-        repositoryState:
-            AntigravityAccountRepositoryState
-    ) -> AntigravityRefreshAccountTarget {
-        guard let accountID =
-                repositoryState.activeAccountID
-        else {
-            return .ambientLocal
-        }
-        return .selectedOAuth(accountID)
-    }
-
     private nonisolated static func accountSummaries(
         _ repositoryState:
-            AntigravityAccountRepositoryState
+            AntigravityAccountRepositoryState,
+        selectedAccountID: AntigravityAccountID?
     ) -> [AntigravityRuntimeAccountSummary] {
         repositoryState.usableAccounts.map { account in
             AntigravityRuntimeAccountSummary(
@@ -1376,65 +1239,9 @@ actor AntigravityRuntimeController {
                     account.externalIdentity
                         .providerAccountIdentity,
                 isActive:
-                    repositoryState.activeAccountID
-                        == account.id
+                    selectedAccountID == account.id
             )
         }
-    }
-
-    private nonisolated static func externalIdentity(
-        from credentials: AntigravityOAuthCredentials
-    ) -> AntigravityExternalAccountIdentity {
-        AntigravityExternalAccountIdentity(
-            googleSubject:
-                idTokenSubject(credentials.idToken),
-            email: credentials.email
-        )
-    }
-
-    private nonisolated static func idTokenSubject(
-        _ token: String?
-    ) -> String? {
-        guard let token = nonEmpty(token) else {
-            return nil
-        }
-        let parts = token.split(separator: ".")
-        guard parts.count >= 2 else { return nil }
-        var payload = String(parts[1])
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        let remainder = payload.count % 4
-        if remainder != 0 {
-            payload += String(
-                repeating: "=",
-                count: 4 - remainder
-            )
-        }
-        guard
-            let data = Data(
-                base64Encoded: payload
-            ),
-            let object = try? JSONSerialization
-                .jsonObject(with: data)
-                as? [String: Any]
-        else {
-            return nil
-        }
-        return nonEmpty(object["sub"] as? String)
-    }
-
-    private nonisolated static func matches(
-        _ identity:
-            AntigravityExternalAccountIdentity,
-        account: AntigravityStoredAccount
-    ) -> Bool {
-        AntigravityAccountIdentityMatcher.match(
-            expected:
-                account.externalIdentity
-                    .providerAccountIdentity,
-            received:
-                identity.providerAccountIdentity
-        ).isMatch
     }
 
     private nonisolated static func snapshot(
@@ -1473,13 +1280,5 @@ actor AntigravityRuntimeController {
         }
     }
 
-    private nonisolated static func nonEmpty(
-        _ value: String?
-    ) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
-        return trimmed.isEmpty ? nil : trimmed
-    }
+
 }

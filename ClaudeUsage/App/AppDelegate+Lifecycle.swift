@@ -283,6 +283,7 @@ extension AppDelegate {
     private func applyAntigravityRuntimeSnapshot(
         _ snapshot: AntigravityRuntimeSnapshot
     ) {
+        guard snapshot.publicationRevision >= currentAntigravityRuntimeSnapshot.publicationRevision else { return }
         currentAntigravityRuntimeSnapshot =
             snapshot
         popoverViewModel

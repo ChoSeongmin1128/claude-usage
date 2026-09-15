@@ -184,7 +184,7 @@ final class AppRuntimeStateFacade {
              .selectedAccountUnavailable,
              .selectedAccountIdentityUnavailable:
             return true
-        case .cancelled,
+        case .cancelled, .accountChanged,
              .appShuttingDown,
              .invalidRefreshContext,
              .generationExhausted,

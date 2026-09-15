@@ -87,12 +87,7 @@ final class AntigravityManagedCLISessionTests:
         let client = ManagedSourceQuotaStub(failures: [.csrf(.rejected), nil])
         let source = AntigravityManagedCLIUsageSource(session: session,
             executable: harness.executable, client: client)
-        var request = managedSourceRequest()
-        request = AntigravityUsageSourceRequest(generation: request.generation,
-            accountTarget: request.accountTarget,
-            expectedIdentity: ProviderAccountIdentity(stableAccountID: nil, email: "different@example.com"),
-            oauthAuthorization: nil, managedLaunchAuthorization: request.managedLaunchAuthorization,
-            deadline: request.deadline)
+        let request = managedSourceRequest()
         let response = try await source.fetch(request)
         guard case .limited(let capability) = response.payload else { return XCTFail("Expected fixture") }
         XCTAssertEqual(capability.evidence.identity?.email, "current@example.com")
@@ -102,9 +97,8 @@ final class AntigravityManagedCLISessionTests:
     }
 
     private func managedSourceRequest(refreshAuthentication: Bool = false) -> AntigravityUsageSourceRequest {
-        AntigravityUsageSourceRequest(generation: 1, accountTarget: .ambientLocal,
-            expectedIdentity: nil, oauthAuthorization: nil,
-            managedLaunchAuthorization: .automatic(idleTimeout: .seconds(180)),
+        AntigravityUsageSourceRequest(
+            generation: 1, managedLaunchAuthorization: .automatic(idleTimeout: .seconds(180)),
             deadline: .init(), refreshAuthentication: refreshAuthentication)
     }
 

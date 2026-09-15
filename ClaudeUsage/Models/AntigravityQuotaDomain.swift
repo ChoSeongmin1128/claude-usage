@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct ProviderAccountIdentity: Sendable, Equatable {
+nonisolated struct ProviderAccountIdentity: Sendable, Equatable, Hashable, Codable {
     let stableAccountID: String?
     let email: String?
 

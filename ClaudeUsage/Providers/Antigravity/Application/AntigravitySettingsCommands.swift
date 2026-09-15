@@ -13,20 +13,8 @@ nonisolated struct AntigravityAccountCommandCoordinator:
         self.runtime = runtime
     }
 
-    func selectAccount(
-        _ accountID: AntigravityAccountID?
-    ) async throws -> AntigravityRuntimeSnapshot {
-        try await runtime.selectAccount(accountID)
-    }
-
-    func connectAccount(
-        credentials: AntigravityOAuthCredentials,
-        label: String?
-    ) async throws -> AntigravityRuntimeSnapshot {
-        try await runtime.connectAccount(
-            credentials: credentials,
-            label: label
-        )
+    func selectTarget(_ selection: AntigravityUsageTarget) async throws -> AntigravityRuntimeSnapshot {
+        try await runtime.selectTarget(selection)
     }
 
     func deleteAccount(

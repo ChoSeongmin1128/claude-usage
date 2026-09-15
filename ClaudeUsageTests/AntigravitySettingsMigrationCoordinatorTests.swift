@@ -3,6 +3,78 @@ import XCTest
 
 @MainActor
 final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
+    func testV3AccountSelectionRequiresProductChoiceAndNeverPersistsIdentityAgain() throws {
+        let original = Data(
+            #"{"schemaVersion":3,"managedSession":{"idleTimeoutSeconds":271},"accountSelection":{"local":{"_0":{"email":"previous@example.com"}}}}"#
+                .utf8)
+        let store = InMemoryAntigravitySettingsMigrationStore()
+        store.set(original, forKey: AntigravitySettingsMigrationKeys.connectionSettings)
+        store.set(4, forKey: AntigravitySettingsMigrationKeys.migrationVersion)
+        let migration = AntigravitySettingsMigrationCoordinator(store: store)
+        XCTAssertEqual(migration.migrate(), .migrated(pendingNotice: nil))
+        let settings = try connectionSettings(in: store)
+        XCTAssertEqual(settings.usageTarget, .unselected)
+        XCTAssertEqual(settings.managedSession.idleTimeoutSeconds, 271)
+        let saved = try XCTUnwrap(store.object(forKey: AntigravitySettingsMigrationKeys.connectionSettings) as? Data)
+        let text = String(decoding: saved, as: UTF8.self)
+        XCTAssertFalse(text.contains("previous@example.com"))
+        XCTAssertFalse(text.contains("accountSelection"))
+        XCTAssertEqual(migration.migrate(), .alreadyCurrent)
+    }
+
+    func testFailedV3ProductMigrationRestoresOriginalDataAndCanRetry() throws {
+        let original = Data(
+            #"{"schemaVersion":3,"managedSession":{"idleTimeoutSeconds":271},"accountSelection":{"unselected":{}}}"#
+                .utf8)
+        let store = InMemoryAntigravitySettingsMigrationStore()
+        store.set(original, forKey: AntigravitySettingsMigrationKeys.connectionSettings)
+        store.set(4, forKey: AntigravitySettingsMigrationKeys.migrationVersion)
+        store.ignoreNextSet(forKey: AntigravitySettingsMigrationKeys.migrationVersion)
+        let migration = AntigravitySettingsMigrationCoordinator(store: store)
+        guard case .failed(let failure) = migration.migrate() else { return XCTFail("Expected rollback") }
+        XCTAssertTrue(failure.rollbackCompleted)
+        XCTAssertEqual(store.object(forKey: AntigravitySettingsMigrationKeys.connectionSettings) as? Data, original)
+        XCTAssertEqual(store.object(forKey: AntigravitySettingsMigrationKeys.migrationVersion) as? Int, 4)
+        XCTAssertEqual(migration.migrate(), .migrated(pendingNotice: nil))
+    }
+
+    func testInterruptedV2UpgradePreservesOriginalSelectionInputAndCanRetry() throws {
+        let original = Data(#"{"schemaVersion":2,"managedSession":{"idleTimeoutSeconds":271}}"#.utf8)
+        for failingKey in [
+            AntigravitySettingsMigrationKeys.connectionSettings, AntigravitySettingsMigrationKeys.migrationVersion,
+        ] {
+            let store = InMemoryAntigravitySettingsMigrationStore()
+            store.set(original, forKey: AntigravitySettingsMigrationKeys.connectionSettings)
+            store.set(
+                try JSONEncoder().encode(AntigravityDisplaySettings.default),
+                forKey: AntigravitySettingsMigrationKeys.displaySettings)
+            store.set(3, forKey: AntigravitySettingsMigrationKeys.migrationVersion)
+            store.ignoreNextSet(forKey: failingKey)
+            let migration = AntigravitySettingsMigrationCoordinator(store: store)
+            guard case .failed(let failure) = migration.migrate() else { return XCTFail("Write failure was accepted") }
+            XCTAssertTrue(failure.rollbackCompleted)
+            XCTAssertEqual(store.object(forKey: AntigravitySettingsMigrationKeys.connectionSettings) as? Data, original)
+            XCTAssertEqual(store.object(forKey: AntigravitySettingsMigrationKeys.migrationVersion) as? Int, 3)
+            XCTAssertEqual(migration.migrate(), .migrated(pendingNotice: nil))
+            XCTAssertEqual(try connectionSettings(in: store).usageTarget, .unselected)
+        }
+    }
+
+    func testV2SettingsUpgradeDirectlyWithoutInventingAnOAuthOrLocalSelection() throws {
+        let store = InMemoryAntigravitySettingsMigrationStore()
+        store.set(
+            Data(#"{"schemaVersion":2,"managedSession":{"idleTimeoutSeconds":271}}"#.utf8),
+            forKey: AntigravitySettingsMigrationKeys.connectionSettings)
+        store.set(3, forKey: AntigravitySettingsMigrationKeys.migrationVersion)
+        let migration = AntigravitySettingsMigrationCoordinator(store: store)
+        XCTAssertEqual(migration.migrate(), .migrated(pendingNotice: nil))
+        let connection = try connectionSettings(in: store)
+        XCTAssertEqual(connection.schemaVersion, 4)
+        XCTAssertEqual(connection.managedSession.idleTimeoutSeconds, 271)
+        XCTAssertEqual(connection.usageTarget, .unselected)
+        XCTAssertEqual(migration.migrate(), .alreadyCurrent)
+    }
+
     func testLegacyKeyInventoryIsExplicitAndComplete() {
         let expectedAntigravityKeys: Set<String> = [
             "antigravityUsageDataSource",
@@ -64,7 +136,7 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
         )
     }
 
-    func testAllLegacySourceKeysMigrateToAutomaticV2Settings() throws {
+    func testAllLegacySourceKeysMigrateToV3Settings() throws {
         let cases = [
             "auto",
             "local_ide",
@@ -95,7 +167,7 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
         }
     }
 
-    func testV1ConnectionMigratesToV2AndPreservesManagedTimeout()
+    func testV1ConnectionMigratesToV3AndPreservesManagedTimeout()
         throws
     {
         for sourcePolicy in [
@@ -138,7 +210,7 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
             )
             XCTAssertEqual(
                 connection.schemaVersion,
-                2,
+                4,
                 sourcePolicy
             )
             XCTAssertEqual(
@@ -174,7 +246,7 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
             AntigravityConnectionSettings.self,
             from: connectionData
         )
-        XCTAssertEqual(connection.schemaVersion, 2)
+        XCTAssertEqual(connection.schemaVersion, 4)
         XCTAssertNil(defaults.object(forKey: "antigravityUsageDataSource"))
         XCTAssertNil(defaults.object(forKey: "antigravity.showIcon"))
         XCTAssertNil(defaults.object(forKey: "antigravity.percentageDisplay"))
@@ -254,7 +326,7 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
         )
 
         let connection = try connectionSettings(in: store)
-        XCTAssertEqual(connection.schemaVersion, 2)
+        XCTAssertEqual(connection.schemaVersion, 4)
         XCTAssertEqual(connection.managedSession.idleTimeoutSeconds, 180)
 
         let display = try displaySettings(in: store)

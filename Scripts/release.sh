@@ -981,11 +981,12 @@ echo "실제 AGY 자동 조회 smoke 실행"
 # The port-only launcher diagnostic terminates AGY before authentication settles.
 # Release gates must finish a real authenticated quota fetch before each teardown.
 for LIVE_AGY_TEST in \
-    testProductionManagedPathReturnsRealGroupedQuota \
-    testRuntimeEnvironmentRecoversAfterOfficialBinaryReplacement; do
+    AntigravityLiveAGYIntegrationTests/testProductionManagedPathReturnsRealGroupedQuota \
+    AntigravityLiveAGYIntegrationTests/testRuntimeEnvironmentRecoversAfterOfficialBinaryReplacement \
+    AntigravityLiveLocalSelectionTests/testOfficialLocalAccountSelectionPersistsWithoutOAuthAndReusesSession; do
     CLAUDEUSAGE_RUN_LIVE_AGY_TESTS=1 xcrun xctest \
         -XCTest \
-        "AntigravityLiveAGYIntegrationTests/$LIVE_AGY_TEST" \
+        "$LIVE_AGY_TEST" \
         "$LIVE_AGY_TEST_BUNDLE"
 done
 

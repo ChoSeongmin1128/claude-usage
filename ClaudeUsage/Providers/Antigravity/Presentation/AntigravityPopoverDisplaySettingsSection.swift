@@ -267,7 +267,7 @@ struct AntigravityPopoverDisplaySettingsSection: View {
         case .setupRequired(.managedRecoveryBlocked):
             "이전 AGY 실행 정리가 끝나야 자동 조회가 가능합니다."
         case .setupRequired:
-            "Google 계정 또는 로컬 세션을 먼저 연결해 주세요."
+            "Antigravity 앱 또는 AGY CLI에서 로그인한 뒤 로컬 계정을 선택해 주세요."
         case .accountMismatch:
             "계정이 일치하지 않아 사용량을 표시하지 않았습니다."
         case .limited:

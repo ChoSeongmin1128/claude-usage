@@ -54,7 +54,7 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
             return summary(
                 showsProgress: true,
                 title: "사용량 확인 중",
-                message: "선택한 계정에 맞는 조회 경로를 자동으로 다시 확인하고 있습니다."
+                message: "선택한 제품의 로그인 계정과 사용량을 확인하고 있습니다."
             )
         case .accountMismatch:
             return summary(
@@ -62,7 +62,7 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
                     "person.crop.circle.badge.exclamationmark",
                 tone: .critical,
                 title: "계정이 일치하지 않음",
-                message: "선택한 계정과 다른 세션의 숫자는 표시하지 않았습니다. 조회 계정을 다시 선택해 주세요.",
+                message: "조회 중 계정이 달라져 이전 수치를 숨겼습니다. 선택한 제품의 로그인 상태를 확인해 주세요.",
                 actionTitle: "설정 열기",
                 action: .openSettings,
                 actionIsProminent: true
@@ -125,7 +125,7 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
     ) -> String {
         switch reason {
         case .noSelectedOAuthAccount,
-             .noAmbientLocalSession:
+            .noAmbientLocalSession, .usageTargetSelection, .ambiguousLocalSessions:
             "person.badge.key"
         case .managedRecoveryBlocked:
             "exclamationmark.arrow.circlepath"
@@ -139,6 +139,10 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
         case .noSelectedOAuthAccount,
              .noAmbientLocalSession:
             "조회 계정 또는 로그인 필요"
+        case .usageTargetSelection:
+            "조회 대상 선택 필요"
+        case .ambiguousLocalSessions:
+            "실행 중인 연결 확인 필요"
         case .managedRecoveryBlocked:
             "이전 AGY 실행 정리 필요"
         }
@@ -149,9 +153,13 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
     ) -> String {
         switch reason {
         case .noSelectedOAuthAccount:
-            "Google 계정을 연결한 뒤 사용할 계정을 선택해 주세요."
+            "설정에서 조회 대상을 선택하고 해당 제품에서 로그인해 주세요."
         case .noAmbientLocalSession:
             "Antigravity 앱 또는 AGY CLI에 로그인한 뒤 로컬 세션 조회를 다시 시도해 주세요."
+        case .usageTargetSelection:
+            "설정에서 AGY CLI와 Antigravity 독립 앱 중 조회할 제품을 선택해 주세요."
+        case .ambiguousLocalSessions:
+            "선택한 제품의 실행마다 계정이 다르거나 확인되지 않았습니다. 이전 실행을 종료하고 새로고침해 주세요."
         case .managedRecoveryBlocked:
             "이전 AGY 실행 기록을 정리하지 못해 자동 실행이 중지됐습니다. Antigravity 앱이나 AGY CLI를 실행하면 조회는 가능합니다. 정리를 다시 시도하려면 ClaudeUsage를 재시동해 주세요."
         }
@@ -161,6 +169,8 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
         _ failure: AntigravityFailure
     ) -> ProviderRuntimeSummary {
         switch failure {
+        case .accountChanged:
+            settingsFailure(title: "로그인 계정 변경 중", message: "조회 도중 계정이 바뀌어 이전 수치를 숨겼습니다. 새로고침해 현재 계정을 확인해 주세요.")
         case .localAuthentication(_, let problem):
             switch problem {
             case .required:
@@ -183,7 +193,8 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
             }
         case .authenticationRequired(let source), .interactionRequired(let source):
             if source == .googleOAuth {
-                settingsFailure(title: "Google 계정 다시 연결 필요", message: "현재 계정의 인증을 갱신할 수 없습니다. 설정에서 Google 계정을 다시 연결해 주세요.")
+                settingsFailure(
+                    title: "이전 조회 경로는 지원하지 않습니다", message: "설정에서 Antigravity 앱 또는 AGY CLI의 조회 대상과 해당 제품의 로그인을 확인해 주세요.")
             } else {
                 settingsFailure(title: "로컬 Antigravity 로그인 필요", message: "조회에 사용한 Antigravity 앱 또는 AGY CLI에서 로그인을 완료한 뒤 다시 시도해 주세요.")
             }
@@ -202,7 +213,7 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
         case .noEligibleSource, .sourceUnavailable:
             settingsFailure(
                 title: "사용 가능한 조회 경로 없음",
-                message: "AGY CLI 또는 Antigravity 앱 로그인 상태를 확인하거나 설정에서 Google 계정을 선택해 주세요."
+                message: "선택한 조회 대상의 실행 및 로그인 상태를 확인해 주세요."
             )
         case .repositoryUnavailable,
              .repositoryRevisionChanged,

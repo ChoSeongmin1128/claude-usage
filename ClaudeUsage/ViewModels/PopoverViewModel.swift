@@ -673,7 +673,7 @@ final class PopoverViewModel: ObservableObject {
              .authenticationRequired,
              .interactionRequired:
             return true
-        case .cancelled,
+        case .cancelled, .accountChanged,
              .appShuttingDown,
              .invalidRefreshContext,
              .generationExhausted,

@@ -1,13 +1,5 @@
 import Foundation
 
-nonisolated enum AntigravityRefreshAccountTarget:
-    Sendable,
-    Equatable
-{
-    case selectedOAuth(AntigravityAccountID)
-    case ambientLocal
-}
-
 nonisolated enum AntigravityRefreshTrigger:
     String,
     Sendable,
@@ -35,23 +27,20 @@ nonisolated enum AntigravityRefreshTrigger:
 /// The complete validated connection snapshot travels with the request so
 /// source selection, managed-session policy, and single-flight identity cannot
 /// observe settings from different revisions. Account target remains an
-/// explicit boundary: `.ambientLocal` never means "whichever OAuth account
-/// happens to be active" and `.selectedOAuth` never authorizes a local identity
-/// guess.
+/// explicit product boundary. The authenticated identity is observed on each
+/// refresh instead of being persisted as a user-selectable login.
 nonisolated struct AntigravityRefreshRequest:
     Sendable,
     Equatable
 {
     let trigger: AntigravityRefreshTrigger
-    let accountTarget: AntigravityRefreshAccountTarget
+    var target: AntigravityUsageTarget { connection.usageTarget }
     let repositoryRevision: UInt64
     let connection: AntigravityConnectionSettings
     let managedLaunch: AntigravityManagedLaunchState
     var forcesDiscovery: Bool { trigger != .scheduled }
-
     init(
         trigger: AntigravityRefreshTrigger,
-        accountTarget: AntigravityRefreshAccountTarget,
         repositoryRevision: UInt64,
         connection: AntigravityConnectionSettings,
         managedLaunch: AntigravityManagedLaunchState
@@ -61,7 +50,6 @@ nonisolated struct AntigravityRefreshRequest:
             "Refresh requires validated connection settings"
         )
         self.trigger = trigger
-        self.accountTarget = accountTarget
         self.repositoryRevision = repositoryRevision
         self.connection = connection
         self.managedLaunch = managedLaunch
@@ -106,6 +94,8 @@ nonisolated enum AntigravitySetupReason:
 {
     case noSelectedOAuthAccount
     case noAmbientLocalSession
+    case usageTargetSelection
+    case ambiguousLocalSessions
     /// No local session is reachable and the app's own managed launch is
     /// disabled because startup recovery could not reconcile a persisted
     /// managed-process record. Logging in does not resolve this state.
@@ -155,6 +145,7 @@ nonisolated enum AntigravityFailure:
     case transportUnavailable(AntigravityUsageSourceID)
     case sourceContractViolation(AntigravityUsageSourceID)
     case numericQuotaUnavailable
+    case accountChanged
     case runtimeUnavailable(AntigravityRuntimeFailure)
 }
 
@@ -183,6 +174,7 @@ extension AntigravityFailure {
         case .credentialCommitAmbiguous: "credentialCommitAmbiguous"
         case .noEligibleSource: "noEligibleSource"
         case .numericQuotaUnavailable: "numericQuotaUnavailable"
+        case .accountChanged: "accountChanged"
         }
     }
 }
@@ -225,4 +217,5 @@ nonisolated protocol AntigravityRefreshCoordinating: Sendable {
     ) async -> AntigravityPresentationState
 
     func presentationState() async -> AntigravityPresentationState
+
 }

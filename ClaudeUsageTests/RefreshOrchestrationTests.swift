@@ -425,7 +425,7 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(state.phase, .authRequired)
         XCTAssertEqual(
             state.summary,
-            "Google 계정 다시 연결 필요"
+            "이전 조회 경로는 지원하지 않습니다"
         )
     }
 

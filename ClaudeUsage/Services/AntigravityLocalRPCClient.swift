@@ -1,5 +1,11 @@
 import Foundation
 
+/// Identity observed on the authenticated endpoint, never a stored login guess.
+nonisolated enum AntigravityLocalRPCAccountBoundaryError: Error, Sendable, Equatable {
+    case changedDuringFetch
+    case quotaFailed(ProviderAccountIdentity, AntigravityLocalRPCError)
+}
+
 nonisolated struct AntigravityLocalIdentityIssue:
     Sendable,
     Equatable
@@ -69,11 +75,54 @@ nonisolated struct AntigravityLocalRPCClient:
         from endpoint: AntigravityVerifiedRuntimeEndpoint,
         deadline: AntigravityRPCDeadline = AntigravityRPCDeadline()
     ) async throws -> AntigravityLocalQuotaFetchResult {
+        do {
+            return try await fetchWithinAccountBoundary(from: endpoint, deadline: deadline)
+        } catch AntigravityLocalRPCAccountBoundaryError.changedDuringFetch {
+            // One bounded retry obtains a complete snapshot of the new login.
+            // Repeated changes fail rather than attaching old quota to a new account.
+            try deadline.check(.request)
+            return try await fetchWithinAccountBoundary(from: endpoint, deadline: deadline)
+        }
+    }
+
+    private func fetchWithinAccountBoundary(
+        from endpoint: AntigravityVerifiedRuntimeEndpoint,
+        deadline: AntigravityRPCDeadline
+    ) async throws -> AntigravityLocalQuotaFetchResult {
         let connection = try connectionFactory.makeConnection(
             endpoint: endpoint
         )
         defer { connection.invalidate() }
+        let initial = try await identity(connection: connection, parentDeadline: deadline)
+        guard let first = initial.identity?.identity,
+            AntigravityAccountIdentityMatcher.match(expected: first, received: first).isMatch
+        else { throw initial.issue?.error ?? AntigravityLocalRPCError.authenticationRejected }
 
+        do {
+            let result = try await fetchPayload(connection: connection, endpoint: endpoint, deadline: deadline)
+            let finalIdentity: ProviderAccountIdentity?
+            switch result {
+            case .grouped(let snapshot, let issue):
+                if let issue { throw issue.error }
+                finalIdentity = snapshot.identity
+            case .limited(let capability): finalIdentity = capability.evidence.identity
+            }
+            guard let finalIdentity else { throw AntigravityLocalRPCError.authenticationRejected }
+            guard AntigravityAccountIdentityMatcher.match(expected: first, received: finalIdentity).isMatch else {
+                throw AntigravityLocalRPCAccountBoundaryError.changedDuringFetch
+            }
+            return result
+        } catch let error as AntigravityLocalRPCError {
+            guard !Self.isFatalIdentityError(error), error != .authenticationRejected else { throw error }
+            throw AntigravityLocalRPCAccountBoundaryError.quotaFailed(first, error)
+        }
+    }
+
+    private func fetchPayload(
+        connection: any AntigravityLocalRPCConnection,
+        endpoint: AntigravityVerifiedRuntimeEndpoint,
+        deadline: AntigravityRPCDeadline
+    ) async throws -> AntigravityLocalQuotaFetchResult {
         do {
             let summary = try await groupedQuota(
                 connection: connection,
@@ -386,6 +435,7 @@ nonisolated struct AntigravityLocalRPCClient:
     ) -> Bool {
         switch error {
         case .cancelled,
+            .authenticationRejected,
              .csrf,
              .invalidEndpoint,
              .endpointOwnershipChanged,
@@ -397,7 +447,6 @@ nonisolated struct AntigravityLocalRPCClient:
              .transportFailure,
              .invalidHTTPResponse,
              .unsupportedHTTPStatus,
-             .authenticationRejected,
              .rateLimited,
              .serverRejected,
              .malformedPayload,

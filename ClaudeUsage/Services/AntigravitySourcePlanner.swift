@@ -5,18 +5,17 @@ import Foundation
 /// priority.
 nonisolated enum AntigravitySourcePlanner {
     static func plannedSources(
-        accountTarget: AntigravityRefreshAccountTarget,
+        target: AntigravityUsageTarget,
         managedLaunch: AntigravityManagedLaunchState
     ) -> [AntigravityUsageSourceID] {
-        var sources: [AntigravityUsageSourceID] = [
-            .localApp,
-            .borrowedCLI,
-        ]
+        switch target {
+        case .unselected: return []
+        case .app: return [.localApp]
+        case .cli: break
+        }
+        var sources: [AntigravityUsageSourceID] = [.borrowedCLI]
         if managedLaunch.allowsLaunch {
             sources.append(.managedCLI)
-        }
-        if case .selectedOAuth = accountTarget {
-            sources.append(.googleOAuth)
         }
         return sources
     }
@@ -25,7 +24,7 @@ nonisolated enum AntigravitySourcePlanner {
         for request: AntigravityRefreshRequest
     ) -> [AntigravityUsageSourceID] {
         plannedSources(
-            accountTarget: request.accountTarget,
+            target: request.target,
             managedLaunch: request.managedLaunch
         )
     }

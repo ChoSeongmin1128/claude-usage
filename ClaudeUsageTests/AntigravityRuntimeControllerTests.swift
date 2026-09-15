@@ -5,6 +5,78 @@ import XCTest
 final class AntigravityRuntimeControllerTests:
     XCTestCase
 {
+    func testScheduledRefreshCannotRestoreOldSelectionWhileAccountMutationIsPending() async throws {
+        let gate = ControllerSuspensionGate()
+        let fixture = makeFixture(invalidationGate: gate)
+        _ = await fixture.controller.bootstrap(performInitialRefresh: false)
+        let selection = Task { try await fixture.controller.selectTarget(.app) }
+        await gate.waitUntilEntered()
+        let scheduled = await fixture.controller.refresh(trigger: .scheduled)
+        await gate.resume()
+        let result = await selection.result
+        let requests = await fixture.refresh.requests()
+        XCTAssertEqual(scheduled.presentationState, .refreshing(previous: nil))
+        XCTAssertEqual(requests.count, 1)
+        XCTAssertEqual(try result.get().settings?.connection.usageTarget, .app)
+    }
+
+    func testScheduledRefreshOfNewAccountDoesNotReportSuccessfulSelectionAsSuperseded() async throws {
+        let gate = ControllerRefreshGate()
+        let fixture = makeFixture(refreshGate: gate)
+        _ = await fixture.controller.bootstrap(performInitialRefresh: false)
+        let selection = Task { try await fixture.controller.selectTarget(.app) }
+        await gate.waitUntilRequestCount(1)
+        let scheduled = Task { await fixture.controller.refresh(trigger: .scheduled) }
+        await gate.waitUntilRequestCount(2)
+        await gate.resolveRequest(at: 0, with: .ready(Self.oldQuotaSnapshot))
+        // Both requests belong to the same committed account boundary.
+        // Finish the automatic request before propagating a selection error so the test never leaves a waiter behind.
+        let selectionResult = await selection.result
+        await gate.resolveRequest(at: 1, with: .ready(Self.newQuotaSnapshot))
+        let final = await scheduled.value
+        let selected = try selectionResult.get()
+        XCTAssertEqual(selected.settings?.connection.usageTarget, .app)
+        XCTAssertEqual(final.settings?.connection.usageTarget, .app)
+        XCTAssertEqual(final.presentationState, .ready(Self.newQuotaSnapshot))
+    }
+
+    func testAccountMismatchClearsThePreviousSuccessfulTimestamp() async {
+        let fixture = makeFixture()
+        let first = await fixture.controller.bootstrap(performInitialRefresh: true)
+        XCTAssertNotNil(first.lastSuccessfulAt)
+        await fixture.refresh.setResult(
+            .accountMismatch(
+                expected: .init(email: "a@example.com"), received: .init(email: "b@example.com")))
+        let mismatched = await fixture.controller.refresh(trigger: .scheduled)
+        XCTAssertNil(mismatched.lastSuccessfulAt)
+    }
+
+    func testLegacyOAuthMetadataDoesNotControlTheSelectedProduct() async throws {
+        let fixture = makeFixture()
+        _ = await fixture.controller.bootstrap(performInitialRefresh: false)
+        let revision = try await fixture.repository.state().revision
+        _ = try await fixture.repository.setActiveAccountID(Self.secondAccountID, expectedRevision: revision)
+        let result = await fixture.controller.refresh(trigger: .scheduled)
+        let requests = await fixture.refresh.requests()
+        let writes = await fixture.settings.connectionSaveCount()
+        XCTAssertEqual(result.settings?.connection.usageTarget, .cli)
+        XCTAssertEqual(requests.last?.target, .cli)
+        XCTAssertEqual(writes, 0)
+    }
+
+    func testPersistedLocalSelectionDoesNotRequireAnOAuthAccount() async {
+        var connection = AntigravityConnectionSettings.default
+        connection.usageTarget = .app
+        let fixture = makeFixture(activeAccountID: nil, connection: connection)
+        let result = await fixture.controller.bootstrap(performInitialRefresh: true)
+        let requests = await fixture.refresh.requests()
+        let writes = await fixture.settings.connectionSaveCount()
+        XCTAssertNil(result.activeAccountID)
+        XCTAssertEqual(result.settings?.connection.usageTarget, .app)
+        XCTAssertEqual(requests.last?.target, .app)
+        XCTAssertEqual(writes, 0)
+    }
+
     func testBootstrapRecoversManagedRuntimeBeforeInitialRefresh()
         async throws
     {
@@ -44,7 +116,7 @@ final class AntigravityRuntimeControllerTests:
         )
 
         let snapshot = try await fixture.controller
-            .selectAccount(Self.secondAccountID)
+            .selectTarget(.app)
 
         let requests = await fixture.refresh.requests()
         let invalidationCount =
@@ -61,16 +133,15 @@ final class AntigravityRuntimeControllerTests:
             .accountBoundaryChanged
         )
         XCTAssertEqual(
-            requests.first?.accountTarget,
-            .selectedOAuth(Self.secondAccountID)
+            requests.first?.target,
+            .app
         )
         XCTAssertEqual(
             selectionCount,
-            1
+            0
         )
         XCTAssertEqual(
-            snapshot.activeAccountID,
-            Self.secondAccountID
+            snapshot.settings?.connection.usageTarget, .app
         )
     }
 
@@ -94,15 +165,14 @@ final class AntigravityRuntimeControllerTests:
 
         let accountSwitch = Task {
             try await fixture.controller
-                .selectAccount(Self.secondAccountID)
+                .selectTarget(.app)
         }
         await refreshGate.waitUntilRequestCount(2)
 
         let invalidated =
             await fixture.controller.snapshot()
         XCTAssertEqual(
-            invalidated.activeAccountID,
-            Self.secondAccountID
+            invalidated.settings?.connection.usageTarget, .app
         )
         XCTAssertEqual(
             invalidated.presentationState,
@@ -115,8 +185,7 @@ final class AntigravityRuntimeControllerTests:
         )
         let oldResult = await oldRefresh.value
         XCTAssertEqual(
-            oldResult.activeAccountID,
-            Self.secondAccountID
+            oldResult.settings?.connection.usageTarget, .app
         )
         XCTAssertEqual(
             oldResult.presentationState,
@@ -129,8 +198,7 @@ final class AntigravityRuntimeControllerTests:
         )
         let switched = try await accountSwitch.value
         XCTAssertEqual(
-            switched.activeAccountID,
-            Self.secondAccountID
+            switched.settings?.connection.usageTarget, .app
         )
         XCTAssertEqual(
             switched.presentationState,
@@ -151,13 +219,13 @@ final class AntigravityRuntimeControllerTests:
 
         let firstSwitch = Task {
             try await fixture.controller
-                .selectAccount(Self.secondAccountID)
+                .selectTarget(.app)
         }
         await refreshGate.waitUntilRequestCount(1)
 
         let newerSwitch = Task {
             try await fixture.controller
-                .selectAccount(Self.firstAccountID)
+                .selectTarget(.cli)
         }
         await refreshGate.waitUntilRequestCount(2)
 
@@ -184,8 +252,7 @@ final class AntigravityRuntimeControllerTests:
         )
         let final = try await newerSwitch.value
         XCTAssertEqual(
-            final.activeAccountID,
-            Self.firstAccountID
+            final.settings?.connection.usageTarget, .cli
         )
         XCTAssertEqual(
             final.presentationState,
@@ -193,7 +260,7 @@ final class AntigravityRuntimeControllerTests:
         )
     }
 
-    func testInvalidAccountBoundaryFailureRestoresPreviousPresentation()
+    func testRetiredOAuthSelectionCannotReplacePreviousPresentation()
         async throws
     {
         let fixture = makeFixture()
@@ -201,14 +268,10 @@ final class AntigravityRuntimeControllerTests:
             await fixture.controller.bootstrap(
                 performInitialRefresh: false
             )
-        let missing = AntigravityAccountID(
-            rawValue:
-                "00000000-0000-0000-0000-000000000099"
-        )
 
         do {
             _ = try await fixture.controller
-                .selectAccount(missing)
+                .selectTarget(.unselected)
             XCTFail("Expected account-not-found failure")
         } catch {
             XCTAssertEqual(
@@ -225,8 +288,8 @@ final class AntigravityRuntimeControllerTests:
             previous.presentationState
         )
         XCTAssertEqual(
-            recovered.activeAccountID,
-            previous.activeAccountID
+            recovered.settings?.connection.usageTarget,
+            previous.settings?.connection.usageTarget
         )
         XCTAssertNotEqual(
             recovered.presentationState,
@@ -250,25 +313,24 @@ final class AntigravityRuntimeControllerTests:
         )
     }
 
-    func testRepositoryMutationFailurePublishesTerminalFailureInsteadOfSpinner()
+    func testSelectionPersistenceFailurePublishesTerminalFailureInsteadOfSpinner()
         async
     {
-        let fixture = makeFixture(
-            selectionFails: true
-        )
+        let fixture = makeFixture()
         _ = await fixture.controller.bootstrap(
             performInitialRefresh: false
         )
 
+        await fixture.settings.failConnectionWrites()
         do {
             _ = try await fixture.controller
-                .selectAccount(Self.secondAccountID)
-            XCTFail("Expected repository failure")
+                .selectTarget(.app)
+            XCTFail("Expected selection persistence failure")
         } catch {
             XCTAssertEqual(
                 error as?
-                    AntigravityAccountRepositoryError,
-                .metadataPersistenceVerificationFailed
+                AntigravitySettingsStoreError,
+                .persistenceFailed(.connection, rollbackCompleted: true)
             )
         }
 
@@ -276,8 +338,7 @@ final class AntigravityRuntimeControllerTests:
             await fixture.controller.snapshot()
         XCTAssertEqual(recovered.readiness, .ready)
         XCTAssertEqual(
-            recovered.activeAccountID,
-            Self.firstAccountID
+            recovered.settings?.connection.usageTarget, .cli
         )
         XCTAssertEqual(
             recovered.presentationState,
@@ -295,7 +356,7 @@ final class AntigravityRuntimeControllerTests:
             performInitialRefresh: false
         )
         let snapshot = try await fixture.controller
-            .selectAccount(nil)
+            .selectTarget(.cli)
 
         let requests = await fixture.refresh.requests()
         let invalidationCount =
@@ -310,8 +371,8 @@ final class AntigravityRuntimeControllerTests:
             .accountBoundaryChanged
         )
         XCTAssertEqual(
-            requests.first?.accountTarget,
-            .ambientLocal
+            requests.first?.target,
+            .cli
         )
         XCTAssertNil(snapshot.activeAccountID)
     }
@@ -336,7 +397,7 @@ final class AntigravityRuntimeControllerTests:
 
         let sourceSwitch = Task {
             try await fixture.controller
-                .selectAccount(nil)
+                .selectTarget(.cli)
         }
         await refreshGate.waitUntilRequestCount(2)
 
@@ -514,7 +575,7 @@ final class AntigravityRuntimeControllerTests:
 
         let accountSwitch = Task {
             try await fixture.controller
-                .selectAccount(Self.secondAccountID)
+                .selectTarget(.app)
         }
         await waitUntilRefreshing(fixture.controller)
         await displaySaveGate.resume()
@@ -527,8 +588,7 @@ final class AntigravityRuntimeControllerTests:
 
         let switched = try await accountSwitch.value
         XCTAssertEqual(
-            switched.activeAccountID,
-            Self.secondAccountID
+            switched.settings?.connection.usageTarget, .app
         )
     }
 
@@ -551,7 +611,7 @@ final class AntigravityRuntimeControllerTests:
 
         let accountSwitch = Task {
             try await fixture.controller
-                .selectAccount(Self.secondAccountID)
+                .selectTarget(.app)
         }
         await waitUntilRefreshing(fixture.controller)
         await noticeGate.resume()
@@ -565,8 +625,7 @@ final class AntigravityRuntimeControllerTests:
 
         let switched = try await accountSwitch.value
         XCTAssertEqual(
-            switched.activeAccountID,
-            Self.secondAccountID
+            switched.settings?.connection.usageTarget, .app
         )
     }
 
@@ -627,7 +686,7 @@ final class AntigravityRuntimeControllerTests:
 
         do {
             _ = try await fixture.controller
-                .selectAccount(Self.secondAccountID)
+                .selectTarget(.app)
             XCTFail("Expected shutdown rejection")
         } catch {
             XCTAssertEqual(
@@ -732,8 +791,8 @@ final class AntigravityRuntimeControllerTests:
         let requests = await fixture.refresh.requests()
 
         XCTAssertEqual(
-            requests.first?.accountTarget,
-            .ambientLocal
+            requests.first?.target,
+            .cli
         )
         XCTAssertEqual(
             snapshot.presentationState,
@@ -758,6 +817,8 @@ final class AntigravityRuntimeControllerTests:
             AntigravityPresentationState? = nil,
         refreshGate:
             ControllerRefreshGate? = nil,
+        invalidationGate: ControllerSuspensionGate? = nil,
+        migrationStatus: AntigravityMigrationStatus? = nil,
         displaySaveGate:
             ControllerSuspensionGate? = nil,
         noticeConsumptionGate:
@@ -787,7 +848,7 @@ final class AntigravityRuntimeControllerTests:
             )
         let migration =
             ControllerMigrationCoordinatorDouble(
-                status: Self.completeMigrationStatus,
+                status: migrationStatus ?? Self.completeMigrationStatus,
                 events: events
             )
         let refresh =
@@ -798,7 +859,8 @@ final class AntigravityRuntimeControllerTests:
                         Self.emptyQuotaSnapshot
                     ),
                 events: events,
-                refreshGate: refreshGate
+                refreshGate: refreshGate,
+                invalidationGate: invalidationGate
             )
         let managed =
             ControllerManagedSessionDouble(
@@ -851,6 +913,9 @@ final class AntigravityRuntimeControllerTests:
             "Timed out waiting for account boundary invalidation"
         )
     }
+
+    private static let firstIdentity = ProviderAccountIdentity(email: "first@example.com")
+    private static let secondIdentity = ProviderAccountIdentity(email: "second@example.com")
 
     private static let firstAccountID =
         AntigravityAccountID(
@@ -1100,6 +1165,9 @@ private actor ControllerSettingsStoreDouble:
     private let noticeConsumptionGate:
         ControllerSuspensionGate?
     private var connectionSaves = 0
+    private var connectionWritesFail = false
+
+    func failConnectionWrites() { connectionWritesFail = true }
     private var displaySaves = 0
 
     init(
@@ -1129,6 +1197,9 @@ private actor ControllerSettingsStoreDouble:
     ) async throws
         -> AntigravityConnectionSettings
     {
+        if connectionWritesFail {
+            throw AntigravitySettingsStoreError.persistenceFailed(.connection, rollbackCompleted: true)
+        }
         connectionSaves += 1
         current.connection = connection
         return connection
@@ -1213,9 +1284,11 @@ private actor
     ControllerRefreshCoordinatorDouble:
     AntigravityRefreshCoordinating
 {
-    private let result: AntigravityPresentationState
+    private var result: AntigravityPresentationState
+    func setResult(_ value: AntigravityPresentationState) { result = value }
     private let events: ControllerEventRecorder
     private let refreshGate: ControllerRefreshGate?
+    private let invalidationGate: ControllerSuspensionGate?
     private var recordedRequests:
         [AntigravityRefreshRequest] = []
     private var invalidations = 0
@@ -1226,12 +1299,14 @@ private actor
     init(
         result: AntigravityPresentationState,
         events: ControllerEventRecorder,
-        refreshGate: ControllerRefreshGate? = nil
+        refreshGate: ControllerRefreshGate? = nil,
+        invalidationGate: ControllerSuspensionGate? = nil
     ) {
         self.result = result
         current = result
         self.events = events
         self.refreshGate = refreshGate
+        self.invalidationGate = invalidationGate
     }
 
     func quiesceForShutdown() async {
@@ -1244,6 +1319,7 @@ private actor
         invalidations += 1
         current = .refreshing(previous: nil)
         await events.record("refresh.invalidate")
+        await invalidationGate?.suspend()
     }
 
     func refresh(

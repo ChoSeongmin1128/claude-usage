@@ -6,17 +6,6 @@ nonisolated protocol AntigravityRefreshAccountRepository:
     func state() async throws
         -> AntigravityAccountRepositoryState
 
-    func credentialSnapshot(
-        for accountID: AntigravityAccountID
-    ) async throws -> AntigravityCredentialSnapshot?
-
-    func replaceCredential(
-        for accountID: AntigravityAccountID,
-        with credentials: AntigravityOAuthCredentials,
-        externalIdentity:
-            AntigravityExternalAccountIdentity?,
-        expectedRevision: UInt64
-    ) async throws -> AntigravityAccountRepositoryState
 }
 
 extension AntigravityAccountRepository:
@@ -27,7 +16,6 @@ private nonisolated struct AntigravityRefreshFlightKey:
     Sendable,
     Equatable
 {
-    let accountTarget: AntigravityRefreshAccountTarget
     let repositoryRevision: UInt64
     let connection: AntigravityConnectionSettings
     let managedLaunch: AntigravityManagedLaunchState
@@ -36,22 +24,12 @@ private nonisolated struct AntigravityRefreshFlightKey:
 
     init(_ request: AntigravityRefreshRequest) {
         forcesDiscovery = request.forcesDiscovery
-        accountTarget = request.accountTarget
         repositoryRevision = request.repositoryRevision
         connection = request.connection
         managedLaunch = request.managedLaunch
         clearsPreviousSnapshot =
             request.trigger.clearsPreviousSnapshot
     }
-}
-
-private nonisolated struct AntigravityRefreshCredentialMutation:
-    Sendable
-{
-    let accountID: AntigravityAccountID
-    let expectedRevision: UInt64
-    let original: AntigravityOAuthCredentials
-    let refreshed: AntigravityOAuthCredentials
 }
 
 private nonisolated enum AntigravityRefreshOutput:
@@ -72,41 +50,23 @@ private nonisolated struct AntigravityRefreshExecutionResult:
     Sendable
 {
     let output: AntigravityRefreshOutput
-    let credentialMutation:
-        AntigravityRefreshCredentialMutation?
     let repositoryWasValidated: Bool
+    var observedIdentity: ProviderAccountIdentity? = nil
 
     static func failure(
         _ failure: AntigravityFailure,
-        repositoryWasValidated: Bool = false
+        repositoryWasValidated: Bool = false,
+        observedIdentity: ProviderAccountIdentity? = nil
     ) -> Self {
         Self(
             output: .failure(failure),
-            credentialMutation: nil,
             repositoryWasValidated:
-                repositoryWasValidated
+                repositoryWasValidated,
+            observedIdentity: observedIdentity
         )
     }
 }
 
-private nonisolated enum AntigravityCredentialCommitResolution:
-    Sendable
-{
-    case committed(revision: UInt64)
-    case failed(AntigravityFailure)
-}
-
-private nonisolated enum AntigravityCredentialCommitWaitResult:
-    Sendable,
-    Equatable
-{
-    case notNeeded
-    case completed
-    case cancelled
-}
-
-/// Owns refresh transaction boundaries, single-flight sharing, credential
-/// settlement, and shutdown quiescence for Antigravity usage.
 actor AntigravityRefreshCoordinator:
     AntigravityRefreshCoordinating
 {
@@ -117,7 +77,6 @@ actor AntigravityRefreshCoordinator:
         let key: AntigravityRefreshFlightKey
         let request: AntigravityRefreshRequest
         var driver: Task<Void, Never>?
-        var isFinishing: Bool
         var waiters:
             [UUID:
                 AntigravityRefreshOneShotWaiter<
@@ -138,18 +97,6 @@ actor AntigravityRefreshCoordinator:
     private var state: AntigravityPresentationState = .disabled
     private var lastGoodSnapshot: AntigravityQuotaSnapshot?
     private var inFlight: InFlight?
-    private var lastCompletedFlight:
-        (
-            key: AntigravityRefreshFlightKey,
-            state: AntigravityPresentationState
-        )?
-    private var credentialCommitInProgress = false
-    private var credentialCommitWaiters:
-        [UUID:
-            AntigravityRefreshOneShotWaiter<
-                AntigravityCredentialCommitWaitResult
-            >] = [:]
-
     init(
         repository:
             any AntigravityRefreshAccountRepository,
@@ -188,39 +135,27 @@ actor AntigravityRefreshCoordinator:
         inFlight?.waiters.count ?? 0
     }
 
-    func credentialCommitWaiterCountForTesting() -> Int {
-        credentialCommitWaiters.count
-    }
-
     func quiesceForShutdown() async {
         if !isShutDown {
             isShutDown = true
-            detachCurrentFlight(
-                cancelNonCommittingFinisher: true
-            )
+            detachCurrentFlight()
             lastGoodSnapshot = nil
-            lastCompletedFlight = nil
             _ = advanceGeneration()
             state = .failed(.appShuttingDown)
         }
-        _ = await waitForCredentialCommit()
     }
 
     func invalidateBoundary() async {
         guard !isShutDown else {
-            _ = await waitForCredentialCommit()
             return
         }
         detachCurrentFlight()
         lastGoodSnapshot = nil
-        lastCompletedFlight = nil
         guard advanceGeneration() else {
             state = .failed(.generationExhausted)
-            _ = await waitForCredentialCommit()
             return
         }
         state = .refreshing(previous: nil)
-        _ = await waitForCredentialCommit()
     }
 
     func refresh(
@@ -229,21 +164,7 @@ actor AntigravityRefreshCoordinator:
         guard !isShutDown else {
             return .failed(.appShuttingDown)
         }
-        let entryGeneration = generation
-        let commitWait = await waitForCredentialCommit()
-        guard commitWait
-                != .cancelled,
-              !Task.isCancelled
-        else {
-            return .failed(.cancelled)
-        }
-        guard !isShutDown else {
-            return .failed(.appShuttingDown)
-        }
-        guard generation == entryGeneration else {
-            return state
-        }
-
+        guard !Task.isCancelled else { return .failed(.cancelled) }
         let key = AntigravityRefreshFlightKey(request)
         let waiterID = UUID()
         let waiter =
@@ -259,16 +180,6 @@ actor AntigravityRefreshCoordinator:
                 waiterID: waiterID
             )
         }
-        if commitWait == .completed,
-           let completed = lastCompletedFlight,
-           completed.key == key
-        {
-            guard !Task.isCancelled else {
-                return .failed(.cancelled)
-            }
-            return completed.state
-        }
-
         detachCurrentFlight()
         guard advanceGeneration() else {
             lastGoodSnapshot = nil
@@ -293,7 +204,6 @@ actor AntigravityRefreshCoordinator:
             key: key,
             request: request,
             driver: nil,
-            isFinishing: false,
             waiters: [waiterID: waiter]
         )
         let driver = Task.detached(
@@ -357,14 +267,11 @@ actor AntigravityRefreshCoordinator:
         result: AntigravityRefreshExecutionResult
     ) async {
         guard generation == operationGeneration,
-              var operation = inFlight,
+            let operation = inFlight,
               operation.id == operationID
         else {
             return
         }
-        operation.isFinishing = true
-        inFlight = operation
-
         let finalState = await apply(
             result,
             operation: operation
@@ -375,10 +282,6 @@ actor AntigravityRefreshCoordinator:
             state = finalState
             // One event per accepted flight, never per coalesced waiter or RPC poll.
             OperationalLog.record(.antigravity(finalState), elapsed: operation.startedAt.duration(to: .now))
-            lastCompletedFlight = (
-                key: operation.key,
-                state: finalState
-            )
             let waiters = inFlight.map {
                 Array($0.waiters.values)
             } ?? []
@@ -398,46 +301,19 @@ actor AntigravityRefreshCoordinator:
         }
 
         var output = result.output
-        var finalExpectedRevision =
-            operation.request.repositoryRevision
-
-        if let mutation = result.credentialMutation,
-           mutation.refreshed != mutation.original
+        if let observed = result.observedIdentity, let previous = lastGoodSnapshot,
+            !AntigravityAccountIdentityMatcher.match(
+                expected: previous.identity ?? previous.provenance.accountIdentity ?? ProviderAccountIdentity(),
+                received: observed
+            ).isMatch
         {
-            credentialCommitInProgress = true
-            do {
-                _ = try await repository
-                    .replaceCredential(
-                        for: mutation.accountID,
-                        with: mutation.refreshed,
-                        externalIdentity: nil,
-                        expectedRevision:
-                            mutation.expectedRevision
-                    )
-            } catch {
-                // The repository may throw after metadata commit while
-                // cleaning the old immutable reference or journal. Reconcile
-                // from canonical state instead of misclassifying a committed
-                // refresh as unavailable.
-            }
-            switch await reconcileCredentialCommit(
-                mutation,
-                target: operation.request.accountTarget
-            ) {
-            case .committed(let revision):
-                finalExpectedRevision = revision
-            case .failed(let failure):
-                output = .failure(failure)
-            }
-            finishCredentialCommit()
-        } else if result.repositoryWasValidated {
+            lastGoodSnapshot = nil
+        }
+
+        if result.repositoryWasValidated {
             do {
                 let verified = try await repository.state()
-                guard Self.repositoryState(
-                    verified,
-                    matches: operation.request.accountTarget,
-                    revision: finalExpectedRevision
-                ) else {
+                guard verified.revision == operation.request.repositoryRevision else {
                     output = .failure(
                         .repositoryRevisionChanged
                     )
@@ -458,60 +334,6 @@ actor AntigravityRefreshCoordinator:
             for: output,
             operation: operation
         )
-    }
-
-    private func reconcileCredentialCommit(
-        _ mutation: AntigravityRefreshCredentialMutation,
-        target: AntigravityRefreshAccountTarget
-    ) async -> AntigravityCredentialCommitResolution {
-        do {
-            let current = try await repository.state()
-            let snapshot = try await repository
-                .credentialSnapshot(for: mutation.accountID)
-            let committedRevision =
-                mutation.expectedRevision < UInt64.max
-                    ? mutation.expectedRevision + 1
-                    : nil
-
-            if let committedRevision {
-                if current.revision == committedRevision,
-                   Self.repositoryState(
-                       current,
-                       matches: target,
-                       revision: committedRevision
-                   ),
-                   snapshot?.repositoryRevision
-                        == committedRevision,
-                   snapshot?.credentials == mutation.refreshed
-                {
-                    return .committed(
-                        revision: committedRevision
-                    )
-                }
-            }
-
-            if current.revision == mutation.expectedRevision,
-               Self.repositoryState(
-                   current,
-                   matches: target,
-                   revision: mutation.expectedRevision
-               ),
-               snapshot?.repositoryRevision
-                    == mutation.expectedRevision,
-               snapshot?.credentials == mutation.original
-            {
-                return .failed(.credentialCommitFailed)
-            }
-
-            if current.revision != mutation.expectedRevision,
-               current.revision != committedRevision
-            {
-                return .failed(.repositoryRevisionChanged)
-            }
-            return .failed(.credentialCommitAmbiguous)
-        } catch {
-            return .failed(.credentialCommitAmbiguous)
-        }
     }
 
     private func presentation(
@@ -537,9 +359,11 @@ actor AntigravityRefreshCoordinator:
             )
 
         case .limited(let capability):
+            lastGoodSnapshot = nil
             return .limited(capability)
 
         case .identityOnly(let observation):
+            lastGoodSnapshot = nil
             return .identityOnly(observation)
 
         case .accountMismatch(let expected, let received):
@@ -568,22 +392,11 @@ actor AntigravityRefreshCoordinator:
             && inFlight?.id == operation.id
     }
 
-    private func detachCurrentFlight(
-        cancelNonCommittingFinisher: Bool = false
-    ) {
+    private func detachCurrentFlight() {
         guard let current = inFlight else { return }
-        if !current.isFinishing
-            || (
-                cancelNonCommittingFinisher
-                    && !credentialCommitInProgress
-            )
-        {
-            current.driver?.cancel()
-        }
+        current.driver?.cancel()
         inFlight = nil
-        for waiter in current.waiters.values {
-            waiter.resolve(.failed(.cancelled))
-        }
+        for waiter in current.waiters.values { waiter.resolve(.failed(.cancelled)) }
     }
 
     private func cancelWaiter(
@@ -596,10 +409,9 @@ actor AntigravityRefreshCoordinator:
             return
         }
         current.waiters.removeValue(forKey: waiterID)
-        if current.waiters.isEmpty && !current.isFinishing {
+        if current.waiters.isEmpty {
             current.driver?.cancel()
             inFlight = nil
-            lastCompletedFlight = nil
             if let lastGoodSnapshot {
                 state = .stale(
                     lastGoodSnapshot,
@@ -621,55 +433,6 @@ actor AntigravityRefreshCoordinator:
         return true
     }
 
-    private func waitForCredentialCommit() async
-        -> AntigravityCredentialCommitWaitResult
-    {
-        guard !Task.isCancelled else {
-            return .cancelled
-        }
-        guard credentialCommitInProgress else {
-            return .notNeeded
-        }
-        let waiterID = UUID()
-        let waiter =
-            AntigravityRefreshOneShotWaiter<
-                AntigravityCredentialCommitWaitResult
-            >()
-        credentialCommitWaiters[waiterID] = waiter
-        let result = await withTaskCancellationHandler {
-            await waiter.value()
-        } onCancel: {
-            waiter.resolve(.cancelled)
-            Task { [weak self] in
-                await self?.removeCredentialCommitWaiter(
-                    waiterID
-                )
-            }
-        }
-        if Task.isCancelled {
-            credentialCommitWaiters.removeValue(
-                forKey: waiterID
-            )
-            return .cancelled
-        }
-        return result
-    }
-
-    private func finishCredentialCommit() {
-        credentialCommitInProgress = false
-        let waiters = credentialCommitWaiters
-        credentialCommitWaiters.removeAll()
-        for waiter in waiters.values {
-            waiter.resolve(.completed)
-        }
-    }
-
-    private func removeCredentialCommitWaiter(
-        _ waiterID: UUID
-    ) {
-        credentialCommitWaiters.removeValue(forKey: waiterID)
-    }
-
     private nonisolated static func executeWithEnvironment(
         runtimeEnvironment: AntigravityRuntimeEnvironment?,
         generation: UInt64,
@@ -678,6 +441,9 @@ actor AntigravityRefreshCoordinator:
         sources: [AntigravityUsageSourceID: any AntigravityUsageSource],
         deadline: AntigravityRPCDeadline
     ) async -> AntigravityRefreshExecutionResult {
+        guard request.target != .unselected else {
+            return .init(output: .setupRequired(.usageTargetSelection), repositoryWasValidated: false)
+        }
         guard let runtimeEnvironment else {
             return await execute(generation: generation, request: request, repository: repository, sources: sources, deadline: deadline)
         }
@@ -690,7 +456,7 @@ actor AntigravityRefreshCoordinator:
                 // Environment sources own the current launch capability. A disabled
                 // capability is represented by a non-launching typed failure source.
                 let currentRequest = AntigravityRefreshRequest(
-                    trigger: request.trigger, accountTarget: request.accountTarget,
+                    trigger: request.trigger,
                     repositoryRevision: request.repositoryRevision, connection: request.connection,
                     managedLaunch: .enabled
                 )
@@ -706,375 +472,132 @@ actor AntigravityRefreshCoordinator:
     private nonisolated static func execute(
         generation: UInt64,
         request: AntigravityRefreshRequest,
-        repository:
-            any AntigravityRefreshAccountRepository,
-        sources:
-            [AntigravityUsageSourceID:
-                any AntigravityUsageSource],
+        repository: any AntigravityRefreshAccountRepository,
+        sources: [AntigravityUsageSourceID: any AntigravityUsageSource],
         deadline: AntigravityRPCDeadline
     ) async -> AntigravityRefreshExecutionResult {
+        guard request.target != .unselected else {
+            return .init(output: .setupRequired(.usageTargetSelection), repositoryWasValidated: false)
+        }
         do {
             try Task.checkCancellation()
-            let connection = request.connection
-            let repositoryState = try await repository.state()
-            guard repositoryState.revision
-                    == request.repositoryRevision
-            else {
+            guard try await repository.state().revision == request.repositoryRevision else {
                 return .failure(.repositoryRevisionChanged)
             }
-
-            let selectedContext:
-                AntigravitySelectedRefreshContext?
-            switch request.accountTarget {
-            case .ambientLocal:
-                selectedContext = nil
-
-            case .selectedOAuth(let accountID):
-                guard repositoryState.activeAccountID
-                        == accountID,
-                      let snapshot = try await repository
-                        .credentialSnapshot(for: accountID),
-                      snapshot.repositoryRevision
-                        == request.repositoryRevision
-                else {
-                    return .failure(
-                        .selectedAccountUnavailable(accountID)
-                    )
-                }
-                let expected =
-                    snapshot.account.externalIdentity
-                        .providerAccountIdentity
-                guard AntigravityAccountIdentityMatcher
-                    .match(
-                        expected: expected,
-                        received: expected
-                    ).isMatch
-                else {
-                    return .failure(
-                        .selectedAccountIdentityUnavailable(
-                            accountID
-                        )
-                    )
-                }
-                selectedContext =
-                    AntigravitySelectedRefreshContext(
-                        accountID: accountID,
-                        identity: expected,
-                        credentials: snapshot.credentials
-                    )
-            }
-
-            let planned = AntigravitySourcePlanner
-                .plannedSources(for: request)
-            guard !planned.isEmpty else {
-                return .failure(.noEligibleSource)
-            }
-
-            var bestLimited:
-                AntigravityLimitedQuotaCapability?
-            var bestIdentityOnly:
-                AntigravityIdentityOnlyUsage?
-            var acceptedCredentialMutation:
-                AntigravityRefreshCredentialMutation?
-            var mismatchedIdentity:
-                ProviderAccountIdentity?
-            var observedMismatch = false
-            var lastFailure: AntigravityFailure =
-                .noEligibleSource
+            var lastFailure: AntigravityFailure = .noEligibleSource
             var actionableFailure: AntigravityFailure?
-            var sawUnavailableSource = false
-
-            for sourceID in planned {
-                do {
-                    try Task.checkCancellation()
-                } catch {
-                    return .failure(
-                        .cancelled,
-                        repositoryWasValidated: true
-                    )
-                }
-
+            var observedIdentity: ProviderAccountIdentity?
+            for sourceID in AntigravitySourcePlanner.plannedSources(for: request) {
+                try Task.checkCancellation()
                 guard let source = sources[sourceID] else {
-                    sawUnavailableSource = true
                     lastFailure = .sourceUnavailable(sourceID)
                     continue
                 }
                 guard source.id == sourceID else {
-                    let failure =
-                        AntigravityFailure
-                            .sourceContractViolation(sourceID)
-                    lastFailure = failure
-                    actionableFailure = failure
-                    continue
+                    return .failure(.sourceContractViolation(sourceID), repositoryWasValidated: true)
                 }
-
-                let oauthAuthorization:
-                    AntigravityOAuthSourceAuthorization?
-                if sourceID == .googleOAuth,
-                   let selectedContext
-                {
-                    oauthAuthorization =
-                        AntigravityOAuthSourceAuthorization(
-                            accountID:
-                                selectedContext.accountID,
-                            repositoryRevision:
-                                request.repositoryRevision,
-                            credentials:
-                                selectedContext.credentials
-                        )
-                } else {
-                    oauthAuthorization = nil
-                }
-                let managedAuthorization:
-                    AntigravityManagedLaunchAuthorization
-                if sourceID == .managedCLI,
-                   request.managedLaunch.allowsLaunch
-                {
-                    managedAuthorization = .automatic(
-                        idleTimeout: .seconds(
-                            connection.managedSession
-                                .idleTimeoutSeconds
-                        )
-                    )
-                } else {
-                    managedAuthorization = .disabled
-                }
-                let sourceRequest =
-                    AntigravityUsageSourceRequest(
-                        generation: generation,
-                        accountTarget:
-                            request.accountTarget,
-                        expectedIdentity:
-                            selectedContext?.identity,
-                        oauthAuthorization:
-                            oauthAuthorization,
-                        managedLaunchAuthorization:
-                            managedAuthorization,
-                        deadline: deadline,
-                        refreshAuthentication: request.forcesDiscovery
-                    )
-
-                let response: AntigravityUsageSourceResponse
+                let authorization: AntigravityManagedLaunchAuthorization =
+                    sourceID == .managedCLI
+                        && request.managedLaunch.allowsLaunch
+                    ? .automatic(idleTimeout: .seconds(request.connection.managedSession.idleTimeoutSeconds))
+                    : .disabled
+                let sourceRequest = AntigravityUsageSourceRequest(
+                    generation: generation, managedLaunchAuthorization: authorization,
+                    deadline: deadline, refreshAuthentication: request.forcesDiscovery)
+                let inspection: AntigravityUsageSourceInspection
                 do {
-                    response = try await source.fetch(
-                        sourceRequest
-                    )
+                    inspection = try await source.inspectAccounts(sourceRequest)
                     try Task.checkCancellation()
                 } catch is CancellationError {
-                    return .failure(
-                        .cancelled,
-                        repositoryWasValidated: true
-                    )
-                } catch let error
-                    as AntigravityUsageSourceError
-                {
-                    if error == .cancelled {
-                        return .failure(
-                            .cancelled,
-                            repositoryWasValidated: true
-                        )
-                    }
-                    let failure: AntigravityFailure
-                    switch error {
-                    case .unavailable,
-                         .managedLaunchDisabled:
-                        sawUnavailableSource = true
-                        failure = .sourceUnavailable(sourceID)
-                    case .localAuthentication(let problem):
-                        failure = .localAuthentication(sourceID, problem)
-                    case .authenticationRequired:
-                        failure = .authenticationRequired(
-                            sourceID
-                        )
-                    case .interactionRequired:
-                        failure = .interactionRequired(sourceID)
-                    case .deadlineExceeded:
-                        failure = .deadlineExceeded(sourceID)
-                    case .malformedResponse:
-                        failure = .schemaChanged(sourceID)
-                    case .runtimeUnavailable(let reason):
-                        failure = .runtimeUnavailable(reason)
-                    case .transportFailure:
-                        failure = .transportUnavailable(
-                            sourceID
-                        )
-                    case .cancelled:
-                        failure = .cancelled
-                    }
-                    lastFailure = failure
-                    if error != .unavailable,
-                       error != .managedLaunchDisabled
-                    {
-                        actionableFailure = failure
-                    }
-                    continue
+                    return .failure(.cancelled)
                 } catch {
-                    let failure =
-                        AntigravityFailure
-                            .transportUnavailable(sourceID)
-                    lastFailure = failure
-                    actionableFailure = failure
-                    continue
-                }
-
-                guard let received =
-                        validObservedIdentity(
-                            in: response,
-                            from: sourceID
-                        ),
-                      validCredentialBoundary(
-                          response,
-                          sourceID: sourceID,
-                          selectedContext: selectedContext
-                      )
-                else {
-                    let failure =
-                        AntigravityFailure
-                            .sourceContractViolation(sourceID)
-                    lastFailure = failure
-                    actionableFailure = failure
-                    continue
-                }
-
-                let isAccepted: Bool
-                switch request.accountTarget {
-                case .selectedOAuth:
-                    let expected = selectedContext!.identity
-                    let match =
-                        AntigravityAccountIdentityMatcher
-                            .match(
-                                expected: expected,
-                                received: received
-                            )
-                    isAccepted = match.isMatch
-                    if !isAccepted {
-                        observedMismatch = true
-                        if mismatchedIdentity == nil {
-                            mismatchedIdentity = received
+                    let sourceError = error as? AntigravityUsageSourceError ?? .transportFailure
+                    if sourceError == .cancelled { return .failure(.cancelled) }
+                    if case .verifiedAccountFailure(let identity, _) = sourceError {
+                        guard AntigravityAccountIdentityMatcher.match(expected: identity, received: identity).isMatch
+                        else {
+                            return .failure(.sourceContractViolation(sourceID))
                         }
+                        if let observedIdentity,
+                            !AntigravityAccountIdentityMatcher.match(expected: observedIdentity, received: identity)
+                                .isMatch
+                        {
+                            return .failure(.accountChanged)
+                        }
+                        observedIdentity = identity
                     }
-                case .ambientLocal:
-                    isAccepted =
-                        AntigravityAccountIdentityMatcher
-                            .match(
-                                expected: received,
-                                received: received
-                            ).isMatch
-                }
-                guard isAccepted else { continue }
-
-                let mutation:
-                    AntigravityRefreshCredentialMutation?
-                do {
-                    mutation = try credentialMutation(
-                        response,
-                        sourceID: sourceID,
-                        selectedContext: selectedContext,
-                        expectedRevision:
-                            request.repositoryRevision
-                    )
-                } catch {
-                    let failure =
-                        AntigravityFailure
-                            .sourceContractViolation(sourceID)
-                    lastFailure = failure
-                    actionableFailure = failure
+                    lastFailure = failure(sourceError, source: sourceID)
+                    if sourceError != .unavailable && sourceError != .managedLaunchDisabled {
+                        actionableFailure = lastFailure
+                    }
                     continue
                 }
-                if let mutation {
-                    acceptedCredentialMutation = mutation
-                }
-                switch response.payload {
-                case .grouped(let snapshot):
-                    return AntigravityRefreshExecutionResult(
-                        output: .snapshot(snapshot),
-                        credentialMutation:
-                            acceptedCredentialMutation,
-                        repositoryWasValidated: true
-                    )
-
-                case .limited(let capability):
-                    if bestLimited == nil {
-                        bestLimited = capability
+                var evidence = AntigravityLocalAccountInventory()
+                for response in inspection.responses {
+                    guard let identity = validObservedIdentity(in: response, from: sourceID) else {
+                        return .failure(.sourceContractViolation(sourceID), repositoryWasValidated: true)
                     }
-
-                case .identityOnly(let observation):
-                    if bestIdentityOnly == nil {
-                        bestIdentityOnly = observation
+                    evidence.observe(identity, source: sourceID)
+                }
+                if inspection.hasUnverifiedCandidates { evidence.markUnverified(sourceID) }
+                guard !inspection.responses.isEmpty else {
+                    lastFailure = .sourceUnavailable(sourceID)
+                    continue
+                }
+                // Never resolve multiple live logins by process order, and never
+                // combine a quota payload from one account with another identity.
+                guard let account = evidence.uniqueVerifiedAccount else {
+                    return .init(output: .setupRequired(.ambiguousLocalSessions), repositoryWasValidated: true)
+                }
+                if let observedIdentity,
+                    !AntigravityAccountIdentityMatcher.match(expected: observedIdentity, received: account.identity)
+                        .isMatch
+                {
+                    return .failure(.accountChanged)
+                }
+                for response in inspection.responses {
+                    if case .grouped(let snapshot) = response.payload {
+                        return .init(output: .snapshot(snapshot), repositoryWasValidated: true)
                     }
                 }
-            }
-
-            if let bestLimited {
-                return AntigravityRefreshExecutionResult(
-                    output: .limited(bestLimited),
-                    credentialMutation:
-                        acceptedCredentialMutation,
-                    repositoryWasValidated: true
-                )
-            }
-            if let bestIdentityOnly {
-                return AntigravityRefreshExecutionResult(
-                    output: .identityOnly(
-                        bestIdentityOnly
-                    ),
-                    credentialMutation:
-                        acceptedCredentialMutation,
-                    repositoryWasValidated: true
-                )
-            }
-            if observedMismatch,
-               let expected = selectedContext?.identity
-            {
-                return AntigravityRefreshExecutionResult(
-                    output: .accountMismatch(
-                        expected: expected,
-                        received: mismatchedIdentity
-                    ),
-                    credentialMutation: nil,
-                    repositoryWasValidated: true
-                )
+                for response in inspection.responses {
+                    if case .limited(let capability) = response.payload {
+                        return .init(output: .limited(capability), repositoryWasValidated: true)
+                    }
+                }
+                if case .identityOnly(let observation) = inspection.responses[0].payload {
+                    return .init(output: .identityOnly(observation), repositoryWasValidated: true)
+                }
             }
             if let actionableFailure {
-                return .failure(
-                    actionableFailure,
-                    repositoryWasValidated: true
-                )
+                return .failure(actionableFailure, repositoryWasValidated: true, observedIdentity: observedIdentity)
             }
-            if case .ambientLocal = request.accountTarget,
-               sawUnavailableSource
-            {
-                // When the app's own managed launch is recovery-blocked,
-                // "log in and retry" is the wrong instruction: the user may
-                // already be logged in and only the app-side ledger needs
-                // attention. Name that state instead.
-                return AntigravityRefreshExecutionResult(
-                    output: .setupRequired(
-                        request.managedLaunch == .recoveryBlocked
-                            ? .managedRecoveryBlocked
-                            : .noAmbientLocalSession
-                    ),
-                    credentialMutation: nil,
-                    repositoryWasValidated: true
-                )
+            if request.target == .cli && request.managedLaunch == .recoveryBlocked {
+                return .init(output: .setupRequired(.managedRecoveryBlocked), repositoryWasValidated: true)
             }
-            return .failure(
-                lastFailure,
-                repositoryWasValidated: true
-            )
+            return .failure(lastFailure, repositoryWasValidated: true)
         } catch is CancellationError {
             return .failure(.cancelled)
-        } catch let error
-            as AntigravityAccountRepositoryError
-        {
-            switch error {
-            case .revisionConflict:
-                return .failure(.repositoryRevisionChanged)
-            default:
-                return .failure(.repositoryUnavailable)
-            }
         } catch {
             return .failure(.repositoryUnavailable)
+        }
+    }
+
+    private nonisolated static func failure(
+        _ error: AntigravityUsageSourceError, source: AntigravityUsageSourceID
+    ) -> AntigravityFailure {
+        switch error {
+        case .accountChanged: .accountChanged
+        case .verifiedAccountFailure(_, let cause): failure(cause, source: source)
+        case .unavailable, .managedLaunchDisabled: .sourceUnavailable(source)
+        case .localAuthentication(let problem): .localAuthentication(source, problem)
+        case .authenticationRequired: .authenticationRequired(source)
+        case .interactionRequired: .interactionRequired(source)
+        case .deadlineExceeded: .deadlineExceeded(source)
+        case .malformedResponse: .schemaChanged(source)
+        case .runtimeUnavailable(let reason): .runtimeUnavailable(reason)
+        case .transportFailure: .transportUnavailable(source)
+        case .cancelled: .cancelled
         }
     }
 
@@ -1198,68 +721,7 @@ actor AntigravityRefreshCoordinator:
                 && provenance.endpointOwner == .managed
                 && provenance.processIdentity != nil
         case .googleOAuth:
-            provenance.transport == .googleOAuth
-                && provenance.endpointOwner == .external
-                && provenance.processIdentity == nil
-        }
-    }
-
-    private nonisolated static func validCredentialBoundary(
-        _ response: AntigravityUsageSourceResponse,
-        sourceID: AntigravityUsageSourceID,
-        selectedContext: AntigravitySelectedRefreshContext?
-    ) -> Bool {
-        guard let credential = response.refreshedCredential
-        else {
-            return true
-        }
-        return sourceID == .googleOAuth
-            && selectedContext != nil
-            && credential.hasTokenMaterial
-    }
-
-    private nonisolated static func credentialMutation(
-        _ response: AntigravityUsageSourceResponse,
-        sourceID: AntigravityUsageSourceID,
-        selectedContext: AntigravitySelectedRefreshContext?,
-        expectedRevision: UInt64
-    ) throws -> AntigravityRefreshCredentialMutation? {
-        guard sourceID == .googleOAuth,
-              let selectedContext,
-              let refreshed = response.refreshedCredential
-        else {
-            return nil
-        }
-        let merged = try AntigravityRefreshedCredentialMerger
-            .merge(
-                original: selectedContext.credentials,
-                refreshed: refreshed,
-                expectedIdentity: selectedContext.identity
-            )
-        return AntigravityRefreshCredentialMutation(
-            accountID: selectedContext.accountID,
-            expectedRevision: expectedRevision,
-            original: selectedContext.credentials,
-            refreshed: merged
-        )
-    }
-
-    private nonisolated static func repositoryState(
-        _ state: AntigravityAccountRepositoryState,
-        matches target: AntigravityRefreshAccountTarget,
-        revision: UInt64
-    ) -> Bool {
-        guard state.revision == revision else {
-            return false
-        }
-        switch target {
-        case .ambientLocal:
-            return true
-        case .selectedOAuth(let accountID):
-            return state.activeAccountID == accountID
-                && state.usableAccounts.contains {
-                    $0.id == accountID
-                }
+            false
         }
     }
 
@@ -1268,6 +730,9 @@ actor AntigravityRefreshCoordinator:
     ) -> Bool {
         switch failure {
         case .appShuttingDown,
+            .accountChanged,
+            .authenticationRequired,
+            .interactionRequired,
              .invalidRefreshContext,
              .generationExhausted,
              .repositoryUnavailable,
@@ -1281,8 +746,6 @@ actor AntigravityRefreshCoordinator:
              .localAuthentication,
              .noEligibleSource,
              .sourceUnavailable,
-             .authenticationRequired,
-             .interactionRequired,
              .deadlineExceeded,
              .schemaChanged,
              .transportUnavailable,
@@ -1292,14 +755,6 @@ actor AntigravityRefreshCoordinator:
             false
         }
     }
-}
-
-private nonisolated struct AntigravitySelectedRefreshContext:
-    Sendable
-{
-    let accountID: AntigravityAccountID
-    let identity: ProviderAccountIdentity
-    let credentials: AntigravityOAuthCredentials
 }
 
 private nonisolated final class AntigravityRefreshOneShotWaiter<

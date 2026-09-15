@@ -1,7 +1,7 @@
 import Foundation
 
 nonisolated struct AntigravityConnectionSettings: Codable, Equatable, Sendable {
-    nonisolated static let currentSchemaVersion = 2
+    nonisolated static let currentSchemaVersion = 4
 
     struct ManagedSessionPolicy: Codable, Equatable, Sendable {
         static let defaultIdleTimeoutSeconds = 180
@@ -19,6 +19,16 @@ nonisolated struct AntigravityConnectionSettings: Codable, Equatable, Sendable {
 
     let schemaVersion: Int
     var managedSession: ManagedSessionPolicy
+    var usageTarget: AntigravityUsageTarget
+
+    init(
+        schemaVersion: Int, managedSession: ManagedSessionPolicy,
+        usageTarget: AntigravityUsageTarget = .cli
+    ) {
+        self.schemaVersion = schemaVersion
+        self.managedSession = managedSession
+        self.usageTarget = usageTarget
+    }
 
     static let `default` = AntigravityConnectionSettings(
         schemaVersion: currentSchemaVersion,

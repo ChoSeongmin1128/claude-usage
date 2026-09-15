@@ -498,212 +498,90 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
         }
     }
 
-    func testClientUsesOneConnectionForQuotaAndBestEffortIdentity() async throws {
+    func testClientBindsQuotaToTheSameIdentityBeforeAndAfterTheFetch() async throws {
         let connection = LocalRPCConnectionStub(outcomes: [
-            .response(groupedQuotaResponse()),
-            .response(identityResponse()),
+            .response(identityResponse()), .response(groupedQuotaResponse()), .response(identityResponse()),
         ])
         let factory = LocalRPCConnectionFactoryStub(connection: connection)
-        let endpoint = try makeEndpoint(
-            role: .agyCLI,
-            transport: .agyCLI,
-            authentication: .cliTokenless
-        )
-        let client = AntigravityLocalRPCClient(
-            connectionFactory: factory,
-            now: { Date(timeIntervalSince1970: 100) }
-        )
-
-        let result = try await client.fetch(
-            from: endpoint,
-            deadline: AntigravityRPCDeadline()
-        )
-        guard case let .grouped(snapshot, identityIssue) = result else {
-            return XCTFail("Expected grouped quota")
-        }
-
-        XCTAssertEqual(factory.makeConnectionCount, 1)
-        XCTAssertEqual(connection.methods, [
-            .retrieveUserQuotaSummary,
-            .getUserStatus,
-        ])
-        XCTAssertTrue(connection.wasInvalidated)
-        XCTAssertNil(identityIssue)
+        let result = try await AntigravityLocalRPCClient(connectionFactory: factory)
+            .fetch(from: makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliTokenless))
+        guard case .grouped(let snapshot, let issue) = result else { return XCTFail("Expected quota") }
         XCTAssertEqual(snapshot.identity?.email, "nathan@example.com")
-        XCTAssertEqual(snapshot.plan, "Pro")
-        XCTAssertEqual(snapshot.lanes.map(\.id), [.geminiFiveHour])
+        XCTAssertEqual(snapshot.lanes.first?.remainingFraction, 0.5)
         XCTAssertEqual(snapshot.provenance.transport, .borrowedAGYRPC)
-        XCTAssertEqual(snapshot.provenance.endpointOwner, .borrowed)
-        XCTAssertEqual(
-            snapshot.provenance.processIdentity?.executablePath,
-            "/usr/local/bin/agy"
-        )
-    }
-
-    func testClientKeepsGroupedQuotaWhenIdentityPayloadIsNormallyUnavailable() async throws {
-        let connection = LocalRPCConnectionStub(outcomes: [
-            .response(groupedQuotaResponse()),
-            .response(AntigravityLocalRPCResponse(
-                statusCode: 200,
-                body: Data(#"{"response":{}}"#.utf8)
-            )),
-        ])
-        let client = AntigravityLocalRPCClient(
-            connectionFactory: LocalRPCConnectionFactoryStub(
-                connection: connection
-            ),
-            identityAttemptLimit: 1
-        )
-        let endpoint = try makeEndpoint(
-            role: .agyCLI,
-            transport: .agyCLI,
-            authentication: .cliTokenless
-        )
-
-        let result = try await client.fetch(from: endpoint)
-        guard case let .grouped(snapshot, identityIssue) = result else {
-            return XCTFail("Expected grouped quota")
-        }
-
-        XCTAssertNil(snapshot.identity)
-        XCTAssertEqual(identityIssue?.error, .malformedPayload)
+        XCTAssertEqual(connection.methods, [.getUserStatus, .retrieveUserQuotaSummary, .getUserStatus])
+        XCTAssertEqual(factory.makeConnectionCount, 1)
+        XCTAssertNil(issue)
         XCTAssertTrue(connection.wasInvalidated)
     }
 
-    func testClientKeepsGroupedQuotaWhenBestEffortIdentityTimesOut() async throws {
-        let connection = LocalRPCConnectionStub(outcomes: [
-            .response(groupedQuotaResponse()),
-            .failure(.deadlineExceeded),
-        ])
-        let client = AntigravityLocalRPCClient(
-            connectionFactory: LocalRPCConnectionFactoryStub(
-                connection: connection
-            ),
-            identityAttemptLimit: 1
-        )
-        let endpoint = try makeEndpoint(
-            role: .agyCLI,
-            transport: .agyCLI,
-            authentication: .cliTokenless
-        )
-
-        let result = try await client.fetch(from: endpoint)
-        guard case let .grouped(snapshot, identityIssue) = result else {
-            return XCTFail("Expected grouped quota")
+    func testClientNeverRequestsQuotaUntilTheCurrentLoginIsAuthenticated() async throws {
+        for outcome in [
+            LocalRPCConnectionOutcome.response(preAuthenticationIdentityResponse()), .failure(.deadlineExceeded),
+        ] {
+            let connection = LocalRPCConnectionStub(outcomes: [outcome])
+            let client = AntigravityLocalRPCClient(
+                connectionFactory: LocalRPCConnectionFactoryStub(connection: connection),
+                identityAttemptLimit: 1)
+            await XCTAssertThrowsErrorAsync(
+                try await client.fetch(
+                    from: makeEndpoint(
+                        role: .agyCLI, transport: .agyCLI, authentication: .cliTokenless))
+            ) { _ in }
+            XCTAssertEqual(connection.methods, [.getUserStatus])
+            XCTAssertTrue(connection.wasInvalidated)
         }
-        XCTAssertEqual(snapshot.lanes.count, 1)
-        XCTAssertNil(snapshot.identity)
-        XCTAssertEqual(identityIssue?.error, .deadlineExceeded)
-        XCTAssertEqual(connection.methods, [
-            .retrieveUserQuotaSummary,
-            .getUserStatus,
-        ])
-        XCTAssertTrue(connection.wasInvalidated)
     }
 
-    func testClientRetriesPreAuthenticationIdentityUntilItAppears()
-        async throws
-    {
+    func testClientWaitsForInitialAuthenticationBeforeFetchingBoundQuota() async throws {
         let connection = LocalRPCConnectionStub(outcomes: [
-            .response(groupedQuotaResponse()),
-            .response(preAuthenticationIdentityResponse()),
-            .response(identityResponse()),
+            .response(preAuthenticationIdentityResponse()), .response(identityResponse()),
+            .response(groupedQuotaResponse()), .response(identityResponse()),
         ])
         let client = AntigravityLocalRPCClient(
-            connectionFactory: LocalRPCConnectionFactoryStub(
-                connection: connection
-            ),
-            identityRetryDelay: .zero
-        )
-        let endpoint = try makeEndpoint(
-            role: .agyCLI,
-            transport: .agyCLI,
-            authentication: .cliTokenless
-        )
-
-        let result = try await client.fetch(from: endpoint)
-        guard case let .grouped(snapshot, identityIssue) = result else {
-            return XCTFail("Expected grouped quota")
-        }
-
-        XCTAssertNil(identityIssue)
-        XCTAssertEqual(snapshot.identity?.email, "nathan@example.com")
-        XCTAssertEqual(connection.methods, [
-            .retrieveUserQuotaSummary,
-            .getUserStatus,
-            .getUserStatus,
-        ])
+            connectionFactory: LocalRPCConnectionFactoryStub(connection: connection),
+            identityRetryDelay: .zero)
+        let result = try await client.fetch(
+            from: makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliTokenless))
+        guard case .grouped(let quota, let issue) = result else { return XCTFail("Expected quota") }
+        XCTAssertEqual(quota.identity?.email, "nathan@example.com")
+        XCTAssertNil(issue)
+        XCTAssertEqual(connection.methods, [.getUserStatus, .getUserStatus, .retrieveUserQuotaSummary, .getUserStatus])
     }
 
-    func testClientKeepsPlanEvidenceWhenIdentityStaysPreAuthentication()
-        async throws
-    {
+    func testClientRetriesAnAccountChangeOnceAndNeverAttachesOldQuotaToNewIdentity() async throws {
         let connection = LocalRPCConnectionStub(outcomes: [
-            .response(groupedQuotaResponse()),
-            .response(preAuthenticationIdentityResponse()),
-            .response(preAuthenticationIdentityResponse()),
+            .response(identityResponse(email: "a@example.com")), .response(groupedQuotaResponse(fraction: 0.1)),
+            .response(identityResponse(email: "b@example.com")),
+            .response(identityResponse(email: "b@example.com")), .response(groupedQuotaResponse(fraction: 0.8)),
+            .response(identityResponse(email: "b@example.com")),
         ])
-        let client = AntigravityLocalRPCClient(
-            connectionFactory: LocalRPCConnectionFactoryStub(
-                connection: connection
-            ),
-            identityAttemptLimit: 2,
-            identityRetryDelay: .zero
-        )
-        let endpoint = try makeEndpoint(
-            role: .agyCLI,
-            transport: .agyCLI,
-            authentication: .cliTokenless
-        )
-
-        let result = try await client.fetch(from: endpoint)
-        guard case let .grouped(snapshot, identityIssue) = result else {
-            return XCTFail("Expected grouped quota")
-        }
-
-        XCTAssertNil(snapshot.identity)
-        XCTAssertNil(identityIssue)
-        XCTAssertEqual(snapshot.plan, "Pro")
-        XCTAssertEqual(connection.methods, [
-            .retrieveUserQuotaSummary,
-            .getUserStatus,
-            .getUserStatus,
-        ])
+        let factory = LocalRPCConnectionFactoryStub(connection: connection)
+        let result = try await AntigravityLocalRPCClient(connectionFactory: factory)
+            .fetch(from: makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliTokenless))
+        guard case .grouped(let quota, _) = result else { return XCTFail("Expected quota") }
+        XCTAssertEqual(quota.identity?.email, "b@example.com")
+        XCTAssertEqual(quota.lanes.first?.remainingFraction, 0.8)
+        XCTAssertEqual(factory.makeConnectionCount, 2)
+        XCTAssertEqual(connection.methods.count, 6)
     }
 
-    func testClientRetriesBestEffortIdentityBeforeReturningGroupedQuota()
-        async throws
-    {
+    func testClientStopsAfterRepeatedAccountChanges() async throws {
         let connection = LocalRPCConnectionStub(outcomes: [
-            .response(groupedQuotaResponse()),
-            .failure(.deadlineExceeded),
-            .response(identityResponse()),
+            .response(identityResponse(email: "a@example.com")), .response(groupedQuotaResponse()),
+            .response(identityResponse(email: "b@example.com")),
+            .response(identityResponse(email: "b@example.com")), .response(groupedQuotaResponse()),
+            .response(identityResponse(email: "c@example.com")),
         ])
-        let client = AntigravityLocalRPCClient(
-            connectionFactory: LocalRPCConnectionFactoryStub(
-                connection: connection
-            ),
-            identityRetryDelay: .zero
-        )
-        let endpoint = try makeEndpoint(
-            role: .agyCLI,
-            transport: .agyCLI,
-            authentication: .cliTokenless
-        )
-
-        let result = try await client.fetch(from: endpoint)
-        guard case let .grouped(snapshot, identityIssue) = result else {
-            return XCTFail("Expected grouped quota")
+        let factory = LocalRPCConnectionFactoryStub(connection: connection)
+        await XCTAssertThrowsErrorAsync(
+            try await AntigravityLocalRPCClient(connectionFactory: factory)
+                .fetch(from: makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliTokenless))
+        ) { error in
+            XCTAssertEqual(error as? AntigravityLocalRPCAccountBoundaryError, .changedDuringFetch)
         }
-
-        XCTAssertEqual(snapshot.identity?.email, "nathan@example.com")
-        XCTAssertNil(identityIssue)
-        XCTAssertEqual(connection.methods, [
-            .retrieveUserQuotaSummary,
-            .getUserStatus,
-            .getUserStatus,
-        ])
-        XCTAssertTrue(connection.wasInvalidated)
+        XCTAssertEqual(factory.makeConnectionCount, 2)
+        XCTAssertEqual(connection.methods.count, 6)
     }
 
     func testTransportPreservesCancellationCompletedBeforeRegistration() async throws {
@@ -746,6 +624,7 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
 
     func testClientPropagatesIdentitySecurityFailureAndInvalidatesConnection() async throws {
         let connection = LocalRPCConnectionStub(outcomes: [
+            .response(identityResponse()),
             .response(groupedQuotaResponse()),
             .failure(.endpointOwnershipChanged),
         ])
@@ -773,6 +652,7 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
 
     func testClientUsesLimitedCapabilityWithoutTurningModelConfigsIntoLanes() async throws {
         let connection = LocalRPCConnectionStub(outcomes: [
+            .response(identityResponse()),
             .response(AntigravityLocalRPCResponse(
                 statusCode: 404,
                 body: Data()
@@ -797,6 +677,7 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
         }
 
         XCTAssertEqual(connection.methods, [
+                .getUserStatus,
             .retrieveUserQuotaSummary,
             .getUserStatus,
         ])
@@ -818,6 +699,7 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
 
     func testClientFallsBackFromUnsupportedUserStatusToCommandConfigsOnly() async throws {
         let connection = LocalRPCConnectionStub(outcomes: [
+            .response(identityResponse()),
             .response(AntigravityLocalRPCResponse(
                 statusCode: 501,
                 body: Data()
@@ -844,30 +726,16 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
             authentication: .cliTokenless
         )
 
-        let result = try await client.fetch(from: endpoint)
-        guard case let .limited(limited) = result else {
-            return XCTFail("Expected limited capability")
-        }
-
-        XCTAssertEqual(connection.methods, [
-            .retrieveUserQuotaSummary,
-            .getUserStatus,
-            .getCommandModelConfigs,
-        ])
-        guard case .localLegacy(let localEvidence) =
-                limited.evidence
-        else {
-            return XCTFail("Expected typed local legacy evidence")
+        await XCTAssertThrowsErrorAsync(try await client.fetch(from: endpoint)) { error in
+            XCTAssertEqual(error as? AntigravityLocalRPCError, .authenticationRejected)
         }
         XCTAssertEqual(
-            localEvidence.method,
-            .getCommandModelConfigs
-        )
-        XCTAssertEqual(limited.evidence.modelCount, 1)
+            connection.methods, [.getUserStatus, .retrieveUserQuotaSummary, .getUserStatus, .getCommandModelConfigs])
     }
 
     func testClientDoesNotFallbackWhenGroupedPayloadIsMalformed() async throws {
         let connection = LocalRPCConnectionStub(outcomes: [
+            .response(identityResponse()),
             .response(AntigravityLocalRPCResponse(
                 statusCode: 200,
                 body: Data("not-json".utf8)
@@ -888,16 +756,17 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
             try await client.fetch(from: endpoint)
         ) { error in
             XCTAssertEqual(
-                error as? AntigravityLocalRPCError,
-                .malformedPayload
+                error as? AntigravityLocalRPCAccountBoundaryError,
+                .quotaFailed(.init(email: "nathan@example.com"), .malformedPayload)
             )
         }
-        XCTAssertEqual(connection.methods, [.retrieveUserQuotaSummary])
+        XCTAssertEqual(connection.methods, [.getUserStatus, .retrieveUserQuotaSummary])
         XCTAssertTrue(connection.wasInvalidated)
     }
 
     func testClientDoesNotFallbackFromErrorEnvelopeWithoutQuotaGroups() async throws {
         let connection = LocalRPCConnectionStub(outcomes: [
+            .response(identityResponse()),
             .response(AntigravityLocalRPCResponse(
                 statusCode: 200,
                 body: Data(
@@ -920,14 +789,14 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
             try await client.fetch(from: endpoint)
         ) { error in
             XCTAssertEqual(
-                error as? AntigravityLocalRPCError,
-                .remoteRejected(.unknown)
+                error as? AntigravityLocalRPCAccountBoundaryError,
+                .quotaFailed(.init(email: "nathan@example.com"), .remoteRejected(.unknown))
             )
         }
-        XCTAssertEqual(connection.methods, [.retrieveUserQuotaSummary])
+        XCTAssertEqual(connection.methods, [.getUserStatus, .retrieveUserQuotaSummary])
     }
 
-    private func groupedQuotaResponse() -> AntigravityLocalRPCResponse {
+    private func groupedQuotaResponse(fraction: Double = 0.5) -> AntigravityLocalRPCResponse {
         AntigravityLocalRPCResponse(
             statusCode: 200,
             body: Data("""
@@ -940,7 +809,7 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
                       {
                         "bucketId": "gemini-5h",
                         "window": "5h",
-                        "remainingFraction": 0.5
+                        "remainingFraction": \(fraction)
                       }
                     ]
                   }
@@ -951,13 +820,13 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
         )
     }
 
-    private func identityResponse() -> AntigravityLocalRPCResponse {
+    private func identityResponse(email: String = "nathan@example.com") -> AntigravityLocalRPCResponse {
         AntigravityLocalRPCResponse(
             statusCode: 200,
             body: Data("""
             {
               "userStatus": {
-                "email": "nathan@example.com",
+                "email": "\(email)",
                 "userTier": { "name": "Pro" }
               }
             }

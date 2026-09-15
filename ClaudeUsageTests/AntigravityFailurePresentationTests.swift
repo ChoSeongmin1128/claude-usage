@@ -32,7 +32,8 @@ final class AntigravityFailurePresentationTests: XCTestCase {
         let local = AntigravityPopoverPresentationAdapter.failureSummary(.authenticationRequired(.managedCLI))
         let oauth = AntigravityPopoverPresentationAdapter.failureSummary(.authenticationRequired(.googleOAuth))
         XCTAssertTrue(local.message.contains("AGY CLI"))
-        XCTAssertTrue(oauth.message.contains("Google 계정을 다시 연결"))
+        XCTAssertTrue(oauth.message.contains("조회 대상"))
+        XCTAssertFalse(oauth.message.contains("Google 계정을 다시 연결"))
         XCTAssertNotEqual(local.title, oauth.title)
     }
 }

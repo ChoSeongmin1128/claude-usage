@@ -91,8 +91,8 @@ enum SettingsDestructiveAction: Identifiable, Equatable {
         case .resetDefaults: return "모든 표시 설정을 기본값으로 복원할까요?"
         case .clearBrowserSession: return "브라우저 로그인 값을 삭제할까요?"
         case .deleteClaudeAccount(let account): return "\(account.displayName) 계정을 삭제할까요?"
-        case .disconnectAntigravityAccount: return "선택한 Google 계정 연결을 해제할까요?"
-        case .disconnectAllAntigravityAccounts: return "모든 Google 계정 연결을 해제할까요?"
+        case .disconnectAntigravityAccount: return "이전 연결 정보를 삭제할까요?"
+        case .disconnectAllAntigravityAccounts: return "이전 연결 정보를 모두 삭제할까요?"
         }
     }
 
@@ -105,9 +105,9 @@ enum SettingsDestructiveAction: Identifiable, Equatable {
         case .deleteClaudeAccount:
             return "저장된 브라우저 로그인과 계정 표시 정보가 함께 제거됩니다."
         case .disconnectAntigravityAccount:
-            return "해당 계정의 로컬 연결 정보가 제거되며 다시 연결할 수 있습니다."
+            return "이전 버전에 저장한 Google 연결 정보가 이 Mac에서 제거됩니다. Antigravity 앱과 AGY CLI 로그인은 유지됩니다."
         case .disconnectAllAntigravityAccounts:
-            return "저장된 모든 Antigravity Google 계정 연결이 이 Mac에서 제거됩니다."
+            return "이전 버전에 저장한 Google 연결 정보가 이 Mac에서 제거됩니다. 현재 로컬 계정 선택과 Antigravity 앱·AGY CLI 로그인은 유지됩니다."
         }
     }
 
@@ -116,8 +116,8 @@ enum SettingsDestructiveAction: Identifiable, Equatable {
         case .resetDefaults: return "기본값 복원"
         case .clearBrowserSession: return "로그인 값 삭제"
         case .deleteClaudeAccount: return "계정 삭제"
-        case .disconnectAntigravityAccount: return "연결 해제"
-        case .disconnectAllAntigravityAccounts: return "모두 연결 해제"
+        case .disconnectAntigravityAccount: return "이전 정보 삭제"
+        case .disconnectAllAntigravityAccounts: return "이전 정보 모두 삭제"
         }
     }
 }

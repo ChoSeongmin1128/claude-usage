@@ -36,6 +36,7 @@ nonisolated struct OperationalDiagnostic: Equatable, Sendable {
             switch reason {
             case .noSelectedOAuthAccount: code = "agy.noSelectedAccount"
             case .noAmbientLocalSession: code = "agy.noLocalSession"
+            case .usageTargetSelection, .ambiguousLocalSessions: code = "agy.usageTargetSelectionRequired"
             case .managedRecoveryBlocked: code = "agy.recoveryBlocked"
             }
             return Self(code: code, source: "coordinator", isFailure: true)

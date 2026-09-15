@@ -88,7 +88,7 @@ enum RuntimeProviderSettingsPresentation {
                 badgeTitle: "확인 중",
                 badgeTone: .blue,
                 summary:
-                    "선택한 계정에 맞는 조회 경로를 확인하고 있습니다",
+                    "선택한 제품의 로그인 계정과 사용량을 확인하고 있습니다",
                 nextStepTitle: "확인 완료 기다리기",
                 nextStepDetail:
                     "현재 작업이 끝나면 검증된 결과로 갱신됩니다.",
@@ -127,7 +127,7 @@ enum RuntimeProviderSettingsPresentation {
                 badgeTitle: "새로고침",
                 badgeTone: .blue,
                 summary:
-                    "선택한 계정과 출처를 다시 검증하고 있습니다",
+                    "선택한 조회 대상의 연결을 확인하고 있습니다",
                 nextStepTitle: "확인 완료 기다리기",
                 nextStepDetail:
                     "계정 경계가 일치하는 결과만 반영합니다.",
@@ -142,7 +142,7 @@ enum RuntimeProviderSettingsPresentation {
                     "새 조회가 실패해 마지막 검증 결과를 유지합니다",
                 nextStepTitle: "연결 확인 후 다시 시도",
                 nextStepDetail:
-                    "현재 계정과 로컬 또는 Google 로그인 상태를 확인한 뒤 새로고침해 주세요.",
+                    "선택한 제품의 로그인 상태를 확인한 뒤 새로고침해 주세요.",
                 availableAction: nil
             )
         case .setupRequired(
@@ -153,12 +153,22 @@ enum RuntimeProviderSettingsPresentation {
                 badgeTitle: "계정 필요",
                 badgeTone: .red,
                 summary:
-                    "조회할 Google 계정이 선택되지 않았습니다",
-                nextStepTitle: "Google 계정 연결",
+                    "이전 조회 경로는 지원하지 않습니다",
+                nextStepTitle: "조회 대상 선택",
                 nextStepDetail:
-                    "아래 계정 관리에서 계정을 연결해 주세요.",
+                    "AGY CLI와 Antigravity 독립 앱 중 조회할 제품을 선택해 주세요.",
                 availableAction: nil
             )
+        case .setupRequired(.usageTargetSelection):
+            return .init(
+                stage: .unsupportedConfiguration, badgeTitle: "대상 선택", badgeTone: .orange,
+                summary: "조회 대상을 선택해 주세요", nextStepTitle: "조회 대상 선택",
+                nextStepDetail: "AGY CLI와 Antigravity 독립 앱 중 사용할 제품을 선택해 주세요.", availableAction: nil)
+        case .setupRequired(.ambiguousLocalSessions):
+            return .init(
+                stage: .waitingForApp, badgeTitle: "연결 확인", badgeTone: .orange,
+                summary: "실행 중인 연결의 계정이 서로 다릅니다", nextStepTitle: "이전 실행 종료",
+                nextStepDetail: "선택한 제품의 현재 실행만 남긴 뒤 새로고침해 주세요.", availableAction: nil)
         case .setupRequired(
             .noAmbientLocalSession
         ):
@@ -208,7 +218,7 @@ enum RuntimeProviderSettingsPresentation {
                     "계정은 확인했지만 수치형 사용 한도를 받지 못했습니다",
                 nextStepTitle: "로그인 상태 확인",
                 nextStepDetail:
-                    "AGY CLI 또는 연결된 Google 계정에서 수치 제공 여부를 확인해 주세요.",
+                    "선택한 조회 대상에서 수치 제공 여부를 확인해 주세요.",
                 availableAction: nil
             )
         case .failed(let failure):
@@ -253,6 +263,7 @@ enum RuntimeProviderSettingsPresentation {
              .selectedAccountIdentityUnavailable:
             return true
         case .cancelled,
+            .accountChanged,
              .appShuttingDown,
              .invalidRefreshContext,
              .generationExhausted,

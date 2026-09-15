@@ -1,6 +1,6 @@
 # ClaudeUsage
 
-Claude, Codex, Antigravity 사용량을 확인하는 macOS 메뉴바 앱입니다. 서비스별 계정을 선택하고 사용량 한도와 갱신 예상 시각을 한곳에서 확인할 수 있습니다.
+Claude, Codex, Antigravity 사용량을 확인하는 macOS 메뉴바 앱입니다. 서비스별 사용량 한도와 갱신 예상 시각을 한곳에서 확인할 수 있습니다.
 
 Anthropic, OpenAI, Google과 제휴하지 않은 독립 프로젝트입니다.
 
@@ -27,9 +27,11 @@ DMG에서 앱을 Applications로 옮긴 뒤 Finder에서 직접 실행합니다.
 |---|---|---|
 | Claude | 설정에서 Chrome 가져오기·웹 로그인 또는 Claude Code 계정 선택 | 웹 세션과 Claude Code OAuth |
 | Codex | Codex CLI에 로그인한 뒤 서비스 활성화 | CLI의 OAuth 자격증명으로 사용량 조회 |
-| Antigravity | 공식 Antigravity 앱 또는 AGY CLI에 로그인한 뒤 서비스 활성화 | 로컬 앱 → 실행 중인 AGY → 관리되는 AGY → 선택한 Google 계정 |
+| Antigravity | 공식 Antigravity 앱 또는 AGY CLI에 로그인한 뒤 서비스 활성화 | 선택한 제품의 현재 로그인 계정. CLI와 독립 앱 사이의 자동 전환 없음 |
 
 서비스를 활성화하고 계정을 선택한 뒤 새로고침합니다. 명시적으로 계정을 바꾸거나 응답 계정이 다르면 이전 계정의 수치를 표시하지 않습니다. 일시적인 조회 실패에는 마지막 성공 값과 확인 시각을 유지하며, 실패를 0%로 바꾸지 않습니다.
+
+Antigravity는 ‘조회 대상’에서 AGY CLI 또는 Antigravity 독립 앱을 선택합니다. 로그인 계정은 읽기 전용으로 표시하며, 로그인 변경은 해당 제품에서 진행합니다. 새로고침하면 확인된 계정과 사용량을 함께 갱신합니다. Google 계정 연결과 Antigravity IDE는 지원하지 않습니다.
 
 Antigravity는 응답에 있는 quota만 표시합니다. 계정마다 한도의 종류와 주기가 다를 수 있습니다. 공식 AGY 설치·업데이트는 다음 조회에서 재검증하며 앱 재시작 없이 복구를 시도합니다. AGY CLI에서 로그인 계정을 바꿨다면 수동 새로고침으로 계정을 다시 확인합니다. Antigravity IDE 지원은 현재 범위에 포함되지 않습니다.
 
@@ -48,6 +50,8 @@ Antigravity는 응답에 있는 quota만 표시합니다. 계정마다 한도의
 Sparkle이 30분마다 해당 채널의 업데이트를 확인하고 다운로드·검증을 준비합니다. 설치는 사용자가 선택할 때 적용됩니다. 설정 → 업데이트에서 버전별 변경 사항과 설치 상태를 확인할 수 있습니다.
 
 업데이트 DMG와 feed의 서명을 확인하며, 별도 ZIP 다운로드는 서명된 feed의 SHA-256과 대조합니다. 서명 실패 시의 복구와 키 교체 절차는 [배포 가이드](docs/RELEASE.md)에 설명되어 있습니다.
+
+과거 버전에서의 설정 이전과 초기 채널의 예외는 [업데이트 호환 안내](docs/upgrade-compatibility.md)를 참고하세요.
 
 ## 개발
 

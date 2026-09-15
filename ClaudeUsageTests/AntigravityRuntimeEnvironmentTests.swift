@@ -176,8 +176,8 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
     private func runtimeFailure(_ environment: AntigravityRuntimeEnvironment) async throws -> AntigravityRuntimeFailure? {
         try await environment.withSources(forceDiscovery: false, deadline: .init()) { sources in
             guard let source = sources.first(where: { $0.id == .managedCLI }) else { return nil }
-            let request = AntigravityUsageSourceRequest(generation: 1, accountTarget: .ambientLocal,
-                expectedIdentity: nil, oauthAuthorization: nil, managedLaunchAuthorization: .disabled, deadline: .init())
+            let request = AntigravityUsageSourceRequest(
+                generation: 1, managedLaunchAuthorization: .disabled, deadline: .init())
             do { _ = try await source.fetch(request); return nil }
             catch AntigravityUsageSourceError.runtimeUnavailable(let reason) { return reason }
             catch { return nil }

@@ -101,14 +101,10 @@ nonisolated enum
                     )
             )
 
-        let sources: [any AntigravityUsageSource] = [
-            AntigravityGoogleOAuthUsageSource(client: AntigravityGoogleOAuthQuotaClient()),
-        ]
-
         let refreshCoordinator =
             AntigravityRefreshCoordinator(
                 repository: repository,
-                sources: sources,
+                sources: [],
                 runtimeEnvironment: runtimeEnvironment
             )
         let runtimeController =

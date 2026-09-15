@@ -28,9 +28,9 @@ nonisolated enum AntigravitySettingsNoticePresenter {
     ) -> AntigravitySettingsNotice {
         let title: String
         switch activity {
-        case .changingAccount:
+        case .changingTarget:
             title =
-                "Google 계정 변경을 저장하지 못했습니다"
+                "조회 대상을 저장하지 못했습니다"
         case .changingConnection:
             title =
                 "연결 설정을 저장하지 못했습니다"
@@ -42,8 +42,7 @@ nonisolated enum AntigravitySettingsNoticePresenter {
                 "이전 작업을 완료하지 못했습니다"
         case .idle,
              .loading,
-             .checkingMigration,
-             .authenticating:
+            .checkingMigration:
             title =
                 "Antigravity 설정을 변경하지 못했습니다"
         }
@@ -136,19 +135,27 @@ nonisolated enum AntigravitySettingsNoticePresenter {
                 message:
                     "자동 실행이 중지됐습니다. Antigravity 앱이나 AGY CLI를 실행하면 조회는 가능하며, ClaudeUsage를 재시동하면 정리를 다시 시도합니다."
             )
+        case .setupRequired(.usageTargetSelection):
+            return warning(
+                title: "조회 대상을 선택해 주세요",
+                message: "AGY CLI와 Antigravity 독립 앱 중 사용할 제품을 선택해 주세요.")
+        case .setupRequired(.ambiguousLocalSessions):
+            return warning(
+                title: "실행 중인 연결의 계정이 서로 다릅니다",
+                message: "선택한 제품의 이전 실행을 종료하고 현재 로그인된 실행만 남긴 뒤 새로고침해 주세요.")
         case .setupRequired:
             return warning(
                 title:
                     "사용량 조회 방법을 선택해 주세요",
                 message:
-                    "Google 계정을 연결하거나 로그인된 Antigravity/AGY 세션을 사용하세요."
+                    "선택한 조회 대상에서 로그인한 뒤 새로고침해 주세요."
             )
         case .accountMismatch:
             return failure(
                 title:
                     "선택한 계정과 실행 중인 계정이 다릅니다",
                 message:
-                    "이전 계정의 수치는 표시하지 않았습니다. Google 계정 또는 Antigravity 로그인을 확인해 주세요."
+                    "다른 계정의 수치는 표시하지 않았습니다. 앱·CLI에서 선택한 계정으로 로그인하거나 조회 계정을 다시 선택해 주세요."
             )
         case .failed(let reason):
             let summary = AntigravityPopoverPresentationAdapter.failureSummary(reason)

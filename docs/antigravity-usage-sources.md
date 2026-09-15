@@ -1,6 +1,6 @@
 # Antigravity 사용량 소스와 설정 UX
 
-이 문서는 ClaudeUsage의 Antigravity provider가 어떤 근거로 로컬 앱, AGY CLI, Google OAuth 원격 quota를 다루는지 정리합니다. 구현을 바꿀 때는 이 문서와 테스트를 같이 갱신해야 합니다.
+이 문서는 ClaudeUsage의 Antigravity provider가 어떤 근거로 로컬 앱과 AGY CLI의 계정 및 quota를 다루는지 정리합니다. 구현을 바꿀 때는 이 문서와 테스트를 같이 갱신해야 합니다.
 
 source·account·process lifecycle 계약은 이 문서를 따릅니다. 실제 게시 버전과
 검증 상태는 `HANDOFF.md`, 미배포 작업은 `WORK_PLAN.md`를 확인합니다.
@@ -27,43 +27,34 @@ Antigravity 2.0은 기존 IDE와 분리된 standalone 앱입니다. AGY CLI는 `
 - 검증된 CLI만 필요 시 자동 실행합니다. 실행 직전에는 같은 파일 identity와 정적 서명을 다시 확인하고, 실행 중 프로세스도 동적 code requirement로 확인합니다.
 - Windows는 현재 제품 요구사항에서 제외합니다.
 
-## 2. CodexBar 조사에서 가져온 판단
+## 2. 설계 기준
 
-2.4.x 재작성 때 조사한 CodexBar 구현은 local app → AGY CLI → IDE → OAuth
-순서의 자동 probe, 선택 계정 guard, 소유한 AGY 프로세스만 정리하는 lifecycle을
-두고 있었습니다. 이 문장은 현재 CodexBar 최신 버전을 지속적으로 보증하는
-참조가 아니라 당시 설계 판단의 출처입니다.
+- 사용자는 조회할 제품을 선택합니다. 로그인 계정은 해당 제품의 인증된 응답에서 확인합니다.
+- 조회 전후의 identity가 같아야 수치를 표시합니다. 선택한 제품이 실패해도 다른 제품으로 넘어가지 않습니다.
+- 프로세스·서명·포트 소유권과 계정 경계는 각각 검증합니다.
+- 백그라운드 조회는 브라우저 로그인이나 Keychain 인증을 요청하지 않습니다.
+- Google OAuth 연결·원격 조회는 제공하지 않습니다. 숫자 quota가 없는 연결을 수치 조회의 대안으로 안내하지 않습니다.
+- Antigravity IDE는 지원 범위에 포함하지 않습니다.
 
-ClaudeUsage는 CodexBar와 호환을 목표로 하지 않습니다. 대신 아래 판단만 제품 방향으로 가져옵니다.
+## 3. 조회 대상과 현재 로그인 계정
 
-- Antigravity OAuth 토큰은 Keychain 전제보다 파일 기반 로컬 계정 저장이 사용성 측면에서 낫습니다.
-- Keychain prompt를 refresh 경로에 섞으면 메뉴바 앱의 백그라운드 갱신 UX가 나빠집니다.
-- 사용자는 데이터 소스를 고르는 대신 조회 계정만 고릅니다. 로컬 ambient 계정도 명시적인 선택지입니다.
-- 선택한 Google 계정과 local/CLI 응답 identity가 다르면 그 수치를 거부하고 다음 source로 진행합니다.
-- 로컬 앱 API가 quota window를 주지 않는 경우가 있으므로 원격 OAuth path가 필요합니다.
-- Google Cloud Code Assist 계열 원격 endpoint는 공개 안정 API가 아니므로 parser/request 코드는 테스트로 방어해야 합니다.
-- IDE extension 전용 probe는 이번 구현 범위에 포함하지 않습니다. 현재 ClaudeUsage가 검증하는 source는 local app, 외부 AGY, managed AGY, OAuth 네 가지입니다.
+사용자가 선택하는 값은 `AGY CLI` 또는 `Antigravity 독립 앱`입니다. 앱에서 Google 로그인이나 CLI 계정 전환을 대신 수행하지 않습니다.
 
-## 3. 자동 조회 정책
+- CLI: 검증된 실행 중 AGY를 확인하고, 사용할 연결이 없으면 검증된 managed AGY를 사용합니다.
+- 독립 앱: 해당 앱의 검증된 language server만 조회합니다. 앱이 꺼져 있거나 조회가 실패해도 CLI로 전환하지 않습니다.
+- 미선택: 조회하지 않고 사용할 제품을 안내합니다. Antigravity IDE는 선택지에 포함하지 않습니다.
 
-사용자가 고르는 값은 조회 계정 하나입니다.
+로그인 계정을 저장해 고정하지 않습니다. 선택한 제품에서 로그인한 계정이 바뀌면 이후 인증된 조회 결과의 계정과 수치를 함께 반영합니다. 수동 새로고침은 프로세스를 재탐색하고 managed CLI 인증을 재확인합니다. 정상 정기 조회는 현재 실행 세션을 재사용합니다.
 
-- `로컬 Antigravity/AGY 계정`: local app → 외부 AGY → 검증된 AGY 자동 실행 순서로 조회합니다.
-- 연결한 Google 계정: local app → 외부 AGY → 검증된 AGY 자동 실행 → 선택 계정 OAuth 순서로 조회합니다. local 결과의 identity가 선택 계정과 다르면 표시하지 않고 다음 source로 진행합니다.
+하나의 제품에 서로 다른 계정의 실행이 동시에 있거나 일부 연결의 계정을 확인할 수 없으면 실행 순서로 계정을 고르지 않습니다. 이전 실행을 종료하고 새로고침하도록 안내합니다. 두 계정의 사용량을 합산하지 않습니다.
 
-검증된 AGY가 없거나 서명 검증에 실패하면 managed source를 계획에 넣지
-않습니다. 검증된 AGY는 앞선 실행 중 source가 quota를 주지 못했을 때
-자동으로 시작하며, `managedSession.idleTimeoutSeconds`(기본 180초) 뒤에
-ClaudeUsage가 시작한 process tree만 정리합니다. 사용자가 시작한 프로세스는
-종료하지 않습니다.
+`GetUserStatus` → quota RPC → identity 확인 순서로 한 요청의 계정 경계를 검증합니다. 도중 계정이 바뀌면 남은 전체 시간 안에서 한 번만 다시 조회합니다. 변경이 반복되면 이전 수치를 숨깁니다. 새로운 계정이 확인된 뒤 quota 요청이 실패해도 이전 계정의 수치를 유지하지 않습니다. 같은 계정의 일시적 통신 실패에는 마지막 값과 확인 시각을 stale로 유지합니다.
 
-`AntigravityConnectionSettings` schema v2는 `managedSession`만 보존합니다.
-schema v1의 `sourcePolicy`와 `allowManagedCLI`, 더 오래된
-`antigravityUsageDataSource`는 migration에서 제거하고 idle timeout만
-보존합니다.
+`AntigravityConnectionSettings` schema v4는 managed 정책과 `usageTarget`만 저장합니다. 계정 주소, provider subject, PID, 포트, 인증 토큰을 조회 대상 설정에 넣지 않습니다. 화면에는 현재 조회의 로그인 계정을 표시하고, stale 데이터에는 ‘마지막 확인 계정’으로 구분합니다.
 
-quota 수치는 구조화된 localhost RPC와 Google OAuth 응답에서만 옵니다. `agy`
-TUI 문자열을 파싱해 수치를 만들지 않습니다.
+연결 설정 v1·v2·v3는 현재 형식으로 직접 이전합니다. 과거 선택한 이메일만으로 제품을 추측하지 않으며, 대상이 불명확하면 제품을 한 번 선택하도록 안내합니다. 이전의 명시적인 `agy_cli` 선택은 CLI로 보존하고, 신규 설치는 CLI로 시작합니다. 쓰기·read-back 검증 뒤에만 완료 marker를 올리고 실패하면 이전 설정을 복구합니다. 기존 자격증명과 표시 설정은 임의 삭제하지 않습니다.
+
+검증된 AGY가 없거나 서명이 거부되면 실행하지 않습니다. managed AGY는 기본 180초 idle timeout 뒤 앱 소유 process tree만 정리하며 외부 프로세스는 종료하지 않습니다. 수치는 인증된 localhost RPC 응답에서만 읽으며 TUI를 파싱하지 않습니다.
 
 ## 4. 로컬 앱 조회
 
@@ -95,79 +86,43 @@ TUI 문자열을 파싱해 수치를 만들지 않습니다.
 - borrowed AGY는 검증한 해당 프로세스의 명령행 토큰만 사용합니다. 토큰 없이 정상 응답하는 기존 CLI는 `cliTokenless`로 유지합니다. CSRF가 필요한데 토큰을 확보하지 못하면 `unavailable` 원인을 보존하고 다음 허용 소스로 넘어갑니다. 외부 프로세스는 종료하지 않습니다.
 - 정확한 401 Connect 오류의 `missing CSRF token` / `invalid CSRF token`은 Google 로그인 실패와 별도의 고정 오류 코드로 분류합니다. 원문 응답은 기록하지 않으며 readiness에서 계속 재시도해 timeout으로 바꾸지 않습니다.
 - 자동 조회에서 CSRF가 거부되면 owned 세션을 최대 한 번 재생성합니다. 수동 새로고침·재시도·계정 경계 변경은 외부 AGY 로그인 변경을 반영하기 위해 기존 owned 세션을 새로 만들며, 이것도 같은 한 번의 예산을 사용합니다. 정상 자동 조회는 기존 세션을 재사용합니다.
-- 인증 복구 후에도 응답 identity를 선택 계정과 대조합니다. 성공한 다른 소스가 없고 계정 불일치가 확인되면 후속 연결 오류보다 계정 불일치를 우선해 이전 값을 숨깁니다. 같은 계정의 단순 CSRF 실패는 마지막 성공 값과 시각을 stale로 유지합니다.
+- 인증 복구 후에도 조회 전후 identity를 대조합니다. 같은 조회에서 서로 다른 계정이 확인되면 이전 값을 숨깁니다. 계정 변경이 확인되지 않은 일시적 CSRF 실패는 마지막 성공 값과 시각을 stale로 유지합니다.
 - 외부 CLI의 로그인 변경은 명시적 새로고침에서 재확인합니다. 인증 파일 감시나 OAuth 저장 형식 변경은 추가하지 않습니다.
 
 인증 계약 검증은 격리한 동일 프로세스에서 헤더 없음→401, 올바른 헤더→인증된 identity와 숫자 quota, 다른 헤더→401을 확인합니다. CLI 버전이나 실행 파일 해시를 제품의 고정 허용 목록으로 사용하지 않습니다.
 
-## 5. Google OAuth 원격 조회
+## 5. Google 연결 제거와 이전 데이터
 
-책임 분리:
+2.5.1부터 Google 로그인, OAuth client 탐색, 원격 quota 요청, 토큰 갱신 경로를 제거합니다. 조회 요청·응답 타입에 OAuth 자격증명을 전달하지 않으며, 조회 coordinator는 자격증명을 읽거나 갱신할 수 없습니다.
 
-- `AntigravityOAuthLoginRunner`: 브라우저 + loopback OAuth 로그인
-- `AntigravityOAuthSupport`: credentials DTO, client discovery, legacy Keychain migration
-- `AntigravityOAuthFileStorage`: 파일/디렉터리 권한 고정
-- `AntigravityOAuthAccountStore`: 다중 Google 계정 저장과 active account 동기화
-- `AntigravityGoogleOAuthQuotaClient`: token refresh, project resolve, quota endpoint 호출과 계정 귀속 검증
-- `AntigravityQuotaSummaryDecoder`: 원격 응답을 quota snapshot으로 decode
+이전 계정 메타데이터는 로그인 선택 UI에 사용하지 않습니다. 어느 제품을 조회할지 분명하지 않은 구버전 설정은 조회 대상을 한 번 선택하도록 안내합니다.
 
-원격 endpoint:
-
-- `POST https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist`
-- `POST https://cloudcode-pa.googleapis.com/v1internal:onboardUser`
-- `POST https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels`
-- `POST https://cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota`
-
-기본 원격 후보는 실행 중인 Antigravity 프로세스가 노출한 endpoint를 먼저 존중하고, 없으면 `cloudcode-pa.googleapis.com`, `daily-cloudcode-pa.googleapis.com` 순서로 시도합니다. 첫 endpoint가 계정 정보만 내려주고 quota fraction을 주지 않으면 최종 성공으로 삼지 않고 다음 endpoint를 확인한 뒤, 모든 후보가 같은 상태일 때만 identity-only 응답으로 처리합니다.
-
-원격 조회는 Google OAuth access token을 사용합니다. access token이 없거나 만료 임박이면 refresh token으로 갱신합니다. project ID가 없으면 `loadCodeAssist` 응답, `onboardUser`, 재조회 순서로 project ID를 보완하고, 찾은 값은 credentials에 저장합니다. OAuth client는 명시 환경변수를 우선하고, 없으면 Antigravity 2.0 번들의 client 정보를 탐색합니다. 번들의 `language_server`에는 client id만 있고 실제 secret이 아닌 `GOCSPX...https` 문자열이 붙어 있을 수 있으므로, 번들 secret fallback은 길이와 경계를 검증한 후보만 사용합니다.
-
-`fetchAvailableModels` 가 403이거나, 200 응답이지만 usable usage fraction을 주지 않으면 `retrieveUserQuota` 를 fallback으로 시도합니다. 둘 다 403이면 인증 자체가 깨진 것으로 보지 않고 identity-only 상태를 허용합니다. 401은 재로그인이 필요한 인증 실패로 봅니다. `retrieveUserQuota` 가 비어 있거나 유효한 모델 bucket을 주지 않으면 정상 수치 미제공으로 삼키지 않고 parse failure로 처리합니다. 이 fallback endpoint는 shape 변화가 생겼을 때 조용히 identity-only로 퇴행하면 문제를 늦게 발견하기 때문입니다.
-
-모델 ID는 있지만 `remainingFraction` 이 없는 quota는 usage window로 만들지 않습니다. Antigravity 응답 shape가 바뀌어 사용량 값이 빠진 경우 0%/100% 같은 가짜 수치를 표시하지 않고, 계정/plan만 확인된 `quota 수치 미지원` 상태로 남깁니다.
-
-OAuth 로그인 callback은 loopback server로만 받습니다. callback parser는 `GET`, `Host: 127.0.0.1:<port>`, `/oauth2callback` path, OAuth `state` 를 모두 확인합니다.
-
-OAuth login은 loopback redirect와 PKCE(`S256`)를 사용합니다. 설치된 Antigravity.app에서 찾은 client는 공개 client 흐름을 먼저 시도한 뒤 Google이 client credential 오류를 반환하면 같은 client ID의 검증된 secret 후보를 순서대로 재시도합니다. 이 처리는 사용자가 별도 Google Cloud 프로젝트나 OAuth secret을 준비하지 않아도 로그인할 수 있게 하기 위한 방어입니다.
-
-OAuth client 정보는 아래 순서로 찾습니다.
-
-1. `ANTIGRAVITY_OAUTH_CLIENT_ID`, 선택적으로 `ANTIGRAVITY_OAUTH_CLIENT_SECRET`
-2. `/Applications/Antigravity.app/Contents/Resources/app/out/main.js`
-3. `/Applications/Antigravity.app/Contents/Resources/bin/language_server`
-4. 사용자 `~/Applications/Antigravity.app` 의 같은 경로
-
-Antigravity 2.0 language server에는 같은 client ID에 여러 secret 후보가 들어 있을 수 있으므로 token refresh에서 공개 client 요청과 같은 client ID의 secret 후보를 순서대로 재시도합니다.
+기존 계정 메타데이터와 자격증명은 임의 삭제하지 않습니다. 구형 저장본의 이전·복구·명시적 삭제에 필요한 저장소 코드는 유지합니다. 고급 진단의 ‘이전 연결 정보 삭제’는 이 자료만 정리하며 현재 조회 대상이나 외부 앱·CLI의 로그인을 변경하지 않습니다.
 
 ## 6. 저장소와 Keychain 정책
 
-Antigravity OAuth 저장 위치:
+현재 runtime은 조회 선택, 계정 메타데이터, 자격증명을 분리합니다.
 
-- prod active credential: `~/Library/Application Support/ClaudeUsage/Antigravity/oauth_creds.json`
-- prod account list: `~/Library/Application Support/ClaudeUsage/Antigravity/oauth_accounts.json`
-- staging root: `~/Library/Application Support/ClaudeUsage-stg/Antigravity`
-- 디렉터리 권한: `0700`
-- credential 파일 권한: `0600`
+- 조회 대상·표시 설정: 채널별 UserDefaults의 typed Antigravity 설정
+- 계정 메타데이터·원장: 채널별 Application Support의 `Antigravity` 디렉터리
+- 이전 버전의 Google OAuth 자격증명: 앱 bundle identifier를 service로 사용하는 Security.framework vault의 `oauth.antigravity.v2.<uuid>` 참조
+- managed CSRF: 메모리 전용이며 계정 저장소·원장에 기록하지 않음
 
-정책:
+운영과 staging은 각자의 앱 식별자와 저장 경로를 사용합니다. managed 실행 잠금만 공용 경로를 사용합니다. 조회 대상을 선택해도 OAuth 자격증명을 새로 만들거나 연결을 요구하지 않습니다.
 
-- Antigravity status 확인과 refresh 경로는 Keychain을 읽지 않습니다.
-- 신규 Antigravity OAuth token은 Keychain에 저장하지 않습니다.
-- 기존 사용자 호환을 위해 과거에 잘못 들어간 `antigravity-oauth-credentials` Keychain 항목만 앱 시작 시 1회 migration 대상으로 봅니다.
-- migration은 `LAContext.interactionNotAllowed` 와 no-UI Security query로만 시도합니다. macOS password prompt가 필요하면 건너뜁니다.
-- migration에 성공한 경우에만 파일 저장소로 옮긴 뒤 legacy Keychain 항목을 삭제합니다.
-- 파일 decode 실패나 prompt-free read 실패는 사용자의 Keychain 항목을 삭제하지 않습니다.
+이전 `oauth_creds.json`, `oauth_accounts.json`, 과거 Keychain 항목은 migration 입력입니다. 기존 자료를 읽고 정본 저장·read-back을 검증한 뒤 해당 이전 자료만 정리합니다. 권한·자료 충돌·손상이 있으면 원본을 보존하고 필요한 동작을 안내합니다. 무인 조회에서 인증 창을 반복 요청하지 않으며, 대화형 이전은 사용자 동작으로 진행합니다.
 
-이 정책은 “토큰이 secret이 아니어서”가 아니라, 메뉴바 앱의 자동 refresh에서 Keychain prompt가 뜨는 순간 UX와 안정성이 더 크게 깨지기 때문입니다. Antigravity에 대해서는 사용자가 명시적으로 ClaudeUsage OAuth를 연결하고, 앱은 그 결과를 제한 권한 파일로 관리합니다.
+2.5.1은 이 OAuth 자격증명 저장 형식을 변경하지 않습니다. 새 조회 대상 설정은 제품 구분만 저장합니다.
 
 ## 7. 설정 UX 기준
 
 설정 화면은 아래 상태를 분리해서 보여줘야 합니다.
 
-- 조회 계정: 로컬 ambient 계정 또는 연결된 Google 계정
+- 조회 대상: CLI 또는 독립 앱. 선택은 조회 실패·앱 재실행에도 유지
+- 로그인 계정: 선택한 제품에서 확인한 계정의 읽기 전용 표시
 - 로컬 앱 상태: 실행 중, 연결 가능, token/port 누락, 첫 성공 조회 여부
 - CLI 상태: 검증된 실행 파일 경로, 미감지, Google 서명 거부, 복구 실패
-- OAuth 상태: 연결 여부, active Google account, 계정 추가/선택/해제
+- 이전 연결 정보: 고급 진단에서 명시적으로 삭제 가능
 - 표시 설정: standard/compact 다중 lane 선택, 메뉴바 단일 lane 선택
 
 표시 원칙:
@@ -176,9 +131,8 @@ Antigravity OAuth 저장 위치:
 - quota 모델은 감지됐지만 usage fraction이 없으면 100%처럼 보이면 안 됩니다.
 - quota가 없고 identity만 있으면 메뉴바 숫자 대신 `!` 상태 마커를 표시하고, 팝오버/설정에서는 `계정 확인됨 · 수치 미지원` 계열 문구로 보여줍니다.
 - 후보 경로의 `agy`가 Google 서명 검증에 실패하면 자동 실행을 막고 `감지됐지만 Google 서명 검증 실패`로 보여줍니다.
-- CLI가 없어도 로컬 앱 조회와 Google OAuth 원격 조회는 사용할 수 있습니다.
-- Google 계정을 선택한 경우 Antigravity 앱 로그인만 OAuth 준비 완료로 취급하지 않습니다. ClaudeUsage에 연결한 해당 OAuth 계정이 있어야 합니다.
-- 로컬 계정을 선택한 경우 ClaudeUsage OAuth가 없어도 local runtime만 기준으로 판단합니다.
+- CLI가 없어도 실행 중인 로컬 앱에서 조회할 수 있습니다.
+- 조회 대상 변경은 이전 데이터를 즉시 숨기고 새 선택 저장 후 조회합니다. 저장 중에는 정기 조회가 이전 선택을 다시 읽지 않으며, 저장 후 같은 대상의 정기 조회가 시작돼도 선택 취소 오류로 처리하지 않습니다.
 - standard와 compact는 lane마다 표시 여부와 순서를 선택할 수 있습니다. compact의 `가장 제약 높은 순`은 단일 lane 필터가 아니라 보이는 lane 전체의 정렬 정책입니다.
 - built-in lane은 payload 전에도 편집할 수 있고, 현재 미관측 lane은 `지금 데이터 없음`으로 남깁니다. 새 unknown lane과 저장된 미관측 unknown lane도 stable ID를 유지합니다.
 - 메뉴 막대는 공간 제약 때문에 기존 단일 lane 선택을 유지합니다.
@@ -213,7 +167,6 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
 
 - `AntigravityStatusProbeTests`: 2.0 `language_server`, legacy binary, process priority, invalid port filtering
 - `AntigravityQuotaSummaryDecoderTests`: 구조화 RPC quota 응답 decode 계약
-- `AntigravityGoogleOAuthQuotaClientTests`: Google OAuth quota 조회와 계정 귀속 검증
 - `AntigravityQuotaPresentationMapperTests`: lane grouping, 미지원/불가 값, multi-lane 정렬, menu bar single lane, freshness
 - `AntigravityQuotaPresentationRenderingTests`: standard/compact 실제 렌더 폭, 다중 lane, 합성 0% 방지
 - `AntigravityRefreshCoordinatorTests`, `AntigravityRuntimeControllerTests`: 계정/세션 경계, stale 응답 차단, display mutation 직렬화
@@ -222,9 +175,7 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
 - `AntigravityDisplayAdapterTests`, `ProviderDisplayArchitectureTests`: known/unknown/unavailable lane, all-hidden, 1~6 compact row, Claude/Codex preference persistence, adapter status contract
 - `AntigravityDiscoverySecurityTests`, `AntigravityManagedCLI*Tests`, `AntigravityManagedProcessTreeTests`: 실행 image 신뢰, managed lifecycle, idle teardown
 - `AntigravityOAuthCredentialsStoreTests`: file-only status/load, legacy Keychain no-UI migration/delete
-- `AntigravityOAuthLoginRunnerTests`: loopback OAuth callback host/method/state 검증과 취소 정리
 - `AntigravityOAuthAccountStoreTests`: multi-account active credential 동기화
-- `AntigravityOAuthSettingsViewModelTests`: login cancel, account add/select/disconnect UX 상태
 - `ProviderEnvironmentDetectorTests`, `RuntimeProviderSettingsPresentationTests`, `PopoverViewModelTests`: 자동 조회 readiness 해석과 lane 경계
 
 원격 endpoint가 private/internal 성격이므로 “실패하지 않는다”보다 “응답 shape 변화가 어디에서 깨졌는지 빠르게 드러난다”가 테스트의 목적입니다.
@@ -232,8 +183,6 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
 ## 9. 운영 리스크
 
 - Antigravity 2.0/CLI는 출시 직후라 binary name, flag, endpoint response shape가 바뀔 수 있습니다.
-- Google Cloud Code Assist endpoint는 공개 안정 API가 아니므로 403/parse failure 증가 시 upstream 변경을 먼저 의심해야 합니다.
-- OAuth client discovery는 환경변수, Antigravity.app bundle 순서로 의존합니다. Antigravity bundle 구조가 바뀌면 환경변수 override가 우선 복구 수단입니다.
 - local language server port와 CSRF token은 재시작 때 바뀝니다. stale cache가 의심되면 `AntigravityStatusProbe.invalidateCache()` 경로와 retry를 먼저 확인합니다.
 - AGY CLI 설정 파일은 공식 문서상 JSON 파일입니다. 설정 내용을 임의로 수정하지 말고, 존재 여부와 경로 상태만 UX에 노출합니다.
 
@@ -275,7 +224,7 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
   local app → borrowed CLI → managed CLI 자동 조회 coordinator까지 검증합니다.
 - live 게이트는 모든 계정에 같은 종류·개수의 quota가 존재한다고 가정하지 않습니다. 없는 quota를 0%로 합성하지 않으며, 주기별 decode·렌더링은 fixture 테스트로 검증합니다.
 - 실제 계정 변경 검증은 `testUserDrivenAccountSwitchAtoBtoA`를 별도 실행합니다. `CLAUDEUSAGE_AGY_ACCOUNT_SWITCH_GATE`의 임시 디렉터리에서 `A1.ready`, `B.continue`/`B.ready`, `A2.continue`/`A2.ready` 마커만 교환하고 로그인은 사용자가 수행합니다. identity는 메모리에서만 비교하며 마커/로그에는 계정 주소나 토큰을 쓰지 않습니다.
-- 통합 `Scripts/release.sh`는 전체 XCTest 직후 두 필수 live 테스트(인증된 quota, 격리 실행 파일 교체)를 직접 실행합니다.
+- 통합 `Scripts/release.sh`는 전체 XCTest 직후 필수 live 테스트(인증된 quota, 격리 실행 파일 교체, OAuth 없는 로컬 선택·저장·세션 재사용)를 직접 실행합니다.
   XCTest의 skip 결과만으로는 AGY 배포 게이트를 통과한 것으로 보지 않습니다.
 
 ## 실행 파일 업데이트와 조회 복구
@@ -286,6 +235,6 @@ Antigravity 쪽 변경은 최소 아래 범위의 테스트를 유지해야 합�
 - 성공한 프로세스 탐색 캐시는 30초 동안 유지하되 매번 PID·실행 파일·포트 소유권을 재검증합니다. 수동 새로고침·재시도·계정 변경은 캐시를 우회하며 일반 자동 요청에 병합되지 않습니다.
 - 설정·팝오버는 실행 파일 없음/변경/검증 거부/정리 차단과 인증·시간 초과·응답 형식 오류를 구분합니다. 고급 진단에는 secret-free 원인 코드와 조회 시각을 표시합니다. 실패 시 마지막 성공 데이터는 stale로 유지하되 다른 계정의 값은 표시하지 않습니다.
 - 설치 파일 검증 시간은 전체 조회 시간에 포함됩니다. 검증 후 로컬 탐색에는 남은 전체 시간 안에서 최대 2초를 배정합니다.
-- Antigravity IDE는 이번 지원 범위에 포함하지 않습니다. 기존 앱 → borrowed AGY → managed AGY → 선택 계정 OAuth 순서를 유지합니다.
+- Antigravity IDE는 이번 지원 범위에 포함하지 않습니다. 독립 앱과 CLI의 조회 경로를 분리하고 선택한 제품의 현재 로그인만 표시합니다.
 - `AntigravityLiveAGYIntegrationTests/testRuntimeEnvironmentRecoversAfterOfficialBinaryReplacement`는 격리한 공식 AGY 복사본을 같은 경로의 새 inode로 교체하고 실제 quota 재조회를 검증합니다. 사용 중인 AGY 파일은 변경하지 않습니다.
-- 통합 릴리스 게이트는 실제 managed quota 조회와 파일 교체 후 quota 재조회 두 검사를 각각 완료합니다. 인증 완료 전에 종료하는 포트 전용 진단은 릴리스 게이트에서 실행하지 않습니다.
+- 통합 릴리스 게이트는 실제 managed quota 조회, 파일 교체 후 quota 재조회, 조회 대상 저장·현재 로그인·재사용 검사를 각각 완료합니다. 인증 완료 전에 종료하는 포트 전용 진단은 릴리스 게이트에서 실행하지 않습니다.

@@ -66,7 +66,7 @@ extension SettingsView {
                         for: .antigravity
                     ),
             title: "Antigravity 연결",
-            detail: "조회할 계정을 고르면 로컬 앱, AGY CLI, Google 계정 순서를 자동으로 결정합니다."
+            detail: "앱·CLI에서 확인한 로컬 계정을 선택하면 같은 계정의 사용량만 표시합니다."
         ) {
             VStack(
                 alignment: .leading,
@@ -127,29 +127,23 @@ extension SettingsView {
                     antigravityNoticeView(notice)
                 }
 
-                Picker(
-                    "조회 계정",
-                    selection:
-                        antigravityAccountSelection
-                ) {
-                    Text("로컬 Antigravity/AGY 계정")
-                        .tag(
-                            Optional<AntigravityAccountID>
-                                .none
-                        )
-                    ForEach(state.accounts) {
-                        account in
-                        Text(account.label)
-                            .tag(
-                                Optional(account.id)
-                            )
+                Picker("조회 대상", selection: antigravityUsageTargetSelection) {
+                    if state.usageTarget == .unselected {
+                        Text("조회 대상 선택").tag(AntigravityUsageTarget.unselected)
                     }
+                    Text("AGY CLI").tag(AntigravityUsageTarget.cli)
+                    Text("Antigravity 독립 앱").tag(AntigravityUsageTarget.app)
                 }
                 .pickerStyle(.menu)
                 .controlSize(.small)
-                .disabled(
-                    state.activity.isBusy
-                )
+                .disabled(state.activity.isBusy)
+
+                Text("로그인은 선택한 제품에서 변경해 주세요. 새로고침하면 해당 제품에서 확인한 계정과 사용량을 함께 갱신합니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Antigravity IDE는 아직 지원하지 않습니다.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 HStack(spacing: 8) {
                     Button("새로고침") {
@@ -165,70 +159,6 @@ extension SettingsView {
                         state.activity.isBusy
                     )
 
-                    Button(
-                        state.activity
-                            == .authenticating
-                            ? "로그인 진행 중"
-                            : (
-                                state.accounts
-                                    .isEmpty
-                                    ? "Google 계정 연결"
-                                    : "Google 계정 추가"
-                            )
-                    ) {
-                        Task {
-                            _ = await
-                                antigravitySettings
-                                .addAccount()
-                        }
-                    }
-                    .buttonStyle(
-                        .borderedProminent
-                    )
-                    .controlSize(.small)
-                    .disabled(
-                        state.activity.isBusy
-                    )
-
-                    if state.activity
-                        == .authenticating
-                    {
-                        Button("로그인 취소") {
-                            antigravitySettings
-                                .cancelOAuthLogin()
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                    } else {
-                        Button(
-                            state.accounts.count > 1
-                                ? "선택 계정 제거"
-                                : "Google 연결 해제"
-                        ) {
-                            pendingDestructiveAction =
-                                .disconnectAntigravityAccount
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .disabled(
-                            state.activeAccountID
-                                == nil
-                                || state.activity
-                                    .isBusy
-                        )
-
-                        if state.accounts.count > 1 {
-                            Button("모든 계정 제거") {
-                                pendingDestructiveAction =
-                                    .disconnectAllAntigravityAccounts
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                            .disabled(
-                                state.activity.isBusy
-                            )
-                        }
-                    }
                 }
 
                 DisclosureGroup("고급 진단") {
@@ -236,6 +166,16 @@ extension SettingsView {
                         alignment: .leading,
                         spacing: 8
                     ) {
+                        if !state.accounts.isEmpty {
+                            Text("이전 버전의 연결 정보는 현재 조회에 사용하지 않습니다.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Button("이전 연결 정보 삭제") {
+                                pendingDestructiveAction = .disconnectAllAntigravityAccounts
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(state.activity.isBusy)
+                        }
                         antigravityDiagnosticRow(
                             title: "저장 상태",
                             value:
@@ -287,69 +227,40 @@ extension SettingsView {
         }
     }
 
-    private var antigravityAccountSelection:
-        Binding<AntigravityAccountID?>
-    {
+    private var antigravityUsageTargetSelection: Binding<AntigravityUsageTarget> {
         Binding(
-            get: {
-                antigravitySettings.state
-                    .activeAccountID
-            },
-            set: { accountID in
-                Task {
-                    _ = await
-                        antigravitySettings
-                        .selectAccount(accountID)
-                }
-            }
-        )
+            get: { antigravitySettings.state.usageTarget },
+            set: { selection in
+                Task { _ = await antigravitySettings.selectTarget(selection) }
+            })
     }
 
-    @ViewBuilder
-    private func antigravityIdentitySummary(
-        _ state: AntigravitySettingsViewState
-    ) -> some View {
-        if case .content(let presentation) =
-            state.quotaPresentation
-        {
-            Text(
-                presentation.identityRail
-                    .visibleSegments
-                    .joined(separator: " · ")
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .help(
-                presentation.identityRail
-                    .tooltip
-            )
-            .accessibilityElement(
-                children: .ignore
-            )
-            .accessibilityLabel(
-                presentation.identityRail
-                    .accessibilityLabel
-            )
-            .accessibilityValue(
-                presentation.identityRail
-                    .accessibilityValue
-            )
-        } else if let account =
-            state.accounts.first(where: {
-                $0.isActive
-            })
-        {
-            Text(
-                [
-                    account.label,
-                    account.email,
-                ]
-                .compactMap { $0 }
-                .joined(separator: " · ")
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
+    private func antigravityIdentitySummary(_ state: AntigravitySettingsViewState) -> some View {
+        let identity: ProviderAccountIdentity?
+        let isPrevious: Bool
+        switch state.presentation {
+        case .ready(let quota), .partial(let quota, _):
+            identity = quota.identity ?? quota.provenance.accountIdentity
+            isPrevious = false
+        case .stale(let quota, _), .refreshing(previous: let quota?):
+            identity = quota.identity ?? quota.provenance.accountIdentity
+            isPrevious = true
+        case .limited(let value):
+            identity = value.evidence.identity
+            isPrevious = false
+        case .identityOnly(let value):
+            identity = value.identity
+            isPrevious = false
+        default:
+            identity = nil
+            isPrevious = false
         }
+        return LabeledContent(isPrevious ? "마지막 확인 계정" : "로그인 계정") {
+            Text(identity?.email ?? (identity == nil ? "확인 전" : "이메일 미제공"))
+                .textSelection(.enabled)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
 
     @ViewBuilder
@@ -433,8 +344,6 @@ extension SettingsView {
             "정리 계속"
         case .acknowledgeDisplayMigrationNotice:
             "확인"
-        case .cancelOAuthLogin:
-            "취소"
         }
     }
 
@@ -442,16 +351,13 @@ extension SettingsView {
         _ state: AntigravitySettingsViewState
     ) -> String {
         if state.activity.isBusy {
-            return state.activity
-                == .authenticating
-                ? "Google 로그인 진행 중"
-                : "Antigravity 상태 갱신 중"
+            return "Antigravity 상태 갱신 중"
         }
         switch state.presentation {
         case .ready, .partial:
             return "사용량 한도 조회됨"
         case .limited:
-            return "계정 연결됨"
+            return "로그인 계정 확인됨"
         case .identityOnly:
             return "계정만 확인됨"
         case .stale:
@@ -460,8 +366,12 @@ extension SettingsView {
             return "계정이 일치하지 않음"
         case .setupRequired(.managedRecoveryBlocked):
             return "이전 AGY 실행 정리 필요"
+        case .setupRequired(.usageTargetSelection):
+            return "조회 대상 선택 필요"
+        case .setupRequired(.ambiguousLocalSessions):
+            return "실행 중인 연결 확인 필요"
         case .setupRequired:
-            return "조회 계정 또는 로그인 필요"
+            return "로그인 필요"
         case .failed:
             return "사용량 조회 실패"
         case .refreshing:
@@ -484,19 +394,19 @@ extension SettingsView {
         case .limited:
             return "현재 연결은 계정과 기능만 확인하며 수치형 quota는 제공하지 않습니다."
         case .identityOnly:
-            return "Google 계정은 확인했지만 표시 가능한 quota 수치를 받지 못했습니다."
+            return "계정은 확인했지만 표시 가능한 사용량 수치를 받지 못했습니다."
         case .accountMismatch:
-            return "선택한 계정과 다른 세션의 숫자는 표시하지 않았습니다."
+            return "조회 중 계정이 달라져 이전 수치는 표시하지 않았습니다."
         case .setupRequired(.managedRecoveryBlocked):
             return "이전 AGY 실행 기록을 정리하지 못해 자동 실행이 중지됐습니다. Antigravity 앱이나 AGY CLI를 실행하면 조회는 가능합니다. ClaudeUsage를 재시동해 정리를 다시 시도해 주세요."
         case .setupRequired:
-            return "Google 계정을 연결하거나 로그인된 로컬 세션을 선택해 주세요."
+            return "조회 대상을 선택하고 해당 제품에서 로그인해 주세요."
         case .stale:
             return "새 조회가 실패해 마지막으로 검증된 데이터만 유지합니다."
         case .failed:
-            return "조회 계정, Antigravity 앱 또는 AGY CLI 로그인 상태를 확인해 주세요."
+            return "선택한 조회 대상의 로그인과 연결 상태를 확인해 주세요."
         case .refreshing:
-            return "선택한 계정에 맞는 조회 경로를 자동으로 다시 확인하고 있습니다."
+            return "선택한 제품의 로그인 계정과 사용량을 확인하고 있습니다."
         case .disabled:
             return "Antigravity 런타임을 준비하고 있습니다."
         case .ready, .partial:

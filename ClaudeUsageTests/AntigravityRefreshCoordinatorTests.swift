@@ -2,41 +2,110 @@ import XCTest
 @testable import ClaudeUsage
 
 final class AntigravityRefreshCoordinatorTests: XCTestCase {
-    func testMissingSelectedAccountFailsWithExplicitAccountID() async {
-        let repository = RefreshRepositoryDouble(
-            accounts: [],
-            activeAccountID: nil,
-            credentials: [:]
-        )
+    func testNewAuthenticatedAccountWithQuotaFailureNeverKeepsPreviousAccountData() async {
+        let previous = ProviderAccountIdentity(email: "old@example.com")
+        let next = ProviderAccountIdentity(email: "new@example.com")
+        for identity in [previous, next] {
+            let quota = makeSnapshot(identity: previous, source: .borrowedCLI)
+            let coordinator = AntigravityRefreshCoordinator(
+                repository: RefreshRepositoryDouble(accounts: [], activeAccountID: nil, credentials: [:]),
+                sources: [
+                    ScriptedRefreshSource(
+                        id: .borrowedCLI,
+                        script: RefreshSourceScript(outcomes: [
+                            .success(.init(payload: .grouped(quota))),
+                            .failure(.verifiedAccountFailure(identity, .transportFailure)),
+                        ]))
+                ])
+            _ = await coordinator.refresh(selectedRequest(revision: 0))
+            let result = await coordinator.refresh(selectedRequest(revision: 0))
+            if identity == previous {
+                XCTAssertEqual(result, .stale(quota, failure: .transportUnavailable(.borrowedCLI)))
+            } else {
+                XCTAssertEqual(result, .failed(.transportUnavailable(.borrowedCLI)))
+            }
+        }
+    }
+
+    func testUnselectedProductNeverProbesAnySource() async {
+        let script = RefreshSourceScript(outcomes: [.failure(.transportFailure)])
         let coordinator = AntigravityRefreshCoordinator(
-            repository: repository,
-            sources: []
-        )
+            repository: RefreshRepositoryDouble(accounts: [], activeAccountID: nil, credentials: [:]),
+            sources: [ScriptedRefreshSource(id: .borrowedCLI, script: script)])
+        let result = await coordinator.refresh(selectedRequest(target: .unselected, revision: 0))
+        let calls = await script.callCount()
+        XCTAssertEqual(result, .setupRequired(.usageTargetSelection))
+        XCTAssertEqual(calls, 0)
+    }
 
+    func testCLILoginChangeReplacesQuotaAndDoesNotRestoreItAfterLogout() async {
+        let a = makeSnapshot(identity: .init(email: "a@example.com"), source: .borrowedCLI)
+        let b = makeSnapshot(identity: .init(email: "b@example.com"), source: .borrowedCLI, fraction: 0.2)
+        let coordinator = AntigravityRefreshCoordinator(
+            repository: RefreshRepositoryDouble(accounts: [], activeAccountID: nil, credentials: [:]),
+            sources: [
+                ScriptedRefreshSource(
+                    id: .borrowedCLI,
+                    script: RefreshSourceScript(outcomes: [
+                        .success(.init(payload: .grouped(a))), .success(.init(payload: .grouped(b))),
+                        .failure(.authenticationRequired),
+                    ]))
+            ])
+        let request = AntigravityRefreshRequest(
+            trigger: .scheduled, repositoryRevision: 0,
+            connection: makeConnectionSettings(), managedLaunch: .disabled)
+        let first = await coordinator.refresh(request)
+        let second = await coordinator.refresh(request)
+        let loggedOut = await coordinator.refresh(request)
+        XCTAssertEqual(first, .ready(a))
+        XCTAssertEqual(second, .ready(b))
+        XCTAssertEqual(loggedOut, .failed(.authenticationRequired(.borrowedCLI)))
+    }
+
+    func testLocalSelectionRejectsOtherAccountWithoutRequiringOAuth() async {
+        let selected = ProviderAccountIdentity(stableAccountID: "a", email: "a@example.com")
+        let other = ProviderAccountIdentity(stableAccountID: "b", email: "b@example.com")
+        let expected = makeSnapshot(identity: selected, source: .borrowedCLI)
+        let coordinator = AntigravityRefreshCoordinator(
+            repository: RefreshRepositoryDouble(accounts: [], activeAccountID: nil, credentials: [:]),
+            sources: [
+                ScriptedRefreshSource(
+                    id: .localApp,
+                    script: RefreshSourceScript(outcomes: [
+                        .success(.init(payload: .grouped(makeSnapshot(identity: other, source: .localApp))))
+                    ])),
+                ScriptedRefreshSource(
+                    id: .borrowedCLI,
+                    script: RefreshSourceScript(outcomes: [
+                        .success(.init(payload: .grouped(expected)))
+                    ])),
+            ])
         let result = await coordinator.refresh(
-            AntigravityRefreshRequest(
-                trigger: .accountBoundaryChanged,
-                accountTarget: .selectedOAuth(
-                    AntigravityAccountID(
-                        rawValue: "missing"
-                    )
-                ),
-                repositoryRevision: 0,
-                connection: makeConnectionSettings(),
-                managedLaunch: .disabled
-            )
-        )
+            .init(
+                trigger: .manual, repositoryRevision: 0,
+                connection: makeConnectionSettings(), managedLaunch: .disabled))
+        XCTAssertEqual(result, .ready(expected))
+    }
 
-        XCTAssertEqual(
-            result,
-            .failed(
-                .selectedAccountUnavailable(
-                    AntigravityAccountID(
-                        rawValue: "missing"
-                    )
-                )
-            )
-        )
+    func testAppLoginChangeReplacesIdentityAndQuotaTogether() async {
+        let selected = ProviderAccountIdentity(stableAccountID: "a", email: "a@example.com")
+        let other = ProviderAccountIdentity(stableAccountID: "b", email: "b@example.com")
+        let coordinator = AntigravityRefreshCoordinator(
+            repository: RefreshRepositoryDouble(accounts: [], activeAccountID: nil, credentials: [:]),
+            sources: [
+                ScriptedRefreshSource(
+                    id: .localApp,
+                    script: RefreshSourceScript(outcomes: [
+                        .success(.init(payload: .grouped(makeSnapshot(identity: selected, source: .localApp)))),
+                        .success(.init(payload: .grouped(makeSnapshot(identity: other, source: .localApp)))),
+                    ]))
+            ])
+        let request = AntigravityRefreshRequest(
+            trigger: .scheduled, repositoryRevision: 0,
+            connection: makeConnectionSettings(target: .app), managedLaunch: .disabled)
+        _ = await coordinator.refresh(request)
+        let result = await coordinator.refresh(request)
+        XCTAssertEqual(result, .ready(makeSnapshot(identity: other, source: .localApp)))
     }
 
     func testUnavailableAmbientSourcesReturnLocalSessionSetup() async {
@@ -66,16 +135,15 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let result = await coordinator.refresh(
             AntigravityRefreshRequest(
                 trigger: .manual,
-                accountTarget: .ambientLocal,
                 repositoryRevision: 0,
-                connection: makeConnectionSettings(),
+                connection: makeConnectionSettings(target: .cli),
                 managedLaunch: .disabled
             )
         )
 
         XCTAssertEqual(
             result,
-            .setupRequired(.noAmbientLocalSession)
+            .failed(.sourceUnavailable(.borrowedCLI))
         )
     }
 
@@ -106,9 +174,8 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let result = await coordinator.refresh(
             AntigravityRefreshRequest(
                 trigger: .manual,
-                accountTarget: .ambientLocal,
                 repositoryRevision: 0,
-                connection: makeConnectionSettings(),
+                connection: makeConnectionSettings(target: .cli),
                 managedLaunch: .recoveryBlocked
             )
         )
@@ -150,7 +217,6 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let firstResultBox = RefreshPresentationResultBox()
         let firstRequest = AntigravityRefreshRequest(
             trigger: .manual,
-            accountTarget: .ambientLocal,
             repositoryRevision: 0,
             connection: makeConnectionSettings(
                 managedIdleTimeoutSeconds: 31
@@ -159,7 +225,6 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         )
         let secondRequest = AntigravityRefreshRequest(
             trigger: .manual,
-            accountTarget: .ambientLocal,
             repositoryRevision: 0,
             connection: makeConnectionSettings(
                 managedIdleTimeoutSeconds: 47
@@ -191,7 +256,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         XCTAssertEqual(completedFirst, .failed(.cancelled))
     }
 
-    func testOAuthAuthenticationFailureRemainsTyped() async {
+    func testLocalAuthenticationFailureRemainsTyped() async {
         let account = makeAccount(
             id: "account-a",
             subject: "subject-a",
@@ -206,7 +271,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             repository: repository,
             sources: [
                 ScriptedRefreshSource(
-                    id: .googleOAuth,
+                    id: .borrowedCLI,
                     script: RefreshSourceScript(outcomes: [
                         .failure(.authenticationRequired),
                     ])
@@ -216,14 +281,13 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
 
         let result = await coordinator.refresh(
             selectedRequest(
-                accountID: account.id,
-                revision: 0,
-                policy: .googleAccount
+
+                revision: 0
             )
         )
         XCTAssertEqual(
             result,
-            .failed(.authenticationRequired(.googleOAuth))
+            .failed(.authenticationRequired(.borrowedCLI))
         )
     }
 
@@ -236,19 +300,19 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         ] = [
             (
                 .deadlineExceeded,
-                .deadlineExceeded(.googleOAuth)
+                    .deadlineExceeded(.borrowedCLI)
             ),
             (
                 .malformedResponse,
-                .schemaChanged(.googleOAuth)
+                    .schemaChanged(.borrowedCLI)
             ),
             (
                 .transportFailure,
-                .transportUnavailable(.googleOAuth)
+                    .transportUnavailable(.borrowedCLI)
             ),
             (
                 .interactionRequired,
-                .interactionRequired(.googleOAuth)
+                    .interactionRequired(.borrowedCLI)
             ),
         ]
 
@@ -269,7 +333,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 repository: repository,
                 sources: [
                     ScriptedRefreshSource(
-                        id: .googleOAuth,
+                        id: .borrowedCLI,
                         script: RefreshSourceScript(outcomes: [
                             .failure(sourceError),
                         ])
@@ -279,9 +343,8 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
 
             let result = await coordinator.refresh(
                 selectedRequest(
-                    accountID: account.id,
-                    revision: 0,
-                    policy: .googleAccount
+
+                    revision: 0
                 )
             )
             XCTAssertEqual(
@@ -291,29 +354,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         }
     }
 
-    func testConfirmedLocalAccountMismatchClearsOldDataEvenWhenFallbackFails() async throws {
-        let account = makeAccount(id: "account-a", subject: "subject-a", email: "a@example.com")
-        let expected = account.externalIdentity.providerAccountIdentity
-        let other = ProviderAccountIdentity(stableAccountID: "subject-b", email: "b@example.com")
-        let previous = makeSnapshot(identity: expected, source: .localApp)
-        let local = RefreshSourceScript(outcomes: [
-            .success(.init(payload: .grouped(previous))),
-            .success(.init(payload: .grouped(makeSnapshot(identity: other, source: .localApp)))),
-        ])
-        let coordinator = AntigravityRefreshCoordinator(
-            repository: RefreshRepositoryDouble(accounts: [account], activeAccountID: account.id,
-                credentials: [account.id: makeCredentials("a")]),
-            sources: [ScriptedRefreshSource(id: .localApp, script: local),
-                      ScriptedRefreshSource(id: .googleOAuth,
-                        script: RefreshSourceScript(outcomes: [.failure(.transportFailure)]))])
-        let request = selectedRequest(accountID: account.id, revision: 0, policy: .automatic)
-        let first = await coordinator.refresh(request)
-        XCTAssertEqual(first, .ready(previous))
-        let second = await coordinator.refresh(request)
-        XCTAssertEqual(second, .accountMismatch(expected: expected, received: other))
-    }
-
-    func testSelectedAccountRejectsMismatchedLocalAndKeepsOAuthProvenance() async throws {
+    func testCLISelectionIgnoresTheDifferentAppAccount() async throws {
         let accountA = makeAccount(
             id: "account-a",
             subject: "subject-a",
@@ -323,27 +364,29 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             accounts: [accountA],
             activeAccountID: accountA.id,
             credentials: [
-                accountA.id: makeCredentials("a"),
+                accountA.id: makeCredentials("a")
             ]
         )
         let localScript = RefreshSourceScript(outcomes: [
-            .success(.init(payload: .grouped(
-                makeSnapshot(
-                    identity: .init(
-                        stableAccountID: "subject-b",
-                        email: "b@example.com"
-                    ),
-                    source: .localApp
-                )
-            ))),
+            .success(
+                .init(
+                    payload: .grouped(
+                        makeSnapshot(
+                            identity: .init(
+                                stableAccountID: "subject-b",
+                                email: "b@example.com"
+                            ),
+                            source: .localApp
+                        )
+                    )))
         ])
-        let oauthSnapshot = makeSnapshot(
+        let borrowedSnapshot = makeSnapshot(
             identity: accountA.externalIdentity
                 .providerAccountIdentity,
-            source: .googleOAuth
+            source: .borrowedCLI
         )
-        let oauthScript = RefreshSourceScript(outcomes: [
-            .success(.init(payload: .grouped(oauthSnapshot))),
+        let borrowedScript = RefreshSourceScript(outcomes: [
+            .success(.init(payload: .grouped(borrowedSnapshot)))
         ])
         let coordinator = AntigravityRefreshCoordinator(
             repository: repository,
@@ -353,34 +396,27 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                     script: localScript
                 ),
                 ScriptedRefreshSource(
-                    id: .googleOAuth,
-                    script: oauthScript
+                    id: .borrowedCLI,
+                    script: borrowedScript
                 ),
             ]
         )
 
         let result = await coordinator.refresh(
             selectedRequest(
-                accountID: accountA.id,
-                revision: 0,
-                policy: .automatic
+
+                revision: 0
             )
         )
 
-        XCTAssertEqual(result, .ready(oauthSnapshot))
+        XCTAssertEqual(result, .ready(borrowedSnapshot))
         let localCallCount = await localScript.callCount()
-        let oauthCallCount = await oauthScript.callCount()
-        let localAuthorizationFlags =
-            await localScript.authorizationFlags()
-        let oauthAuthorizationFlags =
-            await oauthScript.authorizationFlags()
-        XCTAssertEqual(localCallCount, 1)
-        XCTAssertEqual(oauthCallCount, 1)
-        XCTAssertEqual(localAuthorizationFlags, [false])
-        XCTAssertEqual(oauthAuthorizationFlags, [true])
+        let borrowedCallCount = await borrowedScript.callCount()
+        XCTAssertEqual(localCallCount, 0)
+        XCTAssertEqual(borrowedCallCount, 1)
     }
 
-    func testSelectedAccountRejectsIdentitylessLocalBeforeOAuthFallback() async throws {
+    func testAppSelectionDoesNotFallBackToCLIWhenIdentityIsMissing() async throws {
         let account = makeAccount(
             id: "account-a",
             subject: "subject-a",
@@ -395,10 +431,10 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             identity: nil,
             source: .localApp
         )
-        let oauth = makeSnapshot(
+        let borrowed = makeSnapshot(
             identity: account.externalIdentity
                 .providerAccountIdentity,
-            source: .googleOAuth
+            source: .borrowedCLI
         )
         let coordinator = AntigravityRefreshCoordinator(
             repository: repository,
@@ -406,16 +442,17 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 ScriptedRefreshSource(
                     id: .localApp,
                     script: RefreshSourceScript(outcomes: [
-                        .success(.init(
-                            payload: .grouped(identityless)
-                        )),
+                        .success(
+                            .init(
+                                payload: .grouped(identityless)
+                            ))
                     ])
                 ),
                 ScriptedRefreshSource(
-                    id: .googleOAuth,
+                    id: .borrowedCLI,
                     script: RefreshSourceScript(outcomes: [
                         .success(.init(
-                            payload: .grouped(oauth)
+                                payload: .grouped(borrowed)
                         )),
                     ])
                 ),
@@ -424,12 +461,12 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
 
         let result = await coordinator.refresh(
             selectedRequest(
-                accountID: account.id,
-                revision: 0,
-                policy: .automatic
+                target: .app,
+
+                revision: 0
             )
         )
-        XCTAssertEqual(result, .ready(oauth))
+        XCTAssertEqual(result, .failed(.sourceContractViolation(.localApp)))
     }
 
     func testIdentityOnlyResultPreservesPlanProvenanceAndTimestamp() async {
@@ -446,16 +483,16 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let observation = makeIdentityOnlyUsage(
             identity: account.externalIdentity
                 .providerAccountIdentity,
-            source: .googleOAuth
+            source: .borrowedCLI
         )
         let coordinator = AntigravityRefreshCoordinator(
             repository: repository,
             sources: [
                 ScriptedRefreshSource(
-                    id: .googleOAuth,
+                    id: .borrowedCLI,
                     script: RefreshSourceScript(outcomes: [
                         .success(.init(
-                            payload: .identityOnly(observation)
+                                payload: .identityOnly(observation)
                         )),
                     ])
                 ),
@@ -464,209 +501,12 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
 
         let result = await coordinator.refresh(
             selectedRequest(
-                accountID: account.id,
-                revision: 0,
-                policy: .googleAccount
+
+                revision: 0
             )
         )
 
         XCTAssertEqual(result, .identityOnly(observation))
-    }
-
-    func testLimitedOAuthEvidenceOutranksEarlierIdentityOnlyCandidate() async {
-        let account = makeAccount(
-            id: "account-a",
-            subject: "subject-a",
-            email: "a@example.com"
-        )
-        let identity = account.externalIdentity
-            .providerAccountIdentity
-        let repository = RefreshRepositoryDouble(
-            accounts: [account],
-            activeAccountID: account.id,
-            credentials: [account.id: makeCredentials("a")]
-        )
-        let identityOnly = makeIdentityOnlyUsage(
-            identity: identity,
-            source: .localApp
-        )
-        let limited =
-            makeGoogleOAuthLimitedCapability(
-                identity: identity
-            )
-        let coordinator = AntigravityRefreshCoordinator(
-            repository: repository,
-            sources: [
-                ScriptedRefreshSource(
-                    id: .localApp,
-                    script: RefreshSourceScript(outcomes: [
-                        .success(.init(
-                            payload: .identityOnly(identityOnly)
-                        )),
-                    ])
-                ),
-                ScriptedRefreshSource(
-                    id: .googleOAuth,
-                    script: RefreshSourceScript(outcomes: [
-                        .success(.init(
-                            payload: .limited(limited)
-                        )),
-                    ])
-                ),
-            ]
-        )
-
-        let result = await coordinator.refresh(
-            selectedRequest(
-                accountID: account.id,
-                revision: 0,
-                policy: .automatic
-            )
-        )
-
-        XCTAssertEqual(result, .limited(limited))
-    }
-
-    func testOAuthCredentialMutationCommitsWhenEarlierLocalLimitedPayloadWins() async {
-        let account = makeAccount(
-            id: "account-a",
-            subject: "subject-a",
-            email: "a@example.com"
-        )
-        let identity = account.externalIdentity
-            .providerAccountIdentity
-        let localLimited =
-            makeLocalLimitedCapability(identity: identity)
-        let oauthPayloads: [AntigravityUsageSourcePayload] = [
-            .limited(
-                makeGoogleOAuthLimitedCapability(
-                    identity: identity
-                )
-            ),
-            .identityOnly(
-                makeIdentityOnlyUsage(
-                    identity: identity,
-                    source: .googleOAuth
-                )
-            ),
-        ]
-
-        for (index, oauthPayload) in
-            oauthPayloads.enumerated()
-        {
-            let original = makeCredentials("old-\(index)")
-            let refreshed = makeCredentials("new-\(index)")
-            let repository = RefreshRepositoryDouble(
-                accounts: [account],
-                activeAccountID: account.id,
-                credentials: [account.id: original]
-            )
-            let coordinator = AntigravityRefreshCoordinator(
-                repository: repository,
-                sources: [
-                    ScriptedRefreshSource(
-                        id: .localApp,
-                        script: RefreshSourceScript(outcomes: [
-                            .success(.init(
-                                payload:
-                                    .limited(localLimited)
-                            )),
-                        ])
-                    ),
-                    ScriptedRefreshSource(
-                        id: .googleOAuth,
-                        script: RefreshSourceScript(outcomes: [
-                            .success(.init(
-                                payload: oauthPayload,
-                                refreshedCredential: refreshed
-                            )),
-                        ])
-                    ),
-                ]
-            )
-
-            let result = await coordinator.refresh(
-                selectedRequest(
-                    accountID: account.id,
-                    revision: 0,
-                    policy: .automatic
-                )
-            )
-
-            XCTAssertEqual(result, .limited(localLimited))
-            let stored = await repository.credentialsValue(
-                for: account.id
-            )
-            let state = await repository.stateValue()
-            let replaceCount =
-                await repository.replaceCountValue()
-            XCTAssertEqual(stored, refreshed)
-            XCTAssertEqual(state.revision, 1)
-            XCTAssertEqual(replaceCount, 1)
-        }
-    }
-
-    func testCoordinatorRejectsOAuthLimitedPayloadWithLocalEvidence() async {
-        let account = makeAccount(
-            id: "account-a",
-            subject: "subject-a",
-            email: "a@example.com"
-        )
-        let identity = account.externalIdentity
-            .providerAccountIdentity
-        let repository = RefreshRepositoryDouble(
-            accounts: [account],
-            activeAccountID: account.id,
-            credentials: [account.id: makeCredentials("a")]
-        )
-        let invalid =
-            AntigravityLimitedQuotaCapability.localLegacy(
-                evidence:
-                    AntigravityLegacyCapabilityEvidence(
-                        method: .getUserStatus,
-                        identity: identity,
-                        plan: "Pro",
-                        modelConfigCount: 1
-                    ),
-                fallbackReason:
-                    .groupedQuotaUnavailable,
-                provenance: makeProvenance(
-                    identity: identity,
-                    source: .googleOAuth,
-                    capability: .limitedQuota
-                ),
-                fetchedAt: Date(
-                    timeIntervalSince1970: 1_900_000_002
-                )
-            )
-        let coordinator = AntigravityRefreshCoordinator(
-            repository: repository,
-            sources: [
-                ScriptedRefreshSource(
-                    id: .googleOAuth,
-                    script: RefreshSourceScript(outcomes: [
-                        .success(.init(
-                            payload: .limited(invalid)
-                        )),
-                    ])
-                ),
-            ]
-        )
-
-        let result = await coordinator.refresh(
-            selectedRequest(
-                accountID: account.id,
-                revision: 0,
-                policy: .googleAccount
-            )
-        )
-
-        XCTAssertEqual(
-            result,
-            .failed(
-                .sourceContractViolation(.googleOAuth)
-            )
-        )
     }
 
     func testAmbientLocalUsesObservedIdentityWithoutChangingActiveOAuthAccount() async throws {
@@ -695,7 +535,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                     id: .localApp,
                     script: RefreshSourceScript(outcomes: [
                         .success(.init(
-                            payload: .grouped(localSnapshot)
+                                payload: .grouped(localSnapshot)
                         )),
                     ])
                 ),
@@ -705,9 +545,8 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let result = await coordinator.refresh(
             AntigravityRefreshRequest(
                 trigger: .manual,
-                accountTarget: .ambientLocal,
                 repositoryRevision: 0,
-                connection: makeConnectionSettings(),
+                connection: makeConnectionSettings(target: .app),
                 managedLaunch: .disabled
             )
         )
@@ -720,586 +559,19 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         XCTAssertEqual(replaceCount, 0)
     }
 
-    func testOAuthCredentialCASAdvancesOwnRevisionWithoutDiscardingUsageOrChangingActiveAccount() async throws {
-        let account = makeAccount(
-            id: "account-a",
-            subject: "subject-a",
-            email: "a@example.com"
-        )
-        let original = makeCredentials("old")
-        let refreshed = makeCredentials("new")
-        let repository = RefreshRepositoryDouble(
-            accounts: [account],
-            activeAccountID: account.id,
-            credentials: [account.id: original]
-        )
-        let snapshot = makeSnapshot(
-            identity: account.externalIdentity
-                .providerAccountIdentity,
-            source: .googleOAuth
-        )
-        let coordinator = AntigravityRefreshCoordinator(
-            repository: repository,
-            sources: [
-                ScriptedRefreshSource(
-                    id: .googleOAuth,
-                    script: RefreshSourceScript(outcomes: [
-                        .success(.init(
-                            payload: .grouped(snapshot),
-                            refreshedCredential: refreshed
-                        )),
-                    ])
-                ),
-            ]
-        )
-
-        let result = await coordinator.refresh(
-            selectedRequest(
-                accountID: account.id,
-                revision: 0,
-                policy: .googleAccount
-            )
-        )
-
-        XCTAssertEqual(result, .ready(snapshot))
-        let state = await repository.stateValue()
-        let storedCredentials =
-            await repository.credentialsValue(
-                for: account.id
-            )
-        let replaceCount =
-            await repository.replaceCountValue()
-        XCTAssertEqual(state.revision, 1)
-        XCTAssertEqual(state.activeAccountID, account.id)
-        XCTAssertEqual(storedCredentials, refreshed)
-        XCTAssertEqual(replaceCount, 1)
-    }
-
-    func testEquivalentStaleRequestWaitingBehindCommitRejoinsCompletedFlight() async throws {
-        let account = makeAccount(
-            id: "account-a",
-            subject: "subject-a",
-            email: "a@example.com"
-        )
-        let gate = RefreshRepositoryReplaceGate()
-        let repository = RefreshRepositoryDouble(
-            accounts: [account],
-            activeAccountID: account.id,
-            credentials: [account.id: makeCredentials("old")],
-            replaceBehavior: .waitBeforeCommit(gate)
-        )
-        let snapshot = makeSnapshot(
-            identity: account.externalIdentity
-                .providerAccountIdentity,
-            source: .googleOAuth
-        )
-        let coordinator = AntigravityRefreshCoordinator(
-            repository: repository,
-            sources: [
-                ScriptedRefreshSource(
-                    id: .googleOAuth,
-                    script: RefreshSourceScript(outcomes: [
-                        .success(.init(
-                            payload: .grouped(snapshot),
-                            refreshedCredential:
-                                makeCredentials("new")
-                        )),
-                    ])
-                ),
-            ]
-        )
-        let request = selectedRequest(
-            accountID: account.id,
-            revision: 0,
-            policy: .googleAccount
-        )
-
-        let first = Task {
-            await coordinator.refresh(request)
-        }
-        await gate.waitUntilStarted()
-        let equivalent = Task {
-            await coordinator.refresh(request)
-        }
-        await Task.yield()
-        await gate.resume()
-
-        let firstResult = await first.value
-        let equivalentResult = await equivalent.value
-        let replaceCount =
-            await repository.replaceCountValue()
-        let presentation =
-            await coordinator.presentationState()
-        XCTAssertEqual(firstResult, .ready(snapshot))
-        XCTAssertEqual(equivalentResult, .ready(snapshot))
-        XCTAssertEqual(replaceCount, 1)
-        XCTAssertEqual(presentation, .ready(snapshot))
-    }
-
-    func testCallerCancelledAtCredentialCommitBarrierReturnsBeforeCommitFinishes() async {
-        let account = makeAccount(
-            id: "account-a",
-            subject: "subject-a",
-            email: "a@example.com"
-        )
-        let gate = RefreshRepositoryReplaceGate()
-        let repository = RefreshRepositoryDouble(
-            accounts: [account],
-            activeAccountID: account.id,
-            credentials: [account.id: makeCredentials("old")],
-            replaceBehavior: .waitBeforeCommit(gate)
-        )
-        let snapshot = makeSnapshot(
-            identity: account.externalIdentity
-                .providerAccountIdentity,
-            source: .googleOAuth
-        )
-        let coordinator = AntigravityRefreshCoordinator(
-            repository: repository,
-            sources: [
-                ScriptedRefreshSource(
-                    id: .googleOAuth,
-                    script: RefreshSourceScript(outcomes: [
-                        .success(.init(
-                            payload: .grouped(snapshot),
-                            refreshedCredential:
-                                makeCredentials("new")
-                        )),
-                    ])
-                ),
-            ]
-        )
-        let request = selectedRequest(
-            accountID: account.id,
-            revision: 0,
-            policy: .googleAccount
-        )
-
-        let owner = Task {
-            await coordinator.refresh(request)
-        }
-        await gate.waitUntilStarted()
-
-        let completion = expectation(
-            description: "cancelled commit-barrier caller"
-        )
-        let resultBox = RefreshPresentationResultBox()
-        let barrierCaller = Task {
-            let result = await coordinator.refresh(request)
-            await resultBox.store(result)
-            completion.fulfill()
-            return result
-        }
-        while await coordinator
-            .credentialCommitWaiterCountForTesting() == 0
-        {
-            await Task.yield()
-        }
-
-        barrierCaller.cancel()
-        await fulfillment(of: [completion], timeout: 1)
-        let cancelledResult = await resultBox.value()
-        let replaceCountBeforeResume =
-            await repository.replaceCountValue()
-        XCTAssertEqual(
-            cancelledResult,
-            .failed(.cancelled)
-        )
-        XCTAssertEqual(replaceCountBeforeResume, 0)
-
-        await gate.resume()
-        let ownerResult = await owner.value
-        XCTAssertEqual(ownerResult, .ready(snapshot))
-    }
-
-    func testOwnerAndSharedWaiterCancellationDuringCommitReturnsImmediatelyButCommitReconciles() async {
-        let account = makeAccount(
-            id: "account-a",
-            subject: "subject-a",
-            email: "a@example.com"
-        )
-        let original = makeCredentials("old")
-        let refreshed = makeCredentials("new")
-        let repositoryGate = RefreshRepositoryReplaceGate()
-        let repository = RefreshRepositoryDouble(
-            accounts: [account],
-            activeAccountID: account.id,
-            credentials: [account.id: original],
-            replaceBehavior:
-                .waitBeforeCommit(repositoryGate)
-        )
-        let snapshot = makeSnapshot(
-            identity: account.externalIdentity
-                .providerAccountIdentity,
-            source: .googleOAuth
-        )
-        let sourceGate = BlockingRefreshSourceScript()
-        let coordinator = AntigravityRefreshCoordinator(
-            repository: repository,
-            sources: [
-                BlockingRefreshSource(
-                    id: .googleOAuth,
-                    script: sourceGate
-                ),
-            ]
-        )
-        let request = selectedRequest(
-            accountID: account.id,
-            revision: 0,
-            policy: .googleAccount
-        )
-        let ownerCompletion = expectation(
-            description: "cancelled owner"
-        )
-        let sharedCompletion = expectation(
-            description: "cancelled shared waiter"
-        )
-        let ownerBox = RefreshPresentationResultBox()
-        let sharedBox = RefreshPresentationResultBox()
-        let owner = Task {
-            let result = await coordinator.refresh(request)
-            await ownerBox.store(result)
-            ownerCompletion.fulfill()
-            return result
-        }
-        await sourceGate.waitUntilStarted()
-        let shared = Task {
-            let result = await coordinator.refresh(request)
-            await sharedBox.store(result)
-            sharedCompletion.fulfill()
-            return result
-        }
-        while await coordinator
-            .inFlightWaiterCountForTesting() < 2
-        {
-            await Task.yield()
-        }
-        await sourceGate.resume(
-            with: .init(
-                payload: .grouped(snapshot),
-                refreshedCredential: refreshed
-            )
-        )
-        await repositoryGate.waitUntilStarted()
-
-        owner.cancel()
-        shared.cancel()
-        await fulfillment(
-            of: [ownerCompletion, sharedCompletion],
-            timeout: 1
-        )
-        let ownerResult = await ownerBox.value()
-        let sharedResult = await sharedBox.value()
-        let storedBeforeResume =
-            await repository.credentialsValue(for: account.id)
-        XCTAssertEqual(ownerResult, .failed(.cancelled))
-        XCTAssertEqual(sharedResult, .failed(.cancelled))
-        XCTAssertEqual(storedBeforeResume, original)
-
-        let boundary = Task {
-            await coordinator.invalidateBoundary()
-        }
-        await repositoryGate.resume()
-        await boundary.value
-
-        let storedAfterCommit =
-            await repository.credentialsValue(for: account.id)
-        let revision = await repository.stateValue().revision
-        XCTAssertEqual(storedAfterCommit, refreshed)
-        XCTAssertEqual(revision, 1)
-    }
-
-    func testBoundaryInvalidationClearsImmediatelyAndPreventsPreBarrierEpochFromRestarting() async {
-        let account = makeAccount(
-            id: "account-a",
-            subject: "subject-a",
-            email: "a@example.com"
-        )
-        let repositoryGate = RefreshRepositoryReplaceGate()
-        let repository = RefreshRepositoryDouble(
-            accounts: [account],
-            activeAccountID: account.id,
-            credentials: [account.id: makeCredentials("old")],
-            replaceBehavior:
-                .waitBeforeCommit(repositoryGate)
-        )
-        let snapshot = makeSnapshot(
-            identity: account.externalIdentity
-                .providerAccountIdentity,
-            source: .googleOAuth
-        )
-        let sourceScript = RefreshSourceScript(outcomes: [
-            .success(.init(payload: .grouped(snapshot))),
-            .success(.init(
-                payload: .grouped(snapshot),
-                refreshedCredential: makeCredentials("new")
-            )),
-        ])
-        let coordinator = AntigravityRefreshCoordinator(
-            repository: repository,
-            sources: [
-                ScriptedRefreshSource(
-                    id: .googleOAuth,
-                    script: sourceScript
-                ),
-            ]
-        )
-        let manualRequest = selectedRequest(
-            accountID: account.id,
-            revision: 0,
-            policy: .googleAccount
-        )
-        let initial = await coordinator.refresh(manualRequest)
-        XCTAssertEqual(initial, .ready(snapshot))
-
-        let scheduledRequest = AntigravityRefreshRequest(
-            trigger: .scheduled,
-            accountTarget: .selectedOAuth(account.id),
-            repositoryRevision: 0,
-            connection: makeConnectionSettings(),
-            managedLaunch: .disabled
-        )
-        let commitOwner = Task {
-            await coordinator.refresh(scheduledRequest)
-        }
-        await repositoryGate.waitUntilStarted()
-        let preBoundaryPresentation =
-            await coordinator.presentationState()
-        XCTAssertEqual(
-            preBoundaryPresentation,
-            .refreshing(previous: snapshot)
-        )
-
-        let preBoundaryCaller = Task {
-            await coordinator.refresh(scheduledRequest)
-        }
-        while await coordinator
-            .credentialCommitWaiterCountForTesting() < 1
-        {
-            await Task.yield()
-        }
-        let boundary = Task {
-            await coordinator.invalidateBoundary()
-        }
-        while await coordinator
-            .credentialCommitWaiterCountForTesting() < 2
-        {
-            await Task.yield()
-        }
-
-        let invalidatedPresentation =
-            await coordinator.presentationState()
-        XCTAssertEqual(
-            invalidatedPresentation,
-            .refreshing(previous: nil)
-        )
-        await repositoryGate.resume()
-        await boundary.value
-        _ = await commitOwner.value
-        let preBoundaryResult = await preBoundaryCaller.value
-        let sourceCallCount = await sourceScript.callCount()
-        XCTAssertEqual(
-            preBoundaryResult,
-            .refreshing(previous: nil)
-        )
-        XCTAssertEqual(sourceCallCount, 2)
-    }
-
-    func testCommitFirstBoundaryOrderingReloadsRevisionBeforeAccountSwitchAndClearsOldUsage() async throws {
-        let accountA = makeAccount(
-            id: "account-a",
-            subject: "subject-a",
-            email: "a@example.com"
-        )
-        let accountB = makeAccount(
-            id: "account-b",
-            subject: "subject-b",
-            email: "b@example.com"
-        )
-        let gate = RefreshRepositoryReplaceGate()
-        let repository = RefreshRepositoryDouble(
-            accounts: [accountA, accountB],
-            activeAccountID: accountA.id,
-            credentials: [
-                accountA.id: makeCredentials("a-old"),
-                accountB.id: makeCredentials("b"),
-            ],
-            replaceBehavior: .waitBeforeCommit(gate)
-        )
-        let snapshot = makeSnapshot(
-            identity: accountA.externalIdentity
-                .providerAccountIdentity,
-            source: .googleOAuth
-        )
-        let coordinator = AntigravityRefreshCoordinator(
-            repository: repository,
-            sources: [
-                ScriptedRefreshSource(
-                    id: .googleOAuth,
-                    script: RefreshSourceScript(outcomes: [
-                        .success(.init(
-                            payload: .grouped(snapshot),
-                            refreshedCredential:
-                                makeCredentials("a-new")
-                        )),
-                    ])
-                ),
-            ]
-        )
-
-        let refreshTask = Task {
-            await coordinator.refresh(
-                selectedRequest(
-                    accountID: accountA.id,
-                    revision: 0,
-                    policy: .googleAccount
-                )
-            )
-        }
-        await gate.waitUntilStarted()
-        let boundaryTask = Task {
-            await coordinator.invalidateBoundary()
-        }
-        await Task.yield()
-        await gate.resume()
-        await boundaryTask.value
-        _ = await refreshTask.value
-
-        let reloaded = await repository.stateValue()
-        XCTAssertEqual(reloaded.revision, 1)
-        let switched = try await repository.switchActive(
-            to: accountB.id,
-            expectedRevision: reloaded.revision
-        )
-        XCTAssertEqual(switched.activeAccountID, accountB.id)
-        XCTAssertEqual(switched.revision, 2)
-        let storedCredentials =
-            await repository.credentialsValue(
-                for: accountA.id
-            )
-        let presentation =
-            await coordinator.presentationState()
-        XCTAssertEqual(
-            storedCredentials,
-            makeCredentials("a-new")
-        )
-        XCTAssertEqual(
-            presentation,
-            .refreshing(previous: nil)
-        )
-    }
-
-    func testPostCommitCleanupThrowReconcilesCommittedCredentialAndAppliesUsage() async {
-        let account = makeAccount(
-            id: "account-a",
-            subject: "subject-a",
-            email: "a@example.com"
-        )
-        let repository = RefreshRepositoryDouble(
-            accounts: [account],
-            activeAccountID: account.id,
-            credentials: [account.id: makeCredentials("old")],
-            replaceBehavior: .throwAfterCommit
-        )
-        let snapshot = makeSnapshot(
-            identity: account.externalIdentity
-                .providerAccountIdentity,
-            source: .googleOAuth
-        )
-        let coordinator = AntigravityRefreshCoordinator(
-            repository: repository,
-            sources: [
-                ScriptedRefreshSource(
-                    id: .googleOAuth,
-                    script: RefreshSourceScript(outcomes: [
-                        .success(.init(
-                            payload: .grouped(snapshot),
-                            refreshedCredential:
-                                makeCredentials("new")
-                        )),
-                    ])
-                ),
-            ]
-        )
-
-        let result = await coordinator.refresh(
-            selectedRequest(
-                accountID: account.id,
-                revision: 0,
-                policy: .googleAccount
-            )
-        )
-        XCTAssertEqual(result, .ready(snapshot))
-        let committed = await repository.stateValue()
-        XCTAssertEqual(committed.revision, 1)
-    }
-
-    func testPreCommitThrowReconcilesOriginalCredentialAsTypedFailure() async {
-        let account = makeAccount(
-            id: "account-a",
-            subject: "subject-a",
-            email: "a@example.com"
-        )
-        let repository = RefreshRepositoryDouble(
-            accounts: [account],
-            activeAccountID: account.id,
-            credentials: [account.id: makeCredentials("old")],
-            replaceBehavior: .throwBeforeCommit
-        )
-        let snapshot = makeSnapshot(
-            identity: account.externalIdentity
-                .providerAccountIdentity,
-            source: .googleOAuth
-        )
-        let coordinator = AntigravityRefreshCoordinator(
-            repository: repository,
-            sources: [
-                ScriptedRefreshSource(
-                    id: .googleOAuth,
-                    script: RefreshSourceScript(outcomes: [
-                        .success(.init(
-                            payload: .grouped(snapshot),
-                            refreshedCredential:
-                                makeCredentials("new")
-                        )),
-                    ])
-                ),
-            ]
-        )
-
-        let result = await coordinator.refresh(
-            selectedRequest(
-                accountID: account.id,
-                revision: 0,
-                policy: .googleAccount
-            )
-        )
-        let storedCredentials =
-            await repository.credentialsValue(
-                for: account.id
-            )
-        XCTAssertEqual(
-            result,
-            .failed(.credentialCommitFailed)
-        )
-        XCTAssertEqual(
-            storedCredentials,
-            makeCredentials("old")
-        )
-    }
-
     func testManualRefreshDoesNotJoinScheduledFlight() async throws {
         let account = makeAccount(id: "account-a", subject: "subject-a", email: "a@example.com")
         let repository = RefreshRepositoryDouble(accounts: [account], activeAccountID: account.id,
             credentials: [account.id: makeCredentials("a")])
-        let snapshot = makeSnapshot(identity: account.externalIdentity.providerAccountIdentity, source: .googleOAuth)
+        let snapshot = makeSnapshot(identity: account.externalIdentity.providerAccountIdentity, source: .borrowedCLI)
         let source = DiscoveryPolicySource(snapshot: snapshot)
         let coordinator = AntigravityRefreshCoordinator(repository: repository, sources: [source])
-        let scheduled = AntigravityRefreshRequest(trigger: .scheduled, accountTarget: .selectedOAuth(account.id),
-            repositoryRevision: 0, connection: makeConnectionSettings(), managedLaunch: .disabled)
+        let scheduled = AntigravityRefreshRequest(
+            trigger: .scheduled, repositoryRevision: 0, connection: makeConnectionSettings(target: .cli),
+            managedLaunch: .disabled)
         let first = Task { await coordinator.refresh(scheduled) }
         await source.waitUntilStarted()
-        let manual = selectedRequest(accountID: account.id, revision: 0, policy: .googleAccount)
+        let manual = selectedRequest(revision: 0)
         let result = await coordinator.refresh(manual)
         _ = await first.value
         let calls = await source.calls
@@ -1321,22 +593,21 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let snapshot = makeSnapshot(
             identity: account.externalIdentity
                 .providerAccountIdentity,
-            source: .googleOAuth
+            source: .borrowedCLI
         )
         let gate = BlockingRefreshSourceScript()
         let coordinator = AntigravityRefreshCoordinator(
             repository: repository,
             sources: [
                 BlockingRefreshSource(
-                    id: .googleOAuth,
+                    id: .borrowedCLI,
                     script: gate
                 ),
             ]
         )
         let request = selectedRequest(
-            accountID: account.id,
-            revision: 0,
-            policy: .googleAccount
+
+            revision: 0
         )
 
         async let first = coordinator.refresh(request)
@@ -1366,22 +637,21 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let snapshot = makeSnapshot(
             identity: account.externalIdentity
                 .providerAccountIdentity,
-            source: .googleOAuth
+            source: .borrowedCLI
         )
         let gate = BlockingRefreshSourceScript()
         let coordinator = AntigravityRefreshCoordinator(
             repository: repository,
             sources: [
                 BlockingRefreshSource(
-                    id: .googleOAuth,
+                    id: .borrowedCLI,
                     script: gate
                 ),
             ]
         )
         let request = selectedRequest(
-            accountID: account.id,
-            revision: 0,
-            policy: .googleAccount
+
+            revision: 0
         )
 
         let cancelled = Task {
@@ -1412,7 +682,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         XCTAssertEqual(presentation, .ready(snapshot))
     }
 
-    func testCancellingOnlyWaiterCancelsSourceAndRejectsLateCredential() async throws {
+    func testCancellingOnlyWaiterCancelsSourceAndRejectsLateUsage() async throws {
         let account = makeAccount(
             id: "account-a",
             subject: "subject-a",
@@ -1427,22 +697,21 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let snapshot = makeSnapshot(
             identity: account.externalIdentity
                 .providerAccountIdentity,
-            source: .googleOAuth
+            source: .borrowedCLI
         )
         let gate = BlockingRefreshSourceScript()
         let coordinator = AntigravityRefreshCoordinator(
             repository: repository,
             sources: [
                 BlockingRefreshSource(
-                    id: .googleOAuth,
+                    id: .borrowedCLI,
                     script: gate
                 ),
             ]
         )
         let request = selectedRequest(
-            accountID: account.id,
-            revision: 0,
-            policy: .googleAccount
+
+            revision: 0
         )
 
         let caller = Task {
@@ -1469,8 +738,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
 
         await gate.resume(
             with: .init(
-                payload: .grouped(snapshot),
-                refreshedCredential: makeCredentials("late")
+                payload: .grouped(snapshot)
             )
         )
         await gate.waitUntilFinished()
@@ -1504,7 +772,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let snapshot = makeSnapshot(
             identity: account.externalIdentity
                 .providerAccountIdentity,
-            source: .googleOAuth
+            source: .borrowedCLI
         )
         let sourceGate = BlockingRefreshSourceScript()
         let coordinator = AntigravityRefreshCoordinator(
@@ -1517,15 +785,14 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             ),
             sources: [
                 BlockingRefreshSource(
-                    id: .googleOAuth,
+                    id: .borrowedCLI,
                     script: sourceGate
                 ),
             ]
         )
         let request = selectedRequest(
-            accountID: account.id,
-            revision: 0,
-            policy: .googleAccount
+
+            revision: 0
         )
         let callerCompletion = expectation(
             description: "quiesced caller"
@@ -1561,100 +828,6 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         XCTAssertEqual(completedCaller, .failed(.cancelled))
     }
 
-    func testCancelledQuiesceLeavesShutdownClosedWhileCredentialCommitSettles() async {
-        let account = makeAccount(
-            id: "account-a",
-            subject: "subject-a",
-            email: "a@example.com"
-        )
-        let original = makeCredentials("old")
-        let refreshed = makeCredentials("new")
-        let repositoryGate = RefreshRepositoryReplaceGate()
-        let repository = RefreshRepositoryDouble(
-            accounts: [account],
-            activeAccountID: account.id,
-            credentials: [account.id: original],
-            replaceBehavior:
-                .waitBeforeCommit(repositoryGate)
-        )
-        let snapshot = makeSnapshot(
-            identity: account.externalIdentity
-                .providerAccountIdentity,
-            source: .googleOAuth
-        )
-        let coordinator = AntigravityRefreshCoordinator(
-            repository: repository,
-            sources: [
-                ScriptedRefreshSource(
-                    id: .googleOAuth,
-                    script: RefreshSourceScript(outcomes: [
-                        .success(.init(
-                            payload: .grouped(snapshot),
-                            refreshedCredential: refreshed
-                        )),
-                    ])
-                ),
-            ]
-        )
-        let request = selectedRequest(
-            accountID: account.id,
-            revision: 0,
-            policy: .googleAccount
-        )
-        let ownerCompletion = expectation(
-            description: "commit owner quiesced"
-        )
-        let ownerResultBox = RefreshPresentationResultBox()
-        let owner = Task {
-            let result = await coordinator.refresh(request)
-            await ownerResultBox.store(result)
-            ownerCompletion.fulfill()
-            return result
-        }
-        await repositoryGate.waitUntilStarted()
-
-        let quiesceCompletion = expectation(
-            description: "cancelled quiesce"
-        )
-        let quiesce = Task {
-            await coordinator.quiesceForShutdown()
-            quiesceCompletion.fulfill()
-        }
-        while await coordinator
-            .credentialCommitWaiterCountForTesting() < 1
-        {
-            await Task.yield()
-        }
-        await fulfillment(of: [ownerCompletion], timeout: 1)
-        quiesce.cancel()
-        await fulfillment(of: [quiesceCompletion], timeout: 1)
-
-        let ownerResult = await ownerResultBox.value()
-        let storedBeforeCommit =
-            await repository.credentialsValue(for: account.id)
-        let rejected = await coordinator.refresh(request)
-        XCTAssertEqual(ownerResult, .failed(.cancelled))
-        XCTAssertEqual(storedBeforeCommit, original)
-        XCTAssertEqual(rejected, .failed(.appShuttingDown))
-
-        await repositoryGate.resume()
-        await coordinator.quiesceForShutdown()
-
-        let storedAfterCommit =
-            await repository.credentialsValue(for: account.id)
-        let repositoryState = await repository.stateValue()
-        let finalPresentation =
-            await coordinator.presentationState()
-        XCTAssertEqual(storedAfterCommit, refreshed)
-        XCTAssertEqual(repositoryState.revision, 1)
-        XCTAssertEqual(
-            finalPresentation,
-            .failed(.appShuttingDown)
-        )
-        let completedOwner = await owner.value
-        XCTAssertEqual(completedOwner, .failed(.cancelled))
-    }
-
     func testNormalFailureKeepsLastGoodButBoundaryFailureClearsIt() async throws {
         let account = makeAccount(
             id: "account-a",
@@ -1669,7 +842,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let snapshot = makeSnapshot(
             identity: account.externalIdentity
                 .providerAccountIdentity,
-            source: .googleOAuth
+            source: .borrowedCLI
         )
         let script = RefreshSourceScript(outcomes: [
             .success(.init(payload: .grouped(snapshot))),
@@ -1680,7 +853,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             repository: repository,
             sources: [
                 ScriptedRefreshSource(
-                    id: .googleOAuth,
+                    id: .borrowedCLI,
                     script: script
                 ),
             ]
@@ -1688,9 +861,8 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
 
         let initial = await coordinator.refresh(
             selectedRequest(
-                accountID: account.id,
-                revision: 0,
-                policy: .googleAccount
+
+                revision: 0
             )
         )
         XCTAssertEqual(initial, .ready(snapshot))
@@ -1698,9 +870,8 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let stale = await coordinator.refresh(
             AntigravityRefreshRequest(
                 trigger: .scheduled,
-                accountTarget: .selectedOAuth(account.id),
                 repositoryRevision: 0,
-                connection: makeConnectionSettings(),
+                connection: makeConnectionSettings(target: .cli),
                 managedLaunch: .disabled
             )
         )
@@ -1708,22 +879,21 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             stale,
             .stale(
                 snapshot,
-                failure: .sourceUnavailable(.googleOAuth)
+                failure: .sourceUnavailable(.borrowedCLI)
             )
         )
 
         let cleared = await coordinator.refresh(
             AntigravityRefreshRequest(
                 trigger: .accountBoundaryChanged,
-                accountTarget: .selectedOAuth(account.id),
                 repositoryRevision: 0,
-                connection: makeConnectionSettings(),
+                connection: makeConnectionSettings(target: .cli),
                 managedLaunch: .disabled
             )
         )
         XCTAssertEqual(
             cleared,
-            .failed(.sourceUnavailable(.googleOAuth))
+            .failed(.sourceUnavailable(.borrowedCLI))
         )
     }
 
@@ -1741,7 +911,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let snapshot = makeSnapshot(
             identity: account.externalIdentity
                 .providerAccountIdentity,
-            source: .googleOAuth
+            source: .borrowedCLI
         )
         let script = RefreshSourceScript(outcomes: [
             .success(.init(payload: .grouped(snapshot))),
@@ -1752,7 +922,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             repository: repository,
             sources: [
                 ScriptedRefreshSource(
-                    id: .googleOAuth,
+                    id: .borrowedCLI,
                     script: script
                 ),
             ]
@@ -1760,9 +930,8 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
 
         let initial = await coordinator.refresh(
             selectedRequest(
-                accountID: account.id,
-                revision: 0,
-                policy: .googleAccount
+
+                revision: 0
             )
         )
         XCTAssertEqual(initial, .ready(snapshot))
@@ -1770,9 +939,8 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let stale = await coordinator.refresh(
             AntigravityRefreshRequest(
                 trigger: .scheduled,
-                accountTarget: .selectedOAuth(account.id),
                 repositoryRevision: 0,
-                connection: makeConnectionSettings(),
+                connection: makeConnectionSettings(target: .cli),
                 managedLaunch: .disabled
             )
         )
@@ -1780,136 +948,52 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             stale,
             .stale(
                 snapshot,
-                failure: .localAuthentication(.googleOAuth, .rejected)
+                failure: .localAuthentication(.borrowedCLI, .rejected)
             )
         )
 
         let cleared = await coordinator.refresh(
             AntigravityRefreshRequest(
                 trigger: .accountBoundaryChanged,
-                accountTarget: .selectedOAuth(account.id),
                 repositoryRevision: 0,
-                connection: makeConnectionSettings(),
+                connection: makeConnectionSettings(target: .cli),
                 managedLaunch: .disabled
             )
         )
         XCTAssertEqual(
             cleared,
-            .failed(.localAuthentication(.googleOAuth, .rejected))
+            .failed(.localAuthentication(.borrowedCLI, .rejected))
         )
     }
 
-    func testBoundaryCancellationDiscardsLateUsageAndRefreshedCredential() async throws {
-        let accountA = makeAccount(
-            id: "account-a",
-            subject: "subject-a",
-            email: "a@example.com"
-        )
-        let accountB = makeAccount(
-            id: "account-b",
-            subject: "subject-b",
-            email: "b@example.com"
-        )
-        let repository = RefreshRepositoryDouble(
-            accounts: [accountA, accountB],
-            activeAccountID: accountA.id,
-            credentials: [
-                accountA.id: makeCredentials("a-old"),
-                accountB.id: makeCredentials("b"),
-            ]
-        )
-        let aSnapshot = makeSnapshot(
-            identity: accountA.externalIdentity
-                .providerAccountIdentity,
-            source: .googleOAuth
-        )
-        let bSnapshot = makeSnapshot(
-            identity: accountB.externalIdentity
-                .providerAccountIdentity,
-            source: .googleOAuth
-        )
-        let script = AccountSwitchRefreshSourceScript(
-            blockedAccountID: accountA.id,
-            immediateResponses: [
-                accountB.id: .init(
-                    payload: .grouped(bSnapshot)
-                ),
-            ]
-        )
+    func testTargetChangeDiscardsLateUsageFromThePreviousProduct() async throws {
+        let appIdentity = ProviderAccountIdentity(email: "app@example.com")
+        let cliIdentity = ProviderAccountIdentity(email: "cli@example.com")
+        let appQuota = makeSnapshot(identity: appIdentity, source: .localApp)
+        let cliQuota = makeSnapshot(identity: cliIdentity, source: .borrowedCLI)
+        let gate = BlockingRefreshSourceScript()
         let coordinator = AntigravityRefreshCoordinator(
-            repository: repository,
+            repository: RefreshRepositoryDouble(accounts: [], activeAccountID: nil, credentials: [:]),
             sources: [
-                AccountSwitchRefreshSource(script: script),
-            ]
-        )
-
-        let oldCompletion = expectation(
-            description: "superseded noncooperative caller"
-        )
-        let oldResultBox = RefreshPresentationResultBox()
-        let oldTask = Task {
-            let result = await coordinator.refresh(
-                selectedRequest(
-                    accountID: accountA.id,
-                    revision: 0,
-                    policy: .googleAccount
-                )
-            )
-            await oldResultBox.store(result)
-            oldCompletion.fulfill()
-            return result
-        }
-        await script.waitUntilBlockedRequestStarts()
+                BlockingRefreshSource(id: .localApp, script: gate),
+                ScriptedRefreshSource(
+                    id: .borrowedCLI,
+                    script: RefreshSourceScript(outcomes: [
+                        .success(.init(payload: .grouped(cliQuota)))
+                    ])),
+            ])
+        let old = Task { await coordinator.refresh(selectedRequest(target: .app, revision: 0)) }
+        await gate.waitUntilStarted()
         await coordinator.invalidateBoundary()
-        await fulfillment(of: [oldCompletion], timeout: 1)
-        let oldResult = await oldResultBox.value()
-        XCTAssertEqual(oldResult, .failed(.cancelled))
-
-        let newState = try await repository.switchActive(
-            to: accountB.id,
-            expectedRevision: 0
-        )
-
-        async let newResult = coordinator.refresh(
-            selectedRequest(
-                accountID: accountB.id,
-                revision: newState.revision,
-                policy: .googleAccount
-            )
-        )
-        await script.resumeBlockedRequest(
-            with: .init(
-                payload: .grouped(aSnapshot),
-                refreshedCredential:
-                    makeCredentials("a-late")
-            )
-        )
-
-        let newPresentation = await newResult
-        let completedOldResult = await oldTask.value
-        XCTAssertEqual(
-            completedOldResult,
-            .failed(.cancelled)
-        )
-        let replaceCount =
-            await repository.replaceCountValue()
-        let oldCredentials =
-            await repository.credentialsValue(
-                for: accountA.id
-            )
-        let presentation =
-            await coordinator.presentationState()
-        XCTAssertEqual(newPresentation, .ready(bSnapshot))
-        XCTAssertEqual(replaceCount, 0)
-        XCTAssertEqual(
-            oldCredentials,
-            makeCredentials("a-old")
-        )
-        XCTAssertEqual(
-            presentation,
-            .ready(bSnapshot)
-        )
+        let current = await coordinator.refresh(selectedRequest(target: .cli, revision: 0))
+        await gate.resume(with: .init(payload: .grouped(appQuota)))
+        let cancelled = await old.value
+        let final = await coordinator.presentationState()
+        XCTAssertEqual(cancelled, .failed(.cancelled))
+        XCTAssertEqual(current, .ready(cliQuota))
+        XCTAssertEqual(final, .ready(cliQuota))
     }
+
 }
 
 private actor RefreshPresentationResultBox {
@@ -1931,15 +1015,12 @@ private actor RefreshRepositoryDouble:
     private var credentials:
         [AntigravityAccountID: AntigravityOAuthCredentials]
     private var replaceCount = 0
-    private let replaceBehavior: RefreshRepositoryReplaceBehavior
 
     init(
         accounts: [AntigravityStoredAccount],
         activeAccountID: AntigravityAccountID?,
         credentials:
-            [AntigravityAccountID: AntigravityOAuthCredentials],
-        replaceBehavior:
-            RefreshRepositoryReplaceBehavior = .normal
+            [AntigravityAccountID: AntigravityOAuthCredentials]
     ) {
         storedState = AntigravityAccountRepositoryState(
             revision: 0,
@@ -1947,7 +1028,6 @@ private actor RefreshRepositoryDouble:
             accounts: accounts
         )
         self.credentials = credentials
-        self.replaceBehavior = replaceBehavior
     }
 
     func state() async throws -> AntigravityAccountRepositoryState {
@@ -1975,14 +1055,6 @@ private actor RefreshRepositoryDouble:
         externalIdentity: AntigravityExternalAccountIdentity?,
         expectedRevision: UInt64
     ) async throws -> AntigravityAccountRepositoryState {
-        switch replaceBehavior {
-        case .throwBeforeCommit:
-            throw RefreshRepositoryFault.injected
-        case .waitBeforeCommit(let gate):
-            await gate.markStartedAndWait()
-        case .normal, .throwAfterCommit:
-            break
-        }
         guard storedState.revision == expectedRevision else {
             throw AntigravityAccountRepositoryError
                 .revisionConflict(
@@ -1999,9 +1071,6 @@ private actor RefreshRepositoryDouble:
         replaceCount += 1
         self.credentials[accountID] = credentials
         storedState.revision += 1
-        if case .throwAfterCommit = replaceBehavior {
-            throw RefreshRepositoryFault.injected
-        }
         return storedState
     }
 
@@ -2036,62 +1105,13 @@ private actor RefreshRepositoryDouble:
     }
 }
 
-private enum RefreshRepositoryFault: Error {
-    case injected
-}
-
-private enum RefreshRepositoryReplaceBehavior:
-    Sendable
-{
-    case normal
-    case throwBeforeCommit
-    case throwAfterCommit
-    case waitBeforeCommit(RefreshRepositoryReplaceGate)
-}
-
-private actor RefreshRepositoryReplaceGate {
-    private var started = false
-    private var startedWaiters:
-        [CheckedContinuation<Void, Never>] = []
-    private var resumeContinuation:
-        CheckedContinuation<Void, Never>?
-
-    func markStartedAndWait() async {
-        started = true
-        let waiters = startedWaiters
-        startedWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
-        }
-        await withCheckedContinuation {
-            resumeContinuation = $0
-        }
-    }
-
-    func waitUntilStarted() async {
-        guard !started else { return }
-        await withCheckedContinuation {
-            startedWaiters.append($0)
-        }
-    }
-
-    func resume() {
-        resumeContinuation?.resume()
-        resumeContinuation = nil
-    }
-}
-
 private actor RefreshSourceScript {
-    struct Call: Sendable {
-        let hasOAuthAuthorization: Bool
-    }
-
     private var outcomes:
         [Result<
             AntigravityUsageSourceResponse,
             AntigravityUsageSourceError
         >]
-    private var calls: [Call] = []
+    private var calls = 0
 
     init(
         outcomes: [Result<
@@ -2105,10 +1125,7 @@ private actor RefreshSourceScript {
     func next(
         _ request: AntigravityUsageSourceRequest
     ) throws -> AntigravityUsageSourceResponse {
-        calls.append(Call(
-            hasOAuthAuthorization:
-                request.oauthAuthorization != nil
-        ))
+        calls += 1
         guard !outcomes.isEmpty else {
             throw AntigravityUsageSourceError.unavailable
         }
@@ -2116,12 +1133,9 @@ private actor RefreshSourceScript {
     }
 
     func callCount() -> Int {
-        calls.count
+        calls
     }
 
-    func authorizationFlags() -> [Bool] {
-        calls.map(\.hasOAuthAuthorization)
-    }
 }
 
 private struct ScriptedRefreshSource:
@@ -2305,103 +1319,20 @@ private struct BlockingRefreshSource:
     }
 }
 
-private actor AccountSwitchRefreshSourceScript {
-    private let blockedAccountID: AntigravityAccountID
-    private let immediateResponses:
-        [AntigravityAccountID:
-            AntigravityUsageSourceResponse]
-    private var blockedStarted = false
-    private var blockedStartedWaiters:
-        [CheckedContinuation<Void, Never>] = []
-    private var blockedContinuation:
-        CheckedContinuation<
-            AntigravityUsageSourceResponse,
-            Never
-        >?
-
-    init(
-        blockedAccountID: AntigravityAccountID,
-        immediateResponses:
-            [AntigravityAccountID:
-                AntigravityUsageSourceResponse]
-    ) {
-        self.blockedAccountID = blockedAccountID
-        self.immediateResponses = immediateResponses
-    }
-
-    func fetch(
-        _ request: AntigravityUsageSourceRequest
-    ) async throws -> AntigravityUsageSourceResponse {
-        guard let accountID =
-                request.oauthAuthorization?.accountID
-        else {
-            throw AntigravityUsageSourceError
-                .authenticationRequired
-        }
-        if accountID != blockedAccountID {
-            guard let response =
-                    immediateResponses[accountID]
-            else {
-                throw AntigravityUsageSourceError.unavailable
-            }
-            return response
-        }
-
-        blockedStarted = true
-        let waiters = blockedStartedWaiters
-        blockedStartedWaiters.removeAll()
-        for waiter in waiters {
-            waiter.resume()
-        }
-        return await withCheckedContinuation {
-            blockedContinuation = $0
-        }
-    }
-
-    func waitUntilBlockedRequestStarts() async {
-        guard !blockedStarted else { return }
-        await withCheckedContinuation {
-            blockedStartedWaiters.append($0)
-        }
-    }
-
-    func resumeBlockedRequest(
-        with response: AntigravityUsageSourceResponse
-    ) {
-        blockedContinuation?.resume(returning: response)
-        blockedContinuation = nil
-    }
-}
-
-private struct AccountSwitchRefreshSource:
-    AntigravityUsageSource
-{
-    let id = AntigravityUsageSourceID.googleOAuth
-    let script: AccountSwitchRefreshSourceScript
-
-    func fetch(
-        _ request: AntigravityUsageSourceRequest
-    ) async throws -> AntigravityUsageSourceResponse {
-        try await script.fetch(request)
-    }
-}
-
 private func selectedRequest(
-    accountID: AntigravityAccountID,
-    revision: UInt64,
-    policy: TestSourcePolicy
+    target: AntigravityUsageTarget = .cli,
+    revision: UInt64
 ) -> AntigravityRefreshRequest {
-    _ = policy
     return AntigravityRefreshRequest(
         trigger: .manual,
-        accountTarget: .selectedOAuth(accountID),
         repositoryRevision: revision,
-        connection: makeConnectionSettings(),
+        connection: makeConnectionSettings(target: target),
         managedLaunch: .disabled
     )
 }
 
 private func makeConnectionSettings(
+    target: AntigravityUsageTarget = .cli,
     managedIdleTimeoutSeconds: Int =
         AntigravityConnectionSettings
             .ManagedSessionPolicy
@@ -2412,14 +1343,8 @@ private func makeConnectionSettings(
             AntigravityConnectionSettings.currentSchemaVersion,
         managedSession: .init(
             idleTimeoutSeconds: managedIdleTimeoutSeconds
-        )
+        ), usageTarget: target
     )
-}
-
-private enum TestSourcePolicy {
-    case automatic
-    case localSession
-    case googleAccount
 }
 
 private func makeAccount(
@@ -2461,7 +1386,8 @@ private func makeCredentials(
 
 private func makeSnapshot(
     identity: ProviderAccountIdentity?,
-    source: AntigravityUsageSourceID
+    source: AntigravityUsageSourceID,
+    fraction: Double = 0.75
 ) -> AntigravityQuotaSnapshot {
     let provenance = makeProvenance(
         identity: identity,
@@ -2479,7 +1405,7 @@ private func makeSnapshot(
                 upstreamBucketID: "five-hour",
                 scope: .gemini,
                 cadence: .fiveHour,
-                remainingFraction: 0.75,
+                remainingFraction: fraction,
                 resetAt: Date(timeIntervalSince1970: 2_000_000_000),
                 resetDescription: nil,
                 availability: .available
@@ -2504,25 +1430,6 @@ private func makeIdentityOnlyUsage(
             capability: .groupedQuotaSummary
         ),
         fetchedAt: Date(timeIntervalSince1970: 1_900_000_001)
-    )
-}
-
-private func makeGoogleOAuthLimitedCapability(
-    identity: ProviderAccountIdentity
-) -> AntigravityLimitedQuotaCapability {
-    .googleOAuth(
-        evidence:
-            AntigravityGoogleOAuthLimitedQuotaEvidence(
-                identity: identity,
-                plan: "Pro",
-                modelQuotaCount: 2
-            ),
-        provenance: makeProvenance(
-            identity: identity,
-            source: .googleOAuth,
-            capability: .limitedQuota
-        ),
-        fetchedAt: Date(timeIntervalSince1970: 1_900_000_002)
     )
 }
 
@@ -2598,7 +1505,7 @@ private func makeProvenance(
 }
 
 private actor DiscoveryPolicySource: AntigravityUsageSource {
-    nonisolated let id = AntigravityUsageSourceID.googleOAuth
+    nonisolated let id = AntigravityUsageSourceID.borrowedCLI
     let snapshot: AntigravityQuotaSnapshot
     var calls = 0
     init(snapshot: AntigravityQuotaSnapshot) { self.snapshot = snapshot }

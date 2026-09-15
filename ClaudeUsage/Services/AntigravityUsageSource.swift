@@ -1,21 +1,7 @@
 import Foundation
 
-nonisolated struct AntigravityOAuthSourceAuthorization:
-    Sendable,
-    Equatable
-{
-    let accountID: AntigravityAccountID
-    let repositoryRevision: UInt64
-    let credentials: AntigravityOAuthCredentials
-}
-
-/// A source receives only the authorization needed for that exact attempt.
-/// Local sources are always invoked with `oauthAuthorization == nil`.
 nonisolated struct AntigravityUsageSourceRequest: Sendable {
     let generation: UInt64
-    let accountTarget: AntigravityRefreshAccountTarget
-    let expectedIdentity: ProviderAccountIdentity?
-    let oauthAuthorization: AntigravityOAuthSourceAuthorization?
     let managedLaunchAuthorization:
         AntigravityManagedLaunchAuthorization
     let deadline: AntigravityRPCDeadline
@@ -31,31 +17,19 @@ nonisolated enum AntigravityUsageSourcePayload:
     case identityOnly(AntigravityIdentityOnlyUsage)
 }
 
-/// Refreshed credentials are returned to the coordinator and are never written
-/// by a source. A non-OAuth source returning them is a contract violation.
-nonisolated struct AntigravityUsageSourceResponse:
-    Sendable,
-    Equatable
-{
+nonisolated struct AntigravityUsageSourceResponse: Sendable, Equatable {
     let payload: AntigravityUsageSourcePayload
-    let refreshedCredential: AntigravityOAuthCredentials?
-
-    init(
-        payload: AntigravityUsageSourcePayload,
-        refreshedCredential: AntigravityOAuthCredentials? = nil
-    ) {
-        self.payload = payload
-        self.refreshedCredential = refreshedCredential
-    }
 }
 
-nonisolated enum AntigravityUsageSourceError:
+nonisolated indirect enum AntigravityUsageSourceError:
     Error,
     Sendable,
     Equatable
 {
     case unavailable
     case authenticationRequired
+    case accountChanged
+    case verifiedAccountFailure(ProviderAccountIdentity, AntigravityUsageSourceError)
     case localAuthentication(AntigravityCSRFProblem)
     case interactionRequired
     case deadlineExceeded
@@ -96,6 +70,8 @@ nonisolated enum AntigravityUsageSourceFailurePolicy {
         of error: AntigravityUsageSourceError
     ) -> Severity {
         switch error {
+        case .verifiedAccountFailure(_, let cause):
+            severity(of: cause)
         case .unavailable:
             .unavailable
         case .transportFailure:
@@ -108,7 +84,7 @@ nonisolated enum AntigravityUsageSourceFailurePolicy {
             .managedLaunchPolicy
         case .interactionRequired:
             .interaction
-        case .authenticationRequired, .localAuthentication:
+        case .authenticationRequired, .localAuthentication, .accountChanged:
             .authentication
         case .cancelled:
             .cancellation
@@ -122,349 +98,23 @@ nonisolated protocol AntigravityUsageSource: Sendable {
     func fetch(
         _ request: AntigravityUsageSourceRequest
     ) async throws -> AntigravityUsageSourceResponse
-}
 
-nonisolated enum AntigravityGoogleOAuthQuotaResult:
-    Sendable,
-    Equatable
-{
-    case grouped(
-        AntigravityQuotaSnapshot,
-        refreshedCredential: AntigravityOAuthCredentials?
-    )
-    case limited(
-        AntigravityLimitedQuotaCapability,
-        refreshedCredential: AntigravityOAuthCredentials?
-    )
-    case identityOnly(
-        AntigravityIdentityOnlyUsage,
-        refreshedCredential: AntigravityOAuthCredentials?
-    )
-}
-
-/// New OAuth HTTP boundary for Stage 8. Implementations fetch and decode only;
-/// neither this protocol nor its source adapter receives a repository.
-nonisolated protocol AntigravityGoogleOAuthQuotaFetching:
-    Sendable
-{
-    func fetchQuota(
-        credentials: AntigravityOAuthCredentials,
-        deadline: AntigravityRPCDeadline
-    ) async throws -> AntigravityGoogleOAuthQuotaResult
-}
-
-/// OAuth source intentionally does not wrap
-/// `AntigravityRemoteUsageService`, whose legacy implementation persists
-/// refreshed credentials itself.
-nonisolated struct AntigravityGoogleOAuthUsageSource:
-    AntigravityUsageSource,
-    Sendable
-{
-    let id = AntigravityUsageSourceID.googleOAuth
-    private let client:
-        any AntigravityGoogleOAuthQuotaFetching
-
-    init(client: any AntigravityGoogleOAuthQuotaFetching) {
-        self.client = client
-    }
-
-    func fetch(
+    func inspectAccounts(
         _ request: AntigravityUsageSourceRequest
-    ) async throws -> AntigravityUsageSourceResponse {
-        guard let authorization =
-                request.oauthAuthorization,
-              case .selectedOAuth(let accountID) =
-                request.accountTarget,
-              authorization.accountID == accountID,
-              request.managedLaunchAuthorization == .disabled
-        else {
-            throw AntigravityUsageSourceError
-                .authenticationRequired
-        }
+    ) async throws -> AntigravityUsageSourceInspection
+}
 
-        let result = try await client.fetchQuota(
-            credentials: authorization.credentials,
-            deadline: request.deadline
-        )
-        switch result {
-        case .grouped(let snapshot, let refreshed):
-            return AntigravityUsageSourceResponse(
-                payload: .grouped(snapshot),
-                refreshedCredential: refreshed
-            )
-        case .limited(let capability, let refreshed):
-            guard case .googleOAuth =
-                    capability.evidence,
-                  case .googleOAuth =
-                    capability.reason,
-                  capability.provenance.transport
-                    == .googleOAuth,
-                  capability.provenance.endpointOwner
-                    == .external,
-                  capability.provenance.capability
-                    == .limitedQuota,
-                  capability.provenance.processIdentity == nil
-            else {
-                throw AntigravityUsageSourceError
-                    .malformedResponse
-            }
-            return AntigravityUsageSourceResponse(
-                payload: .limited(capability),
-                refreshedCredential: refreshed
-            )
-        case .identityOnly(let identity, let refreshed):
-            return AntigravityUsageSourceResponse(
-                payload: .identityOnly(identity),
-                refreshedCredential: refreshed
-            )
-        }
+nonisolated struct AntigravityUsageSourceInspection: Sendable {
+    let responses: [AntigravityUsageSourceResponse]
+    let hasUnverifiedCandidates: Bool
+}
+
+extension AntigravityUsageSource {
+    func inspectAccounts(_ request: AntigravityUsageSourceRequest) async throws -> AntigravityUsageSourceInspection {
+        AntigravityUsageSourceInspection(responses: [try await fetch(request)], hasUnverifiedCandidates: false)
     }
 }
 
-nonisolated enum AntigravityRefreshedCredentialMergeError:
-    Error,
-    Sendable,
-    Equatable
-{
-    case accountBoundaryMismatch
-    case clientBoundaryMismatch
-    case missingTokenMaterial
-}
-
-/// Token refresh responses are commonly partial. Empty or absent fields never
-/// erase canonical refresh/account/client material.
-nonisolated enum AntigravityRefreshedCredentialMerger {
-    static func merge(
-        original: AntigravityOAuthCredentials,
-        refreshed: AntigravityOAuthCredentials,
-        expectedIdentity: ProviderAccountIdentity
-    ) throws -> AntigravityOAuthCredentials {
-        let canonicalClientID = value(original.clientID)
-        if let refreshedClientID = value(refreshed.clientID) {
-            guard canonicalClientID == refreshedClientID else {
-                // The refresh response may confirm an existing client
-                // boundary, but may not create or replace one.
-                throw AntigravityRefreshedCredentialMergeError
-                    .clientBoundaryMismatch
-            }
-        }
-        if let originalClientSecret =
-                value(original.clientSecret),
-           let refreshedClientSecret =
-                value(refreshed.clientSecret),
-           originalClientSecret != refreshedClientSecret
-        {
-            throw AntigravityRefreshedCredentialMergeError
-                .clientBoundaryMismatch
-        }
-
-        let originalClaims = claims(from: original.idToken)
-        let expectedSubject =
-            value(expectedIdentity.stableAccountID)
-            ?? originalClaims?.subject
-        let fallbackExpectedEmail =
-            AntigravityAccountIdentityMatcher
-                .normalizedEmail(expectedIdentity.email)
-            ?? AntigravityAccountIdentityMatcher
-                .normalizedEmail(original.email)
-            ?? AntigravityAccountIdentityMatcher
-                .normalizedEmail(originalClaims?.email)
-
-        // A stable provider subject is the account boundary. Email is allowed
-        // to change for that same subject and is used only when no stable
-        // subject exists.
-        if expectedSubject == nil,
-           let fallbackExpectedEmail,
-           let refreshedEmail =
-                AntigravityAccountIdentityMatcher
-                    .normalizedEmail(refreshed.email),
-           fallbackExpectedEmail != refreshedEmail
-        {
-            throw AntigravityRefreshedCredentialMergeError
-                .accountBoundaryMismatch
-        }
-
-        var verifiedClaimsEmail: String?
-        if let refreshedIDToken = value(refreshed.idToken) {
-            guard let refreshedClaims =
-                    claims(from: refreshedIDToken)
-            else {
-                throw AntigravityRefreshedCredentialMergeError
-                    .clientBoundaryMismatch
-            }
-            guard let canonicalClientID else {
-                // A refresh response cannot establish its own OAuth client
-                // boundary. Imported credentials without a canonical client
-                // ID may keep their existing ID token, but cannot replace it.
-                throw AntigravityRefreshedCredentialMergeError
-                    .clientBoundaryMismatch
-            }
-            guard refreshedClaims.audiences
-                    .contains(canonicalClientID),
-                  refreshedClaims.authorizedParty.map({
-                      $0 == canonicalClientID
-                  }) ?? !refreshedClaims.hasMultipleAudiences
-            else {
-                throw AntigravityRefreshedCredentialMergeError
-                    .clientBoundaryMismatch
-            }
-            if let expectedSubject {
-                guard let subject = refreshedClaims.subject,
-                      expectedSubject == subject
-                else {
-                    throw AntigravityRefreshedCredentialMergeError
-                        .accountBoundaryMismatch
-                }
-                // The stable provider subject is authoritative. Token refresh
-                // responses commonly copy the old credential metadata and
-                // replace only `id_token`, so a stale `refreshed.email` must
-                // not reject a verified same-subject email change.
-                verifiedClaimsEmail = refreshedClaims.email
-            } else if let fallbackExpectedEmail,
-               let claimsEmail =
-                    AntigravityAccountIdentityMatcher
-                        .normalizedEmail(
-                            refreshedClaims.email
-                        ),
-               fallbackExpectedEmail != claimsEmail
-            {
-                throw AntigravityRefreshedCredentialMergeError
-                    .accountBoundaryMismatch
-            }
-            if expectedSubject == nil,
-               let refreshedEmail =
-                    AntigravityAccountIdentityMatcher
-                        .normalizedEmail(refreshed.email),
-               let claimsEmail =
-                    AntigravityAccountIdentityMatcher
-                        .normalizedEmail(
-                            refreshedClaims.email
-                        ),
-               refreshedEmail != claimsEmail
-            {
-                throw AntigravityRefreshedCredentialMergeError
-                    .accountBoundaryMismatch
-            }
-        }
-
-        var merged = original
-        merged.accessToken =
-            value(refreshed.accessToken) ?? original.accessToken
-        merged.refreshToken =
-            value(refreshed.refreshToken) ?? original.refreshToken
-        merged.expiryDateMilliseconds =
-            refreshed.expiryDateMilliseconds
-                ?? original.expiryDateMilliseconds
-        merged.idToken =
-            value(refreshed.idToken) ?? original.idToken
-        merged.email =
-            value(verifiedClaimsEmail)
-                ?? value(refreshed.email)
-                ?? original.email
-        merged.projectID =
-            value(refreshed.projectID) ?? original.projectID
-        merged.clientID =
-            value(refreshed.clientID) ?? original.clientID
-        merged.clientSecret =
-            value(refreshed.clientSecret)
-                ?? original.clientSecret
-        guard merged.hasTokenMaterial else {
-            throw AntigravityRefreshedCredentialMergeError
-                .missingTokenMaterial
-        }
-        return merged
-    }
-
-    private struct IdentityClaims {
-        let subject: String?
-        let email: String?
-        let audiences: Set<String>
-        let audienceCount: Int
-        let authorizedParty: String?
-
-        var hasMultipleAudiences: Bool {
-            audienceCount > 1
-        }
-    }
-
-    private static func claims(
-        from token: String?
-    ) -> IdentityClaims? {
-        guard let token = value(token) else { return nil }
-        let parts = token.split(separator: ".")
-        guard parts.count >= 2 else { return nil }
-        var payload = String(parts[1])
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        let remainder = payload.count % 4
-        if remainder != 0 {
-            payload += String(
-                repeating: "=",
-                count: 4 - remainder
-            )
-        }
-        guard let data = Data(base64Encoded: payload),
-              let object = try? JSONSerialization
-                .jsonObject(with: data) as? [String: Any]
-        else {
-            return nil
-        }
-        let audiences: Set<String>
-        let audienceCount: Int
-        switch object["aud"] {
-        case let audience as String:
-            guard let audience = value(audience) else {
-                return nil
-            }
-            audiences = [audience]
-            audienceCount = 1
-        case let audienceArray as [Any]:
-            let parsed = audienceArray.compactMap {
-                value($0 as? String)
-            }
-            guard !parsed.isEmpty,
-                  parsed.count == audienceArray.count
-            else {
-                return nil
-            }
-            audiences = Set(parsed)
-            audienceCount = parsed.count
-        default:
-            return nil
-        }
-
-        let authorizedParty: String?
-        if let rawAuthorizedParty = object["azp"] {
-            guard let parsed =
-                    value(rawAuthorizedParty as? String)
-            else {
-                return nil
-            }
-            authorizedParty = parsed
-        } else {
-            authorizedParty = nil
-        }
-
-        return IdentityClaims(
-            subject: value(object["sub"] as? String),
-            email: value(object["email"] as? String),
-            audiences: audiences,
-            audienceCount: audienceCount,
-            authorizedParty: authorizedParty
-        )
-    }
-
-    private static func value(_ string: String?) -> String? {
-        guard let string else { return nil }
-        let trimmed = string.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
-        return trimmed.isEmpty ? nil : trimmed
-    }
-}
-
-/// Dormant Stage 7 adapter for an already-running local app or borrowed CLI.
-/// It never starts a process and it never reads OAuth credentials.
 nonisolated struct AntigravityDiscoveredLocalUsageSource:
     AntigravityUsageSource,
     Sendable
@@ -489,11 +139,20 @@ nonisolated struct AntigravityDiscoveredLocalUsageSource:
         self.client = client
     }
 
-    func fetch(
-        _ request: AntigravityUsageSourceRequest
-    ) async throws -> AntigravityUsageSourceResponse {
-        guard request.oauthAuthorization == nil,
-              request.managedLaunchAuthorization == .disabled
+    func fetch(_ request: AntigravityUsageSourceRequest) async throws -> AntigravityUsageSourceResponse {
+        let inspection = try await probe(request, collectAll: false)
+        guard let response = inspection.responses.first else { throw AntigravityUsageSourceError.unavailable }
+        return response
+    }
+
+    func inspectAccounts(_ request: AntigravityUsageSourceRequest) async throws -> AntigravityUsageSourceInspection {
+        try await probe(request, collectAll: true)
+    }
+
+    private func probe(
+        _ request: AntigravityUsageSourceRequest, collectAll: Bool
+    ) async throws -> AntigravityUsageSourceInspection {
+        guard request.managedLaunchAuthorization == .disabled
         else {
             throw AntigravityUsageSourceError.transportFailure
         }
@@ -514,8 +173,9 @@ nonisolated struct AntigravityDiscoveredLocalUsageSource:
             throw AntigravityUsageSourceError.unavailable
         }
 
-        var firstSuccessfulResponse:
-            AntigravityUsageSourceResponse?
+        var responses: [AntigravityUsageSourceResponse] = []
+        var hasUnverifiedCandidates = false
+        var failedAccount: ProviderAccountIdentity?
         var preferredFailure:
             AntigravityUsageSourceError = .unavailable
 
@@ -526,21 +186,9 @@ nonisolated struct AntigravityDiscoveredLocalUsageSource:
                     deadline: request.deadline
                 )
                 let response = Self.response(from: result)
-                if firstSuccessfulResponse == nil {
-                    firstSuccessfulResponse = response
-                }
-
-                guard let expected = request.expectedIdentity else {
-                    if Self.observedIdentity(in: response) != nil {
-                        return response
-                    }
-                    continue
-                }
-                if AntigravityAccountIdentityMatcher.match(
-                    expected: expected,
-                    received: Self.observedIdentity(in: response)
-                ).isMatch {
-                    return response
+                responses.append(response)
+                if !collectAll {
+                    return AntigravityUsageSourceInspection(responses: [response], hasUnverifiedCandidates: false)
                 }
             } catch {
                 let mapped: AntigravityUsageSourceError
@@ -551,9 +199,18 @@ nonisolated struct AntigravityDiscoveredLocalUsageSource:
                 } else {
                     mapped = Self.map(error)
                 }
-                if mapped == .cancelled
-                    || mapped == .deadlineExceeded
-                {
+                if mapped == .cancelled { throw mapped }
+                if case .verifiedAccountFailure(let identity, _) = mapped {
+                    if let failedAccount,
+                        !AntigravityAccountIdentityMatcher.match(expected: failedAccount, received: identity).isMatch
+                    {
+                        throw AntigravityUsageSourceError.accountChanged
+                    }
+                    failedAccount = identity
+                }
+                hasUnverifiedCandidates = true
+                if mapped == .deadlineExceeded {
+                    if collectAll, !responses.isEmpty { break }
                     throw mapped
                 }
                 preferredFailure =
@@ -564,8 +221,10 @@ nonisolated struct AntigravityDiscoveredLocalUsageSource:
             }
         }
 
-        if let firstSuccessfulResponse {
-            return firstSuccessfulResponse
+        if !responses.isEmpty {
+            return AntigravityUsageSourceInspection(
+                responses: collectAll ? responses : [responses[0]],
+                hasUnverifiedCandidates: hasUnverifiedCandidates)
         }
         throw preferredFailure
     }
@@ -630,6 +289,12 @@ nonisolated struct AntigravityDiscoveredLocalUsageSource:
     fileprivate static func map(
         _ error: Error
     ) -> AntigravityUsageSourceError {
+        if let error = error as? AntigravityLocalRPCAccountBoundaryError {
+            switch error {
+            case .changedDuringFetch: return .accountChanged
+            case .quotaFailed(let identity, let cause): return .verifiedAccountFailure(identity, map(cause))
+            }
+        }
         if error is CancellationError {
             return .cancelled
         }
@@ -694,8 +359,7 @@ nonisolated struct AntigravityManagedCLIUsageSource:
     func fetch(
         _ request: AntigravityUsageSourceRequest
     ) async throws -> AntigravityUsageSourceResponse {
-        guard request.oauthAuthorization == nil,
-              case .automatic = request.managedLaunchAuthorization else {
+        guard case .automatic = request.managedLaunchAuthorization else {
             throw AntigravityUsageSourceError.managedLaunchDisabled
         }
 
@@ -774,7 +438,7 @@ nonisolated struct AntigravityManagedCLIUsageSource:
                     throw AntigravityUsageSourceError.transportFailure
                 }
             }
-            if let error = error as? AntigravityLocalRPCError {
+            if error is AntigravityLocalRPCError || error is AntigravityLocalRPCAccountBoundaryError {
                 throw AntigravityDiscoveredLocalUsageSource.map(
                     error
                 )

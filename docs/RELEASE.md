@@ -86,7 +86,7 @@ driver는 파일 경로·내용·버전을 확인하고 배포 커밋의 파일�
 
 1. 저장소·계정·버전·clean main·기존 태그 상태와 공증 자격 확인
 2. 변경 코드 정적 검사, 배포 스크립트 테스트, 전체 XCTest
-3. 실제 AGY의 인증된 identity·숫자 quota와 격리한 공식 실행 파일 교체 후 복구 검증
+3. 실제 AGY의 인증된 identity·숫자 quota, 격리한 공식 실행 파일 교체 복구, OAuth 없는 조회 대상 저장·현재 로그인·세션 재사용 검증
 4. 이전 동일 채널의 원격 자산 검증과 서명 기준 앱 준비
 5. 최종 main에서 archive, 서명, ZIP·DMG 공증, staple·Gatekeeper 검증
 6. appcast 생성, 노트·ZIP 해시 반영, 최종 feed 서명
@@ -169,6 +169,7 @@ EdDSA 키를 교체할 때는 기존 설치본의 신뢰 경로를 보존해야 
 
 ## 구버전 호환
 
+- 직전 버전 검증만으로 모든 과거 버전의 직접 업데이트를 보증하지 않습니다. [업데이트 호환 안내](upgrade-compatibility.md)의 앱 식별자·feed·Sparkle·저장 형식 경계를 확인합니다.
 - 2.4.0 이전의 build number는 해당 릴리스의 메타데이터를 따릅니다.
 - 2.4.4 이전 staging은 현재와 bundle identifier가 달라 동일 앱 업그레이드 기준으로 사용할 수 없습니다.
 - 2.4.15 이전 자산은 ZIP enclosure와 기존 서명 검증을 유지합니다.

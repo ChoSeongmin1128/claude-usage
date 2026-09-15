@@ -34,7 +34,7 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
         let presentation = RuntimeProviderSettingsPresentation.makeAntigravity(
             isEnabled: true,
             state: AntigravityPresentationFixture.state(
-                activity: .changingAccount,
+                activity: .changingTarget,
                 presentation: .ready(
                     AntigravityPresentationFixture.quotaSnapshot
                 )
@@ -45,7 +45,7 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.badgeTitle, "확인 중")
         XCTAssertTrue(
             presentation.summary.contains(
-                "계정에 맞는 조회 경로"
+                "제품의 로그인 계정"
             )
         )
     }
@@ -122,7 +122,7 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
 
         XCTAssertEqual(presentation.stage, .authRequired)
         XCTAssertEqual(presentation.badgeTitle, "계정 필요")
-        XCTAssertEqual(presentation.nextStepTitle, "Google 계정 연결")
+        XCTAssertEqual(presentation.nextStepTitle, "조회 대상 선택")
         XCTAssertNil(presentation.availableAction)
     }
 

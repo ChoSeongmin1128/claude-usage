@@ -91,6 +91,7 @@ nonisolated struct AntigravityRuntimeSnapshot:
         AntigravityManagedRuntimeAvailability
     let lastAttemptAt: Date?
     let lastSuccessfulAt: Date?
+    var publicationRevision: UInt64 = 0
 
     static let idle = AntigravityRuntimeSnapshot(
         readiness: .idle,

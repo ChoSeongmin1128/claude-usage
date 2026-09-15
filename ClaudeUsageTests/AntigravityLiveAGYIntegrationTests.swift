@@ -99,9 +99,9 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
         ) { sources in
             do {
                 let source = try XCTUnwrap(sources.first { $0.id == .managedCLI })
-                let response = try await source.fetch(.init(generation: 1, accountTarget: .ambientLocal,
-                    expectedIdentity: nil, oauthAuthorization: nil,
-                    managedLaunchAuthorization: .automatic(idleTimeout: .seconds(180)),
+                let response = try await source.fetch(
+                    .init(
+                        generation: 1, managedLaunchAuthorization: .automatic(idleTimeout: .seconds(180)),
                     deadline: deadline.beginningDiscoveryNow(), refreshAuthentication: refreshAuthentication))
                 guard case .grouped(let snapshot) = response.payload else { throw AntigravityRuntimeFailure.executableChanged }
                 return .success(snapshot)
@@ -384,7 +384,6 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
         let automatic = await coordinator.refresh(
             AntigravityRefreshRequest(
                 trigger: .manual,
-                accountTarget: .selectedOAuth(accountID),
                 repositoryRevision: 0,
                 connection: .default,
                 managedLaunch: .enabled
