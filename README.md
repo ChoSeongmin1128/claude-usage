@@ -33,7 +33,7 @@ DMG에서 앱을 Applications로 옮긴 뒤 Finder에서 직접 실행합니다.
 
 Antigravity는 ‘조회 대상’에서 AGY CLI 또는 Antigravity 독립 앱을 선택합니다. 로그인 계정은 읽기 전용으로 표시하며, 로그인 변경은 해당 제품에서 진행합니다. 새로고침하면 확인된 계정과 사용량을 함께 갱신합니다. Google 계정 연결과 Antigravity IDE는 지원하지 않습니다.
 
-Antigravity는 응답에 있는 quota만 표시합니다. 계정마다 한도의 종류와 주기가 다를 수 있습니다. 공식 AGY 설치·업데이트는 다음 조회에서 재검증하며 앱 재시작 없이 복구를 시도합니다. AGY CLI에서 로그인 계정을 바꿨다면 수동 새로고침으로 계정을 다시 확인합니다. Antigravity IDE 지원은 현재 범위에 포함되지 않습니다.
+Antigravity는 응답에 있는 quota만 표시합니다. 계정마다 한도의 종류와 주기가 다를 수 있습니다. 공식 AGY 설치·업데이트는 다음 조회에서 재검증하며 앱 재시작 없이 복구를 시도합니다.
 
 인증과 데이터 출처의 상세 계약은 [인증 안내](docs/authentication-and-sources.md)와 [Antigravity 소스 설명](docs/antigravity-usage-sources.md)을 참고하세요.
 
@@ -81,6 +81,7 @@ xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage   -destination 'pl
 ## 문서
 
 - [인증과 데이터 출처](docs/authentication-and-sources.md)
+- [Codex 로그인 확인·인증 갱신·복구 계약](docs/codex-usage-sources.md)
 - [Antigravity 실행·계정·복구 계약](docs/antigravity-usage-sources.md)
 - [개발·기여·검증 절차](docs/PROJECT_WORKFLOW.md)
 - [배포와 업데이트 복구](docs/RELEASE.md)

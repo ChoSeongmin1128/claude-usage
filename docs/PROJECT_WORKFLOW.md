@@ -42,7 +42,7 @@ xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage   -destination 'pl
 Scripts/tests/release-driver-tests.sh
 ```
 
-실제 외부 서비스가 필요한 테스트는 명시적인 opt-in으로 실행합니다. 필수 AGY release gate에서는 공식 CLI의 인증된 identity와 숫자 quota, 격리한 공식 실행 파일 교체 후 복구를 확인해야 합니다. skip이나 HTTP 200만으로 통과 처리하지 않습니다.
+실제 외부 서비스가 필요한 테스트는 명시적인 opt-in으로 실행합니다. 필수 AGY release gate에서는 공식 CLI의 인증된 identity와 숫자 quota, 격리한 공식 실행 파일 교체 후 복구를 확인해야 합니다. 필수 Codex release gate에서는 공식 CLI를 통한 인증 갱신과 동일 계정의 숫자 quota를 확인합니다. 두 게이트 모두 skip이나 HTTP 200만으로 통과 처리하지 않습니다.
 
 동시성 변경은 취소·공유 조회·계정 전환·프로세스 소유권을 검토하고 필요한 경로를 Thread Sanitizer로 검증합니다. 사용자 로그인은 사용자가 수행하며 반복·경합은 가능한 한 결정적 fixture로 검증합니다.
 
@@ -57,9 +57,12 @@ Scripts/tests/release-driver-tests.sh
 | Codex 사용량 조회 | actor에서 자격 세대가 같은 요청만 공유하고 취소·결과 적용 검증 |
 | Codex 인증 갱신 | 공식 CLI 소유 경로에 요청당 한 번 위임, 앱의 직접 token 교환·파일 저장 없음 |
 | 자동 조회 설정 | publisher의 새 값으로 불변 구성을 만들고 타이머와 조회 간격에 함께 전달 |
+| 자동 조회 예약 | 서비스별 ContinuousClock 기한과 가장 이른 기한의 단일 one-shot 타이머, 응답 완료 시각과 독립적인 주기 유지 |
 | AGY 구성·조회·계정 변경 | 기존 actor와 lease·세대·취소 경계 |
 
 `MainActor.assumeIsolated`는 MainActor에서 등록한 main-run-loop 타이머와 `queue: .main` 알림처럼 실행 위치를 입증할 수 있는 동기 콜백에만 사용합니다. 임의의 백그라운드 작업을 통과시키는 용도로 사용하지 않습니다.
+
+조회 주기 변경은 해당 서비스의 다음 예약만 바꿉니다. 잠자기 동안 밀린 예약은 서비스별 한 번의 조회로 합치고, 중단·교체한 타이머의 늦은 콜백은 세대로 차단합니다.
 
 지연 렌더링 클로저에는 생성 시점의 화면 테마를 전달합니다. UI 객체 정리는 isolated deinit을 사용하지만, AGY 프로세스와 파일 소유권의 정리는 기존 명시적인 종료 절차를 유지합니다. Swift 6 전환만으로 기존 `@unchecked Sendable` 구현의 안전성이 보장되지는 않습니다.
 
