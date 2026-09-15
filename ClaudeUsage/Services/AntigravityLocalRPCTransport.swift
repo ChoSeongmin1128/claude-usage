@@ -91,6 +91,11 @@ nonisolated final class AntigravityRuntimeEndpointRevalidator:
             throw AntigravityLocalRPCError.cancelled
         } catch is AntigravityRPCDeadlineError {
             throw AntigravityLocalRPCError.deadlineExceeded
+        } catch AntigravityOwnedSubprocessError.timedOut {
+            // A missing observation is not evidence that the owner changed.
+            // The request still fails closed; a bounded retry must establish
+            // the complete process and port proof before sending another RPC.
+            throw AntigravityLocalRPCError.deadlineExceeded
         } catch let error as AntigravityLocalRPCError {
             throw error
         } catch {

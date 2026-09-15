@@ -53,7 +53,7 @@ struct RuntimeRefreshConfiguration: Equatable, Sendable {
         return isOnBattery && reducedOnBattery ? max(value, 60) : value
     }
 
-    func timerInterval(for services: [PopoverService]) -> TimeInterval {
-        services.map { interval(for: $0) }.min() ?? interval
+    func intervals(for services: [PopoverService]) -> [PopoverService: TimeInterval] {
+        services.reduce(into: [:]) { result, service in result[service] = interval(for: service) }
     }
 }

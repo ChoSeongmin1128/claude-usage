@@ -393,6 +393,12 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
         switch automatic {
         case .ready(let value), .partial(let value, _):
             automaticSnapshot = value
+        case .failed(let failure), .stale(_, let failure):
+            await composition.managedSession.shutdown()
+            return XCTFail("Expected automatic managed quota: \(failure.diagnosticCode)")
+        case .setupRequired(let reason):
+            await composition.managedSession.shutdown()
+            return XCTFail("Expected automatic managed quota: setup \(reason)")
         default:
             await composition.managedSession.shutdown()
             return XCTFail(

@@ -68,10 +68,12 @@ extension AppDelegate {
         let change = refreshScheduler.sync(
             autoRefresh: refreshConfiguration.autoRefresh,
             shouldPoll: shouldPollRuntimeProviders,
-            interval: refreshConfiguration.timerInterval(for: refreshableServices)
-        ) { [weak self] in
-            guard self?.refreshConfiguration.autoRefresh == true else { return }
-            self?.refreshAll(force: false)
+            intervals: refreshConfiguration.intervals(for: refreshableServices)
+        ) { [weak self] dueServices in
+            guard let self, self.refreshConfiguration.autoRefresh, self.shouldPollRuntimeProviders else { return }
+            for service in dueServices where self.refreshableServices.contains(service) {
+                self.performRuntimeAction(.refresh(service: service, force: false))
+            }
         }
 
         switch change {
@@ -260,27 +262,11 @@ extension AppDelegate {
     // MARK: - API
 
     func refreshAll(force: Bool = false) {
-        var lastRefreshed: [PopoverService: Date] = [:]
-        for service in PopoverService.allCases {
-            let lastAt =
-                service == .antigravity
-                    ? currentAntigravityRuntimeSnapshot
-                        .lastSuccessfulAt
-                    : runtimeProviderState(
-                        for: service
-                    ).lastSuccessfulAt
-            if let lastAt {
-                lastRefreshed[service] = lastAt
-            }
-        }
-
         let actions = RefreshOrchestration.actionsForRefreshAll(
             supportedServices: ServiceSelectionHelper.supportedPopoverServices,
             refreshableServices: refreshableServices,
             settings: AppSettings.shared,
-            configuration: refreshConfiguration,
-            force: force,
-            lastRefreshedAt: lastRefreshed
+            force: force
         )
 
         for action in actions {

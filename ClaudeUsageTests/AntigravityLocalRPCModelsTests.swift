@@ -456,6 +456,43 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
         }
     }
 
+    func testEndpointRevalidatorDistinguishesHelperTimeoutFromOwnershipFailure() async throws {
+        let endpoint = try makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliTokenless)
+        let cases: [(AntigravityOwnedSubprocessError, AntigravityLocalRPCError)] = [
+            (.timedOut, .deadlineExceeded),
+            (.executableNotAllowed, .endpointOwnershipChanged),
+            (.launchFailed, .endpointOwnershipChanged),
+            (.waitFailed, .endpointOwnershipChanged),
+            (.outputLimitExceeded, .endpointOwnershipChanged),
+        ]
+        for (helperError, expected) in cases {
+            let revalidator = AntigravityRuntimeEndpointRevalidator(
+                processInspector: RuntimeProcessInspectorStub(isValid: true),
+                portInspector: PortOwnershipInspectorStub(endpoints: [:], onInspect: { throw helperError }))
+            await XCTAssertThrowsErrorAsync(
+                try await revalidator.revalidate(endpoint, deadline: AntigravityRPCDeadline())
+            ) { error in
+                XCTAssertEqual(error as? AntigravityLocalRPCError, expected)
+            }
+        }
+    }
+
+    func testIdentityTimeoutRetriesBeforeRequestingNumericQuota() async throws {
+        let connection = LocalRPCConnectionStub(outcomes: [
+            .failure(.deadlineExceeded), .response(identityResponse()),
+            .response(groupedQuotaResponse()), .response(identityResponse()),
+        ])
+        let client = AntigravityLocalRPCClient(
+            connectionFactory: LocalRPCConnectionFactoryStub(connection: connection),
+            identityRetryDelay: .zero)
+        let result = try await client.fetch(
+            from: makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliTokenless))
+        guard case .grouped(let snapshot, let issue) = result else { return XCTFail("Expected numeric quota") }
+        XCTAssertEqual(snapshot.lanes.first?.remainingFraction, 0.5)
+        XCTAssertNil(issue)
+        XCTAssertEqual(connection.methods, [.getUserStatus, .getUserStatus, .retrieveUserQuotaSummary, .getUserStatus])
+    }
+
     func testEndpointRevalidatorRejectsQuarantinedOwnership()
         async throws
     {
@@ -979,11 +1016,11 @@ private final class PortOwnershipInspectorStub:
     let endpoints:
         [Int32: Set<AntigravityOwnedListeningEndpoint>]
 
-    private let onInspect: @Sendable () async -> Void
+    private let onInspect: @Sendable () async throws -> Void
 
     init(
         endpoints: [Int32: Set<AntigravityOwnedListeningEndpoint>],
-        onInspect: @escaping @Sendable () async -> Void = {}
+        onInspect: @escaping @Sendable () async throws -> Void = {}
     ) {
         self.endpoints = endpoints
         self.onInspect = onInspect
@@ -995,7 +1032,7 @@ private final class PortOwnershipInspectorStub:
     ) async throws
         -> [Int32: Set<AntigravityOwnedListeningEndpoint>]
     {
-        await onInspect()
+        try await onInspect()
         return endpoints.filter { processIDs.contains($0.key) }
     }
 }
