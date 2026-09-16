@@ -4,11 +4,20 @@ import SwiftUI
 @MainActor
 final class AppPopoverCoordinator {
     let viewModel = PopoverViewModel()
-    private(set) var popover = NSPopover()
-    private var presentationRevision: Int = 0
+    private(set) var popover: NSPopover
+    private let makePopover: () -> NSPopover
+    private let reduceMotion: () -> Bool
     private weak var observedWindow: NSWindow?
     private var windowObservationTokens: [NSObjectProtocol] = []
-    private var pendingResizeWorkItem: DispatchWorkItem?
+
+    init(
+        makePopover: @escaping () -> NSPopover = { NSPopover() },
+        reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    ) {
+        self.makePopover = makePopover
+        self.reduceMotion = reduceMotion
+        self.popover = makePopover()
+    }
 
     func configure(
         initialService: PopoverService,
@@ -33,17 +42,12 @@ final class AppPopoverCoordinator {
     }
 
     func close() {
-        presentationRevision += 1
-        pendingResizeWorkItem?.cancel()
-        pendingResizeWorkItem = nil
         endWindowDiagnostics()
         popover.close()
     }
 
     func invalidate() {
-        presentationRevision += 1
-        pendingResizeWorkItem?.cancel()
-        pendingResizeWorkItem = nil
+        endWindowDiagnostics()
     }
 
     func applyBehavior(isPinned: Bool) {
@@ -51,36 +55,26 @@ final class AppPopoverCoordinator {
     }
 
     func rebuildPopover() {
-        pendingResizeWorkItem?.cancel()
-        pendingResizeWorkItem = nil
         endWindowDiagnostics()
-        presentationRevision += 1
 
-        let newPopover = NSPopover()
+        let newPopover = makePopover()
         let popoverView = PopoverView(viewModel: viewModel)
         let hostingController = NSHostingController(rootView: popoverView)
-        if #available(macOS 13.0, *) {
-            hostingController.sizingOptions = [.preferredContentSize]
-        }
+        // The coordinator owns the window size. Automatic preferred sizing would race
+        // with contentSize when SwiftUI switches between compact and standard layouts.
+        hostingController.sizingOptions = []
 
         newPopover.contentViewController = hostingController
-        newPopover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        newPopover.animates = !reduceMotion()
         popover = newPopover
     }
 
     func refreshSizeIfShown(size: CGSize) {
         guard popover.isShown else { return }
-        pendingResizeWorkItem?.cancel()
-        let revision = presentationRevision
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            guard self.presentationRevision == revision else { return }
-            guard self.popover.isShown else { return }
-            self.logGeometry("refresh-size requested=\(describe(size: size))")
-            self.applyPopoverSizeIfNeeded(size: size, force: false)
-        }
-        pendingResizeWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: workItem)
+        // Update in the same event as the content change, before SwiftUI's next layout.
+        // AppKit owns the native transition; there is no delayed second resize.
+        popover.animates = !reduceMotion()
+        applyPopoverSizeIfNeeded(size: size)
     }
 
     func beginWindowDiagnosticsIfNeeded() {
@@ -107,7 +101,7 @@ final class AppPopoverCoordinator {
         logWindowFrame("window-observing-started")
     }
 
-    private func applyPopoverSizeIfNeeded(size: CGSize, force: Bool) {
+    private func applyPopoverSizeIfNeeded(size: CGSize) {
         let screenMaxWidth = max(
             300,
             (popover.contentViewController?.view.window?.screen?.visibleFrame.width ?? NSScreen.main?.visibleFrame.width
@@ -120,10 +114,9 @@ final class AppPopoverCoordinator {
         let changed = abs(popover.contentSize.width - targetSize.width) > 0.5 ||
             abs(popover.contentSize.height - targetSize.height) > 0.5
         logGeometry(
-            "apply-size current=\(describe(size: popover.contentSize)) target=\(describe(size: targetSize)) force=\(force) changed=\(changed)"
+            "apply-size current=\(describe(size: popover.contentSize)) target=\(describe(size: targetSize)) changed=\(changed)"
         )
-        if force || changed {
-            popover.contentViewController?.preferredContentSize = targetSize
+        if changed {
             popover.contentSize = targetSize
         }
     }

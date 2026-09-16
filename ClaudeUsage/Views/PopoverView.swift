@@ -98,14 +98,12 @@ struct PopoverView: View {
         .frame(width: layoutSpec.size.width, height: layoutSpec.size.height, alignment: .topLeading)
         .onAppear {
             normalizeSelectedServiceIfNeeded()
-            syncCompactForSelectedServiceIfNeeded()
             requestRefreshIfNeededForVisibleService()
         }
         .onChange(of: settings.providerStates) { _, _ in
             normalizeSelectedServiceIfNeeded()
         }
         .onChange(of: viewModel.selectedService) { _, _ in
-            syncCompactForSelectedServiceIfNeeded()
             isDisplayEditorPresented = false
         }
     }
@@ -148,7 +146,6 @@ struct PopoverView: View {
     private func selectService(_ service: PopoverService) {
         guard service != selectedService else { return }
         viewModel.selectService(service)
-        syncCompactForSelectedServiceIfNeeded()
         viewModel.requestLayoutRefresh(for: service, reason: .serviceSelection)
     }
 
@@ -385,10 +382,6 @@ struct PopoverView: View {
         nonmutating set {
             settings.popoverCompact = newValue
         }
-    }
-
-    private func syncCompactForSelectedServiceIfNeeded() {
-        // 전역 설정이므로 동기화 불필요
     }
 
     private var isPinned: Bool {
