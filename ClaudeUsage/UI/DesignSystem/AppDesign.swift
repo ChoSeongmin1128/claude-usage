@@ -55,6 +55,7 @@ enum AppDesign {
     }
 
     enum Surface {
+        static let selection = Color.accentColor.opacity(0.18)
         static let group = Color(nsColor: .controlBackgroundColor).opacity(0.45)
         static let subtleGroup = Color(nsColor: .controlBackgroundColor).opacity(0.35)
         static let strongGroup = Color(nsColor: .controlBackgroundColor).opacity(0.55)
@@ -68,6 +69,7 @@ enum AppDesign {
     }
 
     enum Control {
+        static let selectionStrokeWidth: CGFloat = 1.5
         static let compactHitSize: CGFloat = 22
         static let regularHitSize: CGFloat = 26
         static let externalBadgeFont = Font.system(size: 6, weight: .bold)

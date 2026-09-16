@@ -857,8 +857,6 @@ private struct ProviderPopoverPreviewView: View {
                     provider: candidate.providerKind, isSelected: candidate == service,
                     showsWarning: false, compact: mode.isCompact)
             }
-            Text(settings.usageValueBasis(for: service).label)
-                .font(AppDesign.Typography.compactIdentity).foregroundStyle(.secondary)
             Spacer(minLength: AppDesign.Space.compact)
             IconActionButton(symbol: "arrow.clockwise", label: "사용량 새로고침") {}
             IconActionButton(

@@ -29,15 +29,9 @@ struct PopoverView: View {
                 HStack(spacing: AppDesign.Space.row) {
                     headerServiceSelector
                         .layoutPriority(1)
-                    if isCompact {
-                        HStack(spacing: AppDesign.Space.compact) {
-                            if let context = compactHeaderContext { compactHeaderContextView(context) }
-                            Text(valueBasis.label)
-                                .font(AppDesign.Typography.compactIdentity)
-                                .foregroundStyle(.secondary)
-                                .fixedSize()
-                        }
-                        .layoutPriority(0)
+                    if let context = compactHeaderContext {
+                        compactHeaderContextView(context)
+                            .layoutPriority(0)
                     }
                     Spacer(minLength: isCompact ? 4 : 8)
                     headerUtilityControls
@@ -45,10 +39,7 @@ struct PopoverView: View {
                 .frame(height: PopoverLayoutMetrics.providerSelectorSize(compact: isCompact))
 
                 if !isCompact {
-                    HStack(spacing: AppDesign.Space.compact) {
-                        providerStatusRail
-                        Text(valueBasis.label).font(AppDesign.Typography.compactIdentity).foregroundStyle(.secondary)
-                    }.frame(height: 12)
+                    providerStatusRail.frame(height: 12)
                 }
             }
             .padding(.horizontal, isCompact ? 12 : 16)
@@ -356,14 +347,6 @@ struct PopoverView: View {
         )
     }
 
-    private var valueBasis: UsageValueBasis {
-        if selectedService == .antigravity, let intent = viewModel.antigravityRuntimeSnapshot.settings?.display.menuBar
-        {
-            return .antigravity(intent)
-        }
-        return settings.usageValueBasis(for: selectedService)
-    }
-
     private var selectedService: PopoverService {
         viewModel.selectedService
     }
@@ -504,47 +487,5 @@ struct PopoverView: View {
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(.bottom, AppDesign.Space.tight)
-    }
-}
-
-struct ProviderSelectorButtonLabel: View {
-    let provider: AppProviderKind
-    let isSelected: Bool
-    let showsWarning: Bool
-    let compact: Bool
-
-    var body: some View {
-        let buttonSize = PopoverLayoutMetrics.providerSelectorSize(compact: compact)
-        let iconSize = PopoverLayoutMetrics.providerIconSize(compact: compact)
-        let warningDotSize = PopoverLayoutMetrics.providerWarningDotSize(compact: compact)
-        let warningDotInset = PopoverLayoutMetrics.providerWarningDotInset(compact: compact)
-
-        ProviderBrandIconView(provider: provider, kind: .popover, size: iconSize)
-            .frame(width: buttonSize, height: buttonSize)
-            .background(
-                isSelected
-                    ? Color.accentColor.opacity(0.18)
-                    : AppDesign.Surface.group
-            )
-            .clipShape(
-                RoundedRectangle(
-                    cornerRadius: compact ? 6 : 8,
-                    style: .continuous
-                )
-            )
-            .overlay(alignment: .topTrailing) {
-                if showsWarning {
-                    Circle()
-                        .fill(Color.orange)
-                        .overlay {
-                            Circle()
-                                .stroke(Color(NSColor.windowBackgroundColor), lineWidth: 1)
-                        }
-                        .frame(width: warningDotSize, height: warningDotSize)
-                        .padding(warningDotInset)
-                        .accessibilityHidden(true)
-                }
-            }
-            .foregroundStyle(isSelected ? Color.accentColor : .primary)
     }
 }

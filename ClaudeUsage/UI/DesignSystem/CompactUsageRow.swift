@@ -40,29 +40,11 @@ struct CompactUsageRow: View {
                 )
                 .frame(maxWidth: .infinity)
 
-                Text(
-                    percentageText
-                        ?? basis.text(fromUsed: percentage)
+                UsagePercentageLabel(
+                    percentage: percentage, basis: basis, compact: true,
+                    percentageText: percentageText, color: color
                 )
-                .font(
-                    .system(
-                        .caption,
-                        design: .monospaced
-                    )
-                )
-                .fontWeight(.medium)
-                .foregroundStyle(
-                    color
-                        ?? ColorProvider.statusColor(
-                            for: percentage
-                        )
-                )
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(
-                    width: 32,
-                    alignment: .trailing
-                )
+                .frame(width: PopoverLayoutMetrics.compactPercentageLabelWidth, alignment: .trailing)
             }
             .frame(
                 width:

@@ -132,6 +132,27 @@ final class DesignSystemTests: XCTestCase {
                 }
             }
         }
+        for scheme in [ColorScheme.light, .dark] {
+            let selectorAndValues = VStack(alignment: .leading, spacing: AppDesign.Space.row) {
+                HStack(spacing: AppDesign.Space.heading) {
+                    ForEach([AppProviderKind.claude, .codex, .antigravity], id: \.self) { provider in
+                        ProviderSelectorButtonLabel(
+                            provider: provider, isSelected: provider == .codex,
+                            showsWarning: false, compact: true)
+                    }
+                }
+                CompactUsageRow(label: "주간", percentage: 69, showsResetDetail: false, basis: .remaining)
+                CompactUsageRow(label: "현재", percentage: 100, showsResetDetail: false, basis: .used)
+                CompactUsageRow(
+                    label: "정밀 수치", percentage: 0.25, showsResetDetail: false,
+                    percentageText: "99.75%", basis: .remaining)
+            }
+            .padding(AppDesign.Space.content).frame(width: PopoverLayoutMetrics.compactPopoverWidth)
+            .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(scheme)
+            attach(
+                try renderHosted(selectorAndValues, appearance: scheme == .dark ? .darkAqua : .aqua),
+                "Codex selected and inline percentage basis \(scheme)")
+        }
         let login = LoginWindowView(
             onSessionKeyFound: { _, _, _, _ in },
             onActivateCLI: { .init(title: "Fixture", methodLabel: "Fixture") },

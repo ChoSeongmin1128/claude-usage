@@ -25,6 +25,7 @@ enum PopoverLayoutMetrics {
     static let standardSectionSpacing: CGFloat = 12
     static let compactRowLabelWidth: CGFloat = 112
     static let compactRowMeterWidth: CGFloat = 150
+    static let compactPercentageLabelWidth: CGFloat = 64
     static let compactRowSpacing: CGFloat = 6
     static let compactUsageRowHeight: CGFloat = 18
     static let compactCreditsRowHeight: CGFloat = 18

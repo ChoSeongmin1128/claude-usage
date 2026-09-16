@@ -65,17 +65,9 @@ struct StandardUsageRow: View {
                 )
                 .frame(maxWidth: .infinity)
 
-                Text(
-                    percentageText
-                        ?? basis.text(fromUsed: percentage)
-                )
-                .font(AppDesign.Typography.headline)
-                .fontWeight(.bold)
-                .foregroundStyle(
-                    color
-                        ?? ColorProvider.statusColor(
-                            for: percentage
-                        )
+                UsagePercentageLabel(
+                    percentage: percentage, basis: basis, compact: false,
+                    percentageText: percentageText, color: color
                 )
                 .fixedSize(horizontal: true, vertical: false)
             }
