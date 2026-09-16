@@ -19,6 +19,8 @@
 
 산출물은 `ClaudeUsage.zip`, `ClaudeUsage.dmg`, `appcast.xml` 세 개입니다. 태그와 Release를 게시한 뒤에는 자산을 덮어쓰거나 태그를 이동하지 않습니다. 같은 운영 예정 버전을 검증하는 중에 수정이 필요하면 다음 회차 후보를 만듭니다.
 
+Homebrew Cask는 아직 공식 배포 산출물이 아닙니다. 도입할 때는 별도 tap에서 같은 운영 DMG를 참조하며, 운영 Release·Pages·공개 feed의 최종 검증이 끝난 뒤 Cask를 갱신합니다. Homebrew 단계의 실패로 기존 운영 자산을 되돌리거나 바꾸지 않습니다. 세부 상태 계약과 검증 행렬은 [Homebrew 배포 설계](homebrew-distribution.md)를 따릅니다.
+
 버전과 검증 회차, 내부 빌드 번호를 분리합니다.
 
 - `MARKETING_VERSION`: 다음 운영 예정 버전 `X.Y.Z`. 후보를 수정해도 같은 운영 목표이면 유지합니다.

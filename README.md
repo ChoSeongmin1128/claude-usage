@@ -85,6 +85,7 @@ xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage   -destination 'pl
 - [Antigravity 실행·계정·복구 계약](docs/antigravity-usage-sources.md)
 - [개발·기여·검증 절차](docs/PROJECT_WORKFLOW.md)
 - [배포와 업데이트 복구](docs/RELEASE.md)
+- [Homebrew 배포 설계](docs/homebrew-distribution.md) — 도입 검토 중이며 아직 설치 명령을 제공하지 않습니다.
 - [유지보수 현황](HANDOFF.md)
 - [로드맵](WORK_PLAN.md)
 
