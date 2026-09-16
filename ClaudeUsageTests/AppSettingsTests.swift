@@ -3,6 +3,26 @@ import XCTest
 
 @MainActor
 final class AppSettingsTests: XCTestCase {
+    func testPopoverTransitionDefaultsPreserveLegacySettingsAndPersistSelection() throws {
+        let suite = "AppSettingsTests.motion.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: "popoverCompact")
+        defaults.set(true, forKey: "popoverPinned")
+        let settings = AppSettings(defaults: defaults)
+        XCTAssertEqual(settings.popoverTransitionStyle, .instant)
+        XCTAssertTrue(settings.popoverCompact)
+        XCTAssertTrue(settings.popoverPinned)
+        settings.popoverTransitionStyle = .smooth
+        XCTAssertEqual(AppSettings(defaults: defaults).popoverTransitionStyle, .smooth)
+        let snapshot = settings.createSnapshot()
+        settings.popoverTransitionStyle = .instant
+        settings.restore(from: snapshot)
+        XCTAssertEqual(settings.popoverTransitionStyle, .smooth)
+        defaults.set("unknown-future-value", forKey: "popoverTransitionStyle")
+        XCTAssertEqual(AppSettings(defaults: defaults).popoverTransitionStyle, .instant)
+    }
+
     func testRefreshIntervalNormalizationClampsInvalidValues() {
         XCTAssertEqual(AppSettings.normalizedRefreshInterval(.nan), 30)
         XCTAssertEqual(AppSettings.normalizedRefreshInterval(0), AppSettings.minimumRefreshInterval)
@@ -401,7 +421,9 @@ final class AppSettingsTests: XCTestCase {
         ]
         legacyKeys.forEach { UserDefaults.standard.set("stale", forKey: $0) }
 
+        settings.popoverTransitionStyle = .smooth
         settings.resetToDefaults()
+        XCTAssertEqual(settings.popoverTransitionStyle, .instant)
 
         for key in legacyKeys {
             XCTAssertNil(UserDefaults.standard.object(forKey: key), key)

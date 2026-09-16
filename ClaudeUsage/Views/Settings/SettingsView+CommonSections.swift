@@ -165,6 +165,17 @@ extension SettingsView {
                 .font(AppDesign.Typography.caption)
                 .foregroundStyle(.tertiary)
 
+            settingsRadioGroup(
+                "팝오버 전환",
+                options: PopoverTransitionStyle.allCases.map { (value: $0, label: $0.displayName) },
+                selection: settings.popoverTransitionStyle,
+                onChange: { settings.popoverTransitionStyle = $0 }
+            )
+
+            Text("간소화·일반 보기와 서비스 전환 시 크기가 바뀌는 방식을 정합니다. 시스템의 ‘동작 줄이기’가 켜져 있으면 즉시 전환합니다.")
+                .font(AppDesign.Typography.caption)
+                .foregroundStyle(.tertiary)
+
             settingsToggleRow(
                 "보조 텍스트 강조",
                 subtitle: "갱신 시각과 구분자를 기본 텍스트 색상으로 표시합니다",

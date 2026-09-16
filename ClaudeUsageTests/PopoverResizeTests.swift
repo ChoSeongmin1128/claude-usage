@@ -15,6 +15,7 @@ final class PopoverResizeTests: XCTestCase {
 
     private func withNativePopover(
         service: PopoverService, reduceMotion: Bool = false, settleInitialPresentation: Bool = true,
+        transitionStyle: PopoverTransitionStyle = .smooth,
         _ body: (AppSettings, AppPopoverCoordinator, NSViewController, NSView) throws -> Void
     ) throws {
         let suite = "PopoverResizeTests.\(UUID().uuidString)"
@@ -25,6 +26,7 @@ final class PopoverResizeTests: XCTestCase {
         settings.setProviderEnabled(true, for: .codex)
         settings.setProviderEnabled(true, for: .antigravity)
         settings.popoverCompact = true
+        settings.popoverTransitionStyle = transitionStyle
         let coordinator = AppPopoverCoordinator(settings: settings, reduceMotion: { reduceMotion })
         coordinator.viewModel.update(snapshots: [
             .init(
@@ -135,6 +137,48 @@ final class PopoverResizeTests: XCTestCase {
             XCTAssertFalse(coordinator.popover.animates)
             let frames = try observeTransition(host: host, duration: 0.3)
             XCTAssertLessThanOrEqual(Set(frames.map { Int($0.width.rounded()) }).count, 2)
+        }
+    }
+
+    func testInstantPreferenceAndChangingPreferenceReuseTheSameHost() throws {
+        try withNativePopover(service: .antigravity, transitionStyle: .instant) { settings, coordinator, host, _ in
+            let originalPopover = coordinator.popover
+            settings.popoverCompact = false
+            var target = coordinator.viewModel.layoutSpec(for: .antigravity, settings: settings).size
+            coordinator.refreshSizeIfShown(size: target)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+            assertFinalSize(host: host, popover: coordinator.popover, target: target)
+            XCTAssertFalse(coordinator.popover.animates)
+            let instantFrames = try observeTransition(host: host, duration: 0.3)
+            XCTAssertLessThanOrEqual(Set(instantFrames.map { Int($0.width.rounded()) }).count, 2)
+
+            settings.popoverTransitionStyle = .smooth
+            settings.popoverCompact = true
+            target = coordinator.viewModel.layoutSpec(for: .antigravity, settings: settings).size
+            coordinator.refreshSizeIfShown(size: target)
+            let smoothFrames = try observeTransition(host: host, duration: 0.45)
+            XCTAssertGreaterThan(Set(smoothFrames.map { Int($0.width.rounded()) }).count, 3)
+            assertFinalSize(host: host, popover: coordinator.popover, target: target)
+            XCTAssertTrue(coordinator.popover === originalPopover)
+            XCTAssertTrue(coordinator.popover.contentViewController === host)
+        }
+    }
+
+    func testSwitchingToInstantDuringResizeSettlesTheLatestTarget() throws {
+        try withNativePopover(service: .antigravity) { settings, coordinator, host, _ in
+            settings.popoverCompact = false
+            coordinator.refreshSizeIfShown(
+                size: coordinator.viewModel.layoutSpec(for: .antigravity, settings: settings).size)
+            _ = try observeTransition(host: host, duration: 0.08)
+            settings.popoverTransitionStyle = .instant
+            settings.popoverCompact = true
+            let target = coordinator.viewModel.layoutSpec(for: .antigravity, settings: settings).size
+            coordinator.refreshSizeIfShown(size: target)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+            assertFinalSize(host: host, popover: coordinator.popover, target: target)
+            _ = try observeTransition(host: host, duration: 0.4)
+            assertFinalSize(host: host, popover: coordinator.popover, target: target)
+            XCTAssertFalse(coordinator.popover.animates)
         }
     }
 

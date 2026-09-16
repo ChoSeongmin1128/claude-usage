@@ -73,7 +73,7 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
         hostingController.view = PopoverViewportView(rootView: popoverView)
 
         newPopover.contentViewController = hostingController
-        newPopover.animates = !reduceMotion()
+        newPopover.animates = animatesTransitions
         newPopover.delegate = self
         popover = newPopover
         acceptsSizeUpdates = true
@@ -115,6 +115,10 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
         logWindowFrame("window-observing-started")
     }
 
+    private var animatesTransitions: Bool {
+        settings.popoverTransitionStyle == .smooth && !reduceMotion()
+    }
+
     private func applyPopoverSizeIfNeeded(size: CGSize) {
         let screenMaxWidth = max(
             300,
@@ -131,7 +135,7 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
             "apply-size current=\(describe(size: popover.contentSize)) target=\(describe(size: targetSize)) changed=\(changed)"
         )
         guard changed else { return }
-        let shouldAnimate = !reduceMotion()
+        let shouldAnimate = animatesTransitions
         popover.animates = shouldAnimate
         if !isResizing {
             (popover.contentViewController?.view as? PopoverViewportView)?.prepareForResize()

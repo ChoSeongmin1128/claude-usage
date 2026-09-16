@@ -56,6 +56,18 @@ enum MenuBarStyle: String, Codable, CaseIterable, Sendable {
     }
 }
 
+enum PopoverTransitionStyle: String, CaseIterable, Sendable {
+    case instant
+    case smooth
+
+    var displayName: String {
+        switch self {
+        case .instant: return "즉시 전환"
+        case .smooth: return "부드러운 전환"
+        }
+    }
+}
+
 enum TimeFormatStyle: String, Codable, CaseIterable, Sendable {
     case h24 = "24h"
     case h12 = "12h"
@@ -416,6 +428,9 @@ class AppSettings: ObservableObject {
     @Published var popoverPinned: Bool {
         didSet { defaults.set(popoverPinned, forKey: "popoverPinned") }
     }
+    @Published var popoverTransitionStyle: PopoverTransitionStyle {
+        didSet { defaults.set(popoverTransitionStyle.rawValue, forKey: "popoverTransitionStyle") }
+    }
     @Published var popoverCompact: Bool {
         didSet {
             defaults.set(popoverCompact, forKey: "popoverCompact")
@@ -597,6 +612,7 @@ class AppSettings: ObservableObject {
         let alertFiveHourEnabled: Bool
         let alertWeeklyEnabled: Bool
         let popoverPinned: Bool
+        let popoverTransitionStyle: PopoverTransitionStyle
         let popoverCompact: Bool
         let launchAtLogin: Bool
         let preferredOrganizationID: String
@@ -649,6 +665,7 @@ class AppSettings: ObservableObject {
             alertFiveHourEnabled: alertFiveHourEnabled,
             alertWeeklyEnabled: alertWeeklyEnabled,
             popoverPinned: popoverPinned,
+            popoverTransitionStyle: popoverTransitionStyle,
             popoverCompact: popoverCompact,
             launchAtLogin: launchAtLogin,
             preferredOrganizationID: preferredOrganizationID,
@@ -709,6 +726,7 @@ class AppSettings: ObservableObject {
         alertFiveHourEnabled = snapshot.alertFiveHourEnabled
         alertWeeklyEnabled = snapshot.alertWeeklyEnabled
         popoverPinned = snapshot.popoverPinned
+        popoverTransitionStyle = snapshot.popoverTransitionStyle
         popoverCompact = snapshot.popoverCompact
         launchAtLogin = snapshot.launchAtLogin
         preferredOrganizationID = snapshot.preferredOrganizationID
@@ -1425,6 +1443,7 @@ class AppSettings: ObservableObject {
         alertWeeklyEnabled = false
         popoverPinned = false
         popoverCompact = false
+        popoverTransitionStyle = .instant
         launchAtLogin = false
         preferredOrganizationID = ""
         popoverItemsByProvider = Self.defaultPopoverItemsDict()
@@ -1579,6 +1598,9 @@ class AppSettings: ObservableObject {
         let normalizedCompact = Self.normalizedGlobalPopoverCompact(from: defaults)
         self.popoverPinned = legacyPinned
         self.popoverCompact = normalizedCompact
+        self.popoverTransitionStyle =
+            defaults.string(forKey: "popoverTransitionStyle")
+            .flatMap(PopoverTransitionStyle.init(rawValue:)) ?? .instant
         defaults.set(legacyPinned, forKey: "popoverPinned")
         defaults.set(normalizedCompact, forKey: "popoverCompact")
         // 시스템 상태에서 실제 등록 여부 확인
