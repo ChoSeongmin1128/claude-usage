@@ -2,7 +2,7 @@
 
 ## 상태
 
-이 문서는 Homebrew Cask 도입 전 설계 계약입니다. 현재 ClaudeUsage의 공식 설치 경로는 GitHub Release의 운영 DMG이며, 아직 공개 tap이나 설치 가능한 Cask는 없습니다. 구현·검증·게시를 마치기 전에는 README에 Homebrew 설치 명령을 제공하지 않습니다.
+이 문서는 Homebrew Cask 도입 설계와 구현 상태의 정본입니다. 현재 ClaudeUsage의 공식 설치 경로는 GitHub Release의 운영 DMG이며, 아직 공개 tap이나 설치 가능한 Cask는 없습니다. 운영 Release manifest·Cask renderer·tap verifier와 로컬 tap 후보는 구현했지만, 공개 tap 생성·실설치 QA·다음 운영 버전의 교차 업데이트는 남아 있습니다. 이 검증과 게시를 마치기 전에는 README에 Homebrew 설치 명령을 제공하지 않습니다.
 
 목표는 다음 두 업데이트 경로를 함께 지원하는 것입니다.
 
@@ -62,6 +62,7 @@ cask "claude-usage" do
 
   auto_updates true
   depends_on macos: :sonoma
+
   app "ClaudeUsage.app"
 end
 ```
@@ -205,6 +206,27 @@ tap 저장소는 `Casks/claude-usage.rb`와 필요한 최소 CI만 유지합니�
 7. 공개 tap 재조회와 실제 설치가 모두 통과한 뒤 README에 설치 명령을 공개합니다.
 
 현재 운영 버전으로 초기 Cask를 만드는 데 앱 바이너리 변경은 필요하지 않습니다. 다만 manifest·renderer·publisher 같은 release input을 바꾸는 작업은 다음 staging 후보에서 기존 통합 검증을 거쳐야 합니다. tap 생성과 초기 Cask 게시, 앱 저장소의 release 자동화 변경을 한 커밋이나 한 실패 단위로 묶지 않습니다.
+
+## 현재 구현 상태
+
+구현·검증 완료:
+
+- `verify-release-artifact.sh`의 prod·public-feed 전용 Homebrew manifest export
+- manifest schema, Cask renderer와 absent·outdated·matching·conflicting SHA·newer·unexpected 상태 분류
+- 공개 tap의 Cask 구조·style·strict online audit·livecheck·metadata·fetch 검증 명령
+- 결정적 Python·shell fixture와 release-driver 회귀 테스트 연결
+- 원격 운영 2.5.3의 전체 서명·공증·공개 feed 검증에서 실제 manifest 생성
+- 생성한 Cask의 Homebrew style·online audit·livecheck·fetch 통과
+- 운영 2.5.3 Cask와 최소 권한 CI를 포함한 게시 전 로컬 tap 저장소 준비
+
+게시 전 남은 작업:
+
+- `ChoSeongmin1128/homebrew-tap` 공개 저장소 생성과 로컬 tap push
+- GitHub Actions 성공과 공개 clone에서 Cask 재검증
+- 기존 수동 설치 앱 번들 전환 및 `/Applications` 실제 설치 QA
+- 다음 운영 patch에서 Cask 설치본의 실제 Sparkle 업데이트
+- 수동 Cask bump가 안정화된 뒤 release driver의 prod reconcile 연동
+- 최종 검증 후 README 설치 명령 공개
 
 ## 검증 행렬
 

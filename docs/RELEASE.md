@@ -138,6 +138,33 @@ driver는 임시 빌드·다운로드·마운트·worktree를 정리하고 설�
 - 배포 앱에 포함된 라이선스·외부 구성 요소 고지
 - Release appcast와 공개 feed의 바이트 동일성
 
+Homebrew manifest는 prod Release와 공개 feed의 전체 검증이 끝난 경우에만 내보냅니다. staging, 공개 feed를 확인하지 않은 Release, 로컬 미게시 DMG에서는 생성하지 않습니다.
+
+```bash
+MANIFEST_DIR="$(mktemp -d /tmp/claudeusage-homebrew-manifest.XXXXXX)"
+trap 'rm -rf "$MANIFEST_DIR"' EXIT
+
+./Scripts/verify-release-artifact.sh \
+  --tag vX.Y.Z --channel prod \
+  --expected-version X.Y.Z --expected-build BUILD_NUMBER \
+  --verify-public-feed \
+  --export-homebrew-manifest-to "$MANIFEST_DIR/manifest.json"
+
+./Scripts/render-homebrew-cask.sh \
+  --manifest "$MANIFEST_DIR/manifest.json" \
+  --output /ABSOLUTE/TAP/Casks/claude-usage.rb \
+  --write
+```
+
+공개 tap을 설치한 뒤에는 같은 manifest로 style·online audit·livecheck·metadata·fetch를 함께 검증합니다.
+
+```bash
+./Scripts/verify-homebrew-cask.sh \
+  --manifest "$MANIFEST_DIR/manifest.json"
+```
+
+현재는 Cask를 수동으로 리뷰·게시하는 도입 단계입니다. 통합 driver의 자동 tap reconcile은 첫 수동 bump와 교차 업데이트 검증 뒤에 연결합니다. 기존 수동 설치본에는 `--adopt`를 직접 안내하지 않으며 상세 전환 절차는 [Homebrew 배포 설계](homebrew-distribution.md)를 따릅니다.
+
 `codesign`, `stapler`, `spctl`은 macOS 보안 서비스에 접근할 수 있는 환경에서 실행합니다. 제한된 샌드박스의 접근 거부를 서명 손상으로 단정하지 않습니다.
 
 ## 실앱 업그레이드와 메뉴바

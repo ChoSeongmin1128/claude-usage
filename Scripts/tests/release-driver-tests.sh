@@ -7,7 +7,9 @@ ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$ROOT_DIR/Scripts/lib/release-driver-common.sh"
 
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
-    -s "$ROOT_DIR/Scripts/tests" -p 'test_release_*.py'
+    -s "$ROOT_DIR/Scripts/tests" -p 'test_*.py'
+"$ROOT_DIR/Scripts/tests/test_render_homebrew_cask.sh"
+"$ROOT_DIR/Scripts/tests/test_verify_homebrew_cask.sh"
 
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/claudeusage-release-driver-tests.XXXXXX")"
 TEST_ROOT="$(cd "$TEST_ROOT" && pwd -P)"
@@ -121,6 +123,40 @@ assert_equal "staging" "$(normalize_release_environment stg)" "stg alias"
 assert_equal "staging" "$(normalize_release_environment staging)" "staging name"
 assert_equal "prod" "$(normalize_release_environment prod)" "prod name"
 assert_failure "unknown environment" normalize_release_environment stage
+
+HOMEBREW_EXPORT_DRY_RUN="$TEST_ROOT/homebrew-release-manifest.json"
+assert_failure \
+    "staging cannot export Homebrew manifest" \
+    "$ROOT_DIR/Scripts/verify-release-artifact.sh" \
+        --tag v2.5.3-stg.4 \
+        --channel staging \
+        --expected-version 2.5.3 \
+        --expected-build 20506 \
+        --verify-public-feed \
+        --export-homebrew-manifest-to "$HOMEBREW_EXPORT_DRY_RUN" \
+        --dry-run
+assert_failure \
+    "Homebrew manifest requires public feed verification" \
+    "$ROOT_DIR/Scripts/verify-release-artifact.sh" \
+        --tag v2.5.3 \
+        --channel prod \
+        --expected-version 2.5.3 \
+        --expected-build 20506 \
+        --export-homebrew-manifest-to "$HOMEBREW_EXPORT_DRY_RUN" \
+        --dry-run
+assert_success \
+    "prod Homebrew manifest dry-run" \
+    "$ROOT_DIR/Scripts/verify-release-artifact.sh" \
+        --tag v2.5.3 \
+        --channel prod \
+        --expected-version 2.5.3 \
+        --expected-build 20506 \
+        --verify-public-feed \
+        --export-homebrew-manifest-to "$HOMEBREW_EXPORT_DRY_RUN" \
+        --dry-run
+[[ ! -e "$HOMEBREW_EXPORT_DRY_RUN" ]] \
+    || fail "Homebrew manifest dry-run이 파일을 생성했습니다."
+pass
 
 assert_success "2.4.0 numeric version" validate_numeric_release_version 2.4.0
 assert_success "two-digit patch" validate_numeric_release_version 2.4.10

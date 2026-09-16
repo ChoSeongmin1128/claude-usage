@@ -10,6 +10,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=Scripts/lib/release-driver-common.sh
 source "$ROOT_DIR/Scripts/lib/release-driver-common.sh"
 SPARKLE_SIGNATURE_VERIFIER="$ROOT_DIR/Scripts/verify-sparkle-signature.swift"
+HOMEBREW_CASK_TOOL="$ROOT_DIR/Scripts/lib/homebrew_cask.py"
 PROJECT_FILE="$ROOT_DIR/ClaudeUsage.xcodeproj/project.pbxproj"
 RELEASE_XCCONFIG="$ROOT_DIR/Config/Release.xcconfig"
 
@@ -20,6 +21,7 @@ EXPECTED_VERSION=""
 EXPECTED_BUILD=""
 INSTALL_TO=""
 EXPORT_APPCAST_TO=""
+EXPORT_HOMEBREW_MANIFEST_TO=""
 VERIFY_PUBLIC_FEED=0
 DRY_RUN=0
 PUBLIC_KEY_OVERRIDE=""
@@ -34,6 +36,7 @@ usage() {
     --expected-build N \
     [--install-to /absolute/path/ClaudeUsage.app] \
     [--export-verified-appcast-to /absolute/path/appcast.xml] \
+    [--export-homebrew-manifest-to /absolute/path/manifest.json] \
     [--verify-public-feed] \
     [--trusted-public-key BASE64] \
     [--repo OWNER/REPO] \
@@ -97,6 +100,11 @@ while [[ $# -gt 0 ]]; do
         --export-verified-appcast-to)
             [[ $# -ge 2 ]] || die "--export-verified-appcast-to 값이 필요합니다."
             EXPORT_APPCAST_TO="$2"
+            shift 2
+            ;;
+        --export-homebrew-manifest-to)
+            [[ $# -ge 2 ]] || die "--export-homebrew-manifest-to 값이 필요합니다."
+            EXPORT_HOMEBREW_MANIFEST_TO="$2"
             shift 2
             ;;
         --verify-public-feed)
@@ -171,6 +179,16 @@ if [[ -n "$EXPORT_APPCAST_TO" ]]; then
     [[ ! -e "$EXPORT_APPCAST_TO" && ! -L "$EXPORT_APPCAST_TO" ]] \
         || die "검증된 appcast export 대상이 이미 존재합니다: $EXPORT_APPCAST_TO"
 fi
+if [[ -n "$EXPORT_HOMEBREW_MANIFEST_TO" ]]; then
+    [[ "$CHANNEL" == "prod" ]] \
+        || die "Homebrew manifest는 prod 원격 산출물에서만 생성할 수 있습니다."
+    [[ "$VERIFY_PUBLIC_FEED" == "1" ]] \
+        || die "Homebrew manifest export에는 --verify-public-feed가 필요합니다."
+    [[ "$EXPORT_HOMEBREW_MANIFEST_TO" == /*.json ]] \
+        || die "--export-homebrew-manifest-to 는 .json으로 끝나는 절대 경로여야 합니다."
+    [[ ! -e "$EXPORT_HOMEBREW_MANIFEST_TO" && ! -L "$EXPORT_HOMEBREW_MANIFEST_TO" ]] \
+        || die "Homebrew manifest export 대상이 이미 존재합니다: $EXPORT_HOMEBREW_MANIFEST_TO"
+fi
 
 echo "원격 릴리스 산출물 검증"
 echo "  repository: $REPOSITORY"
@@ -193,6 +211,10 @@ done
 [[ -x /usr/libexec/PlistBuddy ]] || die "PlistBuddy를 찾지 못했습니다."
 [[ -f "$SPARKLE_SIGNATURE_VERIFIER" ]] \
     || die "Sparkle signature verifier를 찾지 못했습니다."
+if [[ -n "$EXPORT_HOMEBREW_MANIFEST_TO" ]]; then
+    [[ -f "$HOMEBREW_CASK_TOOL" ]] \
+        || die "Homebrew Cask metadata tool을 찾지 못했습니다."
+fi
 
 RELEASE_JSON="$(
     gh release view "$TAG" \
@@ -386,6 +408,8 @@ INSTALL_STAGE_DIR=""
 INSTALL_PREVIOUS_APP=""
 EXPORT_STAGE_PATH=""
 EXPORT_CREATED=0
+HOMEBREW_EXPORT_STAGE_PATH=""
+HOMEBREW_EXPORT_CREATED=0
 
 is_verify_mount_active() {
     /sbin/mount | awk -v target="$MOUNT_DIR" '
@@ -440,6 +464,19 @@ cleanup() {
     if [[ "$exit_code" != "0" && "$EXPORT_CREATED" == "1" && -f "$EXPORT_APPCAST_TO" ]]; then
         if ! rm -f "$EXPORT_APPCAST_TO" || [[ -e "$EXPORT_APPCAST_TO" ]]; then
             echo "오류: 실패한 appcast export 결과를 정리하지 못했습니다: $EXPORT_APPCAST_TO" >&2
+            cleanup_failed=1
+        fi
+    fi
+    if [[ -n "$HOMEBREW_EXPORT_STAGE_PATH" && -f "$HOMEBREW_EXPORT_STAGE_PATH" ]]; then
+        if ! rm -f "$HOMEBREW_EXPORT_STAGE_PATH" || [[ -e "$HOMEBREW_EXPORT_STAGE_PATH" ]]; then
+            echo "오류: Homebrew manifest export staging을 정리하지 못했습니다: $HOMEBREW_EXPORT_STAGE_PATH" >&2
+            cleanup_failed=1
+        fi
+    fi
+    if [[ "$exit_code" != "0" && "$HOMEBREW_EXPORT_CREATED" == "1" \
+        && -f "$EXPORT_HOMEBREW_MANIFEST_TO" ]]; then
+        if ! rm -f "$EXPORT_HOMEBREW_MANIFEST_TO" || [[ -e "$EXPORT_HOMEBREW_MANIFEST_TO" ]]; then
+            echo "오류: 실패한 Homebrew manifest export 결과를 정리하지 못했습니다: $EXPORT_HOMEBREW_MANIFEST_TO" >&2
             cleanup_failed=1
         fi
     fi
@@ -609,6 +646,45 @@ if [[ -n "$EXPORT_APPCAST_TO" ]]; then
         || die "검증된 appcast export staging을 정리하지 못했습니다."
     EXPORT_STAGE_PATH=""
     echo "  verified appcast export: $EXPORT_APPCAST_TO"
+fi
+
+if [[ -n "$EXPORT_HOMEBREW_MANIFEST_TO" ]]; then
+    [[ "$UPDATE_ARCHIVE_NAME" == "ClaudeUsage.dmg" ]] \
+        || die "Homebrew Cask는 DMG update archive만 지원합니다."
+    MINIMUM_SYSTEM_VERSION="$(
+        /usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' \
+            "$APP_PATH/Contents/Info.plist"
+    )"
+    HOMEBREW_EXPORT_PARENT="$(dirname "$EXPORT_HOMEBREW_MANIFEST_TO")"
+    [[ -d "$HOMEBREW_EXPORT_PARENT" && ! -L "$HOMEBREW_EXPORT_PARENT" ]] \
+        || die "Homebrew manifest export 상위 디렉터리가 유효하지 않습니다: $HOMEBREW_EXPORT_PARENT"
+    HOMEBREW_EXPORT_STAGE_PATH="$(
+        mktemp "$HOMEBREW_EXPORT_PARENT/.ClaudeUsage-homebrew-manifest.XXXXXX"
+    )"
+    python3 "$HOMEBREW_CASK_TOOL" manifest \
+        --repository "$REPOSITORY" \
+        --tag "$TAG" \
+        --version "$EXPECTED_VERSION" \
+        --build "$EXPECTED_BUILD" \
+        --asset-url "$EXPECTED_ENCLOSURE" \
+        --asset-size "$EXPECTED_DMG_SIZE" \
+        --asset-sha256 "$DMG_SHA256" \
+        --bundle-identifier "$EXPECTED_BUNDLE_IDENTIFIER" \
+        --feed-url "$EXPECTED_FEED_URL" \
+        --team-identifier "$TRUSTED_TEAM_IDENTIFIER" \
+        --minimum-system-version "$MINIMUM_SYSTEM_VERSION" \
+        > "$HOMEBREW_EXPORT_STAGE_PATH"
+    python3 "$HOMEBREW_CASK_TOOL" validate \
+        --manifest "$HOMEBREW_EXPORT_STAGE_PATH" >/dev/null
+    chmod 0644 "$HOMEBREW_EXPORT_STAGE_PATH"
+    ln "$HOMEBREW_EXPORT_STAGE_PATH" "$EXPORT_HOMEBREW_MANIFEST_TO" \
+        || die "Homebrew manifest export 대상을 원자적으로 생성하지 못했습니다."
+    HOMEBREW_EXPORT_CREATED=1
+    rm -f "$HOMEBREW_EXPORT_STAGE_PATH"
+    [[ ! -e "$HOMEBREW_EXPORT_STAGE_PATH" ]] \
+        || die "Homebrew manifest export staging을 정리하지 못했습니다."
+    HOMEBREW_EXPORT_STAGE_PATH=""
+    echo "  Homebrew manifest export: $EXPORT_HOMEBREW_MANIFEST_TO"
 fi
 
 echo "검증 완료"

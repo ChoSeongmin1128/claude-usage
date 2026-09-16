@@ -6,8 +6,9 @@
 
 ## Homebrew Cask 도입
 
-- [Homebrew 배포 설계](docs/homebrew-distribution.md)에 따라 별도 공개 tap과 운영 전용 Cask 구성
-- 검증된 운영 Release manifest에서 Cask version·DMG URL·SHA-256을 결정적으로 생성하고 style·audit·livecheck 검사 추가
+- 완료: 검증된 운영 Release manifest, 결정적 Cask renderer, 상태 충돌 검증과 style·audit·livecheck·fetch 검사
+- 완료: 운영 2.5.3으로 로컬 tap 후보와 최소 권한 CI 구성 및 실제 원격 artifact 검증
+- 별도 공개 `ChoSeongmin1128/homebrew-tap` 생성·push와 GitHub Actions·공개 clone 재검증
 - 신규 설치, 수동 설치본의 앱 번들 전환, Homebrew→Homebrew, Homebrew→Sparkle, Sparkle 선행→Homebrew 교차 업데이트 검증
 - `auto_updates` Cask의 `--adopt`가 동일성 검사를 생략하므로 직접 안내하지 않고, 필요하면 원격 DMG와 전체 bundle identity를 검증하는 편입 도구를 먼저 구현
 - `brew upgrade` 뒤 메뉴바 등록·설정·계정 보존과 제거·재설치의 데이터 보존 검증
