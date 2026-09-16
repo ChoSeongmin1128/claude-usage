@@ -27,7 +27,6 @@ extension AppDelegate {
 
     var currentOverage: OverageSpendLimitResponse? {
         get { withRuntimeState { $0.currentOverage } }
-        set { withRuntimeState { $0.currentOverage = newValue } }
     }
 
     var currentClaudeNotificationPolicy: ClaudeNotificationPolicy? {
@@ -42,7 +41,6 @@ extension AppDelegate {
 
     var lastOverageFetchAt: Date? {
         get { withRuntimeState { $0.lastOverageFetchAt } }
-        set { withRuntimeState { $0.lastOverageFetchAt = newValue } }
     }
 
     var systemStatus: ClaudeSystemStatus? {

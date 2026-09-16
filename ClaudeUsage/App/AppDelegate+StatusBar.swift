@@ -794,7 +794,10 @@ extension AppDelegate {
 
             switch event.charactersIgnoringModifiers {
             case "r":
-                self?.refreshAll(force: true)
+                guard let self, self.popover?.isShown == true,
+                    event.window === self.popover?.contentViewController?.view.window
+                else { return event }
+                self.popoverViewModel.refresh()
                 return nil
             case ",":
                 self?.showSettingsWindow()

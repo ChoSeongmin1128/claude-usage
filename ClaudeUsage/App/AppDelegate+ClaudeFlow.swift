@@ -124,7 +124,7 @@ extension AppDelegate {
                 CodexAuthManager.shared.clearCache()
                 self.setRuntimeProviderState(RuntimeProviderState(), for: .codex)
                 self.updateMenuBar()
-                self.updatePopoverViewModel(overage: self.currentOverage)
+                self.updatePopoverViewModel()
             },
             claudeLastUsage: { [weak self] in
                 self?.currentUsage
@@ -246,7 +246,7 @@ extension AppDelegate {
                             self.loadingStartedAt = Date()
                         }
                         self.updateMenuBar()
-                        self.updatePopoverViewModel(overage: self.currentOverage)
+                        self.updatePopoverViewModel()
                     }
 
                     do {
@@ -271,7 +271,7 @@ extension AppDelegate {
                             self.isLoading = false
                             self.loadingStartedAt = nil
                             self.updateMenuBar()
-                            self.updatePopoverViewModel(overage: self.currentOverage)
+                            self.updatePopoverViewModel()
                         }
                         throw error
                     }
@@ -357,7 +357,7 @@ extension AppDelegate {
                             self.refreshUsage(force: true)
                         } else {
                             self.updateMenuBar()
-                            self.updatePopoverViewModel(overage: self.currentOverage)
+                            self.updatePopoverViewModel()
                         }
                         self.setupWizardWindowCoordinator.close()
                     }

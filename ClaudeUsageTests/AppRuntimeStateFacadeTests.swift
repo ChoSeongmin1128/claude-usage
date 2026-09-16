@@ -7,14 +7,14 @@ final class AppRuntimeStateFacadeTests: XCTestCase {
         await MainActor.run {
             let facade = AppRuntimeStateFacade()
             facade.activeClaudeAccountID = "old-account"
-            facade.lastOverageFetchAt = Date()
-            facade.currentOverage = OverageSpendLimitResponse(
+            facade.applyClaudeOverage(
+                OverageSpendLimitResponse(
                 monthlyCreditLimitCents: 10000,
                 usedCreditsCents: 300,
                 isEnabled: true,
                 outOfCredits: false,
                 currency: "USD"
-            )
+                ), accountID: "old-account", fetchedAt: Date())
             facade[.claude] = RuntimeProviderState(
                 error: .networkError("previous account"),
                 isLoading: true,

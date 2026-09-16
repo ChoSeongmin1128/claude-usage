@@ -91,7 +91,7 @@ extension AppDelegate {
                 return
             }
             applyPopoverBehavior()
-            updatePopoverViewModel(overage: currentOverage)
+            updatePopoverViewModel()
             let initialSize = presentedPopoverSize(for: service, isShown: false)
             // show() 전에 크기를 명시적으로 설정하여 fittingSize에 의한 확장 방지
             popover.contentViewController?.preferredContentSize = initialSize
@@ -117,10 +117,9 @@ extension AppDelegate {
         stopGlobalClickMonitor()
     }
 
-    func updatePopoverViewModel(overage: OverageSpendLimitResponse? = nil) {
+    func updatePopoverViewModel() {
         popoverViewModel.update(
             snapshots: runtimeProviderSnapshots(),
-            overage: overage,
             setupPresentation: claudeSetupPresentation
         )
         popoverViewModel.systemStatus = systemStatus

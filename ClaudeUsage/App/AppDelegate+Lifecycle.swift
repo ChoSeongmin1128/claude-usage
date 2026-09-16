@@ -295,9 +295,7 @@ extension AppDelegate {
             .checkAntigravityThresholds(
                 snapshot: snapshot
             )
-        syncRuntimePresentation(
-            overage: currentOverage
-        )
+        syncRuntimePresentation()
         syncRefreshTimerState()
     }
 
@@ -416,6 +414,6 @@ extension AppDelegate {
             updateMenuBar()
         }
 
-        updatePopoverViewModel(overage: currentOverage)
+        updatePopoverViewModel()
     }
 }

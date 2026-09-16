@@ -3,9 +3,9 @@ import Foundation
 extension AppDelegate {
     // MARK: - Runtime Presentation
 
-    func syncRuntimePresentation(overage: OverageSpendLimitResponse? = nil) {
+    func syncRuntimePresentation() {
         updateMenuBar()
-        updatePopoverViewModel(overage: overage ?? currentOverage)
+        updatePopoverViewModel()
     }
 
     func runtimeProviderSnapshots() -> [RuntimeProviderSnapshot] {
@@ -55,7 +55,7 @@ extension AppDelegate {
         isLoading = false
         loadingStartedAt = nil
         updateMenuBar()
-        updatePopoverViewModel(overage: currentOverage)
+        updatePopoverViewModel()
         refreshAll(force: true)
         startTimer()
     }
@@ -206,7 +206,7 @@ extension AppDelegate {
                     self.clearClaudePresentationState(markSetupIncomplete: false)
                 }
                 self.updateMenuBar()
-                self.updatePopoverViewModel(overage: self.currentOverage)
+                self.updatePopoverViewModel()
                 self.syncRefreshTimerState()
                 return nil
             }
@@ -229,7 +229,7 @@ extension AppDelegate {
             handleProviderEnabledChange(currentEnabled, for: service)
         }
 
-        updatePopoverViewModel(overage: currentOverage)
+        updatePopoverViewModel()
         startTimer()
         updateMenuBar()
     }
@@ -293,15 +293,12 @@ extension AppDelegate {
     func clearRuntimeServiceState(_ service: PopoverService) {
         if service == .codex { codexRefreshController.cancel() }
         if service == .antigravity {
-            syncRuntimePresentation(
-                overage: currentOverage
-            )
+            syncRuntimePresentation()
             return
         }
 
         if service == .claude {
-            currentOverage = nil
-            lastOverageFetchAt = nil
+            withRuntimeState { $0.invalidateClaudeRequestContext() }
             popoverViewModel.nextUsageRetryAt = nil
         }
 
@@ -318,15 +315,12 @@ extension AppDelegate {
     func clearStateForAuthPrompt(_ service: PopoverService) {
         if service == .codex { codexRefreshController.cancel() }
         if service == .antigravity {
-            syncRuntimePresentation(
-                overage: currentOverage
-            )
+            syncRuntimePresentation()
             return
         }
 
         if service == .claude {
-            currentOverage = nil
-            lastOverageFetchAt = nil
+            withRuntimeState { $0.invalidateClaudeRequestContext() }
             popoverViewModel.nextUsageRetryAt = nil
         }
 
@@ -334,11 +328,10 @@ extension AppDelegate {
     }
 
     func resetClaudeRuntimeAfterAccountBoundaryChange(refreshHealthSnapshot: Bool = true) {
-        currentOverage = nil
-        lastOverageFetchAt = nil
+        withRuntimeState { $0.invalidateClaudeRequestContext() }
         popoverViewModel.nextUsageRetryAt = nil
         setRuntimeProviderState(RuntimeProviderState(), for: .claude)
-        syncRuntimePresentation(overage: nil)
+        syncRuntimePresentation()
         if refreshHealthSnapshot {
             syncUsageHealthSnapshotToUI()
         }
@@ -362,7 +355,7 @@ extension AppDelegate {
             if service == .claude {
                 popoverViewModel.nextUsageRetryAt = state.nextRefreshAllowedAt
             }
-            syncRuntimePresentation(overage: currentOverage)
+            syncRuntimePresentation()
             return true
         case .skip(.backoff(let remainingSeconds, let nextAllowedAt)):
             Logger.debug("\(service.displayName) 갱신 스킵: 임시 오류 백오프 \(remainingSeconds)초 남음")
@@ -387,6 +380,7 @@ extension AppDelegate {
         }
         guard prepareRefresh(for: .claude, force: force) else { return nil }
 
+        let requestRevision = withRuntimeState { $0.claudeRequestRevision }
         let task = Task { [weak self] in
             guard let self else { return }
             let requestAccountID = await apiService.currentActiveAccountID()
@@ -402,18 +396,20 @@ extension AppDelegate {
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
                     guard !Task.isCancelled else { return }
-                    guard requestAccountID == responseAccountID,
+                    guard self.withRuntimeState({ $0.claudeRequestRevision }) == requestRevision,
+                        requestAccountID == responseAccountID,
                           requestAccountID == result.provenance.accountID else {
                         Logger.info("Claude 계정 귀속이 다른 조회 결과 무시")
                         return
                     }
                     self.currentClaudeProfileMetadata = cachedProfileMetadata
                     self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
-                    if let fetchedOverage = result.overage {
-                        self.currentOverage = fetchedOverage
-                    }
-                    if let overageFetchedAt = result.overageFetchedAt {
-                        self.lastOverageFetchAt = overageFetchedAt
+                    if let fetchedOverage = result.overage, let fetchedAt = result.overageFetchedAt,
+                        let accountID = result.provenance.accountID
+                    {
+                        self.withRuntimeState {
+                            $0.applyClaudeOverage(fetchedOverage, accountID: accountID, fetchedAt: fetchedAt)
+                        }
                     }
 
                     var state = self.runtimeProviderState(for: .claude)
@@ -424,7 +420,7 @@ extension AppDelegate {
                     )
                     self.setRuntimeProviderState(state, for: .claude)
                     self.popoverViewModel.nextUsageRetryAt = state.nextRefreshAllowedAt
-                    self.syncRuntimePresentation(overage: self.currentOverage)
+                    self.syncRuntimePresentation()
                     if syncHealthAfterCompletion {
                         self.syncUsageHealthSnapshotToUI()
                     }
@@ -456,7 +452,9 @@ extension AppDelegate {
 
                 await MainActor.run {
                     guard !Task.isCancelled else { return }
-                    guard requestAccountID == responseAccountID else {
+                    guard self.withRuntimeState({ $0.claudeRequestRevision }) == requestRevision,
+                        requestAccountID == responseAccountID
+                    else {
                         Logger.info("Claude 계정 전환 중 도착한 이전 조회 실패 무시")
                         return
                     }
@@ -472,7 +470,7 @@ extension AppDelegate {
                     if let backoffSeconds = resolution.backoffSeconds {
                         Logger.info("임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
                     }
-                    self.syncRuntimePresentation(overage: self.currentOverage)
+                    self.syncRuntimePresentation()
                     if syncHealthAfterCompletion {
                         self.syncUsageHealthSnapshotToUI()
                     }
@@ -489,7 +487,9 @@ extension AppDelegate {
                 let fetchMetadata = await self.apiService.currentFetchMetadataSnapshot()
                 await MainActor.run {
                     guard !Task.isCancelled else { return }
-                    guard requestAccountID == responseAccountID else {
+                    guard self.withRuntimeState({ $0.claudeRequestRevision }) == requestRevision,
+                        requestAccountID == responseAccountID
+                    else {
                         Logger.info("Claude 계정 전환 중 도착한 이전 조회 실패 무시")
                         return
                     }
@@ -505,7 +505,7 @@ extension AppDelegate {
                     if let backoffSeconds = resolution.backoffSeconds {
                         Logger.info("임시 오류 백오프 적용: 다음 자동 시도까지 약 \(backoffSeconds)초")
                     }
-                    self.syncRuntimePresentation(overage: self.currentOverage)
+                    self.syncRuntimePresentation()
                     if syncHealthAfterCompletion {
                         self.syncUsageHealthSnapshotToUI()
                     }
@@ -530,7 +530,7 @@ extension AppDelegate {
                 NotificationManager.shared.updateCodexAccountBoundary(
                     CodexAuthManager.shared.cachedSnapshot?.token.accountID)
                 self.setRuntimeProviderState(RuntimeProviderState(), for: .codex)
-                self.syncRuntimePresentation(overage: self.currentOverage)
+                self.syncRuntimePresentation()
             },
             applySuccess: { [weak self] result in self?.applyCodexUsage(result) },
             applyFailure: { [weak self] error in self?.applyCodexFailure(error) }
@@ -548,7 +548,7 @@ extension AppDelegate {
                 sourceLabel: "Codex 로그인", accountID: accountID)
         )
         setRuntimeProviderState(state, for: .codex)
-        syncRuntimePresentation(overage: currentOverage)
+        syncRuntimePresentation()
         if let window = usage.sessionWindow {
             NotificationManager.shared.checkThreshold(
                 session: .codexPrimary, percentage: window.utilization, resetAt: window.resetAtISO
@@ -567,7 +567,7 @@ extension AppDelegate {
             state: &state, error: error, minimumInterval: refreshConfiguration.interval(for: .codex)
         )
         setRuntimeProviderState(state, for: .codex)
-        syncRuntimePresentation(overage: currentOverage)
+        syncRuntimePresentation()
     }
 
     func refreshAntigravityUsage(force: Bool = false) {

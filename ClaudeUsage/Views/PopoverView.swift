@@ -183,9 +183,9 @@ struct PopoverView: View {
                 .frame(width: 14, height: 14)
             }
             .buttonStyle(.borderless)
-            .disabled(currentServiceLoading)
-            .help(currentServiceLoading ? "사용량 갱신 중" : "사용량 새로고침")
-            .accessibilityLabel(currentServiceLoading ? "사용량 갱신 중" : "사용량 새로고침")
+            .disabled(currentServiceLoading || viewModel.manualRefreshAvailableAt(for: selectedService) != nil)
+            .help(viewModel.refreshHelp(for: selectedService, isLoading: currentServiceLoading))
+            .accessibilityLabel(viewModel.refreshHelp(for: selectedService, isLoading: currentServiceLoading))
 
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) {
@@ -423,9 +423,7 @@ struct PopoverView: View {
     }
 
     private var currentServiceLoading: Bool {
-        // 외부 runtime isLoading + 수동 새로고침 직후의 강제 spinner 윈도우.
-        // 후자는 사용자가 새로고침 버튼 누른 즉시 ProgressView 가 돌도록 보장한다.
-        serviceLoading(for: selectedService) || viewModel.isManualRefreshSpinnerActive
+        serviceLoading(for: selectedService)
     }
 
     private var availableServices: [PopoverService] {
