@@ -195,7 +195,7 @@ Homebrew reconcile 상태는 최소한 다음처럼 분류합니다.
 
 tap 저장소는 공통 정책·CI와 제품별 `Casks/*.rb`·`Formula/*.rb`를 분리합니다. 공통 validator가 모든 패키지를 자동 발견해 syntax·style·strict online audit·livecheck·fetch를 검사하고, Cask와 Formula 사이에도 같은 token을 허용하지 않습니다. 각 제품의 배포 자동화는 자기 파일 하나만 수정하며 다른 패키지와 공통 정책 파일을 보존해야 합니다. ClaudeUsage의 manifest와 renderer는 `Casks/claude-usage.rb` 밖을 쓰지 않습니다.
 
-사용자에게는 fully-qualified 패키지 설치를 안내해 선택한 패키지만 신뢰하게 합니다. `brew readall`로 전체 tap을 검사하기 위한 tap 단위 신뢰는 자격증명이 없는 일회성 CI runner와 관리자의 격리 검증에서만 사용하고 검증 후 제거합니다. branch protection과 최소 권한을 적용하며, Cask나 Formula 로딩 시 임의의 외부 명령을 실행하는 코드를 추가하지 않습니다.
+사용자에게는 fully-qualified 패키지 설치를 안내해 선택한 패키지만 신뢰하게 합니다. `brew readall`로 전체 tap을 검사하기 위한 tap 단위 신뢰는 자격증명이 없는 일회성 CI runner와 관리자의 격리 검증에서만 사용하고 검증 후 제거합니다. main은 선형 이력을 요구하고 강제 push·삭제를 차단하며, workflow 권한은 `contents: read`로 제한합니다. Cask나 Formula 로딩 시 임의의 외부 명령을 실행하는 코드를 추가하지 않습니다.
 
 ## 권장 구현과 공개 순서
 
@@ -223,6 +223,8 @@ tap 저장소는 공통 정책·CI와 제품별 `Casks/*.rb`·`Formula/*.rb`를 
 - 공통 validator의 다중 패키지 탐색, token 충돌·심볼릭 링크 거부 fixture와 실제 ClaudeUsage Cask의 전체 Homebrew 검사 통과
 - 공개 `ChoSeongmin1128/homebrew-tap` 생성과 MIT 라이선스 인식, 검증한 main 커밋 push
 - GitHub Actions와 공개 clone에서 운영 2.5.3 Cask의 syntax·style·strict online audit·livecheck·fetch 재검증
+- 공개 Cask의 격리 appdir 설치, version/build·bundle identifier·코드 서명·공증·Gatekeeper 검증과 receipt·tap·신뢰 기록 정리
+- tap main의 선형 이력 요구와 강제 push·삭제 차단, workflow `contents: read` 권한 확인
 
 정식 지원 전 남은 작업:
 

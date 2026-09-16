@@ -17,7 +17,7 @@ staging 설치 검증 앱의 자동 조회 중단·재개와 10분 계측에서 
 - 반복적인 AGY 초기 실행에서 상호작용 필요 상태가 간헐적으로 관측됐으며 구체적인 원인은 확정하지 못했습니다. 최종 필수 실연동과 10분 정기 조회에서는 재현되지 않았습니다.
 - 2.4.13보다 오래된 운영 배포본의 실제 직행 설치에는 별도 macOS 검증 환경이 필요합니다.
 - 초기 혼합 채널 배포본은 [업데이트 호환 안내](docs/upgrade-compatibility.md)의 예외 경로를 따릅니다.
-- Homebrew Cask는 [공개 tap](https://github.com/ChoSeongmin1128/homebrew-tap)에 운영 2.5.3으로 게시했습니다. 여러 Cask·Formula를 자동 검증하는 CI와 공개 clone의 syntax·style·strict audit·livecheck·fetch가 통과했습니다. 기존 설치본 전환과 `/Applications` 실설치 QA, 메인 README 설치 안내, release driver 연동은 아직 완료하지 않았습니다.
+- Homebrew Cask는 [공개 tap](https://github.com/ChoSeongmin1128/homebrew-tap)에 운영 2.5.3으로 게시했습니다. 여러 Cask·Formula를 자동 검증하는 CI와 공개 clone의 syntax·style·strict audit·livecheck·fetch, 격리 appdir 설치본의 서명·공증·Gatekeeper 검증이 통과했습니다. main에는 선형 이력을 요구하고 강제 push·삭제를 막았습니다. 기존 설치본 전환과 `/Applications` 실설치 QA, 메인 README 설치 안내, release driver 연동은 아직 완료하지 않았습니다.
 - Antigravity IDE는 지원하지 않습니다.
 - 브랜드 자산의 권리는 소스 코드의 MIT 라이선스에 포함되지 않습니다.
 
