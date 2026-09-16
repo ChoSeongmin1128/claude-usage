@@ -64,6 +64,7 @@ enum AppDesign {
     }
 
     enum Motion {
+        static let popoverResizeDuration: TimeInterval = 0.25
         static let control = Animation.easeInOut(duration: 0.15)
         static let value = Animation.easeInOut(duration: 0.3)
     }

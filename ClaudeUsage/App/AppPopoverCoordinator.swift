@@ -2,17 +2,24 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class AppPopoverCoordinator {
+final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
     let viewModel = PopoverViewModel()
     private let settings: AppSettings
     private(set) var popover = NSPopover()
-    private var presentationRevision: Int = 0
+    private let reduceMotion: () -> Bool
+    private var resizeRevision = 0
+    private var isResizing = false
+    private var acceptsSizeUpdates = false
     private weak var observedWindow: NSWindow?
     private var windowObservationTokens: [NSObjectProtocol] = []
-    private var pendingResizeWorkItem: DispatchWorkItem?
 
-    init(settings: AppSettings = .shared) {
+    init(
+        settings: AppSettings = .shared,
+        reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    ) {
         self.settings = settings
+        self.reduceMotion = reduceMotion
+        super.init()
     }
 
     func configure(
@@ -38,17 +45,17 @@ final class AppPopoverCoordinator {
     }
 
     func close() {
-        presentationRevision += 1
-        pendingResizeWorkItem?.cancel()
-        pendingResizeWorkItem = nil
-        endWindowDiagnostics()
+        let wasResizing = isResizing
+        invalidate()
+        if wasResizing { popover.animates = false }
         popover.close()
     }
 
     func invalidate() {
-        presentationRevision += 1
-        pendingResizeWorkItem?.cancel()
-        pendingResizeWorkItem = nil
+        resizeRevision += 1
+        isResizing = false
+        acceptsSizeUpdates = false
+        endWindowDiagnostics()
     }
 
     func applyBehavior(isPinned: Bool) {
@@ -56,36 +63,32 @@ final class AppPopoverCoordinator {
     }
 
     func rebuildPopover() {
-        pendingResizeWorkItem?.cancel()
-        pendingResizeWorkItem = nil
-        endWindowDiagnostics()
-        presentationRevision += 1
+        invalidate()
 
         let newPopover = NSPopover()
-        let popoverView = PopoverView(viewModel: viewModel, settings: settings)
-        let hostingController = NSHostingController(rootView: popoverView)
-        if #available(macOS 13.0, *) {
-            hostingController.sizingOptions = [.preferredContentSize]
-        }
+        let popoverView = PopoverView(
+            viewModel: viewModel, settings: settings, fillsViewport: true,
+            onTargetSizeChange: { [weak self] size in self?.refreshSizeIfShown(size: size) })
+        let hostingController = NSViewController()
+        hostingController.view = PopoverViewportView(rootView: popoverView)
 
         newPopover.contentViewController = hostingController
-        newPopover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        newPopover.animates = !reduceMotion()
+        newPopover.delegate = self
         popover = newPopover
+        acceptsSizeUpdates = true
     }
 
     func refreshSizeIfShown(size: CGSize) {
-        guard popover.isShown else { return }
-        pendingResizeWorkItem?.cancel()
-        let revision = presentationRevision
-        let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            guard self.presentationRevision == revision else { return }
-            guard self.popover.isShown else { return }
-            self.logGeometry("refresh-size requested=\(describe(size: size))")
-            self.applyPopoverSizeIfNeeded(size: size, force: false)
-        }
-        pendingResizeWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: workItem)
+        guard acceptsSizeUpdates, popover.isShown else { return }
+        applyPopoverSizeIfNeeded(size: size)
+    }
+
+    func popoverWillClose(_ notification: Notification) {
+        guard notification.object as? NSPopover === popover else { return }
+        let wasResizing = isResizing
+        invalidate()
+        if wasResizing { popover.animates = false }
     }
 
     func beginWindowDiagnosticsIfNeeded() {
@@ -112,7 +115,7 @@ final class AppPopoverCoordinator {
         logWindowFrame("window-observing-started")
     }
 
-    private func applyPopoverSizeIfNeeded(size: CGSize, force: Bool) {
+    private func applyPopoverSizeIfNeeded(size: CGSize) {
         let screenMaxWidth = max(
             300,
             (popover.contentViewController?.view.window?.screen?.visibleFrame.width ?? NSScreen.main?.visibleFrame.width
@@ -125,11 +128,31 @@ final class AppPopoverCoordinator {
         let changed = abs(popover.contentSize.width - targetSize.width) > 0.5 ||
             abs(popover.contentSize.height - targetSize.height) > 0.5
         logGeometry(
-            "apply-size current=\(describe(size: popover.contentSize)) target=\(describe(size: targetSize)) force=\(force) changed=\(changed)"
+            "apply-size current=\(describe(size: popover.contentSize)) target=\(describe(size: targetSize)) changed=\(changed)"
         )
-        if force || changed {
+        guard changed else { return }
+        let shouldAnimate = !reduceMotion()
+        popover.animates = shouldAnimate
+        if !isResizing {
+            (popover.contentViewController?.view as? PopoverViewportView)?.prepareForResize()
+        }
+        resizeRevision += 1
+        let revision = resizeRevision
+        isResizing = true
+        // Update the explicit controller size and native container in one transaction.
+        // PopoverViewportView keeps SwiftUI inside the visible area during the transition.
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = shouldAnimate ? AppDesign.Motion.popoverResizeDuration : 0
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.allowsImplicitAnimation = shouldAnimate
             popover.contentViewController?.preferredContentSize = targetSize
             popover.contentSize = targetSize
+        } completionHandler: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.resizeRevision == revision, self.popover.isShown else { return }
+                self.isResizing = false
+                (self.popover.contentViewController?.view as? PopoverViewportView)?.finishResize()
+            }
         }
     }
 

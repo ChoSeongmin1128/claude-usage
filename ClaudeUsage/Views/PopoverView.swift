@@ -10,18 +10,46 @@ import SwiftUI
 struct PopoverView: View {
     @ObservedObject var viewModel: PopoverViewModel
     @ObservedObject private var settings: AppSettings
+    private let fillsViewport: Bool
+    private let onTargetSizeChange: ((CGSize) -> Void)?
 
-    init(viewModel: PopoverViewModel, settings: AppSettings = .shared) {
+    init(
+        viewModel: PopoverViewModel, settings: AppSettings = .shared, fillsViewport: Bool = false,
+        onTargetSizeChange: ((CGSize) -> Void)? = nil
+    ) {
         self.viewModel = viewModel
         self.settings = settings
+        self.fillsViewport = fillsViewport
+        self.onTargetSizeChange = onTargetSizeChange
     }
     @State private var isDisplayEditorPresented = false
     @State private var displayEditorMode: PopoverDisplayEditorMode = .standard
 
     var body: some View {
         let layout = viewModel.layoutWithSections(for: selectedService, settings: settings)
-        let layoutSpec = layout.spec
+        Group {
+            if fillsViewport {
+                GeometryReader { geometry in
+                    popoverContent(
+                        layoutSpec: layout.spec.fittingViewport(geometry.size), sections: layout.sections,
+                        isTransitioning: abs(geometry.size.height - layout.spec.size.height) > 1)
+                }
+            } else {
+                popoverContent(layoutSpec: layout.spec, sections: layout.sections)
+            }
+        }
+        .onAppear {
+            normalizeSelectedServiceIfNeeded()
+            requestRefreshIfNeededForVisibleService()
+        }
+        .onChange(of: settings.providerStates) { _, _ in normalizeSelectedServiceIfNeeded() }
+        .onChange(of: viewModel.selectedService) { _, _ in isDisplayEditorPresented = false }
+        .onChange(of: layout.spec.size) { _, size in onTargetSizeChange?(size) }
+    }
 
+    private func popoverContent(
+        layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection], isTransitioning: Bool = false
+    ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             // Compact는 계정 혼동이나 조치가 필요한 상태만 한 줄에 남긴다.
             // Standard는 provenance/freshness를 별도 상태 레일로 제공한다.
@@ -47,11 +75,15 @@ struct PopoverView: View {
                 height: isCompact
                     ? PopoverLayoutMetrics.compactHeaderHeight : PopoverLayoutMetrics.standardHeaderContainerHeight)
 
-            if isCompact {
-                compactMainSection(layoutSpec: layoutSpec, sections: layout.sections)
-            } else {
-                standardMainContainer(layoutSpec: layoutSpec, sections: layout.sections)
+            Group {
+                if isCompact {
+                    compactMainSection(layoutSpec: layoutSpec, sections: sections)
+                } else {
+                    standardMainContainer(layoutSpec: layoutSpec, sections: sections, showsIndicators: !isTransitioning)
+                }
             }
+            .frame(height: layoutSpec.bodyRegionHeight, alignment: .topLeading)
+            .clipped()
 
             Divider().padding(.horizontal, isCompact ? AppDesign.Space.content : AppDesign.Space.section)
 
@@ -92,20 +124,11 @@ struct PopoverView: View {
                 .font(AppDesign.Typography.metadata)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
-                .padding(.bottom, AppDesign.Space.control)
+                .frame(height: PopoverLayoutMetrics.standardShortcutFooterHeight)
             }
         }
         .frame(width: layoutSpec.size.width, height: layoutSpec.size.height, alignment: .topLeading)
-        .onAppear {
-            normalizeSelectedServiceIfNeeded()
-            requestRefreshIfNeededForVisibleService()
-        }
-        .onChange(of: settings.providerStates) { _, _ in
-            normalizeSelectedServiceIfNeeded()
-        }
-        .onChange(of: viewModel.selectedService) { _, _ in
-            isDisplayEditorPresented = false
-        }
+        .clipped()
     }
 
     // MARK: - Helpers
@@ -448,9 +471,11 @@ struct PopoverView: View {
     }
 
     @ViewBuilder
-    private func standardMainContainer(layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection]) -> some View {
+    private func standardMainContainer(
+        layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection], showsIndicators: Bool
+    ) -> some View {
         if layoutSpec.phase == .content {
-            ScrollView(.vertical, showsIndicators: true) {
+            ScrollView(.vertical, showsIndicators: showsIndicators) {
                 standardMainSection(layoutSpec: layoutSpec, sections: sections)
             }
             .frame(

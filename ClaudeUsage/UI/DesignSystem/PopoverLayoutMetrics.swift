@@ -311,3 +311,23 @@ enum PopoverLayoutMetrics {
     }
 
 }
+
+extension PopoverLayoutSpec {
+    var bodyRegionHeight: CGFloat {
+        let fixed =
+            isCompact
+            ? PopoverLayoutMetrics.compactHeaderHeight + PopoverLayoutMetrics.compactFooterHeight
+            : PopoverLayoutMetrics.standardHeaderContainerHeight + PopoverLayoutMetrics.standardFooterContainerHeight
+                + PopoverLayoutMetrics.standardShortcutFooterHeight
+        return max(0, size.height - fixed - PopoverLayoutMetrics.dividerHeight)
+    }
+
+    /// Keep header/footer visible while the native popover's viewport changes.
+    func fittingViewport(_ viewport: CGSize) -> PopoverLayoutSpec {
+        let chromeHeight = size.height - bodyContentHeight
+        return PopoverLayoutSpec(
+            density: density, phase: phase, size: viewport,
+            bodyContentHeight: max(0, viewport.height - chromeHeight),
+            bodyInsets: bodyInsets, contentBottomSpacing: contentBottomSpacing, sectionSpacing: sectionSpacing)
+    }
+}
