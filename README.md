@@ -56,7 +56,7 @@ Antigravity는 응답에 있는 quota만 표시합니다. 계정마다 한도의
 
 Sparkle이 30분마다 운영 업데이트를 확인하고 다운로드·검증을 준비합니다. 설치는 사용자가 선택할 때 적용됩니다. 설정 → 업데이트에서 버전별 변경 사항과 설치 상태를 확인할 수 있습니다.
 
-업데이트 DMG와 feed의 서명을 확인하며, 별도 ZIP 다운로드는 서명된 feed의 SHA-256과 대조합니다. 서명 실패 시의 복구와 키 교체 절차는 [배포 가이드](docs/RELEASE.md)에 설명되어 있습니다.
+업데이트 DMG와 feed의 서명을 확인하며, 별도 ZIP 다운로드는 서명된 feed의 SHA-256과 대조합니다. 검증에 실패하면 설치를 중단하며, 수동 복구에는 최신 안정 버전 DMG를 사용합니다.
 
 과거 버전의 설정 이전과 업데이트 예외는 [업데이트 호환 안내](docs/upgrade-compatibility.md)를 참고하세요.
 
@@ -73,7 +73,7 @@ cd claude-usage
 xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage   -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
-로컬 실행·서명 배포에는 개발자의 서명 설정이 필요합니다. 공식 배포용 개인키나 로컬 계정 설정은 저장소에 포함하지 않습니다. 테스트와 기여 절차는 [프로젝트 작업 방식](docs/PROJECT_WORKFLOW.md)을 참고하세요.
+로컬 실행·서명 배포에는 개발자의 서명 설정이 필요합니다. 공식 배포용 개인키나 로컬 계정 설정은 저장소에 포함하지 않습니다.
 
 ## 알려진 제한
 
@@ -86,11 +86,8 @@ xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage   -destination 'pl
 - [인증과 데이터 출처](docs/authentication-and-sources.md)
 - [Codex 로그인 확인·인증 갱신·복구 계약](docs/codex-usage-sources.md)
 - [Antigravity 실행·계정·복구 계약](docs/antigravity-usage-sources.md)
-- [개발·기여·검증 절차](docs/PROJECT_WORKFLOW.md)
-- [배포와 업데이트 복구](docs/RELEASE.md)
-- [Homebrew 설치·배포](docs/homebrew-distribution.md)
-- [유지보수 현황](HANDOFF.md)
-- [로드맵](WORK_PLAN.md)
+- [Homebrew 설치·업데이트](docs/homebrew-distribution.md)
+- [업데이트 호환 안내](docs/upgrade-compatibility.md)
 
 ## 라이선스
 

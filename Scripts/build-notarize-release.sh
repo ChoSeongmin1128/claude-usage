@@ -207,7 +207,7 @@ preflight_notary_credentials() {
             echo ".p8 key, key id, issuer id 가 같은 App Store Connect API key 에 속하는지 확인해 주세요." >&2
         fi
         echo "App Store Connect API key를 쓰려면 NOTARY_KEY_PATH/NOTARY_KEY_ID/NOTARY_ISSUER 또는 APP_STORE_CONNECT_* 환경 변수를 지정하세요." >&2
-        echo "자세한 절차는 docs/RELEASE.md 의 notarytool store-credentials 섹션을 확인해 주세요." >&2
+        echo "자세한 절차는 로컬 docs/RELEASE.local.md 의 공증 프로파일 복구 절차를 확인해 주세요." >&2
         exit 1
     fi
 }

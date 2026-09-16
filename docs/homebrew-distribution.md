@@ -1,254 +1,67 @@
-# Homebrew 배포 설계
+# Homebrew 설치와 업데이트
 
-## 상태
+ClaudeUsage는 GitHub Release의 운영 DMG와 공개 Homebrew tap을 통해 설치할 수 있습니다. 두 경로는 같은 서명·공증된 운영 DMG를 사용하며, Homebrew 설치본에서도 앱의 업데이트 확인 기능을 사용할 수 있습니다.
 
-이 문서는 Homebrew Cask 설치·배포 계약과 구현 상태의 정본입니다. ClaudeUsage는 GitHub Release의 운영 DMG와 [공개 tap](https://github.com/ChoSeongmin1128/homebrew-tap)의 Cask를 설치 경로로 제공합니다. 운영 Release manifest·Cask renderer·제품 전용 verifier와 여러 Cask·Formula를 수용하는 공통 CI를 구현했고, GitHub Actions·공개 clone·격리 신규 설치와 기존 `/Applications` 설치본의 전환 검증을 통과했습니다. 다음 운영 버전에서는 실제 Homebrew·Sparkle 교차 업데이트를 검증해야 합니다.
+## 설치
 
-목표는 다음 두 업데이트 경로를 함께 지원하는 것입니다.
-
-- `brew install --cask choseongmin1128/tap/claude-usage`로 운영 앱 설치
-- 일반 `brew upgrade` 또는 Cask를 지정한 업그레이드로 운영 앱 갱신
-- Homebrew로 설치한 앱에서도 기존 Sparkle 자동 확인·다운로드·사용자 선택 설치 유지
-
-Homebrew는 설치와 제거를 관리하고 Sparkle은 앱 안에서 업데이트를 제공할 수 있습니다. 둘 중 하나를 유일한 업데이트 소유자로 지정하지 않습니다. 두 경로가 같은 불변 운영 DMG와 숫자 버전을 사용하고, 실제 설치 앱이 Cask보다 새로울 때 Homebrew가 다운그레이드하지 않는 계약을 검증합니다.
-
-## 범위
-
-지원 범위:
-
-- 여러 제품이 함께 사용할 별도 공개 tap `ChoSeongmin1128/homebrew-tap`
-- ClaudeUsage는 `Casks/claude-usage.rb` 하나만 소유해 운영 앱 배포
-- 운영 Release를 검증한 뒤 Cask version·SHA-256 갱신
-- 신규 설치, 기존 수동 설치본 편입, Homebrew와 Sparkle의 교차 업데이트 검증
-- README·배포 문서·release driver 결과에 Homebrew 게시 상태 반영
-
-제외 범위:
-
-- staging Cask와 staging tap
-- ClaudeUsage를 소스에서 빌드하는 Homebrew formula. tap의 다른 제품용 Formula 추가는 허용합니다.
-- 앱에서 Homebrew를 실행하거나 설치 출처를 변경하는 기능
-- Cask 설치본의 Sparkle 비활성화
-- Homebrew 공식 저장소 등록. 자체 tap을 안정화한 뒤 당시의 공식 수용 기준을 다시 확인합니다.
-
-staging 후보는 `CFBundleShortVersionString`이 같고 build와 검증 회차로 구분됩니다. Homebrew Cask의 사용자용 version과 맞지 않으므로 Cask에는 운영 버전만 게시합니다.
-
-## 배포 구성
-
-| 구성 요소 | 정본과 역할 |
-|---|---|
-| GitHub 운영 Release | 불변 태그 `vX.Y.Z`와 검증된 `ClaudeUsage.dmg` 제공 |
-| 운영 appcast | Sparkle의 버전 발견, 노트, enclosure와 서명 제공 |
-| Homebrew tap | 검증된 운영 버전·DMG URL·SHA-256을 선언 |
-| 설치 앱 | `/Applications/ClaudeUsage.app`, 운영 bundle identifier와 운영 feed 유지 |
-
-Homebrew와 Sparkle은 별도 payload를 만들지 않습니다. 두 경로 모두 같은 운영 Release의 `ClaudeUsage.dmg`를 사용합니다. Cask 파일은 운영 Release의 파생 메타데이터이며 앱 바이너리의 정본이 아닙니다.
-
-현재 Cask 계약은 다음과 같습니다.
-
-```ruby
-cask "claude-usage" do
-  version "X.Y.Z"
-  sha256 "VERIFIED_DMG_SHA256"
-
-  url "https://github.com/ChoSeongmin1128/claude-usage/releases/download/v#{version}/ClaudeUsage.dmg"
-  name "ClaudeUsage"
-  desc "Menu bar usage monitor for Claude, Codex, and Antigravity"
-  homepage "https://github.com/ChoSeongmin1128/claude-usage"
-
-  livecheck do
-    url "https://choseongmin1128.github.io/claude-usage/appcast.xml"
-    strategy :sparkle, &:short_version
-  end
-
-  auto_updates true
-  depends_on macos: :sonoma
-
-  app "ClaudeUsage.app"
-end
-```
-
-- `version :latest`를 사용하지 않습니다. 숫자 version이어야 Homebrew가 Cask와 설치 앱의 버전을 비교할 수 있습니다.
-- 운영 버전은 게시할 때마다 증가하고 기존 태그·자산을 바꾸지 않으므로 Cask version에는 build를 결합하지 않습니다.
-- `livecheck`는 최신 버전을 찾기 위한 보조 경로입니다. Homebrew 경로의 payload 무결성은 tap에 커밋된 SHA-256으로 검증합니다. Sparkle feed 서명은 앱 내부 업데이트 경로의 신뢰 기준이며 Homebrew 검증을 대신하지 않습니다.
-- `auto_updates true`로 앱 자체 업데이트가 가능함을 선언합니다.
-- 현재 Cask에는 `zap`을 넣지 않습니다. 일반 `brew uninstall --cask`는 앱 번들만 제거하고 ClaudeUsage의 UserDefaults·Application Support·Keychain 항목을 유지합니다. 완전 초기화를 나중에 추가하더라도 ClaudeUsage가 소유한 경로만 대상으로 하며 Claude Code·Codex CLI·AGY CLI가 소유한 자격 저장소는 삭제하지 않습니다.
-- 설치 파일에 동적 Ruby 코드, 외부 명령, postflight 스크립트를 넣지 않습니다.
-
-공개 token은 `claude-usage`입니다. 새 제품을 추가하거나 token을 바꾸기 전에는 Homebrew 전체의 이름 충돌을 다시 확인하고 설치 명령과 마이그레이션을 함께 확정합니다.
-
-## 두 업데이트 경로의 상태 계약
-
-| 상태 | Homebrew 동작 | Sparkle 동작 | 기대 결과 |
-|---|---|---|---|
-| 설치 앱이 Cask보다 오래됨 | `brew upgrade`가 운영 DMG로 교체 | 새 운영 버전을 발견 | 먼저 시작한 한 경로로 정상 갱신 |
-| 설치 앱·receipt·Cask가 같음 | 업그레이드 생략 | 업데이트 없음 | 재설치·다운그레이드 없음 |
-| Sparkle이 먼저 앱을 새 버전으로 갱신함 | 일반 `brew upgrade`는 실제 앱 version을 보고 생략 | 이미 최신 | 이전 receipt 때문에 다운그레이드하지 않음 |
-| Sparkle이 먼저 갱신된 뒤 Cask를 명시해 업그레이드함 | receipt를 맞추기 위해 같은 버전을 다시 교체할 수 있음 | 이미 최신 | 안전하지만 macOS 앱 등록 영향 재검증 필요 |
-| tap이 아직 이전 운영 버전임 | 이전 Cask 유지 | 새 appcast로 갱신 가능 | tap 지연이 Sparkle 업데이트를 막지 않음 |
-| Homebrew 자동 갱신 Cask 제외 설정 또는 pin 사용 | 일반 `brew upgrade`에서 제외될 수 있음 | 계속 동작 | 앱 설정에서 업데이트 가능 |
-| Sparkle 설치가 준비된 동안 Homebrew 갱신 시작 | 동시 교체 금지 | 진행 중 세션 정리 필요 | 앱을 종료하고 한 경로만 완료한 뒤 재검증 |
-
-Sparkle이 먼저 업데이트하면 Homebrew의 설치 receipt가 이전 Cask version을 표시할 수 있습니다. 이 차이를 오류로 숨기지 않습니다. 일반 `brew upgrade`와 사용자가 Cask를 명시한 `brew upgrade --cask …`는 현재 Homebrew에서 다른 경로를 사용하므로 둘을 별도로 검사합니다. 실제 앱의 `CFBundleShortVersionString`·`CFBundleVersion`과 서명을 기준으로 상태를 판단하고, versioned `auto_updates` Cask의 동작을 각 배포 시점의 Homebrew에서 다시 검증합니다.
-
-Homebrew는 권한 상태에 따라 앱 번들을 제자리 교체하거나 제거 후 다시 설치할 수 있습니다. 후자는 macOS의 Dock·Launchpad·앱 권한 등록에 영향을 줄 수 있습니다. ClaudeUsage는 메뉴바 앱이므로 Homebrew 업그레이드 후 ControlCenter의 메뉴바 표시가 다른 호스트에 연결되지 않는지, 기존 표시 허용 상태와 단일 프로세스가 유지되는지 실제 앱으로 확인합니다.
-
-## 기존 설치본 편입
-
-신규 사용자는 완전한 이름으로 설치합니다. 이 방식은 tap 전체가 아니라 지정한 Cask만 신뢰하는 현재 Homebrew 계약을 사용합니다.
+macOS 14 이상의 Apple Silicon 및 Intel Mac을 지원합니다.
 
 ```bash
 brew install --cask choseongmin1128/tap/claude-usage
 ```
 
-이미 `/Applications/ClaudeUsage.app`을 수동 또는 Sparkle로 설치한 사용자에게 `--adopt`를 직접 안내하지 않습니다. 현재 Homebrew는 `auto_updates true` Cask를 adopt할 때 기존 앱과 내려받은 artifact의 version·내용 비교를 생략합니다. 오래된 앱도 최신 Cask receipt로 등록될 수 있으며, 이 상태에서는 일반 `brew upgrade`가 receipt만 보고 갱신을 생략할 수 있습니다.
+설치 후 `/Applications/ClaudeUsage.app`을 Finder에서 실행합니다. 완전한 Cask 이름을 사용하면 tap 전체가 아니라 이 Cask만 신뢰 대상으로 추가됩니다.
 
-지원 절차는 다음과 같습니다.
+## 기존 설치본 편입
+
+DMG 또는 앱 자체 업데이트로 설치한 ClaudeUsage를 Homebrew 관리로 바꾸려면 다음 순서를 따릅니다.
 
 1. 앱 자체 업데이트로 최신 운영 버전까지 올립니다.
-2. ClaudeUsage를 종료하고 staging이 실행 중이지 않은지 확인합니다.
-3. Finder에서 기존 앱 번들만 휴지통으로 옮깁니다. UserDefaults·Application Support·Keychain과 외부 CLI 저장소는 건드리지 않습니다.
-4. fully-qualified Cask로 새 앱 번들을 설치합니다.
-5. version/build, 코드 서명, 운영 feed, 기존 계정·표시 설정을 확인합니다.
+2. ClaudeUsage를 종료합니다.
+3. Finder에서 `/Applications/ClaudeUsage.app` 번들만 휴지통으로 옮깁니다.
+4. 위 Homebrew 설치 명령을 실행합니다.
+5. Finder에서 앱을 실행하고 기존 설정과 계정 상태를 확인합니다.
 
-앱을 다시 복사하지 않는 편입이 필요하면 프로젝트가 제공하는 검증 도구가 먼저 다음을 모두 확인한 경우에만 `--adopt`를 호출할 수 있습니다.
+앱 번들 밖의 UserDefaults·Application Support·Keychain 자료와 Claude Code·Codex CLI·AGY CLI의 자격 저장소는 이 절차로 삭제하지 않습니다.
 
-- Cask DMG SHA-256과 GitHub asset digest 일치
-- 설치 앱과 DMG 앱의 bundle identifier, version/build, 운영 feed 일치
-- Developer ID team, designated requirement, 모든 중첩 코드의 서명 검증
-- 앱 번들의 상대 경로·파일 내용·권한·심볼릭 링크 manifest 일치
-- 앱 종료와 Sparkle 설치 세션 부재, 검증 직후 파일 상태 불변
-- adopt 이후 receipt와 실제 앱 version/build 재확인
+`--adopt`는 사용하지 않습니다. `auto_updates true`인 Cask를 adopt하면 Homebrew가 기존 앱과 내려받을 artifact의 version·내용을 비교하지 않아, 오래된 앱이 최신 receipt로만 등록될 수 있습니다.
 
-이 검증 도구가 구현되기 전에는 `--adopt`를 지원 절차로 간주하지 않습니다. `--force`로 기존 앱을 덮어쓰는 명령도 기본 안내에 포함하지 않습니다.
+## 업데이트
 
-## 실증 결과
+Homebrew로 업데이트하려면 다음 명령을 사용합니다.
 
-격리된 임시 appdir와 로컬 tap에서 운영 2.5.2·2.5.3 DMG와 Homebrew `7.0.2-11-g92bb882`로 현재 동작을 확인했습니다. `/Applications`의 운영 앱과 실행 프로세스는 변경하지 않았습니다. 이 결과는 도입 설계의 근거이며 공개 후보와 당시 Homebrew에서 다시 검증해야 합니다.
+```bash
+brew upgrade --cask choseongmin1128/tap/claude-usage
+```
 
-- Cask 예제는 Homebrew style을 통과하도록 stanza 간격을 수정했습니다.
-- 운영 appcast의 Sparkle livecheck가 최신 short version을 반환했습니다.
-- 2.5.2 Cask 설치 후 2.5.3 Cask로 실제 업그레이드했으며 version/build·bundle identifier·운영 feed가 일치했습니다.
-- Cask receipt가 2.5.2이고 앱만 2.5.3으로 바뀐 상태에서 일반 outdated 판정은 최신 앱을 인정했습니다.
-- 같은 상태에서 Cask를 명시한 업그레이드는 2.5.3 앱을 다시 교체하고 receipt를 2.5.3으로 맞췄습니다.
-- 같은 2.5.3 앱을 `--adopt`하면 앱 inode와 실행 파일 해시는 유지됐습니다.
-- 2.5.2 앱을 2.5.3 `auto_updates` Cask에 `--adopt`해도 성공해 receipt와 실제 앱이 불일치했습니다. Homebrew 소스도 self-updating Cask의 adopt 비교를 생략하는 동작을 명시합니다.
-- 설치된 운영 2.5.3과 원격 DMG의 앱은 파일 내용·권한·심볼릭 링크 비교에서 차이가 없었지만, 이 한 사례를 모든 기존 설치본의 동일성 근거로 사용하지 않습니다.
+일반 `brew upgrade`도 Cask가 오래된 경우 ClaudeUsage를 갱신합니다. 앱 안의 설정 → 업데이트에서 Sparkle 업데이트를 설치할 수도 있습니다.
 
-공개 Cask 게시 뒤 기존 운영 앱의 번들만 제거하고 `brew install --cask choseongmin1128/tap/claude-usage`로 실제 `/Applications` 설치본을 전환했습니다. Homebrew receipt가 `choseongmin1128/tap/claude-usage` 2.5.3을 가리키고, 설치 앱이 version 2.5.3/build 20506으로 단일 실행되는 것을 확인했습니다. 앱은 deep·strict 코드 서명, staple과 Gatekeeper 검증을 통과했습니다. 이 검증은 설치와 실행·보안 상태를 증명하며, 계정·표시 설정 보존과 다음 버전의 교차 업데이트는 별도 항목으로 남깁니다.
+두 업데이트를 동시에 진행하지 마세요. Homebrew를 사용할 때는 앱을 종료하고 교체가 끝난 뒤 Finder에서 다시 실행합니다. Sparkle이 먼저 앱을 갱신하면 Homebrew receipt가 이전 버전을 표시할 수 있으므로, 문제가 있으면 receipt와 실제 앱 버전을 함께 확인합니다.
 
-## 게시 순서
+```bash
+brew list --cask --versions claude-usage
+defaults read /Applications/ClaudeUsage.app/Contents/Info CFBundleShortVersionString
+defaults read /Applications/ClaudeUsage.app/Contents/Info CFBundleVersion
+```
 
-Cask 갱신은 운영 게시가 모두 끝난 뒤 수행합니다. staging 게시나 운영 빌드 시작 시점에는 tap을 변경하지 않습니다.
+## 제거와 재설치
 
-1. 기존 통합 driver로 승인한 staging 후보를 운영으로 승격합니다.
-2. 운영 태그·세 자산·Pages `built`·공개 appcast·원격 DMG의 서명, 공증, Gatekeeper와 SHA-256을 검증합니다.
-3. 검증 결과에서 version, 태그, DMG URL, DMG SHA-256을 구조화된 manifest로 내보냅니다.
-4. manifest와 원격 appcast가 같은 운영 version·DMG URL을 가리키는지 확인합니다.
-5. Cask를 결정적으로 렌더링하고 기존 tap과의 diff가 version·SHA-256 이외의 예기치 않은 변경을 포함하지 않는지 검사합니다.
-6. 격리된 tap에서 `brew style`, Cask audit, livecheck, 다운로드 SHA-256과 앱 메타데이터 검사를 통과시킵니다.
-7. tap main에 커밋·push한 뒤 공개 tap에서 version·SHA-256·URL을 다시 읽어 운영 Release와 대조합니다.
-8. 공개 Cask의 격리 신규 설치와 실제 `/Applications` 전환 검증을 마친 뒤 README에 Homebrew 설치 명령과 현재 지원 상태를 공개합니다. 이후 버전의 교차 업데이트는 별도 검증합니다.
+```bash
+brew uninstall --cask choseongmin1128/tap/claude-usage
+```
 
-release driver에 연동할 때 Homebrew 게시 단계는 운영 Release보다 뒤에 있는 재시도 가능한 후속 단계로 둡니다. 운영 게시 성공 후 tap 갱신이 실패해도 기존 운영 태그·자산·feed를 되돌리거나 덮어쓰지 않습니다. 결과를 `운영 게시 완료, Homebrew 반영 대기`로 명확히 남기고 동일 manifest로 tap 단계만 재시도합니다.
+현재 Cask에는 `zap`이 없습니다. 일반 제거는 앱 번들만 삭제하며 ClaudeUsage 설정·계정 자료와 외부 CLI 자격은 유지합니다. 완전 초기화가 필요할 때도 외부 CLI 저장소를 ClaudeUsage 데이터로 취급해 삭제하면 안 됩니다.
 
-tap이 운영 Release보다 먼저 새 version을 제공하거나 검증하지 않은 SHA-256을 게시하는 경로는 허용하지 않습니다. Cask 게시가 완료된 뒤 운영 자산을 바꾸는 것도 금지합니다.
+## 배포 신뢰
 
-## 자동화 경계
+- Cask는 운영 GitHub Release의 `ClaudeUsage.dmg`와 고정 SHA-256을 사용합니다.
+- 숫자 버전과 Sparkle `livecheck`로 최신 운영 버전을 확인합니다.
+- 동적 Ruby 코드, 외부 명령, `postflight` 스크립트를 사용하지 않습니다.
 
-Cask 생성·검증과 tap 갱신은 현재 별도 명령으로 수행합니다. 수동 갱신과 교차 업데이트 근거가 충분해지면 통합 release driver가 운영 원격 검증 후 같은 명령을 호출하도록 연결합니다.
-
-자동화는 다음 성질을 가져야 합니다.
-
-- 운영에서만 실행하고 staging에서는 no-op이 아니라 명시적으로 비대상임을 출력
-- 입력은 검증된 원격 manifest만 사용하고 로컬 미게시 DMG를 사용하지 않음
-- 같은 version·SHA-256 재실행은 변경 없이 성공
-- 같은 version에 다른 SHA-256이 나오면 불변 자산 위반으로 중단
-- tap의 현재 version이 더 새로우면 중단
-- GitHub 계정·대상 tap·원격 URL을 고정하고 완료 후 기존 계정 복원
-- 자격증명, 절대 로컬 경로, 원본 API 응답을 문서·로그·Cask에 기록하지 않음
-
-manifest에는 schema version, 저장소, 운영 채널, 태그, version/build, DMG URL·크기·SHA-256, bundle identifier, feed URL, Developer ID team을 포함합니다. `verify-release-artifact.sh`가 모든 원격 검증을 끝낸 뒤 원자적으로 내보내며, Cask renderer와 tap publisher는 이 manifest 외의 로컬 빌드 값을 입력으로 받지 않습니다. 실패 후 재시도할 때는 기존 파일을 신뢰하지 않고 운영 Release를 다시 검증해 같은 manifest를 재구성합니다.
-
-앱 저장소의 구현 단위는 다음과 같이 나눕니다.
-
-- `verify-release-artifact.sh`: 운영 원격 자산 검증이 모두 끝난 경우에만 manifest export
-- Cask renderer: manifest를 입력받아 고정 형식의 `claude-usage.rb` 생성. 네트워크와 Git 쓰기 없음
-- tap verifier: Cask schema, 예상 diff, style, strict online audit, livecheck, fetch 결과를 검증
-- tap publisher: 별도 임시 clone에서 대상 저장소·main·현재 Cask 상태를 확인하고 검증된 파일 하나만 커밋·push
-- release driver: prod의 fresh 게시, Pages 복구, 이미 완료된 배포 재검증 경로 모두에서 최종 public feed 검증 뒤 동일한 Homebrew reconcile 단계 호출
-
-현재 release driver는 Pages 복구와 이미 완료된 배포에서 각각 조기 종료합니다. Homebrew 연동은 새 게시 경로 끝에만 추가하면 안 됩니다. prod Release가 이미 완전하지만 tap만 이전 상태인 재시도에서도 Cask를 다시 검증·반영해야 합니다. staging은 모든 상태에서 tap을 읽거나 쓰지 않습니다.
-
-Homebrew reconcile 상태는 최소한 다음처럼 분류합니다.
-
-| tap 상태 | 처리 |
-|---|---|
-| Cask 없음 | 최초 파일 생성·검증 후 게시 |
-| 이전 version | 검증된 새 manifest로 갱신 |
-| 같은 version·같은 SHA-256 | 공개 tap과 원격 Release를 재검증하고 변경 없음 |
-| 같은 version·다른 SHA-256 | 불변 운영 자산 위반으로 중단 |
-| 더 최신 version | 대상 release나 tap 선택 오류로 중단 |
-| 파일 구조·URL·이름의 예상 밖 변경 | 자동 덮어쓰기 없이 리뷰 요구 |
-
-운영 Release 게시 성공 뒤 Homebrew reconcile만 실패하면 driver는 부분 완료를 반환해야 합니다. 같은 운영 태그로 재실행하면 기존 Release·Pages를 다시 검증한 뒤 tap 단계만 안전하게 수렴하며, 새 운영 버전이나 자산 덮어쓰기를 요구하지 않습니다.
-
-tap 저장소는 공통 정책·CI와 제품별 `Casks/*.rb`·`Formula/*.rb`를 분리합니다. 공통 validator가 모든 패키지를 자동 발견해 syntax·style·strict online audit·livecheck·fetch를 검사하고, Cask와 Formula 사이에도 같은 token을 허용하지 않습니다. 각 제품의 배포 자동화는 자기 파일 하나만 수정하며 다른 패키지와 공통 정책 파일을 보존해야 합니다. ClaudeUsage의 manifest와 renderer는 `Casks/claude-usage.rb` 밖을 쓰지 않습니다.
-
-사용자에게는 fully-qualified 패키지 설치를 안내해 선택한 패키지만 신뢰하게 합니다. `brew readall`로 전체 tap을 검사하기 위한 tap 단위 신뢰는 자격증명이 없는 일회성 CI runner와 관리자의 격리 검증에서만 사용하고 검증 후 제거합니다. main은 선형 이력을 요구하고 강제 push·삭제를 차단하며, workflow 권한은 `contents: read`로 제한합니다. Cask나 Formula 로딩 시 임의의 외부 명령을 실행하는 코드를 추가하지 않습니다.
-
-## 현재 구현 상태
-
-구현·검증 완료:
-
-- 앱 저장소의 원격 manifest export, 결정적 Cask renderer·상태 분류, 제품 전용 verifier와 회귀 테스트
-- 여러 Cask·Formula를 자동 발견하고 token 충돌·심볼릭 링크를 거부하는 공개 tap validator와 최소 권한 CI
-- 운영 2.5.3 manifest·Cask의 style·strict online audit·livecheck·fetch와 공개 clone 재검증
-- 격리 appdir 신규 설치 및 기존 운영 앱에서 `/Applications` Cask 설치본으로 전환한 뒤 version/build·receipt·단일 실행 프로세스·코드 서명·공증·Gatekeeper 확인
-- tap main의 선형 이력 요구와 강제 push·삭제 차단, workflow `contents: read` 권한 확인
-
-남은 작업:
-
-- 다음 운영 버전에서 Cask 설치본의 실제 Sparkle 업데이트
-- 다음 운영 버전에서 실제 `/Applications` 설치본의 Homebrew 업데이트와 Sparkle 선행 후 Homebrew 동작, 메뉴바·설정·계정 보존 확인
-- 수동 Cask bump가 안정화된 뒤 release driver의 prod reconcile 연동
-
-## 검증 행렬
-
-### 정적·원격 검증
-
-- Cask style과 online audit 통과
-- appcast livecheck가 운영 short version만 반환
-- Cask URL이 정확한 운영 태그의 `ClaudeUsage.dmg`를 가리킴
-- Cask SHA-256, GitHub asset digest, 재다운로드한 DMG SHA-256 일치
-- universal 앱, macOS 14 이상, 운영 bundle identifier·feed 확인
-- codesign, notarization staple, Gatekeeper 통과
-- staging tag·앱 이름·bundle identifier·feed가 Cask에 없음
-
-### 설치·업데이트 검증
-
-| 시나리오 | 필수 확인 |
-|---|---|
-| 미설치 → Cask 설치 | `/Applications/ClaudeUsage.app`, 첫 실행, 메뉴바, 운영 feed |
-| 수동 설치 → Cask 전환 | 기존 앱 번들만 제거 후 설치, 설정·계정 유지 |
-| 검증 도구를 통한 `--adopt` | 원격 artifact와 전체 bundle identity 일치, receipt와 실제 앱 재확인 |
-| 이전 Cask → 새 Cask | 일반 `brew upgrade`, 버전/build·서명·메뉴바·설정 유지 |
-| Cask 설치 → Sparkle 업데이트 | 앱 내 확인·설치·재실행 성공, Cask 관리 상태 유지 |
-| Sparkle 선행 업데이트 → 일반 `brew upgrade` | 실제 앱 version을 인정하고 다운그레이드 없음 |
-| Sparkle 선행 업데이트 → Cask 지정 업그레이드 | 같은 version 재교체 가능성, receipt 정합성과 메뉴바 등록 확인 |
-| 오래된 앱의 잘못된 adopt | 사전 검증에서 차단하고 receipt를 생성하지 않음 |
-| 실행 중 Homebrew 업데이트 | 정상 종료·교체·Finder 재실행, 중복 프로세스 없음 |
-| Homebrew 업데이트 후 Sparkle 다음 버전 | feed 확인과 설치가 계속 동작 |
-| `brew uninstall --cask` | 앱만 제거, 사용자 데이터와 외부 CLI 자격 보존 |
-| 재설치 | 기존 설정·계정 이전 유지, 평문 자격 생성 없음 |
-
-Homebrew 업그레이드 후에는 ControlCenter 메뉴바 등록, 다른 앱과의 잘못된 연결, 앱 표시 허용 상태를 확인합니다. 검증 중에는 운영과 staging을 동시에 실행하지 않습니다. 자동화 도구로 메뉴바 창 연결이 반복 실패하면 같은 호출을 반복하지 않고 필요한 Finder 실행과 설정 창 열기만 수동으로 확인합니다.
-
-지원하는 두 CPU에서 동일한 universal DMG를 사용하지만 최소 한 번씩 신규 설치와 실행 서명을 확인합니다. 별도 macOS 환경이 없으면 구버전 Homebrew·macOS 조합은 검증하지 않은 항목으로 남기며 최신 환경의 성공으로 대체하지 않습니다.
+Homebrew 설치 후 메뉴바 아이콘이 보이지 않으면 앱이 실행 중인지 확인하고 시스템 설정의 메뉴바 허용 상태를 확인한 뒤 Finder에서 다시 실행하세요.
 
 ## 참고
 
 - [Homebrew의 self-updating 앱 처리](https://docs.brew.sh/FAQ#how-does-brew-upgrade-handle-apps-that-update-themselves)
-- [Cask 작성 규칙](https://docs.brew.sh/Cask-Cookbook)
-- [third-party tap 생성과 유지](https://docs.brew.sh/How-to-Create-and-Maintain-a-Tap)
 - [tap trust](https://docs.brew.sh/Tap-Trust)
-- [Homebrew의 일반 앱 편입 안내](https://docs.brew.sh/Tips-and-Tricks#adopt-a-manually-installed-app-as-a-cask) — `auto_updates` Cask는 별도 동일성 검사가 필요합니다.
+- [Homebrew의 앱 편입 안내](https://docs.brew.sh/Tips-and-Tricks#adopt-a-manually-installed-app-as-a-cask)

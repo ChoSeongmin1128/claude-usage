@@ -39,6 +39,10 @@ playground.xcworkspace
 .build/
 .swiftpm/
 
+# Python
+__pycache__/
+*.py[cod]
+
 # CocoaPods
 #
 Pods/
@@ -80,7 +84,7 @@ ClaudeUsage.dmg
 Config/Sparkle.release.local.xcconfig
 Config/*.local.xcconfig
 
-# Local secrets / personal machine config
+# Local secrets, personal machine config, and maintainer documentation
 .env
 .env.*
 *.local

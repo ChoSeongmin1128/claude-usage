@@ -179,7 +179,7 @@ class ReleaseMetadataTests(unittest.TestCase):
     def test_promotion_accepts_completed_documentation_only(self):
         base = self.initialize_promotion_fixture()
         (self.root / "README.md").write_text("published state\n")
-        (self.root / "docs/RELEASE.md").write_text("procedure\n")
+        (self.root / "docs/user-guide.md").write_text("guide\n")
         head = self.commit_fixture()
         self.assertEqual(metadata.verify_promotion_source(self.root, "v2.4.15-stg.1", head), base)
 
@@ -187,7 +187,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         base = self.initialize_promotion_fixture()
         for name in ["ClaudeUsage/App.swift", "Config/Release.xcconfig", "Scripts/release.sh",
                      "ClaudeUsage.xcodeproj/project.pbxproj", "LICENSE", "docs/release-notes/2.4.15.md",
-                     "docs/executable.sh"]:
+                     "docs/executable.sh", "HANDOFF.md", "WORK_PLAN.md"]:
             with self.subTest(path=name):
                 self.git("reset", "--hard", base)
                 (self.root / name).write_text("unreviewed\n")

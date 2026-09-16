@@ -202,7 +202,7 @@ def verify_promotion_source(root, tag, head):
     git("merge-base", "--is-ancestor", candidate, head)
     changed = git("diff", "--name-only", "--no-renames", "-z", candidate, head).decode().split("\0")
     for path in filter(None, changed):
-        general_document = path in {"README.md", "HANDOFF.md", "WORK_PLAN.md"} or (
+        general_document = path == "README.md" or (
             path.startswith("docs/") and path.endswith(".md") and not path.startswith("docs/release-notes/"))
         if not general_document:
             raise ValueError("선택한 staging 이후 배포 입력이 변경됐습니다")
