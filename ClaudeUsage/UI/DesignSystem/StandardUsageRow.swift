@@ -90,9 +90,7 @@ struct StandardUsageRow: View {
     }
 
     private var defaultTooltip: String {
-        [title, defaultAccessibilityValue, detailText]
-            .compactMap { $0 }
-            .joined(separator: ", ")
+        [title, defaultAccessibilityValue].joined(separator: ", ")
     }
 
     private var defaultAccessibilityValue: String {

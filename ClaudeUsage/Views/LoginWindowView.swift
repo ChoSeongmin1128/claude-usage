@@ -672,7 +672,9 @@ struct LoginWindowView: View {
 
     private func startCLIActivation() {
         step = .cliActivating
-        runActivation(retryDestination: .cliActivation, operation: onActivateCLI)
+        runActivation(retryDestination: .cliActivation) {
+            try await onActivateCLI()
+        }
     }
 
     private func runActivation(
