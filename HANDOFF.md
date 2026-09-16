@@ -17,7 +17,7 @@ staging 설치 검증 앱의 자동 조회 중단·재개와 10분 계측에서 
 - 반복적인 AGY 초기 실행에서 상호작용 필요 상태가 간헐적으로 관측됐으며 구체적인 원인은 확정하지 못했습니다. 최종 필수 실연동과 10분 정기 조회에서는 재현되지 않았습니다.
 - 2.4.13보다 오래된 운영 배포본의 실제 직행 설치에는 별도 macOS 검증 환경이 필요합니다.
 - 초기 혼합 채널 배포본은 [업데이트 호환 안내](docs/upgrade-compatibility.md)의 예외 경로를 따릅니다.
-- Homebrew Cask는 [배포 설계](docs/homebrew-distribution.md), 운영 Release manifest·renderer·verifier와 게시 전 로컬 tap 후보까지 준비했습니다. 공개 tap·설치 명령·실설치 QA·release driver 연동은 아직 제공하지 않습니다.
+- Homebrew Cask는 [배포 설계](docs/homebrew-distribution.md), 운영 Release manifest·renderer·제품 전용 verifier와 여러 Cask·Formula를 자동 검증하는 게시 전 로컬 tap 후보까지 준비했습니다. 공개 tap·설치 명령·실설치 QA·release driver 연동은 아직 제공하지 않습니다.
 - Antigravity IDE는 지원하지 않습니다.
 - 브랜드 자산의 권리는 소스 코드의 MIT 라이선스에 포함되지 않습니다.
 

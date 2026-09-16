@@ -7,7 +7,7 @@
 ## Homebrew Cask 도입
 
 - 완료: 검증된 운영 Release manifest, 결정적 Cask renderer, 상태 충돌 검증과 style·audit·livecheck·fetch 검사
-- 완료: 운영 2.5.3으로 로컬 tap 후보와 최소 권한 CI 구성 및 실제 원격 artifact 검증
+- 완료: 운영 2.5.3으로 확장 가능한 로컬 tap 후보 구성. 모든 Cask·Formula의 자동 탐색, token 충돌·심볼릭 링크 거부, syntax·style·audit·livecheck·fetch와 실제 원격 artifact 검증
 - 별도 공개 `ChoSeongmin1128/homebrew-tap` 생성·push와 GitHub Actions·공개 clone 재검증
 - 신규 설치, 수동 설치본의 앱 번들 전환, Homebrew→Homebrew, Homebrew→Sparkle, Sparkle 선행→Homebrew 교차 업데이트 검증
 - `auto_updates` Cask의 `--adopt`가 동일성 검사를 생략하므로 직접 안내하지 않고, 필요하면 원격 DMG와 전체 bundle identity를 검증하는 편입 도구를 먼저 구현

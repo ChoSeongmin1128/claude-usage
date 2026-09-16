@@ -2,7 +2,7 @@
 
 ## 상태
 
-이 문서는 Homebrew Cask 도입 설계와 구현 상태의 정본입니다. 현재 ClaudeUsage의 공식 설치 경로는 GitHub Release의 운영 DMG이며, 아직 공개 tap이나 설치 가능한 Cask는 없습니다. 운영 Release manifest·Cask renderer·tap verifier와 로컬 tap 후보는 구현했지만, 공개 tap 생성·실설치 QA·다음 운영 버전의 교차 업데이트는 남아 있습니다. 이 검증과 게시를 마치기 전에는 README에 Homebrew 설치 명령을 제공하지 않습니다.
+이 문서는 Homebrew Cask 도입 설계와 구현 상태의 정본입니다. 현재 ClaudeUsage의 공식 설치 경로는 GitHub Release의 운영 DMG이며, 아직 공개 tap이나 설치 가능한 Cask는 없습니다. 운영 Release manifest·Cask renderer·제품 전용 verifier와 여러 Cask·Formula를 수용하는 로컬 tap 후보는 구현했지만, 공개 tap 생성·실설치 QA·다음 운영 버전의 교차 업데이트는 남아 있습니다. 이 검증과 게시를 마치기 전에는 README에 Homebrew 설치 명령을 제공하지 않습니다.
 
 목표는 다음 두 업데이트 경로를 함께 지원하는 것입니다.
 
@@ -16,8 +16,8 @@ Homebrew는 설치와 제거를 관리하고 Sparkle은 앱 안에서 업데이�
 
 도입 범위:
 
-- 별도 공개 tap `ChoSeongmin1128/homebrew-tap`
-- `Casks/claude-usage.rb` 하나로 운영 앱 배포
+- 여러 제품이 함께 사용할 별도 공개 tap `ChoSeongmin1128/homebrew-tap`
+- ClaudeUsage는 `Casks/claude-usage.rb` 하나만 소유해 운영 앱 배포
 - 운영 Release를 검증한 뒤 Cask version·SHA-256 갱신
 - 신규 설치, 기존 수동 설치본 편입, Homebrew와 Sparkle의 교차 업데이트 검증
 - README·배포 문서·release driver 결과에 Homebrew 게시 상태 반영
@@ -25,7 +25,7 @@ Homebrew는 설치와 제거를 관리하고 Sparkle은 앱 안에서 업데이�
 제외 범위:
 
 - staging Cask와 staging tap
-- 소스에서 앱을 빌드하는 Homebrew formula
+- ClaudeUsage를 소스에서 빌드하는 Homebrew formula. tap의 다른 제품용 Formula 추가는 허용합니다.
 - 앱에서 Homebrew를 실행하거나 설치 출처를 변경하는 기능
 - Cask 설치본의 Sparkle 비활성화
 - Homebrew 공식 저장소 등록. 자체 tap을 안정화한 뒤 당시의 공식 수용 기준을 다시 확인합니다.
@@ -193,12 +193,14 @@ Homebrew reconcile 상태는 최소한 다음처럼 분류합니다.
 
 운영 Release 게시 성공 뒤 Homebrew reconcile만 실패하면 driver는 부분 완료를 반환해야 합니다. 같은 운영 태그로 재실행하면 기존 Release·Pages를 다시 검증한 뒤 tap 단계만 안전하게 수렴하며, 새 운영 버전이나 자산 덮어쓰기를 요구하지 않습니다.
 
-tap 저장소는 `Casks/claude-usage.rb`와 필요한 최소 CI만 유지합니다. fully-qualified Cask 설치를 안내하며 tap 전체 신뢰를 요구하지 않습니다. branch protection과 최소 권한을 적용하고, Cask 로딩 시 임의 코드를 실행하는 workflow·외부 command는 추가하지 않습니다.
+tap 저장소는 공통 정책·CI와 제품별 `Casks/*.rb`·`Formula/*.rb`를 분리합니다. 공통 validator가 모든 패키지를 자동 발견해 syntax·style·strict online audit·livecheck·fetch를 검사하고, Cask와 Formula 사이에도 같은 token을 허용하지 않습니다. 각 제품의 배포 자동화는 자기 파일 하나만 수정하며 다른 패키지와 공통 정책 파일을 보존해야 합니다. ClaudeUsage의 manifest와 renderer는 `Casks/claude-usage.rb` 밖을 쓰지 않습니다.
+
+사용자에게는 fully-qualified 패키지 설치를 안내해 선택한 패키지만 신뢰하게 합니다. `brew readall`로 전체 tap을 검사하기 위한 tap 단위 신뢰는 자격증명이 없는 일회성 CI runner와 관리자의 격리 검증에서만 사용하고 검증 후 제거합니다. branch protection과 최소 권한을 적용하며, Cask나 Formula 로딩 시 임의의 외부 명령을 실행하는 코드를 추가하지 않습니다.
 
 ## 권장 구현과 공개 순서
 
 1. 현재 앱 저장소에 원격 검증 manifest export, Cask renderer, tap 검증·게시 명령과 결정적 fixture 테스트를 추가합니다.
-2. 별도 공개 저장소 `ChoSeongmin1128/homebrew-tap`을 만들고 `Casks/claude-usage.rb`와 Cask 전용 CI만 둡니다. CI는 style, strict online audit, livecheck, fetch와 DMG metadata를 검사합니다.
+2. 별도 공개 저장소 `ChoSeongmin1128/homebrew-tap`을 만들고 공통 validator와 `Casks/claude-usage.rb`를 둡니다. CI는 모든 Cask·Formula를 자동 발견해 공통 검사를 실행하고, 앱 저장소의 verifier는 ClaudeUsage DMG metadata를 추가로 검사합니다.
 3. 현재 운영 Release를 다시 검증해 초기 Cask를 렌더링합니다. 최초 게시에는 자동 driver를 사용하지 않고 Cask diff와 CI를 직접 리뷰합니다.
 4. 격리 appdir의 신규 설치와 실제 `/Applications` 설치를 구분해 확인합니다. 실제 설치 QA에서는 한 채널만 실행하고 Finder 실행, 메뉴바 등록, 계정·설정·자동 조회와 Sparkle 구성을 확인합니다.
 5. 첫 후속 운영 patch에서 Cask 설치본의 실제 Sparkle 업데이트를 확인합니다. 같은 release로 Homebrew→Homebrew 경로는 격리 appdir에서, Sparkle 선행→Homebrew 경로는 receipt와 실제 앱 version을 함께 기록해 검증합니다.
@@ -213,11 +215,12 @@ tap 저장소는 `Casks/claude-usage.rb`와 필요한 최소 CI만 유지합니�
 
 - `verify-release-artifact.sh`의 prod·public-feed 전용 Homebrew manifest export
 - manifest schema, Cask renderer와 absent·outdated·matching·conflicting SHA·newer·unexpected 상태 분류
-- 공개 tap의 Cask 구조·style·strict online audit·livecheck·metadata·fetch 검증 명령
+- 공개 tap의 ClaudeUsage Cask 구조·style·strict online audit·livecheck·metadata·fetch 검증 명령
 - 결정적 Python·shell fixture와 release-driver 회귀 테스트 연결
 - 원격 운영 2.5.3의 전체 서명·공증·공개 feed 검증에서 실제 manifest 생성
 - 생성한 Cask의 Homebrew style·online audit·livecheck·fetch 통과
-- 운영 2.5.3 Cask와 최소 권한 CI를 포함한 게시 전 로컬 tap 저장소 준비
+- 운영 2.5.3 Cask, 범용 Cask·Formula validator와 최소 권한 CI를 포함한 게시 전 로컬 tap 저장소 준비
+- 공통 validator의 다중 패키지 탐색, token 충돌·심볼릭 링크 거부 fixture와 실제 ClaudeUsage Cask의 전체 Homebrew 검사 통과
 
 게시 전 남은 작업:
 

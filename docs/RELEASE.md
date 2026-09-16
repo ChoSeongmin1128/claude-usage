@@ -163,6 +163,8 @@ trap 'rm -rf "$MANIFEST_DIR"' EXIT
   --manifest "$MANIFEST_DIR/manifest.json"
 ```
 
+tap의 공통 CI는 `Casks/*.rb`와 `Formula/*.rb`를 모두 자동 발견해 검사합니다. ClaudeUsage 배포 단계는 `Casks/claude-usage.rb`만 생성·갱신하며 다른 패키지나 tap 공통 파일을 수정하지 않습니다. 사용자는 fully-qualified Cask만 신뢰하고, 전체 tap 신뢰는 `brew readall`이 필요한 일회성 CI 검증에서만 사용합니다.
+
 현재는 Cask를 수동으로 리뷰·게시하는 도입 단계입니다. 통합 driver의 자동 tap reconcile은 첫 수동 bump와 교차 업데이트 검증 뒤에 연결합니다. 기존 수동 설치본에는 `--adopt`를 직접 안내하지 않으며 상세 전환 절차는 [Homebrew 배포 설계](homebrew-distribution.md)를 따릅니다.
 
 `codesign`, `stapler`, `spctl`은 macOS 보안 서비스에 접근할 수 있는 환경에서 실행합니다. 제한된 샌드박스의 접근 거부를 서명 손상으로 단정하지 않습니다.
