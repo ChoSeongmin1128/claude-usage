@@ -38,12 +38,6 @@ enum MenuBarIconFactory {
                 return
             }
 
-            if let symbol = provider.fallbackSystemSymbolName,
-               let fallback = NSImage(systemSymbolName: symbol, accessibilityDescription: provider.displayName) {
-                resolvedImage = rasterizedIcon(fallback, size: size, appearance: appearance)
-                return
-            }
-
             Logger.error("\(provider.displayName) 메뉴바 아이콘 생성 실패")
         }
         if let resolvedImage {

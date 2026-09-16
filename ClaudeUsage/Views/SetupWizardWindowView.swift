@@ -110,25 +110,25 @@ struct SetupWizardWindowView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.section) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.control) {
                 Text("빠른 시작")
-                    .font(.title3.weight(.semibold))
+                    .font(AppDesign.Typography.title3.weight(.semibold))
                 Text("먼저 Claude 연결만 끝내면 됩니다.")
-                    .font(.subheadline)
+                    .font(AppDesign.Typography.subheadline)
                     .foregroundStyle(.secondary)
             }
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
                 Text(stageSummaryTitle)
-                    .font(.headline)
+                    .font(AppDesign.Typography.headline)
                 Text(stageSummaryDetail)
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
             }
-            .padding(12)
-            .background(Color(NSColor.controlBackgroundColor).opacity(0.55))
-            .cornerRadius(8)
+            .padding(AppDesign.Space.content)
+            .background(AppDesign.Surface.strongGroup)
+            .cornerRadius(AppDesign.Radius.group)
 
             if progress.stage == .credential {
                 SetupWizardView(
@@ -143,31 +143,30 @@ struct SetupWizardWindowView: View {
             }
 
             if !visibleChecklistState.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: AppDesign.Space.row) {
                     Text(checklistTitle)
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
                         .foregroundStyle(.secondary)
 
                     ForEach(Array(visibleChecklistState.enumerated()), id: \.offset) { _, item in
-                        HStack(alignment: .top, spacing: 8) {
+                        HStack(alignment: .top, spacing: AppDesign.Space.row) {
                             Image(systemName: item.2 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                                 .foregroundStyle(item.2 ? .green : .orange)
-                                .font(.caption)
+                                .font(AppDesign.Typography.caption)
                                 .padding(.top, 1)
-                            VStack(alignment: .leading, spacing: 2) {
+                            VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
                                 Text(item.0)
-                                    .font(.caption)
+                                    .font(AppDesign.Typography.caption)
                                 Text(item.1)
-                                    .font(.caption2)
+                                    .font(AppDesign.Typography.caption2)
                                     .foregroundStyle(.secondary)
                             }
                             Spacer(minLength: 0)
                         }
                     }
                 }
-                .padding(10)
-                .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-                .cornerRadius(8)
+                .padding(AppDesign.Space.label)
+                .appPanelStyle()
             }
 
             HStack {
@@ -218,8 +217,8 @@ struct SetupWizardWindowView: View {
                 .disabled(isVerifyingFetch)
             }
         }
-        .padding(20)
-        .frame(width: 460)
+        .padding(AppDesign.Space.window)
+        .frame(width: AppDesign.Window.setupWidth)
     }
 
     private func performSecondaryAction() {

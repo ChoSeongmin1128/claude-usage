@@ -36,14 +36,13 @@ private struct MenuBarElement {
     let image: NSImage?
     let text: String?
     let attributes: [NSAttributedString.Key: Any]?
-    let needsShadow: Bool
 
     static func image(_ image: NSImage) -> MenuBarElement {
-        MenuBarElement(image: image, text: nil, attributes: nil, needsShadow: false)
+        MenuBarElement(image: image, text: nil, attributes: nil)
     }
 
-    static func text(_ text: String, attributes: [NSAttributedString.Key: Any], shadow: Bool = false) -> MenuBarElement {
-        MenuBarElement(image: nil, text: text, attributes: attributes, needsShadow: shadow)
+    static func text(_ text: String, attributes: [NSAttributedString.Key: Any]) -> MenuBarElement {
+        MenuBarElement(image: nil, text: text, attributes: attributes)
     }
 }
 
@@ -152,6 +151,14 @@ struct MenuBarProviderSnapshot {
 }
 
 enum MenuBarStatusComposer {
+    private static func withAppearance(_ appearance: NSAppearance?, render: () -> NSImage?) -> NSImage? {
+        var result: NSImage?
+        (appearance ?? NSAppearance.currentDrawing()).performAsCurrentDrawingAppearance {
+            result = render()
+        }
+        return result
+    }
+
     private static let menuBarHeight: CGFloat = 22
     private static let elementSpacing: CGFloat = 4
 
@@ -179,7 +186,8 @@ enum MenuBarStatusComposer {
 
     /// 메뉴바 색상 모드(설정)를 반영한 게이지 색.
     /// HIG 권장인 모노크롬과 현행 임계값 색상 사이에서 사용자가 고른 정책을 적용한다.
-    private static func gaugeColor(for percentage: Double, config: ProviderMenuBarDisplayConfig) -> NSColor {
+    private static func gaugeColor(for percentage: Double?, config: ProviderMenuBarDisplayConfig) -> NSColor {
+        guard let percentage, percentage.isFinite else { return .secondaryLabelColor }
         switch config.colorMode {
         case .always:
             return ColorProvider.nsStatusColor(for: percentage)
@@ -192,93 +200,6 @@ enum MenuBarStatusComposer {
         }
     }
 
-    static func claudeOnlyContent(
-        config: ProviderMenuBarDisplayConfig,
-        usage: ClaudeUsageResponse?,
-        error: APIError?,
-        hasAuthError: Bool,
-        hasCredential: Bool,
-        secondaryColor: NSColor,
-        icon: NSImage?,
-        systemStatus: ProviderSystemStatus? = nil
-    ) -> MenuBarRenderedContent {
-        if !hasCredential {
-            return iconWithStatusContent(
-                icon: icon,
-                label: "로그인 필요",
-                labelColor: secondaryColor,
-                tooltip: "클릭하여 로그인"
-            )
-        }
-
-        if let error, usage == nil {
-            return iconWithStatusContent(
-                icon: icon,
-                label: hasAuthError ? "인증 필요" : "⚠",
-                labelColor: hasAuthError ? .systemOrange : secondaryColor,
-                tooltip: error.errorDescription ?? "알 수 없는 에러"
-            )
-        }
-
-        guard let usage else {
-            let fallbackIcon = icon ?? composeElements(
-                [MenuBarElement.text("…", attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: secondaryColor])]
-            )
-            return MenuBarRenderedContent(image: fallbackIcon, tooltip: "데이터 로딩 중")
-        }
-
-        let fiveHour = usage.fiveHourPercentage
-        let weekly = usage.sevenDay?.utilization ?? 0
-        let fiveHourColor = gaugeColor(for: fiveHour, config: config)
-        let weeklyColor = gaugeColor(for: weekly, config: config)
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
-        let smallFont = NSFont.systemFont(ofSize: 11)
-        var elements: [MenuBarElement] = []
-
-        if config.showIcon, let icon {
-            elements.append(.image(icon))
-        }
-
-        switch config.percentageDisplay {
-        case .none:
-            break
-        case .fiveHour:
-            elements.append(.text(displayText(for: fiveHour, showRemaining: showsRemaining(config: config)), attributes: [.font: font, .foregroundColor: fiveHourColor], shadow: true))
-        case .weekly:
-            elements.append(.text(displayText(for: weekly, showRemaining: showsRemaining(config: config)), attributes: [.font: font, .foregroundColor: weeklyColor], shadow: true))
-        case .dual:
-            elements.append(.image(segmentedPercentageImage(
-                first: displayText(for: fiveHour, showRemaining: showsRemaining(config: config)),
-                firstColor: fiveHourColor,
-                second: displayText(for: weekly, showRemaining: showsRemaining(config: config)),
-                secondColor: weeklyColor,
-                font: font,
-                separatorColor: secondaryColor
-            )))
-        }
-
-        if let styleIcon = styleIcon(usage: usage, config: config) {
-            elements.append(.image(styleIcon))
-        }
-
-        if hasAuthError {
-            elements.append(.text("⚠", attributes: [.font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.systemOrange]))
-        }
-
-        if let resetText = resetText(usage: usage, config: config) {
-            elements.append(.text(resetText, attributes: [.font: smallFont, .foregroundColor: secondaryColor]))
-        }
-
-        if elements.isEmpty {
-            elements.append(statusDot(color: secondaryColor))
-        }
-
-        let authWarning = hasAuthError ? "\n⚠️ Claude 인증 상태를 확인해주세요" : ""
-        let tooltip = "현재 \(Int(fiveHour))% · 주간 \(Int(weekly))%\(authWarning)"
-            + staleNote(error: error, hasAuthError: hasAuthError)
-        return MenuBarRenderedContent(image: composeElements(elements), tooltip: tooltip)
-    }
-
     static func claudeSnapshot(
         config: ProviderMenuBarDisplayConfig,
         usage: ClaudeUsageResponse?,
@@ -288,7 +209,8 @@ enum MenuBarStatusComposer {
         secondaryColor: NSColor,
         icon: NSImage?,
         systemStatus: ProviderSystemStatus? = nil,
-        renderImages: Bool = true
+        renderImages: Bool = true,
+        appearance: NSAppearance? = nil
     ) -> MenuBarProviderSnapshot {
         let status = claudeStatus(
             config: config,
@@ -333,104 +255,11 @@ enum MenuBarStatusComposer {
                 : nil,
             styleIcon:
                 renderImages
-                ? styleIcon(usage: usage, config: config)
+                ? withAppearance(appearance) { styleIcon(usage: usage, config: config) }
                 : nil,
             resetText: reset,
             systemStatus: systemStatus,
             renderKey: renderKey
-        )
-    }
-
-    static func codexOnlyContent(
-        config: ProviderMenuBarDisplayConfig,
-        usage: CodexUsageResponse?,
-        error: APIError?,
-        hasAuthError: Bool,
-        isAuthenticated: Bool,
-        secondaryColor: NSColor,
-        icon: NSImage?
-    ) -> MenuBarRenderedContent {
-        if !isAuthenticated {
-            return iconWithStatusContent(
-                icon: icon,
-                label: "로그인",
-                labelColor: .systemOrange,
-                tooltip: "로그인 필요"
-            )
-        }
-
-        guard let usage else {
-            if let error {
-                return iconWithStatusContent(
-                    icon: icon,
-                    label: hasAuthError ? "Codex 인증 필요" : "Codex 오류",
-                    labelColor: .systemOrange,
-                    tooltip: error.errorDescription ?? "Codex 조회 오류"
-                )
-            }
-            return iconWithStatusContent(
-                icon: icon,
-                label: "…",
-                labelColor: secondaryColor,
-                tooltip: "로딩 중"
-            )
-        }
-
-        let hasPrimary = usage.hasSessionWindow
-        let primary = usage.sessionPercentage
-        let weekly = usage.weeklyPercentage
-        let primaryColor = gaugeColor(for: usage.gaugePercentage, config: config)
-        let weeklyColor = gaugeColor(for: weekly, config: config)
-        let font = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
-        let smallFont = NSFont.systemFont(ofSize: 11)
-        var elements: [MenuBarElement] = []
-
-        if config.showIcon, let icon {
-            elements.append(.image(icon))
-        }
-
-        switch config.percentageDisplay {
-        case .none:
-            break
-        case .fiveHour:
-            // 세션 창이 없으면 주간 게이지로 대체 표시
-            elements.append(.text(displayText(for: usage.gaugePercentage, showRemaining: showsRemaining(config: config)), attributes: [.font: font, .foregroundColor: primaryColor], shadow: true))
-        case .weekly:
-            elements.append(.text(displayText(for: weekly, showRemaining: showsRemaining(config: config)), attributes: [.font: font, .foregroundColor: weeklyColor], shadow: true))
-        case .dual:
-            if hasPrimary {
-                elements.append(.image(segmentedPercentageImage(
-                    first: displayText(for: primary, showRemaining: showsRemaining(config: config)),
-                    firstColor: primaryColor,
-                    second: displayText(for: weekly, showRemaining: showsRemaining(config: config)),
-                    secondColor: weeklyColor,
-                    font: font,
-                    separatorColor: secondaryColor
-                )))
-            } else {
-                // 주간 전용 응답 — 듀얼 대신 주간 단일 표시
-                elements.append(.text(displayText(for: weekly, showRemaining: showsRemaining(config: config)), attributes: [.font: font, .foregroundColor: weeklyColor], shadow: true))
-            }
-        }
-
-        if let styleIcon = styleIcon(usage: usage, config: config) {
-            elements.append(.image(styleIcon))
-        }
-
-        if let resetText = resetText(usage: usage, config: config) {
-            elements.append(.text(resetText, attributes: [.font: smallFont, .foregroundColor: secondaryColor]))
-        }
-
-        if elements.isEmpty {
-            elements.append(statusDot(color: secondaryColor))
-        }
-
-        return MenuBarRenderedContent(
-            image: composeElements(elements),
-            tooltip: (hasPrimary
-                ? "현재 \(Int(primary))% · 주간 \(Int(weekly))%"
-                : "주간 \(Int(weekly))%")
-                + staleNote(error: error, hasAuthError: hasAuthError)
         )
     }
 
@@ -443,7 +272,8 @@ enum MenuBarStatusComposer {
         secondaryColor: NSColor,
         icon: NSImage?,
         systemStatus: ProviderSystemStatus? = nil,
-        renderImages: Bool = true
+        renderImages: Bool = true,
+        appearance: NSAppearance? = nil
     ) -> MenuBarProviderSnapshot {
         let status = codexStatus(
             config: config,
@@ -489,7 +319,7 @@ enum MenuBarStatusComposer {
                 : nil,
             styleIcon:
                 renderImages
-                ? styleIcon(usage: usage, config: config)
+                ? withAppearance(appearance) { styleIcon(usage: usage, config: config) }
                 : nil,
             resetText: reset,
             systemStatus: systemStatus,
@@ -506,7 +336,8 @@ enum MenuBarStatusComposer {
         presentation: AntigravityMenuBarQuotaPresentation,
         context: AntigravityQuotaPresentationContext = .init(),
         icon: NSImage?,
-        renderImages: Bool = true
+        renderImages: Bool = true,
+        appearance: NSAppearance? = nil
     ) -> MenuBarProviderSnapshot? {
         guard presentation.isVisible else {
             return nil
@@ -568,10 +399,7 @@ enum MenuBarStatusComposer {
                 : nil,
             styleIcon:
                 renderImages
-                ? antigravityStyleIcon(
-                    presentation: presentation,
-                    color: color
-                )
+                ? withAppearance(appearance) { antigravityStyleIcon(presentation: presentation, color: color) }
                 : nil,
             resetText: nil,
             systemStatus: nil,
@@ -958,26 +786,27 @@ enum MenuBarStatusComposer {
         }
 
         let fiveHour = usage.fiveHourPercentage
-        let weekly = usage.sevenDay?.utilization ?? 0
-        let displayFiveHour = displayValue(for: fiveHour, showRemaining: showsRemaining(config: config))
-        let displayWeekly = displayValue(for: weekly, showRemaining: showsRemaining(config: config))
+        let weekly = usage.sevenDay?.utilization
+        let displayFiveHour = config.usageValueBasis.text(fromUsed: fiveHour)
+        let displayWeekly = config.usageValueBasis.text(fromUsed: weekly)
         let text: String = {
             switch config.percentageDisplay {
             case .none:
                 return ""
             case .fiveHour:
-                return String(format: "%.0f%%", displayFiveHour)
+                return displayFiveHour
             case .weekly:
-                return String(format: "%.0f%%", displayWeekly)
+                return displayWeekly
             case .dual:
-                return String(format: "%.0f%%·%.0f%%", displayFiveHour, displayWeekly)
+                return "\(displayFiveHour)·\(displayWeekly)"
             }
         }()
 
         return MenuBarProviderStatus(
             text: text,
             color: gaugeColor(for: fiveHour, config: config),
-            tooltip: "현재 \(Int(fiveHour.rounded()))% · 주간 \(Int(weekly.rounded()))%"
+            tooltip:
+                "현재 \(config.usageValueBasis.text(fromUsed: fiveHour)) · 주간 \(config.usageValueBasis.text(fromUsed: weekly)) \(config.usageValueBasis.label)"
                 + staleNote(error: error, hasAuthError: hasAuthError)
         )
     }
@@ -1006,21 +835,21 @@ enum MenuBarStatusComposer {
 
         let hasPrimary = usage.hasSessionWindow
         let primary = usage.sessionPercentage
-        let weekly = usage.weeklyPercentage
-        let displayPrimary = displayValue(for: hasPrimary ? primary : weekly, showRemaining: showsRemaining(config: config))
-        let displayWeekly = displayValue(for: weekly, showRemaining: showsRemaining(config: config))
+        let weekly = usage.weeklyWindow?.utilization
+        let displayPrimary = config.usageValueBasis.text(fromUsed: hasPrimary ? primary : weekly)
+        let displayWeekly = config.usageValueBasis.text(fromUsed: weekly)
         let text: String = {
             switch config.percentageDisplay {
             case .none:
                 return ""
             case .fiveHour:
-                return String(format: "%.0f%%", displayPrimary)
+                return displayPrimary
             case .weekly:
-                return String(format: "%.0f%%", displayWeekly)
+                return displayWeekly
             case .dual:
                 // 세션 창이 없는 주간 전용 응답이면 주간 하나만 표시
-                guard hasPrimary else { return String(format: "%.0f%%", displayWeekly) }
-                return String(format: "%.0f%%·%.0f%%", displayPrimary, displayWeekly)
+                guard hasPrimary else { return displayWeekly }
+                return "\(displayPrimary)·\(displayWeekly)"
             }
         }()
 
@@ -1028,8 +857,9 @@ enum MenuBarStatusComposer {
             text: text,
             color: gaugeColor(for: usage.gaugePercentage, config: config),
             tooltip: (hasPrimary
-                ? "현재 \(Int(primary.rounded()))% · 주간 \(Int(weekly.rounded()))%"
-                : "주간 \(Int(weekly.rounded()))%")
+                ? "현재 \(config.usageValueBasis.text(fromUsed: primary)) · 주간 \(config.usageValueBasis.text(fromUsed: weekly))"
+                : "주간 \(config.usageValueBasis.text(fromUsed: weekly))")
+                + " \(config.usageValueBasis.label)"
                 + staleNote(error: error, hasAuthError: hasAuthError)
         )
     }
@@ -1088,7 +918,7 @@ enum MenuBarStatusComposer {
     private static func styleIcon(usage: ClaudeUsageResponse?, config: ProviderMenuBarDisplayConfig) -> NSImage? {
         guard let usage else { return nil }
         let primary = usage.fiveHourPercentage
-        let secondary = usage.sevenDay?.utilization ?? 0
+        let secondary = usage.sevenDay?.utilization
         return styleIcon(
             primary: primary,
             secondary: secondary,
@@ -1101,10 +931,9 @@ enum MenuBarStatusComposer {
         guard let usage else { return nil }
         // 세션 창이 없으면 주간 게이지를 primary 자리에 사용 (0% 오인 방지)
         let primary = usage.gaugePercentage
-        let secondary = usage.weeklyPercentage
+        let secondary = usage.weeklyWindow?.utilization
         if !usage.hasSessionWindow {
-            let isRemainingMode = config.circularDisplayMode == .remaining
-            let value = isRemainingMode ? (100.0 - secondary) : secondary
+            let value = config.usageValueBasis.percentage(fromUsed: secondary)
             let color = gaugeColor(for: secondary, config: config)
             switch config.style {
             case .none:
@@ -1170,17 +999,16 @@ enum MenuBarStatusComposer {
     }
 
     private static func styleIcon(
-        primary: Double,
-        secondary: Double,
+        primary: Double?,
+        secondary: Double?,
         config: ProviderMenuBarDisplayConfig,
-        metric: (percentage: Double, color: NSColor)
+        metric: (percentage: Double?, color: NSColor)
     ) -> NSImage? {
         let primaryColor = gaugeColor(for: primary, config: config)
         let secondaryColor = gaugeColor(for: secondary, config: config)
-        let isRemainingMode = config.circularDisplayMode == .remaining
-        let circularValue = isRemainingMode ? (100.0 - metric.percentage) : metric.percentage
-        let outer = isRemainingMode ? (100.0 - primary) : primary
-        let inner = isRemainingMode ? (100.0 - secondary) : secondary
+        let circularValue = config.usageValueBasis.percentage(fromUsed: metric.percentage)
+        let outer = config.usageValueBasis.percentage(fromUsed: primary)
+        let inner = config.usageValueBasis.percentage(fromUsed: secondary)
 
         switch config.style {
         case .none:
@@ -1219,10 +1047,10 @@ enum MenuBarStatusComposer {
     }
 
     private static func resolvedMetric(
-        primary: Double,
-        secondary: Double,
+        primary: Double?,
+        secondary: Double?,
         config: ProviderMenuBarDisplayConfig
-    ) -> (percentage: Double, color: NSColor) {
+    ) -> (percentage: Double?, color: NSColor) {
         switch config.iconMetric {
         case .fiveHour:
             return (primary, gaugeColor(for: primary, config: config))
@@ -1231,80 +1059,7 @@ enum MenuBarStatusComposer {
         }
     }
 
-    private static func showsRemaining(config: ProviderMenuBarDisplayConfig) -> Bool {
-        switch config.style {
-        case .none:
-            return false
-        default:
-            return config.circularDisplayMode == .remaining
-        }
-    }
-
-    private static func displayValue(for percentage: Double, showRemaining: Bool) -> Double {
-        max(0, min(100, showRemaining ? (100.0 - percentage) : percentage))
-    }
-
-    private static func displayText(for percentage: Double, showRemaining: Bool) -> String {
-        String(format: "%.0f%%", displayValue(for: percentage, showRemaining: showRemaining))
-    }
-
-    private static func iconWithStatusContent(
-        icon: NSImage?,
-        label: String,
-        labelColor: NSColor,
-        tooltip: String
-    ) -> MenuBarRenderedContent {
-        let font = NSFont.systemFont(ofSize: 12)
-        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: labelColor]
-        var elements: [MenuBarElement] = []
-        if let icon {
-            elements.append(.image(icon))
-        }
-        elements.append(.text(label, attributes: attributes))
-        return MenuBarRenderedContent(image: composeElements(elements), tooltip: tooltip)
-    }
-
-    private static func segmentedPercentageImage(
-        first: String,
-        firstColor: NSColor,
-        second: String,
-        secondColor: NSColor,
-        font: NSFont,
-        separatorColor: NSColor
-    ) -> NSImage {
-        let separator = " · "
-        let firstAttributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: firstColor]
-        let separatorAttributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: separatorColor]
-        let secondAttributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: secondColor]
-        let firstWidth = (first as NSString).size(withAttributes: firstAttributes).width
-        let separatorWidth = (separator as NSString).size(withAttributes: separatorAttributes).width
-        let secondWidth = (second as NSString).size(withAttributes: secondAttributes).width
-        let textHeight = (first as NSString).size(withAttributes: firstAttributes).height
-        let image = NSImage(size: NSSize(width: firstWidth + separatorWidth + secondWidth, height: textHeight), flipped: false) { _ in
-            var x: CGFloat = 0
-            (first as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: firstAttributes)
-            x += firstWidth
-            (separator as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: separatorAttributes)
-            x += separatorWidth
-            (second as NSString).draw(at: NSPoint(x: x, y: 0), withAttributes: secondAttributes)
-            return true
-        }
-        image.isTemplate = false
-        return image
-    }
-
-    private static func menuBarTextShadow() -> NSShadow {
-        let isDark = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-        let shadow = NSShadow()
-        shadow.shadowColor = (isDark ? NSColor.black : NSColor.white).withAlphaComponent(0.9)
-        shadow.shadowOffset = NSSize(width: 0, height: 0)
-        shadow.shadowBlurRadius = 2.0
-        return shadow
-    }
-
     private static func composeElements(_ elements: [MenuBarElement]) -> NSImage {
-        let shadow = menuBarTextShadow()
-
         var totalWidth: CGFloat = 0
         for (index, element) in elements.enumerated() {
             if index > 0 { totalWidth += elementSpacing }
@@ -1323,10 +1078,7 @@ enum MenuBarStatusComposer {
                     let y = (menuBarHeight - elementImage.size.height) / 2
                     elementImage.draw(in: NSRect(x: x, y: y, width: elementImage.size.width, height: elementImage.size.height))
                     x += elementImage.size.width
-                } else if let text = element.text, var attributes = element.attributes {
-                    if element.needsShadow && attributes[.shadow] == nil {
-                        attributes[.shadow] = shadow
-                    }
+                } else if let text = element.text, let attributes = element.attributes {
                     let size = (text as NSString).size(withAttributes: attributes)
                     let y = (menuBarHeight - size.height) / 2
                     (text as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attributes)

@@ -3,6 +3,7 @@ import SwiftUI
 /// macOS 기본 DisclosureGroup의 작은 chevron hit target 대신, label 행 전체를
 /// 하나의 명시적인 disclosure button으로 제공한다.
 struct SettingsDisclosureControl<Label: View, Content: View>: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding private var isExpanded: Bool
     private let accessibilityLabel: String
     private let label: () -> Label
@@ -23,13 +24,13 @@ struct SettingsDisclosureControl<Label: View, Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(.easeInOut(duration: 0.16)) {
+                withAnimation(reduceMotion ? nil : AppDesign.Motion.control) {
                     isExpanded.toggle()
                 }
             } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: AppDesign.Space.row) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(AppDesign.Typography.smallIcon)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .frame(width: 12)
 
@@ -46,8 +47,8 @@ struct SettingsDisclosureControl<Label: View, Content: View>: View {
 
             if isExpanded {
                 content()
-                    .padding(.top, 8)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .padding(.top, AppDesign.Space.row)
+                    .transition(reduceMotion ? .identity : .opacity.combined(with: .move(edge: .top)))
             }
         }
     }

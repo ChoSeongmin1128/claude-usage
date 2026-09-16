@@ -616,7 +616,8 @@ extension AppDelegate {
                     appearance: appearance
                 ) : nil,
                 systemStatus: providerSystemStatus(for: .claude),
-                renderImages: renderImages
+                renderImages: renderImages,
+                appearance: appearance
             )
         case .codex:
             let runtimeSnapshot = runtimeProviderSnapshot(for: service)
@@ -636,7 +637,8 @@ extension AppDelegate {
                     appearance: appearance
                 ) : nil,
                 systemStatus: providerSystemStatus(for: .codex),
-                renderImages: renderImages
+                renderImages: renderImages,
+                appearance: appearance
             )
         case .antigravity:
             guard case .content(let presentation) =
@@ -655,7 +657,8 @@ extension AppDelegate {
                     size: iconSize,
                     appearance: appearance
                 ) : nil,
-                renderImages: renderImages
+                renderImages: renderImages,
+                appearance: appearance
             )
         }
     }

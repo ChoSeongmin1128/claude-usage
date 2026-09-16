@@ -4,8 +4,7 @@ struct ClaudeRuntimeRefreshSuccess {
     let usage: ClaudeUsageResponse
     let provenance: ClaudeFetchProvenance
     let metadata: RuntimeProviderFetchMetadata
-    let overage: OverageSpendLimitResponse?
-    let overageFetchedAt: Date?
+    let supplementalUsage: ClaudeSupplementalRefreshResult
 }
 
 enum ClaudeRuntimeRefresher {
@@ -17,16 +16,19 @@ enum ClaudeRuntimeRefresher {
     ) async throws -> ClaudeRuntimeRefreshSuccess {
         let outcome = try await apiService.fetchUsageWithRetryOutcome()
         let shouldFetchOverage = shouldRefreshOverage(lastFetchedAt: lastOverageFetchAt)
-        let overage: OverageSpendLimitResponse?
+        let supplementalUsage: ClaudeSupplementalRefreshResult
         if shouldFetchOverage {
             do {
-                overage = try await apiService.fetchOverageSpendLimit()
+                let overage = try await apiService.fetchOverageSpendLimit()
+                supplementalUsage = .success(overage, fetchedAt: Date())
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 Logger.debug("추가 사용량 조회 실패: \(error.localizedDescription)")
-                overage = nil
+                supplementalUsage = .failed
             }
         } else {
-            overage = nil
+            supplementalUsage = .unchanged
         }
 
         return ClaudeRuntimeRefreshSuccess(
@@ -36,8 +38,7 @@ enum ClaudeRuntimeRefresher {
                 sourceLabel: outcome.provenance.source.displayName,
                 accountID: outcome.provenance.accountID,
                 attemptedSourceLabels: outcome.provenance.attemptedSources.map(\.displayName)),
-            overage: overage,
-            overageFetchedAt: overage != nil ? Date() : nil
+            supplementalUsage: supplementalUsage
         )
     }
 

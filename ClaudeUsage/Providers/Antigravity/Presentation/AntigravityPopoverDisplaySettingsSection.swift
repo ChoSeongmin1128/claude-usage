@@ -31,7 +31,7 @@ struct AntigravityPopoverDisplaySettingsSection: View {
                 Text(
                     "눈 아이콘으로 표시 여부를 바꾸고, 항목을 드래그해 순서를 조정합니다. 데이터가 없는 한도도 선택은 유지됩니다."
                 )
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
             }
         }
@@ -57,7 +57,7 @@ struct AntigravityPopoverDisplaySettingsSection: View {
                     Divider()
                     if presentation.groups.isEmpty {
                         Text("표시할 사용량 한도 없음")
-                            .font(.caption)
+                            .font(AppDesign.Typography.caption)
                             .foregroundStyle(.secondary)
                     } else {
                         AntigravityQuotaGroupsView(
@@ -69,7 +69,7 @@ struct AntigravityPopoverDisplaySettingsSection: View {
             }
         case .unavailable(let state):
             Text(unavailableTitle(state))
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
                 .frame(
                     maxWidth: .infinity,

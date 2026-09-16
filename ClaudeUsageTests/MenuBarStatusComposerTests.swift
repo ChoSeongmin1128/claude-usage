@@ -321,7 +321,7 @@ final class MenuBarStatusComposerTests: XCTestCase {
         XCTAssertTrue(batteryWithoutPercentage.icon === providerIcon)
         XCTAssertEqual(
             try XCTUnwrap(batteryWithoutPercentage.styleIcon).size,
-            NSSize(width: 40, height: 14)
+            BatteryGeometry.Layout.single.size
         )
         XCTAssertNotEqual(
             try XCTUnwrap(

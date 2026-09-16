@@ -47,13 +47,13 @@ struct AntigravityPopoverContentView: View {
             AntigravityQuotaPresentation
     ) -> some View {
         if presentation.groups.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.control) {
                 Text("표시할 사용량 한도 없음")
-                    .font(.subheadline.weight(.semibold))
+                    .font(AppDesign.Typography.subheadline.weight(.semibold))
                 Text(
                     "현재 응답에는 표시하도록 선택한 수치형 quota가 없습니다."
                 )
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
             }
             .frame(

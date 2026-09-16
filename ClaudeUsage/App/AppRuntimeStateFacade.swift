@@ -20,9 +20,18 @@ final class AppRuntimeStateFacade {
         supplementalUsage = nil
     }
 
-    func applyClaudeOverage(_ value: OverageSpendLimitResponse, accountID: String, fetchedAt: Date) {
-        supplementalUsage = ClaudeSupplementalUsage(accountID: accountID, value: value, fetchedAt: fetchedAt)
+    func applyClaudeSupplementalUsage(_ result: ClaudeSupplementalRefreshResult, accountID: String) {
+        guard accountID == activeClaudeAccountID else { return }
+        switch result {
+        case .unchanged:
+            break
+        case .success(let value, let fetchedAt):
+            supplementalUsage = ClaudeSupplementalUsage(accountID: accountID, value: value, fetchedAt: fetchedAt)
+        case .failed:
+            supplementalUsage?.lastRefreshFailed = true
+        }
     }
+
     var currentClaudeNotificationPolicy: ClaudeNotificationPolicy?
     var currentClaudeProfileMetadata: ClaudeProfileMetadata?
     var activeClaudeAccountID: String? {
@@ -68,7 +77,9 @@ final class AppRuntimeStateFacade {
                 lastSuccessfulMetadata: state.lastSuccessfulMetadata,
                 lastAttemptMetadata: state.lastAttemptMetadata,
                 claudeOverage: state.lastSuccessfulMetadata?.accountID == activeClaudeAccountID
-                    ? currentOverage : nil
+                    ? currentOverage : nil,
+                claudeOverageUpdatedAt: lastOverageFetchAt,
+                claudeOverageIsStale: supplementalUsage?.lastRefreshFailed ?? false
             )
         case .codex:
             return RuntimeProviderSnapshot(

@@ -29,7 +29,7 @@ final class AppPopoverCoordinator {
         viewModel.onStartClaudeLogin = onStartClaudeLogin
         viewModel.selectedService = initialService
 
-        rebuildPopover(for: initialService)
+        rebuildPopover()
     }
 
     func close() {
@@ -50,7 +50,7 @@ final class AppPopoverCoordinator {
         popover.behavior = isPinned ? .applicationDefined : .transient
     }
 
-    func rebuildPopover(for service: PopoverService) {
+    func rebuildPopover() {
         pendingResizeWorkItem?.cancel()
         pendingResizeWorkItem = nil
         endWindowDiagnostics()
@@ -64,7 +64,7 @@ final class AppPopoverCoordinator {
         }
 
         newPopover.contentViewController = hostingController
-        newPopover.animates = true
+        newPopover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         popover = newPopover
     }
 
@@ -81,25 +81,6 @@ final class AppPopoverCoordinator {
         }
         pendingResizeWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: workItem)
-    }
-
-    /// 고정 너비 기반으로 콘텐츠 높이만 측정합니다.
-    /// width는 layoutSpec에서 결정된 고정값(296/368pt)을 그대로 사용하고,
-    /// fittingSize.width는 하위 뷰의 maxWidth: .infinity에 의해 팽창하므로 무시합니다.
-    func measuredHostedContentSize() -> CGSize? {
-        guard let contentView = popover.contentViewController?.view else { return nil }
-        contentView.layoutSubtreeIfNeeded()
-
-        let width = popover.contentViewController?.preferredContentSize.width
-            ?? popover.contentSize.width
-        guard width > 0 else { return nil }
-
-        let fitting = contentView.fittingSize
-        let height = fitting.height > 0 ? fitting.height
-            : popover.contentViewController?.preferredContentSize.height ?? 0
-        guard height > 0 else { return nil }
-
-        return CGSize(width: width, height: height)
     }
 
     func beginWindowDiagnosticsIfNeeded() {
@@ -127,7 +108,10 @@ final class AppPopoverCoordinator {
     }
 
     private func applyPopoverSizeIfNeeded(size: CGSize, force: Bool) {
-        let screenMaxWidth = max(300, (NSScreen.main?.visibleFrame.width ?? 1440) - 80)
+        let screenMaxWidth = max(
+            300,
+            (popover.contentViewController?.view.window?.screen?.visibleFrame.width ?? NSScreen.main?.visibleFrame.width
+                ?? 1440) - 80)
         let targetSize = NSSize(
             width: min(size.width, screenMaxWidth),
             height: size.height

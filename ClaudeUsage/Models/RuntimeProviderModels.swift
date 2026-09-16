@@ -341,6 +341,8 @@ struct RuntimeProviderStateCatalog {
 struct RuntimeProviderSnapshot {
     let service: PopoverService
     let claudeOverage: OverageSpendLimitResponse?
+    let claudeOverageUpdatedAt: Date?
+    let claudeOverageIsStale: Bool
     let displayPayload: RuntimeProviderPayload?
     let displayUpdatedAt: Date?
     let lastAttemptState: RuntimeProviderAttemptState
@@ -368,9 +370,13 @@ struct RuntimeProviderSnapshot {
         lastAttemptState: RuntimeProviderAttemptState? = nil,
         lastSuccessfulMetadata: RuntimeProviderFetchMetadata? = nil,
         lastAttemptMetadata: RuntimeProviderFetchMetadata? = nil,
-        claudeOverage: OverageSpendLimitResponse? = nil
+        claudeOverage: OverageSpendLimitResponse? = nil,
+        claudeOverageUpdatedAt: Date? = nil,
+        claudeOverageIsStale: Bool = false
     ) {
         self.service = service
+        self.claudeOverageUpdatedAt = claudeOverageUpdatedAt
+        self.claudeOverageIsStale = claudeOverageIsStale
         self.claudeOverage = service == .claude && payload != nil ? claudeOverage : nil
         self.displayPayload = payload
         self.displayUpdatedAt = lastUpdated

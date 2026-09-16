@@ -13,7 +13,7 @@ struct ClaudeSetupSectionShell<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.content) {
             ProviderSettingsSectionHeader(
                 provider: .claude,
                 title: "Claude 사용"
@@ -43,13 +43,13 @@ struct ClaudeOrganizationStatusSectionShell<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.label) {
             Label(title, systemImage: systemImage)
-                .font(.headline)
+                .font(AppDesign.Typography.headline)
 
             if let summary {
                 Text(summary)
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
             }
 
@@ -80,7 +80,7 @@ struct RuntimeProviderPanelShell<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.content) {
             ProviderSettingsSectionHeader(
                 provider: descriptor.kind,
                 title: title
@@ -88,7 +88,7 @@ struct RuntimeProviderPanelShell<Content: View>: View {
 
             if let summary {
                 Text(summary)
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
             }
 

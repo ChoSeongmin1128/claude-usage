@@ -3,9 +3,9 @@ import SwiftUI
 
 extension SettingsView {
     var commonServicesSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.content) {
             Label("앱 동작", systemImage: "gearshape")
-                .font(.headline)
+                .font(AppDesign.Typography.headline)
 
             settingsToggleRow(
                 "사용량 자동 확인",
@@ -25,9 +25,9 @@ extension SettingsView {
     }
 
     var commonAlertSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.content) {
             Label("알림", systemImage: "bell")
-                .font(.headline)
+                .font(AppDesign.Typography.headline)
 
             settingsToggleRow(
                 "전체 알림 사용",
@@ -45,20 +45,20 @@ extension SettingsView {
 
             if !settings.notificationsEnabled {
                 Label("전체 알림이 꺼져 있어 서비스별 알림도 함께 꺼집니다.", systemImage: "bell.slash")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.orange)
             }
 
             Text("이 화면에서 임계값과 서비스별 알림을 함께 조정합니다. 시스템 설정 → 알림 → ClaudeUsage에서도 허용이 필요합니다.")
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.tertiary)
         }
     }
 
     var notificationThresholdSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.content) {
             Label("알림 기준", systemImage: "gauge.with.dots.needle.50percent")
-                .font(.headline)
+                .font(AppDesign.Typography.headline)
 
             settingsRadioGroup(
                 "기준 표시",
@@ -81,9 +81,9 @@ extension SettingsView {
                 isOn: $settings.alertWeeklyEnabled
             )
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.row) {
                 Text("임계값")
-                    .font(.subheadline.weight(.semibold))
+                    .font(AppDesign.Typography.subheadline.weight(.semibold))
                 ForEach(settings.sortedNotificationPresets) { preset in
                     notificationPresetRow(id: preset.id)
                 }
@@ -94,17 +94,17 @@ extension SettingsView {
     }
 
     var updateSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.content) {
             Label("업데이트", systemImage: "arrow.down.circle")
-                .font(.headline)
+                .font(AppDesign.Typography.headline)
 
             Label("30분마다 자동 확인", systemImage: "clock.arrow.circlepath")
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
 
-            HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .center, spacing: AppDesign.Space.content) {
                 Text("현재 버전 \(updateRuntimeState.currentVersionText)")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
 
                 Spacer()
@@ -132,27 +132,27 @@ extension SettingsView {
             }
 
             Text(updateRuntimeState.statusSummary)
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
 
             if let update = updateRuntimeState.latestKnownUpdate,
                !update.releaseNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 DisclosureGroup("v\(update.version) 변경 사항") {
                     Text(verbatim: update.releaseNotes)
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 6)
+                        .padding(.top, AppDesign.Space.control)
                 }
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
             }
         }
     }
 
     var commonDisplaySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.content) {
             Label("공통 표시", systemImage: "menubar.rectangle")
-                .font(.headline)
+                .font(AppDesign.Typography.headline)
 
             settingsRadioGroup(
                 "메뉴바 색상",
@@ -162,7 +162,7 @@ extension SettingsView {
             )
 
             Text(settings.menuBarColorMode.detail)
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.tertiary)
 
             settingsToggleRow(
@@ -174,7 +174,7 @@ extension SettingsView {
     }
 
     private func notificationPresetRow(id: String) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: AppDesign.Space.content) {
             Toggle(
                 "",
                 isOn: Binding(

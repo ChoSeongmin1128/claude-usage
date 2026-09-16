@@ -118,7 +118,7 @@ extension SettingsView {
                 Text(
                     antigravityStatusDetail(state)
                 )
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
 
                 antigravityIdentitySummary(state)
@@ -139,13 +139,13 @@ extension SettingsView {
                 .disabled(state.activity.isBusy)
 
                 Text("로그인은 선택한 제품에서 변경해 주세요. 새로고침하면 해당 제품에서 확인한 계정과 사용량을 함께 갱신합니다.")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
                 Text("Antigravity IDE는 아직 지원하지 않습니다.")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
 
-                HStack(spacing: 8) {
+                HStack(spacing: AppDesign.Space.row) {
                     Button("새로고침") {
                         Task {
                             _ = await
@@ -168,7 +168,7 @@ extension SettingsView {
                     ) {
                         if !state.accounts.isEmpty {
                             Text("이전 버전의 연결 정보는 현재 조회에 사용하지 않습니다.")
-                                .font(.caption)
+                                .font(AppDesign.Typography.caption)
                                 .foregroundStyle(.secondary)
                             Button("이전 연결 정보 삭제") {
                                 pendingDestructiveAction = .disconnectAllAntigravityAccounts
@@ -211,11 +211,11 @@ extension SettingsView {
                                 )
                         )
                     }
-                    .padding(.top, 6)
+                    .padding(.top, AppDesign.Space.control)
                 }
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
             }
-            .padding(12)
+            .padding(AppDesign.Space.content)
             .background(
                 Color(
                     NSColor
@@ -223,7 +223,7 @@ extension SettingsView {
                 )
                 .opacity(0.45)
             )
-            .cornerRadius(8)
+            .cornerRadius(AppDesign.Radius.group)
         }
     }
 
@@ -259,7 +259,7 @@ extension SettingsView {
             Text(identity?.email ?? (identity == nil ? "확인 전" : "이메일 미제공"))
                 .textSelection(.enabled)
         }
-        .font(.caption)
+        .font(AppDesign.Typography.caption)
         .foregroundStyle(.secondary)
     }
 
@@ -304,7 +304,7 @@ extension SettingsView {
                         )
                     )
                 Text(notice.message)
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
@@ -321,11 +321,11 @@ extension SettingsView {
                 .controlSize(.small)
             }
         }
-        .padding(10)
+        .padding(AppDesign.Space.label)
         .background(
             Color.accentColor.opacity(0.07)
         )
-        .cornerRadius(8)
+        .cornerRadius(AppDesign.Radius.group)
     }
 
     private func noticeActionTitle(

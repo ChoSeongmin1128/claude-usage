@@ -10,9 +10,9 @@ extension SettingsView {
                 || provider == .codex
                 || settings.isProviderVisibleInMenuBar(provider)
 
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.content) {
                 Text("메뉴바 표시")
-                    .font(.subheadline.weight(.semibold))
+                    .font(AppDesign.Typography.subheadline.weight(.semibold))
 
                 if showsDisplayControls {
                     Picker("표시 방식", selection: menuBarPresetBinding(for: provider)) {
@@ -23,7 +23,7 @@ extension SettingsView {
                     .pickerStyle(.segmented)
 
                     Text(menuBarPresetDetail(currentMenuBarPreset(for: provider), for: provider))
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
 
@@ -62,7 +62,7 @@ extension SettingsView {
         for provider: AppProviderKind,
         displayConfig: ProviderMenuBarDisplayConfig
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.content) {
             settingsToggleRow(
                 "아이콘 표시",
                 isOn: Binding(
@@ -144,9 +144,9 @@ extension SettingsView {
                 )
             }
         }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.35))
-        .cornerRadius(8)
+        .padding(AppDesign.Space.content)
+        .background(AppDesign.Surface.subtleGroup)
+        .cornerRadius(AppDesign.Radius.group)
     }
 
     private func menuBarPresetDisplayName(_ preset: ProviderMenuBarDisplayPreset, for provider: AppProviderKind) -> String {
@@ -209,7 +209,7 @@ extension SettingsView {
             spacing: 12
         ) {
             Text("메뉴바 표시")
-                .font(.subheadline.weight(.semibold))
+                .font(AppDesign.Typography.subheadline.weight(.semibold))
 
             if let display =
                 antigravitySettings.state.display
@@ -254,9 +254,9 @@ extension SettingsView {
                 }
 
                 if !antigravityObservedLanes.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: AppDesign.Space.row) {
                         Text("함께 표시할 한도")
-                            .font(.subheadline)
+                            .font(AppDesign.Typography.subheadline)
                         ForEach(
                             antigravityObservedLanes,
                             id: \.id
@@ -272,7 +272,7 @@ extension SettingsView {
                             .toggleStyle(.checkbox)
                         }
                         Text("대표 한도는 게이지와 상태 색상에 사용하고, 선택한 한도는 메뉴바 텍스트에 나란히 표시합니다.")
-                            .font(.caption)
+                            .font(AppDesign.Typography.caption)
                             .foregroundStyle(.tertiary)
                     }
                 }
@@ -391,7 +391,7 @@ extension SettingsView {
                 Text(
                     "Antigravity 설정을 준비하고 있습니다."
                 )
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
             }
         }
@@ -588,7 +588,7 @@ extension SettingsView {
 
     @ViewBuilder
     func providerAlertSection(for provider: AppProviderKind) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.content) {
             Group {
                 if provider == .antigravity,
                    let display =
@@ -633,7 +633,7 @@ extension SettingsView {
 
             if !settings.notificationsEnabled {
                 Label("공통 설정에서 전체 알림을 먼저 켜야 합니다.", systemImage: "bell.slash")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.orange)
             }
         }
@@ -642,31 +642,31 @@ extension SettingsView {
     func segmentedTabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .fontWeight(isSelected ? .semibold : .regular)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(isSelected ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor).opacity(0.45))
+                .padding(.horizontal, AppDesign.Space.label)
+                .padding(.vertical, AppDesign.Space.control)
+                .background(isSelected ? Color.accentColor.opacity(0.18) : AppDesign.Surface.group)
                 .foregroundStyle(isSelected ? Color.accentColor : .primary)
-                .cornerRadius(8)
+                .cornerRadius(AppDesign.Radius.group)
         }
         .buttonStyle(.plain)
     }
 
     func settingsToggleRow(_ title: String, subtitle: String? = nil, isOn: Binding<Bool>) -> some View {
         Toggle(isOn: isOn) {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
                 Text(title)
                 if let subtitle {
                     Text(subtitle)
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .toggleStyle(.switch)
-        .padding(.vertical, 2)
+        .padding(.vertical, AppDesign.Space.tight)
     }
 
     /// macOS SwiftUI Picker(.radioGroup)의 Binding set 미호출 버그 우회용 수동 라디오 그룹
@@ -676,17 +676,17 @@ extension SettingsView {
         selection: T,
         onChange: @escaping (T) -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
             Text(title)
-                .font(.subheadline)
+                .font(AppDesign.Typography.subheadline)
             ForEach(options.indices, id: \.self) { i in
                 Button {
                     onChange(options[i].value)
                 } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: AppDesign.Space.control) {
                         Image(systemName: selection == options[i].value ? "largecircle.fill.circle" : "circle")
                             .foregroundStyle(selection == options[i].value ? Color.accentColor : Color.secondary)
-                            .font(.system(size: 12))
+                            .font(AppDesign.Typography.icon)
                         Text(options[i].label)
                     }
                 }
@@ -699,17 +699,17 @@ extension SettingsView {
     }
 
     func chip(title: String, value: String, color: Color) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: AppDesign.Space.compact) {
             Text(title)
             Text(value)
                 .fontWeight(.semibold)
         }
-        .font(.caption2)
+        .font(AppDesign.Typography.caption2)
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
         .background(color.opacity(0.16))
         .foregroundStyle(color)
-        .cornerRadius(6)
+        .cornerRadius(AppDesign.Radius.control)
     }
 }
 
@@ -753,7 +753,7 @@ private struct ProviderPopoverDisplaySection: View {
             .frame(maxWidth: 420, alignment: .leading)
 
             Text("눈 아이콘으로 표시 여부를 바꾸고, 항목을 드래그해 순서를 조정합니다.")
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
         }
     }
@@ -806,13 +806,13 @@ private struct ProviderPopoverPreviewView: View {
     let codexError: APIError?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.row) {
             HStack {
                 Text("미리보기")
-                    .font(.subheadline.weight(.semibold))
+                    .font(AppDesign.Typography.subheadline.weight(.semibold))
                 Spacer()
                 Text(mode.title)
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
             }
 
@@ -824,51 +824,50 @@ private struct ProviderPopoverPreviewView: View {
     private var popoverFrame: some View {
         VStack(alignment: .leading, spacing: 0) {
             previewHeader
-                .frame(height: mode.isCompact ? 28 : 34)
-                .padding(.horizontal, mode.isCompact ? 12 : 16)
-                .padding(.top, mode.isCompact ? 3 : 10)
-                .padding(.bottom, mode.isCompact ? 3 : 6)
+                .padding(.horizontal, mode.isCompact ? AppDesign.Space.content : AppDesign.Space.section)
+                .frame(
+                    height: mode.isCompact
+                        ? PopoverLayoutMetrics.compactHeaderHeight : PopoverLayoutMetrics.standardHeaderContainerHeight)
 
             previewBody
-                .padding(.horizontal, mode.isCompact ? 14 : 18)
-                .padding(.vertical, mode.isCompact ? 10 : 14)
+                .padding(
+                    mode.isCompact ? PopoverLayoutMetrics.compactBodyInsets : PopoverLayoutMetrics.standardBodyInsets)
 
             Divider()
 
             previewFooter
-                .padding(.horizontal, mode.isCompact ? 12 : 16)
-                .padding(.vertical, mode.isCompact ? 5 : 8)
+                .padding(.horizontal, mode.isCompact ? AppDesign.Space.content : AppDesign.Space.section)
+                .frame(
+                    height: mode.isCompact
+                        ? PopoverLayoutMetrics.compactFooterHeight : PopoverLayoutMetrics.standardFooterContainerHeight)
         }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(Color(NSColor.windowBackgroundColor).opacity(0.86))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .frame(width: PopoverLayoutMetrics.preferredPopoverWidth(compact: mode.isCompact), alignment: .topLeading)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: AppDesign.Radius.panel, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: AppDesign.Radius.panel, style: .continuous)
                 .stroke(Color.primary.opacity(0.12), lineWidth: 1)
         )
     }
 
     private var previewHeader: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: AppDesign.Space.compact) {
             ForEach(availableServices, id: \.rawValue) { candidate in
-                ProviderBrandIconView(provider: candidate.providerKind, kind: .popover, size: 15)
-                    .frame(width: 22, height: 22)
-                    .background(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .fill(candidate == service
-                                ? Color.accentColor.opacity(0.18)
-                                : Color(NSColor.controlBackgroundColor).opacity(0.45))
-                    )
+                ProviderSelectorButtonLabel(
+                    provider: candidate.providerKind, isSelected: candidate == service,
+                    showsWarning: false, compact: mode.isCompact)
             }
-
-            Spacer(minLength: 8)
-
-            Image(systemName: "arrow.clockwise")
-            Image(systemName: mode.isCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
-            Image(systemName: settings.popoverPinned ? "pin.fill" : "pin")
-        }
-        .font(.system(size: 12))
-        .foregroundStyle(.secondary)
+            Text(settings.usageValueBasis(for: service).label)
+                .font(AppDesign.Typography.compactIdentity).foregroundStyle(.secondary)
+            Spacer(minLength: AppDesign.Space.compact)
+            IconActionButton(symbol: "arrow.clockwise", label: "사용량 새로고침") {}
+            IconActionButton(
+                symbol: mode.isCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical", label: "보기 전환"
+            ) {}
+            IconActionButton(
+                symbol: settings.popoverPinned ? "pin.fill" : "pin", label: "고정", isActive: settings.popoverPinned
+            ) {}
+        }.allowsHitTesting(false)
     }
 
     @ViewBuilder
@@ -886,21 +885,12 @@ private struct ProviderPopoverPreviewView: View {
                 action: nil
             )
         } else {
-            VStack(spacing: mode.isCompact ? 5 : 0) {
-                ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
-                    if index > 0 && !mode.isCompact {
-                        Divider()
-                            .padding(.vertical, 8)
-                    }
-                    PopoverDisplaySectionView(section: section, density: density)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            PopoverCatalogSectionList(sections: sections, density: density)
         }
     }
 
     private var previewFooter: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: AppDesign.Space.compact) {
             ProviderExternalActionsView(
                 provider: service.providerKind,
                 compact: mode.isCompact,
@@ -909,12 +899,13 @@ private struct ProviderPopoverPreviewView: View {
 
             Spacer()
 
-            Image(systemName: "slider.horizontal.3")
-            Image(systemName: "gearshape")
-            Image(systemName: "power")
+            IconActionButton(symbol: "slider.horizontal.3", label: "표시 항목 편집", compact: mode.isCompact) {}
+            IconActionButton(symbol: "gearshape", label: "설정 열기", compact: mode.isCompact) {}
+            IconActionButton(symbol: "power", label: "ClaudeUsage 종료", compact: mode.isCompact) {}
         }
-        .font(.caption)
+        .font(AppDesign.Typography.caption)
         .foregroundStyle(.secondary)
+        .allowsHitTesting(false)
     }
 
     private var sections: [PopoverDisplaySection] {

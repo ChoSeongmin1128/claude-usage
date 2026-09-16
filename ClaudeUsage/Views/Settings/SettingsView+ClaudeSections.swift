@@ -40,9 +40,9 @@ extension SettingsView {
                 }
             } else {
                 Text("Claude 사용이 꺼져 있습니다. 켜면 메뉴바와 사용량 확인이 다시 동작합니다.")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, AppDesign.Space.control)
             }
         }
         // 행동 결과 메시지를 toast 처럼 자동 dismiss. 사용자가 X 로 닫으면 task 가 다시 시작되며
@@ -61,7 +61,7 @@ extension SettingsView {
     }
 
     private var claudeConnectionSummaryCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.label) {
             if let account = activeClaudeAccount() {
                 let presentation = ClaudeAccountSettingsPresentation.resolve(
                     account: account,
@@ -74,22 +74,22 @@ extension SettingsView {
                     subtitle: "현재 계정의 사용량만 조회합니다"
                 )
 
-                HStack(alignment: .top, spacing: 10) {
+                HStack(alignment: .top, spacing: AppDesign.Space.label) {
                     Image(systemName: presentation.systemImage)
                         .foregroundStyle(Color.accentColor)
                         .frame(width: 18)
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 6) {
+                    VStack(alignment: .leading, spacing: AppDesign.Space.control) {
+                        HStack(spacing: AppDesign.Space.control) {
                             Text(presentation.primaryTitle)
-                                .font(.headline)
+                                .font(AppDesign.Typography.headline)
                                 .lineLimit(1)
                             chip(title: "", value: presentation.statusText, color: color(for: presentation.statusTone))
                         }
 
                         if let secondaryLine = presentation.secondaryLine {
                             Text(secondaryLine)
-                                .font(.caption)
+                                .font(AppDesign.Typography.caption)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
@@ -98,7 +98,7 @@ extension SettingsView {
                     Spacer(minLength: 8)
                 }
 
-                HStack(spacing: 8) {
+                HStack(spacing: AppDesign.Space.row) {
                     Button("사용량 새로고침") {
                         refreshClaudeUsageFromSettings()
                     }
@@ -142,10 +142,10 @@ extension SettingsView {
                 )
 
                 Text("연결된 Claude 계정이 없습니다. 연결이 끝나면 사용량을 바로 조회합니다.")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
 
-                HStack(spacing: 8) {
+                HStack(spacing: AppDesign.Space.row) {
                     Button(action: { onImportClaudeFromChrome?() }) {
                         Label("Chrome에서 가져오기", systemImage: "globe")
                             .frame(maxWidth: .infinity)
@@ -169,9 +169,8 @@ extension SettingsView {
                 accountMessageView
             }
         }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        .cornerRadius(8)
+        .padding(AppDesign.Space.content)
+        .appPanelStyle()
     }
 
     private var shouldShowClaudeAccountManagementSection: Bool {
@@ -189,15 +188,15 @@ extension SettingsView {
             // 메시지는 행동 결과(toast 비슷)이므로 영구 노출하지 않는다.
             // - X 버튼으로 명시적 닫기
             // - authSection 의 .task(id:) 로 일정 시간 후 자동 dismiss
-            HStack(alignment: .top, spacing: 6) {
+            HStack(alignment: .top, spacing: AppDesign.Space.control) {
                 Text(message)
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(message.contains("실패") || message.contains("필요") ? .orange : .secondary)
                     .lineLimit(2)
                 Spacer(minLength: 8)
                 Button(action: { claudeAccountMessage = nil }) {
                     Image(systemName: "xmark")
-                        .font(.caption2)
+                        .font(AppDesign.Typography.caption2)
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.borderless)
@@ -211,31 +210,31 @@ extension SettingsView {
             isExpanded: $isClaudeAccountManagementExpanded,
             accessibilityLabel: "계정 관리"
         ) {
-            HStack(spacing: 8) {
+            HStack(spacing: AppDesign.Space.row) {
                 Text("계정 관리")
-                    .font(.subheadline.weight(.semibold))
+                    .font(AppDesign.Typography.subheadline.weight(.semibold))
                 if claudeAccounts.count > 1 {
                     chip(title: "", value: "\(claudeAccounts.count)개", color: .secondary)
                 }
                 Spacer(minLength: 0)
                 Text(isClaudeAccountManagementExpanded ? "접기" : "펼치기")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
             }
         } content: {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.label) {
                 connectedClaudeAccountsCard
                 accountAddCard
                 advancedClaudeDiagnosticsSection
             }
         }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.35))
-        .cornerRadius(8)
+        .padding(AppDesign.Space.content)
+        .background(AppDesign.Surface.subtleGroup)
+        .cornerRadius(AppDesign.Radius.group)
     }
 
     private var connectedClaudeAccountsCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.label) {
             sectionCardHeader(
                 title: "연결된 계정",
                 subtitle: "사용할 계정을 선택하거나 상세 정보·삭제·재로그인을 진행합니다"
@@ -243,19 +242,18 @@ extension SettingsView {
 
             if claudeAccounts.isEmpty {
                 Text("연결된 계정이 없습니다.")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
             } else {
-                VStack(spacing: 8) {
+                VStack(spacing: AppDesign.Space.row) {
                     ForEach(claudeAccounts) { account in
                         claudeAccountRow(account)
                     }
                 }
             }
         }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        .cornerRadius(8)
+        .padding(AppDesign.Space.content)
+        .appPanelStyle()
     }
 
     private func claudeAccountRow(_ account: ClaudeAccount) -> some View {
@@ -266,20 +264,20 @@ extension SettingsView {
             organizations: organizations
         )
         let managementActions = presentation.managementActions
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 12) {
+        return VStack(alignment: .leading, spacing: AppDesign.Space.row) {
+            HStack(alignment: .center, spacing: AppDesign.Space.content) {
                 Image(systemName: presentation.systemImage)
                     .foregroundStyle(isActive ? Color.accentColor : .secondary)
                     .frame(width: 18)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
                     Text(presentation.primaryTitle)
-                        .font(.subheadline.weight(.semibold))
+                        .font(AppDesign.Typography.subheadline.weight(.semibold))
                         .lineLimit(1)
 
                     if let secondaryLine = presentation.secondaryLine {
                         Text(secondaryLine)
-                            .font(.caption)
+                            .font(AppDesign.Typography.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -302,13 +300,13 @@ extension SettingsView {
             }
 
             DisclosureGroup {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: AppDesign.Space.control) {
                     ForEach(presentation.detailRows, id: \.self) { row in
                         accountDetailRow(row)
                     }
 
                     if !managementActions.isEmpty {
-                        HStack(spacing: 8) {
+                        HStack(spacing: AppDesign.Space.row) {
                             ForEach(managementActions, id: \.self) { action in
                                 Button(action.title) {
                                     handleClaudeAccountAction(action, account: account)
@@ -316,23 +314,23 @@ extension SettingsView {
                                 .controlSize(.small)
                             }
                         }
-                        .padding(.top, 2)
+                        .padding(.top, AppDesign.Space.tight)
                     }
                 }
-                .padding(.top, 4)
+                .padding(.top, AppDesign.Space.compact)
             } label: {
                 Text("상세")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(10)
+        .padding(AppDesign.Space.label)
         .background(isActive ? Color.accentColor.opacity(0.08) : Color(NSColor.windowBackgroundColor).opacity(0.35))
-        .cornerRadius(8)
+        .cornerRadius(AppDesign.Radius.group)
     }
 
     private func accountDetailRow(_ row: ClaudeAccountSettingsDetailRow) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.row) {
             Text(row.title)
                 .foregroundStyle(.secondary)
                 .frame(width: 72, alignment: .leading)
@@ -340,17 +338,17 @@ extension SettingsView {
                 .textSelection(.enabled)
             Spacer(minLength: 0)
         }
-        .font(.caption)
+        .font(AppDesign.Typography.caption)
     }
 
     private var accountAddCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.label) {
             sectionCardHeader(
                 title: "계정 추가",
                 subtitle: "새 Claude 계정을 연결하거나 마지막 수단으로 직접 입력합니다"
             )
 
-            HStack(spacing: 8) {
+            HStack(spacing: AppDesign.Space.row) {
                 Button(action: { onImportClaudeFromChrome?() }) {
                     Label("Chrome에서 가져오기", systemImage: "globe")
                         .frame(maxWidth: .infinity)
@@ -371,60 +369,59 @@ extension SettingsView {
                 .buttonStyle(.bordered)
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: AppDesign.Space.row) {
                 if isTesting {
                     ProgressView()
                         .controlSize(.small)
                     Text("연결 상태를 확인하고 있습니다")
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
                         .foregroundStyle(.secondary)
                 } else if let result = testResult {
                     switch result {
                     case .success:
                         Label("최근 연결 확인됨", systemImage: "checkmark.circle.fill")
-                            .font(.caption)
+                            .font(AppDesign.Typography.caption)
                             .foregroundStyle(.green)
                     case .failure(let msg):
                         Label(msg, systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption)
+                            .font(AppDesign.Typography.caption)
                             .foregroundStyle(.orange)
                             .lineLimit(2)
                     }
                 } else if let summary = claudeNotificationPolicySummary {
                     Text(summary)
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
             }
         }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
-        .cornerRadius(8)
+        .padding(AppDesign.Space.content)
+        .appPanelStyle()
     }
 
     private var advancedClaudeDiagnosticsSection: some View {
         DisclosureGroup {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.row) {
                 if let snapshot = usageHealthSnapshot {
                     Text(authSummaryLine(snapshot))
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
                         .foregroundStyle(.secondary)
                     sourceStatusRows(snapshot)
                 } else {
                     Text("인증 상태를 아직 불러오지 못했습니다.")
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 Divider()
-                    .padding(.vertical, 2)
+                    .padding(.vertical, AppDesign.Space.tight)
 
                 Text("조회 방식은 현재 선택한 계정 안에서 자동으로 결정됩니다. 다른 계정의 로그인 정보로 자동 전환하지 않습니다.")
-                    .font(.caption2)
+                    .font(AppDesign.Typography.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                HStack(spacing: 8) {
+                HStack(spacing: AppDesign.Space.row) {
                     Button("브라우저 로그인 값 삭제") { pendingDestructiveAction = .clearBrowserSession }
                         .disabled(!(usageHealthSnapshot?.runtime.credentialAvailability.sessionCredentialAvailable ?? false))
 
@@ -432,14 +429,14 @@ extension SettingsView {
                         .disabled(!(usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false))
                 }
             }
-            .padding(.top, 6)
+            .padding(.top, AppDesign.Space.control)
         } label: {
             Text("고급 진단")
-                .font(.subheadline)
+                .font(AppDesign.Typography.subheadline)
         }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.35))
-        .cornerRadius(8)
+        .padding(AppDesign.Space.content)
+        .background(AppDesign.Surface.subtleGroup)
+        .cornerRadius(AppDesign.Radius.group)
     }
 
     private func handleClaudeAccountAction(_ action: ClaudeAccountSettingsAction, account: ClaudeAccount) {
@@ -471,25 +468,25 @@ extension SettingsView {
 
     private var manualSessionKeySection: some View {
         DisclosureGroup(isExpanded: $isAdvancedAuthExpanded) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.row) {
                 Text("자동 가져오기가 안 될 때만 마지막 수단으로 직접 입력해 주세요.")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
 
                 Text("브라우저 로그인 값")
-                    .font(.subheadline)
+                    .font(AppDesign.Typography.subheadline)
 
                 TextField("브라우저 로그인 값 붙여넣기", text: $sessionKey)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(AppDesign.Typography.compactValue)
 
                 Text("로그인 값만 붙여넣고 연결 테스트를 통과한 뒤 저장하세요. 입력만으로는 저장되지 않습니다.")
-                    .font(.caption2)
+                    .font(AppDesign.Typography.caption2)
                     .foregroundStyle(.secondary)
 
                 if let warning = sessionKeyFormatWarning {
                     Label(warning, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
                         .foregroundStyle(.orange)
                 }
 
@@ -510,23 +507,23 @@ extension SettingsView {
                         case .success(let message):
                             Label(message, systemImage: "checkmark.circle.fill")
                                 .foregroundStyle(.green)
-                                .font(.caption)
+                                .font(AppDesign.Typography.caption)
                         case .failure(let msg):
                             Label(msg, systemImage: "xmark.circle.fill")
                                 .foregroundStyle(.red)
-                                .font(.caption)
+                                .font(AppDesign.Typography.caption)
                                 .lineLimit(1)
                         }
                     }
 
                     if hasPendingManualSessionKey && testResult == nil {
                         Label("저장되지 않은 입력", systemImage: "pencil")
-                            .font(.caption)
+                            .font(AppDesign.Typography.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
             }
-            .padding(.top, 4)
+            .padding(.top, AppDesign.Space.compact)
         } label: {
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) {
@@ -539,11 +536,11 @@ extension SettingsView {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
-                .padding(.vertical, 4)
+                .padding(.vertical, AppDesign.Space.compact)
             }
             .buttonStyle(.plain)
         }
-        .font(.subheadline)
+        .font(AppDesign.Typography.subheadline)
     }
 
     var hasReadyClaudeCredential: Bool {
@@ -661,7 +658,7 @@ extension SettingsView {
     }
 
     private func sourceStatusRows(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
             sourceStatusRow(
                 title: "브라우저 로그인",
                 value: validationStatusLabel(snapshot.runtime.sessionValidationState),
@@ -678,11 +675,11 @@ extension SettingsView {
                 color: runtimePathColor(snapshot.runtime.activePath)
             )
         }
-        .font(.caption2)
+        .font(AppDesign.Typography.caption2)
     }
 
     private func sourceStatusRow(title: String, value: String, color: Color) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: AppDesign.Space.control) {
             Circle()
                 .fill(color)
                 .frame(width: 6, height: 6)
@@ -720,12 +717,12 @@ extension SettingsView {
 
     private func sectionCardHeader(title: String, subtitle: String? = nil) -> some View {
         HStack {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
                 Text(title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(AppDesign.Typography.subheadline.weight(.semibold))
                 if let subtitle {
                     Text(subtitle)
-                        .font(.caption2)
+                        .font(AppDesign.Typography.caption2)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -808,7 +805,7 @@ extension SettingsView {
     /// 현재 상태 한 줄 + 자동 ↔ 직접 토글 1개. 「선택 닫기」 같은 메타 버튼은 제거.
     /// 사용자가 한눈에 "지금 모드가 뭐고 어떻게 바꾸지?" 알 수 있게.
     private var organizationCurrentStatus: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.row) {
             chip(
                 title: "현재",
                 value: currentOrganizationModeLabel,
@@ -816,7 +813,7 @@ extension SettingsView {
             )
             if let activeOrgLabel = currentlyAppliedOrganizationLabel {
                 Text(activeOrgLabel)
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -841,24 +838,24 @@ extension SettingsView {
     private var organizationSingleOrEmptyHint: some View {
         if organizations.isEmpty {
             Text("조직 목록을 아직 불러오지 못했습니다.")
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
         } else if let only = organizations.first {
-            HStack(spacing: 8) {
+            HStack(spacing: AppDesign.Space.row) {
                 Image(systemName: "building.2")
                     .foregroundStyle(.secondary)
                 Text(only.displayName)
-                    .font(.subheadline)
+                    .font(AppDesign.Typography.subheadline)
                 Spacer(minLength: 0)
                 Text("조직이 하나뿐이라 별도 선택이 필요 없습니다.")
-                    .font(.caption2)
+                    .font(AppDesign.Typography.caption2)
                     .foregroundStyle(.secondary)
             }
         }
     }
 
     private var organizationPickerInline: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.control) {
             Picker(selection: $selectedOrganizationID) {
                 Text("자동 선택").tag("")
                 if !selectedOrganizationID.isEmpty,
@@ -887,20 +884,20 @@ extension SettingsView {
     }
 
     private var organizationPendingFootnote: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.control) {
             Image(systemName: "arrow.right.circle")
                 .foregroundStyle(.orange)
             Text("변경 예정: ")
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
             Text(pendingOrganizationModeLabel)
-                .font(.caption.weight(.semibold))
+                .font(AppDesign.Typography.caption.weight(.semibold))
                 .foregroundStyle(pendingOrganizationID.isEmpty ? .green : .orange)
             if !pendingOrganizationID.isEmpty,
                let label = label(for: pendingOrganizationID)
             {
                 Text("· \(label)")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -947,7 +944,7 @@ extension SettingsView {
     private var organizationMessages: some View {
         if let message = organizationMessage {
             Text(message)
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(message.contains("실패") || message.contains("없음") ? .orange : .secondary)
         }
     }

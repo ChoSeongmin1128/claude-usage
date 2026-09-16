@@ -12,6 +12,7 @@ struct CompactUsageRow: View {
     var tooltip: String? = nil
     var accessibilityLabel: String? = nil
     var accessibilityValue: String? = nil
+    var basis: UsageValueBasis = .used
 
     var body: some View {
         HStack(
@@ -28,22 +29,20 @@ struct CompactUsageRow: View {
                     alignment: .leading
                 )
 
-            HStack(spacing: 4) {
+            HStack(spacing: AppDesign.Space.compact) {
                 ProgressBarView(
                     percentage: percentage,
                     height:
                         PopoverLayoutMetrics
                             .compactProgressBarHeight,
-                    color: color
+                    color: color,
+                    basis: basis
                 )
                 .frame(maxWidth: .infinity)
 
                 Text(
                     percentageText
-                        ?? String(
-                            format: "%.0f%%",
-                            percentage
-                        )
+                        ?? basis.text(fromUsed: percentage)
                 )
                 .font(
                     .system(
@@ -84,7 +83,7 @@ struct CompactUsageRow: View {
         )
         .help(
             tooltip
-                ?? "\(label), \(Int(percentage.rounded()))퍼센트 사용"
+                ?? [label, defaultAccessibilityValue].joined(separator: ", ")
         )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
@@ -92,8 +91,16 @@ struct CompactUsageRow: View {
         )
         .accessibilityValue(
             accessibilityValue
-                ?? "\(Int(percentage.rounded()))퍼센트 사용"
+                ?? defaultAccessibilityValue
         )
+    }
+
+    private var defaultAccessibilityValue: String {
+        var values = [basis.spokenValue(fromUsed: percentage)]
+        if let resetAt {
+            values.append(TimeFormatter.formatRelativeTimeWithClock(from: resetAt, style: timeFormatStyle))
+        }
+        return values.joined(separator: ", ")
     }
 
     @ViewBuilder
@@ -108,7 +115,7 @@ struct CompactUsageRow: View {
                     )
                     .foregroundStyle(.primary)
                 + Text(" · ")
-                    .font(.caption2)
+                .font(AppDesign.Typography.caption2)
                     .foregroundStyle(.tertiary)
                 + Text(compactResetText ?? "--")
                     .font(
@@ -120,7 +127,7 @@ struct CompactUsageRow: View {
                     .foregroundStyle(.secondary)
             )
             .lineLimit(1)
-            .minimumScaleFactor(0.72)
+                .minimumScaleFactor(0.85)
             .truncationMode(.tail)
         } else {
             Text(label)
@@ -131,7 +138,7 @@ struct CompactUsageRow: View {
                 )
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.72)
+                .minimumScaleFactor(0.85)
                 .truncationMode(.tail)
         }
     }

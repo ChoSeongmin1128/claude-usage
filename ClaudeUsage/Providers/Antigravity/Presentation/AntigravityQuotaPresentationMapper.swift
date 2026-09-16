@@ -20,6 +20,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         )
         let allGroups = makeGroups(
             from: snapshot.lanes,
+            basis: .antigravity(settings.menuBar),
             now: now,
             locale: locale,
             timeZone: timeZone
@@ -151,6 +152,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
 
     private static func makeGroups(
         from lanes: [AntigravityQuotaLane],
+        basis: UsageValueBasis,
         now: Date,
         locale: Locale,
         timeZone: TimeZone
@@ -162,6 +164,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                 .map {
                     lanePresentation(
                         from: $0,
+                        basis: basis,
                         now: now,
                         locale: locale,
                         timeZone: timeZone
@@ -178,6 +181,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
 
     private static func lanePresentation(
         from lane: AntigravityQuotaLane,
+        basis: UsageValueBasis,
         now: Date,
         locale: Locale,
         timeZone: TimeZone
@@ -192,7 +196,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         )
         let value = valuePresentation(for: lane)
         let tone = riskTone(for: value)
-        let percentageText = value.usedPercentage.map(formatPercentage)
+        let percentageText = value.usedPercentage.flatMap { basis.percentage(fromUsed: $0) }.map(formatPercentage)
         let valueSummary = summaryText(for: value)
         let tooltip = [
             "\(scopeTitle) · \(cadenceTitle)",
@@ -220,7 +224,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             isUnknownCadence: isUnknown(lane.cadence),
             tooltip: tooltip,
             accessibilityLabel: "\(scopeTitle), \(cadenceTitle) 한도",
-            accessibilityValue: accessibilityValue
+            accessibilityValue: accessibilityValue,
+            basis: basis
         )
     }
 
@@ -459,7 +464,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                 tone: lane.tone,
                 tooltip: lane.tooltip,
                 accessibilityLabel: lane.accessibilityLabel,
-                accessibilityValue: lane.accessibilityValue
+                    accessibilityValue: lane.accessibilityValue,
+                    basis: lane.basis
             )
         }
         guard !metrics.isEmpty else {

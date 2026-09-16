@@ -51,28 +51,28 @@ struct SetupWizardView: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.label) {
             HStack {
                 Text("빠른 시작")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
                 if hasReadyCredential {
                     Text("준비됨")
-                        .font(.caption2.weight(.medium))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
+                        .font(AppDesign.Typography.caption2.weight(.medium))
+                        .padding(.horizontal, AppDesign.Space.control)
+                        .padding(.vertical, AppDesign.Space.tight)
                         .background(Color.green.opacity(0.15))
                         .foregroundStyle(.green)
                         .cornerRadius(5)
                 } else {
                     Text("단계형 안내")
-                        .font(.caption2)
+                        .font(AppDesign.Typography.caption2)
                         .foregroundStyle(.tertiary)
                 }
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: AppDesign.Space.row) {
                 ForEach(Step.allCases) { step in
                     Capsule()
                         .fill(color(for: step))
@@ -84,28 +84,27 @@ struct SetupWizardView: View {
 
             if !hasReadyCredential && !alternativeSteps.isEmpty {
                 DisclosureGroup(isExpanded: $isAlternativeMethodsExpanded) {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: AppDesign.Space.row) {
                         ForEach(alternativeSteps) { step in
                             alternativeStepRow(step)
                         }
                     }
-                    .padding(.top, 6)
+                    .padding(.top, AppDesign.Space.control)
                 } label: {
                     Text("현재 경로가 안 될 때 다른 방법 보기")
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
             }
 
             if hasReadyCredential {
                 Text("이제 상태만 확인하면 됩니다.")
-                    .font(.caption2)
+                    .font(AppDesign.Typography.caption2)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(10)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        .cornerRadius(8)
+        .padding(AppDesign.Space.label)
+        .appPanelStyle()
     }
 
     private var primaryStepTitle: String {
@@ -124,18 +123,18 @@ struct SetupWizardView: View {
 
     private var primaryStepCard: some View {
         let state = state(for: currentStep)
-        return HStack(alignment: .top, spacing: 8) {
+        return HStack(alignment: .top, spacing: AppDesign.Space.row) {
             Image(systemName: state.iconName)
                 .foregroundStyle(state.color)
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
+                HStack(spacing: AppDesign.Space.control) {
                     Text(primaryStepTitle)
-                        .font(.caption.weight(.semibold))
+                        .font(AppDesign.Typography.caption.weight(.semibold))
                     if !hasReadyCredential && currentStep == .chromeImport {
                         Text("권장")
-                            .font(.caption2.weight(.medium))
+                            .font(AppDesign.Typography.caption2.weight(.medium))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 1)
                             .background(Color.accentColor.opacity(0.14))
@@ -144,23 +143,22 @@ struct SetupWizardView: View {
                     }
                 }
                 Text(primaryStepDetail)
-                    .font(.caption2)
+                    .font(AppDesign.Typography.caption2)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
-        .padding(10)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
-        .cornerRadius(8)
+        .padding(AppDesign.Space.label)
+        .appPanelStyle()
     }
 
     private func alternativeStepRow(_ step: Step) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .top, spacing: AppDesign.Space.row) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
                 Text(step.title)
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                 Text(step.detail)
-                    .font(.caption2)
+                    .font(AppDesign.Typography.caption2)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
@@ -168,7 +166,7 @@ struct SetupWizardView: View {
                 perform(step)
             }
             .buttonStyle(.borderless)
-            .font(.caption)
+            .font(AppDesign.Typography.caption)
         }
     }
 

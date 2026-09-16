@@ -12,7 +12,7 @@ final class PopoverInteractionTests: XCTestCase {
         let facade = AppRuntimeStateFacade()
         let viewModel = PopoverViewModel()
         facade.activeClaudeAccountID = "A"
-        facade.applyClaudeOverage(overage, accountID: "A", fetchedAt: Date())
+        facade.applyClaudeSupplementalUsage(.success(overage, fetchedAt: Date()), accountID: "A")
         facade[.claude] = quotaState(accountID: "A")
         viewModel.update(snapshots: [facade.snapshot(for: .claude, codexAuthenticated: false)])
         XCTAssertEqual(viewModel.overage, overage)
@@ -34,7 +34,7 @@ final class PopoverInteractionTests: XCTestCase {
     func testSameAccountTemporaryFailureRetainsSupplementalUsage() {
         let facade = AppRuntimeStateFacade()
         facade.activeClaudeAccountID = "A"
-        facade.applyClaudeOverage(overage, accountID: "A", fetchedAt: Date())
+        facade.applyClaudeSupplementalUsage(.success(overage, fetchedAt: Date()), accountID: "A")
         var state = quotaState(accountID: "A")
         _ = RuntimeProviderRefreshCoordinator.applyFailure(
             state: &state, error: .networkError("fixture"), minimumInterval: 30
@@ -48,9 +48,26 @@ final class PopoverInteractionTests: XCTestCase {
     func testSnapshotDoesNotAttachSupplementalUsageToAnotherQuotaAccount() {
         let facade = AppRuntimeStateFacade()
         facade.activeClaudeAccountID = "B"
-        facade.applyClaudeOverage(overage, accountID: "B", fetchedAt: Date())
+        facade.applyClaudeSupplementalUsage(.success(overage, fetchedAt: Date()), accountID: "B")
         facade[.claude] = quotaState(accountID: "A")
         XCTAssertNil(facade.snapshot(for: .claude, codexAuthenticated: false).claudeOverage)
+    }
+
+    func testSupplementalFailureAndSkippedFetchKeepTheSuccessfulValueAndTime() {
+        let facade = AppRuntimeStateFacade()
+        let checkedAt = Date(timeIntervalSince1970: 100)
+        facade.activeClaudeAccountID = "A"
+        facade[.claude] = quotaState(accountID: "A")
+        facade.applyClaudeSupplementalUsage(.success(overage, fetchedAt: checkedAt), accountID: "A")
+        facade.applyClaudeSupplementalUsage(.failed, accountID: "A")
+        facade.applyClaudeSupplementalUsage(.unchanged, accountID: "A")
+        let snapshot = facade.snapshot(for: .claude, codexAuthenticated: false)
+        XCTAssertEqual(snapshot.claudeOverage, overage)
+        XCTAssertEqual(snapshot.claudeOverageUpdatedAt, checkedAt)
+        XCTAssertTrue(snapshot.claudeOverageIsStale)
+        facade.applyClaudeSupplementalUsage(
+            .success(overage, fetchedAt: checkedAt.addingTimeInterval(300)), accountID: "A")
+        XCTAssertFalse(facade.snapshot(for: .claude, codexAuthenticated: false).claudeOverageIsStale)
     }
 
     func testRefreshCooldownIsVisibleAndIndependentAcrossServices() {

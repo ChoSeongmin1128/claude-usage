@@ -16,10 +16,10 @@ extension SettingsView {
 
                 VStack(spacing: 0) {
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 20) {
+                        VStack(alignment: .leading, spacing: AppDesign.Space.window) {
                             panelContent
                         }
-                        .padding(20)
+                        .padding(AppDesign.Space.window)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .id(contentIdentity)
                     }
@@ -31,14 +31,14 @@ extension SettingsView {
                 Button("기본값 복원") { pendingDestructiveAction = .resetDefaults }
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 12)
+            .padding(.horizontal, AppDesign.Space.page)
+            .padding(.vertical, AppDesign.Space.content)
         }
         .frame(
-            minWidth: 800,
-            idealWidth: 880,
-            minHeight: 560,
-            idealHeight: 660
+            minWidth: AppDesign.Window.settingsMinimum.width,
+            idealWidth: AppDesign.Window.settingsIdeal.width,
+            minHeight: AppDesign.Window.settingsMinimum.height,
+            idealHeight: AppDesign.Window.settingsIdeal.height
         )
     }
 
@@ -249,7 +249,7 @@ extension SettingsView {
             notificationThresholdSection
             ForEach(AppProviderKind.allCases, id: \.rawValue) { provider in
                 Divider()
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: AppDesign.Space.content) {
                     ProviderSettingsSectionHeader(
                         provider: provider,
                         title: provider.displayName
@@ -287,11 +287,11 @@ extension SettingsView {
                 spacing: 5
             ) {
                 Text("서비스별 표시")
-                    .font(.headline)
+                    .font(AppDesign.Typography.headline)
                 Text(
                     "서비스를 선택해 메뉴바와 팝오버 구성을 조정합니다."
                 )
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
             }
 
@@ -317,11 +317,11 @@ extension SettingsView {
     }
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.row) {
             Text("설정")
-                .font(.headline)
-                .padding(.horizontal, 8)
-                .padding(.top, 4)
+                .font(AppDesign.Typography.headline)
+                .padding(.horizontal, AppDesign.Space.row)
+                .padding(.top, AppDesign.Space.compact)
 
             let panels = SettingsProviderRegistry.sidebarPanels
             ForEach(panels.prefix(4)) { panel in
@@ -329,10 +329,10 @@ extension SettingsView {
             }
 
             Text("서비스")
-                .font(.caption.weight(.semibold))
+                .font(AppDesign.Typography.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 10)
-                .padding(.top, 10)
+                .padding(.horizontal, AppDesign.Space.label)
+                .padding(.top, AppDesign.Space.label)
 
             ForEach(panels.dropFirst(4)) { panel in
                 sidebarRow(panel)
@@ -340,7 +340,7 @@ extension SettingsView {
 
             Spacer()
         }
-        .padding(12)
+        .padding(AppDesign.Space.content)
         .frame(width: 190)
         .background(Color(NSColor.windowBackgroundColor))
     }
@@ -349,26 +349,26 @@ extension SettingsView {
         Button {
             selectedPanel = panel.panel
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: AppDesign.Space.row) {
                 if let provider = panel.providerKind {
                     ProviderBrandIconView(provider: provider, kind: .settings, size: 16)
                         .frame(width: 16)
-                } else {
-                    Image(systemName: panel.icon)
+                } else if let icon = panel.icon {
+                    Image(systemName: icon)
                         .frame(width: 16)
                 }
                 Text(panel.title)
-                    .font(.subheadline)
+                    .font(AppDesign.Typography.subheadline)
                 Spacer(minLength: 0)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(selectedPanel == panel.panel ? Color.accentColor : .primary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, AppDesign.Space.label)
+        .padding(.vertical, AppDesign.Space.row)
         .background(selectedPanel == panel.panel ? Color.accentColor.opacity(0.16) : Color.clear)
-        .cornerRadius(8)
+        .cornerRadius(AppDesign.Radius.group)
     }
 
     private func normalizedPanel(_ panel: SettingsProviderPanel) -> SettingsProviderPanel {

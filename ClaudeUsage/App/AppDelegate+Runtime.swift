@@ -404,11 +404,9 @@ extension AppDelegate {
                     }
                     self.currentClaudeProfileMetadata = cachedProfileMetadata
                     self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
-                    if let fetchedOverage = result.overage, let fetchedAt = result.overageFetchedAt,
-                        let accountID = result.provenance.accountID
-                    {
+                    if let accountID = result.provenance.accountID {
                         self.withRuntimeState {
-                            $0.applyClaudeOverage(fetchedOverage, accountID: accountID, fetchedAt: fetchedAt)
+                            $0.applyClaudeSupplementalUsage(result.supplementalUsage, accountID: accountID)
                         }
                     }
 

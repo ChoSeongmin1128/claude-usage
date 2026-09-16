@@ -85,20 +85,20 @@ extension AppDelegate {
             let service = resolvedPopoverService()
             PopoverGeometryDiagnostics.resetSession("show service=\(service.rawValue)")
             popoverViewModel.selectService(service)
-            popoverCoordinator.rebuildPopover(for: service)
+            popoverCoordinator.rebuildPopover()
             guard let popover = popover else {
                 isPresentingPopover = false
                 return
             }
             applyPopoverBehavior()
             updatePopoverViewModel()
-            let initialSize = presentedPopoverSize(for: service, isShown: false)
+            let initialSize = popoverLayoutSpec(for: service).size
             // show() 전에 크기를 명시적으로 설정하여 fittingSize에 의한 확장 방지
             popover.contentViewController?.preferredContentSize = initialSize
             popover.contentSize = initialSize
-            popoverCoordinator.beginWindowDiagnosticsIfNeeded()
             logPopoverPresentationState("before-show", button: button, requestedSize: initialSize)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            popoverCoordinator.beginWindowDiagnosticsIfNeeded()
             logPopoverPresentationState("after-show", button: button, requestedSize: initialSize)
             refreshVisiblePopoverSizeForCurrentState()
             NSApp.activate()
@@ -166,7 +166,7 @@ extension AppDelegate {
         case .serviceSelection, .compactToggle:
             break
         }
-        let requestedSize = presentedPopoverSize(for: service, isShown: true)
+        let requestedSize = popoverLayoutSpec(for: service).size
         logPopoverPresentationState("refresh-size reason=\(reason.rawValue) service=\(service.rawValue)", requestedSize: requestedSize)
         popoverCoordinator.refreshSizeIfShown(size: requestedSize)
         logPopoverPresentationState("after-refresh reason=\(reason.rawValue) service=\(service.rawValue)")
@@ -178,21 +178,8 @@ extension AppDelegate {
 
     func refreshVisiblePopoverSizeForCurrentState() {
         guard popover?.isShown == true else { return }
-        let requestedSize = presentedPopoverSize(for: popoverViewModel.selectedService, isShown: true)
+        let requestedSize = popoverLayoutSpec(for: popoverViewModel.selectedService).size
         popoverCoordinator.refreshSizeIfShown(size: requestedSize)
-    }
-
-    func presentedPopoverSize(
-        for service: PopoverService,
-        isShown: Bool
-    ) -> CGSize {
-        let policy = PopoverPresentationPolicy(
-            layoutSpec: popoverLayoutSpec(for: service),
-            isShown: isShown,
-            measuredContentSize: popoverCoordinator.measuredHostedContentSize(),
-            screenVisibleFrame: NSScreen.main?.visibleFrame
-        )
-        return policy.targetSize()
     }
 
     func logPopoverPresentationState(

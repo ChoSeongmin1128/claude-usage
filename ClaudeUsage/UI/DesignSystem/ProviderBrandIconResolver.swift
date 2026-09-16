@@ -7,7 +7,10 @@ enum ProviderBrandIconKind: Sendable {
     case settings
 }
 
+private final class ProviderAssetBundleAnchor: NSObject {}
+
 enum ProviderBrandIconResolver {
+    static let resourceBundle = Bundle(for: ProviderAssetBundleAnchor.self)
     private static var cachedImages: [String: NSImage] = [:]
 
     static func image(
@@ -28,13 +31,9 @@ enum ProviderBrandIconResolver {
         }
 
         if let assetName = assetName(for: provider, kind: kind),
-           let image = baseImage(named: assetName) {
+            let image = baseImage(named: assetName)
+        {
             image.isTemplate = false
-            return image
-        }
-
-        if let symbol = provider.fallbackSystemSymbolName,
-           let image = NSImage(systemSymbolName: symbol, accessibilityDescription: provider.displayName) {
             return image
         }
 
@@ -57,7 +56,10 @@ enum ProviderBrandIconResolver {
         if let cached = cachedImages[assetName] {
             return cached.copy() as? NSImage ?? cached
         }
-        guard let image = NSImage(named: assetName) else { return nil }
+        guard let image = resourceBundle.image(forResource: NSImage.Name(assetName)) else {
+            Logger.error("공급사 로고 리소스를 찾을 수 없습니다: \(assetName)")
+            return nil
+        }
         image.isTemplate = false
         cachedImages[assetName] = image
         return image.copy() as? NSImage ?? image
@@ -77,12 +79,13 @@ struct ProviderBrandIconView: View {
                     .interpolation(.high)
                     .aspectRatio(contentMode: .fit)
             } else {
-                Image(systemName: provider.fallbackSystemSymbolName ?? "questionmark.circle")
+                Image(systemName: "exclamationmark.triangle")
                     .resizable()
                     .aspectRatio(contentMode: .fit)
             }
         }
         .frame(width: size, height: size)
+        .accessibilityLabel(provider.displayName)
     }
 }
 
@@ -91,7 +94,7 @@ struct ProviderSettingsSectionHeader: View {
     let title: String
 
     var body: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: AppDesign.Space.row) {
             ProviderBrandIconView(
                 provider: provider,
                 kind: .settings,
@@ -100,7 +103,7 @@ struct ProviderSettingsSectionHeader: View {
             .frame(width: 20, height: 20)
             Text(title)
         }
-        .font(.headline)
+        .font(AppDesign.Typography.headline)
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isHeader)
     }

@@ -38,7 +38,7 @@ struct SettingsProviderPanelDescriptor: Identifiable, Sendable, Equatable {
 
     let panel: SettingsProviderPanel
     let title: String
-    let icon: String
+    let icon: String?
     let providerKind: AppProviderKind?
     let availability: Availability
 
@@ -95,7 +95,7 @@ enum SettingsProviderRegistry {
         return .init(
             panel: panel(for: kind),
             title: providerDescriptor.settingsPanelTitle,
-            icon: providerDescriptor.settingsPanelIconName,
+            icon: nil,
             providerKind: kind,
             availability: availability
         )

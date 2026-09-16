@@ -15,6 +15,8 @@ struct UsageItemContext {
 
     let codexUsage: CodexUsageResponse?
     let codexError: APIError?
+    var claudeOverageUpdatedAt: Date? = nil
+    var claudeOverageIsStale = false
 }
 
 // MARK: - Catalog protocol
@@ -153,7 +155,8 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                         percentage: usage.fiveHour.utilization,
                         resetAt: usage.fiveHour.resetsAt,
                         isWeekly: false,
-                        timeFormatStyle: context.settings.timeFormat
+                        timeFormatStyle: context.settings.timeFormat,
+                        basis: context.settings.usageValueBasis(for: .claude)
                     )
                 )
             )
@@ -171,7 +174,8 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                         percentage: sevenDay.utilization,
                         resetAt: sevenDay.resetsAt,
                         isWeekly: true,
-                        timeFormatStyle: context.settings.timeFormat
+                        timeFormatStyle: context.settings.timeFormat,
+                        basis: context.settings.usageValueBasis(for: .claude)
                     )
                 )
             )
@@ -188,7 +192,10 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                 id: "overageUsage",
                 kind: .overage,
                 importance: .primary,
-                payload: .overage(PopoverOverageSectionData(overage: overage))
+                payload: .overage(
+                    PopoverOverageSectionData(
+                        overage: overage, updatedAt: context.claudeOverageUpdatedAt,
+                        isStale: context.claudeOverageIsStale))
             )
 
         default:
@@ -216,7 +223,8 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                             percentage: window.utilization,
                             resetAt: window.resetsAt,
                             isWeekly: true,
-                            timeFormatStyle: context.settings.timeFormat
+                            timeFormatStyle: context.settings.timeFormat,
+                            basis: context.settings.usageValueBasis(for: .claude)
                         )
                     )
                 )
@@ -285,7 +293,8 @@ struct CodexItemCatalog: UsageItemCatalog {
                             percentage: window.utilization,
                             resetAt: window.resetAtISO,
                             isWeekly: (window.limitWindowSeconds ?? 0) >= 24 * 3600,
-                            timeFormatStyle: context.settings.codexTimeFormat
+                            timeFormatStyle: context.settings.codexTimeFormat,
+                            basis: context.settings.usageValueBasis(for: .codex)
                         )
                     )
                 )
@@ -315,7 +324,8 @@ struct CodexItemCatalog: UsageItemCatalog {
                             percentage: window.utilization,
                             resetAt: window.resetAtISO,
                             isWeekly: false,
-                            timeFormatStyle: context.settings.codexTimeFormat
+                            timeFormatStyle: context.settings.codexTimeFormat,
+                            basis: context.settings.usageValueBasis(for: .codex)
                         )
                     )
                 )
@@ -344,7 +354,8 @@ struct CodexItemCatalog: UsageItemCatalog {
                             percentage: window.utilization,
                             resetAt: window.resetAtISO,
                             isWeekly: true,
-                            timeFormatStyle: context.settings.codexTimeFormat
+                            timeFormatStyle: context.settings.codexTimeFormat,
+                            basis: context.settings.usageValueBasis(for: .codex)
                         )
                     )
                 )

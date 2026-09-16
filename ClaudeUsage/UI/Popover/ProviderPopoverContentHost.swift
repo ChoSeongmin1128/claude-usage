@@ -45,23 +45,7 @@ struct ProviderPopoverContentHost: View {
                     .emptySelectionSummary()
             )
         } else {
-            VStack(spacing: 0) {
-                ForEach(
-                    Array(sections.enumerated()),
-                    id: \.element.id
-                ) { index, section in
-                    if index > 0,
-                       !layoutSpec.isCompact
-                    {
-                        Divider()
-                            .padding(.vertical, 8)
-                    }
-                    PopoverDisplaySectionView(
-                        section: section,
-                        density: layoutSpec.density
-                    )
-                }
-            }
+            PopoverCatalogSectionList(sections: sections, density: layoutSpec.density)
         }
     }
 
@@ -79,26 +63,26 @@ struct ProviderPopoverContentHost: View {
                     )!
             )
         } else {
-            VStack(spacing: 12) {
+            VStack(spacing: AppDesign.Space.content) {
                 Image(
                     systemName: "person.badge.key"
                 )
-                .font(.system(size: 36))
+                .font(AppDesign.Typography.setupIcon)
                 .foregroundStyle(.orange)
                 Text("Claude 로그인이 필요합니다")
-                    .font(.headline)
+                    .font(AppDesign.Typography.headline)
                 Text(
                     "Chrome 프로필에 저장된 로그인이나 Claude Code 인증을 그대로 사용할 수 있습니다."
                 )
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, AppDesign.Space.section)
                 .fixedSize(
                     horizontal: false,
                     vertical: true
                 )
-                HStack(spacing: 8) {
+                HStack(spacing: AppDesign.Space.row) {
                     Button("Claude 로그인 시작") {
                         viewModel
                             .startClaudeLogin()

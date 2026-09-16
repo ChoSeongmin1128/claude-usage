@@ -61,6 +61,20 @@ final class ProviderBrandAssetCatalogTests: XCTestCase {
         }
     }
 
+    func testCompiledBundleLoadsApprovedBrandAssetsWithoutPlaceholderSymbols() throws {
+        for provider in AppProviderKind.allCases {
+            let base = try XCTUnwrap(
+                ProviderBrandIconResolver.baseImage(for: provider),
+                "Missing \(provider.displayName) asset in \(ProviderBrandIconResolver.resourceBundle.bundleURL)")
+            XCTAssertFalse(base.isTemplate)
+            for kind in [ProviderBrandIconKind.popover, .settings] {
+                let image = try XCTUnwrap(ProviderBrandIconResolver.image(for: provider, kind: kind))
+                XCTAssertFalse(image.isTemplate)
+                XCTAssertEqual(image.size, base.size)
+            }
+        }
+    }
+
     private var repositoryRoot: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()

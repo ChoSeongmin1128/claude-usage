@@ -5,7 +5,7 @@ struct ProviderSettingsPicker: View {
     @Binding var selection: AppProviderKind
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: AppDesign.Space.control) {
             ForEach(
                 AppProviderKind.allCases,
                 id: \.rawValue
@@ -31,8 +31,8 @@ struct ProviderSettingsPicker: View {
                             )
                         Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, AppDesign.Space.label)
+                    .padding(.vertical, AppDesign.Space.row)
                     .frame(
                         maxWidth: .infinity,
                         alignment: .leading
@@ -47,7 +47,7 @@ struct ProviderSettingsPicker: View {
                 )
                 .background(
                     RoundedRectangle(
-                        cornerRadius: 8,
+                        cornerRadius: AppDesign.Radius.group,
                         style: .continuous
                     )
                     .fill(
@@ -63,7 +63,7 @@ struct ProviderSettingsPicker: View {
                 )
                 .overlay(
                     RoundedRectangle(
-                        cornerRadius: 8,
+                        cornerRadius: AppDesign.Radius.group,
                         style: .continuous
                     )
                     .stroke(
@@ -120,7 +120,7 @@ struct ProviderPopoverPreviewShell<Content: View>: View {
 
     var body: some View {
         content
-            .padding(12)
+            .padding(AppDesign.Space.content)
             .frame(maxWidth: 560, alignment: .leading)
             .background(
                 Color(
@@ -128,7 +128,7 @@ struct ProviderPopoverPreviewShell<Content: View>: View {
                 )
                 .opacity(0.45)
             )
-            .cornerRadius(10)
+            .cornerRadius(AppDesign.Radius.card)
             .accessibilityElement(children: .contain)
             .accessibilityLabel("팝오버 미리보기")
     }
@@ -155,35 +155,16 @@ struct ProviderExternalActionsView: View {
     var body: some View {
         HStack(spacing: compact ? 8 : 12) {
             ForEach(provider.descriptor.externalActions) { action in
-                if isInteractive {
-                    Button {
-                        onOpen(action)
-                    } label: {
-                        actionLabel(action)
-                    }
-                    .buttonStyle(.borderless)
-                    .help(action.helpText)
-                    .accessibilityLabel("\(provider.displayName) \(action.title) 열기")
-                } else {
-                    actionLabel(action)
-                        .foregroundStyle(Color.accentColor)
-                        .accessibilityHidden(true)
-                }
+                IconActionButton(
+                    symbol: action.systemImageName,
+                    label: "\(provider.displayName) \(action.title) 웹사이트 열기",
+                    compact: compact, isExternal: true
+                ) { if isInteractive { onOpen(action) } }
+                .allowsHitTesting(isInteractive)
+                .accessibilityHidden(!isInteractive)
             }
         }
-        .font(.caption)
-    }
-
-    private func actionLabel(
-        _ action: ProviderExternalAction
-    ) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: action.systemImageName)
-            if !compact {
-                Text(action.title)
-            }
-        }
-        .foregroundStyle(Color.accentColor)
+        .font(AppDesign.Typography.caption)
     }
 }
 
@@ -212,12 +193,12 @@ struct ProviderDisplayEditorShell<
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.content) {
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .font(AppDesign.Typography.subheadline.weight(.semibold))
 
             Text(description)
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
 
             DisplayModePicker(selection: $selectedMode)
@@ -239,10 +220,10 @@ struct DisplayItemRow: View {
     let onMoveDown: () -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: AppDesign.Space.row) {
             if showsDragHandle {
                 Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 10))
+                    .font(AppDesign.Typography.metadata)
                     .foregroundStyle(.tertiary)
                     .frame(width: 14)
                     .accessibilityHidden(true)
@@ -260,7 +241,7 @@ struct DisplayItemRow: View {
                         ? .primary
                         : .tertiary
                 )
-                .font(.system(size: 12))
+                .font(AppDesign.Typography.icon)
                 .frame(width: 16, height: 16)
             }
             .buttonStyle(.borderless)
@@ -270,7 +251,7 @@ struct DisplayItemRow: View {
             )
 
             Text(item.title)
-                .font(.subheadline)
+                .font(AppDesign.Typography.subheadline)
                 .foregroundStyle(
                     item.isVisible
                         ? .primary
@@ -279,7 +260,7 @@ struct DisplayItemRow: View {
 
             if !item.isAvailable {
                 Text("지금 데이터 없음")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.tertiary)
                     .help(
                         "현재 응답에는 이 항목의 데이터가 없습니다. 선택은 유지됩니다."
@@ -289,7 +270,7 @@ struct DisplayItemRow: View {
             Spacer()
         }
         .frame(height: 26)
-        .padding(.horizontal, 8)
+        .padding(.horizontal, AppDesign.Space.row)
         .contentShape(Rectangle())
         .accessibilityElement(children: .contain)
         .accessibilityLabel(item.title)
@@ -347,9 +328,9 @@ struct DisplayItemList: View {
                             maxWidth: .infinity,
                             alignment: .leading
                         )
-                        .padding(.horizontal, 8)
-                        .padding(.top, 6)
-                        .padding(.bottom, 2)
+                        .padding(.horizontal, AppDesign.Space.row)
+                        .padding(.top, AppDesign.Space.control)
+                        .padding(.bottom, AppDesign.Space.tight)
                 }
 
                 DisplayItemRow(
@@ -390,18 +371,18 @@ struct DisplayItemList: View {
                    !model.showsGroupHeadings
                 {
                     Divider()
-                        .padding(.horizontal, 8)
+                        .padding(.horizontal, AppDesign.Space.row)
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, AppDesign.Space.compact)
         .background(
             Color(
                 NSColor.windowBackgroundColor
             )
             .opacity(0.6)
         )
-        .cornerRadius(6)
+        .cornerRadius(AppDesign.Radius.control)
     }
 
     private func shouldShowGroupHeading(

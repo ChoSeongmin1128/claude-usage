@@ -23,7 +23,6 @@ enum ProviderExternalActionKind: String, Sendable, Equatable, Hashable {
 struct ProviderExternalAction: Identifiable, Sendable, Equatable {
     let kind: ProviderExternalActionKind
     let title: String
-    let systemImageName: String
     let destination: URL
 
     nonisolated var id: ProviderExternalActionKind {
@@ -42,7 +41,6 @@ struct ProviderDescriptor: Sendable, Equatable {
     let kind: AppProviderKind
     let displayName: String
     let settingsPanelTitle: String
-    let settingsPanelIconName: String
     let brandAssetName: String?
     let settingsPanelSummary: String
     let settingsPanelDetail: String
@@ -68,7 +66,6 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 kind: self,
                 displayName: "Claude",
                 settingsPanelTitle: "Claude",
-                settingsPanelIconName: "brain",
                 brandAssetName: "ProviderClaudeIcon",
                 settingsPanelSummary: "기본 서비스",
                 settingsPanelDetail: "브라우저 로그인이나 Claude Code 로그인으로 연결할 수 있습니다.",
@@ -83,13 +80,11 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                     ProviderExternalAction(
                         kind: .usage,
                         title: "사용량",
-                        systemImageName: "chart.bar",
                         destination: URL(string: "https://claude.ai/settings/usage")!
                     ),
                     ProviderExternalAction(
                         kind: .status,
                         title: "서비스 상태",
-                        systemImageName: "waveform.path.ecg",
                         destination: URL(string: "https://status.claude.com/")!
                     ),
                 ]
@@ -99,7 +94,6 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 kind: self,
                 displayName: "Codex",
                 settingsPanelTitle: "Codex",
-                settingsPanelIconName: "bubble.left.and.bubble.right",
                 brandAssetName: "ProviderCodexIcon",
                 settingsPanelSummary: "Codex 사용량",
                 settingsPanelDetail: "터미널에서 codex login으로 로그인하면 메뉴바에서 바로 확인할 수 있습니다.",
@@ -114,13 +108,11 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                     ProviderExternalAction(
                         kind: .usage,
                         title: "사용량",
-                        systemImageName: "chart.bar",
                         destination: URL(string: "https://chatgpt.com/codex/settings/usage")!
                     ),
                     ProviderExternalAction(
                         kind: .status,
                         title: "서비스 상태",
-                        systemImageName: "waveform.path.ecg",
                         destination: URL(string: "https://status.openai.com/")!
                     ),
                 ]
@@ -130,7 +122,6 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 kind: self,
                 displayName: "Antigravity",
                 settingsPanelTitle: "Antigravity",
-                settingsPanelIconName: "antenna.radiowaves.left.and.right",
                 brandAssetName: "ProviderAntigravityIcon",
                 settingsPanelSummary: "계정 및 model quota",
                 settingsPanelDetail: "Antigravity 계정과 model quota 상태를 확인합니다.",
@@ -166,14 +157,6 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
 
     nonisolated var settingsPanelTitle: String {
         descriptor.settingsPanelTitle
-    }
-
-    nonisolated var settingsPanelIconName: String {
-        descriptor.settingsPanelIconName
-    }
-
-    nonisolated var fallbackSystemSymbolName: String? {
-        descriptor.settingsPanelIconName
     }
 
     nonisolated var brandAssetName: String? {

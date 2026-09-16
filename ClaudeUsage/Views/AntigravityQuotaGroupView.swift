@@ -4,9 +4,10 @@ struct AntigravityQuotaGroupView: View {
     let group: AntigravityQuotaGroupPresentation
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.heading) {
             Text(group.title)
-                .font(.subheadline.weight(
+                .font(
+                    AppDesign.Typography.subheadline.weight(
                     group.isUnknownScope ? .medium : .semibold
                 ))
                 .foregroundStyle(
@@ -16,7 +17,7 @@ struct AntigravityQuotaGroupView: View {
                 .truncationMode(.tail)
                 .accessibilityAddTraits(.isHeader)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
                 ForEach(group.lanes) { lane in
                     AntigravityQuotaLaneRow(
                         presentation: lane
@@ -40,7 +41,7 @@ struct AntigravityQuotaGroupsView: View {
             ) { index, group in
                 if index > 0 {
                     Divider()
-                        .padding(.vertical, 8)
+                        .padding(.vertical, AppDesign.Space.row)
                 }
                 AntigravityQuotaGroupView(group: group)
             }
@@ -65,7 +66,8 @@ private struct AntigravityQuotaLaneRow: View {
                 accessibilityLabel:
                     presentation.accessibilityLabel,
                 accessibilityValue:
-                    presentation.accessibilityValue
+                    presentation.accessibilityValue,
+                basis: presentation.basis
             )
         case .unavailable(let reason):
             StandardUsageRow(
@@ -77,7 +79,8 @@ private struct AntigravityQuotaLaneRow: View {
                 accessibilityLabel:
                     presentation.accessibilityLabel,
                 accessibilityValue:
-                    presentation.accessibilityValue
+                    presentation.accessibilityValue,
+                basis: presentation.basis
             )
         }
     }

@@ -38,6 +38,7 @@ struct PopoverUsageSectionData {
     let resetAt: String?
     let isWeekly: Bool
     let timeFormatStyle: TimeFormatStyle
+    var basis: UsageValueBasis = .used
 }
 
 struct PopoverCreditsSectionData {
@@ -52,6 +53,8 @@ struct PopoverResetCreditsSectionData {
 
 struct PopoverOverageSectionData {
     let overage: OverageSpendLimitResponse
+    var updatedAt: Date? = nil
+    var isStale = false
 }
 
 struct PopoverAccountSectionData {
