@@ -11,7 +11,7 @@
 
 staging 설치 검증 앱의 자동 조회 중단·재개와 10분 계측에서 정상 조회 20회, 약 30초 주기를 확인했습니다. 이 구간에 지속적인 CPU·메모리 증가는 없었으며, 장시간 성능 검증과는 구분합니다. 구형 staging에서 stg.1, stg.1에서 stg.4로의 실제 업데이트 및 선택 계정·서비스 활성화 설정 유지를 확인했습니다. 운영은 stg.4의 배포 입력과 build 20506을 유지해 승격했으며, 운영 2.5.2에서 2.5.3으로의 실제 업데이트, 설치본의 코드 서명·staple·Gatekeeper, 계정 migration 4·자동 조회 on·평문 legacy 키 부재도 확인했습니다.
 
-Homebrew Cask는 [공개 tap](https://github.com/ChoSeongmin1128/homebrew-tap)에 운영 2.5.3으로 게시했습니다. CI와 공개 clone의 syntax·style·strict audit·livecheck·fetch, 격리 appdir 신규 설치를 통과했습니다. 기존 운영 앱의 번들만 제거한 뒤 fully-qualified Cask로 `/Applications/ClaudeUsage.app`을 설치해 Homebrew receipt, version 2.5.3/build 20506, 단일 실행 프로세스, 코드 서명·staple·Gatekeeper를 다시 확인했습니다. README에 설치와 기존 설치본 전환 절차를 공개했습니다.
+Homebrew Cask는 [공개 tap](https://github.com/ChoSeongmin1128/homebrew-tap)에 운영 2.5.3으로 게시했습니다. CI와 공개 clone의 syntax·style·strict audit·livecheck·fetch, 격리 appdir 신규 설치를 통과했습니다. 기존 운영 앱의 번들만 제거한 뒤 fully-qualified Cask로 `/Applications/ClaudeUsage.app`을 설치해 Homebrew receipt, version 2.5.3/build 20506, 단일 실행 프로세스, 코드 서명·staple·Gatekeeper를 다시 확인했습니다.
 
 ## 남은 제한
 
@@ -32,4 +32,4 @@ Homebrew Cask는 [공개 tap](https://github.com/ChoSeongmin1128/homebrew-tap)�
 - [Antigravity 실행 계약](docs/antigravity-usage-sources.md)
 - [로드맵](WORK_PLAN.md)
 
-배포와 필수 검증을 완료했습니다. 다음 개발은 정렬된 main/dev에서 시작하고, 코드가 바뀌면 새 운영 목표와 staging 회차·build를 커밋해 검증합니다. 개인 계정·머신별 로그·로컬 경로는 Git에 기록하지 않습니다.
+배포와 필수 검증을 완료했습니다. 다음 개발은 정렬된 main/dev에서 시작하고, 코드가 바뀌면 새 운영 목표와 staging 회차·build를 커밋해 검증합니다.
