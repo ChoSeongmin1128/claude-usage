@@ -11,13 +11,15 @@
 
 staging 설치 검증 앱의 자동 조회 중단·재개와 10분 계측에서 정상 조회 20회, 약 30초 주기를 확인했습니다. 이 구간에 지속적인 CPU·메모리 증가는 없었으며, 장시간 성능 검증과는 구분합니다. 구형 staging에서 stg.1, stg.1에서 stg.4로의 실제 업데이트 및 선택 계정·서비스 활성화 설정 유지를 확인했습니다. 운영은 stg.4의 배포 입력과 build 20506을 유지해 승격했으며, 운영 2.5.2에서 2.5.3으로의 실제 업데이트, 설치본의 코드 서명·staple·Gatekeeper, 계정 migration 4·자동 조회 on·평문 legacy 키 부재도 확인했습니다.
 
+Homebrew Cask는 [공개 tap](https://github.com/ChoSeongmin1128/homebrew-tap)에 운영 2.5.3으로 게시했습니다. CI와 공개 clone의 syntax·style·strict audit·livecheck·fetch, 격리 appdir 신규 설치를 통과했습니다. 기존 운영 앱의 번들만 제거한 뒤 fully-qualified Cask로 `/Applications/ClaudeUsage.app`을 설치해 Homebrew receipt, version 2.5.3/build 20506, 단일 실행 프로세스, 코드 서명·staple·Gatekeeper를 다시 확인했습니다. README에 설치와 기존 설치본 전환 절차를 공개했습니다.
+
 ## 남은 제한
 
 - Codex 계정 변경·경합은 자동 테스트로, 현재 계정의 인증 갱신·identity·숫자 quota는 공식 CLI 실연동으로 검증했습니다. 실제 서로 다른 Codex 계정의 전환은 이번 검증에 포함하지 않았습니다.
 - 반복적인 AGY 초기 실행에서 상호작용 필요 상태가 간헐적으로 관측됐으며 구체적인 원인은 확정하지 못했습니다. 최종 필수 실연동과 10분 정기 조회에서는 재현되지 않았습니다.
 - 2.4.13보다 오래된 운영 배포본의 실제 직행 설치에는 별도 macOS 검증 환경이 필요합니다.
 - 초기 혼합 채널 배포본은 [업데이트 호환 안내](docs/upgrade-compatibility.md)의 예외 경로를 따릅니다.
-- Homebrew Cask는 [공개 tap](https://github.com/ChoSeongmin1128/homebrew-tap)에 운영 2.5.3으로 게시했습니다. 여러 Cask·Formula를 자동 검증하는 CI와 공개 clone의 syntax·style·strict audit·livecheck·fetch, 격리 appdir 설치본의 서명·공증·Gatekeeper 검증이 통과했습니다. main에는 선형 이력을 요구하고 강제 push·삭제를 막았습니다. 기존 설치본 전환과 `/Applications` 실설치 QA, 메인 README 설치 안내, release driver 연동은 아직 완료하지 않았습니다.
+- 실제 `/Applications` 전환 뒤 계정·표시 설정 보존은 별도 UI 점검으로 다시 확인하지 않았습니다. 다음 운영 버전에서 Homebrew→Homebrew, Homebrew→Sparkle, Sparkle 선행→Homebrew 교차 업데이트와 메뉴바 등록을 확인해야 합니다. release driver의 tap 자동 반영도 이 실배포 근거가 쌓인 뒤 연결합니다.
 - Antigravity IDE는 지원하지 않습니다.
 - 브랜드 자산의 권리는 소스 코드의 MIT 라이선스에 포함되지 않습니다.
 

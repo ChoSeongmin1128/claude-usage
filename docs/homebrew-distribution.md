@@ -2,7 +2,7 @@
 
 ## 상태
 
-이 문서는 Homebrew Cask 도입 설계와 구현 상태의 정본입니다. 현재 ClaudeUsage의 공식 설치 안내는 GitHub Release의 운영 DMG이며, 초기 Cask는 [공개 tap](https://github.com/ChoSeongmin1128/homebrew-tap)에 게시했습니다. 운영 Release manifest·Cask renderer·제품 전용 verifier와 여러 Cask·Formula를 수용하는 공통 CI를 구현했고, GitHub Actions와 공개 clone 검증을 통과했습니다. 기존 설치본의 `/Applications` 전환 QA와 다음 운영 버전의 교차 업데이트가 끝나기 전에는 메인 README에 Homebrew 설치 명령을 공식 경로로 제공하지 않습니다.
+이 문서는 Homebrew Cask 설치·배포 계약과 구현 상태의 정본입니다. ClaudeUsage는 GitHub Release의 운영 DMG와 [공개 tap](https://github.com/ChoSeongmin1128/homebrew-tap)의 Cask를 설치 경로로 제공합니다. 운영 Release manifest·Cask renderer·제품 전용 verifier와 여러 Cask·Formula를 수용하는 공통 CI를 구현했고, GitHub Actions·공개 clone·격리 신규 설치와 기존 `/Applications` 설치본의 전환 검증을 통과했습니다. 다음 운영 버전에서는 실제 Homebrew·Sparkle 교차 업데이트를 검증해야 합니다.
 
 목표는 다음 두 업데이트 경로를 함께 지원하는 것입니다.
 
@@ -121,7 +121,7 @@ brew install --cask choseongmin1128/tap/claude-usage
 
 이 검증 도구가 구현되기 전에는 `--adopt`를 지원 절차로 간주하지 않습니다. `--force`로 기존 앱을 덮어쓰는 명령도 기본 안내에 포함하지 않습니다.
 
-## 도입 전 실증 결과
+## 실증 결과
 
 격리된 임시 appdir와 로컬 tap에서 운영 2.5.2·2.5.3 DMG와 Homebrew `7.0.2-11-g92bb882`로 현재 동작을 확인했습니다. `/Applications`의 운영 앱과 실행 프로세스는 변경하지 않았습니다. 이 결과는 도입 설계의 근거이며 공개 후보와 당시 Homebrew에서 다시 검증해야 합니다.
 
@@ -134,6 +134,8 @@ brew install --cask choseongmin1128/tap/claude-usage
 - 2.5.2 앱을 2.5.3 `auto_updates` Cask에 `--adopt`해도 성공해 receipt와 실제 앱이 불일치했습니다. Homebrew 소스도 self-updating Cask의 adopt 비교를 생략하는 동작을 명시합니다.
 - 설치된 운영 2.5.3과 원격 DMG의 앱은 파일 내용·권한·심볼릭 링크 비교에서 차이가 없었지만, 이 한 사례를 모든 기존 설치본의 동일성 근거로 사용하지 않습니다.
 
+공개 Cask 게시 뒤 기존 운영 앱의 번들만 제거하고 `brew install --cask choseongmin1128/tap/claude-usage`로 실제 `/Applications` 설치본을 전환했습니다. Homebrew receipt가 `choseongmin1128/tap/claude-usage` 2.5.3을 가리키고, 설치 앱이 version 2.5.3/build 20506으로 단일 실행되는 것을 확인했습니다. 앱은 deep·strict 코드 서명, staple과 Gatekeeper 검증을 통과했습니다. 이 검증은 설치와 실행·보안 상태를 증명하며, 계정·표시 설정 보존과 다음 버전의 교차 업데이트는 별도 항목으로 남깁니다.
+
 ## 게시 순서
 
 Cask 갱신은 운영 게시가 모두 끝난 뒤 수행합니다. staging 게시나 운영 빌드 시작 시점에는 tap을 변경하지 않습니다.
@@ -145,7 +147,7 @@ Cask 갱신은 운영 게시가 모두 끝난 뒤 수행합니다. staging 게�
 5. Cask를 결정적으로 렌더링하고 기존 tap과의 diff가 version·SHA-256 이외의 예기치 않은 변경을 포함하지 않는지 검사합니다.
 6. 격리된 tap에서 `brew style`, Cask audit, livecheck, 다운로드 SHA-256과 앱 메타데이터 검사를 통과시킵니다.
 7. tap main에 커밋·push한 뒤 공개 tap에서 version·SHA-256·URL을 다시 읽어 운영 Release와 대조합니다.
-8. 실제 설치·업그레이드 검증을 마친 뒤 README에 Homebrew 설치 명령과 현재 지원 상태를 공개합니다.
+8. 공개 Cask의 격리 신규 설치와 실제 `/Applications` 전환 검증을 마친 뒤 README에 Homebrew 설치 명령과 현재 지원 상태를 공개합니다. 이후 버전의 교차 업데이트는 별도 검증합니다.
 
 release driver에 연동할 때 Homebrew 게시 단계는 운영 Release보다 뒤에 있는 재시도 가능한 후속 단계로 둡니다. 운영 게시 성공 후 tap 갱신이 실패해도 기존 운영 태그·자산·feed를 되돌리거나 덮어쓰지 않습니다. 결과를 `운영 게시 완료, Homebrew 반영 대기`로 명확히 남기고 동일 manifest로 tap 단계만 재시도합니다.
 
@@ -197,7 +199,7 @@ tap 저장소는 공통 정책·CI와 제품별 `Casks/*.rb`·`Formula/*.rb`를 
 
 사용자에게는 fully-qualified 패키지 설치를 안내해 선택한 패키지만 신뢰하게 합니다. `brew readall`로 전체 tap을 검사하기 위한 tap 단위 신뢰는 자격증명이 없는 일회성 CI runner와 관리자의 격리 검증에서만 사용하고 검증 후 제거합니다. main은 선형 이력을 요구하고 강제 push·삭제를 차단하며, workflow 권한은 `contents: read`로 제한합니다. Cask나 Formula 로딩 시 임의의 외부 명령을 실행하는 코드를 추가하지 않습니다.
 
-## 권장 구현과 공개 순서
+## 구현과 후속 순서
 
 1. 현재 앱 저장소에 원격 검증 manifest export, Cask renderer, tap 검증·게시 명령과 결정적 fixture 테스트를 추가합니다.
 2. 별도 공개 저장소 `ChoSeongmin1128/homebrew-tap`을 만들고 공통 validator와 `Casks/claude-usage.rb`를 둡니다. CI는 모든 Cask·Formula를 자동 발견해 공통 검사를 실행하고, 앱 저장소의 verifier는 ClaudeUsage DMG metadata를 추가로 검사합니다.
@@ -205,7 +207,7 @@ tap 저장소는 공통 정책·CI와 제품별 `Casks/*.rb`·`Formula/*.rb`를 
 4. 격리 appdir의 신규 설치와 실제 `/Applications` 설치를 구분해 확인합니다. 실제 설치 QA에서는 한 채널만 실행하고 Finder 실행, 메뉴바 등록, 계정·설정·자동 조회와 Sparkle 구성을 확인합니다.
 5. 첫 후속 운영 patch에서 Cask 설치본의 실제 Sparkle 업데이트를 확인합니다. 같은 release로 Homebrew→Homebrew 경로는 격리 appdir에서, Sparkle 선행→Homebrew 경로는 receipt와 실제 앱 version을 함께 기록해 검증합니다.
 6. 한 번의 수동 Cask bump와 교차 업데이트가 통과한 뒤에만 운영 release driver의 최종 원격 검증 다음 단계로 tap 게시를 연결합니다.
-7. 공개 tap 재조회와 실제 설치가 모두 통과한 뒤 README에 설치 명령을 공개합니다.
+7. 공개 tap 재조회와 실제 설치가 모두 통과한 뒤 README에 설치 명령을 공개합니다. 이 단계까지 완료했습니다.
 
 현재 운영 버전으로 초기 Cask를 만드는 데 앱 바이너리 변경은 필요하지 않습니다. 다만 manifest·renderer·publisher 같은 release input을 바꾸는 작업은 다음 staging 후보에서 기존 통합 검증을 거쳐야 합니다. tap 생성과 초기 Cask 게시, 앱 저장소의 release 자동화 변경을 한 커밋이나 한 실패 단위로 묶지 않습니다.
 
@@ -225,13 +227,14 @@ tap 저장소는 공통 정책·CI와 제품별 `Casks/*.rb`·`Formula/*.rb`를 
 - GitHub Actions와 공개 clone에서 운영 2.5.3 Cask의 syntax·style·strict online audit·livecheck·fetch 재검증
 - 공개 Cask의 격리 appdir 설치, version/build·bundle identifier·코드 서명·공증·Gatekeeper 검증과 receipt·tap·신뢰 기록 정리
 - tap main의 선형 이력 요구와 강제 push·삭제 차단, workflow `contents: read` 권한 확인
+- 기존 운영 앱 번들에서 공개 Cask의 `/Applications` 설치본으로 전환하고 Homebrew receipt·version/build·단일 실행 프로세스·코드 서명·공증·Gatekeeper 재검증
+- README에 신규 설치와 기존 설치본 전환 절차 공개
 
-정식 지원 전 남은 작업:
+남은 작업:
 
-- 기존 수동 설치 앱 번들 전환 및 `/Applications` 실제 설치 QA
-- 다음 운영 patch에서 Cask 설치본의 실제 Sparkle 업데이트
+- 다음 운영 버전에서 Cask 설치본의 실제 Sparkle 업데이트
+- 다음 운영 버전에서 실제 `/Applications` 설치본의 Homebrew 업데이트와 Sparkle 선행 후 Homebrew 동작, 메뉴바·설정·계정 보존 확인
 - 수동 Cask bump가 안정화된 뒤 release driver의 prod reconcile 연동
-- 최종 검증 후 README 설치 명령 공개
 
 ## 검증 행렬
 

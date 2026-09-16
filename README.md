@@ -6,11 +6,20 @@ Anthropic, OpenAI, Google과 제휴하지 않은 독립 프로젝트입니다.
 
 ## 설치
 
-- [안정 버전 2.5.3 다운로드](https://github.com/ChoSeongmin1128/claude-usage/releases/latest) · [변경 사항](docs/release-notes/2.5.3.md)
-- [staging 2.5.3-stg.4 다운로드](https://github.com/ChoSeongmin1128/claude-usage/releases/tag/v2.5.3-stg.4)
 - macOS 14 이상, Apple Silicon 및 Intel Mac 지원
+- [안정 버전 2.5.3 DMG](https://github.com/ChoSeongmin1128/claude-usage/releases/latest) · [변경 사항](docs/release-notes/2.5.3.md)
 
-DMG에서 앱을 Applications로 옮긴 뒤 Finder에서 직접 실행합니다. staging은 `ClaudeUsage-stg.app`으로 구분됩니다. 검증 중에는 한 채널만 실행하면 메뉴바 항목과 계정 상태를 구분하기 쉽습니다.
+Homebrew Cask로 설치할 수 있습니다.
+
+```bash
+brew install --cask choseongmin1128/tap/claude-usage
+```
+
+DMG 설치는 앱을 Applications로 옮긴 뒤 Finder에서 직접 실행합니다. Homebrew 설치본에서도 앱 자체 업데이트가 동작합니다.
+
+기존 수동 설치본을 Homebrew 관리로 바꾸려면 먼저 최신 운영 버전으로 업데이트하고 ClaudeUsage를 종료한 뒤, 기존 앱 번들만 휴지통으로 옮기고 위 명령을 실행합니다. 설정·계정 데이터는 앱 번들 밖에 유지됩니다. 기존 앱을 확인 없이 등록할 수 있는 `--adopt`는 사용하지 않습니다. 자세한 절차는 [Homebrew 배포 안내](docs/homebrew-distribution.md#기존-설치본-편입)를 참고하세요.
+
+검증용 [staging 2.5.3-stg.4](https://github.com/ChoSeongmin1128/claude-usage/releases/tag/v2.5.3-stg.4)는 `ClaudeUsage-stg.app`으로 구분됩니다. 검증 중에는 한 채널만 실행하면 메뉴바 항목과 계정 상태를 구분하기 쉽습니다.
 
 ## 주요 기능
 
@@ -85,7 +94,7 @@ xcodebuild -project ClaudeUsage.xcodeproj -scheme ClaudeUsage   -destination 'pl
 - [Antigravity 실행·계정·복구 계약](docs/antigravity-usage-sources.md)
 - [개발·기여·검증 절차](docs/PROJECT_WORKFLOW.md)
 - [배포와 업데이트 복구](docs/RELEASE.md)
-- [Homebrew 배포 설계](docs/homebrew-distribution.md) — 초기 공개 Cask 검증 중이며 기존 설치 전환 QA 뒤 공식 설치 절차를 안내합니다.
+- [Homebrew 설치·배포](docs/homebrew-distribution.md)
 - [유지보수 현황](HANDOFF.md)
 - [로드맵](WORK_PLAN.md)
 
