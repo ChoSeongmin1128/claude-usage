@@ -9,10 +9,10 @@ source·account·process lifecycle 계약은 이 문서를 따릅니다. 실제 
 
 확인한 공식 문서:
 
-- [Introducing Google Antigravity 2.0](https://antigravity.google/blog/introducing-google-antigravity-2-0?app=antigravity)
+- [Introducing Google Antigravity 2.0](https://antigravity.google/blog/introducing-google-antigravity-2)
 - [Google Antigravity CLI](https://antigravity.google/blog/introducing-google-antigravity-cli?app=antigravity)
-- [Antigravity CLI Overview](https://antigravity.google/docs/cli-overview)
-- [Using AGY CLI](https://antigravity.google/docs/cli-using)
+- [Antigravity CLI Overview](https://antigravity.google/docs/cli/overview)
+- [Using AGY CLI](https://antigravity.google/docs/cli/using)
 - [Antigravity Changelog](https://antigravity.google/changelog?app=antigravity)
 
 Antigravity 2.0은 기존 IDE와 분리된 standalone 앱입니다. AGY CLI는 `agy` 명령을 쓰는 terminal-first surface이고, Antigravity 2.0과 같은 agent harness 및 핵심 설정을 공유합니다. CLI 설정 파일은 공식 문서 기준 `~/.gemini/antigravity-cli/settings.json` 입니다.
