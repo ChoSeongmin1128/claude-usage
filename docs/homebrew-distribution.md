@@ -2,7 +2,7 @@
 
 ## 상태
 
-이 문서는 Homebrew Cask 도입 설계와 구현 상태의 정본입니다. 현재 ClaudeUsage의 공식 설치 경로는 GitHub Release의 운영 DMG이며, 아직 공개 tap이나 설치 가능한 Cask는 없습니다. 운영 Release manifest·Cask renderer·제품 전용 verifier와 여러 Cask·Formula를 수용하는 로컬 tap 후보는 구현했지만, 공개 tap 생성·실설치 QA·다음 운영 버전의 교차 업데이트는 남아 있습니다. 이 검증과 게시를 마치기 전에는 README에 Homebrew 설치 명령을 제공하지 않습니다.
+이 문서는 Homebrew Cask 도입 설계와 구현 상태의 정본입니다. 현재 ClaudeUsage의 공식 설치 안내는 GitHub Release의 운영 DMG이며, 초기 Cask는 [공개 tap](https://github.com/ChoSeongmin1128/homebrew-tap)에 게시했습니다. 운영 Release manifest·Cask renderer·제품 전용 verifier와 여러 Cask·Formula를 수용하는 공통 CI를 구현했고, GitHub Actions와 공개 clone 검증을 통과했습니다. 기존 설치본의 `/Applications` 전환 QA와 다음 운영 버전의 교차 업데이트가 끝나기 전에는 메인 README에 Homebrew 설치 명령을 공식 경로로 제공하지 않습니다.
 
 목표는 다음 두 업데이트 경로를 함께 지원하는 것입니다.
 
@@ -221,11 +221,11 @@ tap 저장소는 공통 정책·CI와 제품별 `Casks/*.rb`·`Formula/*.rb`를 
 - 생성한 Cask의 Homebrew style·online audit·livecheck·fetch 통과
 - 운영 2.5.3 Cask, 범용 Cask·Formula validator와 최소 권한 CI를 포함한 게시 전 로컬 tap 저장소 준비
 - 공통 validator의 다중 패키지 탐색, token 충돌·심볼릭 링크 거부 fixture와 실제 ClaudeUsage Cask의 전체 Homebrew 검사 통과
+- 공개 `ChoSeongmin1128/homebrew-tap` 생성과 MIT 라이선스 인식, 검증한 main 커밋 push
+- GitHub Actions와 공개 clone에서 운영 2.5.3 Cask의 syntax·style·strict online audit·livecheck·fetch 재검증
 
-게시 전 남은 작업:
+정식 지원 전 남은 작업:
 
-- `ChoSeongmin1128/homebrew-tap` 공개 저장소 생성과 로컬 tap push
-- GitHub Actions 성공과 공개 clone에서 Cask 재검증
 - 기존 수동 설치 앱 번들 전환 및 `/Applications` 실제 설치 QA
 - 다음 운영 patch에서 Cask 설치본의 실제 Sparkle 업데이트
 - 수동 Cask bump가 안정화된 뒤 release driver의 prod reconcile 연동
