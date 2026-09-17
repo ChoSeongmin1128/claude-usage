@@ -21,14 +21,51 @@ final class UsageLimitCatalogTests: XCTestCase {
         XCTAssertEqual(limits[1].scope, "model:opaque-123")
     }
 
-    func testMissingAndConflictingModelIdentitiesCannotNotify() {
+    func testNullModelIDIsSupportedButConflictingIDsCannotNotify() {
         let limits = claude([model(nil, "Fable"), model("same", "First"), model("same", "Second")])
         XCTAssertEqual(limits.count, 3)
-        XCTAssertFalse(limits[1].isIdentifiable)
+        XCTAssertTrue(limits[1].canNotify)
         XCTAssertNotNil(limits[1].usedPercentage)  // Still display readable quota.
         XCTAssertFalse(limits[2].canNotify)
         XCTAssertNil(limits[2].usedPercentage)
         XCTAssertTrue(limits[2].title.contains("충돌"))
+    }
+
+    func testNullableIDWireResponseSupportsFableWithoutASpecialCase() throws {
+        let response = try JSONDecoder().decode(
+            ClaudeUsageResponse.self,
+            from: Data(
+                """
+                {"five_hour":{"utilization":12},"limits":[
+                  {"kind":"weekly_scoped","group":"weekly","percent":29,"resets_at":"2030-01-01T00:00:00Z",
+                   "scope":{"model":{"id":null,"display_name":"Fable"},"surface":null},"is_active":false},
+                  {"kind":"weekly_scoped","group":"weekly","percent":30,
+                   "scope":{"model":{"id":null,"display_name":"Future model"},"surface":null}}
+                ]}
+                """.utf8))
+        let limits = UsageLimitCatalog.claude(response).filter(\.isModelScoped)
+        XCTAssertEqual(limits.map(\.shortTitle), ["Fable", "Future model"])
+        XCTAssertTrue(limits.allSatisfy(\.canNotify))
+        XCTAssertNotEqual(limits[0].id, limits[1].id)
+    }
+
+    func testNameFallbackIsStableWithoutCollapsingPunctuationOrIdentityNamespaces() {
+        let first = claude([model(nil, "Fable"), model(nil, "a.b"), model(nil, "a-b"), model("fable", "Explicit")])
+        let reordered = claude([
+            model("fable", "Renamed"), model(nil, "a-b"), model(nil, "a.b"),
+            model(nil, " FABLE ", reset: "2031-01-01T00:00:00Z"),
+        ])
+        XCTAssertEqual(Set(first.map(\.id)), Set(reordered.map(\.id)))
+        XCTAssertEqual(Set(first.map(\.id)).count, 5)
+        XCTAssertTrue(first.allSatisfy(\.canNotify))
+    }
+
+    func testAmbiguousFallbackDoesNotSilentlyMergeSeparateQuotas() {
+        let duplicate = claude([model(nil, "Fable"), model(nil, " FABLE ")])
+        XCTAssertFalse(duplicate[1].canNotify)
+        let mixed = claude([model(nil, "Fable"), model("explicit", "Fable")])
+        XCTAssertFalse(mixed[1].canNotify)
+        XCTAssertTrue(mixed[2].canNotify)
     }
 
     func testRawIDsDoNotCollapseAfterSlugSanitizing() {

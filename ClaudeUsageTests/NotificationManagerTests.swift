@@ -507,12 +507,12 @@ final class NotificationManagerTests: XCTestCase {
         func usage(_ used: Double) -> ClaudeUsageResponse {
             .init(
                 fiveHour: .init(utilization: 20, resetsAt: nil), sevenDay: nil,
-                scopedLimits: [.init(kind: "weekly_scoped", percent: used, modelID: "fable", modelName: "Fable")])
+                scopedLimits: [.init(kind: "weekly_scoped", percent: used, modelName: "Fable")])
         }
         manager.checkClaude(usage(20), accountID: "a", policy: nil)
         manager.checkClaude(usage(96), accountID: "a", policy: nil)
         XCTAssertTrue(deliverer.delivered.isEmpty)
-        let model = try XCTUnwrap(manager.inventories[.claude]?.first { $0.scope == "model:fable" })
+        let model = try XCTUnwrap(manager.inventories[.claude]?.first { $0.scope == "model-name:fable" })
         AppSettings.shared.notificationTargets.setSelected(true, limit: model)
         manager.checkClaude(usage(96), accountID: "a", policy: nil)
         XCTAssertTrue(deliverer.delivered.isEmpty)

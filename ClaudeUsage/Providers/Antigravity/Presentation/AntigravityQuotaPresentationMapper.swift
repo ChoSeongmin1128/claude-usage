@@ -63,8 +63,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                 }
 
         let compact = compactPresentation(
-            selectedLanes: compactLanes, timeFormat: settings.menuBar.timeFormat,
-            now: now, locale: locale, timeZone: timeZone
+            selectedLanes: compactLanes, allGroups: allGroups, timeFormat: settings.menuBar.timeFormat
         )
         let menuBar = menuBarPresentation(
             selectedLanes:
@@ -216,7 +215,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             id: lane.id,
             scopeTitle: scopeTitle,
             cadenceTitle: cadenceTitle,
-            compactLabel: "\(compactScopeTitle(for: lane.scope)) · \(cadenceTitle)",
+            compactScopeTitle: compactScopeTitle(for: lane.scope),
+            compactLabel: "\(compactScopeTitle(for: lane.scope)) \(cadenceTitle)",
             menuLabel: "\(menuScopeTitle(for: lane.scope))·\(menuCadenceTitle(for: lane.cadence))",
             cadence: lane.cadence,
             value: value,
@@ -449,9 +449,14 @@ nonisolated enum AntigravityQuotaPresentationMapper {
 
     private static func compactPresentation(
         selectedLanes: [AntigravityQuotaLanePresentation],
-        timeFormat: AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat,
-        now: Date, locale: Locale, timeZone: TimeZone
+        allGroups: [AntigravityQuotaGroupPresentation],
+        timeFormat: AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat
     ) -> AntigravityCompactQuotaPresentation {
+        // A model's sole weekly lane follows Claude's model-only compact label.
+        // Use the full inventory so hiding another cadence cannot rename this row.
+        let singleWeeklyIDs = Set(
+            allGroups.filter { $0.lanes.count == 1 && $0.lanes[0].cadence == .weekly }
+                .flatMap(\.lanes).map(\.id))
         let metrics:
             [AntigravityCompactQuotaMetricPresentation] =
             selectedLanes.compactMap { lane
@@ -464,16 +469,16 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             }
             return AntigravityCompactQuotaMetricPresentation(
                 laneID: lane.id,
-                label: lane.compactLabel,
+                    label: singleWeeklyIDs.contains(lane.id) ? lane.compactScopeTitle : lane.compactLabel,
                 usedPercentage: usedPercentage,
                 percentageText: percentageText,
                 tone: lane.tone,
                 tooltip: lane.tooltip,
                 accessibilityLabel: lane.accessibilityLabel,
                     accessibilityValue: lane.accessibilityValue,
-                    resetText: lane.resetAt == nil
-                        ? nil
-                        : menuBarResetText(lane, timeFormat: timeFormat, now: now, locale: locale, timeZone: timeZone),
+                    resetAt: lane.resetAt.map { ISO8601DateFormatter().string(from: $0) },
+                    isWeekly: lane.cadence == .weekly,
+                    timeFormatStyle: TimeFormatStyle(rawValue: timeFormat.rawValue) ?? .h24,
                     basis: lane.basis
             )
         }

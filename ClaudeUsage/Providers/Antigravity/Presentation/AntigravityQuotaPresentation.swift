@@ -64,6 +64,7 @@ nonisolated struct AntigravityQuotaLanePresentation:
     let id: AntigravityQuotaLaneID
     let scopeTitle: String
     let cadenceTitle: String
+    let compactScopeTitle: String
     let compactLabel: String
     let menuLabel: String
     let cadence: AntigravityQuotaCadence
@@ -161,7 +162,9 @@ nonisolated struct AntigravityCompactQuotaMetricPresentation:
     let tooltip: String
     let accessibilityLabel: String
     let accessibilityValue: String
-    var resetText: String? = nil
+    var resetAt: String? = nil
+    var isWeekly = false
+    var timeFormatStyle: TimeFormatStyle = .h24
     var basis: UsageValueBasis = .used
 }
 

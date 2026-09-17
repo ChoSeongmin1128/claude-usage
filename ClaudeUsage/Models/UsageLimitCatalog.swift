@@ -14,6 +14,8 @@ nonisolated struct UsageLimit: Identifiable, Equatable, Sendable {
     let isIdentifiable: Bool
     let legacyKey: String?
 
+    var isModelScoped: Bool { scope.hasPrefix("model:") || scope.hasPrefix("model-name:") }
+
     var canNotify: Bool { isIdentifiable && usedPercentage != nil }
 
     func unavailable() -> Self {
@@ -39,12 +41,17 @@ nonisolated enum UsageLimitCatalog {
                     title: "주간", used: weekly.utilization, reset: date(weekly.resetsAt), legacy: "weekly"))
         }
         let models = usage.modelWeeklyWindows
+        let names = Dictionary(grouping: models, by: { canonicalModelName($0.modelName) })
         result += models.map { window in
-            make(
-                provider: .claude, scope: "model:\(window.sourceID ?? window.slug)", period: 604_800,
+            let name = canonicalModelName(window.modelName)
+            // Claude legitimately sends null model IDs. A unique upstream model
+            // name within this weekly scope is the fallback, not a translated UI label.
+            let scope = window.sourceID.map { "model:\($0)" } ?? "model-name:\(name)"
+            return make(
+                provider: .claude, scope: scope, period: 604_800,
                 title: "\(window.modelName) · 주간", shortTitle: window.modelName, used: window.utilization,
                 reset: date(window.resetsAt),
-                identifiable: window.sourceID != nil)
+                identifiable: window.sourceID != nil || names[name]?.count == 1)
         }
         return checked(result)
     }
@@ -148,6 +155,11 @@ nonisolated enum UsageLimitCatalog {
             }
         }
         return result
+    }
+
+    private static func canonicalModelName(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+            .precomposedStringWithCanonicalMapping.lowercased(with: Locale(identifier: "en_US_POSIX"))
     }
 
     private static func nonempty(_ value: String?) -> String? {

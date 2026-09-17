@@ -137,7 +137,7 @@ final class UsageItemCatalogTests: XCTestCase {
         XCTAssertEqual(
             sections.map(\.id),
             [
-                "quota%2Dv1/claude/model%3Afable/604800",
+                "quota%2Dv1/claude/model%2Dname%3Afable/604800",
                 "quota%2Dv1/claude/model%3Alegacy%2Dseven%2Dday%2Dsonnet/604800",
             ])
         XCTAssertEqual(usageTitles(from: sections), ["Fable", "Sonnet"])

@@ -207,7 +207,7 @@ struct ClaudeItemCatalog: UsageItemCatalog {
         switch itemID {
         case "modelUsage":
             guard let usage = context.claudeUsage else { return [] }
-            return UsageLimitCatalog.claude(usage).filter { $0.scope.hasPrefix("model:") }.compactMap { limit in
+            return UsageLimitCatalog.claude(usage).filter { $0.isModelScoped }.compactMap { limit in
                 guard let percentage = limit.usedPercentage else { return nil }
                 return PopoverDisplaySection(
                     id: limit.id, kind: .usage, importance: .primary,
@@ -263,7 +263,7 @@ struct CodexItemCatalog: UsageItemCatalog {
         switch itemID {
         case "codexModelLimits":
             guard let usage = context.codexUsage else { return [] }
-            return UsageLimitCatalog.codex(usage).filter { $0.scope.hasPrefix("model:") }.compactMap { limit in
+            return UsageLimitCatalog.codex(usage).filter { $0.isModelScoped }.compactMap { limit in
                 guard let percentage = limit.usedPercentage else { return nil }
                 return PopoverDisplaySection(
                     id: limit.id, kind: .usage, importance: .primary,

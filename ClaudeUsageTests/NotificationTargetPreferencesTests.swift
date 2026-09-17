@@ -40,7 +40,7 @@ final class NotificationTargetPreferencesTests: XCTestCase {
         let invalid = UsageLimitCatalog.claude(
             .init(
                 fiveHour: .init(utilization: .nan, resetsAt: nil), sevenDay: nil,
-                scopedLimits: [.init(kind: "weekly_scoped", percent: 10, modelName: "Display only")]))
+                scopedLimits: [.init(kind: "weekly_scoped", percent: 10, modelName: nil)]))
         preferences.observe(invalid, provider: .claude) { _ in true }
         XCTAssertTrue(preferences.providers.isEmpty)
     }

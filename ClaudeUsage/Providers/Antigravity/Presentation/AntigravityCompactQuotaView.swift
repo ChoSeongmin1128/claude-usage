@@ -36,9 +36,9 @@ struct AntigravityCompactQuotaView: View {
                         label: metric.label,
                         percentage:
                             metric.usedPercentage,
-                        showsResetDetail: metric.resetText != nil,
-                        resetDetailText: metric.resetText,
-                        stacksResetDetail: true,
+                        resetAt: metric.resetAt,
+                        isWeekly: metric.isWeekly,
+                        timeFormatStyle: metric.timeFormatStyle,
                         color: metric.tone.color,
                         percentageText:
                             metric.percentageText,

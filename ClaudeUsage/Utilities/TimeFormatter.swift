@@ -74,75 +74,70 @@ enum TimeFormatter {
         return formatRelativeTime(until: resetDate)
     }
 
-    /// 갱신 예상 시각을 시간 포맷에 맞게 반환
-    /// 오늘이 아닌 경우 날짜+요일 포함 (예: "2월 14일 금요일 18:34")
+    /// General surfaces retain the full date; compact rows use the same rules
+    /// with a short date so the reset time can stay on a single line.
     nonisolated static func formatResetTime(from resetAt: String, style: TimeFormatStyle = .h24, includeDateIfNotToday: Bool = true) -> String? {
-        guard let resetDate = parseISO8601(resetAt) else { return nil }
-
-        switch style {
-        case .remaining:
-            return formatRemainingCompact(until: resetDate)
-        case .h12, .h24:
-            let df = DateFormatter()
-            df.locale = Locale(identifier: "ko_KR")
-            df.timeZone = .current
-
-            let isToday = Calendar.current.isDateInToday(resetDate)
-            if isToday || !includeDateIfNotToday {
-                df.dateFormat = style == .h12 ? "a h:mm" : "HH:mm"
-            } else {
-                df.dateFormat = style == .h12
-                    ? "M월 d일 EEEE a h:mm"
-                    : "M월 d일 EEEE HH:mm"
-            }
-            return df.string(from: resetDate)
-        }
+        guard let date = parseISO8601(resetAt) else { return nil }
+        return formatResetDate(date, isWeekly: false, style: style, includeDateIfNotToday: includeDateIfNotToday)
     }
 
-    /// 남은 시간을 "0h 00m" 또는 "0d 0h 00m" 형태로 포맷 (메뉴바용)
-    nonisolated static func formatRemainingCompact(until date: Date) -> String {
-        let interval = max(0, date.timeIntervalSince(Date()))
+    nonisolated static func formatResetTimeWeekly(
+        from resetAt: String, style: TimeFormatStyle = .h24, includeDateIfNotToday: Bool = true
+    ) -> String? {
+        guard let date = parseISO8601(resetAt) else { return nil }
+        return formatResetDate(date, isWeekly: true, style: style, includeDateIfNotToday: includeDateIfNotToday)
+    }
+
+    nonisolated static func formatCompactUsageReset(
+        from resetAt: String, isWeekly: Bool, style: TimeFormatStyle,
+        now: Date = Date(), timeZone: TimeZone = .current
+    ) -> String? {
+        guard let date = parseISO8601(resetAt) else { return nil }
+        return formatResetDate(
+            date, isWeekly: isWeekly, style: style, includeDateIfNotToday: false,
+            compact: true, now: now, timeZone: timeZone)
+    }
+
+    nonisolated private static func formatResetDate(
+        _ date: Date, isWeekly: Bool, style: TimeFormatStyle, includeDateIfNotToday: Bool,
+        compact: Bool = false, now: Date = Date(), timeZone: TimeZone = .current
+    ) -> String {
+        let interval = date.timeIntervalSince(now)
+        let isWeeklyDate = isWeekly && interval > 86400
+        if style == .remaining {
+            if isWeeklyDate {
+                let totalHours = Int(interval) / 3600
+                let days = totalHours / 24
+                let hours = totalHours % 24
+                return hours > 0 ? "\(days)d \(hours)h" : "\(days)d"
+            }
+            return formatRemainingCompact(until: date, now: now)
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.timeZone = timeZone
+        var calendar = Calendar.current
+        calendar.timeZone = timeZone
+        if isWeeklyDate {
+            formatter.dateFormat = compact ? "M/d E" : "M월 d일 EEEE"
+        } else if includeDateIfNotToday && !calendar.isDate(date, inSameDayAs: now) {
+            formatter.dateFormat = style == .h12 ? "M월 d일 EEEE a h:mm" : "M월 d일 EEEE HH:mm"
+        } else {
+            formatter.dateFormat = style == .h12 ? "a h:mm" : "HH:mm"
+        }
+        return formatter.string(from: date)
+    }
+
+    /// 남은 시간을 "0h 00m" 또는 "0d 0h 00m" 형태로 포맷
+    nonisolated static func formatRemainingCompact(until date: Date, now: Date = Date()) -> String {
+        let interval = max(0, date.timeIntervalSince(now))
         let totalMinutes = Int((interval + 30).rounded(.down)) / 60
         let totalHours = totalMinutes / 60
         let days = totalHours / 24
         let hours = totalHours % 24
         let minutes = totalMinutes % 60
-
-        if days > 0 {
-            return String(format: "%dd %dh %02dm", days, hours, minutes)
-        }
+        if days > 0 { return String(format: "%dd %dh %02dm", days, hours, minutes) }
         return String(format: "%dh %02dm", hours, minutes)
-    }
-
-    /// 주간 갱신 예상 시각 포맷 (1일 이상이면 분 단위 생략)
-    nonisolated static func formatResetTimeWeekly(from resetAt: String, style: TimeFormatStyle = .h24, includeDateIfNotToday: Bool = true) -> String? {
-        guard let resetDate = parseISO8601(resetAt) else { return nil }
-
-        let interval = resetDate.timeIntervalSince(Date())
-        let isOverOneDay = interval > 86400  // 24시간 초과
-
-        if !isOverOneDay {
-            // 1일 이내: 기본 포맷과 동일
-            return formatResetTime(from: resetAt, style: style, includeDateIfNotToday: includeDateIfNotToday)
-        }
-
-        // 1일 이상
-        switch style {
-        case .remaining:
-            let totalHours = Int(max(0, interval)) / 3600
-            let days = totalHours / 24
-            let hours = totalHours % 24
-            if hours > 0 {
-                return "\(days)d \(hours)h"
-            }
-            return "\(days)d"
-        case .h12, .h24:
-            let df = DateFormatter()
-            df.locale = Locale(identifier: "ko_KR")
-            df.timeZone = .current
-            df.dateFormat = "M월 d일 EEEE"
-            return df.string(from: resetDate)
-        }
     }
 
     /// 남은 시간 + 갱신 예상 시각을 결합한 포맷 (현재 세션용: 항상 시각만)
