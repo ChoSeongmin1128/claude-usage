@@ -25,6 +25,21 @@ final class NotificationManagerTests: XCTestCase {
         try await super.tearDown()
     }
 
+    func testChangingDisplayBasisDoesNotMoveThresholdsOrResendAlerts() {
+        manager.checkThreshold(session: .fiveHour, percentage: 89, resetAt: nil)
+        manager.checkThreshold(session: .fiveHour, percentage: 91, resetAt: nil)
+        XCTAssertEqual(deliverer.delivered.count, 1)
+        AppSettings.shared.usageDisplayMode = .remaining
+        manager.checkThreshold(session: .fiveHour, percentage: 91, resetAt: nil)
+        XCTAssertEqual(deliverer.delivered.count, 1)
+        manager.checkThreshold(session: .fiveHour, percentage: 96, resetAt: nil)
+        XCTAssertEqual(deliverer.delivered.count, 2)
+        XCTAssertTrue(deliverer.delivered.last?.body.contains("5%") == true)
+        AppSettings.shared.usageDisplayMode = .used
+        manager.checkThreshold(session: .fiveHour, percentage: 96, resetAt: nil)
+        XCTAssertEqual(deliverer.delivered.count, 2)
+    }
+
     func testResetAtChangeDoesNotSendLegacyResetNotification() {
         manager.checkThreshold(
             session: .fiveHour,
@@ -427,15 +442,15 @@ final class NotificationManagerTests: XCTestCase {
     }
 
     func testAntigravityRemainingModeAggregatesDisplayedThresholds() {
-        AppSettings.shared.alertRemainingMode = true
+        AppSettings.shared.usageDisplayMode = .remaining
         AppSettings.shared.notificationPresets = [
             NotificationPreset(
                 id: "ten-remaining",
-                threshold: 10
+                threshold: 90
             ),
             NotificationPreset(
                 id: "five-remaining",
-                threshold: 5
+                threshold: 95
             ),
         ]
 
@@ -605,6 +620,7 @@ final class NotificationManagerTests: XCTestCase {
         settings.alertFiveHourEnabled = true
         settings.alertWeeklyEnabled = true
         settings.codexAlertEnabled = true
+        settings.usageDisplayMode = .used
         settings.alertRemainingMode = false
         settings.notificationPresets = [
             NotificationPreset(id: "ninety", threshold: 90),

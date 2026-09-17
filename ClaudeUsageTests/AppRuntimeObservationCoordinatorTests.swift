@@ -3,6 +3,30 @@ import XCTest
 
 @MainActor
 final class AppRuntimeObservationCoordinatorTests: XCTestCase {
+    func testCommonBasisObservationDoesNotChangeRefreshConfiguration() async {
+        let suite = "CommonBasisObservation.\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        let coordinator = AppRuntimeObservationCoordinator()
+        var changes = 0
+        var refreshChanges = 0
+        let changed = expectation(description: "basis changed")
+        coordinator.bind(
+            settings: settings,
+            onRefreshConfigurationChanged: { _ in refreshChanges += 1 },
+            onUpdateConfigurationChanged: {}, onMenuBarDisplayChanged: {},
+            onProviderSelectionChanged: { _ in }, onClaudeCredentialContextChanged: {},
+            onUsageDisplayModeChanged: {
+                changes += 1; changed.fulfill()
+            })
+        settings.usageDisplayMode = .used
+        await fulfillment(of: [changed], timeout: 1)
+        XCTAssertEqual(changes, 1)
+        XCTAssertEqual(refreshChanges, 0)
+        coordinator.cancelAll()
+    }
+
     func testAccountAndSessionNotificationsCoalesceIntoOneCredentialTransaction() async {
         let coordinator = AppRuntimeObservationCoordinator()
         var transactionCount = 0

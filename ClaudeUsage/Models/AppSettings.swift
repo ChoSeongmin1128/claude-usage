@@ -12,6 +12,7 @@ import SwiftUI
 
 struct NotificationPreset: Codable, Identifiable, Hashable, Sendable {
     let id: String
+    /// Canonical used percentage, independent of the display basis.
     var threshold: Int
     var isEnabled: Bool
 
@@ -380,11 +381,23 @@ class AppSettings: ObservableObject {
         didSet { defaults.set(notificationsEnabled, forKey: "notificationsEnabled") }
     }
     @Published var notificationPresets: [NotificationPreset] {
-        didSet {
-            if let data = try? JSONEncoder().encode(notificationPresets) {
-                defaults.set(data, forKey: "notificationPresets")
-            }
-        }
+        didSet { NotificationThresholdStorage.save(notificationPresets, to: defaults) }
+    }
+    @Published var usageDisplayMode: UsageDisplayMode {
+        didSet { defaults.set(usageDisplayMode.rawValue, forKey: "usageDisplayMode") }
+    }
+    var notificationValueBasis: UsageValueBasis {
+        usageDisplayMode.basis ?? (alertRemainingMode ? .remaining : .used)
+    }
+
+    func displayedNotificationThreshold(_ preset: NotificationPreset) -> Int {
+        notificationValueBasis == .remaining ? 100 - preset.threshold : preset.threshold
+    }
+
+    func setDisplayedNotificationThreshold(_ value: Int, id: String, basis: UsageValueBasis? = nil) {
+        guard let index = notificationPresets.firstIndex(where: { $0.id == id }) else { return }
+        let used = (basis ?? notificationValueBasis) == .remaining ? 100 - value : value
+        notificationPresets[index].threshold = max(1, min(used, 100))
     }
     @Published var alertRemainingMode: Bool {
         didSet { defaults.set(alertRemainingMode, forKey: "alertRemainingMode") }
@@ -607,6 +620,7 @@ class AppSettings: ObservableObject {
         let notificationsEnabled: Bool
         let notificationPresets: [NotificationPreset]
         let alertRemainingMode: Bool
+        let usageDisplayMode: UsageDisplayMode
         let reducedRefreshOnBattery: Bool
         let showClaudeIcon: Bool
         let menuBarTextHighContrast: Bool
@@ -663,6 +677,7 @@ class AppSettings: ObservableObject {
             notificationsEnabled: notificationsEnabled,
             notificationPresets: notificationPresets,
             alertRemainingMode: alertRemainingMode,
+            usageDisplayMode: usageDisplayMode,
             reducedRefreshOnBattery: reducedRefreshOnBattery,
             showClaudeIcon: showClaudeIcon,
             menuBarTextHighContrast: menuBarTextHighContrast,
@@ -728,6 +743,7 @@ class AppSettings: ObservableObject {
         notificationsEnabled = snapshot.notificationsEnabled
         notificationPresets = snapshot.notificationPresets
         alertRemainingMode = snapshot.alertRemainingMode
+        usageDisplayMode = snapshot.usageDisplayMode
         reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
         showClaudeIcon = snapshot.showClaudeIcon
         menuBarTextHighContrast = snapshot.menuBarTextHighContrast
@@ -810,9 +826,6 @@ class AppSettings: ObservableObject {
             .filter(\.isEnabled)
             .map(\.threshold)
 
-        if alertRemainingMode {
-            return thresholds.map { max(1, min(100 - $0, 99)) }.sorted()
-        }
         return thresholds.sorted()
     }
 
@@ -955,6 +968,16 @@ class AppSettings: ObservableObject {
     }
 
     private static func migrateNotificationPresets(from defaults: UserDefaults, commonRemainingMode: Bool) -> [NotificationPreset] {
+        if let presets = NotificationThresholdStorage.load(from: defaults) { return presets }
+        let legacy = legacyNotificationPresets(from: defaults, commonRemainingMode: commonRemainingMode)
+        let canonical = NotificationThresholdStorage.importLegacy(legacy, remaining: commonRemainingMode)
+        NotificationThresholdStorage.save(canonical, to: defaults)
+        return canonical
+    }
+
+    private static func legacyNotificationPresets(from defaults: UserDefaults, commonRemainingMode: Bool)
+        -> [NotificationPreset]
+    {
         if let data = defaults.data(forKey: "notificationPresets"),
            let decoded = try? JSONDecoder().decode([NotificationPreset].self, from: data),
            !decoded.isEmpty {
@@ -1048,6 +1071,7 @@ class AppSettings: ObservableObject {
     var menuBarDisplayChangePublisher: AnyPublisher<Void, Never> {
         let basePublishers: [AnyPublisher<Void, Never>] = [
             $menuBarDesign.map { _ in () }.eraseToAnyPublisher(),
+            $usageDisplayMode.map { _ in () }.eraseToAnyPublisher(),
             $menuBarStyle.map { _ in () }.eraseToAnyPublisher(),
             $menuBarColorMode.map { _ in () }.eraseToAnyPublisher(),
             $percentageDisplay.map { _ in () }.eraseToAnyPublisher(),
@@ -1171,7 +1195,7 @@ class AppSettings: ObservableObject {
                 timeFormat: timeFormat,
                 circularDisplayMode: circularDisplayMode,
                 iconMetric: iconMetric,
-                colorMode: menuBarColorMode, design: menuBarDesign
+                colorMode: menuBarColorMode, design: menuBarDesign, basisOverride: usageDisplayMode.basis
             )
         case .codex:
             return ProviderMenuBarDisplayConfig(
@@ -1184,10 +1208,10 @@ class AppSettings: ObservableObject {
                 timeFormat: codexTimeFormat,
                 circularDisplayMode: codexCircularDisplayMode,
                 iconMetric: codexIconMetric,
-                colorMode: menuBarColorMode, design: menuBarDesign
+                colorMode: menuBarColorMode, design: menuBarDesign, basisOverride: usageDisplayMode.basis
             )
         case .antigravity:
-            // AGY 메뉴바 표시는 AntigravityDisplaySettings가 단독 소유한다.
+            // AGY의 서비스별 표시는 typed 설정이 소유하며 공통 표시 기준은 runtime mapper에 별도로 전달한다.
             return nil
         }
     }
@@ -1444,6 +1468,7 @@ class AppSettings: ObservableObject {
         notificationsEnabled = false
         notificationPresets = Self.defaultNotificationPresets
         alertRemainingMode = false
+        usageDisplayMode = .remaining
         reducedRefreshOnBattery = true
         defaults.removeObject(forKey: "hasCompletedSetupWizard")
         showClaudeIcon = true
@@ -1539,6 +1564,11 @@ class AppSettings: ObservableObject {
             hasAccountStorage: hasExistingAccountStorage
                 ?? (defaults === UserDefaults.standard && !AppRuntimeEnvironment.isRunningUnitTests
                     && AppExperiencePreferences.hasLocalAccountStorage))
+        let displayMode =
+            defaults.string(forKey: "usageDisplayMode").flatMap(UsageDisplayMode.init(rawValue:))
+            ?? (experience.isExistingInstall ? .legacy : .remaining)
+        self.usageDisplayMode = displayMode
+        defaults.set(displayMode.rawValue, forKey: "usageDisplayMode")
         self.menuBarDesign = experience.design
         self.menuBarDesignIntroductionDismissed = experience.designIntroductionDismissed
         self.welcomeState = experience.welcomeState

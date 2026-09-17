@@ -392,7 +392,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(config.circularDisplayMode, .remaining)
     }
 
-    func testEnabledAlertThresholdsConvertRemainingModeBackToUsagePercent() {
+    func testEnabledAlertThresholdsAreCanonicalRegardlessOfDisplayMode() {
         let settings = AppSettings.shared
         let snapshot = settings.createSnapshot()
         defer { settings.restore(from: snapshot) }
@@ -403,9 +403,9 @@ final class AppSettingsTests: XCTestCase {
             NotificationPreset(id: "c", threshold: 90, isEnabled: true),
             NotificationPreset(id: "d", threshold: 95, isEnabled: false),
         ]
-        settings.alertRemainingMode = true
+        settings.usageDisplayMode = .remaining
 
-        XCTAssertEqual(settings.enabledAlertThresholds, [10, 75, 90])
+        XCTAssertEqual(settings.enabledAlertThresholds, [10, 25, 90])
     }
 
     /// 구 AGY 키는 초기화 경로에서 지우기만 하고 다시 쓰지 않는다.

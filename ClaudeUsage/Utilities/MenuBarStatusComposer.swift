@@ -730,6 +730,7 @@ enum MenuBarStatusComposer {
             config.resetTimeDisplay.rawValue,
             config.timeFormat.rawValue,
             config.circularDisplayMode.rawValue,
+            config.basisOverride?.rawValue ?? "legacy",
             config.iconMetric.rawValue,
             config.colorMode.rawValue, config.design.rawValue,
         ]

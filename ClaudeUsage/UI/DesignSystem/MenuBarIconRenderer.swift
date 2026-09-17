@@ -86,12 +86,20 @@ enum MenuBarIconRenderer {
         fill.fill()
         if showPercent {
             let text = validValue.map { String(format: "%.0f", $0) } ?? "—"
-            let font = NSFont.monospacedDigitSystemFont(ofSize: BatteryGeometry.fontSize, weight: .regular)
+            let font = NSFont.systemFont(ofSize: BatteryGeometry.fontSize, weight: .regular)
             let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: foreground]
             let textSize = (text as NSString).size(withAttributes: attributes)
-            let origin = NSPoint(x: body.midX - textSize.width / 2, y: body.midY - textSize.height / 2)
+            var origin = NSPoint(x: body.midX - textSize.width / 2, y: body.midY - textSize.height / 2)
+            if let context = NSGraphicsContext.current?.cgContext {
+                let devicePoint = context.convertToDeviceSpace(origin)
+                origin = context.convertToUserSpace(CGPoint(x: devicePoint.x.rounded(), y: devicePoint.y.rounded()))
+            }
+            // Disjoint clips draw each glyph fragment once. Painting the full glyph
+            // before cutting it out again leaves extra alpha on antialiased edges.
+            NSGraphicsContext.saveGraphicsState()
+            NSRect(x: fill.maxX, y: body.minY, width: body.maxX - fill.maxX, height: body.height).clip()
             (text as NSString).draw(at: origin, withAttributes: attributes)
-            // Render glyph portions over the colored fill with their own contrast.
+            NSGraphicsContext.restoreGraphicsState()
             NSGraphicsContext.saveGraphicsState()
             fill.clip()
             if cutoutText {

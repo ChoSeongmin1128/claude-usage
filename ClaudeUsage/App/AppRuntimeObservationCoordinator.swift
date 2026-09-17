@@ -12,7 +12,8 @@ final class AppRuntimeObservationCoordinator {
         onUpdateConfigurationChanged: @escaping () -> Void,
         onMenuBarDisplayChanged: @escaping () -> Void,
         onProviderSelectionChanged: @escaping (ProviderSelectionState) -> Void,
-        onClaudeCredentialContextChanged: @escaping () -> Void
+        onClaudeCredentialContextChanged: @escaping () -> Void,
+        onUsageDisplayModeChanged: @escaping () -> Void = {}
     ) {
         cancelAll()
 
@@ -49,6 +50,13 @@ final class AppRuntimeObservationCoordinator {
             .dropFirst()
             .receive(on: RunLoop.main)
             .sink { onMenuBarDisplayChanged() }
+            .store(in: &cancellables)
+
+        settings.$usageDisplayMode
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { _ in onUsageDisplayModeChanged() }
             .store(in: &cancellables)
 
         settings.$providerSelectionRevision

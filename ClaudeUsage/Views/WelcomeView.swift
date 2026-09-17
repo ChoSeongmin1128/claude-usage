@@ -69,7 +69,7 @@ struct WelcomeView<Connection: View, Display: View>: View {
                         .font(AppDesign.Typography.caption)
                     }
                 case .appearance:
-                    MenuBarDesignPicker(settings: settings)
+                    MenuBarDesignPicker(settings: settings, basis: settings.usageDisplayMode.basis ?? .used)
                     if !services.isEmpty {
                         Picker("표시할 서비스", selection: $selectedProvider) {
                             ForEach(services, id: \.rawValue) { Text($0.displayName).tag($0) }

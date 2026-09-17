@@ -344,6 +344,37 @@ final class DesignSystemTests: XCTestCase {
         }
     }
 
+    func testDefaultMotionAndNotificationEditorsStayCompactAtSettingsWidths() throws {
+        try withSettings { settings in
+            var heights: [AppMotionMode: CGFloat] = [:]
+            for mode in AppMotionMode.allCases {
+                settings.motion.mode = mode
+                let image = try renderHosted(
+                    AppMotionSettingsView(settings: settings).padding(12).frame(width: 520)
+                        .background(Color(nsColor: .windowBackgroundColor)), appearance: .darkAqua)
+                heights[mode] = image.size.height
+                attach(image, "Motion mode \(mode.rawValue)")
+            }
+            XCTAssertLessThan(try XCTUnwrap(heights[.instant]), 130)
+            XCTAssertLessThan(try XCTUnwrap(heights[.smooth]), 130)
+            XCTAssertGreaterThan(try XCTUnwrap(heights[.custom]), try XCTUnwrap(heights[.smooth]))
+            settings.notificationPresets = [
+                .init(id: "first", threshold: 65), .init(id: "second", threshold: 85),
+                .init(id: "third", threshold: 95),
+            ]
+            for basis in [UsageDisplayMode.used, .remaining] {
+                settings.usageDisplayMode = basis
+                for width in [CGFloat(240), 520] {
+                    let image = try renderHosted(
+                        NotificationThresholdEditor(settings: settings).padding(12).frame(width: width)
+                            .background(Color(nsColor: .windowBackgroundColor)), appearance: .darkAqua)
+                    XCTAssertEqual(image.size.width, width, accuracy: 1)
+                    attach(image, "Notification rules \(basis.rawValue) width \(Int(width))")
+                }
+            }
+        }
+    }
+
     func testSettingsChoicesAdaptToAvailableWidthWithoutShrinkingLabels() throws {
         try withSettings { settings in
             for width in [CGFloat(420), 580, 760] {

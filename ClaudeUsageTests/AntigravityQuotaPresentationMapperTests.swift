@@ -5,6 +5,34 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
     private let utc = TimeZone(secondsFromGMT: 0)!
 
+    func testCommonBasisOverridesLegacyStyleAndKeepsRiskAcrossAllSurfaces() {
+        let snapshot = makeSnapshot(
+            lanes: [
+                makeLane(
+                    id: AntigravityQuotaLaneID.geminiWeekly.rawValue, scope: .gemini, cadence: .weekly, remaining: 0.2)
+            ], fetchedAt: now)
+        for style in AntigravityDisplaySettings.MenuBarPresentationIntent.Style.allCases {
+            var settings = AntigravityDisplaySettings.default
+            settings.menuBar.style = style
+            settings.menuBar.circularValue = .usage
+            let remaining = AntigravityQuotaPresentationMapper.map(
+                snapshot: snapshot, settings: settings,
+                basisOverride: .remaining, now: now)
+            let used = AntigravityQuotaPresentationMapper.map(
+                snapshot: snapshot, settings: settings,
+                basisOverride: .used, now: now)
+            XCTAssertEqual(remaining.groups[0].lanes[0].basis, .remaining)
+            XCTAssertEqual(remaining.compact.metrics.first?.basis, .remaining)
+            XCTAssertEqual(remaining.groups[0].lanes[0].tone, used.groups[0].lanes[0].tone)
+            if style != .none {
+                XCTAssertEqual(remaining.menuBar.gaugePercentage ?? -1, 20, accuracy: 0.001)
+                XCTAssertEqual(used.menuBar.gaugePercentage ?? -1, 80, accuracy: 0.001)
+            }
+            XCTAssertTrue(remaining.menuBar.regularText?.contains("20%") == true)
+            XCTAssertTrue(used.menuBar.regularText?.contains("80%") == true)
+        }
+    }
+
     func testStandardGroupsKnownScopesAndCadencesBeforePreservedUnknowns() {
         let lanes = [
             makeLane(

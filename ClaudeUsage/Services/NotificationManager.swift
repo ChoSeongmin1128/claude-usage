@@ -125,7 +125,8 @@ final class NotificationManager {
         }()
         let normalizedClaudePolicy = claudePolicy?.isFreshEnoughForNotifications == true ? claudePolicy : nil
         let serviceName = session.providerName
-        let thresholdMode: ThresholdPresentationMode = settings.alertRemainingMode ? .remaining : .used
+        let thresholdMode: ThresholdPresentationMode =
+            settings.notificationValueBasis == .remaining ? .remaining : .used
         let effectiveThresholds = thresholds.filter {
             !shouldSuppressThreshold(
                 $0,
@@ -163,7 +164,7 @@ final class NotificationManager {
             let guidanceSuffix = (session == .fiveHour || session == .weekly)
                 ? normalizedClaudePolicy?.guidanceSuffix(
                     threshold: threshold,
-                    alertRemainingMode: settings.alertRemainingMode)
+                    alertRemainingMode: settings.notificationValueBasis == .remaining)
                 : nil
             let body = thresholdAlertBody(
                 session: session,
@@ -217,7 +218,7 @@ final class NotificationManager {
 
         let thresholds = settings.enabledAlertThresholds
         let presentationMode: ThresholdPresentationMode =
-            settings.alertRemainingMode ? .remaining : .used
+            settings.notificationValueBasis == .remaining ? .remaining : .used
         var crossings: [AntigravityThresholdCrossing] = []
 
         for lane in lanes {

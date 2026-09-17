@@ -135,14 +135,7 @@ extension SettingsView {
                 )
             }
 
-            if displayConfig.style != .none {
-                settingsRadioGroup(
-                    "표시 기준",
-                    options: CircularDisplayMode.allCases.map { ($0, $0.displayName) },
-                    selection: settings.menuBarDisplayConfig(for: provider)?.circularDisplayMode ?? .usage,
-                    onChange: { settings.setProviderCircularDisplayMode($0, for: provider) }
-                )
-            }
+
         }
         .padding(AppDesign.Space.content)
         .background(AppDesign.Surface.subtleGroup)
@@ -363,30 +356,6 @@ extension SettingsView {
                     }
                 }
 
-                if display.menuBar.style
-                    == .circular
-                {
-                    Picker(
-                        "원형 게이지 기준",
-                        selection:
-                            antigravityCircularValueBinding(
-                                display
-                            )
-                    ) {
-                        Text("사용량")
-                            .tag(
-                                AntigravityDisplaySettings
-                                    .MenuBarPresentationIntent
-                                    .CircularValue.usage
-                            )
-                        Text("남은 양")
-                            .tag(
-                                AntigravityDisplaySettings
-                                    .MenuBarPresentationIntent
-                                    .CircularValue.remaining
-                            )
-                    }
-                }
             } else {
                 Text(
                     "Antigravity 설정을 준비하고 있습니다."
@@ -488,25 +457,7 @@ extension SettingsView {
         )
     }
 
-    private func antigravityCircularValueBinding(
-        _ display: AntigravityDisplaySettings
-    ) -> Binding<
-        AntigravityDisplaySettings
-            .MenuBarPresentationIntent
-            .CircularValue
-    > {
-        Binding(
-            get: {
-                display.menuBar.circularValue
-            },
-            set: { value in
-                updateAntigravityDisplay {
-                    $0.menuBar.circularValue =
-                        value
-                }
-            }
-        )
-    }
+
 
     private func antigravityMenuBarLaneSelection(
         _ display: AntigravityDisplaySettings
@@ -586,57 +537,32 @@ extension SettingsView {
         }
     }
 
-    @ViewBuilder
     func providerAlertSection(for provider: AppProviderKind) -> some View {
-        VStack(alignment: .leading, spacing: AppDesign.Space.content) {
-            Group {
-                if provider == .antigravity,
-                   let display =
-                        antigravitySettings.state
-                            .display
-                {
-                    settingsToggleRow(
-                        "사용량 알림",
-                        subtitle:
-                            settings.notificationsEnabled
-                                ? "한 refresh에서 임계값을 넘은 사용 한도를 알림 하나로 묶습니다"
-                                : "공통 알림이 꺼져 있어 이 설정도 적용되지 않습니다",
-                        isOn: Binding(
-                            get: {
-                                display.notifications
-                                    .isEnabled
-                            },
-                            set: { isEnabled in
-                                updateAntigravityDisplay {
-                                    $0.notifications
-                                        .isEnabled =
-                                        isEnabled
-                                }
-                            }
-                        )
-                    )
+        Toggle(
+            isOn: Binding(
+                get: {
+                    provider == .antigravity
+                        ? antigravitySettings.state.display?.notifications.isEnabled ?? false
+                        : settings.isProviderAlertEnabled(provider)
+                },
+                set: { enabled in
+                    if provider == .antigravity {
+                        updateAntigravityDisplay { $0.notifications.isEnabled = enabled }
                 } else {
-                    settingsToggleRow(
-                        "사용량 알림",
-                        subtitle: settings.notificationsEnabled
-                            ? "이 서비스의 사용량 기준 알림을 표시합니다"
-                            : "공통 알림이 꺼져 있어 이 설정도 적용되지 않습니다",
-                        isOn: Binding(
-                            get: { settings.isProviderAlertEnabled(provider) },
-                            set: { settings.setProviderAlertEnabled($0, for: provider) }
-                        )
-                    )
+                        settings.setProviderAlertEnabled(enabled, for: provider)
                 }
             }
-            .disabled(!settings.notificationsEnabled)
-            .opacity(settings.notificationsEnabled ? 1.0 : 0.6)
-
-            if !settings.notificationsEnabled {
-                Label("공통 설정에서 전체 알림을 먼저 켜야 합니다.", systemImage: "bell.slash")
-                    .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.orange)
+            )
+        ) {
+            HStack(spacing: AppDesign.Space.row) {
+                ProviderBrandIconView(provider: provider, kind: .settings, size: 16)
+                Text(provider.displayName)
+                Spacer()
             }
         }
+        .toggleStyle(.switch).controlSize(.small)
+        .disabled(
+            !settings.notificationsEnabled || (provider == .antigravity && antigravitySettings.state.display == nil))
     }
 
     func segmentedTabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
@@ -786,20 +712,7 @@ private struct ProviderPopoverPreviewView: View {
     let codexUsage: CodexUsageResponse?
     let codexError: APIError?
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: AppDesign.Space.row) {
-            HStack {
-                Text("미리보기")
-                    .font(AppDesign.Typography.subheadline.weight(.semibold))
-                Spacer()
-                Text(mode.title)
-                    .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            popoverFrame
-        }
-    }
+    var body: some View { popoverFrame }
 
     @ViewBuilder
     private var popoverFrame: some View {

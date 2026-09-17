@@ -254,16 +254,8 @@ extension SettingsView {
             commonAlertSection
             Divider()
             notificationThresholdSection
-            ForEach(AppProviderKind.allCases, id: \.rawValue) { provider in
-                Divider()
-                VStack(alignment: .leading, spacing: AppDesign.Space.content) {
-                    ProviderSettingsSectionHeader(
-                        provider: provider,
-                        title: provider.displayName
-                    )
-                    providerAlertSection(for: provider)
-                }
-            }
+            Divider()
+            notificationServicesSection
         case .updates:
             updateSection
         case .claude:

@@ -277,6 +277,8 @@ extension AppDelegate {
                 let runtime =
                     await antigravityRuntimeTask
                         .value
+                let basis = AppSettings.shared.usageDisplayMode.basis
+                await runtime.runtimeController.setUsageDisplayBasis(basis)
                 _ = await runtime
                     .runtimeController
                     .bootstrap(

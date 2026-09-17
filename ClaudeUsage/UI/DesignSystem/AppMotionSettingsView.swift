@@ -3,28 +3,26 @@ import SwiftUI
 struct AppMotionSettingsView: View {
     @ObservedObject var settings: AppSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var previewCategory: AppMotionCategory?
+    @State private var showsPreview = false
+    @State private var previewCategory = AppMotionCategory.popoverResize
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.row) {
-            Label("모션", systemImage: "sparkles").font(AppDesign.Typography.headline)
+            HStack {
+                Label("모션", systemImage: "sparkles").font(AppDesign.Typography.headline)
+                Spacer()
+                Button(showsPreview ? "비교 닫기" : "모션 비교") { showsPreview.toggle() }
+                    .controlSize(.small)
+            }
             Picker("전체 모션", selection: $settings.motion.mode) {
                 ForEach(AppMotionMode.allCases, id: \.rawValue) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
-            Text("즉시는 바로 바뀌고, 부드러움은 중간 움직임을 보여줍니다. 미리보기에서 두 방식을 비교하세요.")
-                .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
-            ForEach(AppMotionCategory.allCases, id: \.rawValue) { category in
-                HStack(spacing: AppDesign.Space.row) {
-                    VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
-                        Text(category.title).font(AppDesign.Typography.subheadline)
-                        Text(category.exampleDescription)
-                            .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer(minLength: AppDesign.Space.row)
-                    if settings.motion.mode == .custom {
+            if settings.motion.mode == .custom {
+                VStack(alignment: .leading, spacing: AppDesign.Space.control) {
+                    ForEach(AppMotionCategory.allCases, id: \.rawValue) { category in
                         Toggle(
-                            "부드럽게",
+                            category.title,
                             isOn: Binding(
                                 get: { settings.motion.enabledCategories.contains(category) },
                                 set: { enabled in
@@ -35,26 +33,22 @@ struct AppMotionSettingsView: View {
                                     }
                                 })
                         )
-                        .toggleStyle(.checkbox)
-                        .accessibilityLabel("\(category.title) 부드럽게")
+                        .toggleStyle(.checkbox).help(category.exampleDescription)
                     }
-                    Button(previewCategory == category ? "닫기" : "미리보기") {
-                        previewCategory = previewCategory == category ? nil : category
-                    }
-                    .controlSize(.small)
-                    .accessibilityLabel("\(category.title) 미리보기 \(previewCategory == category ? "닫기" : "열기")")
                 }
-                .padding(.vertical, AppDesign.Space.compact)
-                if previewCategory == category {
-                    AppMotionComparisonView(category: category).id(category)
-                }
+                Text("선택한 항목만 부드럽게 전환합니다.")
+                    .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
             }
-            Text(
-                reduceMotion
-                    ? "macOS의 ‘동작 줄이기’가 켜져 있어 미리보기를 포함해 즉시 표시합니다. 선택한 설정은 유지됩니다."
-                    : "미리보기는 눌렀을 때만 재생되며 설정을 바꾸지 않습니다. 로딩 표시는 작업 중에 계속 움직입니다."
-            )
-            .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+            if showsPreview {
+                Picker("비교할 동작", selection: $previewCategory) {
+                    ForEach(AppMotionCategory.allCases, id: \.rawValue) { Text($0.title).tag($0) }
+                }
+                AppMotionComparisonView(category: previewCategory).id(previewCategory)
+            }
+            if reduceMotion {
+                Text("macOS의 ‘동작 줄이기’가 켜져 있어 즉시 표시합니다. 선택한 설정은 유지됩니다.")
+                    .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+            }
         }
     }
 }

@@ -120,6 +120,15 @@ extension AppDelegate {
             },
             onClaudeCredentialContextChanged: { [weak self] in
                 self?.handleClaudeCredentialContextChanged()
+            },
+            onUsageDisplayModeChanged: { [weak self] in
+                guard let self else { return }
+                Task { [weak self] in
+                    guard let self else { return }
+                    let runtime = await antigravityRuntimeTask.value
+                    let basis = AppSettings.shared.usageDisplayMode.basis
+                    await runtime.runtimeController.setUsageDisplayBasis(basis)
+                }
             }
         )
     }

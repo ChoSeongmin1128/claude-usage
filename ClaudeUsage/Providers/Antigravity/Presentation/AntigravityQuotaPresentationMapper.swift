@@ -5,6 +5,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
     static func map(
         snapshot: AntigravityQuotaSnapshot,
         settings: AntigravityDisplaySettings,
+        basisOverride: UsageValueBasis? = nil,
         context requestedContext:
             AntigravityQuotaPresentationContext? = nil,
         now: Date = Date(),
@@ -20,7 +21,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         )
         let allGroups = makeGroups(
             from: snapshot.lanes,
-            basis: .antigravity(settings.menuBar),
+            basis: basisOverride ?? .antigravity(settings.menuBar),
             now: now,
             locale: locale,
             timeZone: timeZone
@@ -92,6 +93,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
     static func map(
         state: AntigravityPresentationState,
         settings: AntigravityDisplaySettings,
+        basisOverride: UsageValueBasis? = nil,
         now: Date = Date(),
         locale: Locale = Locale(identifier: "ko_KR"),
         timeZone: TimeZone = .autoupdatingCurrent
@@ -142,6 +144,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             map(
                 snapshot: snapshot,
                 settings: settings,
+                basisOverride: basisOverride,
                 context: context,
                 now: now,
                 locale: locale,
@@ -482,6 +485,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         groups: [AntigravityQuotaGroupPresentation],
         identityRail: ProviderIdentityRailProjection,
         settings: AntigravityDisplaySettings,
+        basisOverride: UsageValueBasis? = nil,
         now: Date,
         locale: Locale,
         timeZone: TimeZone
@@ -584,19 +588,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         settings:
             AntigravityDisplaySettings.MenuBarPresentationIntent
     ) -> Double? {
-        switch settings.style {
-        case .none:
-            return nil
-        case .batteryBar:
-            return lane.value.usedPercentage
-        case .circular:
-            switch settings.circularValue {
-            case .usage:
-                return lane.value.usedPercentage
-            case .remaining:
-                return lane.value.remainingPercentage
-            }
-        }
+        guard settings.style != .none else { return nil }
+        return lane.basis.percentage(fromUsed: lane.value.usedPercentage)
     }
 
     private static func makeIdentityRail(

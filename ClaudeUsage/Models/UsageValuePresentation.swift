@@ -1,5 +1,27 @@
 import Foundation
 
+/// Legacy is a migration state: preserve each provider's existing presentation
+/// until the user explicitly chooses one common basis. New installations use remaining.
+nonisolated enum UsageDisplayMode: String, Codable, CaseIterable, Sendable {
+    case legacy, used, remaining
+
+    var basis: UsageValueBasis? {
+        switch self {
+        case .legacy: return nil
+        case .used: return .used
+        case .remaining: return .remaining
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .legacy: return "기존 선택 유지"
+        case .used: return "사용한 양"
+        case .remaining: return "남은 양"
+        }
+    }
+}
+
 /// The display basis changes the number and fill, never the underlying risk.
 nonisolated enum UsageValueBasis: String, Sendable, Equatable {
     case used
@@ -37,6 +59,6 @@ extension AppSettings {
 
 extension ProviderMenuBarDisplayConfig {
     var usageValueBasis: UsageValueBasis {
-        style != .none && circularDisplayMode == .remaining ? .remaining : .used
+        basisOverride ?? (style != .none && circularDisplayMode == .remaining ? .remaining : .used)
     }
 }

@@ -421,6 +421,7 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
     let showBatteryPercent: Bool
     let resetTimeDisplay: ResetTimeDisplay
     let timeFormat: TimeFormatStyle
+    let basisOverride: UsageValueBasis?
     let circularDisplayMode: CircularDisplayMode
     let iconMetric: IconMetric
     let colorMode: MenuBarColorMode
@@ -436,7 +437,8 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         timeFormat: TimeFormatStyle,
         circularDisplayMode: CircularDisplayMode,
         iconMetric: IconMetric,
-        colorMode: MenuBarColorMode = .always, design: MenuBarDesign = .modern
+        colorMode: MenuBarColorMode = .always, design: MenuBarDesign = .modern,
+        basisOverride: UsageValueBasis? = nil
     ) {
         self.kind = kind
         self.showIcon = showIcon
@@ -449,6 +451,7 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         self.iconMetric = iconMetric
         self.colorMode = colorMode
         self.design = design
+        self.basisOverride = basisOverride
     }
 }
 
@@ -478,7 +481,7 @@ enum ProviderMenuBarDisplayPreset: String, CaseIterable, Identifiable, Sendable,
         case .basic:
             return "아이콘과 현재 사용률만 표시합니다."
         case .battery:
-            return "아이콘과 배터리 형태로 남은 사용량을 표시합니다."
+            return "아이콘과 배터리 형태로 선택한 기준의 사용량을 표시합니다."
         case .dual:
             return "현재 한도와 보조 한도를 함께 표시합니다."
         case .custom:

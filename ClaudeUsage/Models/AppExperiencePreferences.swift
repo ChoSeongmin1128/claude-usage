@@ -26,6 +26,7 @@ enum WelcomeStep: Int, CaseIterable, Sendable {
 /// Resolve before other settings stores normalize or write their defaults.
 /// Only this app's persisted state counts; CLI installations and login failures do not.
 struct AppExperiencePreferences {
+    let isExistingInstall: Bool
     let design: MenuBarDesign
     let designIntroductionDismissed: Bool
     let welcomeState: WelcomeState
@@ -41,10 +42,12 @@ struct AppExperiencePreferences {
             "antigravityEnabled", "menuBarDesign", "welcomeState", "menuBarColorMode", "codexMenuBarStyle",
             "circularDisplayMode", "showClaudeIcon", "showCodexIcon", "showBatteryPercent", "timeFormat",
             "autoRefresh", "launchAtLogin", "notificationsEnabled", "SUHasLaunchedBefore", "motionPreferences",
-            "popoverTransitionStyle",
+            "popoverTransitionStyle", "notificationPresets", "notificationRulesV2", "alertRemainingMode",
+            "alert1Threshold", "codexCircularDisplayMode", "usageDisplayMode",
         ]
         let existing = hasAccountStorage || legacyKeys.contains { defaults.object(forKey: $0) != nil }
         let result = Self(
+            isExistingInstall: existing,
             design: storedDesign ?? (existing ? .classic : .modern),
             designIntroductionDismissed: defaults.object(forKey: "menuBarDesignIntroductionDismissed") as? Bool
                 ?? (!existing || storedDesign != nil),
