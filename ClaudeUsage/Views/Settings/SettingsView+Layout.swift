@@ -5,6 +5,7 @@ import Combine
 extension SettingsView {
     var body: some View {
         settingsLayoutWithChanges
+            .disclosureGroupStyle(AppDisclosureGroupStyle())
     }
 
     private var settingsLayout: some View {
@@ -22,6 +23,10 @@ extension SettingsView {
                         .padding(AppDesign.Space.window)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .id(contentIdentity)
+                        .transition(.opacity)
+                        .animation(
+                            settings.motion.animation(for: .navigation, reduceMotion: reduceMotion),
+                            value: contentIdentity)
                     }
                 }
             }
@@ -170,7 +175,7 @@ extension SettingsView {
         .onReceive(settings.$shouldRevealClaudeAdvancedAuth.removeDuplicates()) { shouldReveal in
             guard shouldReveal else { return }
             selectedPanel = .claude
-            withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(settings.motion.animation(for: .disclosure, reduceMotion: reduceMotion)) {
                 isAdvancedAuthExpanded = true
             }
             settings.shouldRevealClaudeAdvancedAuth = false
@@ -237,6 +242,8 @@ extension SettingsView {
     @ViewBuilder
     private var panelContent: some View {
         switch selectedPanel {
+        case .welcome:
+            welcomeSection
         case .common:
             commonServicesSection
         case .display:
@@ -324,7 +331,7 @@ extension SettingsView {
                 .padding(.top, AppDesign.Space.compact)
 
             let panels = SettingsProviderRegistry.sidebarPanels
-            ForEach(panels.prefix(4)) { panel in
+            ForEach(panels.filter { $0.providerKind == nil }) { panel in
                 sidebarRow(panel)
             }
 
@@ -334,7 +341,7 @@ extension SettingsView {
                 .padding(.horizontal, AppDesign.Space.label)
                 .padding(.top, AppDesign.Space.label)
 
-            ForEach(panels.dropFirst(4)) { panel in
+            ForEach(panels.filter { $0.providerKind != nil }) { panel in
                 sidebarRow(panel)
             }
 

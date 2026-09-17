@@ -337,7 +337,7 @@ enum MenuBarStatusComposer {
         context: AntigravityQuotaPresentationContext = .init(),
         icon: NSImage?,
         renderImages: Bool = true,
-        appearance: NSAppearance? = nil
+        appearance: NSAppearance? = nil, design: MenuBarDesign = .modern, colorMode: MenuBarColorMode = .always
     ) -> MenuBarProviderSnapshot? {
         guard presentation.isVisible else {
             return nil
@@ -350,7 +350,11 @@ enum MenuBarStatusComposer {
         case .current, .refreshing:
             isStale = false
         }
-        let color = antigravityColor(for: presentation.tone)
+        let monochrome =
+            colorMode == .monochrome
+            || (colorMode == .warningOnly
+                && presentation.tone != .warning && presentation.tone != .critical)
+        let color: NSColor = monochrome ? .labelColor : antigravityColor(for: presentation.tone)
         let tooltip = staleAnnotatedTooltip(
             presentation.tooltip,
             isStale: isStale
@@ -369,7 +373,7 @@ enum MenuBarStatusComposer {
             showsProviderIcon:
                 presentation.showsProviderIcon,
             visualConfiguration: [
-                presentation.style.rawValue,
+                presentation.style.rawValue, design.rawValue, colorMode.rawValue,
                 presentation.selectedLaneID?.rawValue
                     ?? "lane.none",
                 presentation.showsGaugePercentage
@@ -399,7 +403,10 @@ enum MenuBarStatusComposer {
                 : nil,
             styleIcon:
                 renderImages
-                ? withAppearance(appearance) { antigravityStyleIcon(presentation: presentation, color: color) }
+                ? withAppearance(appearance) {
+                    antigravityStyleIcon(
+                        presentation: presentation, color: color, design: design, monochrome: monochrome)
+                }
                 : nil,
             resetText: nil,
             systemStatus: nil,
@@ -724,7 +731,7 @@ enum MenuBarStatusComposer {
             config.timeFormat.rawValue,
             config.circularDisplayMode.rawValue,
             config.iconMetric.rawValue,
-            config.colorMode.rawValue,
+            config.colorMode.rawValue, config.design.rawValue,
         ]
     }
 
@@ -942,10 +949,11 @@ enum MenuBarStatusComposer {
                 return MenuBarIconRenderer.batteryIcon(
                     percentage: value,
                     color: color,
-                    showPercent: config.showBatteryPercent
+                    showPercent: config.showBatteryPercent, design: config.design,
+                    monochrome: usesMonochrome(used: secondary, mode: config.colorMode)
                 )
             case .circular, .concentricRings:
-                return MenuBarIconRenderer.circularRingIcon(percentage: value, color: color)
+                return MenuBarIconRenderer.circularRingIcon(percentage: value, color: color, design: config.design)
             }
         }
         return styleIcon(
@@ -958,7 +966,7 @@ enum MenuBarStatusComposer {
 
     private static func antigravityStyleIcon(
         presentation: AntigravityMenuBarQuotaPresentation,
-        color: NSColor
+        color: NSColor, design: MenuBarDesign, monochrome: Bool
     ) -> NSImage? {
         guard let percentage = presentation.gaugePercentage else {
             return nil
@@ -971,12 +979,12 @@ enum MenuBarStatusComposer {
             return MenuBarIconRenderer.batteryIcon(
                 percentage: percentage,
                 color: color,
-                showPercent: presentation.showsGaugePercentage
+                showPercent: presentation.showsGaugePercentage, design: design, monochrome: monochrome
             )
         case .circular:
             return MenuBarIconRenderer.circularRingIcon(
                 percentage: percentage,
-                color: color
+                color: color, design: design
             )
         }
     }
@@ -998,6 +1006,10 @@ enum MenuBarStatusComposer {
         }
     }
 
+    private static func usesMonochrome(used: Double?, mode: MenuBarColorMode) -> Bool {
+        mode == .monochrome || (mode == .warningOnly && (used ?? 0) < MenuBarColorMode.warningThreshold)
+    }
+
     private static func styleIcon(
         primary: Double?,
         secondary: Double?,
@@ -1017,23 +1029,25 @@ enum MenuBarStatusComposer {
             return MenuBarIconRenderer.batteryIcon(
                 percentage: circularValue,
                 color: metric.color,
-                showPercent: config.showBatteryPercent
+                showPercent: config.showBatteryPercent, design: config.design,
+                monochrome: usesMonochrome(used: metric.percentage, mode: config.colorMode)
             )
         case .circular:
-            return MenuBarIconRenderer.circularRingIcon(percentage: circularValue, color: metric.color)
+            return MenuBarIconRenderer.circularRingIcon(
+                percentage: circularValue, color: metric.color, design: config.design)
         case .concentricRings:
             return MenuBarIconRenderer.concentricRingsIcon(
                 outerPercent: outer,
                 innerPercent: inner,
                 outerColor: primaryColor,
-                innerColor: secondaryColor
+                innerColor: secondaryColor, design: config.design
             )
         case .dualBattery:
             return MenuBarIconRenderer.dualBatteryIcon(
                 topPercent: outer,
                 bottomPercent: inner,
                 topColor: primaryColor,
-                bottomColor: secondaryColor
+                bottomColor: secondaryColor, design: config.design
             )
         case .sideBySideBattery:
             return MenuBarIconRenderer.sideBySideBatteryIcon(
@@ -1041,7 +1055,9 @@ enum MenuBarStatusComposer {
                 rightPercent: inner,
                 leftColor: primaryColor,
                 rightColor: secondaryColor,
-                showPercent: config.showBatteryPercent
+                showPercent: config.showBatteryPercent, design: config.design,
+                monochrome: usesMonochrome(used: primary, mode: config.colorMode),
+                rightMonochrome: usesMonochrome(used: secondary, mode: config.colorMode)
             )
         }
     }

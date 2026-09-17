@@ -105,6 +105,7 @@ struct SetupWizardView: View {
         }
         .padding(AppDesign.Space.label)
         .appPanelStyle()
+        .disclosureGroupStyle(AppDisclosureGroupStyle())
     }
 
     private var primaryStepTitle: String {

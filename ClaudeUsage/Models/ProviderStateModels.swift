@@ -424,6 +424,7 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
     let circularDisplayMode: CircularDisplayMode
     let iconMetric: IconMetric
     let colorMode: MenuBarColorMode
+    let design: MenuBarDesign
 
     init(
         kind: AppProviderKind,
@@ -435,7 +436,7 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         timeFormat: TimeFormatStyle,
         circularDisplayMode: CircularDisplayMode,
         iconMetric: IconMetric,
-        colorMode: MenuBarColorMode = .always
+        colorMode: MenuBarColorMode = .always, design: MenuBarDesign = .modern
     ) {
         self.kind = kind
         self.showIcon = showIcon
@@ -447,6 +448,7 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         self.circularDisplayMode = circularDisplayMode
         self.iconMetric = iconMetric
         self.colorMode = colorMode
+        self.design = design
     }
 }
 

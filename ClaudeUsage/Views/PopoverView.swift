@@ -75,6 +75,28 @@ struct PopoverView: View {
                 height: isCompact
                     ? PopoverLayoutMetrics.compactHeaderHeight : PopoverLayoutMetrics.standardHeaderContainerHeight)
 
+            if layoutSpec.designIntroductionHeight > 0 {
+                VStack(alignment: .leading, spacing: AppDesign.Space.control) {
+                    Text("새 메뉴바 디자인을 사용해 보세요")
+                        .font(AppDesign.Typography.caption.weight(.medium))
+                    HStack {
+                        Button("미리보기") {
+                            viewModel.isDesignIntroductionPresented = false
+                            viewModel.openSettings(panel: .display)
+                        }
+                        Button("기존 유지") { viewModel.isDesignIntroductionPresented = false }
+                        Spacer(minLength: 0)
+                    }
+                    .font(AppDesign.Typography.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                .padding(.horizontal, AppDesign.Space.content)
+                .frame(height: layoutSpec.designIntroductionHeight)
+                .clipped()
+                .onAppear { settings.menuBarDesignIntroductionDismissed = true }
+            }
+
             Group {
                 if isCompact {
                     compactMainSection(layoutSpec: layoutSpec, sections: sections)

@@ -66,6 +66,7 @@ final class PopoverViewModel: ObservableObject {
         let summary: String
     }
 
+    @Published var isDesignIntroductionPresented = false
     @Published var selectedService: PopoverService = .claude
     var overage: OverageSpendLimitResponse? { snapshot(for: .claude)?.claudeOverage }
     @Published var systemStatus: ClaudeSystemStatus?

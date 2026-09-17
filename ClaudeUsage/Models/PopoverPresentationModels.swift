@@ -110,6 +110,7 @@ struct PopoverLayoutSpec: Equatable {
     let bodyInsets: EdgeInsets
     let contentBottomSpacing: CGFloat
     let sectionSpacing: CGFloat
+    var designIntroductionHeight: CGFloat = 0
 
     var isCompact: Bool {
         density.isCompact

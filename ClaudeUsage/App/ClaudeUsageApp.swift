@@ -12,7 +12,7 @@ struct ClaudeUsageApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     init() {
-        _ = AntigravityApplicationBootstrap.prepareSettings()
+        _ = AppSettings.shared
     }
 
     var body: some Scene {

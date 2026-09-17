@@ -285,7 +285,7 @@ verify_app_bundle() {
     local app_path="$1"
     local source_label="$2"
     local app_info bundle_id actual_version actual_build actual_feed_url
-    local actual_app_name actual_release_channel
+    local actual_app_name actual_release_channel actual_release_version
     local actual_public_key signing_info signing_identifier signing_team
     local entitlements_path
     local network_client
@@ -310,6 +310,11 @@ verify_app_bundle() {
     bundle_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app_info")"
     actual_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_info")"
     actual_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app_info")"
+    # Historical releases predate this key; new bundles must show the exact published candidate.
+    if actual_release_version="$(/usr/libexec/PlistBuddy -c 'Print :ClaudeUsageReleaseVersion' "$app_info" 2>/dev/null)"; then
+        [[ "$actual_release_version" == "${TAG#v}" ]] \
+            || die "$source_label 앱의 표시 버전이 release tag와 다릅니다."
+    fi
     actual_feed_url="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$app_info")"
     actual_public_key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$app_info")"
     if ! actual_app_name="$(

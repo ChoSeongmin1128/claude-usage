@@ -21,6 +21,8 @@ extension SettingsView {
                 isOn: $settings.launchAtLogin
             )
 
+            Divider()
+            AppMotionSettingsView(settings: settings)
         }
     }
 
@@ -154,6 +156,8 @@ extension SettingsView {
             Label("공통 표시", systemImage: "menubar.rectangle")
                 .font(AppDesign.Typography.headline)
 
+            MenuBarDesignPicker(settings: settings)
+
             settingsRadioGroup(
                 "메뉴바 색상",
                 options: MenuBarColorMode.allCases.map { (value: $0, label: $0.displayName) },
@@ -162,17 +166,6 @@ extension SettingsView {
             )
 
             Text(settings.menuBarColorMode.detail)
-                .font(AppDesign.Typography.caption)
-                .foregroundStyle(.tertiary)
-
-            settingsRadioGroup(
-                "팝오버 전환",
-                options: PopoverTransitionStyle.allCases.map { (value: $0, label: $0.displayName) },
-                selection: settings.popoverTransitionStyle,
-                onChange: { settings.popoverTransitionStyle = $0 }
-            )
-
-            Text("간소화·일반 보기와 서비스 전환 시 크기가 바뀌는 방식을 정합니다. 시스템의 ‘동작 줄이기’가 켜져 있으면 즉시 전환합니다.")
                 .font(AppDesign.Typography.caption)
                 .foregroundStyle(.tertiary)
 

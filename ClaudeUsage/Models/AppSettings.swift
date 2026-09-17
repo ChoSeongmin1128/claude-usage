@@ -56,18 +56,6 @@ enum MenuBarStyle: String, Codable, CaseIterable, Sendable {
     }
 }
 
-enum PopoverTransitionStyle: String, CaseIterable, Sendable {
-    case instant
-    case smooth
-
-    var displayName: String {
-        switch self {
-        case .instant: return "즉시 전환"
-        case .smooth: return "부드러운 전환"
-        }
-    }
-}
-
 enum TimeFormatStyle: String, Codable, CaseIterable, Sendable {
     case h24 = "24h"
     case h12 = "12h"
@@ -200,10 +188,7 @@ enum ClaudeMessagesFallbackPolicy: String, Codable, CaseIterable, Sendable {
 }
 
 class AppSettings: ObservableObject {
-    static let shared: AppSettings = {
-        _ = AntigravityApplicationBootstrap.prepareSettings()
-        return AppSettings()
-    }()
+    static let shared = AppSettings()
     nonisolated static let minimumRefreshInterval: TimeInterval = 15
     nonisolated static let maximumRefreshInterval: TimeInterval = 3600
 
@@ -300,6 +285,22 @@ class AppSettings: ObservableObject {
     }
 
     // MARK: - Published Properties
+
+    @Published var menuBarDesign: MenuBarDesign {
+        didSet {
+            defaults.set(menuBarDesign.rawValue, forKey: "menuBarDesign")
+            menuBarDesignIntroductionDismissed = true
+        }
+    }
+    @Published var menuBarDesignIntroductionDismissed: Bool {
+        didSet { defaults.set(menuBarDesignIntroductionDismissed, forKey: "menuBarDesignIntroductionDismissed") }
+    }
+    @Published var welcomeState: WelcomeState {
+        didSet { defaults.set(welcomeState.rawValue, forKey: "welcomeState") }
+    }
+    @Published var welcomeStep: WelcomeStep {
+        didSet { defaults.set(welcomeStep.rawValue, forKey: "welcomeStep") }
+    }
 
     @Published var menuBarStyle: MenuBarStyle {
         didSet { defaults.set(menuBarStyle.rawValue, forKey: "menuBarStyle") }
@@ -428,8 +429,8 @@ class AppSettings: ObservableObject {
     @Published var popoverPinned: Bool {
         didSet { defaults.set(popoverPinned, forKey: "popoverPinned") }
     }
-    @Published var popoverTransitionStyle: PopoverTransitionStyle {
-        didSet { defaults.set(popoverTransitionStyle.rawValue, forKey: "popoverTransitionStyle") }
+    @Published var motion: AppMotionPreferences {
+        didSet { motion.persist(to: defaults) }
     }
     @Published var popoverCompact: Bool {
         didSet {
@@ -585,6 +586,10 @@ class AppSettings: ObservableObject {
     // MARK: - Snapshot
 
     struct Snapshot {
+        let menuBarDesign: MenuBarDesign
+        let menuBarDesignIntroductionDismissed: Bool
+        let welcomeState: WelcomeState
+        let welcomeStep: WelcomeStep
         let menuBarStyle: MenuBarStyle
         let percentageDisplay: PercentageDisplay
         let showBatteryPercent: Bool
@@ -612,7 +617,7 @@ class AppSettings: ObservableObject {
         let alertFiveHourEnabled: Bool
         let alertWeeklyEnabled: Bool
         let popoverPinned: Bool
-        let popoverTransitionStyle: PopoverTransitionStyle
+        let motion: AppMotionPreferences
         let popoverCompact: Bool
         let launchAtLogin: Bool
         let preferredOrganizationID: String
@@ -638,6 +643,9 @@ class AppSettings: ObservableObject {
 
     func createSnapshot() -> Snapshot {
         Snapshot(
+            menuBarDesign: menuBarDesign,
+            menuBarDesignIntroductionDismissed: menuBarDesignIntroductionDismissed,
+            welcomeState: welcomeState, welcomeStep: welcomeStep,
             menuBarStyle: menuBarStyle,
             percentageDisplay: percentageDisplay,
             showBatteryPercent: showBatteryPercent,
@@ -665,7 +673,7 @@ class AppSettings: ObservableObject {
             alertFiveHourEnabled: alertFiveHourEnabled,
             alertWeeklyEnabled: alertWeeklyEnabled,
             popoverPinned: popoverPinned,
-            popoverTransitionStyle: popoverTransitionStyle,
+            motion: motion,
             popoverCompact: popoverCompact,
             launchAtLogin: launchAtLogin,
             preferredOrganizationID: preferredOrganizationID,
@@ -699,6 +707,10 @@ class AppSettings: ObservableObject {
     }
 
     func restore(from snapshot: Snapshot) {
+        menuBarDesign = snapshot.menuBarDesign
+        menuBarDesignIntroductionDismissed = snapshot.menuBarDesignIntroductionDismissed
+        welcomeState = snapshot.welcomeState
+        welcomeStep = snapshot.welcomeStep
         menuBarStyle = snapshot.menuBarStyle
         percentageDisplay = snapshot.percentageDisplay
         showBatteryPercent = snapshot.showBatteryPercent
@@ -726,7 +738,7 @@ class AppSettings: ObservableObject {
         alertFiveHourEnabled = snapshot.alertFiveHourEnabled
         alertWeeklyEnabled = snapshot.alertWeeklyEnabled
         popoverPinned = snapshot.popoverPinned
-        popoverTransitionStyle = snapshot.popoverTransitionStyle
+        motion = snapshot.motion
         popoverCompact = snapshot.popoverCompact
         launchAtLogin = snapshot.launchAtLogin
         preferredOrganizationID = snapshot.preferredOrganizationID
@@ -1035,6 +1047,7 @@ class AppSettings: ObservableObject {
 
     var menuBarDisplayChangePublisher: AnyPublisher<Void, Never> {
         let basePublishers: [AnyPublisher<Void, Never>] = [
+            $menuBarDesign.map { _ in () }.eraseToAnyPublisher(),
             $menuBarStyle.map { _ in () }.eraseToAnyPublisher(),
             $menuBarColorMode.map { _ in () }.eraseToAnyPublisher(),
             $percentageDisplay.map { _ in () }.eraseToAnyPublisher(),
@@ -1158,7 +1171,7 @@ class AppSettings: ObservableObject {
                 timeFormat: timeFormat,
                 circularDisplayMode: circularDisplayMode,
                 iconMetric: iconMetric,
-                colorMode: menuBarColorMode
+                colorMode: menuBarColorMode, design: menuBarDesign
             )
         case .codex:
             return ProviderMenuBarDisplayConfig(
@@ -1171,7 +1184,7 @@ class AppSettings: ObservableObject {
                 timeFormat: codexTimeFormat,
                 circularDisplayMode: codexCircularDisplayMode,
                 iconMetric: codexIconMetric,
-                colorMode: menuBarColorMode
+                colorMode: menuBarColorMode, design: menuBarDesign
             )
         case .antigravity:
             // AGY 메뉴바 표시는 AntigravityDisplaySettings가 단독 소유한다.
@@ -1443,7 +1456,7 @@ class AppSettings: ObservableObject {
         alertWeeklyEnabled = false
         popoverPinned = false
         popoverCompact = false
-        popoverTransitionStyle = .instant
+        motion = AppMotionPreferences()
         launchAtLogin = false
         preferredOrganizationID = ""
         popoverItemsByProvider = Self.defaultPopoverItemsDict()
@@ -1520,8 +1533,18 @@ class AppSettings: ObservableObject {
     /// 기본은 standard지만 테스트에서 suite 기반 UserDefaults를 주입할 수 있다.
     /// AppSettings는 지금까지 singleton+UserDefaults.standard에 묶여 있어 어떤
     /// 초기화/마이그레이션 회귀도 테스트로 잡을 수 없었다.
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, hasExistingAccountStorage: Bool? = nil) {
+        let experience = AppExperiencePreferences.load(
+            from: defaults,
+            hasAccountStorage: hasExistingAccountStorage
+                ?? (defaults === UserDefaults.standard && !AppRuntimeEnvironment.isRunningUnitTests
+                    && AppExperiencePreferences.hasLocalAccountStorage))
+        self.menuBarDesign = experience.design
+        self.menuBarDesignIntroductionDismissed = experience.designIntroductionDismissed
+        self.welcomeState = experience.welcomeState
+        self.welcomeStep = experience.welcomeStep
         self.defaults = defaults
+        if defaults === UserDefaults.standard { _ = AntigravityApplicationBootstrap.prepareSettings() }
         self.popoverDisplayPreferencesStore =
             PopoverDisplayPreferencesStore(
                 defaults: defaults
@@ -1598,9 +1621,7 @@ class AppSettings: ObservableObject {
         let normalizedCompact = Self.normalizedGlobalPopoverCompact(from: defaults)
         self.popoverPinned = legacyPinned
         self.popoverCompact = normalizedCompact
-        self.popoverTransitionStyle =
-            defaults.string(forKey: "popoverTransitionStyle")
-            .flatMap(PopoverTransitionStyle.init(rawValue:)) ?? .instant
+        self.motion = AppMotionPreferences.load(from: defaults)
         defaults.set(legacyPinned, forKey: "popoverPinned")
         defaults.set(normalizedCompact, forKey: "popoverCompact")
         // 시스템 상태에서 실제 등록 여부 확인

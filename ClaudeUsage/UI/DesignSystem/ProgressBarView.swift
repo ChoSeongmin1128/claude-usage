@@ -9,6 +9,7 @@
 import SwiftUI
 
 struct ProgressBarView: View {
+    @ObservedObject private var settings = AppSettings.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let percentage: Double
@@ -27,7 +28,8 @@ struct ProgressBarView: View {
                 RoundedRectangle(cornerRadius: height / 2)
                     .fill(color ?? ColorProvider.statusColor(for: percentage))
                     .frame(width: geometry.size.width * CGFloat(basis.percentage(fromUsed: percentage) ?? 0) / 100)
-                    .animation(reduceMotion ? nil : AppDesign.Motion.value, value: percentage)
+                    .animation(
+                        settings.motion.animation(for: .usageValue, reduceMotion: reduceMotion), value: percentage)
             }
         }
         .frame(height: height)

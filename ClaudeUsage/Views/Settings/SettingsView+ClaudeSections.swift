@@ -117,7 +117,7 @@ extension SettingsView {
                         // 「계정 변경」 은 별도 버튼이 아니라 「계정 관리」 펼침 안의
                         // 각 계정 행에서 직접 [사용] 버튼으로 처리한다 (Hick's Law).
                         Button(isClaudeAccountManagementExpanded ? "계정 관리 닫기" : "계정 관리") {
-                            withAnimation(.easeInOut(duration: 0.15)) {
+                            withAnimation(settings.motion.animation(for: .disclosure, reduceMotion: reduceMotion)) {
                                 isClaudeAccountManagementExpanded.toggle()
                             }
                         }
@@ -159,7 +159,7 @@ extension SettingsView {
                     .buttonStyle(.bordered)
 
                     Button("직접 입력") {
-                        withAnimation(.easeInOut(duration: 0.15)) {
+                        withAnimation(settings.motion.animation(for: .disclosure, reduceMotion: reduceMotion)) {
                             isAdvancedAuthExpanded.toggle()
                         }
                     }
@@ -362,7 +362,7 @@ extension SettingsView {
                 .buttonStyle(.bordered)
 
                 Button("고급: 직접 입력") {
-                    withAnimation(.easeInOut(duration: 0.15)) {
+                    withAnimation(settings.motion.animation(for: .disclosure, reduceMotion: reduceMotion)) {
                         isAdvancedAuthExpanded.toggle()
                     }
                 }
@@ -526,7 +526,7 @@ extension SettingsView {
             .padding(.top, AppDesign.Space.compact)
         } label: {
             Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
+                withAnimation(settings.motion.animation(for: .disclosure, reduceMotion: reduceMotion)) {
                     isAdvancedAuthExpanded.toggle()
                 }
             } label: {
@@ -778,7 +778,7 @@ extension SettingsView {
 
     /// 조직 변경 섹션을 펼치고 필요 시 lazy 로드. 계정 카드 「조직 변경」 버튼에서 호출.
     private func revealOrganizationControls() {
-        withAnimation(.easeInOut(duration: 0.15)) {
+        withAnimation(settings.motion.animation(for: .disclosure, reduceMotion: reduceMotion)) {
             isOrganizationAdvancedExpanded = true
         }
         if organizations.isEmpty && !isLoadingOrganizations {

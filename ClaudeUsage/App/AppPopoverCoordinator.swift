@@ -47,7 +47,7 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
     func close() {
         let wasResizing = isResizing
         invalidate()
-        if wasResizing { popover.animates = false }
+        popover.animates = !wasResizing && animates(.popoverPresentation)
         popover.close()
     }
 
@@ -65,6 +65,9 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
     func rebuildPopover() {
         invalidate()
 
+        viewModel.isDesignIntroductionPresented =
+            !settings.menuBarDesignIntroductionDismissed
+            && settings.menuBarDesign == .classic
         let newPopover = NSPopover()
         let popoverView = PopoverView(
             viewModel: viewModel, settings: settings, fillsViewport: true,
@@ -73,7 +76,7 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
         hostingController.view = PopoverViewportView(rootView: popoverView)
 
         newPopover.contentViewController = hostingController
-        newPopover.animates = animatesTransitions
+        newPopover.animates = animates(.popoverPresentation)
         newPopover.delegate = self
         popover = newPopover
         acceptsSizeUpdates = true
@@ -86,9 +89,12 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
 
     func popoverWillClose(_ notification: Notification) {
         guard notification.object as? NSPopover === popover else { return }
-        let wasResizing = isResizing
+        // close() has already chosen the safe closing policy and invalidated this session.
+        // Only a native outside-click close needs to choose it here.
+        if acceptsSizeUpdates {
+            popover.animates = !isResizing && animates(.popoverPresentation)
+        }
         invalidate()
-        if wasResizing { popover.animates = false }
     }
 
     func beginWindowDiagnosticsIfNeeded() {
@@ -115,8 +121,8 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
         logWindowFrame("window-observing-started")
     }
 
-    private var animatesTransitions: Bool {
-        settings.popoverTransitionStyle == .smooth && !reduceMotion()
+    private func animates(_ category: AppMotionCategory) -> Bool {
+        settings.motion.allows(category, reduceMotion: reduceMotion())
     }
 
     private func applyPopoverSizeIfNeeded(size: CGSize) {
@@ -135,7 +141,7 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
             "apply-size current=\(describe(size: popover.contentSize)) target=\(describe(size: targetSize)) changed=\(changed)"
         )
         guard changed else { return }
-        let shouldAnimate = animatesTransitions
+        let shouldAnimate = animates(.popoverResize)
         popover.animates = shouldAnimate
         if !isResizing {
             (popover.contentViewController?.view as? PopoverViewportView)?.prepareForResize()
@@ -155,6 +161,7 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
             Task { @MainActor [weak self] in
                 guard let self, self.resizeRevision == revision, self.popover.isShown else { return }
                 self.isResizing = false
+                self.popover.animates = self.animates(.popoverPresentation)
                 (self.popover.contentViewController?.view as? PopoverViewportView)?.finishResize()
             }
         }

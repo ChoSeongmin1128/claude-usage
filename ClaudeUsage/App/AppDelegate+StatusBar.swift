@@ -658,7 +658,8 @@ extension AppDelegate {
                     appearance: appearance
                 ) : nil,
                 renderImages: renderImages,
-                appearance: appearance
+                appearance: appearance, design: AppSettings.shared.menuBarDesign,
+                colorMode: AppSettings.shared.menuBarColorMode
             )
         }
     }

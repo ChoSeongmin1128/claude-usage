@@ -10,6 +10,7 @@ enum PopoverLayoutMetrics {
     static let standardMainSectionBottomSpacing: CGFloat = 2
     static let compactHeaderHeight: CGFloat = 26
     static let compactFooterHeight: CGFloat = 31
+    static let designIntroductionHeight: CGFloat = 62
     static let dividerHeight: CGFloat = 1
     static let standardProviderSelectorSize: CGFloat = 26
     static let compactProviderSelectorSize: CGFloat = 20
@@ -319,15 +320,27 @@ extension PopoverLayoutSpec {
             ? PopoverLayoutMetrics.compactHeaderHeight + PopoverLayoutMetrics.compactFooterHeight
             : PopoverLayoutMetrics.standardHeaderContainerHeight + PopoverLayoutMetrics.standardFooterContainerHeight
                 + PopoverLayoutMetrics.standardShortcutFooterHeight
-        return max(0, size.height - fixed - PopoverLayoutMetrics.dividerHeight)
+        return max(0, size.height - fixed - PopoverLayoutMetrics.dividerHeight - designIntroductionHeight)
     }
 
     /// Keep header/footer visible while the native popover's viewport changes.
     func fittingViewport(_ viewport: CGSize) -> PopoverLayoutSpec {
         let chromeHeight = size.height - bodyContentHeight
+        let fixedChrome = size.height - bodyRegionHeight - designIntroductionHeight
+        let visibleIntroduction = min(designIntroductionHeight, max(0, viewport.height - fixedChrome))
         return PopoverLayoutSpec(
             density: density, phase: phase, size: viewport,
-            bodyContentHeight: max(0, viewport.height - chromeHeight),
-            bodyInsets: bodyInsets, contentBottomSpacing: contentBottomSpacing, sectionSpacing: sectionSpacing)
+            bodyContentHeight: max(0, viewport.height - chromeHeight + designIntroductionHeight - visibleIntroduction),
+            bodyInsets: bodyInsets, contentBottomSpacing: contentBottomSpacing, sectionSpacing: sectionSpacing,
+            designIntroductionHeight: visibleIntroduction)
+    }
+
+    func includingDesignIntroduction() -> PopoverLayoutSpec {
+        let extra = PopoverLayoutMetrics.designIntroductionHeight
+        return PopoverLayoutSpec(
+            density: density, phase: phase, size: CGSize(width: size.width, height: size.height + extra),
+            bodyContentHeight: bodyContentHeight, bodyInsets: bodyInsets,
+            contentBottomSpacing: contentBottomSpacing, sectionSpacing: sectionSpacing,
+            designIntroductionHeight: extra)
     }
 }

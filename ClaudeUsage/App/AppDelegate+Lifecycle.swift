@@ -64,6 +64,10 @@ extension AppDelegate {
         refreshSystemStatus()
         startStatusTimer()
 
+        if AppSettings.shared.welcomeState == .pending {
+            showSettingsWindow(settingsPanelRawValue: SettingsProviderPanel.welcome.rawValue)
+        }
+
         let launchIntent = ApplicationLaunchIntent.parse(
             arguments: CommandLine.arguments
         )
@@ -327,7 +331,7 @@ extension AppDelegate {
         } else if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
             updateMenuBar()
             if !snapshot.runtime.credentialAvailability.hasAnyCredential {
-                showInitialClaudeSetupFlow()
+                if AppSettings.shared.welcomeState != .pending { showInitialClaudeSetupFlow() }
             }
         } else {
             if ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) && !CodexAuthManager.shared.isAuthenticated {

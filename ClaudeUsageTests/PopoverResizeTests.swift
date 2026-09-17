@@ -15,7 +15,7 @@ final class PopoverResizeTests: XCTestCase {
 
     private func withNativePopover(
         service: PopoverService, reduceMotion: Bool = false, settleInitialPresentation: Bool = true,
-        transitionStyle: PopoverTransitionStyle = .smooth,
+        transitionStyle: AppMotionMode = .smooth, customCategories: Set<AppMotionCategory> = [],
         _ body: (AppSettings, AppPopoverCoordinator, NSViewController, NSView) throws -> Void
     ) throws {
         let suite = "PopoverResizeTests.\(UUID().uuidString)"
@@ -26,7 +26,7 @@ final class PopoverResizeTests: XCTestCase {
         settings.setProviderEnabled(true, for: .codex)
         settings.setProviderEnabled(true, for: .antigravity)
         settings.popoverCompact = true
-        settings.popoverTransitionStyle = transitionStyle
+        settings.motion = AppMotionPreferences(mode: transitionStyle, enabledCategories: customCategories)
         let coordinator = AppPopoverCoordinator(settings: settings, reduceMotion: { reduceMotion })
         coordinator.viewModel.update(snapshots: [
             .init(
@@ -152,7 +152,7 @@ final class PopoverResizeTests: XCTestCase {
             let instantFrames = try observeTransition(host: host, duration: 0.3)
             XCTAssertLessThanOrEqual(Set(instantFrames.map { Int($0.width.rounded()) }).count, 2)
 
-            settings.popoverTransitionStyle = .smooth
+            settings.motion.mode = .smooth
             settings.popoverCompact = true
             target = coordinator.viewModel.layoutSpec(for: .antigravity, settings: settings).size
             coordinator.refreshSizeIfShown(size: target)
@@ -170,7 +170,7 @@ final class PopoverResizeTests: XCTestCase {
             coordinator.refreshSizeIfShown(
                 size: coordinator.viewModel.layoutSpec(for: .antigravity, settings: settings).size)
             _ = try observeTransition(host: host, duration: 0.08)
-            settings.popoverTransitionStyle = .instant
+            settings.motion.mode = .instant
             settings.popoverCompact = true
             let target = coordinator.viewModel.layoutSpec(for: .antigravity, settings: settings).size
             coordinator.refreshSizeIfShown(size: target)
@@ -179,6 +179,45 @@ final class PopoverResizeTests: XCTestCase {
             _ = try observeTransition(host: host, duration: 0.4)
             assertFinalSize(host: host, popover: coordinator.popover, target: target)
             XCTAssertFalse(coordinator.popover.animates)
+        }
+    }
+
+    func testDesignIntroductionResizesWithoutTakingSpaceFromUsageAndDismissesOnce() throws {
+        try withNativePopover(service: .claude) { settings, coordinator, host, _ in
+            let original = coordinator.viewModel.layoutSpec(for: .claude, settings: settings)
+            settings.menuBarDesign = .classic
+            settings.menuBarDesignIntroductionDismissed = false
+            coordinator.viewModel.isDesignIntroductionPresented = true
+            _ = try observeTransition(host: host, duration: 0.5)
+            let introduced = coordinator.viewModel.layoutSpec(for: .claude, settings: settings)
+            XCTAssertEqual(introduced.size.height, original.size.height + PopoverLayoutMetrics.designIntroductionHeight)
+            XCTAssertEqual(introduced.bodyRegionHeight, original.bodyRegionHeight)
+            assertFinalSize(host: host, popover: coordinator.popover, target: introduced.size)
+            XCTAssertTrue(settings.menuBarDesignIntroductionDismissed)
+            coordinator.viewModel.isDesignIntroductionPresented = false
+            _ = try observeTransition(host: host, duration: 0.5)
+            assertFinalSize(host: host, popover: coordinator.popover, target: original.size)
+            XCTAssertEqual(settings.menuBarDesign, .classic)
+        }
+    }
+
+    func testPresentationAndResizeMotionCanBeConfiguredIndependently() throws {
+        for category in [AppMotionCategory.popoverPresentation, .popoverResize] {
+            try withNativePopover(service: .claude, transitionStyle: .custom, customCategories: [category]) {
+                settings, coordinator, host, _ in
+                XCTAssertEqual(coordinator.popover.animates, category == .popoverPresentation)
+                settings.popoverCompact = false
+                let target = coordinator.viewModel.layoutSpec(for: .claude, settings: settings).size
+                coordinator.refreshSizeIfShown(size: target)
+                let frames = try observeTransition(host: host, duration: 0.5)
+                if category == .popoverResize {
+                    XCTAssertGreaterThan(Set(frames.map { Int($0.width.rounded()) }).count, 3)
+                } else {
+                    XCTAssertLessThanOrEqual(Set(frames.map { Int($0.width.rounded()) }).count, 2)
+                }
+                assertFinalSize(host: host, popover: coordinator.popover, target: target)
+                XCTAssertEqual(coordinator.popover.animates, category == .popoverPresentation)
+            }
         }
     }
 

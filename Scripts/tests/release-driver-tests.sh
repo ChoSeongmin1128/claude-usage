@@ -513,6 +513,7 @@ set -euo pipefail
     printf ' <DERIVED_DATA_PATH=%s>' "${DERIVED_DATA_PATH:?}"
     printf ' <ENTITLEMENTS_PATH=%s>' "${ENTITLEMENTS_PATH:?}"
     printf ' <RELEASE_CHANNEL=%s>' "${RELEASE_CHANNEL:?}"
+    printf ' <RELEASE_DISPLAY_VERSION=%s>' "${RELEASE_DISPLAY_VERSION:?}"
     printf ' <RELEASE_DISTRIBUTION=%s>' "${RELEASE_DISTRIBUTION:?}"
     printf ' <NOTARY_PROFILE=%s>' "${NOTARY_PROFILE:?}"
     printf ' <SU_FEED_URL=%s>' "${SU_FEED_URL:?}"
@@ -557,6 +558,8 @@ cat > "$app_path/Contents/Info.plist" <<PLIST
     <string>$fixture_bundle_identifier</string>
     <key>CFBundleDisplayName</key>
     <string>$fixture_app_name</string>
+    <key>ClaudeUsageReleaseVersion</key>
+    <string>$RELEASE_DISPLAY_VERSION</string>
     <key>ClaudeUsageReleaseChannel</key>
     <string>$RELEASE_CHANNEL</string>
     <key>SUFeedURL</key>

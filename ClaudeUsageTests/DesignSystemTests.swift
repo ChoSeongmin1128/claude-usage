@@ -264,6 +264,86 @@ final class DesignSystemTests: XCTestCase {
         try body(settings)
     }
 
+    func testClassicAndModernDesignChoicesAndWelcomeGallery() throws {
+        let suite = "DesignSystemTests.welcome.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        settings.menuBarColorMode = .monochrome
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            let picker = MenuBarDesignPicker(settings: settings).padding(20).frame(width: 420)
+                .background(Color(nsColor: .windowBackgroundColor))
+            attach(try renderHosted(picker, appearance: appearance), "Menu bar design choices \(appearance.rawValue)")
+        }
+        settings.motion.mode = .custom
+        settings.motion.enabledCategories = [.popoverResize, .disclosure]
+        attach(
+            try renderHosted(
+                AppMotionSettingsView(settings: settings).padding(20).frame(width: 420)
+                    .background(Color(nsColor: .windowBackgroundColor)), appearance: .aqua), "Custom motion settings")
+        for step in WelcomeStep.allCases {
+            settings.welcomeStep = step
+            let view = WelcomeView(
+                settings: settings, selectedProvider: .constant(.claude),
+                statuses: [.claude: .verified], connection: Text("연결 예시 · 현재 계정 확인"),
+                display: Text("표시 항목 fixture"), onVerify: { _ in }, onDefer: {}, onFinish: {}
+            )
+            .padding(24).frame(width: 520).background(Color(nsColor: .windowBackgroundColor))
+            attach(try renderHosted(view, appearance: .aqua), "Welcome step \(step.rawValue)")
+        }
+        let classic = MenuBarIconRenderer.batteryIcon(percentage: 80, color: .systemGreen, design: .classic)
+        XCTAssertEqual(classic.size, NSSize(width: 40, height: 14))
+        let classicPair = MenuBarIconRenderer.sideBySideBatteryIcon(
+            leftPercent: 80, rightPercent: 50,
+            leftColor: .systemGreen, rightColor: .systemYellow, design: .classic)
+        XCTAssertEqual(classicPair.size, NSSize(width: 83, height: 14))
+        XCTAssertEqual(
+            MenuBarIconRenderer.concentricRingsIcon(
+                outerPercent: 80, innerPercent: 50,
+                outerColor: .systemGreen, innerColor: .systemGreen, design: .classic
+            ).size, NSSize(width: 22, height: 22))
+    }
+
+    func testModernMonochromeCutsOutGlyphsWithoutRemovingColoredText() throws {
+        for appearanceName in [NSAppearance.Name.aqua, .darkAqua] {
+            let appearance = try XCTUnwrap(NSAppearance(named: appearanceName))
+            var counts: [Int] = []
+            for monochrome in [false, true] {
+                var rendered: NSImage?
+                appearance.performAsCurrentDrawingAppearance {
+                    rendered = MenuBarIconRenderer.batteryIcon(
+                        percentage: 100, color: .labelColor, monochrome: monochrome)
+                }
+                let image = try XCTUnwrap(rendered)
+                let rep = try XCTUnwrap(
+                    NSBitmapImageRep(
+                        bitmapDataPlanes: nil, pixelsWide: 56, pixelsHigh: 26, bitsPerSample: 8,
+                        samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                        bytesPerRow: 0, bitsPerPixel: 0))
+                rep.size = image.size
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+                image.draw(in: NSRect(origin: .zero, size: image.size))
+                NSGraphicsContext.restoreGraphicsState()
+                var transparent = 0
+                for y in 5..<21 {
+                    for x in 9..<42 where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 1) < 0.2 {
+                        transparent += 1
+                    }
+                }
+                counts.append(transparent)
+            }
+            XCTAssertEqual(counts[0], 0)
+            if NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+                || NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+            {
+                XCTAssertEqual(counts[1], 0)
+            } else {
+                XCTAssertGreaterThan(counts[1], 20)
+            }
+        }
+    }
+
     private func render<V: View>(_ content: V) throws -> NSImage {
         let renderer = ImageRenderer(content: content)
         renderer.scale = 2

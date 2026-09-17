@@ -129,7 +129,10 @@ final class UpdateRuntimeState: ObservableObject {
 
     var currentVersionText: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?"
-        return "v\(version)"
+        return AppDistribution.current.versionLabel(
+            version: version,
+            build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
+            releaseVersion: Bundle.main.object(forInfoDictionaryKey: "ClaudeUsageReleaseVersion") as? String)
     }
 
     var showsPopoverButton: Bool {

@@ -49,7 +49,10 @@ extension PopoverViewModel {
             // (PopoverView.providerBodyContent의 분기와 같은 조건이어야 한다.)
             richAuthPanel: phase == .authRequired && service == .claude
         )
-        return LayoutResult(spec: spec, sections: sections)
+        let showsIntroduction =
+            phase == .content && isDesignIntroductionPresented
+            && settings.menuBarDesign == .classic
+        return LayoutResult(spec: showsIntroduction ? spec.includingDesignIntroduction() : spec, sections: sections)
     }
 
     private func standardBodyHeight(

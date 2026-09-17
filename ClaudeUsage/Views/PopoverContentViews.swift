@@ -295,7 +295,7 @@ struct PopoverDisplayItemsListView: View {
         guard let fromIndex = updated.firstIndex(where: { $0.id == id }) else { return }
         let targetIndex = fromIndex + offset
         guard updated.indices.contains(targetIndex) else { return }
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.15)) {
+        withAnimation(settings.motion.animation(for: .itemChanges, reduceMotion: reduceMotion)) {
             updated.swapAt(fromIndex, targetIndex)
             applyItems(updated, isCompact: isCompact)
         }
@@ -317,9 +317,7 @@ struct PopoverDisplayItemsListView: View {
             return
         }
         withAnimation(
-            reduceMotion
-                ? nil
-                : .easeInOut(duration: 0.15)
+            settings.motion.animation(for: .itemChanges, reduceMotion: reduceMotion)
         ) {
             let item = updated.remove(
                 at: sourceIndex
@@ -343,8 +341,10 @@ struct PopoverDisplayItemsListView: View {
         ) else {
             return
         }
-        updated[index].visible.toggle()
-        applyItems(updated, isCompact: isCompact)
+        withAnimation(settings.motion.animation(for: .itemChanges, reduceMotion: reduceMotion)) {
+            updated[index].visible.toggle()
+            applyItems(updated, isCompact: isCompact)
+        }
     }
 }
 

@@ -3,24 +3,25 @@ import XCTest
 
 @MainActor
 final class AppSettingsTests: XCTestCase {
-    func testPopoverTransitionDefaultsPreserveLegacySettingsAndPersistSelection() throws {
+    func testMotionDefaultsPreserveLegacySettingsAndPersistSelection() throws {
         let suite = "AppSettingsTests.motion.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(true, forKey: "popoverCompact")
         defaults.set(true, forKey: "popoverPinned")
         let settings = AppSettings(defaults: defaults)
-        XCTAssertEqual(settings.popoverTransitionStyle, .instant)
+        XCTAssertEqual(settings.motion.mode, .instant)
         XCTAssertTrue(settings.popoverCompact)
         XCTAssertTrue(settings.popoverPinned)
-        settings.popoverTransitionStyle = .smooth
-        XCTAssertEqual(AppSettings(defaults: defaults).popoverTransitionStyle, .smooth)
+        settings.motion.mode = .smooth
+        XCTAssertEqual(AppSettings(defaults: defaults).motion.mode, .smooth)
         let snapshot = settings.createSnapshot()
-        settings.popoverTransitionStyle = .instant
+        settings.motion.mode = .instant
         settings.restore(from: snapshot)
-        XCTAssertEqual(settings.popoverTransitionStyle, .smooth)
+        XCTAssertEqual(settings.motion.mode, .smooth)
+        defaults.removeObject(forKey: "motionPreferences")
         defaults.set("unknown-future-value", forKey: "popoverTransitionStyle")
-        XCTAssertEqual(AppSettings(defaults: defaults).popoverTransitionStyle, .instant)
+        XCTAssertEqual(AppSettings(defaults: defaults).motion.mode, .instant)
     }
 
     func testRefreshIntervalNormalizationClampsInvalidValues() {
@@ -363,7 +364,7 @@ final class AppSettingsTests: XCTestCase {
 
     func testSettingsSidebarAlwaysShowsNavigationAndProviders() {
         let expected: [SettingsProviderPanel] = [
-            .common, .display, .notifications, .updates,
+            .welcome, .common, .display, .notifications, .updates,
             .claude, .codex, .antigravity,
         ]
         XCTAssertEqual(
@@ -421,9 +422,9 @@ final class AppSettingsTests: XCTestCase {
         ]
         legacyKeys.forEach { UserDefaults.standard.set("stale", forKey: $0) }
 
-        settings.popoverTransitionStyle = .smooth
+        settings.motion.mode = .smooth
         settings.resetToDefaults()
-        XCTAssertEqual(settings.popoverTransitionStyle, .instant)
+        XCTAssertEqual(settings.motion.mode, .instant)
 
         for key in legacyKeys {
             XCTAssertNil(UserDefaults.standard.object(forKey: key), key)
