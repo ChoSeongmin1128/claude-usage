@@ -676,26 +676,7 @@ extension SettingsView {
         selection: T,
         onChange: @escaping (T) -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
-            Text(title)
-                .font(AppDesign.Typography.subheadline)
-            ForEach(options.indices, id: \.self) { i in
-                Button {
-                    onChange(options[i].value)
-                } label: {
-                    HStack(spacing: AppDesign.Space.control) {
-                        Image(systemName: selection == options[i].value ? "largecircle.fill.circle" : "circle")
-                            .foregroundStyle(selection == options[i].value ? Color.accentColor : Color.secondary)
-                            .font(AppDesign.Typography.icon)
-                        Text(options[i].label)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(options[i].label)
-                .accessibilityValue(selection == options[i].value ? "선택됨" : "선택 안 됨")
-                .accessibilityAddTraits(selection == options[i].value ? .isSelected : [])
-            }
-        }
+        SettingsChoiceGroup(title: title, options: options, selection: selection, onChange: onChange)
     }
 
     func chip(title: String, value: String, color: Color) -> some View {

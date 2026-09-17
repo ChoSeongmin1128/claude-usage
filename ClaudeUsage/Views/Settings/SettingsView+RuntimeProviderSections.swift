@@ -127,39 +127,27 @@ extension SettingsView {
                     antigravityNoticeView(notice)
                 }
 
-                Picker("조회 대상", selection: antigravityUsageTargetSelection) {
-                    if state.usageTarget == .unselected {
-                        Text("조회 대상 선택").tag(AntigravityUsageTarget.unselected)
+                HStack(spacing: AppDesign.Space.row) {
+                    Picker("조회 대상", selection: antigravityUsageTargetSelection) {
+                        if state.usageTarget == .unselected {
+                            Text("조회 대상 선택").tag(AntigravityUsageTarget.unselected)
+                        }
+                        Text("AGY CLI").tag(AntigravityUsageTarget.cli)
+                        Text("Antigravity 독립 앱").tag(AntigravityUsageTarget.app)
                     }
-                    Text("AGY CLI").tag(AntigravityUsageTarget.cli)
-                    Text("Antigravity 독립 앱").tag(AntigravityUsageTarget.app)
+                    .pickerStyle(.menu)
+                    Spacer(minLength: AppDesign.Space.row)
+                    Button("새로고침") {
+                        Task { _ = await antigravitySettings.refresh() }
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .pickerStyle(.menu)
                 .controlSize(.small)
                 .disabled(state.activity.isBusy)
 
-                Text("로그인은 선택한 제품에서 변경해 주세요. 새로고침하면 해당 제품에서 확인한 계정과 사용량을 함께 갱신합니다.")
+                Text("로그인은 선택한 제품에서 변경한 뒤 새로고침해 주세요. Antigravity IDE는 아직 지원하지 않습니다.")
                     .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
-                Text("Antigravity IDE는 아직 지원하지 않습니다.")
-                    .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
-
-                HStack(spacing: AppDesign.Space.row) {
-                    Button("새로고침") {
-                        Task {
-                            _ = await
-                                antigravitySettings
-                                .refresh()
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .disabled(
-                        state.activity.isBusy
-                    )
-
-                }
 
                 DisclosureGroup("고급 진단") {
                     VStack(

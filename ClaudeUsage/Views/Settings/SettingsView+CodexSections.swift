@@ -19,15 +19,21 @@ extension SettingsView {
             )
 
             if settings.isProviderEnabled(.codex) {
-                codexStatusCard
-                codexActionCard
-
-                HStack(spacing: AppDesign.Space.row) {
-                    Button("다시 확인") {
-                        checkCodexAuth()
+                VStack(alignment: .leading, spacing: AppDesign.Space.row) {
+                    HStack {
+                        Text(codexStatusBadgeTitle)
+                            .font(AppDesign.Typography.subheadline.weight(.semibold))
+                            .foregroundStyle(codexStatusTone)
+                        Spacer()
+                        if codexAuthStatus == .checking { ProgressView().controlSize(.small) }
+                        Button("다시 확인") { checkCodexAuth() }
+                            .controlSize(.small).disabled(codexAuthStatus == .checking)
                     }
-                    .buttonStyle(.bordered)
+                    Text(codexStatusTitle).font(AppDesign.Typography.subheadline)
+                    codexActionCard
                 }
+                .padding(AppDesign.Space.content)
+                .appPanelStyle()
             }
         }
     }
@@ -65,30 +71,6 @@ extension SettingsView {
         codexPresentation.actionDetail
     }
 
-    private var codexStatusCard: some View {
-        VStack(alignment: .leading, spacing: AppDesign.Space.label) {
-            HStack(spacing: AppDesign.Space.control) {
-                Text(codexStatusBadgeTitle)
-                    .font(AppDesign.Typography.caption2.weight(.semibold))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(codexStatusTone.opacity(0.16))
-                    .foregroundStyle(codexStatusTone)
-                    .cornerRadius(AppDesign.Radius.control)
-                Spacer(minLength: 0)
-                if codexAuthStatus == .checking {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-            }
-
-            Text(codexStatusTitle)
-                .font(AppDesign.Typography.subheadline.weight(.semibold))
-        }
-        .padding(AppDesign.Space.content)
-        .appPanelStyle()
-    }
-
     private var codexActionCard: some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.control) {
             Text(codexActionTitle)
@@ -117,8 +99,7 @@ extension SettingsView {
                 .padding(.top, AppDesign.Space.tight)
             }
         }
-        .padding(AppDesign.Space.content)
-        .appPanelStyle()
+
     }
 
     private func copyCodexCommand(_ command: String) {

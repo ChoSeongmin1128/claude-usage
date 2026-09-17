@@ -70,6 +70,7 @@ enum AppDesign {
     }
 
     enum Control {
+        static let disclosureRowHeight: CGFloat = 32
         static let selectionStrokeWidth: CGFloat = 1.5
         static let compactHitSize: CGFloat = 22
         static let regularHitSize: CGFloat = 26

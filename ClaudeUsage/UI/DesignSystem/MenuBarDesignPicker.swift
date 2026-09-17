@@ -9,32 +9,47 @@ struct MenuBarDesignPicker: View {
             Text("메뉴바 디자인").font(AppDesign.Typography.headline)
             Text("예시 미리보기입니다. 디자인을 바꿔도 색상·표시 항목·사용량 기준은 유지됩니다.")
                 .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
-            ForEach(MenuBarDesign.allCases, id: \.rawValue) { design in
-                Button {
-                    settings.menuBarDesign = design
-                } label: {
-                    VStack(alignment: .leading, spacing: AppDesign.Space.row) {
-                        HStack {
-                            Text(design.title).font(AppDesign.Typography.subheadline.weight(.semibold))
-                            Spacer()
-                            if settings.menuBarDesign == design {
-                                Label("사용 중", systemImage: "checkmark.circle.fill")
-                                    .font(AppDesign.Typography.caption).foregroundStyle(Color.accentColor)
-                            }
-                        }
-                        MenuBarDesignPreview(design: design, colorMode: settings.menuBarColorMode)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: AppDesign.Space.row) {
+                    ForEach(MenuBarDesign.allCases, id: \.rawValue) { design in
+                        choice(design)
                     }
-                    .padding(AppDesign.Space.content)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(settings.menuBarDesign == design ? Color.accentColor.opacity(0.08) : Color.clear)
-                    .appPanelStyle()
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("\(design.title) 메뉴바 디자인")
-                .accessibilityValue(settings.menuBarDesign == design ? "선택됨" : "선택 안 됨")
+                VStack(spacing: AppDesign.Space.row) {
+                    ForEach(MenuBarDesign.allCases, id: \.rawValue) { design in
+                        choice(design)
+                    }
+                }
             }
         }
     }
+
+    private func choice(_ design: MenuBarDesign) -> some View {
+        Button {
+            settings.menuBarDesign = design
+        } label: {
+            VStack(alignment: .leading, spacing: AppDesign.Space.row) {
+                HStack {
+                    Text(design.title).font(AppDesign.Typography.subheadline.weight(.semibold))
+                    Spacer(minLength: AppDesign.Space.row)
+                    Label("사용 중", systemImage: "checkmark.circle.fill")
+                        .font(AppDesign.Typography.caption).foregroundStyle(Color.accentColor)
+                        .opacity(settings.menuBarDesign == design ? 1 : 0)
+                        .accessibilityHidden(settings.menuBarDesign != design)
+                }
+                MenuBarDesignPreview(design: design, colorMode: settings.menuBarColorMode)
+                    .fixedSize(horizontal: true, vertical: true)
+            }
+            .padding(AppDesign.Space.content)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(settings.menuBarDesign == design ? Color.accentColor.opacity(0.08) : Color.clear)
+            .appPanelStyle()
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(design.title) 메뉴바 디자인")
+        .accessibilityValue(settings.menuBarDesign == design ? "선택됨" : "선택 안 됨")
+    }
+
 }
 
 struct MenuBarDesignPreview: View {

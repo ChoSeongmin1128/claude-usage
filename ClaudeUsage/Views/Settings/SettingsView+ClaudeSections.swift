@@ -69,69 +69,36 @@ extension SettingsView {
                     organizations: organizations
                 )
 
-                sectionCardHeader(
-                    title: "Claude 연결됨",
-                    subtitle: "현재 계정의 사용량만 조회합니다"
-                )
-
-                HStack(alignment: .top, spacing: AppDesign.Space.label) {
+                HStack(spacing: AppDesign.Space.row) {
                     Image(systemName: presentation.systemImage)
                         .foregroundStyle(Color.accentColor)
-                        .frame(width: 18)
-
-                    VStack(alignment: .leading, spacing: AppDesign.Space.control) {
-                        HStack(spacing: AppDesign.Space.control) {
-                            Text(presentation.primaryTitle)
-                                .font(AppDesign.Typography.headline)
-                                .lineLimit(1)
-                            chip(title: "", value: presentation.statusText, color: color(for: presentation.statusTone))
-                        }
-
-                        if let secondaryLine = presentation.secondaryLine {
-                            Text(secondaryLine)
-                                .font(AppDesign.Typography.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
+                    VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
+                        Text(presentation.primaryTitle)
+                            .font(AppDesign.Typography.subheadline.weight(.semibold))
+                            .lineLimit(1).truncationMode(.middle)
+                            .help(presentation.primaryTitle)
+                        Text(
+                            [presentation.sourceLabel, presentation.secondaryLine].compactMap { $0 }.joined(
+                                separator: " · ")
+                        )
+                        .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                        .lineLimit(1)
                     }
-
-                    Spacer(minLength: 8)
+                    Spacer(minLength: AppDesign.Space.row)
+                    Text(presentation.statusText)
+                        .font(AppDesign.Typography.caption)
+                        .foregroundStyle(presentation.statusTone.color)
+                    Button("새로고침") { refreshClaudeUsageFromSettings() }
+                        .buttonStyle(.bordered).controlSize(.small)
                 }
 
-                HStack(spacing: AppDesign.Space.row) {
-                    Button("사용량 새로고침") {
-                        refreshClaudeUsageFromSettings()
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    if account.kind == .claudeCodeExternal,
-                       !claudeOAuthMigrationState.replacesStandardClaudeCodeReconnectAction {
-                        Button("Claude Code 다시 연결") {
-                            onReconnectClaudeCode?()
-                        }
-                        .buttonStyle(.bordered)
+                if account.kind == .webSession {
+                    Button("조직 변경") { revealOrganizationControls() }
+                        .controlSize(.small)
+                } else if !claudeOAuthMigrationState.replacesStandardClaudeCodeReconnectAction {
+                    Button("Claude Code 다시 연결") { onReconnectClaudeCode?() }
+                        .controlSize(.small)
                         .help("터미널에서 Claude Code 계정을 바꿨다면 새 인증을 다시 가져옵니다")
-                    }
-
-                    if shouldShowClaudeAccountManagementSection {
-                        // 「계정 변경」 은 별도 버튼이 아니라 「계정 관리」 펼침 안의
-                        // 각 계정 행에서 직접 [사용] 버튼으로 처리한다 (Hick's Law).
-                        Button(isClaudeAccountManagementExpanded ? "계정 관리 닫기" : "계정 관리") {
-                            withAnimation(settings.motion.animation(for: .disclosure, reduceMotion: reduceMotion)) {
-                                isClaudeAccountManagementExpanded.toggle()
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                    }
-
-                    if account.kind == .webSession {
-                        Button("조직 변경") {
-                            revealOrganizationControls()
-                        }
-                        .buttonStyle(.bordered)
-                    }
-
-                    Spacer(minLength: 0)
                 }
 
                 accountMessageView
@@ -224,6 +191,7 @@ extension SettingsView {
         } content: {
             VStack(alignment: .leading, spacing: AppDesign.Space.label) {
                 connectedClaudeAccountsCard
+                Divider()
                 accountAddCard
                 advancedClaudeDiagnosticsSection
             }
@@ -234,134 +202,35 @@ extension SettingsView {
     }
 
     private var connectedClaudeAccountsCard: some View {
-        VStack(alignment: .leading, spacing: AppDesign.Space.label) {
-            sectionCardHeader(
-                title: "연결된 계정",
-                subtitle: "사용할 계정을 선택하거나 상세 정보·삭제·재로그인을 진행합니다"
-            )
-
-            if claudeAccounts.isEmpty {
-                Text("연결된 계정이 없습니다.")
-                    .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(spacing: AppDesign.Space.row) {
-                    ForEach(claudeAccounts) { account in
-                        claudeAccountRow(account)
-                    }
+        VStack(spacing: AppDesign.Space.compact) {
+            ForEach(claudeAccounts) { account in
+                ClaudeAccountSettingsRow(
+                    presentation: .resolve(
+                        account: account, isActive: account.id == activeClaudeAccountID,
+                        organizations: organizations),
+                    isActive: account.id == activeClaudeAccountID
+                ) { action in
+                    handleClaudeAccountAction(action, account: account)
                 }
             }
         }
-        .padding(AppDesign.Space.content)
-        .appPanelStyle()
-    }
-
-    private func claudeAccountRow(_ account: ClaudeAccount) -> some View {
-        let isActive = account.id == activeClaudeAccountID
-        let presentation = ClaudeAccountSettingsPresentation.resolve(
-            account: account,
-            isActive: isActive,
-            organizations: organizations
-        )
-        let managementActions = presentation.managementActions
-        return VStack(alignment: .leading, spacing: AppDesign.Space.row) {
-            HStack(alignment: .center, spacing: AppDesign.Space.content) {
-                Image(systemName: presentation.systemImage)
-                    .foregroundStyle(isActive ? Color.accentColor : .secondary)
-                    .frame(width: 18)
-
-                VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
-                    Text(presentation.primaryTitle)
-                        .font(AppDesign.Typography.subheadline.weight(.semibold))
-                        .lineLimit(1)
-
-                    if let secondaryLine = presentation.secondaryLine {
-                        Text(secondaryLine)
-                            .font(AppDesign.Typography.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-
-                Spacer(minLength: 8)
-
-                chip(title: "", value: presentation.statusText, color: color(for: presentation.statusTone))
-
-                if isActive {
-                    chip(title: "", value: "현재 사용 중", color: .green)
-                } else if let switchAction = presentation.switchAction {
-                    // 별도 「계정 변경」 디스클로저 없이 같은 행에서 한 번에 활성화. (Hick's Law)
-                    Button(switchAction.title) {
-                        handleClaudeAccountAction(switchAction, account: account)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                }
-            }
-
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: AppDesign.Space.control) {
-                    ForEach(presentation.detailRows, id: \.self) { row in
-                        accountDetailRow(row)
-                    }
-
-                    if !managementActions.isEmpty {
-                        HStack(spacing: AppDesign.Space.row) {
-                            ForEach(managementActions, id: \.self) { action in
-                                Button(action.title) {
-                                    handleClaudeAccountAction(action, account: account)
-                                }
-                                .controlSize(.small)
-                            }
-                        }
-                        .padding(.top, AppDesign.Space.tight)
-                    }
-                }
-                .padding(.top, AppDesign.Space.compact)
-            } label: {
-                Text("상세")
-                    .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(AppDesign.Space.label)
-        .background(isActive ? Color.accentColor.opacity(0.08) : Color(NSColor.windowBackgroundColor).opacity(0.35))
-        .cornerRadius(AppDesign.Radius.group)
-    }
-
-    private func accountDetailRow(_ row: ClaudeAccountSettingsDetailRow) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.row) {
-            Text(row.title)
-                .foregroundStyle(.secondary)
-                .frame(width: 72, alignment: .leading)
-            Text(row.value)
-                .textSelection(.enabled)
-            Spacer(minLength: 0)
-        }
-        .font(AppDesign.Typography.caption)
     }
 
     private var accountAddCard: some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.label) {
-            sectionCardHeader(
-                title: "계정 추가",
-                subtitle: "새 Claude 계정을 연결하거나 마지막 수단으로 직접 입력합니다"
-            )
-
             HStack(spacing: AppDesign.Space.row) {
+                Text("계정 추가").font(AppDesign.Typography.subheadline)
                 Button(action: { onImportClaudeFromChrome?() }) {
                     Label("Chrome에서 가져오기", systemImage: "globe")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button(action: { onOpenLogin?() }) {
-                    Label("앱에서 로그인", systemImage: "person.crop.circle")
-                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
 
-                Button("고급: 직접 입력") {
+                Button(action: { onOpenLogin?() }) {
+                    Label("앱에서 로그인", systemImage: "person.crop.circle")
+                }
+                .buttonStyle(.bordered)
+
+                Button("직접 입력") {
                     withAnimation(settings.motion.animation(for: .disclosure, reduceMotion: reduceMotion)) {
                         isAdvancedAuthExpanded.toggle()
                     }
@@ -395,8 +264,7 @@ extension SettingsView {
                 }
             }
         }
-        .padding(AppDesign.Space.content)
-        .appPanelStyle()
+        .controlSize(.small)
     }
 
     private var advancedClaudeDiagnosticsSection: some View {
@@ -434,9 +302,6 @@ extension SettingsView {
             Text("고급 진단")
                 .font(AppDesign.Typography.subheadline)
         }
-        .padding(AppDesign.Space.content)
-        .background(AppDesign.Surface.subtleGroup)
-        .cornerRadius(AppDesign.Radius.group)
     }
 
     private func handleClaudeAccountAction(_ action: ClaudeAccountSettingsAction, account: ClaudeAccount) {
@@ -447,17 +312,6 @@ extension SettingsView {
             pendingDestructiveAction = .deleteClaudeAccount(account)
         case .showClaudeCodeLoginGuidance:
             showClaudeCodeLoginGuidance()
-        }
-    }
-
-    private func color(for tone: ClaudeAccountStatusTone) -> Color {
-        switch tone {
-        case .neutral:
-            return .secondary
-        case .success:
-            return .green
-        case .warning:
-            return .orange
         }
     }
 
@@ -525,20 +379,7 @@ extension SettingsView {
             }
             .padding(.top, AppDesign.Space.compact)
         } label: {
-            Button {
-                withAnimation(settings.motion.animation(for: .disclosure, reduceMotion: reduceMotion)) {
-                    isAdvancedAuthExpanded.toggle()
-                }
-            } label: {
-                HStack {
-                    Text("수동 입력 (마지막 수단)")
-                    Spacer(minLength: 0)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .padding(.vertical, AppDesign.Space.compact)
-            }
-            .buttonStyle(.plain)
+            Text("수동 입력 (마지막 수단)")
         }
         .font(AppDesign.Typography.subheadline)
     }

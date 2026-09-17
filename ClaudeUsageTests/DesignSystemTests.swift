@@ -344,6 +344,86 @@ final class DesignSystemTests: XCTestCase {
         }
     }
 
+    func testSettingsChoicesAdaptToAvailableWidthWithoutShrinkingLabels() throws {
+        try withSettings { settings in
+            for width in [CGFloat(420), 580, 760] {
+                let view = VStack(alignment: .leading, spacing: AppDesign.Space.content) {
+                    MenuBarDesignPicker(settings: settings)
+                    SettingsChoiceGroup(
+                        title: "메뉴바 색상",
+                        options: MenuBarColorMode.allCases.map { ($0, $0.displayName) },
+                        selection: settings.menuBarColorMode, onChange: { _ in })
+                }.padding(12).frame(width: width).background(Color(nsColor: .windowBackgroundColor))
+                let image = try renderHosted(view, appearance: .darkAqua)
+                XCTAssertEqual(image.size.width, width, accuracy: 1)
+                attach(image, "Adaptive settings width \(Int(width))")
+            }
+            let longLabels = SettingsChoiceGroup(
+                title: "설명과 선택 항목이 긴 경우",
+                options: [
+                    (1, "이 선택은 긴 설명을 포함하며 줄바꿈 뒤에도 끝까지 읽을 수 있어야 합니다"),
+                    (2, "두 번째 긴 선택 항목도 글자를 줄이지 않고 세로로 배치합니다"),
+                ],
+                selection: 1, onChange: { _ in }
+            )
+            .font(.title3).padding(12).frame(width: 300).background(Color(nsColor: .windowBackgroundColor))
+            let image = try renderHosted(longLabels, appearance: .aqua)
+            XCTAssertEqual(image.size.width, 300, accuracy: 1)
+            attach(image, "Long settings choices vertical fallback")
+        }
+    }
+
+    func testCompactAccountRowsAndMotionExamplesGallery() throws {
+        let accounts = [
+            ClaudeAccount(
+                id: "web-fixture", kind: .webSession, displayName: "Chrome Work",
+                identity: .init(email: "work@example.com", organizationName: "Work", organizationID: "org-work"),
+                source: .chromeProfile, sourceDetail: "Work (Profile 1)", lastValidationState: .verified),
+            ClaudeAccount(
+                id: "cli-fixture", kind: .claudeCodeExternal, displayName: "Claude Code",
+                identity: .init(email: "personal@example.com", organizationName: "Personal"),
+                source: .claudeCodeCLI, lastValidationState: .detected),
+        ]
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            let rows = VStack(spacing: AppDesign.Space.row) {
+                ForEach(accounts) { account in
+                    ClaudeAccountSettingsRow(
+                        presentation: .resolve(account: account, isActive: account.id == "web-fixture"),
+                        isActive: account.id == "web-fixture", onAction: { _ in })
+                }
+            }.padding(12).frame(width: 580).background(Color(nsColor: .windowBackgroundColor))
+            attach(try renderHosted(rows, appearance: appearance), "Compact account list \(appearance.rawValue)")
+        }
+        for category in AppMotionCategory.allCases {
+            attach(
+                try renderHosted(AppMotionComparisonView(category: category).frame(width: 500), appearance: .aqua),
+                "Motion comparison \(category.rawValue)")
+        }
+    }
+
+    func testMonochromeBatteryOnColoredBackgrounds() throws {
+        for appearanceName in [NSAppearance.Name.aqua, .darkAqua] {
+            let appearance = try XCTUnwrap(NSAppearance(named: appearanceName))
+            var battery: NSImage?
+            appearance.performAsCurrentDrawingAppearance {
+                battery = MenuBarIconRenderer.batteryIcon(percentage: 80, color: .labelColor, monochrome: true)
+            }
+            let image = try XCTUnwrap(battery)
+            let backgrounds: [Color] = [
+                .white, .black, Color(red: 0.64, green: 0.9, blue: 0.98), Color(red: 0.9, green: 0.74, blue: 0.61),
+            ]
+            let gallery = VStack(spacing: 0) {
+                ForEach(backgrounds.indices, id: \.self) { index in
+                    HStack(spacing: 20) {
+                        Image(nsImage: image)
+                        Image(nsImage: image).scaleEffect(3).frame(width: 100, height: 50)
+                    }.padding(12).frame(width: 220).background(backgrounds[index])
+                }
+            }
+            attach(try render(gallery), "Monochrome background comparison \(appearanceName.rawValue)")
+        }
+    }
+
     private func render<V: View>(_ content: V) throws -> NSImage {
         let renderer = ImageRenderer(content: content)
         renderer.scale = 2

@@ -17,7 +17,7 @@ extension SettingsView {
 
                 VStack(spacing: 0) {
                     ScrollView {
-                        VStack(alignment: .leading, spacing: AppDesign.Space.window) {
+                        VStack(alignment: .leading, spacing: AppDesign.Space.section) {
                             panelContent
                         }
                         .padding(AppDesign.Space.window)
