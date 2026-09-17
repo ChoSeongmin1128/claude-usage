@@ -1,488 +1,136 @@
-//
-//  NotificationManager.swift
-//  ClaudeUsage
-//
-//  Phase 4: macOS 알림 관리 (5시간/주간 세션 별도 추적)
-//
-
+import Combine
 import Foundation
 
-enum SessionType: String {
-    case fiveHour
-    case weekly
-    case codexPrimary
-    case codexSecondary
-    case antigravityPrimary
-    case antigravitySecondary
-    case antigravityTertiary
-
-    var displayName: String {
-        switch self {
-        case .fiveHour, .codexPrimary:
-            return "현재 세션"
-        case .weekly:
-            return "주간"
-        case .codexSecondary:
-            return "주간 세션"
-        case .antigravityPrimary:
-            return "Gemini Pro lane"
-        case .antigravitySecondary:
-            return "Gemini Flash lane"
-        case .antigravityTertiary:
-            return "Claude lane"
-        }
-    }
-
-    var providerName: String {
-        switch self {
-        case .fiveHour, .weekly:
-            return "Claude"
-        case .codexPrimary, .codexSecondary:
-            return "Codex"
-        case .antigravityPrimary, .antigravitySecondary, .antigravityTertiary:
-            return "Antigravity"
-        }
-    }
-}
-
-final class NotificationManager {
+@MainActor
+final class NotificationManager: ObservableObject {
     static let shared = NotificationManager()
-
-    private enum ThresholdPresentationMode {
-        case used
-        case remaining
-    }
-
-    private var trackers: [SessionType: SessionTracker] = [
-        .fiveHour: SessionTracker(),
-        .weekly: SessionTracker(),
-        .codexPrimary: SessionTracker(),
-        .codexSecondary: SessionTracker(),
-    ]
-    private var antigravityTrackers:
-        [AntigravityQuotaLaneID: SessionTracker] = [:]
-    private var codexAccountBoundary: String?
-    private var hasAntigravityAccountBoundary = false
-    private var antigravityAccountBoundary:
-        AntigravityNotificationAccountBoundary?
-
+    @Published private(set) var inventories: [PopoverService: [UsageLimit]] = [:]
+    private var owners: [PopoverService: String] = [:]
+    private var trackers: [String: Tracker] = [:]
+    private let settings: AppSettings
     private let deliverer: NotificationDelivering
 
-    init(deliverer: NotificationDelivering = UserNotificationDeliverer()) {
+    init(deliverer: NotificationDelivering = UserNotificationDeliverer(), settings: AppSettings = .shared) {
         self.deliverer = deliverer
+        self.settings = settings
     }
 
-    // MARK: - Permission
+    func requestPermission() { deliverer.requestPermission() }
 
-    func requestPermission() {
-        deliverer.requestPermission()
+    func updateAccountBoundary(_ provider: PopoverService, accountID: String?) {
+        let trimmed = accountID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalized = trimmed?.isEmpty == false ? trimmed : nil
+        guard owners[provider] != normalized else { return }
+        owners[provider] = normalized
+        inventories[provider] = []
+        trackers = trackers.filter { $0.value.provider != provider }
     }
 
-    // MARK: - Threshold Check
-
-    func updateCodexAccountBoundary(_ accountID: String?) {
-        guard codexAccountBoundary != accountID else { return }
-        trackers[.codexPrimary] = SessionTracker()
-        trackers[.codexSecondary] = SessionTracker()
-        codexAccountBoundary = accountID
-    }
-
-    func checkThreshold(
-        session: SessionType,
-        percentage: Double,
-        resetAt: String?,
-        claudePolicy: ClaudeNotificationPolicy? = nil
-    ) {
-        let settings = AppSettings.shared
-
-        guard settings.notificationsEnabled else { return }
-
-        // 해당 세션 알림이 꺼져 있으면 무시
-        switch session {
-        case .fiveHour:
-            guard settings.claudeAlertEnabled, settings.alertFiveHourEnabled else { return }
-        case .weekly:
-            guard settings.claudeAlertEnabled, settings.alertWeeklyEnabled else { return }
-        case .codexPrimary, .codexSecondary:
-            guard settings.codexAlertEnabled else { return }
-        case .antigravityPrimary, .antigravitySecondary, .antigravityTertiary:
-            // Stage 8 callers use `checkAntigravityThresholds(snapshot:)`.
-            // Keep these cases temporarily so the Stage 9 call-site cutover
-            // can remove the legacy enum and calls atomically.
-            return
-        }
-
-        guard let tracker = trackers[session] else { return }
-        let thresholds: [Int] = {
-            switch session {
-            case .codexPrimary, .codexSecondary:
-                return settings.enabledCodexAlertThresholds
-            case .fiveHour, .weekly:
-                return settings.enabledAlertThresholds
-            case .antigravityPrimary, .antigravitySecondary, .antigravityTertiary:
-                return []
-            }
-        }()
-        let normalizedClaudePolicy = claudePolicy?.isFreshEnoughForNotifications == true ? claudePolicy : nil
-        let serviceName = session.providerName
-        let thresholdMode: ThresholdPresentationMode =
-            settings.notificationValueBasis == .remaining ? .remaining : .used
-        let effectiveThresholds = thresholds.filter {
-            !shouldSuppressThreshold(
-                $0,
-                session: session,
-                claudePolicy: normalizedClaudePolicy
-            )
-        }
-        let decision = UsageWindowAlertPolicy.evaluate(
-            previousPercentage: tracker.lastPercentage,
-            currentPercentage: percentage,
-            resetAt: resetAt,
-            thresholds: effectiveThresholds,
-            alertedThresholds: tracker.alertedThresholds,
-            isFirstCheck: tracker.isFirstCheck
-        )
-
-        if tracker.isFirstCheck {
-            Logger.info("\(session.displayName) 첫 실행 기록: \(Int(percentage))%")
-        } else if resetAt != tracker.lastResetAt {
-            Logger.debug(
-                "\(session.displayName) 갱신 예상 시각 변경: \(tracker.lastResetAt ?? "nil") -> \(resetAt ?? "nil")"
-            )
-        }
-
-        tracker.isFirstCheck = false
-        tracker.lastPercentage = percentage
-        tracker.lastResetAt = resetAt
-        tracker.alertedThresholds = decision.alertedThresholds
-
-        if let threshold = decision.thresholdToAlert {
-            let title = thresholdAlertTitle(
-                serviceName: serviceName,
-                threshold: threshold,
-                presentationMode: thresholdMode)
-            let guidanceSuffix = (session == .fiveHour || session == .weekly)
-                ? normalizedClaudePolicy?.guidanceSuffix(
-                    threshold: threshold,
-                    alertRemainingMode: settings.notificationValueBasis == .remaining)
-                : nil
-            let body = thresholdAlertBody(
-                session: session,
-                threshold: threshold,
-                presentationMode: thresholdMode,
-                guidanceSuffix: guidanceSuffix)
-            sendNotification(title: title, body: body)
-        }
-    }
-
-    /// Evaluates every currently available Antigravity quota lane as one
-    /// refresh transaction and emits at most one aggregate notification.
-    ///
-    /// Lane state is keyed by the stable upstream-derived lane identifier,
-    /// never by presentation order. Selected OAuth refreshes use the canonical
-    /// repository account as their boundary, while ambient local refreshes use
-    /// the identity observed from that local session. An unidentifiable local
-    /// session cannot safely inherit another account's notification history.
-    func checkAntigravityThresholds(
-        snapshot: AntigravityRuntimeSnapshot
-    ) {
-        guard
-            let accountBoundary =
-                antigravityNotificationAccountBoundary(
-                    for: snapshot
-                )
-        else {
-            resetAntigravityAccountBoundary()
-            return
-        }
-        updateAntigravityAccountBoundary(accountBoundary)
-
-        let settings = AppSettings.shared
-        guard settings.notificationsEnabled else { return }
-        guard
-            snapshot.settings?.display.notifications.isEnabled == true
-        else {
-            return
-        }
-        guard case let .content(presentation) =
-            snapshot.quotaPresentation
-        else {
-            return
-        }
-
-        let lanes = availableAntigravityLanes(in: presentation)
-        let availableLaneIDs = Set(lanes.map(\.id))
-        antigravityTrackers = antigravityTrackers.filter {
-            availableLaneIDs.contains($0.key)
-        }
-
-        let thresholds = settings.enabledAlertThresholds
-        let presentationMode: ThresholdPresentationMode =
-            settings.notificationValueBasis == .remaining ? .remaining : .used
-        var crossings: [AntigravityThresholdCrossing] = []
-
-        for lane in lanes {
-            guard case let .available(usedPercentage, _) = lane.value else {
-                continue
-            }
-
-            let tracker = antigravityTrackers[lane.id]
-                ?? SessionTracker()
-            let decision = UsageWindowAlertPolicy.evaluate(
-                previousPercentage: tracker.lastPercentage,
-                currentPercentage: usedPercentage,
-                resetAt: nil,
-                thresholds: thresholds,
-                alertedThresholds: tracker.alertedThresholds,
-                isFirstCheck: tracker.isFirstCheck
-            )
-
-            tracker.isFirstCheck = false
-            tracker.lastPercentage = usedPercentage
-            tracker.alertedThresholds = decision.alertedThresholds
-            antigravityTrackers[lane.id] = tracker
-
-            if let threshold = decision.thresholdToAlert {
-                crossings.append(
-                    AntigravityThresholdCrossing(
-                        laneLabel: lane.compactLabel,
-                        threshold: threshold
-                    )
-                )
+    func checkClaude(_ usage: ClaudeUsageResponse, accountID: String?, policy: ClaudeNotificationPolicy?) {
+        check(
+            provider: .claude, accountID: accountID, limits: UsageLimitCatalog.claude(usage),
+            isEnabled: settings.claudeAlertEnabled, policy: policy
+        ) { limit in
+            switch limit.legacyKey {
+            case "fiveHour": return self.settings.alertFiveHourEnabled
+            case "weekly": return self.settings.alertWeeklyEnabled
+            default: return false
             }
         }
-
-        guard
-            let highestThreshold = crossings.map(\.threshold).max()
-        else {
-            return
-        }
-
-        sendNotification(
-            title: thresholdAlertTitle(
-                serviceName: "Antigravity",
-                threshold: highestThreshold,
-                presentationMode: presentationMode
-            ),
-            body: antigravityAggregateBody(
-                crossings: crossings,
-                presentationMode: presentationMode
-            )
-        )
     }
 
-    // MARK: - Private
-
-    private final class SessionTracker {
-        var alertedThresholds: Set<Int> = []
-        var lastPercentage: Double?
-        var lastResetAt: String?
-        var isFirstCheck = true
+    func checkCodex(_ usage: CodexUsageResponse, accountID: String?) {
+        check(
+            provider: .codex, accountID: accountID, limits: UsageLimitCatalog.codex(usage),
+            isEnabled: settings.codexAlertEnabled
+        ) { $0.legacyKey == "base" }
     }
 
-    private struct AntigravityThresholdCrossing {
-        let laneLabel: String
-        let threshold: Int
-    }
-
-    private enum AntigravityNotificationAccountBoundary:
-        Equatable
-    {
-        case selectedOAuth(AntigravityAccountID)
-        case ambientLocal(
-            stableAccountID: String?,
-            normalizedEmail: String?
-        )
-    }
-
-    private func updateAntigravityAccountBoundary(
-        _ boundary: AntigravityNotificationAccountBoundary
-    ) {
-        guard
-            !hasAntigravityAccountBoundary
-                || antigravityAccountBoundary != boundary
-        else {
-            return
-        }
-
-        antigravityTrackers.removeAll()
-        antigravityAccountBoundary = boundary
-        hasAntigravityAccountBoundary = true
-    }
-
-    private func resetAntigravityAccountBoundary() {
-        antigravityTrackers.removeAll()
-        antigravityAccountBoundary = nil
-        hasAntigravityAccountBoundary = false
-    }
-
-    private func antigravityNotificationAccountBoundary(
-        for snapshot: AntigravityRuntimeSnapshot
-    ) -> AntigravityNotificationAccountBoundary? {
-        guard snapshot.settings != nil else {
-            return nil
-        }
-
-        if let accountID = snapshot.activeAccountID {
-            return .selectedOAuth(accountID)
-        }
-
-        guard
-            let identity =
-                antigravityObservedIdentity(
-                    from: snapshot.presentationState
-                )
-        else {
-            return nil
-        }
-        let stableAccountID = normalizedIdentityValue(
-            identity.stableAccountID
-        )
-        let normalizedEmail = normalizedIdentityValue(
-            identity.email
-        )?.lowercased()
-        guard stableAccountID != nil || normalizedEmail != nil else {
-            return nil
-        }
-        return .ambientLocal(
-            stableAccountID: stableAccountID,
-            normalizedEmail: normalizedEmail
-        )
-    }
-
-    private func antigravityObservedIdentity(
-        from state: AntigravityPresentationState
-    ) -> ProviderAccountIdentity? {
-        let snapshot: AntigravityQuotaSnapshot?
-        switch state {
-        case .ready(let current),
-             .partial(let current, _),
-             .stale(let current, _):
-            snapshot = current
+    func checkAntigravityThresholds(snapshot: AntigravityRuntimeSnapshot) {
+        let quota: AntigravityQuotaSnapshot
+        // Display-only, stale or in-flight snapshots must not emit new alerts.
+        switch snapshot.presentationState {
+        case .ready(let current), .partial(let current, _): quota = current
         case .refreshing(let previous):
-            snapshot = previous
-        case .disabled,
-             .setupRequired,
-             .accountMismatch,
-             .limited,
-             .identityOnly,
-             .failed:
-            snapshot = nil
+            if previous == nil { updateAccountBoundary(.antigravity, accountID: nil) }
+            return
+        case .stale: return
+        default: updateAccountBoundary(.antigravity, accountID: nil); return
         }
-        return snapshot?.identity
-            ?? snapshot?.provenance.accountIdentity
+        guard let display = snapshot.settings?.display else { return }
+        let identity = quota.identity ?? quota.provenance.accountIdentity
+        let parts = [snapshot.activeAccountID?.rawValue, identity?.stableAccountID, identity?.email?.lowercased()]
+            .map { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.compactMap { $0 }.filter { !$0.isEmpty }
+        let owner = parts.isEmpty ? nil : String(data: (try? JSONEncoder().encode(parts)) ?? Data(), encoding: .utf8)
+        check(
+            provider: .antigravity, accountID: owner, limits: UsageLimitCatalog.antigravity(quota),
+            isEnabled: display.notifications.isEnabled
+        ) { limit in
+            guard let raw = limit.legacyKey else { return false }
+            return !display.standard.hiddenLaneIDs.contains(AntigravityQuotaLaneID(rawValue: raw))
+        }
     }
 
-    private func normalizedIdentityValue(
-        _ value: String?
-    ) -> String? {
-        guard
-            let normalized = value?
-                .trimmingCharacters(
-                    in: .whitespacesAndNewlines
-                ),
-            !normalized.isEmpty
-        else {
-            return nil
-        }
-        return normalized
-    }
-
-    private func availableAntigravityLanes(
-        in presentation: AntigravityQuotaPresentation
-    ) -> [AntigravityQuotaLanePresentation] {
-        var seenLaneIDs: Set<AntigravityQuotaLaneID> = []
-
-        return presentation.groups
-            .flatMap(\.lanes)
-            .filter { lane in
-                guard case .available = lane.value else { return false }
-                return seenLaneIDs.insert(lane.id).inserted
+    /// The provider adapter owns source interpretation; the evaluator owns one
+    /// account-scoped history for each stable quota ID, regardless of UI ordering.
+    func check(
+        provider: PopoverService, accountID: String?, limits: [UsageLimit], isEnabled: Bool,
+        policy: ClaudeNotificationPolicy? = nil, legacySelection: (UsageLimit) -> Bool
+    ) {
+        updateAccountBoundary(provider, accountID: accountID)
+        guard owners[provider] != nil else { return }
+        let limits = limits.filter { $0.provider == provider }
+        var selection = settings.notificationTargets
+        selection.observe(limits, provider: provider, legacySelection: legacySelection)
+        if selection != settings.notificationTargets { settings.notificationTargets = selection }
+        let currentIDs = Set(limits.map(\.id))
+        let absent = (inventories[provider] ?? []).filter { !currentIDs.contains($0.id) }.map { $0.unavailable() }
+        let inventory = limits + absent
+        if inventories[provider] != inventory { inventories[provider] = inventory }
+        let freshPolicy = policy?.isFreshEnoughForNotifications == true ? policy : nil
+        var crossings: [(UsageLimit, Int)] = []
+        for limit in limits {
+            guard limit.canNotify, let used = limit.usedPercentage else { continue }
+            let selected = selection.isSelected(limit.id, provider: provider)
+            let enabled = isEnabled && settings.notificationsEnabled && selected
+            var tracker = trackers[limit.id] ?? Tracker(provider: provider)
+            let thresholds = settings.enabledAlertThresholds.filter { threshold in
+                !(provider == .claude && limit.legacyKey != nil
+                    && freshPolicy?.shouldSuppressLowUrgencyThresholds == true && threshold < 90)
             }
-    }
-
-    private func antigravityAggregateBody(
-        crossings: [AntigravityThresholdCrossing],
-        presentationMode: ThresholdPresentationMode
-    ) -> String {
-        crossings.map { crossing in
-            let percentage = displayThresholdValue(
-                crossing.threshold,
-                mode: presentationMode
-            )
-            switch presentationMode {
-            case .used:
-                return "\(crossing.laneLabel): \(percentage)% 사용"
-            case .remaining:
-                return "\(crossing.laneLabel): \(percentage)% 남음"
+            let decision = UsageWindowAlertPolicy.evaluate(
+                previousPercentage: tracker.previous, currentPercentage: used, resetAt: nil,
+                thresholds: thresholds, alertedThresholds: tracker.alerted,
+                isFirstCheck: tracker.previous == nil || !tracker.wasEnabled || !enabled)
+            tracker.previous = used
+            tracker.wasEnabled = enabled
+            tracker.alerted = decision.alertedThresholds
+            trackers[limit.id] = tracker
+            if enabled, let threshold = decision.thresholdToAlert { crossings.append((limit, threshold)) }
+        }
+        guard let highest = crossings.map({ $0.1 }).max() else { return }
+        let basis = settings.notificationValueBasis
+        let severity = highest >= 95 ? "경고" : highest >= 90 ? "주의" : "안내"
+        let title = "\(provider.providerKind.displayName) \(basis == .remaining ? "잔여 한도" : "사용량") \(severity)"
+        let body = crossings.map { limit, threshold in
+            let amount = basis == .remaining ? 100 - threshold : threshold
+            let sentence =
+                basis == .remaining ? "\(limit.title)의 \(amount)%가 남았습니다" : "\(limit.title)의 \(amount)%를 사용했습니다"
+            if provider == .claude, limit.legacyKey != nil,
+                let guidance = freshPolicy?.guidanceSuffix(
+                    threshold: threshold, alertRemainingMode: basis == .remaining)
+            {
+                return sentence + ". " + guidance
             }
-        }
-        .joined(separator: "\n")
-    }
-
-    private func shouldSuppressThreshold(
-        _ threshold: Int,
-        session: SessionType,
-        claudePolicy: ClaudeNotificationPolicy?
-    ) -> Bool {
-        guard session == .fiveHour || session == .weekly else { return false }
-        guard let claudePolicy else { return false }
-        return claudePolicy.shouldSuppressLowUrgencyThresholds && threshold < 90
-    }
-
-    private func thresholdAlertTitle(
-        serviceName: String,
-        threshold: Int,
-        presentationMode: ThresholdPresentationMode
-    ) -> String {
-        switch presentationMode {
-        case .used:
-            return threshold >= 95 ? "\(serviceName) 사용량 경고"
-                : threshold >= 90 ? "\(serviceName) 사용량 주의"
-                : "\(serviceName) 사용량 안내"
-        case .remaining:
-            let remaining = displayThresholdValue(threshold, mode: presentationMode)
-            return remaining <= 5 ? "\(serviceName) 잔여 한도 경고"
-                : remaining <= 10 ? "\(serviceName) 잔여 한도 주의"
-                : "\(serviceName) 잔여 한도 안내"
-        }
-    }
-
-    private func thresholdAlertBody(
-        session: SessionType,
-        threshold: Int,
-        presentationMode: ThresholdPresentationMode,
-        guidanceSuffix: String?
-    ) -> String {
-        let displayThreshold = displayThresholdValue(threshold, mode: presentationMode)
-        let baseMessage: String
-        switch presentationMode {
-        case .used:
-            baseMessage = "\(session.displayName)의 \(displayThreshold)%를 사용했습니다"
-        case .remaining:
-            baseMessage = "\(session.displayName)의 \(displayThreshold)%가 남았습니다"
-        }
-
-        guard let guidanceSuffix else { return baseMessage }
-        return "\(baseMessage). \(guidanceSuffix)"
-    }
-
-    private func displayThresholdValue(
-        _ threshold: Int,
-        mode: ThresholdPresentationMode
-    ) -> Int {
-        switch mode {
-        case .used:
-            return threshold
-        case .remaining:
-            return max(1, min(100 - threshold, 99))
-        }
-    }
-
-    // MARK: - Send Notification
-
-    private func sendNotification(title: String, body: String) {
+            return sentence
+        }.joined(separator: "\n")
         deliverer.deliver(title: title, body: body)
     }
 
+    private struct Tracker {
+        let provider: PopoverService
+        var previous: Double?
+        var alerted: Set<Int> = []
+        var wasEnabled = false
+    }
 }

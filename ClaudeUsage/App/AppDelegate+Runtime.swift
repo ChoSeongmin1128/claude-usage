@@ -141,6 +141,7 @@ extension AppDelegate {
     ) -> Task<Void, Never> {
         let accountState = ClaudeAccountStore.shared.state()
         let requestedAccountID = accountState.activeAccountID
+        NotificationManager.shared.updateAccountBoundary(.claude, accountID: requestedAccountID)
         let previousAccountID = withRuntimeState { $0.activeClaudeAccountID }
         let shouldRefreshOAuthCredentialInventory =
             ClaudeCredentialRefreshRequest.shouldRefreshOAuthInventory(
@@ -433,18 +434,10 @@ extension AppDelegate {
                         self.syncUsageHealthSnapshotToUI()
                     }
 
-                    NotificationManager.shared.checkThreshold(
-                        session: .fiveHour,
-                        percentage: result.usage.fiveHourPercentage,
-                        resetAt: result.usage.fiveHour.resetsAt,
-                        claudePolicy: self.currentClaudeNotificationPolicy
-                    )
-                    NotificationManager.shared.checkThreshold(
-                        session: .weekly,
-                        percentage: result.usage.weeklyPercentage,
-                        resetAt: result.usage.sevenDay?.resetsAt,
-                        claudePolicy: self.currentClaudeNotificationPolicy
-                    )
+                    NotificationManager.shared.checkClaude(
+                        result.usage, accountID: result.provenance.accountID ?? requestAccountID,
+                        policy: self.currentClaudeNotificationPolicy)
+
                 }
             } catch is CancellationError {
                 Logger.debug("Claude credential 변경으로 오래된 사용량 응답 폐기")
@@ -535,7 +528,9 @@ extension AppDelegate {
             prepare: { [weak self] force in self?.prepareRefresh(for: .codex, force: force) ?? false },
             clearPresentation: { [weak self] in
                 guard let self else { return }
-                NotificationManager.shared.updateCodexAccountBoundary(
+                NotificationManager.shared.updateAccountBoundary(
+                    .codex,
+                    accountID:
                     CodexAuthManager.shared.cachedSnapshot?.token.accountID)
                 self.setRuntimeProviderState(RuntimeProviderState(), for: .codex)
                 self.syncRuntimePresentation()
@@ -548,7 +543,7 @@ extension AppDelegate {
     private func applyCodexUsage(_ result: CodexUsageSnapshot) {
         let usage = result.usage
         let accountID = usage.accountID ?? result.credential.token.accountID
-        NotificationManager.shared.updateCodexAccountBoundary(accountID)
+        NotificationManager.shared.updateAccountBoundary(.codex, accountID: accountID)
         var state = runtimeProviderState(for: .codex)
         RuntimeProviderRefreshCoordinator.applySuccess(
             state: &state, payload: .codex(usage),
@@ -557,16 +552,7 @@ extension AppDelegate {
         )
         setRuntimeProviderState(state, for: .codex)
         syncRuntimePresentation()
-        if let window = usage.sessionWindow {
-            NotificationManager.shared.checkThreshold(
-                session: .codexPrimary, percentage: window.utilization, resetAt: window.resetAtISO
-            )
-        }
-        if let window = usage.weeklyWindow {
-            NotificationManager.shared.checkThreshold(
-                session: .codexSecondary, percentage: window.utilization, resetAt: window.resetAtISO
-            )
-        }
+        NotificationManager.shared.checkCodex(usage, accountID: accountID)
     }
 
     private func applyCodexFailure(_ error: APIError) {

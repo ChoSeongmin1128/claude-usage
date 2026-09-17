@@ -63,7 +63,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                 }
 
         let compact = compactPresentation(
-            selectedLanes: compactLanes
+            selectedLanes: compactLanes, timeFormat: settings.menuBar.timeFormat,
+            now: now, locale: locale, timeZone: timeZone
         )
         let menuBar = menuBarPresentation(
             selectedLanes:
@@ -447,7 +448,9 @@ nonisolated enum AntigravityQuotaPresentationMapper {
     }
 
     private static func compactPresentation(
-        selectedLanes: [AntigravityQuotaLanePresentation]
+        selectedLanes: [AntigravityQuotaLanePresentation],
+        timeFormat: AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat,
+        now: Date, locale: Locale, timeZone: TimeZone
     ) -> AntigravityCompactQuotaPresentation {
         let metrics:
             [AntigravityCompactQuotaMetricPresentation] =
@@ -468,6 +471,9 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                 tooltip: lane.tooltip,
                 accessibilityLabel: lane.accessibilityLabel,
                     accessibilityValue: lane.accessibilityValue,
+                    resetText: lane.resetAt == nil
+                        ? nil
+                        : menuBarResetText(lane, timeFormat: timeFormat, now: now, locale: locale, timeZone: timeZone),
                     basis: lane.basis
             )
         }

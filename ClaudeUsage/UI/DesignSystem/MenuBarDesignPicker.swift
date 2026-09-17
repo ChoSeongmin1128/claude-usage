@@ -5,6 +5,7 @@ struct MenuBarDesignPicker: View {
     @ObservedObject var settings: AppSettings
     var style: MenuBarStyle = .batteryBar
     var basis: UsageValueBasis = .remaining
+    @State private var showsComparison = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.content) {
@@ -24,7 +25,22 @@ struct MenuBarDesignPicker: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             Text(style == .none ? "배터리 예시입니다. 실제 표시 항목은 바뀌지 않습니다." : "선택한 스타일의 디자인 예시입니다.")
                 .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+            SettingsDisclosureControl(isExpanded: $showsComparison, accessibilityLabel: "전체 스타일 비교") {
+                Text("전체 스타일 비교")
+            } content: {
+                MenuBarDesignComparison(colorMode: settings.menuBarColorMode, basis: basis)
+            }
         }
+        .onAppear { consumeComparisonRequest() }
+        .onChange(of: settings.designComparisonRequested) { _, requested in
+            if requested { consumeComparisonRequest() }
+        }
+    }
+
+    private func consumeComparisonRequest() {
+        guard settings.designComparisonRequested else { return }
+        showsComparison = true
+        settings.designComparisonRequested = false
     }
 
     private func choice(_ design: MenuBarDesign) -> some View {
@@ -94,5 +110,31 @@ struct MenuBarDesignPreview: View {
             }
         }
         return image
+    }
+}
+
+
+struct MenuBarDesignComparison: View {
+    let colorMode: MenuBarColorMode
+    let basis: UsageValueBasis
+
+    var body: some View {
+        Grid(alignment: .leading, horizontalSpacing: AppDesign.Space.section, verticalSpacing: AppDesign.Space.row) {
+            GridRow {
+                Text("모양").foregroundStyle(.secondary)
+                Text("클래식")
+                Text("새 디자인")
+            }
+            ForEach(MenuBarStyle.allCases.filter { $0 != .none }, id: \.rawValue) { style in
+                GridRow {
+                    Text(style.displayName).font(AppDesign.Typography.caption)
+                    MenuBarDesignPreview(design: .classic, colorMode: colorMode, style: style, basis: basis)
+                    MenuBarDesignPreview(design: .modern, colorMode: colorMode, style: style, basis: basis)
+                }.frame(minHeight: AppDesign.Control.regularHitSize)
+            }
+        }
+        .font(AppDesign.Typography.subheadline.weight(.medium))
+        .padding(.vertical, AppDesign.Space.row)
+        .help("같은 수치와 색상의 예시입니다. 이 비교표는 설정을 바꾸지 않습니다.")
     }
 }

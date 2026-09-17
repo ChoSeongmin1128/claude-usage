@@ -58,88 +58,142 @@ extension SettingsView {
     }
 
     @ViewBuilder
-    private func menuBarCustomControls(
-        for provider: AppProviderKind,
-        displayConfig: ProviderMenuBarDisplayConfig
-    ) -> some View {
-        VStack(alignment: .leading, spacing: AppDesign.Space.content) {
-            settingsToggleRow(
-                "아이콘 표시",
+    private func menuBarCustomControls(for provider: AppProviderKind, displayConfig: ProviderMenuBarDisplayConfig)
+        -> some View
+    {
+        VStack(alignment: .leading, spacing: AppDesign.Space.row) {
+            menuBarSettingsPreview(for: provider, config: displayConfig)
+            Toggle(
+                "서비스 로고",
                 isOn: Binding(
                     get: { settings.menuBarDisplayConfig(for: provider)?.showIcon ?? true },
-                    set: { settings.setProviderShowIcon($0, for: provider) }
-                )
+                    set: { settings.setProviderShowIcon($0, for: provider) })
             )
-
-            Picker("퍼센트", selection: Binding(
-                get: { settings.menuBarDisplayConfig(for: provider)?.percentageDisplay ?? .fiveHour },
-                set: { settings.setProviderPercentageDisplay($0, for: provider) }
-            )) {
-                ForEach(PercentageDisplay.allCases, id: \.self) { mode in
-                    Text(percentageDisplayName(mode, for: provider)).tag(mode)
+            .toggleStyle(.checkbox)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: AppDesign.Space.section) {
+                    menuBarGaugeControls(for: provider, config: displayConfig).fixedSize(
+                        horizontal: true, vertical: false)
+                    menuBarTextControls(for: provider, config: displayConfig).fixedSize(
+                        horizontal: true, vertical: false)
+                }
+                VStack(alignment: .leading, spacing: AppDesign.Space.content) {
+                    menuBarGaugeControls(for: provider, config: displayConfig)
+                    menuBarTextControls(for: provider, config: displayConfig)
                 }
             }
-
-            Picker("갱신 시간", selection: Binding(
-                get: { settings.menuBarDisplayConfig(for: provider)?.resetTimeDisplay ?? .none },
-                set: { settings.setProviderResetTimeDisplay($0, for: provider) }
-            )) {
-                ForEach(ResetTimeDisplay.allCases, id: \.self) { mode in
-                    Text(resetTimeDisplayName(mode, for: provider)).tag(mode)
-                }
-            }
-
-            if displayConfig.resetTimeDisplay != .none {
-                Picker("시간 형식", selection: Binding(
-                    get: { settings.menuBarDisplayConfig(for: provider)?.timeFormat ?? .h24 },
-                    set: { settings.setProviderTimeFormat($0, for: provider) }
-                )) {
-                    ForEach(TimeFormatStyle.allCases, id: \.self) { style in
-                        Text(style.displayName).tag(style)
-                    }
-                }
-            }
-
-            Picker("아이콘 스타일", selection: Binding(
-                get: { settings.menuBarDisplayConfig(for: provider)?.style ?? .none },
-                set: { settings.setMenuBarStyle($0, for: provider) }
-            )) {
-                Text("없음").tag(MenuBarStyle.none)
-                Section("개별 표시") {
-                    Text("배터리바").tag(MenuBarStyle.batteryBar)
-                    Text("원형").tag(MenuBarStyle.circular)
-                }
-                Section("동시 표시") {
-                    Text("동심원").tag(MenuBarStyle.concentricRings)
-                    Text("이중 배터리").tag(MenuBarStyle.dualBattery)
-                    Text("좌우 배터리").tag(MenuBarStyle.sideBySideBattery)
-                }
-            }
-
-            if displayConfig.style == .batteryBar || displayConfig.style == .sideBySideBattery {
-                settingsToggleRow(
-                    "배터리 내부 숫자",
-                    isOn: Binding(
-                        get: { settings.menuBarDisplayConfig(for: provider)?.showBatteryPercent ?? true },
-                        set: { settings.setProviderShowBatteryPercent($0, for: provider) }
-                    )
-                )
-            }
-
-            if displayConfig.style == .batteryBar || displayConfig.style == .circular {
-                settingsRadioGroup(
-                    "아이콘 기준",
-                    options: IconMetric.allCases.map { ($0, iconMetricDisplayName($0, for: provider)) },
-                    selection: settings.menuBarDisplayConfig(for: provider)?.iconMetric ?? .fiveHour,
-                    onChange: { settings.setProviderIconMetric($0, for: provider) }
-                )
-            }
-
-
         }
-        .padding(AppDesign.Space.content)
-        .background(AppDesign.Surface.subtleGroup)
-        .cornerRadius(AppDesign.Radius.group)
+        .controlSize(.small)
+    }
+
+    private func menuBarGaugeControls(for provider: AppProviderKind, config: ProviderMenuBarDisplayConfig) -> some View
+    {
+        Grid(alignment: .leading, horizontalSpacing: AppDesign.Space.row, verticalSpacing: AppDesign.Space.row) {
+            GridRow {
+                Text("게이지 모양")
+                Picker(
+                    "게이지 모양",
+                    selection: Binding(
+                        get: { settings.menuBarDisplayConfig(for: provider)?.style ?? .none },
+                        set: { settings.setMenuBarStyle($0, for: provider) })
+                ) {
+                    ForEach(MenuBarStyle.allCases, id: \.rawValue) { Text($0.displayName).tag($0) }
+                }.labelsHidden()
+            }
+            if config.style == .batteryBar || config.style == .circular {
+                GridRow {
+                    Text("표시할 한도")
+                    Picker(
+                        "게이지에 표시할 한도",
+                        selection: Binding(
+                            get: { settings.menuBarDisplayConfig(for: provider)?.iconMetric ?? .fiveHour },
+                            set: { settings.setProviderIconMetric($0, for: provider) })
+                    ) {
+                        ForEach(IconMetric.allCases, id: \.self) {
+                            Text(iconMetricDisplayName($0, for: provider)).tag($0)
+                        }
+                    }.labelsHidden()
+                }
+            }
+            if config.style == .batteryBar || config.style == .sideBySideBattery {
+                GridRow {
+                    Text("숫자")
+                    Toggle(
+                        "게이지 안 숫자",
+                        isOn: Binding(
+                        get: { settings.menuBarDisplayConfig(for: provider)?.showBatteryPercent ?? true },
+                            set: { settings.setProviderShowBatteryPercent($0, for: provider) })
+                    )
+                    .toggleStyle(.checkbox)
+                }
+            }
+        }
+        .font(AppDesign.Typography.subheadline)
+    }
+
+    private func menuBarTextControls(for provider: AppProviderKind, config: ProviderMenuBarDisplayConfig) -> some View {
+        Grid(alignment: .leading, horizontalSpacing: AppDesign.Space.row, verticalSpacing: AppDesign.Space.row) {
+            GridRow {
+                Text("게이지 밖 숫자")
+                Picker(
+                    "게이지 밖 숫자",
+                    selection: Binding(
+                        get: { settings.menuBarDisplayConfig(for: provider)?.percentageDisplay ?? .none },
+                        set: { settings.setProviderPercentageDisplay($0, for: provider) })
+                ) {
+                    ForEach(PercentageDisplay.allCases, id: \.self) {
+                        Text(percentageDisplayName($0, for: provider)).tag($0)
+                    }
+                }.labelsHidden()
+            }
+            GridRow {
+                Text("한도 초기화 시간")
+                Picker(
+                    "한도 초기화 시간",
+                    selection: Binding(
+                        get: { settings.menuBarDisplayConfig(for: provider)?.resetTimeDisplay ?? .none },
+                        set: { settings.setProviderResetTimeDisplay($0, for: provider) })
+                ) {
+                    ForEach(ResetTimeDisplay.allCases, id: \.self) {
+                        Text(resetTimeDisplayName($0, for: provider)).tag($0)
+                    }
+                }.labelsHidden()
+            }
+            if config.resetTimeDisplay != .none {
+                GridRow {
+                    Text("시간 형식")
+                    Picker(
+                        "시간 형식",
+                        selection: Binding(
+                            get: { settings.menuBarDisplayConfig(for: provider)?.timeFormat ?? .h24 },
+                            set: { settings.setProviderTimeFormat($0, for: provider) })
+                    ) {
+                        ForEach(TimeFormatStyle.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                    }.labelsHidden()
+                }
+            }
+        }
+        .font(AppDesign.Typography.subheadline)
+    }
+
+    private func menuBarSettingsPreview(for provider: AppProviderKind, config: ProviderMenuBarDisplayConfig)
+        -> some View
+    {
+        let appearance = NSApp.effectiveAppearance
+        let icon = ProviderBrandIconResolver.image(for: provider, kind: .menuBar, appearance: appearance)
+        let snapshot: MenuBarProviderSnapshot
+        if provider == .claude {
+            snapshot = MenuBarStatusComposer.claudeSnapshot(
+                config: config, usage: claudeLastUsage?(), error: nil,
+                hasAuthError: false, hasCredential: hasReadyClaudeCredential, secondaryColor: .secondaryLabelColor,
+                icon: icon, appearance: appearance)
+        } else {
+            snapshot = MenuBarStatusComposer.codexSnapshot(
+                config: config, usage: codexLastUsage?(), error: codexLastError?(),
+                hasAuthError: false, isAuthenticated: codexAuthStatus == .authenticated,
+                secondaryColor: .secondaryLabelColor, icon: icon, appearance: appearance)
+        }
+        return MenuBarSettingsPreview(snapshot: snapshot)
     }
 
     private func menuBarPresetDisplayName(_ preset: ProviderMenuBarDisplayPreset, for provider: AppProviderKind) -> String {
@@ -194,176 +248,97 @@ extension SettingsView {
     }
 
     @ViewBuilder
-    private func antigravityMenuBarDisplaySection()
-        -> some View
-    {
-        VStack(
-            alignment: .leading,
-            spacing: 12
-        ) {
-            Text("메뉴바 표시")
-                .font(AppDesign.Typography.subheadline.weight(.semibold))
-
-            if let display =
-                antigravitySettings.state.display
-            {
-                settingsToggleRow(
-                    "메뉴바에 표시",
-                    isOn:
-                        antigravityMenuBarBinding(
-                            display,
-                            keyPath: \.isVisible
-                        )
-                )
-
-                settingsToggleRow(
-                    "Antigravity 아이콘 표시",
-                    isOn:
-                        antigravityMenuBarBinding(
-                            display,
-                            keyPath:
-                                \.showsProviderIcon
-                        )
-                )
-
-                Picker(
-                    "대표 한도",
-                    selection:
-                        antigravityMenuBarLaneSelection(
-                            display
-                        )
-                ) {
-                    Text("가장 제한적인 한도 자동 선택")
-                        .tag("")
-                    ForEach(
-                        antigravityObservedLanes,
-                        id: \.id
-                    ) { lane in
-                        Text(
-                            "\(lane.scopeTitle) · \(lane.cadenceTitle)"
-                        )
-                        .tag(lane.id.rawValue)
-                    }
+    private func antigravityMenuBarDisplaySection() -> some View {
+        VStack(alignment: .leading, spacing: AppDesign.Space.row) {
+            Text("메뉴바 표시").font(AppDesign.Typography.subheadline.weight(.semibold))
+            if let display = antigravitySettings.state.display {
+                if case .content(let presentation) = antigravitySettings.state.quotaPresentation,
+                    let snapshot = MenuBarStatusComposer.antigravitySnapshot(
+                        presentation: presentation.menuBar,
+                        icon: ProviderBrandIconResolver.image(
+                            for: .antigravity, kind: .menuBar, appearance: NSApp.effectiveAppearance),
+                        appearance: NSApp.effectiveAppearance, design: settings.menuBarDesign,
+                        colorMode: settings.menuBarColorMode)
+                {
+                    MenuBarSettingsPreview(snapshot: snapshot)
                 }
-
-                if !antigravityObservedLanes.isEmpty {
-                    VStack(alignment: .leading, spacing: AppDesign.Space.row) {
-                        Text("함께 표시할 한도")
-                            .font(AppDesign.Typography.subheadline)
-                        ForEach(
-                            antigravityObservedLanes,
-                            id: \.id
-                        ) { lane in
+                HStack(spacing: AppDesign.Space.section) {
+                    Toggle("메뉴바에 표시", isOn: antigravityMenuBarBinding(display, keyPath: \.isVisible))
+                    Toggle("서비스 로고", isOn: antigravityMenuBarBinding(display, keyPath: \.showsProviderIcon))
+                }.toggleStyle(.checkbox)
+                Grid(alignment: .leading, horizontalSpacing: AppDesign.Space.row, verticalSpacing: AppDesign.Space.row)
+                {
+                    GridRow {
+                        Text("대표 한도")
+                        Picker("게이지에 표시할 한도", selection: antigravityMenuBarLaneSelection(display)) {
+                            Text("가장 제한적인 한도 자동 선택").tag("")
+                            ForEach(antigravityObservedLanes, id: \.id) { lane in
+                                Text("\(lane.scopeTitle) · \(lane.cadenceTitle)").tag(lane.id.rawValue)
+                            }
+                        }.labelsHidden()
+                    }
+                    GridRow {
+                        Text("게이지 모양")
+                        Picker("게이지 모양", selection: antigravityMenuBarStyleBinding(display)) {
+                            Text("없음").tag(AntigravityDisplaySettings.MenuBarPresentationIntent.Style.none)
+                            Text("배터리바").tag(AntigravityDisplaySettings.MenuBarPresentationIntent.Style.batteryBar)
+                            Text("원형").tag(AntigravityDisplaySettings.MenuBarPresentationIntent.Style.circular)
+                        }.labelsHidden()
+                    }
+                    if display.menuBar.style == .batteryBar {
+                        GridRow {
+                            Text("숫자")
                             Toggle(
-                                "\(lane.scopeTitle) · \(lane.cadenceTitle)",
-                                isOn:
-                                    antigravityAdditionalMenuBarLaneBinding(
-                                        display,
-                                        laneID: lane.id
-                                    )
+                                "게이지 안 숫자", isOn: antigravityMenuBarBinding(display, keyPath: \.showsGaugePercentage)
                             )
                             .toggleStyle(.checkbox)
                         }
-                        Text("대표 한도는 게이지와 상태 색상에 사용하고, 선택한 한도는 메뉴바 텍스트에 나란히 표시합니다.")
-                            .font(AppDesign.Typography.caption)
-                            .foregroundStyle(.tertiary)
+                    }
+                    GridRow {
+                        Text("텍스트")
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: AppDesign.Space.row) { antigravityTextToggles(display) }
+                            VStack(alignment: .leading, spacing: AppDesign.Space.row) {
+                                antigravityTextToggles(display)
+                            }
+                        }.toggleStyle(.checkbox)
+                    }
+                    if display.menuBar.showsSelectedLaneResetTime {
+                        GridRow {
+                            Text("시간 형식")
+                            Picker("시간 형식", selection: antigravityMenuBarTimeBinding(display)) {
+                                Text("24시간").tag(AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat.h24)
+                                Text("12시간").tag(AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat.h12)
+                                Text("남은 시간").tag(
+                                    AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat.remaining)
+                            }.labelsHidden()
+                        }
                     }
                 }
-
-                Picker(
-                    "아이콘 스타일",
-                    selection:
-                        antigravityMenuBarStyleBinding(
-                            display
+                if !antigravityObservedLanes.isEmpty {
+                    Text("함께 표시할 한도").font(AppDesign.Typography.subheadline.weight(.medium))
+                    ForEach(antigravityObservedLanes, id: \.id) { lane in
+                        Toggle(
+                            "\(lane.scopeTitle) · \(lane.cadenceTitle)",
+                            isOn: antigravityAdditionalMenuBarLaneBinding(display, laneID: lane.id)
                         )
-                ) {
-                    Text("없음")
-                        .tag(
-                            AntigravityDisplaySettings
-                                .MenuBarPresentationIntent
-                                .Style.none
-                        )
-                    Text("배터리바")
-                        .tag(
-                            AntigravityDisplaySettings
-                                .MenuBarPresentationIntent
-                                .Style.batteryBar
-                        )
-                    Text("원형")
-                        .tag(
-                            AntigravityDisplaySettings
-                                .MenuBarPresentationIntent
-                                .Style.circular
-                        )
-                }
-
-                settingsToggleRow(
-                    "사용률 표시",
-                    isOn:
-                        antigravityMenuBarBinding(
-                            display,
-                            keyPath:
-                                \.showsSelectedLanePercentage
-                        )
-                )
-                settingsToggleRow(
-                    "갱신 시각 표시",
-                    isOn:
-                        antigravityMenuBarBinding(
-                            display,
-                            keyPath:
-                                \.showsSelectedLaneResetTime
-                        )
-                )
-                settingsToggleRow(
-                    "게이지 내부 숫자",
-                    isOn:
-                        antigravityMenuBarBinding(
-                            display,
-                            keyPath:
-                                \.showsGaugePercentage
-                        )
-                )
-
-                if display.menuBar
-                    .showsSelectedLaneResetTime
-                {
-                    Picker(
-                        "시간 형식",
-                        selection:
-                            antigravityMenuBarTimeBinding(
-                                display
-                            )
-                    ) {
-                        Text("24시간")
-                            .tag(
-                                AntigravityDisplaySettings
-                                    .MenuBarPresentationIntent
-                                    .TimeFormat.h24
-                            )
-                        Text("12시간")
-                            .tag(
-                                AntigravityDisplaySettings
-                                    .MenuBarPresentationIntent
-                                    .TimeFormat.h12
-                            )
-                        Text("남은 시간")
-                            .tag(
-                                AntigravityDisplaySettings
-                                    .MenuBarPresentationIntent
-                                    .TimeFormat.remaining
-                            )
+                        .toggleStyle(.checkbox)
                     }
+                    Text("대표 한도는 게이지에, 추가 한도는 텍스트에 표시합니다.")
+                        .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
                 }
-
             } else {
-                Text(
-                    "Antigravity 설정을 준비하고 있습니다."
-                )
-                .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
+                Text("Antigravity 설정을 준비하고 있습니다.").foregroundStyle(.secondary)
             }
         }
+        .font(AppDesign.Typography.subheadline)
+        .controlSize(.small)
+    }
+
+    @ViewBuilder
+    private func antigravityTextToggles(_ display: AntigravityDisplaySettings) -> some View {
+        Toggle("게이지 밖 숫자", isOn: antigravityMenuBarBinding(display, keyPath: \.showsSelectedLanePercentage))
+        Toggle("한도 초기화 시간", isOn: antigravityMenuBarBinding(display, keyPath: \.showsSelectedLaneResetTime))
     }
 
     private var antigravityObservedLanes:
@@ -538,8 +513,10 @@ extension SettingsView {
     }
 
     func providerAlertSection(for provider: AppProviderKind) -> some View {
-        Toggle(
-            isOn: Binding(
+        NotificationProviderRow(
+            settings: settings, provider: provider,
+            limits: notificationManager.inventories[provider.runtimeService ?? .claude] ?? [],
+            isEnabled: Binding(
                 get: {
                     provider == .antigravity
                         ? antigravitySettings.state.display?.notifications.isEnabled ?? false
@@ -548,19 +525,11 @@ extension SettingsView {
                 set: { enabled in
                     if provider == .antigravity {
                         updateAntigravityDisplay { $0.notifications.isEnabled = enabled }
-                } else {
+                    } else {
                         settings.setProviderAlertEnabled(enabled, for: provider)
-                }
-            }
-            )
-        ) {
-            HStack(spacing: AppDesign.Space.row) {
-                ProviderBrandIconView(provider: provider, kind: .settings, size: 16)
-                Text(provider.displayName)
-                Spacer()
-            }
-        }
-        .toggleStyle(.switch).controlSize(.small)
+                    }
+                })
+        )
         .disabled(
             !settings.notificationsEnabled || (provider == .antigravity && antigravitySettings.state.display == nil))
     }

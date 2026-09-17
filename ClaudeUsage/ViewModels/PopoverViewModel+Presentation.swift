@@ -34,6 +34,14 @@ extension PopoverViewModel {
                 ? sections.count
                 : 0
         }
+        let compactHeight: CGFloat?
+        if service == .antigravity, density == .compact, phase == .content,
+            case .content(let presentation) = antigravityRuntimeSnapshot.quotaPresentation
+        {
+            compactHeight = PopoverLayoutMetrics.compactAntigravityContentHeight(presentation.compact.metrics)
+        } else {
+            compactHeight = nil
+        }
         let spec = PopoverLayoutMetrics.layoutSpec(
             density: density,
             phase: phase,
@@ -45,6 +53,7 @@ extension PopoverViewModel {
                     phase: phase,
                     sections: sections
                 ),
+            preferredCompactBodyHeight: compactHeight,
             // Claude 미인증은 두 버튼짜리 rich 패널을 쓰므로 본문 뷰포트가 더 필요하다.
             // (PopoverView.providerBodyContent의 분기와 같은 조건이어야 한다.)
             richAuthPanel: phase == .authRequired && service == .claude

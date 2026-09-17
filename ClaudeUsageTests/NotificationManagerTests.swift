@@ -26,28 +26,26 @@ final class NotificationManagerTests: XCTestCase {
     }
 
     func testChangingDisplayBasisDoesNotMoveThresholdsOrResendAlerts() {
-        manager.checkThreshold(session: .fiveHour, percentage: 89, resetAt: nil)
-        manager.checkThreshold(session: .fiveHour, percentage: 91, resetAt: nil)
+        checkClaude(percentage: 89, resetAt: nil)
+        checkClaude(percentage: 91, resetAt: nil)
         XCTAssertEqual(deliverer.delivered.count, 1)
         AppSettings.shared.usageDisplayMode = .remaining
-        manager.checkThreshold(session: .fiveHour, percentage: 91, resetAt: nil)
+        checkClaude(percentage: 91, resetAt: nil)
         XCTAssertEqual(deliverer.delivered.count, 1)
-        manager.checkThreshold(session: .fiveHour, percentage: 96, resetAt: nil)
+        checkClaude(percentage: 96, resetAt: nil)
         XCTAssertEqual(deliverer.delivered.count, 2)
         XCTAssertTrue(deliverer.delivered.last?.body.contains("5%") == true)
         AppSettings.shared.usageDisplayMode = .used
-        manager.checkThreshold(session: .fiveHour, percentage: 96, resetAt: nil)
+        checkClaude(percentage: 96, resetAt: nil)
         XCTAssertEqual(deliverer.delivered.count, 2)
     }
 
     func testResetAtChangeDoesNotSendLegacyResetNotification() {
-        manager.checkThreshold(
-            session: .fiveHour,
+        checkClaude(
             percentage: 10,
             resetAt: "2026-04-25T10:00:00Z"
         )
-        manager.checkThreshold(
-            session: .fiveHour,
+        checkClaude(
             percentage: 10,
             resetAt: "2026-04-25T15:30:00Z"
         )
@@ -57,15 +55,15 @@ final class NotificationManagerTests: XCTestCase {
     }
 
     func testThresholdNotificationUsesUsageTransition() {
-        manager.checkThreshold(session: .fiveHour, percentage: 84, resetAt: nil)
-        manager.checkThreshold(session: .fiveHour, percentage: 90, resetAt: nil)
+        checkClaude(percentage: 84, resetAt: nil)
+        checkClaude(percentage: 90, resetAt: nil)
 
         XCTAssertEqual(deliverer.delivered.map(\.title), ["Claude 사용량 주의"])
-        XCTAssertEqual(deliverer.delivered.map(\.body), ["현재 세션의 90%를 사용했습니다"])
+        XCTAssertEqual(deliverer.delivered.map(\.body), ["5시간의 90%를 사용했습니다"])
     }
 
     func testFirstCheckDoesNotSendThresholdNotificationEvenWhenAlreadyHigh() {
-        manager.checkThreshold(session: .fiveHour, percentage: 91, resetAt: nil)
+        checkClaude(percentage: 91, resetAt: nil)
 
         XCTAssertTrue(deliverer.delivered.isEmpty)
     }
@@ -84,22 +82,20 @@ final class NotificationManagerTests: XCTestCase {
             )
         )
 
-        manager.checkThreshold(session: .fiveHour, percentage: 70, resetAt: nil, claudePolicy: policy)
-        manager.checkThreshold(session: .fiveHour, percentage: 75, resetAt: nil, claudePolicy: policy)
-        manager.checkThreshold(session: .fiveHour, percentage: 90, resetAt: nil, claudePolicy: policy)
+        checkClaude(percentage: 70, resetAt: nil, claudePolicy: policy)
+        checkClaude(percentage: 75, resetAt: nil, claudePolicy: policy)
+        checkClaude(percentage: 90, resetAt: nil, claudePolicy: policy)
 
         XCTAssertEqual(deliverer.delivered.map(\.title), ["Claude 사용량 주의"])
-        XCTAssertEqual(deliverer.delivered.map(\.body), ["현재 세션의 90%를 사용했습니다"])
+        XCTAssertEqual(deliverer.delivered.map(\.body), ["5시간의 90%를 사용했습니다"])
     }
 
     func testCodexThresholdBehaviorIsPreserved() {
-        manager.checkThreshold(
-            session: .codexPrimary,
+        checkCodex(
             percentage: 89,
             resetAt: nil
         )
-        manager.checkThreshold(
-            session: .codexPrimary,
+        checkCodex(
             percentage: 96,
             resetAt: nil
         )
@@ -110,23 +106,23 @@ final class NotificationManagerTests: XCTestCase {
         )
         XCTAssertEqual(
             deliverer.delivered.map(\.body),
-            ["현재 세션의 95%를 사용했습니다"]
+            ["5시간의 95%를 사용했습니다"]
         )
     }
 
     func testCodexAccountChangeDoesNotReusePreviousThresholdHistory() {
-        manager.updateCodexAccountBoundary("account-a")
-        manager.checkThreshold(session: .codexPrimary, percentage: 89, resetAt: nil)
-        manager.updateCodexAccountBoundary("account-b")
-        manager.checkThreshold(session: .codexPrimary, percentage: 96, resetAt: nil)
+        setCodexAccount("account-a")
+        checkCodex(percentage: 89, resetAt: nil)
+        setCodexAccount("account-b")
+        checkCodex(percentage: 96, resetAt: nil)
         XCTAssertTrue(deliverer.delivered.isEmpty)
-        manager.updateCodexAccountBoundary("account-b")
-        manager.checkThreshold(session: .codexPrimary, percentage: 89, resetAt: nil)
-        manager.checkThreshold(session: .codexPrimary, percentage: 96, resetAt: nil)
+        setCodexAccount("account-b")
+        checkCodex(percentage: 89, resetAt: nil)
+        checkCodex(percentage: 96, resetAt: nil)
         XCTAssertEqual(deliverer.delivered.count, 1)
-        manager.updateCodexAccountBoundary(nil)
-        manager.updateCodexAccountBoundary("account-b")
-        manager.checkThreshold(session: .codexPrimary, percentage: 96, resetAt: nil)
+        setCodexAccount(nil)
+        setCodexAccount("account-b")
+        checkCodex(percentage: 96, resetAt: nil)
         XCTAssertEqual(deliverer.delivered.count, 1)
     }
 
@@ -178,8 +174,8 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(
             deliverer.delivered.first?.body,
             [
-                "Gemini · 5시간: 90% 사용",
-                "Claude·GPT · 주간: 95% 사용",
+                "Gemini · 5시간의 90%를 사용했습니다",
+                "Claude·GPT · 주간의 95%를 사용했습니다",
             ].joined(separator: "\n")
         )
     }
@@ -236,7 +232,7 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(deliverer.delivered.count, 1)
         XCTAssertEqual(
             deliverer.delivered.first?.body,
-            "Gemini · 주간: 90% 사용"
+            "Gemini · 주간의 90%를 사용했습니다"
         )
         XCTAssertFalse(
             deliverer.delivered.first?.body.contains(
@@ -396,7 +392,7 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(deliverer.delivered.count, 1)
     }
 
-    func testAntigravityUnavailableLaneDoesNotRetainTracker() {
+    func testAntigravityUnavailableLanePreservesHistoryUntilNumericQuotaReturns() {
         manager.checkAntigravityThresholds(
             snapshot: makeAntigravitySnapshot(
                 accountID: "account-a",
@@ -438,7 +434,7 @@ final class NotificationManagerTests: XCTestCase {
             )
         )
 
-        XCTAssertTrue(deliverer.delivered.isEmpty)
+        XCTAssertEqual(deliverer.delivered.count, 1)
     }
 
     func testAntigravityRemainingModeAggregatesDisplayedThresholds() {
@@ -501,25 +497,112 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(
             deliverer.delivered.first?.body,
             [
-                "Gemini · 5시간: 10% 남음",
-                "Claude·GPT · 주간: 5% 남음",
+                "Gemini · 5시간의 10%가 남았습니다",
+                "Claude·GPT · 주간의 5%가 남았습니다",
             ].joined(separator: "\n")
         )
     }
 
-    func testAntigravityLegacyOrdinalSessionsNoLongerDeliver() {
-        manager.checkThreshold(
-            session: .antigravityPrimary,
-            percentage: 89,
-            resetAt: nil
-        )
-        manager.checkThreshold(
-            session: .antigravityPrimary,
-            percentage: 96,
-            resetAt: nil
-        )
-
+    func testModelTargetsAreOptInAndDoNotAlertImmediatelyWhenSelected() throws {
+        func usage(_ used: Double) -> ClaudeUsageResponse {
+            .init(
+                fiveHour: .init(utilization: 20, resetsAt: nil), sevenDay: nil,
+                scopedLimits: [.init(kind: "weekly_scoped", percent: used, modelID: "fable", modelName: "Fable")])
+        }
+        manager.checkClaude(usage(20), accountID: "a", policy: nil)
+        manager.checkClaude(usage(96), accountID: "a", policy: nil)
         XCTAssertTrue(deliverer.delivered.isEmpty)
+        let model = try XCTUnwrap(manager.inventories[.claude]?.first { $0.scope == "model:fable" })
+        AppSettings.shared.notificationTargets.setSelected(true, limit: model)
+        manager.checkClaude(usage(96), accountID: "a", policy: nil)
+        XCTAssertTrue(deliverer.delivered.isEmpty)
+        manager.checkClaude(usage(20), accountID: "a", policy: nil)
+        manager.checkClaude(usage(96), accountID: "a", policy: nil)
+        XCTAssertEqual(deliverer.delivered.count, 1)
+        XCTAssertTrue(deliverer.delivered[0].body.contains("Fable · 주간"))
+        manager.checkClaude(usage(96), accountID: "b", policy: nil)
+        XCTAssertEqual(deliverer.delivered.count, 1)
+    }
+
+    func testCodexAdditionalWindowsHaveIndependentSelectionsAndHistories() throws {
+        func usage(_ short: Int, _ weekly: Int) throws -> CodexUsageResponse {
+            try JSONDecoder().decode(
+                CodexUsageResponse.self,
+                from: Data(
+                    """
+                    {"additional_rate_limits":[{"metered_feature":"future-model","limit_name":"Future","rate_limit":{
+                    "primary_window":{"used_percent":\(short),"limit_window_seconds":18000},
+                    "secondary_window":{"used_percent":\(weekly),"limit_window_seconds":604800}}}]}
+                    """.utf8))
+        }
+        manager.checkCodex(try usage(20, 20), accountID: "a")
+        let limits = try XCTUnwrap(manager.inventories[.codex])
+        XCTAssertEqual(limits.count, 2)
+        XCTAssertTrue(limits.allSatisfy { !AppSettings.shared.notificationTargets.isSelected($0.id, provider: .codex) })
+        for limit in limits { AppSettings.shared.notificationTargets.setSelected(true, limit: limit) }
+        manager.checkCodex(try usage(20, 20), accountID: "a")
+        manager.checkCodex(try usage(91, 96), accountID: "a")
+        XCTAssertEqual(deliverer.delivered.count, 1)
+        XCTAssertTrue(deliverer.delivered[0].body.contains("Future · 5시간"))
+        XCTAssertTrue(deliverer.delivered[0].body.contains("Future · 주간"))
+    }
+
+    func testAntigravityPopoverVisibilityDoesNotChangeImportedNotificationSelection() throws {
+        let id = AntigravityQuotaLaneID.geminiWeekly
+        func snapshot(_ used: Double, hidden: Set<AntigravityQuotaLaneID>) -> AntigravityRuntimeSnapshot {
+            makeAntigravitySnapshot(
+                accountID: "a",
+                lanes: [
+                    makeAntigravityLane(id: id, scope: .gemini, cadence: .weekly, usedPercentage: used)
+                ], hiddenLaneIDs: hidden)
+        }
+        manager.checkAntigravityThresholds(snapshot: snapshot(20, hidden: []))
+        manager.checkAntigravityThresholds(snapshot: snapshot(96, hidden: [id]))
+        XCTAssertEqual(deliverer.delivered.count, 1)
+        XCTAssertEqual(manager.inventories[.antigravity]?.count, 1)
+    }
+
+    func testAntigravityInitiallyHiddenTargetRequiresExplicitSelection() {
+        let id = AntigravityQuotaLaneID.geminiWeekly
+        for (used, hidden) in [(20.0, Set([id])), (96.0, Set<AntigravityQuotaLaneID>())] {
+            manager.checkAntigravityThresholds(
+                snapshot: makeAntigravitySnapshot(
+                    accountID: "a",
+                    lanes: [
+                        makeAntigravityLane(id: id, scope: .gemini, cadence: .weekly, usedPercentage: used)
+                    ], hiddenLaneIDs: hidden))
+        }
+        XCTAssertEqual(manager.inventories[.antigravity]?.count, 1)
+        XCTAssertTrue(deliverer.delivered.isEmpty)
+    }
+
+    func testMissingAccountCannotImportTargetsOrEmitNotifications() {
+        let usage = ClaudeUsageResponse(fiveHour: .init(utilization: 96, resetsAt: nil), sevenDay: nil)
+        manager.checkClaude(usage, accountID: nil, policy: nil)
+        XCTAssertTrue(AppSettings.shared.notificationTargets.providers.isEmpty)
+        XCTAssertTrue(manager.inventories[.claude]?.isEmpty ?? true)
+        XCTAssertTrue(deliverer.delivered.isEmpty)
+    }
+
+    private var codexAccount: String? = "account-a"
+
+    private func setCodexAccount(_ id: String?) {
+        codexAccount = id
+        manager.updateAccountBoundary(.codex, accountID: id)
+    }
+
+    private func checkClaude(percentage: Double, resetAt: String?, claudePolicy: ClaudeNotificationPolicy? = nil) {
+        manager.checkClaude(
+            ClaudeUsageResponse(fiveHour: .init(utilization: percentage, resetsAt: resetAt), sevenDay: nil),
+            accountID: "account-a", policy: claudePolicy)
+    }
+
+    private func checkCodex(percentage: Double, resetAt: String?) {
+        let data = Data(
+            "{\"rate_limit\":{\"primary_window\":{\"used_percent\":\(percentage),\"limit_window_seconds\":18000}}}".utf8
+        )
+        let usage = try! JSONDecoder().decode(CodexUsageResponse.self, from: data)
+        manager.checkCodex(usage, accountID: codexAccount)
     }
 
     private func makeAntigravitySnapshot(
@@ -527,7 +610,8 @@ final class NotificationManagerTests: XCTestCase {
         lanes: [AntigravityQuotaLane],
         notificationsEnabled: Bool = true,
         usesAmbientAccountBoundary: Bool = false,
-        observedIdentity: ProviderAccountIdentity? = nil
+        observedIdentity: ProviderAccountIdentity? = nil,
+        hiddenLaneIDs: Set<AntigravityQuotaLaneID> = []
     ) -> AntigravityRuntimeSnapshot {
         let accountID = AntigravityAccountID(
             rawValue: rawAccountID
@@ -555,6 +639,7 @@ final class NotificationManagerTests: XCTestCase {
         )
         var displaySettings = AntigravityDisplaySettings.default
         displaySettings.notifications.isEnabled = notificationsEnabled
+        displaySettings.standard.hiddenLaneIDs = hiddenLaneIDs
         let presentation = AntigravityQuotaPresentationMapper.map(
             snapshot: quotaSnapshot,
             settings: displaySettings,
@@ -615,6 +700,7 @@ final class NotificationManagerTests: XCTestCase {
 
     private func configureNotifications() {
         let settings = AppSettings.shared
+        settings.notificationTargets = .init()
         settings.notificationsEnabled = true
         settings.claudeAlertEnabled = true
         settings.alertFiveHourEnabled = true

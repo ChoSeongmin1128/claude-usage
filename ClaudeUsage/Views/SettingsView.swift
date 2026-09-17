@@ -156,6 +156,7 @@ struct SettingsView: View {
     let claudeOAuthMigrationCoordinator: ClaudeOAuthCredentialMigrationCoordinator
     let initialPanel: SettingsProviderPanel?
     @ObservedObject var settings = AppSettings.shared
+    @ObservedObject var notificationManager = NotificationManager.shared
     @ObservedObject var updateRuntimeState = UpdateRuntimeState.shared
     @State var sessionKey: String = ""
     @State var storedSessionKey: String?

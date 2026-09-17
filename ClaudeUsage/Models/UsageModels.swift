@@ -173,6 +173,7 @@ nonisolated struct ClaudeModelWeeklyWindow: Sendable, Equatable {
     let modelName: String   // 표시 이름 (예: "Fable")
     let utilization: Double
     let resetsAt: String?
+    var sourceID: String? = nil
 }
 
 /// 개별 사용량 윈도우 (5시간, 주간, Sonnet, Opus)
@@ -214,7 +215,12 @@ nonisolated struct UsageWindow: Codable, Sendable {
                   let parsed = Double(strVal) {
             utilization = parsed
         } else {
-            utilization = 0
+            throw DecodingError.dataCorruptedError(
+                forKey: .utilization, in: container, debugDescription: "numeric_usage_required")
+        }
+        guard utilization.isFinite, utilization >= 0 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .utilization, in: container, debugDescription: "valid_numeric_usage_required")
         }
     }
 
@@ -271,38 +277,17 @@ extension ClaudeUsageResponse {
     /// limits[]의 weekly_scoped 항목(신형, 예: Fable)을 우선 사용하고,
     /// 레거시 seven_day_sonnet/seven_day_opus는 신형에 같은 모델이 없을 때만 보충합니다.
     nonisolated var modelWeeklyWindows: [ClaudeModelWeeklyWindow] {
-        var windows: [ClaudeModelWeeklyWindow] = []
-        var seenSlugs: Set<String> = []
-
-        for limit in scopedLimits {
-            guard limit.kind == "weekly_scoped" else { continue }
-            if let group = limit.group, group != "weekly" { continue }
-            guard let percent = limit.percent, percent.isFinite else { continue }
-            guard let rawName = limit.modelName?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !rawName.isEmpty else { continue }
-            // 전체 모델 합산 스코프는 seven_day 주간 한도와 중복이므로 제외
-            guard !Self.isAllModelsScope(modelID: limit.modelID, modelName: rawName) else { continue }
-
-            let identity = limit.modelID?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let slug = Self.modelSlug((identity?.isEmpty == false ? identity! : rawName))
-            guard !slug.isEmpty, seenSlugs.insert(slug).inserted else { continue }
-
-            windows.append(ClaudeModelWeeklyWindow(
-                slug: slug,
-                modelName: rawName,
-                utilization: percent,
-                resetsAt: limit.resetsAt
-            ))
-        }
+        // Preserve source duplicates for the common catalog's collision check.
+        var windows = scopedLimits.compactMap(\.modelWeeklyWindow)
 
         // 레거시 필드 보충 (신형 limits에 같은 모델이 없을 때만)
-        let coveredText = seenSlugs.joined(separator: " ")
+        let coveredText = windows.map { $0.slug + " " + $0.modelName.lowercased() }.joined(separator: " ")
         if let sonnet = sevenDaySonnet, !coveredText.contains("sonnet") {
             windows.append(ClaudeModelWeeklyWindow(
                 slug: "sonnet",
                 modelName: "Sonnet",
                 utilization: sonnet.utilization,
-                resetsAt: sonnet.resetsAt
+                    resetsAt: sonnet.resetsAt, sourceID: "legacy-seven-day-sonnet"
             ))
         }
         if let opus = sevenDayOpus, !coveredText.contains("opus") {
@@ -310,7 +295,7 @@ extension ClaudeUsageResponse {
                 slug: "opus",
                 modelName: "Opus",
                 utilization: opus.utilization,
-                resetsAt: opus.resetsAt
+                    resetsAt: opus.resetsAt, sourceID: "legacy-seven-day-opus"
             ))
         }
 
@@ -318,7 +303,7 @@ extension ClaudeUsageResponse {
     }
 
     /// 소문자 영숫자 + 대시 슬러그 (모델 ID/이름 → 안정적인 표시 ID)
-    nonisolated private static func modelSlug(_ value: String) -> String {
+    nonisolated static func modelSlug(_ value: String) -> String {
         var result = ""
         var lastWasDash = false
         for scalar in value.lowercased().unicodeScalars {
@@ -333,7 +318,7 @@ extension ClaudeUsageResponse {
         return result.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
     }
 
-    nonisolated private static func isAllModelsScope(modelID: String?, modelName: String) -> Bool {
+    nonisolated static func isAllModelsScope(modelID: String?, modelName: String) -> Bool {
         if modelSlug(modelName) == "all-models" { return true }
         guard let modelID, !modelID.isEmpty else { return false }
         let idSlug = modelSlug(modelID)
@@ -428,5 +413,24 @@ extension OverageSpendLimitResponse {
     /// Claude API가 확정적으로 제공하는 추가 사용량 값만 표시합니다.
     nonisolated var formattedUsageLimitSummary: String {
         "\(formattedUsedCredits) 사용 / \(formattedCreditLimit) 한도"
+    }
+}
+
+
+extension ClaudeScopedLimit {
+    /// Decode one known scope shape without deduplicating distinct source IDs.
+    nonisolated var modelWeeklyWindow: ClaudeModelWeeklyWindow? {
+        guard kind == "weekly_scoped", group == nil || group == "weekly",
+            let percent, percent.isFinite,
+            let name = modelName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty,
+            !ClaudeUsageResponse.isAllModelsScope(modelID: modelID, modelName: name)
+        else { return nil }
+        let identity = modelID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sourceID = identity?.isEmpty == false ? identity : nil
+        let slug = ClaudeUsageResponse.modelSlug(sourceID ?? name)
+        guard !slug.isEmpty else { return nil }
+        return ClaudeModelWeeklyWindow(
+            slug: slug, modelName: name, utilization: percent,
+            resetsAt: resetsAt, sourceID: sourceID)
     }
 }

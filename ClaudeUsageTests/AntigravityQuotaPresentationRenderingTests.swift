@@ -54,7 +54,11 @@ final class AntigravityQuotaPresentationRenderingTests: XCTestCase {
 
         XCTAssertEqual(image.size.width, 296, accuracy: 0.5)
         XCTAssertGreaterThan(image.size.height, 90)
-        XCTAssertLessThan(image.size.height, 140)
+        let rows = try render(AntigravityCompactQuotaView(presentation: presentation.compact).frame(width: 276))
+        XCTAssertEqual(
+            rows.size.height, PopoverLayoutMetrics.compactAntigravityContentHeight(presentation.compact.metrics),
+            accuracy: 0.5)
+        XCTAssertLessThan(image.size.height, 200)
         XCTAssertEqual(
             presentation.compact.metrics.map(\.label),
             [

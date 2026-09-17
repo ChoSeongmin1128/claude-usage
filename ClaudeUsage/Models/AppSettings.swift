@@ -383,6 +383,9 @@ class AppSettings: ObservableObject {
     @Published var notificationPresets: [NotificationPreset] {
         didSet { NotificationThresholdStorage.save(notificationPresets, to: defaults) }
     }
+    @Published var notificationTargets: NotificationTargetPreferences {
+        didSet { if notificationTargets != oldValue { notificationTargets.save(to: defaults) } }
+    }
     private(set) var usageDisplayModeRevision: UInt64 = 0
     @Published var usageDisplayMode: UsageDisplayMode {
         didSet {
@@ -414,6 +417,8 @@ class AppSettings: ObservableObject {
         didSet { defaults.set(circularDisplayMode.rawValue, forKey: "circularDisplayMode") }
     }
     @Published var shouldRevealClaudeAdvancedAuth: Bool = false
+    /// Ephemeral navigation request; never resets the persisted one-time introduction.
+    @Published var designComparisonRequested = false
     @Published var iconMetric: IconMetric {
         didSet { defaults.set(iconMetric.rawValue, forKey: "iconMetric") }
     }
@@ -624,6 +629,7 @@ class AppSettings: ObservableObject {
         let autoRefresh: Bool
         let notificationsEnabled: Bool
         let notificationPresets: [NotificationPreset]
+        let notificationTargets: NotificationTargetPreferences
         let alertRemainingMode: Bool
         let usageDisplayMode: UsageDisplayMode
         let reducedRefreshOnBattery: Bool
@@ -681,6 +687,7 @@ class AppSettings: ObservableObject {
             autoRefresh: autoRefresh,
             notificationsEnabled: notificationsEnabled,
             notificationPresets: notificationPresets,
+            notificationTargets: notificationTargets,
             alertRemainingMode: alertRemainingMode,
             usageDisplayMode: usageDisplayMode,
             reducedRefreshOnBattery: reducedRefreshOnBattery,
@@ -747,6 +754,7 @@ class AppSettings: ObservableObject {
         autoRefresh = snapshot.autoRefresh
         notificationsEnabled = snapshot.notificationsEnabled
         notificationPresets = snapshot.notificationPresets
+        notificationTargets = snapshot.notificationTargets
         alertRemainingMode = snapshot.alertRemainingMode
         usageDisplayMode = snapshot.usageDisplayMode
         reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
@@ -832,10 +840,6 @@ class AppSettings: ObservableObject {
             .map(\.threshold)
 
         return thresholds.sorted()
-    }
-
-    var enabledCodexAlertThresholds: [Int] {
-        enabledAlertThresholds
     }
 
     /// provider별 팝오버 항목 (정규화 후).
@@ -1472,6 +1476,7 @@ class AppSettings: ObservableObject {
         autoRefresh = true
         notificationsEnabled = false
         notificationPresets = Self.defaultNotificationPresets
+        notificationTargets = NotificationTargetPreferences()
         alertRemainingMode = false
         usageDisplayMode = .remaining
         reducedRefreshOnBattery = true
@@ -1624,6 +1629,7 @@ class AppSettings: ObservableObject {
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? false
         let storedAlertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
         self.alertRemainingMode = storedAlertRemainingMode
+        self.notificationTargets = NotificationTargetPreferences.load(from: defaults)
         self.notificationPresets = Self.migrateNotificationPresets(from: defaults, commonRemainingMode: storedAlertRemainingMode)
         self.reducedRefreshOnBattery = defaults.object(forKey: "reducedRefreshOnBattery") as? Bool ?? true
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue

@@ -7,6 +7,8 @@ struct CompactUsageRow: View {
     var isWeekly: Bool = false
     var timeFormatStyle: TimeFormatStyle = .h24
     var showsResetDetail = true
+    var resetDetailText: String? = nil
+    var stacksResetDetail = false
     var color: Color? = nil
     var percentageText: String? = nil
     var tooltip: String? = nil
@@ -56,11 +58,9 @@ struct CompactUsageRow: View {
         .frame(
             maxWidth: .infinity,
             minHeight:
-                PopoverLayoutMetrics
-                    .compactUsageRowHeight,
+                PopoverLayoutMetrics.compactUsageRowHeight(stackedReset: stacksResetDetail && resetDetailText != nil),
             maxHeight:
-                PopoverLayoutMetrics
-                    .compactUsageRowHeight,
+                PopoverLayoutMetrics.compactUsageRowHeight(stackedReset: stacksResetDetail && resetDetailText != nil),
             alignment: .center
         )
         .help(
@@ -87,7 +87,12 @@ struct CompactUsageRow: View {
 
     @ViewBuilder
     private var compactLabelLine: some View {
-        if showsResetDetail {
+        if stacksResetDetail, let resetDetailText {
+            VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
+                Text(label).font(AppDesign.Typography.caption.weight(.semibold)).lineLimit(1)
+                Text(resetDetailText).font(AppDesign.Typography.metadata).foregroundStyle(.secondary).lineLimit(1)
+            }
+        } else if showsResetDetail {
             (
                 Text(label)
                     .font(

@@ -161,6 +161,7 @@ nonisolated struct AntigravityCompactQuotaMetricPresentation:
     let tooltip: String
     let accessibilityLabel: String
     let accessibilityValue: String
+    var resetText: String? = nil
     var basis: UsageValueBasis = .used
 }
 

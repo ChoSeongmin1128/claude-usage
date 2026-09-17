@@ -80,10 +80,6 @@ nonisolated struct CodexAdditionalRateLimit: Codable, Sendable {
         rateLimit = (try? container.decodeIfPresent(CodexRateLimit.self, forKey: .rateLimit)) ?? nil
     }
 
-    /// 대표 창 (primary 우선)
-    nonisolated var window: CodexUsageWindow? {
-        rateLimit?.primaryWindow ?? rateLimit?.secondaryWindow
-    }
 }
 
 /// Codex 사용량 윈도우 (5시간/7일)

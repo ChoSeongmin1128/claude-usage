@@ -82,6 +82,7 @@ struct PopoverView: View {
                     HStack {
                         Button("미리보기") {
                             viewModel.isDesignIntroductionPresented = false
+                            settings.designComparisonRequested = true
                             viewModel.openSettings(panel: .display)
                         }
                         Button("기존 유지") { viewModel.isDesignIntroductionPresented = false }

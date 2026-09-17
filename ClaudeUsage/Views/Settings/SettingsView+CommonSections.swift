@@ -63,14 +63,7 @@ extension SettingsView {
             ForEach(AppProviderKind.allCases, id: \.rawValue) { provider in
                 providerAlertSection(for: provider)
             }
-            if settings.claudeAlertEnabled {
-                HStack(spacing: AppDesign.Space.content) {
-                    Text("Claude 알림 대상").font(AppDesign.Typography.caption).foregroundStyle(.secondary)
-                    Toggle("5시간", isOn: $settings.alertFiveHourEnabled)
-                    Toggle("주간", isOn: $settings.alertWeeklyEnabled)
-                }
-                .toggleStyle(.checkbox).disabled(!settings.notificationsEnabled)
-            }
+
         }
     }
 

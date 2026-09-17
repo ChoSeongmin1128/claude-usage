@@ -5,6 +5,29 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
     private let utc = TimeZone(secondsFromGMT: 0)!
 
+    func testCompactResetUsesSelectedTimeFormatAndOnlyActualTimestamps() throws {
+        let lanes = [
+            makeLane(
+                id: "future.daily", scope: .unknown(id: "future", label: "A long future model name"),
+                cadence: .unknown(rawValue: "daily"), remaining: 0.5, resetAt: now.addingTimeInterval(3 * 3600)),
+            makeLane(
+                id: AntigravityQuotaLaneID.geminiWeekly.rawValue, scope: .gemini, cadence: .weekly, remaining: 0.8),
+        ]
+        var settings = AntigravityDisplaySettings.default
+        settings.menuBar.timeFormat = .remaining
+        let presentation = AntigravityQuotaPresentationMapper.map(
+            snapshot: makeSnapshot(lanes: lanes, fetchedAt: now), settings: settings, now: now, timeZone: utc)
+        let timed = try XCTUnwrap(presentation.compact.metrics.first { $0.laneID.rawValue == "future.daily" })
+        XCTAssertEqual(timed.resetText, "3시간 후")
+        XCTAssertNil(presentation.compact.metrics.first { $0.laneID == .geminiWeekly }?.resetText)
+        let expired = makeLane(
+            id: AntigravityQuotaLaneID.geminiWeekly.rawValue, scope: .gemini, cadence: .weekly, remaining: 0.5,
+            resetAt: now.addingTimeInterval(-1))
+        let past = AntigravityQuotaPresentationMapper.map(
+            snapshot: makeSnapshot(lanes: [expired], fetchedAt: now), settings: settings, now: now, timeZone: utc)
+        XCTAssertEqual(past.compact.metrics.first?.resetText, "갱신 시각 확인 필요")
+    }
+
     func testCommonBasisOverridesLegacyStyleAndKeepsRiskAcrossAllSurfaces() {
         let snapshot = makeSnapshot(
             lanes: [

@@ -87,6 +87,7 @@ enum PopoverLayoutMetrics {
         sections: [PopoverDisplaySection],
         rowCount: Int,
         preferredStandardBodyHeight: CGFloat? = nil,
+        preferredCompactBodyHeight: CGFloat? = nil,
         richAuthPanel: Bool = false
     ) -> PopoverLayoutSpec {
         let bodyInsets = density.isCompact ? compactBodyInsets : standardBodyInsets
@@ -94,7 +95,8 @@ enum PopoverLayoutMetrics {
         let contentBottomSpacing = density.isCompact ? compactContentBottomSpacing : 0
 
         if density.isCompact {
-            let bodyContentHeight = compactBodyViewportHeight(phase: phase, rowCount: rowCount)
+            let bodyContentHeight =
+                preferredCompactBodyHeight ?? compactBodyViewportHeight(phase: phase, rowCount: rowCount)
             let totalHeight = max(
                 compactMinimumPopoverHeight,
                 compactHeaderHeight
@@ -266,6 +268,17 @@ enum PopoverLayoutMetrics {
         guard rowCount > 0 else { return compactInteractiveStatusPanelHeight }
         let rows = min(rowCount, compactMaximumVisibleRows)
         return compactUsageRowHeight * CGFloat(rows) + compactSectionSpacing * CGFloat(max(0, rows - 1))
+    }
+
+    static func compactUsageRowHeight(stackedReset: Bool) -> CGFloat {
+        stackedReset ? 32 : compactUsageRowHeight
+    }
+
+    static func compactAntigravityContentHeight(_ metrics: [AntigravityCompactQuotaMetricPresentation]) -> CGFloat {
+        guard !metrics.isEmpty else { return compactUsageRowHeight }
+        let visible = metrics.prefix(compactMaximumVisibleRows)
+        return visible.reduce(0) { $0 + compactUsageRowHeight(stackedReset: $1.resetText != nil) }
+            + CGFloat(max(0, visible.count - 1)) * compactSectionSpacing
     }
 
     static func standardPopoverHeight(forBodyHeight bodyHeight: CGFloat) -> CGFloat {
