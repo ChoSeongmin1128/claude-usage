@@ -165,6 +165,7 @@ actor AntigravityRuntimeController {
     private var lastAttemptAt: Date?
     private var lastSuccessfulAt: Date?
     private var usageDisplayBasis: UsageValueBasis?
+    private var usageDisplayRevision: UInt64 = 0
 
     init(
         repository:
@@ -204,8 +205,10 @@ actor AntigravityRuntimeController {
 
     /// Reprojects verified data only. Never restarts a process or refreshes quota.
     @discardableResult
-    func setUsageDisplayBasis(_ basis: UsageValueBasis?) -> AntigravityRuntimeSnapshot {
-        guard !isShuttingDown, usageDisplayBasis != basis else { return currentSnapshot }
+    func setUsageDisplayBasis(_ basis: UsageValueBasis?, revision: UInt64) -> AntigravityRuntimeSnapshot {
+        guard !isShuttingDown, revision >= usageDisplayRevision else { return currentSnapshot }
+        usageDisplayRevision = revision
+        guard usageDisplayBasis != basis else { return currentSnapshot }
         usageDisplayBasis = basis
         return publish()
     }

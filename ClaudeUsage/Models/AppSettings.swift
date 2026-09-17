@@ -383,8 +383,13 @@ class AppSettings: ObservableObject {
     @Published var notificationPresets: [NotificationPreset] {
         didSet { NotificationThresholdStorage.save(notificationPresets, to: defaults) }
     }
+    private(set) var usageDisplayModeRevision: UInt64 = 0
     @Published var usageDisplayMode: UsageDisplayMode {
-        didSet { defaults.set(usageDisplayMode.rawValue, forKey: "usageDisplayMode") }
+        didSet {
+            guard usageDisplayMode != oldValue else { return }
+            usageDisplayModeRevision += 1
+            defaults.set(usageDisplayMode.rawValue, forKey: "usageDisplayMode")
+        }
     }
     var notificationValueBasis: UsageValueBasis {
         usageDisplayMode.basis ?? (alertRemainingMode ? .remaining : .used)
