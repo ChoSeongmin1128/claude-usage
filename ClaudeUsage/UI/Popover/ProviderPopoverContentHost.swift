@@ -6,7 +6,7 @@ struct ProviderPopoverContentHost: View {
     let service: PopoverService
     let layoutSpec: PopoverLayoutSpec
     let sections: [PopoverDisplaySection]
-    @Binding var isDisplayEditorPresented: Bool
+    let onOpenDisplayEditor: () -> Void
 
     var body: some View {
         if service == .antigravity {
@@ -19,19 +19,19 @@ struct ProviderPopoverContentHost: View {
         {
             catalogContent
         } else if service == .claude,
-                  layoutSpec.phase
-                    == .authRequired
+            layoutSpec.phase
+                == .authRequired
         {
             claudeUnauthenticatedPanel
         } else if let summary =
             CatalogPopoverPresentationAdapter
-                .statusSummary(
-                    phase: layoutSpec.phase,
-                    error: runtimeState.error,
-                    service: service,
-                    claudeUsesCodeCredentials:
-                        claudeUsesCodeCredentials
-                )
+            .statusSummary(
+                phase: layoutSpec.phase,
+                error: runtimeState.error,
+                service: service,
+                claudeUsesCodeCredentials:
+                    claudeUsesCodeCredentials
+            )
         {
             statusPanel(summary)
         }
@@ -50,9 +50,7 @@ struct ProviderPopoverContentHost: View {
     }
 
     @ViewBuilder
-    private var claudeUnauthenticatedPanel:
-        some View
-    {
+    private var claudeUnauthenticatedPanel: some View {
         if layoutSpec.density == .compact {
             statusPanel(
                 CatalogPopoverPresentationAdapter
@@ -102,9 +100,7 @@ struct ProviderPopoverContentHost: View {
         }
     }
 
-    private var runtimeState:
-        PopoverViewModel.RuntimeServiceState
-    {
+    private var runtimeState: PopoverViewModel.RuntimeServiceState {
         viewModel.runtimeServiceState(
             for: service,
             settings: settings
@@ -117,7 +113,7 @@ struct ProviderPopoverContentHost: View {
         }
         let activeAccount =
             viewModel.usageHealthSnapshot?
-                .activeAccount
+            .activeAccount
         return activeAccount?.kind
             == .claudeCodeExternal
             || runtimeState.sourceLabel?
@@ -177,9 +173,7 @@ struct ProviderPopoverContentHost: View {
                 viewModel.startClaudeLogin()
             }
         case .openDisplayEditor:
-            {
-                isDisplayEditorPresented = true
-            }
+            onOpenDisplayEditor
         case nil:
             nil
         }

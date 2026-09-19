@@ -113,7 +113,6 @@ struct MenuBarDesignPreview: View {
     }
 }
 
-
 struct MenuBarDesignComparison: View {
     let colorMode: MenuBarColorMode
     let basis: UsageValueBasis

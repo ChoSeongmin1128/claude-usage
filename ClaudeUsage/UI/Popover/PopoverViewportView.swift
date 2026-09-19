@@ -7,6 +7,7 @@ import SwiftUI
 final class PopoverViewportView: NSView {
     let hostingView: NSHostingView<PopoverView>
     private var margins: NSEdgeInsets?
+    private var isResizeInProgress = false
     private weak var observedWindow: NSWindow?
 
     init(rootView: PopoverView) {
@@ -21,9 +22,11 @@ final class PopoverViewportView: NSView {
 
     func prepareForResize() {
         captureMargins()
+        isResizeInProgress = true
     }
 
     func finishResize() {
+        isResizeInProgress = false
         captureMargins()
         needsLayout = true
         layoutSubtreeIfNeeded()
@@ -52,14 +55,18 @@ final class PopoverViewportView: NSView {
     }
 
     var visibleContentRect: CGRect {
-        guard let superview, let margins else { return bounds }
+        guard isResizeInProgress,
+            let superview,
+            let margins
+        else {
+            return bounds
+        }
         let parentBounds = superview.bounds
         let content = CGRect(
             x: parentBounds.minX + margins.left, y: parentBounds.minY + margins.bottom,
             width: max(0, parentBounds.width - margins.left - margins.right),
             height: max(0, parentBounds.height - margins.top - margins.bottom))
-        let visible = convert(content, from: superview).intersection(bounds)
-        return visible.isNull ? .zero : visible
+        return convert(content, from: superview)
     }
 
     private func captureMargins() {

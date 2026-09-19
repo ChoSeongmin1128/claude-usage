@@ -94,21 +94,13 @@ enum MenuBarIconRenderer {
                 let devicePoint = context.convertToDeviceSpace(origin)
                 origin = context.convertToUserSpace(CGPoint(x: devicePoint.x.rounded(), y: devicePoint.y.rounded()))
             }
-            // Disjoint clips draw each glyph fragment once. Painting the full glyph
-            // before cutting it out again leaves extra alpha on antialiased edges.
+            // Draw the glyph exactly once across the whole battery. The fill
+            // boundary must never split one character into different colors.
             NSGraphicsContext.saveGraphicsState()
-            NSRect(x: fill.maxX, y: body.minY, width: body.maxX - fill.maxX, height: body.height).clip()
-            (text as NSString).draw(at: origin, withAttributes: attributes)
-            NSGraphicsContext.restoreGraphicsState()
-            NSGraphicsContext.saveGraphicsState()
-            fill.clip()
             if cutoutText {
                 NSGraphicsContext.current?.cgContext.setBlendMode(.destinationOut)
             }
-            let luminance = color.redComponent * 0.2126 + color.greenComponent * 0.7152 + color.blueComponent * 0.0722
-            (text as NSString).draw(
-                at: origin,
-                withAttributes: [.font: font, .foregroundColor: luminance > 0.55 ? NSColor.black : NSColor.white])
+            (text as NSString).draw(at: origin, withAttributes: attributes)
             NSGraphicsContext.restoreGraphicsState()
         }
         NSGraphicsContext.restoreGraphicsState()

@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import ClaudeUsage
 
 @MainActor
@@ -58,8 +59,35 @@ final class NotificationManagerTests: XCTestCase {
         checkClaude(percentage: 84, resetAt: nil)
         checkClaude(percentage: 90, resetAt: nil)
 
-        XCTAssertEqual(deliverer.delivered.map(\.title), ["Claude 사용량 주의"])
-        XCTAssertEqual(deliverer.delivered.map(\.body), ["5시간의 90%를 사용했습니다"])
+        XCTAssertEqual(deliverer.delivered.map(\.title), ["Claude 사용량 알림"])
+        XCTAssertEqual(deliverer.delivered.map(\.body), ["5시간 사용 한도를 90% 이상 사용했습니다."])
+    }
+
+    func testThresholdMessageDescribesBoundaryInsteadOfClaimingExactCurrentValue() {
+        AppSettings.shared.notificationPresets = [
+            NotificationPreset(id: "eighty-five", threshold: 85)
+        ]
+        checkClaude(percentage: 80, resetAt: nil)
+        checkClaude(percentage: 88, resetAt: nil)
+
+        XCTAssertEqual(deliverer.delivered.count, 1)
+        XCTAssertEqual(deliverer.delivered[0].title, "Claude 사용량 알림")
+        XCTAssertEqual(
+            deliverer.delivered[0].body,
+            "5시간 사용 한도를 85% 이상 사용했습니다."
+        )
+        XCTAssertFalse(deliverer.delivered[0].body.contains("88%"))
+
+        AppSettings.shared.usageDisplayMode = .remaining
+        checkClaude(percentage: 70, resetAt: nil)
+        checkClaude(percentage: 88, resetAt: nil)
+
+        XCTAssertEqual(deliverer.delivered.count, 2)
+        XCTAssertEqual(
+            deliverer.delivered[1].body,
+            "5시간 사용 한도가 15% 이하로 남았습니다."
+        )
+        XCTAssertFalse(deliverer.delivered[1].body.contains("12%"))
     }
 
     func testFirstCheckDoesNotSendThresholdNotificationEvenWhenAlreadyHigh() {
@@ -86,8 +114,8 @@ final class NotificationManagerTests: XCTestCase {
         checkClaude(percentage: 75, resetAt: nil, claudePolicy: policy)
         checkClaude(percentage: 90, resetAt: nil, claudePolicy: policy)
 
-        XCTAssertEqual(deliverer.delivered.map(\.title), ["Claude 사용량 주의"])
-        XCTAssertEqual(deliverer.delivered.map(\.body), ["5시간의 90%를 사용했습니다"])
+        XCTAssertEqual(deliverer.delivered.map(\.title), ["Claude 사용량 알림"])
+        XCTAssertEqual(deliverer.delivered.map(\.body), ["5시간 사용 한도를 90% 이상 사용했습니다."])
     }
 
     func testCodexThresholdBehaviorIsPreserved() {
@@ -102,11 +130,11 @@ final class NotificationManagerTests: XCTestCase {
 
         XCTAssertEqual(
             deliverer.delivered.map(\.title),
-            ["Codex 사용량 경고"]
+            ["Codex 사용량 알림"]
         )
         XCTAssertEqual(
             deliverer.delivered.map(\.body),
-            ["5시간의 95%를 사용했습니다"]
+            ["5시간 사용 한도를 95% 이상 사용했습니다."]
         )
     }
 
@@ -169,13 +197,13 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(deliverer.delivered.count, 1)
         XCTAssertEqual(
             deliverer.delivered.first?.title,
-            "Antigravity 사용량 경고"
+            "Antigravity 사용량 알림"
         )
         XCTAssertEqual(
             deliverer.delivered.first?.body,
             [
-                "Gemini · 5시간의 90%를 사용했습니다",
-                "Claude·GPT · 주간의 95%를 사용했습니다",
+                "Gemini · 5시간 사용 한도를 90% 이상 사용했습니다.",
+                "Claude·GPT · 주간 사용 한도를 95% 이상 사용했습니다.",
             ].joined(separator: "\n")
         )
     }
@@ -232,7 +260,7 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(deliverer.delivered.count, 1)
         XCTAssertEqual(
             deliverer.delivered.first?.body,
-            "Gemini · 주간의 90%를 사용했습니다"
+            "Gemini · 주간 사용 한도를 90% 이상 사용했습니다."
         )
         XCTAssertFalse(
             deliverer.delivered.first?.body.contains(
@@ -492,13 +520,13 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(deliverer.delivered.count, 1)
         XCTAssertEqual(
             deliverer.delivered.first?.title,
-            "Antigravity 잔여 한도 경고"
+            "Antigravity 사용량 알림"
         )
         XCTAssertEqual(
             deliverer.delivered.first?.body,
             [
-                "Gemini · 5시간의 10%가 남았습니다",
-                "Claude·GPT · 주간의 5%가 남았습니다",
+                "Gemini · 5시간 사용 한도가 10% 이하로 남았습니다.",
+                "Claude·GPT · 주간 사용 한도가 5% 이하로 남았습니다.",
             ].joined(separator: "\n")
         )
     }
@@ -660,8 +688,8 @@ final class NotificationManagerTests: XCTestCase {
             ],
             activeAccountID:
                 usesAmbientAccountBoundary
-                    ? nil
-                    : accountID,
+                ? nil
+                : accountID,
             settings: AntigravitySettingsSnapshot(
                 connection: .default,
                 display: displaySettings

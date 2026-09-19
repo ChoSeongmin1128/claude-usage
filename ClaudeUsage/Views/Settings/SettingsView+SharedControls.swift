@@ -2,6 +2,68 @@ import SwiftUI
 
 extension SettingsView {
     @ViewBuilder
+    func providerTimeFormatSection(for provider: AppProviderKind) -> some View {
+        VStack(alignment: .leading, spacing: AppDesign.Space.row) {
+            Text("시간 표시")
+                .font(AppDesign.Typography.subheadline.weight(.semibold))
+
+            Grid(
+                alignment: .leading,
+                horizontalSpacing: AppDesign.Space.row,
+                verticalSpacing: AppDesign.Space.row
+            ) {
+                GridRow {
+                    Text("시간 형식")
+                    Picker(
+                        "시간 형식 — 메뉴바·팝오버 공통",
+                        selection: providerTimeFormatBinding(for: provider)
+                    ) {
+                        ForEach(TimeFormatStyle.allCases, id: \.self) {
+                            Text($0.displayName).tag($0)
+                        }
+                    }
+                    .labelsHidden()
+                }
+            }
+            .font(AppDesign.Typography.subheadline)
+
+            Text("메뉴바와 팝오버의 한도 초기화 시간에 함께 적용됩니다.")
+                .font(AppDesign.Typography.caption)
+                .foregroundStyle(.secondary)
+        }
+        .controlSize(.small)
+    }
+
+    private func providerTimeFormatBinding(for provider: AppProviderKind) -> Binding<TimeFormatStyle> {
+        Binding(
+            get: {
+                if provider == .antigravity {
+                    guard let raw = antigravitySettings.state.display?.menuBar.timeFormat.rawValue else {
+                        return .h24
+                    }
+                    return TimeFormatStyle(rawValue: raw) ?? .h24
+                }
+                return settings.menuBarDisplayConfig(for: provider)?.timeFormat ?? .h24
+            },
+            set: { format in
+                if provider == .antigravity {
+                    guard
+                        let agyFormat =
+                            AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat(rawValue: format.rawValue)
+                    else {
+                        return
+                    }
+                    updateAntigravityDisplay {
+                        $0.menuBar.timeFormat = agyFormat
+                    }
+                } else {
+                    settings.setProviderTimeFormat(format, for: provider)
+                }
+            }
+        )
+    }
+
+    @ViewBuilder
     func providerMenuBarDisplaySection(for provider: AppProviderKind) -> some View {
         if provider == .antigravity {
             antigravityMenuBarDisplaySection()
@@ -159,19 +221,6 @@ extension SettingsView {
                     }
                 }.labelsHidden()
             }
-            if config.resetTimeDisplay != .none {
-                GridRow {
-                    Text("시간 형식")
-                    Picker(
-                        "시간 형식",
-                        selection: Binding(
-                            get: { settings.menuBarDisplayConfig(for: provider)?.timeFormat ?? .h24 },
-                            set: { settings.setProviderTimeFormat($0, for: provider) })
-                    ) {
-                        ForEach(TimeFormatStyle.allCases, id: \.self) { Text($0.displayName).tag($0) }
-                    }.labelsHidden()
-                }
-            }
         }
         .font(AppDesign.Typography.subheadline)
     }
@@ -303,17 +352,6 @@ extension SettingsView {
                             }
                         }.toggleStyle(.checkbox)
                     }
-                    if display.menuBar.showsSelectedLaneResetTime {
-                        GridRow {
-                            Text("시간 형식")
-                            Picker("시간 형식", selection: antigravityMenuBarTimeBinding(display)) {
-                                Text("24시간").tag(AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat.h24)
-                                Text("12시간").tag(AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat.h12)
-                                Text("남은 시간").tag(
-                                    AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat.remaining)
-                            }.labelsHidden()
-                        }
-                    }
                 }
                 if !antigravityObservedLanes.isEmpty {
                     Text("함께 표시할 한도").font(AppDesign.Typography.subheadline.weight(.medium))
@@ -415,24 +453,6 @@ extension SettingsView {
             }
         )
     }
-
-    private func antigravityMenuBarTimeBinding(
-        _ display: AntigravityDisplaySettings
-    ) -> Binding<
-        AntigravityDisplaySettings
-            .MenuBarPresentationIntent.TimeFormat
-    > {
-        Binding(
-            get: { display.menuBar.timeFormat },
-            set: { format in
-                updateAntigravityDisplay {
-                    $0.menuBar.timeFormat = format
-                }
-            }
-        )
-    }
-
-
 
     private func antigravityMenuBarLaneSelection(
         _ display: AntigravityDisplaySettings

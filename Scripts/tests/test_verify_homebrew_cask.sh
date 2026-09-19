@@ -75,7 +75,7 @@ for expected in \
     "<livecheck --cask --json choseongmin1128/tap/claude-usage>" \
     "<info --json=v2 --cask choseongmin1128/tap/claude-usage>" \
     "<fetch --cask choseongmin1128/tap/claude-usage>"; do
-    rg -F "$expected" "$TRACE" >/dev/null
+    grep -F -- "$expected" "$TRACE" >/dev/null
 done
 
 printf '# drift\n' >> "$CASK"

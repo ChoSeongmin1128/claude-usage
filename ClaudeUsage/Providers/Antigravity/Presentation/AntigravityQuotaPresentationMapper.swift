@@ -22,6 +22,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         let allGroups = makeGroups(
             from: snapshot.lanes,
             basis: basisOverride ?? .antigravity(settings.menuBar),
+            timeFormat: settings.menuBar.timeFormat,
             now: now,
             locale: locale,
             timeZone: timeZone
@@ -156,6 +157,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
     private static func makeGroups(
         from lanes: [AntigravityQuotaLane],
         basis: UsageValueBasis,
+        timeFormat: AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat,
         now: Date,
         locale: Locale,
         timeZone: TimeZone
@@ -168,6 +170,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                     lanePresentation(
                         from: $0,
                         basis: basis,
+                        timeFormat: timeFormat,
                         now: now,
                         locale: locale,
                         timeZone: timeZone
@@ -185,6 +188,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
     private static func lanePresentation(
         from lane: AntigravityQuotaLane,
         basis: UsageValueBasis,
+        timeFormat: AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat,
         now: Date,
         locale: Locale,
         timeZone: TimeZone
@@ -193,6 +197,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         let cadenceTitle = cadenceTitle(for: lane.cadence)
         let resetText = resetText(
             for: lane,
+            timeFormat: timeFormat,
             now: now,
             locale: locale,
             timeZone: timeZone
@@ -733,6 +738,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
 
     private static func resetText(
         for lane: AntigravityQuotaLane,
+        timeFormat: AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat,
         now: Date,
         locale: Locale,
         timeZone: TimeZone
@@ -743,6 +749,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         return TimeFormatter.formatUsageResetDetail(
             resetAt: resetAt,
             isWeekly: lane.cadence != .fiveHour,
+            style: TimeFormatStyle(rawValue: timeFormat.rawValue) ?? .h24,
             now: now,
             locale: locale,
             timeZone: timeZone,

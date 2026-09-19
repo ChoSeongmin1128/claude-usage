@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import XCTest
+
 @testable import ClaudeUsage
 
 @MainActor
@@ -371,6 +372,78 @@ final class DesignSystemTests: XCTestCase {
             } else {
                 XCTAssertGreaterThan(counts[1], 20)
             }
+        }
+    }
+
+    func testModernBatteryBoundaryUsesOneGlyphCompositionAcrossFillEdge() throws {
+        for appearanceName in [NSAppearance.Name.aqua, .darkAqua] {
+            guard !NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast,
+                !NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+            else {
+                continue
+            }
+
+            let appearance = try XCTUnwrap(NSAppearance(named: appearanceName))
+            var image: NSImage?
+            appearance.performAsCurrentDrawingAppearance {
+                image = MenuBarIconRenderer.batteryIcon(
+                    percentage: 62,
+                    color: .labelColor,
+                    monochrome: true
+                )
+            }
+
+            let rendered = try XCTUnwrap(image)
+            let width = 56
+            let height = 26
+            let rep = try XCTUnwrap(
+                NSBitmapImageRep(
+                    bitmapDataPlanes: nil,
+                    pixelsWide: width,
+                    pixelsHigh: height,
+                    bitsPerSample: 8,
+                    samplesPerPixel: 4,
+                    hasAlpha: true,
+                    isPlanar: false,
+                    colorSpaceName: .deviceRGB,
+                    bytesPerRow: 0,
+                    bitsPerPixel: 0
+                )
+            )
+            rep.size = rendered.size
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            rendered.draw(in: NSRect(origin: .zero, size: rendered.size))
+            NSGraphicsContext.restoreGraphicsState()
+
+            let scale = CGFloat(width) / rendered.size.width
+            let boundary = Int((BatteryGeometry.bodyWidth * 0.62 * scale).rounded())
+            let safeBodyEnd = Int((BatteryGeometry.bodyWidth * scale).rounded()) - 4
+            let yRange = 8..<18
+
+            func cutoutCount(_ xRange: Range<Int>) -> Int {
+                var count = 0
+                for y in yRange {
+                    for x in xRange
+                    where (rep.colorAt(x: x, y: y)?.alphaComponent ?? 1) < 0.05 {
+                        count += 1
+                    }
+                }
+                return count
+            }
+
+            let leftStart = max(4, boundary - 8)
+            let rightEnd = min(safeBodyEnd, boundary + 8)
+            XCTAssertGreaterThan(
+                cutoutCount(leftStart..<boundary),
+                0,
+                "the whole monochrome glyph must be cut out on the filled side"
+            )
+            XCTAssertGreaterThan(
+                cutoutCount(boundary..<rightEnd),
+                0,
+                "the same cutout glyph must continue across the 62% fill boundary"
+            )
         }
     }
 

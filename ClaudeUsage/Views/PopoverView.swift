@@ -5,25 +5,52 @@
 //  Phase 2: 메인 Popover UI
 //
 
+import AppKit
 import SwiftUI
+
+private struct PopoverAnchorReader: NSViewRepresentable {
+    let onResolve: @MainActor (NSView) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async {
+            onResolve(view)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            onResolve(nsView)
+        }
+    }
+}
 
 struct PopoverView: View {
     @ObservedObject var viewModel: PopoverViewModel
     @ObservedObject private var settings: AppSettings
     private let fillsViewport: Bool
     private let onTargetSizeChange: ((CGSize) -> Void)?
+    private let onServiceSelectionRequest: ((PopoverService) -> Void)?
+    private let onCompactToggleRequest: (() -> Void)?
+    private let onDisplayEditorRequest: ((NSView, PopoverService, PopoverDisplayEditorMode) -> Void)?
 
     init(
         viewModel: PopoverViewModel, settings: AppSettings = .shared, fillsViewport: Bool = false,
-        onTargetSizeChange: ((CGSize) -> Void)? = nil
+        onTargetSizeChange: ((CGSize) -> Void)? = nil,
+        onServiceSelectionRequest: ((PopoverService) -> Void)? = nil,
+        onCompactToggleRequest: (() -> Void)? = nil,
+        onDisplayEditorRequest: ((NSView, PopoverService, PopoverDisplayEditorMode) -> Void)? = nil
     ) {
         self.viewModel = viewModel
         self.settings = settings
         self.fillsViewport = fillsViewport
         self.onTargetSizeChange = onTargetSizeChange
+        self.onServiceSelectionRequest = onServiceSelectionRequest
+        self.onCompactToggleRequest = onCompactToggleRequest
+        self.onDisplayEditorRequest = onDisplayEditorRequest
     }
-    @State private var isDisplayEditorPresented = false
-    @State private var displayEditorMode: PopoverDisplayEditorMode = .standard
+    @State private var displayEditorAnchor: NSView?
 
     var body: some View {
         let layout = viewModel.layoutWithSections(for: selectedService, settings: settings)
@@ -43,7 +70,6 @@ struct PopoverView: View {
             requestRefreshIfNeededForVisibleService()
         }
         .onChange(of: settings.providerStates) { _, _ in normalizeSelectedServiceIfNeeded() }
-        .onChange(of: viewModel.selectedService) { _, _ in isDisplayEditorPresented = false }
         .onChange(of: layout.spec.size) { _, size in onTargetSizeChange?(size) }
     }
 
@@ -116,17 +142,13 @@ struct PopoverView: View {
                 }
                 Spacer(minLength: AppDesign.Space.compact)
                 IconActionButton(symbol: "slider.horizontal.3", label: "표시 항목 편집", compact: isCompact) {
-                    if selectedService == .antigravity {
-                        viewModel.openSettings(panel: .display)
-                    } else {
-                        displayEditorMode = isCompact ? .compact : .standard
-                        isDisplayEditorPresented.toggle()
+                    openDisplayEditor()
+                }
+                .background(
+                    PopoverAnchorReader { anchor in
+                        displayEditorAnchor = anchor
                     }
-                }
-                .popover(isPresented: $isDisplayEditorPresented, arrowEdge: .bottom) {
-                    PopoverDisplayEditorView(
-                        settings: settings, service: selectedService, selectedMode: $displayEditorMode)
-                }
+                )
                 IconActionButton(symbol: "gearshape", label: "설정 열기", compact: isCompact) {
                     viewModel.openSettings()
                 }
@@ -175,9 +197,12 @@ struct PopoverView: View {
                 symbol: isCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical",
                 label: isCompact ? "일반 보기로 전환" : "간소화 보기로 전환"
             ) {
-                isCompact.toggle()
-                displayEditorMode = isCompact ? .compact : .standard
-                viewModel.requestLayoutRefresh(reason: .compactToggle)
+                if let onCompactToggleRequest {
+                    onCompactToggleRequest()
+                } else {
+                    isCompact.toggle()
+                    viewModel.requestLayoutRefresh(reason: .compactToggle)
+                }
             }
             IconActionButton(
                 symbol: isPinned ? "pin.fill" : "pin", label: isPinned ? "팝오버 고정 해제" : "팝오버 고정", isActive: isPinned
@@ -191,8 +216,28 @@ struct PopoverView: View {
 
     private func selectService(_ service: PopoverService) {
         guard service != selectedService else { return }
-        viewModel.selectService(service)
-        viewModel.requestLayoutRefresh(for: service, reason: .serviceSelection)
+        if let onServiceSelectionRequest {
+            onServiceSelectionRequest(service)
+        } else {
+            viewModel.selectService(service)
+            viewModel.requestLayoutRefresh(for: service, reason: .serviceSelection)
+        }
+    }
+
+    private func openDisplayEditor() {
+        guard selectedService != .antigravity else {
+            viewModel.openSettings(panel: .display)
+            return
+        }
+        guard let anchor = displayEditorAnchor, let onDisplayEditorRequest else {
+            viewModel.openSettings(panel: .display)
+            return
+        }
+        onDisplayEditorRequest(
+            anchor,
+            selectedService,
+            isCompact ? .compact : .standard
+        )
     }
 
     private func appProviderKind(for service: PopoverService) -> AppProviderKind {
@@ -264,7 +309,9 @@ struct PopoverView: View {
             }
             if let status = context.status {
                 Text(context.lastSuccessLabel ?? status.label)
-                    .foregroundStyle(status == .authenticationRequired || status == .refreshFailed ? .orange : .secondary)
+                    .foregroundStyle(
+                        status == .authenticationRequired || status == .refreshFailed ? .orange : .secondary
+                    )
                     .fixedSize()
                     .layoutPriority(1)
             }
@@ -329,7 +376,8 @@ struct PopoverView: View {
     ) -> (account: String?, source: String?, status: String) {
         var accountLabel: String?
         if let accountID = state.accountID,
-           let account = viewModel.usageHealthSnapshot?.accounts.first(where: { $0.id == accountID }) {
+            let account = viewModel.usageHealthSnapshot?.accounts.first(where: { $0.id == accountID })
+        {
             accountLabel = account.identity.primaryLabel ?? account.displayName
         }
         let status: String
@@ -417,8 +465,9 @@ struct PopoverView: View {
 
     private func normalizeSelectedServiceIfNeeded() {
         guard !availableServices.contains(selectedService),
-              let fallback = availableServices.first else { return }
-        viewModel.selectService(fallback)
+            let fallback = availableServices.first
+        else { return }
+        selectService(fallback)
     }
 
     private var isCompact: Bool {
@@ -472,8 +521,7 @@ struct PopoverView: View {
             service: selectedService,
             layoutSpec: layoutSpec,
             sections: sections,
-            isDisplayEditorPresented:
-                $isDisplayEditorPresented
+            onOpenDisplayEditor: openDisplayEditor
         )
     }
 

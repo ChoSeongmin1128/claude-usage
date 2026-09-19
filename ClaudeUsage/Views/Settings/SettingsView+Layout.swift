@@ -301,6 +301,13 @@ extension SettingsView {
 
             Divider()
 
+            providerTimeFormatSection(
+                for:
+                    selectedDisplayProvider
+            )
+
+            Divider()
+
             providerMenuBarDisplaySection(
                 for:
                     selectedDisplayProvider

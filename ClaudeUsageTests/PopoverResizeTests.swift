@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import XCTest
+
 @testable import ClaudeUsage
 
 @MainActor
@@ -87,6 +88,88 @@ final class PopoverResizeTests: XCTestCase {
                 XCTAssertEqual(viewport.hostingView.bounds.width, target.width, accuracy: 1)
                 XCTAssertEqual(viewport.hostingView.bounds.height, target.height, accuracy: 1)
             }
+        }
+    }
+
+    func testSmoothResizeKeepsHostedTopInsetStable() throws {
+        try withNativePopover(service: .claude) { settings, coordinator, host, _ in
+            settings.popoverCompact = false
+            coordinator.refreshSizeIfShown(
+                size: coordinator.viewModel.layoutSpec(for: .claude, settings: settings).size
+            )
+            _ = try observeTransition(host: host, duration: 0.45)
+
+            settings.popoverCompact = true
+            let target = coordinator.viewModel.layoutSpec(for: .claude, settings: settings).size
+            coordinator.refreshSizeIfShown(size: target)
+
+            let viewport = try XCTUnwrap(host.view as? PopoverViewportView)
+            let parent = try XCTUnwrap(viewport.superview)
+            var topInsets: [CGFloat] = []
+            let end = Date().addingTimeInterval(0.45)
+            while Date() < end {
+                RunLoop.current.run(until: Date().addingTimeInterval(1.0 / 120))
+                viewport.layoutSubtreeIfNeeded()
+                let hosted = viewport.convert(viewport.hostingView.frame, to: parent)
+                topInsets.append(parent.bounds.maxY - hosted.maxY)
+            }
+
+            let minimum = try XCTUnwrap(topInsets.min())
+            let maximum = try XCTUnwrap(topInsets.max())
+            XCTAssertLessThanOrEqual(
+                maximum - minimum,
+                0.25,
+                "hosted content top inset must not wobble while the native popover shrinks"
+            )
+            assertFinalSize(host: host, popover: coordinator.popover, target: target)
+        }
+    }
+
+    func testDisplayEditorDefersMainResizeUntilNativeClose() throws {
+        try withNativePopover(service: .claude) { _, coordinator, host, anchor in
+            coordinator.presentDisplayEditor(
+                anchor: anchor,
+                service: .claude,
+                mode: .compact
+            )
+            RunLoop.current.run(until: Date().addingTimeInterval(0.08))
+            XCTAssertTrue(coordinator.displayEditorIsActive)
+
+            let original = coordinator.popover.contentSize
+            let deferred = CGSize(
+                width: original.width,
+                height: original.height + 40
+            )
+            coordinator.refreshSizeIfShown(size: deferred)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            XCTAssertEqual(coordinator.popover.contentSize.height, original.height, accuracy: 0.5)
+
+            coordinator.closeDisplayEditor(animated: false)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.12))
+            XCTAssertFalse(coordinator.displayEditorIsActive)
+            XCTAssertEqual(coordinator.popover.contentSize.width, deferred.width, accuracy: 0.5)
+            XCTAssertEqual(coordinator.popover.contentSize.height, deferred.height, accuracy: 0.5)
+            XCTAssertEqual(host.preferredContentSize.width, deferred.width, accuracy: 0.5)
+            XCTAssertEqual(host.preferredContentSize.height, deferred.height, accuracy: 0.5)
+        }
+    }
+
+    func testDisplayEditorServiceSwitchUsesLastRequestAfterClose() throws {
+        try withNativePopover(service: .claude) { _, coordinator, _, anchor in
+            coordinator.presentDisplayEditor(
+                anchor: anchor,
+                service: .claude,
+                mode: .compact
+            )
+            RunLoop.current.run(until: Date().addingTimeInterval(0.08))
+            XCTAssertTrue(coordinator.displayEditorIsActive)
+
+            coordinator.requestServiceSelection(.antigravity)
+            coordinator.requestServiceSelection(.codex)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+
+            XCTAssertFalse(coordinator.displayEditorIsActive)
+            XCTAssertEqual(coordinator.viewModel.selectedService, .codex)
         }
     }
 

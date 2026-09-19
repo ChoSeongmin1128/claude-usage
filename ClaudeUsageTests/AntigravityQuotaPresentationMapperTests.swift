@@ -12,7 +12,7 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
                 id: "future.daily", scope: .unknown(id: "future", label: "Future model"),
                 cadence: .unknown(rawValue: "daily"), remaining: 0.5, resetAt: reset),
             makeLane(
-                id: AntigravityQuotaLaneID.geminiWeekly.rawValue, scope: .gemini, cadence: .weekly, remaining: 0.8)
+                id: AntigravityQuotaLaneID.geminiWeekly.rawValue, scope: .gemini, cadence: .weekly, remaining: 0.8),
         ]
         var settings = AntigravityDisplaySettings.default
         settings.menuBar.timeFormat = .remaining
@@ -167,6 +167,42 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         XCTAssertTrue(resetText.contains("월"))
         XCTAssertFalse(resetText.contains("("))
         XCTAssertFalse(resetText.contains(")"))
+    }
+
+    func testStandardResetDetailUsesSelectedCommonTimeFormat() {
+        var settings = AntigravityDisplaySettings.default
+        settings.menuBar.timeFormat = .h12
+        let reset = now.addingTimeInterval(8 * 3600)
+        let expected = TimeFormatter.formatUsageResetDetail(
+            resetAt: reset,
+            isWeekly: false,
+            style: .h12,
+            now: now,
+            timeZone: utc,
+            label: nil
+        )
+
+        let presentation = map(
+            [
+                makeLane(
+                    id: AntigravityQuotaLaneID.geminiFiveHour.rawValue,
+                    scope: .gemini,
+                    cadence: .fiveHour,
+                    remaining: 0.6,
+                    resetAt: reset
+                )
+            ],
+            settings: settings
+        )
+
+        XCTAssertEqual(
+            presentation.groups[0].lanes[0].resetText,
+            expected
+        )
+        XCTAssertEqual(
+            presentation.compact.metrics[0].timeFormatStyle,
+            .h12
+        )
     }
 
     func testUnknownGroupIDsCannotCollideThroughDelimiterContent() {

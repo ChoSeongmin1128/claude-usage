@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import ClaudeUsage
 
 @MainActor
@@ -106,6 +107,82 @@ final class UsageDisplayPreferencesTests: XCTestCase {
             settings.setDisplayedNotificationThreshold(35, id: "full", basis: .remaining)
             XCTAssertEqual(settings.notificationPresets[0].threshold, 65)
         }
+    }
+
+    func testNotificationEditorDraftDoesNotMutateThresholdUntilCommit() throws {
+        let suite = "UsageDisplayPreferencesTests.Editor.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let settings = AppSettings(defaults: defaults)
+        settings.usageDisplayMode = .remaining
+        settings.notificationPresets = [
+            NotificationPreset(id: "first", threshold: 70),
+            NotificationPreset(id: "second", threshold: 85),
+            NotificationPreset(id: "third", threshold: 95),
+        ]
+        let editor = NotificationThresholdEditorModel(settings: settings)
+        let originalOrder = editor.orderedRuleIDs
+
+        editor.setDraft("4", for: "first")
+        XCTAssertEqual(
+            settings.notificationPresets.first(where: { $0.id == "first" })?.threshold,
+            70
+        )
+        XCTAssertEqual(editor.orderedRuleIDs, originalOrder)
+
+        editor.setDraft("45", for: "first")
+        XCTAssertTrue(editor.commit(id: "first", settings: settings))
+        XCTAssertEqual(
+            settings.notificationPresets.first(where: { $0.id == "first" })?.threshold,
+            55
+        )
+        XCTAssertEqual(editor.orderedRuleIDs, originalOrder)
+    }
+
+    func testNotificationEditorRejectsInvalidDraftAndEscRestoresCommittedValue() throws {
+        let suite = "UsageDisplayPreferencesTests.EditorInvalid.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let settings = AppSettings(defaults: defaults)
+        settings.usageDisplayMode = .used
+        settings.notificationPresets = [
+            NotificationPreset(id: "rule", threshold: 85)
+        ]
+        let editor = NotificationThresholdEditorModel(settings: settings)
+
+        for invalid in ["", "0", "101", "abc"] {
+            editor.setDraft(invalid, for: "rule")
+            XCTAssertFalse(editor.commit(id: "rule", settings: settings))
+            XCTAssertTrue(editor.isInvalid("rule"))
+            XCTAssertEqual(settings.notificationPresets[0].threshold, 85)
+        }
+
+        editor.cancel(id: "rule", settings: settings)
+        XCTAssertEqual(editor.draftValue(for: "rule", settings: settings), "85")
+        XCTAssertFalse(editor.isInvalid("rule"))
+        XCTAssertEqual(settings.notificationPresets[0].threshold, 85)
+    }
+
+    func testNotificationEditorBasisChangeNeverCommitsDraftUnderNewMeaning() throws {
+        let suite = "UsageDisplayPreferencesTests.EditorBasis.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let settings = AppSettings(defaults: defaults)
+        settings.usageDisplayMode = .used
+        settings.notificationPresets = [
+            NotificationPreset(id: "rule", threshold: 85)
+        ]
+        let editor = NotificationThresholdEditorModel(settings: settings)
+
+        editor.setDraft("30", for: "rule")
+        settings.usageDisplayMode = .remaining
+
+        XCTAssertFalse(editor.commit(id: "rule", settings: settings))
+        XCTAssertEqual(settings.notificationPresets[0].threshold, 85)
+        XCTAssertEqual(editor.draftValue(for: "rule", settings: settings), "15")
     }
 
     func testLegacyNumberedRulesImportToTheSameEffectiveThresholds() {

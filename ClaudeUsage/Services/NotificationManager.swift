@@ -55,7 +55,9 @@ final class NotificationManager: ObservableObject {
             if previous == nil { updateAccountBoundary(.antigravity, accountID: nil) }
             return
         case .stale: return
-        default: updateAccountBoundary(.antigravity, accountID: nil); return
+        default:
+            updateAccountBoundary(.antigravity, accountID: nil)
+            return
         }
         guard let display = snapshot.settings?.display else { return }
         let identity = quota.identity ?? quota.provenance.accountIdentity
@@ -108,19 +110,20 @@ final class NotificationManager: ObservableObject {
             trackers[limit.id] = tracker
             if enabled, let threshold = decision.thresholdToAlert { crossings.append((limit, threshold)) }
         }
-        guard let highest = crossings.map({ $0.1 }).max() else { return }
+        guard !crossings.isEmpty else { return }
         let basis = settings.notificationValueBasis
-        let severity = highest >= 95 ? "경고" : highest >= 90 ? "주의" : "안내"
-        let title = "\(provider.providerKind.displayName) \(basis == .remaining ? "잔여 한도" : "사용량") \(severity)"
+        let title = "\(provider.providerKind.displayName) 사용량 알림"
         let body = crossings.map { limit, threshold in
             let amount = basis == .remaining ? 100 - threshold : threshold
             let sentence =
-                basis == .remaining ? "\(limit.title)의 \(amount)%가 남았습니다" : "\(limit.title)의 \(amount)%를 사용했습니다"
+                basis == .remaining
+                ? "\(limit.title) 사용 한도가 \(amount)% 이하로 남았습니다."
+                : "\(limit.title) 사용 한도를 \(amount)% 이상 사용했습니다."
             if provider == .claude, limit.legacyKey != nil,
                 let guidance = freshPolicy?.guidanceSuffix(
                     threshold: threshold, alertRemainingMode: basis == .remaining)
             {
-                return sentence + ". " + guidance
+                return sentence + " " + guidance
             }
             return sentence
         }.joined(separator: "\n")
