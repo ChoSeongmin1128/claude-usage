@@ -535,6 +535,63 @@ final class DesignSystemTests: XCTestCase {
         }
     }
 
+    func testSettingsMouseDownDismissesFieldEditorOnlyOutsideActiveTextField() throws {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        let content = NSView(frame: window.contentView?.bounds ?? .zero)
+        let field = NSTextField(frame: NSRect(x: 20, y: 100, width: 100, height: 24))
+        content.addSubview(field)
+        window.contentView = content
+        window.makeKeyAndOrderFront(nil)
+        defer { window.close() }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        let editor = try XCTUnwrap(window.firstResponder as? NSTextView)
+        XCTAssertTrue(editor.isFieldEditor)
+
+        let insideLocation = editor.convert(
+            NSPoint(x: editor.bounds.midX, y: editor.bounds.midY),
+            to: nil
+        )
+        let insideEvent = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: insideLocation,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 1,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+        _ = SettingsFocusDismissal.handleMouseDown(insideEvent)
+        XCTAssertTrue(window.firstResponder === editor)
+
+        let outsideEvent = try XCTUnwrap(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: NSPoint(x: 260, y: 40),
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 2,
+                clickCount: 1,
+                pressure: 1
+            )
+        )
+        _ = SettingsFocusDismissal.handleMouseDown(outsideEvent)
+        XCTAssertFalse(window.firstResponder === editor)
+    }
+
     func testMonochromeBatteryOnColoredBackgrounds() throws {
         for appearanceName in [NSAppearance.Name.aqua, .darkAqua] {
             let appearance = try XCTUnwrap(NSAppearance(named: appearanceName))

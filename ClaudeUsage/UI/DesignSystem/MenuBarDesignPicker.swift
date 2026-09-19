@@ -83,30 +83,42 @@ struct MenuBarDesignPreview: View {
     }
 
     private var previewImage: NSImage {
-        let monochrome = colorMode != .always
-        let color: NSColor = monochrome ? .labelColor : .systemGreen
+        let samplePrimaryUsed = 20.0
+        let sampleSecondaryUsed = 45.0
+        let primaryStatusColor = ColorProvider.nsStatusColor(for: samplePrimaryUsed)
+        let secondaryStatusColor = ColorProvider.nsStatusColor(for: sampleSecondaryUsed)
+        let usesMonochromeGauge = colorMode != .always
+        let usesCutoutText = colorMode == .monochrome || colorMode == .warningOnly
+        let primaryColor: NSColor = usesMonochromeGauge ? .labelColor : primaryStatusColor
+        let secondaryColor: NSColor = usesMonochromeGauge ? .labelColor : secondaryStatusColor
+        let primaryTextColor: NSColor? = colorMode == .statusNumber ? primaryStatusColor : nil
+        let secondaryTextColor: NSColor? = colorMode == .statusNumber ? secondaryStatusColor : nil
         var image = NSImage()
-        let primary = basis.percentage(fromUsed: 20)
-        let secondary = basis.percentage(fromUsed: 45)
+        let primary = basis.percentage(fromUsed: samplePrimaryUsed)
+        let secondary = basis.percentage(fromUsed: sampleSecondaryUsed)
         NSAppearance(named: colorScheme == .dark ? .darkAqua : .aqua)?.performAsCurrentDrawingAppearance {
             switch style {
             case .none, .batteryBar:
                 image = MenuBarIconRenderer.batteryIcon(
-                    percentage: primary, color: color, design: design, monochrome: monochrome)
+                    percentage: primary, color: primaryColor, design: design,
+                    monochrome: usesCutoutText, textColor: primaryTextColor)
             case .circular:
-                image = MenuBarIconRenderer.circularRingIcon(percentage: primary, color: color, design: design)
+                image = MenuBarIconRenderer.circularRingIcon(
+                    percentage: primary, color: primaryColor, design: design)
             case .concentricRings:
                 image = MenuBarIconRenderer.concentricRingsIcon(
                     outerPercent: primary, innerPercent: secondary,
-                    outerColor: color, innerColor: color, design: design)
+                    outerColor: primaryColor, innerColor: secondaryColor, design: design)
             case .dualBattery:
                 image = MenuBarIconRenderer.dualBatteryIcon(
                     topPercent: primary, bottomPercent: secondary,
-                    topColor: color, bottomColor: color, design: design)
+                    topColor: primaryColor, bottomColor: secondaryColor, design: design)
             case .sideBySideBattery:
                 image = MenuBarIconRenderer.sideBySideBatteryIcon(
                     leftPercent: primary, rightPercent: secondary,
-                    leftColor: color, rightColor: color, design: design, monochrome: monochrome)
+                    leftColor: primaryColor, rightColor: secondaryColor, design: design,
+                    monochrome: usesCutoutText, rightMonochrome: usesCutoutText,
+                    leftTextColor: primaryTextColor, rightTextColor: secondaryTextColor)
             }
         }
         return image

@@ -195,7 +195,7 @@ enum MenuBarStatusComposer {
             return percentage >= MenuBarColorMode.warningThreshold
                 ? ColorProvider.nsStatusColor(for: percentage)
                 : .labelColor
-        case .monochrome:
+        case .statusNumber, .monochrome:
             return .labelColor
         }
     }
@@ -350,11 +350,17 @@ enum MenuBarStatusComposer {
         case .current, .refreshing:
             isStale = false
         }
-        let monochrome =
+        let statusColor = antigravityColor(for: presentation.tone)
+        let usesMonochromeGauge =
+            colorMode == .monochrome || colorMode == .statusNumber
+            || (colorMode == .warningOnly
+                && presentation.tone != .warning && presentation.tone != .critical)
+        let usesCutoutText =
             colorMode == .monochrome
             || (colorMode == .warningOnly
                 && presentation.tone != .warning && presentation.tone != .critical)
-        let color: NSColor = monochrome ? .labelColor : antigravityColor(for: presentation.tone)
+        let color: NSColor = usesMonochromeGauge ? .labelColor : statusColor
+        let batteryTextColor: NSColor? = colorMode == .statusNumber ? statusColor : nil
         let tooltip = staleAnnotatedTooltip(
             presentation.tooltip,
             isStale: isStale
@@ -405,7 +411,8 @@ enum MenuBarStatusComposer {
                 renderImages
                 ? withAppearance(appearance) {
                     antigravityStyleIcon(
-                        presentation: presentation, color: color, design: design, monochrome: monochrome)
+                        presentation: presentation, color: color, design: design,
+                        cutoutText: usesCutoutText, textColor: batteryTextColor)
                 }
                 : nil,
             resetText: nil,
@@ -951,7 +958,8 @@ enum MenuBarStatusComposer {
                     percentage: value,
                     color: color,
                     showPercent: config.showBatteryPercent, design: config.design,
-                    monochrome: usesMonochrome(used: secondary, mode: config.colorMode)
+                    monochrome: usesCutoutBatteryText(used: secondary, mode: config.colorMode),
+                    textColor: batteryNumberColor(used: secondary, mode: config.colorMode)
                 )
             case .circular, .concentricRings:
                 return MenuBarIconRenderer.circularRingIcon(percentage: value, color: color, design: config.design)
@@ -967,7 +975,7 @@ enum MenuBarStatusComposer {
 
     private static func antigravityStyleIcon(
         presentation: AntigravityMenuBarQuotaPresentation,
-        color: NSColor, design: MenuBarDesign, monochrome: Bool
+        color: NSColor, design: MenuBarDesign, cutoutText: Bool, textColor: NSColor?
     ) -> NSImage? {
         guard let percentage = presentation.gaugePercentage else {
             return nil
@@ -980,7 +988,8 @@ enum MenuBarStatusComposer {
             return MenuBarIconRenderer.batteryIcon(
                 percentage: percentage,
                 color: color,
-                showPercent: presentation.showsGaugePercentage, design: design, monochrome: monochrome
+                showPercent: presentation.showsGaugePercentage, design: design,
+                monochrome: cutoutText, textColor: textColor
             )
         case .circular:
             return MenuBarIconRenderer.circularRingIcon(
@@ -1007,8 +1016,13 @@ enum MenuBarStatusComposer {
         }
     }
 
-    private static func usesMonochrome(used: Double?, mode: MenuBarColorMode) -> Bool {
+    private static func usesCutoutBatteryText(used: Double?, mode: MenuBarColorMode) -> Bool {
         mode == .monochrome || (mode == .warningOnly && (used ?? 0) < MenuBarColorMode.warningThreshold)
+    }
+
+    private static func batteryNumberColor(used: Double?, mode: MenuBarColorMode) -> NSColor? {
+        guard mode == .statusNumber, let used, used.isFinite else { return nil }
+        return ColorProvider.nsStatusColor(for: used)
     }
 
     private static func styleIcon(
@@ -1031,7 +1045,8 @@ enum MenuBarStatusComposer {
                 percentage: circularValue,
                 color: metric.color,
                 showPercent: config.showBatteryPercent, design: config.design,
-                monochrome: usesMonochrome(used: metric.percentage, mode: config.colorMode)
+                monochrome: usesCutoutBatteryText(used: metric.percentage, mode: config.colorMode),
+                textColor: batteryNumberColor(used: metric.percentage, mode: config.colorMode)
             )
         case .circular:
             return MenuBarIconRenderer.circularRingIcon(
@@ -1057,8 +1072,10 @@ enum MenuBarStatusComposer {
                 leftColor: primaryColor,
                 rightColor: secondaryColor,
                 showPercent: config.showBatteryPercent, design: config.design,
-                monochrome: usesMonochrome(used: primary, mode: config.colorMode),
-                rightMonochrome: usesMonochrome(used: secondary, mode: config.colorMode)
+                monochrome: usesCutoutBatteryText(used: primary, mode: config.colorMode),
+                rightMonochrome: usesCutoutBatteryText(used: secondary, mode: config.colorMode),
+                leftTextColor: batteryNumberColor(used: primary, mode: config.colorMode),
+                rightTextColor: batteryNumberColor(used: secondary, mode: config.colorMode)
             )
         }
     }

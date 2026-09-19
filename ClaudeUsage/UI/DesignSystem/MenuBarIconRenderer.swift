@@ -8,11 +8,11 @@ enum MenuBarIconRenderer {
 
     static func batteryIcon(
         percentage: Double?, color: NSColor, showPercent: Bool = true, design: MenuBarDesign = .modern,
-        monochrome: Bool = false
+        monochrome: Bool = false, textColor: NSColor? = nil
     ) -> NSImage {
         batteryImage(
-            values: [(percentage, color)], layout: .single, showPercent: showPercent, design: design,
-            monochrome: monochrome)
+            values: [(percentage, color)], textColors: [textColor], layout: .single,
+            showPercent: showPercent, design: design, monochrome: monochrome)
     }
 
     static func dualBatteryIcon(
@@ -22,22 +22,24 @@ enum MenuBarIconRenderer {
         -> NSImage
     {
         batteryImage(
-            values: [(bottomPercent, bottomColor), (topPercent, topColor)], layout: .stacked, showPercent: false,
-            design: design)
+            values: [(bottomPercent, bottomColor), (topPercent, topColor)], textColors: [nil, nil],
+            layout: .stacked, showPercent: false, design: design)
     }
 
     static func sideBySideBatteryIcon(
         leftPercent: Double?, rightPercent: Double?, leftColor: NSColor, rightColor: NSColor, showPercent: Bool = true,
-        design: MenuBarDesign = .modern, monochrome: Bool = false, rightMonochrome: Bool? = nil
+        design: MenuBarDesign = .modern, monochrome: Bool = false, rightMonochrome: Bool? = nil,
+        leftTextColor: NSColor? = nil, rightTextColor: NSColor? = nil
     ) -> NSImage {
         batteryImage(
-            values: [(leftPercent, leftColor), (rightPercent, rightColor)], layout: .sideBySide,
+            values: [(leftPercent, leftColor), (rightPercent, rightColor)],
+            textColors: [leftTextColor, rightTextColor], layout: .sideBySide,
             showPercent: showPercent, design: design, monochrome: monochrome, rightMonochrome: rightMonochrome)
     }
 
     private static func batteryImage(
-        values: [(Double?, NSColor)], layout: BatteryGeometry.Layout, showPercent: Bool, design: MenuBarDesign,
-        monochrome: Bool = false, rightMonochrome: Bool? = nil
+        values: [(Double?, NSColor)], textColors: [NSColor?], layout: BatteryGeometry.Layout,
+        showPercent: Bool, design: MenuBarDesign, monochrome: Bool = false, rightMonochrome: Bool? = nil
     )
         -> NSImage
     {
@@ -53,13 +55,16 @@ enum MenuBarIconRenderer {
                 if design == .classic {
                     drawClassicBattery(
                         body: body, percentage: percentages[index], color: colors[index],
-                        showPercent: showPercent, isDark: isDark, small: layout == .stacked)
+                        textColor: textColors[index], showPercent: showPercent,
+                        isDark: isDark, small: layout == .stacked)
                 } else {
                     drawBattery(
                         body: body, percentage: percentages[index], color: colors[index],
-                        showPercent: showPercent, isDark: isDark, highContrast: highContrast,
-                        cutoutText: (index == 1 ? (rightMonochrome ?? monochrome) : monochrome) && !highContrast
-                            && !reduceTransparency)
+                        textColor: textColors[index], showPercent: showPercent,
+                        isDark: isDark, highContrast: highContrast,
+                        cutoutText: textColors[index] == nil
+                            && (index == 1 ? (rightMonochrome ?? monochrome) : monochrome)
+                            && !highContrast && !reduceTransparency)
                 }
             }
             return true
@@ -69,7 +74,7 @@ enum MenuBarIconRenderer {
     }
 
     private nonisolated static func drawBattery(
-        body: NSRect, percentage: Double?, color: NSColor,
+        body: NSRect, percentage: Double?, color: NSColor, textColor: NSColor?,
         showPercent: Bool, isDark: Bool, highContrast: Bool, cutoutText: Bool
     ) {
         let foreground: NSColor = isDark ? .white : .black
@@ -87,7 +92,10 @@ enum MenuBarIconRenderer {
         if showPercent {
             let text = validValue.map { String(format: "%.0f", $0) } ?? "—"
             let font = NSFont.systemFont(ofSize: BatteryGeometry.fontSize, weight: .regular)
-            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: foreground]
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: textColor ?? foreground,
+            ]
             let textSize = (text as NSString).size(withAttributes: attributes)
             var origin = NSPoint(x: body.midX - textSize.width / 2, y: body.midY - textSize.height / 2)
             if let context = NSGraphicsContext.current?.cgContext {
@@ -125,7 +133,8 @@ enum MenuBarIconRenderer {
     }
 
     private nonisolated static func drawClassicBattery(
-        body: CGRect, percentage: Double?, color: NSColor, showPercent: Bool, isDark: Bool, small: Bool
+        body: CGRect, percentage: Double?, color: NSColor, textColor: NSColor?,
+        showPercent: Bool, isDark: Bool, small: Bool
     ) {
         let corner: CGFloat = small ? 2 : 3
         let inset: CGFloat = small ? 1 : 1.5
@@ -149,7 +158,7 @@ enum MenuBarIconRenderer {
         let text = value.map { String(format: "%.0f", $0) } ?? "—"
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold),
-            .foregroundColor: isDark ? NSColor.white : .black,
+            .foregroundColor: textColor ?? (isDark ? NSColor.white : .black),
             .shadow: classicShadow(isDark: isDark, radius: 3, opacity: 0.95),
         ]
         let size = (text as NSString).size(withAttributes: attrs)

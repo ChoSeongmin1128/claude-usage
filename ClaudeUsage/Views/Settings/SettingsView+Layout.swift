@@ -2,10 +2,63 @@ import AppKit
 import SwiftUI
 import Combine
 
+@MainActor
+enum SettingsFocusDismissal {
+    static func handleMouseDown(_ event: NSEvent) -> NSEvent? {
+        guard let window = event.window,
+            let editor = window.firstResponder as? NSTextView,
+            editor.isFieldEditor
+        else {
+            return event
+        }
+
+        let location = editor.convert(event.locationInWindow, from: nil)
+        guard !editor.bounds.contains(location) else { return event }
+        window.makeFirstResponder(nil)
+        return event
+    }
+}
+
+private struct SettingsFocusDismissalMonitor: NSViewRepresentable {
+    final class Coordinator {
+        private var monitor: Any?
+
+        func start() {
+            guard monitor == nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) {
+                SettingsFocusDismissal.handleMouseDown($0)
+            }
+        }
+
+        func stop() {
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+                self.monitor = nil
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        context.coordinator.start()
+        return NSView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.stop()
+    }
+}
+
 extension SettingsView {
     var body: some View {
         settingsLayoutWithChanges
             .disclosureGroupStyle(AppDisclosureGroupStyle())
+            .background(SettingsFocusDismissalMonitor())
     }
 
     private var settingsLayout: some View {

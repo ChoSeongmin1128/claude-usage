@@ -196,9 +196,9 @@ extension SettingsView {
     private func menuBarTextControls(for provider: AppProviderKind, config: ProviderMenuBarDisplayConfig) -> some View {
         Grid(alignment: .leading, horizontalSpacing: AppDesign.Space.row, verticalSpacing: AppDesign.Space.row) {
             GridRow {
-                Text("게이지 밖 숫자")
+                Text("별도 퍼센트")
                 Picker(
-                    "게이지 밖 숫자",
+                    "별도 퍼센트",
                     selection: Binding(
                         get: { settings.menuBarDisplayConfig(for: provider)?.percentageDisplay ?? .none },
                         set: { settings.setProviderPercentageDisplay($0, for: provider) })
@@ -375,7 +375,7 @@ extension SettingsView {
 
     @ViewBuilder
     private func antigravityTextToggles(_ display: AntigravityDisplaySettings) -> some View {
-        Toggle("게이지 밖 숫자", isOn: antigravityMenuBarBinding(display, keyPath: \.showsSelectedLanePercentage))
+        Toggle("별도 퍼센트", isOn: antigravityMenuBarBinding(display, keyPath: \.showsSelectedLanePercentage))
         Toggle("한도 초기화 시간", isOn: antigravityMenuBarBinding(display, keyPath: \.showsSelectedLaneResetTime))
     }
 

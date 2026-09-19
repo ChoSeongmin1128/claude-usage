@@ -388,6 +388,8 @@ enum MenuBarColorMode: String, CaseIterable, Identifiable, Sendable, Equatable {
     case always
     /// 하이브리드: 평소 모노크롬, 주의 구간(75% 이상)부터만 색상
     case warningOnly
+    /// 배터리/게이지는 모노크롬으로 유지하고 배터리 내부 숫자만 상태색
+    case statusNumber
     /// 항상 시스템 텍스트색 (가장 네이티브)
     case monochrome
 
@@ -400,6 +402,7 @@ enum MenuBarColorMode: String, CaseIterable, Identifiable, Sendable, Equatable {
         switch self {
         case .always: return "항상 색상"
         case .warningOnly: return "주의 구간만 색상"
+        case .statusNumber: return "숫자만 상태색"
         case .monochrome: return "모노크롬"
         }
     }
@@ -408,6 +411,8 @@ enum MenuBarColorMode: String, CaseIterable, Identifiable, Sendable, Equatable {
         switch self {
         case .always: return "사용률에 따라 초록/노랑/주황/빨강으로 표시합니다."
         case .warningOnly: return "평소에는 시스템 텍스트색, 75% 이상부터 색상으로 강조합니다."
+        case .statusNumber:
+            return "게이지는 모노크롬으로 유지하고 배터리 내부 숫자만 사용률 상태색으로 표시합니다. 숫자가 없는 게이지는 모노크롬입니다."
         case .monochrome: return "항상 시스템 텍스트색으로 표시합니다. 메뉴바가 가장 차분해집니다."
         }
     }

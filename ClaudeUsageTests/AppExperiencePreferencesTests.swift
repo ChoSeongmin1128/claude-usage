@@ -67,6 +67,18 @@ final class AppExperiencePreferencesTests: XCTestCase {
         }
     }
 
+    func testStatusNumberColorModePersistsAsAnExplicitChoice() {
+        withDefaults { defaults in
+            let settings = AppSettings(defaults: defaults)
+            settings.menuBarColorMode = .statusNumber
+
+            XCTAssertEqual(
+                AppSettings(defaults: defaults).menuBarColorMode,
+                .statusNumber
+            )
+        }
+    }
+
     func testDismissalAndDeferralDoNotBecomeSuccessfulConnection() {
         withDefaults { defaults in
             let settings = AppSettings(defaults: defaults)

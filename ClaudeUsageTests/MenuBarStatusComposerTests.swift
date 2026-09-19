@@ -79,6 +79,53 @@ final class MenuBarStatusComposerTests: XCTestCase {
         XCTAssertTrue(claudeColor(percentage: 92, mode: .monochrome).isEqual(NSColor.labelColor))
     }
 
+    func testStatusNumberModeColorsOnlyBatteryNumber() throws {
+        let usage = ClaudeUsageResponse(
+            fiveHour: UsageWindow(utilization: 92, resetsAt: nil),
+            sevenDay: nil
+        )
+
+        func snapshot(style: MenuBarStyle, mode: MenuBarColorMode) -> MenuBarProviderSnapshot {
+            MenuBarStatusComposer.claudeSnapshot(
+                config: ProviderMenuBarDisplayConfig(
+                    kind: .claude,
+                    showIcon: false,
+                    style: style,
+                    percentageDisplay: .fiveHour,
+                    showBatteryPercent: true,
+                    resetTimeDisplay: .none,
+                    timeFormat: .h24,
+                    circularDisplayMode: .usage,
+                    iconMetric: .fiveHour,
+                    colorMode: mode
+                ),
+                usage: usage,
+                error: nil,
+                hasAuthError: false,
+                hasCredential: true,
+                secondaryColor: .secondaryLabelColor,
+                icon: nil
+            )
+        }
+
+        let statusNumberBattery = snapshot(style: .batteryBar, mode: .statusNumber)
+        let monochromeBattery = snapshot(style: .batteryBar, mode: .monochrome)
+        XCTAssertTrue(statusNumberBattery.color.isEqual(NSColor.labelColor))
+        XCTAssertNotEqual(
+            try XCTUnwrap(statusNumberBattery.styleIcon?.tiffRepresentation),
+            try XCTUnwrap(monochromeBattery.styleIcon?.tiffRepresentation),
+            "status-number mode should change the battery number without coloring the separate percentage"
+        )
+
+        let statusNumberRing = snapshot(style: .circular, mode: .statusNumber)
+        let monochromeRing = snapshot(style: .circular, mode: .monochrome)
+        XCTAssertEqual(
+            try XCTUnwrap(statusNumberRing.styleIcon?.tiffRepresentation),
+            try XCTUnwrap(monochromeRing.styleIcon?.tiffRepresentation),
+            "gauges without an internal number should remain monochrome"
+        )
+    }
+
     func testAntigravityV2HiddenPresentationProducesNoSnapshot() {
         let presentation = makeAntigravityMenuBarPresentation(
             isVisible: false
