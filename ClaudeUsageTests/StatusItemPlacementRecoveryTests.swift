@@ -513,27 +513,190 @@ final class StatusItemPlacementRecoveryTests:
         )
     }
 
+    func testNeverHiddenItemWithoutWindowIsBlocked() {
+        let evidence =
+            StatusItemPlacementEvidence(
+                autosaveName:
+                    "claudeusage",
+                visibilityDefault: nil,
+                snapshot:
+                    StatusItemPlacementSnapshot(
+                        expectsVisibility: true,
+                        reportsVisible: false,
+                        hasButton: true,
+                        hasWindow: false,
+                        hasScreen: false,
+                        isOnCurrentScreen: false,
+                        buttonWidth: 18
+                    ),
+                windowSnapshots: []
+            )
+
+        XCTAssertTrue(
+            StatusItemPlacementRecoveryPolicy
+                .isBlocked(
+                    evidence,
+                    detectTahoeBlockedStatusItem:
+                        true
+                )
+        )
+        XCTAssertFalse(
+            StatusItemPlacementRecoveryPolicy
+                .isBlocked(
+                    evidence,
+                    detectTahoeBlockedStatusItem:
+                        false
+                )
+        )
+    }
+
+    func testDetachedAnchorIsBlockedEvenWhenEveryInternalSignalIsHealthy() {
+        let healthy =
+            StatusItemPlacementEvidence(
+                autosaveName:
+                    "claudeusage",
+                visibilityDefault: true,
+                snapshot:
+                    StatusItemPlacementSnapshot(
+                        expectsVisibility: true,
+                        reportsVisible: true,
+                        hasButton: true,
+                        hasWindow: true,
+                        hasScreen: true,
+                        isOnCurrentScreen: true,
+                        buttonWidth: 195.5
+                    ),
+                windowSnapshots: []
+            )
+
+        XCTAssertFalse(
+            StatusItemPlacementRecoveryPolicy
+                .isBlocked(
+                    healthy,
+                    detectTahoeBlockedStatusItem: true,
+                    anchorIsUsable: true
+                )
+        )
+        XCTAssertTrue(
+            StatusItemPlacementRecoveryPolicy
+                .isBlocked(
+                    healthy,
+                    detectTahoeBlockedStatusItem: true,
+                    anchorIsUsable: false
+                )
+        )
+    }
+
+    func testDetachedAnchorWithoutStatusItemIsNotBlocked() {
+        let noItem =
+            StatusItemPlacementEvidence(
+                autosaveName: "",
+                visibilityDefault: nil,
+                snapshot:
+                    StatusItemPlacementSnapshot(
+                        expectsVisibility: false,
+                        reportsVisible: false,
+                        hasButton: false,
+                        hasWindow: false,
+                        hasScreen: false,
+                        isOnCurrentScreen: false,
+                        buttonWidth: 0
+                    ),
+                windowSnapshots: []
+            )
+
+        XCTAssertFalse(
+            StatusItemPlacementRecoveryPolicy
+                .isBlocked(
+                    noItem,
+                    detectTahoeBlockedStatusItem: true,
+                    anchorIsUsable: false
+                )
+        )
+    }
+
     func testReopenPolicyUsesVisibleRecoveryPath() {
         XCTAssertEqual(
             ApplicationReopenPolicy.action(
                 hasVisibleWindows: false,
-                statusItemIsBlocked: true
+                statusItemIsBlocked: true,
+                statusItemCanAnchorPopover: true
             ),
             .showStatusItemRecovery
         )
         XCTAssertEqual(
             ApplicationReopenPolicy.action(
                 hasVisibleWindows: false,
-                statusItemIsBlocked: false
+                statusItemIsBlocked: false,
+                statusItemCanAnchorPopover: true
             ),
             .showPopover
         )
         XCTAssertEqual(
             ApplicationReopenPolicy.action(
                 hasVisibleWindows: true,
-                statusItemIsBlocked: true
+                statusItemIsBlocked: true,
+                statusItemCanAnchorPopover: false
             ),
             .useDefaultWindowHandling
+        )
+    }
+
+    func testReopenPrefersRecoveryWhenPopoverHasNoAnchor() {
+        XCTAssertEqual(
+            ApplicationReopenPolicy.action(
+                hasVisibleWindows: false,
+                statusItemIsBlocked: false,
+                statusItemCanAnchorPopover: false
+            ),
+            .showStatusItemRecovery
+        )
+    }
+
+    func testAnchorIsUnusableWithoutButtonWindow() {
+        XCTAssertFalse(
+            StatusItemAnchorPolicy.isUsable(
+                StatusItemAnchorSnapshot(
+                    windowFrame: nil,
+                    menuBarBands: [CGRect(x: 0, y: 1400, width: 2560, height: 40)]
+                )
+            )
+        )
+    }
+
+    func testAnchorIsUsableInsideMenuBarBand() {
+        XCTAssertTrue(
+            StatusItemAnchorPolicy.isUsable(
+                StatusItemAnchorSnapshot(
+                    windowFrame: CGRect(x: 2100, y: 1405, width: 100, height: 24),
+                    menuBarBands: [CGRect(x: 0, y: 1400, width: 2560, height: 40)]
+                )
+            )
+        )
+    }
+
+    func testAnchorIsUnusableOutsideEveryBand() {
+        XCTAssertFalse(
+            StatusItemAnchorPolicy.isUsable(
+                StatusItemAnchorSnapshot(
+                    windowFrame: CGRect(x: 0, y: 0, width: 100, height: 24),
+                    menuBarBands: [
+                        CGRect(x: 0, y: 1400, width: 2560, height: 40),
+                        CGRect(x: -1920, y: 1400, width: 1920, height: 40),
+                    ]
+                )
+            )
+        )
+    }
+
+    func testAnchorWithoutBandInformationDoesNotBlock() {
+        XCTAssertTrue(
+            StatusItemAnchorPolicy.isUsable(
+                StatusItemAnchorSnapshot(
+                    windowFrame: CGRect(x: 0, y: 0, width: 100, height: 24),
+                    menuBarBands: []
+                )
+            )
         )
     }
 }

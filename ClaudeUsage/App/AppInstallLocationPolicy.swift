@@ -65,6 +65,37 @@ struct AppInstallLocationAssessment: Equatable, Sendable {
     }
 }
 
+/// 이동 프롬프트를 띄울지 여부. 위치 판정(`requiresMovePrompt`)과 분리한 이유는
+/// 프롬프트의 목적이 Sparkle 자동 업데이트 신뢰성이고, 자동 업데이트 경로가 없는
+/// 개발 빌드는 위치가 불안정해도 경고할 대상이 아니기 때문이다.
+enum AppInstallMovePromptPolicy {
+    #if DEBUG
+    nonisolated static let isDeveloperBuild = true
+    #else
+    nonisolated static let isDeveloperBuild = false
+    #endif
+
+    nonisolated static func shouldPrompt(
+        assessment: AppInstallLocationAssessment,
+        isDeveloperBuild: Bool = isDeveloperBuild
+    ) -> Bool {
+        guard assessment.requiresMovePrompt else { return false }
+        return !isDeveloperBuild
+    }
+
+    /// 목적지에 다른 앱이 있으면 대체하지 않는다. 목적지 이름은 소스 번들 이름에서
+    /// 오므로, 채널이 다른 설치본(운영 앱)을 스테이징/개발 빌드가 덮어쓸 수 있다.
+    nonisolated static func mayReplace(
+        destinationBundleIdentifier: String?,
+        destinationExists: Bool,
+        ownBundleIdentifier: String?
+    ) -> Bool {
+        guard destinationExists else { return true }
+        guard let destinationBundleIdentifier, let ownBundleIdentifier else { return false }
+        return destinationBundleIdentifier == ownBundleIdentifier
+    }
+}
+
 struct AppDiskImageSource: Equatable, Sendable {
     let imagePath: String
     let mountPoint: String

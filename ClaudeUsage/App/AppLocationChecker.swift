@@ -5,7 +5,7 @@ enum AppLocationChecker {
     static func checkAndPromptIfNeeded() {
         let assessment = AppInstallLocationPolicy.currentAssessment()
         Logger.info("앱 실행 위치: \(assessment.bundlePath) (\(assessment.kind.rawValue))")
-        guard assessment.requiresMovePrompt else {
+        guard AppInstallMovePromptPolicy.shouldPrompt(assessment: assessment) else {
             promptToTrashMountedInstallerDiskImageForStableInstallIfNeeded(assessment)
             return
         }
@@ -14,13 +14,14 @@ enum AppLocationChecker {
         alert.messageText = "Applications 폴더로 이동할까요?"
         alert.informativeText = "\(assessment.locationDescription)에서 실행 중이면 자동 업데이트와 재실행이 불안정할 수 있습니다. 이동에 실패해도 현재 앱은 종료하지 않습니다."
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "Applications으로 이동")
+        // 첫 버튼이 기본값이므로 파괴적이지 않은 쪽을 먼저 둔다.
         alert.addButton(withTitle: "이동하지 않음")
+        alert.addButton(withTitle: "Applications으로 이동")
         alert.showsSuppressionButton = false
 
         let response = alert.runModal()
 
-        if response == .alertFirstButtonReturn {
+        if response == .alertSecondButtonReturn {
             moveToApplicationsFolder(from: assessment)
         }
     }
@@ -63,6 +64,10 @@ enum AppLocationChecker {
         guard terminateSiblingApplicationsBeforeMoveIfNeeded() else { return }
 
         for destination in destinationCandidates {
+            guard mayReplace(destination: destination) else {
+                Logger.warning("앱 이동 건너뜀(\(destination)): 다른 앱이 이미 있습니다")
+                continue
+            }
             do {
                 try installAppBundleSafely(
                     from: source,
@@ -79,6 +84,15 @@ enum AppLocationChecker {
         showError(
             "자동 이동에 실패했습니다. 현재 앱은 계속 실행됩니다.\n\n"
                 + "기존 앱이 열려 있다면 종료한 뒤 다시 시도하거나, Finder에서 ClaudeUsage.app을 Applications 폴더로 직접 옮겨 주세요."
+        )
+    }
+
+    private static func mayReplace(destination: String) -> Bool {
+        let exists = FileManager.default.fileExists(atPath: destination)
+        return AppInstallMovePromptPolicy.mayReplace(
+            destinationBundleIdentifier: Bundle(path: destination)?.bundleIdentifier,
+            destinationExists: exists,
+            ownBundleIdentifier: Bundle.main.bundleIdentifier
         )
     }
 

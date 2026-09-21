@@ -84,10 +84,18 @@ enum StatusItemPlacementRecoveryPolicy {
             || !snapshot.isOnCurrentScreen
     }
 
+    /// `anchorIsUsable`는 버튼 윈도우가 실제로 메뉴바 밴드 안에 있는지다. 앱 내부
+    /// 신호가 모두 정상인데도 항목이 바에 없는 경우를 이 값만 구분해 냈다(측정:
+    /// 정상 `anchor=true`, 미표시 `anchor=false`, 나머지 필드는 양쪽 동일).
+    /// 기존 호출자는 이 신호를 쓰지 않으므로 기본값을 둔다.
     static func isBlocked(
         _ evidence: StatusItemPlacementEvidence,
-        detectTahoeBlockedStatusItem: Bool
+        detectTahoeBlockedStatusItem: Bool,
+        anchorIsUsable: Bool = true
     ) -> Bool {
+        if evidence.snapshot.expectsVisibility, !anchorIsUsable {
+            return true
+        }
         if isMaterializationBlocked(
             evidence.snapshot
         ) {
@@ -102,8 +110,10 @@ enum StatusItemPlacementRecoveryPolicy {
                 $0.isOnscreen
                     && $0.isWithinDisplayBounds
             }
+        // 키가 없으면(`nil`) 사용자가 항목을 숨긴 적이 없다는 뜻이므로 실패로 본다.
+        // `== true`만 받으면 한 번도 숨겨본 적 없는 기본 상태가 이 분기에서 빠졌다.
         if evidence.snapshot.expectsVisibility,
-           evidence.visibilityDefault == true,
+           evidence.visibilityDefault != false,
            !evidence.snapshot.reportsVisible,
            !evidence.snapshot.hasWindow,
            !hasHealthyProxy
@@ -228,15 +238,32 @@ enum ApplicationReopenAction: Equatable {
     case showPopover
 }
 
+/// 팝오버는 상태 아이템 버튼을 기준으로 뜬다. 버튼 윈도우가 메뉴바 밖에 있으면
+/// 앵커 없는 팝오버가 엉뚱한 위치에 뜨고, 사용자는 아이콘도 없이 떠 있는 창만 본다.
+struct StatusItemAnchorSnapshot: Equatable, Sendable {
+    let windowFrame: CGRect?
+    let menuBarBands: [CGRect]
+}
+
+enum StatusItemAnchorPolicy {
+    static func isUsable(_ snapshot: StatusItemAnchorSnapshot) -> Bool {
+        guard let frame = snapshot.windowFrame else { return false }
+        // 밴드 정보를 못 구한 경우는 판단 근거가 없으므로 기존 동작을 막지 않는다.
+        guard !snapshot.menuBarBands.isEmpty else { return true }
+        return snapshot.menuBarBands.contains { $0.intersects(frame) }
+    }
+}
+
 enum ApplicationReopenPolicy {
     static func action(
         hasVisibleWindows: Bool,
-        statusItemIsBlocked: Bool
+        statusItemIsBlocked: Bool,
+        statusItemCanAnchorPopover: Bool
     ) -> ApplicationReopenAction {
         if hasVisibleWindows {
             return .useDefaultWindowHandling
         }
-        if statusItemIsBlocked {
+        if statusItemIsBlocked || !statusItemCanAnchorPopover {
             return .showStatusItemRecovery
         }
         return .showPopover

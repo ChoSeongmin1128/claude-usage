@@ -229,3 +229,85 @@ final class AppInstallLocationPolicyTests: XCTestCase {
         return try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
     }
 }
+
+@MainActor
+final class AppInstallMovePromptPolicyTests: XCTestCase {
+    private func unstableAssessment() -> AppInstallLocationAssessment {
+        AppInstallLocationPolicy.assess(
+            bundlePath: "/Users/tester/Downloads/ClaudeUsage.app",
+            homeDirectory: "/Users/tester"
+        )
+    }
+
+    func testStableLocationNeverPrompts() {
+        let assessment = AppInstallLocationPolicy.assess(
+            bundlePath: "/Applications/ClaudeUsage.app",
+            homeDirectory: "/Users/tester"
+        )
+
+        XCTAssertFalse(
+            AppInstallMovePromptPolicy.shouldPrompt(
+                assessment: assessment,
+                isDeveloperBuild: false
+            )
+        )
+    }
+
+    func testUnstableLocationPromptsOnDistributedBuild() {
+        XCTAssertTrue(
+            AppInstallMovePromptPolicy.shouldPrompt(
+                assessment: unstableAssessment(),
+                isDeveloperBuild: false
+            )
+        )
+    }
+
+    func testDeveloperBuildIsExemptFromPrompt() {
+        XCTAssertFalse(
+            AppInstallMovePromptPolicy.shouldPrompt(
+                assessment: unstableAssessment(),
+                isDeveloperBuild: true
+            )
+        )
+    }
+
+    func testEmptyDestinationMayBeUsed() {
+        XCTAssertTrue(
+            AppInstallMovePromptPolicy.mayReplace(
+                destinationBundleIdentifier: nil,
+                destinationExists: false,
+                ownBundleIdentifier: "com.seongmin.ClaudeUsage.staging"
+            )
+        )
+    }
+
+    func testSameAppAtDestinationMayBeReplaced() {
+        XCTAssertTrue(
+            AppInstallMovePromptPolicy.mayReplace(
+                destinationBundleIdentifier: "com.seongmin.ClaudeUsage.staging",
+                destinationExists: true,
+                ownBundleIdentifier: "com.seongmin.ClaudeUsage.staging"
+            )
+        )
+    }
+
+    func testDifferentChannelAtDestinationIsNotReplaced() {
+        XCTAssertFalse(
+            AppInstallMovePromptPolicy.mayReplace(
+                destinationBundleIdentifier: "com.seongmin.ClaudeUsage",
+                destinationExists: true,
+                ownBundleIdentifier: "com.seongmin.ClaudeUsage.staging"
+            )
+        )
+    }
+
+    func testUnreadableDestinationIsNotReplaced() {
+        XCTAssertFalse(
+            AppInstallMovePromptPolicy.mayReplace(
+                destinationBundleIdentifier: nil,
+                destinationExists: true,
+                ownBundleIdentifier: "com.seongmin.ClaudeUsage.staging"
+            )
+        )
+    }
+}

@@ -7,6 +7,14 @@ extension AppDelegate {
         rebuildStatusItems()
         setupAccessibilityDisplayObservation()
         Logger.info("메뉴바 아이템 생성 완료")
+        let assessment = AppInstallLocationPolicy.currentAssessment()
+        StatusItemDiagnosticsLog.record(
+            "launch channel=\(AppDistribution.current.channel.rawValue) "
+                + "location=\(assessment.kind.rawValue) bundle=\(assessment.bundlePath)"
+        )
+        StatusItemDiagnosticsLog.record(
+            "created name=\(statusItem?.autosaveName ?? "") \(statusItemPlacementSnapshot.description)"
+        )
         scheduleStatusItemPlacementCheck()
     }
 
@@ -56,12 +64,13 @@ extension AppDelegate {
             } catch {
                 return
             }
-            guard let self,
-                  !Task.isCancelled,
-                  self.isStatusItemPlacementBlocked
-            else {
-                return
-            }
+            guard let self, !Task.isCancelled else { return }
+            StatusItemDiagnosticsLog.record(
+                "check blocked=\(self.isStatusItemPlacementBlocked) "
+                    + "anchor=\(self.statusItemCanAnchorPopover) "
+                    + self.statusItemPlacementEvidence.description
+            )
+            guard self.isStatusItemPlacementBlocked else { return }
 
             Logger.error(
                 "메뉴바 아이템이 생성되지 않았습니다. "
@@ -86,6 +95,7 @@ extension AppDelegate {
                 Logger.info(
                     "메뉴바 아이템 재생성 후 배치가 복구됐습니다."
                 )
+                StatusItemDiagnosticsLog.record("recovered after one recreation")
                 return
             }
 
@@ -93,6 +103,10 @@ extension AppDelegate {
                 "메뉴바 아이템이 한 차례 재생성 후에도 차단 상태입니다. "
                     + self.statusItemPlacementEvidence
                         .description
+            )
+            StatusItemDiagnosticsLog.record(
+                "still blocked after recreation "
+                    + self.statusItemPlacementEvidence.description
             )
             self.presentStatusItemPlacementGuidance()
         }
@@ -146,6 +160,25 @@ extension AppDelegate {
         )
     }
 
+    var statusItemAnchorSnapshot: StatusItemAnchorSnapshot {
+        let thickness = NSStatusBar.system.thickness
+        return StatusItemAnchorSnapshot(
+            windowFrame: statusItem?.button?.window?.frame,
+            menuBarBands: NSScreen.screens.map {
+                CGRect(
+                    x: $0.frame.minX,
+                    y: $0.frame.maxY - thickness,
+                    width: $0.frame.width,
+                    height: thickness
+                )
+            }
+        )
+    }
+
+    var statusItemCanAnchorPopover: Bool {
+        StatusItemAnchorPolicy.isUsable(statusItemAnchorSnapshot)
+    }
+
     var isStatusItemPlacementBlocked: Bool {
         StatusItemPlacementRecoveryPolicy
             .isBlocked(
@@ -154,7 +187,9 @@ extension AppDelegate {
                     ProcessInfo.processInfo
                         .operatingSystemVersion
                         .majorVersion
-                        >= 26
+                        >= 26,
+                anchorIsUsable:
+                    statusItemCanAnchorPopover
             )
     }
 

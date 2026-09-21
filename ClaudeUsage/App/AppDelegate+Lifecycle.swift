@@ -52,7 +52,6 @@ extension AppDelegate {
         // 이 키는 앱 도메인에서만 읽히므로 시스템 전역에는 영향이 없다.
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 500])
 
-        AppLocationChecker.checkAndPromptIfNeeded()
         setupStatusItems()
         setupPopovers()
         setupKeyboardShortcuts()
@@ -99,6 +98,13 @@ extension AppDelegate {
             ) { [weak self] in
                 self?.toggleUnifiedPopover()
             }
+        }
+
+        // 자동 업데이트 신뢰성에 대한 권고일 뿐이므로 실행 경로를 막지 않는다.
+        // setupStatusItems() 앞에서 모달로 돌던 동안에는 프롬프트에 답하지 않으면
+        // 메뉴바 아이템도 팝오버도 타이머도 만들어지지 않았다.
+        DispatchQueue.main.async {
+            AppLocationChecker.checkAndPromptIfNeeded()
         }
     }
 
@@ -186,7 +192,9 @@ extension AppDelegate {
         switch ApplicationReopenPolicy.action(
             hasVisibleWindows: flag,
             statusItemIsBlocked:
-                isStatusItemPlacementBlocked
+                isStatusItemPlacementBlocked,
+            statusItemCanAnchorPopover:
+                statusItemCanAnchorPopover
         ) {
         case .useDefaultWindowHandling:
             return true
