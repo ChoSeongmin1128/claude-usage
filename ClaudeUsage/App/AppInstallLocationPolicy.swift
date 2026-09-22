@@ -179,6 +179,12 @@ enum AppInstallLocationPolicy {
             return candidateIdentifier == expectedIdentifier
         }
 
+        // 이름과 번들 ID만으로는 어느 이미지가 설치 원본인지 가릴 수 없다. 서로 다른
+        // 이미지가 동시에 붙어 있으면 엉뚱한 파일을 버리는 대신 아무것도 하지 않는다.
+        let distinctImages = Set(
+            candidates.map { normalizedPath($0.imagePath) }
+        )
+        guard distinctImages.count <= 1 else { return nil }
         return candidates.max { $0.mountPoint.count < $1.mountPoint.count }
     }
 

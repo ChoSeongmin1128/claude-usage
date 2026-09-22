@@ -13,11 +13,29 @@ extension AppDelegate {
         let supportDirectory =
             AntigravityStoragePaths
                 .applicationSupportDirectoryURL()
-        switch AppSingleInstanceGuard.shared
-            .acquire(
+        let instanceGuard = AppSingleInstanceGuard.shared
+        // 이동 후 재실행이면 구 프로세스가 종료 절차를 끝낼 때까지 기다린다. 기다리지
+        // 않으면 구 프로세스가 아직 잠금을 쥔 채 종료 중이라 양쪽 다 사라진다.
+        let waitsForPredecessor =
+            ApplicationLaunchIntent
+                .parse(arguments: CommandLine.arguments)
+                .relaunchAfterMovePredecessor
+                .map(
+                    AppRelaunchHandoffPolicy
+                        .predecessorIsRunning
+                )
+                ?? false
+        let result = waitsForPredecessor
+            ? instanceGuard
+                .acquireWaitingForRelocatedPredecessor(
+                    applicationSupportDirectoryURL:
+                        supportDirectory
+                )
+            : instanceGuard.acquire(
                 applicationSupportDirectoryURL:
                     supportDirectory
-            ) {
+            )
+        switch result {
         case .acquired:
             ownsSingleInstanceLease = true
         case .alreadyRunning:
@@ -167,7 +185,10 @@ extension AppDelegate {
             Task { [weak self] in
                 do {
                     try await Task.sleep(
-                        for: .seconds(5)
+                        for: .seconds(
+                            AppRelaunchHandoffPolicy
+                                .ownedRuntimeShutdownTimeout
+                        )
                     )
                 } catch {
                     return

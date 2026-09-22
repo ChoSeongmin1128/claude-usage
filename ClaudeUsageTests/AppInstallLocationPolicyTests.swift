@@ -207,23 +207,86 @@ final class AppInstallLocationPolicyTests: XCTestCase {
         XCTAssertTrue(selected.isEmpty)
     }
 
+    /// 모호함 판정은 이름과 번들 ID가 맞는 후보에만 적용해야 한다. 무관한 이미지가
+    /// 같이 붙어 있다고 해서 정리를 포기하면 안 된다.
+    func testDiskImageSourceIgnoresUnrelatedMountedImage() throws {
+        let source = AppInstallLocationPolicy.diskImageSource(
+            forAppNamed: "ClaudeUsage.app",
+            bundleIdentifier: "com.example.ClaudeUsage",
+            hdiutilInfoPlistData: try makeHdiutilInfoPlistData(images: [
+                ("/Users/tester/Downloads/Firefox.dmg", "/Volumes/Firefox"),
+                ("/Users/tester/Downloads/ClaudeUsage.dmg", "/Volumes/ClaudeUsage"),
+            ])
+        ) { candidatePath in
+            candidatePath == "/Volumes/ClaudeUsage/ClaudeUsage.app"
+                ? "com.example.ClaudeUsage"
+                : nil
+        }
+
+        XCTAssertEqual(
+            source?.imagePath,
+            "/Users/tester/Downloads/ClaudeUsage.dmg"
+        )
+    }
+
+    func testDiskImageSourceSkipsAmbiguousMountedImages() throws {
+        let source = AppInstallLocationPolicy.diskImageSource(
+            forAppNamed: "ClaudeUsage.app",
+            bundleIdentifier: "com.example.ClaudeUsage",
+            hdiutilInfoPlistData: try makeHdiutilInfoPlistData(images: [
+                ("/Users/tester/Downloads/ClaudeUsage.dmg", "/Volumes/ClaudeUsage"),
+                ("/Users/tester/Desktop/ClaudeUsage-old.dmg", "/Volumes/ClaudeUsage 1"),
+            ])
+        ) { _ in
+            "com.example.ClaudeUsage"
+        }
+
+        XCTAssertNil(source)
+    }
+
+    func testDiskImageSourceAcceptsOneImageMountedTwice() throws {
+        let source = AppInstallLocationPolicy.diskImageSource(
+            forAppNamed: "ClaudeUsage.app",
+            bundleIdentifier: "com.example.ClaudeUsage",
+            hdiutilInfoPlistData: try makeHdiutilInfoPlistData(images: [
+                ("/Users/tester/Downloads/ClaudeUsage.dmg", "/Volumes/ClaudeUsage"),
+                ("/Users/tester/Downloads/ClaudeUsage.dmg", "/Volumes/ClaudeUsage 1"),
+            ])
+        ) { _ in
+            "com.example.ClaudeUsage"
+        }
+
+        XCTAssertEqual(
+            source?.imagePath,
+            "/Users/tester/Downloads/ClaudeUsage.dmg"
+        )
+    }
+
     private func makeHdiutilInfoPlistData(
         imagePath: String,
         mountPoint: String
     ) throws -> Data {
+        try makeHdiutilInfoPlistData(
+            images: [(imagePath, mountPoint)]
+        )
+    }
+
+    private func makeHdiutilInfoPlistData(
+        images: [(imagePath: String, mountPoint: String)]
+    ) throws -> Data {
         let plist: [String: Any] = [
-            "images": [
+            "images": images.enumerated().map { index, image in
                 [
-                    "image-path": imagePath,
+                    "image-path": image.imagePath,
                     "system-entities": [
-                        ["dev-entry": "/dev/disk4"],
+                        ["dev-entry": "/dev/disk\(index + 4)"],
                         [
-                            "dev-entry": "/dev/disk4s1",
-                            "mount-point": mountPoint,
+                            "dev-entry": "/dev/disk\(index + 4)s1",
+                            "mount-point": image.mountPoint,
                         ],
                     ],
-                ],
-            ],
+                ]
+            },
         ]
 
         return try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)

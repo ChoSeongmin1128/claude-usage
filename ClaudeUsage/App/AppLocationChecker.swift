@@ -22,7 +22,7 @@ enum AppLocationChecker {
         let response = alert.runModal()
 
         if response == .alertSecondButtonReturn {
-            moveToApplicationsFolder(from: assessment)
+            moveToApplicationsFolder()
         }
     }
 
@@ -45,16 +45,12 @@ enum AppLocationChecker {
         return bundlePath
     }
 
-    private static func moveToApplicationsFolder(from assessment: AppInstallLocationAssessment) {
+    /// 설치 DMG 정리는 새 위치에서 뜬 프로세스가 `isStableInstall` 경로에서 스스로
+    /// 수행한다. 여기서 모달을 띄우면 그 동안 구 프로세스가 잠금을 쥔 채 살아 있어
+    /// 새 프로세스가 중복으로 판정되고 종료해 버린다.
+    private static func moveToApplicationsFolder() {
         let source = originalBundlePath()
         let sourceAssessment = AppInstallLocationPolicy.assess(bundlePath: source)
-        let sourceDiskImage = mountedDiskImageSource(for: source)
-            ?? mountedDiskImageSource(for: assessment.bundlePath)
-            ?? mountedDiskImageSourceForTranslocatedApp(
-                appName: (source as NSString).lastPathComponent,
-                sourceAssessment: sourceAssessment,
-                runtimeAssessment: assessment
-            )
         let appName = (source as NSString).lastPathComponent
         let destinationCandidates = [
             "/Applications/\(appName)",
@@ -74,7 +70,7 @@ enum AppLocationChecker {
                     to: destination,
                     strategy: sourceAssessment.preferredTransferStrategy
                 )
-                launchMovedApp(at: destination, sourceDiskImage: sourceDiskImage)
+                launchMovedApp(at: destination)
                 return
             } catch {
                 Logger.warning("앱 이동 실패(\(destination)): \(error.localizedDescription)")
@@ -148,11 +144,20 @@ enum AppLocationChecker {
         }
     }
 
-    private static func launchMovedApp(at destination: String, sourceDiskImage: AppDiskImageSource?) {
+    private static func launchMovedApp(at destination: String) {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
         configuration.createsNewApplicationInstance = true
         configuration.allowsRunningApplicationSubstitution = false
+        // 새 프로세스는 이 인자를 보고 현재 프로세스가 잠금을 놓을 때까지 기다린다.
+        configuration.arguments = [
+            ApplicationLaunchIntent
+                .relaunchAfterMoveArgument(
+                    predecessor:
+                        ProcessInfo.processInfo
+                            .processIdentifier
+                ),
+        ]
         NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: destination), configuration: configuration) { _, error in
             DispatchQueue.main.async {
                 if let error {
@@ -160,46 +165,9 @@ enum AppLocationChecker {
                     showError("새 위치로 이동했지만 실행하지 못했습니다. 현재 앱은 계속 실행됩니다.\n\nApplications 폴더에서 ClaudeUsage.app을 직접 열어 주세요.")
                     return
                 }
-                promptToTrashSourceDiskImageIfNeeded(sourceDiskImage)
                 NSApp.terminate(nil)
             }
         }
-    }
-
-    private static func mountedDiskImageSource(for bundlePath: String) -> AppDiskImageSource? {
-        let process = Process()
-        let outputPipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
-        process.arguments = ["info", "-plist"]
-        process.standardOutput = outputPipe
-        process.standardError = Pipe()
-
-        do {
-            try process.run()
-            let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
-            return AppInstallLocationPolicy.diskImageSource(for: bundlePath, hdiutilInfoPlistData: data)
-        } catch {
-            Logger.warning("DMG 원본 조회 실패: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    private static func mountedDiskImageSourceForTranslocatedApp(
-        appName: String,
-        sourceAssessment: AppInstallLocationAssessment,
-        runtimeAssessment: AppInstallLocationAssessment
-    ) -> AppDiskImageSource? {
-        guard sourceAssessment.kind == .appTranslocation
-            || sourceAssessment.kind == .temporary
-            || runtimeAssessment.kind == .appTranslocation
-            || runtimeAssessment.kind == .temporary
-        else {
-            return nil
-        }
-
-        return mountedDiskImageSourceForAppBundle(appName: appName)
     }
 
     private static func mountedDiskImageSourceForAppBundle(appName: String) -> AppDiskImageSource? {
