@@ -26,8 +26,7 @@
 # 호출 예:
 #   APP_PATH=/path/to/ClaudeUsage.app \
 #   DMG_PATH=/path/to/ClaudeUsage.dmg \
-#   CERT_HASH=$(security find-identity -v -p codesigning \
-#       | awk '/Developer ID Application/ {print $2; exit}') \
+#   CERT_HASH=VERIFIED_DEVELOPER_ID_CERTIFICATE_SHA1 \
 #   Scripts/make-dmg.sh
 
 set -euo pipefail

@@ -612,6 +612,49 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertTrue(deliverer.delivered.isEmpty)
     }
 
+    func testLegacyWeeklyAlertResumesAfterPartialInitialQuotaWithoutImmediateAlert() throws {
+        func usage(_ weekly: Double?) -> ClaudeUsageResponse {
+            .init(
+                fiveHour: .init(utilization: 20, resetsAt: nil),
+                sevenDay: weekly.map { .init(utilization: $0, resetsAt: nil) }
+            )
+        }
+        manager.checkClaude(usage(nil), accountID: "a", policy: nil)
+        AppSettings.shared.notificationTargets = try JSONDecoder().decode(
+            NotificationTargetPreferences.self,
+            from: JSONEncoder().encode(AppSettings.shared.notificationTargets)
+        )
+        manager.checkClaude(usage(96), accountID: "a", policy: nil)
+        let weekly = try XCTUnwrap(manager.inventories[.claude]?.first { $0.legacyKey == "weekly" })
+        XCTAssertTrue(AppSettings.shared.notificationTargets.isSelected(weekly.id, provider: .claude))
+        XCTAssertTrue(deliverer.delivered.isEmpty)
+
+        manager.checkClaude(usage(84), accountID: "a", policy: nil)
+        manager.checkClaude(usage(96), accountID: "a", policy: nil)
+        XCTAssertEqual(deliverer.delivered.count, 1)
+        XCTAssertEqual(deliverer.delivered.first?.body, "주간 사용 한도를 95% 이상 사용했습니다.")
+    }
+
+    func testAntigravityNewDynamicLaneStillRequiresExplicitSelection() throws {
+        let known = makeAntigravityLane(
+            id: .geminiWeekly, scope: .gemini, cadence: .weekly, usedPercentage: 20
+        )
+        manager.checkAntigravityThresholds(snapshot: makeAntigravitySnapshot(accountID: "a", lanes: [known]))
+        for used in [20.0, 96.0] {
+            let newLane = makeAntigravityLane(
+                id: .init(rawValue: "workspace.new-model"),
+                scope: .unknown(id: "new-model", label: "New model"),
+                cadence: .weekly, usedPercentage: used
+            )
+            manager.checkAntigravityThresholds(
+                snapshot: makeAntigravitySnapshot(accountID: "a", lanes: [known, newLane])
+            )
+        }
+        let newLimit = try XCTUnwrap(manager.inventories[.antigravity]?.first { $0.title.contains("New model") })
+        XCTAssertFalse(AppSettings.shared.notificationTargets.isSelected(newLimit.id, provider: .antigravity))
+        XCTAssertTrue(deliverer.delivered.isEmpty)
+    }
+
     private var codexAccount: String? = "account-a"
 
     private func setCodexAccount(_ id: String?) {

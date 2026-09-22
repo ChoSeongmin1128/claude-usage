@@ -175,11 +175,11 @@ extension AppDelegate {
                 autosaveName: autosaveName,
                 visibilityDefault:
                     StatusItemPlacementRecoveryPolicy
-                        .visibilityDefault(
-                            defaults:
-                                UserDefaults.standard,
-                            autosaveName: autosaveName
-                        ),
+                    .visibilityDefault(
+                        defaults:
+                            UserDefaults.standard,
+                        autosaveName: autosaveName
+                    ),
                 snapshot: snapshot,
                 windowSnapshots:
                     StatusItemWindowProbe.snapshots(
@@ -199,8 +199,8 @@ extension AppDelegate {
             ),
             detectTahoeBlockedStatusItem:
                 ProcessInfo.processInfo
-                    .operatingSystemVersion
-                    .majorVersion >= 26
+                .operatingSystemVersion
+                .majorVersion >= 26
         )
     }
 

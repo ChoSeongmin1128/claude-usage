@@ -195,10 +195,10 @@ final class AppSingleInstanceGuardTests: XCTestCase {
     func testRelocationWaitUsesItsTimeoutAgainstAHeldLock() throws {
         let directory =
             FileManager.default.temporaryDirectory
-                .appendingPathComponent(
-                    "ClaudeUsage-relocation-test-\(UUID().uuidString)",
-                    isDirectory: true
-                )
+            .appendingPathComponent(
+                "ClaudeUsage-relocation-test-\(UUID().uuidString)",
+                isDirectory: true
+            )
         defer {
             try? FileManager.default.removeItem(
                 at: directory
@@ -218,14 +218,14 @@ final class AppSingleInstanceGuardTests: XCTestCase {
             ProcessInfo.processInfo.systemUptime
         let result =
             waiter
-                .acquireWaitingForRelocatedPredecessor(
-                    applicationSupportDirectoryURL:
-                        directory,
-                    timeout: 0.3
-                )
+            .acquireWaitingForRelocatedPredecessor(
+                applicationSupportDirectoryURL:
+                    directory,
+                timeout: 0.3
+            )
         let waited =
             ProcessInfo.processInfo.systemUptime
-                - startedAt
+            - startedAt
 
         XCTAssertEqual(result, .alreadyRunning)
         XCTAssertGreaterThanOrEqual(waited, 0.3)
@@ -237,10 +237,10 @@ final class AppSingleInstanceGuardTests: XCTestCase {
     func testRelocationWaitTakesOverOncePredecessorReleases() throws {
         let directory =
             FileManager.default.temporaryDirectory
-                .appendingPathComponent(
-                    "ClaudeUsage-handoff-test-\(UUID().uuidString)",
-                    isDirectory: true
-                )
+            .appendingPathComponent(
+                "ClaudeUsage-handoff-test-\(UUID().uuidString)",
+                isDirectory: true
+            )
         defer {
             try? FileManager.default.removeItem(
                 at: directory
@@ -266,14 +266,14 @@ final class AppSingleInstanceGuardTests: XCTestCase {
             ProcessInfo.processInfo.systemUptime
         let result =
             successor
-                .acquireWaitingForRelocatedPredecessor(
-                    applicationSupportDirectoryURL:
-                        directory,
-                    timeout: 5
-                )
+            .acquireWaitingForRelocatedPredecessor(
+                applicationSupportDirectoryURL:
+                    directory,
+                timeout: 5
+            )
         let waited =
             ProcessInfo.processInfo.systemUptime
-                - startedAt
+            - startedAt
 
         XCTAssertEqual(result, .acquired)
         XCTAssertGreaterThanOrEqual(waited, 0.3)

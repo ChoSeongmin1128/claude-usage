@@ -144,7 +144,7 @@ nonisolated final class AppSingleInstanceGuard:
         applicationSupportDirectoryURL: URL,
         timeout: TimeInterval =
             AppRelaunchHandoffPolicy
-                .relaunchAfterMoveTimeout
+            .relaunchAfterMoveTimeout
     ) -> AppSingleInstanceAcquireResult {
         let start = ProcessInfo.processInfo.systemUptime
         return AppRelaunchHandoffPolicy.acquire(

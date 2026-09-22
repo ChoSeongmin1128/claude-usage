@@ -15,7 +15,7 @@
 #   2. build/release/ 에 DMG 와 ZIP 이 준비돼있는지 확인
 #   3. Sparkle appcast 생성 (feed URL 과 download base URL 을 분리 처리)
 #   4. git tag 생성 + push
-#   5. gh release create 로 DMG + ZIP (+ 선택적으로 appcast.xml) 업로드
+#   5. gh release create 로 필수 자산 DMG + ZIP + appcast.xml 업로드
 #   6. public Pages는 이 스크립트에서 변경하지 않음. 원격 검증 후 driver가 게시
 #
 # 전제:

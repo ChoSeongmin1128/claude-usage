@@ -626,38 +626,57 @@ final class StatusItemPlacementRecoveryTests:
     }
 
     func testReopenPolicyUsesVisibleRecoveryPath() {
+        let blocked = makeAssessment(
+            anchorSnapshot: StatusItemAnchorSnapshot(
+                windowFrame: CGRect(x: 0, y: 0, width: 100, height: 24),
+                menuBarBands: [CGRect(x: 0, y: 900, width: 1_000, height: 24)]
+            )
+        )
+        let placed = makeAssessment(
+            anchorSnapshot: StatusItemAnchorSnapshot(
+                windowFrame: CGRect(x: 120, y: 900, width: 100, height: 24),
+                menuBarBands: [CGRect(x: 0, y: 900, width: 1_000, height: 24)]
+            )
+        )
+
         XCTAssertEqual(
             ApplicationReopenPolicy.action(
                 hasVisibleWindows: false,
-                statusItemIsBlocked: true,
-                statusItemCanAnchorPopover: true
+                placement: blocked
             ),
             .showStatusItemRecovery
         )
         XCTAssertEqual(
             ApplicationReopenPolicy.action(
                 hasVisibleWindows: false,
-                statusItemIsBlocked: false,
-                statusItemCanAnchorPopover: true
+                placement: placed
             ),
             .showPopover
         )
         XCTAssertEqual(
             ApplicationReopenPolicy.action(
                 hasVisibleWindows: true,
-                statusItemIsBlocked: true,
-                statusItemCanAnchorPopover: false
+                placement: blocked
             ),
             .useDefaultWindowHandling
         )
     }
 
     func testReopenPrefersRecoveryWhenPopoverHasNoAnchor() {
+        let assessment = makeAssessment(
+            anchorSnapshot: StatusItemAnchorSnapshot(
+                windowFrame: nil,
+                menuBarBands: []
+            ),
+            reportsVisible: false
+        )
+
+        XCTAssertFalse(assessment.isBlocked)
+        XCTAssertFalse(assessment.anchorIsUsable)
         XCTAssertEqual(
             ApplicationReopenPolicy.action(
                 hasVisibleWindows: false,
-                statusItemIsBlocked: false,
-                statusItemCanAnchorPopover: false
+                placement: assessment
             ),
             .showStatusItemRecovery
         )
@@ -717,7 +736,7 @@ final class StatusItemPlacementRecoveryTests:
             anchorSnapshot: StatusItemAnchorSnapshot(
                 windowFrame: CGRect(x: 0, y: 0, width: 100, height: 24),
                 menuBarBands: [
-                    CGRect(x: 0, y: 900, width: 1_000, height: 24),
+                    CGRect(x: 0, y: 900, width: 1_000, height: 24)
                 ]
             )
         )
@@ -731,7 +750,7 @@ final class StatusItemPlacementRecoveryTests:
             anchorSnapshot: StatusItemAnchorSnapshot(
                 windowFrame: CGRect(x: 120, y: 900, width: 100, height: 24),
                 menuBarBands: [
-                    CGRect(x: 0, y: 900, width: 1_000, height: 24),
+                    CGRect(x: 0, y: 900, width: 1_000, height: 24)
                 ]
             )
         )
@@ -750,6 +769,13 @@ final class StatusItemPlacementRecoveryTests:
 
         XCTAssertTrue(assessment.anchorIsUsable)
         XCTAssertFalse(assessment.isBlocked)
+        XCTAssertEqual(
+            ApplicationReopenPolicy.action(
+                hasVisibleWindows: false,
+                placement: assessment
+            ),
+            .showPopover
+        )
     }
 
     /// 판정을 한곳으로 모으면서 기존 두 정책의 결과가 바뀌지 않아야 한다.
@@ -758,13 +784,13 @@ final class StatusItemPlacementRecoveryTests:
             StatusItemAnchorSnapshot(
                 windowFrame: CGRect(x: 120, y: 900, width: 100, height: 24),
                 menuBarBands: [
-                    CGRect(x: 0, y: 900, width: 1_000, height: 24),
+                    CGRect(x: 0, y: 900, width: 1_000, height: 24)
                 ]
             ),
             StatusItemAnchorSnapshot(
                 windowFrame: CGRect(x: 0, y: 0, width: 100, height: 24),
                 menuBarBands: [
-                    CGRect(x: 0, y: 900, width: 1_000, height: 24),
+                    CGRect(x: 0, y: 900, width: 1_000, height: 24)
                 ]
             ),
             StatusItemAnchorSnapshot(
@@ -858,7 +884,7 @@ final class StatusItemPlacementRecoveryTests:
     }
 
     /// 실제 생산 경로인 assessment 에서도 같은 계약이 유지돼야 한다.
-    func testUserHiddenItemIsNotBlockedThroughAssessment() {
+    func testReopenOfUserHiddenItemShowsSettingsThroughAssessment() {
         let assessment = StatusItemPlacementAssessment(
             evidence: StatusItemPlacementEvidence(
                 autosaveName: "claudeusage",
@@ -878,7 +904,7 @@ final class StatusItemPlacementRecoveryTests:
             anchorSnapshot: StatusItemAnchorSnapshot(
                 windowFrame: nil,
                 menuBarBands: [
-                    CGRect(x: 0, y: 900, width: 1_000, height: 24),
+                    CGRect(x: 0, y: 900, width: 1_000, height: 24)
                 ]
             ),
             detectTahoeBlockedStatusItem: true
@@ -886,6 +912,66 @@ final class StatusItemPlacementRecoveryTests:
 
         XCTAssertFalse(assessment.anchorIsUsable)
         XCTAssertFalse(assessment.isBlocked)
+        XCTAssertTrue(assessment.isUserHidden)
+        XCTAssertEqual(
+            ApplicationReopenPolicy.action(
+                hasVisibleWindows: false,
+                placement: assessment
+            ),
+            .showSettings
+        )
+        XCTAssertEqual(
+            ApplicationReopenPolicy.action(
+                hasVisibleWindows: true,
+                placement: assessment
+            ),
+            .useDefaultWindowHandling
+        )
+    }
+
+    func testReopenDoesNotTreatMissingOrEnabledVisibilityPreferenceAsUserHidden() {
+        let visibilityDefaults: [Bool?] = [nil, true]
+        for visibilityDefault in visibilityDefaults {
+            let assessment = makeAssessment(
+                anchorSnapshot: StatusItemAnchorSnapshot(
+                    windowFrame: nil,
+                    menuBarBands: []
+                ),
+                visibilityDefault: visibilityDefault,
+                reportsVisible: false,
+                hasWindow: false
+            )
+
+            XCTAssertFalse(assessment.isUserHidden)
+            XCTAssertTrue(assessment.isBlocked)
+            XCTAssertEqual(
+                ApplicationReopenPolicy.action(
+                    hasVisibleWindows: false,
+                    placement: assessment
+                ),
+                .showStatusItemRecovery
+            )
+        }
+    }
+
+    func testReopenOfVisibleDetachedItemDoesNotUseOldHiddenPreference() {
+        let assessment = makeAssessment(
+            anchorSnapshot: StatusItemAnchorSnapshot(
+                windowFrame: CGRect(x: 0, y: 0, width: 100, height: 24),
+                menuBarBands: [CGRect(x: 0, y: 900, width: 1_000, height: 24)]
+            ),
+            visibilityDefault: false
+        )
+
+        XCTAssertFalse(assessment.isUserHidden)
+        XCTAssertTrue(assessment.isBlocked)
+        XCTAssertEqual(
+            ApplicationReopenPolicy.action(
+                hasVisibleWindows: false,
+                placement: assessment
+            ),
+            .showStatusItemRecovery
+        )
     }
 
     /// 기록이 실제로 행동을 결정한 상태여야 하므로 판정과 근거를 함께 담는다.
@@ -894,7 +980,7 @@ final class StatusItemPlacementRecoveryTests:
             anchorSnapshot: StatusItemAnchorSnapshot(
                 windowFrame: CGRect(x: 0, y: 0, width: 100, height: 24),
                 menuBarBands: [
-                    CGRect(x: 0, y: 900, width: 1_000, height: 24),
+                    CGRect(x: 0, y: 900, width: 1_000, height: 24)
                 ]
             )
         )
@@ -908,17 +994,20 @@ final class StatusItemPlacementRecoveryTests:
 
     private func makeAssessment(
         anchorSnapshot: StatusItemAnchorSnapshot,
-        detectTahoeBlockedStatusItem: Bool = true
+        detectTahoeBlockedStatusItem: Bool = true,
+        visibilityDefault: Bool? = true,
+        reportsVisible: Bool = true,
+        hasWindow: Bool = true
     ) -> StatusItemPlacementAssessment {
         StatusItemPlacementAssessment(
             evidence: StatusItemPlacementEvidence(
                 autosaveName: "claudeusage",
-                visibilityDefault: true,
+                visibilityDefault: visibilityDefault,
                 snapshot: StatusItemPlacementSnapshot(
                     expectsVisibility: true,
-                    reportsVisible: true,
+                    reportsVisible: reportsVisible,
                     hasButton: true,
-                    hasWindow: true,
+                    hasWindow: hasWindow,
                     hasScreen: true,
                     isOnCurrentScreen: true,
                     buttonWidth: 195.5

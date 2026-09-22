@@ -18,14 +18,15 @@ extension AppDelegate {
         // 않으면 구 프로세스가 아직 잠금을 쥔 채 종료 중이라 양쪽 다 사라진다.
         let waitsForPredecessor =
             ApplicationLaunchIntent
-                .parse(arguments: CommandLine.arguments)
-                .relaunchAfterMovePredecessor
-                .map(
-                    AppRelaunchHandoffPolicy
-                        .predecessorIsRunning
-                )
-                ?? false
-        let result = waitsForPredecessor
+            .parse(arguments: CommandLine.arguments)
+            .relaunchAfterMovePredecessor
+            .map(
+                AppRelaunchHandoffPolicy
+                    .predecessorIsRunning
+            )
+            ?? false
+        let result =
+            waitsForPredecessor
             ? instanceGuard
                 .acquireWaitingForRelocatedPredecessor(
                     applicationSupportDirectoryURL:
@@ -213,12 +214,15 @@ extension AppDelegate {
         let placement = captureStatusItemPlacement()
         switch ApplicationReopenPolicy.action(
             hasVisibleWindows: flag,
-            statusItemIsBlocked: placement.isBlocked,
-            statusItemCanAnchorPopover:
-                placement.anchorIsUsable
+            placement: placement
         ) {
         case .useDefaultWindowHandling:
             return true
+        case .showSettings:
+            showSettingsWindow(
+                settingsPanelRawValue:
+                    SettingsProviderPanel.common.rawValue
+            )
         case .showStatusItemRecovery:
             presentStatusItemPlacementGuidance(
                 force: true

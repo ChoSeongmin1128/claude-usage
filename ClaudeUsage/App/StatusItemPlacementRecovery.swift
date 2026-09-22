@@ -97,8 +97,8 @@ enum StatusItemPlacementRecoveryPolicy {
         anchorIsUsable: Bool
     ) -> Bool {
         if evidence.snapshot.expectsVisibility,
-           evidence.snapshot.reportsVisible,
-           !anchorIsUsable
+            evidence.snapshot.reportsVisible,
+            !anchorIsUsable
         {
             return true
         }
@@ -119,7 +119,7 @@ enum StatusItemPlacementRecoveryPolicy {
         // 키가 없으면(`nil`) 사용자가 항목을 숨긴 적이 없다는 뜻이므로 실패로 본다.
         // `== true`만 받으면 한 번도 숨겨본 적 없는 기본 상태가 이 분기에서 빠졌다.
         if evidence.snapshot.expectsVisibility,
-           evidence.visibilityDefault != false,
+            evidence.visibilityDefault != false,
            !evidence.snapshot.reportsVisible,
            !evidence.snapshot.hasWindow,
            !hasHealthyProxy
@@ -240,6 +240,7 @@ enum StatusItemPlacementRecoveryPolicy {
 
 enum ApplicationReopenAction: Equatable {
     case useDefaultWindowHandling
+    case showSettings
     case showStatusItemRecovery
     case showPopover
 }
@@ -267,6 +268,13 @@ struct StatusItemPlacementAssessment: Equatable, CustomStringConvertible {
     let anchorSnapshot: StatusItemAnchorSnapshot
     let anchorIsUsable: Bool
     let isBlocked: Bool
+
+    /// 저장된 숨김 선택과 현재 비표시 상태가 함께 있어야 사용자 의도로 본다.
+    /// 키가 없거나 실제로 표시 중이면 앵커 실패를 숨김 선택으로 덮지 않는다.
+    var isUserHidden: Bool {
+        evidence.visibilityDefault == false
+            && !evidence.snapshot.reportsVisible
+    }
 
     init(
         evidence: StatusItemPlacementEvidence,
@@ -296,13 +304,15 @@ struct StatusItemPlacementAssessment: Equatable, CustomStringConvertible {
 enum ApplicationReopenPolicy {
     static func action(
         hasVisibleWindows: Bool,
-        statusItemIsBlocked: Bool,
-        statusItemCanAnchorPopover: Bool
+        placement: StatusItemPlacementAssessment
     ) -> ApplicationReopenAction {
         if hasVisibleWindows {
             return .useDefaultWindowHandling
         }
-        if statusItemIsBlocked || !statusItemCanAnchorPopover {
+        if placement.isUserHidden {
+            return .showSettings
+        }
+        if placement.isBlocked || !placement.anchorIsUsable {
             return .showStatusItemRecovery
         }
         return .showPopover

@@ -282,11 +282,11 @@ final class AppInstallLocationPolicyTests: XCTestCase {
                         ["dev-entry": "/dev/disk\(index + 4)"],
                         [
                             "dev-entry": "/dev/disk\(index + 4)s1",
-                            "mount-point": image.mountPoint,
+                            "mount-point": image.mountPoint
                         ],
                     ],
                 ]
-            },
+            }
         ]
 
         return try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)

@@ -13,6 +13,7 @@ private struct PopoverAnchorReader: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
+        view.identifier = NSUserInterfaceItemIdentifier("popover-display-editor-anchor")
         DispatchQueue.main.async {
             onResolve(view)
         }

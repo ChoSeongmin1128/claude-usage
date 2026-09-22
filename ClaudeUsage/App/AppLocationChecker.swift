@@ -155,8 +155,8 @@ enum AppLocationChecker {
                 .relaunchAfterMoveArgument(
                     predecessor:
                         ProcessInfo.processInfo
-                            .processIdentifier
-                ),
+                        .processIdentifier
+                )
         ]
         NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: destination), configuration: configuration) { _, error in
             DispatchQueue.main.async {

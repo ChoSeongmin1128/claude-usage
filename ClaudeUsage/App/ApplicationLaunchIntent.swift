@@ -69,7 +69,8 @@ struct ApplicationLaunchIntent: Equatable, Sendable {
                     : nil
             }
 
-        let relaunchAfterMovePredecessor = arguments
+        let relaunchAfterMovePredecessor =
+            arguments
             .first {
                 $0.hasPrefix(relaunchAfterMovePrefix)
             }
