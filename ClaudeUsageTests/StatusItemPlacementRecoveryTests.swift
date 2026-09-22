@@ -63,8 +63,7 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        true,
-                    anchorIsUsable: true
+                        true
                 )
         )
     }
@@ -108,8 +107,7 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        true,
-                    anchorIsUsable: true
+                        true
                 )
         )
     }
@@ -156,8 +154,7 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        true,
-                    anchorIsUsable: true
+                        true
                 )
         )
         XCTAssertTrue(
@@ -205,8 +202,7 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        true,
-                    anchorIsUsable: true
+                        true
                 )
         )
     }
@@ -235,8 +231,7 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        true,
-                    anchorIsUsable: true
+                        true
                 )
         )
     }
@@ -265,8 +260,7 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        true,
-                    anchorIsUsable: true
+                        true
                 )
         )
     }
@@ -315,8 +309,7 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        true,
-                    anchorIsUsable: true
+                        true
                 )
         )
     }
@@ -345,8 +338,7 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        false,
-                    anchorIsUsable: true
+                        false
                 )
         )
     }
@@ -545,8 +537,7 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        true,
-                    anchorIsUsable: true
+                        true
                 )
         )
         XCTAssertFalse(
@@ -554,13 +545,12 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        false,
-                    anchorIsUsable: true
+                        false
                 )
         )
     }
 
-    func testDetachedAnchorIsBlockedEvenWhenEveryInternalSignalIsHealthy() {
+    func testHealthySignalsDoNotRequireRecreationWithoutSystemEvidence() {
         let healthy =
             StatusItemPlacementEvidence(
                 autosaveName:
@@ -583,16 +573,7 @@ final class StatusItemPlacementRecoveryTests:
             StatusItemPlacementRecoveryPolicy
                 .isBlocked(
                     healthy,
-                    detectTahoeBlockedStatusItem: true,
-                    anchorIsUsable: true
-                )
-        )
-        XCTAssertTrue(
-            StatusItemPlacementRecoveryPolicy
-                .isBlocked(
-                    healthy,
-                    detectTahoeBlockedStatusItem: true,
-                    anchorIsUsable: false
+                    detectTahoeBlockedStatusItem: true
                 )
         )
     }
@@ -619,8 +600,7 @@ final class StatusItemPlacementRecoveryTests:
             StatusItemPlacementRecoveryPolicy
                 .isBlocked(
                     noItem,
-                    detectTahoeBlockedStatusItem: true,
-                    anchorIsUsable: false
+                    detectTahoeBlockedStatusItem: true
                 )
         )
     }
@@ -628,9 +608,10 @@ final class StatusItemPlacementRecoveryTests:
     func testReopenPolicyUsesVisibleRecoveryPath() {
         let blocked = makeAssessment(
             anchorSnapshot: StatusItemAnchorSnapshot(
-                windowFrame: CGRect(x: 0, y: 0, width: 100, height: 24),
+                windowFrame: nil,
                 menuBarBands: [CGRect(x: 0, y: 900, width: 1_000, height: 24)]
-            )
+            ),
+            hasWindow: false
         )
         let placed = makeAssessment(
             anchorSnapshot: StatusItemAnchorSnapshot(
@@ -662,7 +643,7 @@ final class StatusItemPlacementRecoveryTests:
         )
     }
 
-    func testReopenPrefersRecoveryWhenPopoverHasNoAnchor() {
+    func testReopenShowsSettingsWhenPopoverHasNoAnchorWithoutRecoveryEvidence() {
         let assessment = makeAssessment(
             anchorSnapshot: StatusItemAnchorSnapshot(
                 windowFrame: nil,
@@ -678,7 +659,7 @@ final class StatusItemPlacementRecoveryTests:
                 hasVisibleWindows: false,
                 placement: assessment
             ),
-            .showStatusItemRecovery
+            .showSettings
         )
     }
 
@@ -731,7 +712,7 @@ final class StatusItemPlacementRecoveryTests:
 
     // MARK: - Assessment
 
-    func testAssessmentTreatsDetachedAnchorAsBlocked() {
+    func testAssessmentDoesNotRecreateHealthyItemOutsideMenuBarBands() {
         let assessment = makeAssessment(
             anchorSnapshot: StatusItemAnchorSnapshot(
                 windowFrame: CGRect(x: 0, y: 0, width: 100, height: 24),
@@ -742,7 +723,11 @@ final class StatusItemPlacementRecoveryTests:
         )
 
         XCTAssertFalse(assessment.anchorIsUsable)
-        XCTAssertTrue(assessment.isBlocked)
+        XCTAssertFalse(assessment.isBlocked)
+        XCTAssertEqual(
+            ApplicationReopenPolicy.action(hasVisibleWindows: false, placement: assessment),
+            .showSettings
+        )
     }
 
     func testAssessmentTreatsInBandAnchorAsPlaced() {
@@ -820,8 +805,7 @@ final class StatusItemPlacementRecoveryTests:
                         .isBlocked(
                             assessment.evidence,
                             detectTahoeBlockedStatusItem:
-                                detectTahoe,
-                            anchorIsUsable: expectedAnchor
+                                detectTahoe
                         )
                 )
             }
@@ -832,7 +816,7 @@ final class StatusItemPlacementRecoveryTests:
 
     /// 사용자가 메뉴 막대에서 항목을 끄면 AppKit이 버튼 윈도우를 내리므로 앵커도
     /// 같이 사라진다. 그 상태를 macOS 차단으로 읽으면 사용자가 끈 항목을 되살리고
-    /// 차단됐다는 안내까지 띄운다. 앵커 신호는 표시 중일 때만 근거가 된다.
+    /// 차단됐다는 안내까지 띄운다. 숨김 선택은 생성 실패와 구분한다.
     func testUserHiddenItemWithDetachedAnchorIsNotBlocked() {
         let hidden = StatusItemPlacementEvidence(
             autosaveName: "claudeusage",
@@ -852,35 +836,36 @@ final class StatusItemPlacementRecoveryTests:
         XCTAssertFalse(
             StatusItemPlacementRecoveryPolicy.isBlocked(
                 hidden,
-                detectTahoeBlockedStatusItem: true,
-                anchorIsUsable: false
+                detectTahoeBlockedStatusItem: true
             )
         )
     }
 
-    func testVisibleItemWithDetachedAnchorStaysBlocked() {
-        let visible = StatusItemPlacementEvidence(
-            autosaveName: "claudeusage",
-            visibilityDefault: true,
-            snapshot: StatusItemPlacementSnapshot(
-                expectsVisibility: true,
-                reportsVisible: true,
-                hasButton: true,
-                hasWindow: true,
-                hasScreen: true,
-                isOnCurrentScreen: true,
-                buttonWidth: 195.5
-            ),
-            windowSnapshots: []
-        )
-
-        XCTAssertTrue(
-            StatusItemPlacementRecoveryPolicy.isBlocked(
-                visible,
-                detectTahoeBlockedStatusItem: true,
-                anchorIsUsable: false
+    func testVisibleOffBandItemPreservesPlacementRegardlessOfVisibilityPreference() {
+        let visibilityDefaults: [Bool?] = [true, nil]
+        for visibilityDefault in visibilityDefaults {
+            // A menu bar manager can preserve every AppKit visibility flag while
+            // moving an item outside the expected bands. Its exact placement is
+            // not evidence that the application's registration needs repair.
+            let assessment = makeAssessment(
+                anchorSnapshot: StatusItemAnchorSnapshot(
+                    windowFrame: CGRect(x: -200, y: 0, width: 195.5, height: 24),
+                    menuBarBands: [
+                        CGRect(x: 0, y: 1083, width: 1728, height: 34),
+                        CGRect(x: 1728, y: 1248, width: 2560, height: 34),
+                    ]
+                ),
+                visibilityDefault: visibilityDefault
             )
-        )
+
+            XCTAssertFalse(assessment.anchorIsUsable)
+            XCTAssertFalse(assessment.isUserHidden)
+            XCTAssertFalse(assessment.isBlocked, "Startup must not recreate an off-band item with healthy signals")
+            XCTAssertEqual(
+                ApplicationReopenPolicy.action(hasVisibleWindows: false, placement: assessment),
+                .showSettings
+            )
+        }
     }
 
     /// 실제 생산 경로인 assessment 에서도 같은 계약이 유지돼야 한다.
@@ -964,13 +949,13 @@ final class StatusItemPlacementRecoveryTests:
         )
 
         XCTAssertFalse(assessment.isUserHidden)
-        XCTAssertTrue(assessment.isBlocked)
+        XCTAssertFalse(assessment.isBlocked)
         XCTAssertEqual(
             ApplicationReopenPolicy.action(
                 hasVisibleWindows: false,
                 placement: assessment
             ),
-            .showStatusItemRecovery
+            .showSettings
         )
     }
 
@@ -987,8 +972,28 @@ final class StatusItemPlacementRecoveryTests:
 
         XCTAssertEqual(
             assessment.description,
-            "blocked=true anchor=false "
+            "blocked=false anchor=false "
                 + assessment.evidence.description
+                + " windowFrame={{0, 0}, {100, 24}} menuBarBands=[{{0, 900}, {1000, 24}}]"
+        )
+    }
+
+    func testAnchorDescriptionIncludesEveryBandAndFractionalWindowCoordinates() {
+        let snapshot = StatusItemAnchorSnapshot(
+            windowFrame: CGRect(x: -200.5, y: 0, width: 195.5, height: 24),
+            menuBarBands: [
+                CGRect(x: 0, y: 1083, width: 1728, height: 34),
+                CGRect(x: 1728, y: 1248, width: 2560, height: 34),
+            ]
+        )
+        XCTAssertEqual(
+            snapshot.description,
+            "windowFrame={{-200.5, 0}, {195.5, 24}} "
+                + "menuBarBands=[{{0, 1083}, {1728, 34}} | {{1728, 1248}, {2560, 34}}]"
+        )
+        XCTAssertEqual(
+            StatusItemAnchorSnapshot(windowFrame: nil, menuBarBands: []).description,
+            "windowFrame=none menuBarBands=[]"
         )
     }
 

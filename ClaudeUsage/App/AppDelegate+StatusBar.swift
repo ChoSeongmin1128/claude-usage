@@ -70,10 +70,12 @@ extension AppDelegate {
             StatusItemDiagnosticsLog.record(
                 "check \(firstPass)"
             )
+            // 앵커가 화면 밖에 있다는 사실만으로는 사용자 숨김 배치와 장애를
+            // 구분할 수 없다. 생성 실패 또는 기존 시스템 지문이 있을 때만 재생성한다.
             guard firstPass.isBlocked else { return }
 
             Logger.error(
-                "메뉴바 아이템이 생성되지 않았습니다. "
+                "메뉴바 아이템의 생성 상태를 복구합니다. "
                     + firstPass.evidence.description
             )
             self.rebuildStatusItems()
@@ -103,7 +105,7 @@ extension AppDelegate {
             }
 
             Logger.error(
-                "메뉴바 아이템이 한 차례 재생성 후에도 차단 상태입니다. "
+                "메뉴바 아이템이 한 차례 재생성 후에도 표시 확인이 필요한 상태입니다. "
                     + secondPass.evidence.description
             )
             StatusItemDiagnosticsLog.record(
@@ -249,11 +251,11 @@ extension AppDelegate {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText =
-            "\(AppDistribution.current.appName)를 메뉴 막대에 표시하지 못했습니다"
+            "\(AppDistribution.current.appName)의 메뉴 막대 표시를 확인해 주세요"
         alert.informativeText =
-            "앱은 실행 중이지만 macOS가 상태 아이템을 차단했습니다. "
-            + "시스템 설정 > 메뉴 막대에서 \(AppDistribution.current.appName)를 켜 주세요. "
-            + "이미 켜져 있는데도 계속 보이지 않으면 앱 설정에서 업데이트를 확인하거나 문제를 보고해 주세요."
+            "앱은 실행 중이지만 메뉴 막대 아이콘의 표시 상태를 확인해야 합니다. "
+            + "시스템 설정의 메뉴 막대 항목과 사용 중인 메뉴바 관리 앱의 숨김 설정을 확인해 주세요. "
+            + "계속 보이지 않으면 앱 설정에서 업데이트를 확인하거나 문제를 보고해 주세요."
         alert.alertStyle = .warning
         alert.addButton(
             withTitle: "메뉴 막대 설정 열기"

@@ -84,24 +84,12 @@ enum StatusItemPlacementRecoveryPolicy {
             || !snapshot.isOnCurrentScreen
     }
 
-    /// `anchorIsUsable`는 버튼 윈도우가 실제로 메뉴바 밴드 안에 있는지다. 앱 내부
-    /// 신호가 모두 정상인데도 항목이 바에 없는 경우를 이 값만 구분해 냈다(측정:
-    /// 정상 `anchor=true`, 미표시 `anchor=false`, 나머지 필드는 양쪽 동일).
-    ///
-    /// 사용자가 항목을 직접 숨기면 AppKit이 버튼 윈도우를 내리므로 앵커도 사라진다.
-    /// `reportsVisible`을 함께 보지 않으면 사용자가 끈 상태를 macOS가 차단한 것으로
-    /// 읽고, 항목을 되살린 뒤 차단됐다는 안내까지 띄운다.
+    /// 생성 실패와 기존 시스템 지문만 복구 근거로 사용한다. 메뉴바 관리 앱의
+    /// 숨김 배치도 앵커를 화면 밖으로 옮길 수 있으므로 위치만으로 재생성하지 않는다.
     static func isBlocked(
         _ evidence: StatusItemPlacementEvidence,
-        detectTahoeBlockedStatusItem: Bool,
-        anchorIsUsable: Bool
+        detectTahoeBlockedStatusItem: Bool
     ) -> Bool {
-        if evidence.snapshot.expectsVisibility,
-            evidence.snapshot.reportsVisible,
-            !anchorIsUsable
-        {
-            return true
-        }
         if isMaterializationBlocked(
             evidence.snapshot
         ) {
@@ -247,9 +235,15 @@ enum ApplicationReopenAction: Equatable {
 
 /// 팝오버는 상태 아이템 버튼을 기준으로 뜬다. 버튼 윈도우가 메뉴바 밖에 있으면
 /// 앵커 없는 팝오버가 엉뚱한 위치에 뜨고, 사용자는 아이콘도 없이 떠 있는 창만 본다.
-struct StatusItemAnchorSnapshot: Equatable, Sendable {
+struct StatusItemAnchorSnapshot: Equatable, Sendable, CustomStringConvertible {
     let windowFrame: CGRect?
     let menuBarBands: [CGRect]
+
+    var description: String {
+        let frame = windowFrame.map { NSStringFromRect($0) } ?? "none"
+        let bands = menuBarBands.map { NSStringFromRect($0) }.joined(separator: " | ")
+        return "windowFrame=\(frame) menuBarBands=[\(bands)]"
+    }
 }
 
 enum StatusItemAnchorPolicy {
@@ -290,14 +284,14 @@ struct StatusItemPlacementAssessment: Equatable, CustomStringConvertible {
             StatusItemPlacementRecoveryPolicy.isBlocked(
                 evidence,
                 detectTahoeBlockedStatusItem:
-                    detectTahoeBlockedStatusItem,
-                anchorIsUsable: anchorIsUsable
+                    detectTahoeBlockedStatusItem
             )
     }
 
     var description: String {
         "blocked=\(isBlocked) anchor=\(anchorIsUsable) "
             + evidence.description
+            + " " + anchorSnapshot.description
     }
 }
 
@@ -312,8 +306,11 @@ enum ApplicationReopenPolicy {
         if placement.isUserHidden {
             return .showSettings
         }
-        if placement.isBlocked || !placement.anchorIsUsable {
+        if placement.isBlocked {
             return .showStatusItemRecovery
+        }
+        if !placement.anchorIsUsable {
+            return .showSettings
         }
         return .showPopover
     }
