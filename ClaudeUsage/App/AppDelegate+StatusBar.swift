@@ -65,17 +65,16 @@ extension AppDelegate {
                 return
             }
             guard let self, !Task.isCancelled else { return }
+
+            let firstPass = self.captureStatusItemPlacement()
             StatusItemDiagnosticsLog.record(
-                "check blocked=\(self.isStatusItemPlacementBlocked) "
-                    + "anchor=\(self.statusItemCanAnchorPopover) "
-                    + self.statusItemPlacementEvidence.description
+                "check \(firstPass)"
             )
-            guard self.isStatusItemPlacementBlocked else { return }
+            guard firstPass.isBlocked else { return }
 
             Logger.error(
                 "메뉴바 아이템이 생성되지 않았습니다. "
-                    + self.statusItemPlacementEvidence
-                        .description
+                    + firstPass.evidence.description
             )
             self.rebuildStatusItems()
             self.updateMenuBar(force: true)
@@ -89,33 +88,38 @@ extension AppDelegate {
             } catch {
                 return
             }
-            guard !Task.isCancelled,
-                  self.isStatusItemPlacementBlocked
-            else {
+            // 취소와 복구를 같은 분기에 두면 취소가 복구로 기록된다.
+            guard !Task.isCancelled else { return }
+
+            let secondPass = self.captureStatusItemPlacement()
+            guard secondPass.isBlocked else {
                 Logger.info(
                     "메뉴바 아이템 재생성 후 배치가 복구됐습니다."
                 )
-                StatusItemDiagnosticsLog.record("recovered after one recreation")
+                StatusItemDiagnosticsLog.record(
+                    "recovered after one recreation \(secondPass)"
+                )
                 return
             }
 
             Logger.error(
                 "메뉴바 아이템이 한 차례 재생성 후에도 차단 상태입니다. "
-                    + self.statusItemPlacementEvidence
-                        .description
+                    + secondPass.evidence.description
             )
             StatusItemDiagnosticsLog.record(
-                "still blocked after recreation "
-                    + self.statusItemPlacementEvidence.description
+                "still blocked after recreation \(secondPass)"
             )
             self.presentStatusItemPlacementGuidance()
         }
     }
 
+    /// 생성 직후 관측만 남기는 용도다. 판정을 하지 않으므로 CGWindow 조회를
+    /// 하지 않고, 판정이 필요한 곳은 `captureStatusItemPlacement()`를 쓴다.
     var statusItemPlacementSnapshot:
         StatusItemPlacementSnapshot
     {
         let button = statusItem?.button
+        let screens = NSScreen.screens
         let screen = button?.window?.screen
         return StatusItemPlacementSnapshot(
             // ClaudeUsage는 provider가 비어 있어도 placeholder를 표시하므로
@@ -128,73 +132,81 @@ extension AppDelegate {
             hasScreen: screen != nil,
             isOnCurrentScreen:
                 screen.map {
-                    currentScreensContain($0)
+                    Self.screens(screens, contain: $0)
                 }
                 ?? false,
             buttonWidth: button?.frame.width ?? 0
         )
     }
 
-    var statusItemPlacementEvidence:
-        StatusItemPlacementEvidence
+    /// 한 판정 주기의 측정을 여기서 한 번만 한다. 계산 프로퍼티로 나눠 두면 판정,
+    /// 로그, 재판정이 각각 다시 측정해 기록과 결정이 어긋나고, 차단 상태에서는
+    /// `CGWindowListCopyWindowInfo` 전수 조회가 한 주기에 일곱 번 돈다.
+    /// `statusItem`부터 화면 목록까지 같은 참조로 두 스냅샷을 모두 만든다.
+    func captureStatusItemPlacement()
+        -> StatusItemPlacementAssessment
     {
-        let autosaveName =
-            statusItem?.autosaveName ?? ""
-        return StatusItemPlacementEvidence(
-            autosaveName: autosaveName,
-            visibilityDefault:
-                StatusItemPlacementRecoveryPolicy
-                    .visibilityDefault(
-                        defaults:
-                            UserDefaults.standard,
-                        autosaveName:
-                            autosaveName
-                    ),
-            snapshot:
-                statusItemPlacementSnapshot,
-            windowSnapshots:
-                StatusItemWindowProbe.snapshots(
-                    matching:
-                        Set([autosaveName])
-                )
-        )
-    }
-
-    var statusItemAnchorSnapshot: StatusItemAnchorSnapshot {
+        let item = statusItem
+        let button = item?.button
+        let window = button?.window
+        let screen = window?.screen
+        let screens = NSScreen.screens
         let thickness = NSStatusBar.system.thickness
-        return StatusItemAnchorSnapshot(
-            windowFrame: statusItem?.button?.window?.frame,
-            menuBarBands: NSScreen.screens.map {
-                CGRect(
-                    x: $0.frame.minX,
-                    y: $0.frame.maxY - thickness,
-                    width: $0.frame.width,
-                    height: thickness
-                )
-            }
+        let autosaveName = item?.autosaveName ?? ""
+
+        let snapshot = StatusItemPlacementSnapshot(
+            // ClaudeUsage는 provider가 비어 있어도 placeholder를 표시하므로
+            // status item이 존재하는 동안 항상 표시 의도가 있습니다.
+            expectsVisibility: item != nil,
+            reportsVisible: item?.isVisible == true,
+            hasButton: button != nil,
+            hasWindow: window != nil,
+            hasScreen: screen != nil,
+            isOnCurrentScreen:
+                screen.map {
+                    Self.screens(screens, contain: $0)
+                }
+                ?? false,
+            buttonWidth: button?.frame.width ?? 0
+        )
+
+        return StatusItemPlacementAssessment(
+            evidence: StatusItemPlacementEvidence(
+                autosaveName: autosaveName,
+                visibilityDefault:
+                    StatusItemPlacementRecoveryPolicy
+                        .visibilityDefault(
+                            defaults:
+                                UserDefaults.standard,
+                            autosaveName: autosaveName
+                        ),
+                snapshot: snapshot,
+                windowSnapshots:
+                    StatusItemWindowProbe.snapshots(
+                        matching: Set([autosaveName])
+                    )
+            ),
+            anchorSnapshot: StatusItemAnchorSnapshot(
+                windowFrame: window?.frame,
+                menuBarBands: screens.map {
+                    CGRect(
+                        x: $0.frame.minX,
+                        y: $0.frame.maxY - thickness,
+                        width: $0.frame.width,
+                        height: thickness
+                    )
+                }
+            ),
+            detectTahoeBlockedStatusItem:
+                ProcessInfo.processInfo
+                    .operatingSystemVersion
+                    .majorVersion >= 26
         )
     }
 
-    var statusItemCanAnchorPopover: Bool {
-        StatusItemAnchorPolicy.isUsable(statusItemAnchorSnapshot)
-    }
-
-    var isStatusItemPlacementBlocked: Bool {
-        StatusItemPlacementRecoveryPolicy
-            .isBlocked(
-                statusItemPlacementEvidence,
-                detectTahoeBlockedStatusItem:
-                    ProcessInfo.processInfo
-                        .operatingSystemVersion
-                        .majorVersion
-                        >= 26,
-                anchorIsUsable:
-                    statusItemCanAnchorPopover
-            )
-    }
-
-    private func currentScreensContain(
-        _ screen: NSScreen
+    private static func screens(
+        _ screens: [NSScreen],
+        contain screen: NSScreen
     ) -> Bool {
         let key =
             NSDeviceDescriptionKey(
@@ -203,7 +215,7 @@ extension AppDelegate {
         let screenNumber =
             screen.deviceDescription[key]
                 as? NSNumber
-        return NSScreen.screens.contains {
+        return screens.contains {
             let candidateNumber =
                 $0.deviceDescription[key]
                     as? NSNumber

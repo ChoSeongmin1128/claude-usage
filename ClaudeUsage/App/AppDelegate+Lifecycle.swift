@@ -210,12 +210,12 @@ extension AppDelegate {
             return false
         }
 
+        let placement = captureStatusItemPlacement()
         switch ApplicationReopenPolicy.action(
             hasVisibleWindows: flag,
-            statusItemIsBlocked:
-                isStatusItemPlacementBlocked,
+            statusItemIsBlocked: placement.isBlocked,
             statusItemCanAnchorPopover:
-                statusItemCanAnchorPopover
+                placement.anchorIsUsable
         ) {
         case .useDefaultWindowHandling:
             return true

@@ -254,6 +254,39 @@ enum StatusItemAnchorPolicy {
     }
 }
 
+/// 한 판정 주기의 측정과 그 측정으로 내린 판정을 함께 들고 다닌다. 판정과 로그가
+/// 각각 다시 측정하면 기록에 남은 상태가 실제로 행동을 결정한 상태가 아니게 된다.
+struct StatusItemPlacementAssessment: Equatable, CustomStringConvertible {
+    let evidence: StatusItemPlacementEvidence
+    let anchorSnapshot: StatusItemAnchorSnapshot
+    let anchorIsUsable: Bool
+    let isBlocked: Bool
+
+    init(
+        evidence: StatusItemPlacementEvidence,
+        anchorSnapshot: StatusItemAnchorSnapshot,
+        detectTahoeBlockedStatusItem: Bool
+    ) {
+        let anchorIsUsable =
+            StatusItemAnchorPolicy.isUsable(anchorSnapshot)
+        self.evidence = evidence
+        self.anchorSnapshot = anchorSnapshot
+        self.anchorIsUsable = anchorIsUsable
+        self.isBlocked =
+            StatusItemPlacementRecoveryPolicy.isBlocked(
+                evidence,
+                detectTahoeBlockedStatusItem:
+                    detectTahoeBlockedStatusItem,
+                anchorIsUsable: anchorIsUsable
+            )
+    }
+
+    var description: String {
+        "blocked=\(isBlocked) anchor=\(anchorIsUsable) "
+            + evidence.description
+    }
+}
+
 enum ApplicationReopenPolicy {
     static func action(
         hasVisibleWindows: Bool,

@@ -699,4 +699,139 @@ final class StatusItemPlacementRecoveryTests:
             )
         )
     }
+
+    // MARK: - Assessment
+
+    func testAssessmentTreatsDetachedAnchorAsBlocked() {
+        let assessment = makeAssessment(
+            anchorSnapshot: StatusItemAnchorSnapshot(
+                windowFrame: CGRect(x: 0, y: 0, width: 100, height: 24),
+                menuBarBands: [
+                    CGRect(x: 0, y: 900, width: 1_000, height: 24),
+                ]
+            )
+        )
+
+        XCTAssertFalse(assessment.anchorIsUsable)
+        XCTAssertTrue(assessment.isBlocked)
+    }
+
+    func testAssessmentTreatsInBandAnchorAsPlaced() {
+        let assessment = makeAssessment(
+            anchorSnapshot: StatusItemAnchorSnapshot(
+                windowFrame: CGRect(x: 120, y: 900, width: 100, height: 24),
+                menuBarBands: [
+                    CGRect(x: 0, y: 900, width: 1_000, height: 24),
+                ]
+            )
+        )
+
+        XCTAssertTrue(assessment.anchorIsUsable)
+        XCTAssertFalse(assessment.isBlocked)
+    }
+
+    func testAssessmentWithoutBandInformationDoesNotBlock() {
+        let assessment = makeAssessment(
+            anchorSnapshot: StatusItemAnchorSnapshot(
+                windowFrame: CGRect(x: 0, y: 0, width: 100, height: 24),
+                menuBarBands: []
+            )
+        )
+
+        XCTAssertTrue(assessment.anchorIsUsable)
+        XCTAssertFalse(assessment.isBlocked)
+    }
+
+    /// 판정을 한곳으로 모으면서 기존 두 정책의 결과가 바뀌지 않아야 한다.
+    func testAssessmentMatchesTheUnderlyingPolicies() {
+        let anchorSnapshots = [
+            StatusItemAnchorSnapshot(
+                windowFrame: CGRect(x: 120, y: 900, width: 100, height: 24),
+                menuBarBands: [
+                    CGRect(x: 0, y: 900, width: 1_000, height: 24),
+                ]
+            ),
+            StatusItemAnchorSnapshot(
+                windowFrame: CGRect(x: 0, y: 0, width: 100, height: 24),
+                menuBarBands: [
+                    CGRect(x: 0, y: 900, width: 1_000, height: 24),
+                ]
+            ),
+            StatusItemAnchorSnapshot(
+                windowFrame: nil,
+                menuBarBands: []
+            ),
+        ]
+
+        for anchorSnapshot in anchorSnapshots {
+            for detectTahoe in [true, false] {
+                let assessment = makeAssessment(
+                    anchorSnapshot: anchorSnapshot,
+                    detectTahoeBlockedStatusItem: detectTahoe
+                )
+                let expectedAnchor =
+                    StatusItemAnchorPolicy.isUsable(
+                        anchorSnapshot
+                    )
+
+                XCTAssertEqual(
+                    assessment.anchorIsUsable,
+                    expectedAnchor
+                )
+                XCTAssertEqual(
+                    assessment.isBlocked,
+                    StatusItemPlacementRecoveryPolicy
+                        .isBlocked(
+                            assessment.evidence,
+                            detectTahoeBlockedStatusItem:
+                                detectTahoe,
+                            anchorIsUsable: expectedAnchor
+                        )
+                )
+            }
+        }
+    }
+
+    /// 기록이 실제로 행동을 결정한 상태여야 하므로 판정과 근거를 함께 담는다.
+    func testAssessmentDescriptionCarriesJudgementAndEvidence() {
+        let assessment = makeAssessment(
+            anchorSnapshot: StatusItemAnchorSnapshot(
+                windowFrame: CGRect(x: 0, y: 0, width: 100, height: 24),
+                menuBarBands: [
+                    CGRect(x: 0, y: 900, width: 1_000, height: 24),
+                ]
+            )
+        )
+
+        XCTAssertEqual(
+            assessment.description,
+            "blocked=true anchor=false "
+                + assessment.evidence.description
+        )
+    }
+
+    private func makeAssessment(
+        anchorSnapshot: StatusItemAnchorSnapshot,
+        detectTahoeBlockedStatusItem: Bool = true
+    ) -> StatusItemPlacementAssessment {
+        StatusItemPlacementAssessment(
+            evidence: StatusItemPlacementEvidence(
+                autosaveName: "claudeusage",
+                visibilityDefault: true,
+                snapshot: StatusItemPlacementSnapshot(
+                    expectsVisibility: true,
+                    reportsVisible: true,
+                    hasButton: true,
+                    hasWindow: true,
+                    hasScreen: true,
+                    isOnCurrentScreen: true,
+                    buttonWidth: 195.5
+                ),
+                windowSnapshots: []
+            ),
+            anchorSnapshot: anchorSnapshot,
+            detectTahoeBlockedStatusItem:
+                detectTahoeBlockedStatusItem
+        )
+    }
 }
