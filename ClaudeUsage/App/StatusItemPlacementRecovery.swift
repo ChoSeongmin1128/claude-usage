@@ -87,13 +87,19 @@ enum StatusItemPlacementRecoveryPolicy {
     /// `anchorIsUsable`는 버튼 윈도우가 실제로 메뉴바 밴드 안에 있는지다. 앱 내부
     /// 신호가 모두 정상인데도 항목이 바에 없는 경우를 이 값만 구분해 냈다(측정:
     /// 정상 `anchor=true`, 미표시 `anchor=false`, 나머지 필드는 양쪽 동일).
-    /// 기존 호출자는 이 신호를 쓰지 않으므로 기본값을 둔다.
+    ///
+    /// 사용자가 항목을 직접 숨기면 AppKit이 버튼 윈도우를 내리므로 앵커도 사라진다.
+    /// `reportsVisible`을 함께 보지 않으면 사용자가 끈 상태를 macOS가 차단한 것으로
+    /// 읽고, 항목을 되살린 뒤 차단됐다는 안내까지 띄운다.
     static func isBlocked(
         _ evidence: StatusItemPlacementEvidence,
         detectTahoeBlockedStatusItem: Bool,
-        anchorIsUsable: Bool = true
+        anchorIsUsable: Bool
     ) -> Bool {
-        if evidence.snapshot.expectsVisibility, !anchorIsUsable {
+        if evidence.snapshot.expectsVisibility,
+           evidence.snapshot.reportsVisible,
+           !anchorIsUsable
+        {
             return true
         }
         if isMaterializationBlocked(

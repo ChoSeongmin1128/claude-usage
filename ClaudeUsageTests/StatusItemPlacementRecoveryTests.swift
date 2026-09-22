@@ -63,7 +63,8 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        true
+                        true,
+                    anchorIsUsable: true
                 )
         )
     }
@@ -107,7 +108,8 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        true
+                        true,
+                    anchorIsUsable: true
                 )
         )
     }
@@ -154,7 +156,8 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        true
+                        true,
+                    anchorIsUsable: true
                 )
         )
         XCTAssertTrue(
@@ -202,7 +205,8 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        true
+                        true,
+                    anchorIsUsable: true
                 )
         )
     }
@@ -231,7 +235,8 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        true
+                        true,
+                    anchorIsUsable: true
                 )
         )
     }
@@ -260,7 +265,8 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        true
+                        true,
+                    anchorIsUsable: true
                 )
         )
     }
@@ -309,7 +315,8 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        true
+                        true,
+                    anchorIsUsable: true
                 )
         )
     }
@@ -338,7 +345,8 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        false
+                        false,
+                    anchorIsUsable: true
                 )
         )
     }
@@ -537,7 +545,8 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        true
+                        true,
+                    anchorIsUsable: true
                 )
         )
         XCTAssertFalse(
@@ -545,7 +554,8 @@ final class StatusItemPlacementRecoveryTests:
                 .isBlocked(
                     evidence,
                     detectTahoeBlockedStatusItem:
-                        false
+                        false,
+                    anchorIsUsable: true
                 )
         )
     }
@@ -790,6 +800,92 @@ final class StatusItemPlacementRecoveryTests:
                 )
             }
         }
+    }
+
+    // MARK: - User-hidden item
+
+    /// 사용자가 메뉴 막대에서 항목을 끄면 AppKit이 버튼 윈도우를 내리므로 앵커도
+    /// 같이 사라진다. 그 상태를 macOS 차단으로 읽으면 사용자가 끈 항목을 되살리고
+    /// 차단됐다는 안내까지 띄운다. 앵커 신호는 표시 중일 때만 근거가 된다.
+    func testUserHiddenItemWithDetachedAnchorIsNotBlocked() {
+        let hidden = StatusItemPlacementEvidence(
+            autosaveName: "claudeusage",
+            visibilityDefault: false,
+            snapshot: StatusItemPlacementSnapshot(
+                expectsVisibility: true,
+                reportsVisible: false,
+                hasButton: true,
+                hasWindow: false,
+                hasScreen: false,
+                isOnCurrentScreen: false,
+                buttonWidth: 0
+            ),
+            windowSnapshots: []
+        )
+
+        XCTAssertFalse(
+            StatusItemPlacementRecoveryPolicy.isBlocked(
+                hidden,
+                detectTahoeBlockedStatusItem: true,
+                anchorIsUsable: false
+            )
+        )
+    }
+
+    func testVisibleItemWithDetachedAnchorStaysBlocked() {
+        let visible = StatusItemPlacementEvidence(
+            autosaveName: "claudeusage",
+            visibilityDefault: true,
+            snapshot: StatusItemPlacementSnapshot(
+                expectsVisibility: true,
+                reportsVisible: true,
+                hasButton: true,
+                hasWindow: true,
+                hasScreen: true,
+                isOnCurrentScreen: true,
+                buttonWidth: 195.5
+            ),
+            windowSnapshots: []
+        )
+
+        XCTAssertTrue(
+            StatusItemPlacementRecoveryPolicy.isBlocked(
+                visible,
+                detectTahoeBlockedStatusItem: true,
+                anchorIsUsable: false
+            )
+        )
+    }
+
+    /// 실제 생산 경로인 assessment 에서도 같은 계약이 유지돼야 한다.
+    func testUserHiddenItemIsNotBlockedThroughAssessment() {
+        let assessment = StatusItemPlacementAssessment(
+            evidence: StatusItemPlacementEvidence(
+                autosaveName: "claudeusage",
+                visibilityDefault: false,
+                snapshot: StatusItemPlacementSnapshot(
+                    expectsVisibility: true,
+                    reportsVisible: false,
+                    hasButton: true,
+                    hasWindow: false,
+                    hasScreen: false,
+                    isOnCurrentScreen: false,
+                    buttonWidth: 0
+                ),
+                windowSnapshots: []
+            ),
+            // 항목을 끄면 버튼 윈도우가 사라져 앵커를 만들 수 없다.
+            anchorSnapshot: StatusItemAnchorSnapshot(
+                windowFrame: nil,
+                menuBarBands: [
+                    CGRect(x: 0, y: 900, width: 1_000, height: 24),
+                ]
+            ),
+            detectTahoeBlockedStatusItem: true
+        )
+
+        XCTAssertFalse(assessment.anchorIsUsable)
+        XCTAssertFalse(assessment.isBlocked)
     }
 
     /// 기록이 실제로 행동을 결정한 상태여야 하므로 판정과 근거를 함께 담는다.
