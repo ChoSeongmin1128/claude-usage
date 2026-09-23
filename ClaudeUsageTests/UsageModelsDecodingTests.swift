@@ -6,6 +6,16 @@ import XCTest
 final class UsageModelsDecodingTests: XCTestCase {
     // MARK: - Claude limits[] (모델 스코프 주간 한도)
 
+    func testClaudeMalformedQuotaDoesNotDecodeAsZeroUsage() {
+        for window in [
+            "{}", "{\"utilization\":null}", "{\"utilization\":\"unknown\"}", "{\"utilization\":\"NaN\"}",
+            "{\"utilization\":-5}",
+        ] {
+            XCTAssertThrowsError(
+                try JSONDecoder().decode(ClaudeUsageResponse.self, from: Data("{\"five_hour\":\(window)}".utf8)))
+        }
+    }
+
     func testClaudeUsageDecodesScopedWeeklyLimits() throws {
         let json = """
         {
@@ -154,8 +164,8 @@ final class UsageModelsDecodingTests: XCTestCase {
         XCTAssertEqual(usage.additionalRateLimits.count, 1)
         let spark = try XCTUnwrap(usage.additionalRateLimits.first)
         XCTAssertEqual(spark.limitName, "GPT-5.3-Codex-Spark")
-        XCTAssertEqual(spark.window?.utilization, 7)
-        XCTAssertEqual(spark.window?.windowDescription, "주간")
+        XCTAssertEqual(spark.rateLimit?.primaryWindow?.utilization, 7)
+        XCTAssertEqual(spark.rateLimit?.primaryWindow?.windowDescription, "주간")
     }
 
     func testCodexWindowAdaptiveTitleFollowsWindowSeconds() throws {

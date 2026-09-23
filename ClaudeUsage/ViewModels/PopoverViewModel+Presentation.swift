@@ -10,7 +10,6 @@ extension PopoverViewModel {
         let density: PopoverDensity = settings.popoverCompact ? .compact : .standard
         let phase = contentPhase(for: service, settings: settings)
         let sections = displaySections(for: service, density: density, settings: settings)
-        let hasContent = runtimeServiceState(for: service, settings: settings).hasContent
         let rowCount: Int
         if service == .antigravity,
            phase == .content,
@@ -32,7 +31,7 @@ extension PopoverViewModel {
             }
         } else {
             rowCount = phase == .content
-                ? max(sections.count, hasContent ? 1 : 0)
+                ? sections.count
                 : 0
         }
         let spec = PopoverLayoutMetrics.layoutSpec(
@@ -50,7 +49,10 @@ extension PopoverViewModel {
             // (PopoverView.providerBodyContent의 분기와 같은 조건이어야 한다.)
             richAuthPanel: phase == .authRequired && service == .claude
         )
-        return LayoutResult(spec: spec, sections: sections)
+        let showsIntroduction =
+            phase == .content && isDesignIntroductionPresented
+            && settings.menuBarDesign == .classic
+        return LayoutResult(spec: showsIntroduction ? spec.includingDesignIntroduction() : spec, sections: sections)
     }
 
     private func standardBodyHeight(
@@ -64,7 +66,7 @@ extension PopoverViewModel {
         guard service == .antigravity else {
             guard !sections.isEmpty else {
                 return PopoverLayoutMetrics
-                    .standardStatusPanelHeight
+                    .standardInteractiveStatusPanelHeight
             }
             return PopoverLayoutMetrics
                 .standardCatalogContentHeight(
@@ -111,7 +113,8 @@ extension PopoverViewModel {
                     $0.id == accountID
                 }
             }
-        return CompactPopoverHeaderPresentationPolicy
+        var context =
+            CompactPopoverHeaderPresentationPolicy
             .resolve(
                 accountCount: accounts.count,
                 activeAccount: activeAccount,
@@ -121,6 +124,10 @@ extension PopoverViewModel {
                 hasRefreshError:
                     state.error != nil
             )
+        if state.error != nil, let lastUpdated = state.lastUpdated {
+            context?.lastSuccessLabel = "\(Self.relativeTimestamp(for: lastUpdated)) 값"
+        }
+        return context
     }
 
     func identityRailProjection(
@@ -261,20 +268,21 @@ extension PopoverViewModel {
     // MARK: - Context 조립
 
     private func makeContext(density: PopoverDensity, settings: AppSettings) -> UsageItemContext {
-        let currentAccountState = ClaudeAccountStore.shared.state()
-        let presentedAccountState = ClaudeAccountSnapshotPresentationPolicy.resolve(
-            snapshotActiveAccountID: usageHealthSnapshot?.activeAccountID,
-            currentState: currentAccountState
-        )
+        let snapshotAccountID = snapshot(for: .claude)?.lastSuccessfulMetadata?.accountID
+        let presentedAccounts =
+            usageHealthSnapshot?.activeAccountID == snapshotAccountID
+            ? usageHealthSnapshot?.accounts ?? [] : []
         return UsageItemContext(
             density: density,
             settings: settings,
             claudeUsage: claudeUsage,
             claudeOverage: overage,
-            claudeAccounts: presentedAccountState?.accounts ?? [],
-            activeClaudeAccountID: presentedAccountState?.activeAccountID,
+            claudeAccounts: presentedAccounts,
+            activeClaudeAccountID: snapshotAccountID,
             codexUsage: codexUsage,
-            codexError: snapshot(for: .codex)?.error
+            codexError: snapshot(for: .codex)?.error,
+            claudeOverageUpdatedAt: snapshot(for: .claude)?.claudeOverageUpdatedAt,
+            claudeOverageIsStale: snapshot(for: .claude)?.claudeOverageIsStale ?? false
         )
     }
 }

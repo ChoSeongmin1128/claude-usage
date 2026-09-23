@@ -82,6 +82,35 @@ final class TimeFormatterTests: XCTestCase {
         )
     }
 
+    func testCompactResetRulesAreSharedAcrossProvidersAndKeepWeeklyTextShort() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let weekly = isoString(from: now.addingTimeInterval(3 * 86400 + 2 * 3600))
+        let hourly = isoString(from: now.addingTimeInterval(3 * 3600 + 12 * 60))
+        let zone = TimeZone(secondsFromGMT: 0)!
+        XCTAssertEqual(
+            TimeFormatter.formatCompactUsageReset(
+                from: weekly, isWeekly: true, style: .remaining, now: now, timeZone: zone), "3d 2h")
+        XCTAssertEqual(
+            TimeFormatter.formatCompactUsageReset(
+                from: hourly, isWeekly: false, style: .remaining, now: now, timeZone: zone), "3h 12m")
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.timeZone = zone
+        formatter.dateFormat = "M/d E"
+        for style in [TimeFormatStyle.h12, .h24] {
+            XCTAssertEqual(
+                TimeFormatter.formatCompactUsageReset(
+                    from: weekly, isWeekly: true, style: style, now: now, timeZone: zone),
+                formatter.string(from: now.addingTimeInterval(3 * 86400 + 2 * 3600)))
+        }
+        XCTAssertNil(
+            TimeFormatter.formatCompactUsageReset(from: "invalid", isWeekly: true, style: .remaining, now: now))
+        XCTAssertEqual(
+            TimeFormatter.formatCompactUsageReset(
+                from: isoString(from: now.addingTimeInterval(-1)), isWeekly: true, style: .remaining, now: now),
+            "0h 00m")
+    }
+
     private func isoString(from date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

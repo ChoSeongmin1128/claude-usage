@@ -20,9 +20,10 @@ struct CompactPopoverHeaderContext: Equatable {
 
     let accountLabel: String?
     let status: Status?
+    var lastSuccessLabel: String? = nil
 
     var labels: [String] {
-        [accountLabel, status?.label].compactMap { value in
+        [accountLabel, status?.label, lastSuccessLabel].compactMap { value in
             guard let value, !value.isEmpty else { return nil }
             return value
         }

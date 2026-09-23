@@ -10,18 +10,18 @@ struct PopoverProviderOverviewRowView: View {
 
     var body: some View {
         Button(action: onSelect) {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
+            HStack(spacing: AppDesign.Space.label) {
+                VStack(alignment: .leading, spacing: AppDesign.Space.micro) {
+                    HStack(spacing: AppDesign.Space.control) {
                         ProviderBrandIconView(provider: provider, kind: .popover, size: 14)
                         Text(title)
-                            .font(.subheadline.weight(.semibold))
+                            .font(AppDesign.Typography.subheadline.weight(.semibold))
                             .foregroundStyle(.primary)
                         if isSelected {
                             Text("활성")
-                                .font(.caption2.weight(.medium))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
+                                .font(AppDesign.Typography.caption2.weight(.medium))
+                                .padding(.horizontal, AppDesign.Space.control)
+                                .padding(.vertical, AppDesign.Space.tight)
                                 .background(Color.accentColor.opacity(0.15))
                                 .foregroundStyle(Color.accentColor)
                                 .clipShape(Capsule())
@@ -29,7 +29,7 @@ struct PopoverProviderOverviewRowView: View {
                     }
 
                     Text(summary)
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                 }
@@ -37,18 +37,18 @@ struct PopoverProviderOverviewRowView: View {
                 Spacer()
                 if let meta {
                     Text(meta)
-                        .font(.caption2)
+                        .font(AppDesign.Typography.caption2)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
                 }
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(AppDesign.Typography.badge)
                     .foregroundStyle(.tertiary)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, AppDesign.Space.label)
+            .padding(.vertical, AppDesign.Space.row)
             .background(
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: AppDesign.Radius.card)
                     .fill(isSelected
                           ? Color.accentColor.opacity(0.08)
                           : Color(NSColor.controlBackgroundColor).opacity(0.4))
@@ -84,18 +84,18 @@ struct PopoverProviderShellCardView: View {
     }
 
     private var content: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
+        HStack(spacing: AppDesign.Space.label) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.micro) {
+                HStack(spacing: AppDesign.Space.control) {
                     ProviderBrandIconView(provider: provider, kind: .popover, size: 13)
                     Text(title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(AppDesign.Typography.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
                     if let badgeTitle {
                         Text(badgeTitle)
-                            .font(.caption2.weight(.medium))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .font(AppDesign.Typography.caption2.weight(.medium))
+                            .padding(.horizontal, AppDesign.Space.control)
+                            .padding(.vertical, AppDesign.Space.tight)
                             .background((isSelectable ? Color.accentColor : Color.secondary).opacity(0.14))
                             .foregroundStyle(isSelectable ? Color.accentColor : .secondary)
                             .clipShape(Capsule())
@@ -103,13 +103,13 @@ struct PopoverProviderShellCardView: View {
                 }
 
                 Text(summary)
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
 
                 if let detail {
                     Text(detail)
-                        .font(.caption2)
+                        .font(AppDesign.Typography.caption2)
                         .foregroundStyle(.tertiary)
                         .lineLimit(3)
                 }
@@ -120,20 +120,20 @@ struct PopoverProviderShellCardView: View {
 
             if let disclosureTitle, isSelectable {
                 Text(disclosureTitle)
-                    .font(.caption2)
+                    .font(AppDesign.Typography.caption2)
                     .foregroundStyle(.tertiary)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(AppDesign.Typography.badge)
                     .foregroundStyle(.tertiary)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, AppDesign.Space.label)
+        .padding(.vertical, AppDesign.Space.row)
         .background(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: AppDesign.Radius.card)
                 .fill(isSelected
                       ? Color.accentColor.opacity(0.08)
-                      : Color(NSColor.controlBackgroundColor).opacity(0.35))
+                        : AppDesign.Surface.subtleGroup)
         )
     }
 }

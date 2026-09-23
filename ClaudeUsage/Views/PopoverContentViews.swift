@@ -40,13 +40,22 @@ struct StatusPanelView: View {
                     actionButton(title: actionTitle, action: action)
                 }
             }
+            .frame(
+                height: density.isCompact
+                    ? (actionTitle != nil && action != nil
+                        ? AppDesign.Control.compactHitSize : PopoverLayoutMetrics.compactStatusHeadingHeight)
+                    : nil)
 
             Text(message)
                 .font(density.isCompact ? .system(size: 10, weight: .medium) : .subheadline)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(
+                    maxHeight: density.isCompact ? PopoverLayoutMetrics.compactStatusMessageHeight : nil,
+                    alignment: .topLeading)
         }
+        .help("\(title)\n\(message)")
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(
             minHeight: density.isCompact ? compactPanelHeight : nil,
@@ -97,7 +106,8 @@ struct PopoverDisplaySectionView: View {
                     percentage: usage.percentage,
                     resetAt: usage.resetAt,
                     isWeekly: usage.isWeekly,
-                    timeFormatStyle: usage.timeFormatStyle
+                    timeFormatStyle: usage.timeFormatStyle,
+                    basis: usage.basis
                 )
             } else {
                 UsageSectionView(
@@ -105,7 +115,8 @@ struct PopoverDisplaySectionView: View {
                     percentage: usage.percentage,
                     resetAt: usage.resetAt,
                     isWeekly: usage.isWeekly,
-                    timeFormatStyle: usage.timeFormatStyle
+                    timeFormatStyle: usage.timeFormatStyle,
+                    basis: usage.basis
                 )
             }
         case .credits(let credits):
@@ -122,9 +133,9 @@ struct PopoverDisplaySectionView: View {
             }
         case .overage(let overage):
             if density.isCompact {
-                CompactOverageRow(overage: overage.overage)
+                CompactOverageRow(overage: overage.overage, updatedAt: overage.updatedAt, isStale: overage.isStale)
             } else {
-                OverageUsageView(overage: overage.overage)
+                OverageUsageView(overage: overage.overage, updatedAt: overage.updatedAt, isStale: overage.isStale)
             }
         case .account(let account):
             AccountSectionView(account: account, density: density)
@@ -141,7 +152,7 @@ struct AccountSectionView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: density.isCompact ? 4 : 6) {
             Label(account.title, systemImage: account.systemIcon)
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
             if let email = account.email {
                 Text(email)
@@ -150,7 +161,7 @@ struct AccountSectionView: View {
             }
             if let plan = account.plan {
                 Text("플랜: \(plan)")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -165,13 +176,13 @@ struct ProviderStatusSectionView: View {
 
     var body: some View {
         if density.isCompact {
-            HStack(spacing: 6) {
+            HStack(spacing: AppDesign.Space.control) {
                 Text(status.title)
-                    .font(.caption.weight(.semibold))
+                    .font(AppDesign.Typography.caption.weight(.semibold))
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 Text(statusText)
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(statusColor)
                     .lineLimit(1)
             }
@@ -207,7 +218,7 @@ struct PopoverDisplayEditorView: View {
     @Binding var selectedMode: PopoverDisplayEditorMode
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.label) {
             DisplayModePicker(selection: modeSelection)
 
             PopoverDisplayItemsListView(
@@ -216,9 +227,9 @@ struct PopoverDisplayEditorView: View {
                 isCompact: selectedMode.isCompact
             )
         }
-        .padding(12)
+        .padding(AppDesign.Space.content)
         .frame(width: 280)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
+        .background(AppDesign.Surface.group)
     }
 
     private var modeSelection: Binding<PopoverDisplayEditorMode> {
@@ -284,7 +295,7 @@ struct PopoverDisplayItemsListView: View {
         guard let fromIndex = updated.firstIndex(where: { $0.id == id }) else { return }
         let targetIndex = fromIndex + offset
         guard updated.indices.contains(targetIndex) else { return }
-        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.15)) {
+        withAnimation(settings.motion.animation(for: .itemChanges, reduceMotion: reduceMotion)) {
             updated.swapAt(fromIndex, targetIndex)
             applyItems(updated, isCompact: isCompact)
         }
@@ -306,9 +317,7 @@ struct PopoverDisplayItemsListView: View {
             return
         }
         withAnimation(
-            reduceMotion
-                ? nil
-                : .easeInOut(duration: 0.15)
+            settings.motion.animation(for: .itemChanges, reduceMotion: reduceMotion)
         ) {
             let item = updated.remove(
                 at: sourceIndex
@@ -332,8 +341,10 @@ struct PopoverDisplayItemsListView: View {
         ) else {
             return
         }
-        updated[index].visible.toggle()
-        applyItems(updated, isCompact: isCompact)
+        withAnimation(settings.motion.animation(for: .itemChanges, reduceMotion: reduceMotion)) {
+            updated[index].visible.toggle()
+            applyItems(updated, isCompact: isCompact)
+        }
     }
 }
 
@@ -341,16 +352,16 @@ struct ProviderStatusRow: View {
     let status: PopoverStatusSectionData
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: AppDesign.Space.row) {
             Image(systemName: "info.circle")
                 .foregroundStyle(.secondary)
                 .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.micro) {
                 Text(status.title)
-                    .font(.subheadline)
+                    .font(AppDesign.Typography.subheadline)
                 if let message = status.message {
                     Text(message)
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -358,11 +369,11 @@ struct ProviderStatusRow: View {
             }
             Spacer()
             Text(statusText)
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(statusColor)
                 .padding(.top, 1)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, AppDesign.Space.compact)
     }
 
     private var statusText: String {
@@ -400,23 +411,23 @@ struct CodexCreditsView: View {
     let credits: CodexCredits
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.row) {
             HStack {
                 Text("Codex 크레딧")
-                    .font(.subheadline.weight(.semibold))
+                    .font(AppDesign.Typography.subheadline.weight(.semibold))
                 Spacer()
                 Text(credits.formattedBalance)
-                    .font(.headline)
+                    .font(AppDesign.Typography.headline)
                     .fontWeight(.semibold)
             }
             HStack {
                 Text(credits.unlimited ? "무제한 플랜" : "사용 가능한 크레딧")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, AppDesign.Space.compact)
     }
 }
 
@@ -426,12 +437,12 @@ struct CompactCodexCreditsRow: View {
     var body: some View {
         HStack(spacing: PopoverLayoutMetrics.compactRowSpacing) {
             Text("크레딧")
-                .font(.caption.weight(.semibold))
+                .font(AppDesign.Typography.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
 
             Text(credits.formattedBalance)
-                .font(.system(.caption, design: .monospaced))
+                .font(AppDesign.Typography.compactValue)
                 .fontWeight(.medium)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -450,14 +461,14 @@ struct CodexResetCreditsView: View {
     let data: PopoverResetCreditsSectionData
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
+            HStack(spacing: AppDesign.Space.row) {
                 Text("한도 초기화 크레딧")
-                    .font(.subheadline.weight(.semibold))
+                    .font(AppDesign.Typography.subheadline.weight(.semibold))
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 Text("\(data.availableCount)개")
-                    .font(.headline)
+                    .font(AppDesign.Typography.headline)
                     .fontWeight(.semibold)
                     .foregroundStyle(data.availableCount > 0 ? Color.accentColor : .secondary)
                     .fixedSize(horizontal: true, vertical: false)
@@ -465,13 +476,13 @@ struct CodexResetCreditsView: View {
 
             if let expiryText {
                 Text(expiryText)
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, AppDesign.Space.tight)
     }
 
     /// "만료: 6일 3시간 후 (7/28(월))" — 주간 한도와 동일한 시간 표기 규칙(1일 이상은 분 생략)
@@ -491,12 +502,12 @@ struct CompactCodexResetCreditsRow: View {
     var body: some View {
         HStack(spacing: PopoverLayoutMetrics.compactRowSpacing) {
             Text("초기화 크레딧")
-                .font(.caption.weight(.semibold))
+                .font(AppDesign.Typography.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
 
             Text("\(data.availableCount)개")
-                .font(.system(.caption, design: .monospaced))
+                .font(AppDesign.Typography.compactValue)
                 .fontWeight(.medium)
                 .foregroundStyle(data.availableCount > 0 ? Color.accentColor : .secondary)
                 .lineLimit(1)
@@ -513,15 +524,17 @@ struct CompactCodexResetCreditsRow: View {
 
 struct OverageUsageView: View {
     let overage: OverageSpendLimitResponse
+    var updatedAt: Date? = nil
+    var isStale = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Text("추가 사용량")
-                    .font(.subheadline.weight(.semibold))
+        VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
+            HStack(spacing: AppDesign.Space.row) {
+                Text(isStale ? "추가 사용량 · 이전 값" : "추가 사용량")
+                    .font(AppDesign.Typography.subheadline.weight(.semibold))
                 Spacer(minLength: 0)
                 Text(String(format: "%.0f%%", overage.usagePercentage))
-                    .font(.headline)
+                    .font(AppDesign.Typography.headline)
                     .fontWeight(.semibold)
                     .foregroundStyle(.purple)
                     .lineLimit(1)
@@ -529,29 +542,32 @@ struct OverageUsageView: View {
             }
 
             Text(overage.formattedUsageLimitSummary)
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, AppDesign.Space.tight)
+        .help(OverageDisplayDescription.text(overage: overage, updatedAt: updatedAt, isStale: isStale))
     }
 }
 
 struct CompactOverageRow: View {
     let overage: OverageSpendLimitResponse
+    var updatedAt: Date? = nil
+    var isStale = false
 
     var body: some View {
         HStack(alignment: .center, spacing: PopoverLayoutMetrics.compactRowSpacing) {
-            Text("추가 사용량")
-                .font(.caption.weight(.semibold))
+            Text(isStale ? "추가 사용 · 이전 값" : "추가 사용량")
+                .font(AppDesign.Typography.caption.weight(.semibold))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.72)
                 .truncationMode(.tail)
                 .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
 
-            HStack(spacing: 4) {
+            HStack(spacing: AppDesign.Space.compact) {
                 ProgressBarView(
                     percentage: overage.usagePercentage,
                     height: PopoverLayoutMetrics.compactProgressBarHeight,
@@ -560,7 +576,7 @@ struct CompactOverageRow: View {
                 .frame(maxWidth: .infinity)
 
                 Text(String(format: "%.0f%%", overage.usagePercentage))
-                    .font(.system(.caption, design: .monospaced))
+                    .font(AppDesign.Typography.compactValue)
                     .fontWeight(.medium)
                     .foregroundStyle(.purple)
                     .lineLimit(1)
@@ -574,5 +590,18 @@ struct CompactOverageRow: View {
             maxHeight: PopoverLayoutMetrics.compactUsageRowHeight,
             alignment: .center
         )
+        .help(OverageDisplayDescription.text(overage: overage, updatedAt: updatedAt, isStale: isStale))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("추가 사용량")
+        .accessibilityValue(OverageDisplayDescription.text(overage: overage, updatedAt: updatedAt, isStale: isStale))
+    }
+}
+
+private enum OverageDisplayDescription {
+    static func text(overage: OverageSpendLimitResponse, updatedAt: Date?, isStale: Bool) -> String {
+        var parts = [overage.formattedUsageLimitSummary]
+        if isStale { parts.append("추가 사용량 갱신 실패 · 이전 값") }
+        if let updatedAt { parts.append("마지막 확인: \(PopoverViewModel.relativeTimestamp(for: updatedAt))") }
+        return parts.joined(separator: " · ")
     }
 }

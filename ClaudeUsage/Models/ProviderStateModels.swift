@@ -23,7 +23,6 @@ enum ProviderExternalActionKind: String, Sendable, Equatable, Hashable {
 struct ProviderExternalAction: Identifiable, Sendable, Equatable {
     let kind: ProviderExternalActionKind
     let title: String
-    let systemImageName: String
     let destination: URL
 
     nonisolated var id: ProviderExternalActionKind {
@@ -42,7 +41,6 @@ struct ProviderDescriptor: Sendable, Equatable {
     let kind: AppProviderKind
     let displayName: String
     let settingsPanelTitle: String
-    let settingsPanelIconName: String
     let brandAssetName: String?
     let settingsPanelSummary: String
     let settingsPanelDetail: String
@@ -68,7 +66,6 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 kind: self,
                 displayName: "Claude",
                 settingsPanelTitle: "Claude",
-                settingsPanelIconName: "brain",
                 brandAssetName: "ProviderClaudeIcon",
                 settingsPanelSummary: "기본 서비스",
                 settingsPanelDetail: "브라우저 로그인이나 Claude Code 로그인으로 연결할 수 있습니다.",
@@ -83,13 +80,11 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                     ProviderExternalAction(
                         kind: .usage,
                         title: "사용량",
-                        systemImageName: "chart.bar",
                         destination: URL(string: "https://claude.ai/settings/usage")!
                     ),
                     ProviderExternalAction(
                         kind: .status,
                         title: "서비스 상태",
-                        systemImageName: "waveform.path.ecg",
                         destination: URL(string: "https://status.claude.com/")!
                     ),
                 ]
@@ -99,7 +94,6 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 kind: self,
                 displayName: "Codex",
                 settingsPanelTitle: "Codex",
-                settingsPanelIconName: "bubble.left.and.bubble.right",
                 brandAssetName: "ProviderCodexIcon",
                 settingsPanelSummary: "Codex 사용량",
                 settingsPanelDetail: "터미널에서 codex login으로 로그인하면 메뉴바에서 바로 확인할 수 있습니다.",
@@ -114,13 +108,11 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                     ProviderExternalAction(
                         kind: .usage,
                         title: "사용량",
-                        systemImageName: "chart.bar",
                         destination: URL(string: "https://chatgpt.com/codex/settings/usage")!
                     ),
                     ProviderExternalAction(
                         kind: .status,
                         title: "서비스 상태",
-                        systemImageName: "waveform.path.ecg",
                         destination: URL(string: "https://status.openai.com/")!
                     ),
                 ]
@@ -130,7 +122,6 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
                 kind: self,
                 displayName: "Antigravity",
                 settingsPanelTitle: "Antigravity",
-                settingsPanelIconName: "antenna.radiowaves.left.and.right",
                 brandAssetName: "ProviderAntigravityIcon",
                 settingsPanelSummary: "계정 및 model quota",
                 settingsPanelDetail: "Antigravity 계정과 model quota 상태를 확인합니다.",
@@ -166,14 +157,6 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
 
     nonisolated var settingsPanelTitle: String {
         descriptor.settingsPanelTitle
-    }
-
-    nonisolated var settingsPanelIconName: String {
-        descriptor.settingsPanelIconName
-    }
-
-    nonisolated var fallbackSystemSymbolName: String? {
-        descriptor.settingsPanelIconName
     }
 
     nonisolated var brandAssetName: String? {
@@ -405,6 +388,8 @@ enum MenuBarColorMode: String, CaseIterable, Identifiable, Sendable, Equatable {
     case always
     /// 하이브리드: 평소 모노크롬, 주의 구간(75% 이상)부터만 색상
     case warningOnly
+    /// 배터리/게이지는 모노크롬으로 유지하고 배터리 내부 숫자만 상태색
+    case statusNumber
     /// 항상 시스템 텍스트색 (가장 네이티브)
     case monochrome
 
@@ -417,6 +402,7 @@ enum MenuBarColorMode: String, CaseIterable, Identifiable, Sendable, Equatable {
         switch self {
         case .always: return "항상 색상"
         case .warningOnly: return "주의 구간만 색상"
+        case .statusNumber: return "숫자만 상태색"
         case .monochrome: return "모노크롬"
         }
     }
@@ -425,6 +411,8 @@ enum MenuBarColorMode: String, CaseIterable, Identifiable, Sendable, Equatable {
         switch self {
         case .always: return "사용률에 따라 초록/노랑/주황/빨강으로 표시합니다."
         case .warningOnly: return "평소에는 시스템 텍스트색, 75% 이상부터 색상으로 강조합니다."
+        case .statusNumber:
+            return "게이지는 모노크롬으로 유지하고 배터리 내부 숫자만 사용률 상태색으로 표시합니다. 숫자가 없는 게이지는 모노크롬입니다."
         case .monochrome: return "항상 시스템 텍스트색으로 표시합니다. 메뉴바가 가장 차분해집니다."
         }
     }
@@ -438,9 +426,11 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
     let showBatteryPercent: Bool
     let resetTimeDisplay: ResetTimeDisplay
     let timeFormat: TimeFormatStyle
+    let basisOverride: UsageValueBasis?
     let circularDisplayMode: CircularDisplayMode
     let iconMetric: IconMetric
     let colorMode: MenuBarColorMode
+    let design: MenuBarDesign
 
     init(
         kind: AppProviderKind,
@@ -452,7 +442,8 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         timeFormat: TimeFormatStyle,
         circularDisplayMode: CircularDisplayMode,
         iconMetric: IconMetric,
-        colorMode: MenuBarColorMode = .always
+        colorMode: MenuBarColorMode = .always, design: MenuBarDesign = .modern,
+        basisOverride: UsageValueBasis? = nil
     ) {
         self.kind = kind
         self.showIcon = showIcon
@@ -464,6 +455,8 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         self.circularDisplayMode = circularDisplayMode
         self.iconMetric = iconMetric
         self.colorMode = colorMode
+        self.design = design
+        self.basisOverride = basisOverride
     }
 }
 
@@ -493,7 +486,7 @@ enum ProviderMenuBarDisplayPreset: String, CaseIterable, Identifiable, Sendable,
         case .basic:
             return "아이콘과 현재 사용률만 표시합니다."
         case .battery:
-            return "아이콘과 배터리 형태로 남은 사용량을 표시합니다."
+            return "아이콘과 배터리 형태로 선택한 기준의 사용량을 표시합니다."
         case .dual:
             return "현재 한도와 보조 한도를 함께 표시합니다."
         case .custom:

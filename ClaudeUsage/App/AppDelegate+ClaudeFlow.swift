@@ -90,15 +90,21 @@ extension AppDelegate {
             antigravityRuntimeController:
                 antigravityRuntimeController,
             onOpenLogin: { [weak self] in
-                self?.settingsWindowCoordinator.close()
+                if AppSettings.shared.settingsLastTab != SettingsProviderPanel.welcome.rawValue {
+                    self?.settingsWindowCoordinator.close()
+                }
                 self?.showLoginWindow(clearCookies: true)
             },
             onReconnectClaudeCode: { [weak self] in
-                self?.settingsWindowCoordinator.close()
+                if AppSettings.shared.settingsLastTab != SettingsProviderPanel.welcome.rawValue {
+                    self?.settingsWindowCoordinator.close()
+                }
                 self?.showLoginWindow(startCLIActivationOnOpen: true)
             },
             onImportClaudeFromChrome: { [weak self] in
-                self?.settingsWindowCoordinator.close()
+                if AppSettings.shared.settingsLastTab != SettingsProviderPanel.welcome.rawValue {
+                    self?.settingsWindowCoordinator.close()
+                }
                 self?.showLoginWindow(startChromeImportOnOpen: true)
             },
             onClearBrowserSession: { [weak self] in
@@ -124,7 +130,7 @@ extension AppDelegate {
                 CodexAuthManager.shared.clearCache()
                 self.setRuntimeProviderState(RuntimeProviderState(), for: .codex)
                 self.updateMenuBar()
-                self.updatePopoverViewModel(overage: self.currentOverage)
+                self.updatePopoverViewModel()
             },
             claudeLastUsage: { [weak self] in
                 self?.currentUsage
@@ -138,7 +144,21 @@ extension AppDelegate {
             codexLastError: { [weak self] in
                 self?.runtimeProviderState(for: .codex).error
             },
-            initialPanel: initialPanel
+            initialPanel: initialPanel,
+            welcomeStatuses: { [weak self] in
+                guard let self else { return [:] }
+                return Dictionary(
+                    uniqueKeysWithValues: AppProviderKind.allCases.compactMap { provider in
+                        guard let service = provider.runtimeService else { return nil }
+                        return (
+                            provider,
+                            WelcomeServiceStatus.resolve(
+                                snapshot: self.runtimeProviderSnapshot(for: service),
+                                antigravity: self.currentAntigravityRuntimeSnapshot)
+                        )
+                    })
+            },
+            onVerifyService: { [weak self] service in self?.refresh(service: service, force: true) }
         )
     }
 
@@ -150,7 +170,9 @@ extension AppDelegate {
             setupWizardCredentialStepOverride = nil
         }
 
-        if settingsPanelRawValue == nil {
+        if settingsPanelRawValue == nil && AppSettings.shared.welcomeState == .pending {
+            AppSettings.shared.settingsLastTab = SettingsProviderPanel.welcome.rawValue
+        } else if settingsPanelRawValue == nil {
             applyClaudeSetupLandingTabsIfNeeded()
         } else if let settingsPanelRawValue {
             AppSettings.shared.settingsLastTab =
@@ -246,7 +268,7 @@ extension AppDelegate {
                             self.loadingStartedAt = Date()
                         }
                         self.updateMenuBar()
-                        self.updatePopoverViewModel(overage: self.currentOverage)
+                        self.updatePopoverViewModel()
                     }
 
                     do {
@@ -271,7 +293,7 @@ extension AppDelegate {
                             self.isLoading = false
                             self.loadingStartedAt = nil
                             self.updateMenuBar()
-                            self.updatePopoverViewModel(overage: self.currentOverage)
+                            self.updatePopoverViewModel()
                         }
                         throw error
                     }
@@ -357,7 +379,7 @@ extension AppDelegate {
                             self.refreshUsage(force: true)
                         } else {
                             self.updateMenuBar()
-                            self.updatePopoverViewModel(overage: self.currentOverage)
+                            self.updatePopoverViewModel()
                         }
                         self.setupWizardWindowCoordinator.close()
                     }

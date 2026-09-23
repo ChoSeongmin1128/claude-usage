@@ -21,8 +21,8 @@ final class SettingsWindowCoordinator: NSObject, NSWindowDelegate {
     }
 
     func present(rootView: SettingsView) {
-        let windowSize = NSSize(width: 880, height: 660)
-        let minimumWindowSize = NSSize(width: 800, height: 560)
+        let windowSize = AppDesign.Window.settingsIdeal
+        let minimumWindowSize = AppDesign.Window.settingsMinimum
         let hostingController = NSHostingController(rootView: rootView)
         hostingController.view.frame = NSRect(origin: .zero, size: windowSize)
 

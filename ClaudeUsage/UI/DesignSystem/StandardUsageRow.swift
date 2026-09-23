@@ -15,19 +15,20 @@ struct StandardUsageRow: View {
     var tooltip: String? = nil
     var accessibilityLabel: String? = nil
     var accessibilityValue: String? = nil
+    var basis: UsageValueBasis = .used
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(alignment: .center, spacing: AppDesign.Space.label) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
                 Text(title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(AppDesign.Typography.subheadline.weight(.semibold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
                     .truncationMode(.tail)
 
                 if let detailText {
                     Text(detailText)
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -55,31 +56,24 @@ struct StandardUsageRow: View {
     @ViewBuilder
     private var trailingValue: some View {
         if let percentage {
-            HStack(spacing: 8) {
+            HStack(spacing: AppDesign.Space.row) {
                 ProgressBarView(
                     percentage: percentage,
                     height: 8,
-                    color: color
+                    color: color,
+                    basis: basis
                 )
                 .frame(maxWidth: .infinity)
 
-                Text(
-                    percentageText
-                        ?? String(format: "%.0f%%", percentage)
-                )
-                .font(.headline)
-                .fontWeight(.bold)
-                .foregroundStyle(
-                    color
-                        ?? ColorProvider.statusColor(
-                            for: percentage
-                        )
+                UsagePercentageLabel(
+                    percentage: percentage, basis: basis, compact: false,
+                    percentageText: percentageText, color: color
                 )
                 .fixedSize(horizontal: true, vertical: false)
             }
         } else {
             Text(unavailableText ?? "사용량 알 수 없음")
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -88,14 +82,12 @@ struct StandardUsageRow: View {
     }
 
     private var defaultTooltip: String {
-        [title, defaultAccessibilityValue, detailText]
-            .compactMap { $0 }
-            .joined(separator: ", ")
+        [title, defaultAccessibilityValue].joined(separator: ", ")
     }
 
     private var defaultAccessibilityValue: String {
         if let percentage {
-            return "\(Int(percentage.rounded()))퍼센트 사용"
+            return [basis.spokenValue(fromUsed: percentage), detailText].compactMap { $0 }.joined(separator: ", ")
         }
         return unavailableText ?? "사용량 알 수 없음"
     }

@@ -3,6 +3,27 @@ import XCTest
 
 @MainActor
 final class AppSettingsTests: XCTestCase {
+    func testMotionDefaultsPreserveLegacySettingsAndPersistSelection() throws {
+        let suite = "AppSettingsTests.motion.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: "popoverCompact")
+        defaults.set(true, forKey: "popoverPinned")
+        let settings = AppSettings(defaults: defaults)
+        XCTAssertEqual(settings.motion.mode, .instant)
+        XCTAssertTrue(settings.popoverCompact)
+        XCTAssertTrue(settings.popoverPinned)
+        settings.motion.mode = .smooth
+        XCTAssertEqual(AppSettings(defaults: defaults).motion.mode, .smooth)
+        let snapshot = settings.createSnapshot()
+        settings.motion.mode = .instant
+        settings.restore(from: snapshot)
+        XCTAssertEqual(settings.motion.mode, .smooth)
+        defaults.removeObject(forKey: "motionPreferences")
+        defaults.set("unknown-future-value", forKey: "popoverTransitionStyle")
+        XCTAssertEqual(AppSettings(defaults: defaults).motion.mode, .instant)
+    }
+
     func testRefreshIntervalNormalizationClampsInvalidValues() {
         XCTAssertEqual(AppSettings.normalizedRefreshInterval(.nan), 30)
         XCTAssertEqual(AppSettings.normalizedRefreshInterval(0), AppSettings.minimumRefreshInterval)
@@ -343,7 +364,7 @@ final class AppSettingsTests: XCTestCase {
 
     func testSettingsSidebarAlwaysShowsNavigationAndProviders() {
         let expected: [SettingsProviderPanel] = [
-            .common, .display, .notifications, .updates,
+            .welcome, .common, .display, .notifications, .updates,
             .claude, .codex, .antigravity,
         ]
         XCTAssertEqual(
@@ -371,7 +392,7 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(config.circularDisplayMode, .remaining)
     }
 
-    func testEnabledAlertThresholdsConvertRemainingModeBackToUsagePercent() {
+    func testEnabledAlertThresholdsAreCanonicalRegardlessOfDisplayMode() {
         let settings = AppSettings.shared
         let snapshot = settings.createSnapshot()
         defer { settings.restore(from: snapshot) }
@@ -382,9 +403,9 @@ final class AppSettingsTests: XCTestCase {
             NotificationPreset(id: "c", threshold: 90, isEnabled: true),
             NotificationPreset(id: "d", threshold: 95, isEnabled: false),
         ]
-        settings.alertRemainingMode = true
+        settings.usageDisplayMode = .remaining
 
-        XCTAssertEqual(settings.enabledAlertThresholds, [10, 75, 90])
+        XCTAssertEqual(settings.enabledAlertThresholds, [10, 25, 90])
     }
 
     /// 구 AGY 키는 초기화 경로에서 지우기만 하고 다시 쓰지 않는다.
@@ -401,7 +422,9 @@ final class AppSettingsTests: XCTestCase {
         ]
         legacyKeys.forEach { UserDefaults.standard.set("stale", forKey: $0) }
 
+        settings.motion.mode = .smooth
         settings.resetToDefaults()
+        XCTAssertEqual(settings.motion.mode, .instant)
 
         for key in legacyKeys {
             XCTAssertNil(UserDefaults.standard.object(forKey: key), key)

@@ -64,6 +64,7 @@ nonisolated struct AntigravityQuotaLanePresentation:
     let id: AntigravityQuotaLaneID
     let scopeTitle: String
     let cadenceTitle: String
+    let compactScopeTitle: String
     let compactLabel: String
     let menuLabel: String
     let cadence: AntigravityQuotaCadence
@@ -77,6 +78,7 @@ nonisolated struct AntigravityQuotaLanePresentation:
     let tooltip: String
     let accessibilityLabel: String
     let accessibilityValue: String
+    var basis: UsageValueBasis = .used
 
     /// 일반 팝오버에서는 다른 provider와 같은 "한도" 명명 규칙을 씁니다.
     /// compact/menu/editor 표면은 공간과 식별 맥락이 달라 짧은 cadenceTitle을
@@ -160,6 +162,10 @@ nonisolated struct AntigravityCompactQuotaMetricPresentation:
     let tooltip: String
     let accessibilityLabel: String
     let accessibilityValue: String
+    var resetAt: String? = nil
+    var isWeekly = false
+    var timeFormatStyle: TimeFormatStyle = .h24
+    var basis: UsageValueBasis = .used
 }
 
 nonisolated struct AntigravityCompactQuotaPresentation:

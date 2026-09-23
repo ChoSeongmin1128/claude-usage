@@ -14,33 +14,33 @@ struct ProviderOverviewCardView: View {
     let items: [Item]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.row) {
             HStack {
                 Text(title)
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
                 if let subtitle {
                     Text(subtitle)
-                        .font(.caption2)
+                        .font(AppDesign.Typography.caption2)
                         .foregroundStyle(.tertiary)
                 }
             }
 
             ForEach(items) { item in
-                HStack(spacing: 8) {
+                HStack(spacing: AppDesign.Space.row) {
                     Circle()
                         .fill(item.isEnabled ? Color.green : Color.secondary.opacity(0.35))
                         .frame(width: 8, height: 8)
 
                     Text(item.title)
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
 
                     if item.isActive {
                         Text("활성")
-                            .font(.caption2.weight(.medium))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
+                            .font(AppDesign.Typography.caption2.weight(.medium))
+                            .padding(.horizontal, AppDesign.Space.control)
+                            .padding(.vertical, AppDesign.Space.tight)
                             .background(Color.accentColor.opacity(0.15))
                             .foregroundStyle(Color.accentColor)
                             .cornerRadius(5)
@@ -49,13 +49,12 @@ struct ProviderOverviewCardView: View {
                     Spacer()
 
                     Text(item.summary)
-                        .font(.caption2)
+                        .font(AppDesign.Typography.caption2)
                         .foregroundStyle(.secondary)
                 }
             }
         }
-        .padding(10)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        .cornerRadius(8)
+        .padding(AppDesign.Space.label)
+        .appPanelStyle()
     }
 }

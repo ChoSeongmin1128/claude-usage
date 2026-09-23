@@ -1,231 +1,50 @@
 import XCTest
 @testable import ClaudeUsage
 
-@MainActor
 final class AppInstallLocationPolicyTests: XCTestCase {
-    func testApplicationsPathsAreStable() {
-        let assessment = AppInstallLocationPolicy.assess(
-            bundlePath: "/Applications/ClaudeUsage.app",
-            homeDirectory: "/Users/tester"
-        )
+    private let homeDirectory = "/Users/tester"
 
-        XCTAssertEqual(assessment.kind, .applications)
-        XCTAssertTrue(assessment.isStableInstall)
-        XCTAssertFalse(assessment.requiresMovePrompt)
+    func testSystemAndUserApplicationsAreStable() {
+        for (path, expectedKind) in [
+            ("/Applications/ClaudeUsage.app", AppInstallLocationKind.applications),
+            ("/Users/tester/Applications/ClaudeUsage.app", .userApplications),
+        ] {
+            let assessment = AppInstallLocationPolicy.assess(
+                bundlePath: path,
+                homeDirectory: homeDirectory
+            )
+            XCTAssertEqual(assessment.kind, expectedKind)
+            XCTAssertTrue(assessment.isStableInstall)
+            XCTAssertFalse(AppInstallGuidancePolicy.shouldShow(assessment: assessment, isDeveloperBuild: false))
+        }
     }
 
-    func testUserApplicationsPathIsStable() {
-        let assessment = AppInstallLocationPolicy.assess(
-            bundlePath: "/Users/tester/Applications/ClaudeUsage.app",
-            homeDirectory: "/Users/tester"
-        )
-
-        XCTAssertEqual(assessment.kind, .userApplications)
-        XCTAssertTrue(assessment.isStableInstall)
+    func testUnstableLocationsShowGuidanceInReleaseBuilds() {
+        for (path, expectedKind) in [
+            ("/Volumes/Install ClaudeUsage/ClaudeUsage.app", AppInstallLocationKind.diskImageVolume),
+            ("/private/var/folders/x/AppTranslocation/ClaudeUsage.app", .appTranslocation),
+            ("/private/var/folders/x/ClaudeUsage.app", .temporary),
+            ("/Users/tester/Downloads/ClaudeUsage.app", .downloads),
+            ("/Users/tester/Desktop/ClaudeUsage.app", .other),
+        ] {
+            let assessment = AppInstallLocationPolicy.assess(
+                bundlePath: path,
+                homeDirectory: homeDirectory
+            )
+            XCTAssertEqual(assessment.kind, expectedKind)
+            XCTAssertFalse(assessment.isStableInstall)
+            XCTAssertTrue(AppInstallGuidancePolicy.shouldShow(assessment: assessment, isDeveloperBuild: false))
+            XCTAssertFalse(AppInstallGuidancePolicy.shouldShow(assessment: assessment, isDeveloperBuild: true))
+            XCTAssertFalse(assessment.locationDescription.contains(path))
+        }
     }
 
-    func testDiskImagePathRequiresMovePrompt() {
+    func testApplicationsPrefixDoesNotMatchAnotherFolderName() {
         let assessment = AppInstallLocationPolicy.assess(
-            bundlePath: "/Volumes/ClaudeUsage/ClaudeUsage.app",
-            homeDirectory: "/Users/tester"
+            bundlePath: "/Applications-old/ClaudeUsage.app",
+            homeDirectory: homeDirectory
         )
-
-        XCTAssertEqual(assessment.kind, .diskImageVolume)
-        XCTAssertTrue(assessment.requiresMovePrompt)
-        XCTAssertEqual(assessment.preferredTransferStrategy, .copySource)
-    }
-
-    func testTranslocationPathRequiresMovePrompt() {
-        let assessment = AppInstallLocationPolicy.assess(
-            bundlePath: "/private/var/folders/x/AppTranslocation/ClaudeUsage.app",
-            homeDirectory: "/Users/tester"
-        )
-
-        XCTAssertEqual(assessment.kind, .appTranslocation)
-        XCTAssertTrue(assessment.requiresMovePrompt)
-        XCTAssertEqual(assessment.preferredTransferStrategy, .copySource)
-    }
-
-    func testDownloadsPathRequiresMovePrompt() {
-        let assessment = AppInstallLocationPolicy.assess(
-            bundlePath: "/Users/tester/Downloads/ClaudeUsage.app",
-            homeDirectory: "/Users/tester"
-        )
-
-        XCTAssertEqual(assessment.kind, .downloads)
-        XCTAssertTrue(assessment.requiresMovePrompt)
-        XCTAssertEqual(assessment.preferredTransferStrategy, .moveSource)
-    }
-
-    func testOtherWritableLocationsMoveSourceInsteadOfLeavingDuplicateApp() {
-        let assessment = AppInstallLocationPolicy.assess(
-            bundlePath: "/Users/tester/Desktop/ClaudeUsage.app",
-            homeDirectory: "/Users/tester"
-        )
-
         XCTAssertEqual(assessment.kind, .other)
-        XCTAssertTrue(assessment.requiresMovePrompt)
-        XCTAssertEqual(assessment.preferredTransferStrategy, .moveSource)
-    }
-
-    func testUnstableLocationDescriptionsDoNotExposeRawPaths() {
-        let assessments = [
-            AppInstallLocationPolicy.assess(bundlePath: "/Volumes/ClaudeUsage/ClaudeUsage.app", homeDirectory: "/Users/tester"),
-            AppInstallLocationPolicy.assess(bundlePath: "/private/var/folders/x/AppTranslocation/ClaudeUsage.app", homeDirectory: "/Users/tester"),
-            AppInstallLocationPolicy.assess(bundlePath: "/Users/tester/Downloads/ClaudeUsage.app", homeDirectory: "/Users/tester"),
-        ]
-
-        for assessment in assessments {
-            XCTAssertTrue(assessment.requiresMovePrompt)
-            XCTAssertFalse(assessment.locationDescription.contains("/"))
-        }
-    }
-
-    func testDiskImageSourceMatchesMountedVolume() throws {
-        let source = AppInstallLocationPolicy.diskImageSource(
-            for: "/Volumes/ClaudeUsage/ClaudeUsage.app",
-            hdiutilInfoPlistData: try makeHdiutilInfoPlistData(
-                imagePath: "/Users/tester/Downloads/ClaudeUsage.dmg",
-                mountPoint: "/Volumes/ClaudeUsage"
-            )
-        )
-
-        XCTAssertEqual(
-            source,
-            AppDiskImageSource(
-                imagePath: "/Users/tester/Downloads/ClaudeUsage.dmg",
-                mountPoint: "/Volumes/ClaudeUsage"
-            )
-        )
-    }
-
-    func testDiskImageSourceReturnsNilForUnmatchedVolume() throws {
-        let source = AppInstallLocationPolicy.diskImageSource(
-            for: "/Users/tester/Downloads/ClaudeUsage.app",
-            hdiutilInfoPlistData: try makeHdiutilInfoPlistData(
-                imagePath: "/Users/tester/Downloads/ClaudeUsage.dmg",
-                mountPoint: "/Volumes/ClaudeUsage"
-            )
-        )
-
-        XCTAssertNil(source)
-    }
-
-    func testDiskImageSourceCanMatchMountedAppByBundleIdentifier() throws {
-        let source = AppInstallLocationPolicy.diskImageSource(
-            forAppNamed: "ClaudeUsage.app",
-            bundleIdentifier: "com.example.ClaudeUsage",
-            hdiutilInfoPlistData: try makeHdiutilInfoPlistData(
-                imagePath: "/Users/tester/Downloads/ClaudeUsage.dmg",
-                mountPoint: "/Volumes/ClaudeUsage"
-            )
-        ) { candidatePath in
-            candidatePath == "/Volumes/ClaudeUsage/ClaudeUsage.app"
-                ? "com.example.ClaudeUsage"
-                : nil
-        }
-
-        XCTAssertEqual(
-            source,
-            AppDiskImageSource(
-                imagePath: "/Users/tester/Downloads/ClaudeUsage.dmg",
-                mountPoint: "/Volumes/ClaudeUsage"
-            )
-        )
-    }
-
-    func testDiskImageSourceRejectsMountedAppWithDifferentBundleIdentifier() throws {
-        let source = AppInstallLocationPolicy.diskImageSource(
-            forAppNamed: "ClaudeUsage.app",
-            bundleIdentifier: "com.example.ClaudeUsage",
-            hdiutilInfoPlistData: try makeHdiutilInfoPlistData(
-                imagePath: "/Users/tester/Downloads/ClaudeUsage.dmg",
-                mountPoint: "/Volumes/ClaudeUsage"
-            )
-        ) { _ in
-            "com.example.Other"
-        }
-
-        XCTAssertNil(source)
-    }
-
-    func testDiskImageSourceIgnoresMalformedHdiutilOutput() {
-        let source = AppInstallLocationPolicy.diskImageSource(
-            for: "/Volumes/ClaudeUsage/ClaudeUsage.app",
-            hdiutilInfoPlistData: Data("not plist".utf8)
-        )
-
-        XCTAssertNil(source)
-    }
-
-    func testRunningApplicationPolicySelectsOnlySiblingProcesses() {
-        let runningApplications = [
-            AppRunningApplicationSnapshot(
-                processIdentifier: 100,
-                bundleIdentifier: "com.seongmin.ClaudeUsage",
-                isTerminated: false
-            ),
-            AppRunningApplicationSnapshot(
-                processIdentifier: 101,
-                bundleIdentifier: "com.seongmin.ClaudeUsage",
-                isTerminated: false
-            ),
-            AppRunningApplicationSnapshot(
-                processIdentifier: 102,
-                bundleIdentifier: "com.example.Other",
-                isTerminated: false
-            ),
-            AppRunningApplicationSnapshot(
-                processIdentifier: 103,
-                bundleIdentifier: "com.seongmin.ClaudeUsage",
-                isTerminated: true
-            ),
-        ]
-
-        let selected = AppInstallRunningApplicationPolicy.siblingApplicationsToTerminate(
-            currentBundleIdentifier: "com.seongmin.ClaudeUsage",
-            currentProcessIdentifier: 100,
-            runningApplications: runningApplications
-        )
-
-        XCTAssertEqual(selected.map(\.processIdentifier), [101])
-    }
-
-    func testRunningApplicationPolicyDoesNothingWithoutBundleIdentifier() {
-        let selected = AppInstallRunningApplicationPolicy.siblingApplicationsToTerminate(
-            currentBundleIdentifier: nil,
-            currentProcessIdentifier: 100,
-            runningApplications: [
-                AppRunningApplicationSnapshot(
-                    processIdentifier: 101,
-                    bundleIdentifier: "com.seongmin.ClaudeUsage",
-                    isTerminated: false
-                ),
-            ]
-        )
-
-        XCTAssertTrue(selected.isEmpty)
-    }
-
-    private func makeHdiutilInfoPlistData(
-        imagePath: String,
-        mountPoint: String
-    ) throws -> Data {
-        let plist: [String: Any] = [
-            "images": [
-                [
-                    "image-path": imagePath,
-                    "system-entities": [
-                        ["dev-entry": "/dev/disk4"],
-                        [
-                            "dev-entry": "/dev/disk4s1",
-                            "mount-point": mountPoint,
-                        ],
-                    ],
-                ],
-            ],
-        ]
-
-        return try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        XCTAssertTrue(AppInstallGuidancePolicy.shouldShow(assessment: assessment, isDeveloperBuild: false))
     }
 }

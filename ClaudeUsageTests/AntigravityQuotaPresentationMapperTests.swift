@@ -5,6 +5,71 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_800_000_000)
     private let utc = TimeZone(secondsFromGMT: 0)!
 
+    func testCompactPassesRawResetAndCadenceToSharedUsageRow() throws {
+        let reset = now.addingTimeInterval(3 * 3600)
+        let lanes = [
+            makeLane(
+                id: "future.daily", scope: .unknown(id: "future", label: "Future model"),
+                cadence: .unknown(rawValue: "daily"), remaining: 0.5, resetAt: reset),
+            makeLane(
+                id: AntigravityQuotaLaneID.geminiWeekly.rawValue, scope: .gemini, cadence: .weekly, remaining: 0.8),
+        ]
+        var settings = AntigravityDisplaySettings.default
+        settings.menuBar.timeFormat = .remaining
+        let presentation = AntigravityQuotaPresentationMapper.map(
+            snapshot: makeSnapshot(lanes: lanes, fetchedAt: now), settings: settings, now: now, timeZone: utc)
+        let timed = try XCTUnwrap(presentation.compact.metrics.first { $0.laneID.rawValue == "future.daily" })
+        XCTAssertEqual(timed.resetAt.flatMap(TimeFormatter.parseISO8601), reset)
+        XCTAssertEqual(timed.timeFormatStyle, .remaining)
+        XCTAssertFalse(timed.isWeekly)
+        let weekly = try XCTUnwrap(presentation.compact.metrics.first { $0.laneID == .geminiWeekly })
+        XCTAssertNil(weekly.resetAt)
+        XCTAssertTrue(weekly.isWeekly)
+        XCTAssertEqual(weekly.label, "Gemini")
+    }
+
+    func testCompactOmitsRedundantWeeklyLabelButPreservesMultipleCadencesWhenHidden() throws {
+        let weekly = makeLane(
+            id: AntigravityQuotaLaneID.geminiWeekly.rawValue, scope: .gemini, cadence: .weekly, remaining: 0.8)
+        XCTAssertEqual(map([weekly]).compact.metrics.first?.label, "Gemini")
+        let hourly = makeLane(
+            id: AntigravityQuotaLaneID.geminiFiveHour.rawValue, scope: .gemini, cadence: .fiveHour, remaining: 0.9)
+        var settings = AntigravityDisplaySettings.default
+        settings.compact.hiddenLaneIDs = [.geminiFiveHour]
+        let result = AntigravityQuotaPresentationMapper.map(
+            snapshot: makeSnapshot(lanes: [weekly, hourly], fetchedAt: now), settings: settings, now: now, timeZone: utc
+        )
+        XCTAssertEqual(result.compact.metrics.first?.label, "Gemini 주간")
+    }
+
+    func testCommonBasisOverridesLegacyStyleAndKeepsRiskAcrossAllSurfaces() {
+        let snapshot = makeSnapshot(
+            lanes: [
+                makeLane(
+                    id: AntigravityQuotaLaneID.geminiWeekly.rawValue, scope: .gemini, cadence: .weekly, remaining: 0.2)
+            ], fetchedAt: now)
+        for style in AntigravityDisplaySettings.MenuBarPresentationIntent.Style.allCases {
+            var settings = AntigravityDisplaySettings.default
+            settings.menuBar.style = style
+            settings.menuBar.circularValue = .usage
+            let remaining = AntigravityQuotaPresentationMapper.map(
+                snapshot: snapshot, settings: settings,
+                basisOverride: .remaining, now: now)
+            let used = AntigravityQuotaPresentationMapper.map(
+                snapshot: snapshot, settings: settings,
+                basisOverride: .used, now: now)
+            XCTAssertEqual(remaining.groups[0].lanes[0].basis, .remaining)
+            XCTAssertEqual(remaining.compact.metrics.first?.basis, .remaining)
+            XCTAssertEqual(remaining.groups[0].lanes[0].tone, used.groups[0].lanes[0].tone)
+            if style != .none {
+                XCTAssertEqual(remaining.menuBar.gaugePercentage ?? -1, 20, accuracy: 0.001)
+                XCTAssertEqual(used.menuBar.gaugePercentage ?? -1, 80, accuracy: 0.001)
+            }
+            XCTAssertTrue(remaining.menuBar.regularText?.contains("20%") == true)
+            XCTAssertTrue(used.menuBar.regularText?.contains("80%") == true)
+        }
+    }
+
     func testStandardGroupsKnownScopesAndCadencesBeforePreservedUnknowns() {
         let lanes = [
             makeLane(
@@ -102,6 +167,42 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         XCTAssertTrue(resetText.contains("월"))
         XCTAssertFalse(resetText.contains("("))
         XCTAssertFalse(resetText.contains(")"))
+    }
+
+    func testStandardResetDetailUsesSelectedCommonTimeFormat() {
+        var settings = AntigravityDisplaySettings.default
+        settings.menuBar.timeFormat = .h12
+        let reset = now.addingTimeInterval(8 * 3600)
+        let expected = TimeFormatter.formatUsageResetDetail(
+            resetAt: reset,
+            isWeekly: false,
+            style: .h12,
+            now: now,
+            timeZone: utc,
+            label: nil
+        )
+
+        let presentation = map(
+            [
+                makeLane(
+                    id: AntigravityQuotaLaneID.geminiFiveHour.rawValue,
+                    scope: .gemini,
+                    cadence: .fiveHour,
+                    remaining: 0.6,
+                    resetAt: reset
+                )
+            ],
+            settings: settings
+        )
+
+        XCTAssertEqual(
+            presentation.groups[0].lanes[0].resetText,
+            expected
+        )
+        XCTAssertEqual(
+            presentation.compact.metrics[0].timeFormatStyle,
+            .h12
+        )
     }
 
     func testUnknownGroupIDsCannotCollideThroughDelimiterContent() {
@@ -438,7 +539,7 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         let compactMetric = try XCTUnwrap(
             presentation.compact.metrics.first
         )
-        XCTAssertEqual(compactMetric.label, "Claude·GPT · 주간")
+        XCTAssertEqual(compactMetric.label, "Claude·GPT 주간")
         XCTAssertEqual(compactMetric.usedPercentage, 68, accuracy: 0.0001)
         XCTAssertEqual(compactMetric.percentageText, "68%")
         XCTAssertEqual(presentation.menuBar.selectedLaneID, .thirdPartyWeekly)

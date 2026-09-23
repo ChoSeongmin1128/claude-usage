@@ -6,7 +6,7 @@ struct ProviderPopoverContentHost: View {
     let service: PopoverService
     let layoutSpec: PopoverLayoutSpec
     let sections: [PopoverDisplaySection]
-    @Binding var isDisplayEditorPresented: Bool
+    let onOpenDisplayEditor: () -> Void
 
     var body: some View {
         if service == .antigravity {
@@ -19,19 +19,19 @@ struct ProviderPopoverContentHost: View {
         {
             catalogContent
         } else if service == .claude,
-                  layoutSpec.phase
-                    == .authRequired
+            layoutSpec.phase
+                == .authRequired
         {
             claudeUnauthenticatedPanel
         } else if let summary =
             CatalogPopoverPresentationAdapter
-                .statusSummary(
-                    phase: layoutSpec.phase,
-                    error: runtimeState.error,
-                    service: service,
-                    claudeUsesCodeCredentials:
-                        claudeUsesCodeCredentials
-                )
+            .statusSummary(
+                phase: layoutSpec.phase,
+                error: runtimeState.error,
+                service: service,
+                claudeUsesCodeCredentials:
+                    claudeUsesCodeCredentials
+            )
         {
             statusPanel(summary)
         }
@@ -45,30 +45,12 @@ struct ProviderPopoverContentHost: View {
                     .emptySelectionSummary()
             )
         } else {
-            VStack(spacing: 0) {
-                ForEach(
-                    Array(sections.enumerated()),
-                    id: \.element.id
-                ) { index, section in
-                    if index > 0,
-                       !layoutSpec.isCompact
-                    {
-                        Divider()
-                            .padding(.vertical, 8)
-                    }
-                    PopoverDisplaySectionView(
-                        section: section,
-                        density: layoutSpec.density
-                    )
-                }
-            }
+            PopoverCatalogSectionList(sections: sections, density: layoutSpec.density)
         }
     }
 
     @ViewBuilder
-    private var claudeUnauthenticatedPanel:
-        some View
-    {
+    private var claudeUnauthenticatedPanel: some View {
         if layoutSpec.density == .compact {
             statusPanel(
                 CatalogPopoverPresentationAdapter
@@ -79,26 +61,26 @@ struct ProviderPopoverContentHost: View {
                     )!
             )
         } else {
-            VStack(spacing: 12) {
+            VStack(spacing: AppDesign.Space.content) {
                 Image(
                     systemName: "person.badge.key"
                 )
-                .font(.system(size: 36))
+                .font(AppDesign.Typography.setupIcon)
                 .foregroundStyle(.orange)
                 Text("Claude 로그인이 필요합니다")
-                    .font(.headline)
+                    .font(AppDesign.Typography.headline)
                 Text(
                     "Chrome 프로필에 저장된 로그인이나 Claude Code 인증을 그대로 사용할 수 있습니다."
                 )
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, AppDesign.Space.section)
                 .fixedSize(
                     horizontal: false,
                     vertical: true
                 )
-                HStack(spacing: 8) {
+                HStack(spacing: AppDesign.Space.row) {
                     Button("Claude 로그인 시작") {
                         viewModel
                             .startClaudeLogin()
@@ -118,9 +100,7 @@ struct ProviderPopoverContentHost: View {
         }
     }
 
-    private var runtimeState:
-        PopoverViewModel.RuntimeServiceState
-    {
+    private var runtimeState: PopoverViewModel.RuntimeServiceState {
         viewModel.runtimeServiceState(
             for: service,
             settings: settings
@@ -133,7 +113,7 @@ struct ProviderPopoverContentHost: View {
         }
         let activeAccount =
             viewModel.usageHealthSnapshot?
-                .activeAccount
+            .activeAccount
         return activeAccount?.kind
             == .claudeCodeExternal
             || runtimeState.sourceLabel?
@@ -193,9 +173,7 @@ struct ProviderPopoverContentHost: View {
                 viewModel.startClaudeLogin()
             }
         case .openDisplayEditor:
-            {
-                isDisplayEditorPresented = true
-            }
+            onOpenDisplayEditor
         case nil:
             nil
         }

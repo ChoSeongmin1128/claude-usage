@@ -84,6 +84,8 @@ enum StatusItemPlacementRecoveryPolicy {
             || !snapshot.isOnCurrentScreen
     }
 
+    /// 생성 실패와 기존 시스템 지문만 복구 근거로 사용한다. 메뉴바 관리 앱의
+    /// 숨김 배치도 앵커를 화면 밖으로 옮길 수 있으므로 위치만으로 재생성하지 않는다.
     static func isBlocked(
         _ evidence: StatusItemPlacementEvidence,
         detectTahoeBlockedStatusItem: Bool
@@ -102,8 +104,10 @@ enum StatusItemPlacementRecoveryPolicy {
                 $0.isOnscreen
                     && $0.isWithinDisplayBounds
             }
+        // 키가 없으면(`nil`) 사용자가 항목을 숨긴 적이 없다는 뜻이므로 실패로 본다.
+        // `== true`만 받으면 한 번도 숨겨본 적 없는 기본 상태가 이 분기에서 빠졌다.
         if evidence.snapshot.expectsVisibility,
-           evidence.visibilityDefault == true,
+            evidence.visibilityDefault != false,
            !evidence.snapshot.reportsVisible,
            !evidence.snapshot.hasWindow,
            !hasHealthyProxy
@@ -224,20 +228,89 @@ enum StatusItemPlacementRecoveryPolicy {
 
 enum ApplicationReopenAction: Equatable {
     case useDefaultWindowHandling
+    case showSettings
     case showStatusItemRecovery
     case showPopover
+}
+
+/// 팝오버는 상태 아이템 버튼을 기준으로 뜬다. 버튼 윈도우가 메뉴바 밖에 있으면
+/// 앵커 없는 팝오버가 엉뚱한 위치에 뜨고, 사용자는 아이콘도 없이 떠 있는 창만 본다.
+struct StatusItemAnchorSnapshot: Equatable, Sendable, CustomStringConvertible {
+    let windowFrame: CGRect?
+    let menuBarBands: [CGRect]
+
+    var description: String {
+        let frame = windowFrame.map { NSStringFromRect($0) } ?? "none"
+        let bands = menuBarBands.map { NSStringFromRect($0) }.joined(separator: " | ")
+        return "windowFrame=\(frame) menuBarBands=[\(bands)]"
+    }
+}
+
+enum StatusItemAnchorPolicy {
+    static func isUsable(_ snapshot: StatusItemAnchorSnapshot) -> Bool {
+        guard let frame = snapshot.windowFrame else { return false }
+        // 밴드 정보를 못 구한 경우는 판단 근거가 없으므로 기존 동작을 막지 않는다.
+        guard !snapshot.menuBarBands.isEmpty else { return true }
+        return snapshot.menuBarBands.contains { $0.intersects(frame) }
+    }
+}
+
+/// 한 판정 주기의 측정과 그 측정으로 내린 판정을 함께 들고 다닌다. 판정과 로그가
+/// 각각 다시 측정하면 기록에 남은 상태가 실제로 행동을 결정한 상태가 아니게 된다.
+struct StatusItemPlacementAssessment: Equatable, CustomStringConvertible {
+    let evidence: StatusItemPlacementEvidence
+    let anchorSnapshot: StatusItemAnchorSnapshot
+    let anchorIsUsable: Bool
+    let isBlocked: Bool
+
+    /// 저장된 숨김 선택과 현재 비표시 상태가 함께 있어야 사용자 의도로 본다.
+    /// 키가 없거나 실제로 표시 중이면 앵커 실패를 숨김 선택으로 덮지 않는다.
+    var isUserHidden: Bool {
+        evidence.visibilityDefault == false
+            && !evidence.snapshot.reportsVisible
+    }
+
+    init(
+        evidence: StatusItemPlacementEvidence,
+        anchorSnapshot: StatusItemAnchorSnapshot,
+        detectTahoeBlockedStatusItem: Bool
+    ) {
+        let anchorIsUsable =
+            StatusItemAnchorPolicy.isUsable(anchorSnapshot)
+        self.evidence = evidence
+        self.anchorSnapshot = anchorSnapshot
+        self.anchorIsUsable = anchorIsUsable
+        self.isBlocked =
+            StatusItemPlacementRecoveryPolicy.isBlocked(
+                evidence,
+                detectTahoeBlockedStatusItem:
+                    detectTahoeBlockedStatusItem
+            )
+    }
+
+    var description: String {
+        "blocked=\(isBlocked) anchor=\(anchorIsUsable) "
+            + evidence.description
+            + " " + anchorSnapshot.description
+    }
 }
 
 enum ApplicationReopenPolicy {
     static func action(
         hasVisibleWindows: Bool,
-        statusItemIsBlocked: Bool
+        placement: StatusItemPlacementAssessment
     ) -> ApplicationReopenAction {
         if hasVisibleWindows {
             return .useDefaultWindowHandling
         }
-        if statusItemIsBlocked {
+        if placement.isUserHidden {
+            return .showSettings
+        }
+        if placement.isBlocked {
             return .showStatusItemRecovery
+        }
+        if !placement.anchorIsUsable {
+            return .showSettings
         }
         return .showPopover
     }

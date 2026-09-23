@@ -5,6 +5,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
     static func map(
         snapshot: AntigravityQuotaSnapshot,
         settings: AntigravityDisplaySettings,
+        basisOverride: UsageValueBasis? = nil,
         context requestedContext:
             AntigravityQuotaPresentationContext? = nil,
         now: Date = Date(),
@@ -20,6 +21,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         )
         let allGroups = makeGroups(
             from: snapshot.lanes,
+            basis: basisOverride ?? .antigravity(settings.menuBar),
+            timeFormat: settings.menuBar.timeFormat,
             now: now,
             locale: locale,
             timeZone: timeZone
@@ -61,7 +64,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                 }
 
         let compact = compactPresentation(
-            selectedLanes: compactLanes
+            selectedLanes: compactLanes, allGroups: allGroups, timeFormat: settings.menuBar.timeFormat
         )
         let menuBar = menuBarPresentation(
             selectedLanes:
@@ -91,6 +94,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
     static func map(
         state: AntigravityPresentationState,
         settings: AntigravityDisplaySettings,
+        basisOverride: UsageValueBasis? = nil,
         now: Date = Date(),
         locale: Locale = Locale(identifier: "ko_KR"),
         timeZone: TimeZone = .autoupdatingCurrent
@@ -141,6 +145,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             map(
                 snapshot: snapshot,
                 settings: settings,
+                basisOverride: basisOverride,
                 context: context,
                 now: now,
                 locale: locale,
@@ -151,6 +156,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
 
     private static func makeGroups(
         from lanes: [AntigravityQuotaLane],
+        basis: UsageValueBasis,
+        timeFormat: AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat,
         now: Date,
         locale: Locale,
         timeZone: TimeZone
@@ -162,6 +169,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                 .map {
                     lanePresentation(
                         from: $0,
+                        basis: basis,
+                        timeFormat: timeFormat,
                         now: now,
                         locale: locale,
                         timeZone: timeZone
@@ -178,6 +187,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
 
     private static func lanePresentation(
         from lane: AntigravityQuotaLane,
+        basis: UsageValueBasis,
+        timeFormat: AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat,
         now: Date,
         locale: Locale,
         timeZone: TimeZone
@@ -186,13 +197,14 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         let cadenceTitle = cadenceTitle(for: lane.cadence)
         let resetText = resetText(
             for: lane,
+            timeFormat: timeFormat,
             now: now,
             locale: locale,
             timeZone: timeZone
         )
         let value = valuePresentation(for: lane)
         let tone = riskTone(for: value)
-        let percentageText = value.usedPercentage.map(formatPercentage)
+        let percentageText = value.usedPercentage.flatMap { basis.percentage(fromUsed: $0) }.map(formatPercentage)
         let valueSummary = summaryText(for: value)
         let tooltip = [
             "\(scopeTitle) · \(cadenceTitle)",
@@ -208,7 +220,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             id: lane.id,
             scopeTitle: scopeTitle,
             cadenceTitle: cadenceTitle,
-            compactLabel: "\(compactScopeTitle(for: lane.scope)) · \(cadenceTitle)",
+            compactScopeTitle: compactScopeTitle(for: lane.scope),
+            compactLabel: "\(compactScopeTitle(for: lane.scope)) \(cadenceTitle)",
             menuLabel: "\(menuScopeTitle(for: lane.scope))·\(menuCadenceTitle(for: lane.cadence))",
             cadence: lane.cadence,
             value: value,
@@ -220,7 +233,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             isUnknownCadence: isUnknown(lane.cadence),
             tooltip: tooltip,
             accessibilityLabel: "\(scopeTitle), \(cadenceTitle) 한도",
-            accessibilityValue: accessibilityValue
+            accessibilityValue: accessibilityValue,
+            basis: basis
         )
     }
 
@@ -439,8 +453,15 @@ nonisolated enum AntigravityQuotaPresentationMapper {
     }
 
     private static func compactPresentation(
-        selectedLanes: [AntigravityQuotaLanePresentation]
+        selectedLanes: [AntigravityQuotaLanePresentation],
+        allGroups: [AntigravityQuotaGroupPresentation],
+        timeFormat: AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat
     ) -> AntigravityCompactQuotaPresentation {
+        // A model's sole weekly lane follows Claude's model-only compact label.
+        // Use the full inventory so hiding another cadence cannot rename this row.
+        let singleWeeklyIDs = Set(
+            allGroups.filter { $0.lanes.count == 1 && $0.lanes[0].cadence == .weekly }
+                .flatMap(\.lanes).map(\.id))
         let metrics:
             [AntigravityCompactQuotaMetricPresentation] =
             selectedLanes.compactMap { lane
@@ -453,13 +474,17 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             }
             return AntigravityCompactQuotaMetricPresentation(
                 laneID: lane.id,
-                label: lane.compactLabel,
+                    label: singleWeeklyIDs.contains(lane.id) ? lane.compactScopeTitle : lane.compactLabel,
                 usedPercentage: usedPercentage,
                 percentageText: percentageText,
                 tone: lane.tone,
                 tooltip: lane.tooltip,
                 accessibilityLabel: lane.accessibilityLabel,
-                accessibilityValue: lane.accessibilityValue
+                    accessibilityValue: lane.accessibilityValue,
+                    resetAt: lane.resetAt.map { ISO8601DateFormatter().string(from: $0) },
+                    isWeekly: lane.cadence == .weekly,
+                    timeFormatStyle: TimeFormatStyle(rawValue: timeFormat.rawValue) ?? .h24,
+                    basis: lane.basis
             )
         }
         guard !metrics.isEmpty else {
@@ -476,6 +501,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         groups: [AntigravityQuotaGroupPresentation],
         identityRail: ProviderIdentityRailProjection,
         settings: AntigravityDisplaySettings,
+        basisOverride: UsageValueBasis? = nil,
         now: Date,
         locale: Locale,
         timeZone: TimeZone
@@ -578,19 +604,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         settings:
             AntigravityDisplaySettings.MenuBarPresentationIntent
     ) -> Double? {
-        switch settings.style {
-        case .none:
-            return nil
-        case .batteryBar:
-            return lane.value.usedPercentage
-        case .circular:
-            switch settings.circularValue {
-            case .usage:
-                return lane.value.usedPercentage
-            case .remaining:
-                return lane.value.remainingPercentage
-            }
-        }
+        guard settings.style != .none else { return nil }
+        return lane.basis.percentage(fromUsed: lane.value.usedPercentage)
     }
 
     private static func makeIdentityRail(
@@ -723,6 +738,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
 
     private static func resetText(
         for lane: AntigravityQuotaLane,
+        timeFormat: AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat,
         now: Date,
         locale: Locale,
         timeZone: TimeZone
@@ -733,6 +749,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         return TimeFormatter.formatUsageResetDetail(
             resetAt: resetAt,
             isWeekly: lane.cadence != .fiveHour,
+            style: TimeFormatStyle(rawValue: timeFormat.rawValue) ?? .h24,
             now: now,
             locale: locale,
             timeZone: timeZone,

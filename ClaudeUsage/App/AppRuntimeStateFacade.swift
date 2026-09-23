@@ -4,11 +4,41 @@ import Foundation
 final class AppRuntimeStateFacade {
     private var runtimeStateCatalog = RuntimeProviderStateCatalog()
 
-    var currentOverage: OverageSpendLimitResponse?
+    private(set) var claudeRequestRevision = UUID()
+    private var supplementalUsage: ClaudeSupplementalUsage?
+
+    var currentOverage: OverageSpendLimitResponse? {
+        supplementalUsage?.accountID == activeClaudeAccountID ? supplementalUsage?.value : nil
+    }
+
+    var lastOverageFetchAt: Date? {
+        supplementalUsage?.accountID == activeClaudeAccountID ? supplementalUsage?.fetchedAt : nil
+    }
+
+    func invalidateClaudeRequestContext() {
+        claudeRequestRevision = UUID()
+        supplementalUsage = nil
+    }
+
+    func applyClaudeSupplementalUsage(_ result: ClaudeSupplementalRefreshResult, accountID: String) {
+        guard accountID == activeClaudeAccountID else { return }
+        switch result {
+        case .unchanged:
+            break
+        case .success(let value, let fetchedAt):
+            supplementalUsage = ClaudeSupplementalUsage(accountID: accountID, value: value, fetchedAt: fetchedAt)
+        case .failed:
+            supplementalUsage?.lastRefreshFailed = true
+        }
+    }
+
     var currentClaudeNotificationPolicy: ClaudeNotificationPolicy?
     var currentClaudeProfileMetadata: ClaudeProfileMetadata?
-    var activeClaudeAccountID: String?
-    var lastOverageFetchAt: Date?
+    var activeClaudeAccountID: String? {
+        didSet {
+            if oldValue != activeClaudeAccountID { invalidateClaudeRequestContext() }
+        }
+    }
     var systemStatus: ClaudeSystemStatus?
     var providerSystemStatuses: [AppProviderKind: ProviderSystemStatus] = [:]
     var antigravityRuntimeSnapshot = AntigravityRuntimeSnapshot.idle
@@ -45,7 +75,11 @@ final class AppRuntimeStateFacade {
                 hasAuthError: state.hasAuthError,
                 lastAttemptState: state.lastAttemptState,
                 lastSuccessfulMetadata: state.lastSuccessfulMetadata,
-                lastAttemptMetadata: state.lastAttemptMetadata
+                lastAttemptMetadata: state.lastAttemptMetadata,
+                claudeOverage: state.lastSuccessfulMetadata?.accountID == activeClaudeAccountID
+                    ? currentOverage : nil,
+                claudeOverageUpdatedAt: lastOverageFetchAt,
+                claudeOverageIsStale: supplementalUsage?.lastRefreshFailed ?? false
             )
         case .codex:
             return RuntimeProviderSnapshot(
@@ -211,8 +245,6 @@ final class AppRuntimeStateFacade {
         let previousCredentialAvailability = claudeCredentialAvailability.hasAnyCredential
         if activeClaudeAccountID != snapshot.activeAccountID {
             runtimeStateCatalog[.claude] = RuntimeProviderState()
-            currentOverage = nil
-            lastOverageFetchAt = nil
         }
         activeClaudeAccountID = snapshot.activeAccountID
         claudeCredentialAvailability = snapshot.runtime.credentialAvailability
@@ -221,11 +253,10 @@ final class AppRuntimeStateFacade {
 
     func clearClaudePresentationState() {
         runtimeStateCatalog[.claude] = RuntimeProviderState()
-        currentOverage = nil
+        invalidateClaudeRequestContext()
         currentClaudeProfileMetadata = nil
         currentClaudeNotificationPolicy = nil
         activeClaudeAccountID = nil
-        lastOverageFetchAt = nil
     }
 
     func systemStatus(for kind: AppProviderKind) -> ProviderSystemStatus? {

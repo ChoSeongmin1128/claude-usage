@@ -31,7 +31,7 @@ struct ClaudeOAuthMigrationCard: View {
                 ProgressView()
                     .controlSize(.small)
                 Text("처리 중")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
             }
         case .deferred:
@@ -81,32 +81,27 @@ struct ClaudeOAuthMigrationCard: View {
         tone: Color,
         @ViewBuilder actions: () -> Actions
     ) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: AppDesign.Space.content) {
             Image(systemName: icon)
-                .font(.system(size: 16, weight: .semibold))
+                .font(AppDesign.Typography.noticeIcon)
                 .foregroundStyle(tone)
                 .frame(width: 22, height: 22)
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.control) {
                 Text(title)
-                    .font(.subheadline.weight(.semibold))
+                    .font(AppDesign.Typography.subheadline.weight(.semibold))
                 Text(detail)
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 8) {
+                HStack(spacing: AppDesign.Space.row) {
                     actions()
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(12)
-        .background(tone.opacity(0.08))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(tone.opacity(0.22), lineWidth: 1)
-        )
-        .cornerRadius(8)
+        .padding(AppDesign.Space.content)
+        .appPanelStyle(tone: tone)
         .accessibilityElement(children: .contain)
     }
 }

@@ -7,6 +7,14 @@ extension AppDelegate {
         rebuildStatusItems()
         setupAccessibilityDisplayObservation()
         Logger.info("메뉴바 아이템 생성 완료")
+        let assessment = AppInstallLocationPolicy.currentAssessment()
+        StatusItemDiagnosticsLog.record(
+            "launch channel=\(AppDistribution.current.channel.rawValue) "
+                + "location=\(assessment.kind.rawValue) bundle=\(assessment.bundlePath)"
+        )
+        StatusItemDiagnosticsLog.record(
+            "created name=\(statusItem?.autosaveName ?? "") \(statusItemPlacementSnapshot.description)"
+        )
         scheduleStatusItemPlacementCheck()
     }
 
@@ -56,17 +64,19 @@ extension AppDelegate {
             } catch {
                 return
             }
-            guard let self,
-                  !Task.isCancelled,
-                  self.isStatusItemPlacementBlocked
-            else {
-                return
-            }
+            guard let self, !Task.isCancelled else { return }
+
+            let firstPass = self.captureStatusItemPlacement()
+            StatusItemDiagnosticsLog.record(
+                "check \(firstPass)"
+            )
+            // 앵커가 화면 밖에 있다는 사실만으로는 사용자 숨김 배치와 장애를
+            // 구분할 수 없다. 생성 실패 또는 기존 시스템 지문이 있을 때만 재생성한다.
+            guard firstPass.isBlocked else { return }
 
             Logger.error(
-                "메뉴바 아이템이 생성되지 않았습니다. "
-                    + self.statusItemPlacementEvidence
-                        .description
+                "메뉴바 아이템의 생성 상태를 복구합니다. "
+                    + firstPass.evidence.description
             )
             self.rebuildStatusItems()
             self.updateMenuBar(force: true)
@@ -80,28 +90,38 @@ extension AppDelegate {
             } catch {
                 return
             }
-            guard !Task.isCancelled,
-                  self.isStatusItemPlacementBlocked
-            else {
+            // 취소와 복구를 같은 분기에 두면 취소가 복구로 기록된다.
+            guard !Task.isCancelled else { return }
+
+            let secondPass = self.captureStatusItemPlacement()
+            guard secondPass.isBlocked else {
                 Logger.info(
                     "메뉴바 아이템 재생성 후 배치가 복구됐습니다."
+                )
+                StatusItemDiagnosticsLog.record(
+                    "recovered after one recreation \(secondPass)"
                 )
                 return
             }
 
             Logger.error(
-                "메뉴바 아이템이 한 차례 재생성 후에도 차단 상태입니다. "
-                    + self.statusItemPlacementEvidence
-                        .description
+                "메뉴바 아이템이 한 차례 재생성 후에도 표시 확인이 필요한 상태입니다. "
+                    + secondPass.evidence.description
+            )
+            StatusItemDiagnosticsLog.record(
+                "still blocked after recreation \(secondPass)"
             )
             self.presentStatusItemPlacementGuidance()
         }
     }
 
+    /// 생성 직후 관측만 남기는 용도다. 판정을 하지 않으므로 CGWindow 조회를
+    /// 하지 않고, 판정이 필요한 곳은 `captureStatusItemPlacement()`를 쓴다.
     var statusItemPlacementSnapshot:
         StatusItemPlacementSnapshot
     {
         let button = statusItem?.button
+        let screens = NSScreen.screens
         let screen = button?.window?.screen
         return StatusItemPlacementSnapshot(
             // ClaudeUsage는 provider가 비어 있어도 placeholder를 표시하므로
@@ -114,52 +134,81 @@ extension AppDelegate {
             hasScreen: screen != nil,
             isOnCurrentScreen:
                 screen.map {
-                    currentScreensContain($0)
+                    Self.screens(screens, contain: $0)
                 }
                 ?? false,
             buttonWidth: button?.frame.width ?? 0
         )
     }
 
-    var statusItemPlacementEvidence:
-        StatusItemPlacementEvidence
+    /// 한 판정 주기의 측정을 여기서 한 번만 한다. 계산 프로퍼티로 나눠 두면 판정,
+    /// 로그, 재판정이 각각 다시 측정해 기록과 결정이 어긋나고, 차단 상태에서는
+    /// `CGWindowListCopyWindowInfo` 전수 조회가 한 주기에 일곱 번 돈다.
+    /// `statusItem`부터 화면 목록까지 같은 참조로 두 스냅샷을 모두 만든다.
+    func captureStatusItemPlacement()
+        -> StatusItemPlacementAssessment
     {
-        let autosaveName =
-            statusItem?.autosaveName ?? ""
-        return StatusItemPlacementEvidence(
-            autosaveName: autosaveName,
-            visibilityDefault:
-                StatusItemPlacementRecoveryPolicy
+        let item = statusItem
+        let button = item?.button
+        let window = button?.window
+        let screen = window?.screen
+        let screens = NSScreen.screens
+        let thickness = NSStatusBar.system.thickness
+        let autosaveName = item?.autosaveName ?? ""
+
+        let snapshot = StatusItemPlacementSnapshot(
+            // ClaudeUsage는 provider가 비어 있어도 placeholder를 표시하므로
+            // status item이 존재하는 동안 항상 표시 의도가 있습니다.
+            expectsVisibility: item != nil,
+            reportsVisible: item?.isVisible == true,
+            hasButton: button != nil,
+            hasWindow: window != nil,
+            hasScreen: screen != nil,
+            isOnCurrentScreen:
+                screen.map {
+                    Self.screens(screens, contain: $0)
+                }
+                ?? false,
+            buttonWidth: button?.frame.width ?? 0
+        )
+
+        return StatusItemPlacementAssessment(
+            evidence: StatusItemPlacementEvidence(
+                autosaveName: autosaveName,
+                visibilityDefault:
+                    StatusItemPlacementRecoveryPolicy
                     .visibilityDefault(
                         defaults:
                             UserDefaults.standard,
-                        autosaveName:
-                            autosaveName
+                        autosaveName: autosaveName
                     ),
-            snapshot:
-                statusItemPlacementSnapshot,
-            windowSnapshots:
-                StatusItemWindowProbe.snapshots(
-                    matching:
-                        Set([autosaveName])
-                )
+                snapshot: snapshot,
+                windowSnapshots:
+                    StatusItemWindowProbe.snapshots(
+                        matching: Set([autosaveName])
+                    )
+            ),
+            anchorSnapshot: StatusItemAnchorSnapshot(
+                windowFrame: window?.frame,
+                menuBarBands: screens.map {
+                    CGRect(
+                        x: $0.frame.minX,
+                        y: $0.frame.maxY - thickness,
+                        width: $0.frame.width,
+                        height: thickness
+                    )
+                }
+            ),
+            detectTahoeBlockedStatusItem:
+                ProcessInfo.processInfo
+                .operatingSystemVersion
+                .majorVersion >= 26
         )
     }
 
-    var isStatusItemPlacementBlocked: Bool {
-        StatusItemPlacementRecoveryPolicy
-            .isBlocked(
-                statusItemPlacementEvidence,
-                detectTahoeBlockedStatusItem:
-                    ProcessInfo.processInfo
-                        .operatingSystemVersion
-                        .majorVersion
-                        >= 26
-            )
-    }
-
-    private func currentScreensContain(
-        _ screen: NSScreen
+    private static func screens(
+        _ screens: [NSScreen],
+        contain screen: NSScreen
     ) -> Bool {
         let key =
             NSDeviceDescriptionKey(
@@ -168,7 +217,7 @@ extension AppDelegate {
         let screenNumber =
             screen.deviceDescription[key]
                 as? NSNumber
-        return NSScreen.screens.contains {
+        return screens.contains {
             let candidateNumber =
                 $0.deviceDescription[key]
                     as? NSNumber
@@ -202,11 +251,11 @@ extension AppDelegate {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText =
-            "\(AppDistribution.current.appName)를 메뉴 막대에 표시하지 못했습니다"
+            "\(AppDistribution.current.appName)의 메뉴 막대 표시를 확인해 주세요"
         alert.informativeText =
-            "앱은 실행 중이지만 macOS가 상태 아이템을 차단했습니다. "
-            + "시스템 설정 > 메뉴 막대에서 \(AppDistribution.current.appName)를 켜 주세요. "
-            + "이미 켜져 있는데도 계속 보이지 않으면 앱 설정에서 업데이트를 확인하거나 문제를 보고해 주세요."
+            "앱은 실행 중이지만 메뉴 막대 아이콘의 표시 상태를 확인해야 합니다. "
+            + "시스템 설정의 메뉴 막대 항목과 사용 중인 메뉴바 관리 앱의 숨김 설정을 확인해 주세요. "
+            + "계속 보이지 않으면 앱 설정에서 업데이트를 확인하거나 문제를 보고해 주세요."
         alert.alertStyle = .warning
         alert.addButton(
             withTitle: "메뉴 막대 설정 열기"
@@ -616,7 +665,8 @@ extension AppDelegate {
                     appearance: appearance
                 ) : nil,
                 systemStatus: providerSystemStatus(for: .claude),
-                renderImages: renderImages
+                renderImages: renderImages,
+                appearance: appearance
             )
         case .codex:
             let runtimeSnapshot = runtimeProviderSnapshot(for: service)
@@ -636,7 +686,8 @@ extension AppDelegate {
                     appearance: appearance
                 ) : nil,
                 systemStatus: providerSystemStatus(for: .codex),
-                renderImages: renderImages
+                renderImages: renderImages,
+                appearance: appearance
             )
         case .antigravity:
             guard case .content(let presentation) =
@@ -655,7 +706,9 @@ extension AppDelegate {
                     size: iconSize,
                     appearance: appearance
                 ) : nil,
-                renderImages: renderImages
+                renderImages: renderImages,
+                appearance: appearance, design: AppSettings.shared.menuBarDesign,
+                colorMode: AppSettings.shared.menuBarColorMode
             )
         }
     }
@@ -794,7 +847,10 @@ extension AppDelegate {
 
             switch event.charactersIgnoringModifiers {
             case "r":
-                self?.refreshAll(force: true)
+                guard let self, self.popover?.isShown == true,
+                    event.window === self.popover?.contentViewController?.view.window
+                else { return event }
+                self.popoverViewModel.refresh()
                 return nil
             case ",":
                 self?.showSettingsWindow()

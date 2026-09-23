@@ -13,12 +13,14 @@ struct UsageSectionView: View {
     let resetAt: String?
     var isWeekly: Bool = false
     var timeFormatStyle: TimeFormatStyle = .h24
+    var basis: UsageValueBasis = .used
 
     var body: some View {
         StandardUsageRow(
             title: title,
             percentage: percentage,
-            detailText: resetTimeText
+            detailText: resetTimeText,
+            basis: basis
         )
     }
 

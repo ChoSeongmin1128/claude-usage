@@ -5,6 +5,32 @@ import XCTest
 final class AntigravityRuntimeControllerTests:
     XCTestCase
 {
+    func testDisplayBasisReprojectsWithoutQuotaRefreshSettingsWriteOrProcessRecovery() async {
+        let fixture = makeFixture()
+        let initial = await fixture.controller.bootstrap(performInitialRefresh: true)
+        let events = await fixture.events.snapshot()
+        let requests = await fixture.refresh.requests()
+        let writes = await fixture.settings.displaySaveCount()
+        let changed = await fixture.controller.setUsageDisplayBasis(.remaining, revision: 2)
+        XCTAssertEqual(changed.publicationRevision, initial.publicationRevision + 1)
+        XCTAssertEqual(changed.presentationState, initial.presentationState)
+        XCTAssertEqual(changed.settings, initial.settings)
+        let repeated = await fixture.controller.setUsageDisplayBasis(.remaining, revision: 2)
+        XCTAssertEqual(repeated.publicationRevision, changed.publicationRevision)
+        let stale = await fixture.controller.setUsageDisplayBasis(.used, revision: 1)
+        XCTAssertEqual(stale.publicationRevision, changed.publicationRevision)
+        let finalEvents = await fixture.events.snapshot()
+        let finalRequests = await fixture.refresh.requests()
+        let finalWrites = await fixture.settings.displaySaveCount()
+        XCTAssertEqual(finalEvents, events)
+        XCTAssertEqual(finalRequests.count, requests.count)
+        XCTAssertEqual(finalWrites, writes)
+        await fixture.controller.shutdown()
+        let stopped = await fixture.controller.snapshot()
+        let ignored = await fixture.controller.setUsageDisplayBasis(.used, revision: 3)
+        XCTAssertEqual(ignored.publicationRevision, stopped.publicationRevision)
+    }
+
     func testScheduledRefreshCannotRestoreOldSelectionWhileAccountMutationIsPending() async throws {
         let gate = ControllerSuspensionGate()
         let fixture = makeFixture(invalidationGate: gate)

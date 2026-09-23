@@ -12,6 +12,7 @@ import SwiftUI
 
 struct NotificationPreset: Codable, Identifiable, Hashable, Sendable {
     let id: String
+    /// Canonical used percentage, independent of the display basis.
     var threshold: Int
     var isEnabled: Bool
 
@@ -188,10 +189,7 @@ enum ClaudeMessagesFallbackPolicy: String, Codable, CaseIterable, Sendable {
 }
 
 class AppSettings: ObservableObject {
-    static let shared: AppSettings = {
-        _ = AntigravityApplicationBootstrap.prepareSettings()
-        return AppSettings()
-    }()
+    static let shared = AppSettings()
     nonisolated static let minimumRefreshInterval: TimeInterval = 15
     nonisolated static let maximumRefreshInterval: TimeInterval = 3600
 
@@ -289,6 +287,22 @@ class AppSettings: ObservableObject {
 
     // MARK: - Published Properties
 
+    @Published var menuBarDesign: MenuBarDesign {
+        didSet {
+            defaults.set(menuBarDesign.rawValue, forKey: "menuBarDesign")
+            menuBarDesignIntroductionDismissed = true
+        }
+    }
+    @Published var menuBarDesignIntroductionDismissed: Bool {
+        didSet { defaults.set(menuBarDesignIntroductionDismissed, forKey: "menuBarDesignIntroductionDismissed") }
+    }
+    @Published var welcomeState: WelcomeState {
+        didSet { defaults.set(welcomeState.rawValue, forKey: "welcomeState") }
+    }
+    @Published var welcomeStep: WelcomeStep {
+        didSet { defaults.set(welcomeStep.rawValue, forKey: "welcomeStep") }
+    }
+
     @Published var menuBarStyle: MenuBarStyle {
         didSet { defaults.set(menuBarStyle.rawValue, forKey: "menuBarStyle") }
     }
@@ -367,11 +381,31 @@ class AppSettings: ObservableObject {
         didSet { defaults.set(notificationsEnabled, forKey: "notificationsEnabled") }
     }
     @Published var notificationPresets: [NotificationPreset] {
+        didSet { NotificationThresholdStorage.save(notificationPresets, to: defaults) }
+    }
+    @Published var notificationTargets: NotificationTargetPreferences {
+        didSet { if notificationTargets != oldValue { notificationTargets.save(to: defaults) } }
+    }
+    private(set) var usageDisplayModeRevision: UInt64 = 0
+    @Published var usageDisplayMode: UsageDisplayMode {
         didSet {
-            if let data = try? JSONEncoder().encode(notificationPresets) {
-                defaults.set(data, forKey: "notificationPresets")
-            }
+            guard usageDisplayMode != oldValue else { return }
+            usageDisplayModeRevision += 1
+            defaults.set(usageDisplayMode.rawValue, forKey: "usageDisplayMode")
         }
+    }
+    var notificationValueBasis: UsageValueBasis {
+        usageDisplayMode.basis ?? (alertRemainingMode ? .remaining : .used)
+    }
+
+    func displayedNotificationThreshold(_ preset: NotificationPreset) -> Int {
+        notificationValueBasis == .remaining ? 100 - preset.threshold : preset.threshold
+    }
+
+    func setDisplayedNotificationThreshold(_ value: Int, id: String, basis: UsageValueBasis? = nil) {
+        guard let index = notificationPresets.firstIndex(where: { $0.id == id }) else { return }
+        let used = (basis ?? notificationValueBasis) == .remaining ? 100 - value : value
+        notificationPresets[index].threshold = max(1, min(used, 100))
     }
     @Published var alertRemainingMode: Bool {
         didSet { defaults.set(alertRemainingMode, forKey: "alertRemainingMode") }
@@ -383,6 +417,8 @@ class AppSettings: ObservableObject {
         didSet { defaults.set(circularDisplayMode.rawValue, forKey: "circularDisplayMode") }
     }
     @Published var shouldRevealClaudeAdvancedAuth: Bool = false
+    /// Ephemeral navigation request; never resets the persisted one-time introduction.
+    @Published var designComparisonRequested = false
     @Published var iconMetric: IconMetric {
         didSet { defaults.set(iconMetric.rawValue, forKey: "iconMetric") }
     }
@@ -415,6 +451,9 @@ class AppSettings: ObservableObject {
 
     @Published var popoverPinned: Bool {
         didSet { defaults.set(popoverPinned, forKey: "popoverPinned") }
+    }
+    @Published var motion: AppMotionPreferences {
+        didSet { motion.persist(to: defaults) }
     }
     @Published var popoverCompact: Bool {
         didSet {
@@ -570,6 +609,10 @@ class AppSettings: ObservableObject {
     // MARK: - Snapshot
 
     struct Snapshot {
+        let menuBarDesign: MenuBarDesign
+        let menuBarDesignIntroductionDismissed: Bool
+        let welcomeState: WelcomeState
+        let welcomeStep: WelcomeStep
         let menuBarStyle: MenuBarStyle
         let percentageDisplay: PercentageDisplay
         let showBatteryPercent: Bool
@@ -586,7 +629,9 @@ class AppSettings: ObservableObject {
         let autoRefresh: Bool
         let notificationsEnabled: Bool
         let notificationPresets: [NotificationPreset]
+        let notificationTargets: NotificationTargetPreferences
         let alertRemainingMode: Bool
+        let usageDisplayMode: UsageDisplayMode
         let reducedRefreshOnBattery: Bool
         let showClaudeIcon: Bool
         let menuBarTextHighContrast: Bool
@@ -597,6 +642,7 @@ class AppSettings: ObservableObject {
         let alertFiveHourEnabled: Bool
         let alertWeeklyEnabled: Bool
         let popoverPinned: Bool
+        let motion: AppMotionPreferences
         let popoverCompact: Bool
         let launchAtLogin: Bool
         let preferredOrganizationID: String
@@ -622,6 +668,9 @@ class AppSettings: ObservableObject {
 
     func createSnapshot() -> Snapshot {
         Snapshot(
+            menuBarDesign: menuBarDesign,
+            menuBarDesignIntroductionDismissed: menuBarDesignIntroductionDismissed,
+            welcomeState: welcomeState, welcomeStep: welcomeStep,
             menuBarStyle: menuBarStyle,
             percentageDisplay: percentageDisplay,
             showBatteryPercent: showBatteryPercent,
@@ -638,7 +687,9 @@ class AppSettings: ObservableObject {
             autoRefresh: autoRefresh,
             notificationsEnabled: notificationsEnabled,
             notificationPresets: notificationPresets,
+            notificationTargets: notificationTargets,
             alertRemainingMode: alertRemainingMode,
+            usageDisplayMode: usageDisplayMode,
             reducedRefreshOnBattery: reducedRefreshOnBattery,
             showClaudeIcon: showClaudeIcon,
             menuBarTextHighContrast: menuBarTextHighContrast,
@@ -649,6 +700,7 @@ class AppSettings: ObservableObject {
             alertFiveHourEnabled: alertFiveHourEnabled,
             alertWeeklyEnabled: alertWeeklyEnabled,
             popoverPinned: popoverPinned,
+            motion: motion,
             popoverCompact: popoverCompact,
             launchAtLogin: launchAtLogin,
             preferredOrganizationID: preferredOrganizationID,
@@ -682,6 +734,10 @@ class AppSettings: ObservableObject {
     }
 
     func restore(from snapshot: Snapshot) {
+        menuBarDesign = snapshot.menuBarDesign
+        menuBarDesignIntroductionDismissed = snapshot.menuBarDesignIntroductionDismissed
+        welcomeState = snapshot.welcomeState
+        welcomeStep = snapshot.welcomeStep
         menuBarStyle = snapshot.menuBarStyle
         percentageDisplay = snapshot.percentageDisplay
         showBatteryPercent = snapshot.showBatteryPercent
@@ -698,7 +754,9 @@ class AppSettings: ObservableObject {
         autoRefresh = snapshot.autoRefresh
         notificationsEnabled = snapshot.notificationsEnabled
         notificationPresets = snapshot.notificationPresets
+        notificationTargets = snapshot.notificationTargets
         alertRemainingMode = snapshot.alertRemainingMode
+        usageDisplayMode = snapshot.usageDisplayMode
         reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
         showClaudeIcon = snapshot.showClaudeIcon
         menuBarTextHighContrast = snapshot.menuBarTextHighContrast
@@ -709,6 +767,7 @@ class AppSettings: ObservableObject {
         alertFiveHourEnabled = snapshot.alertFiveHourEnabled
         alertWeeklyEnabled = snapshot.alertWeeklyEnabled
         popoverPinned = snapshot.popoverPinned
+        motion = snapshot.motion
         popoverCompact = snapshot.popoverCompact
         launchAtLogin = snapshot.launchAtLogin
         preferredOrganizationID = snapshot.preferredOrganizationID
@@ -780,14 +839,7 @@ class AppSettings: ObservableObject {
             .filter(\.isEnabled)
             .map(\.threshold)
 
-        if alertRemainingMode {
-            return thresholds.map { max(1, min(100 - $0, 99)) }.sorted()
-        }
         return thresholds.sorted()
-    }
-
-    var enabledCodexAlertThresholds: [Int] {
-        enabledAlertThresholds
     }
 
     /// provider별 팝오버 항목 (정규화 후).
@@ -925,6 +977,16 @@ class AppSettings: ObservableObject {
     }
 
     private static func migrateNotificationPresets(from defaults: UserDefaults, commonRemainingMode: Bool) -> [NotificationPreset] {
+        if let presets = NotificationThresholdStorage.load(from: defaults) { return presets }
+        let legacy = legacyNotificationPresets(from: defaults, commonRemainingMode: commonRemainingMode)
+        let canonical = NotificationThresholdStorage.importLegacy(legacy, remaining: commonRemainingMode)
+        NotificationThresholdStorage.save(canonical, to: defaults)
+        return canonical
+    }
+
+    private static func legacyNotificationPresets(from defaults: UserDefaults, commonRemainingMode: Bool)
+        -> [NotificationPreset]
+    {
         if let data = defaults.data(forKey: "notificationPresets"),
            let decoded = try? JSONDecoder().decode([NotificationPreset].self, from: data),
            !decoded.isEmpty {
@@ -1017,6 +1079,8 @@ class AppSettings: ObservableObject {
 
     var menuBarDisplayChangePublisher: AnyPublisher<Void, Never> {
         let basePublishers: [AnyPublisher<Void, Never>] = [
+            $menuBarDesign.map { _ in () }.eraseToAnyPublisher(),
+            $usageDisplayMode.map { _ in () }.eraseToAnyPublisher(),
             $menuBarStyle.map { _ in () }.eraseToAnyPublisher(),
             $menuBarColorMode.map { _ in () }.eraseToAnyPublisher(),
             $percentageDisplay.map { _ in () }.eraseToAnyPublisher(),
@@ -1140,7 +1204,7 @@ class AppSettings: ObservableObject {
                 timeFormat: timeFormat,
                 circularDisplayMode: circularDisplayMode,
                 iconMetric: iconMetric,
-                colorMode: menuBarColorMode
+                colorMode: menuBarColorMode, design: menuBarDesign, basisOverride: usageDisplayMode.basis
             )
         case .codex:
             return ProviderMenuBarDisplayConfig(
@@ -1153,10 +1217,10 @@ class AppSettings: ObservableObject {
                 timeFormat: codexTimeFormat,
                 circularDisplayMode: codexCircularDisplayMode,
                 iconMetric: codexIconMetric,
-                colorMode: menuBarColorMode
+                colorMode: menuBarColorMode, design: menuBarDesign, basisOverride: usageDisplayMode.basis
             )
         case .antigravity:
-            // AGY 메뉴바 표시는 AntigravityDisplaySettings가 단독 소유한다.
+            // AGY의 서비스별 표시는 typed 설정이 소유하며 공통 표시 기준은 runtime mapper에 별도로 전달한다.
             return nil
         }
     }
@@ -1412,7 +1476,9 @@ class AppSettings: ObservableObject {
         autoRefresh = true
         notificationsEnabled = false
         notificationPresets = Self.defaultNotificationPresets
+        notificationTargets = NotificationTargetPreferences()
         alertRemainingMode = false
+        usageDisplayMode = .remaining
         reducedRefreshOnBattery = true
         defaults.removeObject(forKey: "hasCompletedSetupWizard")
         showClaudeIcon = true
@@ -1425,6 +1491,7 @@ class AppSettings: ObservableObject {
         alertWeeklyEnabled = false
         popoverPinned = false
         popoverCompact = false
+        motion = AppMotionPreferences()
         launchAtLogin = false
         preferredOrganizationID = ""
         popoverItemsByProvider = Self.defaultPopoverItemsDict()
@@ -1501,8 +1568,23 @@ class AppSettings: ObservableObject {
     /// 기본은 standard지만 테스트에서 suite 기반 UserDefaults를 주입할 수 있다.
     /// AppSettings는 지금까지 singleton+UserDefaults.standard에 묶여 있어 어떤
     /// 초기화/마이그레이션 회귀도 테스트로 잡을 수 없었다.
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, hasExistingAccountStorage: Bool? = nil) {
+        let experience = AppExperiencePreferences.load(
+            from: defaults,
+            hasAccountStorage: hasExistingAccountStorage
+                ?? (defaults === UserDefaults.standard && !AppRuntimeEnvironment.isRunningUnitTests
+                    && AppExperiencePreferences.hasLocalAccountStorage))
+        let displayMode =
+            defaults.string(forKey: "usageDisplayMode").flatMap(UsageDisplayMode.init(rawValue:))
+            ?? (experience.isExistingInstall ? .legacy : .remaining)
+        self.usageDisplayMode = displayMode
+        defaults.set(displayMode.rawValue, forKey: "usageDisplayMode")
+        self.menuBarDesign = experience.design
+        self.menuBarDesignIntroductionDismissed = experience.designIntroductionDismissed
+        self.welcomeState = experience.welcomeState
+        self.welcomeStep = experience.welcomeStep
         self.defaults = defaults
+        if defaults === UserDefaults.standard { _ = AntigravityApplicationBootstrap.prepareSettings() }
         self.popoverDisplayPreferencesStore =
             PopoverDisplayPreferencesStore(
                 defaults: defaults
@@ -1547,6 +1629,7 @@ class AppSettings: ObservableObject {
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? false
         let storedAlertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
         self.alertRemainingMode = storedAlertRemainingMode
+        self.notificationTargets = NotificationTargetPreferences.load(from: defaults)
         self.notificationPresets = Self.migrateNotificationPresets(from: defaults, commonRemainingMode: storedAlertRemainingMode)
         self.reducedRefreshOnBattery = defaults.object(forKey: "reducedRefreshOnBattery") as? Bool ?? true
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
@@ -1579,6 +1662,7 @@ class AppSettings: ObservableObject {
         let normalizedCompact = Self.normalizedGlobalPopoverCompact(from: defaults)
         self.popoverPinned = legacyPinned
         self.popoverCompact = normalizedCompact
+        self.motion = AppMotionPreferences.load(from: defaults)
         defaults.set(legacyPinned, forKey: "popoverPinned")
         defaults.set(normalizedCompact, forKey: "popoverCompact")
         // 시스템 상태에서 실제 등록 여부 확인

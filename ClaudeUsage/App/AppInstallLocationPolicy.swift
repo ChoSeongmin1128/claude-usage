@@ -1,6 +1,6 @@
 import Foundation
 
-enum AppInstallLocationKind: String, Sendable {
+nonisolated enum AppInstallLocationKind: String, Sendable {
     case applications
     case userApplications
     case diskImageVolume
@@ -10,39 +10,12 @@ enum AppInstallLocationKind: String, Sendable {
     case other
 }
 
-enum AppInstallTransferStrategy: Equatable, Sendable {
-    case moveSource
-    case copySource
-
-    nonisolated static func == (lhs: AppInstallTransferStrategy, rhs: AppInstallTransferStrategy) -> Bool {
-        switch (lhs, rhs) {
-        case (.moveSource, .moveSource), (.copySource, .copySource):
-            return true
-        case (.moveSource, .copySource), (.copySource, .moveSource):
-            return false
-        }
-    }
-}
-
-struct AppInstallLocationAssessment: Equatable, Sendable {
+nonisolated struct AppInstallLocationAssessment: Equatable, Sendable {
     let bundlePath: String
     let kind: AppInstallLocationKind
 
     nonisolated var isStableInstall: Bool {
         kind == .applications || kind == .userApplications
-    }
-
-    nonisolated var requiresMovePrompt: Bool {
-        !isStableInstall
-    }
-
-    nonisolated var preferredTransferStrategy: AppInstallTransferStrategy {
-        switch kind {
-        case .downloads, .other:
-            return .moveSource
-        case .applications, .userApplications, .diskImageVolume, .appTranslocation, .temporary:
-            return .copySource
-        }
     }
 
     nonisolated var locationDescription: String {
@@ -65,18 +38,22 @@ struct AppInstallLocationAssessment: Equatable, Sendable {
     }
 }
 
-struct AppDiskImageSource: Equatable, Sendable {
-    let imagePath: String
-    let mountPoint: String
+nonisolated enum AppInstallGuidancePolicy {
+    #if DEBUG
+    nonisolated static let isDeveloperBuild = true
+    #else
+    nonisolated static let isDeveloperBuild = false
+    #endif
+
+    nonisolated static func shouldShow(
+        assessment: AppInstallLocationAssessment,
+        isDeveloperBuild: Bool = isDeveloperBuild
+    ) -> Bool {
+        !isDeveloperBuild && !assessment.isStableInstall
+    }
 }
 
-struct AppRunningApplicationSnapshot: Equatable, Sendable {
-    let processIdentifier: pid_t
-    let bundleIdentifier: String?
-    let isTerminated: Bool
-}
-
-enum AppInstallLocationPolicy {
+nonisolated enum AppInstallLocationPolicy {
     nonisolated static func currentAssessment() -> AppInstallLocationAssessment {
         assess(bundlePath: Bundle.main.bundlePath)
     }
@@ -108,100 +85,5 @@ enum AppInstallLocationPolicy {
         }
 
         return AppInstallLocationAssessment(bundlePath: bundlePath, kind: kind)
-    }
-
-    nonisolated static func diskImageSource(
-        for bundlePath: String,
-        hdiutilInfoPlistData: Data
-    ) -> AppDiskImageSource? {
-        let sources = diskImageSources(hdiutilInfoPlistData: hdiutilInfoPlistData)
-        guard
-            !sources.isEmpty
-        else {
-            return nil
-        }
-
-        let normalizedBundlePath = normalizedPath(bundlePath)
-        let candidates = sources.filter { source in
-            let normalizedMountPoint = normalizedPath(source.mountPoint)
-            return normalizedBundlePath == normalizedMountPoint
-                || normalizedBundlePath.hasPrefix(normalizedMountPoint + "/")
-        }
-
-        return candidates.max { $0.mountPoint.count < $1.mountPoint.count }
-    }
-
-    nonisolated static func diskImageSource(
-        forAppNamed appName: String,
-        bundleIdentifier: String?,
-        hdiutilInfoPlistData: Data,
-        bundleIdentifierAtPath: (String) -> String?
-    ) -> AppDiskImageSource? {
-        let normalizedAppName = (appName as NSString).lastPathComponent
-        guard !normalizedAppName.isEmpty else { return nil }
-
-        let expectedIdentifier = bundleIdentifier?.isEmpty == false ? bundleIdentifier : nil
-        let candidates = diskImageSources(hdiutilInfoPlistData: hdiutilInfoPlistData).filter { source in
-            let candidatePath = normalizedPath((source.mountPoint as NSString).appendingPathComponent(normalizedAppName))
-            guard let candidateIdentifier = bundleIdentifierAtPath(candidatePath) else { return false }
-            guard let expectedIdentifier else { return true }
-            return candidateIdentifier == expectedIdentifier
-        }
-
-        return candidates.max { $0.mountPoint.count < $1.mountPoint.count }
-    }
-
-    private nonisolated static func diskImageSources(
-        hdiutilInfoPlistData: Data
-    ) -> [AppDiskImageSource] {
-        guard
-            let plist = try? PropertyListSerialization.propertyList(
-                from: hdiutilInfoPlistData,
-                options: [],
-                format: nil
-            ),
-            let root = plist as? [String: Any],
-            let images = root["images"] as? [[String: Any]]
-        else {
-            return []
-        }
-
-        return images.flatMap { image -> [AppDiskImageSource] in
-            guard
-                let imagePath = image["image-path"] as? String,
-                imagePath.lowercased().hasSuffix(".dmg"),
-                let entities = image["system-entities"] as? [[String: Any]]
-            else {
-                return []
-            }
-
-            return entities.compactMap { entity -> AppDiskImageSource? in
-                guard let mountPoint = entity["mount-point"] as? String else { return nil }
-                return AppDiskImageSource(imagePath: imagePath, mountPoint: mountPoint)
-            }
-        }
-    }
-
-    private nonisolated static func normalizedPath(_ path: String) -> String {
-        var normalized = URL(fileURLWithPath: path).standardizedFileURL.path
-        while normalized.count > 1, normalized.hasSuffix("/") {
-            normalized.removeLast()
-        }
-        return normalized
-    }
-}
-
-enum AppInstallRunningApplicationPolicy {
-    nonisolated static func siblingApplicationsToTerminate(
-        currentBundleIdentifier: String?,
-        currentProcessIdentifier: pid_t,
-        runningApplications: [AppRunningApplicationSnapshot]
-    ) -> [AppRunningApplicationSnapshot] {
-        guard let currentBundleIdentifier, !currentBundleIdentifier.isEmpty else { return [] }
-        return runningApplications.filter { application in
-            application.bundleIdentifier == currentBundleIdentifier
-                && application.processIdentifier != currentProcessIdentifier
-                && !application.isTerminated
-        }
     }
 }

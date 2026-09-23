@@ -12,6 +12,7 @@ struct CompactUsageRow: View {
     var tooltip: String? = nil
     var accessibilityLabel: String? = nil
     var accessibilityValue: String? = nil
+    var basis: UsageValueBasis = .used
 
     var body: some View {
         HStack(
@@ -28,42 +29,22 @@ struct CompactUsageRow: View {
                     alignment: .leading
                 )
 
-            HStack(spacing: 4) {
+            HStack(spacing: AppDesign.Space.compact) {
                 ProgressBarView(
                     percentage: percentage,
                     height:
                         PopoverLayoutMetrics
                             .compactProgressBarHeight,
-                    color: color
+                    color: color,
+                    basis: basis
                 )
                 .frame(maxWidth: .infinity)
 
-                Text(
-                    percentageText
-                        ?? String(
-                            format: "%.0f%%",
-                            percentage
-                        )
+                UsagePercentageLabel(
+                    percentage: percentage, basis: basis, compact: true,
+                    percentageText: percentageText, color: color
                 )
-                .font(
-                    .system(
-                        .caption,
-                        design: .monospaced
-                    )
-                )
-                .fontWeight(.medium)
-                .foregroundStyle(
-                    color
-                        ?? ColorProvider.statusColor(
-                            for: percentage
-                        )
-                )
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(
-                    width: 32,
-                    alignment: .trailing
-                )
+                .frame(width: PopoverLayoutMetrics.compactPercentageLabelWidth, alignment: .trailing)
             }
             .frame(
                 width:
@@ -75,16 +56,14 @@ struct CompactUsageRow: View {
         .frame(
             maxWidth: .infinity,
             minHeight:
-                PopoverLayoutMetrics
-                    .compactUsageRowHeight,
+                PopoverLayoutMetrics.compactUsageRowHeight,
             maxHeight:
-                PopoverLayoutMetrics
-                    .compactUsageRowHeight,
+                PopoverLayoutMetrics.compactUsageRowHeight,
             alignment: .center
         )
         .help(
             tooltip
-                ?? "\(label), \(Int(percentage.rounded()))퍼센트 사용"
+                ?? [label, defaultAccessibilityValue].joined(separator: ", ")
         )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(
@@ -92,36 +71,31 @@ struct CompactUsageRow: View {
         )
         .accessibilityValue(
             accessibilityValue
-                ?? "\(Int(percentage.rounded()))퍼센트 사용"
+                ?? defaultAccessibilityValue
         )
+    }
+
+    private var defaultAccessibilityValue: String {
+        var values = [basis.spokenValue(fromUsed: percentage)]
+        if let resetAt {
+            values.append(TimeFormatter.formatRelativeTimeWithClock(from: resetAt, style: timeFormatStyle))
+        }
+        return values.joined(separator: ", ")
     }
 
     @ViewBuilder
     private var compactLabelLine: some View {
-        if showsResetDetail {
-            (
+        if showsResetDetail, let compactResetText {
+            HStack(spacing: AppDesign.Space.tight) {
                 Text(label)
-                    .font(
-                        .caption.weight(
-                            .semibold
-                        )
-                    )
+                    .font(AppDesign.Typography.caption.weight(.semibold))
                     .foregroundStyle(.primary)
-                + Text(" · ")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                + Text(compactResetText ?? "--")
-                    .font(
-                        .system(
-                            size: 10,
-                            weight: .medium
-                        )
-                    )
+                    .lineLimit(1).minimumScaleFactor(0.85).truncationMode(.tail)
+                Text("· " + compactResetText)
+                    .font(AppDesign.Typography.metadata)
                     .foregroundStyle(.secondary)
-            )
-            .lineLimit(1)
-            .minimumScaleFactor(0.72)
-            .truncationMode(.tail)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
         } else {
             Text(label)
                 .font(
@@ -131,26 +105,15 @@ struct CompactUsageRow: View {
                 )
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.72)
+                .minimumScaleFactor(0.85)
                 .truncationMode(.tail)
         }
     }
 
     private var compactResetText: String? {
         guard let resetAt else {
-            return "--"
+            return nil
         }
-        if isWeekly {
-            return TimeFormatter
-                .formatResetTimeWeekly(
-                    from: resetAt,
-                    style: timeFormatStyle
-                ) ?? "--"
-        }
-        return TimeFormatter.formatResetTime(
-            from: resetAt,
-            style: timeFormatStyle,
-            includeDateIfNotToday: false
-        ) ?? "--"
+        return TimeFormatter.formatCompactUsageReset(from: resetAt, isWeekly: isWeekly, style: timeFormatStyle)
     }
 }

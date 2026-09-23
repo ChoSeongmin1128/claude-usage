@@ -7,7 +7,7 @@ extension SettingsView {
     }
 
     var codexAuthSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.content) {
             ProviderSettingsSectionHeader(provider: .codex, title: "Codex 사용")
 
             settingsToggleRow(
@@ -19,15 +19,21 @@ extension SettingsView {
             )
 
             if settings.isProviderEnabled(.codex) {
-                codexStatusCard
-                codexActionCard
-
-                HStack(spacing: 8) {
-                    Button("다시 확인") {
-                        checkCodexAuth()
+                VStack(alignment: .leading, spacing: AppDesign.Space.row) {
+                    HStack {
+                        Text(codexStatusBadgeTitle)
+                            .font(AppDesign.Typography.subheadline.weight(.semibold))
+                            .foregroundStyle(codexStatusTone)
+                        Spacer()
+                        if codexAuthStatus == .checking { ProgressView().controlSize(.small) }
+                        Button("다시 확인") { checkCodexAuth() }
+                            .controlSize(.small).disabled(codexAuthStatus == .checking)
                     }
-                    .buttonStyle(.bordered)
+                    Text(codexStatusTitle).font(AppDesign.Typography.subheadline)
+                    codexActionCard
                 }
+                .padding(AppDesign.Space.content)
+                .appPanelStyle()
             }
         }
     }
@@ -65,49 +71,24 @@ extension SettingsView {
         codexPresentation.actionDetail
     }
 
-    private var codexStatusCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                Text(codexStatusBadgeTitle)
-                    .font(.caption2.weight(.semibold))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(codexStatusTone.opacity(0.16))
-                    .foregroundStyle(codexStatusTone)
-                    .cornerRadius(6)
-                Spacer(minLength: 0)
-                if codexAuthStatus == .checking {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-            }
-
-            Text(codexStatusTitle)
-                .font(.subheadline.weight(.semibold))
-        }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        .cornerRadius(8)
-    }
-
     private var codexActionCard: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.control) {
             Text(codexActionTitle)
-                .font(.subheadline.weight(.semibold))
+                .font(AppDesign.Typography.subheadline.weight(.semibold))
             if let codexActionDetail {
                 Text(codexActionDetail)
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
             }
             if let command = codexPresentation.command {
-                HStack(spacing: 8) {
+                HStack(spacing: AppDesign.Space.row) {
                     Text(command)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(AppDesign.Typography.compactValue)
                         .textSelection(.enabled)
-                        .padding(.horizontal, 8)
+                        .padding(.horizontal, AppDesign.Space.row)
                         .padding(.vertical, 5)
                         .background(Color(NSColor.textBackgroundColor).opacity(0.65))
-                        .cornerRadius(6)
+                        .cornerRadius(AppDesign.Radius.control)
 
                     Button("명령 복사") {
                         copyCodexCommand(command)
@@ -115,12 +96,10 @@ extension SettingsView {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                 }
-                .padding(.top, 2)
+                .padding(.top, AppDesign.Space.tight)
             }
         }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
-        .cornerRadius(8)
+
     }
 
     private func copyCodexCommand(_ command: String) {

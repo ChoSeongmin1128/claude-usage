@@ -164,6 +164,8 @@ actor AntigravityRuntimeController {
     private var shutdownTask: Task<Void, Never>?
     private var lastAttemptAt: Date?
     private var lastSuccessfulAt: Date?
+    private var usageDisplayBasis: UsageValueBasis?
+    private var usageDisplayRevision: UInt64 = 0
 
     init(
         repository:
@@ -199,6 +201,16 @@ actor AntigravityRuntimeController {
         managedAvailability = Self.managedAvailability(
             for: agyExecutableStatus
         )
+    }
+
+    /// Reprojects verified data only. Never restarts a process or refreshes quota.
+    @discardableResult
+    func setUsageDisplayBasis(_ basis: UsageValueBasis?, revision: UInt64) -> AntigravityRuntimeSnapshot {
+        guard !isShuttingDown, revision >= usageDisplayRevision else { return currentSnapshot }
+        usageDisplayRevision = revision
+        guard usageDisplayBasis != basis else { return currentSnapshot }
+        usageDisplayBasis = basis
+        return publish()
     }
 
     func snapshot() -> AntigravityRuntimeSnapshot {
@@ -1198,16 +1210,12 @@ actor AntigravityRuntimeController {
             settings: resolvedSettings,
             presentationState:
                 resolvedPresentation,
-            quotaPresentation:
-                AntigravityQuotaPresentationMapper
-                    .map(
-                        state:
-                            resolvedPresentation,
-                        settings:
-                            resolvedSettings?.display
-                                ?? .default,
-                        now: now()
-                    ),
+            quotaPresentation: AntigravityQuotaPresentationMapper.map(
+                state: resolvedPresentation,
+                settings: resolvedSettings?.display ?? .default,
+                basisOverride: usageDisplayBasis,
+                now: now()
+            ),
             managedRuntimeAvailability:
                 managedAvailability,
             lastAttemptAt: lastAttemptAt,

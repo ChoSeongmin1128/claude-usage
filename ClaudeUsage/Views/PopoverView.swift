@@ -5,23 +5,83 @@
 //  Phase 2: 메인 Popover UI
 //
 
+import AppKit
 import SwiftUI
+
+private struct PopoverAnchorReader: NSViewRepresentable {
+    let onResolve: @MainActor (NSView) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        view.identifier = NSUserInterfaceItemIdentifier("popover-display-editor-anchor")
+        DispatchQueue.main.async {
+            onResolve(view)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            onResolve(nsView)
+        }
+    }
+}
 
 struct PopoverView: View {
     @ObservedObject var viewModel: PopoverViewModel
-    @ObservedObject private var settings = AppSettings.shared
-    @State private var isDisplayEditorPresented = false
-    @State private var displayEditorMode: PopoverDisplayEditorMode = .standard
+    @ObservedObject private var settings: AppSettings
+    private let fillsViewport: Bool
+    private let onTargetSizeChange: ((CGSize) -> Void)?
+    private let onServiceSelectionRequest: ((PopoverService) -> Void)?
+    private let onCompactToggleRequest: (() -> Void)?
+    private let onDisplayEditorRequest: ((NSView, PopoverService, PopoverDisplayEditorMode) -> Void)?
+
+    init(
+        viewModel: PopoverViewModel, settings: AppSettings = .shared, fillsViewport: Bool = false,
+        onTargetSizeChange: ((CGSize) -> Void)? = nil,
+        onServiceSelectionRequest: ((PopoverService) -> Void)? = nil,
+        onCompactToggleRequest: (() -> Void)? = nil,
+        onDisplayEditorRequest: ((NSView, PopoverService, PopoverDisplayEditorMode) -> Void)? = nil
+    ) {
+        self.viewModel = viewModel
+        self.settings = settings
+        self.fillsViewport = fillsViewport
+        self.onTargetSizeChange = onTargetSizeChange
+        self.onServiceSelectionRequest = onServiceSelectionRequest
+        self.onCompactToggleRequest = onCompactToggleRequest
+        self.onDisplayEditorRequest = onDisplayEditorRequest
+    }
+    @State private var displayEditorAnchor: NSView?
 
     var body: some View {
         let layout = viewModel.layoutWithSections(for: selectedService, settings: settings)
-        let layoutSpec = layout.spec
+        Group {
+            if fillsViewport {
+                GeometryReader { geometry in
+                    popoverContent(
+                        layoutSpec: layout.spec.fittingViewport(geometry.size), sections: layout.sections,
+                        isTransitioning: abs(geometry.size.height - layout.spec.size.height) > 1)
+                }
+            } else {
+                popoverContent(layoutSpec: layout.spec, sections: layout.sections)
+            }
+        }
+        .onAppear {
+            normalizeSelectedServiceIfNeeded()
+            requestRefreshIfNeededForVisibleService()
+        }
+        .onChange(of: settings.providerStates) { _, _ in normalizeSelectedServiceIfNeeded() }
+        .onChange(of: layout.spec.size) { _, size in onTargetSizeChange?(size) }
+    }
 
+    private func popoverContent(
+        layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection], isTransitioning: Bool = false
+    ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             // Compact는 계정 혼동이나 조치가 필요한 상태만 한 줄에 남긴다.
             // Standard는 provenance/freshness를 별도 상태 레일로 제공한다.
             VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 8) {
+                HStack(spacing: AppDesign.Space.row) {
                     headerServiceSelector
                         .layoutPriority(1)
                     if let context = compactHeaderContext {
@@ -34,193 +94,151 @@ struct PopoverView: View {
                 .frame(height: PopoverLayoutMetrics.providerSelectorSize(compact: isCompact))
 
                 if !isCompact {
-                    providerStatusRail
-                        .frame(height: 12)
+                    providerStatusRail.frame(height: 12)
                 }
             }
             .padding(.horizontal, isCompact ? 12 : 16)
-            .padding(.top, isCompact ? 1 : 4)
-            .padding(.bottom, isCompact ? 0 : 2)
+            .frame(
+                height: isCompact
+                    ? PopoverLayoutMetrics.compactHeaderHeight : PopoverLayoutMetrics.standardHeaderContainerHeight)
 
-            if isCompact {
-                compactMainSection(layoutSpec: layoutSpec, sections: layout.sections)
-            } else {
-                standardMainContainer(layoutSpec: layoutSpec, sections: layout.sections)
+            if layoutSpec.designIntroductionHeight > 0 {
+                VStack(alignment: .leading, spacing: AppDesign.Space.control) {
+                    Text("새 메뉴바 디자인을 사용해 보세요")
+                        .font(AppDesign.Typography.caption.weight(.medium))
+                    HStack {
+                        Button("미리보기") {
+                            viewModel.isDesignIntroductionPresented = false
+                            settings.designComparisonRequested = true
+                            viewModel.openSettings(panel: .display)
+                        }
+                        Button("기존 유지") { viewModel.isDesignIntroductionPresented = false }
+                        Spacer(minLength: 0)
+                    }
+                    .font(AppDesign.Typography.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+                .padding(.horizontal, AppDesign.Space.content)
+                .frame(height: layoutSpec.designIntroductionHeight)
+                .clipped()
+                .onAppear { settings.menuBarDesignIntroductionDismissed = true }
             }
 
-            Divider()
-
-            // 하단 버튼
-            HStack {
-                ProviderExternalActionsView(
-                    provider: selectedService.providerKind,
-                    compact: isCompact
-                ) { action in
-                    viewModel.openExternalAction(action)
-                }
-
-                Spacer()
-
-                if selectedService == .antigravity {
-                    Button {
-                        viewModel.openSettings(panel: .display)
-                    } label: {
-                        HStack(spacing: 2) {
-                            Image(systemName: "slider.horizontal.3")
-                            if !isCompact { Text("표시") }
-                        }
-                    }
-                    .buttonStyle(.borderless)
-                    .font(.caption)
-                    .help("Antigravity 표시 설정")
-                    .accessibilityLabel("Antigravity 표시 설정")
+            Group {
+                if isCompact {
+                    compactMainSection(layoutSpec: layoutSpec, sections: sections)
                 } else {
-                    Button {
-                        displayEditorMode = isCompact ? .compact : .standard
-                        isDisplayEditorPresented.toggle()
-                    } label: {
-                        HStack(spacing: 2) {
-                            Image(systemName: "slider.horizontal.3")
-                            if !isCompact { Text("표시") }
-                        }
-                    }
-                    .buttonStyle(.borderless)
-                    .font(.caption)
-                    .help("표시 항목 편집")
-                    .accessibilityLabel("표시 항목 편집")
-                    .popover(isPresented: $isDisplayEditorPresented, arrowEdge: .bottom) {
-                        PopoverDisplayEditorView(
-                            settings: settings,
-                            service: selectedService,
-                            selectedMode: $displayEditorMode
-                        )
-                    }
+                    standardMainContainer(layoutSpec: layoutSpec, sections: sections, showsIndicators: !isTransitioning)
                 }
-
-                Button {
-                    viewModel.openSettings()
-                } label: {
-                    HStack(spacing: 2) {
-                        Image(systemName: "gearshape")
-                        if !isCompact { Text("설정") }
-                    }
-                }
-                .buttonStyle(.borderless)
-                .font(.caption)
-                .help("설정 열기")
-                .accessibilityLabel("설정 열기")
-
-                Button {
-                    NSApplication.shared.terminate(nil)
-                } label: {
-                    HStack(spacing: 2) {
-                        Image(systemName: "power")
-                        if !isCompact { Text("종료") }
-                    }
-                }
-                .buttonStyle(.borderless)
-                .font(.caption)
-                .help("ClaudeUsage 종료")
-                .accessibilityLabel("ClaudeUsage 종료")
             }
-            .padding(.horizontal, isCompact ? 12 : 16)
-            .padding(.vertical, isCompact ? 4 : 8)
+            .frame(height: layoutSpec.bodyRegionHeight, alignment: .topLeading)
+            .clipped()
+
+            Divider().padding(.horizontal, isCompact ? AppDesign.Space.content : AppDesign.Space.section)
+
+            HStack(spacing: AppDesign.Space.compact) {
+                ProviderExternalActionsView(provider: selectedService.providerKind, compact: isCompact) {
+                    viewModel.openExternalAction($0)
+                }
+                Spacer(minLength: AppDesign.Space.compact)
+                IconActionButton(symbol: "slider.horizontal.3", label: "표시 항목 편집", compact: isCompact) {
+                    openDisplayEditor()
+                }
+                .background(
+                    PopoverAnchorReader { anchor in
+                        displayEditorAnchor = anchor
+                    }
+                )
+                IconActionButton(symbol: "gearshape", label: "설정 열기", compact: isCompact) {
+                    viewModel.openSettings()
+                }
+                IconActionButton(symbol: "power", label: "ClaudeUsage 종료", compact: isCompact) {
+                    NSApplication.shared.terminate(nil)
+                }
+            }
+            .padding(.horizontal, isCompact ? AppDesign.Space.content : AppDesign.Space.section)
+            .frame(
+                height: isCompact
+                    ? PopoverLayoutMetrics.compactFooterHeight : PopoverLayoutMetrics.standardFooterContainerHeight)
 
             if !isCompact {
-                HStack(spacing: 8) {
+                HStack(spacing: AppDesign.Space.row) {
                     Text("⌘R 새로고침")
                     Text("⌘, 설정")
                 }
-                .font(.system(size: 10))
-                .foregroundStyle(.quaternary)
+                .font(AppDesign.Typography.metadata)
+                .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
-                .padding(.bottom, 6)
+                .frame(height: PopoverLayoutMetrics.standardShortcutFooterHeight)
             }
         }
         .frame(width: layoutSpec.size.width, height: layoutSpec.size.height, alignment: .topLeading)
-        .background(Color(NSColor.windowBackgroundColor))
-        .onAppear {
-            normalizeSelectedServiceIfNeeded()
-            syncCompactForSelectedServiceIfNeeded()
-            requestRefreshIfNeededForVisibleService()
-        }
-        .onChange(of: settings.providerStates) { _, _ in
-            normalizeSelectedServiceIfNeeded()
-        }
-        .onChange(of: viewModel.selectedService) { _, _ in
-            syncCompactForSelectedServiceIfNeeded()
-            isDisplayEditorPresented = false
-        }
+        .clipped()
     }
 
     // MARK: - Helpers
 
-    @ViewBuilder
     private var headerUtilityControls: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: AppDesign.Space.tight) {
             if viewModel.shouldShowUpdateButton {
-                Button(action: { viewModel.performUpdatePrimaryAction() }) {
-                    Image(systemName: viewModel.updateButtonSymbolName)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(.blue)
-                        .frame(width: 22, height: 14)
+                IconActionButton(
+                    symbol: viewModel.updateButtonSymbolName, label: viewModel.updateButtonHelpText, isActive: true
+                ) {
+                    viewModel.performUpdatePrimaryAction()
                 }
-                .buttonStyle(.borderless)
-                .contentShape(Rectangle())
-                .help(viewModel.updateButtonHelpText)
             }
-
-            Button(action: { viewModel.refresh() }) {
-                Group {
-                    if currentServiceLoading {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 12))
-                    }
-                }
-                .frame(width: 14, height: 14)
-            }
-            .buttonStyle(.borderless)
-            .disabled(currentServiceLoading)
-            .help(currentServiceLoading ? "사용량 갱신 중" : "사용량 새로고침")
-            .accessibilityLabel(currentServiceLoading ? "사용량 갱신 중" : "사용량 새로고침")
-
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
+            IconActionButton(
+                symbol: "arrow.clockwise",
+                label: viewModel.refreshHelp(for: selectedService, isLoading: currentServiceLoading),
+                isLoading: currentServiceLoading,
+                isEnabled: !currentServiceLoading && viewModel.manualRefreshAvailableAt(for: selectedService) == nil
+            ) { viewModel.refresh() }
+            IconActionButton(
+                symbol: isCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical",
+                label: isCompact ? "일반 보기로 전환" : "간소화 보기로 전환"
+            ) {
+                if let onCompactToggleRequest {
+                    onCompactToggleRequest()
+                } else {
                     isCompact.toggle()
+                    viewModel.requestLayoutRefresh(reason: .compactToggle)
                 }
-                displayEditorMode = isCompact ? .compact : .standard
-                viewModel.requestLayoutRefresh(reason: .compactToggle)
-            } label: {
-                Image(systemName: isCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical")
-                    .font(.system(size: 12))
             }
-            .buttonStyle(.borderless)
-            .help(isCompact ? "일반 보기" : "간소화 보기")
-            .accessibilityLabel(isCompact ? "일반 보기로 전환" : "간소화 보기로 전환")
-
-            Button {
+            IconActionButton(
+                symbol: isPinned ? "pin.fill" : "pin", label: isPinned ? "팝오버 고정 해제" : "팝오버 고정", isActive: isPinned
+            ) {
                 isPinned.toggle()
                 viewModel.onPinChanged?(selectedService, isPinned)
-            } label: {
-                Image(systemName: isPinned ? "pin.fill" : "pin")
-                    .font(.system(size: 12))
-                    .foregroundColor(isPinned ? .accentColor : .secondary)
             }
-            .buttonStyle(.borderless)
-            .help(isPinned ? "고정 해제" : "고정")
-            .accessibilityLabel(isPinned ? "팝오버 고정 해제" : "팝오버 고정")
         }
         .fixedSize()
     }
 
     private func selectService(_ service: PopoverService) {
         guard service != selectedService else { return }
-        viewModel.selectService(service)
-        syncCompactForSelectedServiceIfNeeded()
-        viewModel.requestLayoutRefresh(for: service, reason: .serviceSelection)
+        if let onServiceSelectionRequest {
+            onServiceSelectionRequest(service)
+        } else {
+            viewModel.selectService(service)
+            viewModel.requestLayoutRefresh(for: service, reason: .serviceSelection)
+        }
+    }
+
+    private func openDisplayEditor() {
+        guard selectedService != .antigravity else {
+            viewModel.openSettings(panel: .display)
+            return
+        }
+        guard let anchor = displayEditorAnchor, let onDisplayEditorRequest else {
+            viewModel.openSettings(panel: .display)
+            return
+        }
+        onDisplayEditorRequest(
+            anchor,
+            selectedService,
+            isCompact ? .compact : .standard
+        )
     }
 
     private func appProviderKind(for service: PopoverService) -> AppProviderKind {
@@ -230,7 +248,7 @@ struct PopoverView: View {
     @ViewBuilder
     private var headerServiceSelector: some View {
         if isCompact {
-            HStack(spacing: 5) {
+            HStack(spacing: AppDesign.Space.heading) {
                 ForEach(availableServices, id: \.rawValue) { service in
                     headerSelectorButton(for: service)
                 }
@@ -238,7 +256,7 @@ struct PopoverView: View {
             .fixedSize(horizontal: true, vertical: false)
         } else if availableServices.count > 1 {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
+                HStack(spacing: AppDesign.Space.control) {
                     ForEach(availableServices, id: \.rawValue) { service in
                         headerSelectorButton(for: service)
                     }
@@ -279,7 +297,7 @@ struct PopoverView: View {
     }
 
     private func compactHeaderContextView(_ context: CompactPopoverHeaderContext) -> some View {
-        HStack(spacing: 3) {
+        HStack(spacing: AppDesign.Space.micro) {
             if let accountLabel = context.accountLabel {
                 Text(accountLabel)
                     .foregroundStyle(.secondary)
@@ -291,13 +309,15 @@ struct PopoverView: View {
                     .foregroundStyle(.tertiary)
             }
             if let status = context.status {
-                Text(status.label)
-                    .foregroundStyle(status == .authenticationRequired || status == .refreshFailed ? .orange : .secondary)
+                Text(context.lastSuccessLabel ?? status.label)
+                    .foregroundStyle(
+                        status == .authenticationRequired || status == .refreshFailed ? .orange : .secondary
+                    )
                     .fixedSize()
                     .layoutPriority(1)
             }
         }
-        .font(.system(size: 9, weight: .medium))
+        .font(AppDesign.Typography.compactIdentity)
         .help(context.labels.joined(separator: " · "))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("선택한 서비스 상태")
@@ -319,7 +339,7 @@ struct PopoverView: View {
             )
         } else {
             let label = providerStatusRailText(state: state)
-            HStack(spacing: 4) {
+            HStack(spacing: AppDesign.Space.compact) {
                 providerStatusRailSegments(state: state)
                 Spacer(minLength: 0)
             }
@@ -357,7 +377,8 @@ struct PopoverView: View {
     ) -> (account: String?, source: String?, status: String) {
         var accountLabel: String?
         if let accountID = state.accountID,
-           let account = viewModel.usageHealthSnapshot?.accounts.first(where: { $0.id == accountID }) {
+            let account = viewModel.usageHealthSnapshot?.accounts.first(where: { $0.id == accountID })
+        {
             accountLabel = account.identity.primaryLabel ?? account.displayName
         }
         let status: String
@@ -423,9 +444,7 @@ struct PopoverView: View {
     }
 
     private var currentServiceLoading: Bool {
-        // 외부 runtime isLoading + 수동 새로고침 직후의 강제 spinner 윈도우.
-        // 후자는 사용자가 새로고침 버튼 누른 즉시 ProgressView 가 돌도록 보장한다.
-        serviceLoading(for: selectedService) || viewModel.isManualRefreshSpinnerActive
+        serviceLoading(for: selectedService)
     }
 
     private var availableServices: [PopoverService] {
@@ -447,8 +466,9 @@ struct PopoverView: View {
 
     private func normalizeSelectedServiceIfNeeded() {
         guard !availableServices.contains(selectedService),
-              let fallback = availableServices.first else { return }
-        viewModel.selectService(fallback)
+            let fallback = availableServices.first
+        else { return }
+        selectService(fallback)
     }
 
     private var isCompact: Bool {
@@ -458,10 +478,6 @@ struct PopoverView: View {
         nonmutating set {
             settings.popoverCompact = newValue
         }
-    }
-
-    private func syncCompactForSelectedServiceIfNeeded() {
-        // 전역 설정이므로 동기화 불필요
     }
 
     private var isPinned: Bool {
@@ -506,8 +522,7 @@ struct PopoverView: View {
             service: selectedService,
             layoutSpec: layoutSpec,
             sections: sections,
-            isDisplayEditorPresented:
-                $isDisplayEditorPresented
+            onOpenDisplayEditor: openDisplayEditor
         )
     }
 
@@ -520,39 +535,19 @@ struct PopoverView: View {
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
                 .scrollIndicators(.never)
-                .overlay(alignment: .bottom) {
-                    if viewModel
-                        .compactContentRowCount(
-                            for: selectedService,
-                            catalogSections:
-                                sections
-                        )
-                        > PopoverLayoutMetrics
-                        .compactMaximumVisibleRows
-                    {
-                        LinearGradient(
-                            colors: [
-                                Color.clear,
-                                Color(NSColor.windowBackgroundColor).opacity(0.72),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .frame(height: 14)
-                        .allowsHitTesting(false)
-                    }
-                }
+
             } else {
                 bodyContent(layoutSpec: layoutSpec, sections: sections)
             }
         }
-        .padding(.bottom, 1)
     }
 
     @ViewBuilder
-    private func standardMainContainer(layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection]) -> some View {
+    private func standardMainContainer(
+        layoutSpec: PopoverLayoutSpec, sections: [PopoverDisplaySection], showsIndicators: Bool
+    ) -> some View {
         if layoutSpec.phase == .content {
-            ScrollView(.vertical, showsIndicators: true) {
+            ScrollView(.vertical, showsIndicators: showsIndicators) {
                 standardMainSection(layoutSpec: layoutSpec, sections: sections)
             }
             .frame(
@@ -581,48 +576,6 @@ struct PopoverView: View {
             bodyContent(layoutSpec: layoutSpec, sections: sections)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .padding(.bottom, 2)
-    }
-}
-
-struct ProviderSelectorButtonLabel: View {
-    let provider: AppProviderKind
-    let isSelected: Bool
-    let showsWarning: Bool
-    let compact: Bool
-
-    var body: some View {
-        let buttonSize = PopoverLayoutMetrics.providerSelectorSize(compact: compact)
-        let iconSize = PopoverLayoutMetrics.providerIconSize(compact: compact)
-        let warningDotSize = PopoverLayoutMetrics.providerWarningDotSize(compact: compact)
-        let warningDotInset = PopoverLayoutMetrics.providerWarningDotInset(compact: compact)
-
-        ProviderBrandIconView(provider: provider, kind: .popover, size: iconSize)
-            .frame(width: buttonSize, height: buttonSize)
-            .background(
-                isSelected
-                    ? Color.accentColor.opacity(0.18)
-                    : Color(NSColor.controlBackgroundColor).opacity(0.45)
-            )
-            .clipShape(
-                RoundedRectangle(
-                    cornerRadius: compact ? 6 : 8,
-                    style: .continuous
-                )
-            )
-            .overlay(alignment: .topTrailing) {
-                if showsWarning {
-                    Circle()
-                        .fill(Color.orange)
-                        .overlay {
-                            Circle()
-                                .stroke(Color(NSColor.windowBackgroundColor), lineWidth: 1)
-                        }
-                        .frame(width: warningDotSize, height: warningDotSize)
-                        .padding(warningDotInset)
-                        .accessibilityHidden(true)
-                }
-            }
-            .foregroundStyle(isSelected ? Color.accentColor : .primary)
+        .padding(.bottom, AppDesign.Space.tight)
     }
 }

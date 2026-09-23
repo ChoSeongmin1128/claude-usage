@@ -57,7 +57,12 @@ final class UsageItemCatalogTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(sections.map(\.id), ["modelUsage-sonnet", "modelUsage-opus"])
+        XCTAssertEqual(
+            sections.map(\.id),
+            [
+                "quota%2Dv1/claude/model%3Alegacy%2Dseven%2Dday%2Dsonnet/604800",
+                "quota%2Dv1/claude/model%3Alegacy%2Dseven%2Dday%2Dopus/604800",
+            ])
         XCTAssertEqual(sections.map(\.kind), [.usage, .usage])
         XCTAssertEqual(usageTitles(from: sections), ["Sonnet", "Opus"])
     }
@@ -129,9 +134,14 @@ final class UsageItemCatalogTests: XCTestCase {
             )
         )
 
-        XCTAssertEqual(sections.map(\.id), ["modelUsage-fable", "modelUsage-sonnet"])
+        XCTAssertEqual(
+            sections.map(\.id),
+            [
+                "quota%2Dv1/claude/model%2Dname%3Afable/604800",
+                "quota%2Dv1/claude/model%3Alegacy%2Dseven%2Dday%2Dsonnet/604800",
+            ])
         XCTAssertEqual(usageTitles(from: sections), ["Fable", "Sonnet"])
-        XCTAssertEqual(compactLabels(from: sections), ["Fable", "소넷"])
+        XCTAssertEqual(compactLabels(from: sections), ["Fable", "Sonnet"])
     }
 
     func testCodexCatalogNormalizedInsertsNewDefaultsAtCatalogPosition() {
@@ -228,8 +238,8 @@ final class UsageItemCatalogTests: XCTestCase {
             context: makeContext(codexUsage: usage)
         )
 
-        XCTAssertTrue(sections.contains { $0.id == "codexModelLimit-GPT-5.3-Codex-Spark" })
-        XCTAssertTrue(usageTitles(from: sections).contains("GPT-5.3-Codex-Spark"))
+        XCTAssertTrue(sections.contains { $0.id == "quota%2Dv1/codex/model%3AGPT%2D5%2E3%2DCodex%2DSpark/604800" })
+        XCTAssertTrue(usageTitles(from: sections).contains("GPT-5.3-Codex-Spark · 주간"))
     }
 
     func testCodexCatalogShowsResetCreditsRowWhenAvailable() throws {

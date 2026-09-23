@@ -47,6 +47,7 @@ enum ClaudeAccountSnapshotPresentationPolicy {
 struct ClaudeAccountSettingsPresentation: Equatable {
     let primaryTitle: String
     let secondaryLine: String?
+    let sourceLabel: String?
     let statusText: String
     let statusTone: ClaudeAccountStatusTone
     let switchAction: ClaudeAccountSettingsAction?
@@ -64,7 +65,7 @@ struct ClaudeAccountSettingsPresentation: Equatable {
             organizations: isActive ? organizations : []
         )
         let source = sourceDescription(for: account)
-        let detailRows = detailRows(for: account, organization: organization, source: source)
+        let details = detailRows(for: account, organization: organization, source: source)
         let status = statusPresentation(for: account.lastValidationState)
         let switchAction: ClaudeAccountSettingsAction? = isActive ? nil : .use
         var managementActions: [ClaudeAccountSettingsAction] = []
@@ -79,12 +80,14 @@ struct ClaudeAccountSettingsPresentation: Equatable {
         return ClaudeAccountSettingsPresentation(
             primaryTitle: primaryTitle(for: account),
             secondaryLine: organization,
+            sourceLabel: account.kind == .claudeCodeExternal
+                ? "Claude Code" : (account.source == .chromeProfile ? "Chrome" : source),
             statusText: status.text,
             statusTone: status.tone,
             switchAction: switchAction,
             managementActions: managementActions,
             systemImage: account.kind == .webSession ? "globe" : "terminal",
-            detailRows: detailRows
+            detailRows: details
         )
     }
 
@@ -222,12 +225,6 @@ struct ClaudeAccountSettingsPresentation: Equatable {
         source: String?
     ) -> [ClaudeAccountSettingsDetailRow] {
         var rows: [ClaudeAccountSettingsDetailRow] = []
-
-        if let organization {
-            rows.append(ClaudeAccountSettingsDetailRow(title: "조직", value: organization))
-        } else if account.kind == .webSession {
-            rows.append(ClaudeAccountSettingsDetailRow(title: "조직", value: "확인 전"))
-        }
 
         if let source {
             let title = account.source == .chromeProfile ? "Chrome 프로필" : "로그인 방식"

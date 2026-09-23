@@ -326,7 +326,7 @@ final class PopoverViewLayoutTests: XCTestCase {
     func testCompactPopoverHeightUsesShorterStatusVariant() {
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .empty, rowCount: 0),
-            107
+            122
         )
         // 행 수 기반 높이: 1행은 최소 높이(96)에 걸리고, 이후 행마다 21pt씩 커진다.
         // 최대 표시 행 수(5)를 넘으면 고정 + 내부 스크롤.
@@ -336,23 +336,23 @@ final class PopoverViewLayoutTests: XCTestCase {
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .content, rowCount: 2),
-            106
+            111
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .content, rowCount: 3),
-            127
+            132
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .content, rowCount: 4),
-            148
+            153
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .content, rowCount: 5),
-            169
+            174
         )
         XCTAssertEqual(
             PopoverLayoutMetrics.preferredPopoverHeight(compact: true, phase: .content, rowCount: 6),
-            169
+            174
         )
     }
 
@@ -422,7 +422,7 @@ final class PopoverViewLayoutTests: XCTestCase {
 
         XCTAssertEqual(result.0, expectedBodyHeight)
         XCTAssertEqual(result.1, 5)
-        XCTAssertEqual(result.2, 106)
+        XCTAssertEqual(result.2, 111)
     }
 
     func testCompactPopoverContentHeightFollowsVisibleRowCounts() async {
@@ -488,46 +488,9 @@ final class PopoverViewLayoutTests: XCTestCase {
             return (claudeHeight, codexHeight)
         }
 
-        // Claude 3행(현재+주간+Sonnet) → 127, Codex 2행 → 106
-        XCTAssertEqual(result.0, 127)
-        XCTAssertEqual(result.1, 106)
-    }
-
-    func testStandardShownContentKeepsContentDerivedLayoutInsteadOfMeasuredHostFrame() {
-        let layoutSpec = PopoverLayoutMetrics.layoutSpec(
-            density: .standard,
-            phase: .content,
-            sections: [],
-            rowCount: 2
-        )
-
-        let targetSize = PopoverPresentationPolicy(
-            layoutSpec: layoutSpec,
-            isShown: true,
-            measuredContentSize: CGSize(width: 368, height: 223),
-            screenVisibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 900)
-        ).targetSize()
-
-        XCTAssertEqual(targetSize.width, 368)
-        XCTAssertEqual(targetSize.height, 202)
-    }
-
-    func testStandardInitialContentUsesSameContentDerivedHeightBeforePresentation() {
-        let layoutSpec = PopoverLayoutMetrics.layoutSpec(
-            density: .standard,
-            phase: .content,
-            sections: [],
-            rowCount: 2
-        )
-
-        let targetSize = PopoverPresentationPolicy(
-            layoutSpec: layoutSpec,
-            isShown: false,
-            measuredContentSize: CGSize(width: 368, height: 223),
-            screenVisibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 900)
-        ).targetSize()
-
-        XCTAssertEqual(targetSize.height, 202)
+        // Claude 3행(현재+주간+Sonnet) → 132, Codex 2행 → 111
+        XCTAssertEqual(result.0, 132)
+        XCTAssertEqual(result.1, 111)
     }
 
     func testStandardAntigravityHeightUsesGroupsAndLanesWithoutPhantomRows() {
@@ -570,25 +533,6 @@ final class PopoverViewLayoutTests: XCTestCase {
             ),
             400
         )
-    }
-
-    func testCompactContentKeepsLayoutShellEvenWhenMeasuredHeightIsSmaller() {
-        let layoutSpec = PopoverLayoutMetrics.layoutSpec(
-            density: .compact,
-            phase: .content,
-            sections: [],
-            rowCount: 2
-        )
-
-        let targetSize = PopoverPresentationPolicy(
-            layoutSpec: layoutSpec,
-            isShown: true,
-            measuredContentSize: CGSize(width: 296, height: 112),
-            screenVisibleFrame: CGRect(x: 0, y: 0, width: 1440, height: 900)
-        ).targetSize()
-
-        XCTAssertEqual(targetSize.width, 296)
-        XCTAssertEqual(targetSize.height, 106)
     }
 
     func testPopoverCompactStateIsGlobalAcrossProviders() async {

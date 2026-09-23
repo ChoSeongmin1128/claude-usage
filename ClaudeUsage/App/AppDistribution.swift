@@ -25,6 +25,18 @@ nonisolated struct AppDistributionDescriptor:
         "\(appName) 설정"
     }
 
+    func versionLabel(version: String, build: String?, releaseVersion: String?) -> String {
+        if channel == .prod, releaseVersion == version { return "v\(version)" }
+        let prefix = "\(version)-stg."
+        if channel == .staging, let releaseVersion, releaseVersion.hasPrefix(prefix) {
+            let suffix = String(releaseVersion.dropFirst(prefix.count))
+            if let candidate = Int(suffix), candidate > 0, String(candidate) == suffix {
+                return "v\(releaseVersion)"
+            }
+        }
+        return "v\(version)-beta (빌드 \(build ?? "?"))"
+    }
+
     static func resolve(
         releaseChannelValue: String?,
         bundleIdentifier: String?

@@ -91,4 +91,5 @@ final class ApplicationLaunchIntentTests: XCTestCase {
             ).settingsPanelRawValue
         )
     }
+
 }

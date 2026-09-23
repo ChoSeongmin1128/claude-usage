@@ -8,6 +8,8 @@
 	<string>$(CLAUDEUSAGE_APP_NAME)</string>
 	<key>CFBundleAllowMixedLocalizations</key>
 	<true/>
+	<key>ClaudeUsageReleaseVersion</key>
+	<string>$(CLAUDEUSAGE_RELEASE_VERSION)</string>
 	<key>ClaudeUsageReleaseChannel</key>
 	<string>$(CLAUDEUSAGE_RELEASE_CHANNEL)</string>
 	<key>LSApplicationCategoryType</key>

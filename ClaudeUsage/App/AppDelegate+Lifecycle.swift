@@ -1,5 +1,9 @@
 import AppKit
 
+private enum AppShutdownPolicy {
+    static let ownedRuntimeTimeout: Duration = .seconds(5)
+}
+
 extension AppDelegate {
     // MARK: - Lifecycle
 
@@ -13,11 +17,11 @@ extension AppDelegate {
         let supportDirectory =
             AntigravityStoragePaths
                 .applicationSupportDirectoryURL()
-        switch AppSingleInstanceGuard.shared
-            .acquire(
-                applicationSupportDirectoryURL:
-                    supportDirectory
-            ) {
+        let instanceGuard = AppSingleInstanceGuard.shared
+        let result = instanceGuard.acquire(
+            applicationSupportDirectoryURL: supportDirectory
+        )
+        switch result {
         case .acquired:
             ownsSingleInstanceLease = true
         case .alreadyRunning:
@@ -52,7 +56,6 @@ extension AppDelegate {
         // 이 키는 앱 도메인에서만 읽히므로 시스템 전역에는 영향이 없다.
         UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 500])
 
-        AppLocationChecker.checkAndPromptIfNeeded()
         setupStatusItems()
         setupPopovers()
         setupKeyboardShortcuts()
@@ -63,6 +66,10 @@ extension AppDelegate {
         syncUpdateCheckState(runImmediate: true)
         refreshSystemStatus()
         startStatusTimer()
+
+        if AppSettings.shared.welcomeState == .pending {
+            showSettingsWindow(settingsPanelRawValue: SettingsProviderPanel.welcome.rawValue)
+        }
 
         let launchIntent = ApplicationLaunchIntent.parse(
             arguments: CommandLine.arguments
@@ -96,6 +103,11 @@ extension AppDelegate {
                 self?.toggleUnifiedPopover()
             }
         }
+
+        // 설치 위치 안내는 메뉴바와 런타임을 준비한 뒤에 보여 준다.
+        DispatchQueue.main.async {
+            AppLocationChecker.checkAndGuideIfNeeded()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -128,6 +140,7 @@ extension AppDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        StatusItemDiagnosticsLog.record("termination requested")
         guard ownsSingleInstanceLease,
               didFinishRuntimeLaunch
         else {
@@ -157,7 +170,7 @@ extension AppDelegate {
             Task { [weak self] in
                 do {
                     try await Task.sleep(
-                        for: .seconds(5)
+                        for: AppShutdownPolicy.ownedRuntimeTimeout
                     )
                 } catch {
                     return
@@ -179,13 +192,18 @@ extension AppDelegate {
             return false
         }
 
+        let placement = captureStatusItemPlacement()
         switch ApplicationReopenPolicy.action(
             hasVisibleWindows: flag,
-            statusItemIsBlocked:
-                isStatusItemPlacementBlocked
+            placement: placement
         ) {
         case .useDefaultWindowHandling:
             return true
+        case .showSettings:
+            showSettingsWindow(
+                settingsPanelRawValue:
+                    SettingsProviderPanel.common.rawValue
+            )
         case .showStatusItemRecovery:
             presentStatusItemPlacementGuidance(
                 force: true
@@ -238,6 +256,7 @@ extension AppDelegate {
                 "Antigravity owned runtime 정리 완료"
             )
         }
+        StatusItemDiagnosticsLog.record("termination reply timedOut=\(timedOut)")
         NSApplication.shared.reply(
             toApplicationShouldTerminate: true
         )
@@ -273,6 +292,9 @@ extension AppDelegate {
                 let runtime =
                     await antigravityRuntimeTask
                         .value
+                let basis = AppSettings.shared.usageDisplayMode.basis
+                let revision = AppSettings.shared.usageDisplayModeRevision
+                await runtime.runtimeController.setUsageDisplayBasis(basis, revision: revision)
                 _ = await runtime
                     .runtimeController
                     .bootstrap(
@@ -295,9 +317,7 @@ extension AppDelegate {
             .checkAntigravityThresholds(
                 snapshot: snapshot
             )
-        syncRuntimePresentation(
-            overage: currentOverage
-        )
+        syncRuntimePresentation()
         syncRefreshTimerState()
     }
 
@@ -329,7 +349,7 @@ extension AppDelegate {
         } else if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
             updateMenuBar()
             if !snapshot.runtime.credentialAvailability.hasAnyCredential {
-                showInitialClaudeSetupFlow()
+                if AppSettings.shared.welcomeState != .pending { showInitialClaudeSetupFlow() }
             }
         } else {
             if ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) && !CodexAuthManager.shared.isAuthenticated {
@@ -416,6 +436,6 @@ extension AppDelegate {
             updateMenuBar()
         }
 
-        updatePopoverViewModel(overage: currentOverage)
+        updatePopoverViewModel()
     }
 }

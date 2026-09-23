@@ -54,20 +54,52 @@ final class AntigravityQuotaPresentationRenderingTests: XCTestCase {
 
         XCTAssertEqual(image.size.width, 296, accuracy: 0.5)
         XCTAssertGreaterThan(image.size.height, 90)
+        let rows = try render(AntigravityCompactQuotaView(presentation: presentation.compact).frame(width: 276))
+        XCTAssertEqual(
+            rows.size.height,
+            PopoverLayoutMetrics.compactContentBodyHeight(rowCount: presentation.compact.metrics.count),
+            accuracy: 0.5)
         XCTAssertLessThan(image.size.height, 140)
         XCTAssertEqual(
             presentation.compact.metrics.map(\.label),
             [
-                "Claude·GPT · 주간",
-                "Gemini · 주간",
-                "Gemini · 5시간",
-                "Claude·GPT · 5시간",
+                "Claude·GPT 주간",
+                "Gemini 주간",
+                "Gemini 5시간",
+                "Claude·GPT 5시간",
             ]
         )
         addAttachment(
             image,
             name: "Antigravity compact visible lanes"
         )
+    }
+
+    func testSingleWeeklyModelUsesTheSameOneLineRowAsClaude() throws {
+        let now = Date()
+        let reset = now.addingTimeInterval(3 * 86400 + 2 * 3600 + 5 * 60)
+        let lane = makeLane(id: .geminiWeekly, scope: .gemini, cadence: .weekly, remaining: 0.75, resetAt: reset)
+        let snapshot = AntigravityQuotaSnapshot(
+            identity: nil, plan: nil, lanes: [lane], decodeIssues: [],
+            provenance: .init(
+                transport: .borrowedAGYRPC, endpointOwner: .borrowed, accountIdentity: nil,
+                capability: .groupedQuotaSummary, processIdentity: nil), fetchedAt: now)
+        var settings = AntigravityDisplaySettings.default
+        settings.menuBar.timeFormat = .remaining
+        let presentation = AntigravityQuotaPresentationMapper.map(snapshot: snapshot, settings: settings, now: now)
+        let metric = try XCTUnwrap(presentation.compact.metrics.first)
+        XCTAssertEqual(metric.label, "Gemini")
+        let agy = AntigravityCompactQuotaView(presentation: presentation.compact).frame(width: 276)
+        let claude = CompactUsageRow(
+            label: "Fable", percentage: 25, resetAt: metric.resetAt, isWeekly: true, timeFormatStyle: .remaining
+        ).frame(width: 276)
+        XCTAssertEqual(try render(agy).size.height, 18, accuracy: 0.5)
+        XCTAssertEqual(try render(claude).size.height, try render(agy).size.height, accuracy: 0.5)
+        let rows = VStack(spacing: PopoverLayoutMetrics.compactSectionSpacing) {
+            claude; agy
+        }
+        .padding(10).frame(width: 296).background(Color(nsColor: .windowBackgroundColor))
+        addAttachment(try render(rows), name: "Claude and AGY shared single-line weekly reset")
     }
 
     func testUnknownAndUnavailableLanesRenderWithoutSyntheticProgress() throws {
@@ -222,7 +254,7 @@ final class AntigravityQuotaPresentationRenderingTests: XCTestCase {
     ) {
         let attachment = XCTAttachment(image: image)
         attachment.name = name
-        attachment.lifetime = .deleteOnSuccess
+        attachment.lifetime = .keepAlways
         add(attachment)
     }
 }

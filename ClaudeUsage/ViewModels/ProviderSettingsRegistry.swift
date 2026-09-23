@@ -1,6 +1,7 @@
 import Foundation
 
 enum SettingsProviderPanel: String, CaseIterable, Identifiable, Sendable {
+    case welcome
     case common
     case display
     case notifications
@@ -38,7 +39,7 @@ struct SettingsProviderPanelDescriptor: Identifiable, Sendable, Equatable {
 
     let panel: SettingsProviderPanel
     let title: String
-    let icon: String
+    let icon: String?
     let providerKind: AppProviderKind?
     let availability: Availability
 
@@ -56,6 +57,7 @@ enum SettingsProviderRegistry {
         let providerPanels = AppProviderKind.allCases
             .map(providerPanelDescriptor)
         return [
+            .init(panel: .welcome, title: "빠른 시작", icon: "sparkles", providerKind: nil, availability: .active),
             .init(panel: .common, title: "일반", icon: "gearshape", providerKind: nil, availability: .active),
             .init(panel: .display, title: "표시", icon: "menubar.rectangle", providerKind: nil, availability: .active),
             .init(panel: .notifications, title: "알림", icon: "bell", providerKind: nil, availability: .active),
@@ -95,7 +97,7 @@ enum SettingsProviderRegistry {
         return .init(
             panel: panel(for: kind),
             title: providerDescriptor.settingsPanelTitle,
-            icon: providerDescriptor.settingsPanelIconName,
+            icon: nil,
             providerKind: kind,
             availability: availability
         )

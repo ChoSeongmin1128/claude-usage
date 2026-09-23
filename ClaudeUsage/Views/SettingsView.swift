@@ -151,10 +151,12 @@ enum CodexAuthStatusResolver {
 }
 
 struct SettingsView: View {
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
     let claudeAPIService: ClaudeAPIService
     let claudeOAuthMigrationCoordinator: ClaudeOAuthCredentialMigrationCoordinator
     let initialPanel: SettingsProviderPanel?
     @ObservedObject var settings = AppSettings.shared
+    @ObservedObject var notificationManager = NotificationManager.shared
     @ObservedObject var updateRuntimeState = UpdateRuntimeState.shared
     @State var sessionKey: String = ""
     @State var storedSessionKey: String?
@@ -193,6 +195,10 @@ struct SettingsView: View {
     @StateObject var antigravitySettings:
         AntigravitySettingsViewModel
 
+    @State var welcomeProvider: AppProviderKind = .claude
+    var welcomeStatuses: (() -> [AppProviderKind: WelcomeServiceStatus])?
+    var onVerifyService: ((PopoverService) -> Void)?
+
     var onOpenLogin: (() -> Void)?
     var onReconnectClaudeCode: (() -> Void)?
     var onImportClaudeFromChrome: (() -> Void)?
@@ -221,10 +227,16 @@ struct SettingsView: View {
         claudeLastOverage: (() -> OverageSpendLimitResponse?)? = nil,
         codexLastUsage: (() -> CodexUsageResponse?)? = nil,
         codexLastError: (() -> APIError?)? = nil,
-        initialPanel: SettingsProviderPanel? = nil
+        initialPanel: SettingsProviderPanel? = nil,
+        welcomeStatuses: (() -> [AppProviderKind: WelcomeServiceStatus])? = nil,
+        onVerifyService: ((PopoverService) -> Void)? = nil
     ) {
         self.claudeAPIService = claudeAPIService
         self.initialPanel = initialPanel
+        self.welcomeStatuses = welcomeStatuses
+        self.onVerifyService = onVerifyService
+        _welcomeProvider = State(
+            initialValue: AppProviderKind.allCases.first { AppSettings.shared.isProviderEnabled($0) } ?? .claude)
         _selectedPanel = State(
             initialValue:
                 initialPanel

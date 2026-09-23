@@ -15,6 +15,8 @@ struct UsageItemContext {
 
     let codexUsage: CodexUsageResponse?
     let codexError: APIError?
+    var claudeOverageUpdatedAt: Date? = nil
+    var claudeOverageIsStale = false
 }
 
 // MARK: - Catalog protocol
@@ -153,7 +155,8 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                         percentage: usage.fiveHour.utilization,
                         resetAt: usage.fiveHour.resetsAt,
                         isWeekly: false,
-                        timeFormatStyle: context.settings.timeFormat
+                        timeFormatStyle: context.settings.timeFormat,
+                        basis: context.settings.usageValueBasis(for: .claude)
                     )
                 )
             )
@@ -171,15 +174,14 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                         percentage: sevenDay.utilization,
                         resetAt: sevenDay.resetsAt,
                         isWeekly: true,
-                        timeFormatStyle: context.settings.timeFormat
+                        timeFormatStyle: context.settings.timeFormat,
+                        basis: context.settings.usageValueBasis(for: .claude)
                     )
                 )
             )
 
         case "modelUsage":
-            // modelUsage는 Sonnet/Opus 각각 섹션 2개를 생성하는 특수 케이스.
-            // 여기서는 최상위 섹션만 반환하고, 추가 섹션은 expand로 처리.
-            // 현재 구조상 섹션 1개만 반환해야 하므로 Sonnet을 primary로 둡니다.
+            // 모델 한도는 공통 quota 목록에서 동적으로 확장합니다.
             return nil // expandedSections(...)에서 처리
 
         case "overageUsage":
@@ -188,7 +190,10 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                 id: "overageUsage",
                 kind: .overage,
                 importance: .primary,
-                payload: .overage(PopoverOverageSectionData(overage: overage))
+                payload: .overage(
+                    PopoverOverageSectionData(
+                        overage: overage, updatedAt: context.claudeOverageUpdatedAt,
+                        isStale: context.claudeOverageIsStale))
             )
 
         default:
@@ -202,25 +207,18 @@ struct ClaudeItemCatalog: UsageItemCatalog {
         switch itemID {
         case "modelUsage":
             guard let usage = context.claudeUsage else { return [] }
-            // limits[] 기반 동적 목록 — Fable 등 새 모델 스코프 한도가 생겨도 코드 수정 없이 표시됩니다.
-            // 제목은 모델명만 (긴 이름 잘림 방지 + Codex 모델 행과 동일 규칙).
-            return usage.modelWeeklyWindows.map { window in
-                PopoverDisplaySection(
-                    id: "modelUsage-\(window.slug)",
-                    kind: .usage,
-                    importance: .primary,
+            return UsageLimitCatalog.claude(usage).filter { $0.isModelScoped }.compactMap { limit in
+                guard let percentage = limit.usedPercentage else { return nil }
+                return PopoverDisplaySection(
+                    id: limit.id, kind: .usage, importance: .primary,
                     payload: .usage(
                         PopoverUsageSectionData(
-                            title: window.modelName,
-                            compactLabel: Self.modelCompactLabel(for: window),
-                            percentage: window.utilization,
-                            resetAt: window.resetsAt,
-                            isWeekly: true,
-                            timeFormatStyle: context.settings.timeFormat
-                        )
-                    )
-                )
+                            title: limit.shortTitle, compactLabel: limit.shortTitle, percentage: percentage,
+                            resetAt: limit.resetAt.map { ISO8601DateFormatter().string(from: $0) },
+                            isWeekly: true, timeFormatStyle: context.settings.timeFormat,
+                            basis: context.settings.usageValueBasis(for: .claude))))
             }
+
         default:
             if let single = section(for: itemID, context: context) {
                 return [single]
@@ -229,10 +227,7 @@ struct ClaudeItemCatalog: UsageItemCatalog {
         }
     }
 
-    private static func modelCompactLabel(for window: ClaudeModelWeeklyWindow) -> String {
-        if window.slug.contains("sonnet") { return "소넷" }
-        return window.modelName
-    }
+
 }
 
 // MARK: - Codex
@@ -268,28 +263,19 @@ struct CodexItemCatalog: UsageItemCatalog {
         switch itemID {
         case "codexModelLimits":
             guard let usage = context.codexUsage else { return [] }
-            return usage.additionalRateLimits.compactMap { limit in
-                guard let window = limit.window,
-                      let name = limit.limitName?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !name.isEmpty else { return nil }
-                // 제목은 모델명만 — 실제 모델명이 길어 접미사를 붙이면 잘린다.
-                // 주간 여부는 아래 "갱신 예상" 줄의 주간 포맷이 전달한다.
+            return UsageLimitCatalog.codex(usage).filter { $0.isModelScoped }.compactMap { limit in
+                guard let percentage = limit.usedPercentage else { return nil }
                 return PopoverDisplaySection(
-                    id: "codexModelLimit-\(name)",
-                    kind: .usage,
-                    importance: .primary,
+                    id: limit.id, kind: .usage, importance: .primary,
                     payload: .usage(
                         PopoverUsageSectionData(
-                            title: name,
-                            compactLabel: name,
-                            percentage: window.utilization,
-                            resetAt: window.resetAtISO,
-                            isWeekly: (window.limitWindowSeconds ?? 0) >= 24 * 3600,
-                            timeFormatStyle: context.settings.codexTimeFormat
-                        )
-                    )
-                )
+                            title: limit.title, compactLabel: limit.title, percentage: percentage,
+                            resetAt: limit.resetAt.map { ISO8601DateFormatter().string(from: $0) },
+                            isWeekly: (limit.periodSeconds ?? 0) >= 86_400,
+                            timeFormatStyle: context.settings.codexTimeFormat,
+                            basis: context.settings.usageValueBasis(for: .codex))))
             }
+
         default:
             if let single = section(for: itemID, context: context) {
                 return [single]
@@ -315,7 +301,8 @@ struct CodexItemCatalog: UsageItemCatalog {
                             percentage: window.utilization,
                             resetAt: window.resetAtISO,
                             isWeekly: false,
-                            timeFormatStyle: context.settings.codexTimeFormat
+                            timeFormatStyle: context.settings.codexTimeFormat,
+                            basis: context.settings.usageValueBasis(for: .codex)
                         )
                     )
                 )
@@ -344,7 +331,8 @@ struct CodexItemCatalog: UsageItemCatalog {
                             percentage: window.utilization,
                             resetAt: window.resetAtISO,
                             isWeekly: true,
-                            timeFormatStyle: context.settings.codexTimeFormat
+                            timeFormatStyle: context.settings.codexTimeFormat,
+                            basis: context.settings.usageValueBasis(for: .codex)
                         )
                     )
                 )

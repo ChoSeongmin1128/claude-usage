@@ -3,6 +3,24 @@ import XCTest
 
 @MainActor
 final class ClaudeAccountSettingsPresentationTests: XCTestCase {
+    func testCompactHeaderPreservesSourceAndExpandedDetailsAvoidRepeatingOrganization() {
+        let account = ClaudeAccount(
+            id: "cli", kind: .claudeCodeExternal, displayName: "CLI",
+            identity: .init(email: "same@example.com", organizationName: "Workspace", organizationID: "org-work"),
+            source: .claudeCodeCLI, lastValidationState: .verified)
+        let presentation = ClaudeAccountSettingsPresentation.resolve(account: account, isActive: true)
+        XCTAssertEqual(presentation.sourceLabel, "Claude Code")
+        XCTAssertEqual(presentation.secondaryLine, "Workspace")
+        XCTAssertEqual(
+            presentation.detailRows,
+            [
+                .init(title: "로그인 방식", value: "터미널 Claude Code"),
+                .init(title: "조직 ID", value: "org-work"),
+            ])
+        XCTAssertNil(presentation.switchAction)
+        XCTAssertEqual(presentation.managementActions, [.showClaudeCodeLoginGuidance])
+    }
+
     func testHealthSnapshotUsesCurrentStoreMetadataForSameActiveAccount() {
         let staleAccount = ClaudeAccount(
             id: ClaudeAccountStore.claudeCodeExternalAccountID,
@@ -70,7 +88,6 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         XCTAssertEqual(
             presentation.detailRows,
             [
-                ClaudeAccountSettingsDetailRow(title: "조직", value: "Work Org"),
                 ClaudeAccountSettingsDetailRow(title: "로그인 방식", value: "앱에서 로그인"),
                 ClaudeAccountSettingsDetailRow(title: "조직 ID", value: "org-work"),
             ]
@@ -104,7 +121,6 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         XCTAssertEqual(
             presentation.detailRows,
             [
-                ClaudeAccountSettingsDetailRow(title: "조직", value: "Glorang"),
                 ClaudeAccountSettingsDetailRow(title: "Chrome 프로필", value: "Nathan (Profile 2)"),
                 ClaudeAccountSettingsDetailRow(title: "조직 ID", value: "org-company"),
             ]
@@ -138,12 +154,8 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation.secondaryLine, "joseongmin0127@gmail.com's Organization")
-        XCTAssertTrue(presentation.detailRows.contains(
-            ClaudeAccountSettingsDetailRow(
-                title: "조직",
-                value: "joseongmin0127@gmail.com's Organization"
-            )
-        ))
+        XCTAssertEqual(presentation.sourceLabel, "Chrome")
+        XCTAssertFalse(presentation.detailRows.contains { $0.value == "Glorang" })
     }
 
     func testClaudeCodePresentationIsReadOnlyCliCandidate() {
@@ -186,7 +198,6 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         XCTAssertEqual(
             presentation.detailRows,
             [
-                ClaudeAccountSettingsDetailRow(title: "조직", value: "efa005dc..."),
                 ClaudeAccountSettingsDetailRow(title: "로그인 방식", value: "앱에서 로그인"),
             ]
         )
@@ -207,6 +218,7 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         let userFacingTexts = [
             presentation.primaryTitle,
             presentation.secondaryLine ?? "",
+            presentation.sourceLabel ?? "",
             presentation.statusText,
         ]
 

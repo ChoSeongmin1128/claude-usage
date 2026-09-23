@@ -102,6 +102,7 @@ struct LoginWindowView: View {
     // MARK: - State
 
     @State private var step: Step = .methodSelection
+    @State private var taskScope = LoginTaskScope()
     @State private var cliPreview: CLIPreview?
     @State private var didLoadCLIPreview = false
     @State private var didStartOnAppearFlow = false
@@ -123,36 +124,37 @@ struct LoginWindowView: View {
             Divider()
             footerBar
         }
-        .frame(width: 720, height: 600)
+        .frame(width: AppDesign.Window.login.width, height: AppDesign.Window.login.height)
         .onAppear {
             guard !didStartOnAppearFlow else { return }
             didStartOnAppearFlow = true
-            if !startCLIActivationOnOpen {
-                Task { await preloadCLIPreviewIfNeeded() }
-            }
             applyOpenIntent()
         }
+        .task {
+            if !startCLIActivationOnOpen { await preloadCLIPreviewIfNeeded() }
+        }
+        .onDisappear { taskScope.cancel() }
     }
 
     // MARK: - Header
 
     private var headerBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: AppDesign.Space.content) {
             if canGoBack {
                 Button(action: { goBack() }) {
                     Image(systemName: "chevron.left")
-                        .font(.body.weight(.semibold))
+                        .font(AppDesign.Typography.body.weight(.semibold))
                 }
                 .buttonStyle(.borderless)
                 .help("뒤로")
             }
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
                 Text(headerTitle)
-                    .font(.headline)
+                    .font(AppDesign.Typography.headline)
                 if let subtitle = headerSubtitle {
                     Text(subtitle)
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -163,12 +165,12 @@ struct LoginWindowView: View {
                 ProgressView()
                     .controlSize(.small)
                 Text("Claude 사용량 조회 확인 중...")
-                    .font(.caption)
+                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, AppDesign.Space.section)
+        .padding(.vertical, AppDesign.Space.content)
         .background(.bar)
     }
 
@@ -207,7 +209,7 @@ struct LoginWindowView: View {
     // MARK: - Footer
 
     private var footerBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: AppDesign.Space.label) {
             Button("고급 설정") {
                 onOpenAdvancedSettings()
             }
@@ -219,8 +221,8 @@ struct LoginWindowView: View {
             Button("취소") { onCancel() }
                 .keyboardShortcut(.cancelAction)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, AppDesign.Space.section)
+        .padding(.vertical, AppDesign.Space.label)
     }
 
     // MARK: - Content router
@@ -251,7 +253,7 @@ struct LoginWindowView: View {
 
     private var methodSelectionView: some View {
         ScrollView {
-            VStack(spacing: 12) {
+            VStack(spacing: AppDesign.Space.content) {
                 methodCard(
                     icon: "globe",
                     iconTint: .blue,
@@ -281,18 +283,18 @@ struct LoginWindowView: View {
                 )
 
                 Button(action: { onOpenAdvancedSettings() }) {
-                    HStack(spacing: 4) {
+                    HStack(spacing: AppDesign.Space.compact) {
                         Image(systemName: "wrench.adjustable")
                             .imageScale(.small)
                         Text("고급: sessionKey 직접 입력")
-                            .font(.caption)
+                            .font(AppDesign.Typography.caption)
                     }
                     .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.borderless)
-                .padding(.top, 8)
+                .padding(.top, AppDesign.Space.row)
             }
-            .padding(20)
+            .padding(AppDesign.Space.window)
         }
     }
 
@@ -320,22 +322,22 @@ struct LoginWindowView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(alignment: .top, spacing: 14) {
+            HStack(alignment: .top, spacing: AppDesign.Space.card) {
                 Image(systemName: icon)
-                    .font(.title2)
+                    .font(AppDesign.Typography.title2)
                     .foregroundStyle(isEnabled ? iconTint : Color.secondary)
                     .frame(width: 32, height: 32)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
+                    HStack(spacing: AppDesign.Space.control) {
                         Text(title)
-                            .font(.headline)
+                            .font(AppDesign.Typography.headline)
                             .foregroundStyle(isEnabled ? Color.primary : .secondary)
                         if let badge {
                             Text(badge)
-                                .font(.caption2.weight(.semibold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
+                                .font(AppDesign.Typography.caption2.weight(.semibold))
+                                .padding(.horizontal, AppDesign.Space.control)
+                                .padding(.vertical, AppDesign.Space.tight)
                                 .background(Color.accentColor.opacity(0.16))
                                 .foregroundStyle(Color.accentColor)
                                 .clipShape(Capsule())
@@ -343,31 +345,31 @@ struct LoginWindowView: View {
                         Spacer()
                     }
                     Text(subtitle)
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                     if !isEnabled, let disabledReason {
                         Text(disabledReason)
-                            .font(.caption2)
+                            .font(AppDesign.Typography.caption2)
                             .foregroundStyle(Color.orange)
-                            .padding(.top, 2)
+                            .padding(.top, AppDesign.Space.tight)
                     }
                 }
 
                 Image(systemName: "chevron.right")
                     .foregroundStyle(.secondary)
-                    .font(.caption)
-                    .padding(.top, 6)
+                    .font(AppDesign.Typography.caption)
+                    .padding(.top, AppDesign.Space.control)
             }
-            .padding(14)
+            .padding(AppDesign.Space.card)
             .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color(NSColor.controlBackgroundColor).opacity(isEnabled ? 0.6 : 0.3))
+                RoundedRectangle(cornerRadius: AppDesign.Radius.card)
+                    .fill(isEnabled ? AppDesign.Surface.strongGroup : AppDesign.Surface.disabledGroup)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: AppDesign.Radius.card)
                     .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
             )
         }
@@ -378,12 +380,12 @@ struct LoginWindowView: View {
     // MARK: - Step 2A: Chrome 추출
 
     private var chromeImportingView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: AppDesign.Space.section) {
             Spacer()
             ProgressView()
                 .controlSize(.large)
             Text("Chrome 프로필을 확인하고 있습니다...")
-                .font(.callout)
+                .font(AppDesign.Typography.callout)
                 .foregroundStyle(.secondary)
             Spacer()
         }
@@ -392,60 +394,60 @@ struct LoginWindowView: View {
 
     private func chromeCandidatesView(_ candidates: [ClaudeBrowserImportedSession]) -> some View {
         ScrollView {
-            VStack(spacing: 8) {
+            VStack(spacing: AppDesign.Space.row) {
                 Text("어떤 Chrome 프로필의 로그인을 사용할까요?")
-                    .font(.callout)
+                    .font(AppDesign.Typography.callout)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, AppDesign.Space.compact)
 
                 ForEach(candidates) { candidate in
                     Button(action: { activateChrome(candidate: candidate) }) {
-                        HStack(spacing: 12) {
+                        HStack(spacing: AppDesign.Space.content) {
                             Image(systemName: "person.crop.circle")
-                                .font(.title3)
+                                .font(AppDesign.Typography.title3)
                                 .foregroundStyle(Color.accentColor)
                                 .frame(width: 28)
-                            VStack(alignment: .leading, spacing: 3) {
+                            VStack(alignment: .leading, spacing: AppDesign.Space.micro) {
                                 Text(candidate.readableProfileName)
-                                    .font(.subheadline.weight(.semibold))
+                                    .font(AppDesign.Typography.subheadline.weight(.semibold))
                                 Text(candidate.sourceDetail)
-                                    .font(.caption2)
+                                    .font(AppDesign.Typography.caption2)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                             }
                             Spacer()
                             Image(systemName: "chevron.right")
                                 .foregroundStyle(.secondary)
-                                .font(.caption)
+                                .font(AppDesign.Typography.caption)
                         }
-                        .padding(12)
+                        .padding(AppDesign.Space.content)
                         .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color(NSColor.controlBackgroundColor).opacity(0.55))
+                            RoundedRectangle(cornerRadius: AppDesign.Radius.group)
+                                .fill(AppDesign.Surface.strongGroup)
                         )
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(20)
+            .padding(AppDesign.Space.window)
         }
     }
 
     private func chromeUnavailableView(message: String) -> some View {
-        VStack(spacing: 16) {
+        VStack(spacing: AppDesign.Space.section) {
             Spacer()
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 36))
+                .font(AppDesign.Typography.setupIcon)
                 .foregroundStyle(.secondary)
             Text("Chrome에서 가져올 수 없습니다")
-                .font(.headline)
+                .font(AppDesign.Typography.headline)
             Text(message)
-                .font(.callout)
+                .font(AppDesign.Typography.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-            HStack(spacing: 10) {
+                .padding(.horizontal, AppDesign.Space.page)
+            HStack(spacing: AppDesign.Space.label) {
                 Button("Chrome에서 Claude 열기") {
                     openChromeForClaude()
                 }
@@ -453,7 +455,7 @@ struct LoginWindowView: View {
                     step = .methodSelection
                 }
             }
-            .padding(.top, 8)
+            .padding(.top, AppDesign.Space.row)
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -480,25 +482,25 @@ struct LoginWindowView: View {
             if isEmbeddedActivating {
                 Color.black.opacity(0.25).ignoresSafeArea()
                 ProgressView("Claude 사용량 조회 확인 중...")
-                    .padding(20)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    .padding(AppDesign.Space.window)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppDesign.Radius.card))
             }
         }
         .overlay(alignment: .bottom) {
             if let embeddedErrorMessage {
-                HStack(spacing: 8) {
+                HStack(spacing: AppDesign.Space.row) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                     Text(embeddedErrorMessage)
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
                         .foregroundStyle(.primary)
                     Spacer()
                     Button("닫기") { self.embeddedErrorMessage = nil }
-                        .font(.caption)
+                        .font(AppDesign.Typography.caption)
                         .buttonStyle(.borderless)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.horizontal, AppDesign.Space.content)
+                .padding(.vertical, AppDesign.Space.row)
                 .background(Color.orange.opacity(0.16))
             }
         }
@@ -507,15 +509,15 @@ struct LoginWindowView: View {
     // MARK: - Step 2C: CLI 활성화
 
     private var cliActivatingView: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: AppDesign.Space.section) {
             Spacer()
             ProgressView()
                 .controlSize(.large)
             Text("Claude Code 인증을 활성화하고 사용량을 확인하는 중...")
-                .font(.callout)
+                .font(AppDesign.Typography.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
+                .padding(.horizontal, AppDesign.Space.page)
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -524,29 +526,29 @@ struct LoginWindowView: View {
     // MARK: - Step 3: 결과
 
     private func successView(_ summary: ActivationSummary) -> some View {
-        VStack(spacing: 16) {
+        VStack(spacing: AppDesign.Space.section) {
             Spacer()
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 56))
+                .font(AppDesign.Typography.successIcon)
                 .foregroundStyle(Color.green)
             Text(summary.title)
-                .font(.title3.weight(.semibold))
+                .font(AppDesign.Typography.title3.weight(.semibold))
             if let detail = summary.detail {
                 Text(detail)
-                    .font(.callout)
+                    .font(AppDesign.Typography.callout)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, AppDesign.Space.page)
             }
             Text(summary.methodLabel)
-                .font(.caption)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
+                .font(AppDesign.Typography.caption)
+                .padding(.horizontal, AppDesign.Space.label)
+                .padding(.vertical, AppDesign.Space.compact)
                 .background(Color.green.opacity(0.12), in: Capsule())
                 .foregroundStyle(.green)
             Button("완료") { onCancel() }
                 .controlSize(.large)
-                .padding(.top, 8)
+                .padding(.top, AppDesign.Space.row)
                 .keyboardShortcut(.defaultAction)
             Spacer()
         }
@@ -554,19 +556,19 @@ struct LoginWindowView: View {
     }
 
     private func failureView(_ context: FailureContext) -> some View {
-        VStack(spacing: 16) {
+        VStack(spacing: AppDesign.Space.section) {
             Spacer()
             Image(systemName: "xmark.octagon.fill")
-                .font(.system(size: 44))
+                .font(AppDesign.Typography.failureIcon)
                 .foregroundStyle(Color.red)
             Text("로그인을 완료하지 못했습니다")
-                .font(.headline)
+                .font(AppDesign.Typography.headline)
             Text(context.message)
-                .font(.callout)
+                .font(AppDesign.Typography.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 24)
-            HStack(spacing: 10) {
+                .padding(.horizontal, AppDesign.Space.page)
+            HStack(spacing: AppDesign.Space.label) {
                 if let destination = context.retryDestination {
                     Button("다시 시도") { retry(to: destination) }
                         .keyboardShortcut(.defaultAction)
@@ -578,7 +580,7 @@ struct LoginWindowView: View {
                     onOpenAdvancedSettings()
                 }
             }
-            .padding(.top, 8)
+            .padding(.top, AppDesign.Space.row)
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -587,6 +589,7 @@ struct LoginWindowView: View {
     // MARK: - Step transitions
 
     private func goBack() {
+        taskScope.cancel()
         // 단순한 룰: 어디서든 뒤로 → 방법 선택. 사용자가 길을 잃지 않도록 단일 anchor 유지.
         step = .methodSelection
         embeddedErrorMessage = nil
@@ -605,14 +608,13 @@ struct LoginWindowView: View {
     private func startChromeImport() {
         embeddedErrorMessage = nil
         step = .chromeImporting
-        Task.detached(priority: .userInitiated) {
-            let outcome: Result<ClaudeBrowserImportOutcome, Error>
-            do {
-                outcome = .success(try chromeImporter.attemptImport())
-            } catch {
-                outcome = .failure(error)
-            }
-            await MainActor.run { applyChromeOutcome(outcome) }
+        let importer = chromeImporter
+        taskScope.run {
+            await Task.detached(priority: .userInitiated) {
+                Result { try importer.attemptImport() }
+            }.value
+        } apply: { outcome in
+            applyChromeOutcome(outcome)
         }
     }
 
@@ -643,27 +645,12 @@ struct LoginWindowView: View {
             .joined(separator: " · ")
 
         step = .cliActivating  // 공통 progress 표시 재사용 → 잠시 후 success/failure 로 교체
-        Task {
-            do {
-                try await onSessionKeyFound(
-                    candidate.sessionKey,
-                    candidate.displayName,
-                    .chromeProfile,
-                    candidate.sourceDetail
-                )
-                await MainActor.run {
-                    step = .success(ActivationSummary(
-                        title: "Chrome 프로필 로그인을 연결했습니다",
-                        detail: detail.isEmpty ? nil : detail,
-                        methodLabel: methodLabel))
-                }
-            } catch {
-                await MainActor.run {
-                    step = .failure(FailureContext(
-                        message: error.localizedDescription,
-                        retryDestination: .chromeImport))
-                }
-            }
+        runActivation(retryDestination: .chromeImport) {
+            try await onSessionKeyFound(
+                candidate.sessionKey, candidate.displayName, .chromeProfile, candidate.sourceDetail)
+            return ActivationSummary(
+                title: "Chrome 프로필 로그인을 연결했습니다",
+                detail: detail.isEmpty ? nil : detail, methodLabel: methodLabel)
         }
     }
 
@@ -677,39 +664,32 @@ struct LoginWindowView: View {
     private func activateEmbeddedSessionKey(_ key: String) {
         guard !isEmbeddedActivating else { return }
         isEmbeddedActivating = true
-        Task {
-            do {
-                try await onSessionKeyFound(key, nil, .embeddedWebLogin, nil)
-                await MainActor.run {
-                    isEmbeddedActivating = false
-                    step = .success(ActivationSummary(
-                        title: "Claude.ai 로그인을 연결했습니다",
-                        detail: nil,
-                        methodLabel: "Claude.ai 직접 로그인"))
-                }
-            } catch {
-                await MainActor.run {
-                    isEmbeddedActivating = false
-                    step = .failure(FailureContext(
-                        message: error.localizedDescription,
-                        retryDestination: .embeddedWeb))
-                }
-            }
+        runActivation(retryDestination: .embeddedWeb) {
+            try await onSessionKeyFound(key, nil, .embeddedWebLogin, nil)
+            return ActivationSummary(title: "Claude.ai 로그인을 연결했습니다", methodLabel: "Claude.ai 직접 로그인")
         }
     }
 
     private func startCLIActivation() {
         step = .cliActivating
-        Task {
-            do {
-                let summary = try await onActivateCLI()
-                await MainActor.run { step = .success(summary) }
-            } catch {
-                await MainActor.run {
-                    step = .failure(FailureContext(
-                        message: error.localizedDescription,
-                        retryDestination: .cliActivation))
-                }
+        runActivation(retryDestination: .cliActivation) {
+            try await onActivateCLI()
+        }
+    }
+
+    private func runActivation(
+        retryDestination: RetryDestination, operation: @escaping @MainActor () async throws -> ActivationSummary
+    ) {
+        taskScope.run {
+            do { return Result<ActivationSummary, Error>.success(try await operation()) } catch {
+                return Result<ActivationSummary, Error>.failure(error)
+            }
+        } apply: { result in
+            isEmbeddedActivating = false
+            switch result {
+            case .success(let summary): step = .success(summary)
+            case .failure(let error):
+                step = .failure(FailureContext(message: error.localizedDescription, retryDestination: retryDestination))
             }
         }
     }
@@ -731,6 +711,7 @@ struct LoginWindowView: View {
     private func preloadCLIPreviewIfNeeded() async {
         if didLoadCLIPreview { return }
         let preview = await onLoadCLIPreview()
+        guard !Task.isCancelled else { return }
         await MainActor.run {
             self.cliPreview = preview
             self.didLoadCLIPreview = true

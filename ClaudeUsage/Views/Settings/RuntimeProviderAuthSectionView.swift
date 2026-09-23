@@ -36,7 +36,7 @@ private struct SettingsSectionToggleRow: View {
     let isOn: Binding<Bool>
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: AppDesign.Space.content) {
             Button {
                 isOn.wrappedValue.toggle()
             } label: {
@@ -48,7 +48,7 @@ private struct SettingsSectionToggleRow: View {
             Toggle("", isOn: isOn)
                 .labelsHidden()
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, AppDesign.Space.tight)
         .contentShape(Rectangle())
     }
 }
@@ -57,18 +57,17 @@ private struct RuntimeProviderStageCard: View {
     let presentation: RuntimeProviderAuthPresentation
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.label) {
+            HStack(spacing: AppDesign.Space.control) {
                 RuntimeProviderBadgeView(title: presentation.badgeTitle, tone: presentation.badgeTone)
                 Spacer(minLength: 0)
             }
 
             Text(presentation.summary)
-                .font(.subheadline.weight(.semibold))
+                .font(AppDesign.Typography.subheadline.weight(.semibold))
         }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        .cornerRadius(8)
+        .padding(AppDesign.Space.content)
+        .appPanelStyle()
     }
 }
 
@@ -78,11 +77,11 @@ private struct RuntimeProviderNextStepCard: View {
     let presentation: RuntimeProviderAuthPresentation
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: AppDesign.Space.control) {
             Text(presentation.nextStepTitle)
-                .font(.subheadline.weight(.semibold))
+                .font(AppDesign.Typography.subheadline.weight(.semibold))
             Text(presentation.nextStepDetail)
-                .font(.caption)
+                .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
             if let action = presentation.availableAction {
                 Button(presentation.nextStepTitle) {
@@ -90,12 +89,11 @@ private struct RuntimeProviderNextStepCard: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-                .padding(.top, 4)
+                .padding(.top, AppDesign.Space.compact)
             }
         }
-        .padding(12)
-        .background(Color(NSColor.controlBackgroundColor).opacity(0.45))
-        .cornerRadius(8)
+        .padding(AppDesign.Space.content)
+        .appPanelStyle()
     }
 
     private func perform(_ action: RuntimeProviderAuthPresentation.AvailableAction) {
@@ -116,12 +114,12 @@ struct RuntimeProviderBadgeView: View {
 
     var body: some View {
         Text(title)
-            .font(.caption2.weight(.semibold))
+            .font(AppDesign.Typography.caption2.weight(.semibold))
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
             .background(color.opacity(0.16))
             .foregroundStyle(color)
-            .cornerRadius(6)
+            .cornerRadius(AppDesign.Radius.control)
     }
 
     private var color: Color {
