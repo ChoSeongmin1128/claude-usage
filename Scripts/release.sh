@@ -834,6 +834,28 @@ else
                 ))
             ) then \"complete\" else \"partial\" end"
     )"
+    if [[ "$CANDIDATE_RELEASE_STATE" == "partial" ]]; then
+        # Newly uploaded assets can appear by release ID before the tag-based
+        # response catches up. Apply the same completeness checks to that view.
+        CANDIDATE_RELEASE_ID="$(printf '%s\n' "$CANDIDATE_RELEASE_LOOKUP" | jq -r '.id // empty')"
+        if [[ "$CANDIDATE_RELEASE_ID" =~ ^[1-9][0-9]*$ ]]; then
+            CANDIDATE_RELEASE_STATE="$(
+                gh api "repos/$REPOSITORY/releases/$CANDIDATE_RELEASE_ID" \
+                    --jq "if (
+                        .tag_name == \"$TAG\"
+                        and .draft == false
+                        and .prerelease == $EXPECTED_PRERELEASE
+                        and (.assets | length) == 3
+                        and (([.assets[].name] | sort) == [\"ClaudeUsage.dmg\", \"ClaudeUsage.zip\", \"appcast.xml\"])
+                        and all(.assets[]; (
+                            .size > 0
+                            and (.digest | type) == \"string\"
+                            and (.digest | test(\"^sha256:[0-9a-fA-F]{64}$\"))
+                        ))
+                    ) then \"complete\" else \"partial\" end"
+            )"
+        fi
+    fi
     if [[ "$TARGET_LATEST_RELEASE_TAG" != "$TAG" ]]; then
         CANDIDATE_RELEASE_STATE="partial"
     fi

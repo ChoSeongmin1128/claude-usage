@@ -221,6 +221,26 @@ RELEASE_JSON="$(
         --repo "$REPOSITORY" \
         --json tagName,isDraft,isPrerelease,assets,body
 )"
+TAG_ASSETS_STALE=0
+if [[ "$(printf '%s\n' "$RELEASE_JSON" | jq '.assets | length')" != "3" ]]; then
+    TAG_ASSETS_STALE=1
+    # The tag response may lag behind the release-ID asset metadata.
+    RELEASE_ID="$(
+        gh api "repos/$REPOSITORY/releases/tags/$TAG" --jq '.id // empty'
+    )"
+    [[ "$RELEASE_ID" =~ ^[1-9][0-9]*$ ]] \
+        || die "Release ID를 확인하지 못했습니다: $TAG"
+    RELEASE_JSON="$(
+        gh api "repos/$REPOSITORY/releases/$RELEASE_ID" \
+            | jq '{
+                tagName: .tag_name,
+                isDraft: .draft,
+                isPrerelease: .prerelease,
+                assets: .assets,
+                body: .body
+            }'
+    )"
+fi
 RELEASE_METADATA="$(
     printf '%s\n' "$RELEASE_JSON" \
         | jq -r '[.tagName, (.isDraft|tostring), (.isPrerelease|tostring)] | @tsv'
@@ -498,10 +518,19 @@ trap 'exit 129' HUP
 
 mkdir -p "$DOWNLOAD_DIR" "$MOUNT_DIR" "$ZIP_EXTRACT_DIR"
 for asset_name in ClaudeUsage.dmg ClaudeUsage.zip appcast.xml; do
-    gh release download "$TAG" \
+    if [[ "$TAG_ASSETS_STALE" != "1" ]] && gh release download "$TAG" \
         --repo "$REPOSITORY" \
         --pattern "$asset_name" \
-        --dir "$DOWNLOAD_DIR"
+        --dir "$DOWNLOAD_DIR"; then
+        continue
+    fi
+    # The direct URL is checked against GitHub's size and SHA-256 metadata
+    # immediately below, even if the tag-based download index is stale.
+    curl --fail --silent --show-error --location \
+        --proto '=https' --proto-redir '=https' \
+        --retry 3 --retry-all-errors \
+        --output "$DOWNLOAD_DIR/$asset_name" \
+        "https://github.com/$REPOSITORY/releases/download/$TAG/$asset_name"
 done
 
 DMG_SHA256="$(
