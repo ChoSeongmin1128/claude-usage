@@ -751,9 +751,11 @@ case "${1:-}" in
                     exit 1
                     ;;
                 pages_pending|complete)
-                    printf '{}\n'
+                    printf '{"id":394}\n'
                     ;;
             esac
+        elif [[ "${2:-}" == *"/releases/394" ]]; then
+            printf 'complete\n'
         elif [[ "${2:-}" == *"/pages/builds/latest" ]]; then
             pages_count=0
             if [[ -f "${RELEASE_DRIVER_TEST_PAGES_STATE_FILE:?}" ]]; then
@@ -804,7 +806,11 @@ case "${1:-}" in
                 if [[ "$*" == *'--json isDraft,isPrerelease'* ]]; then
                     printf 'false\ttrue\n'
                 elif [[ "$*" == *'then "complete"'* ]]; then
-                    printf 'complete\n'
+                    if [[ "${RELEASE_DRIVER_TEST_STALE_TAG_ASSETS:-0}" == "1" ]]; then
+                        printf 'partial\n'
+                    else
+                        printf 'complete\n'
+                    fi
                 elif [[ "$*" == *'digest else'* ]]; then
                     printf '<appcast>candidate</appcast>\n' \
                         | shasum -a 256 \
@@ -1012,6 +1018,7 @@ run_orchestration_scenario() {
             "RELEASE_DRIVER_TEST_STATIC_FAIL=${RELEASE_DRIVER_TEST_STATIC_FAIL:-0}" \
             "RELEASE_DRIVER_TEST_CODEX_LIVE_FAIL=${RELEASE_DRIVER_TEST_CODEX_LIVE_FAIL:-0}" \
             "RELEASE_DRIVER_TEST_CERT_CHANGED=$cert_changed" \
+            "RELEASE_DRIVER_TEST_STALE_TAG_ASSETS=${RELEASE_DRIVER_TEST_STALE_TAG_ASSETS:-0}" \
             "RELEASE_DRIVER_TEST_STAGING_IDENTITY_BOOTSTRAP_VERSION=$bootstrap_version" \
             "RELEASE_DRIVER_TEST_EXPECTED_FEED=$(release_feed_url_for "$environment")" \
             "RELEASE_DRIVER_TEST_PROD_TAG=v2.3.3" \
@@ -1207,6 +1214,17 @@ assert_not_contains "$SCENARIO_TRACE" "publish <v2.4.0-stg.1>" "pages-pending re
 assert_not_contains "$SCENARIO_TRACE" "<--install-to>" "pages-pending Downloads install skipped"
 assert_orchestration_cleanup "pages-pending"
 assert_no_destructive_release_commands "$SCENARIO_TRACE" "pages-pending"
+
+RELEASE_DRIVER_TEST_STALE_TAG_ASSETS=1 run_orchestration_scenario \
+    pages_pending \
+    v2.4.0-stg.1 \
+    $'2.3.3\t20330\tv2.3.3-staging' \
+    $'2.4.0\t20400\tv2.4.0-stg.1'
+assert_equal "0" "$SCENARIO_STATUS" "release-ID asset fallback"
+assert_contains "$SCENARIO_TRACE" "gh <api> <repos/ChoSeongmin1128/claude-usage/releases/394>" "release-ID metadata lookup"
+assert_contains "$SCENARIO_OUTPUT" "candidate metadata state: pages_pending" "stale tag asset recovery"
+assert_orchestration_cleanup "release-ID asset fallback"
+assert_no_destructive_release_commands "$SCENARIO_TRACE" "release-ID asset fallback"
 
 run_orchestration_scenario \
     pages_pending \
@@ -1907,9 +1925,32 @@ set -euo pipefail
     printf ' <%s>' "$@"
     printf '\n'
 } >> "${CANONICAL_VERIFY_TRACE:?}"
+if [[ "${1:-}" == "api" ]]; then
+    case "${2:-}" in
+        repos/FixtureOwner/ClaudeUsage/releases/tags/v2.4.0-stg.1)
+            printf '123\n'
+            ;;
+        repos/FixtureOwner/ClaudeUsage/releases/123)
+            printf '{"tag_name":"v2.4.0-stg.1","draft":false,"prerelease":true,"assets":['
+            printf '{"name":"ClaudeUsage.dmg","size":%s,"digest":"sha256:%s"},' \
+                "${CANONICAL_VERIFY_DMG_SIZE:?}" "${CANONICAL_VERIFY_DMG_SHA:?}"
+            printf '{"name":"ClaudeUsage.zip","size":%s,"digest":"sha256:%s"},' \
+                "${CANONICAL_VERIFY_ZIP_SIZE:?}" "${CANONICAL_VERIFY_ZIP_SHA:?}"
+            printf '{"name":"appcast.xml","size":%s,"digest":"sha256:%s"}' \
+                "${CANONICAL_VERIFY_APPCAST_SIZE:?}" "${CANONICAL_VERIFY_APPCAST_SHA:?}"
+            printf '],"body":""}\n'
+            ;;
+        *) exit 97 ;;
+    esac
+    exit 0
+fi
 [[ "${1:-}" == "release" ]]
 case "${2:-}" in
     view)
+        if [[ "${CANONICAL_VERIFY_STALE_TAG_ASSETS:-0}" == "1" ]]; then
+            printf '{"tagName":"v2.4.0-stg.1","isDraft":false,"isPrerelease":true,"assets":[],"body":""}\n'
+            exit 0
+        fi
         printf '{"tagName":"v2.4.0-stg.1","isDraft":false,"isPrerelease":true,"assets":['
         printf '{"name":"ClaudeUsage.dmg","size":%s,"digest":"sha256:%s"},' \
             "${CANONICAL_VERIFY_DMG_SIZE:?}" \
@@ -1923,6 +1964,10 @@ case "${2:-}" in
         printf ']}\n'
         ;;
     download)
+        if [[ "${CANONICAL_VERIFY_STALE_TAG_ASSETS:-0}" == "1" ]]; then
+            printf 'no assets to download\n' >&2
+            exit 1
+        fi
         shift 2
         pattern=""
         destination=""
@@ -1948,6 +1993,27 @@ case "${2:-}" in
         exit 97
         ;;
 esac
+SCRIPT
+
+cat > "$CANONICAL_VERIFY_BIN/curl" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+{
+    printf 'curl'
+    printf ' <%s>' "$@"
+    printf '\n'
+} >> "${CANONICAL_VERIFY_TRACE:?}"
+output=""
+for (( index = 1; index <= $#; index++ )); do
+    if [[ "${!index}" == "--output" ]]; then
+        next=$((index + 1))
+        output="${!next}"
+    fi
+done
+[[ -n "$output" ]]
+asset_name="${!#}"
+asset_name="${asset_name##*/}"
+cp "${CANONICAL_VERIFY_ASSETS:?}/$asset_name" "$output"
 SCRIPT
 
 cat > "$CANONICAL_VERIFY_BIN/ditto" <<'SCRIPT'
@@ -2053,6 +2119,7 @@ SCRIPT
 
 chmod +x \
     "$CANONICAL_VERIFY_BIN/gh" \
+    "$CANONICAL_VERIFY_BIN/curl" \
     "$CANONICAL_VERIFY_BIN/ditto" \
     "$CANONICAL_VERIFY_BIN/codesign" \
     "$CANONICAL_VERIFY_BIN/xcrun" \
@@ -2078,6 +2145,7 @@ CANONICAL_VERIFY_OUTPUT="$(
         "CANONICAL_VERIFY_ZIP_SHA=$CANONICAL_VERIFY_ZIP_SHA" \
         "CANONICAL_VERIFY_APPCAST_SIZE=$CANONICAL_VERIFY_APPCAST_SIZE" \
         "CANONICAL_VERIFY_APPCAST_SHA=$CANONICAL_VERIFY_APPCAST_SHA" \
+        "CANONICAL_VERIFY_STALE_TAG_ASSETS=1" \
         /bin/bash "$CANONICAL_VERIFY_REPOSITORY/Scripts/verify-release-artifact.sh" \
         --tag v2.4.0-stg.1 \
         --channel staging \
@@ -2091,6 +2159,8 @@ set -e
 CANONICAL_VERIFY_COMMANDS="$(cat "$CANONICAL_VERIFY_TRACE")"
 assert_equal "0" "$CANONICAL_VERIFY_STATUS" "symlink TMPDIR verifier"
 assert_contains "$CANONICAL_VERIFY_OUTPUT" "검증 완료" "symlink TMPDIR verifier output"
+assert_contains "$CANONICAL_VERIFY_COMMANDS" "gh <api> <repos/FixtureOwner/ClaudeUsage/releases/123>" "verifier release-ID metadata fallback"
+assert_contains "$CANONICAL_VERIFY_COMMANDS" "curl <--fail>" "verifier direct download fallback"
 assert_contains \
     "$CANONICAL_VERIFY_COMMANDS" \
     "<-mountpoint> <$CANONICAL_VERIFY_PHYSICAL_TMP_P/" \
