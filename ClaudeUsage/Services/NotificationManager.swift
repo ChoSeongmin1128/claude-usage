@@ -86,9 +86,14 @@ final class NotificationManager: ObservableObject {
         selection.observe(limits, provider: provider, legacySelection: legacySelection)
         if selection != settings.notificationTargets { settings.notificationTargets = selection }
         let currentIDs = Set(limits.map(\.id))
-        let absent = (inventories[provider] ?? []).filter { !currentIDs.contains($0.id) }.map { $0.unavailable() }
+        let selectedIDs = selection.providers[provider.rawValue]?.selectedIDs ?? []
+        let absent = (inventories[provider] ?? [])
+            .filter { !currentIDs.contains($0.id) && selectedIDs.contains($0.id) }
+            .map { $0.unavailable() }
         let inventory = limits + absent
         if inventories[provider] != inventory { inventories[provider] = inventory }
+        let retainedIDs = currentIDs.union(selectedIDs)
+        trackers = trackers.filter { $0.value.provider != provider || retainedIDs.contains($0.key) }
         let freshPolicy = policy?.isFreshEnoughForNotifications == true ? policy : nil
         var crossings: [(UsageLimit, Int)] = []
         for limit in limits {

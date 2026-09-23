@@ -552,6 +552,35 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(deliverer.delivered.count, 1)
     }
 
+    func testMissingInventoryKeepsOnlySelectedTargets() {
+        func limit(_ id: String) -> UsageLimit {
+            UsageLimit(
+                id: id, provider: .claude, title: id, shortTitle: id,
+                scope: "model:\(id)", periodSeconds: 604_800,
+                usedPercentage: 20, resetAt: nil,
+                isIdentifiable: true, legacyKey: nil
+            )
+        }
+        let selected = limit("selected")
+        let unselected = limit("unselected")
+        manager.check(
+            provider: .claude, accountID: "account-a",
+            limits: [selected, unselected], isEnabled: true,
+            legacySelection: { _ in false }
+        )
+        AppSettings.shared.notificationTargets.setSelected(true, limit: selected)
+
+        manager.check(
+            provider: .claude, accountID: "account-a",
+            limits: [], isEnabled: true,
+            legacySelection: { _ in false }
+        )
+
+        XCTAssertEqual(manager.inventories[.claude]?.map(\.id), [selected.id])
+        XCTAssertNil(manager.inventories[.claude]?.first?.usedPercentage)
+        XCTAssertTrue(AppSettings.shared.notificationTargets.isSelected(selected.id, provider: .claude))
+    }
+
     func testCodexAdditionalWindowsHaveIndependentSelectionsAndHistories() throws {
         func usage(_ short: Int, _ weekly: Int) throws -> CodexUsageResponse {
             try JSONDecoder().decode(

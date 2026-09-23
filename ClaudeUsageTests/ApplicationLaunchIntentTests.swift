@@ -92,46 +92,4 @@ final class ApplicationLaunchIntentTests: XCTestCase {
         )
     }
 
-    func testRelaunchAfterMoveIsAbsentUnlessRequested() {
-        XCTAssertNil(
-            ApplicationLaunchIntent.parse(
-                arguments: [
-                    "ClaudeUsage-stg",
-                    "--show-settings=common",
-                ]
-            ).relaunchAfterMovePredecessor
-        )
-    }
-
-    func testRelaunchAfterMoveCarriesPredecessorProcess() {
-        XCTAssertEqual(
-            ApplicationLaunchIntent.parse(
-                arguments: [
-                    "ClaudeUsage-stg",
-                    ApplicationLaunchIntent
-                        .relaunchAfterMoveArgument(
-                            predecessor: 4_321
-                        ),
-                ]
-            ).relaunchAfterMovePredecessor,
-            4_321
-        )
-    }
-
-    /// 프로세스를 지목하지 못하는 값은 대기 근거가 되지 못하므로 무시한다.
-    func testRelaunchAfterMoveRejectsUnusableProcessValues() {
-        for rawValue in ["", "0", "-1", "abc", "12.5"] {
-            XCTAssertNil(
-                ApplicationLaunchIntent.parse(
-                    arguments: [
-                        "ClaudeUsage-stg",
-                        ApplicationLaunchIntent
-                            .relaunchAfterMovePrefix
-                            + rawValue,
-                    ]
-                ).relaunchAfterMovePredecessor,
-                rawValue
-            )
-        }
-    }
 }

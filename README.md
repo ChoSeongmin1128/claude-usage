@@ -15,7 +15,7 @@ Homebrew Cask로 설치할 수 있습니다.
 brew install --cask choseongmin1128/tap/claude-usage
 ```
 
-DMG 설치는 앱을 Applications로 옮긴 뒤 Finder에서 직접 실행합니다. Homebrew 설치본에서도 앱 자체 업데이트가 동작합니다.
+DMG 설치는 다운로드한 DMG를 열고 앱 아이콘을 Applications 아이콘으로 드래그한 뒤, Finder의 Applications 폴더에서 앱을 실행합니다. DMG 안의 앱을 직접 실행하면 설치 위치 안내만 표시하며 앱을 자동으로 복사하거나 DMG를 삭제하지 않습니다. Homebrew 설치본에서도 앱 자체 업데이트가 동작합니다.
 
 기존 수동 설치본을 Homebrew 관리로 바꾸려면 먼저 최신 운영 버전으로 업데이트하고 ClaudeUsage를 종료한 뒤, 기존 앱 번들만 휴지통으로 옮기고 위 명령을 실행합니다. 설정·계정 데이터는 앱 번들 밖에 유지됩니다. 기존 앱을 확인 없이 등록할 수 있는 `--adopt`는 사용하지 않습니다. 자세한 절차는 [Homebrew 배포 안내](docs/homebrew-distribution.md#기존-설치본-편입)를 참고하세요.
 

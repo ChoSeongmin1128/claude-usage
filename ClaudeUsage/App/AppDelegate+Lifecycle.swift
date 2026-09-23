@@ -1,5 +1,9 @@
 import AppKit
 
+private enum AppShutdownPolicy {
+    static let ownedRuntimeTimeout: Duration = .seconds(5)
+}
+
 extension AppDelegate {
     // MARK: - Lifecycle
 
@@ -14,28 +18,9 @@ extension AppDelegate {
             AntigravityStoragePaths
                 .applicationSupportDirectoryURL()
         let instanceGuard = AppSingleInstanceGuard.shared
-        // 이동 후 재실행이면 구 프로세스가 종료 절차를 끝낼 때까지 기다린다. 기다리지
-        // 않으면 구 프로세스가 아직 잠금을 쥔 채 종료 중이라 양쪽 다 사라진다.
-        let waitsForPredecessor =
-            ApplicationLaunchIntent
-            .parse(arguments: CommandLine.arguments)
-            .relaunchAfterMovePredecessor
-            .map(
-                AppRelaunchHandoffPolicy
-                    .predecessorIsRunning
-            )
-            ?? false
-        let result =
-            waitsForPredecessor
-            ? instanceGuard
-                .acquireWaitingForRelocatedPredecessor(
-                    applicationSupportDirectoryURL:
-                        supportDirectory
-                )
-            : instanceGuard.acquire(
-                applicationSupportDirectoryURL:
-                    supportDirectory
-            )
+        let result = instanceGuard.acquire(
+            applicationSupportDirectoryURL: supportDirectory
+        )
         switch result {
         case .acquired:
             ownsSingleInstanceLease = true
@@ -119,11 +104,9 @@ extension AppDelegate {
             }
         }
 
-        // 자동 업데이트 신뢰성에 대한 권고일 뿐이므로 실행 경로를 막지 않는다.
-        // setupStatusItems() 앞에서 모달로 돌던 동안에는 프롬프트에 답하지 않으면
-        // 메뉴바 아이템도 팝오버도 타이머도 만들어지지 않았다.
+        // 설치 위치 안내는 메뉴바와 런타임을 준비한 뒤에 보여 준다.
         DispatchQueue.main.async {
-            AppLocationChecker.checkAndPromptIfNeeded()
+            AppLocationChecker.checkAndGuideIfNeeded()
         }
     }
 
@@ -157,6 +140,7 @@ extension AppDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        StatusItemDiagnosticsLog.record("termination requested")
         guard ownsSingleInstanceLease,
               didFinishRuntimeLaunch
         else {
@@ -186,10 +170,7 @@ extension AppDelegate {
             Task { [weak self] in
                 do {
                     try await Task.sleep(
-                        for: .seconds(
-                            AppRelaunchHandoffPolicy
-                                .ownedRuntimeShutdownTimeout
-                        )
+                        for: AppShutdownPolicy.ownedRuntimeTimeout
                     )
                 } catch {
                     return
@@ -275,6 +256,7 @@ extension AppDelegate {
                 "Antigravity owned runtime 정리 완료"
             )
         }
+        StatusItemDiagnosticsLog.record("termination reply timedOut=\(timedOut)")
         NSApplication.shared.reply(
             toApplicationShouldTerminate: true
         )
