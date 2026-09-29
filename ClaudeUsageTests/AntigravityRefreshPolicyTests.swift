@@ -68,36 +68,15 @@ final class AntigravityRefreshPolicyTests: XCTestCase {
         )
     }
 
-    func testAmbientPlanUsesManagedCLIAfterBorrowedSourcesWhenAvailable() {
-        XCTAssertEqual(
-            AntigravitySourcePlanner.plannedSources(
-                target: .cli,
-                managedLaunch: .enabled
-            ),
-            [.borrowedCLI, .managedCLI]
-        )
+    func testCLITargetPlansOnlyTheUsageReport() {
+        XCTAssertEqual(AntigravitySourcePlanner.plannedSources(target: .cli), [.cliReport])
     }
 
-    func testAmbientPlanSkipsManagedCLIWhenExecutableIsUnavailable() {
-        XCTAssertEqual(
-            AntigravitySourcePlanner.plannedSources(
-                target: .cli,
-                managedLaunch: .disabled
-            ),
-            [.borrowedCLI]
-        )
+    func testAppTargetNeverPlansTheCLIOrRemoteOAuth() {
+        XCTAssertEqual(AntigravitySourcePlanner.plannedSources(target: .app), [.localApp])
     }
 
-    func testSelectedLocalAccountNeverPlansRemoteOAuth() {
-        XCTAssertEqual(
-            AntigravitySourcePlanner.plannedSources(
-                target: .app,
-                managedLaunch: .enabled
-            ),
-            [
-                .localApp,
-            ]
-        )
+    func testUnselectedTargetPlansNothing() {
+        XCTAssertEqual(AntigravitySourcePlanner.plannedSources(target: .unselected), [])
     }
-
 }

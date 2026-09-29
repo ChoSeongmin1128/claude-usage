@@ -352,8 +352,6 @@ extension SettingsView {
             return "이전 사용량 표시 중"
         case .accountMismatch:
             return "계정이 일치하지 않음"
-        case .setupRequired(.managedRecoveryBlocked):
-            return "이전 AGY 실행 정리 필요"
         case .setupRequired(.usageTargetSelection):
             return "조회 대상 선택 필요"
         case .setupRequired(.ambiguousLocalSessions):
@@ -385,8 +383,6 @@ extension SettingsView {
             return "계정은 확인했지만 표시 가능한 사용량 수치를 받지 못했습니다."
         case .accountMismatch:
             return "조회 중 계정이 달라져 이전 수치는 표시하지 않았습니다."
-        case .setupRequired(.managedRecoveryBlocked):
-            return "이전 AGY 실행 기록을 정리하지 못해 자동 실행이 중지됐습니다. Antigravity 앱이나 AGY CLI를 실행하면 조회는 가능합니다. ClaudeUsage를 재시동해 정리를 다시 시도해 주세요."
         case .setupRequired:
             return "조회 대상을 선택하고 해당 제품에서 로그인해 주세요."
         case .stale:
@@ -416,8 +412,6 @@ extension SettingsView {
         switch state.presentation {
         case .ready:
             return ("최신", .blue)
-        case .setupRequired(.managedRecoveryBlocked):
-            return ("정리 필요", .red)
         case .partial,
              .stale,
              .limited,
@@ -492,8 +486,6 @@ extension SettingsView {
             "이전 데이터 · " + reason.diagnosticCode
         case .accountMismatch:
             "계정 불일치"
-        case .setupRequired(.managedRecoveryBlocked):
-            "정리 필요"
         case .setupRequired:
             "설정 필요"
         case .failed(let reason):

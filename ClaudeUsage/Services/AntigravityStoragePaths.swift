@@ -32,17 +32,4 @@ nonisolated enum AntigravityStoragePaths {
         )
         .appendingPathComponent("Antigravity", isDirectory: true)
     }
-
-    /// Cross-channel launch serialization prevents prod and staging from
-    /// racing to create two managed AGY processes. Credentials, settings and
-    /// owned-process ledgers remain in each channel's private directory.
-    static func managedLaunchCoordinationDirectoryURL(
-        homeDirectoryURL: URL = FileManager.default.realHomeDirectory
-    ) -> URL {
-        homeDirectoryURL.standardizedFileURL
-            .appendingPathComponent(
-                "Library/Application Support/ClaudeUsageShared/Antigravity",
-                isDirectory: true
-            )
-    }
 }

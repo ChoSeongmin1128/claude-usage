@@ -21,12 +21,22 @@ final class OperationalLogTests: XCTestCase {
     }
 
     func testCSRFAndTransportFailuresRemainDistinct() {
-        let csrf = OperationalDiagnostic.antigravity(.failed(.localAuthentication(.managedCLI, .rejected)))
-        let transport = OperationalDiagnostic.antigravity(.failed(.transportUnavailable(.managedCLI)))
-        XCTAssertEqual(csrf?.code, "agy.managedCLI.csrf.rejected")
-        XCTAssertEqual(csrf?.source, "managedCLI")
-        XCTAssertEqual(transport?.code, "agy.managedCLI.transportUnavailable")
+        let csrf = OperationalDiagnostic.antigravity(.failed(.localAuthentication(.localApp, .rejected)))
+        let transport = OperationalDiagnostic.antigravity(.failed(.transportUnavailable(.cliReport)))
+        XCTAssertEqual(csrf?.code, "agy.localApp.csrf.rejected")
+        XCTAssertEqual(csrf?.source, "localApp")
+        XCTAssertEqual(transport?.code, "agy.cliReport.transportUnavailable")
+        XCTAssertEqual(transport?.source, "cliReport")
         XCTAssertEqual(csrf?.isFailure, true)
+    }
+
+    func testCLIReportFailuresAreAttributedToTheReportSource() {
+        let failed = OperationalDiagnostic.antigravity(.failed(.cliReportFailed))
+        let runtime = OperationalDiagnostic.antigravity(.failed(.runtimeUnavailable(.unsupportedVersion)))
+        XCTAssertEqual(failed?.code, "agy.cliReport.reportFailed")
+        XCTAssertEqual(failed?.source, "cliReport")
+        XCTAssertEqual(runtime?.code, "agy.cliReport.unsupportedVersion")
+        XCTAssertEqual(runtime?.source, "cliReport")
     }
 
     func testCancellationAndIntermediateStatesDoNotProduceOperationalNoise() {

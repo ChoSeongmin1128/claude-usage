@@ -41,15 +41,8 @@ nonisolated enum
                     homeDirectoryURL:
                         homeDirectoryURL
                 )
-        let managedLaunchCoordinationDirectory =
-            AntigravityStoragePaths
-                .managedLaunchCoordinationDirectoryURL(
-                    homeDirectoryURL:
-                        homeDirectoryURL
-                )
         let runtimeEnvironment = AntigravityRuntimeEnvironment.production(
-            homeDirectoryURL: homeDirectoryURL, stateDirectory: stateDirectory,
-            managedLaunchCoordinationDirectory: managedLaunchCoordinationDirectory
+            homeDirectoryURL: homeDirectoryURL, stateDirectory: stateDirectory
         )
 
         let repository =
@@ -115,7 +108,7 @@ nonisolated enum
                     migrationCoordinator,
                 refreshCoordinator:
                     refreshCoordinator,
-                managedSession:
+                runtimeLifecycle:
                     runtimeEnvironment,
                 settingsBootstrap:
                     settingsBootstrap,

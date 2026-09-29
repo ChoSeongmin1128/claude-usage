@@ -310,18 +310,18 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(state.summary, "사용량 조회 준비")
     }
 
-    func testResolveAntigravitySummaryStateTreatsManagedRecoveryBlockAsBootstrapAttention() {
+    func testResolveAntigravitySummaryStateTreatsBlockedReadinessAsBootstrapAttention() {
         let state = PopoverViewModel.resolveAntigravitySummaryState(
             snapshot: antigravityRuntimeSnapshot(
                 readiness:
-                    .blocked(.managedRuntimeRecovery),
+                    .blocked(.typedSettings),
                 presentationState:
                     .failed(
-                        .sourceUnavailable(.managedCLI)
+                        .sourceUnavailable(.cliReport)
                     ),
                 managedRuntimeAvailability:
-                    .recoveryBlocked(
-                        displayPath: nil
+                    .unavailable(
+                        reason: .executableNotFound
                     )
             ),
             isEnabled: true
@@ -331,7 +331,7 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(state.summary, "초기 설정 확인 필요")
     }
 
-    func testResolveAntigravitySummaryStateDoesNotMergeManagedFailureIntoIdentityOnlySource() {
+    func testResolveAntigravitySummaryStateDoesNotMergeCLIAvailabilityIntoIdentityOnlySource() {
         let identity = ProviderAccountIdentity(
             stableAccountID: "subject-a",
             email: "nathan@example.com"
@@ -352,8 +352,8 @@ final class PopoverViewModelTests: XCTestCase {
                         )
                     ),
                 managedRuntimeAvailability:
-                    .recoveryBlocked(
-                        displayPath: nil
+                    .unavailable(
+                        reason: .signatureRejected
                     )
             ),
             isEnabled: true

@@ -122,6 +122,8 @@ nonisolated struct AntigravityQuotaProvenance: Sendable, Equatable {
         case localAppRPC
         case borrowedAGYRPC
         case managedAGYRPC
+        /// Parsed from `agy -p /usage --output-format json`.
+        case cliUsageReport
         case googleOAuth
     }
 

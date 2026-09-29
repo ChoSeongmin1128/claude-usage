@@ -67,17 +67,6 @@ extension AntigravityMigrationCoordinator:
     AntigravityRuntimeMigrationCoordinating
 {}
 
-nonisolated protocol AntigravityManagedSessionLifecycling:
-    Sendable
-{
-    func recoverOrphanedProcesses() async throws
-    func shutdown() async
-}
-
-extension AntigravityManagedCLISession:
-    AntigravityManagedSessionLifecycling
-{}
-
 private actor AntigravityRuntimeOperationGate {
     private var isAcquired = false
     private var waiters:
@@ -117,8 +106,7 @@ actor AntigravityRuntimeController {
         any AntigravityRuntimeMigrationCoordinating
     private let refreshCoordinator:
         any AntigravityRefreshCoordinating
-    private let managedSession:
-        any AntigravityManagedSessionLifecycling
+    private let runtimeLifecycle: any AntigravityRuntimeLifecycling
     private let settingsBootstrap:
         AntigravitySettingsBootstrapResult
     private let agyExecutableStatus:
@@ -176,8 +164,8 @@ actor AntigravityRuntimeController {
             any AntigravityRuntimeMigrationCoordinating,
         refreshCoordinator:
             any AntigravityRefreshCoordinating,
-        managedSession:
-            any AntigravityManagedSessionLifecycling,
+        runtimeLifecycle:
+            any AntigravityRuntimeLifecycling,
         settingsBootstrap:
             AntigravitySettingsBootstrapResult,
         agyExecutableStatus:
@@ -193,7 +181,7 @@ actor AntigravityRuntimeController {
         self.migrationCoordinator =
             migrationCoordinator
         self.refreshCoordinator = refreshCoordinator
-        self.managedSession = managedSession
+        self.runtimeLifecycle = runtimeLifecycle
         self.settingsBootstrap = settingsBootstrap
         self.agyExecutableStatus =
             agyExecutableStatus
@@ -261,20 +249,11 @@ actor AntigravityRuntimeController {
                 readiness: .bootstrapping
             )
 
-            do {
-                try await managedSession
-                    .recoverOrphanedProcesses()
-                managedAvailability =
-                    Self.managedAvailability(
-                        for: agyExecutableStatus
-                    )
-            } catch {
-                managedAvailability = .recoveryBlocked(
-                    displayPath:
-                        Self.verifiedDisplayPath(
-                            from: agyExecutableStatus
-                        )
-                )
+            // Nothing current depends on the legacy ledger, so its cleanup
+            // runs beside the first refresh instead of in front of it.
+            let runtimeLifecycle = self.runtimeLifecycle
+            Task.detached(priority: .utility) {
+                await runtimeLifecycle.cleanUpLegacyManagedProcesses()
             }
             if let runtimeEnvironment {
                 managedAvailability = await runtimeEnvironment.managedAvailability()
@@ -716,14 +695,12 @@ actor AntigravityRuntimeController {
 
         let refreshCoordinator =
             self.refreshCoordinator
-        let managedSession = self.managedSession
+        let runtimeLifecycle = self.runtimeLifecycle
         let task = Task {
-            async let quiesce: Void =
-                refreshCoordinator
-                    .quiesceForShutdown()
-            async let stopManaged: Void =
-                managedSession.shutdown()
-            _ = await (quiesce, stopManaged)
+            // Quiescing cancels the flight first; the runtime then waits for
+            // the cancelled report to reap its process group.
+            await refreshCoordinator.quiesceForShutdown()
+            await runtimeLifecycle.shutdown()
         }
         shutdownTask = task
         await task.value
@@ -1056,8 +1033,7 @@ actor AntigravityRuntimeController {
             trigger: trigger,
             repositoryRevision:
                 context.repositoryState.revision,
-            connection: context.settings.connection,
-            managedLaunch: managedAvailability.launchState
+            connection: context.settings.connection
         )
         return RefreshTransaction(
             id: transactionID,
@@ -1086,17 +1062,6 @@ actor AntigravityRuntimeController {
                 reason: .signatureRejected
             )
         }
-    }
-
-    private static func verifiedDisplayPath(
-        from status:
-            AntigravityAGYExecutableDiscoveryStatus
-    ) -> String? {
-        guard case .verified(let displayPath) = status
-        else {
-            return nil
-        }
-        return displayPath
     }
 
     private func executeRefresh(_ transaction: RefreshTransaction) async -> AntigravityRuntimeSnapshot {

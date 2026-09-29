@@ -191,35 +191,35 @@ final class AntigravitySettingsViewModelTests:
 
         XCTAssertEqual(
             presentation.diagnosticTitle,
-            "감지됨 · ~/.local/bin/agy · 필요 시 자동 실행"
+            "감지됨 · ~/.local/bin/agy · 조회할 때 사용량 보고 실행"
         )
     }
 
-    func testRejectedAndRecoveryBlockedStatesRemainDistinct() {
-        let rejected =
+    func testMissingAndRejectedExecutablesRemainDistinct() {
+        let missing =
             AntigravityManagedRuntimeSettingsPresentation
                 .resolve(
                     .unavailable(
                         reason:
-                            .signatureRejected
+                        .executableNotFound
                     )
                 )
-        let recoveryBlocked =
+        let rejected =
             AntigravityManagedRuntimeSettingsPresentation
                 .resolve(
-                    .recoveryBlocked(
-                        displayPath:
-                            "~/.local/bin/agy"
+                .unavailable(
+                    reason:
+                        .signatureRejected
                     )
                 )
 
         XCTAssertEqual(
-            rejected.diagnosticTitle,
-            "감지됐지만 Google 서명 검증 실패"
+            missing.diagnosticTitle,
+            "미감지 · AGY CLI 설치 필요"
         )
         XCTAssertEqual(
-            recoveryBlocked.diagnosticTitle,
-            "이전 프로세스 복구 실패 · ~/.local/bin/agy · 자동 실행 중단"
+            rejected.diagnosticTitle,
+            "감지됐지만 Google 서명 검증 실패"
         )
     }
 

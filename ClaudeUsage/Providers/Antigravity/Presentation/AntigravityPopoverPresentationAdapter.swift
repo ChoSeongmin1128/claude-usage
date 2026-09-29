@@ -115,8 +115,6 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
             "계정 저장 상태를 검증하지 못했습니다. 설정에서 계정을 다시 확인해 주세요."
         case .typedSettings:
             "자동 조회 설정을 준비하지 못했습니다. 설정을 다시 열어 상태를 확인해 주세요."
-        case .managedRuntimeRecovery:
-            "이전 AGY 실행을 안전하게 정리하지 못했습니다. 설정의 진단 항목을 확인해 주세요."
         }
     }
 
@@ -127,8 +125,6 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
         case .noSelectedOAuthAccount,
             .noAmbientLocalSession, .usageTargetSelection, .ambiguousLocalSessions:
             "person.badge.key"
-        case .managedRecoveryBlocked:
-            "exclamationmark.arrow.circlepath"
         }
     }
 
@@ -143,8 +139,6 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
             "조회 대상 선택 필요"
         case .ambiguousLocalSessions:
             "실행 중인 연결 확인 필요"
-        case .managedRecoveryBlocked:
-            "이전 AGY 실행 정리 필요"
         }
     }
 
@@ -160,8 +154,6 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
             "설정에서 AGY CLI와 Antigravity 독립 앱 중 조회할 제품을 선택해 주세요."
         case .ambiguousLocalSessions:
             "선택한 제품의 실행마다 계정이 다르거나 확인되지 않았습니다. 이전 실행을 종료하고 새로고침해 주세요."
-        case .managedRecoveryBlocked:
-            "이전 AGY 실행 기록을 정리하지 못해 자동 실행이 중지됐습니다. Antigravity 앱이나 AGY CLI를 실행하면 조회는 가능합니다. 정리를 다시 시도하려면 ClaudeUsage를 재시동해 주세요."
         }
     }
 
@@ -188,8 +180,14 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
                 retryFailure(title: "AGY 실행 파일 변경 감지", message: "업데이트 중이거나 실행 파일이 변경됐습니다. 업데이트가 끝난 뒤 다시 시도해 주세요.")
             case .verificationRejected:
                 settingsFailure(title: "AGY 실행 파일 검증 실패", message: "공식 서명 또는 파일 권한을 검증하지 못해 실행을 차단했습니다. 공식 AGY CLI 설치 상태를 확인해 주세요.")
-            case .recoveryBlocked:
-                retryFailure(title: "이전 AGY 실행 정리 필요", message: "이전 프로세스 정리를 확인하지 못해 자동 실행을 중지했습니다. 다시 시도하면 안전한 정리를 재확인합니다.")
+            case .unsupportedVersion:
+                settingsFailure(
+                    title: "AGY CLI 업데이트 필요", message: "설치된 AGY CLI는 사용량 보고를 지원하지 않습니다. AGY CLI를 1.1.11 이상으로 업데이트해 주세요."
+                )
+            case .reportDisabled:
+                settingsFailure(
+                    title: "AGY 사용량 보고 형식 변경",
+                    message: "AGY가 사용량 보고 대신 다른 응답을 반환해 자동 조회를 중지했습니다. AGY CLI가 업데이트되면 다시 조회합니다.")
             }
         case .authenticationRequired(let source), .interactionRequired(let source):
             if source == .googleOAuth {
@@ -250,6 +248,11 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
             retryFailure(
                 title: "앱 종료 중",
                 message: "진행 중인 조회를 안전하게 정리하고 있습니다."
+            )
+        case .cliReportFailed:
+            retryFailure(
+                title: "AGY 사용량 보고 실패",
+                message: "AGY CLI가 사용량을 반환하지 않았습니다. 터미널의 AGY CLI에서 로그인 상태를 확인한 뒤 다시 시도해 주세요."
             )
         }
     }

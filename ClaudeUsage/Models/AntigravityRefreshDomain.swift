@@ -25,8 +25,8 @@ nonisolated enum AntigravityRefreshTrigger:
 /// Immutable input captured at the beginning of one refresh transaction.
 ///
 /// The complete validated connection snapshot travels with the request so
-/// source selection, managed-session policy, and single-flight identity cannot
-/// observe settings from different revisions. Account target remains an
+/// source selection and single-flight identity cannot observe settings from
+/// different revisions. Account target remains an
 /// explicit product boundary. The authenticated identity is observed on each
 /// refresh instead of being persisted as a user-selectable login.
 nonisolated struct AntigravityRefreshRequest:
@@ -37,13 +37,11 @@ nonisolated struct AntigravityRefreshRequest:
     var target: AntigravityUsageTarget { connection.usageTarget }
     let repositoryRevision: UInt64
     let connection: AntigravityConnectionSettings
-    let managedLaunch: AntigravityManagedLaunchState
     var forcesDiscovery: Bool { trigger != .scheduled }
     init(
         trigger: AntigravityRefreshTrigger,
         repositoryRevision: UInt64,
-        connection: AntigravityConnectionSettings,
-        managedLaunch: AntigravityManagedLaunchState
+        connection: AntigravityConnectionSettings
     ) {
         precondition(
             connection.isCurrentAndValid,
@@ -52,26 +50,6 @@ nonisolated struct AntigravityRefreshRequest:
         self.trigger = trigger
         self.repositoryRevision = repositoryRevision
         self.connection = connection
-        self.managedLaunch = managedLaunch
-    }
-}
-
-/// Whether this refresh may start an app-owned AGY process, carried as one
-/// state so the illegal "enabled but recovery-blocked" combination is not
-/// representable and every consumer can name the disable cause.
-nonisolated enum AntigravityManagedLaunchState:
-    Sendable,
-    Equatable
-{
-    case enabled
-    case disabled
-    /// Disabled because startup recovery could not reconcile a persisted
-    /// managed-process record. An ambient refresh that finds no local
-    /// session names this cause instead of asking the user to log in.
-    case recoveryBlocked
-
-    var allowsLaunch: Bool {
-        self == .enabled
     }
 }
 
@@ -83,8 +61,8 @@ nonisolated enum AntigravityUsageSourceID:
     Hashable
 {
     case localApp
-    case borrowedCLI
-    case managedCLI
+    /// `agy -p /usage` run by ClaudeUsage for the CLI target.
+    case cliReport
     case googleOAuth
 }
 
@@ -96,10 +74,6 @@ nonisolated enum AntigravitySetupReason:
     case noAmbientLocalSession
     case usageTargetSelection
     case ambiguousLocalSessions
-    /// No local session is reachable and the app's own managed launch is
-    /// disabled because startup recovery could not reconcile a persisted
-    /// managed-process record. Logging in does not resolve this state.
-    case managedRecoveryBlocked
 }
 
 nonisolated struct AntigravityIdentityOnlyUsage:
@@ -116,7 +90,11 @@ nonisolated enum AntigravityRuntimeFailure: String, Error, Sendable, Equatable {
     case executableMissing
     case executableChanged
     case verificationRejected
-    case recoveryBlocked
+    /// The installed AGY predates non-interactive `/usage` reports.
+    case unsupportedVersion
+    /// AGY answered `/usage` with something other than a usage report, so
+    /// automatic reports stay off until the executable changes.
+    case reportDisabled
 }
 
 /// Stable, secret-free failures suitable for UI state and diagnostics.
@@ -147,6 +125,8 @@ nonisolated enum AntigravityFailure:
     case numericQuotaUnavailable
     case accountChanged
     case runtimeUnavailable(AntigravityRuntimeFailure)
+    /// AGY returned a non-success usage report, for example while signed out.
+    case cliReportFailed
 }
 
 extension AntigravityFailure {
@@ -154,7 +134,8 @@ extension AntigravityFailure {
     var diagnosticCode: String {
         switch self {
         case .localAuthentication(let source, let problem): "\(source.rawValue).csrf.\(problem.rawValue)"
-        case .runtimeUnavailable(let reason): "managedCLI.\(reason.rawValue)"
+        case .runtimeUnavailable(let reason): "cliReport.\(reason.rawValue)"
+        case .cliReportFailed: "cliReport.reportFailed"
         case .authenticationRequired(let source): "\(source.rawValue).authenticationRequired"
         case .interactionRequired(let source): "\(source.rawValue).interactionRequired"
         case .deadlineExceeded(let source): "\(source.rawValue).deadlineExceeded"

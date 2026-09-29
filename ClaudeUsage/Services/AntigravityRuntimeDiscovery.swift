@@ -1,5 +1,15 @@
 import Foundation
 
+nonisolated protocol AntigravityRuntimeDiscovering: Sendable {
+    func discover(
+        deadline: AntigravityRPCDeadline
+    ) async throws -> AntigravityRuntimeDiscoverySnapshot
+
+    func invalidateCache() async
+}
+
+extension AntigravityRuntimeDiscovery: AntigravityRuntimeDiscovering {}
+
 actor AntigravityRuntimeDiscovery {
     private struct InFlight {
         let id: UUID

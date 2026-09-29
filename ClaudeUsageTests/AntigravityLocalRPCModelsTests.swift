@@ -37,53 +37,6 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
         XCTAssertFalse(String(reflecting: endpoint).contains(token.value))
     }
 
-    func testManagedRegistryBindsTokenToExecutionAndErasesItOnCleanup() async throws {
-        let endpoint = try makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliTokenless)
-        let identity = endpoint.processIdentity
-        let registry = AntigravityManagedRuntimeRegistry()
-        let token = AntigravityCSRFToken.generate()
-        await registry.register(identity, csrfToken: token)
-        let registered = await registry.csrfToken(for: identity)
-        XCTAssertEqual(registered, token)
-        let reusedPID = try XCTUnwrap(AntigravityVerifiedProcessIdentity(
-            processID: identity.processID, effectiveUserID: identity.effectiveUserID,
-            realUserID: identity.realUserID,
-            startedAt: AntigravityProcessStartTime(seconds: identity.startedAt.seconds + 1, microseconds: 0)!,
-            executable: identity.executable))
-        let reusedToken = await registry.csrfToken(for: reusedPID)
-        XCTAssertNil(reusedToken)
-        await registry.quarantine(identity)
-        let quarantined = await registry.csrfToken(for: identity)
-        XCTAssertNil(quarantined)
-        await registry.register(identity, csrfToken: token)
-        await registry.unregister(identity)
-        let removed = await registry.csrfToken(for: identity)
-        XCTAssertNil(removed)
-        await registry.register(identity, csrfToken: token)
-        await registry.register(identity)
-        let legacy = await registry.csrfToken(for: identity)
-        XCTAssertNil(legacy)
-    }
-
-    func testManagedEndpointRejectsTokenReplacementDuringPortInspection() async throws {
-        let token = AntigravityCSRFToken.generate()
-        let borrowed = try makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliCSRF(token))
-        let endpoint = try XCTUnwrap(AntigravityVerifiedRuntimeEndpoint(
-            processIdentity: borrowed.processIdentity, host: borrowed.host, port: borrowed.port,
-            transport: .agyCLI, ownership: .managed, authentication: .cliCSRF(token)))
-        let registry = AntigravityManagedRuntimeRegistry()
-        await registry.register(endpoint.processIdentity, csrfToken: token)
-        let ports = PortOwnershipInspectorStub(endpoints: [endpoint.processIdentity.processID: [
-            AntigravityOwnedListeningEndpoint(host: endpoint.host, port: endpoint.port)]],
-            onInspect: { await registry.register(endpoint.processIdentity, csrfToken: .generate()) })
-        let revalidator = AntigravityRuntimeEndpointRevalidator(
-            processInspector: RuntimeProcessInspectorStub(isValid: true),
-            portInspector: ports, ownershipResolver: registry)
-        await XCTAssertThrowsErrorAsync(try await revalidator.revalidate(endpoint, deadline: .init())) {
-            XCTAssertEqual($0 as? AntigravityLocalRPCError, .endpointOwnershipChanged)
-        }
-    }
-
     func testRPCMethodCatalogIsClosedAndUsesExactConnectPathsAndBodies() {
         XCTAssertEqual(AntigravityLocalRPCMethod.allCases, [
             .retrieveUserQuotaSummary,
@@ -491,48 +444,6 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
         XCTAssertEqual(snapshot.lanes.first?.remainingFraction, 0.5)
         XCTAssertNil(issue)
         XCTAssertEqual(connection.methods, [.getUserStatus, .getUserStatus, .retrieveUserQuotaSummary, .getUserStatus])
-    }
-
-    func testEndpointRevalidatorRejectsQuarantinedOwnership()
-        async throws
-    {
-        let endpoint = try makeEndpoint(
-            role: .agyCLI,
-            transport: .agyCLI,
-            authentication: .cliTokenless
-        )
-        let processInspector =
-            RuntimeProcessInspectorStub(isValid: true)
-        let portInspector = PortOwnershipInspectorStub(
-            endpoints: [
-                endpoint.processIdentity.processID: [
-                    AntigravityOwnedListeningEndpoint(
-                        host: endpoint.host,
-                        port: endpoint.port
-                    ),
-                ],
-            ]
-        )
-        let registry = AntigravityManagedRuntimeRegistry()
-        await registry.quarantine(endpoint.processIdentity)
-        let revalidator =
-            AntigravityRuntimeEndpointRevalidator(
-                processInspector: processInspector,
-                portInspector: portInspector,
-                ownershipResolver: registry
-            )
-
-        await XCTAssertThrowsErrorAsync(
-            try await revalidator.revalidate(
-                endpoint,
-                deadline: AntigravityRPCDeadline()
-            )
-        ) { error in
-            XCTAssertEqual(
-                error as? AntigravityLocalRPCError,
-                .endpointOwnershipChanged
-            )
-        }
     }
 
     func testClientBindsQuotaToTheSameIdentityBeforeAndAfterTheFetch() async throws {

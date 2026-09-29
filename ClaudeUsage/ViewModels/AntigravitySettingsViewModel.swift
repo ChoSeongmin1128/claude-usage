@@ -138,11 +138,8 @@ nonisolated struct AntigravitySettingsViewState:
     )
 }
 
-/// Settings-only projection for the managed AGY launch capability.
-///
-/// `managedRuntimeAvailability` describes whether ClaudeUsage may create a
-/// process. It does not describe borrowed sessions: a user-started AGY process
-/// remains a valid local-session source even when managed launch is unavailable.
+/// Settings-only projection of whether ClaudeUsage may run the verified AGY
+/// CLI for usage reports.
 nonisolated struct AntigravityManagedRuntimeSettingsPresentation:
     Equatable,
     Sendable
@@ -156,7 +153,7 @@ nonisolated struct AntigravityManagedRuntimeSettingsPresentation:
         case .available(let displayPath):
             return Self(
                 diagnosticTitle:
-                    "감지됨 · \(displayPath) · 필요 시 자동 실행"
+                    "감지됨 · \(displayPath) · 조회할 때 사용량 보고 실행"
             )
         case .unavailable(let reason):
             switch reason {
@@ -171,14 +168,6 @@ nonisolated struct AntigravityManagedRuntimeSettingsPresentation:
                         "감지됐지만 Google 서명 검증 실패"
                 )
             }
-        case .recoveryBlocked(let displayPath):
-            let pathDetail = displayPath.map {
-                " · \($0)"
-            } ?? ""
-            return Self(
-                diagnosticTitle:
-                    "이전 프로세스 복구 실패\(pathDetail) · 자동 실행 중단"
-            )
         }
     }
 }

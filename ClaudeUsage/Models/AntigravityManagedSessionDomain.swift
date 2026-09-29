@@ -1,60 +1,14 @@
 import Foundation
 
-nonisolated enum AntigravityManagedLaunchAuthorization:
-    Sendable,
-    Equatable
-{
-    /// Automatic refresh and source selection must use this value.
-    case disabled
-
-    /// A verified executable and recovered managed-runtime boundary authorize
-    /// automatic launch. User-facing source settings do not participate.
-    case automatic(idleTimeout: Duration = .seconds(180))
-
-    var idleTimeout: Duration? {
-        switch self {
-        case .disabled:
-            nil
-        case .automatic(let idleTimeout):
-            idleTimeout
-        }
-    }
-}
-
-nonisolated enum AntigravityManagedSessionResetReason:
-    String,
-    Sendable,
-    Equatable
-{
-    case userRequested
-    case authenticationRequired
-    case unhealthyRuntime
-    case appShutdown
-}
+// Earlier releases kept a long-lived AGY process and recorded it in a ledger.
+// These types remain only so startup can read and clean up that ledger.
 
 nonisolated enum AntigravityManagedSessionError:
     Error,
     Sendable,
     Equatable
 {
-    case launchDisabled
-    case invalidIdleTimeout
-    case executableNotAllowed
-    case differentExecutableInUse
-    case resetPending
-    case appShuttingDown
-    case launchFailed
-    case processGroupInvalid
-    case processIdentityUnavailable
-    case ownerIdentityUnavailable
-    case recordPersistenceFailed
     case recordRecoveryBlocked
-    case launchCoordinationUnavailable
-    case readinessTimedOut
-    case processExited(Int32)
-    case interactionRequired(AntigravityManagedCLIInteraction)
-    case endpointUnavailable
-    case cancelled
 }
 
 /// Exact macOS boot-session identity. PID and kernel unique-ID evidence from
@@ -239,33 +193,4 @@ nonisolated struct AntigravityManagedLaunchIntent:
         }
         self = intent
     }
-}
-
-nonisolated struct AntigravityManagedRuntime:
-    Sendable,
-    Equatable
-{
-    let processIdentity: AntigravityVerifiedProcessIdentity
-    let endpoint: AntigravityVerifiedRuntimeEndpoint
-
-    init?(
-        processIdentity: AntigravityVerifiedProcessIdentity,
-        endpoint: AntigravityVerifiedRuntimeEndpoint
-    ) {
-        guard endpoint.processIdentity == processIdentity,
-              endpoint.transport == .agyCLI,
-              endpoint.ownership == .managed else {
-            return nil
-        }
-        self.processIdentity = processIdentity
-        self.endpoint = endpoint
-    }
-}
-
-nonisolated struct AntigravityManagedSessionDiagnostics:
-    Sendable,
-    Equatable
-{
-    let interactions: Set<AntigravityManagedCLIInteraction>
-    let outputWasTruncated: Bool
 }

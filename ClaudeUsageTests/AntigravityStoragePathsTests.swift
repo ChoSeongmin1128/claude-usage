@@ -54,12 +54,5 @@ final class AntigravityStoragePathsTests: XCTestCase {
                 ).path,
             "/Users/example/Library/Application Support/ClaudeUsage-stg/Antigravity"
         )
-        XCTAssertEqual(
-            AntigravityStoragePaths
-                .managedLaunchCoordinationDirectoryURL(
-                    homeDirectoryURL: home
-                ).path,
-            "/Users/example/Library/Application Support/ClaudeUsageShared/Antigravity"
-        )
     }
 }

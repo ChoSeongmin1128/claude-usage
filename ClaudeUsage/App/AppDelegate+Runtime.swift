@@ -575,9 +575,9 @@ extension AppDelegate {
         }
         Task { [weak self] in
             guard let self else { return }
-            // The first refresh must wait until startup migration and managed
-            // process recovery have completed. Bootstrap itself does not
-            // refresh, so launch still produces exactly one transaction.
+            // The first refresh must wait until startup migration has
+            // completed. Bootstrap itself does not refresh, so launch still
+            // produces exactly one transaction.
             await antigravityRuntimeBootstrapTask?
                 .value
             let runtime =

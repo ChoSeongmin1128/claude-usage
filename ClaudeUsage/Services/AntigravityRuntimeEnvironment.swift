@@ -33,8 +33,7 @@ nonisolated struct AntigravityInstallationFingerprint: Sendable, Equatable {
 /// All local dependencies in a lease come from this one immutable graph.
 nonisolated struct AntigravityLocalRuntimeGeneration: Sendable {
     let sources: [any AntigravityUsageSource]
-    let discovery: any AntigravityManagedRuntimeDiscovering
-    let session: any AntigravityManagedSessionLifecycling
+    let discovery: any AntigravityRuntimeDiscovering
     let executableStatus: AntigravityAGYExecutableDiscoveryStatus
 }
 
@@ -46,34 +45,43 @@ nonisolated struct AntigravityUnavailableRuntimeSource: AntigravityUsageSource {
     }
 }
 
-/// Serializes local graph leases, replacement and shutdown, without rebuilding accounts
-/// or OAuth. A cancelled refresh must release its graph before its successor may replace it.
-actor AntigravityRuntimeEnvironment: AntigravityManagedSessionLifecycling {
+nonisolated protocol AntigravityRuntimeLifecycling: Sendable {
+    /// Retires processes recorded by earlier releases. It never gates refreshes.
+    func cleanUpLegacyManagedProcesses() async
+    func shutdown() async
+}
+
+/// Serializes local graph leases, replacement and shutdown, without rebuilding
+/// accounts or OAuth. A replaced graph owns no long-lived process: each CLI
+/// usage report exits before its lease is released.
+actor AntigravityRuntimeEnvironment: AntigravityRuntimeLifecycling {
     typealias FingerprintReader = @Sendable () async throws -> AntigravityInstallationFingerprint
     typealias Builder = @Sendable () async throws -> AntigravityLocalRuntimeGeneration
+    typealias LegacyCleanup = @Sendable () async -> Void
     private let fingerprint: FingerprintReader
     private let build: Builder
+    private let legacyCleanup: LegacyCleanup
     private var current: AntigravityLocalRuntimeGeneration?
     private var acceptedFingerprint: AntigravityInstallationFingerprint?
     private var leased = false
     private var stopped = false
     private var availability: AntigravityManagedRuntimeAvailability = .unavailable(reason: .executableNotFound)
 
-    init(fingerprint: @escaping FingerprintReader, build: @escaping Builder) {
+    init(
+        fingerprint: @escaping FingerprintReader,
+        build: @escaping Builder,
+        legacyCleanup: @escaping LegacyCleanup = {}
+    ) {
         self.fingerprint = fingerprint
         self.build = build
+        self.legacyCleanup = legacyCleanup
     }
 
     func managedAvailability() -> AntigravityManagedRuntimeAvailability { availability }
 
-    /// Startup recovery also runs when provider refresh is disabled. It never
-    /// launches AGY; orphaned ownership records must not survive until a user refresh.
-    func recoverOrphanedProcesses() async throws {
-        let deadline = AntigravityRPCDeadline(totalTimeout: AntigravityRPCDeadline.defaultRefreshTimeout)
-        try await acquire(deadline: deadline)
-        defer { leased = false }
-        _ = try await prepare(deadline: deadline)
-        if case .recoveryBlocked = availability { throw AntigravityRuntimeFailure.recoveryBlocked }
+    func cleanUpLegacyManagedProcesses() async {
+        guard !stopped else { return }
+        await legacyCleanup()
     }
 
     func withSources<T: Sendable>(
@@ -89,15 +97,15 @@ actor AntigravityRuntimeEnvironment: AntigravityManagedSessionLifecycling {
             if forceDiscovery { await generation.discovery.invalidateCache() }
             try check(deadline)
             var sources = generation.sources
-            // The managed source remains present even when no executable exists.
-            // It reports an actionable failure but never launches in a blocked state.
+            // The CLI source stays present even without a verified executable
+            // so the failure names its cause instead of "no source".
             if let reason = runtimeFailure {
-                sources.removeAll { $0.id == .managedCLI }
-                sources.append(AntigravityUnavailableRuntimeSource(id: .managedCLI, reason: reason))
+                sources.removeAll { $0.id == .cliReport }
+                sources.append(AntigravityUnavailableRuntimeSource(id: .cliReport, reason: reason))
             }
             localSources = sources
         } catch let reason as AntigravityRuntimeFailure {
-            localSources = [.localApp, .borrowedCLI, .managedCLI].map {
+            localSources = [.localApp, .cliReport].map {
                 AntigravityUnavailableRuntimeSource(id: $0, reason: reason)
             }
         }
@@ -108,7 +116,6 @@ actor AntigravityRuntimeEnvironment: AntigravityManagedSessionLifecycling {
     private var runtimeFailure: AntigravityRuntimeFailure? {
         switch availability {
         case .available: nil
-        case .recoveryBlocked: .recoveryBlocked
         case .unavailable(.executableNotFound): .executableMissing
         case .unavailable(.signatureRejected): .verificationRejected
         }
@@ -140,65 +147,38 @@ actor AntigravityRuntimeEnvironment: AntigravityManagedSessionLifecycling {
         let before = try await bounded(deadline: deadline, operation: fingerprint)
         try check(deadline)
         if let current, acceptedFingerprint == before {
-            // Recovery failures are retryable without rehashing or rebuilding the graph.
-            if case .recoveryBlocked = availability {
-                let recovered = await recover(current)
-                try check(deadline)
-                availability = recovered
-            }
             return current
         }
         let candidate = try await bounded(deadline: deadline, operation: build)
         try check(deadline)
         let after = try await bounded(deadline: deadline, operation: fingerprint)
         try check(deadline)
+        // A graph verified against files that changed meanwhile is never published.
         guard before == after else { throw AntigravityRuntimeFailure.executableChanged }
-
-        // No lease can overlap here. Only the old app-owned process tree is retired.
-        if let old = current {
-            current = nil
-            acceptedFingerprint = nil
-            await old.session.shutdown()
-            try check(deadline)
-        }
-        let recovered = await recover(candidate)
-        try check(deadline)
-        // Shutdown/recovery may take time. Never publish a now-obsolete candidate.
-        guard try await bounded(deadline: deadline, operation: fingerprint) == after else {
-            throw AntigravityRuntimeFailure.executableChanged
-        }
-        try check(deadline)
-        availability = recovered
+        availability = Self.availability(for: candidate.executableStatus)
         current = candidate
         acceptedFingerprint = after
         return candidate
     }
 
-    private func recover(_ generation: AntigravityLocalRuntimeGeneration) async -> AntigravityManagedRuntimeAvailability {
-        let path: String?
-        if case .verified(let value) = generation.executableStatus { path = value } else { path = nil }
-        do {
-            try await generation.session.recoverOrphanedProcesses()
-            switch generation.executableStatus {
-            case .verified(let path): return .available(displayPath: path)
-            case .notFound: return .unavailable(reason: .executableNotFound)
-            case .rejected: return .unavailable(reason: .signatureRejected)
-            }
-        } catch {
-            return .recoveryBlocked(displayPath: path)
+    private static func availability(
+        for status: AntigravityAGYExecutableDiscoveryStatus
+    ) -> AntigravityManagedRuntimeAvailability {
+        switch status {
+        case .verified(let path): .available(displayPath: path)
+        case .notFound: .unavailable(reason: .executableNotFound)
+        case .rejected: .unavailable(reason: .signatureRejected)
         }
     }
 
     func shutdown() async {
         stopped = true
-        // The coordinator cancels its flights first. Retain their graph until they finish.
+        // The coordinator cancels its flights first. A cancelled report kills
+        // its process group before the lease is released.
         while leased {
             await Task.detached { try? await Task.sleep(for: .milliseconds(10)) }.value
         }
-        if let current {
-            self.current = nil
-            await current.session.shutdown()
-        }
+        current = nil
     }
 }
 
@@ -254,9 +234,10 @@ extension AntigravityRuntimeEnvironment {
     nonisolated static func production(
         homeDirectoryURL: URL = FileManager.default.realHomeDirectory,
         stateDirectory: URL = AntigravityStoragePaths.canonicalStateDirectoryURL(),
-        managedLaunchCoordinationDirectory: URL = AntigravityStoragePaths.managedLaunchCoordinationDirectoryURL(),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> AntigravityRuntimeEnvironment {
+        let legacyCleanup = AntigravityLegacyManagedProcessCleanup.production(stateDirectory: stateDirectory)
+        let reportWorkspace = stateDirectory.appendingPathComponent("cli-report", isDirectory: true)
         return AntigravityRuntimeEnvironment(
             fingerprint: {
                 await Task.detached(priority: .utility) {
@@ -268,23 +249,29 @@ extension AntigravityRuntimeEnvironment {
                     let resolution = AntigravityProductionExecutableCatalogResolver(
                         homeDirectoryURL: homeDirectoryURL, environment: environment
                     ).resolve()
-                    let runtime = AntigravityManagedRuntimeCompositionFactory.makeProduction(
-                        catalog: resolution.catalog,
-                        managedStateDirectoryURL: stateDirectory,
-                        managedLaunchCoordinationDirectoryURL: managedLaunchCoordinationDirectory,
-                        currentDirectoryURL: homeDirectoryURL
-                    )
+                    let runtime = AntigravityLocalRuntimeComposition.makeProduction(catalog: resolution.catalog)
                     var sources: [any AntigravityUsageSource] = [
-                        AntigravityDiscoveredLocalUsageSource(id: .localApp, discovery: runtime.discovery, client: runtime.localRPCClient),
-                        AntigravityDiscoveredLocalUsageSource(id: .borrowedCLI, discovery: runtime.discovery, client: runtime.localRPCClient),
+                        AntigravityDiscoveredLocalUsageSource(
+                            id: .localApp, discovery: runtime.discovery, client: runtime.localRPCClient)
                     ]
                     if let executable = resolution.managedLaunchExecutable {
-                        sources.append(AntigravityManagedCLIUsageSource(session: runtime.managedSession, executable: executable, client: runtime.localRPCClient))
+                        sources.append(
+                            AntigravityCLIUsageReportSource(
+                                executable: executable,
+                                executableRevalidator: resolution.catalog,
+                                environment: AntigravityCLIReportEnvironment.values(
+                                    homeDirectory: homeDirectoryURL),
+                                prepareWorkingDirectory: {
+                                    try AntigravityCLIReportWorkspace.prepare(at: reportWorkspace)
+                                }
+                            ))
                     }
-                    return AntigravityLocalRuntimeGeneration(sources: sources, discovery: runtime.discovery,
-                        session: runtime.managedSession, executableStatus: resolution.agyExecutableStatus)
+                    return AntigravityLocalRuntimeGeneration(
+                        sources: sources, discovery: runtime.discovery,
+                        executableStatus: resolution.agyExecutableStatus)
                 }.value
-            }
+            },
+            legacyCleanup: { _ = await legacyCleanup.cleanUp() }
         )
     }
 }

@@ -318,6 +318,80 @@ final class AntigravityCLIReportProcessRunnerTests: XCTestCase {
         XCTAssertEqual(calls, 3)
     }
 
+    // MARK: - Production trust checks
+
+    func testProductionRunnerRejectsAnUnsignedExecutable() async throws {
+        let marker = directory.appendingPathComponent("ran")
+        let executable = try script(#"/usr/bin/touch "$MARKER""#)
+
+        do {
+            _ = try await AntigravityCLIReportProcessRunner().run(
+                request(executable, environment: ["MARKER": marker.path]))
+            XCTFail("An arbitrary local executable must not run")
+        } catch {
+            XCTAssertEqual(error as? AntigravityCLIReportProcessError, .executableNotAllowed)
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: marker.path))
+    }
+
+    func testSwappedImageIsRejectedEvenAfterThePathIsRestored() async throws {
+        let catalogURL = directory.appendingPathComponent("agy")
+        let trustedBackupURL = directory.appendingPathComponent("agy-trusted")
+        let replacementURL = directory.appendingPathComponent("agy-replacement")
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/sleep"), to: catalogURL)
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/sleep"), to: replacementURL)
+        XCTAssertEqual(chmod(catalogURL.path, 0o700), 0)
+        XCTAssertEqual(chmod(replacementURL.path, 0o700), 0)
+        let fileIdentity = try XCTUnwrap(
+            AntigravitySystemExecutableFileIdentityInspector().identity(at: catalogURL))
+        let executable = AntigravityCanonicalExecutable(
+            canonicalURL: catalogURL, role: .agyCLI, fileIdentity: fileIdentity)
+        let imageValidator = RestoreBeforeImageValidation(
+            catalogPath: catalogURL.path,
+            trustedBackupPath: trustedBackupURL.path,
+            replacementPath: replacementURL.path)
+
+        do {
+            _ = try await AntigravityCLIReportProcessRunner(
+                executableRevalidator: SwapBeforeSpawn(
+                    catalogPath: catalogURL.path,
+                    trustedBackupPath: trustedBackupURL.path,
+                    replacementPath: replacementURL.path),
+                runningExecutableImageValidator: imageValidator
+            ).run(request(executable, arguments: ["30"]))
+            XCTFail("A swapped image must not be resumed")
+        } catch {
+            XCTAssertEqual(error as? AntigravityCLIReportProcessError, .executableNotAllowed)
+        }
+
+        let processID = try XCTUnwrap(imageValidator.validatedProcessID)
+        XCTAssertTrue(waitUntilGone(processID))
+    }
+
+    func testInstalledOfficialAGYPassesProductionTrustChecks() async throws {
+        let home = FileManager.default.realHomeDirectory
+        guard
+            let executable = AntigravityProductionExecutableCatalogResolver(homeDirectoryURL: home)
+                .resolve().managedLaunchExecutable
+        else {
+            throw XCTSkip("검증된 공식 AGY가 설치되지 않았습니다")
+        }
+
+        let result = try await AntigravityCLIReportProcessRunner().run(
+            AntigravityCLIReportProcessRequest(
+                executable: executable,
+                arguments: ["--version"],
+                environment: AntigravityCLIReportEnvironment.values(homeDirectory: home),
+                workingDirectoryURL: workingDirectory,
+                timeout: .seconds(10)
+            ))
+
+        XCTAssertEqual(result.exitStatus, 0)
+        let version = try XCTUnwrap(
+            AntigravityCLIVersion(versionOutput: String(decoding: result.standardOutput, as: UTF8.self)))
+        XCTAssertTrue(version.supportsUsageReport, "Installed AGY \(version) predates usage reports")
+    }
+
     // MARK: - Helpers
 
     private func runner() -> AntigravityCLIReportProcessRunner {
@@ -416,5 +490,64 @@ private final class RecordingImageValidator:
     ) -> Bool {
         lock.withLock { recorded.append(processID) }
         return result
+    }
+}
+
+private final class SwapBeforeSpawn: AntigravityExecutableRevalidating, @unchecked Sendable {
+    private let lock = NSLock()
+    private let catalogPath: String
+    private let trustedBackupPath: String
+    private let replacementPath: String
+    private var didSwap = false
+
+    init(catalogPath: String, trustedBackupPath: String, replacementPath: String) {
+        self.catalogPath = catalogPath
+        self.trustedBackupPath = trustedBackupPath
+        self.replacementPath = replacementPath
+    }
+
+    func isCurrent(_ executable: AntigravityCanonicalExecutable) -> Bool {
+        lock.withLock {
+            guard !didSwap,
+                rename(catalogPath, trustedBackupPath) == 0,
+                rename(replacementPath, catalogPath) == 0
+            else { return false }
+            didSwap = true
+            return true
+        }
+    }
+}
+
+/// Puts the trusted file back at the catalog path before validating, so only
+/// the kernel-mapped image can reveal that the spawned bytes were swapped.
+private final class RestoreBeforeImageValidation:
+    AntigravityRunningExecutableImageValidating,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private let catalogPath: String
+    private let trustedBackupPath: String
+    private let replacementPath: String
+    private var processID: Int32?
+
+    init(catalogPath: String, trustedBackupPath: String, replacementPath: String) {
+        self.catalogPath = catalogPath
+        self.trustedBackupPath = trustedBackupPath
+        self.replacementPath = replacementPath
+    }
+
+    var validatedProcessID: Int32? {
+        lock.withLock { processID }
+    }
+
+    func validatesRunningImage(processID: Int32, executable: AntigravityCanonicalExecutable) -> Bool {
+        lock.withLock {
+            self.processID = processID
+            guard rename(catalogPath, replacementPath) == 0,
+                rename(trustedBackupPath, catalogPath) == 0
+            else { return false }
+            return AntigravitySystemRunningExecutableImageValidator()
+                .validatesRunningImage(processID: processID, executable: executable)
+        }
     }
 }

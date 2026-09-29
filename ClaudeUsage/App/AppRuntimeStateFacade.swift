@@ -235,7 +235,8 @@ final class AppRuntimeStateFacade {
              .sourceContractViolation,
              .localAuthentication,
              .numericQuotaUnavailable,
-             .runtimeUnavailable:
+            .runtimeUnavailable,
+            .cliReportFailed:
             return false
         }
     }
