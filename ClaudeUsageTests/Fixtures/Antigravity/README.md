@@ -16,6 +16,23 @@ This fixture is only the deterministic decoder characterization baseline.
 Live-AGY release evidence is owned by the release process documents, not by
 this fixture.
 
+## AGY print-mode usage report fixtures
+
+`agy-1.2.12-print-usage-five-hour-and-weekly.json` and
+`agy-1.2.12-print-usage-weekly-only.json` model the stdout of
+`agy -p /usage --output-format json` from AGY 1.2.12 for two accounts: one that
+reports weekly and five-hour buckets, and one that reports weekly buckets only.
+
+The fixtures preserve the observed envelope keys, `command.name`, the
+`command.data` group and bucket structure, snake_case field names, `window`
+values, and optional-field presence. `remaining_fraction`, `reset_time`, the
+TSV `response` text derived from them, and the bucket description that
+contained live reset timing were replaced with deterministic fixture values.
+The captured output contained no email, token, or account identifier fields,
+and `conversation_id` was empty. The unsanitised output is not retained.
+
+This version-specific shape is not an upstream compatibility guarantee.
+
 ## Legacy OAuth account fixture
 
 `legacy-oauth-user-shape-redacted.json`은 실제 `oauth_accounts.json`의 필드 구조,

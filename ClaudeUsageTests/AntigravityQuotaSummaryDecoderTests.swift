@@ -35,6 +35,96 @@ final class AntigravityQuotaSummaryDecoderTests: XCTestCase {
         XCTAssertTrue(summary.decodeIssues.isEmpty)
     }
 
+    func testSnakeCaseBucketFieldsFromPrintReportDecode() throws {
+        let summary = try decode(
+            """
+            {
+              "groups": [
+                {
+                  "name": "Gemini Models",
+                  "buckets": [
+                    {
+                      "id": "gemini-5h",
+                      "window": "5h",
+                      "remaining_fraction": 0.4,
+                      "reset_time": "2030-01-01T05:00:00Z"
+                    }
+                  ]
+                }
+              ]
+            }
+            """)
+
+        XCTAssertEqual(summary.lanes.map(\.id), [.geminiFiveHour])
+        XCTAssertEqual(summary.lanes.first?.remainingFraction, 0.4)
+        XCTAssertEqual(
+            summary.lanes.first?.resetAt,
+            ISO8601DateFormatter().date(from: "2030-01-01T05:00:00Z")
+        )
+        XCTAssertTrue(summary.decodeIssues.isEmpty)
+    }
+
+    func testCamelCaseFieldWinsWhenBothSpellingsArePresent() throws {
+        let summary = try decode(
+            """
+            {
+              "groups": [
+                {
+                  "name": "Gemini Models",
+                  "buckets": [
+                    {
+                      "id": "gemini-weekly",
+                      "window": "weekly",
+                      "remainingFraction": 0.9,
+                      "remaining_fraction": 0.1,
+                      "resetTime": "2030-01-07T00:00:00Z",
+                      "reset_time": "2031-01-07T00:00:00Z"
+                    }
+                  ]
+                }
+              ]
+            }
+            """)
+
+        XCTAssertEqual(summary.lanes.first?.remainingFraction, 0.9)
+        XCTAssertEqual(
+            summary.lanes.first?.resetAt,
+            ISO8601DateFormatter().date(from: "2030-01-07T00:00:00Z")
+        )
+    }
+
+    func testInvalidSnakeCaseFractionIsReportedInsteadOfDropped() throws {
+        let summary = try decode(
+            """
+            {
+              "groups": [
+                {
+                  "name": "Gemini Models",
+                  "buckets": [
+                    { "id": "gemini-weekly", "window": "weekly", "remaining_fraction": 1.5 }
+                  ]
+                }
+              ]
+            }
+            """)
+
+        XCTAssertNil(summary.lanes.first?.remainingFraction)
+        XCTAssertEqual(summary.decodeIssues.map(\.kind), [.invalidRemainingFraction])
+    }
+
+    func testPayloadEntryPointRequiresGroupsArray() {
+        XCTAssertThrowsError(
+            try AntigravityQuotaSummaryDecoder.decode(payload: ["groups": "none"])
+        ) { error in
+            XCTAssertEqual(error as? AntigravityQuotaSummaryDecoderError, .missingQuotaGroups)
+        }
+        XCTAssertThrowsError(
+            try AntigravityQuotaSummaryDecoder.decode(payload: ["groups": [Any]()])
+        ) { error in
+            XCTAssertEqual(error as? AntigravityQuotaSummaryDecoderError, .noIdentifiableQuotaLanes)
+        }
+    }
+
     func testCanonicalGroupCadenceLanesPreserveFractionPrecision() throws {
         let summary = try decode("""
         {

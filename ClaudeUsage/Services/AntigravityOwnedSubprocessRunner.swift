@@ -109,12 +109,12 @@ nonisolated final class AntigravityOwnedSubprocessRunner:
         let outputCollector = AntigravityBoundedPipeCollector(
             fileDescriptor: child.standardOutputFileDescriptor,
             maximumBytes: request.maximumOutputBytes,
-            lifecycle: lifecycle
+            owner: lifecycle
         )
         let errorCollector = AntigravityBoundedPipeCollector(
             fileDescriptor: child.standardErrorFileDescriptor,
             maximumBytes: request.maximumOutputBytes,
-            lifecycle: lifecycle
+            owner: lifecycle
         )
         let outputTask = Task.detached(priority: .utility) {
             outputCollector.collect()
@@ -207,25 +207,26 @@ nonisolated final class AntigravityOwnedSubprocessRunner:
 
         var standardOutputPipe = [Int32](repeating: -1, count: 2)
         var standardErrorPipe = [Int32](repeating: -1, count: 2)
-        guard Self.makePipe(&standardOutputPipe),
-              Self.makePipe(&standardErrorPipe) else {
-            Self.closePipe(standardOutputPipe)
-            Self.closePipe(standardErrorPipe)
+        guard AntigravitySubprocessPipe.make(&standardOutputPipe),
+            AntigravitySubprocessPipe.make(&standardErrorPipe)
+        else {
+            AntigravitySubprocessPipe.close(standardOutputPipe)
+            AntigravitySubprocessPipe.close(standardErrorPipe)
             throw AntigravityOwnedSubprocessError.launchFailed
         }
 
         var fileActions: posix_spawn_file_actions_t?
         guard posix_spawn_file_actions_init(&fileActions) == 0 else {
-            Self.closePipe(standardOutputPipe)
-            Self.closePipe(standardErrorPipe)
+            AntigravitySubprocessPipe.close(standardOutputPipe)
+            AntigravitySubprocessPipe.close(standardErrorPipe)
             throw AntigravityOwnedSubprocessError.launchFailed
         }
         defer { posix_spawn_file_actions_destroy(&fileActions) }
 
         var attributes: posix_spawnattr_t?
         guard posix_spawnattr_init(&attributes) == 0 else {
-            Self.closePipe(standardOutputPipe)
-            Self.closePipe(standardErrorPipe)
+            AntigravitySubprocessPipe.close(standardOutputPipe)
+            AntigravitySubprocessPipe.close(standardErrorPipe)
             throw AntigravityOwnedSubprocessError.launchFailed
         }
         defer { posix_spawnattr_destroy(&attributes) }
@@ -268,8 +269,8 @@ nonisolated final class AntigravityOwnedSubprocessRunner:
             ),
         ]
         guard actionResults.allSatisfy({ $0 == 0 }) else {
-            Self.closePipe(standardOutputPipe)
-            Self.closePipe(standardErrorPipe)
+            AntigravitySubprocessPipe.close(standardOutputPipe)
+            AntigravitySubprocessPipe.close(standardErrorPipe)
             throw AntigravityOwnedSubprocessError.launchFailed
         }
 
@@ -283,8 +284,8 @@ nonisolated final class AntigravityOwnedSubprocessRunner:
               environmentPointers.allSatisfy({ $0 != nil }) else {
             argumentPointers.forEach { free($0) }
             environmentPointers.forEach { free($0) }
-            Self.closePipe(standardOutputPipe)
-            Self.closePipe(standardErrorPipe)
+            AntigravitySubprocessPipe.close(standardOutputPipe)
+            AntigravitySubprocessPipe.close(standardErrorPipe)
             throw AntigravityOwnedSubprocessError.launchFailed
         }
         argumentPointers.append(nil)
@@ -312,8 +313,8 @@ nonisolated final class AntigravityOwnedSubprocessRunner:
         }
 
         guard spawnResult == 0, processID > 0 else {
-            Self.closePipe(standardOutputPipe)
-            Self.closePipe(standardErrorPipe)
+            AntigravitySubprocessPipe.close(standardOutputPipe)
+            AntigravitySubprocessPipe.close(standardErrorPipe)
             throw AntigravityOwnedSubprocessError.launchFailed
         }
 
@@ -326,7 +327,15 @@ nonisolated final class AntigravityOwnedSubprocessRunner:
         )
     }
 
-    private static func makePipe(_ descriptors: inout [Int32]) -> Bool {
+    private static func canonicalPath(for url: URL) -> String {
+        url.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+}
+
+/// Pipe endpoints for a child's standard streams, normalized above
+/// descriptors 0-2 and marked close-on-exec in the parent.
+nonisolated enum AntigravitySubprocessPipe {
+    static func make(_ descriptors: inout [Int32]) -> Bool {
         let result = descriptors.withUnsafeMutableBufferPointer { buffer in
             Darwin.pipe(buffer.baseAddress!)
         }
@@ -345,7 +354,7 @@ nonisolated final class AntigravityOwnedSubprocessRunner:
                 STDERR_FILENO + 1
             )
             guard duplicated >= 0 else {
-                Self.closePipe(descriptors)
+                Self.close(descriptors)
                 descriptors = [-1, -1]
                 return false
             }
@@ -356,7 +365,7 @@ nonisolated final class AntigravityOwnedSubprocessRunner:
         for descriptor in descriptors {
             let flags = fcntl(descriptor, F_GETFD)
             if flags < 0 || fcntl(descriptor, F_SETFD, flags | FD_CLOEXEC) < 0 {
-                Self.closePipe(descriptors)
+                Self.close(descriptors)
                 descriptors = [-1, -1]
                 return false
             }
@@ -364,14 +373,10 @@ nonisolated final class AntigravityOwnedSubprocessRunner:
         return true
     }
 
-    private static func closePipe(_ descriptors: [Int32]) {
+    static func close(_ descriptors: [Int32]) {
         for descriptor in descriptors where descriptor >= 0 {
             Darwin.close(descriptor)
         }
-    }
-
-    private static func canonicalPath(for url: URL) -> String {
-        url.standardizedFileURL.resolvingSymlinksInPath().path
     }
 }
 
@@ -388,7 +393,7 @@ private nonisolated struct AntigravitySpawnedOwnedProcess: Sendable {
     let standardErrorFileDescriptor: Int32
 }
 
-private nonisolated struct AntigravityCappedSubprocessOutput: Sendable {
+nonisolated struct AntigravityCappedSubprocessOutput: Sendable {
     let data: Data
     let exceededLimit: Bool
 }
@@ -398,7 +403,10 @@ private nonisolated enum AntigravityOwnedProcessExit: Sendable {
     case failed
 }
 
-private nonisolated final class AntigravityOwnedProcessLifecycle: @unchecked Sendable {
+private nonisolated final class AntigravityOwnedProcessLifecycle:
+    AntigravityBoundedPipeOwning,
+    @unchecked Sendable
+{
     private let lock = NSLock()
     private let processID: pid_t
     private let forcedExitDelay: TimeInterval
@@ -593,23 +601,30 @@ private nonisolated final class AntigravityProcessExitRace: @unchecked Sendable 
     }
 }
 
-private nonisolated final class AntigravityBoundedPipeCollector:
+/// The process that owns a collected pipe. The collector stops once that
+/// process has been reaped and asks it to stop when the output limit is hit.
+nonisolated protocol AntigravityBoundedPipeOwning: AnyObject, Sendable {
+    var hasReleasedOwnership: Bool { get }
+    func cancelOwnedProcess()
+}
+
+nonisolated final class AntigravityBoundedPipeCollector:
     @unchecked Sendable
 {
     private let lock = NSLock()
     private let fileDescriptor: Int32
     private let maximumBytes: Int
-    private let lifecycle: AntigravityOwnedProcessLifecycle
+    private let owner: any AntigravityBoundedPipeOwning
     private var cancelled = false
 
     init(
         fileDescriptor: Int32,
         maximumBytes: Int,
-        lifecycle: AntigravityOwnedProcessLifecycle
+        owner: any AntigravityBoundedPipeOwning
     ) {
         self.fileDescriptor = fileDescriptor
         self.maximumBytes = maximumBytes
-        self.lifecycle = lifecycle
+        self.owner = owner
         let existingFlags = fcntl(fileDescriptor, F_GETFL)
         if existingFlags >= 0 {
             _ = fcntl(fileDescriptor, F_SETFL, existingFlags | O_NONBLOCK)
@@ -652,7 +667,7 @@ private nonisolated final class AntigravityBoundedPipeCollector:
                 )
             }
 
-            if lifecycle.hasReleasedOwnership {
+            if owner.hasReleasedOwnership {
                 // The child may have written and exited immediately after a
                 // zero-result poll. Reap ownership is therefore followed by
                 // one unconditional non-blocking drain before the pipe closes.
@@ -696,7 +711,7 @@ private nonisolated final class AntigravityBoundedPipeCollector:
                 }
                 if count > remaining {
                     exceededLimit = true
-                    lifecycle.cancelOwnedProcess()
+                    owner.cancelOwnedProcess()
                 }
                 continue
             }
