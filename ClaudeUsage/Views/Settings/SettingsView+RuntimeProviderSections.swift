@@ -226,13 +226,16 @@ extension SettingsView {
     private func antigravityIdentitySummary(_ state: AntigravitySettingsViewState) -> some View {
         let identity: ProviderAccountIdentity?
         let isPrevious: Bool
+        var isCLIReport = false
         switch state.presentation {
         case .ready(let quota), .partial(let quota, _):
             identity = quota.identity ?? quota.provenance.accountIdentity
             isPrevious = false
+            isCLIReport = quota.provenance.transport == .cliUsageReport
         case .stale(let quota, _), .refreshing(previous: let quota?):
             identity = quota.identity ?? quota.provenance.accountIdentity
             isPrevious = true
+            isCLIReport = quota.provenance.transport == .cliUsageReport
         case .limited(let value):
             identity = value.evidence.identity
             isPrevious = false
@@ -243,8 +246,16 @@ extension SettingsView {
             identity = nil
             isPrevious = false
         }
+        let accountText: String
+        if let identity {
+            accountText = identity.email ?? "이메일 미제공"
+        } else if isCLIReport {
+            accountText = AntigravityQuotaPresentationMapper.cliReportAccountLabel
+        } else {
+            accountText = "확인 전"
+        }
         return LabeledContent(isPrevious ? "마지막 확인 계정" : "로그인 계정") {
-            Text(identity?.email ?? (identity == nil ? "확인 전" : "이메일 미제공"))
+            Text(accountText)
                 .textSelection(.enabled)
         }
         .font(AppDesign.Typography.caption)
