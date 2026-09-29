@@ -66,7 +66,7 @@ final class AntigravityCLIUsageReportSourceTests: XCTestCase {
     func testSupportedVersionIsCheckedOncePerSource() async throws {
         let report = output(try fixture("agy-1.2.12-print-usage-weekly-only.json"))
         let runner = ScriptedReportRunner(outcomes: [
-            .success(output("1.1.11")), .success(report), .success(report),
+            .success(output(AntigravityCLIVersion.minimumUsageReport.description)), .success(report), .success(report),
         ])
         let source = makeSource(runner: runner)
 

@@ -65,8 +65,6 @@ final class AntigravitySettingsViewModelTests:
         var localConnection =
             AntigravityConnectionSettings.default
         localConnection.usageTarget = .app
-        localConnection.managedSession
-            .idleTimeoutSeconds = 240
         let streamed = Self.snapshot(
             activeAccountID: Self.secondAccountID,
             connection: localConnection,

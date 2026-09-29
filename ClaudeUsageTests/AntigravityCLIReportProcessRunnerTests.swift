@@ -170,6 +170,15 @@ final class AntigravityCLIReportProcessRunnerTests: XCTestCase {
         XCTAssertTrue(waitUntilGone(try processID(in: rootFile)))
     }
 
+    func testImmediateExitIsObservedWithoutWaitingForTheTimeout() async throws {
+        let executable = try script("exit 7")
+
+        for _ in 0..<50 {
+            let result = try await runner().run(request(executable, timeout: .seconds(5)))
+            XCTAssertEqual(result.exitStatus, 7)
+        }
+    }
+
     func testSignalledExitIsNormalized() async throws {
         let executable = try script("kill -9 $$")
 

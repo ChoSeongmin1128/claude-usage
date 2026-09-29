@@ -2,7 +2,7 @@
 import Foundation
 
 nonisolated enum AntigravitySettingsMigrationKeys {
-    static let currentMigrationVersion = 5
+    static let currentMigrationVersion = 6
 
     static let connectionSettings = "antigravity.connectionSettings"
     static let displaySettings = "antigravity.displaySettings"
@@ -101,6 +101,7 @@ final class AntigravitySettingsMigrationCoordinator {
         case legacyV1(LegacyConnectionSettingsV1)
         case legacyV2(LegacyConnectionSettingsV2)
         case legacyV3(LegacyConnectionSettingsV3)
+        case legacyV4(LegacyConnectionSettingsV4)
     }
 
     private enum StoredDisplaySettings {
@@ -119,26 +120,28 @@ final class AntigravitySettingsMigrationCoordinator {
         let schemaVersion: Int
         let sourcePolicy: SourcePolicy
         let allowManagedCLI: Bool
-        let managedSession:
-            AntigravityConnectionSettings.ManagedSessionPolicy
 
         var isValid: Bool {
             schemaVersion == 1
-                && managedSession.isValid
         }
     }
 
     private struct LegacyConnectionSettingsV2: Decodable {
         let schemaVersion: Int
-        let managedSession: AntigravityConnectionSettings.ManagedSessionPolicy
-        var isValid: Bool { schemaVersion == 2 && managedSession.isValid }
+        var isValid: Bool { schemaVersion == 2 }
     }
 
     private struct LegacyConnectionSettingsV3: Decodable {
         let schemaVersion: Int
-        let managedSession: AntigravityConnectionSettings.ManagedSessionPolicy
         let accountSelection: LegacyAccountSelectionV3
-        var isValid: Bool { schemaVersion == 3 && managedSession.isValid && accountSelection.isValid }
+        var isValid: Bool { schemaVersion == 3 && accountSelection.isValid }
+    }
+
+    // v4 also stored the idle timeout of the removed managed AGY session.
+    private struct LegacyConnectionSettingsV4: Decodable {
+        let schemaVersion: Int
+        let usageTarget: AntigravityUsageTarget
+        var isValid: Bool { schemaVersion == 4 }
     }
 
     /// Decode-only input. Current settings never persist a login identity.
@@ -261,7 +264,8 @@ final class AntigravitySettingsMigrationCoordinator {
         let hasMissingSettings: Bool
         switch (storedConnection, storedDisplay) {
         case (.current, .current), (.legacyV1, .current), (.legacyV2, .current), (.legacyV3, .current),
-            (.current, .legacyV1), (.legacyV1, .legacyV1), (.legacyV2, .legacyV1), (.legacyV3, .legacyV1):
+            (.legacyV4, .current), (.current, .legacyV1), (.legacyV1, .legacyV1), (.legacyV2, .legacyV1),
+            (.legacyV3, .legacyV1), (.legacyV4, .legacyV1):
             hasMissingSettings = false
         case (.missing, _),
              (_, .missing):
@@ -271,7 +275,7 @@ final class AntigravitySettingsMigrationCoordinator {
         let requiresMigration = markerVersion != AntigravitySettingsMigrationKeys.currentMigrationVersion
             || {
                 switch storedConnection {
-                case .legacyV1, .legacyV2, .legacyV3: return true
+                case .legacyV1, .legacyV2, .legacyV3, .legacyV4: return true
                 case .missing, .current: return false
                 }
             }()
@@ -294,24 +298,20 @@ final class AntigravitySettingsMigrationCoordinator {
         switch storedConnection {
         case let .current(value):
             connection = value
-        case let .legacyV1(value):
-            connection = AntigravityConnectionSettings(
-                schemaVersion:
-                    AntigravityConnectionSettings
-                        .currentSchemaVersion,
-                managedSession: value.managedSession,
-                usageTarget: .unselected
-            )
-        case let .legacyV2(value):
+        case .legacyV1, .legacyV2:
             connection = AntigravityConnectionSettings(
                 schemaVersion: AntigravityConnectionSettings.currentSchemaVersion,
-                managedSession: value.managedSession, usageTarget: .unselected)
-        case let .legacyV3(value):
+                usageTarget: .unselected)
+        case .legacyV3:
             // An account identity does not establish which product the user
-            // intended. Preserve the data and request a product choice once.
+            // intended, so a product choice is requested once.
             connection = AntigravityConnectionSettings(
                 schemaVersion: AntigravityConnectionSettings.currentSchemaVersion,
-                managedSession: value.managedSession, usageTarget: .unselected)
+                usageTarget: .unselected)
+        case let .legacyV4(value):
+            connection = AntigravityConnectionSettings(
+                schemaVersion: AntigravityConnectionSettings.currentSchemaVersion,
+                usageTarget: value.usageTarget)
         case .missing:
             connection = makeConnectionSettings()
         }
@@ -333,7 +333,7 @@ final class AntigravitySettingsMigrationCoordinator {
 
         do {
             switch storedConnection {
-            case .missing, .legacyV1, .legacyV2, .legacyV3:
+            case .missing, .legacyV1, .legacyV2, .legacyV3, .legacyV4:
                 try writeAndVerifyConnection(connection)
             case .current:
                 try verifyConnection(connection)
@@ -502,6 +502,9 @@ final class AntigravitySettingsMigrationCoordinator {
         if let value = try? decoder.decode(LegacyConnectionSettingsV3.self, from: data), value.isValid {
             return .legacyV3(value)
         }
+        if let value = try? decoder.decode(LegacyConnectionSettingsV4.self, from: data), value.isValid {
+            return .legacyV4(value)
+        }
         throw FailureReason.invalidCurrentConnectionSettings
     }
 
@@ -533,7 +536,6 @@ final class AntigravitySettingsMigrationCoordinator {
     private func makeConnectionSettings() -> AntigravityConnectionSettings {
         return AntigravityConnectionSettings(
             schemaVersion: AntigravityConnectionSettings.currentSchemaVersion,
-            managedSession: .default,
             usageTarget: legacyUsageTarget()
         )
     }

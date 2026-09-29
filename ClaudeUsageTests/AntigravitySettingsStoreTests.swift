@@ -40,11 +40,9 @@ final class AntigravitySettingsStoreTests: XCTestCase {
 
     func testLoadRejectsUnsupportedSchemaWithoutFallingBackToDefaults() async throws {
         let persistence = SettingsPersistenceDouble()
-        var invalidConnection = AntigravityConnectionSettings.default
-        invalidConnection = AntigravityConnectionSettings(
+        let invalidConnection = AntigravityConnectionSettings(
             schemaVersion:
-                AntigravityConnectionSettings.currentSchemaVersion + 1,
-            managedSession: invalidConnection.managedSession
+                AntigravityConnectionSettings.currentSchemaVersion + 1
         )
         persistence.seed(
             connection: invalidConnection,
@@ -66,7 +64,7 @@ final class AntigravitySettingsStoreTests: XCTestCase {
         persistence.seed(connection: .default, display: .default)
         let store = AntigravitySettingsStore(persistence: persistence)
         var changed = AntigravityConnectionSettings.default
-        changed.managedSession.idleTimeoutSeconds = 240
+        changed.usageTarget = .app
 
         let saved = try await store.saveConnection(changed)
         let loaded = try await store.load()
@@ -95,8 +93,7 @@ final class AntigravitySettingsStoreTests: XCTestCase {
         )
         let store = AntigravitySettingsStore(persistence: persistence)
         var changedConnection = original.connection
-        changedConnection.managedSession
-            .idleTimeoutSeconds = 240
+        changedConnection.usageTarget = .app
         var changedDisplay = original.display
         changedDisplay.notifications.isEnabled = true
 
@@ -136,8 +133,7 @@ final class AntigravitySettingsStoreTests: XCTestCase {
         let store = AntigravitySettingsStore(persistence: persistence)
         let invalid = AntigravityConnectionSettings(
             schemaVersion:
-                AntigravityConnectionSettings.currentSchemaVersion,
-            managedSession: .init(idleTimeoutSeconds: 0)
+                AntigravityConnectionSettings.currentSchemaVersion - 1
         )
 
         await XCTAssertThrowsErrorAsync(
@@ -161,8 +157,7 @@ final class AntigravitySettingsStoreTests: XCTestCase {
         persistence.failingWriteAttempts = [3]
         let store = AntigravitySettingsStore(persistence: persistence)
         var changedConnection = AntigravityConnectionSettings.default
-        changedConnection.managedSession
-            .idleTimeoutSeconds = 240
+        changedConnection.usageTarget = .app
         var changedDisplay = AntigravityDisplaySettings.default
         changedDisplay.notifications.isEnabled = true
 

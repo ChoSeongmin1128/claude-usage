@@ -130,7 +130,7 @@ nonisolated struct AntigravityRPCDeadline: Sendable {
     }
 }
 
-nonisolated private extension Duration {
+nonisolated extension Duration {
     var timeInterval: TimeInterval {
         let components = self.components
         return TimeInterval(components.seconds)

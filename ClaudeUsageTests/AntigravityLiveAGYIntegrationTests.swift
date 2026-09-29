@@ -96,7 +96,7 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
         try FileManager.default.createDirectory(
             at: stateDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: stateDirectory) }
-        let workspace = stateDirectory.appendingPathComponent("cli-report", isDirectory: true)
+        let workspace = AntigravityCLIReportWorkspace.url(in: stateDirectory)
         let source = AntigravityCLIUsageReportSource(
             executable: executable,
             executableRevalidator: resolution.catalog,

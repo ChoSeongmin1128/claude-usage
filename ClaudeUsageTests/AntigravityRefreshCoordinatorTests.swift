@@ -127,18 +127,12 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let firstRequest = AntigravityRefreshRequest(
             trigger: .manual,
             repositoryRevision: 0,
-            connection: makeConnectionSettings(
-                target: .cli,
-                managedIdleTimeoutSeconds: 31
-            )
+            connection: makeConnectionSettings(target: .cli)
         )
         let secondRequest = AntigravityRefreshRequest(
             trigger: .manual,
             repositoryRevision: 0,
-            connection: makeConnectionSettings(
-                target: .cli,
-                managedIdleTimeoutSeconds: 47
-            )
+            connection: makeConnectionSettings(target: .unselected)
         )
 
         let first = Task {
@@ -154,8 +148,8 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let firstResult = await firstResultBox.value()
         let callCount = await sourceScript.callCount()
         XCTAssertEqual(firstResult, .failed(.cancelled))
-        XCTAssertEqual(second, .ready(snapshot))
-        XCTAssertEqual(callCount, 2)
+        XCTAssertEqual(second, .setupRequired(.usageTargetSelection))
+        XCTAssertEqual(callCount, 1)
 
         await sourceScript.resumeFirst()
         let completedFirst = await first.value
@@ -1333,18 +1327,11 @@ private func selectedRequest(
 }
 
 private func makeConnectionSettings(
-    target: AntigravityUsageTarget = .cli,
-    managedIdleTimeoutSeconds: Int =
-        AntigravityConnectionSettings
-            .ManagedSessionPolicy
-            .defaultIdleTimeoutSeconds
+    target: AntigravityUsageTarget = .cli
 ) -> AntigravityConnectionSettings {
     AntigravityConnectionSettings(
-        schemaVersion:
-            AntigravityConnectionSettings.currentSchemaVersion,
-        managedSession: .init(
-            idleTimeoutSeconds: managedIdleTimeoutSeconds
-        ), usageTarget: target
+        schemaVersion: AntigravityConnectionSettings.currentSchemaVersion,
+        usageTarget: target
     )
 }
 

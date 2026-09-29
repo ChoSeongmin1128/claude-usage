@@ -103,7 +103,7 @@ nonisolated final class AntigravityOwnedSubprocessRunner:
             processID: child.processID,
             forcedExitDelay: Self.forcedExitDelay
         )
-        let exitRace = AntigravityProcessExitRace()
+        let exitRace = AntigravityOneShotRace<AntigravityTerminationRace>()
         let exitSignal = AntigravityOwnedProcessExitSignal()
 
         let outputCollector = AntigravityBoundedPipeCollector(
@@ -117,12 +117,13 @@ nonisolated final class AntigravityOwnedSubprocessRunner:
             owner: lifecycle
         )
         let outputTask = Task.detached(priority: .utility) {
-            outputCollector.collect()
+            await outputCollector.collect()
         }
         let errorTask = Task.detached(priority: .utility) {
-            errorCollector.collect()
+            await errorCollector.collect()
         }
-        Task.detached(priority: .utility) {
+        // waitUntilReaped blocks between polls, so it runs on a dispatch thread.
+        DispatchQueue.global(qos: .utility).async {
             let result = lifecycle.waitUntilReaped()
             exitSignal.finish(result)
             switch result {
@@ -134,7 +135,7 @@ nonisolated final class AntigravityOwnedSubprocessRunner:
         }
 
         let outcome = await withTaskCancellationHandler {
-            await exitRace.wait(timeout: request.timeout)
+            await exitRace.wait(timeout: request.timeout, orElse: .timedOut)
         } onCancel: {
             lifecycle.cancelOwnedProcess()
             outputCollector.cancel()
@@ -602,13 +603,13 @@ private nonisolated final class AntigravityOwnedProcessExitSignal:
     }
 }
 
-private nonisolated final class AntigravityProcessExitRace: @unchecked Sendable {
+// The first outcome wins; later ones are ignored. `wait` is called once.
+nonisolated final class AntigravityOneShotRace<Outcome: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
-    private var result: AntigravityTerminationRace?
-    private var continuation:
-        CheckedContinuation<AntigravityTerminationRace, Never>?
+    private var result: Outcome?
+    private var continuation: CheckedContinuation<Outcome, Never>?
 
-    func finish(_ result: AntigravityTerminationRace) {
+    func finish(_ result: Outcome) {
         lock.lock()
         guard self.result == nil else {
             lock.unlock()
@@ -622,11 +623,11 @@ private nonisolated final class AntigravityProcessExitRace: @unchecked Sendable 
         continuation?.resume(returning: result)
     }
 
-    func wait(timeout: TimeInterval) async -> AntigravityTerminationRace {
+    func wait(timeout: TimeInterval, orElse timeoutOutcome: Outcome) async -> Outcome {
         DispatchQueue.global(qos: .utility).asyncAfter(
             deadline: .now() + timeout
         ) { [weak self] in
-            self?.finish(.timedOut)
+            self?.finish(timeoutOutcome)
         }
 
         return await withCheckedContinuation { continuation in
@@ -676,7 +677,17 @@ nonisolated final class AntigravityBoundedPipeCollector:
         }
     }
 
-    func collect() -> AntigravityCappedSubprocessOutput {
+    // Collection blocks in poll(2) until EOF or release, so it runs on a
+    // dispatch thread instead of a Swift concurrency thread.
+    func collect() async -> AntigravityCappedSubprocessOutput {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: self.collectBlocking())
+            }
+        }
+    }
+
+    private func collectBlocking() -> AntigravityCappedSubprocessOutput {
         defer { Darwin.close(fileDescriptor) }
         var data = Data()
         var exceededLimit = false

@@ -63,6 +63,15 @@ nonisolated enum AntigravityUsageSourceID:
     case localApp
     case cliReport
     case googleOAuth
+
+    // A CLI usage report is one atomic answer from the signed-in CLI and
+    // names no account, so there is no cross-request boundary to verify.
+    var reportsAccountIdentity: Bool {
+        switch self {
+        case .localApp, .googleOAuth: true
+        case .cliReport: false
+        }
+    }
 }
 
 nonisolated enum AntigravitySetupReason:

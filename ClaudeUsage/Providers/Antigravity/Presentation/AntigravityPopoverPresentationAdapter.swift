@@ -182,7 +182,9 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
                 settingsFailure(title: "AGY 실행 파일 검증 실패", message: "공식 서명 또는 파일 권한을 검증하지 못해 실행을 차단했습니다. 공식 AGY CLI 설치 상태를 확인해 주세요.")
             case .unsupportedVersion:
                 settingsFailure(
-                    title: "AGY CLI 업데이트 필요", message: "설치된 AGY CLI는 사용량 보고를 지원하지 않습니다. AGY CLI를 1.1.11 이상으로 업데이트해 주세요."
+                    title: "AGY CLI 업데이트 필요",
+                    message:
+                        "설치된 AGY CLI는 사용량 보고를 지원하지 않습니다. AGY CLI를 \(AntigravityCLIVersion.minimumUsageReport) 이상으로 업데이트해 주세요."
                 )
             case .reportDisabled:
                 settingsFailure(

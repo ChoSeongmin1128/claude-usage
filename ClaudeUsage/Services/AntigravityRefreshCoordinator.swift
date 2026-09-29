@@ -521,10 +521,7 @@ actor AntigravityRefreshCoordinator:
                     }
                     continue
                 }
-                if sourceID == .cliReport {
-                    // A usage report carries no account identity. It is one
-                    // atomic answer from the signed-in CLI, so there is no
-                    // cross-request account boundary to verify.
+                if !sourceID.reportsAccountIdentity {
                     guard inspection.responses.count == 1,
                         case .grouped(let snapshot) = inspection.responses[0].payload,
                         snapshot.identity == nil,

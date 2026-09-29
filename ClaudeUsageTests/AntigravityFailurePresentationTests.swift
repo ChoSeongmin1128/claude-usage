@@ -21,7 +21,7 @@ final class AntigravityFailurePresentationTests: XCTestCase {
         let summary = AntigravityPopoverPresentationAdapter.failureSummary(
             .runtimeUnavailable(.unsupportedVersion))
 
-        XCTAssertTrue(summary.message.contains("1.1.11"))
+        XCTAssertTrue(summary.message.contains(AntigravityCLIVersion.minimumUsageReport.description))
         XCTAssertEqual(summary.action, .openSettings)
     }
 

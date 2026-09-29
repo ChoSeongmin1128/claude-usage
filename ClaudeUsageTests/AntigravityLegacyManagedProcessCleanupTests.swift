@@ -116,7 +116,7 @@ final class AntigravityLegacyManagedProcessCleanupTests: XCTestCase {
         XCTAssertEqual(result, .nothingRecorded)
         XCTAssertFalse(
             FileManager.default.fileExists(
-                atPath: stateDirectory.appendingPathComponent("managed-agy-sessions.json").path))
+                atPath: stateDirectory.appendingPathComponent(AntigravityManagedProcessRecordFileStore.fileName).path))
     }
 
     func testProductionCleanupRemovesTheOldSharedLaunchLock() async throws {
@@ -156,7 +156,7 @@ final class AntigravityLegacyManagedProcessCleanupTests: XCTestCase {
 
     private func ledgerFileStore() -> AntigravityManagedProcessRecordFileStore {
         AntigravityManagedProcessRecordFileStore(
-            fileURL: stateDirectory.appendingPathComponent("managed-agy-sessions.json"))
+            fileURL: stateDirectory.appendingPathComponent(AntigravityManagedProcessRecordFileStore.fileName))
     }
 
     /// An intent owned by this test process's PID but a different kernel

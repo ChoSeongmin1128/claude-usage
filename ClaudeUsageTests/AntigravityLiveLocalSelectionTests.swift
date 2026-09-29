@@ -79,7 +79,7 @@ final class AntigravityLiveLocalSelectionTests: XCTestCase {
             // Reports own no long-lived process, so nothing is ever recorded.
             guard
                 !FileManager.default.fileExists(
-                    atPath: root.appendingPathComponent("managed-agy-sessions.json").path)
+                    atPath: root.appendingPathComponent(AntigravityManagedProcessRecordFileStore.fileName).path)
             else { throw LiveLocalSelectionError.cleanupUnconfirmed }
             try FileManager.default.removeItem(at: root)
         } catch {

@@ -46,10 +46,11 @@ nonisolated struct AntigravityLegacyManagedProcessCleanup: AntigravityLegacyMana
     }
 
     static let launchLockFileName = "managed-agy-launch.lock"
+    private static let launchLockSharedDirectoryName = "ClaudeUsageShared"
 
     static func launchLockDirectory(homeDirectoryURL: URL) -> URL {
-        homeDirectoryURL.standardizedFileURL.appendingPathComponent(
-            "Library/Application Support/ClaudeUsageShared/Antigravity", isDirectory: true)
+        AntigravityStoragePaths.canonicalStateDirectoryURL(
+            homeDirectoryURL: homeDirectoryURL, directoryName: launchLockSharedDirectoryName)
     }
 
     // Earlier releases serialized managed launches across channels with this
@@ -69,7 +70,7 @@ nonisolated struct AntigravityLegacyManagedProcessCleanup: AntigravityLegacyMana
         homeDirectoryURL: URL = FileManager.default.realHomeDirectory
     ) -> Self {
         let launchLockDirectory = launchLockDirectory(homeDirectoryURL: homeDirectoryURL)
-        let ledgerURL = stateDirectory.appendingPathComponent("managed-agy-sessions.json")
+        let ledgerURL = stateDirectory.appendingPathComponent(AntigravityManagedProcessRecordFileStore.fileName)
         let ledgerStore = AntigravityManagedProcessRecordFileStore(fileURL: ledgerURL)
         let identityProvider = AntigravityManagedProcessIdentityProvider()
         let recordRecovery = AntigravityManagedProcessRecovery(

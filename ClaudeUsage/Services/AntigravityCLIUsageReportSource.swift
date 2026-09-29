@@ -32,6 +32,10 @@ nonisolated enum AntigravityCLIReportWorkspaceError: Error, Equatable {
 }
 
 nonisolated enum AntigravityCLIReportWorkspace {
+    static func url(in stateDirectory: URL) -> URL {
+        stateDirectory.appendingPathComponent("cli-report", isDirectory: true)
+    }
+
     static func prepare(
         at url: URL,
         fileManager: FileManager = .default,

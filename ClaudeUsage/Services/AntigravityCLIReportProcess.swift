@@ -54,7 +54,6 @@ nonisolated struct AntigravityCLIReportProcessRunner:
     private let executableRevalidator: any AntigravityExecutableRevalidating
     private let runningExecutableImageValidator: any AntigravityRunningExecutableImageValidating
     private let terminationGracePeriod: Duration
-    private let pollInterval: Duration
 
     init(
         executableRevalidator: any AntigravityExecutableRevalidating =
@@ -62,13 +61,11 @@ nonisolated struct AntigravityCLIReportProcessRunner:
         runningExecutableImageValidator:
             any AntigravityRunningExecutableImageValidating =
             AntigravitySystemRunningExecutableImageValidator(),
-        terminationGracePeriod: Duration = .milliseconds(250),
-        pollInterval: Duration = .milliseconds(10)
+        terminationGracePeriod: Duration = .milliseconds(250)
     ) {
         self.executableRevalidator = executableRevalidator
         self.runningExecutableImageValidator = runningExecutableImageValidator
         self.terminationGracePeriod = terminationGracePeriod
-        self.pollInterval = pollInterval
     }
 
     // AGY's auto-updater may be rewriting the binary during a launch (ETXTBSY).
@@ -120,8 +117,12 @@ nonisolated struct AntigravityCLIReportProcessRunner:
             maximumBytes: request.maximumOutputBytes,
             owner: child
         )
-        let outputTask = Task { await Self.collectOutsideCooperativePool(outputCollector) }
-        let errorTask = Task { await Self.collectOutsideCooperativePool(errorCollector) }
+        let outputTask = Task.detached(priority: .utility) {
+            await outputCollector.collect()
+        }
+        let errorTask = Task.detached(priority: .utility) {
+            await errorCollector.collect()
+        }
 
         let outcome = await waitForExit(of: child, timeout: request.timeout)
         switch outcome {
@@ -156,44 +157,36 @@ nonisolated struct AntigravityCLIReportProcessRunner:
         }
     }
 
-    private enum WaitOutcome {
+    private enum WaitOutcome: Sendable {
         case exited
         case timedOut
         case cancelled
         case outputLimitReached
     }
 
+    // kqueue reports the exit without reaping, so the root keeps its IDs
+    // reserved. The event can precede waitpid visibility; reap() tolerates that.
     private func waitForExit(
         of child: AntigravityCLIReportChildProcess,
         timeout: Duration
     ) async -> WaitOutcome {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while true {
-            if child.hasExited() {
-                return .exited
-            }
-            if Task.isCancelled {
-                return .cancelled
-            }
-            if child.outputLimitReached {
-                return .outputLimitReached
-            }
-            if ContinuousClock.now >= deadline {
-                return .timedOut
-            }
-            try? await Task.sleep(for: pollInterval)
+        let race = AntigravityOneShotRace<WaitOutcome>()
+        child.onOutputLimitReached { race.finish(.outputLimitReached) }
+        let exitEvents = DispatchSource.makeProcessSource(
+            identifier: child.processID,
+            eventMask: .exit,
+            queue: .global(qos: .utility)
+        )
+        exitEvents.setEventHandler { race.finish(.exited) }
+        exitEvents.activate()
+        defer { exitEvents.cancel() }
+        if child.hasExited() {
+            race.finish(.exited)
         }
-    }
-
-    // Collection blocks in poll(2) for the whole report, so it runs on a
-    // dispatch thread instead of occupying a Swift concurrency thread.
-    private static func collectOutsideCooperativePool(
-        _ collector: AntigravityBoundedPipeCollector
-    ) async -> AntigravityCappedSubprocessOutput {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                continuation.resume(returning: collector.collect())
-            }
+        return await withTaskCancellationHandler {
+            await race.wait(timeout: timeout.timeInterval, orElse: .timedOut)
+        } onCancel: {
+            race.finish(.cancelled)
         }
     }
 
@@ -265,6 +258,7 @@ nonisolated final class AntigravityCLIReportChildProcess:
     private let lock = NSLock()
     private var reapedStatus: Int32?
     private var limitReached = false
+    private var outputLimitHandler: (@Sendable () -> Void)?
 
     fileprivate init(
         processID: pid_t,
@@ -280,12 +274,22 @@ nonisolated final class AntigravityCLIReportChildProcess:
         lock.withLock { reapedStatus != nil }
     }
 
-    var outputLimitReached: Bool {
-        lock.withLock { limitReached }
+    func cancelOwnedProcess() {
+        let handler = lock.withLock {
+            limitReached = true
+            return outputLimitHandler
+        }
+        handler?()
     }
 
-    func cancelOwnedProcess() {
-        lock.withLock { limitReached = true }
+    fileprivate func onOutputLimitReached(_ handler: @escaping @Sendable () -> Void) {
+        let reached = lock.withLock {
+            outputLimitHandler = handler
+            return limitReached
+        }
+        if reached {
+            handler()
+        }
     }
 
     fileprivate func resume() -> Bool {

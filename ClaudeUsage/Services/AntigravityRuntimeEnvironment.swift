@@ -243,7 +243,7 @@ extension AntigravityRuntimeEnvironment {
     ) -> AntigravityRuntimeEnvironment {
         let legacyCleanup = AntigravityLegacyManagedProcessCleanup.production(
             stateDirectory: stateDirectory, homeDirectoryURL: homeDirectoryURL)
-        let reportWorkspace = stateDirectory.appendingPathComponent("cli-report", isDirectory: true)
+        let reportWorkspace = AntigravityCLIReportWorkspace.url(in: stateDirectory)
         return AntigravityRuntimeEnvironment(
             fingerprint: {
                 await Task.detached(priority: .utility) {
