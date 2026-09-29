@@ -110,10 +110,10 @@ final class AntigravityCLIUsageReportSourceTests: XCTestCase {
 
     // MARK: - Report outcomes
 
-    func testModelTurnOrUnexpectedAnswerStopsFurtherReports() async throws {
+    func testModelTurnStopsFurtherReports() async throws {
         let answers = [
             #"{"status":"SUCCESS","num_turns":1,"response":"Your quota..."}"#,
-            #"{"status":"SUCCESS","response":"Your quota..."}"#,
+            #"{"status":"SUCCESS","num_turns":0,"usage":{"total_tokens":12},"response":"Your quota..."}"#,
         ]
         for answer in answers {
             let runner = ScriptedReportRunner(outcomes: [.success(output("1.2.12")), .success(output(answer))])
@@ -124,6 +124,23 @@ final class AntigravityCLIUsageReportSourceTests: XCTestCase {
 
             let runs = await runner.requests.count
             XCTAssertEqual(runs, 2, "A report that may have spent quota must not be repeated")
+        }
+    }
+
+    func testUnexpectedAnswerWithoutModelTurnIsRetried() async throws {
+        let answers = [
+            #"{"error":"not signed in"}"#,
+            #"{"status":"SUCCESS","num_turns":0,"command":{"name":"quota","data":{}}}"#,
+        ]
+        for answer in answers {
+            let runner = ScriptedReportRunner(outcomes: [
+                .success(output("1.2.12")), .success(output(answer)),
+                .success(output(try fixture("agy-1.2.12-print-usage-weekly-only.json"))),
+            ])
+            let source = makeSource(runner: runner)
+
+            await assertFetchError(source, .malformedResponse)
+            _ = try await source.fetch(request())
         }
     }
 

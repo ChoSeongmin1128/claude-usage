@@ -304,9 +304,8 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                     id: .cliReport,
                     script: RefreshSourceScript(outcomes: [
                         .success(.init(payload: .grouped(report))),
-                        .failure(.reportFailed),
                         .failure(.runtimeUnavailable(.reportDisabled)),
-                        .failure(.reportFailed),
+                        .failure(.transportFailure),
                     ]))
             ]
         )
@@ -317,14 +316,38 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             connection: makeConnectionSettings(target: .cli))
 
         let ready = await coordinator.refresh(scheduled)
-        let failedReport = await coordinator.refresh(scheduled)
         let disabled = await coordinator.refresh(scheduled)
         let cleared = await coordinator.refresh(boundary)
 
         XCTAssertEqual(ready, .ready(report))
-        XCTAssertEqual(failedReport, .stale(report, failure: .cliReportFailed))
         XCTAssertEqual(disabled, .stale(report, failure: .runtimeUnavailable(.reportDisabled)))
-        XCTAssertEqual(cleared, .failed(.cliReportFailed))
+        XCTAssertEqual(cleared, .failed(.transportUnavailable(.cliReport)))
+    }
+
+    func testFailedCLIReportDropsTheLastReport() async {
+        let report = makeReportSnapshot()
+        let coordinator = AntigravityRefreshCoordinator(
+            repository: RefreshRepositoryDouble(accounts: [], activeAccountID: nil, credentials: [:]),
+            sources: [
+                ScriptedRefreshSource(
+                    id: .cliReport,
+                    script: RefreshSourceScript(outcomes: [
+                        .success(.init(payload: .grouped(report))),
+                        .failure(.reportFailed),
+                        .failure(.transportFailure),
+                    ]))
+            ]
+        )
+        let scheduled = AntigravityRefreshRequest(
+            trigger: .scheduled, repositoryRevision: 0, connection: makeConnectionSettings(target: .cli))
+
+        let ready = await coordinator.refresh(scheduled)
+        let failedReport = await coordinator.refresh(scheduled)
+        let afterwards = await coordinator.refresh(scheduled)
+
+        XCTAssertEqual(ready, .ready(report))
+        XCTAssertEqual(failedReport, .failed(.cliReportFailed))
+        XCTAssertEqual(afterwards, .failed(.transportUnavailable(.cliReport)))
     }
 
     func testCLIRuntimeFailuresAreNamed() async {
@@ -347,7 +370,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         }
     }
 
-    func testCLIReportMustComeFromAReportWithoutAProcessEndpoint() async {
+    func testCLIReportMustComeFromAReportWithoutAProcessEndpointOrIdentity() async {
         let base = makeReportSnapshot()
         let endpointBacked = AntigravityQuotaSnapshot(
             identity: nil, plan: nil, lanes: base.lanes, decodeIssues: [],
@@ -359,8 +382,18 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let empty = AntigravityQuotaSnapshot(
             identity: nil, plan: nil, lanes: [], decodeIssues: [],
             provenance: base.provenance, fetchedAt: base.fetchedAt)
+        let identity = ProviderAccountIdentity(email: "a@example.com")
+        let withIdentity = AntigravityQuotaSnapshot(
+            identity: identity, plan: nil, lanes: base.lanes, decodeIssues: [],
+            provenance: base.provenance, fetchedAt: base.fetchedAt)
+        let withProvenanceIdentity = AntigravityQuotaSnapshot(
+            identity: nil, plan: nil, lanes: base.lanes, decodeIssues: [],
+            provenance: AntigravityQuotaProvenance(
+                transport: .cliUsageReport, endpointOwner: .managed, accountIdentity: identity,
+                capability: .groupedQuotaSummary, processIdentity: nil),
+            fetchedAt: base.fetchedAt)
 
-        for invalid in [endpointBacked, appTransport, empty] {
+        for invalid in [endpointBacked, appTransport, empty, withIdentity, withProvenanceIdentity] {
             let coordinator = AntigravityRefreshCoordinator(
                 repository: RefreshRepositoryDouble(accounts: [], activeAccountID: nil, credentials: [:]),
                 sources: [

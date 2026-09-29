@@ -1,9 +1,9 @@
+import Darwin
 import Foundation
 
 nonisolated enum AntigravityLegacyManagedProcessCleanupResult: Sendable, Equatable {
     case nothingRecorded
     case cleaned
-    /// The ledger could not be reconciled safely; it is kept for the next launch.
     case deferred
 }
 
@@ -11,28 +11,29 @@ nonisolated protocol AntigravityLegacyManagedProcessCleaning: Sendable {
     func cleanUp() async -> AntigravityLegacyManagedProcessCleanupResult
 }
 
-/// Retires AGY processes that earlier releases launched and recorded.
-///
-/// Releases before the usage-report source kept a long-lived AGY process and a
-/// ledger of it. After an update the previous app instance is gone, so the
-/// ledger owner is provably dead and the existing fail-closed recovery can
-/// finish. The result never gates refreshes: nothing current reads the ledger.
+// Earlier releases recorded the AGY processes they kept running. The previous
+// app instance is gone after an update, so the fail-closed recovery can finish.
+// Nothing current reads the ledger, so the result never gates refreshes.
 nonisolated struct AntigravityLegacyManagedProcessCleanup: AntigravityLegacyManagedProcessCleaning {
     private let ledgerStore: any AntigravityManagedProcessLedgerStoring
     private let recovery: any AntigravityManagedProcessRecovering
     private let ledgerExists: @Sendable () -> Bool
+    private let removeLaunchLock: @Sendable () -> Void
 
     init(
         ledgerStore: any AntigravityManagedProcessLedgerStoring,
         recovery: any AntigravityManagedProcessRecovering,
-        ledgerExists: @escaping @Sendable () -> Bool
+        ledgerExists: @escaping @Sendable () -> Bool,
+        removeLaunchLock: @escaping @Sendable () -> Void = {}
     ) {
         self.ledgerStore = ledgerStore
         self.recovery = recovery
         self.ledgerExists = ledgerExists
+        self.removeLaunchLock = removeLaunchLock
     }
 
     func cleanUp() async -> AntigravityLegacyManagedProcessCleanupResult {
+        removeLaunchLock()
         guard ledgerExists() else { return .nothingRecorded }
         guard let snapshot = try? ledgerStore.loadLedger() else { return .deferred }
         guard !snapshot.entries.isEmpty else { return .nothingRecorded }
@@ -44,9 +45,30 @@ nonisolated struct AntigravityLegacyManagedProcessCleanup: AntigravityLegacyMana
         }
     }
 
+    static let launchLockFileName = "managed-agy-launch.lock"
+
+    static func launchLockDirectory(homeDirectoryURL: URL) -> URL {
+        homeDirectoryURL.standardizedFileURL.appendingPathComponent(
+            "Library/Application Support/ClaudeUsageShared/Antigravity", isDirectory: true)
+    }
+
+    // Earlier releases serialized managed launches across channels with this
+    // lock. Only empty directories are removed, so anything else is kept.
+    static func removeLaunchLock(in directory: URL) {
+        let lockPath = directory.appendingPathComponent(launchLockFileName).path
+        var metadata = stat()
+        if lstat(lockPath, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG {
+            _ = unlink(lockPath)
+        }
+        _ = rmdir(directory.path)
+        _ = rmdir(directory.deletingLastPathComponent().path)
+    }
+
     static func production(
-        stateDirectory: URL = AntigravityStoragePaths.canonicalStateDirectoryURL()
+        stateDirectory: URL = AntigravityStoragePaths.canonicalStateDirectoryURL(),
+        homeDirectoryURL: URL = FileManager.default.realHomeDirectory
     ) -> Self {
+        let launchLockDirectory = launchLockDirectory(homeDirectoryURL: homeDirectoryURL)
         let ledgerURL = stateDirectory.appendingPathComponent("managed-agy-sessions.json")
         let ledgerStore = AntigravityManagedProcessRecordFileStore(fileURL: ledgerURL)
         let identityProvider = AntigravityManagedProcessIdentityProvider()
@@ -64,7 +86,8 @@ nonisolated struct AntigravityLegacyManagedProcessCleanup: AntigravityLegacyMana
         return Self(
             ledgerStore: ledgerStore,
             recovery: recovery,
-            ledgerExists: { FileManager.default.fileExists(atPath: ledgerURL.path) }
+            ledgerExists: { FileManager.default.fileExists(atPath: ledgerURL.path) },
+            removeLaunchLock: { removeLaunchLock(in: launchLockDirectory) }
         )
     }
 }

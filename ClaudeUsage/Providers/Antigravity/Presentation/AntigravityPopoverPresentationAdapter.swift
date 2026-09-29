@@ -186,8 +186,10 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
                 )
             case .reportDisabled:
                 settingsFailure(
-                    title: "AGY 사용량 보고 형식 변경",
-                    message: "AGY가 사용량 보고 대신 다른 응답을 반환해 자동 조회를 중지했습니다. AGY CLI가 업데이트되면 다시 조회합니다.")
+                    title: "AGY 사용량 보고 중지",
+                    message:
+                        "AGY가 사용량 보고 대신 모델 응답을 실행해 quota가 더 쓰이지 않도록 자동 조회를 중지했습니다. AGY CLI가 업데이트되거나 ClaudeUsage를 다시 실행하면 다시 조회합니다."
+                )
             }
         case .authenticationRequired(let source), .interactionRequired(let source):
             if source == .googleOAuth {

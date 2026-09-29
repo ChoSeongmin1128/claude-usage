@@ -29,7 +29,7 @@ nonisolated struct AntigravityCLIReportProcessRequest: Sendable, Equatable {
 nonisolated struct AntigravityCLIReportProcessResult: Sendable, Equatable {
     let standardOutput: Data
     let standardError: Data
-    /// The exit code, or 128 plus the terminating signal number.
+    // The exit code, or 128 plus the terminating signal number.
     let exitStatus: Int32
 }
 
@@ -48,13 +48,6 @@ nonisolated protocol AntigravityCLIReportProcessRunning: Sendable {
     ) async throws -> AntigravityCLIReportProcessResult
 }
 
-/// Runs one short-lived, catalog-approved AGY command in its own process group.
-///
-/// The child starts suspended, so no AGY code runs before the kernel-mapped
-/// image is validated. The root stays unreaped until every signal has been
-/// sent: its PID, and therefore its process-group ID, cannot be reused while
-/// it is signalled. Once the root exits, remaining members of its group are
-/// killed because nothing AGY starts for a report may outlive it.
 nonisolated struct AntigravityCLIReportProcessRunner:
     AntigravityCLIReportProcessRunning
 {
@@ -78,9 +71,7 @@ nonisolated struct AntigravityCLIReportProcessRunner:
         self.pollInterval = pollInterval
     }
 
-    /// AGY's auto-updater can be rewriting the binary while a launch is in
-    /// flight, which surfaces as `ETXTBSY`. Only that status is retried; a
-    /// retried launch still passes the same image validation.
+    // AGY's auto-updater may be rewriting the binary during a launch (ETXTBSY).
     static func spawnRetryingTextFileBusy(
         maximumAttempts: Int = 3,
         sleepBetweenAttempts: () -> Void = { usleep(10_000) },
@@ -129,12 +120,8 @@ nonisolated struct AntigravityCLIReportProcessRunner:
             maximumBytes: request.maximumOutputBytes,
             owner: child
         )
-        let outputTask = Task.detached(priority: .utility) {
-            outputCollector.collect()
-        }
-        let errorTask = Task.detached(priority: .utility) {
-            errorCollector.collect()
-        }
+        let outputTask = Task { await Self.collectOutsideCooperativePool(outputCollector) }
+        let errorTask = Task { await Self.collectOutsideCooperativePool(errorCollector) }
 
         let outcome = await waitForExit(of: child, timeout: request.timeout)
         switch outcome {
@@ -198,6 +185,18 @@ nonisolated struct AntigravityCLIReportProcessRunner:
         }
     }
 
+    // Collection blocks in poll(2) for the whole report, so it runs on a
+    // dispatch thread instead of occupying a Swift concurrency thread.
+    private static func collectOutsideCooperativePool(
+        _ collector: AntigravityBoundedPipeCollector
+    ) async -> AntigravityCappedSubprocessOutput {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: collector.collect())
+            }
+        }
+    }
+
     private static func sleepIgnoringCancellation(_ duration: Duration) async {
         guard duration > .zero else { return }
         await Task.detached {
@@ -208,125 +207,26 @@ nonisolated struct AntigravityCLIReportProcessRunner:
     private func launch(
         _ request: AntigravityCLIReportProcessRequest
     ) throws -> AntigravityCLIReportChildProcess {
-        let executablePath =
-            request.executable.canonicalURL.standardizedFileURL.path
-        var standardOutputPipe = [Int32](repeating: -1, count: 2)
-        var standardErrorPipe = [Int32](repeating: -1, count: 2)
-        guard AntigravitySubprocessPipe.make(&standardOutputPipe),
-            AntigravitySubprocessPipe.make(&standardErrorPipe)
+        guard
+            let spawned = AntigravitySubprocessSpawn.spawn(
+                executablePath: request.executable.canonicalURL.standardizedFileURL.path,
+                arguments: request.arguments,
+                environment: request.environment,
+                options: .init(
+                    workingDirectoryPath: request.workingDirectoryURL.path,
+                    ownProcessGroup: true,
+                    startSuspended: true
+                ),
+                attempt: { Self.spawnRetryingTextFileBusy(spawn: $0) }
+            )
         else {
-            AntigravitySubprocessPipe.close(standardOutputPipe)
-            AntigravitySubprocessPipe.close(standardErrorPipe)
             throw AntigravityCLIReportProcessError.launchFailed
         }
-        func closePipes() {
-            AntigravitySubprocessPipe.close(standardOutputPipe)
-            AntigravitySubprocessPipe.close(standardErrorPipe)
-        }
-
-        var fileActions: posix_spawn_file_actions_t?
-        guard posix_spawn_file_actions_init(&fileActions) == 0 else {
-            closePipes()
-            throw AntigravityCLIReportProcessError.launchFailed
-        }
-        defer { posix_spawn_file_actions_destroy(&fileActions) }
-
-        let workingDirectoryStatus = request.workingDirectoryURL.path.withCString {
-            posix_spawn_file_actions_addchdir_np(&fileActions, $0)
-        }
-        let fileActionResults = [
-            posix_spawn_file_actions_addopen(
-                &fileActions, STDIN_FILENO, "/dev/null", O_RDONLY, 0
-            ),
-            posix_spawn_file_actions_adddup2(
-                &fileActions, standardOutputPipe[1], STDOUT_FILENO
-            ),
-            posix_spawn_file_actions_adddup2(
-                &fileActions, standardErrorPipe[1], STDERR_FILENO
-            ),
-            posix_spawn_file_actions_addclose(&fileActions, standardOutputPipe[0]),
-            posix_spawn_file_actions_addclose(&fileActions, standardOutputPipe[1]),
-            posix_spawn_file_actions_addclose(&fileActions, standardErrorPipe[0]),
-            posix_spawn_file_actions_addclose(&fileActions, standardErrorPipe[1]),
-            workingDirectoryStatus,
-        ]
-        guard fileActionResults.allSatisfy({ $0 == 0 }) else {
-            closePipes()
-            throw AntigravityCLIReportProcessError.launchFailed
-        }
-
-        var attributes: posix_spawnattr_t?
-        guard posix_spawnattr_init(&attributes) == 0 else {
-            closePipes()
-            throw AntigravityCLIReportProcessError.launchFailed
-        }
-        defer { posix_spawnattr_destroy(&attributes) }
-
-        var defaultSignals = sigset_t()
-        sigemptyset(&defaultSignals)
-        for signal in [SIGINT, SIGTERM, SIGHUP, SIGPIPE] {
-            sigaddset(&defaultSignals, signal)
-        }
-        var emptySignalMask = sigset_t()
-        sigemptyset(&emptySignalMask)
-        let flags =
-            POSIX_SPAWN_CLOEXEC_DEFAULT
-            | POSIX_SPAWN_SETPGROUP
-            | POSIX_SPAWN_SETSIGDEF
-            | POSIX_SPAWN_SETSIGMASK
-            | POSIX_SPAWN_START_SUSPENDED
-        guard posix_spawnattr_setflags(&attributes, Int16(flags)) == 0,
-            posix_spawnattr_setpgroup(&attributes, 0) == 0,
-            posix_spawnattr_setsigdefault(&attributes, &defaultSignals) == 0,
-            posix_spawnattr_setsigmask(&attributes, &emptySignalMask) == 0
-        else {
-            closePipes()
-            throw AntigravityCLIReportProcessError.launchFailed
-        }
-
-        let argumentStrings = [executablePath] + request.arguments
-        let environmentStrings: [String] = request.environment
-            .map { "\($0.key)=\($0.value)" }
-            .sorted()
-        var arguments: [UnsafeMutablePointer<CChar>?] = argumentStrings.map { strdup($0) }
-        var environment: [UnsafeMutablePointer<CChar>?] = environmentStrings.map { strdup($0) }
-        defer {
-            arguments.forEach { free($0) }
-            environment.forEach { free($0) }
-        }
-        guard arguments.allSatisfy({ $0 != nil }),
-            environment.allSatisfy({ $0 != nil })
-        else {
-            closePipes()
-            throw AntigravityCLIReportProcessError.launchFailed
-        }
-        arguments.append(nil)
-        environment.append(nil)
-
-        var processID: pid_t = 0
-        let spawnStatus = Self.spawnRetryingTextFileBusy {
-            executablePath.withCString { executable in
-                posix_spawn(
-                    &processID,
-                    executable,
-                    &fileActions,
-                    &attributes,
-                    &arguments,
-                    &environment
-                )
-            }
-        }
-        guard spawnStatus == 0, processID > 0 else {
-            closePipes()
-            throw AntigravityCLIReportProcessError.launchFailed
-        }
-
-        Darwin.close(standardOutputPipe[1])
-        Darwin.close(standardErrorPipe[1])
+        let processID = spawned.processID
         let child = AntigravityCLIReportChildProcess(
             processID: processID,
-            standardOutputFileDescriptor: standardOutputPipe[0],
-            standardErrorFileDescriptor: standardErrorPipe[0]
+            standardOutputFileDescriptor: spawned.standardOutputFileDescriptor,
+            standardErrorFileDescriptor: spawned.standardErrorFileDescriptor
         )
 
         // A suspended root has not run AGY code, so it cannot have created
@@ -352,11 +252,8 @@ nonisolated struct AntigravityCLIReportProcessRunner:
     }
 }
 
-/// Owns one spawned report process until it is reaped.
-///
-/// Every signal is sent under the same lock as `waitpid`, and only while the
-/// root is unreaped, so neither the PID nor the process-group ID can refer to
-/// another process at that moment.
+// Signals are sent under the same lock as `waitpid` and only while the root is
+// unreaped, so neither its PID nor its process-group ID can have been reused.
 nonisolated final class AntigravityCLIReportChildProcess:
     AntigravityBoundedPipeOwning,
     @unchecked Sendable
@@ -397,7 +294,7 @@ nonisolated final class AntigravityCLIReportChildProcess:
         }
     }
 
-    /// Reports an exited root without reaping it, keeping its IDs reserved.
+    // WNOWAIT keeps the exited root unreaped so its IDs stay reserved.
     fileprivate func hasExited() -> Bool {
         lock.withLock {
             guard reapedStatus == nil else { return true }

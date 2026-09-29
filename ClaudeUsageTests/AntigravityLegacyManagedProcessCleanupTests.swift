@@ -87,7 +87,9 @@ final class AntigravityLegacyManagedProcessCleanupTests: XCTestCase {
         let store = ledgerFileStore()
         try store.createIntent(try intent(boot: .init(rawValue: UUID())))
 
-        let result = await AntigravityLegacyManagedProcessCleanup.production(stateDirectory: stateDirectory).cleanUp()
+        let result = await AntigravityLegacyManagedProcessCleanup.production(
+            stateDirectory: stateDirectory, homeDirectoryURL: stateDirectory
+        ).cleanUp()
 
         XCTAssertEqual(result, .cleaned)
         XCTAssertTrue(try store.loadLedger().entries.isEmpty)
@@ -98,19 +100,56 @@ final class AntigravityLegacyManagedProcessCleanupTests: XCTestCase {
         let store = ledgerFileStore()
         try store.createIntent(try intent(boot: currentBoot))
 
-        let result = await AntigravityLegacyManagedProcessCleanup.production(stateDirectory: stateDirectory).cleanUp()
+        let result = await AntigravityLegacyManagedProcessCleanup.production(
+            stateDirectory: stateDirectory, homeDirectoryURL: stateDirectory
+        ).cleanUp()
 
         XCTAssertEqual(result, .cleaned)
         XCTAssertTrue(try store.loadLedger().entries.isEmpty)
     }
 
     func testProductionCleanupWithoutLedgerCreatesNothing() async {
-        let result = await AntigravityLegacyManagedProcessCleanup.production(stateDirectory: stateDirectory).cleanUp()
+        let result = await AntigravityLegacyManagedProcessCleanup.production(
+            stateDirectory: stateDirectory, homeDirectoryURL: stateDirectory
+        ).cleanUp()
 
         XCTAssertEqual(result, .nothingRecorded)
         XCTAssertFalse(
             FileManager.default.fileExists(
                 atPath: stateDirectory.appendingPathComponent("managed-agy-sessions.json").path))
+    }
+
+    func testProductionCleanupRemovesTheOldSharedLaunchLock() async throws {
+        let lockDirectory = AntigravityLegacyManagedProcessCleanup.launchLockDirectory(
+            homeDirectoryURL: stateDirectory)
+        try FileManager.default.createDirectory(at: lockDirectory, withIntermediateDirectories: true)
+        FileManager.default.createFile(
+            atPath: lockDirectory.appendingPathComponent(
+                AntigravityLegacyManagedProcessCleanup.launchLockFileName
+            ).path,
+            contents: Data())
+
+        _ = await AntigravityLegacyManagedProcessCleanup.production(
+            stateDirectory: stateDirectory, homeDirectoryURL: stateDirectory
+        ).cleanUp()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lockDirectory.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lockDirectory.deletingLastPathComponent().path))
+    }
+
+    func testLaunchLockRemovalKeepsUnknownFiles() throws {
+        let lockDirectory = AntigravityLegacyManagedProcessCleanup.launchLockDirectory(
+            homeDirectoryURL: stateDirectory)
+        try FileManager.default.createDirectory(at: lockDirectory, withIntermediateDirectories: true)
+        let lockURL = lockDirectory.appendingPathComponent(AntigravityLegacyManagedProcessCleanup.launchLockFileName)
+        let unknownURL = lockDirectory.appendingPathComponent("other")
+        FileManager.default.createFile(atPath: lockURL.path, contents: Data())
+        FileManager.default.createFile(atPath: unknownURL.path, contents: Data())
+
+        AntigravityLegacyManagedProcessCleanup.removeLaunchLock(in: lockDirectory)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lockURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: unknownURL.path))
     }
 
     // MARK: - Helpers

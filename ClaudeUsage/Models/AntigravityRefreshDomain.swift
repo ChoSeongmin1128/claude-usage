@@ -61,7 +61,6 @@ nonisolated enum AntigravityUsageSourceID:
     Hashable
 {
     case localApp
-    /// `agy -p /usage` run by ClaudeUsage for the CLI target.
     case cliReport
     case googleOAuth
 }
@@ -90,10 +89,7 @@ nonisolated enum AntigravityRuntimeFailure: String, Error, Sendable, Equatable {
     case executableMissing
     case executableChanged
     case verificationRejected
-    /// The installed AGY predates non-interactive `/usage` reports.
     case unsupportedVersion
-    /// AGY answered `/usage` with something other than a usage report, so
-    /// automatic reports stay off until the executable changes.
     case reportDisabled
 }
 
@@ -125,7 +121,6 @@ nonisolated enum AntigravityFailure:
     case numericQuotaUnavailable
     case accountChanged
     case runtimeUnavailable(AntigravityRuntimeFailure)
-    /// AGY returned a non-success usage report, for example while signed out.
     case cliReportFailed
 }
 

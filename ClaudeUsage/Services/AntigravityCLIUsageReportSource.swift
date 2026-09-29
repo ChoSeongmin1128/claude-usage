@@ -1,12 +1,10 @@
 import Darwin
 import Foundation
 
-/// The complete environment of an AGY usage report.
-///
-/// `PATH` is `/bin` only. AGY reads its keychain entry through the absolute
-/// `/usr/bin/security`, while `open` and MCP servers configured by command name
-/// cannot be found, so a background report can neither open a browser sign-in
-/// nor start the user's MCP servers.
+// PATH is /bin only: AGY reads its keychain entry through the absolute
+// /usr/bin/security, while `open` and MCP servers configured by command name
+// cannot be found, so a report can neither open a browser sign-in nor start
+// the user's MCP servers.
 nonisolated enum AntigravityCLIReportEnvironment {
     static func values(
         homeDirectory: URL = FileManager.default.realHomeDirectory,
@@ -33,8 +31,6 @@ nonisolated enum AntigravityCLIReportWorkspaceError: Error, Equatable {
     case unavailable
 }
 
-/// The private working directory reports run in, so AGY never sees the
-/// user's projects or their workspace configuration.
 nonisolated enum AntigravityCLIReportWorkspace {
     static func prepare(
         at url: URL,
@@ -70,15 +66,10 @@ nonisolated enum AntigravityCLIReportWorkspace {
     }
 }
 
-/// Reads CLI usage from `agy -p /usage --output-format json`.
-///
-/// Each fetch starts a new AGY process that exits with the report, so no AGY
-/// process or ownership record outlives a refresh. The report carries no
-/// account identity.
 actor AntigravityCLIUsageReportSource: AntigravityUsageSource {
     static let reportArguments = ["-p", "/usage", "--output-format", "json"]
     static let versionTimeout: Duration = .seconds(10)
-    /// A report measured 5-8 seconds; less than this cannot finish reliably.
+    // Reports measured 5-8 seconds.
     static let minimumReportBudget: Duration = .seconds(5)
     private static let printTimeoutMargin: Duration = .seconds(2)
 
@@ -246,7 +237,7 @@ actor AntigravityCLIUsageReportSource: AntigravityUsageSource {
         exitStatus: Int32
     ) -> AntigravityUsageSourceError {
         switch error {
-        case .agentTurnStarted, .unexpectedCommand:
+        case .agentTurnStarted:
             // Quota may already have been spent. Stop until a changed
             // executable produces a new source.
             reportsDisabled = true
@@ -255,7 +246,7 @@ actor AntigravityCLIUsageReportSource: AntigravityUsageSource {
             return .reportFailed
         case .invalidJSON:
             return exitStatus == 0 ? .malformedResponse : .transportFailure
-        case .quotaUnavailable:
+        case .unexpectedCommand, .quotaUnavailable:
             return .malformedResponse
         }
     }

@@ -26,8 +26,6 @@ nonisolated enum AntigravityQuotaSummaryDecoder {
         return try decode(payload: payload)
     }
 
-    /// Decodes an already located quota payload, such as the `command.data`
-    /// object of an AGY print-mode usage report.
     static func decode(payload: [String: Any]) throws -> AntigravityDecodedQuotaSummary {
         guard let rawGroups = payload["groups"] as? [Any] else {
             throw AntigravityQuotaSummaryDecoderError.missingQuotaGroups

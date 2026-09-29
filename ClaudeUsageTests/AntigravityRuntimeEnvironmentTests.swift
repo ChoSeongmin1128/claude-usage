@@ -27,6 +27,28 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
         XCTAssertEqual(cleanups, 0)
     }
 
+    func testShutdownWaitsForAnInFlightLegacyCleanup() async throws {
+        let probe = LegacyCleanupProbe()
+        let environment = AntigravityRuntimeEnvironment(
+            fingerprint: { .init(entries: []) },
+            build: { throw CancellationError() },
+            legacyCleanup: {
+                await probe.markStarted()
+                try? await Task.sleep(for: .milliseconds(200))
+                await probe.markFinished()
+            })
+        let cleanup = Task { await environment.cleanUpLegacyManagedProcesses() }
+        while !(await probe.started) {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+
+        await environment.shutdown()
+
+        let finished = await probe.finished
+        XCTAssertTrue(finished)
+        await cleanup.value
+    }
+
     func testUnchangedFilesReuseTheGraphWithoutRevalidation() async throws {
         let fixture = EnvironmentFixture()
         let environment = fixture.environment()
@@ -215,6 +237,13 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
             catch { return nil }
         }
     }
+}
+
+private actor LegacyCleanupProbe {
+    var started = false
+    var finished = false
+    func markStarted() { started = true }
+    func markFinished() { finished = true }
 }
 
 private actor EnvironmentFixture {

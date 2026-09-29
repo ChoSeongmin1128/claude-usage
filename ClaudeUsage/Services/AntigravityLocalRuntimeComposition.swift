@@ -1,7 +1,5 @@
 import Foundation
 
-/// Leaf system boundaries of local app discovery. Tests inject deterministic
-/// replacements while exercising the same assembly path.
 nonisolated struct AntigravityLocalRuntimeDependencies: Sendable {
     let subprocessRunner: any AntigravityOwnedSubprocessRunning
     let libprocReader: any AntigravityLibprocReading
@@ -23,10 +21,6 @@ nonisolated struct AntigravityLocalRuntimeDependencies: Sendable {
     }
 }
 
-/// Discovery and RPC for the Antigravity app's language server.
-///
-/// Only app language servers are discovery installations. The AGY CLI is read
-/// through its own usage report, so running AGY processes are never probed.
 nonisolated struct AntigravityLocalRuntimeComposition: Sendable {
     let processInspector: AntigravityProcessInspector
     let discovery: AntigravityRuntimeDiscovery
@@ -51,6 +45,7 @@ nonisolated struct AntigravityLocalRuntimeComposition: Sendable {
         let discovery = AntigravityRuntimeDiscovery(
             processInspector: processInspector,
             portInspector: dependencies.portInspector,
+            // CLI usage comes from its own report; running AGY processes are never probed.
             installations: catalog.executables.filter { $0.role == .appLanguageServer }
         )
         let endpointRevalidator = AntigravityRuntimeEndpointRevalidator(

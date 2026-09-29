@@ -194,137 +194,23 @@ nonisolated final class AntigravityOwnedSubprocessRunner:
         executablePath: String,
         arguments: [String],
         environment: [String: String]
-    ) throws -> AntigravitySpawnedOwnedProcess {
+    ) throws -> AntigravitySpawnedSubprocess {
         guard !executablePath.contains("\0"),
-              arguments.allSatisfy({ !$0.contains("\0") }),
-              environment.allSatisfy({
-                  !$0.key.contains("\0")
-                      && !$0.key.contains("=")
-                      && !$0.value.contains("\0")
-              }) else {
-            throw AntigravityOwnedSubprocessError.launchFailed
-        }
-
-        var standardOutputPipe = [Int32](repeating: -1, count: 2)
-        var standardErrorPipe = [Int32](repeating: -1, count: 2)
-        guard AntigravitySubprocessPipe.make(&standardOutputPipe),
-            AntigravitySubprocessPipe.make(&standardErrorPipe)
+            arguments.allSatisfy({ !$0.contains("\0") }),
+            environment.allSatisfy({
+                !$0.key.contains("\0")
+                    && !$0.key.contains("=")
+                    && !$0.value.contains("\0")
+            }),
+            let spawned = AntigravitySubprocessSpawn.spawn(
+                executablePath: executablePath,
+                arguments: arguments,
+                environment: environment
+            )
         else {
-            AntigravitySubprocessPipe.close(standardOutputPipe)
-            AntigravitySubprocessPipe.close(standardErrorPipe)
             throw AntigravityOwnedSubprocessError.launchFailed
         }
-
-        var fileActions: posix_spawn_file_actions_t?
-        guard posix_spawn_file_actions_init(&fileActions) == 0 else {
-            AntigravitySubprocessPipe.close(standardOutputPipe)
-            AntigravitySubprocessPipe.close(standardErrorPipe)
-            throw AntigravityOwnedSubprocessError.launchFailed
-        }
-        defer { posix_spawn_file_actions_destroy(&fileActions) }
-
-        var attributes: posix_spawnattr_t?
-        guard posix_spawnattr_init(&attributes) == 0 else {
-            AntigravitySubprocessPipe.close(standardOutputPipe)
-            AntigravitySubprocessPipe.close(standardErrorPipe)
-            throw AntigravityOwnedSubprocessError.launchFailed
-        }
-        defer { posix_spawnattr_destroy(&attributes) }
-
-        let spawnFlags = Int16(POSIX_SPAWN_CLOEXEC_DEFAULT)
-        let actionResults = [
-            posix_spawnattr_setflags(&attributes, spawnFlags),
-            posix_spawn_file_actions_addopen(
-                &fileActions,
-                STDIN_FILENO,
-                "/dev/null",
-                O_RDONLY,
-                0
-            ),
-            posix_spawn_file_actions_adddup2(
-                &fileActions,
-                standardOutputPipe[1],
-                STDOUT_FILENO
-            ),
-            posix_spawn_file_actions_adddup2(
-                &fileActions,
-                standardErrorPipe[1],
-                STDERR_FILENO
-            ),
-            posix_spawn_file_actions_addclose(
-                &fileActions,
-                standardOutputPipe[0]
-            ),
-            posix_spawn_file_actions_addclose(
-                &fileActions,
-                standardOutputPipe[1]
-            ),
-            posix_spawn_file_actions_addclose(
-                &fileActions,
-                standardErrorPipe[0]
-            ),
-            posix_spawn_file_actions_addclose(
-                &fileActions,
-                standardErrorPipe[1]
-            ),
-        ]
-        guard actionResults.allSatisfy({ $0 == 0 }) else {
-            AntigravitySubprocessPipe.close(standardOutputPipe)
-            AntigravitySubprocessPipe.close(standardErrorPipe)
-            throw AntigravityOwnedSubprocessError.launchFailed
-        }
-
-        let argumentStrings = [executablePath] + arguments
-        let environmentStrings = environment
-            .map { "\($0.key)=\($0.value)" }
-            .sorted()
-        var argumentPointers = argumentStrings.map { strdup($0) }
-        var environmentPointers = environmentStrings.map { strdup($0) }
-        guard argumentPointers.allSatisfy({ $0 != nil }),
-              environmentPointers.allSatisfy({ $0 != nil }) else {
-            argumentPointers.forEach { free($0) }
-            environmentPointers.forEach { free($0) }
-            AntigravitySubprocessPipe.close(standardOutputPipe)
-            AntigravitySubprocessPipe.close(standardErrorPipe)
-            throw AntigravityOwnedSubprocessError.launchFailed
-        }
-        argumentPointers.append(nil)
-        environmentPointers.append(nil)
-        defer {
-            argumentPointers.forEach { free($0) }
-            environmentPointers.forEach { free($0) }
-        }
-
-        var processID: pid_t = 0
-        let spawnResult = executablePath.withCString { executablePointer in
-            argumentPointers.withUnsafeMutableBufferPointer { arguments in
-                environmentPointers.withUnsafeMutableBufferPointer {
-                    environment in
-                    posix_spawn(
-                        &processID,
-                        executablePointer,
-                        &fileActions,
-                        &attributes,
-                        arguments.baseAddress,
-                        environment.baseAddress
-                    )
-                }
-            }
-        }
-
-        guard spawnResult == 0, processID > 0 else {
-            AntigravitySubprocessPipe.close(standardOutputPipe)
-            AntigravitySubprocessPipe.close(standardErrorPipe)
-            throw AntigravityOwnedSubprocessError.launchFailed
-        }
-
-        Darwin.close(standardOutputPipe[1])
-        Darwin.close(standardErrorPipe[1])
-        return AntigravitySpawnedOwnedProcess(
-            processID: processID,
-            standardOutputFileDescriptor: standardOutputPipe[0],
-            standardErrorFileDescriptor: standardErrorPipe[0]
-        )
+        return spawned
     }
 
     private static func canonicalPath(for url: URL) -> String {
@@ -332,8 +218,6 @@ nonisolated final class AntigravityOwnedSubprocessRunner:
     }
 }
 
-/// Pipe endpoints for a child's standard streams, normalized above
-/// descriptors 0-2 and marked close-on-exec in the parent.
 nonisolated enum AntigravitySubprocessPipe {
     static func make(_ descriptors: inout [Int32]) -> Bool {
         let result = descriptors.withUnsafeMutableBufferPointer { buffer in
@@ -380,6 +264,168 @@ nonisolated enum AntigravitySubprocessPipe {
     }
 }
 
+nonisolated struct AntigravitySpawnedSubprocess: Sendable {
+    let processID: pid_t
+    let standardOutputFileDescriptor: Int32
+    let standardErrorFileDescriptor: Int32
+}
+
+// stdin is /dev/null and stdout/stderr are pipes whose read ends the caller
+// owns; every other descriptor is closed in the child.
+nonisolated enum AntigravitySubprocessSpawn {
+    struct Options {
+        var workingDirectoryPath: String?
+        var ownProcessGroup = false
+        var startSuspended = false
+    }
+
+    static func spawn(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        options: Options = Options(),
+        attempt: (() -> Int32) -> Int32 = { $0() }
+    ) -> AntigravitySpawnedSubprocess? {
+        var standardOutputPipe = [Int32](repeating: -1, count: 2)
+        var standardErrorPipe = [Int32](repeating: -1, count: 2)
+        guard AntigravitySubprocessPipe.make(&standardOutputPipe),
+            AntigravitySubprocessPipe.make(&standardErrorPipe)
+        else {
+            AntigravitySubprocessPipe.close(standardOutputPipe)
+            AntigravitySubprocessPipe.close(standardErrorPipe)
+            return nil
+        }
+        func closePipes() {
+            AntigravitySubprocessPipe.close(standardOutputPipe)
+            AntigravitySubprocessPipe.close(standardErrorPipe)
+        }
+
+        var fileActions: posix_spawn_file_actions_t?
+        guard posix_spawn_file_actions_init(&fileActions) == 0 else {
+            closePipes()
+            return nil
+        }
+        defer { posix_spawn_file_actions_destroy(&fileActions) }
+
+        var actionResults = [
+            posix_spawn_file_actions_addopen(
+                &fileActions, STDIN_FILENO, "/dev/null", O_RDONLY, 0
+            ),
+            posix_spawn_file_actions_adddup2(
+                &fileActions, standardOutputPipe[1], STDOUT_FILENO
+            ),
+            posix_spawn_file_actions_adddup2(
+                &fileActions, standardErrorPipe[1], STDERR_FILENO
+            ),
+            posix_spawn_file_actions_addclose(&fileActions, standardOutputPipe[0]),
+            posix_spawn_file_actions_addclose(&fileActions, standardOutputPipe[1]),
+            posix_spawn_file_actions_addclose(&fileActions, standardErrorPipe[0]),
+            posix_spawn_file_actions_addclose(&fileActions, standardErrorPipe[1]),
+        ]
+        if let workingDirectoryPath = options.workingDirectoryPath {
+            actionResults.append(
+                workingDirectoryPath.withCString {
+                    posix_spawn_file_actions_addchdir_np(&fileActions, $0)
+                }
+            )
+        }
+        guard actionResults.allSatisfy({ $0 == 0 }) else {
+            closePipes()
+            return nil
+        }
+
+        var attributes: posix_spawnattr_t?
+        guard posix_spawnattr_init(&attributes) == 0 else {
+            closePipes()
+            return nil
+        }
+        defer { posix_spawnattr_destroy(&attributes) }
+        guard configure(&attributes, options) else {
+            closePipes()
+            return nil
+        }
+
+        let argumentStrings = [executablePath] + arguments
+        let environmentStrings: [String] =
+            environment
+            .map { "\($0.key)=\($0.value)" }
+            .sorted()
+        var argumentPointers: [UnsafeMutablePointer<CChar>?] = argumentStrings.map { strdup($0) }
+        var environmentPointers: [UnsafeMutablePointer<CChar>?] = environmentStrings.map { strdup($0) }
+        defer {
+            argumentPointers.forEach { free($0) }
+            environmentPointers.forEach { free($0) }
+        }
+        guard argumentPointers.allSatisfy({ $0 != nil }),
+            environmentPointers.allSatisfy({ $0 != nil })
+        else {
+            closePipes()
+            return nil
+        }
+        argumentPointers.append(nil)
+        environmentPointers.append(nil)
+
+        var processID: pid_t = 0
+        let spawnResult = attempt {
+            executablePath.withCString { executablePointer in
+                argumentPointers.withUnsafeMutableBufferPointer { arguments in
+                    environmentPointers.withUnsafeMutableBufferPointer { environment in
+                        posix_spawn(
+                            &processID,
+                            executablePointer,
+                            &fileActions,
+                            &attributes,
+                            arguments.baseAddress,
+                            environment.baseAddress
+                        )
+                    }
+                }
+            }
+        }
+        guard spawnResult == 0, processID > 0 else {
+            closePipes()
+            return nil
+        }
+
+        Darwin.close(standardOutputPipe[1])
+        Darwin.close(standardErrorPipe[1])
+        return AntigravitySpawnedSubprocess(
+            processID: processID,
+            standardOutputFileDescriptor: standardOutputPipe[0],
+            standardErrorFileDescriptor: standardErrorPipe[0]
+        )
+    }
+
+    private static func configure(
+        _ attributes: inout posix_spawnattr_t?,
+        _ options: Options
+    ) -> Bool {
+        var flags = POSIX_SPAWN_CLOEXEC_DEFAULT
+        if options.ownProcessGroup {
+            flags |= POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK
+        }
+        if options.startSuspended {
+            flags |= POSIX_SPAWN_START_SUSPENDED
+        }
+        guard posix_spawnattr_setflags(&attributes, Int16(flags)) == 0 else {
+            return false
+        }
+        guard options.ownProcessGroup else {
+            return true
+        }
+        var defaultSignals = sigset_t()
+        sigemptyset(&defaultSignals)
+        for signal in [SIGINT, SIGTERM, SIGHUP, SIGPIPE] {
+            sigaddset(&defaultSignals, signal)
+        }
+        var emptySignalMask = sigset_t()
+        sigemptyset(&emptySignalMask)
+        return posix_spawnattr_setpgroup(&attributes, 0) == 0
+            && posix_spawnattr_setsigdefault(&attributes, &defaultSignals) == 0
+            && posix_spawnattr_setsigmask(&attributes, &emptySignalMask) == 0
+    }
+}
+
 private nonisolated enum AntigravityTerminationRace: Sendable {
     case terminated(Int32)
     case waitFailed
@@ -387,11 +433,6 @@ private nonisolated enum AntigravityTerminationRace: Sendable {
     case cancelled
 }
 
-private nonisolated struct AntigravitySpawnedOwnedProcess: Sendable {
-    let processID: pid_t
-    let standardOutputFileDescriptor: Int32
-    let standardErrorFileDescriptor: Int32
-}
 
 nonisolated struct AntigravityCappedSubprocessOutput: Sendable {
     let data: Data
@@ -601,8 +642,6 @@ private nonisolated final class AntigravityProcessExitRace: @unchecked Sendable 
     }
 }
 
-/// The process that owns a collected pipe. The collector stops once that
-/// process has been reaped and asks it to stop when the output limit is hit.
 nonisolated protocol AntigravityBoundedPipeOwning: AnyObject, Sendable {
     var hasReleasedOwnership: Bool { get }
     func cancelOwnedProcess()

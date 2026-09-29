@@ -65,6 +65,7 @@ actor AntigravityRuntimeEnvironment: AntigravityRuntimeLifecycling {
     private var acceptedFingerprint: AntigravityInstallationFingerprint?
     private var leased = false
     private var stopped = false
+    private var legacyCleanupTask: Task<Void, Never>?
     private var availability: AntigravityManagedRuntimeAvailability = .unavailable(reason: .executableNotFound)
 
     init(
@@ -80,8 +81,11 @@ actor AntigravityRuntimeEnvironment: AntigravityRuntimeLifecycling {
     func managedAvailability() -> AntigravityManagedRuntimeAvailability { availability }
 
     func cleanUpLegacyManagedProcesses() async {
-        guard !stopped else { return }
-        await legacyCleanup()
+        guard !stopped, legacyCleanupTask == nil else { return }
+        let legacyCleanup = self.legacyCleanup
+        let task = Task.detached(priority: .utility) { await legacyCleanup() }
+        legacyCleanupTask = task
+        await task.value
     }
 
     func withSources<T: Sendable>(
@@ -178,6 +182,7 @@ actor AntigravityRuntimeEnvironment: AntigravityRuntimeLifecycling {
         while leased {
             await Task.detached { try? await Task.sleep(for: .milliseconds(10)) }.value
         }
+        await legacyCleanupTask?.value
         current = nil
     }
 }
@@ -236,7 +241,8 @@ extension AntigravityRuntimeEnvironment {
         stateDirectory: URL = AntigravityStoragePaths.canonicalStateDirectoryURL(),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> AntigravityRuntimeEnvironment {
-        let legacyCleanup = AntigravityLegacyManagedProcessCleanup.production(stateDirectory: stateDirectory)
+        let legacyCleanup = AntigravityLegacyManagedProcessCleanup.production(
+            stateDirectory: stateDirectory, homeDirectoryURL: homeDirectoryURL)
         let reportWorkspace = stateDirectory.appendingPathComponent("cli-report", isDirectory: true)
         return AntigravityRuntimeEnvironment(
             fingerprint: {

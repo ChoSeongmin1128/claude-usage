@@ -35,7 +35,6 @@ nonisolated indirect enum AntigravityUsageSourceError:
     case malformedResponse
     case transportFailure
     case runtimeUnavailable(AntigravityRuntimeFailure)
-    /// The AGY usage report finished with a non-success status.
     case reportFailed
 }
 

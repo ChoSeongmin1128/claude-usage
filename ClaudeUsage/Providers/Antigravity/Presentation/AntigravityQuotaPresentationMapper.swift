@@ -875,8 +875,6 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         return "\(max(1, Int(interval / 86_400)))일 전 갱신"
     }
 
-    /// AGY usage reports carry no account identity; they always describe the
-    /// account currently signed in to the CLI.
     static let cliReportAccountLabel = "AGY CLI 로그인 계정"
 
     private static func maskedAccountLabel(

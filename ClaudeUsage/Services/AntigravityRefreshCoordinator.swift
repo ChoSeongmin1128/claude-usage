@@ -527,6 +527,7 @@ actor AntigravityRefreshCoordinator:
                     // cross-request account boundary to verify.
                     guard inspection.responses.count == 1,
                         case .grouped(let snapshot) = inspection.responses[0].payload,
+                        snapshot.identity == nil,
                         !snapshot.lanes.isEmpty,
                         snapshot.provenance.capability == .groupedQuotaSummary,
                         provenanceMatchesSource(snapshot.provenance, sourceID: sourceID)
@@ -709,6 +710,7 @@ actor AntigravityRefreshCoordinator:
             provenance.transport == .cliUsageReport
                 && provenance.endpointOwner == .managed
                 && provenance.processIdentity == nil
+                && provenance.accountIdentity == nil
         case .googleOAuth:
             false
         }
@@ -729,7 +731,8 @@ actor AntigravityRefreshCoordinator:
              .credentialCommitFailed,
              .credentialCommitAmbiguous,
              .selectedAccountUnavailable,
-             .selectedAccountIdentityUnavailable:
+            .selectedAccountIdentityUnavailable,
+            .cliReportFailed:
             true
         case .cancelled,
              .localAuthentication,
@@ -740,8 +743,7 @@ actor AntigravityRefreshCoordinator:
              .transportUnavailable,
              .sourceContractViolation,
              .numericQuotaUnavailable,
-            .runtimeUnavailable,
-            .cliReportFailed:
+            .runtimeUnavailable:
             false
         }
     }

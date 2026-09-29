@@ -1,14 +1,12 @@
 import Foundation
 
-/// A dotted AGY CLI release number, compared numerically.
 nonisolated struct AntigravityCLIVersion:
     Comparable,
     Hashable,
     Sendable,
     CustomStringConvertible
 {
-    /// AGY 1.1.11 added non-interactive answers for `-p "/usage"`. Earlier
-    /// releases send the text to the model as a prompt, which spends quota.
+    // Earlier releases send `-p "/usage"` to the model as a prompt, spending quota.
     static let minimumUsageReport = Self(major: 1, minor: 1, patch: 11)
 
     let major: Int
@@ -21,7 +19,6 @@ nonisolated struct AntigravityCLIVersion:
         self.patch = patch
     }
 
-    /// Reads the first `X.Y.Z` triple from `agy --version` output.
     init?(versionOutput: String) {
         let tokens = versionOutput.split { character in
             !(character.isASCII && (character.isNumber || character == "."))
@@ -56,21 +53,14 @@ nonisolated struct AntigravityCLIVersion:
 
 nonisolated enum AntigravityCLIUsageReportError: Error, Sendable, Equatable {
     case invalidJSON
-    /// The CLI answered with a non-success status.
     case reportFailed
-    /// The CLI ran a model turn instead of answering the slash command, so
-    /// quota may already have been spent. Callers must not retry automatically.
     case agentTurnStarted
-    /// The output is not a usage command result.
     case unexpectedCommand
     case quotaUnavailable(AntigravityQuotaSummaryDecoderError)
 }
 
-/// Decodes the stdout of `agy -p /usage --output-format json`.
-///
-/// The print-mode envelope is described by the AGY changelog, not by a
-/// documented schema, so every field that proves a slash-command answer is
-/// checked before quota values are read.
+// The print-mode envelope has no documented schema, so every field that proves
+// a slash-command answer is checked before quota values are read.
 nonisolated enum AntigravityCLIUsageReportDecoder {
     static func decode(_ data: Data) throws -> AntigravityDecodedQuotaSummary {
         let rootValue: Any

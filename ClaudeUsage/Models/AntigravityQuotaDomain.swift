@@ -120,14 +120,12 @@ nonisolated struct AntigravityQuotaSnapshot: Sendable, Equatable {
 nonisolated struct AntigravityQuotaProvenance: Sendable, Equatable {
     enum Transport: String, Sendable, Equatable {
         case localAppRPC
-        /// Parsed from `agy -p /usage --output-format json`.
         case cliUsageReport
         case googleOAuth
     }
 
     enum EndpointOwner: String, Sendable, Equatable {
         case external
-        /// A process ClaudeUsage runs itself, such as a CLI usage report.
         case managed
     }
 

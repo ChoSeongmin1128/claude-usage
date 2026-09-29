@@ -378,6 +378,13 @@ final class
         XCTAssertTrue(
             revalidator.isCurrent(executable)
         )
+        XCTAssertTrue(
+            revalidator.isCurrent(executable)
+        )
+        XCTAssertEqual(
+            trust.validationCount, 1,
+            "An unchanged file must not be re-hashed for every launch"
+        )
 
         trust.identities[url.path] =
             AntigravityCodeSignatureIdentity(
@@ -385,7 +392,10 @@ final class
                 teamIdentifier: "WRONGTEAM"
             )
         XCTAssertFalse(
-            revalidator.isCurrent(executable)
+            AntigravityPinnedAGYExecutableRevalidator(
+                fileIdentityInspector: fileIdentity,
+                trustInspector: trust
+            ).isCurrent(executable)
         )
 
         trust.identities[url.path] = .officialAGY
@@ -963,11 +973,13 @@ private final class StubTrustInspector:
     var identities:
         [String: AntigravityCodeSignatureIdentity] = [:]
     var rejectedPaths: Set<String> = []
+    private(set) var validationCount = 0
 
     func validatedIdentity(
         at url: URL,
         satisfying requirementSource: String?
     ) -> AntigravityCodeSignatureIdentity? {
+        validationCount += 1
         guard !rejectedPaths.contains(url.path) else {
             return nil
         }
