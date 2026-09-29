@@ -170,7 +170,7 @@ final class AntigravityCLIUsageReportSourceTests: XCTestCase {
 
     func testRunnerFailuresAreTyped() async throws {
         let cases: [(Error, AntigravityUsageSourceError)] = [
-            (AntigravityCLIReportProcessError.timedOut, .deadlineExceeded),
+            (AntigravityCLIReportProcessError.timedOut, .reportFailed),
             (AntigravityCLIReportProcessError.executableNotAllowed, .runtimeUnavailable(.executableChanged)),
             (AntigravityCLIReportProcessError.launchFailed, .transportFailure),
             (AntigravityCLIReportProcessError.processGroupInvalid, .transportFailure),
@@ -182,6 +182,12 @@ final class AntigravityCLIUsageReportSourceTests: XCTestCase {
             let runner = ScriptedReportRunner(outcomes: [.success(output("1.2.12")), .failure(error)])
             await assertFetchError(makeSource(runner: runner), expected)
         }
+    }
+
+    func testVersionProbeTimeoutIsNotAReportFailure() async throws {
+        let runner = ScriptedReportRunner(outcomes: [.failure(AntigravityCLIReportProcessError.timedOut)])
+
+        await assertFetchError(makeSource(runner: runner), .deadlineExceeded)
     }
 
     // MARK: - Preconditions

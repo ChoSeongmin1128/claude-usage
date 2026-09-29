@@ -138,11 +138,18 @@ actor AntigravityCLIUsageReportSource: AntigravityUsageSource {
             throw AntigravityUsageSourceError.deadlineExceeded
         }
         let printSeconds = max(1, (budget - Self.printTimeoutMargin).components.seconds)
-        let result = try await run(
-            Self.reportArguments + ["--print-timeout", "\(printSeconds)s"],
-            workingDirectory: workingDirectory,
-            timeout: budget
-        )
+        let result: AntigravityCLIReportProcessResult
+        do {
+            result = try await run(
+                Self.reportArguments + ["--print-timeout", "\(printSeconds)s"],
+                workingDirectory: workingDirectory,
+                timeout: budget
+            )
+        } catch AntigravityUsageSourceError.deadlineExceeded {
+            // Signed-out AGY waits for browser sign-in past --print-timeout
+            // (measured with 1.2.12), so an unanswered report is a failed one.
+            throw AntigravityUsageSourceError.reportFailed
+        }
 
         let summary: AntigravityDecodedQuotaSummary
         do {
