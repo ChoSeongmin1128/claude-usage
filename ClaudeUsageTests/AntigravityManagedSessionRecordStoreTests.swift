@@ -144,7 +144,7 @@ final class AntigravityManagedSessionRecordStoreTests: XCTestCase {
         defer { try? fileManager.removeItem(at: root) }
         try fileManager.createSymbolicLink(at: link, withDestinationURL: actual)
         let store = AntigravityManagedProcessRecordFileStore(
-            fileURL: link.appendingPathComponent("managed-agy-sessions.json")
+            fileURL: link.appendingPathComponent(AntigravityManagedProcessRecordFileStore.fileName)
         )
 
         XCTAssertThrowsError(try store.load()) { error in
@@ -493,7 +493,7 @@ private final class StoreHarness {
         directoryURL = rootURL
             .appendingPathComponent("Antigravity", isDirectory: true)
         fileURL = directoryURL
-            .appendingPathComponent("managed-agy-sessions.json")
+            .appendingPathComponent(AntigravityManagedProcessRecordFileStore.fileName)
         if createDirectory {
             try fileManager.createDirectory(
                 at: directoryURL,

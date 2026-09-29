@@ -1,5 +1,15 @@
 import Foundation
 
+nonisolated protocol AntigravityRuntimeDiscovering: Sendable {
+    func discover(
+        deadline: AntigravityRPCDeadline
+    ) async throws -> AntigravityRuntimeDiscoverySnapshot
+
+    func invalidateCache() async
+}
+
+extension AntigravityRuntimeDiscovery: AntigravityRuntimeDiscovering {}
+
 actor AntigravityRuntimeDiscovery {
     private struct InFlight {
         let id: UUID
@@ -299,21 +309,10 @@ actor AntigravityRuntimeDiscovery {
             ).compactMap {
                 listeningEndpoint
                     -> AntigravityVerifiedRuntimeEndpoint? in
-                let authentication:
-                    AntigravityRuntimeEndpointAuthentication
-                switch candidate.transport {
-                case .antigravityApp:
-                    guard let token =
-                            candidate.connectionHints.csrfToken
-                    else {
-                        return nil
-                    }
-                    authentication = .appCSRF(token)
-                case .agyCLI:
-                    authentication = candidate.connectionHints.csrfToken
-                        .map(AntigravityRuntimeEndpointAuthentication.cliCSRF)
-                        ?? .cliTokenless
+                guard let token = candidate.connectionHints.csrfToken else {
+                    return nil
                 }
+                let authentication = AntigravityRuntimeEndpointAuthentication.appCSRF(token)
 
                 return AntigravityVerifiedRuntimeEndpoint(
                     processIdentity: candidate.processIdentity,
@@ -337,25 +336,12 @@ actor AntigravityRuntimeDiscovery {
         }
     }
 
-    /// AGY does not publish its quota-server port on the command line and
-    /// currently owns more than one loopback listener. Every candidate still
-    /// belongs to the exact verified process; the RPC readiness probe selects
-    /// the listener that implements the expected API. App endpoints keep the
-    /// stricter single hinted-port contract because they also carry CSRF
-    /// authentication.
+    /// App endpoints carry CSRF authentication, so only the single hinted
+    /// port owned by the exact verified process is used.
     private nonisolated static func candidateEndpoints(
         for candidate: AntigravityRuntimeProcessCandidate,
         ownedEndpoints: Set<AntigravityOwnedListeningEndpoint>
     ) -> [AntigravityOwnedListeningEndpoint] {
-        if candidate.transport == .agyCLI,
-           candidate.connectionHints.requestedPort == nil {
-            return ownedEndpoints
-                .filter { $0.host == .ipv4 }
-                .sorted {
-                    $0.port.rawValue < $1.port.rawValue
-                }
-        }
-
         guard case .selected(let endpoint) =
                 AntigravityPortOwnershipInspector.resolvePort(
                     requestedPort:

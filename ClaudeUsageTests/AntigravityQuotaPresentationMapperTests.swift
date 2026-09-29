@@ -849,6 +849,25 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         )
     }
 
+    func testCLIReportWithoutIdentityNamesTheCLILoginInsteadOfAnUnknownAccount() {
+        let lane = makeLane(
+            id: AntigravityQuotaLaneID.geminiWeekly.rawValue, scope: .gemini, cadence: .weekly, remaining: 0.5)
+        let report = makeSnapshot(lanes: [lane], transport: .cliUsageReport, fetchedAt: now)
+        let appWithoutIdentity = makeSnapshot(lanes: [lane], transport: .localAppRPC, fetchedAt: now)
+
+        let reportRail = AntigravityQuotaPresentationMapper.map(
+            snapshot: report, settings: .default, now: now, timeZone: utc
+        ).identityRail
+        let appRail = AntigravityQuotaPresentationMapper.map(
+            snapshot: appWithoutIdentity, settings: .default, now: now, timeZone: utc
+        ).identityRail
+
+        XCTAssertEqual(reportRail.accountLabel, "AGY CLI 로그인 계정")
+        XCTAssertEqual(reportRail.sourceLabel, "AGY CLI")
+        XCTAssertTrue(reportRail.tooltip.contains("조회 계정: AGY CLI 로그인 계정"))
+        XCTAssertEqual(appRail.accountLabel, "계정 미확인")
+    }
+
     private func makeSnapshot(
         lanes: [AntigravityQuotaLane],
         identity: ProviderAccountIdentity? = nil,

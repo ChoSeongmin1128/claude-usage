@@ -19,9 +19,15 @@ nonisolated enum AntigravityQuotaSummaryDecoder {
         }
 
         guard let root = rootValue as? JSONObject,
-              let payload = quotaPayload(in: root),
-              let rawGroups = payload["groups"] as? [Any]
+            let payload = quotaPayload(in: root)
         else {
+            throw AntigravityQuotaSummaryDecoderError.missingQuotaGroups
+        }
+        return try decode(payload: payload)
+    }
+
+    static func decode(payload: [String: Any]) throws -> AntigravityDecodedQuotaSummary {
+        guard let rawGroups = payload["groups"] as? [Any] else {
             throw AntigravityQuotaSummaryDecoderError.missingQuotaGroups
         }
         guard !rawGroups.isEmpty else {
@@ -444,8 +450,11 @@ nonisolated enum AntigravityQuotaSummaryDecoder {
     }
 
     private static func remainingFraction(in bucket: JSONObject) -> FractionResult {
-        if let direct = bucket["remainingFraction"], !(direct is NSNull) {
-            return validFraction(from: direct).map(FractionResult.value) ?? .invalid
+        // The local RPC uses camelCase; AGY print-mode JSON reports use snake_case.
+        for key in ["remainingFraction", "remaining_fraction"] {
+            if let direct = bucket[key], !(direct is NSNull) {
+                return validFraction(from: direct).map(FractionResult.value) ?? .invalid
+            }
         }
         guard let remainingValue = bucket["remaining"], !(remainingValue is NSNull) else {
             return .missing
@@ -491,7 +500,10 @@ nonisolated enum AntigravityQuotaSummaryDecoder {
     }
 
     private static func resetTime(in bucket: JSONObject) -> ResetResult {
-        guard let raw = bucket["resetTime"], !(raw is NSNull) else {
+        let rawValue = ["resetTime", "reset_time"].lazy
+            .compactMap { bucket[$0] }
+            .first { !($0 is NSNull) }
+        guard let raw = rawValue else {
             return ResetResult(date: nil, invalid: false)
         }
         if let string = raw as? String {

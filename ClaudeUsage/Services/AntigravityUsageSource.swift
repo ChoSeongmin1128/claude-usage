@@ -2,8 +2,6 @@ import Foundation
 
 nonisolated struct AntigravityUsageSourceRequest: Sendable {
     let generation: UInt64
-    let managedLaunchAuthorization:
-        AntigravityManagedLaunchAuthorization
     let deadline: AntigravityRPCDeadline
     var refreshAuthentication = false
 }
@@ -36,8 +34,8 @@ nonisolated indirect enum AntigravityUsageSourceError:
     case cancelled
     case malformedResponse
     case transportFailure
-    case managedLaunchDisabled
     case runtimeUnavailable(AntigravityRuntimeFailure)
+    case reportFailed
 }
 
 /// Selects one stable user-facing failure when multiple verified local
@@ -56,7 +54,8 @@ nonisolated enum AntigravityUsageSourceFailurePolicy {
         case transport
         case deadline
         case schema
-        case managedLaunchPolicy
+        case report
+        case runtimePolicy
         case interaction
         case authentication
         case cancellation
@@ -80,8 +79,10 @@ nonisolated enum AntigravityUsageSourceFailurePolicy {
             .deadline
         case .malformedResponse:
             .schema
-        case .managedLaunchDisabled, .runtimeUnavailable:
-            .managedLaunchPolicy
+        case .reportFailed:
+            .report
+        case .runtimeUnavailable:
+            .runtimePolicy
         case .interactionRequired:
             .interaction
         case .authenticationRequired, .localAuthentication, .accountChanged:
@@ -121,17 +122,16 @@ nonisolated struct AntigravityDiscoveredLocalUsageSource:
 {
     let id: AntigravityUsageSourceID
 
-    private let discovery:
-        any AntigravityManagedRuntimeDiscovering
+    private let discovery: any AntigravityRuntimeDiscovering
     private let client: any AntigravityLocalQuotaFetching
 
     init(
         id: AntigravityUsageSourceID,
-        discovery: any AntigravityManagedRuntimeDiscovering,
+        discovery: any AntigravityRuntimeDiscovering,
         client: any AntigravityLocalQuotaFetching
     ) {
         precondition(
-            id == .localApp || id == .borrowedCLI,
+            id == .localApp,
             "Discovered local source must not launch or use OAuth"
         )
         self.id = id
@@ -152,11 +152,6 @@ nonisolated struct AntigravityDiscoveredLocalUsageSource:
     private func probe(
         _ request: AntigravityUsageSourceRequest, collectAll: Bool
     ) async throws -> AntigravityUsageSourceInspection {
-        guard request.managedLaunchAuthorization == .disabled
-        else {
-            throw AntigravityUsageSourceError.transportFailure
-        }
-
         let snapshot: AntigravityRuntimeDiscoverySnapshot
         do {
             snapshot = try await discovery.discover(
@@ -191,14 +186,7 @@ nonisolated struct AntigravityDiscoveredLocalUsageSource:
                     return AntigravityUsageSourceInspection(responses: [response], hasUnverifiedCandidates: false)
                 }
             } catch {
-                let mapped: AntigravityUsageSourceError
-                if error as? AntigravityLocalRPCError == .csrf(.required),
-                   endpoint.ownership == .borrowed,
-                   endpoint.authentication == .cliTokenless {
-                    mapped = .localAuthentication(.unavailable)
-                } else {
-                    mapped = Self.map(error)
-                }
+                let mapped = Self.map(error)
                 if mapped == .cancelled { throw mapped }
                 if case .verifiedAccountFailure(let identity, _) = mapped {
                     if let failedAccount,
@@ -236,10 +224,7 @@ nonisolated struct AntigravityDiscoveredLocalUsageSource:
         case .localApp:
             endpoint.transport == .antigravityApp
                 && endpoint.ownership == .external
-        case .borrowedCLI:
-            endpoint.transport == .agyCLI
-                && endpoint.ownership == .borrowed
-        case .managedCLI, .googleOAuth:
+        case .cliReport, .googleOAuth:
             false
         }
     }
@@ -328,122 +313,6 @@ nonisolated struct AntigravityDiscoveredLocalUsageSource:
              .remoteRejected,
              .groupedQuotaUnavailable:
             return .transportFailure
-        }
-    }
-}
-
-/// The only source allowed to acquire an owned AGY process. The coordinator
-/// passes `.automatic` only after executable trust and managed-runtime recovery
-/// have authorized launch for this refresh; every other request fails closed.
-nonisolated struct AntigravityManagedCLIUsageSource:
-    AntigravityUsageSource,
-    Sendable
-{
-    let id = AntigravityUsageSourceID.managedCLI
-
-    private let session: AntigravityManagedCLISession
-    private let executable: AntigravityCanonicalExecutable
-    private let client: any AntigravityLocalQuotaFetching
-
-    init(
-        session: AntigravityManagedCLISession,
-        executable: AntigravityCanonicalExecutable,
-        client: any AntigravityLocalQuotaFetching
-    ) {
-        precondition(executable.role == .agyCLI)
-        self.session = session
-        self.executable = executable
-        self.client = client
-    }
-
-    func fetch(
-        _ request: AntigravityUsageSourceRequest
-    ) async throws -> AntigravityUsageSourceResponse {
-        guard case .automatic = request.managedLaunchAuthorization else {
-            throw AntigravityUsageSourceError.managedLaunchDisabled
-        }
-
-        try checkActive(request)
-
-        // Explicit refresh observes login changes made outside this app. This
-        // consumes the same single recreation budget as CSRF recovery.
-        if request.refreshAuthentication {
-            await session.reset(reason: .userRequested)
-            return try await fetchOnce(request)
-        }
-
-        do {
-            return try await fetchOnce(request)
-        } catch AntigravityUsageSourceError.localAuthentication {
-            // Only the first rejection is recoverable. The second fetch stays
-            // outside this catch, and identity validation remains mandatory in
-            // the refresh coordinator for either attempt.
-        }
-
-        try checkActive(request)
-        await session.reset(reason: .authenticationRequired)
-        return try await fetchOnce(request)
-    }
-
-    private func checkActive(_ request: AntigravityUsageSourceRequest) throws {
-        do {
-            try request.deadline.check(.request)
-        } catch {
-            throw AntigravityDiscoveredLocalUsageSource.map(error)
-        }
-    }
-
-    private func fetchOnce(
-        _ request: AntigravityUsageSourceRequest
-    ) async throws -> AntigravityUsageSourceResponse {
-        do {
-            return try await session.withRuntime(
-                authorization:
-                    request.managedLaunchAuthorization,
-                executable: executable,
-                deadline: request.deadline
-            ) { runtime in
-                let result = try await client.fetch(
-                    from: runtime.endpoint,
-                    deadline: request.deadline
-                )
-                return AntigravityDiscoveredLocalUsageSource
-                    .response(from: result)
-            }
-        } catch {
-            if error is CancellationError {
-                throw AntigravityUsageSourceError.cancelled
-            }
-            if error is AntigravityRPCDeadlineError {
-                throw AntigravityUsageSourceError.deadlineExceeded
-            }
-            if let error = error as? AntigravityUsageSourceError {
-                throw error
-            }
-            if let error = error as? AntigravityManagedSessionError {
-                switch error {
-                case .executableNotAllowed, .differentExecutableInUse:
-                    throw AntigravityUsageSourceError.runtimeUnavailable(.executableChanged)
-                case .launchDisabled:
-                    throw AntigravityUsageSourceError
-                        .managedLaunchDisabled
-                case .cancelled:
-                    throw AntigravityUsageSourceError.cancelled
-                case .readinessTimedOut:
-                    throw AntigravityUsageSourceError.deadlineExceeded
-                case .interactionRequired:
-                    throw AntigravityUsageSourceError
-                        .interactionRequired
-                default:
-                    throw AntigravityUsageSourceError.transportFailure
-                }
-            }
-            if error is AntigravityLocalRPCError || error is AntigravityLocalRPCAccountBoundaryError {
-                throw AntigravityDiscoveredLocalUsageSource.map(
-                    error
-                )
-            }
-            throw AntigravityUsageSourceError.transportFailure
         }
     }
 }

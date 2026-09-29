@@ -615,7 +615,10 @@ nonisolated enum AntigravityQuotaPresentationMapper {
     ) -> ProviderIdentityRailProjection {
         let identity = snapshot.identity
             ?? snapshot.provenance.accountIdentity
-        let accountLabel = maskedAccountLabel(identity)
+        let accountLabel =
+            identity == nil && snapshot.provenance.transport == .cliUsageReport
+            ? cliReportAccountLabel
+            : maskedAccountLabel(identity)
         let sourceLabel = sourceLabel(snapshot.provenance.transport)
         let freshnessLabel = relativeFreshness(
             fetchedAt: snapshot.fetchedAt,
@@ -872,6 +875,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         return "\(max(1, Int(interval / 86_400)))일 전 갱신"
     }
 
+    static let cliReportAccountLabel = "AGY CLI 로그인 계정"
+
     private static func maskedAccountLabel(
         _ identity: ProviderAccountIdentity?
     ) -> String {
@@ -904,7 +909,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         switch transport {
         case .localAppRPC:
             "Antigravity 앱"
-        case .borrowedAGYRPC, .managedAGYRPC:
+        case .cliUsageReport:
             "AGY CLI"
         case .googleOAuth:
             "Google 계정"

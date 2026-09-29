@@ -51,6 +51,7 @@ nonisolated struct AntigravityPinnedAGYExecutableRevalidator:
         any AntigravityExecutableFileIdentityInspecting
     private let trustInspector:
         any AntigravityExecutableTrustInspecting
+    private let validatedIdentities = AntigravityValidatedFileIdentities()
 
     init(
         fileIdentityInspector:
@@ -68,8 +69,20 @@ nonisolated struct AntigravityPinnedAGYExecutableRevalidator:
         _ executable: AntigravityCanonicalExecutable
     ) -> Bool {
         guard executable.role == .agyCLI,
-              let expected = executable.fileIdentity,
-              let codeIdentity =
+            let expected = executable.fileIdentity
+        else {
+            return false
+        }
+        // Signature and digest checks read the whole binary. Once they pass,
+        // unchanged kernel metadata keeps the result bound to the same bytes.
+        if validatedIdentities.contains(expected) {
+            return fileIdentityInspector.matches(
+                expected,
+                at: executable.canonicalURL
+            )
+        }
+        guard
+            let codeIdentity =
                 trustInspector.validatedIdentity(
                     at: executable.canonicalURL,
                     satisfying:
@@ -81,9 +94,26 @@ nonisolated struct AntigravityPinnedAGYExecutableRevalidator:
         else {
             return false
         }
-        return fileIdentityInspector.identity(
-            at: executable.canonicalURL
-        ) == expected
+        guard fileIdentityInspector.identity(at: executable.canonicalURL) == expected else {
+            return false
+        }
+        validatedIdentities.insert(expected)
+        return true
+    }
+}
+
+private nonisolated final class AntigravityValidatedFileIdentities:
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var identities: Set<AntigravityExecutableFileIdentity> = []
+
+    func contains(_ identity: AntigravityExecutableFileIdentity) -> Bool {
+        lock.withLock { identities.contains(identity) }
+    }
+
+    func insert(_ identity: AntigravityExecutableFileIdentity) {
+        lock.withLock { _ = identities.insert(identity) }
     }
 }
 

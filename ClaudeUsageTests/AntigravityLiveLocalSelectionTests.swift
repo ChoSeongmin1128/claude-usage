@@ -11,7 +11,7 @@ final class AntigravityLiveLocalSelectionTests: XCTestCase {
         let gate = URL(fileURLWithPath: gatePath)
         let (controller, settings) = try makeRuntime(root: gate.appendingPathComponent("runtime"))
         do {
-            let first = try verifiedQuota(await controller.bootstrap(performInitialRefresh: true))
+            let first = try verifiedReport(await controller.bootstrap(performInitialRefresh: true))
             try markPhase("A1", quota: first, gate: gate)
             for phase in ["B", "A2"] {
                 let deadline = ContinuousClock.now.advanced(by: .seconds(1800))
@@ -19,18 +19,14 @@ final class AntigravityLiveLocalSelectionTests: XCTestCase {
                     guard ContinuousClock.now < deadline else { throw LiveLocalSelectionError.loginSwitch }
                     try await Task.sleep(for: .milliseconds(250))
                 }
+                // A report carries no account identity; each phase proves the
+                // selected CLI target keeps reporting for the current login.
                 let snapshot = await controller.refresh(trigger: .manual)
-                let quota = try verifiedQuota(snapshot)
-                let sameIdentity = AntigravityAccountIdentityMatcher.match(
-                    expected: try XCTUnwrap(first.identity), received: quota.identity
-                ).isMatch
-                guard sameIdentity == (phase == "A2") else { throw LiveLocalSelectionError.loginSwitch }
+                _ = try verifiedReport(snapshot)
                 let stored = try await settings.load()
                 XCTAssertEqual(stored.connection.usageTarget, .cli)
                 XCTAssertNil(snapshot.activeAccountID)
-                let repeated = try verifiedQuota(
-                    await controller.refresh(trigger: .scheduled), expected: quota.identity)
-                XCTAssertEqual(quota.provenance.processIdentity, repeated.provenance.processIdentity)
+                let repeated = try verifiedReport(await controller.refresh(trigger: .scheduled))
                 try markPhase(phase, quota: repeated, gate: gate)
             }
             await controller.shutdown()
@@ -54,12 +50,12 @@ final class AntigravityLiveLocalSelectionTests: XCTestCase {
             repository: repository, sources: [], runtimeEnvironment: environment)
         let controller = AntigravityRuntimeController(
             repository: repository, settingsStore: settings, migrationCoordinator: LiveNoCredentialMigration(),
-            refreshCoordinator: refresh, managedSession: environment, settingsBootstrap: .ready(.alreadyCurrent),
+            refreshCoordinator: refresh, runtimeLifecycle: environment, settingsBootstrap: .ready(.alreadyCurrent),
             agyExecutableStatus: .notFound, runtimeEnvironment: environment)
         return (controller, settings)
     }
 
-    func testOfficialLocalAccountSelectionPersistsWithoutOAuthAndReusesSession() async throws {
+    func testOfficialCLITargetPersistsWithoutOAuthAndLeavesNoLedger() async throws {
         guard ProcessInfo.processInfo.environment["CLAUDEUSAGE_RUN_LIVE_AGY_TESTS"] == "1" else {
             throw XCTSkip("Official signed-in AGY is required")
         }
@@ -69,33 +65,31 @@ final class AntigravityLiveLocalSelectionTests: XCTestCase {
         let (controller, settings) = try makeRuntime(root: root)
         do {
             let snapshot = await controller.bootstrap(performInitialRefresh: true)
-            let first = try verifiedQuota(snapshot)
+            _ = try verifiedReport(snapshot)
             let target = AntigravityUsageTarget.cli
             XCTAssertNil(snapshot.activeAccountID)
             XCTAssertTrue(snapshot.accounts.isEmpty)
             let stored = try await settings.load()
             XCTAssertEqual(stored.connection.usageTarget, target)
             let repeated = await controller.refresh(trigger: .scheduled)
-            let second = try verifiedQuota(repeated, expected: first.identity)
-            XCTAssertEqual(first.provenance.processIdentity, second.provenance.processIdentity)
+            let second = try verifiedReport(repeated)
             XCTAssertEqual(repeated.settings?.connection.usageTarget, target)
             print("LIVE_LOCAL_SELECTION_VERIFIED numeric_lanes=\(second.lanes.count)")
             await controller.shutdown()
-            let ledger = try AntigravityManagedProcessRecordFileStore(
-                fileURL: root.appendingPathComponent("managed-agy-sessions.json")
-            ).loadLedger()
-            guard ledger.entries.isEmpty else { throw LiveLocalSelectionError.cleanupUnconfirmed }
+            // Reports own no long-lived process, so nothing is ever recorded.
+            guard
+                !FileManager.default.fileExists(
+                    atPath: root.appendingPathComponent(AntigravityManagedProcessRecordFileStore.fileName).path)
+            else { throw LiveLocalSelectionError.cleanupUnconfirmed }
             try FileManager.default.removeItem(at: root)
         } catch {
             await controller.shutdown()
-            // A failed process cleanup must retain its ownership evidence.
             throw error
         }
     }
 
-    private func verifiedQuota(
-        _ snapshot: AntigravityRuntimeSnapshot,
-        expected: ProviderAccountIdentity? = nil
+    private func verifiedReport(
+        _ snapshot: AntigravityRuntimeSnapshot
     ) throws -> AntigravityQuotaSnapshot {
         let quota: AntigravityQuotaSnapshot
         switch snapshot.presentationState {
@@ -106,8 +100,8 @@ final class AntigravityLiveLocalSelectionTests: XCTestCase {
             )
             throw LiveLocalSelectionError.noAuthenticatedQuota
         }
-        guard let identity = quota.identity,
-            AntigravityAccountIdentityMatcher.match(expected: expected ?? identity, received: identity).isMatch,
+        guard quota.identity == nil,
+            quota.provenance.transport == .cliUsageReport,
             !quota.lanes.isEmpty,
             quota.lanes.allSatisfy({ lane in
                 guard let fraction = lane.remainingFraction else { return false }

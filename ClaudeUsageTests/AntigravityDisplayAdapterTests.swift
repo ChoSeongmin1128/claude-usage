@@ -240,8 +240,8 @@ final class AntigravityDisplayAdapterTests:
                 decodeIssues: [],
                 provenance:
                     AntigravityQuotaProvenance(
-                        transport: .borrowedAGYRPC,
-                        endpointOwner: .borrowed,
+                        transport: .cliUsageReport,
+                        endpointOwner: .managed,
                         accountIdentity: nil,
                         capability:
                             .groupedQuotaSummary,

@@ -5,9 +5,9 @@ final class AntigravityLocalAccountInventoryTests: XCTestCase {
     func testSameAccountCombinesSourcesWithoutCreatingOAuthCredentials() {
         var inventory = AntigravityLocalAccountInventory()
         inventory.observe(.init(stableAccountID: "a", email: "A@example.com"), source: .localApp)
-        inventory.observe(.init(email: "a@example.com"), source: .borrowedCLI)
+        inventory.observe(.init(email: "a@example.com"), source: .cliReport)
         XCTAssertEqual(inventory.accounts.count, 1)
-        XCTAssertEqual(inventory.uniqueVerifiedAccount?.sources, [.localApp, .borrowedCLI])
+        XCTAssertEqual(inventory.uniqueVerifiedAccount?.sources, [.localApp, .cliReport])
         XCTAssertEqual(inventory.uniqueVerifiedAccount?.identity.stableAccountID, "a")
     }
 
@@ -29,15 +29,15 @@ final class AntigravityLocalAccountInventoryTests: XCTestCase {
     func testUnknownCandidatePreventsAutomaticSelectionOfOnlyKnownAccount() {
         var inventory = AntigravityLocalAccountInventory()
         inventory.observe(.init(email: "a@example.com"), source: .localApp)
-        inventory.markUnverified(.borrowedCLI)
+        inventory.markUnverified(.cliReport)
         XCTAssertEqual(inventory.accounts.count, 1)
         XCTAssertNil(inventory.uniqueVerifiedAccount)
     }
 
     func testInvalidIdentityCannotBecomeSelectable() {
         var inventory = AntigravityLocalAccountInventory()
-        inventory.observe(.init(stableAccountID: " ", email: ""), source: .managedCLI)
+        inventory.observe(.init(stableAccountID: " ", email: ""), source: .cliReport)
         XCTAssertTrue(inventory.accounts.isEmpty)
-        XCTAssertEqual(inventory.unverifiedSources, [.managedCLI])
+        XCTAssertEqual(inventory.unverifiedSources, [.cliReport])
     }
 }

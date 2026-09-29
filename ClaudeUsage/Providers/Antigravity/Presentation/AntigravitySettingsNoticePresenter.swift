@@ -128,13 +128,6 @@ nonisolated enum AntigravitySettingsNoticePresenter {
             )
         case .refreshing:
             return nil
-        case .setupRequired(.managedRecoveryBlocked):
-            return warning(
-                title:
-                    "이전 AGY 실행 기록을 정리하지 못했습니다",
-                message:
-                    "자동 실행이 중지됐습니다. Antigravity 앱이나 AGY CLI를 실행하면 조회는 가능하며, ClaudeUsage를 재시동하면 정리를 다시 시도합니다."
-            )
         case .setupRequired(.usageTargetSelection):
             return warning(
                 title: "조회 대상을 선택해 주세요",
@@ -267,9 +260,6 @@ nonisolated enum AntigravitySettingsNoticePresenter {
         case .typedSettings:
             detail =
                 "현재 Antigravity 설정을 읽을 수 없어 자동 초기화하지 않았습니다."
-        case .managedRuntimeRecovery:
-            detail =
-                "ClaudeUsage가 시작한 이전 AGY 프로세스 정리를 확인하지 못했습니다."
         }
         return AntigravitySettingsNotice(
             tone: .failure,

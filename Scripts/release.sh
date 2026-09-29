@@ -1061,12 +1061,12 @@ LIVE_AGY_TEST_BUNDLE="$TEST_DERIVED_DATA/Build/Products/Debug/ClaudeUsageTests.x
     || die "실제 AGY smoke test bundle을 찾지 못했습니다: $LIVE_AGY_TEST_BUNDLE"
 echo
 echo "실제 AGY 자동 조회 smoke 실행"
-# The port-only launcher diagnostic terminates AGY before authentication settles.
-# Release gates must finish a real authenticated quota fetch before each teardown.
+# Release gates must read a real numeric usage report from the signed-in
+# official AGY CLI and leave no AGY process behind.
 for LIVE_AGY_TEST in \
-    AntigravityLiveAGYIntegrationTests/testProductionManagedPathReturnsRealGroupedQuota \
+    AntigravityLiveAGYIntegrationTests/testProductionCLIReportReturnsRealGroupedQuota \
     AntigravityLiveAGYIntegrationTests/testRuntimeEnvironmentRecoversAfterOfficialBinaryReplacement \
-    AntigravityLiveLocalSelectionTests/testOfficialLocalAccountSelectionPersistsWithoutOAuthAndReusesSession; do
+    AntigravityLiveLocalSelectionTests/testOfficialCLITargetPersistsWithoutOAuthAndLeavesNoLedger; do
     CLAUDEUSAGE_RUN_LIVE_AGY_TESTS=1 xcrun xctest \
         -XCTest \
         "$LIVE_AGY_TEST" \

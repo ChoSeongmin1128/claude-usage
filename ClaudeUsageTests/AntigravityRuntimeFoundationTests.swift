@@ -33,17 +33,9 @@ final class AntigravityRuntimeFoundationTests: XCTestCase {
             executable: executable
         ))
 
-        XCTAssertNil(AntigravityRuntimeProcessCandidate(
-            processIdentity: processIdentity,
-            ownership: .borrowed
-        ))
         XCTAssertNotNil(AntigravityRuntimeProcessCandidate(
             processIdentity: processIdentity,
             ownership: .external
-        ))
-        XCTAssertNil(AntigravityRuntimeProcessCandidate(
-            processIdentity: processIdentity,
-            ownership: .managed
         ))
     }
 
@@ -85,44 +77,20 @@ final class AntigravityRuntimeFoundationTests: XCTestCase {
         )
         XCTAssertNil(AntigravityVerifiedRuntimeEndpoint(
             processIdentity: appProcess,
-            host: .ipv4,
+                host: .ipv6,
             port: port,
             transport: .antigravityApp,
             ownership: .external,
-            authentication: .cliTokenless
+                authentication: .appCSRF(token)
         ))
-        XCTAssertNotNil(AntigravityVerifiedRuntimeEndpoint(
-            processIdentity: agyProcess,
-            host: .ipv4,
-            port: port,
-            transport: .agyCLI,
-            ownership: .borrowed,
-            authentication: .cliTokenless
-        ))
-        XCTAssertNil(AntigravityVerifiedRuntimeEndpoint(
-            processIdentity: agyProcess,
-            host: .ipv6,
-            port: port,
-            transport: .agyCLI,
-            ownership: .borrowed,
-            authentication: .cliTokenless
-        ))
+        // The CLI is read through its usage report, never as an RPC endpoint.
         XCTAssertNil(AntigravityVerifiedRuntimeEndpoint(
             processIdentity: agyProcess,
             host: .ipv4,
             port: port,
-            transport: .agyCLI,
-            ownership: .borrowed,
+                transport: .antigravityApp,
+                ownership: .external,
             authentication: .appCSRF(token)
-        ))
-
-        XCTAssertNotNil(AntigravityRuntimeProcessCandidate(
-            processIdentity: agyProcess,
-            ownership: .borrowed
-        ))
-        XCTAssertNotNil(AntigravityRuntimeProcessCandidate(
-            processIdentity: agyProcess,
-            ownership: .managed
         ))
         XCTAssertNil(AntigravityRuntimeProcessCandidate(
             processIdentity: agyProcess,

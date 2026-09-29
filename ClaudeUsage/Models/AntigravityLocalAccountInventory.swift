@@ -19,7 +19,7 @@ nonisolated struct AntigravityLocalAccount: Equatable, Sendable, Identifiable {
     var sourceLabel: String {
         var labels: [String] = []
         if sources.contains(.localApp) { labels.append("Antigravity 앱") }
-        if sources.contains(.borrowedCLI) || sources.contains(.managedCLI) { labels.append("AGY CLI") }
+        if sources.contains(.cliReport) { labels.append("AGY CLI") }
         return labels.joined(separator: " · ")
     }
 }

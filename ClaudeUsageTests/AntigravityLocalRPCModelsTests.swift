@@ -19,7 +19,7 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
             equals: .authenticationRejected)
     }
 
-    func testCLICSRFHeaderAndTokenRedaction() throws {
+    func testCSRFHeaderAndTokenRedaction() throws {
         let token = AntigravityCSRFToken.generate()
         XCTAssertEqual(token.value.count, 64)
         XCTAssertNotEqual(token, AntigravityCSRFToken.generate())
@@ -27,61 +27,13 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
         for invalid in ["", "two words", "secret\r\nInjected: yes", String(repeating: "a", count: 513)] {
             XCTAssertNil(AntigravityCSRFToken(invalid))
         }
-        let endpoint = try makeEndpoint(role: .agyCLI, transport: .agyCLI,
-            authentication: .cliCSRF(token))
+        let endpoint = try makeEndpoint(authentication: .appCSRF(token))
         for method in AntigravityLocalRPCMethod.allCases {
             let request = try AntigravityLocalRPCRequestBuilder.request(
                 for: method, endpoint: endpoint, timeout: 1)
             XCTAssertEqual(request.value(forHTTPHeaderField: "X-Codeium-Csrf-Token"), token.value)
         }
         XCTAssertFalse(String(reflecting: endpoint).contains(token.value))
-    }
-
-    func testManagedRegistryBindsTokenToExecutionAndErasesItOnCleanup() async throws {
-        let endpoint = try makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliTokenless)
-        let identity = endpoint.processIdentity
-        let registry = AntigravityManagedRuntimeRegistry()
-        let token = AntigravityCSRFToken.generate()
-        await registry.register(identity, csrfToken: token)
-        let registered = await registry.csrfToken(for: identity)
-        XCTAssertEqual(registered, token)
-        let reusedPID = try XCTUnwrap(AntigravityVerifiedProcessIdentity(
-            processID: identity.processID, effectiveUserID: identity.effectiveUserID,
-            realUserID: identity.realUserID,
-            startedAt: AntigravityProcessStartTime(seconds: identity.startedAt.seconds + 1, microseconds: 0)!,
-            executable: identity.executable))
-        let reusedToken = await registry.csrfToken(for: reusedPID)
-        XCTAssertNil(reusedToken)
-        await registry.quarantine(identity)
-        let quarantined = await registry.csrfToken(for: identity)
-        XCTAssertNil(quarantined)
-        await registry.register(identity, csrfToken: token)
-        await registry.unregister(identity)
-        let removed = await registry.csrfToken(for: identity)
-        XCTAssertNil(removed)
-        await registry.register(identity, csrfToken: token)
-        await registry.register(identity)
-        let legacy = await registry.csrfToken(for: identity)
-        XCTAssertNil(legacy)
-    }
-
-    func testManagedEndpointRejectsTokenReplacementDuringPortInspection() async throws {
-        let token = AntigravityCSRFToken.generate()
-        let borrowed = try makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliCSRF(token))
-        let endpoint = try XCTUnwrap(AntigravityVerifiedRuntimeEndpoint(
-            processIdentity: borrowed.processIdentity, host: borrowed.host, port: borrowed.port,
-            transport: .agyCLI, ownership: .managed, authentication: .cliCSRF(token)))
-        let registry = AntigravityManagedRuntimeRegistry()
-        await registry.register(endpoint.processIdentity, csrfToken: token)
-        let ports = PortOwnershipInspectorStub(endpoints: [endpoint.processIdentity.processID: [
-            AntigravityOwnedListeningEndpoint(host: endpoint.host, port: endpoint.port)]],
-            onInspect: { await registry.register(endpoint.processIdentity, csrfToken: .generate()) })
-        let revalidator = AntigravityRuntimeEndpointRevalidator(
-            processInspector: RuntimeProcessInspectorStub(isValid: true),
-            portInspector: ports, ownershipResolver: registry)
-        await XCTAssertThrowsErrorAsync(try await revalidator.revalidate(endpoint, deadline: .init())) {
-            XCTAssertEqual($0 as? AntigravityLocalRPCError, .endpointOwnershipChanged)
-        }
     }
 
     func testRPCMethodCatalogIsClosedAndUsesExactConnectPathsAndBodies() {
@@ -371,27 +323,13 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
         XCTAssertEqual(configs.modelConfigCount, 1)
     }
 
-    func testRequestBuilderUsesHTTPSConnectHeadersAndAppTokenOnlyForApp() throws {
+    func testRequestBuilderUsesHTTPSConnectHeadersAndAppToken() throws {
         let token = try XCTUnwrap(AntigravityCSRFToken("secret"))
-        let appEndpoint = try makeEndpoint(
-            role: .appLanguageServer,
-            transport: .antigravityApp,
-            authentication: .appCSRF(token)
-        )
-        let cliEndpoint = try makeEndpoint(
-            role: .agyCLI,
-            transport: .agyCLI,
-            authentication: .cliTokenless
-        )
+        let appEndpoint = try makeEndpoint(authentication: .appCSRF(token))
 
         let appRequest = try AntigravityLocalRPCRequestBuilder.request(
             for: .retrieveUserQuotaSummary,
             endpoint: appEndpoint,
-            timeout: 3
-        )
-        let cliRequest = try AntigravityLocalRPCRequestBuilder.request(
-            for: .retrieveUserQuotaSummary,
-            endpoint: cliEndpoint,
             timeout: 3
         )
 
@@ -411,17 +349,35 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
             appRequest.value(forHTTPHeaderField: "X-Codeium-Csrf-Token"),
             "secret"
         )
+    }
+
+    func testVerifiedEndpointsExistOnlyForTheAppLanguageServer() throws {
+        let token = try XCTUnwrap(AntigravityCSRFToken("secret"))
+        let agy = try makeAppProcessIdentity(role: .agyCLI)
         XCTAssertNil(
-            cliRequest.value(forHTTPHeaderField: "X-Codeium-Csrf-Token")
-        )
+            AntigravityVerifiedRuntimeEndpoint(
+                processIdentity: agy,
+                host: .ipv4,
+                port: try XCTUnwrap(AntigravityTCPPort(54_321)),
+                transport: .antigravityApp,
+                ownership: .external,
+                authentication: .appCSRF(token)
+            ))
+        XCTAssertNil(AntigravityRuntimeProcessCandidate(processIdentity: agy, ownership: .external))
+        XCTAssertNil(
+            AntigravityVerifiedRuntimeEndpoint(
+                processIdentity: try makeAppProcessIdentity(),
+                host: .ipv6,
+                port: try XCTUnwrap(AntigravityTCPPort(54_321)),
+                transport: .antigravityApp,
+                ownership: .external,
+                authentication: .appCSRF(token)
+            ))
+        XCTAssertNotNil(try makeEndpoint(authentication: .appCSRF(token)))
     }
 
     func testEndpointRevalidatorRequiresSameProcessAndOwnedPort() async throws {
-        let endpoint = try makeEndpoint(
-            role: .agyCLI,
-            transport: .agyCLI,
-            authentication: .cliTokenless
-        )
+        let endpoint = try makeEndpoint()
         let processInspector = RuntimeProcessInspectorStub(isValid: true)
         let portInspector = PortOwnershipInspectorStub(
             endpoints: [
@@ -457,7 +413,7 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
     }
 
     func testEndpointRevalidatorDistinguishesHelperTimeoutFromOwnershipFailure() async throws {
-        let endpoint = try makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliTokenless)
+        let endpoint = try makeEndpoint()
         let cases: [(AntigravityOwnedSubprocessError, AntigravityLocalRPCError)] = [
             (.timedOut, .deadlineExceeded),
             (.executableNotAllowed, .endpointOwnershipChanged),
@@ -486,53 +442,11 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
             connectionFactory: LocalRPCConnectionFactoryStub(connection: connection),
             identityRetryDelay: .zero)
         let result = try await client.fetch(
-            from: makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliTokenless))
+            from: makeEndpoint())
         guard case .grouped(let snapshot, let issue) = result else { return XCTFail("Expected numeric quota") }
         XCTAssertEqual(snapshot.lanes.first?.remainingFraction, 0.5)
         XCTAssertNil(issue)
         XCTAssertEqual(connection.methods, [.getUserStatus, .getUserStatus, .retrieveUserQuotaSummary, .getUserStatus])
-    }
-
-    func testEndpointRevalidatorRejectsQuarantinedOwnership()
-        async throws
-    {
-        let endpoint = try makeEndpoint(
-            role: .agyCLI,
-            transport: .agyCLI,
-            authentication: .cliTokenless
-        )
-        let processInspector =
-            RuntimeProcessInspectorStub(isValid: true)
-        let portInspector = PortOwnershipInspectorStub(
-            endpoints: [
-                endpoint.processIdentity.processID: [
-                    AntigravityOwnedListeningEndpoint(
-                        host: endpoint.host,
-                        port: endpoint.port
-                    ),
-                ],
-            ]
-        )
-        let registry = AntigravityManagedRuntimeRegistry()
-        await registry.quarantine(endpoint.processIdentity)
-        let revalidator =
-            AntigravityRuntimeEndpointRevalidator(
-                processInspector: processInspector,
-                portInspector: portInspector,
-                ownershipResolver: registry
-            )
-
-        await XCTAssertThrowsErrorAsync(
-            try await revalidator.revalidate(
-                endpoint,
-                deadline: AntigravityRPCDeadline()
-            )
-        ) { error in
-            XCTAssertEqual(
-                error as? AntigravityLocalRPCError,
-                .endpointOwnershipChanged
-            )
-        }
     }
 
     func testClientBindsQuotaToTheSameIdentityBeforeAndAfterTheFetch() async throws {
@@ -541,11 +455,11 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
         ])
         let factory = LocalRPCConnectionFactoryStub(connection: connection)
         let result = try await AntigravityLocalRPCClient(connectionFactory: factory)
-            .fetch(from: makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliTokenless))
+            .fetch(from: makeEndpoint())
         guard case .grouped(let snapshot, let issue) = result else { return XCTFail("Expected quota") }
         XCTAssertEqual(snapshot.identity?.email, "nathan@example.com")
         XCTAssertEqual(snapshot.lanes.first?.remainingFraction, 0.5)
-        XCTAssertEqual(snapshot.provenance.transport, .borrowedAGYRPC)
+        XCTAssertEqual(snapshot.provenance.transport, .localAppRPC)
         XCTAssertEqual(connection.methods, [.getUserStatus, .retrieveUserQuotaSummary, .getUserStatus])
         XCTAssertEqual(factory.makeConnectionCount, 1)
         XCTAssertNil(issue)
@@ -562,8 +476,7 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
                 identityAttemptLimit: 1)
             await XCTAssertThrowsErrorAsync(
                 try await client.fetch(
-                    from: makeEndpoint(
-                        role: .agyCLI, transport: .agyCLI, authentication: .cliTokenless))
+                    from: makeEndpoint())
             ) { _ in }
             XCTAssertEqual(connection.methods, [.getUserStatus])
             XCTAssertTrue(connection.wasInvalidated)
@@ -579,7 +492,7 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
             connectionFactory: LocalRPCConnectionFactoryStub(connection: connection),
             identityRetryDelay: .zero)
         let result = try await client.fetch(
-            from: makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliTokenless))
+            from: makeEndpoint())
         guard case .grouped(let quota, let issue) = result else { return XCTFail("Expected quota") }
         XCTAssertEqual(quota.identity?.email, "nathan@example.com")
         XCTAssertNil(issue)
@@ -595,7 +508,7 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
         ])
         let factory = LocalRPCConnectionFactoryStub(connection: connection)
         let result = try await AntigravityLocalRPCClient(connectionFactory: factory)
-            .fetch(from: makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliTokenless))
+            .fetch(from: makeEndpoint())
         guard case .grouped(let quota, _) = result else { return XCTFail("Expected quota") }
         XCTAssertEqual(quota.identity?.email, "b@example.com")
         XCTAssertEqual(quota.lanes.first?.remainingFraction, 0.8)
@@ -613,7 +526,7 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
         let factory = LocalRPCConnectionFactoryStub(connection: connection)
         await XCTAssertThrowsErrorAsync(
             try await AntigravityLocalRPCClient(connectionFactory: factory)
-                .fetch(from: makeEndpoint(role: .agyCLI, transport: .agyCLI, authentication: .cliTokenless))
+                .fetch(from: makeEndpoint())
         ) { error in
             XCTAssertEqual(error as? AntigravityLocalRPCAccountBoundaryError, .changedDuringFetch)
         }
@@ -622,11 +535,7 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
     }
 
     func testTransportPreservesCancellationCompletedBeforeRegistration() async throws {
-        let endpoint = try makeEndpoint(
-            role: .agyCLI,
-            transport: .agyCLI,
-            authentication: .cliTokenless
-        )
+        let endpoint = try makeEndpoint()
         let delegate = AntigravityLocalRPCSessionDelegate(
             endpoint: endpoint,
             endpointRevalidator: AcceptingEndpointRevalidator()
@@ -670,11 +579,7 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
                 connection: connection
             )
         )
-        let endpoint = try makeEndpoint(
-            role: .agyCLI,
-            transport: .agyCLI,
-            authentication: .cliTokenless
-        )
+        let endpoint = try makeEndpoint()
 
         await XCTAssertThrowsErrorAsync(
             try await client.fetch(from: endpoint)
@@ -702,11 +607,7 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
             ),
             now: { Date(timeIntervalSince1970: 100) }
         )
-        let endpoint = try makeEndpoint(
-            role: .agyCLI,
-            transport: .agyCLI,
-            authentication: .cliTokenless
-        )
+        let endpoint = try makeEndpoint()
 
         let result = try await client.fetch(from: endpoint)
         guard case let .limited(limited) = result else {
@@ -757,11 +658,7 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
                 connection: connection
             )
         )
-        let endpoint = try makeEndpoint(
-            role: .agyCLI,
-            transport: .agyCLI,
-            authentication: .cliTokenless
-        )
+        let endpoint = try makeEndpoint()
 
         await XCTAssertThrowsErrorAsync(try await client.fetch(from: endpoint)) { error in
             XCTAssertEqual(error as? AntigravityLocalRPCError, .authenticationRejected)
@@ -783,11 +680,7 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
                 connection: connection
             )
         )
-        let endpoint = try makeEndpoint(
-            role: .agyCLI,
-            transport: .agyCLI,
-            authentication: .cliTokenless
-        )
+        let endpoint = try makeEndpoint()
 
         await XCTAssertThrowsErrorAsync(
             try await client.fetch(from: endpoint)
@@ -816,11 +709,7 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
                 connection: connection
             )
         )
-        let endpoint = try makeEndpoint(
-            role: .agyCLI,
-            transport: .agyCLI,
-            authentication: .cliTokenless
-        )
+        let endpoint = try makeEndpoint()
 
         await XCTAssertThrowsErrorAsync(
             try await client.fetch(from: endpoint)
@@ -893,11 +782,25 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
     }
 
     private func makeEndpoint(
-        role: AntigravityExecutableRole,
-        transport: AntigravityRuntimeTransport,
-        authentication: AntigravityRuntimeEndpointAuthentication,
+        authentication: AntigravityRuntimeEndpointAuthentication? = nil,
         host: AntigravityLoopbackHost = .ipv4
     ) throws -> AntigravityVerifiedRuntimeEndpoint {
+        let process = try makeAppProcessIdentity()
+        return try XCTUnwrap(
+            AntigravityVerifiedRuntimeEndpoint(
+                processIdentity: process,
+                host: host,
+                port: try XCTUnwrap(AntigravityTCPPort(54_321)),
+                transport: .antigravityApp,
+                ownership: .external,
+                authentication: try authentication
+                    ?? .appCSRF(XCTUnwrap(AntigravityCSRFToken("fixture-token")))
+            ))
+    }
+
+    private func makeAppProcessIdentity(
+        role: AntigravityExecutableRole = .appLanguageServer
+    ) throws -> AntigravityVerifiedProcessIdentity {
         let executable: AntigravityCanonicalExecutable
         switch role {
         case .appLanguageServer:
@@ -925,20 +828,13 @@ final class AntigravityLocalRPCModelsTests: XCTestCase {
             seconds: 1_700_000_000,
             microseconds: 0
         ))
-        let process = try XCTUnwrap(AntigravityVerifiedProcessIdentity(
+        return try XCTUnwrap(
+            AntigravityVerifiedProcessIdentity(
             processID: 42,
             effectiveUserID: AntigravityUserID(rawValue: 501),
             realUserID: AntigravityUserID(rawValue: 501),
             startedAt: startedAt,
             executable: executable
-        ))
-        return try XCTUnwrap(AntigravityVerifiedRuntimeEndpoint(
-            processIdentity: process,
-            host: host,
-            port: try XCTUnwrap(AntigravityTCPPort(54_321)),
-            transport: transport,
-            ownership: role == .appLanguageServer ? .external : .borrowed,
-            authentication: authentication
         ))
     }
 

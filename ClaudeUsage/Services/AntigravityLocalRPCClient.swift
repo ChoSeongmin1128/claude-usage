@@ -382,33 +382,6 @@ nonisolated struct AntigravityLocalRPCClient:
         capability: AntigravityQuotaProvenance.Capability,
         accountIdentity: ProviderAccountIdentity?
     ) -> AntigravityQuotaProvenance {
-        let transport: AntigravityQuotaProvenance.Transport
-        switch (endpoint.transport, endpoint.ownership) {
-        case (.antigravityApp, .external):
-            transport = .localAppRPC
-        case (.agyCLI, .borrowed):
-            transport = .borrowedAGYRPC
-        case (.agyCLI, .managed):
-            transport = .managedAGYRPC
-        default:
-            // The verified endpoint initializer already excludes this state.
-            preconditionFailure("Invalid verified endpoint ownership")
-        }
-
-        let endpointOwner: AntigravityQuotaProvenance.EndpointOwner
-        switch endpoint.ownership {
-        case .external:
-            endpointOwner = .external
-        case .borrowed:
-            endpointOwner = .borrowed
-        case .managed:
-            endpointOwner = .managed
-        case .quarantined:
-            preconditionFailure(
-                "Quarantined runtime cannot become an endpoint"
-            )
-        }
-
         let startedAt = Date(
             timeIntervalSince1970:
                 TimeInterval(endpoint.processIdentity.startedAt.seconds)
@@ -417,8 +390,8 @@ nonisolated struct AntigravityLocalRPCClient:
                 ) / 1_000_000
         )
         return AntigravityQuotaProvenance(
-            transport: transport,
-            endpointOwner: endpointOwner,
+            transport: .localAppRPC,
+            endpointOwner: .external,
             accountIdentity: accountIdentity,
             capability: capability,
             processIdentity: ProcessIdentity(

@@ -120,14 +120,12 @@ nonisolated struct AntigravityQuotaSnapshot: Sendable, Equatable {
 nonisolated struct AntigravityQuotaProvenance: Sendable, Equatable {
     enum Transport: String, Sendable, Equatable {
         case localAppRPC
-        case borrowedAGYRPC
-        case managedAGYRPC
+        case cliUsageReport
         case googleOAuth
     }
 
     enum EndpointOwner: String, Sendable, Equatable {
         case external
-        case borrowed
         case managed
     }
 

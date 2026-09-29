@@ -673,6 +673,7 @@ nonisolated final class AntigravityManagedProcessRecordFileStore:
 {
     static let maximumFileBytes = 256 * 1_024
     static let maximumEntryCount = 64
+    static let fileName = "managed-agy-sessions.json"
 
     let fileURL: URL
 
@@ -683,7 +684,7 @@ nonisolated final class AntigravityManagedProcessRecordFileStore:
     init(
         fileURL: URL = AntigravityStoragePaths
             .canonicalStateDirectoryURL()
-            .appendingPathComponent("managed-agy-sessions.json"),
+            .appendingPathComponent(AntigravityManagedProcessRecordFileStore.fileName),
         fileManager: FileManager = .default,
         expectedUserID: uid_t = geteuid()
     ) {

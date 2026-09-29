@@ -399,135 +399,6 @@ final class AntigravityDiscoverySecurityTests: XCTestCase {
         XCTAssertTrue(refreshed.endpoints.isEmpty)
     }
 
-    func testAGYDiscoveryRetainsEveryOwnedIPv4PortWithoutHint()
-        async throws
-    {
-        let candidate = makeRuntimeCandidate()
-        let first = AntigravityOwnedListeningEndpoint(
-            host: .ipv4,
-            port: AntigravityTCPPort(54_321)!
-        )
-        let second = AntigravityOwnedListeningEndpoint(
-            host: .ipv4,
-            port: AntigravityTCPPort(54_322)!
-        )
-        let ignoredIPv6 = AntigravityOwnedListeningEndpoint(
-            host: .ipv6,
-            port: AntigravityTCPPort(54_323)!
-        )
-        let discovery = AntigravityRuntimeDiscovery(
-            processInspector: DiscoveryProcessInspectorStub(
-                discoveries: [[candidate]]
-            ),
-            portInspector: DiscoveryPortInspectorStub(
-                observations: [[
-                    candidate.processIdentity.processID: [
-                        second,
-                        ignoredIPv6,
-                        first,
-                    ],
-                ]]
-            ),
-            installations: [
-                candidate.processIdentity.executable,
-            ]
-        )
-
-        let snapshot = try await discovery.discover()
-
-        XCTAssertEqual(
-            snapshot.endpoints.map(\.port),
-            [first.port, second.port]
-        )
-        XCTAssertTrue(
-            snapshot.endpoints.allSatisfy {
-                $0.processIdentity
-                    == candidate.processIdentity
-                    && $0.authentication == .cliTokenless
-            }
-        )
-    }
-
-    func testPositiveCacheRevalidatesMutableManagedOwnership() async throws {
-        let fileSystem = DiscoveryCatalogFileSystemStub()
-        let executableURL = URL(
-            fileURLWithPath: "/opt/homebrew/bin/agy"
-        )
-        fileSystem.executablePaths = [executableURL.path]
-        let catalog = AntigravityExecutableCatalog(
-            appBundleRoots: [],
-            agyExecutableURLs: [executableURL],
-            fileSystem: fileSystem
-        )
-        let executable = try XCTUnwrap(catalog.executables.single)
-        let processID: Int32 = 7_778
-        let processInfo = makeBSDInfo(processID: processID)
-        let subprocess = DiscoverySubprocessStub(
-            output:
-                "\(processID) \(executableURL.path) --https_server_port=54321 --csrf_token=borrowed-fixture"
-        )
-        let libproc = DiscoveryLibprocStub(
-            bsdInfo: [processID: [processInfo]],
-            executableURLs: [processID: [executableURL]]
-        )
-        let registry = AntigravityManagedRuntimeRegistry()
-        let identity = AntigravityVerifiedProcessIdentity(
-            processID: processID,
-            effectiveUserID: processInfo.effectiveUserID,
-            realUserID: processInfo.realUserID,
-            startedAt: processInfo.startedAt,
-            executable: executable
-        )!
-        await registry.register(identity, csrfToken: AntigravityCSRFToken("managed-fixture"))
-
-        let processInspector = AntigravityProcessInspector(
-            catalog: catalog,
-            subprocessRunner: subprocess,
-            libprocReader: libproc,
-            kernelIdentityReader:
-                DiscoveryKernelIdentityReaderStub(),
-            runningExecutableImageValidator:
-                DiscoveryRunningImageValidatorStub(),
-            runningCodeTrustValidator:
-                DiscoveryRunningCodeTrustValidatorStub(),
-            effectiveUserID: processInfo.effectiveUserID,
-            realUserID: processInfo.realUserID,
-            ownershipResolver: registry
-        )
-        let portInspector = DiscoveryPortInspectorStub(
-            observations: [[
-                processID: [
-                    AntigravityOwnedListeningEndpoint(
-                        host: .ipv4,
-                        port: AntigravityTCPPort(54_321)!
-                    ),
-                ],
-            ]]
-        )
-        let discovery = AntigravityRuntimeDiscovery(
-            processInspector: processInspector,
-            portInspector: portInspector,
-            installations: [executable]
-        )
-
-        let managed = try await discovery.discover()
-        XCTAssertEqual(managed.endpoints.single?.ownership, .managed)
-        XCTAssertEqual(managed.endpoints.single?.authentication,
-                       .cliCSRF(AntigravityCSRFToken("managed-fixture")!))
-
-        await registry.unregister(identity)
-        let borrowed = try await discovery.discover()
-
-        XCTAssertEqual(borrowed.processes.single?.ownership, .borrowed)
-        XCTAssertEqual(borrowed.endpoints.single?.ownership, .borrowed)
-        XCTAssertEqual(borrowed.endpoints.single?.authentication,
-                       .cliCSRF(AntigravityCSRFToken("borrowed-fixture")!))
-        XCTAssertFalse(
-            borrowed.endpoints.contains { $0.ownership == .managed }
-        )
-        XCTAssertEqual(subprocess.requests().count, 2)
-    }
-
     func testInvalidatedCacheNeverReturnsStaleSnapshot() async throws {
         let candidate = makeRuntimeCandidate()
         let processInspector = DiscoveryProcessInspectorStub(
@@ -929,9 +800,15 @@ private func lsofPayload(_ fields: [String]) -> Data {
 }
 
 private func makeRuntimeCandidate() -> AntigravityRuntimeProcessCandidate {
+    let bundle = AntigravityAppBundleIdentity(
+        canonicalRootURL: URL(fileURLWithPath: "/Applications/Antigravity.app"),
+        bundleIdentifier: AntigravityAppBundleIdentity.requiredBundleIdentifier
+    )
     let executable = AntigravityCanonicalExecutable(
-        canonicalURL: URL(fileURLWithPath: "/opt/homebrew/bin/agy"),
-        role: .agyCLI
+        canonicalURL: bundle.canonicalRootURL
+            .appendingPathComponent("Contents/Resources/bin/language_server"),
+        role: .appLanguageServer,
+        appBundle: bundle
     )
     let identity = AntigravityVerifiedProcessIdentity(
         processID: 7_777,
@@ -942,7 +819,11 @@ private func makeRuntimeCandidate() -> AntigravityRuntimeProcessCandidate {
     )!
     return AntigravityRuntimeProcessCandidate(
         processIdentity: identity,
-        ownership: .borrowed
+        ownership: .external,
+        connectionHints: AntigravityRuntimeConnectionHints(
+            requestedPort: AntigravityTCPPort(54_321),
+            csrfToken: AntigravityCSRFToken("fixture-token")
+        )
     )!
 }
 

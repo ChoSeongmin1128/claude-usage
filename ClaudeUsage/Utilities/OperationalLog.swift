@@ -37,7 +37,6 @@ nonisolated struct OperationalDiagnostic: Equatable, Sendable {
             case .noSelectedOAuthAccount: code = "agy.noSelectedAccount"
             case .noAmbientLocalSession: code = "agy.noLocalSession"
             case .usageTargetSelection, .ambiguousLocalSessions: code = "agy.usageTargetSelectionRequired"
-            case .managedRecoveryBlocked: code = "agy.recoveryBlocked"
             }
             return Self(code: code, source: "coordinator", isFailure: true)
         case .disabled, .refreshing:
@@ -52,8 +51,8 @@ nonisolated struct OperationalDiagnostic: Equatable, Sendable {
             .deadlineExceeded(let source), .schemaChanged(let source),
             .transportUnavailable(let source), .sourceContractViolation(let source):
             return source.rawValue
-        case .runtimeUnavailable:
-            return AntigravityUsageSourceID.managedCLI.rawValue
+        case .runtimeUnavailable, .cliReportFailed:
+            return AntigravityUsageSourceID.cliReport.rawValue
         default:
             return "coordinator"
         }

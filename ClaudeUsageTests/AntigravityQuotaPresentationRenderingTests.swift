@@ -82,7 +82,7 @@ final class AntigravityQuotaPresentationRenderingTests: XCTestCase {
         let snapshot = AntigravityQuotaSnapshot(
             identity: nil, plan: nil, lanes: [lane], decodeIssues: [],
             provenance: .init(
-                transport: .borrowedAGYRPC, endpointOwner: .borrowed, accountIdentity: nil,
+                transport: .cliUsageReport, endpointOwner: .managed, accountIdentity: nil,
                 capability: .groupedQuotaSummary, processIdentity: nil), fetchedAt: now)
         var settings = AntigravityDisplaySettings.default
         settings.menuBar.timeFormat = .remaining
@@ -127,8 +127,8 @@ final class AntigravityQuotaPresentationRenderingTests: XCTestCase {
             ],
             decodeIssues: [],
             provenance: AntigravityQuotaProvenance(
-                transport: .borrowedAGYRPC,
-                endpointOwner: .borrowed,
+                transport: .cliUsageReport,
+                endpointOwner: .managed,
                 accountIdentity: nil,
                 capability: .groupedQuotaSummary,
                 processIdentity: nil
@@ -204,8 +204,8 @@ final class AntigravityQuotaPresentationRenderingTests: XCTestCase {
             lanes: lanes,
             decodeIssues: [],
             provenance: AntigravityQuotaProvenance(
-                transport: .borrowedAGYRPC,
-                endpointOwner: .borrowed,
+                transport: .cliUsageReport,
+                endpointOwner: .managed,
                 accountIdentity: identity,
                 capability: .groupedQuotaSummary,
                 processIdentity: nil

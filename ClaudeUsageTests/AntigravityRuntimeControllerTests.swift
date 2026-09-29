@@ -103,15 +103,17 @@ final class AntigravityRuntimeControllerTests:
         XCTAssertEqual(writes, 0)
     }
 
-    func testBootstrapRecoversManagedRuntimeBeforeInitialRefresh()
+    func testLegacyCleanupNeverBlocksTheInitialRefresh()
         async throws
     {
-        let fixture = makeFixture()
+        let cleanupGate = ControllerSuspensionGate()
+        let fixture = makeFixture(legacyCleanupGate: cleanupGate)
 
         let snapshot = await fixture.controller.bootstrap(
             performInitialRefresh: true
         )
-        let events = await fixture.events.snapshot()
+        await cleanupGate.waitUntilEntered()
+        let requests = await fixture.refresh.requests()
 
         XCTAssertEqual(snapshot.readiness, .ready)
         XCTAssertEqual(
@@ -121,16 +123,12 @@ final class AntigravityRuntimeControllerTests:
                     "~/.local/bin/agy"
             )
         )
-        XCTAssertLessThan(
-            try XCTUnwrap(
-                events.firstIndex(of: "managed.recover")
-            ),
-            try XCTUnwrap(
-                events.firstIndex(of: "refresh.run")
-            )
-        )
-        let requests = await fixture.refresh.requests()
         XCTAssertEqual(requests.count, 1)
+
+        await cleanupGate.resume()
+        await fixture.lifecycle.waitUntilCleanupFinished()
+        let cleanupCount = await fixture.lifecycle.cleanupCount()
+        XCTAssertEqual(cleanupCount, 1)
     }
 
     func testAccountSwitchInvalidatesBoundaryAndRefreshesExactlyOnce()
@@ -655,33 +653,7 @@ final class AntigravityRuntimeControllerTests:
         )
     }
 
-    func testManagedRecoveryFailureDisablesManagedSourceForRefresh()
-        async
-    {
-        let fixture = makeFixture(
-            recoveryFails: true
-        )
-
-        let snapshot = await fixture.controller.bootstrap(
-            performInitialRefresh: true
-        )
-        let requests = await fixture.refresh.requests()
-
-        XCTAssertEqual(
-            snapshot.managedRuntimeAvailability,
-            .recoveryBlocked(
-                displayPath:
-                    "~/.local/bin/agy"
-            )
-        )
-        XCTAssertEqual(requests.count, 1)
-        XCTAssertEqual(
-            requests.first?.managedLaunch,
-            .recoveryBlocked
-        )
-    }
-
-    func testShutdownQuiescesRefreshStopsManagedSessionAndRejectsMutations()
+    func testShutdownQuiescesRefreshBeforeStoppingRuntimeAndRejectsMutations()
         async throws
     {
         let fixture = makeFixture()
@@ -694,9 +666,14 @@ final class AntigravityRuntimeControllerTests:
         let quiesceCount =
             await fixture.refresh.quiesceCount()
         let shutdownCount =
-            await fixture.managed.shutdownCount()
+            await fixture.lifecycle.shutdownCount()
         let shutdownSnapshot =
             await fixture.controller.snapshot()
+        let events = await fixture.events.snapshot()
+        XCTAssertLessThan(
+            try XCTUnwrap(events.firstIndex(of: "refresh.quiesce")),
+            try XCTUnwrap(events.firstIndex(of: "runtime.shutdown"))
+        )
         XCTAssertEqual(
             quiesceCount,
             1
@@ -768,10 +745,10 @@ final class AntigravityRuntimeControllerTests:
 
         let quiesceCount =
             await fixture.refresh.quiesceCount()
-        let managedShutdownCount =
-            await fixture.managed.shutdownCount()
+        let runtimeShutdownCount =
+            await fixture.lifecycle.shutdownCount()
         XCTAssertEqual(quiesceCount, 1)
-        XCTAssertEqual(managedShutdownCount, 1)
+        XCTAssertEqual(runtimeShutdownCount, 1)
         let shutdownSnapshot =
             await fixture.controller.snapshot()
         XCTAssertEqual(
@@ -837,7 +814,7 @@ final class AntigravityRuntimeControllerTests:
                 ),
         connection:
             AntigravityConnectionSettings = .default,
-        recoveryFails: Bool = false,
+        legacyCleanupGate: ControllerSuspensionGate? = nil,
         selectionFails: Bool = false,
         refreshResult:
             AntigravityPresentationState? = nil,
@@ -888,9 +865,9 @@ final class AntigravityRuntimeControllerTests:
                 refreshGate: refreshGate,
                 invalidationGate: invalidationGate
             )
-        let managed =
-            ControllerManagedSessionDouble(
-                recoveryFails: recoveryFails,
+        let lifecycle =
+            ControllerRuntimeLifecycleDouble(
+                cleanupGate: legacyCleanupGate,
                 events: events
             )
         let controller = AntigravityRuntimeController(
@@ -898,7 +875,7 @@ final class AntigravityRuntimeControllerTests:
             settingsStore: settings,
             migrationCoordinator: migration,
             refreshCoordinator: refresh,
-            managedSession: managed,
+            runtimeLifecycle: lifecycle,
             settingsBootstrap:
                 .ready(.alreadyCurrent),
             agyExecutableStatus:
@@ -918,7 +895,7 @@ final class AntigravityRuntimeControllerTests:
             repository: repository,
             settings: settings,
             refresh: refresh,
-            managed: managed,
+            lifecycle: lifecycle,
             events: events
         )
     }
@@ -1066,7 +1043,7 @@ private struct ControllerFixture {
         ControllerAccountRepositoryDouble
     let settings: ControllerSettingsStoreDouble
     let refresh: ControllerRefreshCoordinatorDouble
-    let managed: ControllerManagedSessionDouble
+    let lifecycle: ControllerRuntimeLifecycleDouble
     let events: ControllerEventRecorder
 }
 
@@ -1492,35 +1469,45 @@ private actor ControllerSuspensionGate {
     }
 }
 
-private actor ControllerManagedSessionDouble:
-    AntigravityManagedSessionLifecycling
+private actor ControllerRuntimeLifecycleDouble:
+    AntigravityRuntimeLifecycling
 {
-    private enum RecoveryError: Error {
-        case blocked
-    }
-
-    private let recoveryFails: Bool
+    private let cleanupGate: ControllerSuspensionGate?
     private let events: ControllerEventRecorder
+    private var cleanups = 0
+    private var finishedCleanups = 0
+    private var cleanupWaiters: [CheckedContinuation<Void, Never>] = []
     private var shutdowns = 0
 
     init(
-        recoveryFails: Bool,
+        cleanupGate: ControllerSuspensionGate?,
         events: ControllerEventRecorder
     ) {
-        self.recoveryFails = recoveryFails
+        self.cleanupGate = cleanupGate
         self.events = events
     }
 
-    func recoverOrphanedProcesses() async throws {
-        await events.record("managed.recover")
-        if recoveryFails {
-            throw RecoveryError.blocked
-        }
+    func cleanUpLegacyManagedProcesses() async {
+        cleanups += 1
+        await events.record("runtime.legacyCleanup")
+        await cleanupGate?.suspend()
+        finishedCleanups += 1
+        cleanupWaiters.forEach { $0.resume() }
+        cleanupWaiters.removeAll()
     }
 
     func shutdown() async {
         shutdowns += 1
-        await events.record("managed.shutdown")
+        await events.record("runtime.shutdown")
+    }
+
+    func cleanupCount() -> Int {
+        cleanups
+    }
+
+    func waitUntilCleanupFinished() async {
+        guard finishedCleanups == 0 else { return }
+        await withCheckedContinuation { cleanupWaiters.append($0) }
     }
 
     func shutdownCount() -> Int {

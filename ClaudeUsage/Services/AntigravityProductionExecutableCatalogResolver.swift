@@ -506,14 +506,13 @@ nonisolated enum AntigravityAGYExecutableDiscoveryStatus:
     case rejected
 }
 
-/// A valid empty resolution is intentional. Local discovery can remain
-/// unavailable and Google OAuth can still be composed without enabling managed
-/// AGY launch.
+/// A valid empty resolution is intentional. Local app discovery still works
+/// when no verified AGY CLI can run usage reports.
 nonisolated struct AntigravityProductionExecutableResolution:
     Sendable
 {
     let catalog: AntigravityExecutableCatalog
-    let managedLaunchExecutable: AntigravityCanonicalExecutable?
+    let reportExecutable: AntigravityCanonicalExecutable?
     let agyExecutableStatus:
         AntigravityAGYExecutableDiscoveryStatus
 }
@@ -584,15 +583,15 @@ nonisolated struct AntigravityProductionExecutableCatalogResolver:
             fileIdentityInspector: fileIdentityInspector,
             fileSystem: fileSystem
         )
-        let managedLaunchExecutable = discoverableAGYURLs.lazy
+        let reportExecutable = discoverableAGYURLs.lazy
             .compactMap { catalog.executable(matching: $0) }
             .first
         let agyExecutableStatus:
             AntigravityAGYExecutableDiscoveryStatus
-        if let managedLaunchExecutable {
+        if let reportExecutable {
             agyExecutableStatus = .verified(
                 displayPath: displayPath(
-                    for: managedLaunchExecutable
+                    for: reportExecutable
                         .canonicalURL
                 )
             )
@@ -606,7 +605,7 @@ nonisolated struct AntigravityProductionExecutableCatalogResolver:
 
         return AntigravityProductionExecutableResolution(
             catalog: catalog,
-            managedLaunchExecutable: managedLaunchExecutable,
+            reportExecutable: reportExecutable,
             agyExecutableStatus: agyExecutableStatus
         )
     }

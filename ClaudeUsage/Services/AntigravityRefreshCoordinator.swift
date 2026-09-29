@@ -18,7 +18,6 @@ private nonisolated struct AntigravityRefreshFlightKey:
 {
     let repositoryRevision: UInt64
     let connection: AntigravityConnectionSettings
-    let managedLaunch: AntigravityManagedLaunchState
     let clearsPreviousSnapshot: Bool
     let forcesDiscovery: Bool
 
@@ -26,7 +25,6 @@ private nonisolated struct AntigravityRefreshFlightKey:
         forcesDiscovery = request.forcesDiscovery
         repositoryRevision = request.repositoryRevision
         connection = request.connection
-        managedLaunch = request.managedLaunch
         clearsPreviousSnapshot =
             request.trigger.clearsPreviousSnapshot
     }
@@ -453,19 +451,15 @@ actor AntigravityRefreshCoordinator:
             ) { localSources in
                 var registry = sources
                 for source in localSources { registry[source.id] = source }
-                // Environment sources own the current launch capability. A disabled
-                // capability is represented by a non-launching typed failure source.
-                let currentRequest = AntigravityRefreshRequest(
-                    trigger: request.trigger,
-                    repositoryRevision: request.repositoryRevision, connection: request.connection,
-                    managedLaunch: .enabled
-                )
-                return await execute(generation: generation, request: currentRequest, repository: repository, sources: registry, deadline: deadline.beginningDiscoveryNow())
+                return await execute(
+                    generation: generation, request: request, repository: repository, sources: registry,
+                    deadline: deadline.beginningDiscoveryNow())
             }
         } catch is CancellationError {
             return .failure(.cancelled)
         } catch {
-            return .failure(.deadlineExceeded(.managedCLI))
+            let source: AntigravityUsageSourceID = request.target == .app ? .localApp : .cliReport
+            return .failure(.deadlineExceeded(source))
         }
     }
 
@@ -496,14 +490,9 @@ actor AntigravityRefreshCoordinator:
                 guard source.id == sourceID else {
                     return .failure(.sourceContractViolation(sourceID), repositoryWasValidated: true)
                 }
-                let authorization: AntigravityManagedLaunchAuthorization =
-                    sourceID == .managedCLI
-                        && request.managedLaunch.allowsLaunch
-                    ? .automatic(idleTimeout: .seconds(request.connection.managedSession.idleTimeoutSeconds))
-                    : .disabled
                 let sourceRequest = AntigravityUsageSourceRequest(
-                    generation: generation, managedLaunchAuthorization: authorization,
-                    deadline: deadline, refreshAuthentication: request.forcesDiscovery)
+                    generation: generation, deadline: deadline,
+                    refreshAuthentication: request.forcesDiscovery)
                 let inspection: AntigravityUsageSourceInspection
                 do {
                     inspection = try await source.inspectAccounts(sourceRequest)
@@ -527,10 +516,22 @@ actor AntigravityRefreshCoordinator:
                         observedIdentity = identity
                     }
                     lastFailure = failure(sourceError, source: sourceID)
-                    if sourceError != .unavailable && sourceError != .managedLaunchDisabled {
+                    if sourceError != .unavailable {
                         actionableFailure = lastFailure
                     }
                     continue
+                }
+                if !sourceID.reportsAccountIdentity {
+                    guard inspection.responses.count == 1,
+                        case .grouped(let snapshot) = inspection.responses[0].payload,
+                        snapshot.identity == nil,
+                        !snapshot.lanes.isEmpty,
+                        snapshot.provenance.capability == .groupedQuotaSummary,
+                        provenanceMatchesSource(snapshot.provenance, sourceID: sourceID)
+                    else {
+                        return .failure(.sourceContractViolation(sourceID), repositoryWasValidated: true)
+                    }
+                    return .init(output: .snapshot(snapshot), repositoryWasValidated: true)
                 }
                 var evidence = AntigravityLocalAccountInventory()
                 for response in inspection.responses {
@@ -572,9 +573,6 @@ actor AntigravityRefreshCoordinator:
             if let actionableFailure {
                 return .failure(actionableFailure, repositoryWasValidated: true, observedIdentity: observedIdentity)
             }
-            if request.target == .cli && request.managedLaunch == .recoveryBlocked {
-                return .init(output: .setupRequired(.managedRecoveryBlocked), repositoryWasValidated: true)
-            }
             return .failure(lastFailure, repositoryWasValidated: true)
         } catch is CancellationError {
             return .failure(.cancelled)
@@ -589,7 +587,7 @@ actor AntigravityRefreshCoordinator:
         switch error {
         case .accountChanged: .accountChanged
         case .verifiedAccountFailure(_, let cause): failure(cause, source: source)
-        case .unavailable, .managedLaunchDisabled: .sourceUnavailable(source)
+        case .unavailable: .sourceUnavailable(source)
         case .localAuthentication(let problem): .localAuthentication(source, problem)
         case .authenticationRequired: .authenticationRequired(source)
         case .interactionRequired: .interactionRequired(source)
@@ -597,6 +595,7 @@ actor AntigravityRefreshCoordinator:
         case .malformedResponse: .schemaChanged(source)
         case .runtimeUnavailable(let reason): .runtimeUnavailable(reason)
         case .transportFailure: .transportUnavailable(source)
+        case .reportFailed: .cliReportFailed
         case .cancelled: .cancelled
         }
     }
@@ -688,14 +687,6 @@ actor AntigravityRefreshCoordinator:
             .localApp,
             .localLegacy,
             .localLegacy
-        ), (
-            .borrowedCLI,
-            .localLegacy,
-            .localLegacy
-        ), (
-            .managedCLI,
-            .localLegacy,
-            .localLegacy
         ):
             true
         default:
@@ -712,14 +703,11 @@ actor AntigravityRefreshCoordinator:
             provenance.transport == .localAppRPC
                 && provenance.endpointOwner == .external
                 && provenance.processIdentity != nil
-        case .borrowedCLI:
-            provenance.transport == .borrowedAGYRPC
-                && provenance.endpointOwner == .borrowed
-                && provenance.processIdentity != nil
-        case .managedCLI:
-            provenance.transport == .managedAGYRPC
+        case .cliReport:
+            provenance.transport == .cliUsageReport
                 && provenance.endpointOwner == .managed
-                && provenance.processIdentity != nil
+                && provenance.processIdentity == nil
+                && provenance.accountIdentity == nil
         case .googleOAuth:
             false
         }
@@ -740,7 +728,8 @@ actor AntigravityRefreshCoordinator:
              .credentialCommitFailed,
              .credentialCommitAmbiguous,
              .selectedAccountUnavailable,
-             .selectedAccountIdentityUnavailable:
+            .selectedAccountIdentityUnavailable,
+            .cliReportFailed:
             true
         case .cancelled,
              .localAuthentication,
@@ -751,7 +740,7 @@ actor AntigravityRefreshCoordinator:
              .transportUnavailable,
              .sourceContractViolation,
              .numericQuotaUnavailable,
-             .runtimeUnavailable:
+            .runtimeUnavailable:
             false
         }
     }

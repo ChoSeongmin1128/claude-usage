@@ -140,7 +140,7 @@ final class
             2
         )
         XCTAssertEqual(
-            resolution.managedLaunchExecutable?.canonicalURL.path,
+            resolution.reportExecutable?.canonicalURL.path,
             candidates.agyExecutableURLs[0].path
         )
         XCTAssertEqual(
@@ -192,7 +192,7 @@ final class
                 $0.role == .agyCLI
             }.isEmpty
         )
-        XCTAssertNil(resolution.managedLaunchExecutable)
+        XCTAssertNil(resolution.reportExecutable)
         XCTAssertEqual(
             resolution.agyExecutableStatus,
             .rejected
@@ -281,7 +281,7 @@ final class
         ).resolve()
 
         XCTAssertTrue(resolution.catalog.executables.isEmpty)
-        XCTAssertNil(resolution.managedLaunchExecutable)
+        XCTAssertNil(resolution.reportExecutable)
     }
 
     func testInsecureOwnershipOrPermissionsRejectDiscovery() {
@@ -304,7 +304,7 @@ final class
         ).resolve()
 
         XCTAssertTrue(resolution.catalog.executables.isEmpty)
-        XCTAssertNil(resolution.managedLaunchExecutable)
+        XCTAssertNil(resolution.reportExecutable)
     }
 
     func testNewBinaryDigestIsAcceptedWhenOfficialSignatureIsValid() {
@@ -332,12 +332,12 @@ final class
         ).resolve()
 
         XCTAssertEqual(
-            resolution.managedLaunchExecutable?
+            resolution.reportExecutable?
                 .canonicalURL.path,
             unknown.path
         )
         XCTAssertEqual(
-            resolution.managedLaunchExecutable?
+            resolution.reportExecutable?
                 .fileIdentity?
                 .sha256Digest,
             String(repeating: "0", count: 64)
@@ -378,6 +378,13 @@ final class
         XCTAssertTrue(
             revalidator.isCurrent(executable)
         )
+        XCTAssertTrue(
+            revalidator.isCurrent(executable)
+        )
+        XCTAssertEqual(
+            trust.validationCount, 1,
+            "An unchanged file must not be re-hashed for every launch"
+        )
 
         trust.identities[url.path] =
             AntigravityCodeSignatureIdentity(
@@ -385,7 +392,10 @@ final class
                 teamIdentifier: "WRONGTEAM"
             )
         XCTAssertFalse(
-            revalidator.isCurrent(executable)
+            AntigravityPinnedAGYExecutableRevalidator(
+                fileIdentityInspector: fileIdentity,
+                trustInspector: trust
+            ).isCurrent(executable)
         )
 
         trust.identities[url.path] = .officialAGY
@@ -471,7 +481,7 @@ final class
             fileIdentity: fileIdentity
         ).resolve()
         let executable = try XCTUnwrap(
-            resolution.managedLaunchExecutable
+            resolution.reportExecutable
         )
         let resolvedIdentity = try XCTUnwrap(
             executable.fileIdentity
@@ -691,7 +701,7 @@ final class
             fileIdentity: fileIdentity
         ).resolve()
         let executable = try XCTUnwrap(
-            resolution.managedLaunchExecutable
+            resolution.reportExecutable
         )
         XCTAssertTrue(resolution.catalog.isCurrent(executable))
 
@@ -729,8 +739,8 @@ final class
         XCTAssertTrue(processes.isEmpty)
     }
 
-    func testPostCatalogSamePathReplacementRejectsManagedSpawn()
-        throws
+    func testPostCatalogSamePathReplacementRejectsReportSpawn()
+        async throws
     {
         let fileSystem = StubResolverFileSystem()
         let trust = StubTrustInspector()
@@ -750,7 +760,7 @@ final class
             fileIdentity: fileIdentity
         ).resolve()
         let executable = try XCTUnwrap(
-            resolution.managedLaunchExecutable
+            resolution.reportExecutable
         )
         let resolvedIdentity = try XCTUnwrap(
             executable.fileIdentity
@@ -760,24 +770,43 @@ final class
                 digest: resolvedIdentity.sha256Digest,
                 inode: resolvedIdentity.inode + 1
             )
-        let request = try XCTUnwrap(
-            AntigravityManagedCLIProcessLaunchRequest(
-                executable: executable,
-                environment: AntigravityManagedCLIEnvironment(
-                    homeDirectory: home,
-                    userName: "example"
-                ),
-                currentDirectoryURL: home
-            )
+        let runner = ResolverRecordingReportRunner()
+        let source = AntigravityCLIUsageReportSource(
+            executable: executable,
+            executableRevalidator: resolution.catalog,
+            runner: runner,
+            prepareWorkingDirectory: { FileManager.default.temporaryDirectory }
         )
 
-        XCTAssertThrowsError(
-            try AntigravityManagedCLIProcessLauncher(
-                executableRevalidator: resolution.catalog
-            ).launchSuspended(request)
-        ) {
+        do {
+            _ = try await source.fetch(
+                .init(generation: 1, deadline: AntigravityRPCDeadline(totalTimeout: .seconds(30))))
+            XCTFail("A replaced executable must not run")
+        } catch {
             XCTAssertEqual(
-                $0 as? AntigravityManagedSessionError,
+                error as? AntigravityUsageSourceError,
+                .runtimeUnavailable(.executableChanged)
+            )
+        }
+        let runs = await runner.runCount
+        XCTAssertEqual(runs, 0)
+
+        do {
+            _ = try await AntigravityCLIReportProcessRunner(
+                executableRevalidator: resolution.catalog
+            ).run(
+                AntigravityCLIReportProcessRequest(
+                    executable: executable,
+                    arguments: ["--version"],
+                    environment: ["PATH": "/bin"],
+                    workingDirectoryURL: FileManager.default.temporaryDirectory,
+                    timeout: .seconds(5)
+                )
+            )
+            XCTFail("The runner must revalidate the catalog identity itself")
+        } catch {
+            XCTAssertEqual(
+                error as? AntigravityCLIReportProcessError,
                 .executableNotAllowed
             )
         }
@@ -791,7 +820,7 @@ final class
 
         XCTAssertTrue(resolution.catalog.appBundles.isEmpty)
         XCTAssertTrue(resolution.catalog.executables.isEmpty)
-        XCTAssertNil(resolution.managedLaunchExecutable)
+        XCTAssertNil(resolution.reportExecutable)
         XCTAssertEqual(
             resolution.agyExecutableStatus,
             .notFound
@@ -944,11 +973,13 @@ private final class StubTrustInspector:
     var identities:
         [String: AntigravityCodeSignatureIdentity] = [:]
     var rejectedPaths: Set<String> = []
+    private(set) var validationCount = 0
 
     func validatedIdentity(
         at url: URL,
         satisfying requirementSource: String?
     ) -> AntigravityCodeSignatureIdentity? {
+        validationCount += 1
         guard !rejectedPaths.contains(url.path) else {
             return nil
         }
@@ -1043,4 +1074,15 @@ private extension AntigravityCodeSignatureIdentity {
                 AntigravityOfficialExecutableTrustPolicy
                     .teamIdentifier
         )
+}
+
+private actor ResolverRecordingReportRunner: AntigravityCLIReportProcessRunning {
+    private(set) var runCount = 0
+
+    func run(
+        _ request: AntigravityCLIReportProcessRequest
+    ) async throws -> AntigravityCLIReportProcessResult {
+        runCount += 1
+        throw AntigravityCLIReportProcessError.launchFailed
+    }
 }

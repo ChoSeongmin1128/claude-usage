@@ -14,11 +14,11 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
         XCTAssertEqual(migration.migrate(), .migrated(pendingNotice: nil))
         let settings = try connectionSettings(in: store)
         XCTAssertEqual(settings.usageTarget, .unselected)
-        XCTAssertEqual(settings.managedSession.idleTimeoutSeconds, 271)
         let saved = try XCTUnwrap(store.object(forKey: AntigravitySettingsMigrationKeys.connectionSettings) as? Data)
         let text = String(decoding: saved, as: UTF8.self)
         XCTAssertFalse(text.contains("previous@example.com"))
         XCTAssertFalse(text.contains("accountSelection"))
+        XCTAssertFalse(text.contains("managedSession"))
         XCTAssertEqual(migration.migrate(), .alreadyCurrent)
     }
 
@@ -69,10 +69,52 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
         let migration = AntigravitySettingsMigrationCoordinator(store: store)
         XCTAssertEqual(migration.migrate(), .migrated(pendingNotice: nil))
         let connection = try connectionSettings(in: store)
-        XCTAssertEqual(connection.schemaVersion, 4)
-        XCTAssertEqual(connection.managedSession.idleTimeoutSeconds, 271)
+        XCTAssertEqual(connection.schemaVersion, AntigravityConnectionSettings.currentSchemaVersion)
         XCTAssertEqual(connection.usageTarget, .unselected)
         XCTAssertEqual(migration.migrate(), .alreadyCurrent)
+    }
+
+    func testV4SettingsKeepTheUsageTargetAndDropTheManagedSessionPolicy() throws {
+        for target in AntigravityUsageTarget.allCases {
+            let original = Data(
+                #"{"schemaVersion":4,"managedSession":{"idleTimeoutSeconds":271},"usageTarget":"\#(target.rawValue)"}"#
+                    .utf8)
+            let store = InMemoryAntigravitySettingsMigrationStore()
+            store.set(original, forKey: AntigravitySettingsMigrationKeys.connectionSettings)
+            store.set(
+                try JSONEncoder().encode(AntigravityDisplaySettings.default),
+                forKey: AntigravitySettingsMigrationKeys.displaySettings)
+            store.set(
+                AntigravitySettingsMigrationKeys.currentMigrationVersion - 1,
+                forKey: AntigravitySettingsMigrationKeys.migrationVersion)
+            let migration = AntigravitySettingsMigrationCoordinator(store: store)
+
+            XCTAssertEqual(migration.migrate(), .migrated(pendingNotice: nil))
+
+            let connection = try connectionSettings(in: store)
+            XCTAssertEqual(connection.schemaVersion, AntigravityConnectionSettings.currentSchemaVersion)
+            XCTAssertEqual(connection.usageTarget, target)
+            let saved = try XCTUnwrap(
+                store.object(forKey: AntigravitySettingsMigrationKeys.connectionSettings) as? Data)
+            XCTAssertFalse(String(decoding: saved, as: UTF8.self).contains("managedSession"))
+            XCTAssertEqual(migration.migrate(), .alreadyCurrent)
+        }
+    }
+
+    func testSettingsFromANewerReleaseAreLeftUntouched() throws {
+        let newer = AntigravitySettingsMigrationKeys.currentMigrationVersion + 1
+        let store = InMemoryAntigravitySettingsMigrationStore()
+        let connection = Data(#"{"schemaVersion":99,"usageTarget":"cli"}"#.utf8)
+        store.set(connection, forKey: AntigravitySettingsMigrationKeys.connectionSettings)
+        store.set(newer, forKey: AntigravitySettingsMigrationKeys.migrationVersion)
+
+        guard case .failed(let failure) = AntigravitySettingsMigrationCoordinator(store: store).migrate() else {
+            return XCTFail("Settings written by a newer release must not be migrated")
+        }
+
+        XCTAssertEqual(failure.reason, .unsupportedMigrationVersion(newer))
+        XCTAssertEqual(store.object(forKey: AntigravitySettingsMigrationKeys.connectionSettings) as? Data, connection)
+        XCTAssertEqual(store.object(forKey: AntigravitySettingsMigrationKeys.migrationVersion) as? Int, newer)
     }
 
     func testLegacyKeyInventoryIsExplicitAndComplete() {
@@ -158,16 +200,11 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
                     .currentSchemaVersion,
                 legacy
             )
-            XCTAssertEqual(
-                connection.managedSession.idleTimeoutSeconds,
-                AntigravityConnectionSettings.ManagedSessionPolicy.defaultIdleTimeoutSeconds,
-                legacy
-            )
             XCTAssertNil(store.object(forKey: "antigravityUsageDataSource"))
         }
     }
 
-    func testV1ConnectionMigratesToV3AndPreservesManagedTimeout()
+    func testV1ConnectionMigratesToTheCurrentSchema()
         throws
     {
         for sourcePolicy in [
@@ -210,15 +247,10 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
             )
             XCTAssertEqual(
                 connection.schemaVersion,
-                4,
+                AntigravityConnectionSettings.currentSchemaVersion,
                 sourcePolicy
             )
-            XCTAssertEqual(
-                connection.managedSession
-                    .idleTimeoutSeconds,
-                271,
-                sourcePolicy
-            )
+            XCTAssertEqual(connection.usageTarget, .unselected, sourcePolicy)
         }
     }
 
@@ -246,7 +278,7 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
             AntigravityConnectionSettings.self,
             from: connectionData
         )
-        XCTAssertEqual(connection.schemaVersion, 4)
+        XCTAssertEqual(connection.schemaVersion, AntigravityConnectionSettings.currentSchemaVersion)
         XCTAssertNil(defaults.object(forKey: "antigravityUsageDataSource"))
         XCTAssertNil(defaults.object(forKey: "antigravity.showIcon"))
         XCTAssertNil(defaults.object(forKey: "antigravity.percentageDisplay"))
@@ -326,8 +358,7 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
         )
 
         let connection = try connectionSettings(in: store)
-        XCTAssertEqual(connection.schemaVersion, 4)
-        XCTAssertEqual(connection.managedSession.idleTimeoutSeconds, 180)
+        XCTAssertEqual(connection.schemaVersion, AntigravityConnectionSettings.currentSchemaVersion)
 
         let display = try displaySettings(in: store)
         XCTAssertEqual(
@@ -649,7 +680,7 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
         let store = InMemoryAntigravitySettingsMigrationStore()
         let currentConnection = AntigravityConnectionSettings(
             schemaVersion: AntigravityConnectionSettings.currentSchemaVersion,
-            managedSession: .init(idleTimeoutSeconds: 333)
+            usageTarget: .app
         )
         let currentDisplay = AntigravityDisplaySettings(
             schemaVersion: AntigravityDisplaySettings.currentSchemaVersion,
@@ -885,7 +916,7 @@ final class AntigravitySettingsMigrationCoordinatorTests: XCTestCase {
         let store = try makeFailureFixture()
         let currentConnection = AntigravityConnectionSettings(
             schemaVersion: AntigravityConnectionSettings.currentSchemaVersion,
-            managedSession: .init(idleTimeoutSeconds: 444)
+            usageTarget: .app
         )
         let currentConnectionData = try JSONEncoder().encode(currentConnection)
         store.set(
