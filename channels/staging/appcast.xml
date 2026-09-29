@@ -4,12 +4,12 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>Version 2.7.0-stg.3</title>
-            <pubDate>Wed, 30 Sep 2026 00:22:52 +0900</pubDate>
-            <sparkle:version>20624</sparkle:version>
-            <sparkle:shortVersionString>2.7.0-stg.3</sparkle:shortVersionString>
+            <title>Version 2.7.0-stg.4</title>
+            <pubDate>Wed, 30 Sep 2026 00:48:35 +0900</pubDate>
+            <sparkle:version>20625</sparkle:version>
+            <sparkle:shortVersionString>2.7.0-stg.4</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.7.0-stg.3/ClaudeUsage.dmg" length="6328995" type="application/octet-stream" sparkle:edSignature="v71wOy7OP/Y7p3RIOJ+qruLER+2kiVRqhq4IJG1gPHE/rVhj6fhTxSnLgHinMjFXj3gOwhB3+Es49XHg5wgcBg=="></enclosure>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.7.0-stg.4/ClaudeUsage.dmg" length="6328069" type="application/octet-stream" sparkle:edSignature="udZe5pgL12OPETfmFVBZWg4hko+ICDO5fr1X9KIElrIFU5mpVr1GjiKUj/mnugWigBk/GMKSIdKZTXgxGsmqAw=="></enclosure>
             <description sparkle:format="plain-text"># 2.7.0
 
 ## AGY CLI 사용량 조회
@@ -28,16 +28,16 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 
 - 실행할 때 이전 버전만 쓰던 설정 값과 이전 AGY 실행 잠금 파일을 지웁니다. 현재 설정으로 옮기는 값은 옮긴 뒤에만 지우고, 2.5.x로 되돌렸을 때 필요한 알림 규칙은 남깁니다.
 - 설정 &gt; 일반에 `모든 데이터 초기화`를 추가했습니다. 이 앱이 저장한 설정, 계정 연결과 로그인 정보, 로그와 캐시, 로그인 시 자동 시작 등록을 지우고 앱을 종료하며, 다음 실행은 처음 설치한 상태로 시작합니다.
-- 초기화는 Claude Code, Codex, Antigravity 앱과 AGY CLI의 로그인과 파일을 지우지 않습니다. 앱이 보관한 Claude Code 로그인 토큰 사본은 Claude Code가 같은 토큰을 가지고 있는지 확인될 때만 지우고, 확인하지 못하면 보존한다고 초기화 전에 안내합니다.
+- 초기화는 Claude Code, Codex, Antigravity 앱과 AGY CLI의 로그인과 파일을 지우지 않습니다. 앱이 보관한 Claude Code 로그인 토큰 사본은 Claude Code의 로그인 파일에 같은 토큰이 있을 때만 지웁니다. Claude Code가 로그인 정보를 Keychain에만 두는 경우에는 확인 창을 띄우지 않고 사본을 보존하며, 초기화 전에 이를 안내합니다.
 
 ## 알려진 제한
 
 - Antigravity 연결 설정의 저장 형식이 바뀌었습니다. 2.4.10~2.6.x로 되돌리면 Antigravity 설정을 읽지 못해 조회를 멈추며, 저장된 설정은 바뀌지 않고 다시 업데이트하면 그대로 사용할 수 있습니다.
 </description>
-            <claudeusage:zipSHA256>c7d5456e83e557a7a681b8233f25a51f0bba8af706914714330247608a7a9c0d</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>000485e230c8ff00ff12fae5714386f8ed52e1c0b0f67baf28918094e694827b</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: qfPZUpOoQos6Yxi5/S3PPFC2a1805Ss4RCzH0yEcLRiXgDqP9NHP6w0zlWXUAuoOIxr7RTw87LHoQmhDeyQKCQ==
-length: 4379
+edSignature: +HmXZpvzLhMQvS8eRxDvsAETTNsiVhab/UfmhZctd5rNq47iR3E/ldn8xr6a9LCuklyUZ5alhBuMbjtNbrlYDQ==
+length: 4472
 -->
