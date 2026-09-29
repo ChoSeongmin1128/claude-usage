@@ -127,8 +127,6 @@ nonisolated final class AntigravityProcessInspector:
     private let effectiveUserID: AntigravityUserID
     private let realUserID: AntigravityUserID
     private let psExecutableURL: URL
-    private let ownershipResolver:
-        any AntigravityRuntimeOwnershipResolving
 
     init(
         catalog: AntigravityExecutableCatalog,
@@ -149,10 +147,7 @@ nonisolated final class AntigravityProcessInspector:
             AntigravityUserID(rawValue: geteuid()),
         realUserID: AntigravityUserID =
             AntigravityUserID(rawValue: getuid()),
-        psExecutableURL: URL = URL(fileURLWithPath: "/bin/ps"),
-        ownershipResolver:
-            any AntigravityRuntimeOwnershipResolving =
-                AntigravityDefaultRuntimeOwnershipResolver()
+        psExecutableURL: URL = URL(fileURLWithPath: "/bin/ps")
     ) {
         self.catalog = catalog
         self.subprocessRunner = subprocessRunner
@@ -165,7 +160,6 @@ nonisolated final class AntigravityProcessInspector:
         self.effectiveUserID = effectiveUserID
         self.realUserID = realUserID
         self.psExecutableURL = psExecutableURL
-        self.ownershipResolver = ownershipResolver
     }
 
     func discoverProcesses(
@@ -189,18 +183,9 @@ nonisolated final class AntigravityProcessInspector:
         var candidates: [AntigravityRuntimeProcessCandidate] = []
         for hint in Self.parseProcessList(output)
         where seenProcessIDs.insert(hint.processID).inserted {
-            guard let identity = verifiedIdentity(for: hint.processID) else {
-                continue
-            }
-            let ownership = await ownershipResolver.ownership(
-                for: identity
-            )
-            guard let candidate = candidate(
-                for: identity,
-                command: hint.command,
-                ownership: ownership,
-                managedCSRFToken: await ownershipResolver.csrfToken(for: identity)
-            ) else {
+            guard let identity = verifiedIdentity(for: hint.processID),
+                let candidate = candidate(for: identity, command: hint.command)
+            else {
                 continue
             }
             candidates.append(candidate)
@@ -227,20 +212,7 @@ nonisolated final class AntigravityProcessInspector:
         guard await revalidate(candidate.processIdentity) else {
             return nil
         }
-        let ownership = await ownershipResolver.ownership(
-            for: candidate.processIdentity
-        )
-        return AntigravityRuntimeProcessCandidate(
-            processIdentity: candidate.processIdentity,
-            ownership: ownership,
-            connectionHints: AntigravityRuntimeConnectionHints(
-                requestedPort: candidate.connectionHints.requestedPort,
-                csrfToken: ownership == .managed
-                    ? await ownershipResolver.csrfToken(for: candidate.processIdentity)
-                    : candidate.connectionHints.csrfToken
-            ),
-            queryability: candidate.queryability
-        )
+        return candidate
     }
 
     static func parseProcessList(_ output: String) -> [AntigravityProcessListHint] {
@@ -276,6 +248,9 @@ nonisolated final class AntigravityProcessInspector:
                 libprocReader.executableURL(for: processID),
               let executableBefore =
                 catalog.executable(matching: executableURLBefore),
+            // The CLI is read through its own usage report. Running AGY
+            // processes are never trust-checked or queried.
+            executableBefore.role == .appLanguageServer,
               let during = libprocReader.bsdInfo(for: processID),
               before == during,
               catalog.isCurrent(executableBefore),
@@ -318,59 +293,20 @@ nonisolated final class AntigravityProcessInspector:
 
     private func candidate(
         for identity: AntigravityVerifiedProcessIdentity,
-        command: String,
-        ownership resolvedOwnership:
-            AntigravityRuntimeOwnership,
-        managedCSRFToken: AntigravityCSRFToken?
+        command: String
     ) -> AntigravityRuntimeProcessCandidate? {
-        let role = identity.executable.role
-        let requestedPort: AntigravityTCPPort?
-        let csrfToken: AntigravityCSRFToken?
-        let ownership: AntigravityRuntimeOwnership
-
-        switch role {
-        case .appLanguageServer:
-            guard resolvedOwnership == .external else {
-                return nil
-            }
-            requestedPort = Self.extractPort(
-                flag: "--https_server_port",
-                command: command
-            )
-            csrfToken = Self.extractFlag(
-                flag: "--csrf_token",
-                command: command
-            ).flatMap(AntigravityCSRFToken.init)
-            ownership = .external
-
-        case .agyCLI:
-            guard resolvedOwnership == .borrowed
-                    || resolvedOwnership == .managed else {
-                return nil
-            }
-            requestedPort = Self.extractPort(
-                flag: "--https_server_port",
-                command: command
-            ) ?? Self.extractPort(flag: "--port", command: command)
-            // Managed tokens come from our launch, never mutable command-line text.
-            // Borrowed hints belong to this exact verified executable/PID; they
-            // remain untrusted until the authenticated RPC succeeds.
-            if resolvedOwnership == .managed {
-                csrfToken = managedCSRFToken
-            } else {
-                csrfToken = Self.extractFlag(
-                    flag: "--csrf_token", command: command
-                ).flatMap(AntigravityCSRFToken.init)
-            }
-            ownership = resolvedOwnership
-        }
-
-        return AntigravityRuntimeProcessCandidate(
+        AntigravityRuntimeProcessCandidate(
             processIdentity: identity,
-            ownership: ownership,
+            ownership: .external,
             connectionHints: AntigravityRuntimeConnectionHints(
-                requestedPort: requestedPort,
-                csrfToken: csrfToken
+                requestedPort: Self.extractPort(
+                    flag: "--https_server_port",
+                    command: command
+                ),
+                csrfToken: Self.extractFlag(
+                    flag: "--csrf_token",
+                    command: command
+                ).flatMap(AntigravityCSRFToken.init)
             )
         )
     }

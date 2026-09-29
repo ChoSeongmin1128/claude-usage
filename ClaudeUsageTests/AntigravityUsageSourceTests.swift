@@ -23,31 +23,6 @@ final class AntigravityUsageSourceTests: XCTestCase {
         XCTAssertTrue(result.hasUnverifiedCandidates)
     }
 
-    func testAppSourceNeverProbesRunningAGYCLIEndpoints() async throws {
-        let identity = try XCTUnwrap(AntigravityVerifiedProcessIdentity(
-            processID: 401, effectiveUserID: .init(rawValue: 501), realUserID: .init(rawValue: 501),
-            startedAt: AntigravityProcessStartTime(seconds: 100, microseconds: 1)!,
-            executable: AntigravityCanonicalExecutable(
-                canonicalURL: URL(fileURLWithPath: "/usr/local/bin/agy"), role: .agyCLI)))
-        let endpoint = try XCTUnwrap(AntigravityVerifiedRuntimeEndpoint(
-            processIdentity: identity, host: .ipv4, port: AntigravityTCPPort(54321)!,
-            transport: .agyCLI, ownership: .borrowed, authentication: .cliTokenless))
-        let client = RecordingLocalQuotaClient()
-        let source = AntigravityDiscoveredLocalUsageSource(
-            id: .localApp,
-            discovery: RuntimeDiscoveryStub(snapshot: AntigravityRuntimeDiscoverySnapshot(
-                installations: [], processes: [], endpoints: [endpoint], observedAt: Date())),
-            client: client)
-        do {
-            _ = try await source.fetch(localSourceRequest())
-            XCTFail("An AGY CLI endpoint is not an app source")
-        } catch let error as AntigravityUsageSourceError {
-            XCTAssertEqual(error, .unavailable)
-        }
-        let requestCount = await client.requestCount
-        XCTAssertEqual(requestCount, 0)
-    }
-
     func testLocalEndpointFailureOrderDoesNotChangePreferredUXFailure() async throws {
         let endpoints = [
             try makeLocalAppEndpoint(
@@ -160,18 +135,6 @@ private struct AccountInspectionQuotaClient: AntigravityLocalQuotaFetching {
                     accountIdentity: identity, capability: .limitedQuota,
                     processIdentity: .init(processID: pid)),
                 fetchedAt: Date()))
-    }
-}
-
-private actor RecordingLocalQuotaClient: AntigravityLocalQuotaFetching {
-    private(set) var requestCount = 0
-
-    func fetch(
-        from endpoint: AntigravityVerifiedRuntimeEndpoint,
-        deadline: AntigravityRPCDeadline
-    ) async throws -> AntigravityLocalQuotaFetchResult {
-        requestCount += 1
-        throw AntigravityLocalRPCError.transportFailure
     }
 }
 

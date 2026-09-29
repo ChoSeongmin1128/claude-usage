@@ -140,7 +140,7 @@ final class
             2
         )
         XCTAssertEqual(
-            resolution.managedLaunchExecutable?.canonicalURL.path,
+            resolution.reportExecutable?.canonicalURL.path,
             candidates.agyExecutableURLs[0].path
         )
         XCTAssertEqual(
@@ -192,7 +192,7 @@ final class
                 $0.role == .agyCLI
             }.isEmpty
         )
-        XCTAssertNil(resolution.managedLaunchExecutable)
+        XCTAssertNil(resolution.reportExecutable)
         XCTAssertEqual(
             resolution.agyExecutableStatus,
             .rejected
@@ -281,7 +281,7 @@ final class
         ).resolve()
 
         XCTAssertTrue(resolution.catalog.executables.isEmpty)
-        XCTAssertNil(resolution.managedLaunchExecutable)
+        XCTAssertNil(resolution.reportExecutable)
     }
 
     func testInsecureOwnershipOrPermissionsRejectDiscovery() {
@@ -304,7 +304,7 @@ final class
         ).resolve()
 
         XCTAssertTrue(resolution.catalog.executables.isEmpty)
-        XCTAssertNil(resolution.managedLaunchExecutable)
+        XCTAssertNil(resolution.reportExecutable)
     }
 
     func testNewBinaryDigestIsAcceptedWhenOfficialSignatureIsValid() {
@@ -332,12 +332,12 @@ final class
         ).resolve()
 
         XCTAssertEqual(
-            resolution.managedLaunchExecutable?
+            resolution.reportExecutable?
                 .canonicalURL.path,
             unknown.path
         )
         XCTAssertEqual(
-            resolution.managedLaunchExecutable?
+            resolution.reportExecutable?
                 .fileIdentity?
                 .sha256Digest,
             String(repeating: "0", count: 64)
@@ -471,7 +471,7 @@ final class
             fileIdentity: fileIdentity
         ).resolve()
         let executable = try XCTUnwrap(
-            resolution.managedLaunchExecutable
+            resolution.reportExecutable
         )
         let resolvedIdentity = try XCTUnwrap(
             executable.fileIdentity
@@ -691,7 +691,7 @@ final class
             fileIdentity: fileIdentity
         ).resolve()
         let executable = try XCTUnwrap(
-            resolution.managedLaunchExecutable
+            resolution.reportExecutable
         )
         XCTAssertTrue(resolution.catalog.isCurrent(executable))
 
@@ -750,7 +750,7 @@ final class
             fileIdentity: fileIdentity
         ).resolve()
         let executable = try XCTUnwrap(
-            resolution.managedLaunchExecutable
+            resolution.reportExecutable
         )
         let resolvedIdentity = try XCTUnwrap(
             executable.fileIdentity
@@ -810,7 +810,7 @@ final class
 
         XCTAssertTrue(resolution.catalog.appBundles.isEmpty)
         XCTAssertTrue(resolution.catalog.executables.isEmpty)
-        XCTAssertNil(resolution.managedLaunchExecutable)
+        XCTAssertNil(resolution.reportExecutable)
         XCTAssertEqual(
             resolution.agyExecutableStatus,
             .notFound

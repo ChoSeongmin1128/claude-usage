@@ -372,7 +372,7 @@ final class AntigravityCLIReportProcessRunnerTests: XCTestCase {
         let home = FileManager.default.realHomeDirectory
         guard
             let executable = AntigravityProductionExecutableCatalogResolver(homeDirectoryURL: home)
-                .resolve().managedLaunchExecutable
+                .resolve().reportExecutable
         else {
             throw XCTSkip("검증된 공식 AGY가 설치되지 않았습니다")
         }

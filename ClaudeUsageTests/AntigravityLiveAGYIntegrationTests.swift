@@ -52,7 +52,7 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
         let home = FileManager.default.realHomeDirectory
         let original = try XCTUnwrap(
             AntigravityProductionExecutableCatalogResolver(homeDirectoryURL: home)
-                .resolve().managedLaunchExecutable)
+                .resolve().reportExecutable)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "ClaudeUsage-live-replacement-\(UUID().uuidString)")
         try FileManager.default.createDirectory(
@@ -90,7 +90,7 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
         let home = FileManager.default.realHomeDirectory
         let resolution = AntigravityProductionExecutableCatalogResolver(homeDirectoryURL: home).resolve()
         let executable = try XCTUnwrap(
-            resolution.managedLaunchExecutable, "A verified official AGY CLI is required")
+            resolution.reportExecutable, "A verified official AGY CLI is required")
         let stateDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ClaudeUsage-live-agy-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(

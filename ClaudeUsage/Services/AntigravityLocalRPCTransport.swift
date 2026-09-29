@@ -17,21 +17,15 @@ nonisolated final class AntigravityRuntimeEndpointRevalidator:
 {
     private let processInspector: any AntigravityRuntimeProcessInspecting
     private let portInspector: any AntigravityPortOwnershipInspecting
-    private let ownershipResolver:
-        any AntigravityRuntimeOwnershipResolving
     private let maximumPortInspectionTime: TimeInterval
 
     init(
         processInspector: any AntigravityRuntimeProcessInspecting,
         portInspector: any AntigravityPortOwnershipInspecting,
-        ownershipResolver:
-            any AntigravityRuntimeOwnershipResolving =
-                AntigravityDefaultRuntimeOwnershipResolver(),
         maximumPortInspectionTime: TimeInterval = 1
     ) {
         self.processInspector = processInspector
         self.portInspector = portInspector
-        self.ownershipResolver = ownershipResolver
         self.maximumPortInspectionTime = maximumPortInspectionTime
     }
 
@@ -43,17 +37,8 @@ nonisolated final class AntigravityRuntimeEndpointRevalidator:
             try deadline.check(.request)
             guard await processInspector.revalidate(
                     endpoint.processIdentity
-                  ),
-                  await ownershipResolver.ownership(
-                      for: endpoint.processIdentity
-                  ) == endpoint.ownership,
-                  endpoint.ownership != .quarantined else {
-                throw AntigravityLocalRPCError.endpointOwnershipChanged
-            }
-
-            if endpoint.ownership == .managed,
-               case .cliCSRF(let token) = endpoint.authentication,
-               await ownershipResolver.csrfToken(for: endpoint.processIdentity) != token {
+                )
+            else {
                 throw AntigravityLocalRPCError.endpointOwnershipChanged
             }
 
@@ -74,17 +59,8 @@ nonisolated final class AntigravityRuntimeEndpointRevalidator:
             ) == true,
                   await processInspector.revalidate(
                       endpoint.processIdentity
-                  ),
-                  await ownershipResolver.ownership(
-                      for: endpoint.processIdentity
-                  ) == endpoint.ownership,
-                  endpoint.ownership != .quarantined
+                )
             else {
-                throw AntigravityLocalRPCError.endpointOwnershipChanged
-            }
-            if endpoint.ownership == .managed,
-               case .cliCSRF(let token) = endpoint.authentication,
-               await ownershipResolver.csrfToken(for: endpoint.processIdentity) != token {
                 throw AntigravityLocalRPCError.endpointOwnershipChanged
             }
         } catch is CancellationError {
@@ -149,13 +125,11 @@ nonisolated enum AntigravityLocalRPCRequestBuilder {
         )
 
         switch endpoint.authentication {
-        case .appCSRF(let token), .cliCSRF(let token):
+        case .appCSRF(let token):
             request.setValue(
                 token.value,
                 forHTTPHeaderField: "X-Codeium-Csrf-Token"
             )
-        case .cliTokenless:
-            break
         }
         return request
     }

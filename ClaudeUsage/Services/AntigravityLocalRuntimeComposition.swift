@@ -40,15 +40,13 @@ nonisolated struct AntigravityLocalRuntimeComposition: Sendable {
         catalog: AntigravityExecutableCatalog,
         dependencies: AntigravityLocalRuntimeDependencies
     ) -> Self {
-        let ownershipResolver = AntigravityDefaultRuntimeOwnershipResolver()
         let processInspector = AntigravityProcessInspector(
             catalog: catalog,
             subprocessRunner: dependencies.subprocessRunner,
             libprocReader: dependencies.libprocReader,
             kernelIdentityReader: dependencies.kernelIdentityReader,
             runningExecutableImageValidator: dependencies.runningExecutableImageValidator,
-            runningCodeTrustValidator: dependencies.runningCodeTrustValidator,
-            ownershipResolver: ownershipResolver
+            runningCodeTrustValidator: dependencies.runningCodeTrustValidator
         )
         let discovery = AntigravityRuntimeDiscovery(
             processInspector: processInspector,
@@ -57,8 +55,7 @@ nonisolated struct AntigravityLocalRuntimeComposition: Sendable {
         )
         let endpointRevalidator = AntigravityRuntimeEndpointRevalidator(
             processInspector: processInspector,
-            portInspector: dependencies.portInspector,
-            ownershipResolver: ownershipResolver
+            portInspector: dependencies.portInspector
         )
         let localRPCClient = AntigravityLocalRPCClient(
             connectionFactory: AntigravityURLSessionRPCConnectionFactory(

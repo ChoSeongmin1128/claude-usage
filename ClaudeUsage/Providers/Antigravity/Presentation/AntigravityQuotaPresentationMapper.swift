@@ -904,7 +904,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         switch transport {
         case .localAppRPC:
             "Antigravity 앱"
-        case .borrowedAGYRPC, .managedAGYRPC, .cliUsageReport:
+        case .cliUsageReport:
             "AGY CLI"
         case .googleOAuth:
             "Google 계정"

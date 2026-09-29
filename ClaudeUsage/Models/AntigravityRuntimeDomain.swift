@@ -179,21 +179,12 @@ nonisolated struct AntigravityVerifiedProcessIdentity: Hashable, Sendable {
 
 nonisolated enum AntigravityRuntimeTransport: String, Codable, Sendable {
     case antigravityApp
-    case agyCLI
 }
 
 nonisolated enum AntigravityRuntimeOwnership: String, Codable, Sendable {
     /// A process owned by another application, such as Antigravity.app.
+    /// ClaudeUsage may query it but never signals it.
     case external
-    /// An independently launched AGY process that ClaudeUsage may use but must
-    /// never signal or terminate.
-    case borrowed
-    /// An AGY process explicitly launched and lifecycle-managed by ClaudeUsage.
-    case managed
-    /// ClaudeUsage launched this exact process, but cleanup could not prove
-    /// that it and all descendants exited. It must not be rediscovered as a
-    /// borrowed runtime.
-    case quarantined
 }
 
 nonisolated enum AntigravityRuntimeQueryability: String, Codable, Sendable {
@@ -289,13 +280,11 @@ nonisolated enum AntigravityCSRFProblem: String, Error, Sendable, Equatable {
 
 nonisolated enum AntigravityRuntimeEndpointAuthentication: Sendable, Equatable {
     case appCSRF(AntigravityCSRFToken)
-    case cliTokenless
-    case cliCSRF(AntigravityCSRFToken)
 }
 
-/// A HTTPS loopback endpoint whose port ownership is bound to a verified
-/// process identity. Its initializer rejects transport/authentication mixes
-/// that could accidentally send an app CSRF token to an AGY endpoint.
+/// A HTTPS loopback endpoint whose port ownership is bound to a verified app
+/// language server identity. Its initializer rejects any other executable so
+/// an app CSRF token is never sent to an AGY process.
 nonisolated struct AntigravityVerifiedRuntimeEndpoint: Sendable, Equatable {
     let processIdentity: AntigravityVerifiedProcessIdentity
     let host: AntigravityLoopbackHost
@@ -320,23 +309,9 @@ nonisolated struct AntigravityVerifiedRuntimeEndpoint: Sendable, Equatable {
         // TLS exceptions and request construction are pinned to the exact
         // IPv4 loopback target. An IPv6 listener may be observed by discovery
         // but is not a trusted RPC endpoint in this release.
-        guard host == .ipv4 else {
-            return nil
-        }
-        switch (
-            processIdentity.executable.role,
-            transport,
-            ownership,
-            authentication
-        ) {
-        case (.appLanguageServer, .antigravityApp, .external, .appCSRF):
-            break
-        case (.agyCLI, .agyCLI, .borrowed, .cliCSRF),
-             (.agyCLI, .agyCLI, .managed, .cliCSRF),
-             (.agyCLI, .agyCLI, .borrowed, .cliTokenless),
-             (.agyCLI, .agyCLI, .managed, .cliTokenless):
-            break
-        default:
+        guard host == .ipv4,
+            processIdentity.executable.role == .appLanguageServer
+        else {
             return nil
         }
         self.processIdentity = processIdentity
@@ -354,14 +329,7 @@ nonisolated struct AntigravityRuntimeProcessCandidate: Sendable, Equatable {
     let connectionHints: AntigravityRuntimeConnectionHints
     let queryability: AntigravityRuntimeQueryability
 
-    var transport: AntigravityRuntimeTransport {
-        switch processIdentity.executable.role {
-        case .appLanguageServer:
-            .antigravityApp
-        case .agyCLI:
-            .agyCLI
-        }
-    }
+    var transport: AntigravityRuntimeTransport { .antigravityApp }
 
     init?(
         processIdentity: AntigravityVerifiedProcessIdentity,
@@ -369,12 +337,7 @@ nonisolated struct AntigravityRuntimeProcessCandidate: Sendable, Equatable {
         connectionHints: AntigravityRuntimeConnectionHints = .init(),
         queryability: AntigravityRuntimeQueryability = .unknown
     ) {
-        switch (processIdentity.executable.role, ownership) {
-        case (.appLanguageServer, .external),
-             (.agyCLI, .borrowed),
-             (.agyCLI, .managed):
-            break
-        default:
+        guard processIdentity.executable.role == .appLanguageServer else {
             return nil
         }
         self.processIdentity = processIdentity

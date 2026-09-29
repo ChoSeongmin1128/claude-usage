@@ -254,7 +254,7 @@ extension AntigravityRuntimeEnvironment {
                         AntigravityDiscoveredLocalUsageSource(
                             id: .localApp, discovery: runtime.discovery, client: runtime.localRPCClient)
                     ]
-                    if let executable = resolution.managedLaunchExecutable {
+                    if let executable = resolution.reportExecutable {
                         sources.append(
                             AntigravityCLIUsageReportSource(
                                 executable: executable,
