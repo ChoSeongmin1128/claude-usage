@@ -874,86 +874,60 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
 
     // MARK: - Data reset
 
-    func testResetDropsAVaultCopyWhoseTokenClaudeCodeStillHolds() async throws {
+    func testResetDropsAVaultCopyWhoseTokenTheCredentialFileHolds() async throws {
         let home = try makeTemporaryHome()
-        let config = home.appendingPathComponent(".claude", isDirectory: true)
-        try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
-        try Self.credentialJSON(token: "file-access", refreshToken: "shared-refresh").write(
-            to: config.appendingPathComponent(".credentials.json"), atomically: true, encoding: .utf8)
+        try writeCredentialFile(home: home, refreshToken: "shared-refresh")
         let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "vault-access", refreshToken: "shared-refresh"))
-        let reader = makeResetReader(home: home, vault: vault) { _, _ in
-            XCTFail("파일에서 같은 token을 확인하면 Keychain을 읽지 않아야 합니다")
-            return .notFound
-        }
 
-        let canDiscard = await reader.canDiscardAppVaultCopy()
+        let canDiscard = await makeResetReader(home: home, vault: vault).canDiscardAppVaultCopy()
 
         XCTAssertTrue(canDiscard)
     }
 
-    func testResetComparesClaudeCodeKeychainWithoutUI() async throws {
-        let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "vault-access", refreshToken: "rotated"))
-        let services = LockedValues<String>()
-        let reader = makeResetReader(home: try makeTemporaryHome(), vault: vault) { service, _ in
-            services.append(service)
-            return .value(Self.credentialJSON(token: "keychain-access", refreshToken: "rotated"))
-        }
-
-        let canDiscard = await reader.canDiscardAppVaultCopy()
-
-        XCTAssertTrue(canDiscard)
-        XCTAssertEqual(services.values, ["Claude Code-credentials"])
-    }
-
-    func testResetKeepsAVaultCopyUnlessClaudeCodeProvablyHoldsItsToken() async throws {
-        let outcomes: [KeychainAccessPreflight.ReadOutcome] = [
-            .value(Self.credentialJSON(token: "keychain-access", refreshToken: "older")),
-            .interactionRequired,
-            .notFound,
-        ]
-        for outcome in outcomes {
+    func testResetKeepsAVaultCopyUnlessTheCredentialFileHoldsItsToken() async throws {
+        let rotatedFileHome = try makeTemporaryHome()
+        try writeCredentialFile(home: rotatedFileHome, refreshToken: "older")
+        for home in [rotatedFileHome, try makeTemporaryHome()] {
             let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "vault-access", refreshToken: "only-copy"))
-            let reader = makeResetReader(home: try makeTemporaryHome(), vault: vault) { _, _ in outcome }
 
-            let canDiscard = await reader.canDiscardAppVaultCopy()
+            let canDiscard = await makeResetReader(home: home, vault: vault).canDiscardAppVaultCopy()
 
-            XCTAssertFalse(canDiscard, "\(outcome)")
+            XCTAssertFalse(canDiscard, home.path)
         }
     }
 
     func testResetKeepsAVaultCopyItCannotRead() async throws {
         let vault = OAuthVaultStub(loadError: OAuthVaultStub.TestError.expected)
-        let reader = makeResetReader(home: try makeTemporaryHome(), vault: vault) { _, _ in .notFound }
 
-        let canDiscard = await reader.canDiscardAppVaultCopy()
+        let canDiscard = await makeResetReader(home: try makeTemporaryHome(), vault: vault).canDiscardAppVaultCopy()
 
         XCTAssertFalse(canDiscard)
     }
 
     func testResetHasNothingToKeepWithoutARotatingToken() async throws {
         for vault in [OAuthVaultStub(), OAuthVaultStub(payload: Self.credentialJSON(token: "access-only"))] {
-            let reader = makeResetReader(home: try makeTemporaryHome(), vault: vault) { _, _ in .notFound }
-
-            let canDiscard = await reader.canDiscardAppVaultCopy()
+            let canDiscard = await makeResetReader(home: try makeTemporaryHome(), vault: vault).canDiscardAppVaultCopy()
 
             XCTAssertTrue(canDiscard)
         }
     }
 
-    private func makeResetReader(
-        home: URL,
-        vault: OAuthVaultStub,
-        keychainWithoutUI: @escaping ClaudeCodeCredentialReader.KeychainPayloadReaderWithoutUI
-    ) -> ClaudeCodeCredentialReader {
+    private func makeResetReader(home: URL, vault: OAuthVaultStub) -> ClaudeCodeCredentialReader {
         ClaudeCodeCredentialReader(
             homeDirectory: home,
             appCredentialVault: vault,
             interactiveKeychainPayloadReader: { _, _, _ in
                 XCTFail("초기화 확인은 Keychain 확인 창을 열지 않아야 합니다")
                 return .cancelled
-            },
-            keychainPayloadReaderWithoutUI: keychainWithoutUI
+            }
         )
+    }
+
+    private func writeCredentialFile(home: URL, refreshToken: String) throws {
+        let config = home.appendingPathComponent(".claude", isDirectory: true)
+        try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
+        try Self.credentialJSON(token: "file-access", refreshToken: refreshToken).write(
+            to: config.appendingPathComponent(".credentials.json"), atomically: true, encoding: .utf8)
     }
 
     private func makeReader(
@@ -1075,16 +1049,5 @@ private final class InteractiveKeychainPayloadReaderStub: @unchecked Sendable {
             recordedCalls.append(Call(service: service, account: account, reason: reason))
         }
         return handler(service, account, reason)
-    }
-}
-
-private final class LockedValues<Value: Sendable>: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: [Value] = []
-
-    var values: [Value] { lock.withLock { stored } }
-
-    func append(_ value: Value) {
-        lock.withLock { stored.append(value) }
     }
 }

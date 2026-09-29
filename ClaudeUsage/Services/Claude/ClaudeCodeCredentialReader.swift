@@ -96,18 +96,12 @@ actor ClaudeCodeCredentialReader {
         _ account: String?,
         _ localizedReason: String
     ) -> KeychainAccessPreflight.ReadOutcome
-    typealias KeychainPayloadReaderWithoutUI =
-        @Sendable (
-            _ service: String,
-            _ account: String?
-        ) -> KeychainAccessPreflight.ReadOutcome
 
     private let homeDirectory: URL
     private let claudeConfigDirectory: URL
     private let usesScopedKeychainService: Bool
     private let profileMetadataStore: ClaudeProfileMetadataStore?
     private let interactiveKeychainPayloadReader: InteractiveKeychainPayloadReader
-    private let keychainPayloadReaderWithoutUI: KeychainPayloadReaderWithoutUI
     private let tokenRefresher: ClaudeOAuthTokenRefresher
     private let appCredentialVault: any ClaudeOAuthCredentialVault
     private let cacheTTL: TimeInterval
@@ -142,9 +136,6 @@ actor ClaudeCodeCredentialReader {
                 account: account,
                 localizedReason: reason
             )
-        },
-        keychainPayloadReaderWithoutUI: @escaping KeychainPayloadReaderWithoutUI = { service, account in
-            KeychainAccessPreflight.readGenericPasswordWithoutUI(service: service, account: account)
         }
     ) {
         let environmentConfigDirectory = Self.explicitClaudeConfigDirectoryFromEnvironment()
@@ -161,12 +152,12 @@ actor ClaudeCodeCredentialReader {
         self.cacheTTL = cacheTTL
         self.now = now
         self.interactiveKeychainPayloadReader = interactiveKeychainPayloadReader
-        self.keychainPayloadReaderWithoutUI = keychainPayloadReaderWithoutUI
     }
 
     // After a failed write-back the app's copy holds the only current refresh
-    // token, so a reset may drop the copy only when Claude Code holds the same
-    // token. Claude Code's Keychain is read without UI; unreadable means kept.
+    // token, so a reset may drop the copy only when Claude Code's credential
+    // file holds the same token. Claude Code's Keychain item is not read: its
+    // classic ACL shows a password prompt even to a no-UI query.
     func canDiscardAppVaultCopy() async -> Bool {
         let storedPayload: String?
         do {
@@ -179,21 +170,8 @@ actor ClaudeCodeCredentialReader {
             return false
         }
         guard let refreshToken = vaultCredential.refreshToken else { return true }
-        if case .credential(let fileCredential) = await lookupCredentialFromFiles(),
-            fileCredential.refreshToken == refreshToken
-        {
-            return true
-        }
-        let service = Self.keychainServiceName(
-            for: claudeConfigDirectory,
-            homeDirectory: homeDirectory,
-            usesExplicitConfigDirectory: usesScopedKeychainService
-        )
-        guard case .value(let keychainPayload) = keychainPayloadReaderWithoutUI(service, NSUserName()) else {
-            return false
-        }
-        return parseCredential(from: keychainPayload, source: .keychain(service: service))?.refreshToken
-            == refreshToken
+        guard case .credential(let fileCredential) = await lookupCredentialFromFiles() else { return false }
+        return fileCredential.refreshToken == refreshToken
     }
 
     func readAccessToken() async throws -> String? {
