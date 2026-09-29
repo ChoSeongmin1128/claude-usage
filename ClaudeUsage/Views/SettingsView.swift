@@ -75,6 +75,7 @@ enum SettingsDestructiveAction: Identifiable, Equatable {
     case deleteClaudeAccount(ClaudeAccount)
     case disconnectAntigravityAccount
     case disconnectAllAntigravityAccounts
+    case resetAllData(AppDataResetPlan)
 
     var id: String {
         switch self {
@@ -83,6 +84,7 @@ enum SettingsDestructiveAction: Identifiable, Equatable {
         case .deleteClaudeAccount(let account): return "delete-claude-\(account.id)"
         case .disconnectAntigravityAccount: return "disconnect-antigravity"
         case .disconnectAllAntigravityAccounts: return "disconnect-all-antigravity"
+        case .resetAllData: return "reset-all-data"
         }
     }
 
@@ -93,6 +95,7 @@ enum SettingsDestructiveAction: Identifiable, Equatable {
         case .deleteClaudeAccount(let account): return "\(account.displayName) 계정을 삭제할까요?"
         case .disconnectAntigravityAccount: return "이전 연결 정보를 삭제할까요?"
         case .disconnectAllAntigravityAccounts: return "이전 연결 정보를 모두 삭제할까요?"
+        case .resetAllData: return "모든 데이터를 초기화할까요?"
         }
     }
 
@@ -108,6 +111,12 @@ enum SettingsDestructiveAction: Identifiable, Equatable {
             return "이전 버전에 저장한 Google 연결 정보가 이 Mac에서 제거됩니다. Antigravity 앱과 AGY CLI 로그인은 유지됩니다."
         case .disconnectAllAntigravityAccounts:
             return "이전 버전에 저장한 Google 연결 정보가 이 Mac에서 제거됩니다. 현재 로컬 계정 선택과 Antigravity 앱·AGY CLI 로그인은 유지됩니다."
+        case .resetAllData(let plan):
+            let detail =
+                "이 앱의 설정, 계정 연결과 로그인 정보, 로그와 캐시, 로그인 시 자동 시작 등록을 지우고 앱을 종료합니다. 다음 실행은 처음 설치한 상태로 시작합니다. Claude Code, Codex, Antigravity 앱과 AGY CLI의 로그인과 파일은 바뀌지 않습니다."
+            return plan.keepsClaudeCodeTokenCopy
+                ? detail + " Claude Code 로그인 토큰 사본은 Claude Code의 현재 토큰과 같은지 확인하지 못해 보존합니다."
+                : detail
         }
     }
 
@@ -118,6 +127,7 @@ enum SettingsDestructiveAction: Identifiable, Equatable {
         case .deleteClaudeAccount: return "계정 삭제"
         case .disconnectAntigravityAccount: return "이전 정보 삭제"
         case .disconnectAllAntigravityAccounts: return "이전 정보 모두 삭제"
+        case .resetAllData: return "초기화 후 종료"
         }
     }
 }

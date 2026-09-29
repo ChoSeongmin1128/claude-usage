@@ -137,6 +137,9 @@ extension AppDelegate {
         }
         stopGlobalClickMonitor()
         AppSingleInstanceGuard.shared.release()
+        if let plan = AppDataResetRequest.pending {
+            AppDataReset.production.perform(plan)
+        }
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -162,6 +165,7 @@ extension AppDelegate {
                 await antigravityRuntimeTask.value
             await runtime
                 .runtimeController.shutdown()
+            await recheckPendingDataReset()
             finishDeferredTermination(
                 timedOut: false
             )
@@ -175,6 +179,7 @@ extension AppDelegate {
                 } catch {
                     return
                 }
+                await self?.recheckPendingDataReset()
                 self?.finishDeferredTermination(
                     timedOut: true
                 )
@@ -238,6 +243,11 @@ extension AppDelegate {
     }
 
     @MainActor
+    private func recheckPendingDataReset() async {
+        guard let plan = AppDataResetRequest.pending else { return }
+        AppDataResetRequest.pending = await plan.rechecked()
+    }
+
     private func finishDeferredTermination(
         timedOut: Bool
     ) {

@@ -137,6 +137,18 @@ final class AntigravityLegacyManagedProcessCleanupTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: lockDirectory.deletingLastPathComponent().path))
     }
 
+    func testProductionCleanupRemovesTheOldChannelLaunchLock() async throws {
+        let lockURL = stateDirectory.appendingPathComponent(AntigravityLegacyManagedProcessCleanup.launchLockFileName)
+        FileManager.default.createFile(atPath: lockURL.path, contents: Data())
+
+        _ = await AntigravityLegacyManagedProcessCleanup.production(
+            stateDirectory: stateDirectory, homeDirectoryURL: stateDirectory
+        ).cleanUp()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: lockURL.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stateDirectory.path))
+    }
+
     func testLaunchLockRemovalKeepsUnknownFiles() throws {
         let lockDirectory = AntigravityLegacyManagedProcessCleanup.launchLockDirectory(
             homeDirectoryURL: stateDirectory)

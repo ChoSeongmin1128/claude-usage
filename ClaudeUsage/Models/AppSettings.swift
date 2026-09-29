@@ -1689,6 +1689,7 @@ class AppSettings: ObservableObject {
         self.codexAlertEnabled = defaults.object(forKey: "codexAlertEnabled") as? Bool ?? false
         let legacySettingsLastTab = defaults.string(forKey: "settingsLastTab") ?? "common"
         self.settingsLastTab = legacySettingsLastTab
+        RetiredAppDefaults.remove(from: defaults)
     }
 
     static func normalizedGlobalPopoverPinned(from defaults: UserDefaults) -> Bool {
