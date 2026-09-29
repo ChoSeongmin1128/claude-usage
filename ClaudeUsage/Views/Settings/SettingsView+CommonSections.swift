@@ -26,6 +26,20 @@ extension SettingsView {
         }
     }
 
+    var appDataResetSection: some View {
+        VStack(alignment: .leading, spacing: AppDesign.Space.row) {
+            Text("데이터 초기화").font(AppDesign.Typography.headline)
+            Text(
+                "이 앱이 이 Mac에 저장한 설정, 계정 연결과 로그인 정보, 로그와 캐시를 모두 지우고 앱을 종료합니다. Claude Code, Codex, Antigravity의 로그인과 파일은 바뀌지 않습니다."
+            )
+            .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+            Button("모든 데이터 초기화", role: .destructive) {
+                Task { pendingDestructiveAction = .resetAllData(await AppDataResetPlan.prepare()) }
+            }
+            .buttonStyle(.bordered)
+        }
+    }
+
     var commonAlertSection: some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.row) {
             settingsToggleRow(

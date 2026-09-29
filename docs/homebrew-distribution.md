@@ -50,7 +50,7 @@ defaults read /Applications/ClaudeUsage.app/Contents/Info CFBundleVersion
 brew uninstall --cask choseongmin1128/tap/claude-usage
 ```
 
-현재 Cask에는 `zap`이 없습니다. 일반 제거는 앱 번들만 삭제하며 ClaudeUsage 설정·계정 자료와 외부 CLI 자격은 유지합니다. 완전 초기화가 필요할 때도 외부 CLI 저장소를 ClaudeUsage 데이터로 취급해 삭제하면 안 됩니다.
+현재 Cask에는 `zap`이 없습니다. 일반 제거는 앱 번들만 삭제하며 ClaudeUsage 설정·계정 자료와 외부 CLI 자격은 유지합니다. 완전 초기화가 필요하면 제거 전에 앱의 설정 > 일반에서 `모든 데이터 초기화`를 실행합니다. 이 기능도 외부 CLI 저장소는 ClaudeUsage 데이터가 아니므로 지우지 않습니다.
 
 ## 배포 신뢰
 

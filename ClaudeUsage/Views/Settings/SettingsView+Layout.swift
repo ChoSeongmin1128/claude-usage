@@ -289,6 +289,9 @@ extension SettingsView {
             disconnectSelectedAntigravityAccount()
         case .disconnectAllAntigravityAccounts:
             disconnectAllAntigravityAccounts()
+        case .resetAllData(let plan):
+            AppDataResetRequest.pending = plan
+            NSApplication.shared.terminate(nil)
         }
     }
 
@@ -299,6 +302,8 @@ extension SettingsView {
             welcomeSection
         case .common:
             commonServicesSection
+            Divider()
+            appDataResetSection
         case .display:
             commonDisplaySection
             Divider()
