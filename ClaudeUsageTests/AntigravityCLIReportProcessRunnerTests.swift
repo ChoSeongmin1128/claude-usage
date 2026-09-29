@@ -106,7 +106,9 @@ final class AntigravityCLIReportProcessRunnerTests: XCTestCase {
                         "ROOT_FILE": rootFile.path,
                         "CHILD_FILE": childFile.path,
                     ],
-                    timeout: .milliseconds(500)
+                    // Leaves the script time to record both PIDs on a loaded
+                    // release machine; 500 ms timed out before it started.
+                    timeout: .seconds(2)
                 ))
             XCTFail("Expected timeout")
         } catch {
