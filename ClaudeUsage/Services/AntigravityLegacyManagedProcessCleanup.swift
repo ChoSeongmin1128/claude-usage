@@ -53,16 +53,21 @@ nonisolated struct AntigravityLegacyManagedProcessCleanup: AntigravityLegacyMana
             homeDirectoryURL: homeDirectoryURL, directoryName: launchLockSharedDirectoryName)
     }
 
-    // Earlier releases serialized managed launches across channels with this
-    // lock. Only empty directories are removed, so anything else is kept.
+    // Earlier releases serialized managed launches with this lock, first in
+    // each channel's state directory and later in a directory shared by
+    // channels. Only empty shared directories are removed.
     static func removeLaunchLock(in directory: URL) {
+        removeLaunchLockFile(in: directory)
+        _ = rmdir(directory.path)
+        _ = rmdir(directory.deletingLastPathComponent().path)
+    }
+
+    static func removeLaunchLockFile(in directory: URL) {
         let lockPath = directory.appendingPathComponent(launchLockFileName).path
         var metadata = stat()
         if lstat(lockPath, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG {
             _ = unlink(lockPath)
         }
-        _ = rmdir(directory.path)
-        _ = rmdir(directory.deletingLastPathComponent().path)
     }
 
     static func production(
@@ -88,7 +93,10 @@ nonisolated struct AntigravityLegacyManagedProcessCleanup: AntigravityLegacyMana
             ledgerStore: ledgerStore,
             recovery: recovery,
             ledgerExists: { FileManager.default.fileExists(atPath: ledgerURL.path) },
-            removeLaunchLock: { removeLaunchLock(in: launchLockDirectory) }
+            removeLaunchLock: {
+                removeLaunchLock(in: launchLockDirectory)
+                removeLaunchLockFile(in: stateDirectory)
+            }
         )
     }
 }
