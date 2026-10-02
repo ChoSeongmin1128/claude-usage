@@ -208,7 +208,9 @@ nonisolated struct AntigravityCLIReportProcessRunner:
                 options: .init(
                     workingDirectoryPath: request.workingDirectoryURL.path,
                     ownProcessGroup: true,
-                    startSuspended: true
+                    startSuspended: true,
+                    // The report is background polling; keep its CPU and IO below the user's own work.
+                    qosClass: QOS_CLASS_UTILITY
                 ),
                 attempt: { Self.spawnRetryingTextFileBusy(spawn: $0) }
             )

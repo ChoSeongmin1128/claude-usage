@@ -278,6 +278,7 @@ nonisolated enum AntigravitySubprocessSpawn {
         var workingDirectoryPath: String?
         var ownProcessGroup = false
         var startSuspended = false
+        var qosClass: qos_class_t?
     }
 
     static func spawn(
@@ -397,7 +398,7 @@ nonisolated enum AntigravitySubprocessSpawn {
         )
     }
 
-    private static func configure(
+    static func configure(
         _ attributes: inout posix_spawnattr_t?,
         _ options: Options
     ) -> Bool {
@@ -409,6 +410,11 @@ nonisolated enum AntigravitySubprocessSpawn {
             flags |= POSIX_SPAWN_START_SUSPENDED
         }
         guard posix_spawnattr_setflags(&attributes, Int16(flags)) == 0 else {
+            return false
+        }
+        if let qosClass = options.qosClass,
+            posix_spawnattr_set_qos_class_np(&attributes, qosClass) != 0
+        {
             return false
         }
         guard options.ownProcessGroup else {
