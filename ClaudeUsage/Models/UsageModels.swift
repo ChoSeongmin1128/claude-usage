@@ -14,6 +14,7 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
     let sevenDaySonnet: UsageWindow?  // 레거시 필드 (limits[]로 대체 중)
     let sevenDayOpus: UsageWindow?    // 레거시 필드 (limits[]로 대체 중)
     let scopedLimits: [ClaudeScopedLimit]
+    let extraUsage: OverageSpendLimitResponse?
 
     enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
@@ -21,6 +22,10 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
         case sevenDaySonnet = "seven_day_sonnet"
         case sevenDayOpus = "seven_day_opus"
         case scopedLimits = "limits"
+    }
+
+    private enum ExtraUsageKeys: String, CodingKey {
+        case extraUsage = "extra_usage"
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -41,6 +46,9 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
         sevenDaySonnet = window(.sevenDaySonnet)
         sevenDayOpus = window(.sevenDayOpus)
         scopedLimits = limits
+        extraUsage =
+            (try? decoder.container(keyedBy: ExtraUsageKeys.self))
+            .flatMap { try? $0.decodeIfPresent(ClaudeExtraUsage.self, forKey: .extraUsage) }?.overage
         if hasMalformedWindow, fiveHour == nil, sevenDay == nil, sevenDaySonnet == nil, sevenDayOpus == nil,
             scopedLimits.isEmpty
         {
@@ -54,13 +62,16 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
         sevenDay: UsageWindow?,
         sevenDaySonnet: UsageWindow? = nil,
         sevenDayOpus: UsageWindow? = nil,
-        scopedLimits: [ClaudeScopedLimit] = [])
+        scopedLimits: [ClaudeScopedLimit] = [],
+        extraUsage: OverageSpendLimitResponse? = nil
+    )
     {
         self.fiveHour = fiveHour
         self.sevenDay = sevenDay
         self.sevenDaySonnet = sevenDaySonnet
         self.sevenDayOpus = sevenDayOpus
         self.scopedLimits = scopedLimits
+        self.extraUsage = extraUsage
     }
 
     nonisolated private static func unscopedWindow(kind: String, in limits: [ClaudeScopedLimit]) -> UsageWindow? {
@@ -440,7 +451,39 @@ nonisolated struct OverageSpendLimitResponse: Codable, Sendable, Equatable {
     }
 }
 
+/// 사용량 응답의 `extra_usage`. 추가 사용량 API와 키 이름이 달라 따로 읽는다.
+nonisolated struct ClaudeExtraUsage: Decodable, Sendable {
+    let overage: OverageSpendLimitResponse
+
+    private enum CodingKeys: String, CodingKey {
+        case isEnabled = "is_enabled"
+        case monthlyLimit = "monthly_limit"
+        case usedCredits = "used_credits"
+        case currency
+        case decimalPlaces = "decimal_places"
+        case spendLimitReached = "spend_limit_reached"
+    }
+
+    nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func number(_ key: CodingKeys) -> Double? {
+            (try? container.decode(Double.self, forKey: key))
+                ?? (try? container.decode(String.self, forKey: key)).flatMap(Double.init)
+        }
+        overage = OverageSpendLimitResponse(
+            monthlyCreditLimitCents: number(.monthlyLimit),
+            usedCreditsCents: number(.usedCredits) ?? 0,
+            isEnabled: (try? container.decode(Bool.self, forKey: .isEnabled)) ?? false,
+            outOfCredits: (try? container.decode(Bool.self, forKey: .spendLimitReached)) ?? false,
+            currency: (try? container.decode(String.self, forKey: .currency)) ?? "USD",
+            decimalPlaces: try? container.decode(Int.self, forKey: .decimalPlaces))
+    }
+}
+
 extension OverageSpendLimitResponse {
+    nonisolated static let notEnabled = OverageSpendLimitResponse(
+        monthlyCreditLimitCents: nil, usedCreditsCents: 0, isEnabled: false, outOfCredits: false, currency: "USD")
+
     private nonisolated var minorUnitDivisor: Double {
         pow(10, Double(decimalPlaces ?? 2))
     }

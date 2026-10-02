@@ -25,6 +25,7 @@ final class PlanFixtureTests: XCTestCase {
                         (key, Self.claudeMenuBarText(usage, display: display))
                     }),
             ]
+            if let extra = usage.extraUsage, extra.isEnabled { actual["extraUsage"] = extra.formattedUsageLimitSummary }
             actual = actual.filter { fixture.expected[$0.key] != nil }
             XCTAssertEqual(NSDictionary(dictionary: actual), NSDictionary(dictionary: fixture.expected), fixture.name)
         }
