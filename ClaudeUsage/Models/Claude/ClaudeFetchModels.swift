@@ -190,11 +190,8 @@ nonisolated struct ClaudeNotificationPolicy: Equatable, Sendable {
     }
 
     nonisolated var isOrganizationPlan: Bool {
-        let haystacks = [subscriptionType, billingType, rateLimitTier]
-            .compactMap { $0?.lowercased() }
-        return haystacks.contains(where: { value in
-            value.contains("team") || value.contains("enterprise") || value.contains("org")
-        })
+        ClaudePlanSignals.isOrganizationPlan(planValue: subscriptionType)
+            || ClaudePlanSignals.isOrganizationTier(rateLimitTier)
     }
 
     nonisolated var shouldSuppressLowUrgencyThresholds: Bool {

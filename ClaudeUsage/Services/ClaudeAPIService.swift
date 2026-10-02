@@ -18,19 +18,22 @@ actor ClaudeAPIService {
         let planLabel: String?
         let billingType: String?
         let rateLimitTier: String?
+        let capabilities: [String]?
 
         nonisolated init(
             id: String,
             name: String?,
             planLabel: String? = nil,
             billingType: String? = nil,
-            rateLimitTier: String? = nil
+            rateLimitTier: String? = nil,
+            capabilities: [String]? = nil
         ) {
             self.id = id
             self.name = Self.normalized(name)
             self.planLabel = Self.normalized(planLabel)
             self.billingType = Self.normalized(billingType)
             self.rateLimitTier = Self.normalized(rateLimitTier)
+            self.capabilities = capabilities
         }
 
         /// UI 표시용 라벨. UUID 를 노출하지 않는다 — 사용자에게 UUID 는 노이즈일 뿐
@@ -50,15 +53,9 @@ actor ClaudeAPIService {
         }
 
         var hasTeamPlanSignal: Bool {
-            let values = [planLabel, billingType, rateLimitTier]
-                .compactMap { $0?.lowercased() }
-            return values.contains { value in
-                value.contains("team")
-                    || value.contains("enterprise")
-                    || value.contains("business")
-                    || value.contains("organization")
-                    || value.contains("org")
-            }
+            ClaudePlanSignals.hasOrganizationCapability(capabilities)
+                || ClaudePlanSignals.isOrganizationPlan(planValue: planLabel)
+                || ClaudePlanSignals.isOrganizationTier(rateLimitTier)
         }
 
         /// Claude의 개인 workspace는 현재 "<email>'s Organization" 형태로
@@ -1396,7 +1393,8 @@ actor ClaudeAPIService {
                     name: name,
                     planLabel: planLabel,
                     billingType: billingType,
-                    rateLimitTier: rateLimitTier
+                    rateLimitTier: rateLimitTier,
+                    capabilities: org["capabilities"] as? [String]
                 )
             }
 
