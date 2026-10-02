@@ -71,7 +71,7 @@ extension APIError: LocalizedError {
             return "Claude Code 로그인 정보는 있지만 인증 갱신이 거부되었습니다. 터미널에서 `claude auth login`을 다시 실행해 주세요."
 
         case .claudeCodeReconnectRequired:
-            return "Claude Code 로그인은 유지되고 있지만 ClaudeUsage 연결 정보를 다시 확인해야 합니다."
+            return "Claude Code 로그인은 유지되고 있지만 \(AppDistribution.current.appName) 연결 정보를 다시 확인해야 합니다."
 
         case .rateLimited(let retryAfter):
             if let retryAfter, retryAfter > 0 {

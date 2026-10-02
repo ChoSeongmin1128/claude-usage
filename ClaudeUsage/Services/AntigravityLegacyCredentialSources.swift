@@ -354,7 +354,7 @@ nonisolated struct AntigravityLegacyOAuthKeychainAccess:
     private let securityItemAccess: any AntigravitySecurityItemAccessing
 
     init(
-        bundleIdentifierService: String = Bundle.main.bundleIdentifier ?? "ClaudeUsage",
+        bundleIdentifierService: String = Bundle.main.bundleIdentifier ?? AppIdentifiers.legacyKeychainService,
         securityItemAccess: any AntigravitySecurityItemAccessing =
             SystemAntigravitySecurityItemAccess()
     ) {
@@ -758,7 +758,7 @@ nonisolated struct AntigravityLegacyOAuthKeychainAccess:
         case .bundleIdentifierKeychain:
             service = bundleIdentifierService
         case .claudeUsageKeychain:
-            service = "ClaudeUsage"
+            service = AppIdentifiers.legacyKeychainService
         case .accountFile, .activeCredentialFile, .metadataFile:
             return nil
         }

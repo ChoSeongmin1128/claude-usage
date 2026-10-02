@@ -174,7 +174,7 @@ enum MenuBarStatusComposer {
             return true
         }
         image.isTemplate = false
-        return MenuBarRenderedContent(image: image, tooltip: "ClaudeUsage 설정")
+        return MenuBarRenderedContent(image: image, tooltip: "\(AppDistribution.current.appName) 설정")
     }
 
     private static func statusDot(color: NSColor) -> MenuBarElement {

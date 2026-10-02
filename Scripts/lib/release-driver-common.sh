@@ -3,6 +3,9 @@
 # Pure helpers shared by the release driver and its shell tests.
 # Keep network, Git mutation, signing, and filesystem installation out of this file.
 
+# shellcheck source=Scripts/lib/app-identity.sh
+source "$(dirname "${BASH_SOURCE[0]}")/app-identity.sh"
+
 normalize_release_environment() {
     case "${1:-}" in
         stg|staging)

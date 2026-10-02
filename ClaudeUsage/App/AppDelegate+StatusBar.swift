@@ -334,7 +334,7 @@ extension AppDelegate {
         statusItem = item
         if let button = item.button {
             button.title = "..."
-            button.toolTip = "ClaudeUsage"
+            button.toolTip = AppDistribution.current.appName
             button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.target = self

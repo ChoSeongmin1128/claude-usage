@@ -230,12 +230,12 @@ RELEASE_ENVIRONMENT="$(normalize_release_environment "$ENVIRONMENT_INPUT")" \
     || die "지원하지 않는 배포 환경입니다: $ENVIRONMENT_INPUT (stg, staging, prod만 허용)"
 case "$RELEASE_ENVIRONMENT" in
     staging)
-        APP_BUNDLE_NAME="ClaudeUsage-stg.app"
-        APP_BUNDLE_IDENTIFIER="com.seongmin.ClaudeUsage.staging"
+        APP_BUNDLE_NAME="$APP_STAGING_DISPLAY_NAME.app"
+        APP_BUNDLE_IDENTIFIER="$APP_STAGING_BUNDLE_IDENTIFIER"
         ;;
     prod)
-        APP_BUNDLE_NAME="ClaudeUsage.app"
-        APP_BUNDLE_IDENTIFIER="com.seongmin.ClaudeUsage"
+        APP_BUNDLE_NAME="$APP_PROD_DISPLAY_NAME.app"
+        APP_BUNDLE_IDENTIFIER="$APP_PROD_BUNDLE_IDENTIFIER"
         ;;
 esac
 DOWNLOADS_APP_PATH="$(

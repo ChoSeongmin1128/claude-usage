@@ -3,7 +3,9 @@ import Foundation
 /// 계정별로 앱이 남기는 로컬 자료(표시 정보 파일, 캐시 키). 계정을 지울 때 함께 지우고,
 /// 이전 버전에서 계정을 지운 뒤 남은 것은 시작할 때 정리한다.
 nonisolated enum ClaudeAccountLocalData {
-    static let defaultsKeyPrefixes = ["ClaudeUsage.authPathHealth.v1", "ClaudeUsage.cachedOrganizations.v1"]
+    static let defaultsKeyPrefixes = [
+        AppIdentifiers.defaultsKey("authPathHealth.v1"), AppIdentifiers.defaultsKey("cachedOrganizations.v1"),
+    ]
     private static let metadataFilePrefix = "claude-profile-metadata."
     private static let metadataFileSuffix = ".json"
     private static let unscopedSuffix = "ephemeral"

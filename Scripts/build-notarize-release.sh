@@ -33,8 +33,8 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT_DIR/Scripts/lib/release-driver-common.sh"
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build/release}"
 ARCHIVE_PATH="${ARCHIVE_PATH:-$BUILD_DIR/ClaudeUsage.xcarchive}"
-ZIP_PATH="${ZIP_PATH:-$BUILD_DIR/ClaudeUsage.zip}"
-DMG_PATH="${DMG_PATH:-$BUILD_DIR/ClaudeUsage.dmg}"
+ZIP_PATH="${ZIP_PATH:-$BUILD_DIR/$APP_RELEASE_ZIP_NAME}"
+DMG_PATH="${DMG_PATH:-$BUILD_DIR/$APP_RELEASE_DMG_NAME}"
 SCHEME="${SCHEME:-ClaudeUsage}"
 CONFIGURATION="${CONFIGURATION:-Release}"
 PROJECT_PATH="${PROJECT_PATH:-$ROOT_DIR/ClaudeUsage.xcodeproj}"
@@ -53,20 +53,20 @@ if [[ -n "$RELEASE_DISPLAY_VERSION" && ! "$RELEASE_DISPLAY_VERSION" =~ ^[0-9]+\.
 fi
 case "$RELEASE_CHANNEL" in
     staging)
-        APP_BUNDLE_NAME="ClaudeUsage-stg.app"
-        APP_DISPLAY_NAME="ClaudeUsage-stg"
-        APP_BUNDLE_IDENTIFIER="com.seongmin.ClaudeUsage.staging"
+        APP_BUNDLE_NAME="$APP_STAGING_DISPLAY_NAME.app"
+        APP_DISPLAY_NAME="$APP_STAGING_DISPLAY_NAME"
+        APP_BUNDLE_IDENTIFIER="$APP_STAGING_BUNDLE_IDENTIFIER"
         ;;
     ""|prod)
-        APP_BUNDLE_NAME="ClaudeUsage.app"
-        APP_DISPLAY_NAME="ClaudeUsage"
-        APP_BUNDLE_IDENTIFIER="com.seongmin.ClaudeUsage"
+        APP_BUNDLE_NAME="$APP_PROD_DISPLAY_NAME.app"
+        APP_DISPLAY_NAME="$APP_PROD_DISPLAY_NAME"
+        APP_BUNDLE_IDENTIFIER="$APP_PROD_BUNDLE_IDENTIFIER"
         ;;
     *)
         # The canonical validator below emits the public error message.
-        APP_BUNDLE_NAME="ClaudeUsage.app"
-        APP_DISPLAY_NAME="ClaudeUsage"
-        APP_BUNDLE_IDENTIFIER="com.seongmin.ClaudeUsage"
+        APP_BUNDLE_NAME="$APP_PROD_DISPLAY_NAME.app"
+        APP_DISPLAY_NAME="$APP_PROD_DISPLAY_NAME"
+        APP_BUNDLE_IDENTIFIER="$APP_PROD_BUNDLE_IDENTIFIER"
         ;;
 esac
 APP_PATH="$ARCHIVE_PATH/Products/Applications/$APP_BUNDLE_NAME"

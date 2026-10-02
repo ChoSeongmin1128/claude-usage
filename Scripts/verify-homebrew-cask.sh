@@ -3,6 +3,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=Scripts/lib/app-identity.sh
+source "$ROOT_DIR/Scripts/lib/app-identity.sh"
 TOOL="$ROOT_DIR/Scripts/lib/homebrew_cask.py"
 MANIFEST=""
 TAP="choseongmin1128/tap"
@@ -107,7 +109,8 @@ printf '%s\n' "$INFO_JSON" \
     | jq -e \
         --arg version "$VERSION" \
         --arg sha256 "$SHA256" \
-        --arg url "$ASSET_URL" '
+        --arg url "$ASSET_URL" \
+        --arg app "$APP_PROD_DISPLAY_NAME.app" '
             (.casks | length) == 1
             and .casks[0].token == "claude-usage"
             and .casks[0].version == $version
@@ -115,7 +118,7 @@ printf '%s\n' "$INFO_JSON" \
             and .casks[0].url == $url
             and .casks[0].auto_updates == true
             and .casks[0].depends_on.macos.">=" == ["14"]
-            and .casks[0].artifacts[0].app[0] == "ClaudeUsage.app"
+            and .casks[0].artifacts[0].app[0] == $app
         ' >/dev/null \
     || die "Homebrew Cask metadata가 manifest·설치 계약과 다릅니다."
 

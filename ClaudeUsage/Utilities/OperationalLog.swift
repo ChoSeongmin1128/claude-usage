@@ -72,7 +72,7 @@ nonisolated struct OperationalDiagnostic: Equatable, Sendable {
 
 nonisolated enum OperationalLog {
     private static let logger = os.Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.seongmin.ClaudeUsage",
+        subsystem: Bundle.main.bundleIdentifier ?? AppIdentifiers.productionBundleIdentifier,
         category: "operational"
     )
 

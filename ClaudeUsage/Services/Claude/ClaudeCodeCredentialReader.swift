@@ -85,7 +85,7 @@ nonisolated enum ClaudeOAuthCredentialReadError: LocalizedError, Sendable {
         case .reauthenticationRequired:
             return "Claude Code refresh token이 거부되어 다시 로그인이 필요합니다."
         case .reconnectRequired:
-            return "Claude Code 로그인은 유지되고 있지만 ClaudeUsage 연결 정보를 다시 확인해야 합니다."
+            return "Claude Code 로그인은 유지되고 있지만 \(AppDistribution.current.appName) 연결 정보를 다시 확인해야 합니다."
         }
     }
 }
@@ -344,7 +344,7 @@ actor ClaudeCodeCredentialReader {
         let outcome = interactiveKeychainPayloadReader(
             service,
             NSUserName(),
-            "Claude Code 로그인을 ClaudeUsage에 연결합니다."
+            "Claude Code 로그인을 \(AppDistribution.current.appName)에 연결합니다."
         )
         switch outcome {
         case .value(let payload):

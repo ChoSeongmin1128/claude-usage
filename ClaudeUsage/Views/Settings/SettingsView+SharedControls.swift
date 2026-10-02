@@ -782,7 +782,8 @@ private struct ProviderPopoverPreviewView: View {
 
             IconActionButton(symbol: "slider.horizontal.3", label: "표시 항목 편집", compact: mode.isCompact) {}
             IconActionButton(symbol: "gearshape", label: "설정 열기", compact: mode.isCompact) {}
-            IconActionButton(symbol: "power", label: "ClaudeUsage 종료", compact: mode.isCompact) {}
+            IconActionButton(symbol: "power", label: "\(AppDistribution.current.appName) 종료", compact: mode.isCompact) {
+            }
         }
         .font(AppDesign.Typography.caption)
         .foregroundStyle(.secondary)

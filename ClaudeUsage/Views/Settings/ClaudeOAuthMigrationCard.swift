@@ -45,7 +45,7 @@ struct ClaudeOAuthMigrationCard: View {
             notice(
                 icon: "checkmark.shield.fill",
                 title: "Claude Code 연결 업데이트 완료",
-                detail: "앞으로 ClaudeUsage의 연결 정보는 앱 전용 보안 저장소에서 관리됩니다.",
+                detail: "앞으로 \(AppDistribution.current.appName)의 연결 정보는 앱 전용 보안 저장소에서 관리됩니다.",
                 tone: .green
             ) { EmptyView() }
         case .completedWithLegacyCleanupFailure:

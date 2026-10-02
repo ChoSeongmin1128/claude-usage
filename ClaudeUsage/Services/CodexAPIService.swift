@@ -237,7 +237,7 @@ actor CodexAPIService {
         request.httpMethod = "GET"
         request.timeoutInterval = min(timeout, budget.remaining)
         request.setValue("Bearer \(credential.token.accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("ClaudeUsage", forHTTPHeaderField: "User-Agent")
+        request.setValue(AppIdentifiers.userAgentProduct, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let accountID = credential.token.accountID, !accountID.isEmpty {
             request.setValue(accountID, forHTTPHeaderField: "ChatGPT-Account-Id")

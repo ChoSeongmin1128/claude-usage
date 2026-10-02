@@ -29,8 +29,8 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=Scripts/lib/release-driver-common.sh
 source "$ROOT_DIR/Scripts/lib/release-driver-common.sh"
 BUILD_DIR="${BUILD_DIR:-$ROOT_DIR/build/release}"
-DMG_PATH="${DMG_PATH:-$BUILD_DIR/ClaudeUsage.dmg}"
-ZIP_PATH="${ZIP_PATH:-$BUILD_DIR/ClaudeUsage.zip}"
+DMG_PATH="${DMG_PATH:-$BUILD_DIR/$APP_RELEASE_DMG_NAME}"
+ZIP_PATH="${ZIP_PATH:-$BUILD_DIR/$APP_RELEASE_ZIP_NAME}"
 APPCAST_PATH="${APPCAST_PATH:-$BUILD_DIR/appcast.xml}"
 LOCAL_XC_CONFIG_PATH="${LOCAL_XC_CONFIG_PATH:-$ROOT_DIR/Config/Sparkle.release.local.xcconfig}"
 RELEASE_XC_CONFIG_PATH="$ROOT_DIR/Config/Release.xcconfig"
@@ -481,7 +481,7 @@ TAG_VERSION="$(release_version_from_tag "$TAG")" || {
 }
 APPCAST_METADATA="$(python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" appcast-fields "$APPCAST_PATH")"
 IFS=$'\t' read -r APPCAST_VERSION APPCAST_BUILD APPCAST_ENCLOSURE APPCAST_SIGNATURE APPCAST_LENGTH <<< "$APPCAST_METADATA"
-EXPECTED_ENCLOSURE="https://github.com/$TARGET_REPOSITORY/releases/download/$TAG/ClaudeUsage.dmg"
+EXPECTED_ENCLOSURE="https://github.com/$TARGET_REPOSITORY/releases/download/$TAG/$APP_RELEASE_DMG_NAME"
 UPDATE_ARCHIVE_SIZE="$(stat -f%z "$DMG_PATH")"
 [[ "$TAG_VERSION" == "$PROJECT_VERSION" && "$APPCAST_VERSION" == "$PROJECT_VERSION" ]] || {
     echo "tag/project/appcast version이 일치하지 않습니다: tag=$TAG_VERSION, project=$PROJECT_VERSION, appcast=$APPCAST_VERSION" >&2

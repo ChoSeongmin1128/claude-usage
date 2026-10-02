@@ -215,7 +215,7 @@ nonisolated enum AntigravitySettingsNoticePresenter {
                 title:
                     "이전 데이터 정리가 남아 있습니다",
                 message:
-                    "새 계정 저장은 유지됩니다. 기존 ClaudeUsage 데이터 정리를 다시 진행해 주세요.",
+                    "새 계정 저장은 유지됩니다. 기존 \(AppDistribution.current.appName) 데이터 정리를 다시 진행해 주세요.",
                 action: action
             )
         case .blockedBeforeCutover:

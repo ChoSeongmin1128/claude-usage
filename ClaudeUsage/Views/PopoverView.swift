@@ -153,7 +153,7 @@ struct PopoverView: View {
                 IconActionButton(symbol: "gearshape", label: "설정 열기", compact: isCompact) {
                     viewModel.openSettings()
                 }
-                IconActionButton(symbol: "power", label: "ClaudeUsage 종료", compact: isCompact) {
+                IconActionButton(symbol: "power", label: "\(AppDistribution.current.appName) 종료", compact: isCompact) {
                     NSApplication.shared.terminate(nil)
                 }
             }

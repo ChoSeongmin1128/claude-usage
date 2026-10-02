@@ -134,14 +134,14 @@ done
 [[ "$CHANNEL" == "prod" || "$CHANNEL" == "staging" ]] || die "--channel 은 prod 또는 staging이어야 합니다."
 case "$CHANNEL" in
     staging)
-        APP_BUNDLE_NAME="ClaudeUsage-stg.app"
-        EXPECTED_APP_NAME="ClaudeUsage-stg"
-        EXPECTED_BUNDLE_IDENTIFIER="com.seongmin.ClaudeUsage.staging"
+        APP_BUNDLE_NAME="$APP_STAGING_DISPLAY_NAME.app"
+        EXPECTED_APP_NAME="$APP_STAGING_DISPLAY_NAME"
+        EXPECTED_BUNDLE_IDENTIFIER="$APP_STAGING_BUNDLE_IDENTIFIER"
         ;;
     prod)
-        APP_BUNDLE_NAME="ClaudeUsage.app"
-        EXPECTED_APP_NAME="ClaudeUsage"
-        EXPECTED_BUNDLE_IDENTIFIER="com.seongmin.ClaudeUsage"
+        APP_BUNDLE_NAME="$APP_PROD_DISPLAY_NAME.app"
+        EXPECTED_APP_NAME="$APP_PROD_DISPLAY_NAME"
+        EXPECTED_BUNDLE_IDENTIFIER="$APP_PROD_BUNDLE_IDENTIFIER"
         ;;
 esac
 validate_numeric_release_version "$EXPECTED_VERSION" \
@@ -261,7 +261,7 @@ RELEASE_ASSET_NAMES="$(
         | jq -r '.assets[].name' \
         | LC_ALL=C sort
 )"
-[[ "$RELEASE_ASSET_NAMES" == $'ClaudeUsage.dmg\nClaudeUsage.zip\nappcast.xml' ]] \
+[[ "$RELEASE_ASSET_NAMES" == "$APP_RELEASE_DMG_NAME"$'\n'"$APP_RELEASE_ZIP_NAME"$'\nappcast.xml' ]] \
     || die "Release asset 집합이 정확한 세 파일과 다릅니다: $TAG"
 
 read_asset_metadata() {

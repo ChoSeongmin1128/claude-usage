@@ -1361,6 +1361,7 @@ cp "$ROOT_DIR/Scripts/publish-release.sh" "$PUBLISH_SCRIPT"
 cp \
     "$ROOT_DIR/Scripts/lib/release-driver-common.sh" \
     "$PUBLISH_REPOSITORY/Scripts/lib/release-driver-common.sh"
+cp "$ROOT_DIR/Scripts/lib/app-identity.sh" "$PUBLISH_REPOSITORY/Scripts/lib/app-identity.sh"
 cp \
     "$ROOT_DIR/Scripts/verify-sparkle-signature.swift" \
     "$PUBLISH_REPOSITORY/Scripts/verify-sparkle-signature.swift"
@@ -1843,6 +1844,7 @@ CANONICAL_VERIFY_PHYSICAL_TMP_P="$(
 cp \
     "$ROOT_DIR/Scripts/lib/release-driver-common.sh" \
     "$CANONICAL_VERIFY_REPOSITORY/Scripts/lib/release-driver-common.sh"
+cp "$ROOT_DIR/Scripts/lib/app-identity.sh" "$CANONICAL_VERIFY_REPOSITORY/Scripts/lib/app-identity.sh"
 cp \
     "$ROOT_DIR/Scripts/verify-sparkle-signature.swift" \
     "$CANONICAL_VERIFY_REPOSITORY/Scripts/verify-sparkle-signature.swift"
@@ -2271,6 +2273,7 @@ cp \
 cp \
     "$ROOT_DIR/Scripts/lib/release-driver-common.sh" \
     "$CANONICAL_PAGES_REPOSITORY/Scripts/lib/release-driver-common.sh"
+cp "$ROOT_DIR/Scripts/lib/app-identity.sh" "$CANONICAL_PAGES_REPOSITORY/Scripts/lib/app-identity.sh"
 chmod +x "$CANONICAL_PAGES_REPOSITORY/Scripts/publish-pages-appcast.sh"
 printf '<appcast>fixture</appcast>\n' \
     > "$CANONICAL_PAGES_STATE/appcast.xml"

@@ -155,8 +155,8 @@ struct AntigravitySecurityLegacyOAuthKeychainStore: AntigravityLegacyOAuthKeycha
 
     private let services: [String]
 
-    nonisolated init(service: String = Bundle.main.bundleIdentifier ?? "ClaudeUsage") {
-        self.services = Self.uniqueServices([service, "ClaudeUsage"])
+    nonisolated init(service: String = Bundle.main.bundleIdentifier ?? AppIdentifiers.legacyKeychainService) {
+        self.services = Self.uniqueServices([service, AppIdentifiers.legacyKeychainService])
     }
 
     nonisolated func loadStringWithoutAuthenticationPrompt(account: String) throws -> String? {
@@ -341,7 +341,7 @@ nonisolated struct AntigravityOAuthCredentialsStore: @unchecked Sendable {
         return AntigravityOAuthCredentialStatus(
             hasCredential: true,
             email: credentials.email?.trimmedNonEmpty,
-            sourceDescription: "ClaudeUsage OAuth"
+            sourceDescription: "\(AppDistribution.current.appName) OAuth"
         )
     }
 
@@ -405,7 +405,8 @@ nonisolated struct AntigravityOAuthCredentialsStore: @unchecked Sendable {
 
     static func defaultDirectoryURL(home: URL = FileManager.default.realHomeDirectory) -> URL {
         home
-            .appendingPathComponent("Library/Application Support/ClaudeUsage", isDirectory: true)
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+            .appendingPathComponent(AppIdentifiers.productionSupportDirectoryName, isDirectory: true)
             .appendingPathComponent("Antigravity", isDirectory: true)
     }
 
@@ -475,7 +476,7 @@ nonisolated enum AntigravityOAuthCredentialProbe {
             return AntigravityOAuthCredentialStatus(
                 hasCredential: true,
                 email: active.email?.trimmedNonEmpty ?? active.credentials.email?.trimmedNonEmpty,
-                sourceDescription: "ClaudeUsage OAuth"
+                sourceDescription: "\(AppDistribution.current.appName) OAuth"
             )
         }
 

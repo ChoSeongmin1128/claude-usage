@@ -40,7 +40,7 @@ extension AppDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if isRunningUnitTests {
-            Logger.info("ClaudeUsage 테스트 런치 감지: 앱 초기화를 건너뜁니다")
+            Logger.info("\(AppDistribution.current.appName) 테스트 런치 감지: 앱 초기화를 건너뜁니다")
             return
         }
         guard ownsSingleInstanceLease else {
@@ -161,7 +161,7 @@ extension AppDelegate {
             return .terminateLater
         }
 
-        Logger.info("ClaudeUsage 앱 종료 전 Antigravity owned runtime 정리")
+        Logger.info("\(AppDistribution.current.appName) 앱 종료 전 Antigravity owned runtime 정리")
         refreshScheduler.stop()
         antigravityTerminationTask = Task { [weak self] in
             guard let self else { return }

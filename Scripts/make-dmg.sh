@@ -32,11 +32,13 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=Scripts/lib/app-identity.sh
+source "$ROOT_DIR/Scripts/lib/app-identity.sh"
 SETTINGS_FILE="$ROOT_DIR/Scripts/dmg-assets/dmgbuild-settings.py"
 
 APP_PATH="${APP_PATH:?APP_PATH is required}"
 DMG_PATH="${DMG_PATH:?DMG_PATH is required}"
-VOLUME_NAME="${VOLUME_NAME:-Install ClaudeUsage}"
+VOLUME_NAME="${VOLUME_NAME:-Install $APP_PRODUCT_NAME}"
 BACKGROUND_PNG="${BACKGROUND_PNG:-$ROOT_DIR/Scripts/dmg-assets/background.png}"
 # 볼륨 아이콘: 미지정 시 앱 번들의 AppIcon.icns 자동 사용
 VOLUME_ICON="${VOLUME_ICON:-$APP_PATH/Contents/Resources/AppIcon.icns}"

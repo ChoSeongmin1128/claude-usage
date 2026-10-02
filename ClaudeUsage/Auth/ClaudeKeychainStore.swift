@@ -25,7 +25,7 @@ final class ClaudeKeychainStore: @unchecked Sendable {
     nonisolated static let shared = ClaudeKeychainStore()
     nonisolated static let defaultAccount = "claude-session-key"
 
-    private let service = Bundle.main.bundleIdentifier ?? "ClaudeUsage"
+    private let service = Bundle.main.bundleIdentifier ?? AppIdentifiers.legacyKeychainService
 
     private nonisolated init() {}
 

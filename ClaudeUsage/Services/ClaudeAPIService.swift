@@ -255,8 +255,8 @@ actor ClaudeAPIService {
     private let oauthCredentialReader: any ClaudeOAuthCredentialReading
     private let sessionKeyLoader: @Sendable (String) -> String?
     private let organizationCacheTTL: TimeInterval = 7 * 24 * 60 * 60
-    private static let authPathHealthDefaultsKeyPrefix = "ClaudeUsage.authPathHealth.v1"
-    private static let organizationCacheDefaultsKeyPrefix = "ClaudeUsage.cachedOrganizations.v1"
+    private static let authPathHealthDefaultsKeyPrefix = AppIdentifiers.defaultsKey("authPathHealth.v1")
+    private static let organizationCacheDefaultsKeyPrefix = AppIdentifiers.defaultsKey("cachedOrganizations.v1")
     private var authPathHealthStore = AuthPathHealthStore()
     private var lastKnownUsagePercent: Double?
     private var lastSuccessfulUsageSource: ClaudeUsageSource?
@@ -694,7 +694,7 @@ actor ClaudeAPIService {
     /// 일회성 OAuth-aware 자동 복구. UserDefaults 플래그로 1회만 동작.
     /// 사용자가 직접 추가/선택한 web 계정(chromeProfile, embeddedWebLogin, manualInput)
     /// 은 건드리지 않고, 레거시 자동 마이그레이션 결과면서 동작 불가 상태인 경우에만 전환.
-    nonisolated static let oauthAwareMigrationVersionKey = "ClaudeUsage.oauthAwareMigrationVersion"
+    nonisolated static let oauthAwareMigrationVersionKey = AppIdentifiers.defaultsKey("oauthAwareMigrationVersion")
     nonisolated static let oauthAwareMigrationCurrentVersion = 1
     /// v2.3: OAuth (`/api/oauth/usage`) 경로를 정식 소스로 승격.
     /// v2.2.0 에서 비활성화했던 이유(토큰별 rate limit, refresh rotation 함정)는

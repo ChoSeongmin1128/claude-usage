@@ -14,7 +14,7 @@ nonisolated enum RetiredAppDefaults {
         Group(
             keys: [
                 "claudeSettingsLastTab", "codexSettingsLastTab",
-                "ClaudeUsage.authPathHealth.v1", "ClaudeUsage.cachedOrganizations.v1",
+                AppIdentifiers.defaultsKey("authPathHealth.v1"), AppIdentifiers.defaultsKey("cachedOrganizations.v1"),
                 "initialRuntimeProviderDetectionCompleted", "suppressMoveToApplicationsAlert",
                 "browserCookieAccessDeniedUntil", "geminiRefreshInterval", "statusItemUnplacedNoticeDate",
             ],

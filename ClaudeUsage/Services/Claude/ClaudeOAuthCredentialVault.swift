@@ -143,7 +143,7 @@ nonisolated final class SecurityFrameworkClaudeOAuthLegacyCredentialMigrator:
     ClaudeOAuthLegacyCredentialMigrating,
     @unchecked Sendable
 {
-    nonisolated static let legacyService = "ClaudeUsage.Claude Code-credentials-refreshed"
+    nonisolated static let legacyService = AppIdentifiers.legacyClaudeOAuthKeychainService
     typealias LegacyPayloadLoader = (LAContext) throws -> String?
     typealias LegacyPayloadDeleter = (LAContext) throws -> Void
 
@@ -195,7 +195,7 @@ nonisolated final class SecurityFrameworkClaudeOAuthLegacyCredentialMigrator:
         destination: any ClaudeOAuthCredentialVault
     ) -> ClaudeOAuthCredentialMigrationResult {
         let context = LAContext()
-        context.localizedReason = "ClaudeUsage의 기존 Claude OAuth 캐시를 안전한 저장소로 이전합니다."
+        context.localizedReason = "\(AppDistribution.current.appName)의 기존 Claude OAuth 캐시를 안전한 저장소로 이전합니다."
 
         let payload: String
         do {

@@ -12,7 +12,7 @@ enum PopoverGeometryDiagnostics {
 
     static var logFileURL: URL {
         URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("ClaudeUsagePopoverGeometry.log")
+            .appendingPathComponent(AppIdentifiers.popoverGeometryLogFileName)
     }
 
     static func resetSession(_ header: String) {

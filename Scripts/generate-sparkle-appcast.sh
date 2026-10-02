@@ -174,7 +174,7 @@ if [[ -z "$SIGN_UPDATE" ]]; then
   exit 1
 fi
 
-DMG_COUNT="$(find "$ARTIFACTS_DIR" -maxdepth 1 -name 'ClaudeUsage.dmg' | wc -l | tr -d ' ')"
+DMG_COUNT="$(find "$ARTIFACTS_DIR" -maxdepth 1 -name "$APP_RELEASE_DMG_NAME" | wc -l | tr -d ' ')"
 if [[ "$DMG_COUNT" == "0" ]]; then
   echo "appcast에 포함할 DMG 산출물이 없습니다: $ARTIFACTS_DIR" >&2
   exit 1
@@ -207,7 +207,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 
-find "$ARTIFACTS_DIR" -maxdepth 1 -name 'ClaudeUsage.dmg' -print0 | while IFS= read -r -d '' dmg_path; do
+find "$ARTIFACTS_DIR" -maxdepth 1 -name "$APP_RELEASE_DMG_NAME" -print0 | while IFS= read -r -d '' dmg_path; do
   cp "$dmg_path" "$STAGING_DIR/"
 done
 
@@ -235,7 +235,7 @@ rm -f "$APPCAST_OUTPUT"
 python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" embed-notes \
   --appcast "$APPCAST_OUTPUT" --notes-file "$NOTES_FILE" --version "${NOTES_VERSION}" --tag "$RELEASE_TAG"
 python3 "$ROOT_DIR/Scripts/lib/release_metadata.py" bind-zip \
-  --appcast "$APPCAST_OUTPUT" --zip-file "$ARTIFACTS_DIR/ClaudeUsage.zip"
+  --appcast "$APPCAST_OUTPUT" --zip-file "$ARTIFACTS_DIR/$APP_RELEASE_ZIP_NAME"
 # This is the final mutation. No XML serialization may follow feed signing.
 "$SIGN_UPDATE" "$APPCAST_OUTPUT"
 rm -rf "$STAGING_DIR"
