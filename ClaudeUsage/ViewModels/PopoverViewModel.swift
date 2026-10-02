@@ -436,7 +436,7 @@ final class PopoverViewModel: ObservableObject {
             return "인증 필요"
         }
         if let usage = snapshot.claudeUsage {
-            return "현재 \(Int(usage.fiveHour.utilization.rounded()))% · 주간 \(Int((usage.sevenDay?.utilization ?? 0).rounded()))%"
+            return usage.usageSummaryText
         }
         if let usage = snapshot.codexUsage {
             return usage.usageSummaryText

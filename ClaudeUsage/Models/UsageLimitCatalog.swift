@@ -28,12 +28,14 @@ nonisolated struct UsageLimit: Identifiable, Equatable, Sendable {
 
 nonisolated enum UsageLimitCatalog {
     static func claude(_ usage: ClaudeUsageResponse) -> [UsageLimit] {
-        var result = [
-            make(
-                provider: .claude, scope: "five_hour", period: 18_000,
-                title: "5시간", used: usage.fiveHour.utilization,
-                reset: date(usage.fiveHour.resetsAt), legacy: "fiveHour")
-        ]
+        var result: [UsageLimit] = []
+        if let fiveHour = usage.fiveHour {
+            result.append(
+                make(
+                    provider: .claude, scope: "five_hour", period: 18_000,
+                    title: "5시간", used: fiveHour.utilization,
+                    reset: date(fiveHour.resetsAt), legacy: "fiveHour"))
+        }
         if let weekly = usage.sevenDay {
             result.append(
                 make(

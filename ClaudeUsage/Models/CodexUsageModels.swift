@@ -31,10 +31,18 @@ nonisolated struct CodexUsageResponse: Codable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         accountID = try container.decodeIfPresent(String.self, forKey: .accountID)
         planType = try container.decodeIfPresent(String.self, forKey: .planType)
-        rateLimit = try container.decodeIfPresent(CodexRateLimit.self, forKey: .rateLimit)
-        credits = try container.decodeIfPresent(CodexCredits.self, forKey: .credits)
+        // 창이 없거나 크레딧만 있는 요금제(Enterprise/Edu 유연 요금제)가 있다. 필드 하나가 전체를 깨지 않게 한다.
+        rateLimit = (try? container.decodeIfPresent(CodexRateLimit.self, forKey: .rateLimit)) ?? nil
+        credits = (try? container.decodeIfPresent(CodexCredits.self, forKey: .credits)) ?? nil
         additionalRateLimits = Self.decodeAdditionalRateLimits(from: container)
         resetCredits = nil
+        let hasMalformedLimits = rateLimit?.hasMalformedWindow == true
+            || (rateLimit == nil && container.contains(.rateLimit) && (try? container.decodeNil(forKey: .rateLimit)) != true)
+        if hasMalformedLimits, rateLimit?.primaryWindow == nil, rateLimit?.secondaryWindow == nil,
+           credits == nil, additionalRateLimits.isEmpty {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Codex rate limits are malformed"))
+        }
     }
 
     /// additional_rate_limits: 항목 단위 lossy 디코딩 — 항목 하나가 깨져도 본 한도 표시를 막지 않는다.
@@ -86,6 +94,8 @@ nonisolated struct CodexAdditionalRateLimit: Codable, Sendable {
 nonisolated struct CodexRateLimit: Codable, Sendable {
     let primaryWindow: CodexUsageWindow?
     let secondaryWindow: CodexUsageWindow?
+    /// 형식이 깨져 버린 창이 있었는지. 인코딩하지 않는다.
+    let hasMalformedWindow: Bool
 
     enum CodingKeys: String, CodingKey {
         case primaryWindow = "primary_window"
@@ -94,8 +104,16 @@ nonisolated struct CodexRateLimit: Codable, Sendable {
 
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        primaryWindow = try container.decodeIfPresent(CodexUsageWindow.self, forKey: .primaryWindow)
-        secondaryWindow = try container.decodeIfPresent(CodexUsageWindow.self, forKey: .secondaryWindow)
+        var malformed = false
+        func window(_ key: CodingKeys) -> CodexUsageWindow? {
+            guard container.contains(key), (try? container.decodeNil(forKey: key)) != true else { return nil }
+            if let decoded = try? container.decode(CodexUsageWindow.self, forKey: key) { return decoded }
+            malformed = true
+            return nil
+        }
+        primaryWindow = window(.primaryWindow)
+        secondaryWindow = window(.secondaryWindow)
+        hasMalformedWindow = malformed
     }
 }
 
@@ -283,9 +301,9 @@ extension CodexUsageResponse {
     }
 
     /// 메뉴바 색상·단일 퍼센트 표시 기준 게이지.
-    /// 세션 창이 없으면 0% 대신 주간 창을 기준으로 사용합니다.
-    nonisolated var gaugePercentage: Double {
-        sessionWindow?.utilization ?? weeklyWindow?.utilization ?? 0
+    /// 세션 창이 없으면 0% 대신 주간 창을 기준으로 사용하고, 둘 다 없으면 nil.
+    nonisolated var gaugePercentage: Double? {
+        sessionWindow?.utilization ?? weeklyWindow?.utilization
     }
 
     /// "현재 3% · 주간 41%" 요약. 세션 창이 없으면 주간만 표기.

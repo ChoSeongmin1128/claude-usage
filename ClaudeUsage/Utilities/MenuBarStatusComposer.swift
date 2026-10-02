@@ -235,8 +235,9 @@ enum MenuBarStatusComposer {
                 providerVisualConfiguration(config),
             visualValues: usage.map {
                 [
-                    $0.fiveHourPercentage,
-                    $0.sevenDay?.utilization ?? 0,
+                    $0.gaugePercentage ?? 0,
+                    $0.weeklyPercentage ?? 0,
+                    $0.hasSessionWindow ? 1 : 0,
                 ]
             } ?? [],
             systemStatus: systemStatus,
@@ -298,7 +299,7 @@ enum MenuBarStatusComposer {
                 providerVisualConfiguration(config),
             visualValues: usage.map {
                 [
-                    $0.gaugePercentage,
+                    $0.gaugePercentage ?? 0,
                     $0.weeklyPercentage,
                     $0.hasSessionWindow ? 1 : 0,
                 ]
@@ -800,28 +801,29 @@ enum MenuBarStatusComposer {
             return MenuBarProviderStatus(text: "…", color: secondaryColor, tooltip: "로딩 중")
         }
 
+        let hasPrimary = usage.hasSessionWindow
         let fiveHour = usage.fiveHourPercentage
-        let weekly = usage.sevenDay?.utilization
-        let displayFiveHour = config.usageValueBasis.text(fromUsed: fiveHour)
+        let weekly = usage.weeklyPercentage
+        let displayPrimary = config.usageValueBasis.text(fromUsed: hasPrimary ? fiveHour : weekly)
         let displayWeekly = config.usageValueBasis.text(fromUsed: weekly)
         let text: String = {
             switch config.percentageDisplay {
             case .none:
                 return ""
             case .fiveHour:
-                return displayFiveHour
+                return displayPrimary
             case .weekly:
                 return displayWeekly
             case .dual:
-                return "\(displayFiveHour)·\(displayWeekly)"
+                guard hasPrimary, weekly != nil else { return hasPrimary ? displayPrimary : displayWeekly }
+                return "\(displayPrimary)·\(displayWeekly)"
             }
         }()
 
         return MenuBarProviderStatus(
             text: text,
-            color: gaugeColor(for: fiveHour, config: config),
-            tooltip:
-                "현재 \(config.usageValueBasis.text(fromUsed: fiveHour)) · 주간 \(config.usageValueBasis.text(fromUsed: weekly)) \(config.usageValueBasis.label)"
+            color: gaugeColor(for: usage.gaugePercentage, config: config),
+            tooltip: windowSummaryTooltip(session: fiveHour, weekly: weekly, config: config)
                 + staleNote(error: error, hasAuthError: hasAuthError)
         )
     }
@@ -871,12 +873,21 @@ enum MenuBarStatusComposer {
         return MenuBarProviderStatus(
             text: text,
             color: gaugeColor(for: usage.gaugePercentage, config: config),
-            tooltip: (hasPrimary
-                ? "현재 \(config.usageValueBasis.text(fromUsed: primary)) · 주간 \(config.usageValueBasis.text(fromUsed: weekly))"
-                : "주간 \(config.usageValueBasis.text(fromUsed: weekly))")
-                + " \(config.usageValueBasis.label)"
+            tooltip: windowSummaryTooltip(session: hasPrimary ? primary : nil, weekly: weekly, config: config)
                 + staleNote(error: error, hasAuthError: hasAuthError)
         )
+    }
+
+    /// 응답에 있는 창만 표시 기준(사용량/남은 양)으로 적는다.
+    private static func windowSummaryTooltip(
+        session: Double?, weekly: Double?, config: ProviderMenuBarDisplayConfig
+    ) -> String {
+        let basis = config.usageValueBasis
+        let parts = [
+            session.map { "현재 \(basis.text(fromUsed: $0))" },
+            weekly.map { "주간 \(basis.text(fromUsed: $0))" },
+        ].compactMap { $0 }
+        return parts.isEmpty ? "데이터 없음" : parts.joined(separator: " · ") + " \(basis.label)"
     }
 
     private static func resetText(usage: ClaudeUsageResponse?, config: ProviderMenuBarDisplayConfig) -> String? {
@@ -885,13 +896,16 @@ enum MenuBarStatusComposer {
         case .none:
             return nil
         case .fiveHour:
-            guard let resetAt = usage.fiveHour.resetsAt else { return nil }
-            return TimeFormatter.formatResetTime(from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
+            if let sessionReset = usage.fiveHour?.resetsAt {
+                return TimeFormatter.formatResetTime(from: sessionReset, style: config.timeFormat, includeDateIfNotToday: false)
+            }
+            guard let weeklyReset = usage.sevenDay?.resetsAt else { return nil }
+            return TimeFormatter.formatResetTimeWeekly(from: weeklyReset, style: config.timeFormat, includeDateIfNotToday: false)
         case .weekly:
             guard let resetAt = usage.sevenDay?.resetsAt else { return nil }
             return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
         case .dual:
-            let first = usage.fiveHour.resetsAt.flatMap {
+            let first = usage.fiveHour?.resetsAt.flatMap {
                 TimeFormatter.formatResetTime(from: $0, style: config.timeFormat, includeDateIfNotToday: false)
             }
             let second = usage.sevenDay?.resetsAt.flatMap {
@@ -932,8 +946,11 @@ enum MenuBarStatusComposer {
 
     private static func styleIcon(usage: ClaudeUsageResponse?, config: ProviderMenuBarDisplayConfig) -> NSImage? {
         guard let usage else { return nil }
-        let primary = usage.fiveHourPercentage
-        let secondary = usage.sevenDay?.utilization
+        let primary = usage.gaugePercentage
+        let secondary = usage.weeklyPercentage
+        if !usage.hasSessionWindow {
+            return weeklyOnlyStyleIcon(weekly: secondary, config: config)
+        }
         return styleIcon(
             primary: primary,
             secondary: secondary,
@@ -948,22 +965,7 @@ enum MenuBarStatusComposer {
         let primary = usage.gaugePercentage
         let secondary = usage.weeklyWindow?.utilization
         if !usage.hasSessionWindow {
-            let value = config.usageValueBasis.percentage(fromUsed: secondary)
-            let color = gaugeColor(for: secondary, config: config)
-            switch config.style {
-            case .none:
-                return nil
-            case .batteryBar, .dualBattery, .sideBySideBattery:
-                return MenuBarIconRenderer.batteryIcon(
-                    percentage: value,
-                    color: color,
-                    showPercent: config.showBatteryPercent, design: config.design,
-                    monochrome: usesCutoutBatteryText(used: secondary, mode: config.colorMode),
-                    textColor: batteryNumberColor(used: secondary, mode: config.colorMode)
-                )
-            case .circular, .concentricRings:
-                return MenuBarIconRenderer.circularRingIcon(percentage: value, color: color, design: config.design)
-            }
+            return weeklyOnlyStyleIcon(weekly: secondary, config: config)
         }
         return styleIcon(
             primary: primary,
@@ -971,6 +973,26 @@ enum MenuBarStatusComposer {
             config: config,
             metric: resolvedMetric(primary: primary, secondary: secondary, config: config)
         )
+    }
+
+    // 5시간 창이 없는 응답은 주간 게이지 하나로 그린다(0% 오인 방지).
+    private static func weeklyOnlyStyleIcon(weekly: Double?, config: ProviderMenuBarDisplayConfig) -> NSImage? {
+        let value = config.usageValueBasis.percentage(fromUsed: weekly)
+        let color = gaugeColor(for: weekly, config: config)
+        switch config.style {
+        case .none:
+            return nil
+        case .batteryBar, .dualBattery, .sideBySideBattery:
+            return MenuBarIconRenderer.batteryIcon(
+                percentage: value,
+                color: color,
+                showPercent: config.showBatteryPercent, design: config.design,
+                monochrome: usesCutoutBatteryText(used: weekly, mode: config.colorMode),
+                textColor: batteryNumberColor(used: weekly, mode: config.colorMode)
+            )
+        case .circular, .concentricRings:
+            return MenuBarIconRenderer.circularRingIcon(percentage: value, color: color, design: config.design)
+        }
     }
 
     private static func antigravityStyleIcon(

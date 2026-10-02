@@ -1093,7 +1093,7 @@ actor ClaudeAPIService {
             previews.append(
                 OrganizationPreview(
                     organization: organization,
-                    fiveHourPercentage: usage?.fiveHour.utilization,
+                    fiveHourPercentage: usage?.fiveHour?.utilization,
                     weeklyPercentage: usage?.sevenDay?.utilization,
                     overageEnabled: overage?.isEnabled,
                     overageUsed: overage?.isEnabled == true ? overage?.usedCredits : nil,
@@ -1160,7 +1160,7 @@ actor ClaudeAPIService {
             let decoder = JSONDecoder()
             let usageResponse = try decoder.decode(ClaudeUsageResponse.self, from: data)
 
-            Logger.info("사용량 데이터 수신 성공: \(usageResponse.fiveHourPercentage)%")
+            Logger.info("사용량 데이터 수신 성공: \(usageResponse.usageSummaryText)")
             recordPathSuccess(.session)
             return usageResponse
 

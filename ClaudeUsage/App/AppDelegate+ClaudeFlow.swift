@@ -474,7 +474,7 @@ extension AppDelegate {
               let usage = currentUsage else {
             throw snapshot.error ?? APIError.unknownError("Claude Code 사용량을 확인하지 못했습니다")
         }
-        Logger.info("Claude Code CLI 활성화 성공 (5시간 utilization=\(usage.fiveHour.utilization))")
+        Logger.info("Claude Code CLI 활성화 성공 (\(usage.usageSummaryText))")
 
         // 3. 사용자에게 보여줄 요약 라인 구성. OAuth 사용량 성공 뒤 시작된
         // profile 동기화가 아직 끝나지 않았으면 안전하게 제목만 표시한다.

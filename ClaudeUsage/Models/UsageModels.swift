@@ -9,7 +9,7 @@ import Foundation
 
 /// Claude.ai API 전체 응답 구조
 nonisolated struct ClaudeUsageResponse: Codable, Sendable {
-    let fiveHour: UsageWindow
+    let fiveHour: UsageWindow?
     let sevenDay: UsageWindow?
     let sevenDaySonnet: UsageWindow?  // 레거시 필드 (limits[]로 대체 중)
     let sevenDayOpus: UsageWindow?    // 레거시 필드 (limits[]로 대체 중)
@@ -25,15 +25,29 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
 
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        fiveHour = try container.decode(UsageWindow.self, forKey: .fiveHour)
-        sevenDay = try container.decodeIfPresent(UsageWindow.self, forKey: .sevenDay)
-        sevenDaySonnet = try container.decodeIfPresent(UsageWindow.self, forKey: .sevenDaySonnet)
-        sevenDayOpus = try container.decodeIfPresent(UsageWindow.self, forKey: .sevenDayOpus)
+        // 없거나 null인 창은 그 요금제에 없는 창이다(사용량 기반 Enterprise 등).
+        // 형식이 깨진 창은 그 창만 버리고, 그릴 창이 하나도 안 남을 때만 형식 오류로 본다.
+        var hasMalformedWindow = false
+        func window(_ key: CodingKeys) -> UsageWindow? {
+            guard container.contains(key), (try? container.decodeNil(forKey: key)) != true else { return nil }
+            if let decoded = try? container.decode(UsageWindow.self, forKey: key) { return decoded }
+            hasMalformedWindow = true
+            return nil
+        }
+        fiveHour = window(.fiveHour)
+        sevenDay = window(.sevenDay)
+        sevenDaySonnet = window(.sevenDaySonnet)
+        sevenDayOpus = window(.sevenDayOpus)
         scopedLimits = Self.decodeScopedLimits(from: container)
+        if hasMalformedWindow, fiveHour == nil, sevenDay == nil, sevenDaySonnet == nil, sevenDayOpus == nil,
+           scopedLimits.isEmpty {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Claude usage windows are malformed"))
+        }
     }
 
     nonisolated init(
-        fiveHour: UsageWindow,
+        fiveHour: UsageWindow?,
         sevenDay: UsageWindow?,
         sevenDaySonnet: UsageWindow? = nil,
         sevenDayOpus: UsageWindow? = nil,
@@ -253,14 +267,31 @@ extension UsageWindow {
 }
 
 extension ClaudeUsageResponse {
-    /// 5시간 세션 퍼센트 (메인 표시용)
-    nonisolated var fiveHourPercentage: Double {
-        fiveHour.utilization
+    /// 5시간 세션 퍼센트. 창이 없으면 nil
+    nonisolated var fiveHourPercentage: Double? {
+        fiveHour?.utilization
     }
 
-    /// 주간 한도 퍼센트
-    nonisolated var weeklyPercentage: Double {
-        sevenDay?.utilization ?? 0
+    /// 주간 한도 퍼센트. 창이 없으면 nil
+    nonisolated var weeklyPercentage: Double? {
+        sevenDay?.utilization
+    }
+
+    nonisolated var hasSessionWindow: Bool {
+        fiveHour != nil
+    }
+
+    /// 메뉴바 색상과 단일 퍼센트 기준. 5시간 창이 없으면 0% 대신 주간 창을 쓴다.
+    nonisolated var gaugePercentage: Double? {
+        fiveHour?.utilization ?? sevenDay?.utilization
+    }
+
+    /// "현재 3% · 주간 41%" 요약. 없는 창은 빼고, 둘 다 없으면 "데이터 없음".
+    nonisolated var usageSummaryText: String {
+        let session = fiveHour.map { "현재 \(Int($0.utilization.rounded()))%" }
+        let weekly = sevenDay.map { "주간 \(Int($0.utilization.rounded()))%" }
+        let parts = [session, weekly].compactMap { $0 }
+        return parts.isEmpty ? "데이터 없음" : parts.joined(separator: " · ")
     }
 
     /// Sonnet 주간 퍼센트 (없으면 nil)

@@ -287,9 +287,6 @@ actor CodexAPIService {
         guard let accountID = usage.accountID ?? credential.token.accountID, !accountID.isEmpty else {
             throw APIError.codexReauthRequired(reason: "account_identity_unavailable")
         }
-        guard usage.rateLimit?.primaryWindow != nil || usage.rateLimit?.secondaryWindow != nil else {
-            throw APIError.parseError
-        }
         return usage
     }
 

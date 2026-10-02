@@ -143,7 +143,7 @@ struct ClaudeItemCatalog: UsageItemCatalog {
     func section(for itemID: String, context: UsageItemContext) -> PopoverDisplaySection? {
         switch itemID {
         case "currentSession":
-            guard let usage = context.claudeUsage else { return nil }
+            guard let fiveHour = context.claudeUsage?.fiveHour else { return nil }
             return PopoverDisplaySection(
                 id: "currentSession",
                 kind: .usage,
@@ -152,8 +152,8 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                     PopoverUsageSectionData(
                         title: "현재 세션",
                         compactLabel: "현재",
-                        percentage: usage.fiveHour.utilization,
-                        resetAt: usage.fiveHour.resetsAt,
+                        percentage: fiveHour.utilization,
+                        resetAt: fiveHour.resetsAt,
                         isWeekly: false,
                         timeFormatStyle: context.settings.timeFormat,
                         basis: context.settings.usageValueBasis(for: .claude)

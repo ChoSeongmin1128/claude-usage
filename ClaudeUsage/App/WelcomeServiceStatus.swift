@@ -17,7 +17,7 @@ enum WelcomeServiceStatus: Equatable {
         guard snapshot.hasCredential, snapshot.lastUpdated != nil else { return .notVerified }
         let values: [Double?]
         switch snapshot.displayPayload {
-        case .claude(let usage): values = [usage.fiveHour.utilization, usage.sevenDay?.utilization]
+        case .claude(let usage): values = [usage.fiveHour?.utilization, usage.sevenDay?.utilization]
         case .codex(let usage): values = [usage.sessionWindow?.utilization, usage.weeklyWindow?.utilization]
         default: return .notVerified
         }

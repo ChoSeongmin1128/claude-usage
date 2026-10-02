@@ -98,7 +98,7 @@ final class DesignSystemTests: XCTestCase {
                     secondaryColor: .secondaryLabelColor, icon: nil)
             }
             let first = snapshot()
-            XCTAssertTrue(first.tooltip.contains("주간 —"))
+            XCTAssertFalse(first.tooltip.contains("주간"))
             XCTAssertFalse(first.tooltip.contains("100%"))
             XCTAssertEqual(first.renderKey, snapshot().renderKey)
             XCTAssertNotNil(first.styleIcon?.tiffRepresentation)
