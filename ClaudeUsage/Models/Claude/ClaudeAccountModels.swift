@@ -520,6 +520,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
                 Logger.warning("Claude 브라우저 credential 삭제 실패")
             }
         }
+        ClaudeAccountLocalData.remove(accountID: removed.id)
         postAccountNotifications(activeAccountChanged: state.activeAccountID == id)
         if deletedSessionCredential {
             postSessionCredentialNotification(accountID: removed.id)

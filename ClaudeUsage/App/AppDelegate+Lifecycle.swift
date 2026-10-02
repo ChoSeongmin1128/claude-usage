@@ -61,6 +61,11 @@ extension AppDelegate {
         setupKeyboardShortcuts()
         bindRuntimeObservers()
 
+        let claudeAccountIDs = Set(ClaudeAccountStore.shared.accounts().map(\.id))
+        Task.detached(priority: .utility) {
+            ClaudeAccountLocalData.removeOrphans(keeping: claudeAccountIDs)
+        }
+
         bootstrapAntigravityRuntime()
         bootstrapRefreshState()
         syncUpdateCheckState(runImmediate: true)
