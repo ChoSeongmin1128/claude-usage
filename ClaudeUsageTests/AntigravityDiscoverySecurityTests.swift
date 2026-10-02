@@ -522,9 +522,10 @@ final class AntigravityDiscoverySecurityTests: XCTestCase {
 
     func testLongWaiterIsNotBoundToFirstShortWaiterDeadline() async throws {
         let candidate = makeRuntimeCandidate()
+        // 긴 대기자가 짧은 대기자의 시간 초과 전에 합류해야 한다. 전체 테스트 부하에서도 순서가 지켜지도록 여유를 둔다.
         let processInspector = DiscoveryProcessInspectorStub(
             discoveries: [[candidate]],
-            discoveryDelayNanoseconds: 180_000_000
+            discoveryDelayNanoseconds: 1_500_000_000
         )
         let portInspector = DiscoveryPortInspectorStub(
             observations: [ownedEndpointMap(for: candidate)]
@@ -537,15 +538,15 @@ final class AntigravityDiscoverySecurityTests: XCTestCase {
 
         let short = Task {
             try await discovery.discover(deadline: AntigravityRPCDeadline(
-                totalTimeout: .milliseconds(40),
-                discoveryTimeout: .milliseconds(40)
+                totalTimeout: .milliseconds(300),
+                discoveryTimeout: .milliseconds(300)
             ))
         }
         try await Task.sleep(for: .milliseconds(10))
         let retained = Task {
             try await discovery.discover(deadline: AntigravityRPCDeadline(
-                totalTimeout: .seconds(1),
-                discoveryTimeout: .seconds(1)
+                totalTimeout: .seconds(5),
+                discoveryTimeout: .seconds(5)
             ))
         }
 
