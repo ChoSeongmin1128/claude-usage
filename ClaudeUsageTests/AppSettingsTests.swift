@@ -363,10 +363,7 @@ final class AppSettingsTests: XCTestCase {
     }
 
     func testSettingsSidebarAlwaysShowsNavigationAndProviders() {
-        let expected: [SettingsProviderPanel] = [
-            .welcome, .common, .display, .notifications, .updates,
-            .claude, .codex, .antigravity,
-        ]
+        let expected: [SettingsProviderPanel] = [.common, .accounts, .limits, .display, .updates]
         XCTAssertEqual(
             SettingsProviderRegistry.sidebarPanels(exposurePolicy: .primaryOnly).map(\.panel),
             expected

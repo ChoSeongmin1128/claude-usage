@@ -20,9 +20,6 @@ extension SettingsView {
                     : "시스템 설정 → 일반 → 로그인 항목에서도 관리할 수 있습니다",
                 isOn: $settings.launchAtLogin
             )
-
-            Divider()
-            AppMotionSettingsView(settings: settings)
         }
     }
 
@@ -64,21 +61,11 @@ extension SettingsView {
                 Spacer()
                 Button("표시 기준: \(settings.notificationValueBasis.label)") { selectedPanel = .display }
                     .buttonStyle(.link).controlSize(.small)
-                    .help("표시 설정에서 메뉴바·팝오버·알림의 기준을 함께 변경합니다")
+                    .help("모양에서 메뉴바·팝오버·알림의 기준을 함께 변경합니다")
             }
             NotificationThresholdEditor(settings: settings)
         }
         .disabled(!settings.notificationsEnabled)
-    }
-
-    var notificationServicesSection: some View {
-        VStack(alignment: .leading, spacing: AppDesign.Space.row) {
-            Text("알림 받을 서비스").font(AppDesign.Typography.headline)
-            ForEach(AppProviderKind.allCases, id: \.rawValue) { provider in
-                providerAlertSection(for: provider)
-            }
-
-        }
     }
 
     var commonUsageDisplaySection: some View {

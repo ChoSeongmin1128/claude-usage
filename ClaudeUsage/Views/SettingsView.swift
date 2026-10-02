@@ -193,6 +193,8 @@ struct SettingsView: View {
     @State var selectedPanel: SettingsProviderPanel = .common
     @State var selectedDisplayProvider:
         AppProviderKind = .claude
+    @State var selectedAccountProvider: AppProviderKind = .claude
+    @State var collapsedLimitProviders: Set<AppProviderKind> = []
     @State var isClaudeAccountSwitcherExpanded = false
     @State var isClaudeAccountManagementExpanded = false
     @State var isAdvancedAuthExpanded = false
@@ -247,14 +249,11 @@ struct SettingsView: View {
         self.onVerifyService = onVerifyService
         _welcomeProvider = State(
             initialValue: AppProviderKind.allCases.first { AppSettings.shared.isProviderEnabled($0) } ?? .claude)
-        _selectedPanel = State(
-            initialValue:
-                initialPanel
-                ?? SettingsProviderPanel(
-                    rawValue: AppSettings.shared.settingsLastTab
-                )
-                ?? .common
-        )
+        let storedPanel = SettingsProviderPanel.resolve(storedValue: AppSettings.shared.settingsLastTab)
+        _selectedPanel = State(initialValue: initialPanel ?? storedPanel?.panel ?? .common)
+        if let provider = storedPanel?.provider {
+            _selectedAccountProvider = State(initialValue: provider)
+        }
         _antigravitySettings = StateObject(
             wrappedValue:
                 AntigravitySettingsViewModel(

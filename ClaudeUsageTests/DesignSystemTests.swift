@@ -6,32 +6,16 @@ import XCTest
 
 @MainActor
 final class DesignSystemTests: XCTestCase {
-    func testDesignComparisonAndNotificationSummaryRenderAtNarrowWidths() throws {
-        try withSettings { settings in
-            let limits = UsageLimitCatalog.claude(
-                .init(
-                    fiveHour: .init(utilization: 12, resetsAt: nil),
-                    sevenDay: .init(utilization: 25, resetsAt: nil),
-                    scopedLimits: [
-                        .init(
-                            kind: "weekly_scoped", percent: 32, modelID: "future",
-                            modelName: "A future model with a long name")
-                    ]))
-            settings.notificationTargets.observe(limits, provider: .claude) { $0.legacyKey != nil }
-            for width: CGFloat in [320, 520] {
-                for scheme in [ColorScheme.light, .dark] {
-                    let view = VStack(alignment: .leading, spacing: AppDesign.Space.content) {
-                        MenuBarDesignComparison(colorMode: .monochrome, basis: .remaining)
-                        NotificationProviderRow(
-                            settings: settings, provider: .claude, limits: limits, isEnabled: .constant(true))
-                    }
+    func testDesignComparisonRendersAtNarrowWidths() throws {
+        for width: CGFloat in [320, 520] {
+            for scheme in [ColorScheme.light, .dark] {
+                let view = MenuBarDesignComparison(colorMode: .monochrome, basis: .remaining)
                     .padding(AppDesign.Space.content).frame(width: width)
                     .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(scheme)
-                    let image = try renderHosted(view, appearance: scheme == .dark ? .darkAqua : .aqua)
-                    XCTAssertEqual(image.size.width, width, accuracy: 0.5)
-                    XCTAssertLessThan(image.size.height, 300)
-                    attach(image, "Quota choices and five-style comparison \(width) \(scheme)")
-                }
+                let image = try renderHosted(view, appearance: scheme == .dark ? .darkAqua : .aqua)
+                XCTAssertEqual(image.size.width, width, accuracy: 0.5)
+                XCTAssertLessThan(image.size.height, 300)
+                attach(image, "Five-style comparison \(width) \(scheme)")
             }
         }
     }

@@ -3,14 +3,21 @@ import Foundation
 enum SettingsProviderPanel: String, CaseIterable, Identifiable, Sendable {
     case welcome
     case common
+    case accounts
+    case limits
     case display
-    case notifications
     case updates
-    case claude
-    case codex
-    case antigravity
 
     var id: String { rawValue }
+
+    /// 저장된 탭 값을 패널로 바꾼다. 이전 버전의 서비스별 탭은 계정 패널의 그 서비스로 연다.
+    nonisolated static func resolve(storedValue: String) -> (panel: SettingsProviderPanel, provider: AppProviderKind?)?
+    {
+        if let panel = SettingsProviderPanel(rawValue: storedValue) { return (panel, nil) }
+        if storedValue == "notifications" { return (.limits, nil) }
+        if let provider = AppProviderKind(rawValue: storedValue) { return (.accounts, provider) }
+        return nil
+    }
 }
 
 struct SettingsProviderPanelDescriptor: Identifiable, Sendable, Equatable {
@@ -54,23 +61,19 @@ enum SettingsProviderRegistry {
     }
 
     nonisolated static func sidebarPanels(exposurePolicy: ProviderExposurePolicy) -> [SettingsProviderPanelDescriptor] {
-        let providerPanels = AppProviderKind.allCases
-            .map(providerPanelDescriptor)
-        return [
-            .init(panel: .welcome, title: "빠른 시작", icon: "sparkles", providerKind: nil, availability: .active),
+        [
             .init(panel: .common, title: "일반", icon: "gearshape", providerKind: nil, availability: .active),
-            .init(panel: .display, title: "표시", icon: "menubar.rectangle", providerKind: nil, availability: .active),
-            .init(panel: .notifications, title: "알림", icon: "bell", providerKind: nil, availability: .active),
+            .init(panel: .accounts, title: "계정", icon: "person.crop.circle", providerKind: nil, availability: .active),
+            .init(
+                panel: .limits, title: "한도", icon: "gauge.with.dots.needle.33percent", providerKind: nil,
+                availability: .active),
+            .init(panel: .display, title: "모양", icon: "paintbrush", providerKind: nil, availability: .active),
             .init(panel: .updates, title: "업데이트", icon: "arrow.down.circle", providerKind: nil, availability: .active),
-        ] + providerPanels
+        ]
     }
 
     nonisolated static var providerShellDescriptors: [ProviderShellDescriptor] {
         providerDescriptors.map { providerShellDescriptor(for: $0.kind) }
-    }
-
-    nonisolated static func descriptor(for panel: SettingsProviderPanel) -> SettingsProviderPanelDescriptor {
-        sidebarPanels.first { $0.panel == panel } ?? sidebarPanels[0]
     }
 
     nonisolated static func providerShellDescriptor(for kind: AppProviderKind) -> ProviderShellDescriptor {
@@ -83,35 +86,6 @@ enum SettingsProviderRegistry {
             detail: providerDescriptor.settingsPanelDetail,
             supportsPopoverSelection: providerDescriptor.capabilities.supportsPopoverSelection
         )
-    }
-
-    nonisolated static func providerPanelDescriptor(for kind: AppProviderKind) -> SettingsProviderPanelDescriptor {
-        let providerDescriptor = kind.descriptor
-        let availability: SettingsProviderPanelDescriptor.Availability
-        if let message = providerDescriptor.settingsComingSoonMessage {
-            availability = .comingSoon(message: message)
-        } else {
-            availability = .active
-        }
-
-        return .init(
-            panel: panel(for: kind),
-            title: providerDescriptor.settingsPanelTitle,
-            icon: nil,
-            providerKind: kind,
-            availability: availability
-        )
-    }
-
-    nonisolated private static func panel(for kind: AppProviderKind) -> SettingsProviderPanel {
-        switch kind {
-        case .claude:
-            return .claude
-        case .codex:
-            return .codex
-        case .antigravity:
-            return .antigravity
-        }
     }
 }
 

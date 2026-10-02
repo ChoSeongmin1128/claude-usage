@@ -358,7 +358,7 @@ extension SettingsView {
         Toggle("한도 초기화 시간", isOn: antigravityMenuBarBinding(display, keyPath: \.showsSelectedLaneResetTime))
     }
 
-    private var antigravityObservedLanes:
+    var antigravityObservedLanes:
         [AntigravityQuotaLanePresentation]
     {
         guard case .content(let presentation) =
@@ -371,7 +371,7 @@ extension SettingsView {
             .flatMap(\.lanes)
     }
 
-    private func updateAntigravityDisplay(
+    func updateAntigravityDisplay(
         _ update:
             (inout AntigravityDisplaySettings)
                 -> Void
@@ -509,28 +509,6 @@ extension SettingsView {
                 codexError: provider == .codex ? codexLastError?() : nil
             )
         }
-    }
-
-    func providerAlertSection(for provider: AppProviderKind) -> some View {
-        NotificationProviderRow(
-            settings: settings, provider: provider,
-            limits: notificationManager.inventories[provider.runtimeService ?? .claude] ?? [],
-            isEnabled: Binding(
-                get: {
-                    provider == .antigravity
-                        ? antigravitySettings.state.display?.notifications.isEnabled ?? false
-                        : settings.isProviderAlertEnabled(provider)
-                },
-                set: { enabled in
-                    if provider == .antigravity {
-                        updateAntigravityDisplay { $0.notifications.isEnabled = enabled }
-                    } else {
-                        settings.setProviderAlertEnabled(enabled, for: provider)
-                    }
-                })
-        )
-        .disabled(
-            !settings.notificationsEnabled || (provider == .antigravity && antigravitySettings.state.display == nil))
     }
 
     func segmentedTabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
