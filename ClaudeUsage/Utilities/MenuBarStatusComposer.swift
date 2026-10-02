@@ -864,8 +864,8 @@ enum MenuBarStatusComposer {
             case .weekly:
                 return displayWeekly
             case .dual:
-                // 세션 창이 없는 주간 전용 응답이면 주간 하나만 표시
-                guard hasPrimary else { return displayWeekly }
+                // 응답에 있는 창만 표시한다(주간 전용이면 주간, 세션 전용이면 세션)
+                guard hasPrimary, weekly != nil else { return hasPrimary ? displayPrimary : displayWeekly }
                 return "\(displayPrimary)·\(displayWeekly)"
             }
         }()
