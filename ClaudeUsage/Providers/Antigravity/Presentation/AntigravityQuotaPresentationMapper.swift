@@ -1085,7 +1085,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
     private static func formatPercentage(
         _ percentage: Double
     ) -> String {
-        let roundedToTenth = (percentage * 10).rounded() / 10
+        let roundedToTenth = PercentageText.tenths(percentage)
         if roundedToTenth == roundedToTenth.rounded() {
             return String(format: "%.0f%%", roundedToTenth)
         }

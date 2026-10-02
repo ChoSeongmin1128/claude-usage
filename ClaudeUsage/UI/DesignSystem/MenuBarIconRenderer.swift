@@ -90,7 +90,7 @@ enum MenuBarIconRenderer {
         color.setFill()
         fill.fill()
         if showPercent {
-            let text = validValue.map { String(format: "%.0f", $0) } ?? "—"
+            let text = validValue.map { String(PercentageText.wholeNumber($0)) } ?? "—"
             let font = NSFont.systemFont(ofSize: BatteryGeometry.fontSize, weight: .regular)
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: font,
@@ -155,7 +155,7 @@ enum MenuBarIconRenderer {
         color.setFill()
         NSBezierPath(roundedRect: fill, xRadius: max(corner - inset, 0.5), yRadius: max(corner - inset, 0.5)).fill()
         guard showPercent else { return }
-        let text = value.map { String(format: "%.0f", $0) } ?? "—"
+        let text = value.map { String(PercentageText.wholeNumber($0)) } ?? "—"
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .bold),
             .foregroundColor: textColor ?? (isDark ? NSColor.white : .black),

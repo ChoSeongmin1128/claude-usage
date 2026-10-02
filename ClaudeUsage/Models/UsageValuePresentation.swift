@@ -37,12 +37,12 @@ nonisolated enum UsageValueBasis: String, Sendable, Equatable {
 
     func text(fromUsed percentage: Double?) -> String {
         guard let value = self.percentage(fromUsed: percentage) else { return "—" }
-        return String(format: "%.0f%%", value)
+        return PercentageText.string(value)
     }
 
     func spokenValue(fromUsed percentage: Double?) -> String {
         guard let value = self.percentage(fromUsed: percentage) else { return "사용량 알 수 없음" }
-        return "\(Int(value.rounded()))퍼센트 \(label)"
+        return "\(PercentageText.wholeNumber(value))퍼센트 \(label)"
     }
 
     static func antigravity(_ intent: AntigravityDisplaySettings.MenuBarPresentationIntent) -> Self {

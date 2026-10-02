@@ -387,8 +387,8 @@ extension CodexUsageResponse {
 
     /// "현재 3% · 주간 41%" 요약. 세션 창이 없으면 주간만 표기.
     nonisolated var usageSummaryText: String {
-        let session = sessionWindow.map { "현재 \(Int($0.utilization.rounded()))%" }
-        let weekly = weeklyWindow.map { "주간 \(Int($0.utilization.rounded()))%" }
+        let session = sessionWindow.map { "현재 \(PercentageText.string($0.utilization))" }
+        let weekly = weeklyWindow.map { "주간 \(PercentageText.string($0.utilization))" }
         return [session, weekly].compactMap { $0 }.joined(separator: " · ").ifEmpty("데이터 없음")
     }
 }

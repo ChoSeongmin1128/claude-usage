@@ -309,8 +309,8 @@ extension ClaudeUsageResponse {
 
     /// "현재 3% · 주간 41%" 요약. 없는 창은 빼고, 둘 다 없으면 "데이터 없음".
     nonisolated var usageSummaryText: String {
-        let session = fiveHour.map { "현재 \(Int($0.utilization.rounded()))%" }
-        let weekly = sevenDay.map { "주간 \(Int($0.utilization.rounded()))%" }
+        let session = fiveHour.map { "현재 \(PercentageText.string($0.utilization))" }
+        let weekly = sevenDay.map { "주간 \(PercentageText.string($0.utilization))" }
         let parts = [session, weekly].compactMap { $0 }
         return parts.isEmpty ? "데이터 없음" : parts.joined(separator: " · ")
     }
@@ -479,7 +479,7 @@ extension OverageSpendLimitResponse {
 
     /// 헤드라인 값. 한도가 있으면 사용률, 없으면 사용 금액
     nonisolated var headlineText: String {
-        usagePercentage.map { String(format: "%.0f%%", $0) } ?? formattedUsedCredits
+        usagePercentage.map(PercentageText.string) ?? formattedUsedCredits
     }
 }
 
