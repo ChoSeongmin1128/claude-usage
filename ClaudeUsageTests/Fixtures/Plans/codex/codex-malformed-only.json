@@ -1,0 +1,19 @@
+{
+  "meta": {
+    "plans": [],
+    "source": "assumed",
+    "date": "2026-10-03",
+    "note": "형식이 깨진 창만 있으면 형식 오류"
+  },
+  "response": {
+    "account_id": "acct-fixture",
+    "rate_limit": {
+      "primary_window": {
+        "used_percent": "unknown"
+      }
+    }
+  },
+  "expected": {
+    "decodeError": true
+  }
+}

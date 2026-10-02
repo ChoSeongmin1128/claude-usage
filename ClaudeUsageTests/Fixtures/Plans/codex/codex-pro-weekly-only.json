@@ -1,0 +1,41 @@
+{
+  "meta": {
+    "plans": [
+      "pro",
+      "prolite",
+      "promax"
+    ],
+    "source": "docs",
+    "date": "2026-10-01",
+    "note": "공식 문서: Pro는 5시간 한도 없음. 주간 창이 primary 자리에 옴"
+  },
+  "response": {
+    "account_id": "acct-fixture",
+    "plan_type": "pro",
+    "rate_limit": {
+      "primary_window": {
+        "used_percent": 12,
+        "limit_window_seconds": 604800,
+        "reset_after_seconds": 3600,
+        "reset_at": 1790900000
+      },
+      "secondary_window": null
+    },
+    "credits": {
+      "has_credits": true,
+      "unlimited": false,
+      "balance": "450"
+    }
+  },
+  "expected": {
+    "rows": [
+      "주간=12"
+    ],
+    "menuBar": {
+      "fiveHour": "12%",
+      "weekly": "12%",
+      "dual": "12%"
+    },
+    "credits": "450 크레딧"
+  }
+}

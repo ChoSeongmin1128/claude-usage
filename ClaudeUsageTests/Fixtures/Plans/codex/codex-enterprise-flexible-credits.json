@@ -1,0 +1,39 @@
+{
+  "meta": {
+    "plans": [
+      "enterprise",
+      "edu",
+      "edu_plus",
+      "edu_pro",
+      "education",
+      "k12",
+      "quorum",
+      "ent26",
+      "enterprise_cbp_automation",
+      "enterprise_cbp_usage_based",
+      "self_serve_business_usage_based"
+    ],
+    "source": "docs",
+    "date": "2026-10-01",
+    "note": "Enterprise/Edu 유연 요금제는 고정 한도 없이 크레딧만 사용(문서). 나머지 교육, 사용량 기반 값은 같은 형태로 가정"
+  },
+  "response": {
+    "account_id": "acct-fixture",
+    "plan_type": "enterprise",
+    "rate_limit": null,
+    "credits": {
+      "has_credits": true,
+      "unlimited": false,
+      "balance": "62500"
+    }
+  },
+  "expected": {
+    "rows": [],
+    "menuBar": {
+      "fiveHour": "—",
+      "weekly": "—",
+      "dual": "—"
+    },
+    "credits": "62,500 크레딧"
+  }
+}

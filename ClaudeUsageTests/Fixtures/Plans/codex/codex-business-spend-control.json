@@ -1,0 +1,57 @@
+{
+  "meta": {
+    "plans": [
+      "business"
+    ],
+    "source": "docs",
+    "date": "2026-10-03",
+    "note": "openai/codex backend 모델의 spend_control, rate_limit_reached_type 형태"
+  },
+  "response": {
+    "account_id": "acct-fixture",
+    "plan_type": "business",
+    "rate_limit": {
+      "primary_window": {
+        "used_percent": 64,
+        "limit_window_seconds": 18000,
+        "reset_after_seconds": 3600,
+        "reset_at": 1790900000
+      },
+      "secondary_window": {
+        "used_percent": 88,
+        "limit_window_seconds": 604800,
+        "reset_after_seconds": 3600,
+        "reset_at": 1790900000
+      }
+    },
+    "spend_control": {
+      "reached": true,
+      "individual_limit": {
+        "source": "workspace",
+        "limit": "1000",
+        "used": "1000",
+        "remaining": "0",
+        "used_percent": 100,
+        "remaining_percent": 0,
+        "reset_after_seconds": 86400,
+        "reset_at": 1793000000
+      }
+    },
+    "rate_limit_reached_type": {
+      "type": "workspace_member_credits_depleted"
+    }
+  },
+  "expected": {
+    "rows": [
+      "5시간=64",
+      "주간=88"
+    ],
+    "menuBar": {
+      "fiveHour": "64%",
+      "weekly": "88%",
+      "dual": "64%·88%"
+    },
+    "spendLimit": 100,
+    "notice": "워크스페이스 크레딧 소진 · 소유자에게 추가 요청"
+  }
+}

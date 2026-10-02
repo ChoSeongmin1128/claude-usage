@@ -1,0 +1,53 @@
+{
+  "meta": {
+    "plans": [],
+    "source": "measured",
+    "date": "2026-07-22",
+    "note": "모델별 추가 한도(additional_rate_limits) 형태"
+  },
+  "response": {
+    "account_id": "acct-fixture",
+    "plan_type": "plus",
+    "rate_limit": {
+      "primary_window": {
+        "used_percent": 10,
+        "limit_window_seconds": 18000,
+        "reset_after_seconds": 3600,
+        "reset_at": 1790900000
+      },
+      "secondary_window": {
+        "used_percent": 20,
+        "limit_window_seconds": 604800,
+        "reset_after_seconds": 3600,
+        "reset_at": 1790900000
+      }
+    },
+    "additional_rate_limits": [
+      {
+        "limit_name": "GPT-5.3-Codex-Spark",
+        "metered_feature": "codex_spark",
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 5,
+            "limit_window_seconds": 604800,
+            "reset_after_seconds": 3600,
+            "reset_at": 1790900000
+          },
+          "secondary_window": null
+        }
+      }
+    ]
+  },
+  "expected": {
+    "rows": [
+      "5시간=10",
+      "주간=20",
+      "GPT-5.3-Codex-Spark · 주간=5"
+    ],
+    "menuBar": {
+      "fiveHour": "10%",
+      "weekly": "20%",
+      "dual": "10%·20%"
+    }
+  }
+}

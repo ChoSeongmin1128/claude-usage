@@ -1,0 +1,29 @@
+{
+  "meta": {
+    "plans": [
+      "enterprise_usage_based"
+    ],
+    "source": "docs",
+    "date": "2026-10-01",
+    "note": "공식 문서: 사용량 기반 Enterprise는 5시간/주간 한도 없음"
+  },
+  "response": {
+    "five_hour": null,
+    "seven_day": null,
+    "limits": [],
+    "extra_usage": {
+      "is_enabled": true,
+      "monthly_limit": null,
+      "used_credits": 125000,
+      "currency": "USD"
+    }
+  },
+  "expected": {
+    "rows": [],
+    "menuBar": {
+      "fiveHour": "—",
+      "weekly": "—",
+      "dual": "—"
+    }
+  }
+}
