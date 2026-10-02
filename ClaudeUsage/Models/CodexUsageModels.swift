@@ -228,7 +228,7 @@ nonisolated struct CodexCredits: Codable, Sendable {
     nonisolated var formattedBalance: String {
         if unlimited { return "무제한" }
         guard let balance = balance else { return "정보 없음" }
-        return String(format: "$%.2f", balance)
+        return MoneyFormatter.credits(balance)
     }
 }
 

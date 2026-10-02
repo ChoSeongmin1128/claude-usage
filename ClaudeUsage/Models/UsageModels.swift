@@ -361,11 +361,12 @@ extension ClaudeUsageResponse {
 
 /// 추가 사용량 API 응답 (금액은 센트 단위로 수신)
 nonisolated struct OverageSpendLimitResponse: Codable, Sendable, Equatable {
-    let monthlyCreditLimitCents: Double  // 월별 한도 (센트)
-    let usedCreditsCents: Double         // 사용한 금액 (센트)
+    let monthlyCreditLimitCents: Double? // 월별 한도 (최소 단위). null이면 한도 없음
+    let usedCreditsCents: Double         // 사용한 금액 (최소 단위)
     let isEnabled: Bool                  // Extra Usage 활성 여부
     let outOfCredits: Bool               // 크레딧 소진 여부
-    let currency: String                 // 통화 (USD)
+    let currency: String                 // 통화 코드
+    let decimalPlaces: Int?              // 서버가 준 소수 자릿수
 
     enum CodingKeys: String, CodingKey {
         case monthlyCreditLimitCents = "monthly_credit_limit"
@@ -373,20 +374,23 @@ nonisolated struct OverageSpendLimitResponse: Codable, Sendable, Equatable {
         case isEnabled = "is_enabled"
         case outOfCredits = "out_of_credits"
         case currency
+        case decimalPlaces = "decimal_places"
     }
 
     nonisolated init(
-        monthlyCreditLimitCents: Double,
+        monthlyCreditLimitCents: Double?,
         usedCreditsCents: Double,
         isEnabled: Bool,
         outOfCredits: Bool,
-        currency: String
+        currency: String,
+        decimalPlaces: Int? = nil
     ) {
         self.monthlyCreditLimitCents = monthlyCreditLimitCents
         self.usedCreditsCents = usedCreditsCents
         self.isEnabled = isEnabled
         self.outOfCredits = outOfCredits
         self.currency = currency
+        self.decimalPlaces = decimalPlaces
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -397,7 +401,7 @@ nonisolated struct OverageSpendLimitResponse: Codable, Sendable, Equatable {
         } else if let intVal = try? container.decode(Int.self, forKey: .monthlyCreditLimitCents) {
             monthlyCreditLimitCents = Double(intVal)
         } else {
-            monthlyCreditLimitCents = 0
+            monthlyCreditLimitCents = nil
         }
 
         if let doubleVal = try? container.decode(Double.self, forKey: .usedCreditsCents) {
@@ -411,39 +415,50 @@ nonisolated struct OverageSpendLimitResponse: Codable, Sendable, Equatable {
         isEnabled = (try? container.decode(Bool.self, forKey: .isEnabled)) ?? false
         outOfCredits = (try? container.decode(Bool.self, forKey: .outOfCredits)) ?? false
         currency = (try? container.decode(String.self, forKey: .currency)) ?? "USD"
+        decimalPlaces = (try? container.decode(Int.self, forKey: .decimalPlaces)) ?? nil
     }
 }
 
 extension OverageSpendLimitResponse {
-    /// 달러 단위 한도
-    nonisolated var monthlyCreditLimit: Double {
-        monthlyCreditLimitCents / 100.0
+    private nonisolated var minorUnitDivisor: Double {
+        pow(10, Double(decimalPlaces ?? 2))
     }
 
-    /// 달러 단위 사용 금액
+    /// 통화 단위 한도. 한도가 없으면 nil
+    nonisolated var monthlyCreditLimit: Double? {
+        monthlyCreditLimitCents.map { $0 / minorUnitDivisor }
+    }
+
+    /// 통화 단위 사용 금액
     nonisolated var usedCredits: Double {
-        usedCreditsCents / 100.0
+        usedCreditsCents / minorUnitDivisor
     }
 
-    /// 사용률 퍼센트 (0~100)
-    nonisolated var usagePercentage: Double {
-        guard monthlyCreditLimitCents > 0 else { return 0 }
-        return (usedCreditsCents / monthlyCreditLimitCents) * 100
+    /// 사용률 퍼센트 (0~100). 한도가 없으면 nil
+    nonisolated var usagePercentage: Double? {
+        guard let limit = monthlyCreditLimitCents, limit > 0 else { return nil }
+        return (usedCreditsCents / limit) * 100
     }
 
-    /// 통화 포맷된 사용 금액
     nonisolated var formattedUsedCredits: String {
-        String(format: "$%.2f", usedCredits)
+        MoneyFormatter.string(minorUnits: usedCreditsCents, currency: currency, decimalPlaces: decimalPlaces)
     }
 
-    /// 통화 포맷된 한도
     nonisolated var formattedCreditLimit: String {
-        String(format: "$%.2f", monthlyCreditLimit)
+        guard let limit = monthlyCreditLimitCents else { return "한도 없음" }
+        return MoneyFormatter.string(minorUnits: limit, currency: currency, decimalPlaces: decimalPlaces)
     }
 
     /// Claude API가 확정적으로 제공하는 추가 사용량 값만 표시합니다.
     nonisolated var formattedUsageLimitSummary: String {
-        "\(formattedUsedCredits) 사용 / \(formattedCreditLimit) 한도"
+        let limit = monthlyCreditLimitCents == nil ? formattedCreditLimit : "\(formattedCreditLimit) 한도"
+        let summary = "\(formattedUsedCredits) 사용 / \(limit)"
+        return outOfCredits ? summary + " · 크레딧 소진" : summary
+    }
+
+    /// 헤드라인 값. 한도가 있으면 사용률, 없으면 사용 금액
+    nonisolated var headlineText: String {
+        usagePercentage.map { String(format: "%.0f%%", $0) } ?? formattedUsedCredits
     }
 }
 

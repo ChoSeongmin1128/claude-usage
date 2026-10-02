@@ -533,7 +533,7 @@ struct OverageUsageView: View {
                 Text(isStale ? "추가 사용량 · 이전 값" : "추가 사용량")
                     .font(AppDesign.Typography.subheadline.weight(.semibold))
                 Spacer(minLength: 0)
-                Text(String(format: "%.0f%%", overage.usagePercentage))
+                Text(overage.headlineText)
                     .font(AppDesign.Typography.headline)
                     .fontWeight(.semibold)
                     .foregroundStyle(.purple)
@@ -569,17 +569,18 @@ struct CompactOverageRow: View {
 
             HStack(spacing: AppDesign.Space.compact) {
                 ProgressBarView(
-                    percentage: overage.usagePercentage,
+                    percentage: overage.usagePercentage ?? 0,
                     height: PopoverLayoutMetrics.compactProgressBarHeight,
                     color: .purple
                 )
                 .frame(maxWidth: .infinity)
 
-                Text(String(format: "%.0f%%", overage.usagePercentage))
+                Text(overage.headlineText)
                     .font(AppDesign.Typography.compactValue)
                     .fontWeight(.medium)
                     .foregroundStyle(.purple)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                     .frame(width: 32, alignment: .trailing)
             }
             .frame(width: PopoverLayoutMetrics.compactRowMeterWidth, alignment: .trailing)
