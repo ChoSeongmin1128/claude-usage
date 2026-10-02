@@ -13,7 +13,8 @@ final class AppRuntimeObservationCoordinator {
         onMenuBarDisplayChanged: @escaping () -> Void,
         onProviderSelectionChanged: @escaping (ProviderSelectionState) -> Void,
         onClaudeCredentialContextChanged: @escaping () -> Void,
-        onUsageDisplayModeChanged: @escaping () -> Void = {}
+        onUsageDisplayModeChanged: @escaping () -> Void = {},
+        onTimeFormatChanged: @escaping () -> Void = {}
     ) {
         cancelAll()
 
@@ -57,6 +58,13 @@ final class AppRuntimeObservationCoordinator {
             .dropFirst()
             .receive(on: RunLoop.main)
             .sink { _ in onUsageDisplayModeChanged() }
+            .store(in: &cancellables)
+
+        settings.$timeFormat
+            .removeDuplicates()
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { _ in onTimeFormatChanged() }
             .store(in: &cancellables)
 
         settings.$providerSelectionRevision

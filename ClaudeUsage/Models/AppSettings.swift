@@ -61,13 +61,23 @@ enum TimeFormatStyle: String, Codable, CaseIterable, Sendable {
     case h24 = "24h"
     case h12 = "12h"
     case remaining = "remaining"
+    /// 남은 시간을 h:mm로. 주간은 3d 02:12
+    case remainingClock = "remaining_clock"
+    /// 남은 시간을 h:mm로. 주간은 전체 시간 74:12
+    case remainingTotalClock = "remaining_total_clock"
 
     var displayName: String {
         switch self {
         case .h24: return "24시간 (18:34)"
         case .h12: return "12시간 (6:34 PM)"
-        case .remaining: return "남은 시간 (2h 34m)"
+        case .remaining: return "남은 시간 (2h 34m, 주간 3d 2h)"
+        case .remainingClock: return "남은 시간 (2:34, 주간 3d 02:12)"
+        case .remainingTotalClock: return "남은 시간 (2:34, 주간 74:12)"
         }
+    }
+
+    nonisolated var isRemaining: Bool {
+        self == .remaining || self == .remainingClock || self == .remainingTotalClock
     }
 }
 
@@ -80,7 +90,7 @@ enum ResetTimeDisplay: String, Codable, CaseIterable, Sendable {
     var displayName: String {
         switch self {
         case .none: return "없음"
-        case .fiveHour: return "현재 세션"
+        case .fiveHour: return "5시간 한도"
         case .weekly: return "주간"
         case .dual: return "동시 표시"
         }
@@ -96,7 +106,7 @@ enum PercentageDisplay: String, Codable, CaseIterable, Sendable {
     var displayName: String {
         switch self {
         case .none: return "없음"
-        case .fiveHour: return "현재 세션"
+        case .fiveHour: return "5시간 한도"
         case .weekly: return "주간"
         case .dual: return "동시 표시"
         }
@@ -122,7 +132,7 @@ enum IconMetric: String, Codable, CaseIterable, Sendable {
     var displayName: String {
         switch self {
         case .fiveHour:
-            return "현재 세션"
+            return "5시간 한도"
         case .weekly:
             return "주간"
         }
@@ -576,8 +586,10 @@ class AppSettings: ObservableObject {
     @Published var codexResetTimeDisplay: ResetTimeDisplay {
         didSet { defaults.set(codexResetTimeDisplay.rawValue, forKey: "codexResetTimeDisplay") }
     }
-    @Published var codexTimeFormat: TimeFormatStyle {
-        didSet { defaults.set(codexTimeFormat.rawValue, forKey: "codexTimeFormat") }
+    /// 시간 형식은 2.8.0부터 모든 서비스가 하나를 쓴다(TimeFormatUnification).
+    var codexTimeFormat: TimeFormatStyle {
+        get { timeFormat }
+        set { timeFormat = newValue }
     }
     @Published var codexMenuBarStyle: MenuBarStyle {
         didSet { defaults.set(codexMenuBarStyle.rawValue, forKey: "codexMenuBarStyle") }
@@ -1094,7 +1106,6 @@ class AppSettings: ObservableObject {
             $showCodexIcon.map { _ in () }.eraseToAnyPublisher(),
             $codexPercentageDisplay.map { _ in () }.eraseToAnyPublisher(),
             $codexResetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
-            $codexTimeFormat.map { _ in () }.eraseToAnyPublisher(),
             $codexMenuBarStyle.map { _ in () }.eraseToAnyPublisher(),
             $codexCircularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
             $codexIconMetric.map { _ in () }.eraseToAnyPublisher(),
@@ -1677,8 +1688,6 @@ class AppSettings: ObservableObject {
         self.codexPercentageDisplay = PercentageDisplay(rawValue: cpd) ?? .fiveHour
         let crd = defaults.string(forKey: "codexResetTimeDisplay") ?? ResetTimeDisplay.none.rawValue
         self.codexResetTimeDisplay = ResetTimeDisplay(rawValue: crd) ?? .none
-        let codexTF = defaults.string(forKey: "codexTimeFormat") ?? resolvedTimeFormat.rawValue
-        self.codexTimeFormat = TimeFormatStyle(rawValue: codexTF) ?? resolvedTimeFormat
         let cms = defaults.string(forKey: "codexMenuBarStyle") ?? MenuBarStyle.none.rawValue
         self.codexMenuBarStyle = MenuBarStyle(rawValue: cms) ?? .none
         let ccdm = defaults.string(forKey: "codexCircularDisplayMode") ?? CircularDisplayMode.usage.rawValue
@@ -1689,6 +1698,7 @@ class AppSettings: ObservableObject {
         self.codexAlertEnabled = defaults.object(forKey: "codexAlertEnabled") as? Bool ?? false
         let legacySettingsLastTab = defaults.string(forKey: "settingsLastTab") ?? "common"
         self.settingsLastTab = legacySettingsLastTab
+        TimeFormatUnification.migrate(defaults: defaults)
         RetiredAppDefaults.remove(from: defaults)
     }
 

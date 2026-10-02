@@ -122,6 +122,9 @@ nonisolated struct AntigravityDisplaySettings: Codable, Equatable, Sendable {
             case h24 = "24h"
             case h12 = "12h"
             case remaining
+            // 공통 시간 형식(TimeFormatStyle)을 그대로 전달받기 위한 값. 이 설정 저장소에는 쓰지 않는다.
+            case remainingClock = "remaining_clock"
+            case remainingTotalClock = "remaining_total_clock"
         }
 
         enum CircularValue: String, Codable, CaseIterable, Sendable {

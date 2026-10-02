@@ -135,7 +135,7 @@ final class UsageModelsDecodingTests: XCTestCase {
 
         XCTAssertEqual(usage.sessionWindow?.utilization, 4)
         XCTAssertEqual(usage.weeklyWindow?.utilization, 63)
-        XCTAssertEqual(usage.usageSummaryText, "현재 4% · 주간 63%")
+        XCTAssertEqual(usage.usageSummaryText, "5시간 4% · 주간 63%")
     }
 
     func testCodexAdditionalRateLimitsDecoding() throws {

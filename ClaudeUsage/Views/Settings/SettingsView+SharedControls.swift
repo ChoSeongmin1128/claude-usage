@@ -36,30 +36,9 @@ extension SettingsView {
 
     private func providerTimeFormatBinding(for provider: AppProviderKind) -> Binding<TimeFormatStyle> {
         Binding(
-            get: {
-                if provider == .antigravity {
-                    guard let raw = antigravitySettings.state.display?.menuBar.timeFormat.rawValue else {
-                        return .h24
-                    }
-                    return TimeFormatStyle(rawValue: raw) ?? .h24
-                }
-                return settings.menuBarDisplayConfig(for: provider)?.timeFormat ?? .h24
-            },
-            set: { format in
-                if provider == .antigravity {
-                    guard
-                        let agyFormat =
-                            AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat(rawValue: format.rawValue)
-                    else {
-                        return
-                    }
-                    updateAntigravityDisplay {
-                        $0.menuBar.timeFormat = agyFormat
-                    }
-                } else {
-                    settings.setProviderTimeFormat(format, for: provider)
-                }
-            }
+            // 시간 형식은 모든 서비스가 하나를 쓴다.
+            get: { settings.timeFormat },
+            set: { settings.timeFormat = $0 }
         )
     }
 
@@ -289,7 +268,7 @@ extension SettingsView {
     }
 
     private func primaryMenuBarMetricName(for provider: AppProviderKind) -> String {
-        "현재 세션"
+        "5시간 한도"
     }
 
     private func secondaryMenuBarMetricName(for provider: AppProviderKind) -> String {

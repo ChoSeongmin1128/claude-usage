@@ -305,7 +305,7 @@ final class UsageItemCatalogTests: XCTestCase {
             ["codexPrimary-status", "codexSecondary-status", "codexCredits-status"]
         )
         XCTAssertEqual(sections.map(\.kind), [.status, .status, .status])
-        XCTAssertEqual(statusTitles(from: sections), ["현재 세션", "주간 한도", "Codex 크레딧"])
+        XCTAssertEqual(statusTitles(from: sections), ["5시간 한도", "주간 한도", "Codex 크레딧"])
     }
 
     func testAntigravityUsesTypedLaneAdapterInsteadOfStaticCatalog() {

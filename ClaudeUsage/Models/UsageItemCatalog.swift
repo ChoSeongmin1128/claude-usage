@@ -132,7 +132,7 @@ struct ClaudeItemCatalog: UsageItemCatalog {
 
     func displayName(for itemID: String) -> String? {
         switch itemID {
-        case "currentSession": return "현재 세션"
+        case "currentSession": return "5시간 한도"
         case "weeklyLimit": return "주간 한도"
         case "modelUsage": return "모델별 주간 한도"
         case "overageUsage": return "추가 사용량"
@@ -150,8 +150,8 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                 importance: .primary,
                 payload: .usage(
                     PopoverUsageSectionData(
-                        title: "현재 세션",
-                        compactLabel: "현재",
+                        title: "5시간 한도",
+                        compactLabel: "5시간",
                         percentage: fiveHour.utilization,
                         resetAt: fiveHour.resetsAt,
                         isWeekly: false,
@@ -298,8 +298,8 @@ struct CodexItemCatalog: UsageItemCatalog {
                     importance: .primary,
                     payload: .usage(
                         PopoverUsageSectionData(
-                            title: window.adaptiveTitle(expectedSeconds: 5 * 3600, fallback: "현재 세션"),
-                            compactLabel: window.adaptiveCompactLabel(expectedSeconds: 5 * 3600, fallback: "현재"),
+                            title: window.adaptiveTitle(expectedSeconds: 5 * 3600, fallback: "5시간 한도"),
+                            compactLabel: window.adaptiveCompactLabel(expectedSeconds: 5 * 3600, fallback: "5시간"),
                             percentage: window.utilization,
                             resetAt: window.resetAtISO,
                             isWeekly: false,
@@ -316,7 +316,7 @@ struct CodexItemCatalog: UsageItemCatalog {
                     id: "codexPrimary-status",
                     kind: .status,
                     importance: .primary,
-                    payload: .status(PopoverStatusSectionData(title: "현재 세션", error: context.codexError))
+                    payload: .status(PopoverStatusSectionData(title: "5시간 한도", error: context.codexError))
                 )
             }
 

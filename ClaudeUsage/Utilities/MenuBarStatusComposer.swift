@@ -885,7 +885,7 @@ enum MenuBarStatusComposer {
     ) -> String {
         let basis = config.usageValueBasis
         let parts = [
-            session.map { "현재 \(basis.text(fromUsed: $0))" },
+            session.map { "5시간 \(basis.text(fromUsed: $0))" },
             weekly.map { "주간 \(basis.text(fromUsed: $0))" },
         ].compactMap { $0 }
         return parts.isEmpty ? "데이터 없음" : parts.joined(separator: " · ") + " \(basis.label)"

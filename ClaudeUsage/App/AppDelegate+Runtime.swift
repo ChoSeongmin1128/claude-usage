@@ -130,6 +130,14 @@ extension AppDelegate {
                     let revision = AppSettings.shared.usageDisplayModeRevision
                     await runtime.runtimeController.setUsageDisplayBasis(basis, revision: revision)
                 }
+            },
+            onTimeFormatChanged: { [weak self] in
+                guard let self else { return }
+                Task { [weak self] in
+                    guard let self else { return }
+                    let runtime = await antigravityRuntimeTask.value
+                    await runtime.runtimeController.setTimeFormat(AppSettings.shared.timeFormat)
+                }
             }
         )
     }

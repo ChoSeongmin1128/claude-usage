@@ -17,6 +17,7 @@ nonisolated enum RetiredAppDefaults {
                 AppIdentifiers.defaultsKey("authPathHealth.v1"), AppIdentifiers.defaultsKey("cachedOrganizations.v1"),
                 "initialRuntimeProviderDetectionCompleted", "suppressMoveToApplicationsAlert",
                 "browserCookieAccessDeniedUntil", "geminiRefreshInterval", "statusItemUnplacedNoticeDate",
+                "codexTimeFormat",
             ],
             replacement: nil),
         Group(

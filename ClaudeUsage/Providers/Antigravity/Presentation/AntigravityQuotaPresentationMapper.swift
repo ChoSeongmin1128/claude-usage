@@ -772,8 +772,13 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             return "갱신 시각 알 수 없음"
         }
         switch timeFormat {
-        case .remaining:
-            return relativeResetText(resetAt: resetAt, now: now)
+        case .remaining, .remainingClock, .remainingTotalClock:
+            // 남은 시간 표기는 Claude, Codex와 같은 형식을 쓴다.
+            guard resetAt.timeIntervalSince(now) > 0 else { return "갱신 시각 확인 필요" }
+            return TimeFormatter.formatRemaining(
+                until: resetAt, now: now,
+                style: TimeFormatStyle(rawValue: timeFormat.rawValue) ?? .remaining,
+                isWeekly: lane.cadence != .fiveHour && resetAt.timeIntervalSince(now) > 86400)
         case .h24:
             return formattedMenuBarResetDate(
                 resetAt,
@@ -791,33 +796,6 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                 timeZone: timeZone
             )
         }
-    }
-
-    private static func relativeResetText(
-        resetAt: Date,
-        now: Date
-    ) -> String {
-        let interval = resetAt.timeIntervalSince(now)
-        guard interval > 0 else {
-            return "갱신 시각 확인 필요"
-        }
-        let totalMinutes = max(1, Int(interval / 60))
-        let days = totalMinutes / (24 * 60)
-        let hours = totalMinutes % (24 * 60) / 60
-        let minutes = totalMinutes % 60
-        if days > 0, hours > 0 {
-            return "\(days)일 \(hours)시간 후"
-        }
-        if days > 0 {
-            return "\(days)일 후"
-        }
-        if hours > 0, minutes > 0 {
-            return "\(hours)시간 \(minutes)분 후"
-        }
-        if hours > 0 {
-            return "\(hours)시간 후"
-        }
-        return "\(minutes)분 후"
     }
 
     private static func formattedMenuBarResetDate(
