@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct AppMotionSettingsView: View {
@@ -13,12 +14,14 @@ struct AppMotionSettingsView: View {
                 Spacer()
                 Button(showsPreview ? "비교 닫기" : "모션 비교") { showsPreview.toggle() }
                     .controlSize(.small)
+                    .disabled(reduceMotion)
             }
             Picker("전체 모션", selection: $settings.motion.mode) {
                 ForEach(AppMotionMode.allCases, id: \.rawValue) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
-            if settings.motion.mode == .custom {
+            .disabled(reduceMotion)
+            if settings.motion.mode == .custom, !reduceMotion {
                 VStack(alignment: .leading, spacing: AppDesign.Space.control) {
                     ForEach(AppMotionCategory.allCases, id: \.rawValue) { category in
                         Toggle(
@@ -39,15 +42,27 @@ struct AppMotionSettingsView: View {
                 Text("선택한 항목만 부드럽게 전환합니다.")
                     .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
             }
-            if showsPreview {
+            if showsPreview, !reduceMotion {
                 Picker("비교할 동작", selection: $previewCategory) {
                     ForEach(AppMotionCategory.allCases, id: \.rawValue) { Text($0.title).tag($0) }
                 }
                 AppMotionComparisonView(category: previewCategory).id(previewCategory)
             }
             if reduceMotion {
-                Text("macOS의 ‘동작 줄이기’가 켜져 있어 즉시 표시합니다. 선택한 설정은 유지됩니다.")
-                    .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                let version = ProcessInfo.processInfo.operatingSystemVersion
+                Text(
+                    "macOS의 \"동작 줄이기\"가 켜져 있어 즉시 표시합니다. 선택한 설정은 유지되며, 시스템 설정 > \(SystemReduceMotionSetting.location(for: version))에서 끄면 바로 반영됩니다."
+                )
+                .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                if let url = SystemReduceMotionSetting.url(for: version) {
+                    Button {
+                        NSWorkspace.shared.open(url)
+                    } label: {
+                        Label("손쉬운 사용 설정 열기", systemImage: "arrow.up.forward.app")
+                    }
+                    .controlSize(.small)
+                }
             }
         }
     }
