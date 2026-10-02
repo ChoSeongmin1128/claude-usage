@@ -75,6 +75,10 @@ extension AppDelegate {
 
         if AppSettings.shared.welcomeState == .pending {
             showSettingsWindow(settingsPanelRawValue: SettingsProviderPanel.welcome.rawValue)
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                self?.presentWhatsNewIfNeeded()
+            }
         }
 
         let launchIntent = ApplicationLaunchIntent.parse(

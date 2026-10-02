@@ -158,7 +158,8 @@ extension AppDelegate {
                         )
                     })
             },
-            onVerifyService: { [weak self] service in self?.refresh(service: service, force: true) }
+            onVerifyService: { [weak self] service in self?.refresh(service: service, force: true) },
+            onShowWhatsNew: { [weak self] in self?.presentLatestWhatsNew() }
         )
     }
 

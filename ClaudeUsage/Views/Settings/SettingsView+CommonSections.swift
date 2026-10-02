@@ -129,6 +129,12 @@ extension SettingsView {
                 .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
 
+            if onShowWhatsNew != nil {
+                Button("새 기능 다시 보기") { onShowWhatsNew?() }
+                    .buttonStyle(.link)
+                    .controlSize(.small)
+            }
+
             if let update = updateRuntimeState.latestKnownUpdate,
                !update.releaseNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 DisclosureGroup("v\(update.version) 변경 사항") {

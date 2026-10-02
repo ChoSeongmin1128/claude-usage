@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let settingsWindowCoordinator = SettingsWindowCoordinator()
     let loginWindowCoordinator = LoginWindowCoordinator()
     let setupWizardWindowCoordinator = SetupWizardWindowCoordinator()
+    let whatsNewWindowCoordinator = WhatsNewWindowCoordinator()
     let runtimeState = AppRuntimeStateFacade()
 
     var statusTimer: Timer?

@@ -1507,6 +1507,9 @@ class AppSettings: ObservableObject {
             ?? (experience.isExistingInstall ? .legacy : .remaining)
         self.usageDisplayMode = displayMode
         defaults.set(displayMode.rawValue, forKey: "usageDisplayMode")
+        WhatsNewState.prepare(
+            defaults: defaults, isExistingInstall: experience.isExistingInstall,
+            currentVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0")
         self.menuBarDesign = experience.design
         self.menuBarDesignIntroductionDismissed = experience.designIntroductionDismissed
         self.welcomeState = experience.welcomeState

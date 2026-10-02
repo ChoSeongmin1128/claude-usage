@@ -210,6 +210,7 @@ struct SettingsView: View {
     @State var welcomeProvider: AppProviderKind = .claude
     var welcomeStatuses: (() -> [AppProviderKind: WelcomeServiceStatus])?
     var onVerifyService: ((PopoverService) -> Void)?
+    var onShowWhatsNew: (() -> Void)?
 
     var onOpenLogin: (() -> Void)?
     var onReconnectClaudeCode: (() -> Void)?
@@ -241,12 +242,14 @@ struct SettingsView: View {
         codexLastError: (() -> APIError?)? = nil,
         initialPanel: SettingsProviderPanel? = nil,
         welcomeStatuses: (() -> [AppProviderKind: WelcomeServiceStatus])? = nil,
-        onVerifyService: ((PopoverService) -> Void)? = nil
+        onVerifyService: ((PopoverService) -> Void)? = nil,
+        onShowWhatsNew: (() -> Void)? = nil
     ) {
         self.claudeAPIService = claudeAPIService
         self.initialPanel = initialPanel
         self.welcomeStatuses = welcomeStatuses
         self.onVerifyService = onVerifyService
+        self.onShowWhatsNew = onShowWhatsNew
         _welcomeProvider = State(
             initialValue: AppProviderKind.allCases.first { AppSettings.shared.isProviderEnabled($0) } ?? .claude)
         let storedPanel = SettingsProviderPanel.resolve(storedValue: AppSettings.shared.settingsLastTab)
