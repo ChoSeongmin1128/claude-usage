@@ -449,9 +449,10 @@ final class AntigravityDiscoverySecurityTests: XCTestCase {
 
     func testCancelledWaiterDoesNotCancelSharedDiscoveryForOtherWaiter() async throws {
         let candidate = makeRuntimeCandidate()
+        // 취소가 공유 탐색이 끝나기 전에 일어나야 한다. 전체 테스트 부하에서도 순서가 지켜지도록 여유를 둔다.
         let processInspector = DiscoveryProcessInspectorStub(
             discoveries: [[candidate]],
-            discoveryDelayNanoseconds: 180_000_000
+            discoveryDelayNanoseconds: 1_500_000_000
         )
         let portInspector = DiscoveryPortInspectorStub(
             observations: [ownedEndpointMap(for: candidate)]
@@ -482,9 +483,10 @@ final class AntigravityDiscoverySecurityTests: XCTestCase {
 
     func testJoiningWaiterHonorsItsOwnShorterDiscoveryDeadline() async throws {
         let candidate = makeRuntimeCandidate()
+        // 공유 탐색이 짧은 대기자보다 확실히 늦게 끝나야 한다. 전체 테스트 부하에서도 합류가 먼저 일어나도록 여유를 둔다.
         let processInspector = DiscoveryProcessInspectorStub(
             discoveries: [[candidate]],
-            discoveryDelayNanoseconds: 180_000_000
+            discoveryDelayNanoseconds: 1_500_000_000
         )
         let portInspector = DiscoveryPortInspectorStub(
             observations: [ownedEndpointMap(for: candidate)]
@@ -497,8 +499,8 @@ final class AntigravityDiscoverySecurityTests: XCTestCase {
 
         let retained = Task {
             try await discovery.discover(deadline: AntigravityRPCDeadline(
-                totalTimeout: .seconds(1),
-                discoveryTimeout: .seconds(1)
+                totalTimeout: .seconds(5),
+                discoveryTimeout: .seconds(5)
             ))
         }
         try await Task.sleep(for: .milliseconds(20))

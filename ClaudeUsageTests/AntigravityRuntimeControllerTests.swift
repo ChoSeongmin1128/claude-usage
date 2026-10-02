@@ -8,6 +8,8 @@ final class AntigravityRuntimeControllerTests:
     func testDisplayBasisReprojectsWithoutQuotaRefreshSettingsWriteOrProcessRecovery() async {
         let fixture = makeFixture()
         let initial = await fixture.controller.bootstrap(performInitialRefresh: true)
+        // 레거시 정리는 bootstrap 뒤에 비동기로 끝난다. 그 기록이 비교 사이에 끼지 않게 먼저 기다린다.
+        await fixture.lifecycle.waitUntilCleanupFinished()
         let events = await fixture.events.snapshot()
         let requests = await fixture.refresh.requests()
         let writes = await fixture.settings.displaySaveCount()
