@@ -242,6 +242,7 @@ struct CodexItemCatalog: UsageItemCatalog {
     let defaultItems: [PopoverItemConfig] = [
         PopoverItemConfig(id: "codexPrimary", visible: true),
         PopoverItemConfig(id: "codexSecondary", visible: true),
+        PopoverItemConfig(id: "codexSpendLimit", visible: true),
         PopoverItemConfig(id: "codexModelLimits", visible: true),
         PopoverItemConfig(id: "codexResetCredits", visible: true),
         PopoverItemConfig(id: "codexCredits", visible: true),
@@ -251,6 +252,7 @@ struct CodexItemCatalog: UsageItemCatalog {
         switch itemID {
         case "codexPrimary": return "Codex 현재"
         case "codexSecondary": return "Codex 주간"
+        case "codexSpendLimit": return "Codex 월 크레딧 한도"
         case "codexModelLimits": return "Codex 모델별 한도"
         case "codexResetCredits": return "Codex 한도 초기화 크레딧"
         case "codexCredits": return "Codex 크레딧"
@@ -347,6 +349,28 @@ struct CodexItemCatalog: UsageItemCatalog {
                     payload: .status(PopoverStatusSectionData(title: "주간 한도", error: context.codexError))
                 )
             }
+
+        case "codexSpendLimit":
+            guard let usage = context.codexUsage, let limit = usage.spendControl?.individualLimit,
+                  let percentage = limit.usedPercent
+            else { return nil }
+            let reached = usage.spendControl?.reached == true || usage.workspaceLimitNotice != nil
+            return PopoverDisplaySection(
+                id: "codexSpendLimit",
+                kind: .usage,
+                importance: .primary,
+                payload: .usage(
+                    PopoverUsageSectionData(
+                        title: reached ? "월 크레딧 한도 · 도달" : "월 크레딧 한도",
+                        compactLabel: "월 한도",
+                        percentage: percentage,
+                        resetAt: limit.resetAtISO,
+                        isWeekly: true,
+                        timeFormatStyle: context.settings.codexTimeFormat,
+                        basis: context.settings.usageValueBasis(for: .codex)
+                    )
+                )
+            )
 
         case "codexResetCredits":
             // 보유 크레딧이 있을 때만 표시 — 0개일 때는 노이즈라 숨긴다.

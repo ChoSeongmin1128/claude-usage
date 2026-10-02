@@ -156,7 +156,7 @@ final class UsageItemCatalogTests: XCTestCase {
         // 새 항목은 끝에 몰리지 않고 카탈로그 기본 순서상 위치에 삽입된다
         XCTAssertEqual(
             normalized.map(\.id),
-            ["codexPrimary", "codexSecondary", "codexModelLimits", "codexResetCredits", "codexCredits"]
+            ["codexPrimary", "codexSecondary", "codexSpendLimit", "codexModelLimits", "codexResetCredits", "codexCredits"]
         )
         XCTAssertEqual(normalized.first { $0.id == "codexSecondary" }?.visible, false)
     }

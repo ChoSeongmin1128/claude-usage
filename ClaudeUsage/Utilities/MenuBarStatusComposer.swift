@@ -874,6 +874,7 @@ enum MenuBarStatusComposer {
             text: text,
             color: gaugeColor(for: usage.gaugePercentage, config: config),
             tooltip: windowSummaryTooltip(session: hasPrimary ? primary : nil, weekly: weekly, config: config)
+                + (usage.workspaceLimitNotice.map { " · \($0)" } ?? "")
                 + staleNote(error: error, hasAuthError: hasAuthError)
         )
     }

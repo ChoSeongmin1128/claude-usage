@@ -84,3 +84,36 @@ final class CodexUsagePlanVariantTests: XCTestCase {
         ).text
     }
 }
+
+@MainActor
+final class CodexSpendControlTests: XCTestCase {
+    func testSpendControlUsesOfficialStringAmountsAndShowsReachedReason() throws {
+        let usage = try JSONDecoder().decode(CodexUsageResponse.self, from: Data("""
+        {
+          "account_id": "acct-fixture",
+          "plan_type": "business",
+          "rate_limit": null,
+          "spend_control": {
+            "reached": true,
+            "individual_limit": { "source": "workspace", "limit": "1000", "used": "1000", "remaining": "0",
+                                  "used_percent": 100, "remaining_percent": 0, "reset_after_seconds": 86400,
+                                  "reset_at": 1793000000 }
+          },
+          "rate_limit_reached_type": { "type": "workspace_member_credits_depleted" }
+        }
+        """.utf8))
+
+        XCTAssertEqual(usage.spendControl?.individualLimit?.limit, 1000)
+        XCTAssertEqual(usage.spendControl?.individualLimit?.usedPercent, 100)
+        XCTAssertEqual(usage.workspaceLimitNotice, "워크스페이스 크레딧 소진 · 소유자에게 추가 요청")
+        XCTAssertNotNil(usage.spendControl?.individualLimit?.resetAtISO)
+    }
+
+    func testUnknownReachedTypeFallsBackToSpendControlFlag() throws {
+        let usage = try JSONDecoder().decode(CodexUsageResponse.self, from: Data("""
+        { "account_id": "acct-fixture", "spend_control": { "reached": false },
+          "rate_limit_reached_type": { "type": "something_new" } }
+        """.utf8))
+        XCTAssertNil(usage.workspaceLimitNotice)
+    }
+}
