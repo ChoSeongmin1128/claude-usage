@@ -499,8 +499,8 @@ final class AntigravityDiscoverySecurityTests: XCTestCase {
 
         let retained = Task {
             try await discovery.discover(deadline: AntigravityRPCDeadline(
-                totalTimeout: .seconds(5),
-                discoveryTimeout: .seconds(5)
+                    totalTimeout: .seconds(5),
+                    discoveryTimeout: .seconds(5)
             ))
         }
         try await Task.sleep(for: .milliseconds(20))

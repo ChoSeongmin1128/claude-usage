@@ -352,7 +352,7 @@ struct CodexItemCatalog: UsageItemCatalog {
 
         case "codexSpendLimit":
             guard let usage = context.codexUsage, let limit = usage.spendControl?.individualLimit,
-                  let percentage = limit.usedPercent
+                let percentage = limit.usedPercent
             else { return nil }
             let reached = usage.spendControl?.reached == true || usage.workspaceLimitNotice != nil
             return PopoverDisplaySection(

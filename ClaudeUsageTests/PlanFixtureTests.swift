@@ -20,9 +20,10 @@ final class PlanFixtureTests: XCTestCase {
             let usage = try decoded.get()
             var actual: [String: Any] = [
                 "rows": Self.rows(UsageLimitCatalog.claude(usage)),
-                "menuBar": Dictionary(uniqueKeysWithValues: Self.displays.map { key, display in
-                    (key, Self.claudeMenuBarText(usage, display: display))
-                }),
+                "menuBar": Dictionary(
+                    uniqueKeysWithValues: Self.displays.map { key, display in
+                        (key, Self.claudeMenuBarText(usage, display: display))
+                    }),
             ]
             actual = actual.filter { fixture.expected[$0.key] != nil }
             XCTAssertEqual(NSDictionary(dictionary: actual), NSDictionary(dictionary: fixture.expected), fixture.name)
@@ -39,9 +40,10 @@ final class PlanFixtureTests: XCTestCase {
             let usage = try decoded.get()
             var actual: [String: Any] = [
                 "rows": Self.rows(UsageLimitCatalog.codex(usage)),
-                "menuBar": Dictionary(uniqueKeysWithValues: Self.displays.map { key, display in
-                    (key, Self.codexMenuBarText(usage, display: display))
-                }),
+                "menuBar": Dictionary(
+                    uniqueKeysWithValues: Self.displays.map { key, display in
+                        (key, Self.codexMenuBarText(usage, display: display))
+                    }),
             ]
             if let credits = usage.credits { actual["credits"] = credits.formattedBalance }
             if let percent = usage.spendControl?.individualLimit?.usedPercent { actual["spendLimit"] = Int(percent) }

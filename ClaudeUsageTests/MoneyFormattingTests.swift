@@ -10,9 +10,12 @@ final class MoneyFormattingTests: XCTestCase {
     }
 
     func testClaudeOverageWithoutLimitSaysNoLimit() throws {
-        let overage = try JSONDecoder().decode(OverageSpendLimitResponse.self, from: Data("""
-        { "is_enabled": true, "monthly_credit_limit": null, "used_credits": 1250, "currency": "USD" }
-        """.utf8))
+        let overage = try JSONDecoder().decode(
+            OverageSpendLimitResponse.self,
+            from: Data(
+                """
+                { "is_enabled": true, "monthly_credit_limit": null, "used_credits": 1250, "currency": "USD" }
+                """.utf8))
 
         XCTAssertNil(overage.monthlyCreditLimit)
         XCTAssertNil(overage.usagePercentage)
@@ -21,9 +24,12 @@ final class MoneyFormattingTests: XCTestCase {
     }
 
     func testClaudeOverageFollowsServerCurrencyAndDecimalPlaces() throws {
-        let overage = try JSONDecoder().decode(OverageSpendLimitResponse.self, from: Data("""
-        { "is_enabled": true, "monthly_credit_limit": 5000, "used_credits": 1200, "currency": "EUR", "decimal_places": 2 }
-        """.utf8))
+        let overage = try JSONDecoder().decode(
+            OverageSpendLimitResponse.self,
+            from: Data(
+                """
+                { "is_enabled": true, "monthly_credit_limit": 5000, "used_credits": 1200, "currency": "EUR", "decimal_places": 2 }
+                """.utf8))
 
         XCTAssertEqual(overage.formattedUsageLimitSummary, "€12.00 사용 / €50.00 한도")
         XCTAssertEqual(overage.headlineText, "24%")
@@ -38,9 +44,12 @@ final class MoneyFormattingTests: XCTestCase {
     }
 
     func testCodexCreditsAreCountsNotDollars() throws {
-        let credits = try JSONDecoder().decode(CodexCredits.self, from: Data("""
-        { "has_credits": true, "unlimited": false, "balance": "62500" }
-        """.utf8))
+        let credits = try JSONDecoder().decode(
+            CodexCredits.self,
+            from: Data(
+                """
+                { "has_credits": true, "unlimited": false, "balance": "62500" }
+                """.utf8))
         XCTAssertEqual(credits.formattedBalance, "62,500 크레딧")
         XCTAssertEqual(MoneyFormatter.credits(12.5), "12.5 크레딧")
     }

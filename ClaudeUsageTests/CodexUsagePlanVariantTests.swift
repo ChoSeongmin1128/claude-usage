@@ -6,14 +6,15 @@ import XCTest
 @MainActor
 final class CodexUsagePlanVariantTests: XCTestCase {
     func testCreditsOnlyFlexiblePlanDecodesWithoutWindows() throws {
-        let usage = try decode("""
-        {
-          "account_id": "acct-fixture",
-          "plan_type": "enterprise",
-          "rate_limit": null,
-          "credits": { "has_credits": true, "unlimited": false, "balance": "62500" }
-        }
-        """)
+        let usage = try decode(
+            """
+            {
+              "account_id": "acct-fixture",
+              "plan_type": "enterprise",
+              "rate_limit": null,
+              "credits": { "has_credits": true, "unlimited": false, "balance": "62500" }
+            }
+            """)
 
         XCTAssertNil(usage.sessionWindow)
         XCTAssertNil(usage.weeklyWindow)
@@ -25,25 +26,27 @@ final class CodexUsagePlanVariantTests: XCTestCase {
     }
 
     func testPlanWithoutAnyLimitDecodesInsteadOfFailing() throws {
-        let usage = try decode("""
-        { "account_id": "acct-fixture", "plan_type": "edu",
-          "rate_limit": { "primary_window": null, "secondary_window": null } }
-        """)
+        let usage = try decode(
+            """
+            { "account_id": "acct-fixture", "plan_type": "edu",
+              "rate_limit": { "primary_window": null, "secondary_window": null } }
+            """)
 
         XCTAssertNil(usage.gaugePercentage)
         XCTAssertEqual(menuBarText(usage, display: .weekly), "—")
     }
 
     func testMalformedWindowDoesNotHideTheOtherWindow() throws {
-        let usage = try decode("""
-        {
-          "account_id": "acct-fixture",
-          "rate_limit": {
-            "primary_window": { "used_percent": "unknown", "limit_window_seconds": 18000 },
-            "secondary_window": { "used_percent": 41, "reset_at": 1790900000, "limit_window_seconds": 604800 }
-          }
-        }
-        """)
+        let usage = try decode(
+            """
+            {
+              "account_id": "acct-fixture",
+              "rate_limit": {
+                "primary_window": { "used_percent": "unknown", "limit_window_seconds": 18000 },
+                "secondary_window": { "used_percent": 41, "reset_at": 1790900000, "limit_window_seconds": 604800 }
+              }
+            }
+            """)
 
         XCTAssertNil(usage.sessionWindow)
         XCTAssertEqual(usage.weeklyWindow?.utilization, 41)
@@ -51,9 +54,11 @@ final class CodexUsagePlanVariantTests: XCTestCase {
     }
 
     func testMalformedLimitsWithNothingElseToShowAreAFormatError() {
-        XCTAssertThrowsError(try decode("""
-        { "account_id": "acct-fixture", "rate_limit": { "primary_window": { "used_percent": "unknown" } } }
-        """))
+        XCTAssertThrowsError(
+            try decode(
+                """
+                { "account_id": "acct-fixture", "rate_limit": { "primary_window": { "used_percent": "unknown" } } }
+                """))
         XCTAssertThrowsError(try decode(#"{ "account_id": "acct-fixture", "rate_limit": "unexpected" }"#))
     }
 
@@ -88,20 +93,23 @@ final class CodexUsagePlanVariantTests: XCTestCase {
 @MainActor
 final class CodexSpendControlTests: XCTestCase {
     func testSpendControlUsesOfficialStringAmountsAndShowsReachedReason() throws {
-        let usage = try JSONDecoder().decode(CodexUsageResponse.self, from: Data("""
-        {
-          "account_id": "acct-fixture",
-          "plan_type": "business",
-          "rate_limit": null,
-          "spend_control": {
-            "reached": true,
-            "individual_limit": { "source": "workspace", "limit": "1000", "used": "1000", "remaining": "0",
-                                  "used_percent": 100, "remaining_percent": 0, "reset_after_seconds": 86400,
-                                  "reset_at": 1793000000 }
-          },
-          "rate_limit_reached_type": { "type": "workspace_member_credits_depleted" }
-        }
-        """.utf8))
+        let usage = try JSONDecoder().decode(
+            CodexUsageResponse.self,
+            from: Data(
+                """
+                {
+                  "account_id": "acct-fixture",
+                  "plan_type": "business",
+                  "rate_limit": null,
+                  "spend_control": {
+                    "reached": true,
+                    "individual_limit": { "source": "workspace", "limit": "1000", "used": "1000", "remaining": "0",
+                                          "used_percent": 100, "remaining_percent": 0, "reset_after_seconds": 86400,
+                                          "reset_at": 1793000000 }
+                  },
+                  "rate_limit_reached_type": { "type": "workspace_member_credits_depleted" }
+                }
+                """.utf8))
 
         XCTAssertEqual(usage.spendControl?.individualLimit?.limit, 1000)
         XCTAssertEqual(usage.spendControl?.individualLimit?.usedPercent, 100)
@@ -110,10 +118,13 @@ final class CodexSpendControlTests: XCTestCase {
     }
 
     func testUnknownReachedTypeFallsBackToSpendControlFlag() throws {
-        let usage = try JSONDecoder().decode(CodexUsageResponse.self, from: Data("""
-        { "account_id": "acct-fixture", "spend_control": { "reached": false },
-          "rate_limit_reached_type": { "type": "something_new" } }
-        """.utf8))
+        let usage = try JSONDecoder().decode(
+            CodexUsageResponse.self,
+            from: Data(
+                """
+                { "account_id": "acct-fixture", "spend_control": { "reached": false },
+                  "rate_limit_reached_type": { "type": "something_new" } }
+                """.utf8))
         XCTAssertNil(usage.workspaceLimitNotice)
     }
 }

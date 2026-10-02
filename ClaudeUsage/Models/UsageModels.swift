@@ -42,7 +42,8 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
         sevenDayOpus = window(.sevenDayOpus)
         scopedLimits = limits
         if hasMalformedWindow, fiveHour == nil, sevenDay == nil, sevenDaySonnet == nil, sevenDayOpus == nil,
-           scopedLimits.isEmpty {
+            scopedLimits.isEmpty
+        {
             throw DecodingError.dataCorrupted(
                 .init(codingPath: decoder.codingPath, debugDescription: "Claude usage windows are malformed"))
         }
@@ -64,7 +65,7 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
 
     nonisolated private static func unscopedWindow(kind: String, in limits: [ClaudeScopedLimit]) -> UsageWindow? {
         guard let limit = limits.first(where: { $0.kind == kind && $0.isUnscoped }),
-              let percent = limit.percent, percent.isFinite, percent >= 0
+            let percent = limit.percent, percent.isFinite, percent >= 0
         else { return nil }
         return UsageWindow(utilization: percent, resetsAt: limit.resetsAt)
     }
@@ -381,12 +382,12 @@ extension ClaudeUsageResponse {
 
 /// 추가 사용량 API 응답 (금액은 센트 단위로 수신)
 nonisolated struct OverageSpendLimitResponse: Codable, Sendable, Equatable {
-    let monthlyCreditLimitCents: Double? // 월별 한도 (최소 단위). null이면 한도 없음
-    let usedCreditsCents: Double         // 사용한 금액 (최소 단위)
+    let monthlyCreditLimitCents: Double?  // 월별 한도 (최소 단위). null이면 한도 없음
+    let usedCreditsCents: Double  // 사용한 금액 (최소 단위)
     let isEnabled: Bool                  // Extra Usage 활성 여부
     let outOfCredits: Bool               // 크레딧 소진 여부
-    let currency: String                 // 통화 코드
-    let decimalPlaces: Int?              // 서버가 준 소수 자릿수
+    let currency: String  // 통화 코드
+    let decimalPlaces: Int?  // 서버가 준 소수 자릿수
 
     enum CodingKeys: String, CodingKey {
         case monthlyCreditLimitCents = "monthly_credit_limit"

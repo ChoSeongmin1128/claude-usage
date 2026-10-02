@@ -39,14 +39,16 @@ final class ClaudeSessionKeyExtractorTests: XCTestCase {
     }
 
     func testPreLoginCookieHeaderIsNotTakenAsSessionKey() {
-        let header = "activitySessionId=3f1c2a9e-7b4d-4e5f-9a8b-1c2d3e4f5a6b; "
+        let header =
+            "activitySessionId=3f1c2a9e-7b4d-4e5f-9a8b-1c2d3e4f5a6b; "
             + "intercom-session-lupk8zyo=dGhpcy1pcy1hLWZha2UtaW50ZXJjb20tc2Vzc2lvbg==; sessionKeyLC=1790900000000"
 
         XCTAssertNil(extractor.extractSessionKey(fromCookieHeader: header))
     }
 
     func testCookieHeaderPrefersSessionKeyOverSessionKeyV3() {
-        let header = "sessionKeyV3=\(sessionKeyV3Value); activitySessionId=3f1c2a9e-7b4d-4e5f-9a8b-1c2d3e4f5a6b; "
+        let header =
+            "sessionKeyV3=\(sessionKeyV3Value); activitySessionId=3f1c2a9e-7b4d-4e5f-9a8b-1c2d3e4f5a6b; "
             + "sessionKey=\(sessionKeyValue)"
 
         XCTAssertEqual(extractor.extractSessionKey(fromCookieHeader: header), sessionKeyValue)

@@ -9,7 +9,8 @@ nonisolated enum ClaudeAccountLocalData {
     private static let unscopedSuffix = "ephemeral"
 
     static func defaultDirectory() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        let base =
+            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         return base.appendingPathComponent(AppDistribution.current.applicationSupportDirectoryName, isDirectory: true)
     }

@@ -898,10 +898,12 @@ enum MenuBarStatusComposer {
             return nil
         case .fiveHour:
             if let sessionReset = usage.fiveHour?.resetsAt {
-                return TimeFormatter.formatResetTime(from: sessionReset, style: config.timeFormat, includeDateIfNotToday: false)
+                return TimeFormatter.formatResetTime(
+                    from: sessionReset, style: config.timeFormat, includeDateIfNotToday: false)
             }
             guard let weeklyReset = usage.sevenDay?.resetsAt else { return nil }
-            return TimeFormatter.formatResetTimeWeekly(from: weeklyReset, style: config.timeFormat, includeDateIfNotToday: false)
+            return TimeFormatter.formatResetTimeWeekly(
+                from: weeklyReset, style: config.timeFormat, includeDateIfNotToday: false)
         case .weekly:
             guard let resetAt = usage.sevenDay?.resetsAt else { return nil }
             return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)

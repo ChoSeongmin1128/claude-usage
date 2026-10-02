@@ -46,13 +46,17 @@ nonisolated struct CodexUsageResponse: Codable, Sendable {
         credits = (try? container.decodeIfPresent(CodexCredits.self, forKey: .credits)) ?? nil
         additionalRateLimits = Self.decodeAdditionalRateLimits(from: container)
         spendControl = (try? container.decodeIfPresent(CodexSpendControl.self, forKey: .spendControl)) ?? nil
-        rateLimitReachedType = ((try? container.decodeIfPresent(ReachedType.self, forKey: .rateLimitReachedType)) ?? nil)?
+        rateLimitReachedType =
+            ((try? container.decodeIfPresent(ReachedType.self, forKey: .rateLimitReachedType)) ?? nil)?
             .type
         resetCredits = nil
-        let hasMalformedLimits = rateLimit?.hasMalformedWindow == true
-            || (rateLimit == nil && container.contains(.rateLimit) && (try? container.decodeNil(forKey: .rateLimit)) != true)
+        let hasMalformedLimits =
+            rateLimit?.hasMalformedWindow == true
+            || (rateLimit == nil && container.contains(.rateLimit)
+                && (try? container.decodeNil(forKey: .rateLimit)) != true)
         if hasMalformedLimits, rateLimit?.primaryWindow == nil, rateLimit?.secondaryWindow == nil,
-           credits == nil, additionalRateLimits.isEmpty, spendControl == nil {
+            credits == nil, additionalRateLimits.isEmpty, spendControl == nil
+        {
             throw DecodingError.dataCorrupted(
                 .init(codingPath: decoder.codingPath, debugDescription: "Codex rate limits are malformed"))
         }
