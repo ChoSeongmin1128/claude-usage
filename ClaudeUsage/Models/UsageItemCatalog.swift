@@ -400,7 +400,9 @@ struct CodexItemCatalog: UsageItemCatalog {
                     id: "codexCredits",
                     kind: .credits,
                     importance: .primary,
-                    payload: .credits(PopoverCreditsSectionData(credits: credits))
+                    payload: .credits(
+                        PopoverCreditsSectionData(
+                            credits: credits, rateCardURL: context.codexUsage?.workspaceRateCardURL))
                 )
             } else if context.codexUsage != nil {
                 // 사용량 응답에 크레딧 필드 자체가 없으면 미제공 — 행을 숨긴다.

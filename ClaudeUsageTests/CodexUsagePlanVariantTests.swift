@@ -127,4 +127,16 @@ final class CodexSpendControlTests: XCTestCase {
                 """.utf8))
         XCTAssertNil(usage.workspaceLimitNotice)
     }
+
+    func testRateCardLinkOnlyForWorkspacePlans() throws {
+        func usage(_ plan: String?) throws -> CodexUsageResponse {
+            let field = plan.map { #""plan_type": "\#($0)","# } ?? ""
+            return try JSONDecoder().decode(
+                CodexUsageResponse.self, from: Data(#"{ \#(field) "account_id": "acct-fixture" }"#.utf8))
+        }
+        XCTAssertNotNil(try usage("business").workspaceRateCardURL)
+        XCTAssertNotNil(try usage("enterprise_cbp_usage_based").workspaceRateCardURL)
+        XCTAssertNil(try usage("plus").workspaceRateCardURL)
+        XCTAssertNil(try usage(nil).workspaceRateCardURL)
+    }
 }

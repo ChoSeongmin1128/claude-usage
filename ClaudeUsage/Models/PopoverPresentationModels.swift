@@ -43,6 +43,7 @@ struct PopoverUsageSectionData {
 
 struct PopoverCreditsSectionData {
     let credits: CodexCredits
+    var rateCardURL: URL? = nil
 }
 
 struct PopoverResetCreditsSectionData {

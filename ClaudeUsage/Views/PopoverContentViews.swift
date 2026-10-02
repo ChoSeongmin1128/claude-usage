@@ -123,7 +123,7 @@ struct PopoverDisplaySectionView: View {
             if density.isCompact {
                 CompactCodexCreditsRow(credits: credits.credits)
             } else {
-                CodexCreditsView(credits: credits.credits)
+                CodexCreditsView(credits: credits.credits, rateCardURL: credits.rateCardURL)
             }
         case .resetCredits(let resetCredits):
             if density.isCompact {
@@ -409,6 +409,7 @@ private extension APIError {
 
 struct CodexCreditsView: View {
     let credits: CodexCredits
+    var rateCardURL: URL?
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.row) {
@@ -425,6 +426,11 @@ struct CodexCreditsView: View {
                     .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
+                if let rateCardURL {
+                    Link("요금표", destination: rateCardURL)
+                        .font(AppDesign.Typography.caption)
+                        .help("작업별 크레딧 사용량(OpenAI 도움말)")
+                }
             }
         }
         .padding(.vertical, AppDesign.Space.compact)

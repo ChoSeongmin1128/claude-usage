@@ -574,3 +574,15 @@ nonisolated struct CodexResetCredit: Codable, Sendable, Equatable {
         return formatter.string(from: date)
     }
 }
+
+extension CodexUsageResponse {
+    /// 크레딧 요금표는 자주 바뀌어 앱에 담지 않고 공식 도움말로 연결한다. 워크스페이스 요금제에만 해당한다.
+    nonisolated var workspaceRateCardURL: URL? {
+        let personalPlans: Set<String> = ["guest", "free", "go", "plus", "pro", "prolite", "promax"]
+        guard let plan = planType?.lowercased(), !personalPlans.contains(plan) else { return nil }
+        return URL(
+            string:
+                "https://help.openai.com/en/articles/11481834-chatgpt-rate-card-business-enterpriseedu-credit-based-pricing"
+        )
+    }
+}
