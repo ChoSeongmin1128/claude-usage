@@ -18,6 +18,9 @@ nonisolated enum RetiredAppDefaults {
                 "initialRuntimeProviderDetectionCompleted", "suppressMoveToApplicationsAlert",
                 "browserCookieAccessDeniedUntil", "geminiRefreshInterval", "statusItemUnplacedNoticeDate",
                 "codexTimeFormat",
+                // 적응형 새로고침(2.8.0)이 대신하는 고정 주기 설정
+                "refreshInterval", "usePerProviderRefreshIntervals", "claudeRefreshInterval",
+                "codexRefreshInterval", "antigravityRefreshInterval", "reducedRefreshOnBattery",
             ],
             replacement: nil),
         Group(

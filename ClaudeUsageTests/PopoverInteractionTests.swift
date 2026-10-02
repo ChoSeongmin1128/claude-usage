@@ -70,24 +70,48 @@ final class PopoverInteractionTests: XCTestCase {
         XCTAssertFalse(facade.snapshot(for: .claude, codexAuthenticated: false).claudeOverageIsStale)
     }
 
-    func testRefreshCooldownIsVisibleAndIndependentAcrossServices() {
-        var clock = Date(timeIntervalSince1970: 100)
+    func testManualRefreshIgnoresRepeatsUntilDoneThenStaysQuietForTenSeconds() {
+        let base = Date()
+        var clock = base
         let viewModel = PopoverViewModel(now: { clock })
         var requests: [PopoverService] = []
         viewModel.onRefreshService = { requests.append($0) }
+
         viewModel.refresh(service: .claude)
         viewModel.refresh(service: .claude)
         XCTAssertEqual(requests, [.claude])
-        XCTAssertNotNil(viewModel.manualRefreshAvailableAt(for: .claude))
-        XCTAssertTrue(viewModel.refreshHelp(for: .claude, isLoading: false).contains("잠시 후"))
+        XCTAssertEqual(viewModel.refreshHelp(for: .claude, isLoading: false), "사용량 갱신 중")
+
         viewModel.selectService(.codex)
         XCTAssertNil(viewModel.manualRefreshAvailableAt(for: .codex))
         viewModel.refresh()
         XCTAssertEqual(requests, [.claude, .codex])
-        clock.addTimeInterval(5)
+
+        let facade = AppRuntimeStateFacade()
+        facade[.claude] = quotaState(accountID: "A")
+        viewModel.update(snapshots: [facade.snapshot(for: .claude, codexAuthenticated: false)])
+        XCTAssertNotNil(viewModel.manualRefreshAvailableAt(for: .claude))
+        XCTAssertEqual(viewModel.refreshHelp(for: .claude, isLoading: false), "방금 갱신됨")
+        viewModel.refresh(service: .claude)
+        XCTAssertEqual(requests, [.claude, .codex])
+
+        clock = base.addingTimeInterval(11)
         XCTAssertNil(viewModel.manualRefreshAvailableAt(for: .claude))
         viewModel.refresh(service: .claude)
         XCTAssertEqual(requests, [.claude, .codex, .claude])
+    }
+
+    func testRetryAfterBlocksManualRefreshWithCountdown() {
+        let base = Date()
+        let viewModel = PopoverViewModel(now: { base })
+        var state = quotaState(accountID: "A")
+        _ = RuntimeProviderRefreshCoordinator.applyFailure(
+            state: &state, error: .rateLimited(retryAfter: 90), minimumInterval: 120)
+        let facade = AppRuntimeStateFacade()
+        facade[.claude] = state
+        viewModel.update(snapshots: [facade.snapshot(for: .claude, codexAuthenticated: false)])
+        XCTAssertNotNil(viewModel.manualRefreshAvailableAt(for: .claude))
+        XCTAssertTrue(viewModel.refreshHelp(for: .claude, isLoading: false).hasSuffix("초 후 다시 시도"))
     }
 
     private func quotaState(accountID: String) -> RuntimeProviderState {

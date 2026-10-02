@@ -77,8 +77,9 @@ final class PopoverViewModel: ObservableObject {
     @Published var antigravityRuntimeSnapshot = AntigravityRuntimeSnapshot.idle {
         didSet {
             if oldValue.activeAccountID != antigravityRuntimeSnapshot.activeAccountID {
-                manualRefreshDeadlines[.antigravity] = nil
+                manualRequestedAt[.antigravity] = nil
             }
+            scheduleAvailabilityRefresh(for: .antigravity)
         }
     }
 
@@ -92,19 +93,68 @@ final class PopoverViewModel: ObservableObject {
     var onPinChanged: ((PopoverService, Bool) -> Void)?
     var onLayoutChanged: ((PopoverService, PopoverLayoutRefreshReason) -> Void)?
 
-    @Published private var manualRefreshDeadlines: [PopoverService: Date] = [:]
+    /// 수동 새로고침을 눌렀지만 아직 끝나지 않은 요청. 같은 서비스의 연타를 무시한다.
+    @Published private var manualRequestedAt: [PopoverService: Date] = [:]
+    private var availabilityTasks: [PopoverService: Task<Void, Never>] = [:]
     private let now: () -> Date
-    private static let manualRefreshInterval: TimeInterval = 5
+    private static let manualRequestTimeout: TimeInterval = 30
 
     func manualRefreshAvailableAt(for service: PopoverService) -> Date? {
-        guard let deadline = manualRefreshDeadlines[service], deadline > now() else { return nil }
-        return deadline
+        let instant = now()
+        if let requested = manualRequestedAt[service],
+            isAwaitingCompletion(service, requestedAt: requested, now: instant)
+        {
+            return requested.addingTimeInterval(Self.manualRequestTimeout)
+        }
+        return AdaptiveRefreshPolicy.manualRefreshBlockedUntil(
+            lastCompletedAt: lastCompletedAt(for: service), retryAllowedAt: retryAllowedAt(for: service), now: instant)
     }
 
     func refreshHelp(for service: PopoverService, isLoading: Bool) -> String {
         if isLoading { return "사용량 갱신 중" }
-        if manualRefreshAvailableAt(for: service) != nil { return "잠시 후 다시 새로고침할 수 있습니다" }
+        let instant = now()
+        if let requested = manualRequestedAt[service],
+            isAwaitingCompletion(service, requestedAt: requested, now: instant)
+        {
+            return "사용량 갱신 중"
+        }
+        if let retry = retryAllowedAt(for: service), retry > instant {
+            return "약 \(Int(retry.timeIntervalSince(instant).rounded(.up)))초 후 다시 시도"
+        }
+        if manualRefreshAvailableAt(for: service) != nil { return "방금 갱신됨" }
         return "\(service.displayName) 사용량 새로고침"
+    }
+
+    private func lastCompletedAt(for service: PopoverService) -> Date? {
+        service == .antigravity ? antigravityRuntimeSnapshot.lastSuccessfulAt : snapshot(for: service)?.displayUpdatedAt
+    }
+
+    private func retryAllowedAt(for service: PopoverService) -> Date? {
+        service == .antigravity ? nil : snapshot(for: service)?.nextRefreshAllowedAt
+    }
+
+    private func isAwaitingCompletion(_ service: PopoverService, requestedAt: Date, now: Date) -> Bool {
+        guard now.timeIntervalSince(requestedAt) < Self.manualRequestTimeout else { return false }
+        if let completed = lastCompletedAt(for: service), completed >= requestedAt { return false }
+        if snapshot(for: service)?.lastAttemptState == .temporaryFailure, snapshot(for: service)?.isLoading == false,
+            service != .antigravity
+        {
+            return false
+        }
+        return true
+    }
+
+    /// 막힌 구간이 끝나면 버튼이 다시 켜지도록 화면을 갱신한다.
+    private func scheduleAvailabilityRefresh(for service: PopoverService) {
+        availabilityTasks[service]?.cancel()
+        guard let until = manualRefreshAvailableAt(for: service) else { return }
+        let delay = max(0.05, until.timeIntervalSince(now()))
+        availabilityTasks[service] = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, let self else { return }
+            self.objectWillChange.send()
+            self.scheduleAvailabilityRefresh(for: service)
+        }
     }
 
     /// 팝오버의 미인증 상태에서 사용자가 한 번에 wizard 로그인 윈도우로 갈 수 있게 하는 콜백.
@@ -144,14 +194,9 @@ final class PopoverViewModel: ObservableObject {
             !(service == .antigravity
                 ? antigravityRuntimeSnapshot.isLoading : snapshot(for: service)?.isLoading ?? false)
         else { return }
-        let deadline = now().addingTimeInterval(Self.manualRefreshInterval)
-        manualRefreshDeadlines[service] = deadline
+        manualRequestedAt[service] = now()
         onRefreshService?(service)
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(Self.manualRefreshInterval))
-            guard let self, self.manualRefreshDeadlines[service] == deadline else { return }
-            self.manualRefreshDeadlines[service] = nil
-        }
+        scheduleAvailabilityRefresh(for: service)
     }
 
     func openSettings() {
@@ -419,8 +464,9 @@ final class PopoverViewModel: ObservableObject {
         self.claudeSetupPresentation = setupPresentation
         for service in [PopoverService.claude, .codex] {
             if oldAccounts[service] ?? nil != snapshot(for: service)?.lastSuccessfulMetadata?.accountID {
-                manualRefreshDeadlines[service] = nil
+                manualRequestedAt[service] = nil
             }
+            scheduleAvailabilityRefresh(for: service)
         }
     }
 

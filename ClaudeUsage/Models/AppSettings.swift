@@ -332,58 +332,6 @@ class AppSettings: ObservableObject {
     @Published var timeFormat: TimeFormatStyle {
         didSet { defaults.set(timeFormat.rawValue, forKey: "timeFormat") }
     }
-    @Published var refreshInterval: TimeInterval {
-        didSet {
-            let normalized = Self.normalizedRefreshInterval(refreshInterval)
-            guard refreshInterval == normalized else {
-                refreshInterval = normalized
-                return
-            }
-            defaults.set(refreshInterval, forKey: "refreshInterval")
-        }
-    }
-    @Published var usePerProviderRefreshIntervals: Bool {
-        didSet { defaults.set(usePerProviderRefreshIntervals, forKey: "usePerProviderRefreshIntervals") }
-    }
-    @Published var claudeRefreshInterval: TimeInterval {
-        didSet {
-            let normalized = Self.normalizedRefreshInterval(claudeRefreshInterval)
-            guard claudeRefreshInterval == normalized else {
-                claudeRefreshInterval = normalized
-                return
-            }
-            defaults.set(claudeRefreshInterval, forKey: "claudeRefreshInterval")
-        }
-    }
-    @Published var codexRefreshInterval: TimeInterval {
-        didSet {
-            let normalized = Self.normalizedRefreshInterval(codexRefreshInterval)
-            guard codexRefreshInterval == normalized else {
-                codexRefreshInterval = normalized
-                return
-            }
-            defaults.set(codexRefreshInterval, forKey: "codexRefreshInterval")
-        }
-    }
-    @Published var antigravityRefreshInterval: TimeInterval {
-        didSet {
-            let normalized = Self.normalizedRefreshInterval(antigravityRefreshInterval)
-            guard antigravityRefreshInterval == normalized else {
-                antigravityRefreshInterval = normalized
-                return
-            }
-            defaults.set(antigravityRefreshInterval, forKey: "antigravityRefreshInterval")
-        }
-    }
-    func effectiveRefreshInterval(for service: PopoverService) -> TimeInterval {
-        guard usePerProviderRefreshIntervals else { return Self.normalizedRefreshInterval(refreshInterval) }
-        switch service {
-        case .claude: return Self.normalizedRefreshInterval(claudeRefreshInterval)
-        case .codex: return Self.normalizedRefreshInterval(codexRefreshInterval)
-        case .antigravity: return Self.normalizedRefreshInterval(antigravityRefreshInterval)
-        }
-    }
-
     @Published var autoRefresh: Bool {
         didSet { defaults.set(autoRefresh, forKey: "autoRefresh") }
     }
@@ -419,9 +367,6 @@ class AppSettings: ObservableObject {
     }
     @Published var alertRemainingMode: Bool {
         didSet { defaults.set(alertRemainingMode, forKey: "alertRemainingMode") }
-    }
-    @Published var reducedRefreshOnBattery: Bool {
-        didSet { defaults.set(reducedRefreshOnBattery, forKey: "reducedRefreshOnBattery") }
     }
     @Published var circularDisplayMode: CircularDisplayMode {
         didSet { defaults.set(circularDisplayMode.rawValue, forKey: "circularDisplayMode") }
@@ -633,18 +578,12 @@ class AppSettings: ObservableObject {
         let circularDisplayMode: CircularDisplayMode
         let iconMetric: IconMetric
         let menuBarColorMode: MenuBarColorMode
-        let refreshInterval: TimeInterval
-        let usePerProviderRefreshIntervals: Bool
-        let claudeRefreshInterval: TimeInterval
-        let codexRefreshInterval: TimeInterval
-        let antigravityRefreshInterval: TimeInterval
         let autoRefresh: Bool
         let notificationsEnabled: Bool
         let notificationPresets: [NotificationPreset]
         let notificationTargets: NotificationTargetPreferences
         let alertRemainingMode: Bool
         let usageDisplayMode: UsageDisplayMode
-        let reducedRefreshOnBattery: Bool
         let showClaudeIcon: Bool
         let menuBarTextHighContrast: Bool
         let updateCheckInterval: UpdateCheckInterval
@@ -691,18 +630,12 @@ class AppSettings: ObservableObject {
             circularDisplayMode: circularDisplayMode,
             iconMetric: iconMetric,
             menuBarColorMode: menuBarColorMode,
-            refreshInterval: refreshInterval,
-            usePerProviderRefreshIntervals: usePerProviderRefreshIntervals,
-            claudeRefreshInterval: claudeRefreshInterval,
-            codexRefreshInterval: codexRefreshInterval,
-            antigravityRefreshInterval: antigravityRefreshInterval,
             autoRefresh: autoRefresh,
             notificationsEnabled: notificationsEnabled,
             notificationPresets: notificationPresets,
             notificationTargets: notificationTargets,
             alertRemainingMode: alertRemainingMode,
             usageDisplayMode: usageDisplayMode,
-            reducedRefreshOnBattery: reducedRefreshOnBattery,
             showClaudeIcon: showClaudeIcon,
             menuBarTextHighContrast: menuBarTextHighContrast,
             updateCheckInterval: updateCheckInterval,
@@ -758,18 +691,12 @@ class AppSettings: ObservableObject {
         circularDisplayMode = snapshot.circularDisplayMode
         menuBarColorMode = snapshot.menuBarColorMode
         iconMetric = snapshot.iconMetric
-        refreshInterval = snapshot.refreshInterval
-        usePerProviderRefreshIntervals = snapshot.usePerProviderRefreshIntervals
-        claudeRefreshInterval = snapshot.claudeRefreshInterval
-        codexRefreshInterval = snapshot.codexRefreshInterval
-        antigravityRefreshInterval = snapshot.antigravityRefreshInterval
         autoRefresh = snapshot.autoRefresh
         notificationsEnabled = snapshot.notificationsEnabled
         notificationPresets = snapshot.notificationPresets
         notificationTargets = snapshot.notificationTargets
         alertRemainingMode = snapshot.alertRemainingMode
         usageDisplayMode = snapshot.usageDisplayMode
-        reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
         showClaudeIcon = snapshot.showClaudeIcon
         menuBarTextHighContrast = snapshot.menuBarTextHighContrast
         updateCheckInterval = snapshot.updateCheckInterval.normalizedForAutomaticChecks
@@ -1474,15 +1401,6 @@ class AppSettings: ObservableObject {
         timeFormat = .h24
         circularDisplayMode = .usage
         iconMetric = .fiveHour
-        refreshInterval = 30.0
-        usePerProviderRefreshIntervals = false
-        claudeRefreshInterval = 30.0
-        codexRefreshInterval = 60.0
-        antigravityRefreshInterval = 120.0
-        defaults.removeObject(forKey: "usePerProviderRefreshIntervals")
-        defaults.removeObject(forKey: "claudeRefreshInterval")
-        defaults.removeObject(forKey: "codexRefreshInterval")
-        defaults.removeObject(forKey: "antigravityRefreshInterval")
         Self.legacyAntigravityModelKeys.forEach(defaults.removeObject(forKey:))
         autoRefresh = true
         notificationsEnabled = false
@@ -1490,7 +1408,6 @@ class AppSettings: ObservableObject {
         notificationTargets = NotificationTargetPreferences()
         alertRemainingMode = false
         usageDisplayMode = .remaining
-        reducedRefreshOnBattery = true
         defaults.removeObject(forKey: "hasCompletedSetupWizard")
         showClaudeIcon = true
         menuBarTextHighContrast = false
@@ -1631,18 +1548,12 @@ class AppSettings: ObservableObject {
         let tf = defaults.string(forKey: "timeFormat") ?? TimeFormatStyle.h24.rawValue
         let resolvedTimeFormat = TimeFormatStyle(rawValue: tf) ?? .h24
         self.timeFormat = resolvedTimeFormat
-        self.refreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "refreshInterval") as? TimeInterval ?? 30.0)
-        self.usePerProviderRefreshIntervals = defaults.object(forKey: "usePerProviderRefreshIntervals") as? Bool ?? false
-        self.claudeRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "claudeRefreshInterval") as? TimeInterval ?? 30.0)
-        self.codexRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "codexRefreshInterval") as? TimeInterval ?? 60.0)
-        self.antigravityRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "antigravityRefreshInterval") as? TimeInterval ?? 120.0)
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? false
         let storedAlertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
         self.alertRemainingMode = storedAlertRemainingMode
         self.notificationTargets = NotificationTargetPreferences.load(from: defaults)
         self.notificationPresets = Self.migrateNotificationPresets(from: defaults, commonRemainingMode: storedAlertRemainingMode)
-        self.reducedRefreshOnBattery = defaults.object(forKey: "reducedRefreshOnBattery") as? Bool ?? true
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
         self.circularDisplayMode = CircularDisplayMode(rawValue: cdm) ?? .usage
         let iconMetricRaw = defaults.string(forKey: "iconMetric") ?? IconMetric.fiveHour.rawValue

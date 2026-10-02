@@ -101,6 +101,9 @@ extension AppDelegate {
             popoverCoordinator.beginWindowDiagnosticsIfNeeded()
             logPopoverPresentationState("after-show", button: button, requestedSize: initialSize)
             refreshVisiblePopoverSizeForCurrentState()
+            lastPopoverOpenedAt = Date()
+            refreshServiceIfNeededOnTabSwitch(service)
+            syncRefreshTimerState()
             NSApp.activate()
             DispatchQueue.main.async { [weak self] in
                 self?.isPresentingPopover = false
@@ -149,8 +152,7 @@ extension AppDelegate {
 
     func refreshServiceIfNeededOnTabSwitch(_ service: PopoverService) {
         guard let action = RefreshOrchestration.actionForTabSwitch(
-            state: runtimePresentationState(for: service),
-            refreshInterval: AppSettings.shared.refreshInterval
+                state: runtimePresentationState(for: service)
         ) else { return }
 
         performRuntimeAction(action)

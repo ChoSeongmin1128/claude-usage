@@ -17,8 +17,7 @@ final class RefreshOrchestrationTests: XCTestCase {
         )
 
         let action = RefreshOrchestration.actionForTabSwitch(
-            state: state,
-            refreshInterval: 120
+            state: state
         )
 
         guard case let .refresh(service, force)? = action else {
@@ -238,8 +237,7 @@ final class RefreshOrchestrationTests: XCTestCase {
         )
 
         let action = RefreshOrchestration.actionForTabSwitch(
-            state: state,
-            refreshInterval: 120
+            state: state
         )
 
         guard case let .refresh(service, force)? = action else {
@@ -260,8 +258,7 @@ final class RefreshOrchestrationTests: XCTestCase {
         )
 
         let action = RefreshOrchestration.actionForTabSwitch(
-            state: state,
-            refreshInterval: 120
+            state: state
         )
 
         XCTAssertNil(action)

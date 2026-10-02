@@ -60,6 +60,7 @@ extension AppDelegate {
         setupPopovers()
         setupKeyboardShortcuts()
         bindRuntimeObservers()
+        startSessionActivityMonitoring()
 
         let claudeAccountIDs = Set(ClaudeAccountStore.shared.accounts().map(\.id))
         Task.detached(priority: .utility) {
@@ -141,6 +142,7 @@ extension AppDelegate {
             NSEvent.removeMonitor(monitor)
         }
         stopGlobalClickMonitor()
+        stopAdaptiveRefresh()
         AppSingleInstanceGuard.shared.release()
         if let plan = AppDataResetRequest.pending {
             AppDataReset.production.perform(plan)
