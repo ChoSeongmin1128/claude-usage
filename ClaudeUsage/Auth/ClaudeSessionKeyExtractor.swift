@@ -15,6 +15,7 @@ final class ClaudeSessionKeyExtractor: @unchecked Sendable {
 
     nonisolated func extractSessionKey(fromCookieHeader header: String) -> String? {
         let separators = CharacterSet(charactersIn: ";,\n")
+        var otherValues: [String] = []
         for rawPart in header.components(separatedBy: separators) {
             let trimmed = rawPart.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty, let equalsIndex = trimmed.firstIndex(of: "=") else { continue }
@@ -23,12 +24,14 @@ final class ClaudeSessionKeyExtractor: @unchecked Sendable {
             let rawValue = String(trimmed[trimmed.index(after: equalsIndex)...])
             let normalizedValue = self.normalizeTokenCandidate(rawValue)
 
-            if self.isSessionLikeCookieName(rawName),
+            if self.isSessionKeyCookieName(rawName),
                self.looksReasonableSessionCookieValue(normalizedValue) {
                 return normalizedValue
             }
-
-            if let extracted = self.extractLikelySessionKey(from: normalizedValue) {
+            otherValues.append(normalizedValue)
+        }
+        for value in otherValues {
+            if let extracted = self.extractLikelySessionKey(from: value) {
                 return extracted
             }
         }
@@ -75,7 +78,7 @@ final class ClaudeSessionKeyExtractor: @unchecked Sendable {
 
     private nonisolated func extractSessionKey(from primaryCookies: [HTTPCookie], fallbackCookies: [HTTPCookie]) -> (value: String, matchedCookieName: String, matchedDomain: String)? {
         for cookie in primaryCookies {
-            if self.isSessionLikeCookieName(cookie.name) {
+            if self.isSessionKeyCookieName(cookie.name) {
                 let normalized = self.normalizeTokenCandidate(cookie.value)
                 if self.looksReasonableSessionCookieValue(normalized) {
                     return (normalized, cookie.name, cookie.domain)
@@ -97,7 +100,7 @@ final class ClaudeSessionKeyExtractor: @unchecked Sendable {
         }
 
         for cookie in secondaryCookies {
-            if self.isSessionLikeCookieName(cookie.name) {
+            if self.isSessionKeyCookieName(cookie.name) {
                 let normalized = self.normalizeTokenCandidate(cookie.value)
                 if self.looksReasonableSessionCookieValue(normalized) {
                     return (normalized, cookie.name, cookie.domain)
@@ -115,13 +118,14 @@ final class ClaudeSessionKeyExtractor: @unchecked Sendable {
         return nil
     }
 
-    private nonisolated func isSessionLikeCookieName(_ name: String) -> Bool {
+    // claude.ai sets other "session" cookies (activitySessionId, intercom-session-*) before sign-in.
+    private nonisolated func isSessionKeyCookieName(_ name: String) -> Bool {
         let normalized = name
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
             .replacingOccurrences(of: "_", with: "")
             .replacingOccurrences(of: "-", with: "")
 
-        return normalized == "sessionkey" || normalized.contains("session")
+        return normalized == "sessionkey"
     }
 }
