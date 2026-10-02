@@ -34,11 +34,13 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
             hasMalformedWindow = true
             return nil
         }
-        fiveHour = window(.fiveHour)
-        sevenDay = window(.sevenDay)
+        let limits = Self.decodeScopedLimits(from: container)
+        // limits[]는 서버가 그리라고 주는 목록이다. 전용 필드가 없으면 kind로 같은 창을 찾는다.
+        fiveHour = window(.fiveHour) ?? Self.unscopedWindow(kind: "session", in: limits)
+        sevenDay = window(.sevenDay) ?? Self.unscopedWindow(kind: "weekly_all", in: limits)
         sevenDaySonnet = window(.sevenDaySonnet)
         sevenDayOpus = window(.sevenDayOpus)
-        scopedLimits = Self.decodeScopedLimits(from: container)
+        scopedLimits = limits
         if hasMalformedWindow, fiveHour == nil, sevenDay == nil, sevenDaySonnet == nil, sevenDayOpus == nil,
            scopedLimits.isEmpty {
             throw DecodingError.dataCorrupted(
@@ -58,6 +60,13 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
         self.sevenDaySonnet = sevenDaySonnet
         self.sevenDayOpus = sevenDayOpus
         self.scopedLimits = scopedLimits
+    }
+
+    nonisolated private static func unscopedWindow(kind: String, in limits: [ClaudeScopedLimit]) -> UsageWindow? {
+        guard let limit = limits.first(where: { $0.kind == kind && $0.isUnscoped }),
+              let percent = limit.percent, percent.isFinite, percent >= 0
+        else { return nil }
+        return UsageWindow(utilization: percent, resetsAt: limit.resetsAt)
     }
 
     /// limits 배열은 항목 단위로 관대하게 디코딩합니다.
@@ -94,6 +103,8 @@ nonisolated struct ClaudeScopedLimit: Codable, Sendable, Equatable {
     let resetsAt: String?
     let modelID: String?
     let modelName: String?
+    var surfaceID: String? = nil
+    var surfaceName: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case kind
@@ -105,6 +116,11 @@ nonisolated struct ClaudeScopedLimit: Codable, Sendable, Equatable {
 
     private enum ScopeKeys: String, CodingKey {
         case model
+        case surface
+    }
+
+    nonisolated var isUnscoped: Bool {
+        modelID == nil && modelName == nil && surfaceID == nil && surfaceName == nil
     }
 
     private enum ModelKeys: String, CodingKey {
@@ -162,13 +178,17 @@ nonisolated struct ClaudeScopedLimit: Codable, Sendable, Equatable {
             resetsAt = nil
         }
 
-        if let scope = try? container.nestedContainer(keyedBy: ScopeKeys.self, forKey: .scope),
-           let model = try? scope.nestedContainer(keyedBy: ModelKeys.self, forKey: .model) {
+        let scope = try? container.nestedContainer(keyedBy: ScopeKeys.self, forKey: .scope)
+        if let model = try? scope?.nestedContainer(keyedBy: ModelKeys.self, forKey: .model) {
             modelID = (try? model.decodeIfPresent(String.self, forKey: .id)) ?? nil
             modelName = (try? model.decodeIfPresent(String.self, forKey: .displayName)) ?? nil
         } else {
             modelID = nil
             modelName = nil
+        }
+        if let surface = try? scope?.nestedContainer(keyedBy: ModelKeys.self, forKey: .surface) {
+            surfaceID = (try? surface.decodeIfPresent(String.self, forKey: .id)) ?? nil
+            surfaceName = (try? surface.decodeIfPresent(String.self, forKey: .displayName)) ?? nil
         }
     }
 
@@ -468,10 +488,12 @@ extension ClaudeScopedLimit {
     nonisolated var modelWeeklyWindow: ClaudeModelWeeklyWindow? {
         guard kind == "weekly_scoped", group == nil || group == "weekly",
             let percent, percent.isFinite,
-            let name = modelName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty,
+            let name = (modelName ?? surfaceName)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty,
             !ClaudeUsageResponse.isAllModelsScope(modelID: modelID, modelName: name)
         else { return nil }
-        let identity = modelID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 모델이 아닌 사용처(surface) 한도도 서버가 준 이름 그대로 그린다. 모델 ID와 겹치지 않게 구분한다.
+        let rawIdentity = modelName != nil ? modelID : surfaceID.map { "surface:\($0)" }
+        let identity = rawIdentity?.trimmingCharacters(in: .whitespacesAndNewlines)
         let sourceID = identity?.isEmpty == false ? identity : nil
         let slug = ClaudeUsageResponse.modelSlug(sourceID ?? name)
         guard !slug.isEmpty else { return nil }

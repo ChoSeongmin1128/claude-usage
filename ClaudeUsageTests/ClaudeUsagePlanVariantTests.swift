@@ -108,3 +108,34 @@ final class ClaudeUsagePlanVariantTests: XCTestCase {
         ).text
     }
 }
+
+final class ClaudeLimitsListTests: XCTestCase {
+    func testWindowsComeFromLimitsKindsWhenDedicatedFieldsAreMissing() throws {
+        let usage = try JSONDecoder().decode(ClaudeUsageResponse.self, from: Data("""
+        {
+          "limits": [
+            { "group": "session", "kind": "session", "percent": 31, "resets_at": "2026-10-03T05:00:00Z", "scope": null },
+            { "group": "weekly", "kind": "weekly_all", "percent": 52, "resets_at": "2026-10-05T14:00:00Z", "scope": null }
+          ]
+        }
+        """.utf8))
+
+        XCTAssertEqual(usage.fiveHour?.utilization, 31)
+        XCTAssertEqual(usage.sevenDay?.utilization, 52)
+    }
+
+    func testSurfaceScopedWeeklyLimitUsesServerName() throws {
+        let usage = try JSONDecoder().decode(ClaudeUsageResponse.self, from: Data("""
+        {
+          "five_hour": { "utilization": 10, "resets_at": null },
+          "limits": [
+            { "group": "weekly", "kind": "weekly_scoped", "percent": 18, "resets_at": "2026-10-05T14:00:00Z",
+              "scope": { "model": null, "surface": { "id": "claude_code", "display_name": "Claude Code" } } }
+          ]
+        }
+        """.utf8))
+
+        XCTAssertEqual(usage.modelWeeklyWindows.map(\.modelName), ["Claude Code"])
+        XCTAssertEqual(usage.modelWeeklyWindows.first?.sourceID, "surface:claude_code")
+    }
+}
