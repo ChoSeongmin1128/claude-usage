@@ -119,7 +119,7 @@ nonisolated struct AntigravityLimitedQuotaCapability:
     }
 }
 
-// 2.9.0까지의 독립 앱 RPC가 남긴 기록을 읽기 위한 형식만 남긴다.
+// 2.7.x까지의 독립 앱 RPC가 남긴 기록을 읽기 위한 형식만 남긴다.
 nonisolated enum AntigravityLocalRPCMethod:
     String,
     CaseIterable,

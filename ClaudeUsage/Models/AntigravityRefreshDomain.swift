@@ -34,7 +34,7 @@ nonisolated struct AntigravityRefreshRequest:
     Equatable
 {
     let trigger: AntigravityRefreshTrigger
-    /// 2.10.0부터 AGY CLI만 조회한다. 저장된 값(이전 버전의 독립 앱, 미선택)은 되돌릴 때를 위해 그대로 두고 여기서만 CLI로 본다.
+    /// 2.8.0부터 AGY CLI만 조회한다. 저장된 값(이전 버전의 독립 앱, 미선택)은 되돌릴 때를 위해 그대로 두고 여기서만 CLI로 본다.
     var target: AntigravityUsageTarget { .cli }
     let repositoryRevision: UInt64
     let connection: AntigravityConnectionSettings

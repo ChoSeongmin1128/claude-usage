@@ -33,21 +33,13 @@ nonisolated enum WhatsNewCatalog {
             version: "2.8.0", symbol: "arrow.triangle.2.circlepath", title: "상황에 맞춘 자동 확인",
             body: "팝오버를 막 열었거나 Claude Code, Codex를 쓰는 중이거나 한도가 10% 이하로 남으면 2분마다, 오래 쓰지 않으면 최대 30분 간격으로 확인합니다."),
         WhatsNewPage(
-            version: "2.9.0", symbol: "arrow.counterclockwise.circle", title: "메뉴바에 초기화권 표시",
+            version: "2.8.0", symbol: "arrow.counterclockwise.circle", title: "메뉴바에 초기화권 표시",
             body: "받은 한도 초기화권 개수를 수치 옆에 ↺1처럼 보여줍니다. 새로 받으면 파란색, 48시간 안에 만료되면 빨간색입니다.",
             action: .toggleResetCreditsInMenuBar, actionTitle: "메뉴바에 표시"),
         WhatsNewPage(
-            version: "2.10.0", symbol: "globe", title: "쓰는 브라우저에서 로그인 가져오기",
+            version: "2.8.0", symbol: "person.2", title: "여러 계정",
             body:
-                "Chrome 말고도 Brave, Edge, Whale, Vivaldi, Firefox, Safari, Claude 앱에 로그인돼 있으면 그대로 가져옵니다. 기본 브라우저를 먼저 찾습니다.",
-            action: .openSettings(.accounts), actionTitle: "계정 설정 열기"),
-        WhatsNewPage(
-            version: "2.11.0", symbol: "person.2", title: "여러 계정",
-            body: "계정 패널에서 계정을 추가하면 팝오버에 여러 계정의 한도가 함께 나옵니다. 메뉴바는 사용 중인 계정 하나만 보여줍니다.",
-            action: .openSettings(.accounts), actionTitle: "계정 설정 열기"),
-        WhatsNewPage(
-            version: "2.12.0", symbol: "arrow.left.arrow.right", title: "기본 로그인 바꾸기",
-            body: "다른 폴더에 로그인해 둔 Claude Code나 Codex 계정을 기본 로그인으로 바꿀 수 있습니다. 두 로그인을 맞바꾸고, 바꾼 뒤 확인해 다르면 되돌립니다.",
+                "계정 패널에서 계정을 추가하면 팝오버에 여러 계정의 한도가 함께 나옵니다. Chrome 말고 Brave, Edge, Safari, Claude 앱의 로그인도 가져오고, 다른 폴더에 로그인해 둔 Claude Code나 Codex를 기본 로그인으로 바꿀 수 있습니다.",
             action: .openSettings(.accounts), actionTitle: "계정 설정 열기"),
     ]
 

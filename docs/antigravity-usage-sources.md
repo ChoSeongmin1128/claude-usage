@@ -7,7 +7,7 @@ ClaudeUsage는 AGY CLI의 공식 사용량 보고로 Google Antigravity quota를
 - [Google Antigravity CLI](https://antigravity.google/blog/introducing-google-antigravity-cli?app=antigravity)
 - [Antigravity CLI 문서](https://antigravity.google/docs/cli/overview)
 
-2.10.0부터 AGY CLI만 조회합니다. Antigravity 2.0 독립 앱은 기계로 읽을 수 있는 공식 사용량 경로가 없어 조회하지 않으며, 이전 버전에서 독립 앱을 고른 설정은 AGY CLI로 바뀝니다. Antigravity IDE는 지원하지 않습니다.
+2.8.0부터 AGY CLI만 조회합니다. Antigravity 2.0 독립 앱은 기계로 읽을 수 있는 공식 사용량 경로가 없어 조회하지 않으며, 이전 버전에서 독립 앱을 고른 설정은 AGY CLI로 바뀝니다. Antigravity IDE는 지원하지 않습니다.
 
 Google 계정 연결이나 별도 OAuth 로그인은 제공하지 않습니다. 로그인 변경은 AGY CLI에서 직접 수행한 뒤 ClaudeUsage를 새로고침합니다. 설치는 `curl -fsSL https://antigravity.google/cli/install.sh | bash`로 하고, 설치 뒤 `agy`를 실행해 로그인합니다.
 

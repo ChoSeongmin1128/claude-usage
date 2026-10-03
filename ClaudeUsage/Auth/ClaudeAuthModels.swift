@@ -206,7 +206,7 @@ nonisolated struct ClaudeBrowserImportedSession: Sendable, Equatable, Identifiab
 }
 
 extension ClaudeBrowserFamily {
-    /// 가져온 계정의 출처 설명에서 브라우저를 되찾는다. 2.9.0까지의 Chrome 설명에는 이름이 없다.
+    /// 가져온 계정의 출처 설명에서 브라우저를 되찾는다. 2.7.x까지의 Chrome 설명에는 이름이 없다.
     nonisolated static func family(fromSourceDetail detail: String?) -> ClaudeBrowserFamily {
         guard let detail else { return .chrome }
         return allCases.first { $0 != .chrome && detail.hasPrefix($0.displayName) } ?? .chrome
