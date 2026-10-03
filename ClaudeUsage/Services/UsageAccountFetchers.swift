@@ -118,17 +118,19 @@ enum ClaudeCodeDirectoryAccount {
 
     /// 파일 로그인을 먼저 보고, 없으면 그 폴더의 Keychain 항목을 Claude Code와 같은 `security` 도구로 읽는다.
     /// 그 도구로 못 읽을 때만 직접 읽으며, 확인 창은 사용자가 누를 때(interactive)만 띄운다.
-    nonisolated static func readToken(configDirectory: URL, interactive: Bool) async -> TokenRead {
+    /// configDirectory가 nil이면 기본 로그인(`~/.claude`, 해시 없는 Keychain 이름)이다.
+    nonisolated static func readToken(configDirectory: URL?, interactive: Bool) async -> TokenRead {
+        let home = FileManager.default.realHomeDirectory
+        let directory = configDirectory ?? home.appendingPathComponent(".claude", isDirectory: true)
         for name in [".credentials.json", "credentials.json"] {
-            if let data = try? Data(contentsOf: configDirectory.appendingPathComponent(name)),
+            if let data = try? Data(contentsOf: directory.appendingPathComponent(name)),
                 let token = parse(data)
             {
                 return token
             }
         }
         let service = ClaudeCodeCredentialReader.keychainServiceName(
-            for: configDirectory, homeDirectory: FileManager.default.realHomeDirectory,
-            usesExplicitConfigDirectory: true)
+            for: directory, homeDirectory: home, usesExplicitConfigDirectory: configDirectory != nil)
         switch await ClaudeCodeKeychainCLI.read(service: service) {
         case .payload(let payload): return parse(Data(payload.utf8)) ?? .missing
         case .notFound: return .missing
