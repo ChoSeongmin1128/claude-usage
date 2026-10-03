@@ -246,16 +246,10 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
             }
         }
 
+        // 이름에 session이 들어간 다른 쿠키(로그인 전에도 생기는 activitySessionId 등)는 세션 키가 아니다.
         if let explicitToken = relevantRecords.first(where: { extractor.extractLikelySessionKey(from: $0.value) != nil }),
            let extracted = extractor.extractLikelySessionKey(from: explicitToken.value) {
             return extracted
-        }
-
-        if let fallback = relevantRecords.first(where: { Self.isSessionCookieLikeName($0.name) }) {
-            let normalized = extractor.normalizeTokenCandidate(fallback.value)
-            if extractor.looksReasonableSessionCookieValue(normalized) {
-                return normalized
-            }
         }
 
         return nil
@@ -271,10 +265,6 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
 
     private static nonisolated func isSessionCookieName(_ name: String) -> Bool {
         Self.normalizedCookieName(name) == "sessionkey"
-    }
-
-    private static nonisolated func isSessionCookieLikeName(_ name: String) -> Bool {
-        Self.normalizedCookieName(name).contains("session")
     }
 
     private static nonisolated func normalizedCookieName(_ name: String) -> String {
