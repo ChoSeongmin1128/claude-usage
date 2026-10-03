@@ -36,9 +36,15 @@ final class UsageAccountsController: ObservableObject {
         preferences.ordered((accounts[service] ?? []).filter { !preferences.hidden.contains($0.id) })
     }
 
-    /// 계정이 2개 이상 보일 때만 여러 계정 화면을 쓴다. 1개면 지금 화면 그대로다.
+    /// 여러 계정을 켰고 계정이 2개 이상 보일 때만 여러 계정 화면을 쓴다. 아니면 메뉴바 계정 하나만 보인다.
     func isMultiAccount(_ service: PopoverService) -> Bool {
-        visibleAccounts(for: service).count >= 2
+        preferences.isMultiAccountEnabled && visibleAccounts(for: service).count >= 2
+    }
+
+    func setMultiAccountEnabled(_ enabled: Bool) {
+        preferences.multiAccountEnabled = enabled
+        if enabled { refreshIfNeeded(force: true) } else { refreshTask?.cancel() }
+        onChange?()
     }
 
     func discover(claudeRuntimeAccountID: String?) {
@@ -202,7 +208,7 @@ final class UsageAccountsController: ObservableObject {
     // MARK: - 조회
 
     func refreshIfNeeded(force: Bool = false) {
-        guard refreshTask == nil else { return }
+        guard preferences.isMultiAccountEnabled, refreshTask == nil else { return }
         let targets = (accounts[.claude] ?? []) + (accounts[.codex] ?? [])
         let now = Date()
         let due = targets.filter { account in

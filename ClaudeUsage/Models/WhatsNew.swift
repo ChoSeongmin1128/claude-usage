@@ -39,7 +39,7 @@ nonisolated enum WhatsNewCatalog {
         WhatsNewPage(
             version: "2.8.0", symbol: "person.2", title: "여러 계정",
             body:
-                "계정 패널에서 계정을 추가하면 팝오버에 여러 계정의 한도가 함께 나옵니다. Chrome 말고 Brave, Edge, Safari, Claude 앱의 로그인도 가져오고, 다른 폴더에 로그인해 둔 Claude Code나 Codex를 기본 로그인으로 바꿀 수 있습니다.",
+                "계정 패널에서 여러 계정을 켜면 팝오버에 여러 계정의 한도가 함께 나옵니다. Chrome 말고 Brave, Edge, Safari, Claude 앱의 로그인도 가져오고, 다른 폴더에 로그인해 둔 Claude Code나 Codex를 기본 로그인으로 바꿀 수 있습니다.",
             action: .openSettings(.accounts), actionTitle: "계정 설정 열기"),
     ]
 

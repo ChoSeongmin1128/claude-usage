@@ -111,25 +111,6 @@ final class MultiAccountPresentationTests: XCTestCase {
         XCTAssertEqual(withoutRuntime.sections(catalog: catalog).map(\.id), ["account-picker", "account-a"])
     }
 
-    func testSingleShowsOnlyMenuBarAccountWithChipsThatMoveTheMenuBar() throws {
-        let rows = [row("live", runtime: true), row("web"), row("folder")]
-        let single = MultiAccountPresentation(
-            service: .claude, mode: .single, rows: rows, selectedIDs: ["live", "folder"],
-            menuBarCapableIDs: ["live", "web"])
-
-        let sections = single.sections(catalog: catalog)
-
-        XCTAssertEqual(sections.map(\.id), ["account-picker", "currentSession"])
-        guard case .accountPicker(let picker) = sections[0].payload else { return XCTFail("칩 줄이 아닙니다") }
-        XCTAssertTrue(picker.selectsMenuBarAccount)
-        XCTAssertEqual(picker.chips.map(\.id), ["live", "web"])
-        XCTAssertEqual(picker.chips.filter(\.isSelected).map(\.id), ["live"])
-
-        let alone = MultiAccountPresentation(
-            service: .claude, mode: .single, rows: rows, selectedIDs: [], menuBarCapableIDs: ["live"])
-        XCTAssertEqual(alone.sections(catalog: catalog).map(\.id), ["currentSession"])
-    }
-
     func testMenuBarDefaultPrefersClaudeAppThenClaudeCodeThenOtherWebLogins() {
         func account(_ id: String, _ kind: UsageAccountSource.Kind, _ reference: String) -> UsageAccount {
             UsageAccount(
@@ -158,7 +139,17 @@ final class MultiAccountPresentationTests: XCTestCase {
         XCTAssertEqual(decoded.aliases["a"], "업무")
         XCTAssertEqual(decoded.hidden, ["b"])
         XCTAssertNil(decoded.menuBarAccountChosen)
-        XCTAssertEqual(UsageAccountPreferences.PopoverMode.single.title, "하나만 보기")
+        XCTAssertFalse(decoded.isMultiAccountEnabled, "기본은 단일 계정이어야 합니다")
+    }
+
+    func testRemovedPopoverModeFallsBackToPickWithoutLosingOtherPreferences() throws {
+        let saved =
+            #"{"aliases":{"a":"업무"},"hidden":[],"archived":[],"order":[],"selected":{},"popoverMode":"single","codexDirectories":[],"claudeDirectories":[],"knownIdentities":{},"expectedDefault":{},"multiAccountEnabled":true}"#
+        let decoded = try JSONDecoder().decode(UsageAccountPreferences.self, from: Data(saved.utf8))
+
+        XCTAssertEqual(decoded.popoverMode, .pick)
+        XCTAssertEqual(decoded.aliases["a"], "업무")
+        XCTAssertTrue(decoded.isMultiAccountEnabled)
     }
 
     func testFeaturedListAndSummaryRows() {

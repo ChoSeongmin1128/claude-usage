@@ -3,7 +3,6 @@ import SwiftUI
 /// 여러 계정 줄에서 누를 수 있는 동작. 팝오버가 환경으로 넘긴다.
 struct PopoverAccountActions {
     var toggle: (PopoverService, String) -> Void = { _, _ in }
-    var showInMenuBar: (PopoverService, String) -> Void = { _, _ in }
     var reconnect: (PopoverService, String) -> Void = { _, _ in }
     var allow: (PopoverService, String) -> Void = { _, _ in }
 }
@@ -44,11 +43,7 @@ struct AccountPickerRow: View {
             HStack(spacing: AppDesign.Space.control) {
                 ForEach(data.chips) { chip in
                     Button {
-                        if data.selectsMenuBarAccount {
-                            actions.showInMenuBar(data.service, chip.id)
-                        } else {
-                            actions.toggle(data.service, chip.id)
-                        }
+                        actions.toggle(data.service, chip.id)
                     } label: {
                         Text(chip.name)
                             .font(density.isCompact ? AppDesign.Typography.caption2 : AppDesign.Typography.caption)

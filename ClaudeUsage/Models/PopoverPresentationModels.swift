@@ -59,8 +59,6 @@ struct PopoverAccountPickerData: Equatable {
 
     let service: PopoverService
     let chips: [Chip]
-    /// 하나만 보기에서는 칩을 누르면 그 계정이 메뉴바 계정이 된다. 골라 보기에서는 줄을 켜고 끈다.
-    var selectsMenuBarAccount = false
 }
 
 struct PopoverAccountSummaryData: Equatable {
@@ -74,8 +72,6 @@ struct MultiAccountPresentation: Equatable {
     let mode: UsageAccountPreferences.PopoverMode
     let rows: [PopoverAccountRowData]
     let selectedIDs: [String]
-    /// 메뉴바 계정으로 둘 수 있는 줄. 다른 폴더 로그인은 먼저 기본 로그인으로 전환해야 한다.
-    var menuBarCapableIDs: Set<String> = []
 
     /// 숨긴 한도도 요약에는 넣는다. 문제가 없으면 한 줄로 끝낸다.
     var summary: PopoverAccountSummaryData {
@@ -109,17 +105,6 @@ struct MultiAccountPresentation: Equatable {
                         chips: rows.map { .init(id: $0.id, name: $0.name, isSelected: selectedIDs.contains($0.id)) })))
             let runtimeSelected = rows.contains { $0.isRuntime && selectedIDs.contains($0.id) }
             return [picker] + (runtimeSelected ? catalog : []) + others.filter { selectedIDs.contains($0.id) }.map(row)
-        case .single:
-            let choices = rows.filter { $0.isRuntime || menuBarCapableIDs.contains($0.id) }
-            guard choices.count >= 2 else { return catalog }
-            let picker = PopoverDisplaySection(
-                id: "account-picker", kind: .accountPicker, importance: .primary,
-                payload: .accountPicker(
-                    PopoverAccountPickerData(
-                        service: service,
-                        chips: choices.map { .init(id: $0.id, name: $0.name, isSelected: $0.isRuntime) },
-                        selectsMenuBarAccount: true)))
-            return [picker] + catalog
         case .featuredList:
             return catalog + others.map(row)
         case .summaryRows:
