@@ -122,6 +122,8 @@ nonisolated struct UsageAccountPreferences: Codable, Equatable, Sendable {
     var claudeDirectories: [String] = []
     /// 웹 계정의 계정 uuid와 조직. 같은 계정을 실행 사이에도 한 줄로 합치려고 남긴다.
     var knownIdentities: [String: UsageAccountIdentity] = [:]
+    /// 앱이 전환한 기본 로그인. 나중에 다른 프로그램이 되돌리면 알린다.
+    var expectedDefault: [String: UsageAccountIdentity] = [:]
 
     static let key = AppIdentifiers.defaultsKey("usageAccounts")
 

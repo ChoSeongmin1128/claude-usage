@@ -45,6 +45,10 @@ nonisolated enum WhatsNewCatalog {
             version: "2.11.0", symbol: "person.2", title: "여러 계정",
             body: "계정 패널에서 계정을 추가하면 팝오버에 여러 계정의 한도가 함께 나옵니다. 메뉴바는 사용 중인 계정 하나만 보여줍니다.",
             action: .openSettings(.accounts), actionTitle: "계정 설정 열기"),
+        WhatsNewPage(
+            version: "2.12.0", symbol: "arrow.left.arrow.right", title: "기본 로그인 바꾸기",
+            body: "다른 폴더에 로그인해 둔 Claude Code나 Codex 계정을 기본 로그인으로 바꿀 수 있습니다. 두 로그인을 맞바꾸고, 바꾼 뒤 확인해 다르면 되돌립니다.",
+            action: .openSettings(.accounts), actionTitle: "계정 설정 열기"),
     ]
 
     static func notesText(_ note: UpdateNotesQueue.Note) -> (version: String, title: String, text: String) {

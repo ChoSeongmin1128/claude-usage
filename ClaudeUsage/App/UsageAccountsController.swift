@@ -46,11 +46,13 @@ final class UsageAccountsController: ObservableObject {
         var updated = preferences
         updated.remember(claude + codex)
         preferences = updated
+        detectRevertedSwitch()
         self.claudeRuntimeAccountID = claudeRuntimeAccountID
         onChange?()
     }
 
     private(set) var claudeRuntimeAccountID: String?
+    @Published private(set) var revertedSwitch: [PopoverService: String] = [:]
 
     /// 지금 메뉴바와 팝오버 본문이 보여주는 계정. 이 계정은 따로 조회하지 않는다.
     func isRuntimeAccount(_ account: UsageAccount) -> Bool {
@@ -242,4 +244,72 @@ final class UsageAccountsController: ObservableObject {
         preferences.hidden.insert(account.id)
         discover(claudeRuntimeAccountID: claudeRuntimeAccountID)
     }
+
+    // MARK: - 계정 전환
+
+    /// 전환은 다른 폴더에 로그인이 있는 계정만 할 수 있다. 기본 로그인과 그 폴더의 로그인을 맞바꾼다.
+    func canSwitch(to account: UsageAccount) -> Bool {
+        !account.isInUse && account.sources.contains { $0.kind == .claudeCodeDirectory || $0.kind == .codexDirectory }
+    }
+
+    /// 성공하면 nil, 실패하면 보여줄 문구를 돌려준다.
+    func switchDefault(to account: UsageAccount, terminating running: CodexAccountSwitcher.RunningCodex?) async
+        -> String?
+    {
+        do {
+            if account.service == .codex {
+                guard let folder = account.sources.first(where: { $0.kind == .codexDirectory }),
+                    let workspace = account.identity.organizationID
+                else { return "이 계정은 전환할 수 없습니다." }
+                if let running, !running.isEmpty {
+                    guard await CodexAccountSwitcher.terminate(running) else {
+                        return "실행 중인 Codex를 종료하지 못했습니다. 직접 종료한 뒤 다시 시도하세요."
+                    }
+                }
+                try await CodexAccountSwitcher.switchDefault(
+                    to: URL(fileURLWithPath: folder.reference), expectedWorkspaceID: workspace)
+            } else {
+                guard let folder = account.sources.first(where: { $0.kind == .claudeCodeDirectory }) else {
+                    return "이 계정은 전환할 수 없습니다."
+                }
+                let work = workDirectory
+                let email = account.identity.email
+                try await Task.detached(priority: .userInitiated) {
+                    try await ClaudeAccountSwitcher.switchDefault(
+                        to: URL(fileURLWithPath: folder.reference), expectedEmail: email, workDirectory: work)
+                }.value
+            }
+            preferences.expectedDefault[account.service.rawValue] = account.identity
+            discover(claudeRuntimeAccountID: claudeRuntimeAccountID)
+            return nil
+        } catch AccountSwitchError.busy {
+            return "Claude Code가 로그인을 갱신하는 중입니다. 잠시 뒤 다시 시도하세요."
+        } catch AccountSwitchError.cancelled {
+            return "전환을 취소했습니다."
+        } catch AccountSwitchError.verificationFailed {
+            return "바꾼 로그인을 확인하지 못해 원래대로 되돌렸습니다."
+        } catch {
+            return "전환하지 못했습니다. 로그인은 바뀌지 않았습니다."
+        }
+    }
+
+    /// 앱이 바꾼 기본 로그인이 나중에 다른 계정으로 돌아가 있으면 한 번 알린다.
+    private func detectRevertedSwitch() {
+        for service in [PopoverService.claude, .codex] {
+            guard let expected = preferences.expectedDefault[service.rawValue],
+                let current = accounts[service]?.first(where: \.isInUse)?.identity
+            else { continue }
+            let same =
+                expected.mergeKey.map { $0 == current.mergeKey }
+                ?? (expected.email?.lowercased() == current.email?.lowercased())
+            guard !same else { continue }
+            preferences.expectedDefault[service.rawValue] = nil
+            let message =
+                "\(service.providerKind.displayName) 기본 로그인이 \(expected.email ?? "전환한 계정")에서 \(current.email ?? "다른 계정")으로 바뀌어 있습니다."
+            revertedSwitch[service] = message
+            NotificationManager.shared.deliverAccountNotice(title: "계정 전환이 되돌려졌습니다", body: message)
+        }
+    }
+
+    func dismissRevertNotice(_ service: PopoverService) { revertedSwitch[service] = nil }
 }

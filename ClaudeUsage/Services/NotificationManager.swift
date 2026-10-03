@@ -17,6 +17,8 @@ final class NotificationManager: ObservableObject {
 
     func requestPermission() { deliverer.requestPermission() }
 
+    func deliverAccountNotice(title: String, body: String) { deliverer.deliver(title: title, body: body) }
+
     func updateAccountBoundary(_ provider: PopoverService, accountID: String?) {
         let trimmed = accountID?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = trimmed?.isEmpty == false ? trimmed : nil

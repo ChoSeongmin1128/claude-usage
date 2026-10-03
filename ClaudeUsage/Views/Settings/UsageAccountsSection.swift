@@ -10,6 +10,15 @@ struct UsageAccountsSection: View {
     @State private var isAdding = false
     @State private var renaming: UsageAccount?
     @State private var newName = ""
+    @State private var switching: SwitchRequest?
+    @State private var isSwitching = false
+    @State private var switchResult: String?
+
+    struct SwitchRequest: Identifiable {
+        let account: UsageAccount
+        let running: CodexAccountSwitcher.RunningCodex?
+        var id: String { account.id }
+    }
 
     private var all: [UsageAccount] { controller.preferences.ordered(controller.accounts[service] ?? []) }
 
@@ -19,6 +28,20 @@ struct UsageAccountsSection: View {
                 Text("계정").font(AppDesign.Typography.headline)
                 Spacer()
                 Button("계정 추가") { isAdding = true }.controlSize(.small)
+            }
+            if let notice = controller.revertedSwitch[service] {
+                HStack {
+                    Label(notice, systemImage: "exclamationmark.triangle.fill")
+                        .font(AppDesign.Typography.caption).foregroundStyle(.orange)
+                    Spacer()
+                    Button("확인") { controller.dismissRevertNotice(service) }.controlSize(.small)
+                }
+            }
+            if isSwitching {
+                HStack(spacing: AppDesign.Space.row) {
+                    ProgressView().controlSize(.small)
+                    Text("계정을 바꾸는 중").font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                }
             }
             ForEach(all) { account in row(account) }
             if all.isEmpty {
@@ -37,6 +60,22 @@ struct UsageAccountsSection: View {
             AddUsageAccountSheet(controller: controller, service: service, onLoginClaude: onLoginClaude) {
                 isAdding = false
             }
+        }
+        .confirmationDialog(
+            switchTitle, isPresented: Binding(get: { switching != nil }, set: { if !$0 { switching = nil } }),
+            presenting: switching
+        ) { request in
+            Button(request.running?.isEmpty == false ? "종료하고 전환" : "전환") { perform(request) }
+            Button("취소", role: .cancel) { switching = nil }
+        } message: { request in
+            Text(switchMessage(request))
+        }
+        .alert(
+            "계정 전환", isPresented: Binding(get: { switchResult != nil }, set: { if !$0 { switchResult = nil } })
+        ) {
+            Button("확인") { switchResult = nil }
+        } message: {
+            Text(switchResult ?? "")
         }
         .alert(
             "이름 바꾸기",
@@ -65,6 +104,15 @@ struct UsageAccountsSection: View {
                 .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
             Menu {
+                if controller.canSwitch(to: account) {
+                    Button("이 계정으로 전환") {
+                        switching = SwitchRequest(
+                            account: account,
+                            running: service == .codex ? CodexAccountSwitcher.runningCodex() : nil)
+                    }
+                    .disabled(isSwitching)
+                    Divider()
+                }
                 Button("이름 바꾸기") {
                     newName = controller.preferences.aliases[account.id] ?? ""
                     renaming = account
@@ -92,6 +140,31 @@ struct UsageAccountsSection: View {
         }
         .opacity(hidden ? 0.5 : 1)
         .padding(.vertical, AppDesign.Space.tight)
+    }
+
+    private var switchTitle: String { "\(service.providerKind.displayName) 기본 로그인 바꾸기" }
+
+    private func switchMessage(_ request: SwitchRequest) -> String {
+        let name = controller.preferences.displayName(for: request.account, among: all)
+        if service == .codex {
+            if let running = request.running, !running.isEmpty {
+                return
+                    "실행 중인 Codex가 있습니다(ChatGPT 앱 \(running.applications.count)개, 터미널 \(running.processes.count)개). 종료한 뒤 기본 로그인(~/.codex)을 \(name)(으)로 바꿉니다. 지금 기본 로그인은 그 계정의 폴더로 옮깁니다."
+            }
+            return "기본 로그인(~/.codex)을 \(name)(으)로 바꿉니다. 지금 기본 로그인은 그 계정의 폴더로 옮깁니다. 바꾼 뒤 확인하고, 다르면 되돌립니다."
+        }
+        return
+            "기본 Claude Code 로그인을 \(name)(으)로 바꿉니다. 지금 기본 로그인은 그 계정의 폴더로 옮깁니다. macOS가 Keychain 사용을 물을 수 있고, 실행 중인 Claude Code는 30초 안에 새 로그인을 씁니다."
+    }
+
+    private func perform(_ request: SwitchRequest) {
+        switching = nil
+        isSwitching = true
+        Task {
+            let failure = await controller.switchDefault(to: request.account, terminating: request.running)
+            isSwitching = false
+            switchResult = failure ?? "기본 로그인을 바꿨습니다."
+        }
     }
 
     private func isUserAdded(_ source: UsageAccountSource) -> Bool {
