@@ -46,7 +46,7 @@ nonisolated struct AntigravityLegacyManagedProcessCleanup: AntigravityLegacyMana
     }
 
     static let launchLockFileName = "managed-agy-launch.lock"
-    private static let launchLockSharedDirectoryName = "ClaudeUsageShared"
+    private static let launchLockSharedDirectoryName = AppIdentifiers.legacySharedSupportDirectoryName
 
     static func launchLockDirectory(homeDirectoryURL: URL) -> URL {
         AntigravityStoragePaths.canonicalStateDirectoryURL(

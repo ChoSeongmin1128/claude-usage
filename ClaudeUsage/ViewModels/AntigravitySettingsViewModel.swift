@@ -270,7 +270,7 @@ final class AntigravitySettingsViewModel:
             success: AntigravitySettingsNotice(
                 tone: .success,
                 title: "이전 연결 정보를 삭제했습니다",
-                message: "ClaudeUsage가 저장한 계정 자격 정보를 제거했습니다.",
+                message: "\(AppDistribution.current.appName)가 저장한 계정 자격 정보를 제거했습니다.",
                 action: .dismiss
             )
         ) {
@@ -294,7 +294,7 @@ final class AntigravitySettingsViewModel:
             ?? AntigravitySettingsNotice(
                 tone: .success,
                 title: "이전 연결 정보를 모두 삭제했습니다",
-                message: "ClaudeUsage가 저장한 Antigravity 계정 정보를 제거했습니다.",
+                message: "\(AppDistribution.current.appName)가 저장한 Antigravity 계정 정보를 제거했습니다.",
                 action: .dismiss
             )
         state.activity = .idle
@@ -380,7 +380,7 @@ final class AntigravitySettingsViewModel:
             ?? AntigravitySettingsNotice(
                 tone: .success,
                 title: "이전 데이터 정리를 완료했습니다",
-                message: "ClaudeUsage가 소유한 기존 Antigravity 데이터를 정리했습니다.",
+                message: "\(AppDistribution.current.appName)가 소유한 기존 Antigravity 데이터를 정리했습니다.",
                 action: .dismiss
             )
         state.activity = .idle

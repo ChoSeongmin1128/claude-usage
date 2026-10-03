@@ -14,7 +14,7 @@ nonisolated struct AppDistributionDescriptor:
     Sendable
 {
     static let releaseChannelInfoKey =
-        "ClaudeUsageReleaseChannel"
+        AppIdentifiers.releaseChannelInfoKey
 
     let channel: ClaudeUsageReleaseChannel
     let appName: String
@@ -39,8 +39,11 @@ nonisolated struct AppDistributionDescriptor:
 
     static func resolve(
         releaseChannelValue: String?,
-        bundleIdentifier: String?
+        bundleIdentifier: String?,
+        displayName: String? = nil
     ) -> Self {
+        let displayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let builtName = displayName?.isEmpty == false && displayName?.hasPrefix("$(") == false ? displayName : nil
         let normalizedChannel =
             releaseChannelValue?
                 .trimmingCharacters(
@@ -55,23 +58,23 @@ nonisolated struct AppDistributionDescriptor:
         if isStaging {
             return Self(
                 channel: .staging,
-                appName: "ClaudeUsage-stg",
+                appName: builtName ?? "ClaudeUsage-stg",
                 bundleIdentifier:
                     bundleIdentifier
-                    ?? "com.seongmin.ClaudeUsage.staging",
+                    ?? AppIdentifiers.stagingBundleIdentifier,
                 applicationSupportDirectoryName:
-                    "ClaudeUsage-stg"
+                    AppIdentifiers.stagingSupportDirectoryName
             )
         }
 
         return Self(
             channel: .prod,
-            appName: "ClaudeUsage",
+            appName: builtName ?? "ClaudeUsage",
             bundleIdentifier:
                 bundleIdentifier
-                ?? "com.seongmin.ClaudeUsage",
+                ?? AppIdentifiers.productionBundleIdentifier,
             applicationSupportDirectoryName:
-                "ClaudeUsage"
+                AppIdentifiers.productionSupportDirectoryName
         )
     }
 }
@@ -86,7 +89,9 @@ nonisolated enum AppDistribution {
                             .releaseChannelInfoKey
                 ) as? String,
             bundleIdentifier:
-                Bundle.main.bundleIdentifier
+                Bundle.main.bundleIdentifier,
+            displayName:
+                Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
         )
     }
 }

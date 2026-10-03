@@ -112,7 +112,7 @@ final class GitHubReleaseUpdateEngine: AppUpdateEngine {
 
         var request = URLRequest(url: url)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("ClaudeUsage", forHTTPHeaderField: "User-Agent")
+        request.setValue(AppIdentifiers.userAgentProduct, forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 15
 
         do {
@@ -165,7 +165,10 @@ final class GitHubReleaseUpdateEngine: AppUpdateEngine {
     }
 
     func latestDownloadURL() async -> URL {
-        URL(string: "https://github.com/\(repoOwner)/\(repoName)/releases/latest/download/ClaudeUsage.zip")!
+        URL(
+            string:
+                "https://github.com/\(repoOwner)/\(repoName)/releases/latest/download/\(AppIdentifiers.releaseAssetZipName)"
+        )!
     }
 
     func usesExternalScheduler() async -> Bool { false }

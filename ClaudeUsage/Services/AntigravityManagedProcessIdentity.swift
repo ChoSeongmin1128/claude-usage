@@ -181,3 +181,74 @@ nonisolated extension AntigravityRecordedProcessIdentity {
         )
     }
 }
+
+nonisolated struct AntigravityBSDProcessInfo: Sendable, Equatable {
+    let processID: Int32
+    let effectiveUserID: AntigravityUserID
+    let realUserID: AntigravityUserID
+    let startedAt: AntigravityProcessStartTime
+}
+
+nonisolated protocol AntigravityLibprocReading: Sendable {
+    func bsdInfo(for processID: Int32) -> AntigravityBSDProcessInfo?
+    func executableURL(for processID: Int32) -> URL?
+}
+
+nonisolated struct AntigravitySystemLibprocReader: AntigravityLibprocReading {
+    func bsdInfo(for processID: Int32) -> AntigravityBSDProcessInfo? {
+        guard processID > 0 else {
+            return nil
+        }
+
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.size
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            proc_pidinfo(
+                processID,
+                PROC_PIDTBSDINFO,
+                0,
+                pointer,
+                Int32(expectedSize)
+            )
+        }
+        guard result == expectedSize,
+            info.pbi_pid == UInt32(processID),
+            let seconds = Int64(exactly: info.pbi_start_tvsec),
+            let microseconds = Int32(exactly: info.pbi_start_tvusec),
+            let startedAt = AntigravityProcessStartTime(
+                seconds: seconds,
+                microseconds: microseconds
+            )
+        else {
+            return nil
+        }
+
+        return AntigravityBSDProcessInfo(
+            processID: processID,
+            effectiveUserID: AntigravityUserID(rawValue: info.pbi_uid),
+            realUserID: AntigravityUserID(rawValue: info.pbi_ruid),
+            startedAt: startedAt
+        )
+    }
+
+    func executableURL(for processID: Int32) -> URL? {
+        guard processID > 0 else {
+            return nil
+        }
+
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        let result = buffer.withUnsafeMutableBufferPointer { pointer in
+            proc_pidpath(
+                processID,
+                pointer.baseAddress,
+                UInt32(pointer.count)
+            )
+        }
+        guard result > 0 else {
+            return nil
+        }
+
+        let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
+        return URL(fileURLWithPath: String(decoding: bytes, as: UTF8.self))
+    }
+}

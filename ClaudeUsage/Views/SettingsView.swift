@@ -8,7 +8,7 @@
 import AppKit
 import SwiftUI
 
-enum CodexAuthStatus: Equatable {
+nonisolated enum CodexAuthStatus: Equatable, Sendable {
     case checking
     case authenticated
     case notInstalled
@@ -132,7 +132,7 @@ enum SettingsDestructiveAction: Identifiable, Equatable {
     }
 }
 
-enum CodexAuthStatusResolver {
+nonisolated enum CodexAuthStatusResolver {
     /// **[C] Refresh 자동 호출 제거**:
     /// 이전에는 만료(또는 만료 추정) 시 status 조회 자체가 `refreshAccessToken` 콜백을 호출했다.
     /// 이로 인해 사용자가 설정 UI 에 들어가는 것만으로도 OAuth refresh_token 을 한 번 소비했고,
@@ -193,6 +193,8 @@ struct SettingsView: View {
     @State var selectedPanel: SettingsProviderPanel = .common
     @State var selectedDisplayProvider:
         AppProviderKind = .claude
+    @State var selectedAccountProvider: AppProviderKind = .claude
+    @State var collapsedLimitProviders: Set<AppProviderKind> = []
     @State var isClaudeAccountSwitcherExpanded = false
     @State var isClaudeAccountManagementExpanded = false
     @State var isAdvancedAuthExpanded = false
@@ -206,8 +208,15 @@ struct SettingsView: View {
         AntigravitySettingsViewModel
 
     @State var welcomeProvider: AppProviderKind = .claude
+    @State var onboardingDetection = OnboardingDetection()
+    @State var browserLoginWatch: Task<Void, Never>?
+    @State var installGuide: AppProviderKind?
+    var onImportClaudeFromBrowser: ((ClaudeBrowserFamily?) -> Void)?
+    var usageAccounts: UsageAccountsController?
+    var onOpenEmbeddedLogin: (() -> Void)?
     var welcomeStatuses: (() -> [AppProviderKind: WelcomeServiceStatus])?
     var onVerifyService: ((PopoverService) -> Void)?
+    var onShowWhatsNew: (() -> Void)?
 
     var onOpenLogin: (() -> Void)?
     var onReconnectClaudeCode: (() -> Void)?
@@ -239,22 +248,27 @@ struct SettingsView: View {
         codexLastError: (() -> APIError?)? = nil,
         initialPanel: SettingsProviderPanel? = nil,
         welcomeStatuses: (() -> [AppProviderKind: WelcomeServiceStatus])? = nil,
-        onVerifyService: ((PopoverService) -> Void)? = nil
+        onVerifyService: ((PopoverService) -> Void)? = nil,
+        onShowWhatsNew: (() -> Void)? = nil,
+        onImportClaudeFromBrowser: ((ClaudeBrowserFamily?) -> Void)? = nil,
+        onOpenEmbeddedLogin: (() -> Void)? = nil,
+        usageAccounts: UsageAccountsController? = nil
     ) {
         self.claudeAPIService = claudeAPIService
         self.initialPanel = initialPanel
         self.welcomeStatuses = welcomeStatuses
         self.onVerifyService = onVerifyService
+        self.onShowWhatsNew = onShowWhatsNew
+        self.onImportClaudeFromBrowser = onImportClaudeFromBrowser
+        self.onOpenEmbeddedLogin = onOpenEmbeddedLogin
+        self.usageAccounts = usageAccounts
         _welcomeProvider = State(
             initialValue: AppProviderKind.allCases.first { AppSettings.shared.isProviderEnabled($0) } ?? .claude)
-        _selectedPanel = State(
-            initialValue:
-                initialPanel
-                ?? SettingsProviderPanel(
-                    rawValue: AppSettings.shared.settingsLastTab
-                )
-                ?? .common
-        )
+        let storedPanel = SettingsProviderPanel.resolve(storedValue: AppSettings.shared.settingsLastTab)
+        _selectedPanel = State(initialValue: initialPanel ?? storedPanel?.panel ?? .common)
+        if let provider = storedPanel?.provider {
+            _selectedAccountProvider = State(initialValue: provider)
+        }
         _antigravitySettings = StateObject(
             wrappedValue:
                 AntigravitySettingsViewModel(

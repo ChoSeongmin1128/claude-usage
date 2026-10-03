@@ -17,8 +17,7 @@ final class RefreshOrchestrationTests: XCTestCase {
         )
 
         let action = RefreshOrchestration.actionForTabSwitch(
-            state: state,
-            refreshInterval: 120
+            state: state
         )
 
         guard case let .refresh(service, force)? = action else {
@@ -238,8 +237,7 @@ final class RefreshOrchestrationTests: XCTestCase {
         )
 
         let action = RefreshOrchestration.actionForTabSwitch(
-            state: state,
-            refreshInterval: 120
+            state: state
         )
 
         guard case let .refresh(service, force)? = action else {
@@ -260,8 +258,7 @@ final class RefreshOrchestrationTests: XCTestCase {
         )
 
         let action = RefreshOrchestration.actionForTabSwitch(
-            state: state,
-            refreshInterval: 120
+            state: state
         )
 
         XCTAssertNil(action)
@@ -634,7 +631,7 @@ final class PopoverViewModelTests: XCTestCase {
         }
 
         XCTAssertEqual(result.0, .content)
-        XCTAssertTrue(result.1.summary.contains("현재 24%"))
+        XCTAssertTrue(result.1.summary.contains("5시간 24%"))
         XCTAssertEqual(result.1.meta?.contains("재시도 대기"), true)
     }
 

@@ -100,10 +100,6 @@ private struct RuntimeProviderNextStepCard: View {
         switch action {
         case .enableService:
             settings.setProviderEnabled(true, for: provider)
-        case .openAntigravityApp:
-            if let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.antigravity") {
-                NSWorkspace.shared.openApplication(at: appURL, configuration: NSWorkspace.OpenConfiguration())
-            }
         }
     }
 }

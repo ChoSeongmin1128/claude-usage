@@ -17,7 +17,9 @@ enum ClaudeRuntimeRefresher {
         let outcome = try await apiService.fetchUsageWithRetryOutcome()
         let shouldFetchOverage = shouldRefreshOverage(lastFetchedAt: lastOverageFetchAt)
         let supplementalUsage: ClaudeSupplementalRefreshResult
-        if shouldFetchOverage {
+        if outcome.provenance.source == .oauth {
+            supplementalUsage = embeddedSupplementalUsage(outcome.usage, fetchedAt: Date())
+        } else if shouldFetchOverage {
             do {
                 let overage = try await apiService.fetchOverageSpendLimit()
                 supplementalUsage = .success(overage, fetchedAt: Date())
@@ -40,6 +42,14 @@ enum ClaudeRuntimeRefresher {
                 attemptedSourceLabels: outcome.provenance.attemptedSources.map(\.displayName)),
             supplementalUsage: supplementalUsage
         )
+    }
+
+    /// Claude Code 토큰으로는 추가 사용량 API를 부를 수 없어 사용량 응답에 함께 오는 값을 쓴다.
+    /// 응답에 없으면 추가 사용량을 켜지 않은 계정이다.
+    static func embeddedSupplementalUsage(
+        _ usage: ClaudeUsageResponse, fetchedAt: Date
+    ) -> ClaudeSupplementalRefreshResult {
+        .success(usage.extraUsage ?? .notEnabled, fetchedAt: fetchedAt)
     }
 
     private static func shouldRefreshOverage(lastFetchedAt: Date?) -> Bool {

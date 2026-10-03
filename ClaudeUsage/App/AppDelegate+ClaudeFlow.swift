@@ -93,7 +93,7 @@ extension AppDelegate {
                 if AppSettings.shared.settingsLastTab != SettingsProviderPanel.welcome.rawValue {
                     self?.settingsWindowCoordinator.close()
                 }
-                self?.showLoginWindow(clearCookies: true)
+                self?.showLoginWindow(clearCookies: true, startEmbeddedWebOnOpen: true)
             },
             onReconnectClaudeCode: { [weak self] in
                 if AppSettings.shared.settingsLastTab != SettingsProviderPanel.welcome.rawValue {
@@ -158,7 +158,13 @@ extension AppDelegate {
                         )
                     })
             },
-            onVerifyService: { [weak self] service in self?.refresh(service: service, force: true) }
+            onVerifyService: { [weak self] service in self?.refresh(service: service, force: true) },
+            onShowWhatsNew: { [weak self] in self?.presentLatestWhatsNew() },
+            onImportClaudeFromBrowser: { [weak self] family in
+                self?.showLoginWindow(startChromeImportOnOpen: true, importFamily: family)
+            },
+            onOpenEmbeddedLogin: { [weak self] in self?.showLoginWindow(startEmbeddedWebOnOpen: true) },
+            usageAccounts: usageAccountsController
         )
     }
 
@@ -229,17 +235,37 @@ extension AppDelegate {
             }
     }
 
+    /// 처음 설정과 같은 순서: Claude Code 로그인, 브라우저 로그인 가져오기, 없으면 로그인 방법 선택.
+    func reconnectClaude() {
+        Task { @MainActor [weak self] in
+            let (claudeCode, finding) = await Task.detached(priority: .userInitiated) {
+                (ClaudeCodeLoginDetector.hasLogin(), ClaudeBrowserLoginDetector.findLogin())
+            }.value
+            guard let self else { return }
+            let activeKind = ClaudeAccountStore.shared.state().activeAccount?.kind
+            if claudeCode, activeKind != .webSession {
+                self.showLoginWindow(startCLIActivationOnOpen: true)
+            } else if let finding, finding.presence != .absent {
+                self.showLoginWindow(startChromeImportOnOpen: true, importFamily: finding.family)
+            } else {
+                self.showLoginWindow()
+            }
+        }
+    }
+
     // MARK: - Login Window
 
     func showLoginWindow(
         clearCookies: Bool = false,
         startChromeImportOnOpen: Bool = false,
-        startCLIActivationOnOpen: Bool = false
+        startCLIActivationOnOpen: Bool = false,
+        startEmbeddedWebOnOpen: Bool = false,
+        importFamily: ClaudeBrowserFamily? = nil
     ) {
         setupWizardWindowCoordinator.close()
 
         if loginWindowCoordinator.focusIfVisible() {
-            if clearCookies || startChromeImportOnOpen || startCLIActivationOnOpen {
+            if clearCookies || startChromeImportOnOpen || startCLIActivationOnOpen || startEmbeddedWebOnOpen {
                 loginWindowCoordinator.close()
             } else {
                 return
@@ -257,6 +283,8 @@ extension AppDelegate {
                 clearOnOpen: clearCookies,
                 startChromeImportOnOpen: startChromeImportOnOpen,
                 startCLIActivationOnOpen: startCLIActivationOnOpen,
+                startEmbeddedWebOnOpen: startEmbeddedWebOnOpen,
+                importFamily: importFamily,
                 onSessionKeyFound: { [weak self] key, displayName, source, sourceDetail in
                     guard let self else { return }
 
@@ -474,7 +502,7 @@ extension AppDelegate {
               let usage = currentUsage else {
             throw snapshot.error ?? APIError.unknownError("Claude Code 사용량을 확인하지 못했습니다")
         }
-        Logger.info("Claude Code CLI 활성화 성공 (5시간 utilization=\(usage.fiveHour.utilization))")
+        Logger.info("Claude Code CLI 활성화 성공 (\(usage.usageSummaryText))")
 
         // 3. 사용자에게 보여줄 요약 라인 구성. OAuth 사용량 성공 뒤 시작된
         // profile 동기화가 아직 끝나지 않았으면 안전하게 제목만 표시한다.

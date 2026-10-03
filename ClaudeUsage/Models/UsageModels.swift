@@ -9,11 +9,13 @@ import Foundation
 
 /// Claude.ai API 전체 응답 구조
 nonisolated struct ClaudeUsageResponse: Codable, Sendable {
-    let fiveHour: UsageWindow
+    let fiveHour: UsageWindow?
     let sevenDay: UsageWindow?
     let sevenDaySonnet: UsageWindow?  // 레거시 필드 (limits[]로 대체 중)
     let sevenDayOpus: UsageWindow?    // 레거시 필드 (limits[]로 대체 중)
     let scopedLimits: [ClaudeScopedLimit]
+    let extraUsage: OverageSpendLimitResponse?
+    let resetGrants: ClaudeResetGrants?
 
     enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
@@ -23,27 +25,63 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
         case scopedLimits = "limits"
     }
 
+    private enum ExtraUsageKeys: String, CodingKey {
+        case extraUsage = "extra_usage"
+        case resetGrants = "cedar_ember"
+    }
+
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        fiveHour = try container.decode(UsageWindow.self, forKey: .fiveHour)
-        sevenDay = try container.decodeIfPresent(UsageWindow.self, forKey: .sevenDay)
-        sevenDaySonnet = try container.decodeIfPresent(UsageWindow.self, forKey: .sevenDaySonnet)
-        sevenDayOpus = try container.decodeIfPresent(UsageWindow.self, forKey: .sevenDayOpus)
-        scopedLimits = Self.decodeScopedLimits(from: container)
+        // 없거나 null인 창은 그 요금제에 없는 창이다(사용량 기반 Enterprise 등).
+        // 형식이 깨진 창은 그 창만 버리고, 그릴 창이 하나도 안 남을 때만 형식 오류로 본다.
+        var hasMalformedWindow = false
+        func window(_ key: CodingKeys) -> UsageWindow? {
+            guard container.contains(key), (try? container.decodeNil(forKey: key)) != true else { return nil }
+            if let decoded = try? container.decode(UsageWindow.self, forKey: key) { return decoded }
+            hasMalformedWindow = true
+            return nil
+        }
+        let limits = Self.decodeScopedLimits(from: container)
+        // limits[]는 서버가 그리라고 주는 목록이다. 전용 필드가 없으면 kind로 같은 창을 찾는다.
+        fiveHour = window(.fiveHour) ?? Self.unscopedWindow(kind: "session", in: limits)
+        sevenDay = window(.sevenDay) ?? Self.unscopedWindow(kind: "weekly_all", in: limits)
+        sevenDaySonnet = window(.sevenDaySonnet)
+        sevenDayOpus = window(.sevenDayOpus)
+        scopedLimits = limits
+        let extra = try? decoder.container(keyedBy: ExtraUsageKeys.self)
+        extraUsage = extra.flatMap { try? $0.decodeIfPresent(ClaudeExtraUsage.self, forKey: .extraUsage) }?.overage
+        resetGrants = extra.flatMap { try? $0.decodeIfPresent(ClaudeResetGrants.self, forKey: .resetGrants) } ?? nil
+        if hasMalformedWindow, fiveHour == nil, sevenDay == nil, sevenDaySonnet == nil, sevenDayOpus == nil,
+            scopedLimits.isEmpty
+        {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Claude usage windows are malformed"))
+        }
     }
 
     nonisolated init(
-        fiveHour: UsageWindow,
+        fiveHour: UsageWindow?,
         sevenDay: UsageWindow?,
         sevenDaySonnet: UsageWindow? = nil,
         sevenDayOpus: UsageWindow? = nil,
-        scopedLimits: [ClaudeScopedLimit] = [])
-    {
+        scopedLimits: [ClaudeScopedLimit] = [],
+        extraUsage: OverageSpendLimitResponse? = nil,
+        resetGrants: ClaudeResetGrants? = nil
+    ) {
         self.fiveHour = fiveHour
         self.sevenDay = sevenDay
         self.sevenDaySonnet = sevenDaySonnet
         self.sevenDayOpus = sevenDayOpus
         self.scopedLimits = scopedLimits
+        self.extraUsage = extraUsage
+        self.resetGrants = resetGrants
+    }
+
+    nonisolated private static func unscopedWindow(kind: String, in limits: [ClaudeScopedLimit]) -> UsageWindow? {
+        guard let limit = limits.first(where: { $0.kind == kind && $0.isUnscoped }),
+            let percent = limit.percent, percent.isFinite, percent >= 0
+        else { return nil }
+        return UsageWindow(utilization: percent, resetsAt: limit.resetsAt)
     }
 
     /// limits 배열은 항목 단위로 관대하게 디코딩합니다.
@@ -80,6 +118,8 @@ nonisolated struct ClaudeScopedLimit: Codable, Sendable, Equatable {
     let resetsAt: String?
     let modelID: String?
     let modelName: String?
+    var surfaceID: String? = nil
+    var surfaceName: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case kind
@@ -91,6 +131,11 @@ nonisolated struct ClaudeScopedLimit: Codable, Sendable, Equatable {
 
     private enum ScopeKeys: String, CodingKey {
         case model
+        case surface
+    }
+
+    nonisolated var isUnscoped: Bool {
+        modelID == nil && modelName == nil && surfaceID == nil && surfaceName == nil
     }
 
     private enum ModelKeys: String, CodingKey {
@@ -148,13 +193,17 @@ nonisolated struct ClaudeScopedLimit: Codable, Sendable, Equatable {
             resetsAt = nil
         }
 
-        if let scope = try? container.nestedContainer(keyedBy: ScopeKeys.self, forKey: .scope),
-           let model = try? scope.nestedContainer(keyedBy: ModelKeys.self, forKey: .model) {
+        let scope = try? container.nestedContainer(keyedBy: ScopeKeys.self, forKey: .scope)
+        if let model = try? scope?.nestedContainer(keyedBy: ModelKeys.self, forKey: .model) {
             modelID = (try? model.decodeIfPresent(String.self, forKey: .id)) ?? nil
             modelName = (try? model.decodeIfPresent(String.self, forKey: .displayName)) ?? nil
         } else {
             modelID = nil
             modelName = nil
+        }
+        if let surface = try? scope?.nestedContainer(keyedBy: ModelKeys.self, forKey: .surface) {
+            surfaceID = (try? surface.decodeIfPresent(String.self, forKey: .id)) ?? nil
+            surfaceName = (try? surface.decodeIfPresent(String.self, forKey: .displayName)) ?? nil
         }
     }
 
@@ -253,14 +302,31 @@ extension UsageWindow {
 }
 
 extension ClaudeUsageResponse {
-    /// 5시간 세션 퍼센트 (메인 표시용)
-    nonisolated var fiveHourPercentage: Double {
-        fiveHour.utilization
+    /// 5시간 세션 퍼센트. 창이 없으면 nil
+    nonisolated var fiveHourPercentage: Double? {
+        fiveHour?.utilization
     }
 
-    /// 주간 한도 퍼센트
-    nonisolated var weeklyPercentage: Double {
-        sevenDay?.utilization ?? 0
+    /// 주간 한도 퍼센트. 창이 없으면 nil
+    nonisolated var weeklyPercentage: Double? {
+        sevenDay?.utilization
+    }
+
+    nonisolated var hasSessionWindow: Bool {
+        fiveHour != nil
+    }
+
+    /// 메뉴바 색상과 단일 퍼센트 기준. 5시간 창이 없으면 0% 대신 주간 창을 쓴다.
+    nonisolated var gaugePercentage: Double? {
+        fiveHour?.utilization ?? sevenDay?.utilization
+    }
+
+    /// "현재 3% · 주간 41%" 요약. 없는 창은 빼고, 둘 다 없으면 "데이터 없음".
+    nonisolated var usageSummaryText: String {
+        let session = fiveHour.map { "5시간 \(PercentageText.string($0.utilization))" }
+        let weekly = sevenDay.map { "주간 \(PercentageText.string($0.utilization))" }
+        let parts = [session, weekly].compactMap { $0 }
+        return parts.isEmpty ? "데이터 없음" : parts.joined(separator: " · ")
     }
 
     /// Sonnet 주간 퍼센트 (없으면 nil)
@@ -330,11 +396,12 @@ extension ClaudeUsageResponse {
 
 /// 추가 사용량 API 응답 (금액은 센트 단위로 수신)
 nonisolated struct OverageSpendLimitResponse: Codable, Sendable, Equatable {
-    let monthlyCreditLimitCents: Double  // 월별 한도 (센트)
-    let usedCreditsCents: Double         // 사용한 금액 (센트)
+    let monthlyCreditLimitCents: Double?  // 월별 한도 (최소 단위). null이면 한도 없음
+    let usedCreditsCents: Double  // 사용한 금액 (최소 단위)
     let isEnabled: Bool                  // Extra Usage 활성 여부
     let outOfCredits: Bool               // 크레딧 소진 여부
-    let currency: String                 // 통화 (USD)
+    let currency: String  // 통화 코드
+    let decimalPlaces: Int?  // 서버가 준 소수 자릿수
 
     enum CodingKeys: String, CodingKey {
         case monthlyCreditLimitCents = "monthly_credit_limit"
@@ -342,20 +409,23 @@ nonisolated struct OverageSpendLimitResponse: Codable, Sendable, Equatable {
         case isEnabled = "is_enabled"
         case outOfCredits = "out_of_credits"
         case currency
+        case decimalPlaces = "decimal_places"
     }
 
     nonisolated init(
-        monthlyCreditLimitCents: Double,
+        monthlyCreditLimitCents: Double?,
         usedCreditsCents: Double,
         isEnabled: Bool,
         outOfCredits: Bool,
-        currency: String
+        currency: String,
+        decimalPlaces: Int? = nil
     ) {
         self.monthlyCreditLimitCents = monthlyCreditLimitCents
         self.usedCreditsCents = usedCreditsCents
         self.isEnabled = isEnabled
         self.outOfCredits = outOfCredits
         self.currency = currency
+        self.decimalPlaces = decimalPlaces
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -366,7 +436,7 @@ nonisolated struct OverageSpendLimitResponse: Codable, Sendable, Equatable {
         } else if let intVal = try? container.decode(Int.self, forKey: .monthlyCreditLimitCents) {
             monthlyCreditLimitCents = Double(intVal)
         } else {
-            monthlyCreditLimitCents = 0
+            monthlyCreditLimitCents = nil
         }
 
         if let doubleVal = try? container.decode(Double.self, forKey: .usedCreditsCents) {
@@ -380,39 +450,82 @@ nonisolated struct OverageSpendLimitResponse: Codable, Sendable, Equatable {
         isEnabled = (try? container.decode(Bool.self, forKey: .isEnabled)) ?? false
         outOfCredits = (try? container.decode(Bool.self, forKey: .outOfCredits)) ?? false
         currency = (try? container.decode(String.self, forKey: .currency)) ?? "USD"
+        decimalPlaces = (try? container.decode(Int.self, forKey: .decimalPlaces)) ?? nil
+    }
+}
+
+/// 사용량 응답의 `extra_usage`. 추가 사용량 API와 키 이름이 달라 따로 읽는다.
+nonisolated struct ClaudeExtraUsage: Decodable, Sendable {
+    let overage: OverageSpendLimitResponse
+
+    private enum CodingKeys: String, CodingKey {
+        case isEnabled = "is_enabled"
+        case monthlyLimit = "monthly_limit"
+        case usedCredits = "used_credits"
+        case currency
+        case decimalPlaces = "decimal_places"
+        case spendLimitReached = "spend_limit_reached"
+    }
+
+    nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func number(_ key: CodingKeys) -> Double? {
+            (try? container.decode(Double.self, forKey: key))
+                ?? (try? container.decode(String.self, forKey: key)).flatMap(Double.init)
+        }
+        overage = OverageSpendLimitResponse(
+            monthlyCreditLimitCents: number(.monthlyLimit),
+            usedCreditsCents: number(.usedCredits) ?? 0,
+            isEnabled: (try? container.decode(Bool.self, forKey: .isEnabled)) ?? false,
+            outOfCredits: (try? container.decode(Bool.self, forKey: .spendLimitReached)) ?? false,
+            currency: (try? container.decode(String.self, forKey: .currency)) ?? "USD",
+            decimalPlaces: try? container.decode(Int.self, forKey: .decimalPlaces))
     }
 }
 
 extension OverageSpendLimitResponse {
-    /// 달러 단위 한도
-    nonisolated var monthlyCreditLimit: Double {
-        monthlyCreditLimitCents / 100.0
+    nonisolated static let notEnabled = OverageSpendLimitResponse(
+        monthlyCreditLimitCents: nil, usedCreditsCents: 0, isEnabled: false, outOfCredits: false, currency: "USD")
+
+    private nonisolated var minorUnitDivisor: Double {
+        pow(10, Double(decimalPlaces ?? 2))
     }
 
-    /// 달러 단위 사용 금액
+    /// 통화 단위 한도. 한도가 없으면 nil
+    nonisolated var monthlyCreditLimit: Double? {
+        monthlyCreditLimitCents.map { $0 / minorUnitDivisor }
+    }
+
+    /// 통화 단위 사용 금액
     nonisolated var usedCredits: Double {
-        usedCreditsCents / 100.0
+        usedCreditsCents / minorUnitDivisor
     }
 
-    /// 사용률 퍼센트 (0~100)
-    nonisolated var usagePercentage: Double {
-        guard monthlyCreditLimitCents > 0 else { return 0 }
-        return (usedCreditsCents / monthlyCreditLimitCents) * 100
+    /// 사용률 퍼센트 (0~100). 한도가 없으면 nil
+    nonisolated var usagePercentage: Double? {
+        guard let limit = monthlyCreditLimitCents, limit > 0 else { return nil }
+        return (usedCreditsCents / limit) * 100
     }
 
-    /// 통화 포맷된 사용 금액
     nonisolated var formattedUsedCredits: String {
-        String(format: "$%.2f", usedCredits)
+        MoneyFormatter.string(minorUnits: usedCreditsCents, currency: currency, decimalPlaces: decimalPlaces)
     }
 
-    /// 통화 포맷된 한도
     nonisolated var formattedCreditLimit: String {
-        String(format: "$%.2f", monthlyCreditLimit)
+        guard let limit = monthlyCreditLimitCents else { return "한도 없음" }
+        return MoneyFormatter.string(minorUnits: limit, currency: currency, decimalPlaces: decimalPlaces)
     }
 
     /// Claude API가 확정적으로 제공하는 추가 사용량 값만 표시합니다.
     nonisolated var formattedUsageLimitSummary: String {
-        "\(formattedUsedCredits) 사용 / \(formattedCreditLimit) 한도"
+        let limit = monthlyCreditLimitCents == nil ? formattedCreditLimit : "\(formattedCreditLimit) 한도"
+        let summary = "\(formattedUsedCredits) 사용 / \(limit)"
+        return outOfCredits ? summary + " · 크레딧 소진" : summary
+    }
+
+    /// 헤드라인 값. 한도가 있으면 사용률, 없으면 사용 금액
+    nonisolated var headlineText: String {
+        usagePercentage.map(PercentageText.string) ?? formattedUsedCredits
     }
 }
 
@@ -422,10 +535,12 @@ extension ClaudeScopedLimit {
     nonisolated var modelWeeklyWindow: ClaudeModelWeeklyWindow? {
         guard kind == "weekly_scoped", group == nil || group == "weekly",
             let percent, percent.isFinite,
-            let name = modelName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty,
+            let name = (modelName ?? surfaceName)?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty,
             !ClaudeUsageResponse.isAllModelsScope(modelID: modelID, modelName: name)
         else { return nil }
-        let identity = modelID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        // 모델이 아닌 사용처(surface) 한도도 서버가 준 이름 그대로 그린다. 모델 ID와 겹치지 않게 구분한다.
+        let rawIdentity = modelName != nil ? modelID : surfaceID.map { "surface:\($0)" }
+        let identity = rawIdentity?.trimmingCharacters(in: .whitespacesAndNewlines)
         let sourceID = identity?.isEmpty == false ? identity : nil
         let slug = ClaudeUsageResponse.modelSlug(sourceID ?? name)
         guard !slug.isEmpty else { return nil }

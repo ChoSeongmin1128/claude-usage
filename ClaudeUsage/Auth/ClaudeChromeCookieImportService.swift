@@ -20,15 +20,15 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
         let accountEmail: String?
     }
 
+    private let family: ClaudeBrowserFamily
     private let candidateProvider: CandidateProvider?
     private let decryptionKeyProvider: DecryptionKeyProvider
     private let cookieReader: CookieReader
 
     nonisolated init(
+        family: ClaudeBrowserFamily = .chrome,
         candidateProvider: CandidateProvider? = nil,
-        decryptionKeyProvider: @escaping DecryptionKeyProvider = {
-            try ClaudeChromeSafeStorageKeyProvider().loadDerivedKeysForUserInitiatedImport()
-        },
+        decryptionKeyProvider: DecryptionKeyProvider? = nil,
         cookieReader: @escaping CookieReader = { cookiesURL, profileName, decryptionKeys in
             try ClaudeChromiumCookieReader.readCookies(
                 cookiesURL: cookiesURL,
@@ -37,8 +37,13 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
             )
         }
     ) {
+        self.family = family
         self.candidateProvider = candidateProvider
-        self.decryptionKeyProvider = decryptionKeyProvider
+        self.decryptionKeyProvider =
+            decryptionKeyProvider ?? {
+                try ClaudeChromeSafeStorageKeyProvider(labels: family.safeStorageLabels, sourceName: family.displayName)
+                    .loadDerivedKeysForUserInitiatedImport()
+            }
         self.cookieReader = cookieReader
     }
 
@@ -47,8 +52,22 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
             return candidateProvider()
         }
         let fileManager = FileManager.default
-        let home = fileManager.realHomeDirectory
-        let chromeRoot = home.appendingPathComponent("Library/Application Support/Google/Chrome", isDirectory: true)
+        let support = fileManager.realHomeDirectory.appendingPathComponent(
+            "Library/Application Support", isDirectory: true)
+        let chromeRoot: URL
+        switch family.storage {
+        case .chromiumProfiles(let root):
+            chromeRoot = support.appendingPathComponent(root, isDirectory: true)
+        case .chromiumSingle(let root):
+            let appRoot = support.appendingPathComponent(root, isDirectory: true)
+            guard let cookiesPath = self.resolveCookieDatabasePath(for: appRoot) else { return [] }
+            return [
+                ClaudeBrowserSessionCandidate(
+                    family: family, profileName: "Default", cookiesPath: cookiesPath, supportsAutomaticImport: true)
+            ]
+        case .firefox, .safari:
+            return []
+        }
         guard fileManager.fileExists(atPath: chromeRoot.path) else {
             return []
         }
@@ -60,7 +79,7 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
             let profileDirectory = chromeRoot.appendingPathComponent(profile.profileName, isDirectory: true)
             guard let cookiesPath = self.resolveCookieDatabasePath(for: profileDirectory) else { return nil }
             return ClaudeBrowserSessionCandidate(
-                family: .chrome,
+                family: family,
                 profileName: profile.profileName,
                 profileDisplayName: profile.displayName,
                 accountEmail: profile.accountEmail,
@@ -75,7 +94,7 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
         guard !candidates.isEmpty else {
             return .unavailable(message: self.manualGuidanceMessage(
                 discoveredProfiles: [],
-                failureDetails: ["Chrome 프로필을 찾지 못했습니다."]))
+                    failureDetails: ["\(family.displayName) 프로필을 찾지 못했습니다."]))
         }
         let decryptionKeys = try decryptionKeyProvider()
 
@@ -95,6 +114,7 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
                     if seenFingerprints.insert(fingerprint).inserted {
                         importedSessions.append(
                             ClaudeBrowserImportedSession(
+                                family: family,
                                 profileName: candidate.profileName,
                                 profileDisplayName: candidate.profileDisplayName,
                                 accountEmail: candidate.accountEmail,
@@ -235,7 +255,7 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
         return nil
     }
 
-    private static nonisolated func findSessionKey(in records: [ClaudeChromiumCookieRecord]) -> String? {
+    static nonisolated func findSessionKey(in records: [ClaudeChromiumCookieRecord]) -> String? {
         let extractor = ClaudeSessionKeyExtractor()
         let relevantRecords = records.filter { Self.isClaudeHost($0.domain) }
 
@@ -246,16 +266,10 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
             }
         }
 
+        // 이름에 session이 들어간 다른 쿠키(로그인 전에도 생기는 activitySessionId 등)는 세션 키가 아니다.
         if let explicitToken = relevantRecords.first(where: { extractor.extractLikelySessionKey(from: $0.value) != nil }),
            let extracted = extractor.extractLikelySessionKey(from: explicitToken.value) {
             return extracted
-        }
-
-        if let fallback = relevantRecords.first(where: { Self.isSessionCookieLikeName($0.name) }) {
-            let normalized = extractor.normalizeTokenCandidate(fallback.value)
-            if extractor.looksReasonableSessionCookieValue(normalized) {
-                return normalized
-            }
         }
 
         return nil
@@ -273,31 +287,28 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
         Self.normalizedCookieName(name) == "sessionkey"
     }
 
-    private static nonisolated func isSessionCookieLikeName(_ name: String) -> Bool {
-        Self.normalizedCookieName(name).contains("session")
-    }
-
     private static nonisolated func normalizedCookieName(_ name: String) -> String {
         let lowered = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         return lowered.replacingOccurrences(of: "_", with: "").replacingOccurrences(of: "-", with: "")
     }
 
     private nonisolated func manualGuidanceMessage(discoveredProfiles: [String], failureDetails: [String]) -> String {
+        let name = family.displayName
         let profileLine = discoveredProfiles.isEmpty
-            ? "Chrome 프로필을 찾지 못했습니다."
+            ? "\(name) 프로필을 찾지 못했습니다."
             : "확인한 프로필: \(discoveredProfiles.joined(separator: ", "))"
 
         var sections: [String] = [
-            "Chrome에서 Claude 로그인 정보를 찾지 못했습니다.",
+            "\(name)에서 Claude 로그인 정보를 찾지 못했습니다.",
             profileLine,
             "확인 순서:",
-            "1. Chrome에서 claude.ai에 로그인되어 있는지 확인",
+            "1. \(name)에서 claude.ai에 로그인되어 있는지 확인",
             "2. 실제 사용 중인 프로필이 위 목록에 포함되는지 확인",
             "3. 계속 실패하면 고급 설정에서 브라우저 로그인 값을 직접 입력"
         ]
 
         if !failureDetails.isEmpty {
-            Logger.debug("Chrome 가져오기 실패 요약: \(failureDetails.prefix(3).joined(separator: " / "))")
+            Logger.debug("\(name) 가져오기 실패 요약: \(failureDetails.prefix(3).joined(separator: " / "))")
             sections.append("가져오기에 실패한 프로필: \(failureDetails.count)개")
         }
 

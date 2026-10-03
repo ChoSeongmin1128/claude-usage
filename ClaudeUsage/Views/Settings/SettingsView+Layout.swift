@@ -62,35 +62,40 @@ extension SettingsView {
     }
 
     private var settingsLayout: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                sidebar
-
-                Divider()
-
-                VStack(spacing: 0) {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: AppDesign.Space.section) {
-                            panelContent
-                        }
-                        .padding(AppDesign.Space.window)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .id(contentIdentity)
-                        .transition(.opacity)
-                        .animation(
-                            settings.motion.animation(for: .navigation, reduceMotion: reduceMotion),
-                            value: contentIdentity)
-                    }
+        NavigationSplitView {
+            List(selection: sidebarSelection) {
+                if settings.welcomeState != .completed {
+                    Label("빠른 시작", systemImage: "sparkles").tag(SettingsProviderPanel.welcome)
+                }
+                ForEach(SettingsProviderRegistry.sidebarPanels) { panel in
+                    Label(panel.title, systemImage: panel.icon ?? "circle").tag(panel.panel)
                 }
             }
+            .navigationSplitViewColumnWidth(min: 150, ideal: 170, max: 220)
+            .toolbar(removing: .sidebarToggle)
+        } detail: {
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: AppDesign.Space.section) {
+                        panelContent
+                    }
+                    .padding(AppDesign.Space.window)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .id(contentIdentity)
+                    .transition(.opacity)
+                    .animation(
+                        settings.motion.animation(for: .navigation, reduceMotion: reduceMotion),
+                        value: contentIdentity)
+                }
 
-            HStack {
-                Spacer()
-                Button("기본값 복원") { pendingDestructiveAction = .resetDefaults }
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Spacer()
+                    Button("기본값 복원") { pendingDestructiveAction = .resetDefaults }
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, AppDesign.Space.page)
+                .padding(.vertical, AppDesign.Space.content)
             }
-            .padding(.horizontal, AppDesign.Space.page)
-            .padding(.vertical, AppDesign.Space.content)
         }
         .frame(
             minWidth: AppDesign.Window.settingsMinimum.width,
@@ -132,13 +137,11 @@ extension SettingsView {
             testResult = nil
             syncClaudeAccountsState()
             selectedOrganizationID = appliedPreferredOrganizationID
-            selectedPanel = normalizedPanel(
-                initialPanel
-                    ?? SettingsProviderPanel(
-                        rawValue: settings.settingsLastTab
-                    )
-                    ?? .common
-            )
+                let storedPanel = SettingsProviderPanel.resolve(storedValue: settings.settingsLastTab)
+                selectedPanel = initialPanel ?? storedPanel?.panel ?? .common
+                if let provider = storedPanel?.provider {
+                    selectedAccountProvider = provider
+                }
             if selectedPanel == .display,
                let activeProvider =
                 settings
@@ -227,7 +230,8 @@ extension SettingsView {
         }
         .onReceive(settings.$shouldRevealClaudeAdvancedAuth.removeDuplicates()) { shouldReveal in
             guard shouldReveal else { return }
-            selectedPanel = .claude
+                selectedPanel = .accounts
+                selectedAccountProvider = .claude
                 withAnimation(settings.motion.animation(for: .disclosure, reduceMotion: reduceMotion)) {
                 isAdvancedAuthExpanded = true
             }
@@ -248,26 +252,21 @@ extension SettingsView {
         }
         .onChange(of: selectedPanel) { _, panel in
             settings.settingsLastTab = panel.rawValue
-            if panel == .codex {
-                checkCodexAuth()
-            }
-            // 패널 자체가 .antigravity 로 바뀌는 경우 background warm-up.
-            switch panel {
-            case .antigravity:
-                Task {
-                    await antigravitySettings.load()
-                }
-            default:
-                break
+                if panel == .accounts {
+                    accountProviderDidAppear(selectedAccountProvider)
             }
         }
-        .onChange(of: settings.settingsLastTab) { _, rawValue in
-            guard let panel = SettingsProviderPanel(
-                rawValue: rawValue
-            ), panel != selectedPanel else {
-                return
+            .onChange(of: selectedAccountProvider) { _, provider in
+                accountProviderDidAppear(provider)
             }
-            selectedPanel = normalizedPanel(panel)
+        .onChange(of: settings.settingsLastTab) { _, rawValue in
+                guard let resolved = SettingsProviderPanel.resolve(storedValue: rawValue) else { return }
+                if let provider = resolved.provider {
+                    selectedAccountProvider = provider
+                }
+                if resolved.panel != selectedPanel {
+                    selectedPanel = resolved.panel
+            }
         }
         .onChange(of: settings.updateCheckInterval) { _, _ in
             updateRuntimeState.refreshEngineStatus()
@@ -303,33 +302,54 @@ extension SettingsView {
         case .common:
             commonServicesSection
             Divider()
+            providerTimeFormatSection(for: selectedDisplayProvider)
+            Divider()
             appDataResetSection
+        case .accounts:
+            ProviderSettingsPicker(selection: $selectedAccountProvider)
+            Divider()
+            if let usageAccounts, let service = selectedAccountProvider.runtimeService, service != .antigravity {
+                UsageAccountsSection(controller: usageAccounts, service: service) {
+                    onImportClaudeFromBrowser?(nil)
+                }
+                Divider()
+            }
+            switch selectedAccountProvider {
+            case .claude: claudeOverviewSection
+            case .codex: codexOverviewSection
+            case .antigravity: runtimeProviderPanel(for: .antigravity)
+            }
+        case .limits:
+            limitsPanel
         case .display:
             commonDisplaySection
             Divider()
             displayProviderSection
-        case .notifications:
-            commonAlertSection
             Divider()
-            notificationThresholdSection
-            Divider()
-            notificationServicesSection
+            AppMotionSettingsView(settings: settings)
         case .updates:
             updateSection
-        case .claude:
-            claudeOverviewSection
-        case .codex:
-            codexOverviewSection
-        case .antigravity:
-            runtimeProviderPanel(for: .antigravity)
+        }
+    }
+
+    private var sidebarSelection: Binding<SettingsProviderPanel?> {
+        Binding(get: { selectedPanel }, set: { if let panel = $0 { selectedPanel = panel } })
+    }
+
+    private func accountProviderDidAppear(_ provider: AppProviderKind) {
+        switch provider {
+        case .codex: checkCodexAuth()
+        case .antigravity: Task { await antigravitySettings.load() }
+        case .claude: break
         }
     }
 
     private var contentIdentity: String {
-        if selectedPanel == .display {
-            return "\(selectedPanel.rawValue)-\(selectedDisplayProvider.rawValue)-panel"
+        switch selectedPanel {
+        case .display: return "\(selectedPanel.rawValue)-\(selectedDisplayProvider.rawValue)-panel"
+        case .accounts: return "\(selectedPanel.rawValue)-\(selectedAccountProvider.rawValue)-panel"
+        default: return "\(selectedPanel.rawValue)-panel"
         }
-        return "\(selectedPanel.rawValue)-panel"
     }
 
     private var displayProviderSection:
@@ -359,13 +379,6 @@ extension SettingsView {
 
             Divider()
 
-            providerTimeFormatSection(
-                for:
-                    selectedDisplayProvider
-            )
-
-            Divider()
-
             providerMenuBarDisplaySection(
                 for:
                     selectedDisplayProvider
@@ -378,64 +391,5 @@ extension SettingsView {
                     selectedDisplayProvider
             )
         }
-    }
-
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: AppDesign.Space.row) {
-            Text("설정")
-                .font(AppDesign.Typography.headline)
-                .padding(.horizontal, AppDesign.Space.row)
-                .padding(.top, AppDesign.Space.compact)
-
-            let panels = SettingsProviderRegistry.sidebarPanels
-            ForEach(panels.filter { $0.providerKind == nil }) { panel in
-                sidebarRow(panel)
-            }
-
-            Text("서비스")
-                .font(AppDesign.Typography.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, AppDesign.Space.label)
-                .padding(.top, AppDesign.Space.label)
-
-            ForEach(panels.filter { $0.providerKind != nil }) { panel in
-                sidebarRow(panel)
-            }
-
-            Spacer()
-        }
-        .padding(AppDesign.Space.content)
-        .frame(width: 190)
-        .background(Color(NSColor.windowBackgroundColor))
-    }
-
-    private func sidebarRow(_ panel: SettingsProviderPanelDescriptor) -> some View {
-        Button {
-            selectedPanel = panel.panel
-        } label: {
-            HStack(spacing: AppDesign.Space.row) {
-                if let provider = panel.providerKind {
-                    ProviderBrandIconView(provider: provider, kind: .settings, size: 16)
-                        .frame(width: 16)
-                } else if let icon = panel.icon {
-                    Image(systemName: icon)
-                        .frame(width: 16)
-                }
-                Text(panel.title)
-                    .font(AppDesign.Typography.subheadline)
-                Spacer(minLength: 0)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(selectedPanel == panel.panel ? Color.accentColor : .primary)
-        .padding(.horizontal, AppDesign.Space.label)
-        .padding(.vertical, AppDesign.Space.row)
-        .background(selectedPanel == panel.panel ? Color.accentColor.opacity(0.16) : Color.clear)
-        .cornerRadius(AppDesign.Radius.group)
-    }
-
-    private func normalizedPanel(_ panel: SettingsProviderPanel) -> SettingsProviderPanel {
-        panel
     }
 }

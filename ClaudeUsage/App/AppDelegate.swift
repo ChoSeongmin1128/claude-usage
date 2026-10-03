@@ -12,9 +12,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var didFinishRuntimeLaunch = false
     var statusItem: NSStatusItem?
     let refreshScheduler = RefreshScheduler()
-    lazy var refreshConfiguration = RuntimeRefreshConfiguration(
-        settings: .shared, isOnBattery: PowerMonitor.shared.isOnBattery
-    )
+    lazy var refreshConfiguration = RuntimeRefreshConfiguration(settings: .shared)
+    let sessionActivityMonitor = SessionActivityMonitor()
+    var lastPopoverOpenedAt: Date?
+    var resetFollowUpTimers: [PopoverService: Timer] = [:]
+    var popoverCloseObserver: NSObjectProtocol?
+    var resetCreditViewedServices: Set<PopoverService> = []
+    let usageAccountsController = UsageAccountsController()
+    var usageAccountsObserver: NSObjectProtocol?
     let updateCoordinator = AppUpdateCoordinator()
     lazy var apiService = ClaudeAPIService()
     let codexAPIService = CodexAPIService(authManager: CodexAuthManager.shared)
@@ -40,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let settingsWindowCoordinator = SettingsWindowCoordinator()
     let loginWindowCoordinator = LoginWindowCoordinator()
     let setupWizardWindowCoordinator = SetupWizardWindowCoordinator()
+    let whatsNewWindowCoordinator = WhatsNewWindowCoordinator()
     let runtimeState = AppRuntimeStateFacade()
 
     var statusTimer: Timer?

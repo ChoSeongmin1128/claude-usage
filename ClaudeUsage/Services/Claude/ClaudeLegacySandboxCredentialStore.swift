@@ -13,8 +13,8 @@ final class ClaudeLegacySandboxCredentialStore: ClaudeLegacySandboxCredentialSto
 
     nonisolated init(
         preferencesURL: URL = FileManager.default.realHomeDirectory
-            .appendingPathComponent("Library/Containers/com.seongmin.ClaudeUsage")
-            .appendingPathComponent("Data/Library/Preferences/com.seongmin.ClaudeUsage.plist")
+            .appendingPathComponent("Library/Containers/\(AppIdentifiers.productionBundleIdentifier)")
+            .appendingPathComponent("Data/Library/Preferences/\(AppIdentifiers.productionBundleIdentifier).plist")
     ) {
         self.preferencesURL = preferencesURL
     }

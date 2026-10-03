@@ -1,0 +1,38 @@
+{
+  "meta": {
+    "plans": [
+      "max",
+      "enterprise"
+    ],
+    "source": "assumed",
+    "date": "2026-10-03",
+    "note": "limits[] 이전 형태. 모델별 주간은 레거시 필드로만 옴. 좌석 기반 Enterprise도 좌석별 5시간/주간(문서)"
+  },
+  "response": {
+    "five_hour": {
+      "utilization": 12,
+      "resets_at": "2026-10-03T03:00:00Z"
+    },
+    "seven_day": {
+      "utilization": 40,
+      "resets_at": "2026-10-07T00:00:00Z"
+    },
+    "seven_day_sonnet": {
+      "utilization": 35,
+      "resets_at": "2026-10-07T00:00:00Z"
+    },
+    "seven_day_opus": null
+  },
+  "expected": {
+    "rows": [
+      "5시간=12",
+      "주간=40",
+      "Sonnet · 주간=35"
+    ],
+    "menuBar": {
+      "fiveHour": "12%",
+      "weekly": "40%",
+      "dual": "12%·40%"
+    }
+  }
+}

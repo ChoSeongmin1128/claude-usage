@@ -119,7 +119,8 @@ final class CodexTokenRefreshRecoveryTests: XCTestCase {
     func testNewLoginBeforeCreditEnrichmentCannotMixHeaders() async throws {
         let (path, manager) = try fixture()
         let recorder = CodexRequestRecorder()
-        let service = service(manager) { request in
+        let owner = TestCodexOwner(resetCreditReads: recorder) { _, _, _ in throw CodexOwnerError.unavailable }
+        let service = service(manager, owner: owner) { request in
             recorder.record(request)
             if request.url?.path.hasSuffix("wham/usage") == true {
                 try? writeAuthJSON(accessToken: "access-b", refreshToken: "refresh-b", to: path, accountID: "account-b")
@@ -129,13 +130,14 @@ final class CodexTokenRefreshRecoveryTests: XCTestCase {
         do { _ = try await service.fetchUsage(); XCTFail("changed account must invalidate usage") } catch {
             XCTAssertEqual(error as? CodexCredentialError, .changed)
         }
-        XCTAssertEqual(recorder.count { $0.url.path.hasSuffix("rate-limit-reset-credits") }, 0)
+        XCTAssertEqual(recorder.count { $0.url.scheme == "owner" }, 0)
     }
 
     func testConcurrentRequestsShareOneUsageAndCreditFetch() async throws {
         let (_, manager) = try fixture()
         let recorder = CodexRequestRecorder()
-        let service = service(manager) { request in
+        let owner = TestCodexOwner(resetCreditReads: recorder) { _, _, _ in throw CodexOwnerError.unavailable }
+        let service = service(manager, owner: owner) { request in
             recorder.record(request)
             try? await Task.sleep(for: .milliseconds(100))
             return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27))
@@ -148,7 +150,10 @@ final class CodexTokenRefreshRecoveryTests: XCTestCase {
         }
         XCTAssertEqual(results, Array(repeating: 27, count: 8))
         XCTAssertEqual(recorder.count { $0.url.path.hasSuffix("wham/usage") }, 1)
-        XCTAssertEqual(recorder.count { $0.url.path.hasSuffix("rate-limit-reset-credits") }, 1)
+        XCTAssertEqual(recorder.count { $0.url.scheme == "owner" }, 1)
+        let again = try await service.fetchUsage()
+        XCTAssertEqual(again.usage.resetCredits?.availableCount(), 1)
+        XCTAssertEqual(recorder.count { $0.url.scheme == "owner" }, 1, "reset credits are reused for five minutes")
     }
 
     func testTimeoutAndCancellationDoNotBecomeLoginFailure() async throws {
@@ -296,9 +301,22 @@ final class CodexTokenRefreshRecoveryTests: XCTestCase {
 
 private struct TestCodexOwner: CodexOwnerRefreshing {
     let action: @Sendable (URL, String, CodexRequestBudget) async throws -> Void
-    init(_ action: @escaping @Sendable (URL, String, CodexRequestBudget) async throws -> Void) { self.action = action }
+    var resetCreditReads: CodexRequestRecorder?
+    init(
+        resetCreditReads: CodexRequestRecorder? = nil,
+        _ action: @escaping @Sendable (URL, String, CodexRequestBudget) async throws -> Void
+    ) {
+        self.action = action
+        self.resetCreditReads = resetCreditReads
+    }
     func refresh(sourceURL: URL, expectedAccountID: String, budget: CodexRequestBudget) async throws {
         try await action(sourceURL, expectedAccountID, budget)
+    }
+    func readResetCredits(sourceURL: URL, expectedAccountID: String, budget: CodexRequestBudget) async throws
+        -> CodexResetCreditsResponse?
+    {
+        resetCreditReads?.record(URLRequest(url: URL(string: "owner://account/rateLimits/read")!))
+        return CodexResetCreditsResponse(credits: [], availableCountField: 1)
     }
 }
 
@@ -457,5 +475,33 @@ private actor CodexTestGate {
         opened = true
         continuation?.resume()
         continuation = nil
+    }
+}
+
+final class CodexAppServerResetCreditsTests: XCTestCase {
+    func testSummaryMapsCountsAndExpiry() throws {
+        let summary: [String: Any] = [
+            "availableCount": 2,
+            "credits": [
+                [
+                    "id": "credit-1", "resetType": "codexRateLimits", "status": "available", "grantedAt": 1_790_000_000,
+                    "expiresAt": 1_790_600_000, "title": "Full reset", "description": NSNull(),
+                ],
+                ["status": "available"],
+            ],
+        ]
+        let response = try XCTUnwrap(CodexOwnerCLI.resetCredits(from: summary))
+
+        XCTAssertEqual(response.availableCount(at: Date(timeIntervalSince1970: 1_790_000_100)), 2)
+        XCTAssertEqual(response.credits.map(\.id), ["credit-1"])
+        XCTAssertEqual(response.credits.first?.title, "Full reset")
+        XCTAssertNotNil(response.credits.first?.expiresDate)
+    }
+
+    func testMissingSummaryIsUnknownNotZero() {
+        XCTAssertNil(CodexOwnerCLI.resetCredits(from: nil))
+        XCTAssertNil(CodexOwnerCLI.resetCredits(from: NSNull()))
+        XCTAssertEqual(
+            CodexOwnerCLI.resetCredits(from: ["availableCount": 0, "credits": NSNull()])?.availableCount(), 0)
     }
 }

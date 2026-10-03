@@ -21,6 +21,7 @@ final class UsageItemCatalogTests: XCTestCase {
                 PopoverItemConfig(id: "weeklyLimit", visible: false),
                 PopoverItemConfig(id: "currentSession", visible: true),
                 PopoverItemConfig(id: "modelUsage", visible: true),
+                PopoverItemConfig(id: "claudeResetCredits", visible: true),
                 PopoverItemConfig(id: "overageUsage", visible: true),
             ]
         )
@@ -39,7 +40,7 @@ final class UsageItemCatalogTests: XCTestCase {
         XCTAssertFalse(normalized.contains { $0.id == "activeAccount" })
         XCTAssertEqual(
             normalized.map(\.id),
-            ["currentSession", "weeklyLimit", "modelUsage", "overageUsage"]
+            ["currentSession", "weeklyLimit", "modelUsage", "claudeResetCredits", "overageUsage"]
         )
     }
 
@@ -156,7 +157,10 @@ final class UsageItemCatalogTests: XCTestCase {
         // 새 항목은 끝에 몰리지 않고 카탈로그 기본 순서상 위치에 삽입된다
         XCTAssertEqual(
             normalized.map(\.id),
-            ["codexPrimary", "codexSecondary", "codexModelLimits", "codexResetCredits", "codexCredits"]
+            [
+                "codexPrimary", "codexSecondary", "codexSpendLimit", "codexModelLimits", "codexResetCredits",
+                "codexCredits",
+            ]
         )
         XCTAssertEqual(normalized.first { $0.id == "codexSecondary" }?.visible, false)
     }
@@ -302,7 +306,7 @@ final class UsageItemCatalogTests: XCTestCase {
             ["codexPrimary-status", "codexSecondary-status", "codexCredits-status"]
         )
         XCTAssertEqual(sections.map(\.kind), [.status, .status, .status])
-        XCTAssertEqual(statusTitles(from: sections), ["현재 세션", "주간 한도", "Codex 크레딧"])
+        XCTAssertEqual(statusTitles(from: sections), ["5시간 한도", "주간 한도", "Codex 크레딧"])
     }
 
     func testAntigravityUsesTypedLaneAdapterInsteadOfStaticCatalog() {

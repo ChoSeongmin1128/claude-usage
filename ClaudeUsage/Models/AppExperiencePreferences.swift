@@ -16,7 +16,7 @@ enum WelcomeStep: Int, CaseIterable, Sendable {
 
     var title: String {
         switch self {
-        case .services: return "서비스 선택"
+        case .services: return "서비스 연결"
         case .connection: return "연결 확인"
         case .appearance: return "메뉴바 설정"
         }
@@ -38,7 +38,8 @@ struct AppExperiencePreferences {
             "menuBarStyle", "percentageDisplay", "showPercentage", "popoverPinned", "popoverCompact",
             "claudePopoverPinned", "codexPopoverPinned", "refreshInterval", "claudeEnabled", "codexEnabled",
             "providerStateMigrationVersion", "popoverItemsV2", "hasCompletedSetupWizard", "settingsLastTab",
-            "ClaudeUsage.claudeAccounts.v1", "ClaudeUsage.claudeAccountsMigrationVersion", "claude-session-key",
+            ClaudeAccountStore.accountsDefaultsKey, ClaudeAccountStore.migrationVersionDefaultsKey,
+            "claude-session-key",
             "antigravityEnabled", "menuBarDesign", "welcomeState", "menuBarColorMode", "codexMenuBarStyle",
             "circularDisplayMode", "showClaudeIcon", "showCodexIcon", "showBatteryPercent", "timeFormat",
             "autoRefresh", "launchAtLogin", "notificationsEnabled", "SUHasLaunchedBefore", "motionPreferences",

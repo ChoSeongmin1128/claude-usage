@@ -13,8 +13,7 @@ final class ProviderPoliciesTests: XCTestCase {
 
         XCTAssertFalse(
             ProviderTransitionPolicy.shouldRefreshOnTabSwitch(
-                state: state,
-                refreshInterval: 120
+                state: state
             )
         )
     }
@@ -30,8 +29,7 @@ final class ProviderPoliciesTests: XCTestCase {
 
         XCTAssertTrue(
             ProviderTransitionPolicy.shouldRefreshOnTabSwitch(
-                state: state,
-                refreshInterval: 120
+                state: state
             )
         )
     }
@@ -48,8 +46,7 @@ final class ProviderPoliciesTests: XCTestCase {
 
         XCTAssertTrue(
             ProviderTransitionPolicy.shouldRefreshOnTabSwitch(
-                state: state,
-                refreshInterval: 120
+                state: state
             )
         )
     }

@@ -17,7 +17,7 @@ struct SetupWizardWindowView: View {
         [
             (
                 "자격 준비",
-                progress.hasReadyCredential ? "로그인 정보를 확인했습니다" : "Chrome 가져오기 또는 웹 로그인부터 진행해야 합니다",
+                progress.hasReadyCredential ? "로그인 정보를 확인했습니다" : "브라우저 가져오기 또는 웹 로그인부터 진행해야 합니다",
                 progress.hasReadyCredential
             ),
             (
@@ -96,7 +96,7 @@ struct SetupWizardWindowView: View {
     private var stageSummaryDetail: String {
         switch progress.stage {
         case .credential:
-            return "Chrome 가져오기를 먼저 시도해 주세요."
+            return "브라우저 가져오기를 먼저 시도해 주세요."
         case .verification:
             return "이제 상태만 확인하면 됩니다."
         case .organization:

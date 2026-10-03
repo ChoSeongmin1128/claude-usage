@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import Foundation
 import os
@@ -54,6 +55,63 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing {
         }
     }
 
+    /// 초기화권은 공식 app-server의 `account/rateLimits/read` 응답에서 읽는다. 읽기만 하고 사용하지 않는다.
+    func readResetCredits(sourceURL: URL, expectedAccountID: String, budget: CodexRequestBudget) async throws
+        -> CodexResetCreditsResponse?
+    {
+        Self.resetCredits(
+            from: try await readRateLimits(sourceURL: sourceURL, expectedAccountID: expectedAccountID, budget: budget)[
+                "rateLimitResetCredits"])
+    }
+
+    /// 그 폴더(CODEX_HOME)의 공식 app-server에서 사용량 응답을 그대로 받는다.
+    func readRateLimits(sourceURL: URL, expectedAccountID: String, budget: CodexRequestBudget) async throws
+        -> [String: Any]
+    {
+        let cancelled = OSAllocatedUnfairLock(initialState: false)
+        let box: CodexOwnerResultBox = try await withTaskCancellationHandler {
+            try await Task.detached(priority: .utility) {
+                let session = try CodexOwnerSession(
+                    executableURL: try self.resolvedExecutable(), sourceURL: sourceURL,
+                    budget: budget, cancelled: cancelled
+                )
+                defer { session.close() }
+                _ = try session.request(
+                    1, "initialize",
+                    params: [
+                        "clientInfo": ["name": "claudeusage", "version": "1"],
+                        "capabilities": ["experimentalApi": false],
+                    ])
+                try session.send(["method": "initialized"])
+                let quota = try session.request(2, "account/rateLimits/read")
+                guard quota["accountId"] as? String == expectedAccountID else {
+                    throw CodexOwnerError.accountMismatch
+                }
+                return CodexOwnerResultBox(value: quota)
+            }.value
+        } onCancel: {
+            cancelled.withLock { $0 = true }
+        }
+        return box.value
+    }
+
+    static func resetCredits(from value: Any?) -> CodexResetCreditsResponse? {
+        guard let summary = value as? [String: Any], let count = number(summary["availableCount"]), count >= 0 else {
+            return nil
+        }
+        func iso(_ seconds: Any?) -> String? {
+            number(seconds).map { ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: $0)) }
+        }
+        let credits = (summary["credits"] as? [[String: Any]] ?? []).compactMap { item -> CodexResetCredit? in
+            guard let id = item["id"] as? String else { return nil }
+            return CodexResetCredit(
+                id: id, resetType: item["resetType"] as? String, status: item["status"] as? String ?? "unknown",
+                grantedAtISO: iso(item["grantedAt"]), expiresAtISO: iso(item["expiresAt"]),
+                title: item["title"] as? String, detail: item["description"] as? String)
+        }
+        return CodexResetCreditsResponse(credits: credits, availableCountField: Int(count))
+    }
+
     static func isAvailable() -> Bool { (try? Self().resolvedExecutable()) != nil }
 
     static var searchPath: String {
@@ -68,17 +126,21 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing {
         return number.doubleValue
     }
 
-    private func resolvedExecutable() throws -> URL {
+    func resolvedExecutable() throws -> URL {
         let home = URL(fileURLWithPath: CodexAuthManager.defaultAuthJsonPath()).deletingLastPathComponent()
             .deletingLastPathComponent()
         let pathCandidates = Self.searchPath.split(separator: ":").map {
             URL(fileURLWithPath: String($0)).appendingPathComponent("codex")
         }
+        // ChatGPT 앱(com.openai.codex)은 Codex CLI를 앱 안에 담는다. bin/codex는 실행 스크립트라 실제 파일을 쓴다.
+        let chatGPTApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex")
+            .map { $0.appendingPathComponent("Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex") }
         let candidates =
             executableURL.map { [$0] } ?? [
                 URL(fileURLWithPath: "/opt/homebrew/bin/codex"),
                 URL(fileURLWithPath: "/usr/local/bin/codex"),
                 URL(fileURLWithPath: "/Applications/Codex.app/Contents/Resources/codex"),
+            ] + [chatGPTApp].compactMap { $0 } + [
                 home.appendingPathComponent(".npm-global/bin/codex"),
                 home.appendingPathComponent(".local/bin/codex"),
             ] + pathCandidates
@@ -257,4 +319,9 @@ private nonisolated final class CodexOwnerSession {
         }
         pid = 0
     }
+}
+
+/// app-server 응답(JSON 사전)을 Task 경계 너머로 옮긴다. 만든 뒤에는 바꾸지 않는다.
+nonisolated struct CodexOwnerResultBox: @unchecked Sendable {
+    let value: [String: Any]
 }

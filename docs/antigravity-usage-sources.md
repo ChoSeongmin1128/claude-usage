@@ -1,35 +1,30 @@
 # Antigravity 연결과 사용량 조회
 
-ClaudeUsage는 Google Antigravity 2.0 독립 앱과 AGY CLI의 quota를 로컬에서 조회합니다.
+ClaudeUsage는 AGY CLI의 공식 사용량 보고로 Google Antigravity quota를 로컬에서 조회합니다.
 
 ## 지원 대상
 
-- [Google Antigravity 2.0](https://antigravity.google/blog/introducing-google-antigravity-2)
 - [Google Antigravity CLI](https://antigravity.google/blog/introducing-google-antigravity-cli?app=antigravity)
 - [Antigravity CLI 문서](https://antigravity.google/docs/cli/overview)
 
-Antigravity 설정의 `조회 대상`에서 독립 앱 또는 AGY CLI를 선택합니다. 두 제품의 로그인이 다를 수 있으므로 ClaudeUsage가 자동으로 다른 제품으로 전환하지 않습니다. Antigravity IDE는 현재 지원하지 않습니다.
+2.8.0부터 AGY CLI만 조회합니다. Antigravity 2.0 독립 앱은 기계로 읽을 수 있는 공식 사용량 경로가 없어 조회하지 않으며, 이전 버전에서 독립 앱을 고른 설정은 AGY CLI로 바뀝니다. Antigravity IDE는 지원하지 않습니다.
 
-Google 계정 연결이나 별도 OAuth 로그인은 제공하지 않습니다. 로그인 변경은 Antigravity 앱 또는 AGY CLI에서 직접 수행한 뒤 ClaudeUsage를 새로고침합니다.
+Google 계정 연결이나 별도 OAuth 로그인은 제공하지 않습니다. 로그인 변경은 AGY CLI에서 직접 수행한 뒤 ClaudeUsage를 새로고침합니다. 설치는 `curl -fsSL https://antigravity.google/cli/install.sh | bash`로 하고, 설치 뒤 `agy`를 실행해 로그인합니다.
 
 ## 조회 방식
 
 ### AGY CLI
 
-CLI를 선택하면 조회할 때마다 공식 AGY의 사용량 보고(`agy -p /usage --output-format json`)를 한 번 실행합니다. 이 보고는 모델을 호출하지 않아 quota를 쓰지 않으며, 실행한 AGY는 보고와 함께 종료됩니다. 조회 사이에 ClaudeUsage가 AGY를 계속 실행해 두지 않습니다.
+조회할 때마다 공식 AGY의 사용량 보고(`agy -p /usage --output-format json`)를 낮은 우선순위로 한 번 실행합니다. 이 보고는 모델을 호출하지 않아 quota를 쓰지 않으며, 실행한 AGY는 보고와 함께 종료됩니다. 조회 사이에 ClaudeUsage가 AGY를 계속 실행해 두지 않습니다.
 
 - AGY CLI 1.1.11 이상이 필요합니다. 그 이전 버전은 이 요청을 모델 프롬프트로 처리하므로 ClaudeUsage가 요청하지 않습니다.
 - 보고에는 계정 정보가 없습니다. 표시되는 사용량은 CLI에 현재 로그인한 계정의 것이며, 로그인 계정은 `AGY CLI 로그인 계정`으로 표시합니다. CLI에서 로그인을 바꾸면 다음 조회부터 새 계정의 사용량이 표시됩니다.
 - 백그라운드 조회는 브라우저 로그인 창을 열지 않고, AGY에 명령 이름으로 등록한 MCP 서버도 실행하지 않습니다.
 - 사용자가 터미널에서 실행 중인 AGY 세션은 조회하거나 종료하지 않습니다.
 
-### Antigravity 독립 앱
-
-독립 앱을 선택하면 실행 중인 해당 앱의 language server에 구조화된 localhost RPC로 요청합니다. 요청 전후의 계정 identity를 비교하고, 계정이 바뀌었거나 일치하지 않으면 이전 계정의 사용량을 즉시 숨깁니다.
-
 ### 공통
 
-Antigravity의 설정 파일이나 대화형 TUI 화면은 사용량 자료로 파싱하지 않습니다. 선택한 제품에서 실패했다는 이유로 다른 제품의 계정이나 quota를 대신 표시하지 않습니다.
+Antigravity의 설정 파일이나 대화형 TUI 화면은 사용량 자료로 파싱하지 않습니다.
 
 계정에 따라 quota 종류와 주기가 다를 수 있습니다. 응답에 없는 quota를 0%나 100%로 만들지 않으며, 계정만 확인되고 숫자 사용량이 없으면 수치 미지원 상태로 표시합니다. 일시적인 조회 실패에는 마지막 성공 값과 확인 시각을 이전 값으로 유지합니다.
 
@@ -43,14 +38,13 @@ AGY CLI는 Google이 서명한 정규 실행 파일인지, 파일 권한과 소�
 
 ## 인증과 개인정보
 
-독립 앱의 CSRF 토큰은 검증한 앱 프로세스의 실행 인자에서만 읽고 메모리에서만 사용합니다. UserDefaults, Application Support, 로그와 진단 화면에는 토큰이나 원본 인증 응답을 저장하지 않습니다. AGY CLI 사용량 보고는 AGY가 스스로 로그인 정보를 읽으며, ClaudeUsage는 CLI 자격증명을 읽지 않습니다.
+UserDefaults, Application Support, 로그와 진단 화면에는 토큰이나 원본 인증 응답을 저장하지 않습니다. AGY CLI 사용량 보고는 AGY가 스스로 로그인 정보를 읽으며, ClaudeUsage는 CLI 자격증명을 읽지 않습니다.
 
 ## 문제 해결
 
-1. 선택한 Antigravity 제품에서 로그인이 완료됐는지 확인합니다. AGY CLI는 터미널에서 `agy`를 실행해 로그인 상태를 확인합니다.
-2. ClaudeUsage 설정의 `조회 대상`이 로그인한 제품과 같은지 확인합니다.
-3. 수동 새로고침으로 사용량을 다시 확인합니다.
-4. CLI가 감지되지 않으면 공식 AGY 설치 경로와 실행 파일 서명을 확인합니다.
-5. `AGY CLI 업데이트 필요`가 표시되면 AGY CLI를 1.1.11 이상으로 업데이트합니다.
-6. `AGY 사용량 보고 실패`가 표시되면 AGY CLI의 로그인 상태를 확인한 뒤 다시 시도합니다. AGY CLI가 로그아웃되어 있으면 보고가 응답하지 않아 이 상태가 됩니다. 이때는 다른 계정의 것일 수 있는 이전 사용량을 표시하지 않습니다.
-7. `AGY 사용량 보고 중지`가 표시되면 AGY가 사용량 보고 대신 모델 응답을 실행한 것입니다. quota가 더 쓰이지 않도록 자동 조회를 멈추며, AGY CLI가 업데이트되거나 ClaudeUsage를 다시 실행하면 다시 조회합니다. 모델 응답 흔적이 없는 예상 밖 응답은 형식 변경으로 표시하고 다음 조회에서 다시 시도합니다.
+1. 터미널에서 `agy`를 실행해 로그인 상태를 확인합니다.
+2. 수동 새로고침으로 사용량을 다시 확인합니다.
+3. CLI가 감지되지 않으면 공식 AGY 설치 경로와 실행 파일 서명을 확인합니다.
+4. `AGY CLI 업데이트 필요`가 표시되면 AGY CLI를 1.1.11 이상으로 업데이트합니다.
+5. `AGY 사용량 보고 실패`가 표시되면 AGY CLI의 로그인 상태를 확인한 뒤 다시 시도합니다. AGY CLI가 로그아웃되어 있으면 보고가 응답하지 않아 이 상태가 됩니다. 이때는 다른 계정의 것일 수 있는 이전 사용량을 표시하지 않습니다.
+6. `AGY 사용량 보고 중지`가 표시되면 AGY가 사용량 보고 대신 모델 응답을 실행한 것입니다. quota가 더 쓰이지 않도록 자동 조회를 멈추며, AGY CLI가 업데이트되거나 ClaudeUsage를 다시 실행하면 다시 조회합니다. 모델 응답 흔적이 없는 예상 밖 응답은 형식 변경으로 표시하고 다음 조회에서 다시 시도합니다.

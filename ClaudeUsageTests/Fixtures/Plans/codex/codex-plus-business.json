@@ -1,0 +1,53 @@
+{
+  "meta": {
+    "plans": [
+      "plus",
+      "team",
+      "business",
+      "self_serve_business_prolite",
+      "go",
+      "free",
+      "free_workspace",
+      "guest"
+    ],
+    "source": "docs",
+    "date": "2026-10-01",
+    "note": "Plus와 Business(서버 값 team)는 5시간+주간(문서). Free, Go, guest는 문서에 명시 없음: 같은 형태로 가정"
+  },
+  "response": {
+    "account_id": "acct-fixture",
+    "plan_type": "plus",
+    "rate_limit": {
+      "allowed": true,
+      "limit_reached": false,
+      "primary_window": {
+        "used_percent": 3,
+        "limit_window_seconds": 18000,
+        "reset_after_seconds": 3600,
+        "reset_at": 1790900000
+      },
+      "secondary_window": {
+        "used_percent": 41,
+        "limit_window_seconds": 604800,
+        "reset_after_seconds": 3600,
+        "reset_at": 1790900000
+      }
+    },
+    "credits": {
+      "has_credits": false,
+      "unlimited": false,
+      "balance": "0"
+    }
+  },
+  "expected": {
+    "rows": [
+      "5시간=3",
+      "주간=41"
+    ],
+    "menuBar": {
+      "fiveHour": "3%",
+      "weekly": "41%",
+      "dual": "3%·41%"
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "meta": {
+    "plans": [
+      "pro"
+    ],
+    "source": "assumed",
+    "date": "2026-10-03",
+    "note": "전용 필드 없이 limits[]만 오는 경우. 스키마 설명상 limits[]가 정본"
+  },
+  "response": {
+    "limits": [
+      {
+        "group": "session",
+        "kind": "session",
+        "percent": 31,
+        "resets_at": "2026-10-03T05:00:00Z",
+        "scope": null
+      },
+      {
+        "group": "weekly",
+        "kind": "weekly_all",
+        "percent": 52,
+        "resets_at": "2026-10-05T14:00:00Z",
+        "scope": null
+      },
+      {
+        "group": "weekly",
+        "kind": "weekly_scoped",
+        "percent": 18,
+        "resets_at": "2026-10-05T14:00:00Z",
+        "scope": {
+          "model": null,
+          "surface": {
+            "id": "claude_code",
+            "display_name": "Claude Code"
+          }
+        }
+      }
+    ]
+  },
+  "expected": {
+    "rows": [
+      "5시간=31",
+      "주간=52",
+      "Claude Code · 주간=18"
+    ],
+    "menuBar": {
+      "fiveHour": "31%",
+      "weekly": "52%",
+      "dual": "31%·52%"
+    }
+  }
+}

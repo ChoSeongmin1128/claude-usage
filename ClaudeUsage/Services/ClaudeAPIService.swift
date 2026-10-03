@@ -18,19 +18,22 @@ actor ClaudeAPIService {
         let planLabel: String?
         let billingType: String?
         let rateLimitTier: String?
+        let capabilities: [String]?
 
         nonisolated init(
             id: String,
             name: String?,
             planLabel: String? = nil,
             billingType: String? = nil,
-            rateLimitTier: String? = nil
+            rateLimitTier: String? = nil,
+            capabilities: [String]? = nil
         ) {
             self.id = id
             self.name = Self.normalized(name)
             self.planLabel = Self.normalized(planLabel)
             self.billingType = Self.normalized(billingType)
             self.rateLimitTier = Self.normalized(rateLimitTier)
+            self.capabilities = capabilities
         }
 
         /// UI 표시용 라벨. UUID 를 노출하지 않는다 — 사용자에게 UUID 는 노이즈일 뿐
@@ -50,15 +53,9 @@ actor ClaudeAPIService {
         }
 
         var hasTeamPlanSignal: Bool {
-            let values = [planLabel, billingType, rateLimitTier]
-                .compactMap { $0?.lowercased() }
-            return values.contains { value in
-                value.contains("team")
-                    || value.contains("enterprise")
-                    || value.contains("business")
-                    || value.contains("organization")
-                    || value.contains("org")
-            }
+            ClaudePlanSignals.hasOrganizationCapability(capabilities)
+                || ClaudePlanSignals.isOrganizationPlan(planValue: planLabel)
+                || ClaudePlanSignals.isOrganizationTier(rateLimitTier)
         }
 
         /// Claude의 개인 workspace는 현재 "<email>'s Organization" 형태로
@@ -258,8 +255,8 @@ actor ClaudeAPIService {
     private let oauthCredentialReader: any ClaudeOAuthCredentialReading
     private let sessionKeyLoader: @Sendable (String) -> String?
     private let organizationCacheTTL: TimeInterval = 7 * 24 * 60 * 60
-    private static let authPathHealthDefaultsKeyPrefix = "ClaudeUsage.authPathHealth.v1"
-    private static let organizationCacheDefaultsKeyPrefix = "ClaudeUsage.cachedOrganizations.v1"
+    private static let authPathHealthDefaultsKeyPrefix = AppIdentifiers.defaultsKey("authPathHealth.v1")
+    private static let organizationCacheDefaultsKeyPrefix = AppIdentifiers.defaultsKey("cachedOrganizations.v1")
     private var authPathHealthStore = AuthPathHealthStore()
     private var lastKnownUsagePercent: Double?
     private var lastSuccessfulUsageSource: ClaudeUsageSource?
@@ -697,7 +694,7 @@ actor ClaudeAPIService {
     /// 일회성 OAuth-aware 자동 복구. UserDefaults 플래그로 1회만 동작.
     /// 사용자가 직접 추가/선택한 web 계정(chromeProfile, embeddedWebLogin, manualInput)
     /// 은 건드리지 않고, 레거시 자동 마이그레이션 결과면서 동작 불가 상태인 경우에만 전환.
-    nonisolated static let oauthAwareMigrationVersionKey = "ClaudeUsage.oauthAwareMigrationVersion"
+    nonisolated static let oauthAwareMigrationVersionKey = AppIdentifiers.defaultsKey("oauthAwareMigrationVersion")
     nonisolated static let oauthAwareMigrationCurrentVersion = 1
     /// v2.3: OAuth (`/api/oauth/usage`) 경로를 정식 소스로 승격.
     /// v2.2.0 에서 비활성화했던 이유(토큰별 rate limit, refresh rotation 함정)는
@@ -1093,7 +1090,7 @@ actor ClaudeAPIService {
             previews.append(
                 OrganizationPreview(
                     organization: organization,
-                    fiveHourPercentage: usage?.fiveHour.utilization,
+                    fiveHourPercentage: usage?.fiveHour?.utilization,
                     weeklyPercentage: usage?.sevenDay?.utilization,
                     overageEnabled: overage?.isEnabled,
                     overageUsed: overage?.isEnabled == true ? overage?.usedCredits : nil,
@@ -1125,7 +1122,8 @@ actor ClaudeAPIService {
     private func fetchUsageWithSessionKey(_ sessionKey: String, organizationID orgID: String) async throws -> ClaudeUsageResponse {
         recordPathAttempt(.session)
 
-        let url = URL(string: "\(baseURL)/organizations/\(orgID)/usage")!
+        // cedar_ember=1이 없으면 초기화권 블록이 null로 온다.
+        let url = URL(string: "\(baseURL)/organizations/\(orgID)/usage?cedar_ember=1")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         applyClaudeWebHeaders(to: &request, sessionKey: sessionKey)
@@ -1160,7 +1158,7 @@ actor ClaudeAPIService {
             let decoder = JSONDecoder()
             let usageResponse = try decoder.decode(ClaudeUsageResponse.self, from: data)
 
-            Logger.info("사용량 데이터 수신 성공: \(usageResponse.fiveHourPercentage)%")
+            Logger.info("사용량 데이터 수신 성공: \(usageResponse.usageSummaryText)")
             recordPathSuccess(.session)
             return usageResponse
 
@@ -1396,7 +1394,8 @@ actor ClaudeAPIService {
                     name: name,
                     planLabel: planLabel,
                     billingType: billingType,
-                    rateLimitTier: rateLimitTier
+                    rateLimitTier: rateLimitTier,
+                    capabilities: org["capabilities"] as? [String]
                 )
             }
 
@@ -1738,7 +1737,7 @@ actor ClaudeAPIService {
     private func performOAuthUsageRequest(accessToken: String) async throws -> ClaudeUsageResponse {
         recordPathAttempt(.oauth)
 
-        guard let url = URL(string: "https://api.anthropic.com/api/oauth/usage") else {
+        guard let url = URL(string: "https://api.anthropic.com/api/oauth/usage?cedar_ember=1") else {
             let apiError = APIError.unknownError("OAuth usage endpoint URL 생성 실패")
             recordPathFailure(.oauth, error: apiError)
             throw apiError

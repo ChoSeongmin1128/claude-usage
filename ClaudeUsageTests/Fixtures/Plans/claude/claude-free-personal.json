@@ -1,0 +1,28 @@
+{
+  "meta": {
+    "plans": [
+      "free"
+    ],
+    "source": "measured",
+    "date": "2026-10-02",
+    "note": "개인 무료 조직. 모든 창이 null"
+  },
+  "response": {
+    "five_hour": null,
+    "seven_day": null,
+    "seven_day_opus": null,
+    "seven_day_sonnet": null,
+    "extra_usage": null,
+    "limits": [],
+    "member_dashboard_available": false,
+    "spend": null
+  },
+  "expected": {
+    "rows": [],
+    "menuBar": {
+      "fiveHour": "—",
+      "weekly": "—",
+      "dual": "—"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "meta": {
+    "plans": [],
+    "source": "assumed",
+    "date": "2026-10-03",
+    "note": "형식이 깨진 창만 있으면 형식 오류"
+  },
+  "response": {
+    "five_hour": {
+      "utilization": "unknown"
+    },
+    "seven_day": null
+  },
+  "expected": {
+    "decodeError": true
+  }
+}

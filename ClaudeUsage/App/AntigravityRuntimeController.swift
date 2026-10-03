@@ -153,6 +153,7 @@ actor AntigravityRuntimeController {
     private var lastAttemptAt: Date?
     private var lastSuccessfulAt: Date?
     private var usageDisplayBasis: UsageValueBasis?
+    private var commonTimeFormat: TimeFormatStyle?
     private var usageDisplayRevision: UInt64 = 0
 
     init(
@@ -198,6 +199,14 @@ actor AntigravityRuntimeController {
         usageDisplayRevision = revision
         guard usageDisplayBasis != basis else { return currentSnapshot }
         usageDisplayBasis = basis
+        return publish()
+    }
+
+    /// 공통 시간 형식으로 다시 그린다. 조회는 하지 않는다.
+    @discardableResult
+    func setTimeFormat(_ format: TimeFormatStyle?) -> AntigravityRuntimeSnapshot {
+        guard !isShuttingDown, commonTimeFormat != format else { return currentSnapshot }
+        commonTimeFormat = format
         return publish()
     }
 
@@ -1177,7 +1186,8 @@ actor AntigravityRuntimeController {
                 resolvedPresentation,
             quotaPresentation: AntigravityQuotaPresentationMapper.map(
                 state: resolvedPresentation,
-                settings: resolvedSettings?.display ?? .default,
+                settings: Self.applyingCommonTimeFormat(
+                    commonTimeFormat, to: resolvedSettings?.display ?? .default),
                 basisOverride: usageDisplayBasis,
                 now: now()
             ),
@@ -1254,4 +1264,17 @@ actor AntigravityRuntimeController {
     }
 
 
+}
+
+extension AntigravityRuntimeController {
+    nonisolated static func applyingCommonTimeFormat(
+        _ format: TimeFormatStyle?, to display: AntigravityDisplaySettings
+    ) -> AntigravityDisplaySettings {
+        guard let format,
+            let value = AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat(rawValue: format.rawValue)
+        else { return display }
+        var display = display
+        display.menuBar.timeFormat = value
+        return display
+    }
 }

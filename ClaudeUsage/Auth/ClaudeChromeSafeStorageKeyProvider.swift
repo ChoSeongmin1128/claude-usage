@@ -43,11 +43,13 @@ struct ClaudeChromeSafeStorageKeyProvider: Sendable {
     ]
 
     private let labels: [ClaudeChromeSafeStorageLabel]
+    private let sourceName: String
     private let payloadReader: PayloadReader
     private let interactivePayloadReader: InteractivePayloadReader
 
     nonisolated init(
         labels: [ClaudeChromeSafeStorageLabel] = Self.defaultLabels,
+        sourceName: String = "Chrome",
         payloadReader: @escaping PayloadReader = { service, account in
             KeychainAccessPreflight.readGenericPasswordWithoutUI(
                 service: service,
@@ -63,6 +65,7 @@ struct ClaudeChromeSafeStorageKeyProvider: Sendable {
         }
     ) {
         self.labels = labels
+        self.sourceName = sourceName
         self.payloadReader = payloadReader
         self.interactivePayloadReader = interactivePayloadReader
     }
@@ -95,7 +98,7 @@ struct ClaudeChromeSafeStorageKeyProvider: Sendable {
         switch interactivePayloadReader(
             label.service,
             label.account,
-            "Chrome에 저장된 Claude 로그인을 가져옵니다."
+            "\(sourceName)에 저장된 Claude 로그인을 가져옵니다."
         ) {
         case .value(let password):
             return [Self.deriveKey(from: password)]

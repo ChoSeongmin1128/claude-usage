@@ -104,14 +104,8 @@ enum TimeFormatter {
     ) -> String {
         let interval = date.timeIntervalSince(now)
         let isWeeklyDate = isWeekly && interval > 86400
-        if style == .remaining {
-            if isWeeklyDate {
-                let totalHours = Int(interval) / 3600
-                let days = totalHours / 24
-                let hours = totalHours % 24
-                return hours > 0 ? "\(days)d \(hours)h" : "\(days)d"
-            }
-            return formatRemainingCompact(until: date, now: now)
+        if style.isRemaining {
+            return formatRemaining(until: date, now: now, style: style, isWeekly: isWeeklyDate)
         }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ko_KR")
@@ -126,6 +120,28 @@ enum TimeFormatter {
             formatter.dateFormat = style == .h12 ? "a h:mm" : "HH:mm"
         }
         return formatter.string(from: date)
+    }
+
+    /// 남은 시간 형식별 표기. 주간(하루 넘음)은 3d 2h, 3d 02:12, 74:12 중 형식이 정한 것을 쓴다.
+    nonisolated static func formatRemaining(
+        until date: Date, now: Date = Date(), style: TimeFormatStyle, isWeekly: Bool
+    ) -> String {
+        let interval = max(0, date.timeIntervalSince(now))
+        let totalMinutes = Int((interval + 30).rounded(.down)) / 60
+        let totalHours = totalMinutes / 60
+        let days = totalHours / 24
+        let hours = totalHours % 24
+        let minutes = totalMinutes % 60
+        switch style {
+        case .remainingClock:
+            if isWeekly { return String(format: "%dd %02d:%02d", days, hours, minutes) }
+            return String(format: "%d:%02d", totalHours, minutes)
+        case .remainingTotalClock:
+            return String(format: "%d:%02d", totalHours, minutes)
+        default:
+            if isWeekly { return hours > 0 ? "\(days)d \(hours)h" : "\(days)d" }
+            return formatRemainingCompact(until: date, now: now)
+        }
     }
 
     /// 남은 시간을 "0h 00m" 또는 "0d 0h 00m" 형태로 포맷
@@ -222,7 +238,7 @@ enum TimeFormatter {
         formatter.locale = locale
         formatter.timeZone = timeZone
         let clockStyle: TimeFormatStyle =
-            style == .remaining ? .h24 : style
+            style.isRemaining ? .h24 : style
         if isWeekly, interval > 86400 {
             formatter.dateFormat = "M월 d일 EEEE"
         } else {

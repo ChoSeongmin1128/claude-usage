@@ -139,7 +139,7 @@ actor AntigravityMigrationCoordinator {
             }
             let context = authenticationContextFactory()
             context.localizedReason =
-                "Antigravity OAuth 계정을 안전한 ClaudeUsage 저장소로 이전합니다."
+                "Antigravity OAuth 계정을 안전한 \(AppDistribution.current.appName) 저장소로 이전합니다."
             return await run(authenticationContext: context)
         case .removal:
             return await runRemoval(authenticationContext: nil)

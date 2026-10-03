@@ -7,13 +7,21 @@ from pathlib import Path
 import re
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from app_identity import (  # noqa: E402
+    APP_BUNDLE_NAME,
+    APP_PROD_BUNDLE_IDENTIFIER,
+    APP_PRODUCT_NAME,
+    APP_RELEASE_DMG_NAME,
+)
+
 
 SCHEMA_VERSION = 1
 REPOSITORY = "ChoSeongmin1128/claude-usage"
 CHANNEL = "prod"
-ASSET_NAME = "ClaudeUsage.dmg"
-APP_NAME = "ClaudeUsage.app"
-BUNDLE_IDENTIFIER = "com.seongmin.ClaudeUsage"
+ASSET_NAME = APP_RELEASE_DMG_NAME
+APP_NAME = APP_BUNDLE_NAME
+BUNDLE_IDENTIFIER = APP_PROD_BUNDLE_IDENTIFIER
 FEED_URL = "https://choseongmin1128.github.io/claude-usage/appcast.xml"
 MINIMUM_SYSTEM_VERSION = "14.0"
 VERSION_PATTERN = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]?)\.(0|[1-9][0-9]?)")
@@ -147,8 +155,8 @@ def render_cask_values(version, sha256):
   version "{version}"
   sha256 "{sha256}"
 
-  url "https://github.com/ChoSeongmin1128/claude-usage/releases/download/v#{{version}}/ClaudeUsage.dmg"
-  name "ClaudeUsage"
+  url "https://github.com/ChoSeongmin1128/claude-usage/releases/download/v#{{version}}/{APP_RELEASE_DMG_NAME}"
+  name "{APP_PRODUCT_NAME}"
   desc "Menu bar usage monitor for Claude, Codex, and Antigravity"
   homepage "https://github.com/ChoSeongmin1128/claude-usage"
 
@@ -160,7 +168,7 @@ def render_cask_values(version, sha256):
   auto_updates true
   depends_on macos: :sonoma
 
-  app "ClaudeUsage.app"
+  app "{APP_BUNDLE_NAME}"
 end
 '''
 

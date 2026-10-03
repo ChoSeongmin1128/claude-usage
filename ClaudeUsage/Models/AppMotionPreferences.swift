@@ -64,3 +64,18 @@ struct AppMotionPreferences: Equatable, Sendable {
             ["mode": mode.rawValue, "enabled": enabledCategories.map(\.rawValue).sorted()], forKey: "motionPreferences")
     }
 }
+
+/// 시스템 "동작 줄이기"의 위치. macOS 26부터 손쉬운 사용 > 동작으로 옮겨졌다.
+nonisolated enum SystemReduceMotionSetting {
+    static func location(for version: OperatingSystemVersion) -> String {
+        version.majorVersion >= 26 ? "손쉬운 사용 > 동작" : "손쉬운 사용 > 디스플레이"
+    }
+
+    // 모르는 앵커는 손쉬운 사용 첫 화면으로 열리므로 안내 문구에 위치를 함께 적는다.
+    static func url(for version: OperatingSystemVersion) -> URL? {
+        URL(
+            string: version.majorVersion >= 26
+                ? "x-apple.systempreferences:com.apple.Accessibility-Settings.extension?Motion"
+                : "x-apple.systempreferences:com.apple.preference.universalaccess?Seeing_Display")
+    }
+}

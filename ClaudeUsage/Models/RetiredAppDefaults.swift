@@ -14,9 +14,13 @@ nonisolated enum RetiredAppDefaults {
         Group(
             keys: [
                 "claudeSettingsLastTab", "codexSettingsLastTab",
-                "ClaudeUsage.authPathHealth.v1", "ClaudeUsage.cachedOrganizations.v1",
+                AppIdentifiers.defaultsKey("authPathHealth.v1"), AppIdentifiers.defaultsKey("cachedOrganizations.v1"),
                 "initialRuntimeProviderDetectionCompleted", "suppressMoveToApplicationsAlert",
                 "browserCookieAccessDeniedUntil", "geminiRefreshInterval", "statusItemUnplacedNoticeDate",
+                "codexTimeFormat",
+                // 적응형 새로고침(2.8.0)이 대신하는 고정 주기 설정
+                "refreshInterval", "usePerProviderRefreshIntervals", "claudeRefreshInterval",
+                "codexRefreshInterval", "antigravityRefreshInterval", "reducedRefreshOnBattery",
             ],
             replacement: nil),
         Group(

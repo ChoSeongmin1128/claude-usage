@@ -91,7 +91,7 @@ final class SecurityFrameworkOAuthCredentialVault: OAuthCredentialVault, @unchec
     private let service: String
 
     nonisolated init(
-        service: String = Bundle.main.bundleIdentifier ?? "ClaudeUsage"
+        service: String = Bundle.main.bundleIdentifier ?? AppIdentifiers.legacyKeychainService
     ) {
         self.service = service
     }

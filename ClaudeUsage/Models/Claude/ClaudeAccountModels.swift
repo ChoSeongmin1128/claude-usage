@@ -178,9 +178,9 @@ final class ClaudeAccountStore: @unchecked Sendable {
             : ClaudeLegacySandboxCredentialStore.shared
     )
 
-    nonisolated static let accountsDefaultsKey = "ClaudeUsage.claudeAccounts.v1"
-    nonisolated static let activeAccountDefaultsKey = "ClaudeUsage.activeClaudeAccountID"
-    nonisolated static let migrationVersionDefaultsKey = "ClaudeUsage.claudeAccountsMigrationVersion"
+    nonisolated static let accountsDefaultsKey = AppIdentifiers.defaultsKey("claudeAccounts.v1")
+    nonisolated static let activeAccountDefaultsKey = AppIdentifiers.defaultsKey("activeClaudeAccountID")
+    nonisolated static let migrationVersionDefaultsKey = AppIdentifiers.defaultsKey("claudeAccountsMigrationVersion")
     nonisolated static let legacySessionKeyDefaultsKey = "claude-session-key"
     nonisolated static let legacyPreferredOrganizationDefaultsKey = "preferredOrganizationID"
     nonisolated static let currentMigrationVersion = 4
@@ -520,6 +520,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
                 Logger.warning("Claude 브라우저 credential 삭제 실패")
             }
         }
+        ClaudeAccountLocalData.remove(accountID: removed.id)
         postAccountNotifications(activeAccountChanged: state.activeAccountID == id)
         if deletedSessionCredential {
             postSessionCredentialNotification(accountID: removed.id)

@@ -735,11 +735,11 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         XCTAssertEqual(presentation.menuBar.style, .circular)
         XCTAssertEqual(
             presentation.menuBar.regularText,
-            "C/G·주 1일 2시간 후"
+            "C/G·주 1d 2h"
         )
         XCTAssertEqual(
             presentation.menuBar.condensedText,
-            "1일 2시간 후"
+            "1d 2h"
         )
         XCTAssertEqual(
             try XCTUnwrap(presentation.menuBar.gaugePercentage),

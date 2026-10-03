@@ -40,7 +40,7 @@ extension AppDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if isRunningUnitTests {
-            Logger.info("ClaudeUsage 테스트 런치 감지: 앱 초기화를 건너뜁니다")
+            Logger.info("\(AppDistribution.current.appName) 테스트 런치 감지: 앱 초기화를 건너뜁니다")
             return
         }
         guard ownsSingleInstanceLease else {
@@ -60,6 +60,13 @@ extension AppDelegate {
         setupPopovers()
         setupKeyboardShortcuts()
         bindRuntimeObservers()
+        startSessionActivityMonitoring()
+        bootstrapUsageAccounts()
+
+        let claudeAccountIDs = Set(ClaudeAccountStore.shared.accounts().map(\.id))
+        Task.detached(priority: .utility) {
+            ClaudeAccountLocalData.removeOrphans(keeping: claudeAccountIDs)
+        }
 
         bootstrapAntigravityRuntime()
         bootstrapRefreshState()
@@ -69,6 +76,10 @@ extension AppDelegate {
 
         if AppSettings.shared.welcomeState == .pending {
             showSettingsWindow(settingsPanelRawValue: SettingsProviderPanel.welcome.rawValue)
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                self?.presentWhatsNewIfNeeded()
+            }
         }
 
         let launchIntent = ApplicationLaunchIntent.parse(
@@ -136,6 +147,7 @@ extension AppDelegate {
             NSEvent.removeMonitor(monitor)
         }
         stopGlobalClickMonitor()
+        stopAdaptiveRefresh()
         AppSingleInstanceGuard.shared.release()
         if let plan = AppDataResetRequest.pending {
             AppDataReset.production.perform(plan)
@@ -156,7 +168,7 @@ extension AppDelegate {
             return .terminateLater
         }
 
-        Logger.info("ClaudeUsage 앱 종료 전 Antigravity owned runtime 정리")
+        Logger.info("\(AppDistribution.current.appName) 앱 종료 전 Antigravity owned runtime 정리")
         refreshScheduler.stop()
         antigravityTerminationTask = Task { [weak self] in
             guard let self else { return }
@@ -305,6 +317,7 @@ extension AppDelegate {
                 let basis = AppSettings.shared.usageDisplayMode.basis
                 let revision = AppSettings.shared.usageDisplayModeRevision
                 await runtime.runtimeController.setUsageDisplayBasis(basis, revision: revision)
+                await runtime.runtimeController.setTimeFormat(AppSettings.shared.timeFormat)
                 _ = await runtime
                     .runtimeController
                     .bootstrap(
@@ -404,7 +417,10 @@ extension AppDelegate {
         statusTimer?.invalidate()
         statusTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             // scheduledTimer was registered on MainActor's main run loop.
-            MainActor.assumeIsolated { self?.refreshSystemStatus() }
+            MainActor.assumeIsolated {
+                self?.refreshSystemStatus()
+                self?.usageAccountsController.refreshIfNeeded()
+            }
         }
     }
 

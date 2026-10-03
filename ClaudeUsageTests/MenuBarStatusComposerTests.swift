@@ -42,6 +42,29 @@ final class MenuBarStatusComposerTests: XCTestCase {
         XCTAssertGreaterThan(try averageOpaqueLuminance(of: darkIcon), 0.75)
     }
 
+    func testResetCreditBadgeChangesRenderKeyAndTooltip() {
+        let snapshot = MenuBarStatusComposer.claudeSnapshot(
+            config: ProviderMenuBarDisplayConfig(
+                kind: .claude, showIcon: false, style: .none, percentageDisplay: .fiveHour,
+                showBatteryPercent: false, resetTimeDisplay: .none, timeFormat: .h24,
+                circularDisplayMode: .usage, iconMetric: .fiveHour, colorMode: .always),
+            usage: ClaudeUsageResponse(fiveHour: UsageWindow(utilization: 40, resetsAt: nil), sevenDay: nil),
+            error: nil, hasAuthError: false, hasCredential: true, secondaryColor: .secondaryLabelColor, icon: nil)
+        let normal = snapshot.withResetCreditBadge(MenuBarResetCreditBadge(count: 1, tone: .normal))
+        let expiring = snapshot.withResetCreditBadge(MenuBarResetCreditBadge(count: 1, tone: .expiring))
+
+        XCTAssertNotEqual(snapshot.renderKey, normal.renderKey)
+        XCTAssertNotEqual(normal.renderKey, expiring.renderKey)
+        let content = MenuBarStatusComposer.singleProviderContent(
+            snapshot: normal, secondaryColor: .secondaryLabelColor, appearance: NSAppearance(named: .aqua)!)
+        XCTAssertTrue(content.tooltip.contains("초기화권 1개"))
+        XCTAssertGreaterThan(
+            content.image.size.width,
+            MenuBarStatusComposer.singleProviderContent(
+                snapshot: snapshot, secondaryColor: .secondaryLabelColor, appearance: NSAppearance(named: .aqua)!
+            ).image.size.width)
+    }
+
     func testMenuBarColorModeControlsGaugeColor() {
         func claudeColor(percentage: Double, mode: MenuBarColorMode) -> NSColor {
             let usage = ClaudeUsageResponse(

@@ -151,7 +151,7 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
         case .noAmbientLocalSession:
             "Antigravity 앱 또는 AGY CLI에 로그인한 뒤 로컬 세션 조회를 다시 시도해 주세요."
         case .usageTargetSelection:
-            "설정에서 AGY CLI와 Antigravity 독립 앱 중 조회할 제품을 선택해 주세요."
+            "AGY CLI에 로그인한 뒤 새로고침해 주세요."
         case .ambiguousLocalSessions:
             "선택한 제품의 실행마다 계정이 다르거나 확인되지 않았습니다. 이전 실행을 종료하고 새로고침해 주세요."
         }
@@ -190,7 +190,7 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
                 settingsFailure(
                     title: "AGY 사용량 보고 중지",
                     message:
-                        "AGY가 사용량 보고 대신 모델 응답을 실행해 quota가 더 쓰이지 않도록 자동 조회를 중지했습니다. AGY CLI가 업데이트되거나 ClaudeUsage를 다시 실행하면 다시 조회합니다."
+                        "AGY가 사용량 보고 대신 모델 응답을 실행해 quota가 더 쓰이지 않도록 자동 조회를 중지했습니다. AGY CLI가 업데이트되거나 \(AppDistribution.current.appName)를 다시 실행하면 다시 조회합니다."
                 )
             }
         case .authenticationRequired(let source), .interactionRequired(let source):

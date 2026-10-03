@@ -9,11 +9,11 @@ enum ProviderRuntimeAction {
 enum RefreshOrchestration {
     static func actionForTabSwitch(
         state: RuntimeProviderPresentationState,
-        refreshInterval: TimeInterval
+        now: Date = Date()
     ) -> ProviderRuntimeAction? {
         guard ProviderTransitionPolicy.shouldRefreshOnTabSwitch(
             state: state,
-            refreshInterval: refreshInterval
+                now: now
         ) else {
             return nil
         }

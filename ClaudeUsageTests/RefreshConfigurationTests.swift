@@ -4,35 +4,25 @@ import XCTest
 
 @MainActor
 final class RefreshConfigurationTests: XCTestCase {
-    func testPublishedValuesReachSchedulingBeforeSettingsSetterCompletes() throws {
+    func testAutoRefreshReachesSchedulingBeforeSettingsSetterCompletes() throws {
         let settings = try makeSettings()
-        let battery = CurrentValueSubject<Bool, Never>(false)
         let coordinator = AppRuntimeObservationCoordinator()
         var received: [RuntimeRefreshConfiguration] = []
         coordinator.bind(
-            settings: settings, batteryPublisher: battery.eraseToAnyPublisher(),
+            settings: settings,
             onRefreshConfigurationChanged: { received.append($0) },
             onUpdateConfigurationChanged: {}, onMenuBarDisplayChanged: {},
             onProviderSelectionChanged: { _ in }, onClaudeCredentialContextChanged: {}
         )
         settings.autoRefresh = false
         XCTAssertEqual(received.last?.autoRefresh, false)
-        settings.refreshInterval = 60
-        XCTAssertEqual(received.last?.interval, 60)
         settings.autoRefresh = true
         XCTAssertEqual(received.last?.autoRefresh, true)
-        settings.refreshInterval = 30
-        XCTAssertEqual(received.last?.interval, 30)
-        settings.reducedRefreshOnBattery = true
-        battery.send(true)
-        XCTAssertEqual(received.last?.interval(for: .codex), 60)
-        settings.reducedRefreshOnBattery = false
-        XCTAssertEqual(received.last?.interval(for: .codex), 30)
         let count = received.count
-        settings.refreshInterval = 30
+        settings.autoRefresh = true
         XCTAssertEqual(received.count, count)
         coordinator.cancelAll()
-        settings.refreshInterval = 90
+        settings.autoRefresh = false
         XCTAssertEqual(received.count, count)
     }
 
@@ -158,47 +148,6 @@ final class RefreshConfigurationTests: XCTestCase {
         XCTAssertEqual(delivered, 1)
         harness.fire(after: 30)
         XCTAssertEqual(delivered, 1)
-    }
-
-    func testProviderIntervalsAndBatteryPolicyUseSameConfiguration() throws {
-        let settings = try makeSettings()
-        settings.refreshInterval = 120
-        settings.usePerProviderRefreshIntervals = true
-        settings.claudeRefreshInterval = 120
-        settings.codexRefreshInterval = 30
-        settings.reducedRefreshOnBattery = true
-        let configuration = RuntimeRefreshConfiguration(settings: settings, isOnBattery: false)
-        XCTAssertEqual(configuration.intervals(for: [.claude, .codex]), [.claude: 120, .codex: 30])
-        let battery = RuntimeRefreshConfiguration(settings: settings, isOnBattery: true)
-        XCTAssertEqual(battery.intervals(for: [.claude, .codex]), [.claude: 120, .codex: 60])
-        let harness = SchedulerHarness()
-        var delivered: [[PopoverService]] = []
-        _ = harness.scheduler.sync(
-            autoRefresh: true, shouldPoll: true, intervals: configuration.intervals(for: [.claude, .codex])
-        ) {
-            delivered.append($0)
-        }
-        harness.fire(after: 30)
-        harness.advance(10)
-        _ = harness.scheduler.sync(
-            autoRefresh: true, shouldPoll: true, intervals: battery.intervals(for: [.claude, .codex])
-        ) {
-            delivered.append($0)
-        }
-        harness.fire(after: 60)
-        harness.fire(after: 20)
-        XCTAssertEqual(delivered, [[.codex], [.codex], [.claude]])
-        XCTAssertEqual(
-            harness.scheduler.sync(
-                autoRefresh: false, shouldPoll: true, intervals: battery.intervals(for: [.claude, .codex])
-            ) { _ in
-                XCTFail("Disabled automatic refresh must not fire")
-            }, .stopped)
-        settings.autoRefresh = false
-        XCTAssertEqual(
-            RefreshOrchestration.actionsForRefreshAll(
-                supportedServices: [.codex], refreshableServices: [.codex], settings: settings, force: true
-            ).count, 1)
     }
 
     private func makeSettings() throws -> AppSettings {

@@ -16,7 +16,11 @@ nonisolated struct CodexUsageResponse: Codable, Sendable {
     let credits: CodexCredits?
     /// 모델별 추가 한도 (예: GPT-5.3-Codex-Spark 주간 한도)
     let additionalRateLimits: [CodexAdditionalRateLimit]
-    /// wham/rate-limit-reset-credits 별도 엔드포인트 결과 (조회 후 주입)
+    /// Business/Enterprise 좌석의 월 크레딧 한도
+    let spendControl: CodexSpendControl?
+    /// 한도에 걸린 이유(workspace_member_credits_depleted 등). 공식 backend 모델 기준
+    let rateLimitReachedType: String?
+    /// 공식 app-server `account/rateLimits/read`의 초기화권 (조회 후 주입)
     var resetCredits: CodexResetCreditsResponse?
 
     enum CodingKeys: String, CodingKey {
@@ -25,16 +29,37 @@ nonisolated struct CodexUsageResponse: Codable, Sendable {
         case rateLimit = "rate_limit"
         case credits
         case additionalRateLimits = "additional_rate_limits"
+        case spendControl = "spend_control"
+        case rateLimitReachedType = "rate_limit_reached_type"
+    }
+
+    private struct ReachedType: Decodable {
+        let type: String?
     }
 
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         accountID = try container.decodeIfPresent(String.self, forKey: .accountID)
         planType = try container.decodeIfPresent(String.self, forKey: .planType)
-        rateLimit = try container.decodeIfPresent(CodexRateLimit.self, forKey: .rateLimit)
-        credits = try container.decodeIfPresent(CodexCredits.self, forKey: .credits)
+        // 창이 없거나 크레딧만 있는 요금제(Enterprise/Edu 유연 요금제)가 있다. 필드 하나가 전체를 깨지 않게 한다.
+        rateLimit = (try? container.decodeIfPresent(CodexRateLimit.self, forKey: .rateLimit)) ?? nil
+        credits = (try? container.decodeIfPresent(CodexCredits.self, forKey: .credits)) ?? nil
         additionalRateLimits = Self.decodeAdditionalRateLimits(from: container)
+        spendControl = (try? container.decodeIfPresent(CodexSpendControl.self, forKey: .spendControl)) ?? nil
+        rateLimitReachedType =
+            ((try? container.decodeIfPresent(ReachedType.self, forKey: .rateLimitReachedType)) ?? nil)?
+            .type
         resetCredits = nil
+        let hasMalformedLimits =
+            rateLimit?.hasMalformedWindow == true
+            || (rateLimit == nil && container.contains(.rateLimit)
+                && (try? container.decodeNil(forKey: .rateLimit)) != true)
+        if hasMalformedLimits, rateLimit?.primaryWindow == nil, rateLimit?.secondaryWindow == nil,
+            credits == nil, additionalRateLimits.isEmpty, spendControl == nil
+        {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Codex rate limits are malformed"))
+        }
     }
 
     /// additional_rate_limits: 항목 단위 lossy 디코딩 — 항목 하나가 깨져도 본 한도 표시를 막지 않는다.
@@ -53,6 +78,57 @@ nonisolated struct CodexUsageResponse: Codable, Sendable {
             }
         }
         return collected
+    }
+}
+
+/// spend_control. 공식 backend 모델은 금액을 문자열로, 비율과 시각을 정수로 준다.
+nonisolated struct CodexSpendControl: Codable, Sendable {
+    let reached: Bool
+    let individualLimit: CodexSpendLimit?
+
+    enum CodingKeys: String, CodingKey {
+        case reached
+        case individualLimit = "individual_limit"
+    }
+
+    nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        reached = (try? container.decode(Bool.self, forKey: .reached)) ?? false
+        individualLimit = (try? container.decodeIfPresent(CodexSpendLimit.self, forKey: .individualLimit)) ?? nil
+    }
+}
+
+nonisolated struct CodexSpendLimit: Codable, Sendable {
+    let limit: Double?
+    let used: Double?
+    let usedPercent: Double?
+    let resetAt: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case limit
+        case used
+        case usedPercent = "used_percent"
+        case resetAt = "reset_at"
+    }
+
+    nonisolated init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        func number(_ key: CodingKeys) -> Double? {
+            if let value = try? container.decode(Double.self, forKey: key) { return value }
+            if let text = try? container.decode(String.self, forKey: key) { return Double(text) }
+            return nil
+        }
+        limit = number(.limit)
+        used = number(.used)
+        usedPercent = number(.usedPercent).flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+        resetAt = number(.resetAt)
+    }
+
+    nonisolated var resetAtISO: String? {
+        guard let resetAt, resetAt > 0 else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.string(from: Date(timeIntervalSince1970: resetAt))
     }
 }
 
@@ -86,6 +162,8 @@ nonisolated struct CodexAdditionalRateLimit: Codable, Sendable {
 nonisolated struct CodexRateLimit: Codable, Sendable {
     let primaryWindow: CodexUsageWindow?
     let secondaryWindow: CodexUsageWindow?
+    /// 형식이 깨져 버린 창이 있었는지. 인코딩하지 않는다.
+    let hasMalformedWindow: Bool
 
     enum CodingKeys: String, CodingKey {
         case primaryWindow = "primary_window"
@@ -94,8 +172,16 @@ nonisolated struct CodexRateLimit: Codable, Sendable {
 
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        primaryWindow = try container.decodeIfPresent(CodexUsageWindow.self, forKey: .primaryWindow)
-        secondaryWindow = try container.decodeIfPresent(CodexUsageWindow.self, forKey: .secondaryWindow)
+        var malformed = false
+        func window(_ key: CodingKeys) -> CodexUsageWindow? {
+            guard container.contains(key), (try? container.decodeNil(forKey: key)) != true else { return nil }
+            if let decoded = try? container.decode(CodexUsageWindow.self, forKey: key) { return decoded }
+            malformed = true
+            return nil
+        }
+        primaryWindow = window(.primaryWindow)
+        secondaryWindow = window(.secondaryWindow)
+        hasMalformedWindow = malformed
     }
 }
 
@@ -210,7 +296,7 @@ nonisolated struct CodexCredits: Codable, Sendable {
     nonisolated var formattedBalance: String {
         if unlimited { return "무제한" }
         guard let balance = balance else { return "정보 없음" }
-        return String(format: "$%.2f", balance)
+        return MoneyFormatter.credits(balance)
     }
 }
 
@@ -283,15 +369,26 @@ extension CodexUsageResponse {
     }
 
     /// 메뉴바 색상·단일 퍼센트 표시 기준 게이지.
-    /// 세션 창이 없으면 0% 대신 주간 창을 기준으로 사용합니다.
-    nonisolated var gaugePercentage: Double {
-        sessionWindow?.utilization ?? weeklyWindow?.utilization ?? 0
+    /// 세션 창이 없으면 0% 대신 주간 창을 기준으로 사용하고, 둘 다 없으면 nil.
+    nonisolated var gaugePercentage: Double? {
+        sessionWindow?.utilization ?? weeklyWindow?.utilization
+    }
+
+    /// 한도에 걸린 이유를 사용자가 할 일 기준으로 짧게. 공식 TUI 문구의 뜻을 따른다.
+    nonisolated var workspaceLimitNotice: String? {
+        switch rateLimitReachedType {
+        case "workspace_owner_credits_depleted": return "워크스페이스 크레딧 소진 · 크레딧 추가 필요"
+        case "workspace_member_credits_depleted": return "워크스페이스 크레딧 소진 · 소유자에게 추가 요청"
+        case "workspace_owner_usage_limit_reached": return "워크스페이스 사용 한도 도달"
+        case "workspace_member_usage_limit_reached": return "사용 한도 도달 · 소유자에게 한도 상향 요청"
+        default: return spendControl?.reached == true ? "월 크레딧 한도 도달" : nil
+        }
     }
 
     /// "현재 3% · 주간 41%" 요약. 세션 창이 없으면 주간만 표기.
     nonisolated var usageSummaryText: String {
-        let session = sessionWindow.map { "현재 \(Int($0.utilization.rounded()))%" }
-        let weekly = weeklyWindow.map { "주간 \(Int($0.utilization.rounded()))%" }
+        let session = sessionWindow.map { "5시간 \(PercentageText.string($0.utilization))" }
+        let weekly = weeklyWindow.map { "주간 \(PercentageText.string($0.utilization))" }
         return [session, weekly].compactMap { $0 }.joined(separator: " · ").ifEmpty("데이터 없음")
     }
 }
@@ -302,7 +399,7 @@ private extension String {
     }
 }
 
-// MARK: - Rate Limit 초기화 크레딧 (wham/rate-limit-reset-credits)
+// MARK: - Rate Limit 초기화 크레딧 (app-server rateLimitResetCredits)
 
 /// 사용량 초기화 크레딧 목록 응답
 nonisolated struct CodexResetCreditsResponse: Codable, Sendable, Equatable {
@@ -475,5 +572,17 @@ nonisolated struct CodexResetCredit: Codable, Sendable, Equatable {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.string(from: date)
+    }
+}
+
+extension CodexUsageResponse {
+    /// 크레딧 요금표는 자주 바뀌어 앱에 담지 않고 공식 도움말로 연결한다. 워크스페이스 요금제에만 해당한다.
+    nonisolated var workspaceRateCardURL: URL? {
+        let personalPlans: Set<String> = ["guest", "free", "go", "plus", "pro", "prolite", "promax"]
+        guard let plan = planType?.lowercased(), !personalPlans.contains(plan) else { return nil }
+        return URL(
+            string:
+                "https://help.openai.com/en/articles/11481834-chatgpt-rate-card-business-enterpriseedu-credit-based-pricing"
+        )
     }
 }

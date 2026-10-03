@@ -334,7 +334,7 @@ extension AppDelegate {
         statusItem = item
         if let button = item.button {
             button.title = "..."
-            button.toolTip = "ClaudeUsage"
+            button.toolTip = AppDistribution.current.appName
             button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.target = self
@@ -667,7 +667,7 @@ extension AppDelegate {
                 systemStatus: providerSystemStatus(for: .claude),
                 renderImages: renderImages,
                 appearance: appearance
-            )
+            ).withResetCreditBadge(resetCreditBadge(for: .claude))
         case .codex:
             let runtimeSnapshot = runtimeProviderSnapshot(for: service)
             guard let config = AppSettings.shared.menuBarDisplayConfig(for: .codex) else { return nil }
@@ -688,7 +688,7 @@ extension AppDelegate {
                 systemStatus: providerSystemStatus(for: .codex),
                 renderImages: renderImages,
                 appearance: appearance
-            )
+            ).withResetCreditBadge(resetCreditBadge(for: .codex))
         case .antigravity:
             guard case .content(let presentation) =
                     currentAntigravityRuntimeSnapshot

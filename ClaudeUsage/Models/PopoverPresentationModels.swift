@@ -29,6 +29,91 @@ enum PopoverDisplaySectionKind: Equatable {
     case overage
     case account
     case status
+    case accountPicker
+    case accountRow
+    case accountSummary
+}
+
+/// 여러 계정 화면의 한 계정 줄. 숫자는 게이지에만, 줄에는 상태와 시간만 쓴다.
+struct PopoverAccountRowData: Identifiable, Equatable {
+    let id: String
+    let service: PopoverService
+    let name: String
+    let badges: [UsageAccountBadge]
+    let status: UsageAccountState.Status
+    let fiveHour: Double?
+    let weekly: Double?
+    let fiveHourResetAt: String?
+    let weeklyResetAt: String?
+    let fetchedAt: Date?
+    let isRuntime: Bool
+    let basis: UsageValueBasis
+}
+
+struct PopoverAccountPickerData: Equatable {
+    struct Chip: Identifiable, Equatable {
+        let id: String
+        let name: String
+        let isSelected: Bool
+    }
+
+    let service: PopoverService
+    let chips: [Chip]
+}
+
+struct PopoverAccountSummaryData: Equatable {
+    let text: String
+    let isWarning: Bool
+}
+
+/// 계정이 2개 이상일 때 팝오버에 넘기는 계정 목록. 1개면 만들지 않는다.
+struct MultiAccountPresentation: Equatable {
+    let service: PopoverService
+    let mode: UsageAccountPreferences.PopoverMode
+    let rows: [PopoverAccountRowData]
+    let selectedIDs: [String]
+
+    /// 숨긴 한도도 요약에는 넣는다. 문제가 없으면 한 줄로 끝낸다.
+    var summary: PopoverAccountSummaryData {
+        let low = rows.filter { row in
+            [row.fiveHour, row.weekly].compactMap { $0 }.contains {
+                100 - $0 <= AdaptiveRefreshPolicy.lowRemainingPercent
+            }
+        }
+        let expired = rows.filter { $0.status == .loginExpired }
+        var parts: [String] = []
+        if !low.isEmpty { parts.append("\(low.count)개 계정 한도 10% 이하") }
+        if !expired.isEmpty { parts.append("로그인 만료 \(expired.count)개") }
+        return parts.isEmpty
+            ? PopoverAccountSummaryData(text: "모든 계정 여유 있음", isWarning: false)
+            : PopoverAccountSummaryData(text: parts.joined(separator: " · "), isWarning: true)
+    }
+
+    func sections(catalog: [PopoverDisplaySection]) -> [PopoverDisplaySection] {
+        func row(_ data: PopoverAccountRowData) -> PopoverDisplaySection {
+            PopoverDisplaySection(
+                id: "account-\(data.id)", kind: .accountRow, importance: .primary, payload: .accountRow(data))
+        }
+        let others = rows.filter { !$0.isRuntime }
+        switch mode {
+        case .pick:
+            let picker = PopoverDisplaySection(
+                id: "account-picker", kind: .accountPicker, importance: .primary,
+                payload: .accountPicker(
+                    PopoverAccountPickerData(
+                        service: service,
+                        chips: rows.map { .init(id: $0.id, name: $0.name, isSelected: selectedIDs.contains($0.id)) })))
+            let runtimeSelected = rows.contains { $0.isRuntime && selectedIDs.contains($0.id) }
+            return [picker] + (runtimeSelected ? catalog : []) + others.filter { selectedIDs.contains($0.id) }.map(row)
+        case .featuredList:
+            return catalog + others.map(row)
+        case .summaryRows:
+            let summary = PopoverDisplaySection(
+                id: "account-summary", kind: .accountSummary, importance: .primary,
+                payload: .accountSummary(self.summary))
+            return [summary] + rows.map(row)
+        }
+    }
 }
 
 struct PopoverUsageSectionData {
@@ -43,12 +128,12 @@ struct PopoverUsageSectionData {
 
 struct PopoverCreditsSectionData {
     let credits: CodexCredits
+    var rateCardURL: URL? = nil
 }
 
 struct PopoverResetCreditsSectionData {
-    let availableCount: Int
-    let nextExpiresAtISO: String?
-    let timeFormatStyle: TimeFormatStyle
+    let summary: ResetCreditSummary
+    let isNew: Bool
 }
 
 struct PopoverOverageSectionData {
@@ -93,6 +178,9 @@ enum PopoverDisplayPayload {
     case overage(PopoverOverageSectionData)
     case account(PopoverAccountSectionData)
     case status(PopoverStatusSectionData)
+    case accountPicker(PopoverAccountPickerData)
+    case accountRow(PopoverAccountRowData)
+    case accountSummary(PopoverAccountSummaryData)
 }
 
 struct PopoverDisplaySection: Identifiable {

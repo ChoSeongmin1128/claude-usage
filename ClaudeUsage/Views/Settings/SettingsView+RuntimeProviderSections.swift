@@ -128,14 +128,9 @@ extension SettingsView {
                 }
 
                 HStack(spacing: AppDesign.Space.row) {
-                    Picker("조회 대상", selection: antigravityUsageTargetSelection) {
-                        if state.usageTarget == .unselected {
-                            Text("조회 대상 선택").tag(AntigravityUsageTarget.unselected)
-                        }
-                        Text("AGY CLI").tag(AntigravityUsageTarget.cli)
-                        Text("Antigravity 독립 앱").tag(AntigravityUsageTarget.app)
-                    }
-                    .pickerStyle(.menu)
+                    Label("AGY CLI", systemImage: "terminal")
+                        .font(AppDesign.Typography.caption)
+                        .foregroundStyle(.secondary)
                     Spacer(minLength: AppDesign.Space.row)
                     Button("새로고침") {
                         Task { _ = await antigravitySettings.refresh() }
@@ -213,14 +208,6 @@ extension SettingsView {
             )
             .cornerRadius(AppDesign.Radius.group)
         }
-    }
-
-    private var antigravityUsageTargetSelection: Binding<AntigravityUsageTarget> {
-        Binding(
-            get: { antigravitySettings.state.usageTarget },
-            set: { selection in
-                Task { _ = await antigravitySettings.selectTarget(selection) }
-            })
     }
 
     private func antigravityIdentitySummary(_ state: AntigravitySettingsViewState) -> some View {

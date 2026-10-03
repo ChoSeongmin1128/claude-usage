@@ -6,32 +6,16 @@ import XCTest
 
 @MainActor
 final class DesignSystemTests: XCTestCase {
-    func testDesignComparisonAndNotificationSummaryRenderAtNarrowWidths() throws {
-        try withSettings { settings in
-            let limits = UsageLimitCatalog.claude(
-                .init(
-                    fiveHour: .init(utilization: 12, resetsAt: nil),
-                    sevenDay: .init(utilization: 25, resetsAt: nil),
-                    scopedLimits: [
-                        .init(
-                            kind: "weekly_scoped", percent: 32, modelID: "future",
-                            modelName: "A future model with a long name")
-                    ]))
-            settings.notificationTargets.observe(limits, provider: .claude) { $0.legacyKey != nil }
-            for width: CGFloat in [320, 520] {
-                for scheme in [ColorScheme.light, .dark] {
-                    let view = VStack(alignment: .leading, spacing: AppDesign.Space.content) {
-                        MenuBarDesignComparison(colorMode: .monochrome, basis: .remaining)
-                        NotificationProviderRow(
-                            settings: settings, provider: .claude, limits: limits, isEnabled: .constant(true))
-                    }
+    func testDesignComparisonRendersAtNarrowWidths() throws {
+        for width: CGFloat in [320, 520] {
+            for scheme in [ColorScheme.light, .dark] {
+                let view = MenuBarDesignComparison(colorMode: .monochrome, basis: .remaining)
                     .padding(AppDesign.Space.content).frame(width: width)
                     .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(scheme)
-                    let image = try renderHosted(view, appearance: scheme == .dark ? .darkAqua : .aqua)
-                    XCTAssertEqual(image.size.width, width, accuracy: 0.5)
-                    XCTAssertLessThan(image.size.height, 300)
-                    attach(image, "Quota choices and five-style comparison \(width) \(scheme)")
-                }
+                let image = try renderHosted(view, appearance: scheme == .dark ? .darkAqua : .aqua)
+                XCTAssertEqual(image.size.width, width, accuracy: 0.5)
+                XCTAssertLessThan(image.size.height, 300)
+                attach(image, "Five-style comparison \(width) \(scheme)")
             }
         }
     }
@@ -98,7 +82,7 @@ final class DesignSystemTests: XCTestCase {
                     secondaryColor: .secondaryLabelColor, icon: nil)
             }
             let first = snapshot()
-            XCTAssertTrue(first.tooltip.contains("주간 —"))
+            XCTAssertFalse(first.tooltip.contains("주간"))
             XCTAssertFalse(first.tooltip.contains("100%"))
             XCTAssertEqual(first.renderKey, snapshot().renderKey)
             XCTAssertNotNil(first.styleIcon?.tiffRepresentation)
@@ -312,12 +296,20 @@ final class DesignSystemTests: XCTestCase {
             try renderHosted(
                 AppMotionSettingsView(settings: settings).padding(20).frame(width: 420)
                     .background(Color(nsColor: .windowBackgroundColor)), appearance: .aqua), "Custom motion settings")
-        for step in WelcomeStep.allCases {
+        for step in [WelcomeStep.services, .appearance] {
             settings.welcomeStep = step
             let view = WelcomeView(
                 settings: settings, selectedProvider: .constant(.claude),
-                statuses: [.claude: .verified], connection: Text("연결 예시 · 현재 계정 확인"),
-                display: Text("표시 항목 fixture"), onVerify: { _ in }, onDefer: {}, onFinish: {}
+                statuses: [.claude: .verified],
+                rows: [
+                    OnboardingServiceRow(
+                        provider: .claude, status: "연결됨", tone: .connected, detail: "work@example.com"),
+                    OnboardingServiceRow(
+                        provider: .codex, status: "찾지 못함", tone: .missing, primary: .init(title: "추가") {}),
+                    OnboardingServiceRow(
+                        provider: .antigravity, status: "AGY CLI 있음", tone: .ready, primary: .init(title: "연결") {}),
+                ],
+                display: Text("표시 항목 fixture"), onDefer: {}, onFinish: {}
             )
             .padding(24).frame(width: 520).background(Color(nsColor: .windowBackgroundColor))
             attach(try renderHosted(view, appearance: .aqua), "Welcome step \(step.rawValue)")

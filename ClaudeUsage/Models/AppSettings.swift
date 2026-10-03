@@ -61,13 +61,23 @@ enum TimeFormatStyle: String, Codable, CaseIterable, Sendable {
     case h24 = "24h"
     case h12 = "12h"
     case remaining = "remaining"
+    /// 남은 시간을 h:mm로. 주간은 3d 02:12
+    case remainingClock = "remaining_clock"
+    /// 남은 시간을 h:mm로. 주간은 전체 시간 74:12
+    case remainingTotalClock = "remaining_total_clock"
 
     var displayName: String {
         switch self {
         case .h24: return "24시간 (18:34)"
         case .h12: return "12시간 (6:34 PM)"
-        case .remaining: return "남은 시간 (2h 34m)"
+        case .remaining: return "남은 시간 (2h 34m, 주간 3d 2h)"
+        case .remainingClock: return "남은 시간 (2:34, 주간 3d 02:12)"
+        case .remainingTotalClock: return "남은 시간 (2:34, 주간 74:12)"
         }
+    }
+
+    nonisolated var isRemaining: Bool {
+        self == .remaining || self == .remainingClock || self == .remainingTotalClock
     }
 }
 
@@ -80,7 +90,7 @@ enum ResetTimeDisplay: String, Codable, CaseIterable, Sendable {
     var displayName: String {
         switch self {
         case .none: return "없음"
-        case .fiveHour: return "현재 세션"
+        case .fiveHour: return "5시간 한도"
         case .weekly: return "주간"
         case .dual: return "동시 표시"
         }
@@ -96,7 +106,7 @@ enum PercentageDisplay: String, Codable, CaseIterable, Sendable {
     var displayName: String {
         switch self {
         case .none: return "없음"
-        case .fiveHour: return "현재 세션"
+        case .fiveHour: return "5시간 한도"
         case .weekly: return "주간"
         case .dual: return "동시 표시"
         }
@@ -122,7 +132,7 @@ enum IconMetric: String, Codable, CaseIterable, Sendable {
     var displayName: String {
         switch self {
         case .fiveHour:
-            return "현재 세션"
+            return "5시간 한도"
         case .weekly:
             return "주간"
         }
@@ -322,58 +332,6 @@ class AppSettings: ObservableObject {
     @Published var timeFormat: TimeFormatStyle {
         didSet { defaults.set(timeFormat.rawValue, forKey: "timeFormat") }
     }
-    @Published var refreshInterval: TimeInterval {
-        didSet {
-            let normalized = Self.normalizedRefreshInterval(refreshInterval)
-            guard refreshInterval == normalized else {
-                refreshInterval = normalized
-                return
-            }
-            defaults.set(refreshInterval, forKey: "refreshInterval")
-        }
-    }
-    @Published var usePerProviderRefreshIntervals: Bool {
-        didSet { defaults.set(usePerProviderRefreshIntervals, forKey: "usePerProviderRefreshIntervals") }
-    }
-    @Published var claudeRefreshInterval: TimeInterval {
-        didSet {
-            let normalized = Self.normalizedRefreshInterval(claudeRefreshInterval)
-            guard claudeRefreshInterval == normalized else {
-                claudeRefreshInterval = normalized
-                return
-            }
-            defaults.set(claudeRefreshInterval, forKey: "claudeRefreshInterval")
-        }
-    }
-    @Published var codexRefreshInterval: TimeInterval {
-        didSet {
-            let normalized = Self.normalizedRefreshInterval(codexRefreshInterval)
-            guard codexRefreshInterval == normalized else {
-                codexRefreshInterval = normalized
-                return
-            }
-            defaults.set(codexRefreshInterval, forKey: "codexRefreshInterval")
-        }
-    }
-    @Published var antigravityRefreshInterval: TimeInterval {
-        didSet {
-            let normalized = Self.normalizedRefreshInterval(antigravityRefreshInterval)
-            guard antigravityRefreshInterval == normalized else {
-                antigravityRefreshInterval = normalized
-                return
-            }
-            defaults.set(antigravityRefreshInterval, forKey: "antigravityRefreshInterval")
-        }
-    }
-    func effectiveRefreshInterval(for service: PopoverService) -> TimeInterval {
-        guard usePerProviderRefreshIntervals else { return Self.normalizedRefreshInterval(refreshInterval) }
-        switch service {
-        case .claude: return Self.normalizedRefreshInterval(claudeRefreshInterval)
-        case .codex: return Self.normalizedRefreshInterval(codexRefreshInterval)
-        case .antigravity: return Self.normalizedRefreshInterval(antigravityRefreshInterval)
-        }
-    }
-
     @Published var autoRefresh: Bool {
         didSet { defaults.set(autoRefresh, forKey: "autoRefresh") }
     }
@@ -385,6 +343,18 @@ class AppSettings: ObservableObject {
     }
     @Published var notificationTargets: NotificationTargetPreferences {
         didSet { if notificationTargets != oldValue { notificationTargets.save(to: defaults) } }
+    }
+    @Published private(set) var resetCreditMenuBarModes: [String: String] {
+        didSet { defaults.set(resetCreditMenuBarModes, forKey: Self.resetCreditMenuBarKey) }
+    }
+    static let resetCreditMenuBarKey = AppIdentifiers.defaultsKey("resetCreditMenuBar")
+
+    func resetCreditMenuBarMode(for kind: AppProviderKind) -> ResetCreditMenuBarMode {
+        resetCreditMenuBarModes[kind.rawValue].flatMap(ResetCreditMenuBarMode.init(rawValue:)) ?? .off
+    }
+
+    func setResetCreditMenuBarMode(_ mode: ResetCreditMenuBarMode, for kind: AppProviderKind) {
+        resetCreditMenuBarModes[kind.rawValue] = mode.rawValue
     }
     private(set) var usageDisplayModeRevision: UInt64 = 0
     @Published var usageDisplayMode: UsageDisplayMode {
@@ -409,9 +379,6 @@ class AppSettings: ObservableObject {
     }
     @Published var alertRemainingMode: Bool {
         didSet { defaults.set(alertRemainingMode, forKey: "alertRemainingMode") }
-    }
-    @Published var reducedRefreshOnBattery: Bool {
-        didSet { defaults.set(reducedRefreshOnBattery, forKey: "reducedRefreshOnBattery") }
     }
     @Published var circularDisplayMode: CircularDisplayMode {
         didSet { defaults.set(circularDisplayMode.rawValue, forKey: "circularDisplayMode") }
@@ -576,8 +543,10 @@ class AppSettings: ObservableObject {
     @Published var codexResetTimeDisplay: ResetTimeDisplay {
         didSet { defaults.set(codexResetTimeDisplay.rawValue, forKey: "codexResetTimeDisplay") }
     }
-    @Published var codexTimeFormat: TimeFormatStyle {
-        didSet { defaults.set(codexTimeFormat.rawValue, forKey: "codexTimeFormat") }
+    /// 시간 형식은 2.8.0부터 모든 서비스가 하나를 쓴다(TimeFormatUnification).
+    var codexTimeFormat: TimeFormatStyle {
+        get { timeFormat }
+        set { timeFormat = newValue }
     }
     @Published var codexMenuBarStyle: MenuBarStyle {
         didSet { defaults.set(codexMenuBarStyle.rawValue, forKey: "codexMenuBarStyle") }
@@ -621,18 +590,12 @@ class AppSettings: ObservableObject {
         let circularDisplayMode: CircularDisplayMode
         let iconMetric: IconMetric
         let menuBarColorMode: MenuBarColorMode
-        let refreshInterval: TimeInterval
-        let usePerProviderRefreshIntervals: Bool
-        let claudeRefreshInterval: TimeInterval
-        let codexRefreshInterval: TimeInterval
-        let antigravityRefreshInterval: TimeInterval
         let autoRefresh: Bool
         let notificationsEnabled: Bool
         let notificationPresets: [NotificationPreset]
         let notificationTargets: NotificationTargetPreferences
         let alertRemainingMode: Bool
         let usageDisplayMode: UsageDisplayMode
-        let reducedRefreshOnBattery: Bool
         let showClaudeIcon: Bool
         let menuBarTextHighContrast: Bool
         let updateCheckInterval: UpdateCheckInterval
@@ -679,18 +642,12 @@ class AppSettings: ObservableObject {
             circularDisplayMode: circularDisplayMode,
             iconMetric: iconMetric,
             menuBarColorMode: menuBarColorMode,
-            refreshInterval: refreshInterval,
-            usePerProviderRefreshIntervals: usePerProviderRefreshIntervals,
-            claudeRefreshInterval: claudeRefreshInterval,
-            codexRefreshInterval: codexRefreshInterval,
-            antigravityRefreshInterval: antigravityRefreshInterval,
             autoRefresh: autoRefresh,
             notificationsEnabled: notificationsEnabled,
             notificationPresets: notificationPresets,
             notificationTargets: notificationTargets,
             alertRemainingMode: alertRemainingMode,
             usageDisplayMode: usageDisplayMode,
-            reducedRefreshOnBattery: reducedRefreshOnBattery,
             showClaudeIcon: showClaudeIcon,
             menuBarTextHighContrast: menuBarTextHighContrast,
             updateCheckInterval: updateCheckInterval,
@@ -746,18 +703,12 @@ class AppSettings: ObservableObject {
         circularDisplayMode = snapshot.circularDisplayMode
         menuBarColorMode = snapshot.menuBarColorMode
         iconMetric = snapshot.iconMetric
-        refreshInterval = snapshot.refreshInterval
-        usePerProviderRefreshIntervals = snapshot.usePerProviderRefreshIntervals
-        claudeRefreshInterval = snapshot.claudeRefreshInterval
-        codexRefreshInterval = snapshot.codexRefreshInterval
-        antigravityRefreshInterval = snapshot.antigravityRefreshInterval
         autoRefresh = snapshot.autoRefresh
         notificationsEnabled = snapshot.notificationsEnabled
         notificationPresets = snapshot.notificationPresets
         notificationTargets = snapshot.notificationTargets
         alertRemainingMode = snapshot.alertRemainingMode
         usageDisplayMode = snapshot.usageDisplayMode
-        reducedRefreshOnBattery = snapshot.reducedRefreshOnBattery
         showClaudeIcon = snapshot.showClaudeIcon
         menuBarTextHighContrast = snapshot.menuBarTextHighContrast
         updateCheckInterval = snapshot.updateCheckInterval.normalizedForAutomaticChecks
@@ -1083,6 +1034,7 @@ class AppSettings: ObservableObject {
             $usageDisplayMode.map { _ in () }.eraseToAnyPublisher(),
             $menuBarStyle.map { _ in () }.eraseToAnyPublisher(),
             $menuBarColorMode.map { _ in () }.eraseToAnyPublisher(),
+            $resetCreditMenuBarModes.map { _ in () }.eraseToAnyPublisher(),
             $percentageDisplay.map { _ in () }.eraseToAnyPublisher(),
             $showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
             $resetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
@@ -1094,7 +1046,6 @@ class AppSettings: ObservableObject {
             $showCodexIcon.map { _ in () }.eraseToAnyPublisher(),
             $codexPercentageDisplay.map { _ in () }.eraseToAnyPublisher(),
             $codexResetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
-            $codexTimeFormat.map { _ in () }.eraseToAnyPublisher(),
             $codexMenuBarStyle.map { _ in () }.eraseToAnyPublisher(),
             $codexCircularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
             $codexIconMetric.map { _ in () }.eraseToAnyPublisher(),
@@ -1463,15 +1414,6 @@ class AppSettings: ObservableObject {
         timeFormat = .h24
         circularDisplayMode = .usage
         iconMetric = .fiveHour
-        refreshInterval = 30.0
-        usePerProviderRefreshIntervals = false
-        claudeRefreshInterval = 30.0
-        codexRefreshInterval = 60.0
-        antigravityRefreshInterval = 120.0
-        defaults.removeObject(forKey: "usePerProviderRefreshIntervals")
-        defaults.removeObject(forKey: "claudeRefreshInterval")
-        defaults.removeObject(forKey: "codexRefreshInterval")
-        defaults.removeObject(forKey: "antigravityRefreshInterval")
         Self.legacyAntigravityModelKeys.forEach(defaults.removeObject(forKey:))
         autoRefresh = true
         notificationsEnabled = false
@@ -1479,7 +1421,6 @@ class AppSettings: ObservableObject {
         notificationTargets = NotificationTargetPreferences()
         alertRemainingMode = false
         usageDisplayMode = .remaining
-        reducedRefreshOnBattery = true
         defaults.removeObject(forKey: "hasCompletedSetupWizard")
         showClaudeIcon = true
         menuBarTextHighContrast = false
@@ -1579,6 +1520,9 @@ class AppSettings: ObservableObject {
             ?? (experience.isExistingInstall ? .legacy : .remaining)
         self.usageDisplayMode = displayMode
         defaults.set(displayMode.rawValue, forKey: "usageDisplayMode")
+        WhatsNewState.prepare(
+            defaults: defaults, isExistingInstall: experience.isExistingInstall,
+            currentVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0")
         self.menuBarDesign = experience.design
         self.menuBarDesignIntroductionDismissed = experience.designIntroductionDismissed
         self.welcomeState = experience.welcomeState
@@ -1620,18 +1564,19 @@ class AppSettings: ObservableObject {
         let tf = defaults.string(forKey: "timeFormat") ?? TimeFormatStyle.h24.rawValue
         let resolvedTimeFormat = TimeFormatStyle(rawValue: tf) ?? .h24
         self.timeFormat = resolvedTimeFormat
-        self.refreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "refreshInterval") as? TimeInterval ?? 30.0)
-        self.usePerProviderRefreshIntervals = defaults.object(forKey: "usePerProviderRefreshIntervals") as? Bool ?? false
-        self.claudeRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "claudeRefreshInterval") as? TimeInterval ?? 30.0)
-        self.codexRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "codexRefreshInterval") as? TimeInterval ?? 60.0)
-        self.antigravityRefreshInterval = Self.normalizedRefreshInterval(defaults.object(forKey: "antigravityRefreshInterval") as? TimeInterval ?? 120.0)
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? false
         let storedAlertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
         self.alertRemainingMode = storedAlertRemainingMode
         self.notificationTargets = NotificationTargetPreferences.load(from: defaults)
+        // 기존 사용자는 끔, 새 사용자는 항상으로 시작한다.
+        self.resetCreditMenuBarModes =
+            defaults.dictionary(forKey: Self.resetCreditMenuBarKey) as? [String: String]
+            ?? Dictionary(
+                uniqueKeysWithValues: [AppProviderKind.claude, .codex].map {
+                    ($0.rawValue, (experience.isExistingInstall ? ResetCreditMenuBarMode.off : .always).rawValue)
+                })
         self.notificationPresets = Self.migrateNotificationPresets(from: defaults, commonRemainingMode: storedAlertRemainingMode)
-        self.reducedRefreshOnBattery = defaults.object(forKey: "reducedRefreshOnBattery") as? Bool ?? true
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
         self.circularDisplayMode = CircularDisplayMode(rawValue: cdm) ?? .usage
         let iconMetricRaw = defaults.string(forKey: "iconMetric") ?? IconMetric.fiveHour.rawValue
@@ -1677,8 +1622,6 @@ class AppSettings: ObservableObject {
         self.codexPercentageDisplay = PercentageDisplay(rawValue: cpd) ?? .fiveHour
         let crd = defaults.string(forKey: "codexResetTimeDisplay") ?? ResetTimeDisplay.none.rawValue
         self.codexResetTimeDisplay = ResetTimeDisplay(rawValue: crd) ?? .none
-        let codexTF = defaults.string(forKey: "codexTimeFormat") ?? resolvedTimeFormat.rawValue
-        self.codexTimeFormat = TimeFormatStyle(rawValue: codexTF) ?? resolvedTimeFormat
         let cms = defaults.string(forKey: "codexMenuBarStyle") ?? MenuBarStyle.none.rawValue
         self.codexMenuBarStyle = MenuBarStyle(rawValue: cms) ?? .none
         let ccdm = defaults.string(forKey: "codexCircularDisplayMode") ?? CircularDisplayMode.usage.rawValue
@@ -1689,6 +1632,7 @@ class AppSettings: ObservableObject {
         self.codexAlertEnabled = defaults.object(forKey: "codexAlertEnabled") as? Bool ?? false
         let legacySettingsLastTab = defaults.string(forKey: "settingsLastTab") ?? "common"
         self.settingsLastTab = legacySettingsLastTab
+        TimeFormatUnification.migrate(defaults: defaults)
         RetiredAppDefaults.remove(from: defaults)
     }
 

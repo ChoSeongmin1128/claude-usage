@@ -1,0 +1,90 @@
+{
+  "meta": {
+    "plans": [
+      "team"
+    ],
+    "source": "measured",
+    "date": "2026-10-02",
+    "note": "claude.ai 웹 /usage, 수치와 시각 외 식별 정보 없음"
+  },
+  "response": {
+    "five_hour": {
+      "utilization": 24,
+      "resets_at": "2026-10-02T05:50:00.224118+00:00",
+      "limit_dollars": null,
+      "remaining_dollars": null,
+      "used_dollars": null,
+      "locked_reason": null
+    },
+    "seven_day": {
+      "utilization": 74,
+      "resets_at": "2026-10-05T14:00:00.224138+00:00",
+      "limit_dollars": null,
+      "remaining_dollars": null,
+      "used_dollars": null,
+      "locked_reason": null
+    },
+    "seven_day_opus": null,
+    "seven_day_sonnet": null,
+    "seven_day_oauth_apps": null,
+    "cedar_ember": null,
+    "juniper_tide": null,
+    "extra_usage": {
+      "credits_ever_enabled": true,
+      "currency": "USD",
+      "decimal_places": 2,
+      "is_enabled": true,
+      "monthly_limit": 1000,
+      "used_credits": 0,
+      "utilization": null
+    },
+    "limits": [
+      {
+        "group": "session",
+        "is_active": false,
+        "kind": "session",
+        "percent": 24,
+        "resets_at": "2026-10-02T05:50:00.224118+00:00",
+        "scope": null,
+        "severity": "normal"
+      },
+      {
+        "group": "weekly",
+        "is_active": true,
+        "kind": "weekly_all",
+        "percent": 74,
+        "resets_at": "2026-10-05T14:00:00.224138+00:00",
+        "scope": null,
+        "severity": "normal"
+      },
+      {
+        "group": "weekly",
+        "is_active": false,
+        "kind": "weekly_scoped",
+        "percent": 0,
+        "resets_at": "2026-10-05T14:00:00+00:00",
+        "scope": {
+          "model": {
+            "display_name": "Fable",
+            "id": null
+          },
+          "surface": null
+        },
+        "severity": "normal"
+      }
+    ]
+  },
+  "expected": {
+    "rows": [
+      "5시간=24",
+      "주간=74",
+      "Fable · 주간=0"
+    ],
+    "menuBar": {
+      "fiveHour": "24%",
+      "weekly": "74%",
+      "dual": "24%·74%"
+    },
+    "extraUsage": "$0.00 사용 / $10.00 한도"
+  }
+}

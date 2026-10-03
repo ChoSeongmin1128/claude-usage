@@ -131,7 +131,7 @@ nonisolated enum AntigravitySettingsNoticePresenter {
         case .setupRequired(.usageTargetSelection):
             return warning(
                 title: "조회 대상을 선택해 주세요",
-                message: "AGY CLI와 Antigravity 독립 앱 중 사용할 제품을 선택해 주세요.")
+                message: "AGY CLI에 로그인한 뒤 새로고침해 주세요.")
         case .setupRequired(.ambiguousLocalSessions):
             return warning(
                 title: "실행 중인 연결의 계정이 서로 다릅니다",
@@ -215,7 +215,7 @@ nonisolated enum AntigravitySettingsNoticePresenter {
                 title:
                     "이전 데이터 정리가 남아 있습니다",
                 message:
-                    "새 계정 저장은 유지됩니다. 기존 ClaudeUsage 데이터 정리를 다시 진행해 주세요.",
+                    "새 계정 저장은 유지됩니다. 기존 \(AppDistribution.current.appName) 데이터 정리를 다시 진행해 주세요.",
                 action: action
             )
         case .blockedBeforeCutover:

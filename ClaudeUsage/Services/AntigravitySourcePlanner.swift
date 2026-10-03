@@ -7,11 +7,7 @@ nonisolated enum AntigravitySourcePlanner {
     static func plannedSources(
         target: AntigravityUsageTarget
     ) -> [AntigravityUsageSourceID] {
-        switch target {
-        case .unselected: []
-        case .app: [.localApp]
-        case .cli: [.cliReport]
-        }
+        [.cliReport]
     }
 
     static func plannedSources(

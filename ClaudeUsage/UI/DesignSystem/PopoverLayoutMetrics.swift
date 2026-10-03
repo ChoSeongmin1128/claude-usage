@@ -47,6 +47,9 @@ enum PopoverLayoutMetrics {
     static let standardSecondaryUsageRowHeight: CGFloat = 38
     static let standardCreditsRowHeight: CGFloat = 42
     static let standardAccountRowHeight: CGFloat = 58
+    static let standardOtherAccountRowHeight: CGFloat = 40
+    static let standardAccountPickerHeight: CGFloat = 26
+    static let standardAccountSummaryHeight: CGFloat = 20
     static let standardStatusRowHeight: CGFloat = 54
     static let standardGroupHeaderHeight: CGFloat = 18
     static let standardGroupHeaderSpacing: CGFloat = 5
@@ -291,6 +294,8 @@ enum PopoverLayoutMetrics {
             return compactOverageRowHeight
         case .status:
             return compactStatusRowHeight
+        case .accountPicker, .accountRow, .accountSummary:
+            return compactUsageRowHeight
         }
     }
 
@@ -308,6 +313,12 @@ enum PopoverLayoutMetrics {
             return standardAccountRowHeight
         case .status:
             return standardStatusRowHeight
+        case .accountPicker:
+            return standardAccountPickerHeight
+        case .accountRow:
+            return standardOtherAccountRowHeight
+        case .accountSummary:
+            return standardAccountSummaryHeight
         }
     }
 

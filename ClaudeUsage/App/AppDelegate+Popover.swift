@@ -60,9 +60,8 @@ extension AppDelegate {
                 }
             },
             onStartClaudeLogin: { [weak self] in
-                // 팝오버 미인증 상태에서 "Claude 로그인 시작" 클릭. 팝오버 닫고 wizard 첫 화면(방법 선택)으로.
                 self?.closePopover()
-                self?.showLoginWindow()
+                self?.reconnectClaude()
             }
         )
 
@@ -101,6 +100,9 @@ extension AppDelegate {
             popoverCoordinator.beginWindowDiagnosticsIfNeeded()
             logPopoverPresentationState("after-show", button: button, requestedSize: initialSize)
             refreshVisiblePopoverSizeForCurrentState()
+            lastPopoverOpenedAt = Date()
+            refreshServiceIfNeededOnTabSwitch(service)
+            syncRefreshTimerState()
             NSApp.activate()
             DispatchQueue.main.async { [weak self] in
                 self?.isPresentingPopover = false
@@ -124,6 +126,7 @@ extension AppDelegate {
         )
         popoverViewModel.systemStatus = systemStatus
         popoverViewModel.nextUsageRetryAt = nextUsageRefreshAllowedAt
+        popoverViewModel.multiAccount = multiAccountPresentations()
         refreshVisiblePopoverSizeForCurrentState()
     }
 
@@ -148,9 +151,10 @@ extension AppDelegate {
     }
 
     func refreshServiceIfNeededOnTabSwitch(_ service: PopoverService) {
+        resetCreditViewedServices.insert(service)
+        usageAccountsController.refreshIfNeeded()
         guard let action = RefreshOrchestration.actionForTabSwitch(
-            state: runtimePresentationState(for: service),
-            refreshInterval: AppSettings.shared.refreshInterval
+                state: runtimePresentationState(for: service)
         ) else { return }
 
         performRuntimeAction(action)

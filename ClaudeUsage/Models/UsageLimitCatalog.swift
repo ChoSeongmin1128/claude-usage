@@ -13,6 +13,7 @@ nonisolated struct UsageLimit: Identifiable, Equatable, Sendable {
     let resetAt: Date?
     let isIdentifiable: Bool
     let legacyKey: String?
+    var windowSlot: String? = nil
 
     var isModelScoped: Bool { scope.hasPrefix("model:") || scope.hasPrefix("model-name:") }
 
@@ -22,18 +23,21 @@ nonisolated struct UsageLimit: Identifiable, Equatable, Sendable {
         Self(
             id: id, provider: provider, title: title, shortTitle: shortTitle, scope: scope,
             periodSeconds: periodSeconds,
-            usedPercentage: nil, resetAt: resetAt, isIdentifiable: isIdentifiable, legacyKey: legacyKey)
+            usedPercentage: nil, resetAt: resetAt, isIdentifiable: isIdentifiable, legacyKey: legacyKey,
+            windowSlot: windowSlot)
     }
 }
 
 nonisolated enum UsageLimitCatalog {
     static func claude(_ usage: ClaudeUsageResponse) -> [UsageLimit] {
-        var result = [
-            make(
-                provider: .claude, scope: "five_hour", period: 18_000,
-                title: "5시간", used: usage.fiveHour.utilization,
-                reset: date(usage.fiveHour.resetsAt), legacy: "fiveHour")
-        ]
+        var result: [UsageLimit] = []
+        if let fiveHour = usage.fiveHour {
+            result.append(
+                make(
+                    provider: .claude, scope: "five_hour", period: 18_000,
+                    title: "5시간", used: fiveHour.utilization,
+                    reset: date(fiveHour.resetsAt), legacy: "fiveHour"))
+        }
         if let weekly = usage.sevenDay {
             result.append(
                 make(
@@ -108,7 +112,8 @@ nonisolated enum UsageLimitCatalog {
                 unknownPeriodKey: slot,
                 title: [title, period].compactMap { $0 }.joined(separator: " · "),
                 used: window.usedPercent, reset: window.resetAt.map(Date.init(timeIntervalSince1970:)),
-                identifiable: identifiable && (window.limitWindowSeconds == nil || duration != nil), legacy: legacy)
+                identifiable: identifiable && (window.limitWindowSeconds == nil || duration != nil), legacy: legacy,
+                slot: slot)
         }
     }
 
@@ -123,7 +128,7 @@ nonisolated enum UsageLimitCatalog {
     private static func make(
         provider: PopoverService, scope: String, period: Int?, unknownPeriodKey: String = "unknown",
         title: String, shortTitle: String? = nil, used: Double?, reset: Date?, identifiable: Bool = true,
-        legacy: String? = nil
+        legacy: String? = nil, slot: String? = nil
     ) -> UsageLimit {
         let id = ["quota-v1", provider.rawValue, scope, period.map(String.init) ?? unknownPeriodKey]
             .map { $0.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? "" }.joined(separator: "/")
@@ -132,7 +137,7 @@ nonisolated enum UsageLimitCatalog {
             periodSeconds: period,
             usedPercentage: used.flatMap { $0.isFinite && $0 >= 0 ? min(100, $0) : nil },
             resetAt: reset.flatMap { $0.timeIntervalSince1970.isFinite ? $0 : nil },
-            isIdentifiable: identifiable, legacyKey: legacy)
+            isIdentifiable: identifiable, legacyKey: legacy, windowSlot: slot)
     }
 
     /// Conflicting upstream IDs cannot share a persisted selection or alert history.
@@ -151,7 +156,7 @@ nonisolated enum UsageLimitCatalog {
                         id: first.id, provider: first.provider, title: first.title + " · 식별 충돌",
                         shortTitle: first.shortTitle, scope: first.scope, periodSeconds: first.periodSeconds,
                         usedPercentage: nil,
-                        resetAt: nil, isIdentifiable: false, legacyKey: nil))
+                        resetAt: nil, isIdentifiable: false, legacyKey: nil, windowSlot: first.windowSlot))
             }
         }
         return result

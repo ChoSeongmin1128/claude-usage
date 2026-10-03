@@ -62,6 +62,7 @@ final class AppSettingsTests: XCTestCase {
                 PopoverItemConfig(id: "weeklyLimit", visible: false),
                 PopoverItemConfig(id: "currentSession", visible: true),
                 PopoverItemConfig(id: "modelUsage", visible: true),
+                PopoverItemConfig(id: "claudeResetCredits", visible: true),
                 PopoverItemConfig(id: "overageUsage", visible: true),
             ]
         )
@@ -363,10 +364,7 @@ final class AppSettingsTests: XCTestCase {
     }
 
     func testSettingsSidebarAlwaysShowsNavigationAndProviders() {
-        let expected: [SettingsProviderPanel] = [
-            .welcome, .common, .display, .notifications, .updates,
-            .claude, .codex, .antigravity,
-        ]
+        let expected: [SettingsProviderPanel] = [.common, .accounts, .limits, .display, .updates]
         XCTAssertEqual(
             SettingsProviderRegistry.sidebarPanels(exposurePolicy: .primaryOnly).map(\.panel),
             expected

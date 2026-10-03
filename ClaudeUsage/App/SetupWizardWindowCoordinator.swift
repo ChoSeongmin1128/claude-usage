@@ -15,7 +15,7 @@ final class SetupWizardWindowCoordinator: NSObject, NSWindowDelegate {
     func present(rootView: SetupWizardWindowView) {
         let hostingController = NSHostingController(rootView: rootView)
         let window = NSWindow(contentViewController: hostingController)
-        window.title = "ClaudeUsage 빠른 시작"
+        window.title = "\(AppDistribution.current.appName) 빠른 시작"
         window.styleMask = [.titled, .closable]
         window.center()
         window.isReleasedWhenClosed = false

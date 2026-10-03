@@ -458,8 +458,7 @@ actor AntigravityRefreshCoordinator:
         } catch is CancellationError {
             return .failure(.cancelled)
         } catch {
-            let source: AntigravityUsageSourceID = request.target == .app ? .localApp : .cliReport
-            return .failure(.deadlineExceeded(source))
+            return .failure(.deadlineExceeded(.cliReport))
         }
     }
 

@@ -36,30 +36,9 @@ extension SettingsView {
 
     private func providerTimeFormatBinding(for provider: AppProviderKind) -> Binding<TimeFormatStyle> {
         Binding(
-            get: {
-                if provider == .antigravity {
-                    guard let raw = antigravitySettings.state.display?.menuBar.timeFormat.rawValue else {
-                        return .h24
-                    }
-                    return TimeFormatStyle(rawValue: raw) ?? .h24
-                }
-                return settings.menuBarDisplayConfig(for: provider)?.timeFormat ?? .h24
-            },
-            set: { format in
-                if provider == .antigravity {
-                    guard
-                        let agyFormat =
-                            AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat(rawValue: format.rawValue)
-                    else {
-                        return
-                    }
-                    updateAntigravityDisplay {
-                        $0.menuBar.timeFormat = agyFormat
-                    }
-                } else {
-                    settings.setProviderTimeFormat(format, for: provider)
-                }
-            }
+            // 시간 형식은 모든 서비스가 하나를 쓴다.
+            get: { settings.timeFormat },
+            set: { settings.timeFormat = $0 }
         )
     }
 
@@ -289,7 +268,7 @@ extension SettingsView {
     }
 
     private func primaryMenuBarMetricName(for provider: AppProviderKind) -> String {
-        "현재 세션"
+        "5시간 한도"
     }
 
     private func secondaryMenuBarMetricName(for provider: AppProviderKind) -> String {
@@ -379,7 +358,7 @@ extension SettingsView {
         Toggle("한도 초기화 시간", isOn: antigravityMenuBarBinding(display, keyPath: \.showsSelectedLaneResetTime))
     }
 
-    private var antigravityObservedLanes:
+    var antigravityObservedLanes:
         [AntigravityQuotaLanePresentation]
     {
         guard case .content(let presentation) =
@@ -392,7 +371,7 @@ extension SettingsView {
             .flatMap(\.lanes)
     }
 
-    private func updateAntigravityDisplay(
+    func updateAntigravityDisplay(
         _ update:
             (inout AntigravityDisplaySettings)
                 -> Void
@@ -530,28 +509,6 @@ extension SettingsView {
                 codexError: provider == .codex ? codexLastError?() : nil
             )
         }
-    }
-
-    func providerAlertSection(for provider: AppProviderKind) -> some View {
-        NotificationProviderRow(
-            settings: settings, provider: provider,
-            limits: notificationManager.inventories[provider.runtimeService ?? .claude] ?? [],
-            isEnabled: Binding(
-                get: {
-                    provider == .antigravity
-                        ? antigravitySettings.state.display?.notifications.isEnabled ?? false
-                        : settings.isProviderAlertEnabled(provider)
-                },
-                set: { enabled in
-                    if provider == .antigravity {
-                        updateAntigravityDisplay { $0.notifications.isEnabled = enabled }
-                    } else {
-                        settings.setProviderAlertEnabled(enabled, for: provider)
-                    }
-                })
-        )
-        .disabled(
-            !settings.notificationsEnabled || (provider == .antigravity && antigravitySettings.state.display == nil))
     }
 
     func segmentedTabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
@@ -782,7 +739,8 @@ private struct ProviderPopoverPreviewView: View {
 
             IconActionButton(symbol: "slider.horizontal.3", label: "표시 항목 편집", compact: mode.isCompact) {}
             IconActionButton(symbol: "gearshape", label: "설정 열기", compact: mode.isCompact) {}
-            IconActionButton(symbol: "power", label: "ClaudeUsage 종료", compact: mode.isCompact) {}
+            IconActionButton(symbol: "power", label: "\(AppDistribution.current.appName) 종료", compact: mode.isCompact) {
+            }
         }
         .font(AppDesign.Typography.caption)
         .foregroundStyle(.secondary)

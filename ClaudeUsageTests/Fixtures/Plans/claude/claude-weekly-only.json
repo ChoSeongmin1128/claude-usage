@@ -1,0 +1,25 @@
+{
+  "meta": {
+    "plans": [],
+    "source": "assumed",
+    "date": "2026-10-03",
+    "note": "5시간 창이 빠진 응답. 메뉴바는 주간으로 대신 표시"
+  },
+  "response": {
+    "five_hour": null,
+    "seven_day": {
+      "utilization": 40,
+      "resets_at": "2026-10-05T14:00:00Z"
+    }
+  },
+  "expected": {
+    "rows": [
+      "주간=40"
+    ],
+    "menuBar": {
+      "fiveHour": "40%",
+      "weekly": "40%",
+      "dual": "40%"
+    }
+  }
+}

@@ -258,6 +258,9 @@ extension PopoverViewModel {
         for item in visibleItems {
             sections.append(contentsOf: catalog.expandedSections(for: item.id, context: context))
         }
+        if let multi = multiAccount[service] {
+            sections = multi.sections(catalog: sections)
+        }
 
         if density == .compact {
             return sections.filter { $0.importance == .primary }
@@ -282,7 +285,10 @@ extension PopoverViewModel {
             codexUsage: codexUsage,
             codexError: snapshot(for: .codex)?.error,
             claudeOverageUpdatedAt: snapshot(for: .claude)?.claudeOverageUpdatedAt,
-            claudeOverageIsStale: snapshot(for: .claude)?.claudeOverageIsStale ?? false
+            claudeOverageIsStale: snapshot(for: .claude)?.claudeOverageIsStale ?? false,
+            seenResetCreditIDs: [
+                .claude: ResetCreditSeenStore.seen(.claude), .codex: ResetCreditSeenStore.seen(.codex),
+            ]
         )
     }
 }

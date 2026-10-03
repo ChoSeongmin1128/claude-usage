@@ -6,6 +6,7 @@ extension AppDelegate {
     func syncRuntimePresentation() {
         updateMenuBar()
         updatePopoverViewModel()
+        refreshAdaptiveSchedule()
     }
 
     func runtimeProviderSnapshots() -> [RuntimeProviderSnapshot] {
@@ -68,7 +69,7 @@ extension AppDelegate {
         let change = refreshScheduler.sync(
             autoRefresh: refreshConfiguration.autoRefresh,
             shouldPoll: shouldPollRuntimeProviders,
-            intervals: refreshConfiguration.intervals(for: refreshableServices)
+            intervals: adaptiveRefreshIntervals()
         ) { [weak self] dueServices in
             guard let self, self.refreshConfiguration.autoRefresh, self.shouldPollRuntimeProviders else { return }
             for service in dueServices where self.refreshableServices.contains(service) {
@@ -78,7 +79,7 @@ extension AppDelegate {
 
         switch change {
         case .started(let interval):
-            Logger.info("자동 갱신 타이머 시작 (\(Int(interval))초)")
+            Logger.info("자동 갱신 주기 \(Int(interval))초")
         case .stopped:
             Logger.info("자동 새로고침 비활성화")
         case .unchanged:
@@ -93,9 +94,7 @@ extension AppDelegate {
     // MARK: - Observers
 
     func bindRuntimeObservers() {
-        refreshConfiguration = RuntimeRefreshConfiguration(
-            settings: .shared, isOnBattery: PowerMonitor.shared.isOnBattery
-        )
+        refreshConfiguration = RuntimeRefreshConfiguration(settings: .shared)
         lastObservedProviderSelectionState =
             AppSettings.shared.providerSelectionState
         runtimeObservationCoordinator.bind(
@@ -129,6 +128,14 @@ extension AppDelegate {
                     let basis = AppSettings.shared.usageDisplayMode.basis
                     let revision = AppSettings.shared.usageDisplayModeRevision
                     await runtime.runtimeController.setUsageDisplayBasis(basis, revision: revision)
+                }
+            },
+            onTimeFormatChanged: { [weak self] in
+                guard let self else { return }
+                Task { [weak self] in
+                    guard let self else { return }
+                    let runtime = await antigravityRuntimeTask.value
+                    await runtime.runtimeController.setTimeFormat(AppSettings.shared.timeFormat)
                 }
             }
         )
@@ -464,7 +471,7 @@ extension AppDelegate {
                         state: &state,
                         error: error,
                         metadata: fetchMetadata,
-                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
+                        minimumInterval: AdaptiveRefreshPolicy.minimumInterval
                     )
                     self.setRuntimeProviderState(state, for: .claude)
                     self.popoverViewModel.nextUsageRetryAt = resolution.nextAllowedAt
@@ -499,7 +506,7 @@ extension AppDelegate {
                         state: &state,
                         error: apiError,
                         metadata: fetchMetadata,
-                        minimumInterval: PowerMonitor.shared.effectiveRefreshInterval
+                        minimumInterval: AdaptiveRefreshPolicy.minimumInterval
                     )
                     self.setRuntimeProviderState(state, for: .claude)
                     self.popoverViewModel.nextUsageRetryAt = resolution.nextAllowedAt
@@ -558,7 +565,7 @@ extension AppDelegate {
     private func applyCodexFailure(_ error: APIError) {
         var state = runtimeProviderState(for: .codex)
         _ = RuntimeProviderRefreshCoordinator.applyFailure(
-            state: &state, error: error, minimumInterval: refreshConfiguration.interval(for: .codex)
+            state: &state, error: error, minimumInterval: AdaptiveRefreshPolicy.minimumInterval
         )
         setRuntimeProviderState(state, for: .codex)
         syncRuntimePresentation()
