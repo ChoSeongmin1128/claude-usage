@@ -27,7 +27,7 @@ final class UsageAccountsTests: XCTestCase {
         XCTAssertEqual(accounts[1].badges, [.web])
     }
 
-    func testOrderPutsInUseFirstThenPinnedThenFirstSeen() {
+    func testOrderPutsPinnedFirstThenFirstSeen() {
         let a = UsageAccount(
             id: "a", service: .claude, identity: .init(), sources: [.init(kind: .claudeWeb, reference: "a")])
         let b = UsageAccount(
@@ -36,9 +36,9 @@ final class UsageAccountsTests: XCTestCase {
             id: "live", service: .claude, identity: .init(), sources: [.init(kind: .claudeCodeDefault, reference: "x")])
         var preferences = UsageAccountPreferences()
         preferences.remember([a, b, live])
-        XCTAssertEqual(preferences.ordered([a, b, live]).map(\.id), ["live", "a", "b"])
+        XCTAssertEqual(preferences.ordered([a, b, live]).map(\.id), ["a", "b", "live"])
         preferences.pinnedTop = "b"
-        XCTAssertEqual(preferences.ordered([a, b, live]).map(\.id), ["live", "b", "a"])
+        XCTAssertEqual(preferences.ordered([a, b, live]).map(\.id), ["b", "a", "live"])
     }
 
     func testPickSelectionDefaultsToFirstTwoAndRemembersChoice() {

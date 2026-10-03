@@ -23,7 +23,7 @@ struct UsageAccountsSection: View {
         var id: String { account.id }
     }
 
-    private var all: [UsageAccount] { controller.preferences.ordered(controller.accounts[service] ?? []) }
+    private var all: [UsageAccount] { controller.orderedAccounts(for: service) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.row) {
@@ -128,6 +128,7 @@ struct UsageAccountsSection: View {
             Text(controller.preferences.displayName(for: account, among: all))
                 .font(AppDesign.Typography.subheadline)
                 .lineLimit(1)
+            if controller.isRuntimeAccount(account) { InUseAccountLabel() }
             ForEach(account.badges, id: \.self) { AccountBadgeView(badge: $0, service: service) }
             Spacer(minLength: AppDesign.Space.row)
             Text(statusText(account: account, state: state, hidden: hidden, archived: archived))
@@ -152,7 +153,7 @@ struct UsageAccountsSection: View {
                         newName = controller.preferences.aliases[account.id] ?? ""
                         renaming = account
                     }
-                    if !account.isInUse {
+                    if !controller.isRuntimeAccount(account) {
                         Button(controller.preferences.pinnedTop == account.id ? "맨 위 고정 해제" : "맨 위에 고정") {
                             controller.preferences.pinnedTop =
                                 controller.preferences.pinnedTop == account.id ? nil : account.id
@@ -221,7 +222,7 @@ struct UsageAccountsSection: View {
     }
 
     private func statusText(account: UsageAccount, state: UsageAccountState?, hidden: Bool, archived: Bool) -> String {
-        if controller.isRuntimeAccount(account) && (!hidden || !multi) { return "메뉴바" }
+        if controller.isRuntimeAccount(account) && (!hidden || !multi) { return "" }
         guard multi else { return "" }
         if hidden { return "숨김" }
         switch state?.status(isArchived: archived) ?? .checking {

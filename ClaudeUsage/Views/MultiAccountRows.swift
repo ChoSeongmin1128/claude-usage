@@ -24,12 +24,25 @@ struct AccountBadgeView: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            Circle().fill(badge == .inUse ? Color.green : Color.secondary.opacity(0.6)).frame(width: 5, height: 5)
+            Circle().fill(Color.secondary.opacity(0.6)).frame(width: 5, height: 5)
             Text(badge.title)
         }
         .font(AppDesign.Typography.caption2)
         .foregroundStyle(.secondary)
         .help(badge.help(for: service) ?? "")
+    }
+}
+
+/// 메뉴바와 팝오버 큰 카드가 쓰는 계정. 출처 배지(기본 로그인, CLI, 웹)와 따로 붙인다.
+struct InUseAccountLabel: View {
+    var body: some View {
+        HStack(spacing: 3) {
+            Circle().fill(Color.green).frame(width: 5, height: 5)
+            Text("사용 중")
+        }
+        .font(AppDesign.Typography.caption2)
+        .foregroundStyle(.secondary)
+        .help("메뉴바와 팝오버에 나오는 계정")
     }
 }
 
@@ -85,6 +98,7 @@ struct OtherAccountRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: AppDesign.Space.control) {
                     Text(data.name).font(AppDesign.Typography.subheadline.weight(.semibold)).lineLimit(1)
+                    if data.isRuntime { InUseAccountLabel() }
                     ForEach(data.badges, id: \.self) { AccountBadgeView(badge: $0, service: data.service) }
                     Spacer(minLength: 0)
                     statusText

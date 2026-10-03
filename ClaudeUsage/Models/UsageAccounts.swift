@@ -7,7 +7,7 @@ nonisolated enum UsageAccountBadge: String, Codable, CaseIterable, Sendable, Com
 
     var title: String {
         switch self {
-        case .inUse: return "사용 중"
+        case .inUse: return "기본 로그인"
         case .cli: return "CLI"
         case .web: return "웹"
         }
@@ -147,11 +147,10 @@ nonisolated struct UsageAccountPreferences: Codable, Equatable, Sendable {
         if let data = try? JSONEncoder().encode(self) { defaults.set(data, forKey: Self.key) }
     }
 
-    /// 사용 중 계정을 먼저, 고정한 계정을 그다음, 나머지는 처음 본 순서.
+    /// 고정한 계정을 먼저, 나머지는 처음 본 순서. 사용 중(메뉴바) 계정은 컨트롤러가 맨 위로 올린다.
     func ordered(_ accounts: [UsageAccount]) -> [UsageAccount] {
         let rank = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
         return accounts.sorted { lhs, rhs in
-            if lhs.isInUse != rhs.isInUse { return lhs.isInUse }
             if (lhs.id == pinnedTop) != (rhs.id == pinnedTop) { return lhs.id == pinnedTop }
             return (rank[lhs.id] ?? Int.max) < (rank[rhs.id] ?? Int.max)
         }
