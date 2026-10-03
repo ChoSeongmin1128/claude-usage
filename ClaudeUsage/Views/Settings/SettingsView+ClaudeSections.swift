@@ -105,7 +105,7 @@ extension SettingsView {
             } else {
                 sectionCardHeader(
                     title: "Claude 연결 필요",
-                    subtitle: "Chrome 로그인 가져오기를 먼저 시도해 주세요"
+                    subtitle: "브라우저 로그인 가져오기를 먼저 시도해 주세요"
                 )
 
                 Text("연결된 Claude 계정이 없습니다. 연결이 끝나면 사용량을 바로 조회합니다.")
@@ -114,7 +114,7 @@ extension SettingsView {
 
                 HStack(spacing: AppDesign.Space.row) {
                     Button(action: { onImportClaudeFromChrome?() }) {
-                        Label("Chrome에서 가져오기", systemImage: "globe")
+                        Label("브라우저에서 가져오기", systemImage: "globe")
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
@@ -221,7 +221,7 @@ extension SettingsView {
             HStack(spacing: AppDesign.Space.row) {
                 Text("계정 추가").font(AppDesign.Typography.subheadline)
                 Button(action: { onImportClaudeFromChrome?() }) {
-                    Label("Chrome에서 가져오기", systemImage: "globe")
+                    Label("브라우저에서 가져오기", systemImage: "globe")
                 }
                 .buttonStyle(.bordered)
 

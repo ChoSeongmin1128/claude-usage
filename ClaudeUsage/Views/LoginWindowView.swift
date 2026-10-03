@@ -14,6 +14,8 @@ struct LoginWindowView: View {
     var clearOnOpen: Bool
     var startChromeImportOnOpen: Bool
     var startCLIActivationOnOpen: Bool
+    var startEmbeddedWebOnOpen: Bool
+    var importFamily: ClaudeBrowserFamily?
     var onSessionKeyFound: (String, String?, ClaudeAccountSource?, String?) async throws -> Void
     var onActivateCLI: () async throws -> ActivationSummary
     var onLoadCLIPreview: () async -> CLIPreview?
@@ -24,6 +26,8 @@ struct LoginWindowView: View {
         clearOnOpen: Bool = false,
         startChromeImportOnOpen: Bool = false,
         startCLIActivationOnOpen: Bool = false,
+        startEmbeddedWebOnOpen: Bool = false,
+        importFamily: ClaudeBrowserFamily? = nil,
         onSessionKeyFound: @escaping (String, String?, ClaudeAccountSource?, String?) async throws -> Void,
         onActivateCLI: @escaping () async throws -> ActivationSummary,
         onLoadCLIPreview: @escaping () async -> CLIPreview?,
@@ -33,6 +37,8 @@ struct LoginWindowView: View {
         self.clearOnOpen = clearOnOpen
         self.startChromeImportOnOpen = startChromeImportOnOpen
         self.startCLIActivationOnOpen = startCLIActivationOnOpen
+        self.startEmbeddedWebOnOpen = startEmbeddedWebOnOpen
+        self.importFamily = importFamily
         self.onSessionKeyFound = onSessionKeyFound
         self.onActivateCLI = onActivateCLI
         self.onLoadCLIPreview = onLoadCLIPreview
@@ -49,6 +55,7 @@ struct LoginWindowView: View {
         case chromeImporting
         case chromeCandidates([ClaudeBrowserImportedSession])
         case chromeUnavailable(message: String)
+        case fullDiskAccess
         case embeddedWeb
         case cliActivating
         case success(ActivationSummary)
@@ -110,8 +117,9 @@ struct LoginWindowView: View {
     @State private var embeddedStatusMessage: String?
     @State private var embeddedErrorMessage: String?
     @State private var isEmbeddedActivating = false
+    @State private var resolvedFamily: ClaudeBrowserFamily?
 
-    private let chromeImporter = ClaudeChromeCookieImportService()
+    private var familyName: String { (resolvedFamily ?? importFamily)?.displayName ?? "브라우저" }
 
     // MARK: - Body
 
@@ -185,7 +193,8 @@ struct LoginWindowView: View {
     private var headerTitle: String {
         switch step {
         case .methodSelection: return "Claude 로그인"
-        case .chromeImporting, .chromeCandidates, .chromeUnavailable: return "Chrome 프로필에서 가져오기"
+        case .chromeImporting, .chromeCandidates, .chromeUnavailable, .fullDiskAccess:
+            return "\(familyName)에서 가져오기"
         case .embeddedWeb: return "Claude.ai에서 직접 로그인"
         case .cliActivating: return "Claude Code 로그인 사용"
         case .success: return "연결 완료"
@@ -196,9 +205,10 @@ struct LoginWindowView: View {
     private var headerSubtitle: String? {
         switch step {
         case .methodSelection: return "로그인 방법을 선택해 주세요"
-        case .chromeImporting: return "Chrome에 저장된 Claude 로그인을 찾는 중..."
+        case .chromeImporting: return "\(familyName)에 저장된 Claude 로그인을 찾는 중..."
         case .chromeCandidates(let list): return "이 앱에서 사용할 계정을 선택해 주세요 (\(list.count)개)"
-        case .chromeUnavailable: return "Chrome에서 가져올 수 없습니다"
+        case .chromeUnavailable: return "\(familyName)에서 가져올 수 없습니다"
+        case .fullDiskAccess: return "전체 디스크 접근 권한이 필요합니다"
         case .embeddedWeb: return "로그인이 끝나면 자동으로 가져옵니다"
         case .cliActivating: return "터미널 인증 정보를 사용 중..."
         case .success: return "사용량 조회가 확인되었습니다"
@@ -238,6 +248,8 @@ struct LoginWindowView: View {
             chromeCandidatesView(candidates)
         case .chromeUnavailable(let message):
             chromeUnavailableView(message: message)
+        case .fullDiskAccess:
+            fullDiskAccessView
         case .embeddedWeb:
             embeddedWebView
         case .cliActivating:
@@ -257,8 +269,8 @@ struct LoginWindowView: View {
                 methodCard(
                     icon: "globe",
                     iconTint: .blue,
-                    title: "Chrome 프로필에서 가져오기",
-                    subtitle: "Chrome의 Claude 로그인을 가져옵니다 · macOS 인증은 최대 한 번만 요청합니다",
+                    title: "브라우저에서 가져오기",
+                    subtitle: "기본 브라우저나 Claude 앱의 Claude 로그인을 가져옵니다 · macOS 확인은 최대 한 번만 요청합니다",
                     badge: "권장",
                     action: { startChromeImport() }
                 )
@@ -384,7 +396,7 @@ struct LoginWindowView: View {
             Spacer()
             ProgressView()
                 .controlSize(.large)
-            Text("Chrome 프로필을 확인하고 있습니다...")
+            Text("\(familyName) 로그인을 확인하고 있습니다...")
                 .font(AppDesign.Typography.callout)
                 .foregroundStyle(.secondary)
             Spacer()
@@ -395,7 +407,7 @@ struct LoginWindowView: View {
     private func chromeCandidatesView(_ candidates: [ClaudeBrowserImportedSession]) -> some View {
         ScrollView {
             VStack(spacing: AppDesign.Space.row) {
-                Text("어떤 Chrome 프로필의 로그인을 사용할까요?")
+                Text("어떤 \(familyName) 프로필의 로그인을 사용할까요?")
                     .font(AppDesign.Typography.callout)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -440,7 +452,7 @@ struct LoginWindowView: View {
             Image(systemName: "magnifyingglass")
                 .font(AppDesign.Typography.setupIcon)
                 .foregroundStyle(.secondary)
-            Text("Chrome에서 가져올 수 없습니다")
+            Text("\(familyName)에서 가져올 수 없습니다")
                 .font(AppDesign.Typography.headline)
             Text(message)
                 .font(AppDesign.Typography.callout)
@@ -448,8 +460,8 @@ struct LoginWindowView: View {
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, AppDesign.Space.page)
             HStack(spacing: AppDesign.Space.label) {
-                Button("Chrome에서 Claude 열기") {
-                    openChromeForClaude()
+                Button("\(familyName)에서 Claude 열기") {
+                    openBrowserForClaude()
                 }
                 Button("다른 방법으로 로그인") {
                     step = .methodSelection
@@ -459,6 +471,32 @@ struct LoginWindowView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var fullDiskAccessView: some View {
+        VStack(alignment: .leading, spacing: AppDesign.Space.content) {
+            Text("Safari에 저장된 로그인을 읽으려면 전체 디스크 접근 권한이 필요합니다")
+                .font(AppDesign.Typography.headline)
+            Label("설정의 개인정보 보호 및 보안 > 전체 디스크 접근 권한을 엽니다", systemImage: "1.circle")
+            Label("\(AppDistribution.current.appName)을 켭니다. 목록에 없으면 + 로 추가합니다", systemImage: "2.circle")
+            Label("macOS가 다시 열라고 하면 앱을 종료한 뒤 다시 엽니다", systemImage: "3.circle")
+            Text("권한을 주고 싶지 않으면 앱 안 로그인 창을 씁니다.")
+                .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+            HStack(spacing: AppDesign.Space.label) {
+                Button("설정 열기") {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+                    {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                Button("다시 확인") { startChromeImport() }
+                Button("앱 안 로그인으로") { startEmbeddedWeb() }
+            }
+        }
+        .font(AppDesign.Typography.callout)
+        .padding(AppDesign.Space.window)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     // MARK: - Step 2B: 임베드 웹뷰
@@ -602,19 +640,23 @@ struct LoginWindowView: View {
             startCLIActivation()
         } else if startChromeImportOnOpen {
             startChromeImport()
+        } else if startEmbeddedWebOnOpen {
+            startEmbeddedWeb()
         }
     }
 
     private func startChromeImport() {
         embeddedErrorMessage = nil
         step = .chromeImporting
-        let importer = chromeImporter
+        let requested = importFamily
         taskScope.run {
             await Task.detached(priority: .userInitiated) {
-                Result { try importer.attemptImport() }
+                let family = requested ?? ClaudeBrowserLoginDetector.findLogin()?.family ?? .chrome
+                return (family, Result { try ClaudeBrowserLoginDetector.importer(for: family).attemptImport() })
             }.value
-        } apply: { outcome in
-            applyChromeOutcome(outcome)
+        } apply: { result in
+            resolvedFamily = result.0
+            applyChromeOutcome(result.1)
         }
     }
 
@@ -633,13 +675,15 @@ struct LoginWindowView: View {
             step = .chromeUnavailable(message: message)
         case .success(.unavailable(let message)):
             step = .chromeUnavailable(message: message)
+        case .success(.needsFullDiskAccess):
+            step = .fullDiskAccess
         case .failure(let error):
             step = .chromeUnavailable(message: error.localizedDescription)
         }
     }
 
     private func activateChrome(candidate: ClaudeBrowserImportedSession) {
-        let methodLabel = "Chrome 프로필"
+        let methodLabel = candidate.family == .claudeApp ? "Claude 앱" : "\(candidate.family.displayName) 프로필"
         let detail = [candidate.accountEmail, candidate.readableProfileName]
             .compactMap { $0?.isEmpty == false ? $0 : nil }
             .joined(separator: " · ")
@@ -649,7 +693,7 @@ struct LoginWindowView: View {
             try await onSessionKeyFound(
                 candidate.sessionKey, candidate.displayName, .chromeProfile, candidate.sourceDetail)
             return ActivationSummary(
-                title: "Chrome 프로필 로그인을 연결했습니다",
+                title: "\(methodLabel) 로그인을 연결했습니다",
                 detail: detail.isEmpty ? nil : detail, methodLabel: methodLabel)
         }
     }
@@ -718,11 +762,14 @@ struct LoginWindowView: View {
         }
     }
 
-    private func openChromeForClaude() {
+    private func openBrowserForClaude() {
         let targetURL = URL(string: "https://claude.ai/settings/usage")!
-        if let chromeAppURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
-            let configuration = NSWorkspace.OpenConfiguration()
-            NSWorkspace.shared.open([targetURL], withApplicationAt: chromeAppURL, configuration: configuration)
+        let family = resolvedFamily ?? importFamily
+        if let appURL = family?.bundleIdentifiers.lazy.compactMap({
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0)
+        }).first {
+            NSWorkspace.shared.open(
+                [targetURL], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration())
             return
         }
         NSWorkspace.shared.open(targetURL)

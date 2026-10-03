@@ -81,7 +81,9 @@ struct ClaudeAccountSettingsPresentation: Equatable {
             primaryTitle: primaryTitle(for: account),
             secondaryLine: organization,
             sourceLabel: account.kind == .claudeCodeExternal
-                ? "Claude Code" : (account.source == .chromeProfile ? "Chrome" : source),
+                ? "Claude Code"
+                : (account.source == .chromeProfile
+                    ? ClaudeBrowserFamily.family(fromSourceDetail: account.sourceDetail).displayName : source),
             statusText: status.text,
             statusTone: status.tone,
             switchAction: switchAction,
@@ -126,10 +128,11 @@ struct ClaudeAccountSettingsPresentation: Equatable {
                 if let source = chromeProfileSourceDescription(for: account) {
                     return source
                 }
+                let family = ClaudeBrowserFamily.family(fromSourceDetail: account.sourceDetail)
                 if let profileName = readableChromeProfileName(from: account.sourceDetail) {
-                    return "Chrome \(profileName)"
+                    return "\(family.displayName) \(profileName)"
                 }
-                return "Chrome 프로필"
+                return "\(family.displayName) 프로필"
             case .embeddedWebLogin:
                 return "앱에서 로그인"
             case .manualInput:
@@ -227,7 +230,10 @@ struct ClaudeAccountSettingsPresentation: Equatable {
         var rows: [ClaudeAccountSettingsDetailRow] = []
 
         if let source {
-            let title = account.source == .chromeProfile ? "Chrome 프로필" : "로그인 방식"
+            let family = ClaudeBrowserFamily.family(fromSourceDetail: account.sourceDetail)
+            let title =
+                account.source != .chromeProfile
+                ? "로그인 방식" : family == .claudeApp ? "가져온 곳" : "\(family.displayName) 프로필"
             rows.append(ClaudeAccountSettingsDetailRow(title: title, value: source))
         }
 

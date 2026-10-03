@@ -2,7 +2,7 @@ import Foundation
 import CommonCrypto
 import SQLite3
 
-struct ClaudeChromiumCookieRecord: Sendable, Equatable {
+nonisolated struct ClaudeChromiumCookieRecord: Sendable, Equatable {
     let domain: String
     let name: String
     let path: String

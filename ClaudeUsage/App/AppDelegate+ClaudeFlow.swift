@@ -235,12 +235,14 @@ extension AppDelegate {
     func showLoginWindow(
         clearCookies: Bool = false,
         startChromeImportOnOpen: Bool = false,
-        startCLIActivationOnOpen: Bool = false
+        startCLIActivationOnOpen: Bool = false,
+        startEmbeddedWebOnOpen: Bool = false,
+        importFamily: ClaudeBrowserFamily? = nil
     ) {
         setupWizardWindowCoordinator.close()
 
         if loginWindowCoordinator.focusIfVisible() {
-            if clearCookies || startChromeImportOnOpen || startCLIActivationOnOpen {
+            if clearCookies || startChromeImportOnOpen || startCLIActivationOnOpen || startEmbeddedWebOnOpen {
                 loginWindowCoordinator.close()
             } else {
                 return
@@ -258,6 +260,8 @@ extension AppDelegate {
                 clearOnOpen: clearCookies,
                 startChromeImportOnOpen: startChromeImportOnOpen,
                 startCLIActivationOnOpen: startCLIActivationOnOpen,
+                startEmbeddedWebOnOpen: startEmbeddedWebOnOpen,
+                importFamily: importFamily,
                 onSessionKeyFound: { [weak self] key, displayName, source, sourceDetail in
                     guard let self else { return }
 
