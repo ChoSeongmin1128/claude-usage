@@ -234,6 +234,24 @@ extension AppDelegate {
             }
     }
 
+    /// 처음 설정과 같은 순서: Claude Code 로그인, 브라우저 로그인 가져오기, 없으면 로그인 방법 선택.
+    func reconnectClaude() {
+        Task { @MainActor [weak self] in
+            let (claudeCode, finding) = await Task.detached(priority: .userInitiated) {
+                (ClaudeCodeLoginDetector.hasLogin(), ClaudeBrowserLoginDetector.findLogin())
+            }.value
+            guard let self else { return }
+            let activeKind = ClaudeAccountStore.shared.state().activeAccount?.kind
+            if claudeCode, activeKind != .webSession {
+                self.showLoginWindow(startCLIActivationOnOpen: true)
+            } else if let finding, finding.presence != .absent {
+                self.showLoginWindow(startChromeImportOnOpen: true, importFamily: finding.family)
+            } else {
+                self.showLoginWindow()
+            }
+        }
+    }
+
     // MARK: - Login Window
 
     func showLoginWindow(

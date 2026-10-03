@@ -157,8 +157,7 @@ final class PopoverViewModel: ObservableObject {
         }
     }
 
-    /// 팝오버의 미인증 상태에서 사용자가 한 번에 wizard 로그인 윈도우로 갈 수 있게 하는 콜백.
-    /// 기본 동작: AppDelegate.showLoginWindow(startChromeImportOnOpen: true).
+    /// 팝오버의 미인증 상태에서 "다시 연결". 처음 설정과 같은 순서로 연결을 시도한다.
     var onStartClaudeLogin: (() -> Void)?
 
     init(updateRuntimeState: UpdateRuntimeState? = nil, now: @escaping () -> Date = Date.init) {
