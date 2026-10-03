@@ -33,7 +33,13 @@ final class UsageAccountsController: ObservableObject {
     // MARK: - 목록
 
     func visibleAccounts(for service: PopoverService) -> [UsageAccount] {
-        preferences.ordered((accounts[service] ?? []).filter { !preferences.hidden.contains($0.id) })
+        orderedAccounts(for: service).filter { !preferences.hidden.contains($0.id) }
+    }
+
+    /// 사용 중(메뉴바) 계정을 맨 위에 두고 나머지는 저장한 순서를 따른다.
+    func orderedAccounts(for service: PopoverService) -> [UsageAccount] {
+        let ordered = preferences.ordered(accounts[service] ?? [])
+        return ordered.filter(isRuntimeAccount) + ordered.filter { !isRuntimeAccount($0) }
     }
 
     /// 여러 계정을 켰고 계정이 2개 이상 보일 때만 여러 계정 화면을 쓴다. 아니면 메뉴바 계정 하나만 보인다.

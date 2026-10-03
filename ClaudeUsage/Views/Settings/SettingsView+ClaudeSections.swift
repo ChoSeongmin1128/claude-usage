@@ -28,12 +28,13 @@ extension SettingsView {
                     )
                 }
                 claudeAccountSection
-                // 「계정 변경」 별도 섹션은 제거. 「계정 관리」 펼침 안에서 통합 행으로 처리.
+                // 계정 목록과 추가는 패널 위쪽 계정 목록 하나로 합쳤다. 여기는 사용 중 계정의 상세만 둔다.
                 if shouldShowOrganizationSection {
                     organizationSection
                 }
-                if shouldShowClaudeAccountManagementSection {
-                    claudeAccountManagementSection
+                claudeConnectionStatusLine
+                if !claudeAccounts.isEmpty {
+                    advancedClaudeDiagnosticsSection
                 }
                 if shouldShowManualInputSection {
                     manualSessionKeySection
@@ -141,10 +142,6 @@ extension SettingsView {
         .appPanelStyle()
     }
 
-    private var shouldShowClaudeAccountManagementSection: Bool {
-        !claudeAccounts.isEmpty
-    }
-
     private var shouldShowClaudeOAuthMigrationCard: Bool {
         guard let activeAccount = activeClaudeAccount() else { return true }
         return activeAccount.kind == .claudeCodeExternal
@@ -173,99 +170,34 @@ extension SettingsView {
         }
     }
 
-    private var claudeAccountManagementSection: some View {
-        SettingsDisclosureControl(
-            isExpanded: $isClaudeAccountManagementExpanded,
-            accessibilityLabel: "계정 관리"
-        ) {
+    /// 직접 입력한 세션 키의 연결 확인 결과와 알림 정책 요약.
+    @ViewBuilder
+    private var claudeConnectionStatusLine: some View {
+        if isTesting {
             HStack(spacing: AppDesign.Space.row) {
-                Text("계정 관리")
-                    .font(AppDesign.Typography.subheadline.weight(.semibold))
-                if claudeAccounts.count > 1 {
-                    chip(title: "", value: "\(claudeAccounts.count)개", color: .secondary)
-                }
-                Spacer(minLength: 0)
-                Text(isClaudeAccountManagementExpanded ? "접기" : "펼치기")
+                ProgressView()
+                    .controlSize(.small)
+                Text("연결 상태를 확인하고 있습니다")
                     .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
             }
-        } content: {
-            VStack(alignment: .leading, spacing: AppDesign.Space.label) {
-                connectedClaudeAccountsCard
-                Divider()
-                accountAddCard
-                advancedClaudeDiagnosticsSection
+        } else if let result = testResult {
+            switch result {
+            case .success:
+                Label("최근 연결 확인됨", systemImage: "checkmark.circle.fill")
+                    .font(AppDesign.Typography.caption)
+                    .foregroundStyle(.green)
+            case .failure(let msg):
+                Label(msg, systemImage: "exclamationmark.triangle.fill")
+                    .font(AppDesign.Typography.caption)
+                    .foregroundStyle(.orange)
+                    .lineLimit(2)
             }
+        } else if let summary = claudeNotificationPolicySummary {
+            Text(summary)
+                .font(AppDesign.Typography.caption)
+                .foregroundStyle(.secondary)
         }
-        .padding(AppDesign.Space.content)
-        .background(AppDesign.Surface.subtleGroup)
-        .cornerRadius(AppDesign.Radius.group)
-    }
-
-    private var connectedClaudeAccountsCard: some View {
-        VStack(spacing: AppDesign.Space.compact) {
-            ForEach(claudeAccounts) { account in
-                ClaudeAccountSettingsRow(
-                    presentation: .resolve(
-                        account: account, isActive: account.id == activeClaudeAccountID,
-                        organizations: organizations),
-                    isActive: account.id == activeClaudeAccountID
-                ) { action in
-                    handleClaudeAccountAction(action, account: account)
-                }
-            }
-        }
-    }
-
-    private var accountAddCard: some View {
-        VStack(alignment: .leading, spacing: AppDesign.Space.label) {
-            HStack(spacing: AppDesign.Space.row) {
-                Text("계정 추가").font(AppDesign.Typography.subheadline)
-                Button(action: { onImportClaudeFromChrome?() }) {
-                    Label("브라우저에서 가져오기", systemImage: "globe")
-                }
-                .buttonStyle(.bordered)
-
-                Button(action: { onOpenLogin?() }) {
-                    Label("앱에서 로그인", systemImage: "person.crop.circle")
-                }
-                .buttonStyle(.bordered)
-
-                Button("직접 입력") {
-                    withAnimation(settings.motion.animation(for: .disclosure, reduceMotion: reduceMotion)) {
-                        isAdvancedAuthExpanded.toggle()
-                    }
-                }
-                .buttonStyle(.bordered)
-            }
-
-            HStack(spacing: AppDesign.Space.row) {
-                if isTesting {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("연결 상태를 확인하고 있습니다")
-                        .font(AppDesign.Typography.caption)
-                        .foregroundStyle(.secondary)
-                } else if let result = testResult {
-                    switch result {
-                    case .success:
-                        Label("최근 연결 확인됨", systemImage: "checkmark.circle.fill")
-                            .font(AppDesign.Typography.caption)
-                            .foregroundStyle(.green)
-                    case .failure(let msg):
-                        Label(msg, systemImage: "exclamationmark.triangle.fill")
-                            .font(AppDesign.Typography.caption)
-                            .foregroundStyle(.orange)
-                            .lineLimit(2)
-                    }
-                } else if let summary = claudeNotificationPolicySummary {
-                    Text(summary)
-                        .font(AppDesign.Typography.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .controlSize(.small)
     }
 
     private var advancedClaudeDiagnosticsSection: some View {
@@ -305,16 +237,6 @@ extension SettingsView {
         }
     }
 
-    private func handleClaudeAccountAction(_ action: ClaudeAccountSettingsAction, account: ClaudeAccount) {
-        switch action {
-        case .use:
-            setActiveClaudeAccount(account)
-        case .deleteWebSession:
-            pendingDestructiveAction = .deleteClaudeAccount(account)
-        case .showClaudeCodeLoginGuidance:
-            showClaudeCodeLoginGuidance()
-        }
-    }
 
     private var shouldShowOrganizationSection: Bool {
         (activeClaudeWebAccount() != nil && isOrganizationAdvancedExpanded)
@@ -809,5 +731,15 @@ extension SettingsView {
             return .green
         }
         return appliedClaudeSetupPresentation.progress.isOrganizationReady ? .green : .orange
+    }
+}
+
+extension ClaudeAccountStatusTone {
+    var color: Color {
+        switch self {
+        case .neutral: return .secondary
+        case .success: return .green
+        case .warning: return .orange
+        }
     }
 }
