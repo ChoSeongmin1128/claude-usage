@@ -13,6 +13,8 @@
 - `response`: 서버 응답. 실측본은 수치와 시각 외 계정 식별 정보를 남기지 않는다
 - `expected.rows`: `제목=사용률` 목록. `expected.menuBar`: 메뉴바 퍼센트 표시 방식별 문자열.
   `expected.decodeError: true`면 디코딩이 실패해야 한다
+- 그 밖의 `expected` 키(`credits`, `spendLimit`, `notice`, `extraUsage`, `resetCredits`)는 fixture에 있을 때만
+  비교한다. `resetCredits`는 `개수 범위` 형식이다(예: `1 전체 한도`)
 
 파일 이름은 `claude-` 또는 `codex-`로 시작한다. 테스트 번들 리소스로 함께 복사되므로 이름이 겹치면
 빌드가 실패한다. 같은 이유로 이 문서도 README가 아닌 이름을 쓴다.

@@ -1,0 +1,62 @@
+{
+  "meta": {
+    "plans": [
+      "team"
+    ],
+    "source": "assumed",
+    "date": "2026-10-03",
+    "note": "cedar_ember 블록 구조는 2026-10-02 claude.ai 웹 /usage?cedar_ember=1 실측 기준, 값과 id·문구는 예시"
+  },
+  "response": {
+    "five_hour": {
+      "utilization": 24,
+      "resets_at": "2099-01-01T05:00:00Z"
+    },
+    "seven_day": {
+      "utilization": 74,
+      "resets_at": "2099-01-05T00:00:00Z"
+    },
+    "extra_usage": null,
+    "juniper_tide": null,
+    "cedar_ember": {
+      "eligible": true,
+      "ineligible_reason": null,
+      "at_limit": false,
+      "cooldown_until": null,
+      "exhausted": [],
+      "next_grant_id": null,
+      "weekly_resets_at": "2099-01-05T00:00:00Z",
+      "grants": [
+        {
+          "id": "launch-team-example",
+          "label": "Example launch: one usage-limit reset for Team members",
+          "resets_left": 1,
+          "resets_total": 1,
+          "starts_at": "2026-09-21T00:00:00Z",
+          "ends_at": "2099-01-01T00:00:00Z",
+          "clears": [
+            "five_hour",
+            "seven_day",
+            "seven_day_overage_included"
+          ],
+          "percent_used": {
+            "five_hour": 24,
+            "seven_day": 74
+          },
+          "usable_now": true,
+          "use_requires_limit": false,
+          "paused": false,
+          "blocking": []
+        }
+      ]
+    },
+    "limits": []
+  },
+  "expected": {
+    "rows": [
+      "5시간=24",
+      "주간=74"
+    ],
+    "resetCredits": "1 전체 한도"
+  }
+}
