@@ -22,6 +22,8 @@ actor CodexAPIService {
     private var flights: [UUID: Flight] = [:]
     private var retiring: [UUID: Task<Void, Never>] = [:]
     private var ownerRecovery: (id: UUID, task: Task<Void, Error>)?
+    private var cachedResetCredits: (accountID: String, value: CodexResetCreditsResponse?, fetchedAt: Date)?
+    private static let resetCreditsRefreshInterval: TimeInterval = 300
     private var stopping = false
     private let baseURL: URL
     private let urlSession: URLSession
@@ -127,16 +129,8 @@ actor CodexAPIService {
                 do {
                     var usage = try await usageRequest(credential, budget: budget)
                     try await authManager.validate(credential)
-                    do {
-                        usage.resetCredits = try await resetCreditsRequest(credential, budget: budget)
-                    } catch is CancellationError {
-                        throw CancellationError()
-                    } catch {
-                        // Optional enrichment has the same credential and shared deadline.
-                        // Neither raw responses nor server error strings are logged.
-                    }
                     try budget.check()
-                    try await authManager.validate(credential)
+                    usage.resetCredits = try await resetCredits(credential, budget: budget)
                     return CodexUsageSnapshot(usage: usage, credential: credential)
                 } catch APIError.invalidSessionKey {
                     guard !recovered else {
@@ -290,15 +284,29 @@ actor CodexAPIService {
         return usage
     }
 
-    private func resetCreditsRequest(_ credential: CodexCredentialSnapshot, budget: CodexRequestBudget) async throws
-        -> CodexResetCreditsResponse
+    /// Optional enrichment from the CLI that owns the auth file. It runs after the usage
+    /// response is validated, at most every five minutes, and never during an owner refresh.
+    private func resetCredits(_ credential: CodexCredentialSnapshot, budget: CodexRequestBudget) async throws
+        -> CodexResetCreditsResponse?
     {
-        var request = try request("wham/rate-limit-reset-credits", credential: credential, budget: budget, timeout: 5)
-        request.setValue("codex-1", forHTTPHeaderField: "OpenAI-Beta")
-        request.setValue("Codex Desktop", forHTTPHeaderField: "originator")
-        let bytes = try await data(for: request, budget: budget)
-        do { return try JSONDecoder().decode(CodexResetCreditsResponse.self, from: bytes) } catch {
-            throw APIError.parseError
+        guard let accountID = credential.token.accountID, !accountID.isEmpty else { return nil }
+        if let cached = cachedResetCredits, cached.accountID == accountID,
+            Date().timeIntervalSince(cached.fetchedAt) < Self.resetCreditsRefreshInterval
+        {
+            return cached.value
+        }
+        let previous = cachedResetCredits?.accountID == accountID ? cachedResetCredits?.value : nil
+        guard ownerRecovery == nil else { return previous }
+        do {
+            let value = try await owner.readResetCredits(
+                sourceURL: credential.sourceURL, expectedAccountID: accountID, budget: budget)
+            cachedResetCredits = (accountID, value, Date())
+            return value
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // Neither raw responses nor server error strings are logged.
+            return previous
         }
     }
 }

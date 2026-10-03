@@ -30,6 +30,16 @@ nonisolated struct CodexRequestBudget: Sendable {
 
 nonisolated protocol CodexOwnerRefreshing: Sendable {
     func refresh(sourceURL: URL, expectedAccountID: String, budget: CodexRequestBudget) async throws
+    func readResetCredits(sourceURL: URL, expectedAccountID: String, budget: CodexRequestBudget) async throws
+        -> CodexResetCreditsResponse?
+}
+
+extension CodexOwnerRefreshing {
+    func readResetCredits(sourceURL: URL, expectedAccountID: String, budget: CodexRequestBudget) async throws
+        -> CodexResetCreditsResponse?
+    {
+        nil
+    }
 }
 
 nonisolated enum CodexOwnerError: Error, Equatable {

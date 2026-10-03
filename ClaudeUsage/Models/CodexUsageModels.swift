@@ -20,7 +20,7 @@ nonisolated struct CodexUsageResponse: Codable, Sendable {
     let spendControl: CodexSpendControl?
     /// 한도에 걸린 이유(workspace_member_credits_depleted 등). 공식 backend 모델 기준
     let rateLimitReachedType: String?
-    /// wham/rate-limit-reset-credits 별도 엔드포인트 결과 (조회 후 주입)
+    /// 공식 app-server `account/rateLimits/read`의 초기화권 (조회 후 주입)
     var resetCredits: CodexResetCreditsResponse?
 
     enum CodingKeys: String, CodingKey {
@@ -399,7 +399,7 @@ private extension String {
     }
 }
 
-// MARK: - Rate Limit 초기화 크레딧 (wham/rate-limit-reset-credits)
+// MARK: - Rate Limit 초기화 크레딧 (app-server rateLimitResetCredits)
 
 /// 사용량 초기화 크레딧 목록 응답
 nonisolated struct CodexResetCreditsResponse: Codable, Sendable, Equatable {

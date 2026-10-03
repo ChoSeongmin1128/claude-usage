@@ -54,6 +54,53 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing {
         }
     }
 
+    /// 초기화권은 공식 app-server의 `account/rateLimits/read` 응답에서 읽는다. 읽기만 하고 사용하지 않는다.
+    func readResetCredits(sourceURL: URL, expectedAccountID: String, budget: CodexRequestBudget) async throws
+        -> CodexResetCreditsResponse?
+    {
+        let cancelled = OSAllocatedUnfairLock(initialState: false)
+        return try await withTaskCancellationHandler {
+            try await Task.detached(priority: .utility) {
+                let session = try CodexOwnerSession(
+                    executableURL: try self.resolvedExecutable(), sourceURL: sourceURL,
+                    budget: budget, cancelled: cancelled
+                )
+                defer { session.close() }
+                _ = try session.request(
+                    1, "initialize",
+                    params: [
+                        "clientInfo": ["name": "claudeusage", "version": "1"],
+                        "capabilities": ["experimentalApi": false],
+                    ])
+                try session.send(["method": "initialized"])
+                let quota = try session.request(2, "account/rateLimits/read")
+                guard quota["accountId"] as? String == expectedAccountID else {
+                    throw CodexOwnerError.accountMismatch
+                }
+                return Self.resetCredits(from: quota["rateLimitResetCredits"])
+            }.value
+        } onCancel: {
+            cancelled.withLock { $0 = true }
+        }
+    }
+
+    static func resetCredits(from value: Any?) -> CodexResetCreditsResponse? {
+        guard let summary = value as? [String: Any], let count = number(summary["availableCount"]), count >= 0 else {
+            return nil
+        }
+        func iso(_ seconds: Any?) -> String? {
+            number(seconds).map { ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: $0)) }
+        }
+        let credits = (summary["credits"] as? [[String: Any]] ?? []).compactMap { item -> CodexResetCredit? in
+            guard let id = item["id"] as? String else { return nil }
+            return CodexResetCredit(
+                id: id, resetType: item["resetType"] as? String, status: item["status"] as? String ?? "unknown",
+                grantedAtISO: iso(item["grantedAt"]), expiresAtISO: iso(item["expiresAt"]),
+                title: item["title"] as? String, detail: item["description"] as? String)
+        }
+        return CodexResetCreditsResponse(credits: credits, availableCountField: Int(count))
+    }
+
     static func isAvailable() -> Bool { (try? Self().resolvedExecutable()) != nil }
 
     static var searchPath: String {
