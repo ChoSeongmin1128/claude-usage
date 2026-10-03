@@ -50,10 +50,20 @@ final class UsageAccountsController: ObservableObject {
         preferences = updated
         detectRevertedSwitch()
         self.claudeRuntimeAccountID = claudeRuntimeAccountID
+        claudeAppWebIDs = Set(
+            ClaudeAccountStore.shared.accounts().filter {
+                $0.kind == .webSession && ClaudeBrowserFamily.family(fromSourceDetail: $0.sourceDetail) == .claudeApp
+            }.map(\.id))
+        applyMenuBarDefault()
         onChange?()
     }
 
     private(set) var claudeRuntimeAccountID: String?
+    /// Claude 앱에서 가져온 웹 로그인. 사용자가 고르기 전에는 이 계정을 먼저 메뉴바에 둔다.
+    private var claudeAppWebIDs: Set<String> = []
+    /// Claude 앱과 Claude Code에 다른 계정이 있을 때 한 번 묻는다. 고른 계정을 넘기면 메뉴바에 둔다.
+    var onMenuBarChoiceNeeded: ((_ claudeApp: UsageAccount, _ claudeCode: UsageAccount) -> Void)?
+    private var isAskingMenuBarChoice = false
     @Published private(set) var revertedSwitch: [PopoverService: String] = [:]
 
     /// 지금 메뉴바와 팝오버 본문이 보여주는 계정. 이 계정은 따로 조회하지 않는다.
@@ -66,6 +76,86 @@ final class UsageAccountsController: ObservableObject {
             case .claudeCodeDirectory, .codexDirectory: return false
             }
         }
+    }
+
+    // MARK: - 메뉴바 계정
+
+    /// 메뉴바와 팝오버 큰 카드에 둘 수 있으면 그 Claude 계정의 저장소 id. 다른 폴더 로그인과 Codex는
+    /// 기본 로그인만 메뉴바에 오므로 먼저 전환해야 한다.
+    func menuBarAccountID(for account: UsageAccount) -> String? {
+        guard account.service == .claude else { return nil }
+        let ids = account.sources.compactMap { source -> String? in
+            switch source.kind {
+            case .claudeCodeDefault: return ClaudeAccountStore.claudeCodeExternalAccountID
+            case .claudeWeb: return source.reference
+            case .claudeCodeDirectory, .codexDefault, .codexDirectory: return nil
+            }
+        }
+        if let runtime = claudeRuntimeAccountID, ids.contains(runtime) { return runtime }
+        return ids.first { claudeAppWebIDs.contains($0) } ?? ids.first
+    }
+
+    func canShowInMenuBar(_ account: UsageAccount) -> Bool {
+        menuBarAccountID(for: account) != nil && !isRuntimeAccount(account)
+    }
+
+    func showInMenuBar(_ account: UsageAccount) {
+        guard let id = menuBarAccountID(for: account) else { return }
+        preferences.menuBarAccountChosen = true
+        preferences.hidden.remove(account.id)
+        if id != claudeRuntimeAccountID { ClaudeAccountStore.shared.setActiveAccountID(id) }
+        onChange?()
+    }
+
+    /// 메뉴바 계정을 숨기면 다음 계정이 메뉴바로 온다. 대신할 계정이 없으면 숨길 수 없다.
+    func canHide(_ account: UsageAccount) -> Bool {
+        guard isRuntimeAccount(account) else { return true }
+        return account.service == .claude && replacementMenuBarAccount(excluding: account.id) != nil
+    }
+
+    private func replacementMenuBarAccount(excluding id: String) -> UsageAccount? {
+        Self.preferredMenuBarAccount(
+            among: visibleAccounts(for: .claude).filter { $0.id != id && menuBarAccountID(for: $0) != nil },
+            claudeAppWebIDs: claudeAppWebIDs)
+    }
+
+    /// Claude 앱 로그인, 기본 Claude Code 로그인, 나머지 웹 로그인 순.
+    nonisolated static func preferredMenuBarAccount(among accounts: [UsageAccount], claudeAppWebIDs: Set<String>)
+        -> UsageAccount?
+    {
+        accounts.first { isClaudeApp($0, claudeAppWebIDs) }
+            ?? accounts.first { $0.sources.contains { $0.kind == .claudeCodeDefault } }
+            ?? accounts.first
+    }
+
+    private nonisolated static func isClaudeApp(_ account: UsageAccount, _ claudeAppWebIDs: Set<String>) -> Bool {
+        account.sources.contains { $0.kind == .claudeWeb && claudeAppWebIDs.contains($0.reference) }
+    }
+
+    /// 숨긴 계정이 메뉴바에 남지 않게 하고, 사용자가 고르기 전에는 Claude 앱 로그인을 메뉴바에 둔다.
+    /// Claude Code에 다른 계정이 있으면 한 번 묻는다. 저장소를 바꾸면 다시 discover가 불리므로 다음 턴에 바꾼다.
+    private func applyMenuBarDefault() {
+        let all = accounts[.claude] ?? []
+        let runtime = all.first(where: isRuntimeAccount)
+        if let runtime, preferences.hidden.contains(runtime.id) {
+            if let replacement = replacementMenuBarAccount(excluding: runtime.id) { scheduleMenuBar(replacement) }
+            return
+        }
+        guard preferences.menuBarAccountChosen != true,
+            let claudeApp = visibleAccounts(for: .claude).first(where: { Self.isClaudeApp($0, claudeAppWebIDs) })
+        else { return }
+        if runtime?.id != claudeApp.id { scheduleMenuBar(claudeApp) }
+        if let claudeCode = visibleAccounts(for: .claude).first(where: {
+            $0.id != claudeApp.id && $0.sources.contains { $0.kind == .claudeCodeDefault }
+        }), let ask = onMenuBarChoiceNeeded, !isAskingMenuBarChoice {
+            isAskingMenuBarChoice = true
+            Task { @MainActor in ask(claudeApp, claudeCode) }
+        }
+    }
+
+    private func scheduleMenuBar(_ account: UsageAccount) {
+        guard let id = menuBarAccountID(for: account), id != claudeRuntimeAccountID else { return }
+        Task { @MainActor in ClaudeAccountStore.shared.setActiveAccountID(id) }
     }
 
     private func claudeCandidates() -> [UsageAccountCandidate] {
@@ -210,8 +300,20 @@ final class UsageAccountsController: ObservableObject {
     }
 
     func setHidden(_ hidden: Bool, _ id: String) {
+        if hidden, let account = accounts.values.joined().first(where: { $0.id == id }), isRuntimeAccount(account) {
+            guard account.service == .claude, let replacement = replacementMenuBarAccount(excluding: id) else { return }
+            preferences.hidden.insert(id)
+            showInMenuBar(replacement)
+            return
+        }
         if hidden { preferences.hidden.insert(id) } else { preferences.hidden.remove(id) }
         onChange?()
+    }
+
+    /// 처음 한 번 묻기에서 고른 계정을 메뉴바에 둔다.
+    func resolveMenuBarChoice(_ account: UsageAccount) {
+        isAskingMenuBarChoice = false
+        showInMenuBar(account)
     }
 
     func setArchived(_ archived: Bool, _ account: UsageAccount) {

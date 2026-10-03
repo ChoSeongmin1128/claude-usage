@@ -99,11 +99,12 @@ nonisolated struct UsageAccount: Identifiable, Equatable, Sendable {
 /// 사용자가 정한 계정 표시 방식. 계정 자체(로그인)는 각 제품이 가진다.
 nonisolated struct UsageAccountPreferences: Codable, Equatable, Sendable {
     enum PopoverMode: String, Codable, CaseIterable, Sendable {
-        case pick, featuredList, summaryRows
+        case pick, single, featuredList, summaryRows
 
         var title: String {
             switch self {
             case .pick: return "골라 보기"
+            case .single: return "하나만 보기"
             case .featuredList: return "대표 카드와 목록"
             case .summaryRows: return "요약과 행"
             }
@@ -124,6 +125,9 @@ nonisolated struct UsageAccountPreferences: Codable, Equatable, Sendable {
     var knownIdentities: [String: UsageAccountIdentity] = [:]
     /// 앱이 전환한 기본 로그인. 나중에 다른 프로그램이 되돌리면 알린다.
     var expectedDefault: [String: UsageAccountIdentity] = [:]
+    /// 사용자가 메뉴바 계정을 직접 골랐는지. 고르기 전에는 Claude 앱 로그인을 먼저 메뉴바에 둔다.
+    /// 이전 저장 값에 없는 키라 선택값으로 둔다(없는 키가 있으면 전체 디코딩이 실패한다).
+    var menuBarAccountChosen: Bool?
 
     static let key = AppIdentifiers.defaultsKey("usageAccounts")
 

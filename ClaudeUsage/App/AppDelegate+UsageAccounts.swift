@@ -5,6 +5,14 @@ extension AppDelegate {
         usageAccountsController.onChange = { [weak self] in self?.updatePopoverViewModel() }
         popoverViewModel.accountActions = PopoverAccountActions(
             toggle: { [weak self] service, id in self?.usageAccountsController.toggleSelection(id, service: service) },
+            showInMenuBar: { [weak self] service, id in
+                guard let self,
+                    let account = self.usageAccountsController.visibleAccounts(for: service).first(where: {
+                        $0.id == id
+                    })
+                else { return }
+                self.usageAccountsController.showInMenuBar(account)
+            },
             reconnect: { [weak self] service, _ in
                 self?.closePopover()
                 AppSettings.shared.settingsLastTab = ServiceSelectionHelper.settingsRootTab(for: service)
@@ -18,12 +26,32 @@ extension AppDelegate {
                 else { return }
                 self.usageAccountsController.grantPermission(for: account)
             })
+        usageAccountsController.onMenuBarChoiceNeeded = { [weak self] claudeApp, claudeCode in
+            self?.askMenuBarAccount(claudeApp: claudeApp, claudeCode: claudeCode)
+        }
         usageAccountsObserver = NotificationCenter.default.addObserver(
             forName: .claudeAccountsDidChange, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.rediscoverUsageAccounts() }
         }
         rediscoverUsageAccounts()
+    }
+
+    /// Claude 앱과 Claude Code에 다른 계정이 로그인돼 있을 때 한 번만 묻는다. 기본 버튼은 Claude 앱 계정이다.
+    private func askMenuBarAccount(claudeApp: UsageAccount, claudeCode: UsageAccount) {
+        let controller = usageAccountsController
+        let all = controller.visibleAccounts(for: .claude)
+        let appName = controller.preferences.displayName(for: claudeApp, among: all)
+        let codeName = controller.preferences.displayName(for: claudeCode, among: all)
+        let alert = NSAlert()
+        alert.messageText = "메뉴바에 표시할 Claude 계정"
+        alert.informativeText =
+            "Claude 앱은 \(appName), Claude Code는 \(codeName)로 로그인돼 있습니다. 고른 계정이 메뉴바와 팝오버에 나오며, 설정의 계정 목록에서 바꿀 수 있습니다."
+        alert.addButton(withTitle: "\(appName) (Claude 앱)")
+        alert.addButton(withTitle: "\(codeName) (Claude Code)")
+        NSApp.activate(ignoringOtherApps: true)
+        let choice = alert.runModal() == .alertSecondButtonReturn ? claudeCode : claudeApp
+        controller.resolveMenuBarChoice(choice)
     }
 
     func rediscoverUsageAccounts() {
@@ -64,7 +92,8 @@ extension AppDelegate {
             }
             result[service] = MultiAccountPresentation(
                 service: service, mode: controller.preferences.popoverMode, rows: rows,
-                selectedIDs: controller.preferences.selection(for: service, visible: visible))
+                selectedIDs: controller.preferences.selection(for: service, visible: visible),
+                menuBarCapableIDs: Set(visible.filter { controller.menuBarAccountID(for: $0) != nil }.map(\.id)))
         }
         return result
     }
