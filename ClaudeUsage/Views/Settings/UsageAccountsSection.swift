@@ -7,6 +7,8 @@ struct UsageAccountsSection: View {
     @ObservedObject var controller: UsageAccountsController
     let service: PopoverService
     var onLoginClaude: () -> Void
+    var onOpenClaudeInAppLogin: (() -> Void)?
+    var onEnterClaudeSessionKey: (() -> Void)?
     /// 앱이 저장한 Claude 웹 로그인을 지운다. 인자는 웹 계정 id.
     var onDeleteWebLogin: ((String) -> Void)?
     @State private var isAdding = false
@@ -72,7 +74,10 @@ struct UsageAccountsSection: View {
             }
         }
         .sheet(isPresented: $isAdding) {
-            AddUsageAccountSheet(controller: controller, service: service, onLoginClaude: onLoginClaude) {
+            AddUsageAccountSheet(
+                controller: controller, service: service, onLoginClaude: onLoginClaude,
+                onOpenClaudeInAppLogin: onOpenClaudeInAppLogin, onEnterClaudeSessionKey: onEnterClaudeSessionKey
+            ) {
                 isAdding = false
             }
         }
@@ -240,6 +245,8 @@ struct AddUsageAccountSheet: View {
     @ObservedObject var controller: UsageAccountsController
     let service: PopoverService
     var onLoginClaude: () -> Void
+    var onOpenClaudeInAppLogin: (() -> Void)?
+    var onEnterClaudeSessionKey: (() -> Void)?
     var onDone: () -> Void
     @StateObject private var deviceLogin = CodexDeviceLogin()
 
@@ -247,10 +254,26 @@ struct AddUsageAccountSheet: View {
         VStack(alignment: .leading, spacing: AppDesign.Space.content) {
             Text("\(service.providerKind.displayName) 계정 추가").font(AppDesign.Typography.headline)
             if service == .claude {
-                option("Claude 계정 로그인", "브라우저 로그인 가져오기 또는 앱 안 로그인") {
-                    Button("로그인") {
+                option("브라우저에서 가져오기", "Chrome, Safari, Claude 앱 등에 로그인돼 있으면 그 로그인을 가져옵니다") {
+                    Button("가져오기") {
                         onDone()
                         onLoginClaude()
+                    }
+                }
+                if let onOpenClaudeInAppLogin {
+                    option("앱에서 로그인", "이 앱 안에서 claude.ai에 로그인합니다") {
+                        Button("로그인") {
+                            onDone()
+                            onOpenClaudeInAppLogin()
+                        }
+                    }
+                }
+                if let onEnterClaudeSessionKey {
+                    option("직접 입력", "자동 가져오기가 안 될 때만 세션 키를 입력합니다") {
+                        Button("입력") {
+                            onDone()
+                            onEnterClaudeSessionKey()
+                        }
                     }
                 }
                 option("Claude Code 폴더", "다른 Claude Code 로그인이 있는 CLAUDE_CONFIG_DIR 폴더") {
@@ -266,7 +289,7 @@ struct AddUsageAccountSheet: View {
                     Button("선택") { chooseFolder() }
                 }
             }
-            Text("2개째가 연결되면 팝오버가 여러 계정 화면으로 바뀝니다.")
+            Text("여러 계정의 한도를 팝오버에서 함께 보려면 계정 목록의 여러 계정을 켜세요.")
                 .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()

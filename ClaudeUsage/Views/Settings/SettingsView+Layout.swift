@@ -312,6 +312,12 @@ extension SettingsView {
                 UsageAccountsSection(
                     controller: usageAccounts, service: service,
                     onLoginClaude: { onImportClaudeFromBrowser?(nil) },
+                    onOpenClaudeInAppLogin: { onOpenLogin?() },
+                    onEnterClaudeSessionKey: {
+                        withAnimation(settings.motion.animation(for: .disclosure, reduceMotion: reduceMotion)) {
+                            isAdvancedAuthExpanded = true
+                        }
+                    },
                     onDeleteWebLogin: { webID in
                         if let account = ClaudeAccountStore.shared.accounts().first(where: { $0.id == webID }) {
                             deleteClaudeWebAccount(account)

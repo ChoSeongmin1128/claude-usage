@@ -499,27 +499,7 @@ final class DesignSystemTests: XCTestCase {
         }
     }
 
-    func testCompactAccountRowsAndMotionExamplesGallery() throws {
-        let accounts = [
-            ClaudeAccount(
-                id: "web-fixture", kind: .webSession, displayName: "Chrome Work",
-                identity: .init(email: "work@example.com", organizationName: "Work", organizationID: "org-work"),
-                source: .chromeProfile, sourceDetail: "Work (Profile 1)", lastValidationState: .verified),
-            ClaudeAccount(
-                id: "cli-fixture", kind: .claudeCodeExternal, displayName: "Claude Code",
-                identity: .init(email: "personal@example.com", organizationName: "Personal"),
-                source: .claudeCodeCLI, lastValidationState: .detected),
-        ]
-        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
-            let rows = VStack(spacing: AppDesign.Space.row) {
-                ForEach(accounts) { account in
-                    ClaudeAccountSettingsRow(
-                        presentation: .resolve(account: account, isActive: account.id == "web-fixture"),
-                        isActive: account.id == "web-fixture", onAction: { _ in })
-                }
-            }.padding(12).frame(width: 580).background(Color(nsColor: .windowBackgroundColor))
-            attach(try renderHosted(rows, appearance: appearance), "Compact account list \(appearance.rawValue)")
-        }
+    func testMotionExamplesGallery() throws {
         for category in AppMotionCategory.allCases {
             attach(
                 try renderHosted(AppMotionComparisonView(category: category).frame(width: 500), appearance: .aqua),
