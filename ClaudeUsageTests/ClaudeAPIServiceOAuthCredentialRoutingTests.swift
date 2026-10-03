@@ -83,6 +83,25 @@ final class ClaudeAPIServiceOAuthCredentialRoutingTests: XCTestCase {
         XCTAssertTrue(snapshot.runtime.credentialAvailability.oauthCredentialAvailable)
     }
 
+    func testHealthSnapshotKeepsWhyClaudeCodeCredentialIsUnusable() async {
+        for (reader, expected) in [
+            (OAuthReaderSpy(token: nil, requiresReconnect: true), ClaudeCodeCredentialIssue.reconnectRequired),
+            (OAuthReaderSpy(token: nil, requiresReauthentication: true), .reauthenticationRequired),
+        ] {
+            let (store, defaults, suite) = makeStore()
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let cli = store.upsertClaudeCodeExternalAccount(validationState: .verified, setActiveIfMissing: true)
+            store.setActiveAccountID(cli.id)
+            let service = ClaudeAPIService(
+                accountStore: store, oauthCredentialReader: reader, sessionKeyLoader: { _ in nil })
+
+            let snapshot = await service.fetchUsageHealthSnapshot()
+
+            XCTAssertFalse(snapshot.runtime.credentialAvailability.hasAnyCredential)
+            XCTAssertEqual(snapshot.runtime.claudeCodeCredentialIssue, expected)
+        }
+    }
+
     func testRejectedCLIRefreshTokenIsPresentedAsClaudeReauthenticationRequired() async {
         let (store, defaults, suite) = makeStore()
         defer { defaults.removePersistentDomain(forName: suite) }

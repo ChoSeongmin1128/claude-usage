@@ -287,6 +287,15 @@ final class PopoverViewModel: ObservableObject {
             ?? false
     }
 
+    var claudeCodeCredentialIssue: ClaudeCodeCredentialIssue? {
+        guard let snapshot = usageHealthSnapshot, snapshot.activeAccount?.kind != .webSession else { return nil }
+        return snapshot.runtime.claudeCodeCredentialIssue
+    }
+
+    func authRequiredStatusLabel(for service: PopoverService) -> String {
+        service == .claude && claudeCodeCredentialIssue == .reconnectRequired ? "다시 연결 필요" : "로그인 필요"
+    }
+
     func runtimeServiceState(for service: PopoverService, settings: AppSettings) -> RuntimeServiceState {
         switch service {
         case .claude:

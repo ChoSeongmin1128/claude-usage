@@ -5,23 +5,49 @@ nonisolated enum CatalogPopoverPresentationAdapter {
         phase: PopoverContentPhase,
         error: APIError?,
         service: PopoverService,
-        claudeUsesCodeCredentials: Bool = false
+        claudeUsesCodeCredentials: Bool = false,
+        claudeCodeCredentialIssue: ClaudeCodeCredentialIssue? = nil
     ) -> ProviderRuntimeSummary? {
         switch phase {
         case .content:
             return nil
         case .authRequired:
             if service == .claude {
-                return summary(
-                    icon: "person.badge.key",
-                    tone: .warning,
-                    title: "Claude 로그인 필요",
-                    message:
-                        "Chrome 또는 Claude Code 로그인을 연결해 주세요.",
-                    actionTitle: "로그인 시작",
-                    action: .startClaudeLogin,
-                    actionIsProminent: true
-                )
+                switch claudeCodeCredentialIssue {
+                case .reconnectRequired:
+                    return summary(
+                        icon: "arrow.triangle.2.circlepath",
+                        tone: .warning,
+                        title: "Claude Code 다시 연결 필요",
+                        message:
+                            "Claude Code 로그인은 그대로입니다. 다시 연결해 주세요.",
+                        actionTitle: "다시 연결",
+                        action: .startClaudeLogin,
+                        actionIsProminent: true
+                    )
+                case .reauthenticationRequired:
+                    return summary(
+                        icon: "person.badge.key",
+                        tone: .warning,
+                        title: "Claude Code 다시 로그인 필요",
+                        message:
+                            "터미널에서 `claude auth login`을 실행한 뒤 다시 연결해 주세요.",
+                        actionTitle: "다시 연결",
+                        action: .startClaudeLogin,
+                        actionIsProminent: true
+                    )
+                case nil:
+                    return summary(
+                        icon: "person.badge.key",
+                        tone: .warning,
+                        title: "Claude 로그인 필요",
+                        message:
+                            "브라우저 또는 Claude Code 로그인을 연결해 주세요.",
+                        actionTitle: "로그인 시작",
+                        action: .startClaudeLogin,
+                        actionIsProminent: true
+                    )
+                }
             }
             return summary(
                 icon: "lock.shield",

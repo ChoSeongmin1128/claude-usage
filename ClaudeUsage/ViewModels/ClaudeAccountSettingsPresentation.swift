@@ -58,7 +58,8 @@ struct ClaudeAccountSettingsPresentation: Equatable {
     static func resolve(
         account: ClaudeAccount,
         isActive: Bool = false,
-        organizations: [ClaudeAPIService.OrganizationSummary] = []
+        organizations: [ClaudeAPIService.OrganizationSummary] = [],
+        claudeCodeCredentialIssue: ClaudeCodeCredentialIssue? = nil
     ) -> ClaudeAccountSettingsPresentation {
         let organization = organizationLabel(
             for: account,
@@ -66,7 +67,10 @@ struct ClaudeAccountSettingsPresentation: Equatable {
         )
         let source = sourceDescription(for: account)
         let details = detailRows(for: account, organization: organization, source: source)
-        let status = statusPresentation(for: account.lastValidationState)
+        let status =
+            account.kind == .claudeCodeExternal
+            ? issueStatusPresentation(claudeCodeCredentialIssue) ?? statusPresentation(for: account.lastValidationState)
+            : statusPresentation(for: account.lastValidationState)
         let switchAction: ClaudeAccountSettingsAction? = isActive ? nil : .use
         var managementActions: [ClaudeAccountSettingsAction] = []
 
@@ -172,6 +176,20 @@ struct ClaudeAccountSettingsPresentation: Equatable {
         }
 
         return nil
+    }
+
+    /// 저장된 검증 결과는 마지막 성공 뒤로 갱신되지 않으므로, 지금 읽기에 실패한 이유를 먼저 보여준다.
+    private static func issueStatusPresentation(
+        _ issue: ClaudeCodeCredentialIssue?
+    ) -> (text: String, tone: ClaudeAccountStatusTone)? {
+        switch issue {
+        case .reconnectRequired:
+            return ("다시 연결 필요", .warning)
+        case .reauthenticationRequired:
+            return ("Claude Code 로그인 필요", .warning)
+        case nil:
+            return nil
+        }
     }
 
     private static func statusPresentation(

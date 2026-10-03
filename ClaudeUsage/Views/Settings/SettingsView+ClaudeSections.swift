@@ -66,7 +66,8 @@ extension SettingsView {
                 let presentation = ClaudeAccountSettingsPresentation.resolve(
                     account: account,
                     isActive: true,
-                    organizations: organizations
+                    organizations: organizations,
+                    claudeCodeCredentialIssue: usageHealthSnapshot?.runtime.claudeCodeCredentialIssue
                 )
 
                 HStack(spacing: AppDesign.Space.row) {

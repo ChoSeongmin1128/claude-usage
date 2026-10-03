@@ -251,3 +251,10 @@ nonisolated struct ClaudeCredentialAvailability: Sendable, Equatable {
         sessionCredentialAvailable || oauthCredentialAvailable
     }
 }
+
+/// Claude Code 자격 증명을 읽다가 확인한 문제. 앱의 사본이 오래돼 Keychain에서 다시 가져와야 하거나,
+/// Claude Code 자체가 다시 로그인해야 하는 경우를 일반 로그인 필요와 구분해 안내한다.
+nonisolated enum ClaudeCodeCredentialIssue: Sendable, Equatable {
+    case reconnectRequired
+    case reauthenticationRequired
+}

@@ -144,6 +144,7 @@ actor ClaudeAPIService {
         let oauthValidationState: ClaudeCredentialValidationState
         let sessionCooldownRemaining: Int?
         let oauthPreferredRemaining: Int?
+        var claudeCodeCredentialIssue: ClaudeCodeCredentialIssue? = nil
     }
 
     struct UsageHealthSnapshot: Sendable, Equatable {
@@ -468,6 +469,7 @@ actor ClaudeAPIService {
         let shouldReadOAuthCredential = usesStoredActiveAccount
             && (refreshOAuthCredentialInventory || activeKind == .claudeCodeExternal || activeKind == nil)
         let oauthCredentialAvailable: Bool
+        var credentialIssue: ClaudeCodeCredentialIssue?
         if shouldReadOAuthCredential {
             if refreshOAuthCredentialInventory,
                let inventoryRefresh = try? await oauthCredentialReader.refreshCredentialInventoryWithoutUI() {
@@ -476,7 +478,17 @@ actor ClaudeAPIService {
                 }
                 oauthCredentialAvailable = inventoryRefresh.accessToken != nil
             } else {
-                oauthCredentialAvailable = (try? await readSystemOAuthAccessToken()) != nil
+                do {
+                    oauthCredentialAvailable = try await readSystemOAuthAccessToken() != nil
+                } catch APIError.claudeCodeReconnectRequired {
+                    oauthCredentialAvailable = false
+                    credentialIssue = .reconnectRequired
+                } catch APIError.claudeCodeReauthenticationRequired {
+                    oauthCredentialAvailable = false
+                    credentialIssue = .reauthenticationRequired
+                } catch {
+                    oauthCredentialAvailable = false
+                }
             }
         } else {
             oauthCredentialAvailable = Self.hasStoredOAuthCredentialInventory(initialState)
@@ -496,7 +508,10 @@ actor ClaudeAPIService {
             lastOverallSuccessAt: authPathHealthStore.lastOverallSuccessAt,
             session: makeAuthPathSnapshot(for: .session),
             oauth: makeAuthPathSnapshot(for: .oauth),
-            runtime: makeRuntimeAuthSnapshot(oauthCredentialAvailable: oauthCredentialAvailable),
+            runtime: makeRuntimeAuthSnapshot(
+                oauthCredentialAvailable: oauthCredentialAvailable,
+                credentialIssue: credentialIssue
+            ),
             accounts: state.accounts,
             activeAccountID: state.activeAccountID
         )
@@ -1925,7 +1940,10 @@ actor ClaudeAPIService {
         )
     }
 
-    private func makeRuntimeAuthSnapshot(oauthCredentialAvailable: Bool) -> RuntimeAuthSnapshot {
+    private func makeRuntimeAuthSnapshot(
+        oauthCredentialAvailable: Bool,
+        credentialIssue: ClaudeCodeCredentialIssue? = nil
+    ) -> RuntimeAuthSnapshot {
         let now = Date()
         let hasSessionCredential = activeAccount?.kind == .webSession && hasSessionKey()
         let hasOAuthCredential = activeAccount?.kind == .claudeCodeExternal && oauthCredentialAvailable
@@ -1960,7 +1978,8 @@ actor ClaudeAPIService {
             sessionValidationState: validationState(for: .session, credentialAvailable: hasSessionCredential),
             oauthValidationState: stableClaudeCodeValidationState(credentialAvailable: oauthCredentialAvailable),
             sessionCooldownRemaining: sessionCooldownRemaining,
-            oauthPreferredRemaining: oauthPreferredRemaining
+            oauthPreferredRemaining: oauthPreferredRemaining,
+            claudeCodeCredentialIssue: oauthCredentialAvailable ? nil : credentialIssue
         )
     }
 

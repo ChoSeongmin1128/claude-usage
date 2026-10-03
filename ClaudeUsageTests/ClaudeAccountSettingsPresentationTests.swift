@@ -21,6 +21,24 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         XCTAssertEqual(presentation.managementActions, [.showClaudeCodeLoginGuidance])
     }
 
+    func testClaudeCodeCredentialIssueReplacesStaleVerifiedStatus() {
+        let account = ClaudeAccount(
+            id: "cli", kind: .claudeCodeExternal, displayName: "CLI",
+            identity: .init(organizationID: "org-work"),
+            source: .claudeCodeCLI, lastValidationState: .verified)
+
+        let verified = ClaudeAccountSettingsPresentation.resolve(account: account, isActive: true)
+        let reconnect = ClaudeAccountSettingsPresentation.resolve(
+            account: account, isActive: true, claudeCodeCredentialIssue: .reconnectRequired)
+        let relogin = ClaudeAccountSettingsPresentation.resolve(
+            account: account, isActive: true, claudeCodeCredentialIssue: .reauthenticationRequired)
+
+        XCTAssertEqual(verified.statusText, "최근 조회 성공")
+        XCTAssertEqual(reconnect.statusText, "다시 연결 필요")
+        XCTAssertEqual(reconnect.statusTone, .warning)
+        XCTAssertEqual(relogin.statusText, "Claude Code 로그인 필요")
+    }
+
     func testHealthSnapshotUsesCurrentStoreMetadataForSameActiveAccount() {
         let staleAccount = ClaudeAccount(
             id: ClaudeAccountStore.claudeCodeExternalAccountID,

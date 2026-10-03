@@ -57,7 +57,9 @@ struct ProviderPopoverContentHost: View {
                     .statusSummary(
                         phase: .authRequired,
                         error: nil,
-                        service: .claude
+                        service: .claude,
+                        claudeCodeCredentialIssue:
+                            viewModel.claudeCodeCredentialIssue
                     )!
             )
         } else {
@@ -67,11 +69,9 @@ struct ProviderPopoverContentHost: View {
                 )
                 .font(AppDesign.Typography.setupIcon)
                 .foregroundStyle(.orange)
-                Text("Claude 로그인이 필요합니다")
+                Text(unauthenticatedCopy.title)
                     .font(AppDesign.Typography.headline)
-                Text(
-                    "Chrome 프로필에 저장된 로그인이나 Claude Code 인증을 그대로 사용할 수 있습니다."
-                )
+                Text(unauthenticatedCopy.message)
                 .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -81,7 +81,7 @@ struct ProviderPopoverContentHost: View {
                     vertical: true
                 )
                 HStack(spacing: AppDesign.Space.row) {
-                    Button("Claude 로그인 시작") {
+                    Button(unauthenticatedCopy.action) {
                         viewModel
                             .startClaudeLogin()
                     }
@@ -97,6 +97,29 @@ struct ProviderPopoverContentHost: View {
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 18)
+        }
+    }
+
+    private var unauthenticatedCopy: (title: String, message: String, action: String) {
+        switch viewModel.claudeCodeCredentialIssue {
+        case .reconnectRequired:
+            return (
+                "Claude Code 다시 연결이 필요합니다",
+                "Claude Code 로그인은 그대로입니다. 다시 연결하면 최신 로그인을 가져오며, macOS가 Keychain 사용을 물을 수 있습니다.",
+                "다시 연결"
+            )
+        case .reauthenticationRequired:
+            return (
+                "Claude Code 다시 로그인이 필요합니다",
+                "Claude Code의 인증 갱신이 거부됐습니다. 터미널에서 `claude auth login`을 실행한 뒤 다시 연결해 주세요.",
+                "다시 연결"
+            )
+        case nil:
+            return (
+                "Claude 로그인이 필요합니다",
+                "브라우저나 Claude 앱에 저장된 로그인, Claude Code 인증을 그대로 사용할 수 있습니다.",
+                "Claude 로그인 시작"
+            )
         }
     }
 
