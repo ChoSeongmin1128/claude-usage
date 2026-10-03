@@ -65,7 +65,15 @@ struct MenuBarProviderSnapshot {
     let accessibilityLabel: String?
     let accessibilityValue: String?
     let isStale: Bool
-    let renderKey: MenuBarProviderRenderKey
+    private(set) var renderKey: MenuBarProviderRenderKey
+    private(set) var resetCreditBadge: MenuBarResetCreditBadge?
+
+    func withResetCreditBadge(_ badge: MenuBarResetCreditBadge?) -> Self {
+        var copy = self
+        copy.resetCreditBadge = badge
+        copy.renderKey.resetCreditBadge = badge?.key
+        return copy
+    }
 
     var text: String {
         regularText ?? ""
@@ -606,6 +614,15 @@ enum MenuBarStatusComposer {
         if includeResetText, let resetText = snapshot.resetText {
             elements.append(.text(resetText, attributes: [.font: resetFont, .foregroundColor: secondaryColor]))
         }
+        if let badge = snapshot.resetCreditBadge {
+            let color: NSColor =
+                switch badge.tone {
+                case .normal: secondaryColor
+                case .new: .systemBlue
+                case .expiring: .systemRed
+                }
+            elements.append(.text(badge.text, attributes: [.font: resetFont, .foregroundColor: color]))
+        }
         if snapshot.icon == nil, let status = snapshot.systemStatus, status.hasIssue {
             elements.append(statusDot(color: statusBadgeColor(for: status.effectiveIndicator)))
         }
@@ -661,7 +678,10 @@ enum MenuBarStatusComposer {
     }
 
     nonisolated private static func providerTooltip(for snapshot: MenuBarProviderSnapshot) -> String {
-        let base = tooltipBlock(name: snapshot.kind.displayName, tooltip: snapshot.tooltip)
+        var base = tooltipBlock(name: snapshot.kind.displayName, tooltip: snapshot.tooltip)
+        if let badge = snapshot.resetCreditBadge {
+            base += "\n초기화권 \(badge.count)개"
+        }
         guard let status = snapshot.systemStatus, status.hasIssue else {
             return base
         }

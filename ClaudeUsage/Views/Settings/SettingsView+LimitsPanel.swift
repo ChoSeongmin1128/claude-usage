@@ -83,7 +83,22 @@ extension SettingsView {
                 .padding(.leading, row.isChild ? 34 : 18)
                 .foregroundStyle(row.isChild ? .secondary : .primary)
                 .lineLimit(1)
-            limitsCell(menuBarBinding(row, provider: provider), help: "메뉴바에 숫자로 표시")
+            if row.controlsResetCreditMenuBar {
+                Picker(
+                    "메뉴바에 초기화권 표시",
+                    selection: Binding(
+                        get: { settings.resetCreditMenuBarMode(for: provider) },
+                        set: { settings.setResetCreditMenuBarMode($0, for: provider) })
+                ) {
+                    ForEach(ResetCreditMenuBarMode.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .help("메뉴바에 초기화권 개수(↺)를 표시할 때")
+                .gridColumnAlignment(.center)
+            } else {
+                limitsCell(menuBarBinding(row, provider: provider), help: "메뉴바에 숫자로 표시")
+            }
             limitsCell(popoverBinding(row, provider: provider), help: "팝오버에 표시")
             notificationCell(row, provider: provider)
         }

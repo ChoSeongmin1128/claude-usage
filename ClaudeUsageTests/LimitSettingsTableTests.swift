@@ -12,13 +12,14 @@ final class LimitSettingsTableTests: XCTestCase {
             service: .claude, popoverItems: ClaudeItemCatalog().defaultItems,
             limits: UsageLimitCatalog.claude(usage), displayName: ClaudeItemCatalog().displayName(for:))
 
-        XCTAssertEqual(rows.map(\.title), ["5시간 한도", "주간 한도", "모델별 주간 한도", "Fable · 주간", "추가 사용량"])
-        XCTAssertEqual(rows.map(\.menuBarSlot), [.fiveHour, .weekly, nil, nil, nil])
+        XCTAssertEqual(rows.map(\.title), ["5시간 한도", "주간 한도", "모델별 주간 한도", "Fable · 주간", "초기화권", "추가 사용량"])
+        XCTAssertEqual(rows.map(\.menuBarSlot), [.fiveHour, .weekly, nil, nil, nil, nil])
+        XCTAssertEqual(rows.map(\.controlsResetCreditMenuBar), [false, false, false, false, true, false])
         XCTAssertEqual(rows[0].notificationLimit?.scope, "five_hour")
         XCTAssertTrue(rows[3].isChild)
         XCTAssertNil(rows[3].popoverItemID)
-        XCTAssertNil(rows[4].notificationLimit)
-        XCTAssertFalse(rows[4].takesNotification)
+        XCTAssertNil(rows[5].notificationLimit)
+        XCTAssertFalse(rows[5].takesNotification)
     }
 
     func testCodexRowsUseWindowSlotsAndKeepRowsBeforeFirstFetch() throws {

@@ -17,6 +17,19 @@ struct UsageItemContext {
     let codexError: APIError?
     var claudeOverageUpdatedAt: Date? = nil
     var claudeOverageIsStale = false
+    /// 팝오버를 열기 전에 이미 본 초기화권. 닫을 때 갱신하므로 열려 있는 동안은 신규 표시가 유지된다.
+    var seenResetCreditIDs: [PopoverService: Set<String>] = [:]
+
+    func resetCreditsSection(id: String, service: PopoverService, summary: ResetCreditSummary?)
+        -> PopoverDisplaySection?
+    {
+        guard let summary else { return nil }
+        return PopoverDisplaySection(
+            id: id, kind: .resetCredits, importance: .primary,
+            payload: .resetCredits(
+                PopoverResetCreditsSectionData(
+                    summary: summary, isNew: summary.hasNewItems(seen: seenResetCreditIDs[service] ?? []))))
+    }
 }
 
 // MARK: - Catalog protocol
@@ -127,6 +140,7 @@ struct ClaudeItemCatalog: UsageItemCatalog {
         PopoverItemConfig(id: "currentSession", visible: true),
         PopoverItemConfig(id: "weeklyLimit", visible: true),
         PopoverItemConfig(id: "modelUsage", visible: true),
+        PopoverItemConfig(id: "claudeResetCredits", visible: true),
         PopoverItemConfig(id: "overageUsage", visible: true),
     ]
 
@@ -135,6 +149,7 @@ struct ClaudeItemCatalog: UsageItemCatalog {
         case "currentSession": return "5시간 한도"
         case "weeklyLimit": return "주간 한도"
         case "modelUsage": return "모델별 주간 한도"
+        case "claudeResetCredits": return "초기화권"
         case "overageUsage": return "추가 사용량"
         default: return nil
         }
@@ -183,6 +198,10 @@ struct ClaudeItemCatalog: UsageItemCatalog {
         case "modelUsage":
             // 모델 한도는 공통 quota 목록에서 동적으로 확장합니다.
             return nil // expandedSections(...)에서 처리
+
+        case "claudeResetCredits":
+            return context.resetCreditsSection(
+                id: itemID, service: .claude, summary: ResetCreditSummary.claude(context.claudeUsage?.resetGrants))
 
         case "overageUsage":
             guard let overage = context.claudeOverage, overage.isEnabled else { return nil }
@@ -254,7 +273,7 @@ struct CodexItemCatalog: UsageItemCatalog {
         case "codexSecondary": return "Codex 주간"
         case "codexSpendLimit": return "Codex 월 크레딧 한도"
         case "codexModelLimits": return "Codex 모델별 한도"
-        case "codexResetCredits": return "Codex 한도 초기화 크레딧"
+        case "codexResetCredits": return "Codex 초기화권"
         case "codexCredits": return "Codex 크레딧"
         default: return nil
         }
@@ -373,22 +392,8 @@ struct CodexItemCatalog: UsageItemCatalog {
             )
 
         case "codexResetCredits":
-            // 보유 크레딧이 있을 때만 표시 — 0개일 때는 노이즈라 숨긴다.
-            guard let resetCredits = context.codexUsage?.resetCredits else { return nil }
-            let availableCount = resetCredits.availableCount()
-            guard availableCount > 0 else { return nil }
-            return PopoverDisplaySection(
-                id: "codexResetCredits",
-                kind: .resetCredits,
-                importance: .primary,
-                payload: .resetCredits(
-                    PopoverResetCreditsSectionData(
-                        availableCount: availableCount,
-                        nextExpiresAtISO: resetCredits.nextExpiringAvailable()?.expiresAtISO,
-                        timeFormatStyle: context.settings.codexTimeFormat
-                    )
-                )
-            )
+            return context.resetCreditsSection(
+                id: itemID, service: .codex, summary: ResetCreditSummary.codex(context.codexUsage))
 
         case "codexCredits":
             if let credits = context.codexUsage?.credits {

@@ -127,9 +127,9 @@ struct PopoverDisplaySectionView: View {
             }
         case .resetCredits(let resetCredits):
             if density.isCompact {
-                CompactCodexResetCreditsRow(data: resetCredits)
+                CompactResetCreditsRow(data: resetCredits)
             } else {
-                CodexResetCreditsView(data: resetCredits)
+                ResetCreditsView(data: resetCredits)
             }
         case .overage(let overage):
             if density.isCompact {
@@ -463,61 +463,62 @@ struct CompactCodexCreditsRow: View {
     }
 }
 
-struct CodexResetCreditsView: View {
+struct ResetCreditsView: View {
     let data: PopoverResetCreditsSectionData
 
     var body: some View {
+        let summary = data.summary
+        let expiring = summary.isExpiringSoon()
         VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
             HStack(spacing: AppDesign.Space.row) {
-                Text("한도 초기화 크레딧")
+                Text("초기화권")
                     .font(AppDesign.Typography.subheadline.weight(.semibold))
                     .lineLimit(1)
+                if data.isNew { ResetCreditNewTag() }
                 Spacer(minLength: 0)
-                Text("\(data.availableCount)개")
-                    .font(AppDesign.Typography.headline)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(data.availableCount > 0 ? Color.accentColor : .secondary)
-                    .fixedSize(horizontal: true, vertical: false)
+                ResetCreditCountText(summary: summary, expiring: expiring, font: AppDesign.Typography.headline)
             }
-
-            if let expiryText {
-                Text(expiryText)
+            if summary.availableCount > 0 {
+                Text([summary.scopeText, summary.expiryText()].compactMap { $0 }.joined(separator: " · "))
                     .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                if expiring {
+                    Text("곧 만료").font(AppDesign.Typography.caption).foregroundStyle(.red)
+                } else if summary.atLimit {
+                    Text("쓰면 한도가 다시 채워집니다").font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                }
             }
         }
         .padding(.vertical, AppDesign.Space.tight)
-    }
-
-    /// "만료: 6일 3시간 후 (7/28(월))" — 주간 한도와 동일한 시간 표기 규칙(1일 이상은 분 생략)
-    private var expiryText: String? {
-        guard let iso = data.nextExpiresAtISO else { return nil }
-        return TimeFormatter.formatRelativeTimeWithClockWeekly(
-            from: iso,
-            style: data.timeFormatStyle,
-            label: "만료"
-        )
+        .help(summary.items.first?.serverTitle ?? "")
     }
 }
 
-struct CompactCodexResetCreditsRow: View {
+struct CompactResetCreditsRow: View {
     let data: PopoverResetCreditsSectionData
 
     var body: some View {
+        let summary = data.summary
+        let expiring = summary.isExpiringSoon()
         HStack(spacing: PopoverLayoutMetrics.compactRowSpacing) {
-            Text("초기화 크레딧")
+            Text(summary.availableCount > 0 ? "초기화권 · \(summary.items.first?.scope.title ?? "")" : "초기화권")
                 .font(AppDesign.Typography.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
-
-            Text("\(data.availableCount)개")
-                .font(AppDesign.Typography.compactValue)
-                .fontWeight(.medium)
-                .foregroundStyle(data.availableCount > 0 ? Color.accentColor : .secondary)
                 .lineLimit(1)
-                .frame(width: PopoverLayoutMetrics.compactRowMeterWidth, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: AppDesign.Space.control) {
+                if data.isNew { ResetCreditNewTag() }
+                if let expiry = summary.expiryText() {
+                    Text(expiry.replacingOccurrences(of: " 뒤 만료", with: ""))
+                        .font(AppDesign.Typography.caption)
+                        .foregroundStyle(expiring ? .red : .secondary)
+                        .lineLimit(1)
+                }
+                ResetCreditCountText(summary: summary, expiring: expiring, font: AppDesign.Typography.caption)
+            }
+            .fixedSize(horizontal: true, vertical: false)
         }
         .frame(
             maxWidth: .infinity,
@@ -525,6 +526,33 @@ struct CompactCodexResetCreditsRow: View {
             maxHeight: PopoverLayoutMetrics.compactCreditsRowHeight,
             alignment: .center
         )
+        .help(summary.items.first?.serverTitle ?? "")
+    }
+}
+
+private struct ResetCreditNewTag: View {
+    var body: some View {
+        Text("신규")
+            .font(AppDesign.Typography.caption2.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
+            .background(Color.accentColor, in: Capsule())
+    }
+}
+
+private struct ResetCreditCountText: View {
+    let summary: ResetCreditSummary
+    let expiring: Bool
+    let font: Font
+
+    var body: some View {
+        Text(summary.availableCount > 0 ? "↺\(summary.availableCount)" : "0개")
+            .font(font)
+            .fontWeight(.semibold)
+            .foregroundStyle(expiring ? Color.red : Color.secondary)
+            .fixedSize(horizontal: true, vertical: false)
+            .accessibilityLabel("초기화권 \(summary.availableCount)개")
     }
 }
 

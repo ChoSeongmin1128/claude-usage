@@ -47,9 +47,8 @@ struct PopoverCreditsSectionData {
 }
 
 struct PopoverResetCreditsSectionData {
-    let availableCount: Int
-    let nextExpiresAtISO: String?
-    let timeFormatStyle: TimeFormatStyle
+    let summary: ResetCreditSummary
+    let isNew: Bool
 }
 
 struct PopoverOverageSectionData {

@@ -344,6 +344,18 @@ class AppSettings: ObservableObject {
     @Published var notificationTargets: NotificationTargetPreferences {
         didSet { if notificationTargets != oldValue { notificationTargets.save(to: defaults) } }
     }
+    @Published private(set) var resetCreditMenuBarModes: [String: String] {
+        didSet { defaults.set(resetCreditMenuBarModes, forKey: Self.resetCreditMenuBarKey) }
+    }
+    static let resetCreditMenuBarKey = AppIdentifiers.defaultsKey("resetCreditMenuBar")
+
+    func resetCreditMenuBarMode(for kind: AppProviderKind) -> ResetCreditMenuBarMode {
+        resetCreditMenuBarModes[kind.rawValue].flatMap(ResetCreditMenuBarMode.init(rawValue:)) ?? .off
+    }
+
+    func setResetCreditMenuBarMode(_ mode: ResetCreditMenuBarMode, for kind: AppProviderKind) {
+        resetCreditMenuBarModes[kind.rawValue] = mode.rawValue
+    }
     private(set) var usageDisplayModeRevision: UInt64 = 0
     @Published var usageDisplayMode: UsageDisplayMode {
         didSet {
@@ -1022,6 +1034,7 @@ class AppSettings: ObservableObject {
             $usageDisplayMode.map { _ in () }.eraseToAnyPublisher(),
             $menuBarStyle.map { _ in () }.eraseToAnyPublisher(),
             $menuBarColorMode.map { _ in () }.eraseToAnyPublisher(),
+            $resetCreditMenuBarModes.map { _ in () }.eraseToAnyPublisher(),
             $percentageDisplay.map { _ in () }.eraseToAnyPublisher(),
             $showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
             $resetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
@@ -1556,6 +1569,13 @@ class AppSettings: ObservableObject {
         let storedAlertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
         self.alertRemainingMode = storedAlertRemainingMode
         self.notificationTargets = NotificationTargetPreferences.load(from: defaults)
+        // 기존 사용자는 끔, 새 사용자는 항상으로 시작한다.
+        self.resetCreditMenuBarModes =
+            defaults.dictionary(forKey: Self.resetCreditMenuBarKey) as? [String: String]
+            ?? Dictionary(
+                uniqueKeysWithValues: [AppProviderKind.claude, .codex].map {
+                    ($0.rawValue, (experience.isExistingInstall ? ResetCreditMenuBarMode.off : .always).rawValue)
+                })
         self.notificationPresets = Self.migrateNotificationPresets(from: defaults, commonRemainingMode: storedAlertRemainingMode)
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
         self.circularDisplayMode = CircularDisplayMode(rawValue: cdm) ?? .usage

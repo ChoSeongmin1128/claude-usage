@@ -21,6 +21,7 @@ final class UsageItemCatalogTests: XCTestCase {
                 PopoverItemConfig(id: "weeklyLimit", visible: false),
                 PopoverItemConfig(id: "currentSession", visible: true),
                 PopoverItemConfig(id: "modelUsage", visible: true),
+                PopoverItemConfig(id: "claudeResetCredits", visible: true),
                 PopoverItemConfig(id: "overageUsage", visible: true),
             ]
         )
@@ -39,7 +40,7 @@ final class UsageItemCatalogTests: XCTestCase {
         XCTAssertFalse(normalized.contains { $0.id == "activeAccount" })
         XCTAssertEqual(
             normalized.map(\.id),
-            ["currentSession", "weeklyLimit", "modelUsage", "overageUsage"]
+            ["currentSession", "weeklyLimit", "modelUsage", "claudeResetCredits", "overageUsage"]
         )
     }
 

@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var lastPopoverOpenedAt: Date?
     var resetFollowUpTimers: [PopoverService: Timer] = [:]
     var popoverCloseObserver: NSObjectProtocol?
+    var resetCreditViewedServices: Set<PopoverService> = []
     let updateCoordinator = AppUpdateCoordinator()
     lazy var apiService = ClaudeAPIService()
     let codexAPIService = CodexAPIService(authManager: CodexAuthManager.shared)

@@ -102,6 +102,7 @@ struct MenuBarProviderRenderKey: Equatable, Sendable {
     let accessibilityLabel: String?
     let accessibilityValue: String?
     let isStale: Bool
+    var resetCreditBadge: String? = nil
 }
 
 struct MenuBarRenderKey: Equatable, Sendable {

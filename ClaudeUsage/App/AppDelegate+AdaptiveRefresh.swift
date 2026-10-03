@@ -35,6 +35,7 @@ extension AppDelegate {
             let closedID = (notification.object as? NSPopover).map(ObjectIdentifier.init)
             MainActor.assumeIsolated {
                 guard let self, let popover = self.popover, closedID == ObjectIdentifier(popover) else { return }
+                self.markViewedResetCreditsSeen()
                 self.syncRefreshTimerState()
             }
         }

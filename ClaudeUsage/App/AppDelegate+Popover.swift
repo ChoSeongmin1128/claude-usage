@@ -151,6 +151,7 @@ extension AppDelegate {
     }
 
     func refreshServiceIfNeededOnTabSwitch(_ service: PopoverService) {
+        resetCreditViewedServices.insert(service)
         guard let action = RefreshOrchestration.actionForTabSwitch(
                 state: runtimePresentationState(for: service)
         ) else { return }

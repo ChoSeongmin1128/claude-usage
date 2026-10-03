@@ -15,6 +15,7 @@ nonisolated struct LimitSettingsRow: Identifiable, Equatable, Sendable {
     var notificationLimit: UsageLimit?
     /// 조회 전이라 아직 알림 대상이 없지만 조회되면 생기는 줄
     var takesNotification = false
+    var controlsResetCreditMenuBar = false
 }
 
 nonisolated enum LimitSettingsTable {
@@ -60,6 +61,10 @@ nonisolated enum LimitSettingsTable {
                 ]
             case (.codex, "codexModelLimits"):
                 return [row()] + children { $0.scope.hasPrefix("model:") }
+            case (.claude, "claudeResetCredits"), (.codex, "codexResetCredits"):
+                var resetRow = row()
+                resetRow.controlsResetCreditMenuBar = true
+                return [resetRow]
             default:
                 return [row()]
             }

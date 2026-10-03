@@ -119,6 +119,19 @@ nonisolated struct ResetCreditSummary: Equatable, Sendable {
         return expiry.timeIntervalSince(now) <= Self.expiringWindow
     }
 
+    /// "2일 3시간 뒤 만료"처럼 남은 시간을 일과 시간으로 쓴다.
+    func expiryText(now: Date = Date()) -> String? {
+        guard let expiry = nextExpiry else { return nil }
+        let hours = max(1, Int((expiry.timeIntervalSince(now) / 3600).rounded(.up)))
+        let text = hours < 24 ? "\(hours)시간" : hours % 24 == 0 ? "\(hours / 24)일" : "\(hours / 24)일 \(hours % 24)시간"
+        return "\(text) 뒤 만료"
+    }
+
+    var scopeText: String {
+        let scope = items.first?.scope.title ?? Scope.all.title
+        return availableCount > 1 ? "\(scope) 외 \(availableCount - 1)개" : scope
+    }
+
     func hasNewItems(seen: Set<String>) -> Bool {
         availableCount > 0 && items.contains { !seen.contains($0.id) }
     }
