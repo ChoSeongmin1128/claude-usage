@@ -4,12 +4,12 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>Version 2.8.0-stg.6</title>
-            <pubDate>Sun, 04 Oct 2026 03:11:21 +0900</pubDate>
-            <sparkle:version>20631</sparkle:version>
-            <sparkle:shortVersionString>2.8.0-stg.6</sparkle:shortVersionString>
+            <title>Version 2.8.0-stg.7</title>
+            <pubDate>Sun, 04 Oct 2026 04:19:40 +0900</pubDate>
+            <sparkle:version>20632</sparkle:version>
+            <sparkle:shortVersionString>2.8.0-stg.7</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.8.0-stg.6/ClaudeUsage.dmg" length="6765503" type="application/octet-stream" sparkle:edSignature="pMW1riej0sG3nj55yEyVf/Pwvz06bQx3NBdNORaCcRW3N/Rd1YgrRxPJ/cslWqDN0G0pyOY4iwudsZ1X+hSDBg=="></enclosure>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.8.0-stg.7/ClaudeUsage.dmg" length="6770558" type="application/octet-stream" sparkle:edSignature="9B1Pkssi6phw3zmuEW0yEokg/JPHT1UIT7r/i7/3aJHHTw34ZlY691M6LCx5JEjSlcA6KyinT/BshMZf2+MACQ=="></enclosure>
             <description sparkle:format="plain-text"># 2.8.0
 
 ## 여러 계정
@@ -119,10 +119,10 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 
 - 새 기능이 있는 버전으로 업데이트하면 짧은 안내를 한 번 보여줍니다. 업데이트 패널의 "새 기능 다시 보기"로 다시 볼 수 있습니다. 새로 설치하면 보이지 않습니다.
 </description>
-            <claudeusage:zipSHA256>6ce10dbbede9a80463db48170f69306a56684bdc8b059e6a3fbff74f0a7632d8</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>f8a055e2ed789ce7d899b681f8e51a1f9c5837b902ae2ee1ac50468e8886837f</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 0M7vWzfd1vNWqQxn4jd7uVGYhWV+zfbz1iF7SmbKFIcyue3RLu0ngzU3vFsgM+okRUG8Rv/UEjnZ5CFd1EuTBA==
+edSignature: 6qJird5VXeEYp30o9lnGtNY0wSD40kI2ySv7kSQfQ3/FEM650IlT5UUFkKTH0j8KJcnioFYrw1zCH3Kr9kziBQ==
 length: 13462
 -->
