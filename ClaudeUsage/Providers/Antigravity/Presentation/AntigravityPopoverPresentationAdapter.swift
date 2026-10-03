@@ -151,7 +151,7 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
         case .noAmbientLocalSession:
             "Antigravity 앱 또는 AGY CLI에 로그인한 뒤 로컬 세션 조회를 다시 시도해 주세요."
         case .usageTargetSelection:
-            "설정에서 AGY CLI와 Antigravity 독립 앱 중 조회할 제품을 선택해 주세요."
+            "AGY CLI에 로그인한 뒤 새로고침해 주세요."
         case .ambiguousLocalSessions:
             "선택한 제품의 실행마다 계정이 다르거나 확인되지 않았습니다. 이전 실행을 종료하고 새로고침해 주세요."
         }

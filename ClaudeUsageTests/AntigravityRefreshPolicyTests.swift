@@ -72,11 +72,14 @@ final class AntigravityRefreshPolicyTests: XCTestCase {
         XCTAssertEqual(AntigravitySourcePlanner.plannedSources(target: .cli), [.cliReport])
     }
 
-    func testAppTargetNeverPlansTheCLIOrRemoteOAuth() {
-        XCTAssertEqual(AntigravitySourcePlanner.plannedSources(target: .app), [.localApp])
-    }
-
-    func testUnselectedTargetPlansNothing() {
-        XCTAssertEqual(AntigravitySourcePlanner.plannedSources(target: .unselected), [])
+    func testEveryStoredTargetPlansOnlyTheCLIReport() {
+        for target in AntigravityUsageTarget.allCases {
+            XCTAssertEqual(AntigravitySourcePlanner.plannedSources(target: target), [.cliReport])
+            let request = AntigravityRefreshRequest(
+                trigger: .manual, repositoryRevision: 0,
+                connection: AntigravityConnectionSettings(
+                    schemaVersion: AntigravityConnectionSettings.currentSchemaVersion, usageTarget: target))
+            XCTAssertEqual(request.target, .cli)
+        }
     }
 }

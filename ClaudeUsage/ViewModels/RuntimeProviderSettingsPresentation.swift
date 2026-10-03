@@ -20,7 +20,6 @@ struct RuntimeProviderAuthPresentation: Sendable, Equatable {
 
     enum AvailableAction: String, Sendable, Equatable {
         case enableService
-        case openAntigravityApp
     }
 
     let stage: RuntimeProviderAuthStage
@@ -154,16 +153,16 @@ enum RuntimeProviderSettingsPresentation {
                 badgeTone: .red,
                 summary:
                     "이전 조회 경로는 지원하지 않습니다",
-                nextStepTitle: "조회 대상 선택",
+                nextStepTitle: "AGY CLI 확인",
                 nextStepDetail:
-                    "AGY CLI와 Antigravity 독립 앱 중 조회할 제품을 선택해 주세요.",
+                    "AGY CLI에 로그인한 뒤 새로고침해 주세요.",
                 availableAction: nil
             )
         case .setupRequired(.usageTargetSelection):
             return .init(
                 stage: .unsupportedConfiguration, badgeTitle: "대상 선택", badgeTone: .orange,
-                summary: "조회 대상을 선택해 주세요", nextStepTitle: "조회 대상 선택",
-                nextStepDetail: "AGY CLI와 Antigravity 독립 앱 중 사용할 제품을 선택해 주세요.", availableAction: nil)
+                summary: "AGY CLI를 확인해 주세요", nextStepTitle: "AGY CLI 확인",
+                nextStepDetail: "AGY CLI에 로그인한 뒤 새로고침해 주세요.", availableAction: nil)
         case .setupRequired(.ambiguousLocalSessions):
             return .init(
                 stage: .waitingForApp, badgeTitle: "연결 확인", badgeTone: .orange,
@@ -174,14 +173,14 @@ enum RuntimeProviderSettingsPresentation {
         ):
             return .init(
                 stage: .waitingForApp,
-                badgeTitle: "앱 필요",
+                badgeTitle: "로그인 필요",
                 badgeTone: .orange,
                 summary:
-                    "로그인된 로컬 Antigravity 세션이 없습니다",
-                nextStepTitle: "Antigravity 앱 열기",
+                    "AGY CLI 로그인을 찾지 못했습니다",
+                nextStepTitle: "AGY CLI 로그인",
                 nextStepDetail:
-                    "앱에서 로그인을 완료한 뒤 다시 확인해 주세요.",
-                availableAction: .openAntigravityApp
+                    "터미널에서 agy를 실행해 로그인한 뒤 다시 확인해 주세요.",
+                availableAction: nil
             )
         case .accountMismatch:
             return .init(

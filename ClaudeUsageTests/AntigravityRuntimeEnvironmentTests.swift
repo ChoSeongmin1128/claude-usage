@@ -183,14 +183,12 @@ final class AntigravityRuntimeEnvironmentTests: XCTestCase {
         XCTAssertEqual(availability, .unavailable(reason: .executableNotFound))
     }
 
-    func testForceDiscoveryInvalidatesWithoutRebuilding() async throws {
+    func testForcedRefreshReusesTheBuiltGeneration() async throws {
         let fixture = EnvironmentFixture()
         let environment = fixture.environment()
         _ = try await Self.sourceGeneration(environment)
         _ = try await environment.withSources(forceDiscovery: true, deadline: .init()) { _ in true }
-        let count = fixture.discovery.invalidations
         let builds = await fixture.builds
-        XCTAssertEqual(count, 1)
         XCTAssertEqual(builds, 1)
         await environment.shutdown()
     }
@@ -252,7 +250,6 @@ private actor EnvironmentFixture {
     var cleanups = 0
     var status: AntigravityAGYExecutableDiscoveryStatus
     var mutateDuringBuild = false
-    let discovery = EnvironmentDiscovery()
 
     init(status: AntigravityAGYExecutableDiscoveryStatus = .verified(displayPath: "test-agy")) { self.status = status }
     nonisolated func environment() -> AntigravityRuntimeEnvironment {
@@ -271,7 +268,7 @@ private actor EnvironmentFixture {
         if mutateDuringBuild { revision += 1 }
         let sources: [any AntigravityUsageSource] =
             if case .verified = status { [EnvironmentReportSource(generation: builds)] } else { [] }
-        return .init(sources: sources, discovery: discovery, executableStatus: status)
+        return .init(sources: sources, executableStatus: status)
     }
 }
 
@@ -281,16 +278,6 @@ private struct EnvironmentReportSource: AntigravityUsageSource {
 
     func fetch(_ request: AntigravityUsageSourceRequest) async throws -> AntigravityUsageSourceResponse {
         throw AntigravityUsageSourceError.unavailable
-    }
-}
-
-private nonisolated final class EnvironmentDiscovery: AntigravityRuntimeDiscovering, @unchecked Sendable {
-    private let lock = NSLock()
-    private var count = 0
-    var invalidations: Int { lock.withLock { count } }
-    func invalidateCache() async { lock.withLock { count += 1 } }
-    func discover(deadline: AntigravityRPCDeadline) async throws -> AntigravityRuntimeDiscoverySnapshot {
-        .init(installations: [], processes: [], endpoints: [], observedAt: Date())
     }
 }
 

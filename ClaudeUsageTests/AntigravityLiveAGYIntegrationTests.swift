@@ -139,15 +139,8 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
 
         // The CLI target reads only the report, through the same coordinator
         // path that production refreshes use.
-        let appDiscovery = AntigravityLocalRuntimeComposition.makeProduction(catalog: resolution.catalog)
         let coordinator = AntigravityRefreshCoordinator(
-            repository: LiveAGYRefreshRepository(),
-            sources: [
-                AntigravityDiscoveredLocalUsageSource(
-                    id: .localApp, discovery: appDiscovery.discovery, client: appDiscovery.localRPCClient),
-                source,
-            ]
-        )
+            repository: LiveAGYRefreshRepository(), sources: [source])
         let automatic = await coordinator.refresh(
             AntigravityRefreshRequest(trigger: .manual, repositoryRevision: 0, connection: .default))
         switch automatic {

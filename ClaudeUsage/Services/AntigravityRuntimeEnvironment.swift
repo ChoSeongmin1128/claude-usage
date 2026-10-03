@@ -33,7 +33,6 @@ nonisolated struct AntigravityInstallationFingerprint: Sendable, Equatable {
 /// All local dependencies in a lease come from this one immutable graph.
 nonisolated struct AntigravityLocalRuntimeGeneration: Sendable {
     let sources: [any AntigravityUsageSource]
-    let discovery: any AntigravityRuntimeDiscovering
     let executableStatus: AntigravityAGYExecutableDiscoveryStatus
 }
 
@@ -98,7 +97,6 @@ actor AntigravityRuntimeEnvironment: AntigravityRuntimeLifecycling {
         let localSources: [any AntigravityUsageSource]
         do {
             let generation = try await prepare(deadline: deadline)
-            if forceDiscovery { await generation.discovery.invalidateCache() }
             try check(deadline)
             var sources = generation.sources
             // The CLI source stays present even without a verified executable
@@ -109,9 +107,7 @@ actor AntigravityRuntimeEnvironment: AntigravityRuntimeLifecycling {
             }
             localSources = sources
         } catch let reason as AntigravityRuntimeFailure {
-            localSources = [.localApp, .cliReport].map {
-                AntigravityUnavailableRuntimeSource(id: $0, reason: reason)
-            }
+            localSources = [AntigravityUnavailableRuntimeSource(id: .cliReport, reason: reason)]
         }
         try check(deadline)
         return await operation(localSources)
@@ -255,11 +251,7 @@ extension AntigravityRuntimeEnvironment {
                     let resolution = AntigravityProductionExecutableCatalogResolver(
                         homeDirectoryURL: homeDirectoryURL, environment: environment
                     ).resolve()
-                    let runtime = AntigravityLocalRuntimeComposition.makeProduction(catalog: resolution.catalog)
-                    var sources: [any AntigravityUsageSource] = [
-                        AntigravityDiscoveredLocalUsageSource(
-                            id: .localApp, discovery: runtime.discovery, client: runtime.localRPCClient)
-                    ]
+                    var sources: [any AntigravityUsageSource] = []
                     if let executable = resolution.reportExecutable {
                         sources.append(
                             AntigravityCLIUsageReportSource(
@@ -273,8 +265,7 @@ extension AntigravityRuntimeEnvironment {
                             ))
                     }
                     return AntigravityLocalRuntimeGeneration(
-                        sources: sources, discovery: runtime.discovery,
-                        executableStatus: resolution.agyExecutableStatus)
+                        sources: sources, executableStatus: resolution.agyExecutableStatus)
                 }.value
             },
             legacyCleanup: { _ = await legacyCleanup.cleanUp() }

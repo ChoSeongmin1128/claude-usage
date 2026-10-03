@@ -122,7 +122,7 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
 
         XCTAssertEqual(presentation.stage, .authRequired)
         XCTAssertEqual(presentation.badgeTitle, "계정 필요")
-        XCTAssertEqual(presentation.nextStepTitle, "조회 대상 선택")
+        XCTAssertEqual(presentation.nextStepTitle, "AGY CLI 확인")
         XCTAssertNil(presentation.availableAction)
     }
 
@@ -137,8 +137,8 @@ final class RuntimeProviderSettingsPresentationTests: XCTestCase {
         )
 
         XCTAssertEqual(presentation.stage, .waitingForApp)
-        XCTAssertEqual(presentation.badgeTitle, "앱 필요")
-        XCTAssertEqual(presentation.availableAction, .openAntigravityApp)
+        XCTAssertEqual(presentation.badgeTitle, "로그인 필요")
+        XCTAssertNil(presentation.availableAction)
     }
 
     func testAccountMismatchDoesNotExposeNumbersOrRecoveryShortcut() {

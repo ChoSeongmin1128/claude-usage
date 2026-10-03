@@ -92,7 +92,7 @@ final class AntigravityRuntimeControllerTests:
         XCTAssertEqual(writes, 0)
     }
 
-    func testPersistedLocalSelectionDoesNotRequireAnOAuthAccount() async {
+    func testPersistedAppSelectionRefreshesTheCLIWithoutRewritingIt() async {
         var connection = AntigravityConnectionSettings.default
         connection.usageTarget = .app
         let fixture = makeFixture(activeAccountID: nil, connection: connection)
@@ -101,7 +101,7 @@ final class AntigravityRuntimeControllerTests:
         let writes = await fixture.settings.connectionSaveCount()
         XCTAssertNil(result.activeAccountID)
         XCTAssertEqual(result.settings?.connection.usageTarget, .app)
-        XCTAssertEqual(requests.last?.target, .app)
+        XCTAssertEqual(requests.last?.target, .cli)
         XCTAssertEqual(writes, 0)
     }
 
@@ -160,7 +160,7 @@ final class AntigravityRuntimeControllerTests:
         )
         XCTAssertEqual(
             requests.first?.target,
-            .app
+            .cli
         )
         XCTAssertEqual(
             selectionCount,
