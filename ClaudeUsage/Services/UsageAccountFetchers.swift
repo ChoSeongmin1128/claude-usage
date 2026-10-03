@@ -116,9 +116,9 @@ enum ClaudeCodeDirectoryAccount {
             email: account["emailAddress"] as? String, organizationName: account["organizationName"] as? String)
     }
 
-    /// 파일 로그인을 먼저 보고, 없으면 그 폴더의 Keychain 항목을 확인 창 없이 읽는다.
-    /// "항상 허용"을 받기 전에는 needsPermission이고, 사용자가 누를 때만 interactive로 읽는다.
-    nonisolated static func readToken(configDirectory: URL, interactive: Bool) -> TokenRead {
+    /// 파일 로그인을 먼저 보고, 없으면 그 폴더의 Keychain 항목을 Claude Code와 같은 `security` 도구로 읽는다.
+    /// 그 도구로 못 읽을 때만 직접 읽으며, 확인 창은 사용자가 누를 때(interactive)만 띄운다.
+    nonisolated static func readToken(configDirectory: URL, interactive: Bool) async -> TokenRead {
         for name in [".credentials.json", "credentials.json"] {
             if let data = try? Data(contentsOf: configDirectory.appendingPathComponent(name)),
                 let token = parse(data)
@@ -129,6 +129,11 @@ enum ClaudeCodeDirectoryAccount {
         let service = ClaudeCodeCredentialReader.keychainServiceName(
             for: configDirectory, homeDirectory: FileManager.default.realHomeDirectory,
             usesExplicitConfigDirectory: true)
+        switch await ClaudeCodeKeychainCLI.read(service: service) {
+        case .payload(let payload): return parse(Data(payload.utf8)) ?? .missing
+        case .notFound: return .missing
+        case .failed: break
+        }
         let outcome =
             interactive
             ? KeychainAccessPreflight.readGenericPasswordInteractively(
@@ -152,18 +157,26 @@ enum ClaudeCodeDirectoryAccount {
 
     /// 토큰이 곧 끝나면 그 폴더의 Claude Code가 스스로 갱신하게 한다. `/usage`는 모델을 부르지 않는다.
     /// 로그인되지 않은 폴더에서도 `/usage`는 성공으로 끝나므로 먼저 `auth status`로 확인한다.
-    nonisolated static func refreshViaCLI(configDirectory: URL, workDirectory: URL) async -> Bool {
+    /// configDirectory가 nil이면 기본 로그인이다. 기본 폴더를 CLAUDE_CONFIG_DIR로 주면 Keychain 이름이 달라진다.
+    nonisolated static func refreshViaCLI(configDirectory: URL?, workDirectory: URL) async -> Bool {
         guard let claude = executable() else { return false }
         try? FileManager.default.createDirectory(at: workDirectory, withIntermediateDirectories: true)
-        let environment = [
-            "HOME": FileManager.default.realHomeDirectory.path, "CLAUDE_CONFIG_DIR": configDirectory.path,
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8",
-        ]
+        let environment = cliEnvironment(configDirectory: configDirectory)
         guard let status = await run(claude, ["auth", "status", "--json"], environment, workDirectory),
             let object = try? JSONSerialization.jsonObject(with: status) as? [String: Any],
             object["loggedIn"] as? Bool == true
         else { return false }
         return await run(claude, ["-p", "/usage", "--no-session-persistence"], environment, workDirectory) != nil
+    }
+
+    /// Claude Code는 Keychain 항목을 USER 계정 이름으로 찾는다. USER가 없으면 로그인돼 있어도 로그아웃으로 본다.
+    nonisolated static func cliEnvironment(configDirectory: URL?) -> [String: String] {
+        var environment = [
+            "HOME": FileManager.default.realHomeDirectory.path, "USER": NSUserName(), "LOGNAME": NSUserName(),
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "en_US.UTF-8",
+        ]
+        if let configDirectory { environment["CLAUDE_CONFIG_DIR"] = configDirectory.path }
+        return environment
     }
 
     nonisolated static func fetchUsage(accessToken: String, session: URLSession = .shared) async throws

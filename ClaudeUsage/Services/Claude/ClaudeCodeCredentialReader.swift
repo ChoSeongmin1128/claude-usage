@@ -91,6 +91,8 @@ nonisolated enum ClaudeOAuthCredentialReadError: LocalizedError, Sendable {
 }
 
 actor ClaudeCodeCredentialReader {
+    typealias CLIKeychainPayloadReader = @Sendable (_ service: String) async -> ClaudeCodeKeychainCLI.Outcome
+    typealias CLIRefresher = @Sendable (_ configDirectory: URL?) async -> Bool
     typealias InteractiveKeychainPayloadReader = @Sendable (
         _ service: String,
         _ account: String?,
@@ -102,6 +104,9 @@ actor ClaudeCodeCredentialReader {
     private let usesScopedKeychainService: Bool
     private let profileMetadataStore: ClaudeProfileMetadataStore?
     private let interactiveKeychainPayloadReader: InteractiveKeychainPayloadReader
+    private let cliKeychainPayloadReader: CLIKeychainPayloadReader
+    private let cliRefresher: CLIRefresher
+    private var lastCLIRefreshAt: Date?
     private let tokenRefresher: ClaudeOAuthTokenRefresher
     private let appCredentialVault: any ClaudeOAuthCredentialVault
     private let cacheTTL: TimeInterval
@@ -136,6 +141,11 @@ actor ClaudeCodeCredentialReader {
                 account: account,
                 localizedReason: reason
             )
+        },
+        cliKeychainPayloadReader: CLIKeychainPayloadReader? = nil,
+        cliRefresher: @escaping CLIRefresher = { configDirectory in
+            await ClaudeCodeDirectoryAccount.refreshViaCLI(
+                configDirectory: configDirectory, workDirectory: UsageAccountsController.cliWorkDirectory)
         }
     ) {
         let environmentConfigDirectory = Self.explicitClaudeConfigDirectoryFromEnvironment()
@@ -152,6 +162,19 @@ actor ClaudeCodeCredentialReader {
         self.cacheTTL = cacheTTL
         self.now = now
         self.interactiveKeychainPayloadReader = interactiveKeychainPayloadReader
+        // Keychain은 홈 폴더가 아니라 사용자 단위라, 다른 홈을 쓰는 reader나 테스트가 실제 사용자의
+        // Claude Code 로그인을 읽지 않게 한다.
+        let readsUserKeychain =
+            !AppRuntimeEnvironment.isRunningUnitTests
+            && homeDirectory.standardizedFileURL.path
+                == FileManager.default.realHomeDirectory.standardizedFileURL.path
+        let userKeychainReader: CLIKeychainPayloadReader = { @Sendable service in
+            await ClaudeCodeKeychainCLI.read(service: service)
+        }
+        let noKeychainReader: CLIKeychainPayloadReader = { @Sendable _ in .failed }
+        self.cliKeychainPayloadReader =
+            cliKeychainPayloadReader ?? (readsUserKeychain ? userKeychainReader : noKeychainReader)
+        self.cliRefresher = cliRefresher
     }
 
     // After a failed write-back the app's copy holds the only current refresh
@@ -185,14 +208,14 @@ actor ClaudeCodeCredentialReader {
         return nil
     }
 
-    /// Refreshes the active Claude credential inventory without touching the
-    /// Claude CLI-owned Keychain item.
+    /// Refreshes the active Claude credential inventory without any password dialog.
     ///
     /// Classic Keychain ACL items can surface an Allow/Deny password dialog even
-    /// when a SecItem query requests no UI. Therefore automatic bootstrap,
-    /// account switching, and usage refreshes are restricted to the app vault and
-    /// credential files. The CLI Keychain is read only by
-    /// `importActiveCLICredential()` after an explicit user action.
+    /// when a SecItem query requests no UI, so automatic paths never query the
+    /// CLI-owned item through SecItem. They read it only through
+    /// `/usr/bin/security`, which the item's ACL trusts because Claude Code
+    /// writes it with that tool. The SecItem read stays in
+    /// `importActiveCLICredential()` as an explicit fallback.
     func refreshCredentialInventoryWithoutUI() async throws -> ClaudeOAuthCredentialInventoryRefresh {
         let previousAccessToken: String?
         if let cachedAccessToken = cachedResult?.credential?.accessToken {
@@ -341,11 +364,19 @@ actor ClaudeCodeCredentialReader {
             homeDirectory: homeDirectory,
             usesExplicitConfigDirectory: usesScopedKeychainService
         )
-        let outcome = interactiveKeychainPayloadReader(
-            service,
-            NSUserName(),
-            "Claude Code 로그인을 \(AppDistribution.current.appName)에 연결합니다."
-        )
+        let outcome: KeychainAccessPreflight.ReadOutcome
+        switch await cliKeychainPayloadReader(service) {
+        case .payload(let payload):
+            outcome = .value(payload)
+        case .notFound:
+            outcome = .notFound
+        case .failed:
+            outcome = interactiveKeychainPayloadReader(
+                service,
+                NSUserName(),
+                "Claude Code 로그인을 \(AppDistribution.current.appName)에 연결합니다."
+            )
+        }
         switch outcome {
         case .value(let payload):
             let keychainCredential = parseCredential(
@@ -550,6 +581,10 @@ actor ClaudeCodeCredentialReader {
             break
         }
 
+        if let current = await currentCLIKeychainCredential(replacing: vaultCredential) {
+            return current
+        }
+
         if let vaultCredential {
             guard !vaultCredential.isExpired else {
                 Logger.warning("앱 OAuth vault mirror가 만료되어 활성 CLI credential 연결이 필요합니다")
@@ -621,6 +656,14 @@ actor ClaudeCodeCredentialReader {
             break
         }
 
+        if let current = await currentCLIKeychainCredential(replacing: vaultCredential) {
+            return ClaudeOAuthCredentialInventoryRefresh(
+                accessToken: current.accessToken,
+                credentialChanged: previousAccessToken != nil
+                    && previousAccessToken != current.accessToken
+            )
+        }
+
         guard let vaultCredential, !vaultCredential.isExpired else {
             if vaultCredential?.isExpired == true {
                 Logger.warning("credential inventory의 CLI mirror가 만료되었습니다")
@@ -637,6 +680,45 @@ actor ClaudeCodeCredentialReader {
             credentialChanged: previousAccessToken != nil
                 && previousAccessToken != vaultCredential.accessToken
         )
+    }
+
+    /// 자격 증명 파일이 없으면 Claude Code의 현재 Keychain 로그인을 확인 창 없이 읽어 앱 사본을 맞춘다.
+    /// 토큰이 만료돼 있으면 앱이 직접 갱신하지 않고(Claude Code의 refresh token이 바뀜) Claude Code가
+    /// 스스로 갱신하게 한 뒤 다시 읽는다. 읽지 못하면 nil을 돌려주고 기존 앱 사본 규칙을 따른다.
+    private func currentCLIKeychainCredential(
+        replacing vaultCredential: ClaudeCodeOAuthCredential?
+    ) async -> ClaudeCodeOAuthCredential? {
+        let service = Self.keychainServiceName(
+            for: claudeConfigDirectory,
+            homeDirectory: homeDirectory,
+            usesExplicitConfigDirectory: usesScopedKeychainService
+        )
+        guard case .payload(var payload) = await cliKeychainPayloadReader(service),
+            var credential = parseCredential(from: payload, source: .keychain(service: service))
+        else { return nil }
+        if credential.isExpired, shouldDelegateCLIRefresh(),
+            await cliRefresher(usesScopedKeychainService ? claudeConfigDirectory : nil),
+            case .payload(let refreshedPayload) = await cliKeychainPayloadReader(service),
+            let refreshed = parseCredential(from: refreshedPayload, source: .keychain(service: service))
+        {
+            payload = refreshedPayload
+            credential = refreshed
+        }
+        guard !credential.isExpired else { return nil }
+        if vaultCredential?.accessToken == credential.accessToken {
+            lastReadError = nil
+            cachedResult = CachedResult(credential: credential, storedAt: now())
+        } else {
+            _ = await finishExplicitImport(credential, replacing: vaultCredential, metadataPayload: payload)
+        }
+        return credential
+    }
+
+    /// Claude Code를 쓰지 않는 동안 매 조회마다 CLI를 띄우지 않도록 갱신 위임 간격을 둔다.
+    private func shouldDelegateCLIRefresh() -> Bool {
+        if let lastCLIRefreshAt, now().timeIntervalSince(lastCLIRefreshAt) < 600 { return false }
+        lastCLIRefreshAt = now()
+        return true
     }
 
     private static func shouldPreferVaultCredential(

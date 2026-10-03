@@ -23,7 +23,9 @@ final class UsageAccountsController: ObservableObject {
         preferences = UsageAccountPreferences.load(from: defaults)
     }
 
-    var workDirectory: URL {
+    var workDirectory: URL { Self.cliWorkDirectory }
+
+    nonisolated static var cliWorkDirectory: URL {
         CodexHomeAccount.managedRoot.deletingLastPathComponent().appendingPathComponent(
             "claude-cli-work", isDirectory: true)
     }
@@ -179,12 +181,12 @@ final class UsageAccountsController: ObservableObject {
     }
 
     private func fetchClaudeDirectory(_ directory: URL, interactive: Bool) async throws -> ClaudeUsageResponse {
-        var read = ClaudeCodeDirectoryAccount.readToken(configDirectory: directory, interactive: interactive)
+        var read = await ClaudeCodeDirectoryAccount.readToken(configDirectory: directory, interactive: interactive)
         if case .token(_, let expiresAt?) = read, expiresAt.timeIntervalSinceNow < 300 {
             guard
                 await ClaudeCodeDirectoryAccount.refreshViaCLI(configDirectory: directory, workDirectory: workDirectory)
             else { throw UsageAccountFetchError.loginExpired }
-            read = ClaudeCodeDirectoryAccount.readToken(configDirectory: directory, interactive: false)
+            read = await ClaudeCodeDirectoryAccount.readToken(configDirectory: directory, interactive: false)
         }
         switch read {
         case .token(let token, _): return try await ClaudeCodeDirectoryAccount.fetchUsage(accessToken: token)

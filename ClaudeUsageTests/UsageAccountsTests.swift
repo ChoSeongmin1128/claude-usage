@@ -166,6 +166,17 @@ final class UsageAccountSourceTests: XCTestCase {
         XCTAssertNil(ClaudeCodeDirectoryAccount.parse(Data("{}".utf8)))
     }
 
+    func testClaudeCLIEnvironmentCarriesUserSoClaudeCodeFindsItsKeychainLogin() {
+        let folder = URL(fileURLWithPath: "/tmp/.claude-work")
+        let scoped = ClaudeCodeDirectoryAccount.cliEnvironment(configDirectory: folder)
+        let main = ClaudeCodeDirectoryAccount.cliEnvironment(configDirectory: nil)
+
+        XCTAssertEqual(scoped["USER"], NSUserName())
+        XCTAssertEqual(scoped["CLAUDE_CONFIG_DIR"], folder.path)
+        XCTAssertEqual(main["USER"], NSUserName())
+        XCTAssertNil(main["CLAUDE_CONFIG_DIR"])
+    }
+
     func testCodexHomesNeedAuthFileAndSkipLookalikeFolders() throws {
         let claims = Data(#"{"email":"me@example.com"}"#.utf8).base64EncodedString()
             .replacingOccurrences(of: "=", with: "")

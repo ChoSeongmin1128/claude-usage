@@ -930,6 +930,81 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
             to: config.appendingPathComponent(".credentials.json"), atomically: true, encoding: .utf8)
     }
 
+    func testMissingFileReadsCurrentClaudeCodeKeychainThroughSecurityToolWithoutPrompt() async throws {
+        let vault = OAuthVaultStub(
+            payload: Self.credentialJSON(token: "stale-copy", expiresAt: #""2000-01-01T00:00:00Z""#))
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            XCTFail("확인 창을 띄우는 직접 읽기를 하면 안 됩니다")
+            return .cancelled
+        }
+        let cli = CLIKeychainStub([.payload(Self.credentialJSON(token: "current-token"))])
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: try makeTemporaryHome(),
+            appCredentialVault: vault,
+            interactiveKeychainPayloadReader: { service, account, reason in
+                interactive.read(service: service, account: account, reason: reason)
+            },
+            cliKeychainPayloadReader: { await cli.read($0) },
+            cliRefresher: { _ in
+                XCTFail("만료되지 않은 로그인은 Claude Code에 갱신을 맡기지 않습니다")
+                return false
+            }
+        )
+
+        let token = try await reader.readAccessToken()
+
+        XCTAssertEqual(token, "current-token")
+        XCTAssertEqual(cli.services, ["Claude Code-credentials"])
+        XCTAssertEqual(vault.saveCount, 1)
+        XCTAssertTrue(interactive.calls.isEmpty)
+    }
+
+    func testExpiredClaudeCodeKeychainIsRefreshedByClaudeCodeAndReadAgain() async throws {
+        let cli = CLIKeychainStub([
+            .payload(Self.credentialJSON(token: "expired", expiresAt: #""2000-01-01T00:00:00Z""#)),
+            .payload(Self.credentialJSON(token: "refreshed-by-claude-code")),
+        ])
+        let refreshes = CLIKeychainStub([])
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: try makeTemporaryHome(),
+            appCredentialVault: OAuthVaultStub(),
+            cliKeychainPayloadReader: { await cli.read($0) },
+            cliRefresher: { directory in
+                XCTAssertNil(directory, "기본 로그인은 CLAUDE_CONFIG_DIR 없이 갱신해야 Keychain 이름이 같습니다")
+                refreshes.record("refresh")
+                return true
+            }
+        )
+
+        let token = try await reader.readAccessToken()
+
+        XCTAssertEqual(token, "refreshed-by-claude-code")
+        XCTAssertEqual(refreshes.services, ["refresh"])
+        XCTAssertEqual(cli.services.count, 2)
+    }
+
+    func testExplicitImportUsesSecurityToolBeforePrompting() async throws {
+        let vault = OAuthVaultStub()
+        let interactive = InteractiveKeychainPayloadReaderStub { _, _, _ in
+            XCTFail("security 도구로 읽히면 확인 창을 띄우면 안 됩니다")
+            return .cancelled
+        }
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: try makeTemporaryHome(),
+            appCredentialVault: vault,
+            interactiveKeychainPayloadReader: { service, account, reason in
+                interactive.read(service: service, account: account, reason: reason)
+            },
+            cliKeychainPayloadReader: { _ in .payload(Self.credentialJSON(token: "imported-token")) }
+        )
+
+        let result = await reader.importActiveCLICredential()
+
+        XCTAssertEqual(result, .imported(credentialChanged: false))
+        XCTAssertEqual(vault.saveCount, 1)
+        XCTAssertTrue(interactive.calls.isEmpty)
+    }
+
     private func makeReader(
         home: URL,
         vault: OAuthVaultStub,
@@ -1049,5 +1124,34 @@ private final class InteractiveKeychainPayloadReaderStub: @unchecked Sendable {
             recordedCalls.append(Call(service: service, account: account, reason: reason))
         }
         return handler(service, account, reason)
+    }
+}
+
+private final class CLIKeychainStub: @unchecked Sendable {
+    private let lock = NSLock()
+    private var outcomes: [ClaudeCodeKeychainCLI.Outcome]
+    private var recorded: [String] = []
+
+    init(_ outcomes: [ClaudeCodeKeychainCLI.Outcome]) {
+        self.outcomes = outcomes
+    }
+
+    var services: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    func record(_ value: String) {
+        lock.lock()
+        recorded.append(value)
+        lock.unlock()
+    }
+
+    func read(_ service: String) async -> ClaudeCodeKeychainCLI.Outcome {
+        lock.withLock {
+            recorded.append(service)
+            return outcomes.isEmpty ? .notFound : outcomes.removeFirst()
+        }
     }
 }
