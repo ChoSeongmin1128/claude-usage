@@ -261,6 +261,9 @@ final class UsageAccountsController: ObservableObject {
             } else if let directory = account.sources.first(where: { $0.kind == .claudeCodeDirectory }) {
                 state.claudeUsage = try await fetchClaudeDirectory(
                     URL(fileURLWithPath: directory.reference), interactive: interactive)
+            } else if account.sources.contains(where: { $0.kind == .claudeCodeDefault }) {
+                // 메뉴바 계정이 웹 로그인이면 기본 Claude Code 로그인도 다른 계정처럼 조회한다.
+                state.claudeUsage = try await fetchClaudeDirectory(nil, interactive: interactive)
             } else {
                 return
             }
@@ -282,7 +285,7 @@ final class UsageAccountsController: ObservableObject {
         onChange?()
     }
 
-    private func fetchClaudeDirectory(_ directory: URL, interactive: Bool) async throws -> ClaudeUsageResponse {
+    private func fetchClaudeDirectory(_ directory: URL?, interactive: Bool) async throws -> ClaudeUsageResponse {
         var read = await ClaudeCodeDirectoryAccount.readToken(configDirectory: directory, interactive: interactive)
         if case .token(_, let expiresAt?) = read, expiresAt.timeIntervalSinceNow < 300 {
             guard
