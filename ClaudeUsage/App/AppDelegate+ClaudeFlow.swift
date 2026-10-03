@@ -93,7 +93,7 @@ extension AppDelegate {
                 if AppSettings.shared.settingsLastTab != SettingsProviderPanel.welcome.rawValue {
                     self?.settingsWindowCoordinator.close()
                 }
-                self?.showLoginWindow(clearCookies: true)
+                self?.showLoginWindow(clearCookies: true, startEmbeddedWebOnOpen: true)
             },
             onReconnectClaudeCode: { [weak self] in
                 if AppSettings.shared.settingsLastTab != SettingsProviderPanel.welcome.rawValue {

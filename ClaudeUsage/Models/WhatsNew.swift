@@ -36,6 +36,11 @@ nonisolated enum WhatsNewCatalog {
             version: "2.9.0", symbol: "arrow.counterclockwise.circle", title: "메뉴바에 초기화권 표시",
             body: "받은 한도 초기화권 개수를 수치 옆에 ↺1처럼 보여줍니다. 새로 받으면 파란색, 48시간 안에 만료되면 빨간색입니다.",
             action: .toggleResetCreditsInMenuBar, actionTitle: "메뉴바에 표시"),
+        WhatsNewPage(
+            version: "2.10.0", symbol: "globe", title: "쓰는 브라우저에서 로그인 가져오기",
+            body:
+                "Chrome 말고도 Brave, Edge, Whale, Vivaldi, Firefox, Safari, Claude 앱에 로그인돼 있으면 그대로 가져옵니다. 기본 브라우저를 먼저 찾습니다.",
+            action: .openSettings(.accounts), actionTitle: "계정 설정 열기"),
     ]
 
     static func notesText(_ note: UpdateNotesQueue.Note) -> (version: String, title: String, text: String) {
