@@ -15,6 +15,7 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
     let sevenDayOpus: UsageWindow?    // 레거시 필드 (limits[]로 대체 중)
     let scopedLimits: [ClaudeScopedLimit]
     let extraUsage: OverageSpendLimitResponse?
+    let resetGrants: ClaudeResetGrants?
 
     enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
@@ -26,6 +27,7 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
 
     private enum ExtraUsageKeys: String, CodingKey {
         case extraUsage = "extra_usage"
+        case resetGrants = "cedar_ember"
     }
 
     nonisolated init(from decoder: Decoder) throws {
@@ -46,9 +48,9 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
         sevenDaySonnet = window(.sevenDaySonnet)
         sevenDayOpus = window(.sevenDayOpus)
         scopedLimits = limits
-        extraUsage =
-            (try? decoder.container(keyedBy: ExtraUsageKeys.self))
-            .flatMap { try? $0.decodeIfPresent(ClaudeExtraUsage.self, forKey: .extraUsage) }?.overage
+        let extra = try? decoder.container(keyedBy: ExtraUsageKeys.self)
+        extraUsage = extra.flatMap { try? $0.decodeIfPresent(ClaudeExtraUsage.self, forKey: .extraUsage) }?.overage
+        resetGrants = extra.flatMap { try? $0.decodeIfPresent(ClaudeResetGrants.self, forKey: .resetGrants) } ?? nil
         if hasMalformedWindow, fiveHour == nil, sevenDay == nil, sevenDaySonnet == nil, sevenDayOpus == nil,
             scopedLimits.isEmpty
         {
@@ -63,15 +65,16 @@ nonisolated struct ClaudeUsageResponse: Codable, Sendable {
         sevenDaySonnet: UsageWindow? = nil,
         sevenDayOpus: UsageWindow? = nil,
         scopedLimits: [ClaudeScopedLimit] = [],
-        extraUsage: OverageSpendLimitResponse? = nil
-    )
-    {
+        extraUsage: OverageSpendLimitResponse? = nil,
+        resetGrants: ClaudeResetGrants? = nil
+    ) {
         self.fiveHour = fiveHour
         self.sevenDay = sevenDay
         self.sevenDaySonnet = sevenDaySonnet
         self.sevenDayOpus = sevenDayOpus
         self.scopedLimits = scopedLimits
         self.extraUsage = extraUsage
+        self.resetGrants = resetGrants
     }
 
     nonisolated private static func unscopedWindow(kind: String, in limits: [ClaudeScopedLimit]) -> UsageWindow? {

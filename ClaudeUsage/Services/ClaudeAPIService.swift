@@ -1122,7 +1122,8 @@ actor ClaudeAPIService {
     private func fetchUsageWithSessionKey(_ sessionKey: String, organizationID orgID: String) async throws -> ClaudeUsageResponse {
         recordPathAttempt(.session)
 
-        let url = URL(string: "\(baseURL)/organizations/\(orgID)/usage")!
+        // cedar_ember=1이 없으면 초기화권 블록이 null로 온다.
+        let url = URL(string: "\(baseURL)/organizations/\(orgID)/usage?cedar_ember=1")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         applyClaudeWebHeaders(to: &request, sessionKey: sessionKey)
@@ -1736,7 +1737,7 @@ actor ClaudeAPIService {
     private func performOAuthUsageRequest(accessToken: String) async throws -> ClaudeUsageResponse {
         recordPathAttempt(.oauth)
 
-        guard let url = URL(string: "https://api.anthropic.com/api/oauth/usage") else {
+        guard let url = URL(string: "https://api.anthropic.com/api/oauth/usage?cedar_ember=1") else {
             let apiError = APIError.unknownError("OAuth usage endpoint URL 생성 실패")
             recordPathFailure(.oauth, error: apiError)
             throw apiError
