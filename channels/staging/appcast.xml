@@ -4,18 +4,18 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>Version 2.8.0-stg.5</title>
-            <pubDate>Sun, 04 Oct 2026 02:10:41 +0900</pubDate>
-            <sparkle:version>20630</sparkle:version>
-            <sparkle:shortVersionString>2.8.0-stg.5</sparkle:shortVersionString>
+            <title>Version 2.8.0-stg.6</title>
+            <pubDate>Sun, 04 Oct 2026 03:11:21 +0900</pubDate>
+            <sparkle:version>20631</sparkle:version>
+            <sparkle:shortVersionString>2.8.0-stg.6</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.8.0-stg.5/ClaudeUsage.dmg" length="6802333" type="application/octet-stream" sparkle:edSignature="BtfbbUFOFMFzbDBOvSV551DSnRz5HVbf8bVs4Y9Uii6Bbi3yyfiPcP2TNLQP7FM9UbEXYN9r12FSVMifiYKvAg=="></enclosure>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.8.0-stg.6/ClaudeUsage.dmg" length="6765503" type="application/octet-stream" sparkle:edSignature="pMW1riej0sG3nj55yEyVf/Pwvz06bQx3NBdNORaCcRW3N/Rd1YgrRxPJ/cslWqDN0G0pyOY4iwudsZ1X+hSDBg=="></enclosure>
             <description sparkle:format="plain-text"># 2.8.0
 
 ## 여러 계정
 
 - 설정 → 계정에서 여러 계정을 켜면 Claude와 Codex 계정 여러 개의 한도를 팝오버에서 함께 봅니다. 기본은 단일 계정이며, 이때는 지금처럼 한 계정만 보이고 다른 계정은 조회하지 않습니다.
-- 같은 계정이 기본 로그인, 다른 CLI 폴더, 앱의 웹 로그인으로 여러 번 보이면 계정과 조직이 같을 때 한 줄로 합치고 배지(사용 중, CLI, 웹)를 함께 붙입니다. 배지에 마우스를 올리면 뜻이 나옵니다.
+- 같은 계정이 기본 로그인, 다른 CLI 폴더, 앱의 웹 로그인으로 여러 번 보이면 계정과 조직이 같을 때 한 줄로 합치고 출처 배지(기본 로그인, CLI, 웹)를 함께 붙입니다. 메뉴바와 팝오버에 나오는 계정에는 사용 중을 붙이고 맨 위에 둡니다. 배지에 마우스를 올리면 뜻이 나옵니다.
 - 팝오버 보기는 골라 보기(기본), 대표 카드와 목록, 요약과 행 중에 고릅니다. 골라 보기는 처음에 메뉴바 계정과 다음 계정 하나를 보여주고, 고른 조합을 기억합니다.
 - 메뉴바와 팝오버 큰 카드는 고른 계정 하나를 보여줍니다. 계정 ⋯ → 메뉴바에 표시로 고르며, Claude Code가 아닌 웹이나 Claude 앱 로그인도 고를 수 있습니다. 고르기 전에는 Claude 앱 로그인을 먼저 보여주고, Claude Code에 다른 계정이 있으면 처음 한 번 묻습니다.
 - 쓰지 않는 계정은 5분마다 확인합니다. 두 번 연속 실패해야 "오래된 값"으로 표시하고, 로그인 만료는 바로 알려줍니다. 계정마다 확인 시각을 보여줍니다.
@@ -67,6 +67,7 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 - 설정을 일반, 계정, 한도, 모양, 업데이트 다섯 패널로 나누고 macOS 기본 사이드바로 바꿨습니다.
 - 한도 패널의 표에서 한도마다 메뉴바(숫자 표시), 팝오버, 알림을 한 줄에서 고릅니다. 게이지 모양과 대표 한도는 모양 패널에서 정합니다.
 - 서비스별 계정 설정은 계정 패널에서 서비스를 골라 엽니다. 이전 버전에서 마지막으로 연 서비스 탭은 계정 패널의 그 서비스로 이어집니다.
+- 계정 패널의 계정 목록 하나에서 계정을 추가하고(브라우저에서 가져오기, 앱에서 로그인, 직접 입력, Claude Code 폴더), 메뉴바 계정을 고르고, 저장한 웹 로그인을 지웁니다. 아래쪽의 별도 계정 관리 목록은 없앴습니다.
 - 빠른 시작은 마칠 때까지 사이드바에 남습니다.
 
 ## 시간 표시
@@ -118,10 +119,10 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 
 - 새 기능이 있는 버전으로 업데이트하면 짧은 안내를 한 번 보여줍니다. 업데이트 패널의 "새 기능 다시 보기"로 다시 볼 수 있습니다. 새로 설치하면 보이지 않습니다.
 </description>
-            <claudeusage:zipSHA256>60ea0f8606e606c3fd94c9581c376bb32ef3c5a9cd8a7f1e815b730d7d94e683</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>6ce10dbbede9a80463db48170f69306a56684bdc8b059e6a3fbff74f0a7632d8</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 9zewHhzd0gRhZOXfMZF9chVzzNX8higKM/vZNuHC/z2Q77mgCMhF08wzpXerArKzHDJpcz3y2H/8aY1qGwd1Cw==
-length: 13062
+edSignature: 0M7vWzfd1vNWqQxn4jd7uVGYhWV+zfbz1iF7SmbKFIcyue3RLu0ngzU3vFsgM+okRUG8Rv/UEjnZ5CFd1EuTBA==
+length: 13462
 -->
