@@ -32,6 +32,18 @@ struct UsageAccountsSection: View {
                 Spacer()
                 Button("계정 추가") { isAdding = true }.controlSize(.small)
             }
+            Toggle(
+                isOn: Binding(
+                    get: { controller.preferences.isMultiAccountEnabled },
+                    set: { controller.setMultiAccountEnabled($0) })
+            ) {
+                VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
+                    Text("여러 계정")
+                    Text("Claude와 Codex 계정 여러 개의 한도를 팝오버에 함께 보여주고, 쓰지 않는 계정도 5분마다 확인합니다. 끄면 메뉴바 계정 하나만 보입니다.")
+                        .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
             if let notice = controller.revertedSwitch[service] {
                 HStack {
                     Label(notice, systemImage: "exclamationmark.triangle.fill")
@@ -135,20 +147,22 @@ struct UsageAccountsSection: View {
                     .disabled(isSwitching)
                     Divider()
                 }
-                Button("이름 바꾸기") {
-                    newName = controller.preferences.aliases[account.id] ?? ""
-                    renaming = account
-                }
-                if !account.isInUse {
-                    Button(controller.preferences.pinnedTop == account.id ? "맨 위 고정 해제" : "맨 위에 고정") {
-                        controller.preferences.pinnedTop =
-                            controller.preferences.pinnedTop == account.id ? nil : account.id
+                if multi {
+                    Button("이름 바꾸기") {
+                        newName = controller.preferences.aliases[account.id] ?? ""
+                        renaming = account
                     }
-                }
-                Button(hidden ? "다시 보이기" : "숨기기") { controller.setHidden(!hidden, account.id) }
-                    .disabled(!hidden && !controller.canHide(account))
-                if !controller.isRuntimeAccount(account) {
-                    Button(archived ? "다시 조회" : "조회 멈추고 보관") { controller.setArchived(!archived, account) }
+                    if !account.isInUse {
+                        Button(controller.preferences.pinnedTop == account.id ? "맨 위 고정 해제" : "맨 위에 고정") {
+                            controller.preferences.pinnedTop =
+                                controller.preferences.pinnedTop == account.id ? nil : account.id
+                        }
+                    }
+                    Button(hidden ? "다시 보이기" : "숨기기") { controller.setHidden(!hidden, account.id) }
+                        .disabled(!hidden && !controller.canHide(account))
+                    if !controller.isRuntimeAccount(account) {
+                        Button(archived ? "다시 조회" : "조회 멈추고 보관") { controller.setArchived(!archived, account) }
+                    }
                 }
                 if account.sources.contains(where: { isUserAdded($0) }) {
                     Divider()
@@ -165,9 +179,11 @@ struct UsageAccountsSection: View {
             .fixedSize()
             .accessibilityLabel("계정 관리")
         }
-        .opacity(hidden ? 0.5 : 1)
+        .opacity(hidden && multi ? 0.5 : 1)
         .padding(.vertical, AppDesign.Space.tight)
     }
+
+    private var multi: Bool { controller.preferences.isMultiAccountEnabled }
 
     private var switchTitle: String { "\(service.providerKind.displayName) 기본 로그인 바꾸기" }
 
@@ -205,8 +221,9 @@ struct UsageAccountsSection: View {
     }
 
     private func statusText(account: UsageAccount, state: UsageAccountState?, hidden: Bool, archived: Bool) -> String {
+        if controller.isRuntimeAccount(account) && (!hidden || !multi) { return "메뉴바" }
+        guard multi else { return "" }
         if hidden { return "숨김" }
-        if controller.isRuntimeAccount(account) { return "메뉴바" }
         switch state?.status(isArchived: archived) ?? .checking {
         case .checking: return "확인 전"
         case .current: return state?.fetchedAt.map { OtherAccountRow.age(since: $0) } ?? ""

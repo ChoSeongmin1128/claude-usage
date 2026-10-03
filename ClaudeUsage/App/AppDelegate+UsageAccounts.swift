@@ -5,14 +5,6 @@ extension AppDelegate {
         usageAccountsController.onChange = { [weak self] in self?.updatePopoverViewModel() }
         popoverViewModel.accountActions = PopoverAccountActions(
             toggle: { [weak self] service, id in self?.usageAccountsController.toggleSelection(id, service: service) },
-            showInMenuBar: { [weak self] service, id in
-                guard let self,
-                    let account = self.usageAccountsController.visibleAccounts(for: service).first(where: {
-                        $0.id == id
-                    })
-                else { return }
-                self.usageAccountsController.showInMenuBar(account)
-            },
             reconnect: { [weak self] service, _ in
                 self?.closePopover()
                 AppSettings.shared.settingsLastTab = ServiceSelectionHelper.settingsRootTab(for: service)
@@ -64,8 +56,8 @@ extension AppDelegate {
         let controller = usageAccountsController
         for service in [PopoverService.claude, .codex] where AppSettings.shared.isProviderEnabled(service.providerKind)
         {
+            guard controller.isMultiAccount(service) else { continue }
             let visible = controller.visibleAccounts(for: service)
-            guard visible.count >= 2 else { continue }
             let runtime = runtimeProviderSnapshot(for: service)
             let basis = AppSettings.shared.usageValueBasis(for: service)
             let rows = visible.map { account -> PopoverAccountRowData in
@@ -92,8 +84,7 @@ extension AppDelegate {
             }
             result[service] = MultiAccountPresentation(
                 service: service, mode: controller.preferences.popoverMode, rows: rows,
-                selectedIDs: controller.preferences.selection(for: service, visible: visible),
-                menuBarCapableIDs: Set(visible.filter { controller.menuBarAccountID(for: $0) != nil }.map(\.id)))
+                selectedIDs: controller.preferences.selection(for: service, visible: visible))
         }
         return result
     }
