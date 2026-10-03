@@ -4,12 +4,12 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>Version 2.8.0-stg.1</title>
-            <pubDate>Sat, 03 Oct 2026 17:45:07 +0900</pubDate>
-            <sparkle:version>20626</sparkle:version>
-            <sparkle:shortVersionString>2.8.0-stg.1</sparkle:shortVersionString>
+            <title>Version 2.8.0-stg.2</title>
+            <pubDate>Sat, 03 Oct 2026 19:00:50 +0900</pubDate>
+            <sparkle:version>20627</sparkle:version>
+            <sparkle:shortVersionString>2.8.0-stg.2</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.8.0-stg.1/ClaudeUsage.dmg" length="6751511" type="application/octet-stream" sparkle:edSignature="g33F2Apq3P/tqKumleO56GFeamhFtfb75AyXf2pBFzSueO82ODeBqCOGH0QJAkzW/dhZJmG6QpC2wKqeI+rHAQ=="></enclosure>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.8.0-stg.2/ClaudeUsage.dmg" length="6754412" type="application/octet-stream" sparkle:edSignature="dgut+cNqRSNHC53UzRKU7DbXuo00ERHeNEtZpr2DFAMEEubLCnkU5oVPJ3lP9uVqLg1uuelv+FM6+vyzWzp3AA=="></enclosure>
             <description sparkle:format="plain-text"># 2.8.0
 
 ## 여러 계정
@@ -50,6 +50,7 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 - Claude는 Claude Code 로그인, 브라우저나 Claude 앱의 로그인 가져오기, 브라우저에서 새로 로그인, 앱 안 로그인 순으로 권합니다. 브라우저에서 새로 로그인하면 앱이 로그인을 알아채고 가져오기를 시작합니다.
 - Codex와 AGY CLI에 로그인돼 있으면 바로 연결합니다. 설치되지 않았으면 ChatGPT 앱 다운로드나 터미널 설치 명령을 안내합니다. ChatGPT 앱에 들어 있는 Codex도 찾습니다.
 - 팝오버의 Claude 다시 연결도 같은 순서를 따릅니다.
+- 앱이 보관한 Claude Code 로그인이 오래돼 다시 가져와야 할 때 "로그인 필요" 대신 "다시 연결 필요"로 안내하고, 설정의 계정 상태도 지난 조회 성공 대신 다시 연결이 필요하다고 보여줍니다.
 
 ## 로그인 가져오기
 
@@ -116,10 +117,10 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 
 - 새 기능이 있는 버전으로 업데이트하면 짧은 안내를 한 번 보여줍니다. 업데이트 패널의 "새 기능 다시 보기"로 다시 볼 수 있습니다. 새로 설치하면 보이지 않습니다.
 </description>
-            <claudeusage:zipSHA256>5a6717addb740858debf6dd1e6566ab5f7c0f00a440e13224e4c693058aa6c02</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>edeff406ef8d8529ffb2b68f0b9076a9a9c3c05efdafdd42e9afc85994bd496f</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: qh3yjudEs8ECyDiyyHH3AQgDDoZOo2geDQhCmaNAha+sHQTmzBSm1I1Z2U4z4M9vSv0/XS/gg//FurkjgV+FDA==
-length: 11905
+edSignature: HaHq2ybYQgN6zf7rCwt6Blt5HQEczdmRFvc6BG48BqxYFq2p0m04iP46T+q5hPPgI1BftG3CJ9c8hsjsAt/cBg==
+length: 12158
 -->
