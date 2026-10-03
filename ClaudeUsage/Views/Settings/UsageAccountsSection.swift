@@ -7,7 +7,10 @@ struct UsageAccountsSection: View {
     @ObservedObject var controller: UsageAccountsController
     let service: PopoverService
     var onLoginClaude: () -> Void
+    /// 앱이 저장한 Claude 웹 로그인을 지운다. 인자는 웹 계정 id.
+    var onDeleteWebLogin: ((String) -> Void)?
     @State private var isAdding = false
+    @State private var deletingWebLogin: UsageAccount?
     @State private var renaming: UsageAccount?
     @State private var newName = ""
     @State private var switching: SwitchRequest?
@@ -77,6 +80,21 @@ struct UsageAccountsSection: View {
         } message: {
             Text(switchResult ?? "")
         }
+        .confirmationDialog(
+            "저장한 웹 로그인을 지울까요?",
+            isPresented: Binding(get: { deletingWebLogin != nil }, set: { if !$0 { deletingWebLogin = nil } }),
+            presenting: deletingWebLogin
+        ) { account in
+            Button("지우기", role: .destructive) {
+                if let webID = webLoginID(account) { onDeleteWebLogin?(webID) }
+                deletingWebLogin = nil
+            }
+            Button("취소", role: .cancel) { deletingWebLogin = nil }
+        } message: { account in
+            Text(
+                "\(controller.preferences.displayName(for: account, among: all))의 로그인을 이 앱에서 지웁니다. 브라우저와 Claude 앱의 로그인은 그대로입니다."
+            )
+        }
         .alert(
             "이름 바꾸기",
             isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })
@@ -131,6 +149,10 @@ struct UsageAccountsSection: View {
                     Divider()
                     Button("목록에서 빼기") { controller.removeDirectory(account) }
                 }
+                if onDeleteWebLogin != nil, webLoginID(account) != nil {
+                    Divider()
+                    Button("저장한 웹 로그인 지우기", role: .destructive) { deletingWebLogin = account }
+                }
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
@@ -165,6 +187,10 @@ struct UsageAccountsSection: View {
             isSwitching = false
             switchResult = failure ?? "기본 로그인을 바꿨습니다."
         }
+    }
+
+    private func webLoginID(_ account: UsageAccount) -> String? {
+        account.sources.first { $0.kind == .claudeWeb }?.reference
     }
 
     private func isUserAdded(_ source: UsageAccountSource) -> Bool {

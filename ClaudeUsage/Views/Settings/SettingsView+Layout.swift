@@ -309,9 +309,14 @@ extension SettingsView {
             ProviderSettingsPicker(selection: $selectedAccountProvider)
             Divider()
             if let usageAccounts, let service = selectedAccountProvider.runtimeService, service != .antigravity {
-                UsageAccountsSection(controller: usageAccounts, service: service) {
-                    onImportClaudeFromBrowser?(nil)
-                }
+                UsageAccountsSection(
+                    controller: usageAccounts, service: service,
+                    onLoginClaude: { onImportClaudeFromBrowser?(nil) },
+                    onDeleteWebLogin: { webID in
+                        if let account = ClaudeAccountStore.shared.accounts().first(where: { $0.id == webID }) {
+                            deleteClaudeWebAccount(account)
+                        }
+                    })
                 Divider()
             }
             switch selectedAccountProvider {

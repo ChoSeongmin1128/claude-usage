@@ -13,9 +13,9 @@ brew install --cask claude-code
 claude auth login
 ```
 
-ClaudeUsage 설정에서 Claude Code 계정을 선택하고 `Claude Code 다시 연결`을 실행합니다. Claude Code에서 로그인 계정을 바꾼 경우에도 다시 연결해 현재 자격을 반영합니다.
+ClaudeUsage 설정에서 Claude Code 계정을 선택합니다. Claude Code가 로그인을 Keychain에 두면 Claude Code와 같은 도구(`/usr/bin/security`)로 읽어 확인 창 없이 현재 로그인을 씁니다. Claude Code에서 로그인 계정을 바꾸면 다음 조회부터 반영됩니다.
 
-명시적인 다시 연결 과정에서는 macOS 인증이 한 번 필요할 수 있습니다. 앱 시작과 자동 조회는 Claude Code Keychain을 반복해서 읽거나 인증 창을 띄우지 않습니다.
+Claude Code를 한동안 쓰지 않아 토큰이 만료돼 있으면 앱이 직접 갱신하지 않고 Claude Code가 스스로 갱신하게 합니다(`claude -p /usage`, 모델 호출 없음). 이 도구로 읽지 못하는 환경에서만 `Claude Code 다시 연결`이 macOS 인증을 요청합니다.
 
 ### 브라우저에서 가져오기
 
