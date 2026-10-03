@@ -55,7 +55,7 @@ struct UsageAccountsSection: View {
                     ForEach(UsageAccountPreferences.PopoverMode.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                Text("메뉴바는 사용 중 계정 하나만 보여줍니다. 숨긴 계정은 지우지 않으며 여기서 다시 보이게 할 수 있습니다.")
+                Text("메뉴바와 팝오버 큰 카드는 메뉴바에 표시한 계정 하나입니다. 숨긴 계정은 지우지 않으며 여기서 다시 보이게 할 수 있습니다.")
                     .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
             }
         }
@@ -122,6 +122,10 @@ struct UsageAccountsSection: View {
                 .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
             Menu {
+                if controller.canShowInMenuBar(account) {
+                    Button("메뉴바에 표시") { controller.showInMenuBar(account) }
+                    Divider()
+                }
                 if controller.canSwitch(to: account) {
                     Button("이 계정으로 전환") {
                         switching = SwitchRequest(
@@ -142,6 +146,7 @@ struct UsageAccountsSection: View {
                     }
                 }
                 Button(hidden ? "다시 보이기" : "숨기기") { controller.setHidden(!hidden, account.id) }
+                    .disabled(!hidden && !controller.canHide(account))
                 if !controller.isRuntimeAccount(account) {
                     Button(archived ? "다시 조회" : "조회 멈추고 보관") { controller.setArchived(!archived, account) }
                 }

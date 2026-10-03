@@ -190,6 +190,7 @@ extension SettingsView {
         claudeAccountMessage = "현재 사용 계정을 \(account.displayName)으로 변경했습니다. 새 계정의 사용량을 확인합니다."
         isClaudeAccountSwitcherExpanded = false
         isClaudeAccountManagementExpanded = false
+        usageAccounts?.preferences.menuBarAccountChosen = true
         ClaudeAccountStore.shared.setActiveAccountID(account.id)
     }
 
