@@ -139,3 +139,22 @@ final class ClaudeBrowserImportTests: XCTestCase {
         return Data(Array("cook".utf8) + be32(1) + be32(page.count) + page + [UInt8](repeating: 0, count: 8))
     }
 }
+
+final class ClaudeCodeLoginDetectorTests: XCTestCase {
+    func testCredentialFileInConfigDirectoryCountsAsLogin() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "claude-config-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let environment = ["CLAUDE_CONFIG_DIR": directory.path]
+
+        XCTAssertFalse(ClaudeCodeLoginDetector.credentialFileExists(environment: environment))
+        try Data("{}".utf8).write(to: directory.appendingPathComponent(".credentials.json"))
+        XCTAssertTrue(ClaudeCodeLoginDetector.credentialFileExists(environment: environment))
+    }
+
+    func testMissingKeychainServiceIsNotALogin() {
+        XCTAssertFalse(
+            ClaudeCodeLoginDetector.keychainItemExists(service: "claudeusage.test.missing.\(UUID().uuidString)"))
+    }
+}

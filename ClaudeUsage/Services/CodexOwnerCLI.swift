@@ -1,3 +1,4 @@
+import AppKit
 import Darwin
 import Foundation
 import os
@@ -121,11 +122,15 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing {
         let pathCandidates = Self.searchPath.split(separator: ":").map {
             URL(fileURLWithPath: String($0)).appendingPathComponent("codex")
         }
+        // ChatGPT 앱(com.openai.codex)은 Codex CLI를 앱 안에 담는다. bin/codex는 실행 스크립트라 실제 파일을 쓴다.
+        let chatGPTApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex")
+            .map { $0.appendingPathComponent("Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex") }
         let candidates =
             executableURL.map { [$0] } ?? [
                 URL(fileURLWithPath: "/opt/homebrew/bin/codex"),
                 URL(fileURLWithPath: "/usr/local/bin/codex"),
                 URL(fileURLWithPath: "/Applications/Codex.app/Contents/Resources/codex"),
+            ] + [chatGPTApp].compactMap { $0 } + [
                 home.appendingPathComponent(".npm-global/bin/codex"),
                 home.appendingPathComponent(".local/bin/codex"),
             ] + pathCandidates

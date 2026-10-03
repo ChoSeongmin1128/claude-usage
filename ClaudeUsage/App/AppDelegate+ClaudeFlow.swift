@@ -159,7 +159,11 @@ extension AppDelegate {
                     })
             },
             onVerifyService: { [weak self] service in self?.refresh(service: service, force: true) },
-            onShowWhatsNew: { [weak self] in self?.presentLatestWhatsNew() }
+            onShowWhatsNew: { [weak self] in self?.presentLatestWhatsNew() },
+            onImportClaudeFromBrowser: { [weak self] family in
+                self?.showLoginWindow(startChromeImportOnOpen: true, importFamily: family)
+            },
+            onOpenEmbeddedLogin: { [weak self] in self?.showLoginWindow(startEmbeddedWebOnOpen: true) }
         )
     }
 

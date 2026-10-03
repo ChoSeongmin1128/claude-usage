@@ -296,12 +296,20 @@ final class DesignSystemTests: XCTestCase {
             try renderHosted(
                 AppMotionSettingsView(settings: settings).padding(20).frame(width: 420)
                     .background(Color(nsColor: .windowBackgroundColor)), appearance: .aqua), "Custom motion settings")
-        for step in WelcomeStep.allCases {
+        for step in [WelcomeStep.services, .appearance] {
             settings.welcomeStep = step
             let view = WelcomeView(
                 settings: settings, selectedProvider: .constant(.claude),
-                statuses: [.claude: .verified], connection: Text("연결 예시 · 현재 계정 확인"),
-                display: Text("표시 항목 fixture"), onVerify: { _ in }, onDefer: {}, onFinish: {}
+                statuses: [.claude: .verified],
+                rows: [
+                    OnboardingServiceRow(
+                        provider: .claude, status: "연결됨", tone: .connected, detail: "work@example.com"),
+                    OnboardingServiceRow(
+                        provider: .codex, status: "찾지 못함", tone: .missing, primary: .init(title: "추가") {}),
+                    OnboardingServiceRow(
+                        provider: .antigravity, status: "AGY CLI 있음", tone: .ready, primary: .init(title: "연결") {}),
+                ],
+                display: Text("표시 항목 fixture"), onDefer: {}, onFinish: {}
             )
             .padding(24).frame(width: 520).background(Color(nsColor: .windowBackgroundColor))
             attach(try renderHosted(view, appearance: .aqua), "Welcome step \(step.rawValue)")

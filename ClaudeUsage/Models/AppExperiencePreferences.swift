@@ -16,7 +16,7 @@ enum WelcomeStep: Int, CaseIterable, Sendable {
 
     var title: String {
         switch self {
-        case .services: return "서비스 선택"
+        case .services: return "서비스 연결"
         case .connection: return "연결 확인"
         case .appearance: return "메뉴바 설정"
         }
