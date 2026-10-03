@@ -388,7 +388,7 @@ struct PopoverView: View {
         } else if state.isLoading {
             status = "갱신 중"
         } else if state.isAuthRequired {
-            status = "로그인 필요"
+            status = viewModel.authRequiredStatusLabel(for: state.service)
         } else {
             status = "아직 갱신되지 않음"
         }

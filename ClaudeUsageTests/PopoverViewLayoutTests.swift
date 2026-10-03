@@ -22,6 +22,31 @@ final class PopoverViewLayoutTests: XCTestCase {
         )
     }
 
+    func testCompactHeaderNamesReconnectSeparatelyFromLogin() {
+        let reconnect = CompactPopoverHeaderPresentationPolicy.resolve(
+            accountCount: 1, activeAccount: nil, isLoading: false,
+            isAuthenticationRequired: true, hasRefreshError: false,
+            claudeCodeCredentialIssue: .reconnectRequired)
+        let login = CompactPopoverHeaderPresentationPolicy.resolve(
+            accountCount: 1, activeAccount: nil, isLoading: false,
+            isAuthenticationRequired: true, hasRefreshError: false)
+
+        XCTAssertEqual(reconnect?.labels, ["다시 연결 필요"])
+        XCTAssertEqual(login?.labels, ["로그인 필요"])
+    }
+
+    func testClaudeAuthPanelOffersReconnectWhenClaudeCodeCopyIsStale() {
+        let reconnect = CatalogPopoverPresentationAdapter.statusSummary(
+            phase: .authRequired, error: nil, service: .claude,
+            claudeCodeCredentialIssue: .reconnectRequired)
+        let login = CatalogPopoverPresentationAdapter.statusSummary(
+            phase: .authRequired, error: nil, service: .claude)
+
+        XCTAssertEqual(reconnect?.title, "Claude Code 다시 연결 필요")
+        XCTAssertEqual(reconnect?.actionTitle, "다시 연결")
+        XCTAssertEqual(login?.title, "Claude 로그인 필요")
+    }
+
     func testCompactHeaderShowsActualIdentityOnlyForMultipleAccounts() {
         let account = makeClaudeAccount(
             email: "nathan@example.com",

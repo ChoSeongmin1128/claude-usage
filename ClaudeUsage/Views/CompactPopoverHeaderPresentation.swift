@@ -4,6 +4,7 @@ struct CompactPopoverHeaderContext: Equatable {
     enum Status: Equatable {
         case refreshing
         case authenticationRequired
+        case reconnectRequired
         case refreshFailed
 
         var label: String {
@@ -12,6 +13,8 @@ struct CompactPopoverHeaderContext: Equatable {
                 return "갱신 중"
             case .authenticationRequired:
                 return "로그인 필요"
+            case .reconnectRequired:
+                return "다시 연결 필요"
             case .refreshFailed:
                 return "갱신 실패"
             }
@@ -39,7 +42,8 @@ enum CompactPopoverHeaderPresentationPolicy {
         activeAccount: ClaudeAccount?,
         isLoading: Bool,
         isAuthenticationRequired: Bool,
-        hasRefreshError: Bool
+        hasRefreshError: Bool,
+        claudeCodeCredentialIssue: ClaudeCodeCredentialIssue? = nil
     ) -> CompactPopoverHeaderContext? {
         let accountLabel = accountCount > 1
             ? actualIdentityLabel(for: activeAccount)
@@ -47,7 +51,7 @@ enum CompactPopoverHeaderPresentationPolicy {
 
         let status: CompactPopoverHeaderContext.Status?
         if isAuthenticationRequired {
-            status = .authenticationRequired
+            status = claudeCodeCredentialIssue == .reconnectRequired ? .reconnectRequired : .authenticationRequired
         } else if isLoading {
             status = .refreshing
         } else if hasRefreshError {

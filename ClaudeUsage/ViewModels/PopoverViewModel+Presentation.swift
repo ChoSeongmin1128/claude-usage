@@ -122,7 +122,9 @@ extension PopoverViewModel {
                 isAuthenticationRequired:
                     state.isAuthRequired,
                 hasRefreshError:
-                    state.error != nil
+                    state.error != nil,
+                claudeCodeCredentialIssue:
+                    service == .claude ? claudeCodeCredentialIssue : nil
             )
         if state.error != nil, let lastUpdated = state.lastUpdated {
             context?.lastSuccessLabel = "\(Self.relativeTimestamp(for: lastUpdated)) 값"
