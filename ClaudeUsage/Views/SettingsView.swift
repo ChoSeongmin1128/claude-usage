@@ -212,6 +212,7 @@ struct SettingsView: View {
     @State var browserLoginWatch: Task<Void, Never>?
     @State var installGuide: AppProviderKind?
     var onImportClaudeFromBrowser: ((ClaudeBrowserFamily?) -> Void)?
+    var usageAccounts: UsageAccountsController?
     var onOpenEmbeddedLogin: (() -> Void)?
     var welcomeStatuses: (() -> [AppProviderKind: WelcomeServiceStatus])?
     var onVerifyService: ((PopoverService) -> Void)?
@@ -250,7 +251,8 @@ struct SettingsView: View {
         onVerifyService: ((PopoverService) -> Void)? = nil,
         onShowWhatsNew: (() -> Void)? = nil,
         onImportClaudeFromBrowser: ((ClaudeBrowserFamily?) -> Void)? = nil,
-        onOpenEmbeddedLogin: (() -> Void)? = nil
+        onOpenEmbeddedLogin: (() -> Void)? = nil,
+        usageAccounts: UsageAccountsController? = nil
     ) {
         self.claudeAPIService = claudeAPIService
         self.initialPanel = initialPanel
@@ -259,6 +261,7 @@ struct SettingsView: View {
         self.onShowWhatsNew = onShowWhatsNew
         self.onImportClaudeFromBrowser = onImportClaudeFromBrowser
         self.onOpenEmbeddedLogin = onOpenEmbeddedLogin
+        self.usageAccounts = usageAccounts
         _welcomeProvider = State(
             initialValue: AppProviderKind.allCases.first { AppSettings.shared.isProviderEnabled($0) } ?? .claude)
         let storedPanel = SettingsProviderPanel.resolve(storedValue: AppSettings.shared.settingsLastTab)

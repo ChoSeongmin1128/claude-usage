@@ -41,6 +41,10 @@ nonisolated enum WhatsNewCatalog {
             body:
                 "Chrome 말고도 Brave, Edge, Whale, Vivaldi, Firefox, Safari, Claude 앱에 로그인돼 있으면 그대로 가져옵니다. 기본 브라우저를 먼저 찾습니다.",
             action: .openSettings(.accounts), actionTitle: "계정 설정 열기"),
+        WhatsNewPage(
+            version: "2.11.0", symbol: "person.2", title: "여러 계정",
+            body: "계정 패널에서 계정을 추가하면 팝오버에 여러 계정의 한도가 함께 나옵니다. 메뉴바는 사용 중인 계정 하나만 보여줍니다.",
+            action: .openSettings(.accounts), actionTitle: "계정 설정 열기"),
     ]
 
     static func notesText(_ note: UpdateNotesQueue.Note) -> (version: String, title: String, text: String) {

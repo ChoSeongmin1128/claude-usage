@@ -141,6 +141,15 @@ struct PopoverDisplaySectionView: View {
             AccountSectionView(account: account, density: density)
         case .status(let status):
             ProviderStatusSectionView(status: status, density: density)
+        case .accountPicker(let picker):
+            AccountPickerRow(data: picker, density: density)
+        case .accountRow(let row):
+            OtherAccountRow(data: row, density: density)
+        case .accountSummary(let summary):
+            Text(summary.text)
+                .font(AppDesign.Typography.caption.weight(summary.isWarning ? .semibold : .regular))
+                .foregroundStyle(summary.isWarning ? Color.orange : .secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }

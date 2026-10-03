@@ -59,8 +59,17 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing {
     func readResetCredits(sourceURL: URL, expectedAccountID: String, budget: CodexRequestBudget) async throws
         -> CodexResetCreditsResponse?
     {
+        Self.resetCredits(
+            from: try await readRateLimits(sourceURL: sourceURL, expectedAccountID: expectedAccountID, budget: budget)[
+                "rateLimitResetCredits"])
+    }
+
+    /// 그 폴더(CODEX_HOME)의 공식 app-server에서 사용량 응답을 그대로 받는다.
+    func readRateLimits(sourceURL: URL, expectedAccountID: String, budget: CodexRequestBudget) async throws
+        -> [String: Any]
+    {
         let cancelled = OSAllocatedUnfairLock(initialState: false)
-        return try await withTaskCancellationHandler {
+        let box: CodexOwnerResultBox = try await withTaskCancellationHandler {
             try await Task.detached(priority: .utility) {
                 let session = try CodexOwnerSession(
                     executableURL: try self.resolvedExecutable(), sourceURL: sourceURL,
@@ -78,11 +87,12 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing {
                 guard quota["accountId"] as? String == expectedAccountID else {
                     throw CodexOwnerError.accountMismatch
                 }
-                return Self.resetCredits(from: quota["rateLimitResetCredits"])
+                return CodexOwnerResultBox(value: quota)
             }.value
         } onCancel: {
             cancelled.withLock { $0 = true }
         }
+        return box.value
     }
 
     static func resetCredits(from value: Any?) -> CodexResetCreditsResponse? {
@@ -116,7 +126,7 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing {
         return number.doubleValue
     }
 
-    private func resolvedExecutable() throws -> URL {
+    func resolvedExecutable() throws -> URL {
         let home = URL(fileURLWithPath: CodexAuthManager.defaultAuthJsonPath()).deletingLastPathComponent()
             .deletingLastPathComponent()
         let pathCandidates = Self.searchPath.split(separator: ":").map {
@@ -309,4 +319,9 @@ private nonisolated final class CodexOwnerSession {
         }
         pid = 0
     }
+}
+
+/// app-server 응답(JSON 사전)을 Task 경계 너머로 옮긴다. 만든 뒤에는 바꾸지 않는다.
+nonisolated struct CodexOwnerResultBox: @unchecked Sendable {
+    let value: [String: Any]
 }

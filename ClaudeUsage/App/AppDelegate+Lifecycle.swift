@@ -61,6 +61,7 @@ extension AppDelegate {
         setupKeyboardShortcuts()
         bindRuntimeObservers()
         startSessionActivityMonitoring()
+        bootstrapUsageAccounts()
 
         let claudeAccountIDs = Set(ClaudeAccountStore.shared.accounts().map(\.id))
         Task.detached(priority: .utility) {
@@ -416,7 +417,10 @@ extension AppDelegate {
         statusTimer?.invalidate()
         statusTimer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
             // scheduledTimer was registered on MainActor's main run loop.
-            MainActor.assumeIsolated { self?.refreshSystemStatus() }
+            MainActor.assumeIsolated {
+                self?.refreshSystemStatus()
+                self?.usageAccountsController.refreshIfNeeded()
+            }
         }
     }
 

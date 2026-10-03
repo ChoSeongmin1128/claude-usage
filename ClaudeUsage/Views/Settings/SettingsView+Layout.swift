@@ -308,6 +308,12 @@ extension SettingsView {
         case .accounts:
             ProviderSettingsPicker(selection: $selectedAccountProvider)
             Divider()
+            if let usageAccounts, let service = selectedAccountProvider.runtimeService, service != .antigravity {
+                UsageAccountsSection(controller: usageAccounts, service: service) {
+                    onImportClaudeFromBrowser?(nil)
+                }
+                Divider()
+            }
             switch selectedAccountProvider {
             case .claude: claudeOverviewSection
             case .codex: codexOverviewSection

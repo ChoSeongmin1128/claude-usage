@@ -163,7 +163,8 @@ extension AppDelegate {
             onImportClaudeFromBrowser: { [weak self] family in
                 self?.showLoginWindow(startChromeImportOnOpen: true, importFamily: family)
             },
-            onOpenEmbeddedLogin: { [weak self] in self?.showLoginWindow(startEmbeddedWebOnOpen: true) }
+            onOpenEmbeddedLogin: { [weak self] in self?.showLoginWindow(startEmbeddedWebOnOpen: true) },
+            usageAccounts: usageAccountsController
         )
     }
 

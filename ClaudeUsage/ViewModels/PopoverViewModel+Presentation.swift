@@ -258,6 +258,9 @@ extension PopoverViewModel {
         for item in visibleItems {
             sections.append(contentsOf: catalog.expandedSections(for: item.id, context: context))
         }
+        if let multi = multiAccount[service] {
+            sections = multi.sections(catalog: sections)
+        }
 
         if density == .compact {
             return sections.filter { $0.importance == .primary }

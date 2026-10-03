@@ -66,6 +66,7 @@ struct PopoverView: View {
                 popoverContent(layoutSpec: layout.spec, sections: layout.sections)
             }
         }
+        .environment(\.popoverAccountActions, viewModel.accountActions)
         .onAppear {
             normalizeSelectedServiceIfNeeded()
             requestRefreshIfNeededForVisibleService()

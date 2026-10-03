@@ -72,6 +72,9 @@ final class PopoverViewModel: ObservableObject {
     @Published var systemStatus: ClaudeSystemStatus?
     @Published var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
     @Published var nextUsageRetryAt: Date?
+    /// 계정이 2개 이상인 서비스만 들어 있다.
+    @Published var multiAccount: [PopoverService: MultiAccountPresentation] = [:]
+    var accountActions = PopoverAccountActions()
     @Published private(set) var claudeSetupPresentation: ClaudeSetupPresentation?
     @Published private(set) var runtimeSnapshots: [PopoverService: RuntimeProviderSnapshot] = [:]
     @Published var antigravityRuntimeSnapshot = AntigravityRuntimeSnapshot.idle {

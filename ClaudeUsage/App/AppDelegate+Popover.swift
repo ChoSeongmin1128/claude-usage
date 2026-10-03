@@ -126,6 +126,7 @@ extension AppDelegate {
         )
         popoverViewModel.systemStatus = systemStatus
         popoverViewModel.nextUsageRetryAt = nextUsageRefreshAllowedAt
+        popoverViewModel.multiAccount = multiAccountPresentations()
         refreshVisiblePopoverSizeForCurrentState()
     }
 
@@ -151,6 +152,7 @@ extension AppDelegate {
 
     func refreshServiceIfNeededOnTabSwitch(_ service: PopoverService) {
         resetCreditViewedServices.insert(service)
+        usageAccountsController.refreshIfNeeded()
         guard let action = RefreshOrchestration.actionForTabSwitch(
                 state: runtimePresentationState(for: service)
         ) else { return }
