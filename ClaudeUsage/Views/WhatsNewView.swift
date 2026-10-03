@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WhatsNewView: View {
     let pages: [WhatsNewPage]
+    var toggle: (WhatsNewPage.Action) -> Binding<Bool>? = { _ in nil }
     let onAction: (WhatsNewPage.Action) -> Void
     let onClose: () -> Void
     @State private var index = 0
@@ -26,7 +27,11 @@ struct WhatsNewView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
             if let action = page.action, let title = page.actionTitle {
-                Button(title) { onAction(action) }.buttonStyle(.link)
+                if let binding = toggle(action) {
+                    Toggle(title, isOn: binding).toggleStyle(.switch).controlSize(.small)
+                } else {
+                    Button(title) { onAction(action) }.buttonStyle(.link)
+                }
             }
             Spacer(minLength: 0)
             HStack {

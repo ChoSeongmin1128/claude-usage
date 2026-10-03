@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 extension AppDelegate {
     private var currentAppVersion: String {
@@ -22,10 +23,21 @@ extension AppDelegate {
         let version = currentAppVersion
         whatsNewWindowCoordinator.present(
             pages: pages,
+            toggle: { action in
+                guard action == .toggleResetCreditsInMenuBar else { return nil }
+                let kinds: [AppProviderKind] = [.claude, .codex]
+                return Binding(
+                    get: { kinds.contains { AppSettings.shared.resetCreditMenuBarMode(for: $0) != .off } },
+                    set: { isOn in
+                        kinds.forEach { AppSettings.shared.setResetCreditMenuBarMode(isOn ? .always : .off, for: $0) }
+                    })
+            },
             onAction: { [weak self] action in
                 switch action {
                 case .openSettings(let panel):
                     self?.showSettingsWindow(settingsPanelRawValue: panel.rawValue)
+                case .toggleResetCreditsInMenuBar:
+                    break
                 }
             },
             onClose: { WhatsNewState.markSeen(version, defaults: .standard) })

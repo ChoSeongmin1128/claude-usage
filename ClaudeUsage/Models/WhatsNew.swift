@@ -3,6 +3,7 @@ import Foundation
 nonisolated struct WhatsNewPage: Identifiable, Equatable, Sendable {
     enum Action: Equatable, Sendable {
         case openSettings(SettingsProviderPanel)
+        case toggleResetCreditsInMenuBar
     }
 
     let version: String
@@ -31,6 +32,10 @@ nonisolated enum WhatsNewCatalog {
         WhatsNewPage(
             version: "2.8.0", symbol: "arrow.triangle.2.circlepath", title: "상황에 맞춘 자동 확인",
             body: "팝오버를 막 열었거나 Claude Code, Codex를 쓰는 중이거나 한도가 10% 이하로 남으면 2분마다, 오래 쓰지 않으면 최대 30분 간격으로 확인합니다."),
+        WhatsNewPage(
+            version: "2.9.0", symbol: "arrow.counterclockwise.circle", title: "메뉴바에 초기화권 표시",
+            body: "받은 한도 초기화권 개수를 수치 옆에 ↺1처럼 보여줍니다. 새로 받으면 파란색, 48시간 안에 만료되면 빨간색입니다.",
+            action: .toggleResetCreditsInMenuBar, actionTitle: "메뉴바에 표시"),
     ]
 
     static func notesText(_ note: UpdateNotesQueue.Note) -> (version: String, title: String, text: String) {

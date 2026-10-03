@@ -7,7 +7,8 @@ final class WhatsNewWindowCoordinator: NSObject, NSWindowDelegate {
     private var onClose: (() -> Void)?
 
     func present(
-        pages: [WhatsNewPage], onAction: @escaping (WhatsNewPage.Action) -> Void, onClose: @escaping () -> Void
+        pages: [WhatsNewPage], toggle: @escaping (WhatsNewPage.Action) -> Binding<Bool>?,
+        onAction: @escaping (WhatsNewPage.Action) -> Void, onClose: @escaping () -> Void
     ) {
         guard !pages.isEmpty else { return }
         if let window, window.isVisible {
@@ -17,6 +18,7 @@ final class WhatsNewWindowCoordinator: NSObject, NSWindowDelegate {
         self.onClose = onClose
         let view = WhatsNewView(
             pages: pages,
+            toggle: toggle,
             onAction: { [weak self] action in
                 self?.close()
                 onAction(action)
