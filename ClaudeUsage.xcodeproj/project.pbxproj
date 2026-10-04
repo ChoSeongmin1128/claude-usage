@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E28000012FA0000000AA0001 /* release-notes in Resources */ = {isa = PBXBuildFile; fileRef = E28000022FA0000000AA0001 /* release-notes */; };
 		E25000012F90000000AA0001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = E25000032F90000000AA0001 /* LICENSE */; };
 		E25000022F90000000AA0001 /* THIRD_PARTY_NOTICES.md in Resources */ = {isa = PBXBuildFile; fileRef = E25000042F90000000AA0001 /* THIRD_PARTY_NOTICES.md */; };
 		A1B2C3D42F3C72330029D266 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D62F3C72330029D266 /* Sparkle */; };
@@ -23,6 +24,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		E28000022FA0000000AA0001 /* release-notes */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "docs/release-notes"; sourceTree = "<group>"; };
 		E25000032F90000000AA0001 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
 		E25000042F90000000AA0001 /* THIRD_PARTY_NOTICES.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = THIRD_PARTY_NOTICES.md; sourceTree = "<group>"; };
 		3E5CA45E2F3C72330029D266 /* ClaudeUsage.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeUsage.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -81,6 +83,7 @@
 				B4A000022F5000010029D266 /* Config */,
 				E25000032F90000000AA0001 /* LICENSE */,
 				E25000042F90000000AA0001 /* THIRD_PARTY_NOTICES.md */,
+				E28000022FA0000000AA0001 /* release-notes */,
 				3E5CA4602F3C72330029D266 /* ClaudeUsage */,
 				D1E100032F70000100AA0001 /* ClaudeUsageTests */,
 				3E5CA45F2F3C72330029D266 /* Products */,
@@ -202,6 +205,7 @@
 			files = (
 				E25000012F90000000AA0001 /* LICENSE in Resources */,
 				E25000022F90000000AA0001 /* THIRD_PARTY_NOTICES.md in Resources */,
+				E28000012FA0000000AA0001 /* release-notes in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -370,7 +374,7 @@
 				CODE_SIGN_IDENTITY = "Developer ID Application: SEONGMIN CHO (5YG4V2PLZV)";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20632;
+				CURRENT_PROJECT_VERSION = 20633;
 				DEVELOPMENT_TEAM = 5YG4V2PLZV;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
@@ -409,7 +413,7 @@
 				CODE_SIGN_IDENTITY = "Developer ID Application: SEONGMIN CHO (5YG4V2PLZV)";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20632;
+				CURRENT_PROJECT_VERSION = 20633;
 				DEVELOPMENT_TEAM = 5YG4V2PLZV;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -442,7 +446,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20632;
+				CURRENT_PROJECT_VERSION = 20633;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -468,7 +472,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20632;
+				CURRENT_PROJECT_VERSION = 20633;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

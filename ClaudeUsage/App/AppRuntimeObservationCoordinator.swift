@@ -44,9 +44,10 @@ final class AppRuntimeObservationCoordinator {
             .sink { _ in onUsageDisplayModeChanged() }
             .store(in: &cancellables)
 
-        settings.$timeFormat
-            .removeDuplicates()
-            .dropFirst()
+        Publishers.Merge(
+            settings.$timeFormat.removeDuplicates().dropFirst().map { _ in () },
+            settings.$timeUnitLanguage.removeDuplicates().dropFirst().map { _ in () }
+        )
             .receive(on: RunLoop.main)
             .sink { _ in onTimeFormatChanged() }
             .store(in: &cancellables)

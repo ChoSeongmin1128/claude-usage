@@ -36,13 +36,8 @@ extension SettingsView {
             .font(AppDesign.Typography.subheadline)
             .controlSize(.small)
 
-            Text("메뉴바 칸은 숫자 표시입니다. 게이지 모양과 대표 한도는 모양에서 정합니다.")
+            Text("메뉴바 칸은 게이지 옆 숫자입니다. 게이지는 모양 탭에서 정합니다.")
                 .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
-            ForEach(AppProviderKind.allCases.filter(settings.isProviderEnabled), id: \.rawValue) { provider in
-                if let note = limitsNote(for: provider) {
-                    Text(note).font(AppDesign.Typography.caption).foregroundStyle(.secondary)
-                }
-            }
         }
     }
 
@@ -97,9 +92,9 @@ extension SettingsView {
                 .help("메뉴바에 초기화권 개수(↺)를 표시할 때")
                 .gridColumnAlignment(.center)
             } else {
-                limitsCell(menuBarBinding(row, provider: provider), help: "메뉴바에 숫자로 표시")
+                limitsCell(menuBarBinding(row, provider: provider), help: "메뉴바에 숫자로 표시", row: row.title)
             }
-            limitsCell(popoverBinding(row, provider: provider), help: "팝오버에 표시")
+            limitsCell(popoverBinding(row, provider: provider), help: "팝오버에 표시", row: row.title)
             notificationCell(row, provider: provider)
         }
     }
@@ -110,7 +105,9 @@ extension SettingsView {
             let selected = isNotificationSelected(limit)
             limitsCell(
                 Binding(get: { selected }, set: { settings.notificationTargets.setSelected($0, limit: limit) }),
-                help: !limit.isIdentifiable ? "식별 정보 확인 필요" : limit.usedPercentage == nil ? "현재 미제공" : "알림 받기"
+                help: !limit.isIdentifiable
+                    ? "구분할 수 없는 한도라 고를 수 없습니다" : limit.usedPercentage == nil ? "데이터 없음" : "알림 받기",
+                row: row.title
             )
             .disabled(
                 !settings.notificationsEnabled || !serviceAlertBinding(provider).wrappedValue || !limit.isIdentifiable
@@ -124,9 +121,10 @@ extension SettingsView {
     }
 
     @ViewBuilder
-    private func limitsCell(_ binding: Binding<Bool>?, help: String) -> some View {
+    private func limitsCell(_ binding: Binding<Bool>?, help: String, row: String? = nil) -> some View {
         if let binding {
-            Toggle(help, isOn: binding)
+            // 열 이름만 읽히면 어느 줄의 칸인지 알 수 없어 줄 이름을 앞에 붙인다.
+            Toggle([row, help].compactMap { $0 }.joined(separator: ", "), isOn: binding)
                 .toggleStyle(.checkbox)
                 .labelsHidden()
                 .help(help)
@@ -149,14 +147,6 @@ extension SettingsView {
         return LimitSettingsTable.rows(
             service: service, popoverItems: settings.popoverItems(for: service),
             limits: notificationManager.inventories[service] ?? [], displayName: catalog.displayName(for:))
-    }
-
-    private func limitsNote(for provider: AppProviderKind) -> String? {
-        guard let service = provider.runtimeService else { return nil }
-        let selected = settings.notificationTargets.providers[service.rawValue]?.selectedIDs ?? []
-        let available = Set((notificationManager.inventories[service] ?? []).map(\.id))
-        let missing = selected.subtracting(available).count
-        return missing > 0 ? "\(provider.displayName): 현재 제공되지 않은 알림 선택 \(missing)개도 보존하고 있습니다." : nil
     }
 
     private func isNotificationSelected(_ limit: UsageLimit) -> Bool {

@@ -305,7 +305,9 @@ actor CodexAPIService {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            // Neither raw responses nor server error strings are logged.
+            // Neither raw responses nor server error strings are logged. The attempt time is kept so a
+            // failing CLI is not run on every refresh.
+            cachedResetCredits = (accountID, previous, Date())
             return previous
         }
     }

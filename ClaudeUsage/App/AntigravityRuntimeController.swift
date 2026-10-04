@@ -7,65 +7,9 @@ nonisolated enum AntigravityRuntimeControllerError:
 {
     case appShuttingDown
     case settingsMigrationBlocked
-    case canonicalAccountStateUnavailable
     case typedSettingsUnavailable
-    case accountNotFound
-    case invalidCredentials
     case operationSuperseded
 }
-
-nonisolated protocol AntigravityRuntimeAccountPersisting:
-    Sendable
-{
-    func state() async throws
-        -> AntigravityAccountRepositoryState
-
-    func createAccount(
-        credentials: AntigravityOAuthCredentials,
-        label: String,
-        externalIdentity: AntigravityExternalAccountIdentity,
-        migrationAliases: [String],
-        makeActive: Bool,
-        expectedRevision: UInt64
-    ) async throws -> AntigravityAccountRepositoryState
-
-    func replaceCredential(
-        for accountID: AntigravityAccountID,
-        with credentials: AntigravityOAuthCredentials,
-        externalIdentity:
-            AntigravityExternalAccountIdentity?,
-        expectedRevision: UInt64
-    ) async throws -> AntigravityAccountRepositoryState
-
-    func deleteAccount(
-        id accountID: AntigravityAccountID,
-        expectedRevision: UInt64
-    ) async throws -> AntigravityAccountRepositoryState
-}
-
-extension AntigravityAccountRepository:
-    AntigravityRuntimeAccountPersisting
-{}
-
-nonisolated protocol AntigravityRuntimeMigrationCoordinating:
-    Sendable
-{
-    func checkForMigration() async
-        -> AntigravityMigrationStatus
-
-    func performInteractiveMigration() async
-        -> AntigravityMigrationStatus
-
-    func removeAllAccounts() async
-        -> AntigravityMigrationStatus
-
-    func removeAllAccountsInteractively() async
-        -> AntigravityMigrationStatus
-}
-
-extension AntigravityMigrationCoordinator:
-    AntigravityRuntimeMigrationCoordinating
-{}
 
 private actor AntigravityRuntimeOperationGate {
     private var isAcquired = false
@@ -93,17 +37,13 @@ private actor AntigravityRuntimeOperationGate {
 
 /// The only product mutation boundary for Antigravity runtime state.
 ///
-/// Repository, settings, migration and refresh actors are individually safe,
-/// but their methods can interleave at every `await`. This controller gates
-/// canonical mutations, runs remote refresh work outside that gate, and
-/// commits only the active boundary transaction to its secret-free projection.
+/// Settings and refresh actors are individually safe, but their methods can
+/// interleave at every `await`. This controller gates settings mutations, runs
+/// remote refresh work outside that gate, and commits only the latest refresh
+/// transaction to its secret-free projection.
 actor AntigravityRuntimeController {
-    private let repository:
-        any AntigravityRuntimeAccountPersisting
     private let settingsStore:
         any AntigravitySettingsStoring
-    private let migrationCoordinator:
-        any AntigravityRuntimeMigrationCoordinating
     private let refreshCoordinator:
         any AntigravityRefreshCoordinating
     private let runtimeLifecycle: any AntigravityRuntimeLifecycling
@@ -112,30 +52,18 @@ actor AntigravityRuntimeController {
     private let agyExecutableStatus:
         AntigravityAGYExecutableDiscoveryStatus
     private let runtimeEnvironment: AntigravityRuntimeEnvironment?
+    private let legacyAccountCleanup: @Sendable () async -> Void
     private let now: @Sendable () -> Date
     private let operationGate =
         AntigravityRuntimeOperationGate()
 
     private struct RefreshTransaction: Sendable {
         let id: UUID
-        let boundaryID: UUID
         let request: AntigravityRefreshRequest
-        let migrationStatus:
-            AntigravityMigrationStatus?
-        let context: CanonicalContext
-    }
-
-    private struct BoundaryChange: Sendable {
-        let id: UUID
-        let previousSnapshot:
-            AntigravityRuntimeSnapshot
     }
 
     private var currentSnapshot =
         AntigravityRuntimeSnapshot.idle
-    // A boundary exists before its selection is persisted. Refreshes must not
-    // read the previous selection during that interval.
-    private var pendingAccountBoundaryID: UUID?
     private var continuations:
         [
             UUID:
@@ -147,22 +75,18 @@ actor AntigravityRuntimeController {
     private var didBootstrap = false
     private var managedAvailability:
         AntigravityManagedRuntimeAvailability
-    private var currentBoundaryID = UUID()
     private var activeRefreshTransactionID: UUID?
     private var shutdownTask: Task<Void, Never>?
     private var lastAttemptAt: Date?
     private var lastSuccessfulAt: Date?
     private var usageDisplayBasis: UsageValueBasis?
     private var commonTimeFormat: TimeFormatStyle?
+    private var commonTimeUnitLanguage: TimeUnitLanguage = .english
     private var usageDisplayRevision: UInt64 = 0
 
     init(
-        repository:
-            any AntigravityRuntimeAccountPersisting,
         settingsStore:
             any AntigravitySettingsStoring,
-        migrationCoordinator:
-            any AntigravityRuntimeMigrationCoordinating,
         refreshCoordinator:
             any AntigravityRefreshCoordinating,
         runtimeLifecycle:
@@ -172,20 +96,19 @@ actor AntigravityRuntimeController {
         agyExecutableStatus:
             AntigravityAGYExecutableDiscoveryStatus,
         runtimeEnvironment: AntigravityRuntimeEnvironment? = nil,
+        legacyAccountCleanup: @escaping @Sendable () async -> Void = {},
         now:
             @escaping @Sendable () -> Date =
                 Date.init
     ) {
-        self.repository = repository
         self.runtimeEnvironment = runtimeEnvironment
         self.settingsStore = settingsStore
-        self.migrationCoordinator =
-            migrationCoordinator
         self.refreshCoordinator = refreshCoordinator
         self.runtimeLifecycle = runtimeLifecycle
         self.settingsBootstrap = settingsBootstrap
         self.agyExecutableStatus =
             agyExecutableStatus
+        self.legacyAccountCleanup = legacyAccountCleanup
         self.now = now
         managedAvailability = Self.managedAvailability(
             for: agyExecutableStatus
@@ -204,9 +127,14 @@ actor AntigravityRuntimeController {
 
     /// 공통 시간 형식으로 다시 그린다. 조회는 하지 않는다.
     @discardableResult
-    func setTimeFormat(_ format: TimeFormatStyle?) -> AntigravityRuntimeSnapshot {
-        guard !isShuttingDown, commonTimeFormat != format else { return currentSnapshot }
+    func setTimeFormat(
+        _ format: TimeFormatStyle?, unitLanguage: TimeUnitLanguage = .english
+    ) -> AntigravityRuntimeSnapshot {
+        guard !isShuttingDown,
+            commonTimeFormat != format || commonTimeUnitLanguage != unitLanguage
+        else { return currentSnapshot }
         commonTimeFormat = format
+        commonTimeUnitLanguage = unitLanguage
         return publish()
     }
 
@@ -236,10 +164,9 @@ actor AntigravityRuntimeController {
     func bootstrap(
         performInitialRefresh: Bool = true
     ) async -> AntigravityRuntimeSnapshot {
-        let boundaryID = currentBoundaryID
         let transaction = await withOperationGate {
             () async -> RefreshTransaction? in
-            guard isCurrentBoundary(boundaryID) else {
+            guard !isShuttingDown else {
                 return nil
             }
             guard !didBootstrap else {
@@ -258,35 +185,22 @@ actor AntigravityRuntimeController {
                 readiness: .bootstrapping
             )
 
-            // Nothing current depends on the legacy ledger, so its cleanup
-            // runs beside the first refresh instead of in front of it.
+            // Nothing current depends on the legacy ledger or the retired
+            // account store, so their cleanup runs beside the first refresh.
             let runtimeLifecycle = self.runtimeLifecycle
             Task.detached(priority: .utility) {
                 await runtimeLifecycle.cleanUpLegacyManagedProcesses()
             }
+            let legacyAccountCleanup = self.legacyAccountCleanup
+            Task.detached(priority: .utility) {
+                await legacyAccountCleanup()
+            }
             if let runtimeEnvironment {
                 managedAvailability = await runtimeEnvironment.managedAvailability()
             }
-            guard isCurrentBoundary(boundaryID) else {
-                return nil
-            }
-
-            let migration =
-                await migrationCoordinator
-                    .checkForMigration()
-            guard isCurrentBoundary(boundaryID) else {
-                return nil
-            }
-            guard
-                let context =
-                    await loadCanonicalContext(
-                        migrationStatus: migration,
-                        boundaryID: boundaryID
-                    )
+            guard !isShuttingDown,
+                let settings = await loadSettings()
             else {
-                return nil
-            }
-            guard isCurrentBoundary(boundaryID) else {
                 return nil
             }
 
@@ -294,25 +208,19 @@ actor AntigravityRuntimeController {
                 let presentation =
                     await refreshCoordinator
                         .presentationState()
-                guard isCurrentBoundary(boundaryID)
-                else {
+                guard !isShuttingDown else {
                     return nil
                 }
                 _ = publish(
                     readiness: .ready,
-                    migrationStatus: migration,
-                    repositoryState:
-                        context.repositoryState,
-                    settings: context.settings,
+                    settings: settings,
                     presentationState: presentation
                 )
                 return nil
             }
             return prepareRefresh(
-                trigger: .migrationCompleted,
-                migrationStatus: migration,
-                context: context,
-                boundaryID: boundaryID
+                trigger: .manual,
+                settings: settings
             )
         }
         guard let transaction else {
@@ -325,11 +233,9 @@ actor AntigravityRuntimeController {
     func refresh(
         trigger: AntigravityRefreshTrigger
     ) async -> AntigravityRuntimeSnapshot {
-        guard pendingAccountBoundaryID == nil else { return currentSnapshot }
-        let boundaryID = currentBoundaryID
         let transaction = await withOperationGate {
             () async -> RefreshTransaction? in
-            guard isCurrentBoundary(boundaryID) else {
+            guard !isShuttingDown else {
                 return nil
             }
             guard settingsBootstrap.isReady else {
@@ -338,114 +244,18 @@ actor AntigravityRuntimeController {
                 )
                 return nil
             }
-            let migration: AntigravityMigrationStatus
-            if let current =
-                    currentSnapshot.migrationStatus
-            {
-                migration = current
-            } else {
-                migration =
-                    await migrationCoordinator
-                        .checkForMigration()
-            }
-            guard isCurrentBoundary(boundaryID) else {
-                return nil
-            }
-            guard
-                let context =
-                    await loadCanonicalContext(
-                        migrationStatus: migration,
-                        boundaryID: boundaryID
-                    )
-            else {
-                return nil
-            }
-            guard isCurrentBoundary(boundaryID) else {
+            guard let settings = await loadSettings() else {
                 return nil
             }
             return prepareRefresh(
                 trigger: trigger,
-                migrationStatus: migration,
-                context: context,
-                boundaryID: boundaryID
+                settings: settings
             )
         }
         guard let transaction else {
             return currentSnapshot
         }
         return await executeRefresh(transaction)
-    }
-
-    @discardableResult
-    func selectTarget(_ selection: AntigravityUsageTarget) async throws -> AntigravityRuntimeSnapshot {
-        guard selection != .unselected
-        else {
-            throw AntigravityRuntimeControllerError.accountNotFound
-        }
-        return try await performBoundaryMutation { transactionID in
-            try ensureMutable()
-            guard isCurrent(transactionID) else { return nil }
-            let context = try await requireCanonicalContext(boundaryID: transactionID)
-            guard isCurrent(transactionID) else { return nil }
-            var settings = context.settings
-            settings.connection.usageTarget = selection
-            if settings.connection != context.settings.connection {
-                settings.connection = try await settingsStore.saveConnection(settings.connection)
-            }
-            guard isCurrent(transactionID) else { return nil }
-            return prepareRefresh(
-                trigger: .accountBoundaryChanged, migrationStatus: currentSnapshot.migrationStatus,
-                context: CanonicalContext(repositoryState: context.repositoryState, settings: settings),
-                transactionID: transactionID)
-        }
-    }
-
-    @discardableResult
-    func deleteAccount(
-        _ accountID: AntigravityAccountID
-    ) async throws -> AntigravityRuntimeSnapshot {
-        try await performBoundaryMutation {
-            transactionID in
-            try ensureMutable()
-            guard isCurrent(transactionID) else {
-                return nil
-            }
-            let context = try await requireCanonicalContext(
-                boundaryID: transactionID
-            )
-            guard isCurrent(transactionID) else {
-                return nil
-            }
-            guard context.repositoryState.usableAccounts
-                .contains(where: { $0.id == accountID })
-            else {
-                throw AntigravityRuntimeControllerError
-                    .accountNotFound
-            }
-            let repositoryState = try await repository
-                .deleteAccount(
-                    id: accountID,
-                    expectedRevision:
-                        context.repositoryState.revision
-                )
-            guard isCurrent(transactionID) else {
-                return nil
-            }
-            let settings = try await settingsStore.load()
-            guard isCurrent(transactionID) else {
-                return nil
-            }
-            return prepareRefresh(
-                trigger: .accountBoundaryChanged,
-                migrationStatus:
-                    currentSnapshot.migrationStatus,
-                context: CanonicalContext(
-                    repositoryState: repositoryState,
-                    settings: settings
-                ),
-                transactionID: transactionID
-            )
-        }
     }
 
     @discardableResult
@@ -486,162 +296,38 @@ actor AntigravityRuntimeController {
     ) async throws -> AntigravityRuntimeSnapshot {
         try await withOperationGate {
             try ensureMutable()
-            let boundaryID = currentBoundaryID
-            let context = try await requireCanonicalContext(
-                boundaryID: boundaryID
-            )
-            guard isCurrentBoundary(boundaryID) else {
-                return currentSnapshot
-            }
+            let current = try await requireSettings()
             if let expectedDisplay,
-               context.settings.display
+                current.display
                 != expectedDisplay
             {
                 throw AntigravityRuntimeControllerError
                     .operationSuperseded
             }
-            var display = context.settings.display
+            var display = current.display
             mutation(&display)
             guard display.isCurrentAndValid else {
                 throw AntigravitySettingsStoreError
                     .invalidValue(.display)
             }
-            guard display != context.settings.display else {
+            guard display != current.display else {
                 return currentSnapshot
             }
             let settings = AntigravitySettingsSnapshot(
-                connection: context.settings.connection,
+                connection: current.connection,
                 display:
                     try await settingsStore
                         .saveDisplay(display)
             )
             try ensureMutable()
-            guard isCurrentBoundary(boundaryID) else {
-                return currentSnapshot
-            }
             return publish(
                 readiness: .ready,
-                migrationStatus:
-                    currentSnapshot.migrationStatus,
-                repositoryState:
-                    context.repositoryState,
                 settings: settings,
                 presentationState:
                     currentSnapshot
                         .presentationState
             )
         }
-    }
-
-    @discardableResult
-    func continueMigration()
-        async -> AntigravityRuntimeSnapshot
-    {
-        guard !isShuttingDown else {
-            return currentSnapshot
-        }
-        let transactionID =
-            beginBoundaryChange().id
-        defer { finishPendingBoundary(transactionID) }
-        await refreshCoordinator.invalidateBoundary()
-        let transaction = await withOperationGate {
-            () async -> RefreshTransaction? in
-            guard !isShuttingDown,
-                  isCurrent(transactionID)
-            else {
-                return nil
-            }
-            let migration =
-                await migrationCoordinator
-                    .performInteractiveMigration()
-            guard !isShuttingDown,
-                  isCurrent(transactionID)
-            else {
-                return nil
-            }
-            guard
-                let context =
-                    await loadCanonicalContext(
-                        migrationStatus: migration,
-                        boundaryID: transactionID
-                    )
-            else {
-                return nil
-            }
-            guard !isShuttingDown,
-                  isCurrent(transactionID)
-            else {
-                return nil
-            }
-            return prepareRefresh(
-                trigger: .migrationCompleted,
-                migrationStatus: migration,
-                context: context,
-                transactionID: transactionID
-            )
-        }
-        guard let transaction else {
-            return currentSnapshot
-        }
-        return await executeRefresh(transaction)
-    }
-
-    @discardableResult
-    func removeAllAccounts(
-        interactively: Bool
-    ) async -> AntigravityRuntimeSnapshot {
-        guard !isShuttingDown else {
-            return currentSnapshot
-        }
-        let transactionID =
-            beginBoundaryChange().id
-        defer { finishPendingBoundary(transactionID) }
-        await refreshCoordinator.invalidateBoundary()
-        let transaction = await withOperationGate {
-            () async -> RefreshTransaction? in
-            guard !isShuttingDown,
-                  isCurrent(transactionID)
-            else {
-                return nil
-            }
-            let migration: AntigravityMigrationStatus
-            if interactively {
-                migration = await migrationCoordinator
-                    .removeAllAccountsInteractively()
-            } else {
-                migration = await migrationCoordinator
-                    .removeAllAccounts()
-            }
-            guard !isShuttingDown,
-                  isCurrent(transactionID)
-            else {
-                return nil
-            }
-            guard
-                let context =
-                    await loadCanonicalContext(
-                        migrationStatus: migration,
-                        boundaryID: transactionID
-                    )
-            else {
-                return nil
-            }
-            guard !isShuttingDown,
-                  isCurrent(transactionID)
-            else {
-                return nil
-            }
-            return prepareRefresh(
-                trigger: .accountBoundaryChanged,
-                migrationStatus: migration,
-                context: context,
-                transactionID: transactionID
-            )
-        }
-        guard let transaction else {
-            return currentSnapshot
-        }
-        return await executeRefresh(transaction)
     }
 
     @discardableResult
@@ -652,33 +338,19 @@ actor AntigravityRuntimeController {
             guard !isShuttingDown else {
                 return currentSnapshot
             }
-            let boundaryID = currentBoundaryID
             do {
                 _ = try await settingsStore
                     .consumePendingNotice()
-                guard isCurrentBoundary(boundaryID) else {
-                    return currentSnapshot
-                }
-                let context =
-                    try await requireCanonicalContext(
-                        boundaryID: boundaryID
-                    )
-                guard isCurrentBoundary(boundaryID) else {
-                    return currentSnapshot
-                }
+                let settings = try await requireSettings()
                 return publish(
                     readiness: .ready,
-                    migrationStatus:
-                        currentSnapshot.migrationStatus,
-                    repositoryState:
-                        context.repositoryState,
-                    settings: context.settings,
+                    settings: settings,
                     presentationState:
                         currentSnapshot
                             .presentationState
                 )
             } catch {
-                guard isCurrentBoundary(boundaryID) else {
+                guard !isShuttingDown else {
                     return currentSnapshot
                 }
                 return publishBlocked(.typedSettings)
@@ -693,7 +365,6 @@ actor AntigravityRuntimeController {
         }
         guard !isShuttingDown else { return }
         isShuttingDown = true
-        currentBoundaryID = UUID()
         activeRefreshTransactionID = nil
         publish(
             replacing: currentSnapshot,
@@ -713,12 +384,6 @@ actor AntigravityRuntimeController {
         }
         shutdownTask = task
         await task.value
-    }
-
-    private struct CanonicalContext: Sendable {
-        let repositoryState:
-            AntigravityAccountRepositoryState
-        let settings: AntigravitySettingsSnapshot
     }
 
     private func withOperationGate<T: Sendable>(
@@ -746,33 +411,9 @@ actor AntigravityRuntimeController {
         }
     }
 
-    private func requireCanonicalContext(
-        boundaryID: UUID? = nil
-    )
-        async throws -> CanonicalContext
+    private func requireSettings()
+        async throws -> AntigravitySettingsSnapshot
     {
-        guard !isShuttingDown else {
-            throw AntigravityRuntimeControllerError
-                .appShuttingDown
-        }
-        let repositoryState: AntigravityAccountRepositoryState
-        do {
-            repositoryState = try await repository.state()
-        } catch {
-            if let boundaryID,
-               !isCurrentBoundary(boundaryID)
-            {
-                throw AntigravityRuntimeControllerError
-                    .canonicalAccountStateUnavailable
-            }
-            if isShuttingDown {
-                throw AntigravityRuntimeControllerError
-                    .appShuttingDown
-            }
-            _ = publishBlocked(.canonicalAccountState)
-            throw AntigravityRuntimeControllerError
-                .canonicalAccountStateUnavailable
-        }
         guard !isShuttingDown else {
             throw AntigravityRuntimeControllerError
                 .appShuttingDown
@@ -781,12 +422,6 @@ actor AntigravityRuntimeController {
         do {
             settings = try await settingsStore.load()
         } catch {
-            if let boundaryID,
-               !isCurrentBoundary(boundaryID)
-            {
-                throw AntigravityRuntimeControllerError
-                    .typedSettingsUnavailable
-            }
             if isShuttingDown {
                 throw AntigravityRuntimeControllerError
                     .appShuttingDown
@@ -799,257 +434,41 @@ actor AntigravityRuntimeController {
             throw AntigravityRuntimeControllerError
                 .appShuttingDown
         }
-        return CanonicalContext(
-            repositoryState: repositoryState,
-            settings: settings
-        )
+        return settings
     }
 
-    private func loadCanonicalContext(
-        migrationStatus: AntigravityMigrationStatus,
-        boundaryID: UUID? = nil
-    ) async -> CanonicalContext? {
-        do {
-            return try await requireCanonicalContext(
-                boundaryID: boundaryID
-            )
-        } catch {
-            if let boundaryID,
-               !isCurrentBoundary(boundaryID)
-            {
-                return nil
-            }
-            guard !isShuttingDown else {
-                return nil
-            }
-            publish(
-                replacing: currentSnapshot,
-                migrationStatus: migrationStatus
-            )
-            return nil
-        }
-    }
-
-    private func performBoundaryMutation(
-        _ mutation:
-            (UUID) async throws
-                -> RefreshTransaction?
-    ) async throws -> AntigravityRuntimeSnapshot {
-        try ensureMutable()
-        let boundary = beginBoundaryChange()
-        defer { finishPendingBoundary(boundary.id) }
-        await refreshCoordinator.invalidateBoundary()
-
-        do {
-            let transaction =
-                try await withOperationGate {
-                    () async throws
-                        -> RefreshTransaction? in
-                    try ensureMutable()
-                    guard isCurrent(boundary.id)
-                    else {
-                        return nil
-                    }
-                    return try await mutation(
-                        boundary.id
-                    )
-                }
-            guard let transaction else {
-                try ensureMutable()
-                throw AntigravityRuntimeControllerError
-                    .operationSuperseded
-            }
-            _ = await executeRefresh(transaction)
-            guard isCurrentBoundary(transaction.boundaryID) else {
-                try ensureMutable()
-                throw AntigravityRuntimeControllerError
-                    .operationSuperseded
-            }
-            // A scheduled refresh of the same committed account may supersede
-            // the quota request. It does not undo the user's account selection.
-            return currentSnapshot
-        } catch {
-            await recover(
-                from: error,
-                boundary: boundary
-            )
-            throw error
-        }
-    }
-
-    private func recover(
-        from error: Error,
-        boundary: BoundaryChange
-    ) async {
-        guard isCurrent(boundary.id) else {
-            return
-        }
-        if let controllerError =
-                error
-                    as?
-                    AntigravityRuntimeControllerError,
-           controllerError == .accountNotFound
-        {
-            activeRefreshTransactionID = nil
-            lastSuccessfulAt = boundary.previousSnapshot.lastSuccessfulAt
-            publish(
-                replacing:
-                    boundary.previousSnapshot
-            )
-            return
-        }
-
-        let repositoryState:
-            AntigravityAccountRepositoryState
-        do {
-            repositoryState =
-                try await repository.state()
-        } catch {
-            guard isCurrent(boundary.id) else {
-                return
-            }
-            activeRefreshTransactionID = nil
-            _ = publishBlocked(.canonicalAccountState)
-            return
-        }
-        guard isCurrent(boundary.id) else {
-            return
-        }
-
-        let settings:
-            AntigravitySettingsSnapshot
-        do {
-            settings = try await settingsStore.load()
-        } catch {
-            guard isCurrent(boundary.id) else {
-                return
-            }
-            activeRefreshTransactionID = nil
-            _ = publishBlocked(.typedSettings)
-            return
-        }
-        guard isCurrent(boundary.id) else {
-            return
-        }
-
-        activeRefreshTransactionID = nil
-        if settings.connection.usageTarget == boundary.previousSnapshot.settings?.connection.usageTarget {
-            lastSuccessfulAt = boundary.previousSnapshot.lastSuccessfulAt
-        }
-        publish(
-            readiness: .ready,
-            migrationStatus:
-                currentSnapshot.migrationStatus,
-            repositoryState: repositoryState,
-            settings: settings,
-            presentationState:
-                .failed(.repositoryUnavailable)
-        )
-    }
-
-    private func beginBoundaryChange()
-        -> BoundaryChange
-    {
-        let previousSnapshot = currentSnapshot
-        let transactionID = UUID()
-        currentBoundaryID = transactionID
-        pendingAccountBoundaryID = transactionID
-        activeRefreshTransactionID = transactionID
-        lastSuccessfulAt = nil
-        publish(
-            presentationState:
-                .refreshing(previous: nil)
-        )
-        return BoundaryChange(
-            id: transactionID,
-            previousSnapshot: previousSnapshot
-        )
-    }
-
-    private func isCurrent(
-        _ transactionID: UUID
-    ) -> Bool {
-        !isShuttingDown
-            && currentBoundaryID == transactionID
-            && activeRefreshTransactionID
-                == transactionID
-    }
-
-    private func isCurrentBoundary(
-        _ boundaryID: UUID
-    ) -> Bool {
-        !isShuttingDown
-            && currentBoundaryID == boundaryID
-    }
-
-    private func finishPendingBoundary(_ boundaryID: UUID) {
-        if pendingAccountBoundaryID == boundaryID { pendingAccountBoundaryID = nil }
+    private func loadSettings() async -> AntigravitySettingsSnapshot? {
+        try? await requireSettings()
     }
 
     private func prepareRefresh(
         trigger: AntigravityRefreshTrigger,
-        migrationStatus: AntigravityMigrationStatus?,
-        context: CanonicalContext,
-        transactionID requestedTransactionID:
-            UUID? = nil,
-        boundaryID requestedBoundaryID:
-            UUID? = nil
+        settings: AntigravitySettingsSnapshot
     ) -> RefreshTransaction? {
         guard !isShuttingDown else {
             return nil
         }
-        let boundaryID =
-            requestedBoundaryID
-                ?? requestedTransactionID
-                ?? currentBoundaryID
-        guard isCurrentBoundary(boundaryID)
-        else {
-            return nil
-        }
-        let transactionID: UUID
-        if let requestedTransactionID {
-            guard isCurrent(requestedTransactionID)
-            else {
-                return nil
-            }
-            transactionID = requestedTransactionID
-            finishPendingBoundary(boundaryID)
-        } else {
-            transactionID = UUID()
-            activeRefreshTransactionID =
-                transactionID
-        }
-        let previous = trigger.clearsPreviousSnapshot
-            ? nil
-            : Self.snapshot(
-                from: currentSnapshot
-                    .presentationState
-            )
+        let transactionID = UUID()
+        activeRefreshTransactionID = transactionID
         let refreshing =
             AntigravityPresentationState.refreshing(
-                previous: previous
+                previous: Self.snapshot(
+                    from: currentSnapshot
+                        .presentationState
+                )
             )
         lastAttemptAt = now()
         publish(
             readiness: .ready,
-            migrationStatus: migrationStatus,
-            repositoryState: context.repositoryState,
-            settings: context.settings,
+            settings: settings,
             presentationState: refreshing
-        )
-
-        let request = AntigravityRefreshRequest(
-            trigger: trigger,
-            repositoryRevision:
-                context.repositoryState.revision,
-            connection: context.settings.connection
         )
         return RefreshTransaction(
             id: transactionID,
-            boundaryID: boundaryID,
-            request: request,
-            migrationStatus: migrationStatus,
-            context: context
+            request: AntigravityRefreshRequest(
+                trigger: trigger,
+                connection: settings.connection
+            )
         )
     }
 
@@ -1083,18 +502,15 @@ actor AntigravityRuntimeController {
         }
         return await withOperationGate {
             guard isCurrent(transaction) else { return currentSnapshot }
-            let latestRepository: AntigravityAccountRepositoryState
-            var latestSettings: AntigravitySettingsSnapshot
+            let latestSettings: AntigravitySettingsSnapshot
             do {
-                latestRepository = try await repository.state()
-                guard isCurrent(transaction) else { return currentSnapshot }
                 latestSettings = try await settingsStore.load()
             } catch {
                 guard isCurrent(transaction) else { return currentSnapshot }
                 return publishBlocked(.typedSettings)
             }
             guard isCurrent(transaction) else { return currentSnapshot }
-            guard latestSettings.connection == transaction.context.settings.connection else {
+            guard latestSettings.connection == transaction.request.connection else {
                 return publishBlocked(.typedSettings)
             }
             let acceptedPresentation = presentation
@@ -1104,19 +520,8 @@ actor AntigravityRuntimeController {
             default: break
             }
             return publish(
-                readiness: .ready, migrationStatus: transaction.migrationStatus,
-                repositoryState: latestRepository, settings: latestSettings,
+                readiness: .ready, settings: latestSettings,
                 presentationState: acceptedPresentation)
-        }
-    }
-
-    private nonisolated static func observedIdentity(in state: AntigravityPresentationState) -> ProviderAccountIdentity?
-    {
-        switch state {
-        case .ready(let snapshot), .partial(let snapshot, _): snapshot.identity ?? snapshot.provenance.accountIdentity
-        case .limited(let value): value.evidence.identity
-        case .identityOnly(let value): value.identity
-        default: nil
         }
     }
 
@@ -1124,8 +529,6 @@ actor AntigravityRuntimeController {
         _ transaction: RefreshTransaction
     ) -> Bool {
         !isShuttingDown
-            && currentBoundaryID
-                == transaction.boundaryID
             && activeRefreshTransactionID
                 == transaction.id
     }
@@ -1136,12 +539,9 @@ actor AntigravityRuntimeController {
     ) -> AntigravityRuntimeSnapshot {
         publish(
             readiness: .blocked(blocker),
-            migrationStatus:
-                currentSnapshot.migrationStatus,
-            repositoryState: nil,
             settings: currentSnapshot.settings,
             presentationState:
-                .failed(.repositoryUnavailable)
+                .failed(.invalidRefreshContext)
         )
     }
 
@@ -1151,10 +551,6 @@ actor AntigravityRuntimeController {
             AntigravityRuntimeSnapshot? = nil,
         readiness:
             AntigravityRuntimeReadiness? = nil,
-        migrationStatus:
-            AntigravityMigrationStatus? = nil,
-        repositoryState:
-            AntigravityAccountRepositoryState? = nil,
         settings:
             AntigravitySettingsSnapshot? = nil,
         presentationState:
@@ -1169,18 +565,6 @@ actor AntigravityRuntimeController {
         let snapshot = AntigravityRuntimeSnapshot(
             readiness:
                 readiness ?? base.readiness,
-            migrationStatus:
-                migrationStatus
-                    ?? base.migrationStatus,
-            repositoryRevision:
-                repositoryState?.revision
-                    ?? base.repositoryRevision,
-            accounts:
-                repositoryState.map {
-                    Self.accountSummaries(
-                        $0, selectedAccountID: nil)
-                } ?? base.accounts,
-            activeAccountID: nil,
             settings: resolvedSettings,
             presentationState:
                 resolvedPresentation,
@@ -1189,6 +573,7 @@ actor AntigravityRuntimeController {
                 settings: Self.applyingCommonTimeFormat(
                     commonTimeFormat, to: resolvedSettings?.display ?? .default),
                 basisOverride: usageDisplayBasis,
+                unitLanguage: commonTimeUnitLanguage,
                 now: now()
             ),
             managedRuntimeAvailability:
@@ -1207,24 +592,6 @@ actor AntigravityRuntimeController {
 
     private func removeContinuation(_ id: UUID) {
         continuations.removeValue(forKey: id)
-    }
-
-    private nonisolated static func accountSummaries(
-        _ repositoryState:
-            AntigravityAccountRepositoryState,
-        selectedAccountID: AntigravityAccountID?
-    ) -> [AntigravityRuntimeAccountSummary] {
-        repositoryState.usableAccounts.map { account in
-            AntigravityRuntimeAccountSummary(
-                id: account.id,
-                label: account.label,
-                identity:
-                    account.externalIdentity
-                        .providerAccountIdentity,
-                isActive:
-                    selectedAccountID == account.id
-            )
-        }
     }
 
     private nonisolated static func snapshot(

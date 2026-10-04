@@ -40,10 +40,6 @@ struct ServiceSelectionHelper {
         settings.providerSelectionState.runtimeEnabledKinds.isEmpty == false
     }
 
-    static func hasMultipleEnabledServices(settings: AppSettings) -> Bool {
-        settings.providerSelectionState.runtimeEnabledKinds.count > 1
-    }
-
     static func resolvedPopoverService(settings: AppSettings) -> PopoverService {
         let selectionState = settings.providerSelectionState
         let runtimeKinds = selectionState.runtimeEnabledKinds

@@ -170,7 +170,7 @@ nonisolated struct AntigravityCLIReportProcessRunner:
         of child: AntigravityCLIReportChildProcess,
         timeout: Duration
     ) async -> WaitOutcome {
-        let race = AntigravityOneShotRace<WaitOutcome>()
+        let race = OwnedSubprocessOneShotRace<WaitOutcome>()
         child.onOutputLimitReached { race.finish(.outputLimitReached) }
         let exitEvents = DispatchSource.makeProcessSource(
             identifier: child.processID,
@@ -201,7 +201,7 @@ nonisolated struct AntigravityCLIReportProcessRunner:
         _ request: AntigravityCLIReportProcessRequest
     ) throws -> AntigravityCLIReportChildProcess {
         guard
-            let spawned = AntigravitySubprocessSpawn.spawn(
+            let spawned = OwnedSubprocessSpawn.spawn(
                 executablePath: request.executable.canonicalURL.standardizedFileURL.path,
                 arguments: request.arguments,
                 environment: request.environment,

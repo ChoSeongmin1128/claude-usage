@@ -39,11 +39,6 @@ extension SettingsView {
                 if shouldShowManualInputSection {
                     manualSessionKeySection
                 }
-            } else {
-                Text("Claude 사용이 꺼져 있습니다. 켜면 메뉴바와 사용량 확인이 다시 동작합니다.")
-                    .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, AppDesign.Space.control)
             }
         }
         // 행동 결과 메시지를 toast 처럼 자동 dismiss. 사용자가 X 로 닫으면 task 가 다시 시작되며
@@ -95,24 +90,17 @@ extension SettingsView {
                 }
 
                 if account.kind == .webSession {
-                    Button("조직 변경") { revealOrganizationControls() }
+                    Button("조직 선택") { revealOrganizationControls() }
                         .controlSize(.small)
                 } else if !claudeOAuthMigrationState.replacesStandardClaudeCodeReconnectAction {
                     Button("Claude Code 다시 연결") { onReconnectClaudeCode?() }
                         .controlSize(.small)
-                        .help("터미널에서 Claude Code 계정을 바꿨다면 새 인증을 다시 가져옵니다")
+                        .help("터미널에서 바꾼 Claude Code 로그인을 다시 가져옵니다")
                 }
 
                 accountMessageView
             } else {
-                sectionCardHeader(
-                    title: "Claude 연결 필요",
-                    subtitle: "브라우저 로그인 가져오기를 먼저 시도해 주세요"
-                )
-
-                Text("연결된 Claude 계정이 없습니다. 연결이 끝나면 사용량을 바로 조회합니다.")
-                    .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
+                sectionCardHeader(title: "Claude 계정 연결")
 
                 HStack(spacing: AppDesign.Space.row) {
                     Button(action: { onImportClaudeFromChrome?() }) {
@@ -127,7 +115,7 @@ extension SettingsView {
                     }
                     .buttonStyle(.bordered)
 
-                    Button("직접 입력") {
+                    Button("세션 키 직접 입력") {
                         withAnimation(settings.motion.animation(for: .disclosure, reduceMotion: reduceMotion)) {
                             isAdvancedAuthExpanded.toggle()
                         }
@@ -150,13 +138,11 @@ extension SettingsView {
     @ViewBuilder
     private var accountMessageView: some View {
         if let message = claudeAccountMessage {
-            // 메시지는 행동 결과(toast 비슷)이므로 영구 노출하지 않는다.
-            // - X 버튼으로 명시적 닫기
-            // - authSection 의 .task(id:) 로 일정 시간 후 자동 dismiss
+            // 동작 결과라 X로 닫거나 authSection의 .task(id:)가 잠시 뒤 지운다.
             HStack(alignment: .top, spacing: AppDesign.Space.control) {
-                Text(message)
+                Text(message.text)
                     .font(AppDesign.Typography.caption)
-                    .foregroundStyle(message.contains("실패") || message.contains("필요") ? .orange : .secondary)
+                    .foregroundStyle(message.isWarning ? .orange : .secondary)
                     .lineLimit(2)
                 Spacer(minLength: 8)
                 Button(action: { claudeAccountMessage = nil }) {
@@ -165,35 +151,15 @@ extension SettingsView {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.borderless)
-                .help("이 안내 닫기")
+                .help("닫기")
             }
         }
     }
 
-    /// 직접 입력한 세션 키의 연결 확인 결과와 알림 정책 요약.
+    /// 조직 플랜의 알림 기준. 세션 키 연결 확인 결과는 직접 입력 칸 옆에만 보인다.
     @ViewBuilder
     private var claudeConnectionStatusLine: some View {
-        if isTesting {
-            HStack(spacing: AppDesign.Space.row) {
-                ProgressView()
-                    .controlSize(.small)
-                Text("연결 상태를 확인하고 있습니다")
-                    .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
-            }
-        } else if let result = testResult {
-            switch result {
-            case .success:
-                Label("최근 연결 확인됨", systemImage: "checkmark.circle.fill")
-                    .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.green)
-            case .failure(let msg):
-                Label(msg, systemImage: "exclamationmark.triangle.fill")
-                    .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.orange)
-                    .lineLimit(2)
-            }
-        } else if let summary = claudeNotificationPolicySummary {
+        if !isTesting, testResult == nil, let summary = claudeNotificationPolicySummary {
             Text(summary)
                 .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
@@ -204,30 +170,16 @@ extension SettingsView {
         DisclosureGroup {
             VStack(alignment: .leading, spacing: AppDesign.Space.row) {
                 if let snapshot = usageHealthSnapshot {
-                    Text(authSummaryLine(snapshot))
-                        .font(AppDesign.Typography.caption)
-                        .foregroundStyle(.secondary)
+                    if let problem = authProblemLine(snapshot) {
+                        Text(problem)
+                            .font(AppDesign.Typography.caption)
+                            .foregroundStyle(.orange)
+                    }
                     sourceStatusRows(snapshot)
                 } else {
-                    Text("인증 상태를 아직 불러오지 못했습니다.")
+                    Text("불러오는 중")
                         .font(AppDesign.Typography.caption)
                         .foregroundStyle(.secondary)
-                }
-
-                Divider()
-                    .padding(.vertical, AppDesign.Space.tight)
-
-                Text("조회 방식은 현재 선택한 계정 안에서 자동으로 결정됩니다. 다른 계정의 로그인 정보로 자동 전환하지 않습니다.")
-                    .font(AppDesign.Typography.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: AppDesign.Space.row) {
-                    Button("브라우저 로그인 값 삭제") { pendingDestructiveAction = .clearBrowserSession }
-                        .disabled(!(usageHealthSnapshot?.runtime.credentialAvailability.sessionCredentialAvailable ?? false))
-
-                    Button("Claude Code 다시 로그인 안내") { showClaudeCodeLoginGuidance() }
-                        .disabled(!(usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false))
                 }
             }
             .padding(.top, AppDesign.Space.control)
@@ -246,20 +198,9 @@ extension SettingsView {
     private var manualSessionKeySection: some View {
         DisclosureGroup(isExpanded: $isAdvancedAuthExpanded) {
             VStack(alignment: .leading, spacing: AppDesign.Space.row) {
-                Text("자동 가져오기가 안 될 때만 마지막 수단으로 직접 입력해 주세요.")
-                    .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
-
-                Text("브라우저 로그인 값")
-                    .font(AppDesign.Typography.subheadline)
-
-                TextField("브라우저 로그인 값 붙여넣기", text: $sessionKey)
+                SecureField("세션 키(sessionKey) 붙여넣기", text: $sessionKey)
                     .textFieldStyle(.roundedBorder)
                     .font(AppDesign.Typography.compactValue)
-
-                Text("로그인 값만 붙여넣고 연결 테스트를 통과한 뒤 저장하세요. 입력만으로는 저장되지 않습니다.")
-                    .font(AppDesign.Typography.caption2)
-                    .foregroundStyle(.secondary)
 
                 if let warning = sessionKeyFormatWarning {
                     Label(warning, systemImage: "exclamationmark.triangle")
@@ -294,7 +235,7 @@ extension SettingsView {
                     }
 
                     if hasPendingManualSessionKey && testResult == nil {
-                        Label("저장되지 않은 입력", systemImage: "pencil")
+                        Label("저장 안 됨", systemImage: "pencil")
                             .font(AppDesign.Typography.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -302,7 +243,7 @@ extension SettingsView {
             }
             .padding(.top, AppDesign.Space.compact)
         } label: {
-            Text("수동 입력 (마지막 수단)")
+            Text("세션 키 직접 입력")
         }
         .font(AppDesign.Typography.subheadline)
     }
@@ -324,17 +265,12 @@ extension SettingsView {
         )
     }
 
-    private var hasChromeApp: Bool {
-        NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") != nil
-    }
-
     var appliedClaudeSetupPresentation: ClaudeSetupPresentation {
         SetupCompletionPolicy.resolvePresentation(
             hasReadyCredential: hasClaudeCredentialInput,
             hasSuccessfulFetch: hasSuccessfulClaudeFetch,
             preferredOrganizationID: appliedPreferredOrganizationID,
-            cachedMetadata: profileMetadata,
-            hasChromeApp: hasChromeApp
+            cachedMetadata: profileMetadata
         )
     }
 
@@ -367,64 +303,33 @@ extension SettingsView {
         usageHealthSnapshot?.runtime.credentialAvailability.oauthCredentialAvailable ?? false
     }
 
-    var hasSessionCredentialAvailable: Bool {
-        activeClaudeWebAccount() != nil
-            && !(normalizeSessionKey(storedSessionKey ?? "").isEmpty)
-            || (usageHealthSnapshot?.runtime.credentialAvailability.sessionCredentialAvailable ?? false)
-    }
-
     var claudeNotificationPolicySummary: String? {
         SetupCompletionPolicy.notificationPolicy(from: profileMetadata)?.summaryLine
     }
 
-    private func authSummaryLine(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> String {
-        let availability = snapshot.runtime.credentialAvailability
-
-        if !availability.hasAnyCredential {
-            return "로그인 정보가 없습니다. Chrome 로그인 가져오기 또는 Claude Code 로그인이 필요합니다."
+    /// 고칠 일이 있을 때만 한 줄. 정상 상태는 아래 행이 보여준다.
+    private func authProblemLine(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> String? {
+        let runtime = snapshot.runtime
+        guard runtime.credentialAvailability.hasAnyCredential else {
+            return "로그인이 없습니다. 브라우저에서 가져오거나 Claude Code에 로그인하세요."
         }
-
-        switch snapshot.runtime.activePath {
+        let webExpired = "웹 로그인이 만료됐습니다. claude.ai에 다시 로그인한 뒤 가져오세요."
+        let claudeCodeExpired = "Claude Code 로그인이 만료됐습니다. 터미널에서 `claude auth login`을 실행하세요."
+        switch runtime.activePath {
         case .sessionPrimary:
-            if snapshot.runtime.sessionValidationState == .failed {
-                return "브라우저 로그인 값 확인이 필요합니다. Claude.ai 에서 다시 로그인해 주세요."
-            }
-            if snapshot.runtime.sessionValidationState == .verified {
-                return "브라우저 로그인 값으로 최근 조회가 성공했습니다."
-            }
-            return "브라우저 로그인 값이 저장되어 있습니다. 사용량 새로고침으로 실제 조회를 확인하세요."
+            return runtime.sessionValidationState == .failed ? webExpired : nil
         case .oauthPreferred, .oauthFallback:
-            if snapshot.runtime.oauthValidationState == .failed {
-                return "Claude Code 로그인을 갱신하지 못했습니다. 터미널에서 `claude auth login`을 다시 실행해 주세요."
-            }
-            if snapshot.runtime.oauthValidationState == .verified {
-                return "Claude Code 로그인으로 최근 조회가 성공했습니다."
-            }
-            return "Claude Code 로그인 정보가 저장되어 있습니다. 사용량 새로고침으로 실제 조회를 확인하세요."
+            return runtime.oauthValidationState == .failed ? claudeCodeExpired : nil
         case .unauthenticated:
-            if snapshot.runtime.sessionValidationState == .failed {
-                return "브라우저 로그인 값 확인이 필요합니다. Claude.ai 에서 다시 로그인해 주세요."
-            }
-            if snapshot.runtime.oauthValidationState == .failed {
-                return "Claude Code 로그인을 갱신하지 못했습니다. 터미널에서 `claude auth login`을 다시 실행해 주세요."
-            }
+            if runtime.sessionValidationState == .failed { return webExpired }
+            return runtime.oauthValidationState == .failed ? claudeCodeExpired : nil
         }
-
-        if snapshot.runtime.sessionValidationState == .verified {
-            return "브라우저 로그인 값으로 최근 조회가 성공했습니다."
-        }
-
-        if availability.oauthCredentialAvailable {
-            return "Claude Code 로그인 정보가 저장되어 있습니다. 사용량 새로고침으로 실제 조회를 확인하세요."
-        }
-
-        return "브라우저 로그인 값이 저장되어 있습니다. 사용량 새로고침으로 실제 조회를 확인하세요."
     }
 
     private func sourceStatusRows(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
             sourceStatusRow(
-                title: "브라우저 로그인",
+                title: "웹 로그인",
                 value: validationStatusLabel(snapshot.runtime.sessionValidationState),
                 color: validationStatusColor(snapshot.runtime.sessionValidationState)
             )
@@ -434,7 +339,7 @@ extension SettingsView {
                 color: validationStatusColor(snapshot.runtime.oauthValidationState)
             )
             sourceStatusRow(
-                title: "현재 사용 경로",
+                title: "조회에 쓰는 로그인",
                 value: compactRuntimePathLabel(snapshot),
                 color: runtimePathColor(snapshot.runtime.activePath)
             )
@@ -460,11 +365,11 @@ extension SettingsView {
         case .unavailable:
             return "없음"
         case .detected:
-            return "감지됨"
+            return "저장됨"
         case .verified:
-            return "최근 조회 성공"
+            return "연결됨"
         case .failed:
-            return "확인 필요"
+            return "다시 로그인 필요"
         }
     }
 
@@ -509,15 +414,9 @@ extension SettingsView {
 
     private func compactRuntimePathLabel(_ snapshot: ClaudeAPIService.UsageHealthSnapshot) -> String {
         switch snapshot.runtime.activePath {
-        case .unauthenticated:
-            return "인증 없음"
-        case .sessionPrimary:
-            return "브라우저 로그인"
-        case .oauthPreferred, .oauthFallback:
-            if snapshot.oauth.lastSuccessAt != nil {
-                return "Claude Code 로그인"
-            }
-            return "Claude Code 로그인"
+        case .unauthenticated: return "없음"
+        case .sessionPrimary: return "웹 로그인"
+        case .oauthPreferred, .oauthFallback: return "Claude Code 로그인"
         }
     }
 
@@ -532,9 +431,6 @@ extension SettingsView {
                 organizationSingleOrEmptyHint
             } else {
                 organizationPickerInline
-            }
-            if hasPendingOrganizationChange {
-                organizationPendingFootnote
             }
             organizationMessages
         }
@@ -601,9 +497,11 @@ extension SettingsView {
     @ViewBuilder
     private var organizationSingleOrEmptyHint: some View {
         if organizations.isEmpty {
-            Text("조직 목록을 아직 불러오지 못했습니다.")
-                .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
+            if !isLoadingOrganizations {
+                Text("조직 목록을 불러오지 못했습니다.")
+                    .font(AppDesign.Typography.caption)
+                    .foregroundStyle(.secondary)
+            }
         } else if let only = organizations.first {
             HStack(spacing: AppDesign.Space.row) {
                 Image(systemName: "building.2")
@@ -611,9 +509,6 @@ extension SettingsView {
                 Text(only.displayName)
                     .font(AppDesign.Typography.subheadline)
                 Spacer(minLength: 0)
-                Text("조직이 하나뿐이라 별도 선택이 필요 없습니다.")
-                    .font(AppDesign.Typography.caption2)
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -625,7 +520,7 @@ extension SettingsView {
                 if !selectedOrganizationID.isEmpty,
                    !organizations.contains(where: { $0.id == selectedOrganizationID })
                 {
-                    Text("현재 선택된 조직").tag(selectedOrganizationID)
+                    Text("목록에 없는 조직").tag(selectedOrganizationID)
                 }
                 ForEach(organizations, id: \.id) { org in
                     Text(organizationPickerLabel(for: org)).tag(org.id)
@@ -644,28 +539,6 @@ extension SettingsView {
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
             }
-        }
-    }
-
-    private var organizationPendingFootnote: some View {
-        HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.control) {
-            Image(systemName: "arrow.right.circle")
-                .foregroundStyle(.orange)
-            Text("변경 예정: ")
-                .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
-            Text(pendingOrganizationModeLabel)
-                .font(AppDesign.Typography.caption.weight(.semibold))
-                .foregroundStyle(pendingOrganizationID.isEmpty ? .green : .orange)
-            if !pendingOrganizationID.isEmpty,
-               let label = label(for: pendingOrganizationID)
-            {
-                Text("· \(label)")
-                    .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 0)
         }
     }
 
@@ -707,30 +580,10 @@ extension SettingsView {
     @ViewBuilder
     private var organizationMessages: some View {
         if let message = organizationMessage {
-            Text(message)
+            Text(message.text)
                 .font(AppDesign.Typography.caption)
-                .foregroundStyle(message.contains("실패") || message.contains("없음") ? .orange : .secondary)
+                .foregroundStyle(message.isWarning ? .orange : .secondary)
         }
-    }
-
-    var appliedOrganizationValidationChipValue: String {
-        if !hasSuccessfulClaudeFetch {
-            return "조회 전"
-        }
-        if appliedPreferredOrganizationID.isEmpty {
-            return "자동"
-        }
-        return appliedClaudeSetupPresentation.progress.isOrganizationReady ? "검증됨" : "확인 필요"
-    }
-
-    var appliedOrganizationValidationChipColor: Color {
-        if !hasSuccessfulClaudeFetch {
-            return .orange
-        }
-        if appliedPreferredOrganizationID.isEmpty {
-            return .green
-        }
-        return appliedClaudeSetupPresentation.progress.isOrganizationReady ? .green : .orange
     }
 }
 

@@ -37,6 +37,10 @@ nonisolated struct AppDistributionDescriptor:
         return "v\(version)-beta (빌드 \(build ?? "?"))"
     }
 
+    /// 운영 채널에 고정된 이전 위치(1.x 샌드박스 컨테이너, ClaudeUsageShared, 이전 Keychain service)를
+    /// 읽고 정리해도 되는지. staging이 건드리면 함께 쓰는 운영 앱의 자격 증명과 잠금을 옮기거나 지운다.
+    var ownsProductionLegacyLocations: Bool { channel == .prod }
+
     static func resolve(
         releaseChannelValue: String?,
         bundleIdentifier: String?,

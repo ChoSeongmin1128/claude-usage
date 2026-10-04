@@ -4,6 +4,52 @@ import XCTest
 
 @MainActor
 final class MenuBarStatusComposerTests: XCTestCase {
+    func testMissingClaudeExecutablePreservesMenuBarNumberAndExplainsTheFailure() {
+        let snapshot = MenuBarStatusComposer.claudeSnapshot(
+            config: ProviderMenuBarDisplayConfig(
+                kind: .claude, showIcon: false, style: .none, percentageDisplay: .fiveHour,
+                showBatteryPercent: false, resetTimeDisplay: .none, timeFormat: .h24,
+                circularDisplayMode: .usage, iconMetric: .fiveHour),
+            usage: ClaudeUsageResponse(fiveHour: .init(utilization: 42, resetsAt: nil), sevenDay: nil),
+            error: .claudeCodeExecutableNotFound, hasAuthError: false, hasCredential: false,
+            secondaryColor: .secondaryLabelColor, icon: nil, renderImages: false)
+
+        XCTAssertEqual(snapshot.text, "42%")
+        XCTAssertTrue(snapshot.tooltip.contains(ClaudeCodeCredentialIssue.executableNotFoundMessage))
+        XCTAssertTrue(snapshot.tooltip.contains(ClaudeCodeCredentialIssue.executableNotFoundGuidance))
+        XCTAssertTrue(snapshot.tooltip.contains("마지막 성공 데이터 표시 중"))
+        XCTAssertFalse(snapshot.tooltip.contains("로그인 만료"))
+    }
+
+    func testMissingClaudeExecutableWithoutHistoryExplainsTheFailure() {
+        let snapshot = claudeCredentialSnapshot(usage: nil, error: .claudeCodeExecutableNotFound)
+
+        XCTAssertEqual(snapshot.text, "오류")
+        XCTAssertTrue(snapshot.tooltip.contains(ClaudeCodeCredentialIssue.executableNotFoundMessage))
+        XCTAssertTrue(snapshot.tooltip.contains(ClaudeCodeCredentialIssue.executableNotFoundGuidance))
+        XCTAssertFalse(snapshot.tooltip.contains("로그인 필요"))
+        XCTAssertFalse(snapshot.tooltip.contains("마지막 성공 데이터 표시 중"))
+    }
+
+    func testMissingClaudeCredentialWithoutFailureStillRequestsLogin() {
+        let snapshot = claudeCredentialSnapshot(usage: nil, error: nil)
+
+        XCTAssertEqual(snapshot.text, "로그인")
+        XCTAssertEqual(snapshot.tooltip, "로그인 필요")
+    }
+
+    private func claudeCredentialSnapshot(
+        usage: ClaudeUsageResponse?, error: APIError?
+    ) -> MenuBarProviderSnapshot {
+        MenuBarStatusComposer.claudeSnapshot(
+            config: ProviderMenuBarDisplayConfig(
+                kind: .claude, showIcon: false, style: .none, percentageDisplay: .fiveHour,
+                showBatteryPercent: false, resetTimeDisplay: .none, timeFormat: .h24,
+                circularDisplayMode: .usage, iconMetric: .fiveHour),
+            usage: usage, error: error, hasAuthError: false, hasCredential: false,
+            secondaryColor: .secondaryLabelColor, icon: nil, renderImages: false)
+    }
+
     func testStatusBadgeOutlineStaysInsideMenuBarIconCanvas() {
         let size = NSSize(width: 18, height: 18)
 
@@ -270,11 +316,11 @@ final class MenuBarStatusComposerTests: XCTestCase {
             freshContent.image.size.width
         )
         XCTAssertTrue(
-            staleContent.tooltip.contains("상태: 이전 데이터")
+            staleContent.tooltip.contains("상태: \(UsageStatusLabel.previousValue)")
         )
         XCTAssertTrue(
             staleContent.accessibilityValue?
-                .contains("이전 데이터")
+                .contains(UsageStatusLabel.previousValue)
                 == true
         )
     }

@@ -124,12 +124,14 @@ nonisolated struct StatusPageResponse: Sendable {
         let name: String
     }
 
+    /// 서비스마다 응답 모양이 조금씩 다르다(OpenAI summary에는 incidents가 없고, update의 affected_components가
+    /// 없거나 null일 수 있다). 목록이 빠져도 상태 전체를 버리지 않도록 목록은 모두 선택값으로 읽는다.
     nonisolated static func decode(from data: Data) -> StatusPageResponse? {
         struct _Response: Codable {
             let page: _Page
             let status: _Status
-            let components: [_Component]
-            let incidents: [_Incident]
+            let components: [_Component]?
+            let incidents: [_Incident]?
 
             struct _Page: Codable {
                 let updatedAt: String?
@@ -155,8 +157,8 @@ nonisolated struct StatusPageResponse: Sendable {
                 let impact: String
                 let shortlink: String?
                 let updatedAt: String?
-                let incidentUpdates: [_IncidentUpdate]
-                let components: [_Component]
+                let incidentUpdates: [_IncidentUpdate]?
+                let components: [_Component]?
 
                 enum CodingKeys: String, CodingKey {
                     case name
@@ -173,7 +175,7 @@ nonisolated struct StatusPageResponse: Sendable {
                 let status: String
                 let body: String
                 let displayAt: String?
-                let affectedComponents: [_AffectedComponent]
+                let affectedComponents: [_AffectedComponent]?
 
                 enum CodingKeys: String, CodingKey {
                     case status
@@ -190,23 +192,25 @@ nonisolated struct StatusPageResponse: Sendable {
 
         guard let r = try? JSONDecoder().decode(_Response.self, from: data) else { return nil }
 
-        let components = r.components.map { StatusComponent(name: $0.name, status: $0.status) }
-        let incidents = r.incidents.map { incident in
+        let components = (r.components ?? []).map { StatusComponent(name: $0.name, status: $0.status) }
+        let incidents = (r.incidents ?? []).map { incident in
             StatusIncident(
                 name: incident.name,
                 status: incident.status,
                 impact: incident.impact,
                 shortlink: incident.shortlink,
                 updatedAt: parseISO8601(incident.updatedAt),
-                incidentUpdates: incident.incidentUpdates.map { update in
+                incidentUpdates: (incident.incidentUpdates ?? []).map { update in
                     StatusIncidentUpdate(
                         status: update.status,
                         body: update.body,
                         displayAt: parseISO8601(update.displayAt),
-                        affectedComponents: update.affectedComponents.map { StatusAffectedComponent(name: $0.name) }
+                        affectedComponents: (update.affectedComponents ?? []).map {
+                            StatusAffectedComponent(name: $0.name)
+                        }
                     )
                 },
-                components: incident.components.map { StatusComponent(name: $0.name, status: $0.status) }
+                components: (incident.components ?? []).map { StatusComponent(name: $0.name, status: $0.status) }
             )
         }
 

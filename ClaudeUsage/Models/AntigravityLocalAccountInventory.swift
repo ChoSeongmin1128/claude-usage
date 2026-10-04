@@ -13,7 +13,7 @@ nonisolated struct AntigravityLocalAccount: Equatable, Sendable, Identifiable {
     }
 
     var label: String {
-        identity.email ?? "이메일 미제공 계정 (\(identity.stableAccountID?.suffix(6) ?? ""))"
+        identity.email ?? "이메일 없는 계정 (\(identity.stableAccountID?.suffix(6) ?? ""))"
     }
 
     var sourceLabel: String {

@@ -52,7 +52,7 @@ private enum UpdateEngineMessages {
     nonisolated static let githubFallback = "새 버전이 있으면 다운로드 페이지로 안내합니다"
     nonisolated static let sparkleSchedulerReady = "30분마다 새 버전을 확인하고, 있으면 자동으로 준비합니다"
     nonisolated static let sparkleInteractiveStarted = "업데이트 확인 창을 열었습니다"
-    nonisolated static let updateSessionInProgress = "이미 업데이트를 확인하고 있습니다"
+    nonisolated static let updateSessionInProgress = "이미 업데이트를 확인하는 중입니다"
     nonisolated static let downloadCancelled = "업데이트 다운로드를 취소했습니다"
 
     nonisolated static func sparkleSchedulerReadyMessage(usingFeedOverride: Bool) -> String {
@@ -317,7 +317,7 @@ nonisolated enum SparkleUpdateResultInterpreter {
         case ErrorCode.runningFromDiskImage, ErrorCode.runningTranslocated:
             return "다운로드한 위치에서 실행 중이라 업데이트할 수 없습니다. 응용 프로그램 폴더로 옮긴 뒤 다시 열어 주세요"
         case ErrorCode.appcastParse, ErrorCode.appcast, ErrorCode.download:
-            return "업데이트 정보를 확인하지 못했습니다. 잠시 후 다시 시도하거나 다운로드 페이지에서 설치해 주세요"
+            return "업데이트 정보를 확인하지 못했습니다. 잠시 후 다시 시도하거나 다운로드 페이지에서 설치하세요"
         case ErrorCode.insecureFeedURL, ErrorCode.invalidFeedURL:
             return "업데이트 채널 주소가 올바르지 않습니다"
         default:
@@ -439,7 +439,7 @@ final class SparkleUpdateEngine: NSObject, AppUpdateEngine, SPUUpdaterDelegate, 
         }
 
         guard let handler = preparedInstallHandler else {
-            UpdateRuntimeState.shared.markFailed(message: "설치 준비가 만료되었습니다. 업데이트를 다시 확인해 주세요")
+            UpdateRuntimeState.shared.markFailed(message: "설치 준비가 만료됐습니다. 업데이트를 다시 확인하세요")
             return false
         }
 

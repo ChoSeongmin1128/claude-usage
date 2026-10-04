@@ -158,6 +158,21 @@ nonisolated struct ClaudeProfileMetadata: Equatable, Sendable {
         self.lastUpdatedAt = lastUpdatedAt
     }
 
+    /// 새 값이 있는 항목만 바꾼다. 자격 증명 파일과 프로필 응답이 서로 다른 항목을 알려 주므로 한쪽이
+    /// 다른 쪽을 지우지 않게 한다. 조직이 다르면 다른 계정이라 통째로 바꾼다.
+    nonisolated func merging(_ newer: ClaudeProfileMetadata) -> ClaudeProfileMetadata {
+        if let current = organizationUUID, let next = newer.organizationUUID, current != next { return newer }
+        return ClaudeProfileMetadata(
+            organizationUUID: newer.organizationUUID ?? organizationUUID,
+            subscriptionType: newer.subscriptionType ?? subscriptionType,
+            rateLimitTier: newer.rateLimitTier ?? rateLimitTier,
+            hasExtraUsageEnabled: newer.hasExtraUsageEnabled ?? hasExtraUsageEnabled,
+            billingType: newer.billingType ?? billingType,
+            accountCreatedAt: newer.accountCreatedAt ?? accountCreatedAt,
+            subscriptionCreatedAt: newer.subscriptionCreatedAt ?? subscriptionCreatedAt,
+            lastUpdatedAt: newer.lastUpdatedAt ?? lastUpdatedAt)
+    }
+
     nonisolated var isEmpty: Bool {
         self.organizationUUID == nil &&
             self.subscriptionType == nil &&
@@ -198,43 +213,14 @@ nonisolated struct ClaudeNotificationPolicy: Equatable, Sendable {
         isOrganizationPlan && hasExtraUsageEnabled == true
     }
 
+    /// 알림 동작이 달라질 때만 설정에 보인다.
     nonisolated var summaryLine: String? {
-        if isOrganizationPlan && hasExtraUsageEnabled == true {
-            return "조직 플랜 + 추가 사용량 활성화 상태라 Claude의 낮은 구간 알림은 자동으로 줄입니다"
-        }
-
-        if isOrganizationPlan && hasExtraUsageEnabled == false {
-            return "조직 플랜이지만 추가 사용량이 꺼져 있어 Claude 알림에 관리자 확인 안내를 함께 표시합니다"
-        }
-
-        return nil
+        shouldSuppressLowUrgencyThresholds ? "추가 사용량이 켜진 조직 플랜이라 낮은 구간 알림은 보내지 않습니다" : nil
     }
 
+    /// 알림 본문 끝에 붙인다.
     nonisolated var guidanceSuffix: String? {
-        if isOrganizationPlan && hasExtraUsageEnabled == false {
-            return "관리자에게 추가 사용량 설정을 확인해 주세요"
-        }
-
-        return nil
-    }
-
-    nonisolated func guidanceSuffix(
-        threshold: Int,
-        alertRemainingMode: Bool
-    ) -> String? {
-        if isOrganizationPlan && hasExtraUsageEnabled == true {
-            let remainingThreshold = max(0, 100 - threshold)
-            if threshold >= 95 || (alertRemainingMode && remainingThreshold <= 5) {
-                return "조직 플랜이라도 상위 한도 근처에서는 관리자 정책을 다시 확인하는 편이 맞습니다"
-            }
-            return nil
-        }
-
-        if let guidanceSuffix {
-            return guidanceSuffix
-        }
-
-        return nil
+        isOrganizationPlan && hasExtraUsageEnabled == false ? "추가 사용량이 꺼져 있습니다. 관리자에게 문의하세요." : nil
     }
 }
 
@@ -257,4 +243,11 @@ nonisolated struct ClaudeCredentialAvailability: Sendable, Equatable {
 nonisolated enum ClaudeCodeCredentialIssue: Sendable, Equatable {
     case reconnectRequired
     case reauthenticationRequired
+    case executableNotFound
+
+    static let executableNotFoundMessage = "Claude Code를 찾지 못해 로그인을 갱신하지 못했습니다."
+    static let executableNotFoundGuidance = "터미널에서 `claude`가 실행되는지 확인한 뒤 앱을 다시 여세요."
+    static var executableNotFoundExplanation: String {
+        "\(executableNotFoundMessage) \(executableNotFoundGuidance)"
+    }
 }

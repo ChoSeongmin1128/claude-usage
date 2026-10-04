@@ -6,6 +6,8 @@ struct IconActionButton: View {
     let label: String
     var compact = true
     var isActive = false
+    /// 켜고 끄는 버튼이면 켜진 상태를 VoiceOver에 알린다. isActive가 강조 색으로만 쓰일 때는 알리지 않는다.
+    var isToggle = false
     var isLoading = false
     var isEnabled = true
     var isExternal = false
@@ -36,7 +38,8 @@ struct IconActionButton: View {
         .disabled(!isEnabled)
         .help(label)
         .accessibilityLabel(label)
-        .accessibilityValue(isLoading ? "갱신 중" : isActive ? "선택됨" : "")
+        .accessibilityValue(isLoading ? "갱신 중" : "")
+        .accessibilityAddTraits(isToggle && isActive ? .isSelected : [])
     }
 
     private var targetSize: CGFloat {

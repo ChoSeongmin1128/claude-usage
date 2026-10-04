@@ -5,15 +5,30 @@ struct WhatsNewView: View {
     var toggle: (WhatsNewPage.Action) -> Binding<Bool>? = { _ in nil }
     let onAction: (WhatsNewPage.Action) -> Void
     let onClose: () -> Void
-    @State private var index = 0
+    @State private var index: Int
+
+    init(
+        pages: [WhatsNewPage], toggle: @escaping (WhatsNewPage.Action) -> Binding<Bool>? = { _ in nil },
+        onAction: @escaping (WhatsNewPage.Action) -> Void, onClose: @escaping () -> Void,
+        initialPageIndex: Int = 0
+    ) {
+        self.pages = pages
+        self.toggle = toggle
+        self.onAction = onAction
+        self.onClose = onClose
+        _index = State(initialValue: min(max(0, initialPageIndex), max(0, pages.count - 1)))
+    }
 
     var body: some View {
         let page = pages[min(index, pages.count - 1)]
         VStack(spacing: AppDesign.Space.content) {
-            Text(page.version)
-                .font(AppDesign.Typography.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack {
+                Text(page.version)
+                    .font(AppDesign.Typography.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                ReleaseNotesButton()
+            }
             Image(systemName: page.symbol)
                 .font(.system(size: 40, weight: .regular))
                 .foregroundStyle(Color.accentColor)

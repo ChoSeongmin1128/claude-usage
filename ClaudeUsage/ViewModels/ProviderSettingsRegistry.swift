@@ -71,45 +71,4 @@ enum SettingsProviderRegistry {
             .init(panel: .updates, title: "업데이트", icon: "arrow.down.circle", providerKind: nil, availability: .active),
         ]
     }
-
-    nonisolated static var providerShellDescriptors: [ProviderShellDescriptor] {
-        providerDescriptors.map { providerShellDescriptor(for: $0.kind) }
-    }
-
-    nonisolated static func providerShellDescriptor(for kind: AppProviderKind) -> ProviderShellDescriptor {
-        let providerDescriptor = kind.descriptor
-        return ProviderShellDescriptor(
-            kind: kind,
-            title: providerDescriptor.settingsPanelTitle,
-            role: providerDescriptor.capabilities.isRuntimeProvider ? .active : .comingSoon,
-            summary: providerDescriptor.settingsPanelSummary,
-            detail: providerDescriptor.settingsPanelDetail,
-            supportsPopoverSelection: providerDescriptor.capabilities.supportsPopoverSelection
-        )
-    }
-}
-
-struct ProviderShellDescriptor: Identifiable, Sendable, Equatable {
-    enum Role: Sendable, Equatable {
-        case active
-        case comingSoon
-
-        var badgeTitle: String? {
-            switch self {
-            case .active:
-                return nil
-            case .comingSoon:
-                return "준비 중"
-            }
-        }
-    }
-
-    let kind: AppProviderKind
-    let title: String
-    let role: Role
-    let summary: String
-    let detail: String?
-    let supportsPopoverSelection: Bool
-
-    var id: String { kind.rawValue }
 }

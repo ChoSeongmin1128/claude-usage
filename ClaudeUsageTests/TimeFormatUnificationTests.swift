@@ -24,6 +24,27 @@ final class TimeFormatUnificationTests: XCTestCase {
         XCTAssertEqual(UpdateNotesQueue.pending(defaults: defaults), [.timeFormatUnified])
     }
 
+    func testMigrationDecidesOnlyOnce() {
+        defaults.set("12h", forKey: "timeFormat")
+        TimeFormatUnification.migrate(defaults: defaults)
+        defaults.set("24h", forKey: "codexTimeFormat")
+
+        TimeFormatUnification.migrate(defaults: defaults)
+
+        XCTAssertTrue(UpdateNotesQueue.pending(defaults: defaults).isEmpty)
+    }
+
+    func testDefaultAntigravityFormatIsNotTreatedAsAChoice() throws {
+        defaults.set("12h", forKey: "timeFormat")
+        defaults.set(
+            try JSONEncoder().encode(AntigravityDisplaySettings.default),
+            forKey: AntigravitySettingsMigrationKeys.displaySettings)
+
+        TimeFormatUnification.migrate(defaults: defaults)
+
+        XCTAssertTrue(UpdateNotesQueue.pending(defaults: defaults).isEmpty)
+    }
+
     func testMatchingFormatsKeepSilent() {
         defaults.set("remaining", forKey: "timeFormat")
         defaults.set("remaining", forKey: "codexTimeFormat")
@@ -60,7 +81,7 @@ final class RemainingTimeFormatTests: XCTestCase {
         XCTAssertEqual(
             TimeFormatter.formatRemaining(until: shortly, now: now, style: .remainingClock, isWeekly: false), "0:23")
         XCTAssertEqual(
-            TimeFormatter.formatRemaining(until: weekly, now: now, style: .remainingClock, isWeekly: true), "3d 02:12")
+            TimeFormatter.formatRemaining(until: weekly, now: now, style: .remainingClock, isWeekly: true), "3d:02")
         XCTAssertEqual(
             TimeFormatter.formatRemaining(until: weekly, now: now, style: .remainingTotalClock, isWeekly: true), "74:12"
         )

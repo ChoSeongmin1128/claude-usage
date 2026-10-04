@@ -76,7 +76,7 @@ final class AntigravityRefreshPolicyTests: XCTestCase {
         for target in AntigravityUsageTarget.allCases {
             XCTAssertEqual(AntigravitySourcePlanner.plannedSources(target: target), [.cliReport])
             let request = AntigravityRefreshRequest(
-                trigger: .manual, repositoryRevision: 0,
+                trigger: .manual,
                 connection: AntigravityConnectionSettings(
                     schemaVersion: AntigravityConnectionSettings.currentSchemaVersion, usageTarget: target))
             XCTAssertEqual(request.target, .cli)

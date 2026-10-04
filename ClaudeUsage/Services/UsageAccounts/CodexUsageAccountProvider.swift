@@ -1,0 +1,93 @@
+import Foundation
+
+/// Codex 계정: 기본 로그인(`~/.codex`, CLI와 ChatGPT 앱이 함께 씀), 다른 CODEX_HOME 폴더, 앱이 만든 계정 폴더.
+/// 메뉴바에는 기본 로그인만 오므로 다른 계정은 기본 로그인을 전환해야 메뉴바에 나온다.
+@MainActor
+final class CodexUsageAccountProvider: UsageAccountProvider {
+    let service = PopoverService.codex
+    let cliName = "Codex"
+    let configDirectoryVariable = "CODEX_HOME"
+    let addMethods: [UsageAccountAddMethod] = [.deviceLogin, .folder]
+    var managedDirectoryRoot: URL? { AppStoragePaths.codexAccountsDirectory() }
+    let menuBar: (any UsageAccountMenuBarPolicy)? = nil
+
+    func discoveryInput(directories: [String], knownIdentities: [String: UsageAccountIdentity])
+        -> UsageAccountDiscoveryInput
+    {
+        UsageAccountDiscoveryInput(directories: directories)
+    }
+
+    nonisolated func candidates(_ input: UsageAccountDiscoveryInput) -> [UsageAccountCandidate] {
+        var result: [UsageAccountCandidate] = []
+        let defaultHome = CodexAuthManager.defaultHomeURL
+        if let identity = CodexHomeAccount.identity(home: defaultHome) {
+            result.append(.init(source: .init(role: .defaultLogin, reference: defaultHome.path), identity: identity))
+        }
+        let homes =
+            CodexHomeAccount.discoverHomes(managedRoot: AppStoragePaths.codexAccountsDirectory()).map(\.path)
+            + input.directories
+        var seen: Set<String> = [defaultHome.path]
+        for path in homes where seen.insert(path).inserted {
+            guard let identity = CodexHomeAccount.identity(home: URL(fileURLWithPath: path)) else { continue }
+            result.append(.init(source: .init(role: .directory, reference: path), identity: identity))
+        }
+        return result
+    }
+
+    func badgeHelp(for role: UsageAccountSource.Role) -> String {
+        switch role {
+        case .defaultLogin: return "CLI와 ChatGPT 앱이 함께 쓰는 기본 로그인(~/.codex)"
+        case .directory: return "다른 폴더의 Codex 로그인"
+        case .web: return "앱에 저장된 웹 로그인"
+        }
+    }
+
+    func isRuntime(_ account: UsageAccount) -> Bool { account.isDefaultLogin }
+
+    func runtimeUsage(from snapshot: RuntimeProviderSnapshot) -> UsageAccountUsage? {
+        snapshot.codexUsage.map(UsageAccountUsage.init(codex:))
+    }
+
+    func fetchUsage(for account: UsageAccount, interactive: Bool) async throws -> UsageAccountFetchResult {
+        guard let directory = account.source(.directory) else { throw UsageAccountFetchError.unavailable }
+        let usage = try await CodexHomeAccount.fetchUsage(home: URL(fileURLWithPath: directory.reference))
+        return UsageAccountFetchResult(usage: UsageAccountUsage(codex: usage))
+    }
+
+    func canSwitch(to account: UsageAccount) -> Bool {
+        !account.isDefaultLogin && account.source(.directory) != nil && account.identity.organizationID != nil
+    }
+
+    func switchPlan(for account: UsageAccount, name: String) -> UsageAccountSwitchPlan {
+        let running = CodexAccountSwitcher.runningCodex()
+        let moved = "지금 로그인은 그 계정이 있던 폴더로 옮깁니다."
+        guard !running.isEmpty else {
+            return UsageAccountSwitchPlan(
+                message: "\(name) 계정으로 기본 Codex 로그인을 전환합니다. \(moved)", confirmTitle: "전환",
+                terminatesRunningApps: false)
+        }
+        let parts = [
+            running.applications.isEmpty ? nil : "ChatGPT 앱",
+            running.processes.isEmpty ? nil : "터미널의 codex \(running.processes.count)개",
+        ].compactMap { $0 }
+        return UsageAccountSwitchPlan(
+            message: "실행 중인 \(parts.joined(separator: ", "))를 종료하고 \(name) 계정으로 기본 Codex 로그인을 전환합니다. \(moved)",
+            confirmTitle: "종료하고 전환", terminatesRunningApps: true)
+    }
+
+    func switchDefault(to account: UsageAccount, plan: UsageAccountSwitchPlan) async throws {
+        guard let directory = account.source(.directory), let workspace = account.identity.organizationID else {
+            throw AccountSwitchError.unavailable
+        }
+        // 확인 창을 띄운 사이 실행 상태가 바뀌었을 수 있어 다시 본다.
+        let running = await Task.detached { CodexAccountSwitcher.runningCodex() }.value
+        if !running.isEmpty {
+            guard plan.terminatesRunningApps else { throw AccountSwitchError.runningAppsStarted }
+            guard await CodexAccountSwitcher.terminate(running) else {
+                throw AccountSwitchError.runningAppsNotTerminated
+            }
+        }
+        try await CodexAccountSwitcher.switchDefault(
+            to: URL(fileURLWithPath: directory.reference), expectedWorkspaceID: workspace)
+    }
+}

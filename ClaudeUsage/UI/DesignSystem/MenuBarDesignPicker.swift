@@ -23,8 +23,6 @@ struct MenuBarDesignPicker: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Text(style == .none ? "배터리 예시입니다. 실제 표시 항목은 바뀌지 않습니다." : "선택한 스타일의 디자인 예시입니다.")
-                .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
             SettingsDisclosureControl(isExpanded: $showsComparison, accessibilityLabel: "전체 스타일 비교") {
                 Text("전체 스타일 비교")
             } content: {
@@ -146,6 +144,5 @@ struct MenuBarDesignComparison: View {
         }
         .font(AppDesign.Typography.subheadline.weight(.medium))
         .padding(.vertical, AppDesign.Space.row)
-        .help("같은 수치와 색상의 예시입니다. 이 비교표는 설정을 바꾸지 않습니다.")
     }
 }

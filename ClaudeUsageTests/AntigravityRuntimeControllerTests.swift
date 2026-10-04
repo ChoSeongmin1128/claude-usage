@@ -10,6 +10,7 @@ final class AntigravityRuntimeControllerTests:
         let initial = await fixture.controller.bootstrap(performInitialRefresh: true)
         // 레거시 정리는 bootstrap 뒤에 비동기로 끝난다. 그 기록이 비교 사이에 끼지 않게 먼저 기다린다.
         await fixture.lifecycle.waitUntilCleanupFinished()
+        await fixture.accountCleanup.waitUntilFinished()
         let events = await fixture.events.snapshot()
         let requests = await fixture.refresh.requests()
         let writes = await fixture.settings.displaySaveCount()
@@ -33,39 +34,27 @@ final class AntigravityRuntimeControllerTests:
         XCTAssertEqual(ignored.publicationRevision, stopped.publicationRevision)
     }
 
-    func testScheduledRefreshCannotRestoreOldSelectionWhileAccountMutationIsPending() async throws {
-        let gate = ControllerSuspensionGate()
-        let fixture = makeFixture(invalidationGate: gate)
-        _ = await fixture.controller.bootstrap(performInitialRefresh: false)
-        let selection = Task { try await fixture.controller.selectTarget(.app) }
-        await gate.waitUntilEntered()
-        let scheduled = await fixture.controller.refresh(trigger: .scheduled)
-        await gate.resume()
-        let result = await selection.result
+    func testTimeUnitLanguageReprojectsWithoutQueryOrSettingsWrite() async {
+        let fixture = makeFixture()
+        _ = await fixture.controller.bootstrap(performInitialRefresh: true)
+        await fixture.lifecycle.waitUntilCleanupFinished()
+        await fixture.accountCleanup.waitUntilFinished()
+        let english = await fixture.controller.setTimeFormat(.remainingClock, unitLanguage: .english)
         let requests = await fixture.refresh.requests()
-        XCTAssertEqual(scheduled.presentationState, .refreshing(previous: nil))
-        XCTAssertEqual(requests.count, 1)
-        XCTAssertEqual(try result.get().settings?.connection.usageTarget, .app)
-    }
+        let writes = await fixture.settings.displaySaveCount()
 
-    func testScheduledRefreshOfNewAccountDoesNotReportSuccessfulSelectionAsSuperseded() async throws {
-        let gate = ControllerRefreshGate()
-        let fixture = makeFixture(refreshGate: gate)
-        _ = await fixture.controller.bootstrap(performInitialRefresh: false)
-        let selection = Task { try await fixture.controller.selectTarget(.app) }
-        await gate.waitUntilRequestCount(1)
-        let scheduled = Task { await fixture.controller.refresh(trigger: .scheduled) }
-        await gate.waitUntilRequestCount(2)
-        await gate.resolveRequest(at: 0, with: .ready(Self.oldQuotaSnapshot))
-        // Both requests belong to the same committed account boundary.
-        // Finish the automatic request before propagating a selection error so the test never leaves a waiter behind.
-        let selectionResult = await selection.result
-        await gate.resolveRequest(at: 1, with: .ready(Self.newQuotaSnapshot))
-        let final = await scheduled.value
-        let selected = try selectionResult.get()
-        XCTAssertEqual(selected.settings?.connection.usageTarget, .app)
-        XCTAssertEqual(final.settings?.connection.usageTarget, .app)
-        XCTAssertEqual(final.presentationState, .ready(Self.newQuotaSnapshot))
+        let korean = await fixture.controller.setTimeFormat(.remainingClock, unitLanguage: .korean)
+        let repeated = await fixture.controller.setTimeFormat(.remainingClock, unitLanguage: .korean)
+
+        XCTAssertEqual(korean.publicationRevision, english.publicationRevision + 1)
+        XCTAssertEqual(repeated.publicationRevision, korean.publicationRevision)
+        XCTAssertEqual(korean.presentationState, english.presentationState)
+        XCTAssertEqual(korean.settings, english.settings)
+        let finalRequests = await fixture.refresh.requests()
+        let finalWrites = await fixture.settings.displaySaveCount()
+        XCTAssertEqual(finalRequests.count, requests.count)
+        XCTAssertEqual(finalWrites, writes)
+        await fixture.controller.shutdown()
     }
 
     func testAccountMismatchClearsThePreviousSuccessfulTimestamp() async {
@@ -79,27 +68,13 @@ final class AntigravityRuntimeControllerTests:
         XCTAssertNil(mismatched.lastSuccessfulAt)
     }
 
-    func testLegacyOAuthMetadataDoesNotControlTheSelectedProduct() async throws {
-        let fixture = makeFixture()
-        _ = await fixture.controller.bootstrap(performInitialRefresh: false)
-        let revision = try await fixture.repository.state().revision
-        _ = try await fixture.repository.setActiveAccountID(Self.secondAccountID, expectedRevision: revision)
-        let result = await fixture.controller.refresh(trigger: .scheduled)
-        let requests = await fixture.refresh.requests()
-        let writes = await fixture.settings.connectionSaveCount()
-        XCTAssertEqual(result.settings?.connection.usageTarget, .cli)
-        XCTAssertEqual(requests.last?.target, .cli)
-        XCTAssertEqual(writes, 0)
-    }
-
     func testPersistedAppSelectionRefreshesTheCLIWithoutRewritingIt() async {
         var connection = AntigravityConnectionSettings.default
         connection.usageTarget = .app
-        let fixture = makeFixture(activeAccountID: nil, connection: connection)
+        let fixture = makeFixture(connection: connection)
         let result = await fixture.controller.bootstrap(performInitialRefresh: true)
         let requests = await fixture.refresh.requests()
         let writes = await fixture.settings.connectionSaveCount()
-        XCTAssertNil(result.activeAccountID)
         XCTAssertEqual(result.settings?.connection.usageTarget, .app)
         XCTAssertEqual(requests.last?.target, .cli)
         XCTAssertEqual(writes, 0)
@@ -133,46 +108,31 @@ final class AntigravityRuntimeControllerTests:
         XCTAssertEqual(cleanupCount, 1)
     }
 
-    func testAccountSwitchInvalidatesBoundaryAndRefreshesExactlyOnce()
-        async throws
+    func testLegacyAccountCleanupRunsOnceWithoutBlockingTheInitialRefresh()
+        async
     {
-        let fixture = makeFixture()
-        _ = await fixture.controller.bootstrap(
-            performInitialRefresh: false
+        let cleanupGate = ControllerSuspensionGate()
+        let fixture = makeFixture(accountCleanupGate: cleanupGate)
+
+        let snapshot = await fixture.controller.bootstrap(
+            performInitialRefresh: true
         )
-
-        let snapshot = try await fixture.controller
-            .selectTarget(.app)
-
+        await cleanupGate.waitUntilEntered()
         let requests = await fixture.refresh.requests()
-        let invalidationCount =
-            await fixture.refresh.invalidationCount()
-        let selectionCount =
-            await fixture.repository.selectionCount()
-        XCTAssertEqual(
-            invalidationCount,
-            1
-        )
+        XCTAssertEqual(snapshot.readiness, .ready)
+        XCTAssertEqual(snapshot.presentationState, .ready(Self.emptyQuotaSnapshot))
         XCTAssertEqual(requests.count, 1)
-        XCTAssertEqual(
-            requests.first?.trigger,
-            .accountBoundaryChanged
-        )
-        XCTAssertEqual(
-            requests.first?.target,
-            .cli
-        )
-        XCTAssertEqual(
-            selectionCount,
-            0
-        )
-        XCTAssertEqual(
-            snapshot.settings?.connection.usageTarget, .app
-        )
+
+        _ = await fixture.controller.bootstrap(performInitialRefresh: true)
+        _ = await fixture.controller.refresh(trigger: .manual)
+        await cleanupGate.resume()
+        await fixture.accountCleanup.waitUntilFinished()
+        let runCount = await fixture.accountCleanup.runCount()
+        XCTAssertEqual(runCount, 1)
     }
 
-    func testAccountSwitchPreemptsInFlightRefreshAndRejectsItsLateResult()
-        async throws
+    func testNewerRefreshRejectsTheLateResultOfAnOlderRefresh()
+        async
     {
         let refreshGate = ControllerRefreshGate()
         let fixture = makeFixture(
@@ -182,283 +142,65 @@ final class AntigravityRuntimeControllerTests:
             performInitialRefresh: false
         )
 
-        let oldRefresh = Task {
+        let older = Task {
+            await fixture.controller.refresh(
+                trigger: .scheduled
+            )
+        }
+        await refreshGate.waitUntilRequestCount(1)
+        let newer = Task {
             await fixture.controller.refresh(
                 trigger: .manual
             )
         }
-        await refreshGate.waitUntilRequestCount(1)
-
-        let accountSwitch = Task {
-            try await fixture.controller
-                .selectTarget(.app)
-        }
         await refreshGate.waitUntilRequestCount(2)
-
-        let invalidated =
-            await fixture.controller.snapshot()
-        XCTAssertEqual(
-            invalidated.settings?.connection.usageTarget, .app
-        )
-        XCTAssertEqual(
-            invalidated.presentationState,
-            .refreshing(previous: nil)
-        )
 
         await refreshGate.resolveRequest(
             at: 0,
             with: .ready(Self.oldQuotaSnapshot)
         )
-        let oldResult = await oldRefresh.value
+        let olderResult = await older.value
         XCTAssertEqual(
-            oldResult.settings?.connection.usageTarget, .app
-        )
-        XCTAssertEqual(
-            oldResult.presentationState,
-            .refreshing(previous: nil)
+            olderResult.presentationState,
+            .refreshing(previous: Self.emptyQuotaSnapshot)
         )
 
         await refreshGate.resolveRequest(
             at: 1,
             with: .ready(Self.newQuotaSnapshot)
         )
-        let switched = try await accountSwitch.value
+        let newerResult = await newer.value
         XCTAssertEqual(
-            switched.settings?.connection.usageTarget, .app
-        )
-        XCTAssertEqual(
-            switched.presentationState,
+            newerResult.presentationState,
             .ready(Self.newQuotaSnapshot)
         )
-    }
-
-    func testSupersededAccountMutationReportsCancellationInsteadOfSuccess()
-        async throws
-    {
-        let refreshGate = ControllerRefreshGate()
-        let fixture = makeFixture(
-            refreshGate: refreshGate
-        )
-        _ = await fixture.controller.bootstrap(
-            performInitialRefresh: false
-        )
-
-        let firstSwitch = Task {
-            try await fixture.controller
-                .selectTarget(.app)
-        }
-        await refreshGate.waitUntilRequestCount(1)
-
-        let newerSwitch = Task {
-            try await fixture.controller
-                .selectTarget(.cli)
-        }
-        await refreshGate.waitUntilRequestCount(2)
-
-        await refreshGate.resolveRequest(
-            at: 0,
-            with: .ready(Self.oldQuotaSnapshot)
-        )
-        do {
-            _ = try await firstSwitch.value
-            XCTFail(
-                "Expected superseded mutation failure"
-            )
-        } catch {
-            XCTAssertEqual(
-                error as?
-                    AntigravityRuntimeControllerError,
-                .operationSuperseded
-            )
-        }
-
-        await refreshGate.resolveRequest(
-            at: 1,
-            with: .ready(Self.newQuotaSnapshot)
-        )
-        let final = try await newerSwitch.value
-        XCTAssertEqual(
-            final.settings?.connection.usageTarget, .cli
-        )
+        let final = await fixture.controller.snapshot()
         XCTAssertEqual(
             final.presentationState,
             .ready(Self.newQuotaSnapshot)
         )
     }
 
-    func testRetiredOAuthSelectionCannotReplacePreviousPresentation()
-        async throws
-    {
-        let fixture = makeFixture()
-        let previous =
-            await fixture.controller.bootstrap(
-                performInitialRefresh: false
-            )
-
-        do {
-            _ = try await fixture.controller
-                .selectTarget(.unselected)
-            XCTFail("Expected account-not-found failure")
-        } catch {
-            XCTAssertEqual(
-                error as?
-                    AntigravityRuntimeControllerError,
-                .accountNotFound
-            )
-        }
-
-        let recovered =
-            await fixture.controller.snapshot()
-        XCTAssertEqual(
-            recovered.presentationState,
-            previous.presentationState
-        )
-        XCTAssertEqual(
-            recovered.settings?.connection.usageTarget,
-            previous.settings?.connection.usageTarget
-        )
-        XCTAssertNotEqual(
-            recovered.presentationState,
-            .refreshing(previous: nil)
-        )
-
-        var display =
-            AntigravityDisplaySettings.default
-        display.menuBar
-            .showsSelectedLaneResetTime
-            .toggle()
-        let displayUpdated =
-            try await fixture.controller
-                .updateDisplay(
-                    display,
-                    replacing: .default
-                )
-        XCTAssertEqual(
-            displayUpdated.presentationState,
-            previous.presentationState
-        )
-    }
-
-    func testSelectionPersistenceFailurePublishesTerminalFailureInsteadOfSpinner()
+    func testUnreadableSettingsBlockWithoutRefreshing()
         async
     {
         let fixture = makeFixture()
-        _ = await fixture.controller.bootstrap(
-            performInitialRefresh: false
-        )
+        await fixture.settings.failLoads()
 
-        await fixture.settings.failConnectionWrites()
-        do {
-            _ = try await fixture.controller
-                .selectTarget(.app)
-            XCTFail("Expected selection persistence failure")
-        } catch {
-            XCTAssertEqual(
-                error as?
-                AntigravitySettingsStoreError,
-                .persistenceFailed(.connection, rollbackCompleted: true)
-            )
-        }
-
-        let recovered =
-            await fixture.controller.snapshot()
-        XCTAssertEqual(recovered.readiness, .ready)
-        XCTAssertEqual(
-            recovered.settings?.connection.usageTarget, .cli
-        )
-        XCTAssertEqual(
-            recovered.presentationState,
-            .failed(.repositoryUnavailable)
+        let snapshot = await fixture.controller.bootstrap(
+            performInitialRefresh: true
         )
         let requests = await fixture.refresh.requests()
+
+        XCTAssertEqual(snapshot.readiness, .blocked(.typedSettings))
+        XCTAssertEqual(
+            snapshot.presentationState,
+            .failed(.invalidRefreshContext)
+        )
         XCTAssertTrue(requests.isEmpty)
     }
 
-    func testSelectingAmbientModeInvalidatesAndRefreshesExactlyOnce()
-        async throws
-    {
-        let fixture = makeFixture()
-        _ = await fixture.controller.bootstrap(
-            performInitialRefresh: false
-        )
-        let snapshot = try await fixture.controller
-            .selectTarget(.cli)
-
-        let requests = await fixture.refresh.requests()
-        let invalidationCount =
-            await fixture.refresh.invalidationCount()
-        XCTAssertEqual(
-            invalidationCount,
-            1
-        )
-        XCTAssertEqual(requests.count, 1)
-        XCTAssertEqual(
-            requests.first?.trigger,
-            .accountBoundaryChanged
-        )
-        XCTAssertEqual(
-            requests.first?.target,
-            .cli
-        )
-        XCTAssertNil(snapshot.activeAccountID)
-    }
-
-    func testAmbientSelectionPreemptsInFlightRefreshAndRejectsItsLateResult()
-        async throws
-    {
-        let refreshGate = ControllerRefreshGate()
-        let fixture = makeFixture(
-            refreshGate: refreshGate
-        )
-        _ = await fixture.controller.bootstrap(
-            performInitialRefresh: false
-        )
-
-        let oldRefresh = Task {
-            await fixture.controller.refresh(
-                trigger: .scheduled
-            )
-        }
-        await refreshGate.waitUntilRequestCount(1)
-
-        let sourceSwitch = Task {
-            try await fixture.controller
-                .selectTarget(.cli)
-        }
-        await refreshGate.waitUntilRequestCount(2)
-
-        let invalidated =
-            await fixture.controller.snapshot()
-        XCTAssertNil(invalidated.activeAccountID)
-        XCTAssertEqual(
-            invalidated.presentationState,
-            .refreshing(previous: nil)
-        )
-
-        await refreshGate.resolveRequest(
-            at: 0,
-            with: .ready(Self.oldQuotaSnapshot)
-        )
-        let oldResult = await oldRefresh.value
-        XCTAssertNil(oldResult.activeAccountID)
-        XCTAssertEqual(
-            oldResult.presentationState,
-            .refreshing(previous: nil)
-        )
-
-        await refreshGate.resolveRequest(
-            at: 1,
-            with: .ready(Self.newQuotaSnapshot)
-        )
-        let switched = try await sourceSwitch.value
-        XCTAssertNil(switched.activeAccountID)
-        XCTAssertEqual(
-            switched.presentationState,
-            .ready(Self.newQuotaSnapshot)
-        )
-    }
-
-    func testDisplayOnlyUpdateDoesNotInvalidateOrRefresh()
+    func testDisplayOnlyUpdateDoesNotRefresh()
         async throws
     {
         let fixture = makeFixture()
@@ -475,15 +217,9 @@ final class AntigravityRuntimeControllerTests:
                 replacing: .default
             )
 
-        let invalidationCount =
-            await fixture.refresh.invalidationCount()
         let requests = await fixture.refresh.requests()
         let displaySaveCount =
             await fixture.settings.displaySaveCount()
-        XCTAssertEqual(
-            invalidationCount,
-            0
-        )
         XCTAssertTrue(requests.isEmpty)
         XCTAssertEqual(
             displaySaveCount,
@@ -576,85 +312,6 @@ final class AntigravityRuntimeControllerTests:
         XCTAssertEqual(displaySaveCount, 1)
     }
 
-    func testDisplayUpdateCannotRepublishAnOlderAccountBoundary()
-        async throws
-    {
-        let displaySaveGate = ControllerSuspensionGate()
-        let fixture = makeFixture(
-            displaySaveGate: displaySaveGate
-        )
-        _ = await fixture.controller.bootstrap(
-            performInitialRefresh: false
-        )
-        var display = AntigravityDisplaySettings.default
-        display.menuBar.showsSelectedLaneResetTime =
-            true
-
-        let displayUpdate = Task {
-            try await fixture.controller
-                .updateDisplay(
-                    display,
-                    replacing: .default
-                )
-        }
-        await displaySaveGate.waitUntilEntered()
-
-        let accountSwitch = Task {
-            try await fixture.controller
-                .selectTarget(.app)
-        }
-        await waitUntilRefreshing(fixture.controller)
-        await displaySaveGate.resume()
-
-        let displayResult = try await displayUpdate.value
-        XCTAssertEqual(
-            displayResult.presentationState,
-            .refreshing(previous: nil)
-        )
-
-        let switched = try await accountSwitch.value
-        XCTAssertEqual(
-            switched.settings?.connection.usageTarget, .app
-        )
-    }
-
-    func testNoticeConsumptionCannotRepublishAnOlderAccountBoundary()
-        async throws
-    {
-        let noticeGate = ControllerSuspensionGate()
-        let fixture = makeFixture(
-            noticeConsumptionGate: noticeGate
-        )
-        _ = await fixture.controller.bootstrap(
-            performInitialRefresh: false
-        )
-
-        let noticeConsumption = Task {
-            await fixture.controller
-                .consumePendingSettingsNotice()
-        }
-        await noticeGate.waitUntilEntered()
-
-        let accountSwitch = Task {
-            try await fixture.controller
-                .selectTarget(.app)
-        }
-        await waitUntilRefreshing(fixture.controller)
-        await noticeGate.resume()
-
-        let noticeResult =
-            await noticeConsumption.value
-        XCTAssertEqual(
-            noticeResult.presentationState,
-            .refreshing(previous: nil)
-        )
-
-        let switched = try await accountSwitch.value
-        XCTAssertEqual(
-            switched.settings?.connection.usageTarget, .app
-        )
-    }
-
     func testShutdownQuiescesRefreshBeforeStoppingRuntimeAndRejectsMutations()
         async throws
     {
@@ -691,7 +348,7 @@ final class AntigravityRuntimeControllerTests:
 
         do {
             _ = try await fixture.controller
-                .selectTarget(.app)
+                .updateMenuBarStyle(.circular)
             XCTFail("Expected shutdown rejection")
         } catch {
             XCTAssertEqual(
@@ -705,11 +362,11 @@ final class AntigravityRuntimeControllerTests:
             trigger: .manual
         )
         let requests = await fixture.refresh.requests()
-        let selectionCount =
-            await fixture.repository.selectionCount()
+        let displaySaveCount =
+            await fixture.settings.displaySaveCount()
         XCTAssertTrue(requests.isEmpty)
         XCTAssertEqual(
-            selectionCount,
+            displaySaveCount,
             0
         )
     }
@@ -783,7 +440,6 @@ final class AntigravityRuntimeControllerTests:
         async
     {
         let fixture = makeFixture(
-            activeAccountID: nil,
             refreshResult:
                 .setupRequired(
                     .noAmbientLocalSession
@@ -808,37 +464,16 @@ final class AntigravityRuntimeControllerTests:
     }
 
     private func makeFixture(
-        activeAccountID:
-            AntigravityAccountID? =
-                AntigravityAccountID(
-                    rawValue:
-                        "00000000-0000-0000-0000-000000000001"
-                ),
         connection:
             AntigravityConnectionSettings = .default,
         legacyCleanupGate: ControllerSuspensionGate? = nil,
-        selectionFails: Bool = false,
+        accountCleanupGate: ControllerSuspensionGate? = nil,
         refreshResult:
             AntigravityPresentationState? = nil,
         refreshGate:
-            ControllerRefreshGate? = nil,
-        invalidationGate: ControllerSuspensionGate? = nil,
-        migrationStatus: AntigravityMigrationStatus? = nil,
-        displaySaveGate:
-            ControllerSuspensionGate? = nil,
-        noticeConsumptionGate:
-            ControllerSuspensionGate? = nil
+            ControllerRefreshGate? = nil
     ) -> ControllerFixture {
         let events = ControllerEventRecorder()
-        let repository =
-            ControllerAccountRepositoryDouble(
-                state: Self.repositoryState(
-                    activeAccountID:
-                        activeAccountID
-                ),
-                events: events,
-                selectionFails: selectionFails
-            )
         let settings =
             ControllerSettingsStoreDouble(
                 snapshot:
@@ -846,14 +481,6 @@ final class AntigravityRuntimeControllerTests:
                         connection: connection,
                         display: .default
                     ),
-                events: events,
-                displaySaveGate: displaySaveGate,
-                noticeConsumptionGate:
-                    noticeConsumptionGate
-            )
-        let migration =
-            ControllerMigrationCoordinatorDouble(
-                status: migrationStatus ?? Self.completeMigrationStatus,
                 events: events
             )
         let refresh =
@@ -864,18 +491,20 @@ final class AntigravityRuntimeControllerTests:
                         Self.emptyQuotaSnapshot
                     ),
                 events: events,
-                refreshGate: refreshGate,
-                invalidationGate: invalidationGate
+                refreshGate: refreshGate
             )
         let lifecycle =
             ControllerRuntimeLifecycleDouble(
                 cleanupGate: legacyCleanupGate,
                 events: events
             )
+        let accountCleanup =
+            ControllerAccountCleanupDouble(
+                gate: accountCleanupGate,
+                events: events
+            )
         let controller = AntigravityRuntimeController(
-            repository: repository,
             settingsStore: settings,
-            migrationCoordinator: migration,
             refreshCoordinator: refresh,
             runtimeLifecycle: lifecycle,
             settingsBootstrap:
@@ -885,6 +514,9 @@ final class AntigravityRuntimeControllerTests:
                     displayPath:
                         "~/.local/bin/agy"
                 ),
+            legacyAccountCleanup: {
+                await accountCleanup.run()
+            },
             now: {
                 Date(
                     timeIntervalSince1970:
@@ -894,99 +526,13 @@ final class AntigravityRuntimeControllerTests:
         )
         return ControllerFixture(
             controller: controller,
-            repository: repository,
             settings: settings,
             refresh: refresh,
             lifecycle: lifecycle,
+            accountCleanup: accountCleanup,
             events: events
         )
     }
-
-    private func waitUntilRefreshing(
-        _ controller: AntigravityRuntimeController
-    ) async {
-        for _ in 0..<100 {
-            let snapshot = await controller.snapshot()
-            if snapshot.presentationState
-                == .refreshing(previous: nil)
-            {
-                return
-            }
-            await Task.yield()
-        }
-        XCTFail(
-            "Timed out waiting for account boundary invalidation"
-        )
-    }
-
-    private static let firstIdentity = ProviderAccountIdentity(email: "first@example.com")
-    private static let secondIdentity = ProviderAccountIdentity(email: "second@example.com")
-
-    private static let firstAccountID =
-        AntigravityAccountID(
-            rawValue:
-                "00000000-0000-0000-0000-000000000001"
-        )
-    private static let secondAccountID =
-        AntigravityAccountID(
-            rawValue:
-                "00000000-0000-0000-0000-000000000002"
-        )
-
-    private static func repositoryState(
-        activeAccountID: AntigravityAccountID?
-    ) -> AntigravityAccountRepositoryState {
-        AntigravityAccountRepositoryState(
-            revision: 7,
-            activeAccountID: activeAccountID,
-            accounts: [
-                account(
-                    id: firstAccountID,
-                    suffix:
-                        "00000000-0000-0000-0000-000000000011",
-                    email: "first@example.com"
-                ),
-                account(
-                    id: secondAccountID,
-                    suffix:
-                        "00000000-0000-0000-0000-000000000012",
-                    email: "second@example.com"
-                ),
-            ]
-        )
-    }
-
-    private static func account(
-        id: AntigravityAccountID,
-        suffix: String,
-        email: String
-    ) -> AntigravityStoredAccount {
-        AntigravityStoredAccount(
-            id: id,
-            label: email,
-            externalIdentity: .init(email: email),
-            migrationAliases: [],
-            lifecycle: .active,
-            credentialReference: .init(
-                rawValue:
-                    AntigravityCredentialReference
-                        .namespacePrefix
-                    + suffix
-            ),
-            createdAtMilliseconds: 1,
-            updatedAtMilliseconds: 1
-        )
-    }
-
-    private static let completeMigrationStatus =
-        AntigravityMigrationStatus(
-            phase: .complete,
-            sourceOutcomes: [:],
-            plannedAccountCount: 0,
-            blocker: nil,
-            requiredAction: nil,
-            authorizationCancelledThisSession: false
-        )
 
     private static let emptyQuotaSnapshot =
         AntigravityQuotaSnapshot(
@@ -996,8 +542,8 @@ final class AntigravityRuntimeControllerTests:
             decodeIssues: [],
             provenance:
                 AntigravityQuotaProvenance(
-                    transport: .googleOAuth,
-                    endpointOwner: .external,
+                    transport: .cliUsageReport,
+                    endpointOwner: .managed,
                     accountIdentity: nil,
                     capability:
                         .groupedQuotaSummary,
@@ -1025,8 +571,8 @@ final class AntigravityRuntimeControllerTests:
             decodeIssues: [],
             provenance:
                 AntigravityQuotaProvenance(
-                    transport: .googleOAuth,
-                    endpointOwner: .external,
+                    transport: .cliUsageReport,
+                    endpointOwner: .managed,
                     accountIdentity: nil,
                     capability:
                         .groupedQuotaSummary,
@@ -1041,11 +587,10 @@ final class AntigravityRuntimeControllerTests:
 
 private struct ControllerFixture {
     let controller: AntigravityRuntimeController
-    let repository:
-        ControllerAccountRepositoryDouble
     let settings: ControllerSettingsStoreDouble
     let refresh: ControllerRefreshCoordinatorDouble
     let lifecycle: ControllerRuntimeLifecycleDouble
+    let accountCleanup: ControllerAccountCleanupDouble
     let events: ControllerEventRecorder
 }
 
@@ -1061,139 +606,32 @@ private actor ControllerEventRecorder {
     }
 }
 
-private actor ControllerAccountRepositoryDouble:
-    AntigravityRuntimeAccountPersisting
-{
-    private var current:
-        AntigravityAccountRepositoryState
-    private let events: ControllerEventRecorder
-    private let selectionFails: Bool
-    private var selections = 0
-
-    init(
-        state: AntigravityAccountRepositoryState,
-        events: ControllerEventRecorder,
-        selectionFails: Bool = false
-    ) {
-        current = state
-        self.events = events
-        self.selectionFails = selectionFails
-    }
-
-    func state() async throws
-        -> AntigravityAccountRepositoryState
-    {
-        await events.record("repository.state")
-        return current
-    }
-
-    func createAccount(
-        credentials: AntigravityOAuthCredentials,
-        label: String,
-        externalIdentity:
-            AntigravityExternalAccountIdentity,
-        migrationAliases: [String],
-        makeActive: Bool,
-        expectedRevision: UInt64
-    ) async throws
-        -> AntigravityAccountRepositoryState
-    {
-        try requireRevision(expectedRevision)
-        return current
-    }
-
-    func replaceCredential(
-        for accountID: AntigravityAccountID,
-        with credentials: AntigravityOAuthCredentials,
-        externalIdentity:
-            AntigravityExternalAccountIdentity?,
-        expectedRevision: UInt64
-    ) async throws
-        -> AntigravityAccountRepositoryState
-    {
-        try requireRevision(expectedRevision)
-        return current
-    }
-
-    func setActiveAccountID(
-        _ accountID: AntigravityAccountID?,
-        expectedRevision: UInt64
-    ) async throws
-        -> AntigravityAccountRepositoryState
-    {
-        await events.record("repository.select")
-        try requireRevision(expectedRevision)
-        if selectionFails {
-            throw AntigravityAccountRepositoryError
-                .metadataPersistenceVerificationFailed
-        }
-        selections += 1
-        current.revision += 1
-        current.activeAccountID = accountID
-        return current
-    }
-
-    func deleteAccount(
-        id accountID: AntigravityAccountID,
-        expectedRevision: UInt64
-    ) async throws
-        -> AntigravityAccountRepositoryState
-    {
-        try requireRevision(expectedRevision)
-        return current
-    }
-
-    func selectionCount() -> Int {
-        selections
-    }
-
-    private func requireRevision(
-        _ expectedRevision: UInt64
-    ) throws {
-        guard current.revision == expectedRevision else {
-            throw AntigravityAccountRepositoryError
-                .revisionConflict(
-                    expected: expectedRevision,
-                    actual: current.revision
-                )
-        }
-    }
-}
-
 private actor ControllerSettingsStoreDouble:
     AntigravitySettingsStoring
 {
     private var current: AntigravitySettingsSnapshot
     private let events: ControllerEventRecorder
-    private let displaySaveGate:
-        ControllerSuspensionGate?
-    private let noticeConsumptionGate:
-        ControllerSuspensionGate?
     private var connectionSaves = 0
-    private var connectionWritesFail = false
-
-    func failConnectionWrites() { connectionWritesFail = true }
     private var displaySaves = 0
+    private var loadsFail = false
+
+    func failLoads() { loadsFail = true }
 
     init(
         snapshot: AntigravitySettingsSnapshot,
-        events: ControllerEventRecorder,
-        displaySaveGate:
-            ControllerSuspensionGate? = nil,
-        noticeConsumptionGate:
-            ControllerSuspensionGate? = nil
+        events: ControllerEventRecorder
     ) {
         current = snapshot
         self.events = events
-        self.displaySaveGate = displaySaveGate
-        self.noticeConsumptionGate =
-            noticeConsumptionGate
     }
 
     func load() async throws
         -> AntigravitySettingsSnapshot
     {
         await events.record("settings.load")
+        if loadsFail {
+            throw AntigravitySettingsStoreError.invalid(.connection)
+        }
         return current
     }
 
@@ -1202,9 +640,6 @@ private actor ControllerSettingsStoreDouble:
     ) async throws
         -> AntigravityConnectionSettings
     {
-        if connectionWritesFail {
-            throw AntigravitySettingsStoreError.persistenceFailed(.connection, rollbackCompleted: true)
-        }
         connectionSaves += 1
         current.connection = connection
         return connection
@@ -1213,7 +648,6 @@ private actor ControllerSettingsStoreDouble:
     func saveDisplay(
         _ display: AntigravityDisplaySettings
     ) async throws -> AntigravityDisplaySettings {
-        await displaySaveGate?.suspend()
         displaySaves += 1
         current.display = display
         return display
@@ -1229,7 +663,6 @@ private actor ControllerSettingsStoreDouble:
     func consumePendingNotice() async throws
         -> AntigravitySettingsMigrationNotice?
     {
-        await noticeConsumptionGate?.suspend()
         let notice = current.display.pendingNotice
         current.display.pendingNotice = nil
         return notice
@@ -1245,47 +678,6 @@ private actor ControllerSettingsStoreDouble:
 }
 
 private actor
-    ControllerMigrationCoordinatorDouble:
-    AntigravityRuntimeMigrationCoordinating
-{
-    private let status: AntigravityMigrationStatus
-    private let events: ControllerEventRecorder
-
-    init(
-        status: AntigravityMigrationStatus,
-        events: ControllerEventRecorder
-    ) {
-        self.status = status
-        self.events = events
-    }
-
-    func checkForMigration() async
-        -> AntigravityMigrationStatus
-    {
-        await events.record("migration.check")
-        return status
-    }
-
-    func performInteractiveMigration() async
-        -> AntigravityMigrationStatus
-    {
-        status
-    }
-
-    func removeAllAccounts() async
-        -> AntigravityMigrationStatus
-    {
-        status
-    }
-
-    func removeAllAccountsInteractively() async
-        -> AntigravityMigrationStatus
-    {
-        status
-    }
-}
-
-private actor
     ControllerRefreshCoordinatorDouble:
     AntigravityRefreshCoordinating
 {
@@ -1293,10 +685,8 @@ private actor
     func setResult(_ value: AntigravityPresentationState) { result = value }
     private let events: ControllerEventRecorder
     private let refreshGate: ControllerRefreshGate?
-    private let invalidationGate: ControllerSuspensionGate?
     private var recordedRequests:
         [AntigravityRefreshRequest] = []
-    private var invalidations = 0
     private var quiesces = 0
     private var current:
         AntigravityPresentationState
@@ -1304,27 +694,18 @@ private actor
     init(
         result: AntigravityPresentationState,
         events: ControllerEventRecorder,
-        refreshGate: ControllerRefreshGate? = nil,
-        invalidationGate: ControllerSuspensionGate? = nil
+        refreshGate: ControllerRefreshGate? = nil
     ) {
         self.result = result
         current = result
         self.events = events
         self.refreshGate = refreshGate
-        self.invalidationGate = invalidationGate
     }
 
     func quiesceForShutdown() async {
         quiesces += 1
         current = .failed(.appShuttingDown)
         await events.record("refresh.quiesce")
-    }
-
-    func invalidateBoundary() async {
-        invalidations += 1
-        current = .refreshing(previous: nil)
-        await events.record("refresh.invalidate")
-        await invalidationGate?.suspend()
     }
 
     func refresh(
@@ -1353,10 +734,6 @@ private actor
 
     func requests() -> [AntigravityRefreshRequest] {
         recordedRequests
-    }
-
-    func invalidationCount() -> Int {
-        invalidations
     }
 
     func quiesceCount() -> Int {
@@ -1514,5 +891,39 @@ private actor ControllerRuntimeLifecycleDouble:
 
     func shutdownCount() -> Int {
         shutdowns
+    }
+}
+
+private actor ControllerAccountCleanupDouble {
+    private let gate: ControllerSuspensionGate?
+    private let events: ControllerEventRecorder
+    private var runs = 0
+    private var finishedRuns = 0
+    private var finishWaiters: [CheckedContinuation<Void, Never>] = []
+
+    init(
+        gate: ControllerSuspensionGate?,
+        events: ControllerEventRecorder
+    ) {
+        self.gate = gate
+        self.events = events
+    }
+
+    func run() async {
+        runs += 1
+        await events.record("runtime.legacyAccountCleanup")
+        await gate?.suspend()
+        finishedRuns += 1
+        finishWaiters.forEach { $0.resume() }
+        finishWaiters.removeAll()
+    }
+
+    func runCount() -> Int {
+        runs
+    }
+
+    func waitUntilFinished() async {
+        guard finishedRuns == 0 else { return }
+        await withCheckedContinuation { finishWaiters.append($0) }
     }
 }

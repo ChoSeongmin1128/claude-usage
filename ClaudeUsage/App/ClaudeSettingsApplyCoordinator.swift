@@ -70,34 +70,6 @@ struct ClaudeSettingsApplyResult {
 }
 
 enum ClaudeSettingsApplyCoordinator {
-    static func syncStoredCredential(
-        apiService: any ClaudeSettingsApplyingService,
-        preferredOrganizationID: String,
-        providerEnabled: Bool,
-        keychain: any ClaudeSessionKeyStoring = KeychainManager.shared
-    ) async -> ClaudeSettingsApplyResult {
-        // 선호 organization 은 ClaudeAccountStore 가 단일 진실의 출처이고, store
-        // 변경 알림(.claudeAccountsDidChange) + 뒤따르는 reloadActiveAccount() 호출이
-        // service in-memory 캐시를 자동으로 동기화한다. 여기서 service 에 별도로
-        // 알릴 필요는 없다.
-        if let key = keychain.load(), !key.isEmpty {
-            await apiService.updateSessionKey(key)
-        } else {
-            await apiService.clearSession()
-        }
-
-        let snapshot = await apiService.fetchUsageHealthSnapshot()
-        let cachedMetadata = await apiService.fetchCachedProfileMetadata()
-        return ClaudeSettingsApplyResult(
-            snapshot: snapshot,
-            shouldStartMonitoring: providerEnabled && snapshot.runtime.credentialAvailability.hasAnyCredential,
-            shouldMarkSetupComplete: SetupCompletionPolicy.shouldMarkSetupComplete(
-                hasSuccessfulFetch: snapshot.lastOverallSuccessAt != nil,
-                preferredOrganizationID: preferredOrganizationID,
-                cachedMetadata: cachedMetadata
-            )
-        )
-    }
 
     static func activateSessionKey(
         _ key: String,
@@ -107,25 +79,18 @@ enum ClaudeSettingsApplyCoordinator {
         source: ClaudeAccountSource? = .embeddedWebLogin,
         sourceDetail: String? = nil,
         keychain: any ClaudeSessionKeyStoring = KeychainManager.shared,
+        makeValidator: @Sendable (String) -> any ClaudeSettingsApplyingService = { ClaudeAPIService(sessionKey: $0) },
         refreshRequester: @escaping @Sendable () -> Void = {
             NotificationCenter.default.post(name: .claudeCredentialRefreshRequested, object: nil)
         }
     ) async throws {
-        let previousKey = keychain.load()
-        // 검증 fetch 가 어느 organization 으로 향할지 강제하기 위한 일회성
-        // in-memory 설정. 영구 저장은 keychain.save(... preferredOrganizationID:)
-        // 및 ClaudeAccountStore 가 담당한다.
-        await apiService.updatePreferredOrganizationID(preferredOrganizationID)
-        await apiService.updateSessionKey(key)
+        // 새 키는 따로 만든 서비스로 검증한다. 공용 서비스에 먼저 넣으면 검증하는 동안 예약된 조회가
+        // 새 키의 결과를 지금 계정의 것으로 기록한다.
+        let validator = makeValidator(key)
+        await validator.updatePreferredOrganizationID(preferredOrganizationID)
+        _ = try await validator.validateCurrentSessionUsage()
 
-        do {
-            _ = try await apiService.validateCurrentSessionUsage()
-        } catch {
-            await restorePreviousSessionKey(previousKey, apiService: apiService)
-            throw error
-        }
-
-        let resolvedOrganization = await apiService.resolvedSessionOrganizationForLastValidation()
+        let resolvedOrganization = await validator.resolvedSessionOrganizationForLastValidation()
         let normalizedPreferredOrganizationID = normalizeOrganizationID(preferredOrganizationID)
         let identity = resolvedOrganization.map {
             ClaudeAccountIdentity(
@@ -134,22 +99,18 @@ enum ClaudeSettingsApplyCoordinator {
             )
         }
 
-        do {
-            try keychain.save(
-                key,
-                // 자동으로 선택된 organization은 identity로만 기록한다. 강제
-                // preference는 사용자가 직접 선택한 경우에만 저장해야 이후 더
-                // 적합한 조직 계정이 발견됐을 때 자동 선택이 다시 평가된다.
-                preferredOrganizationID: normalizedPreferredOrganizationID,
-                displayName: displayName,
-                identity: identity,
-                source: source,
-                sourceDetail: sourceDetail
-            )
-        } catch {
-            await restorePreviousSessionKey(previousKey, apiService: apiService)
-            throw error
-        }
+        try keychain.save(
+            key,
+            // 자동으로 선택된 organization은 identity로만 기록한다. 강제
+            // preference는 사용자가 직접 선택한 경우에만 저장해야 이후 더
+            // 적합한 조직 계정이 발견됐을 때 자동 선택이 다시 평가된다.
+            preferredOrganizationID: normalizedPreferredOrganizationID,
+            displayName: displayName,
+            identity: identity,
+            source: source,
+            sourceDetail: sourceDetail
+        )
+        await apiService.updateSessionKey(key)
 
         refreshRequester()
     }
@@ -178,14 +139,4 @@ enum ClaudeSettingsApplyCoordinator {
         raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func restorePreviousSessionKey(
-        _ previousKey: String?,
-        apiService: any ClaudeSettingsApplyingService
-    ) async {
-        if let previousKey, !previousKey.isEmpty {
-            await apiService.updateSessionKey(previousKey)
-        } else {
-            await apiService.clearSession()
-        }
-    }
 }

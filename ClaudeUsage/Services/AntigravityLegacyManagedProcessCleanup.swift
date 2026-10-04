@@ -72,7 +72,8 @@ nonisolated struct AntigravityLegacyManagedProcessCleanup: AntigravityLegacyMana
 
     static func production(
         stateDirectory: URL = AntigravityStoragePaths.canonicalStateDirectoryURL(),
-        homeDirectoryURL: URL = FileManager.default.realHomeDirectory
+        homeDirectoryURL: URL = FileManager.default.realHomeDirectory,
+        ownsSharedLaunchLock: Bool = AppDistribution.current.ownsProductionLegacyLocations
     ) -> Self {
         let launchLockDirectory = launchLockDirectory(homeDirectoryURL: homeDirectoryURL)
         let ledgerURL = stateDirectory.appendingPathComponent(AntigravityManagedProcessRecordFileStore.fileName)
@@ -94,7 +95,8 @@ nonisolated struct AntigravityLegacyManagedProcessCleanup: AntigravityLegacyMana
             recovery: recovery,
             ledgerExists: { FileManager.default.fileExists(atPath: ledgerURL.path) },
             removeLaunchLock: {
-                removeLaunchLock(in: launchLockDirectory)
+                // 채널 공용 잠금은 운영 채널만 지운다. 이전 운영 앱이 아직 쓰고 있을 수 있다.
+                if ownsSharedLaunchLock { removeLaunchLock(in: launchLockDirectory) }
                 removeLaunchLockFile(in: stateDirectory)
             }
         )

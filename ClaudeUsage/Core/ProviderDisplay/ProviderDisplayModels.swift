@@ -75,7 +75,8 @@ nonisolated struct ProviderRuntimeSummary:
     let tone: Tone
     let showsProgress: Bool
     let title: String
-    let message: String
+    /// 할 일이나 이유. 제목만으로 충분하면 없다.
+    let message: String?
     let actionTitle: String?
     let action: Action?
     let actionIsProminent: Bool

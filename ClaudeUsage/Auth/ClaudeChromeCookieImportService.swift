@@ -257,7 +257,14 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
 
     static nonisolated func findSessionKey(in records: [ClaudeChromiumCookieRecord]) -> String? {
         let extractor = ClaudeSessionKeyExtractor()
-        let relevantRecords = records.filter { Self.isClaudeHost($0.domain) }
+        // claude.ai 쿠키를 먼저 본다. anthropic.com(콘솔)의 sessionKey는 claude.ai 사용량을 조회하지 못한다.
+        // 같은 도메인끼리는 나중에 만료되는 쿠키가 최근 로그인이다.
+        let relevantRecords = records.filter { Self.isClaudeHost($0.domain) }.sorted { lhs, rhs in
+            let lhsClaude = Self.isClaudeAIHost(lhs.domain)
+            let rhsClaude = Self.isClaudeAIHost(rhs.domain)
+            if lhsClaude != rhsClaude { return lhsClaude }
+            return (lhs.expiresAt ?? .distantPast) > (rhs.expiresAt ?? .distantPast)
+        }
 
         if let exact = relevantRecords.first(where: { Self.isSessionCookieName($0.name) }) {
             let normalized = extractor.normalizeTokenCandidate(exact.value)
@@ -275,10 +282,14 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
         return nil
     }
 
+    private static nonisolated func isClaudeAIHost(_ host: String) -> Bool {
+        let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "claude.ai" || normalized.hasSuffix(".claude.ai")
+    }
+
     private static nonisolated func isClaudeHost(_ host: String) -> Bool {
         let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized == "claude.ai"
-            || normalized.hasSuffix(".claude.ai")
+        return isClaudeAIHost(normalized)
             || normalized == "anthropic.com"
             || normalized.hasSuffix(".anthropic.com")
     }
@@ -299,12 +310,12 @@ final class ClaudeChromeCookieImportService: ClaudeBrowserCookieImporting, @unch
             : "확인한 프로필: \(discoveredProfiles.joined(separator: ", "))"
 
         var sections: [String] = [
-            "\(name)에서 Claude 로그인 정보를 찾지 못했습니다.",
+            "\(name)에서 Claude 로그인을 찾지 못했습니다.",
             profileLine,
             "확인 순서:",
-            "1. \(name)에서 claude.ai에 로그인되어 있는지 확인",
+            "1. \(name)에서 claude.ai에 로그인했는지 확인",
             "2. 실제 사용 중인 프로필이 위 목록에 포함되는지 확인",
-            "3. 계속 실패하면 고급 설정에서 브라우저 로그인 값을 직접 입력"
+            "3. 계속 안 되면 세션 키를 직접 입력"
         ]
 
         if !failureDetails.isEmpty {

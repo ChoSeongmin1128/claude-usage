@@ -18,24 +18,11 @@ nonisolated protocol
         trigger: AntigravityRefreshTrigger
     ) async -> AntigravityRuntimeSnapshot
 
-    func selectTarget(_ selection: AntigravityUsageTarget) async throws -> AntigravityRuntimeSnapshot
-
-    func deleteAccount(
-        _ accountID: AntigravityAccountID
-    ) async throws -> AntigravityRuntimeSnapshot
-
     func updateDisplay(
         _ display: AntigravityDisplaySettings,
         replacing expectedDisplay:
             AntigravityDisplaySettings
     ) async throws -> AntigravityRuntimeSnapshot
-
-    func continueMigration() async
-        -> AntigravityRuntimeSnapshot
-
-    func removeAllAccounts(
-        interactively: Bool
-    ) async -> AntigravityRuntimeSnapshot
 
     func consumePendingSettingsNotice() async
         -> AntigravityRuntimeSnapshot
@@ -44,18 +31,6 @@ nonisolated protocol
 extension AntigravityRuntimeController:
     AntigravitySettingsRuntimeControlling
 {}
-
-nonisolated struct AntigravitySettingsAccountSummary:
-    Identifiable,
-    Equatable,
-    Sendable
-{
-    let id: AntigravityAccountID
-    let label: String
-    let email: String?
-    let lifecycle: AntigravityAccountLifecycle
-    let isActive: Bool
-}
 
 nonisolated struct AntigravitySettingsNotice:
     Equatable,
@@ -71,9 +46,6 @@ nonisolated struct AntigravitySettingsNotice:
     enum Action: String, Equatable, Sendable {
         case dismiss
         case retryLoad
-        case retryMigrationCheck
-        case continueMigration
-        case removeLegacyData
         case acknowledgeDisplayMigrationNotice
     }
 
@@ -90,11 +62,8 @@ nonisolated struct AntigravitySettingsViewState:
     enum Activity: String, Equatable, Sendable {
         case idle
         case loading
-        case checkingMigration
-        case changingTarget
         case changingConnection
         case changingDisplay
-        case migrating
 
         var isBusy: Bool {
             self != .idle
@@ -102,17 +71,13 @@ nonisolated struct AntigravitySettingsViewState:
     }
 
     var activity: Activity
-    var accounts: [AntigravitySettingsAccountSummary]
-    var activeAccountID: AntigravityAccountID?
     var connection: AntigravityConnectionSettings?
     var display: AntigravityDisplaySettings?
-    var migrationStatus: AntigravityMigrationStatus?
     var presentation: AntigravityPresentationState
     var quotaPresentation:
         AntigravityQuotaPresentationMappingResult
     var managedRuntimeAvailability:
         AntigravityManagedRuntimeAvailability
-    var repositoryRevision: UInt64?
     var notice: AntigravitySettingsNotice?
     var lastAttemptAt: Date? = nil
     var publicationRevision: UInt64 = 0
@@ -123,17 +88,13 @@ nonisolated struct AntigravitySettingsViewState:
 
     static let initial = AntigravitySettingsViewState(
         activity: .idle,
-        accounts: [],
-        activeAccountID: nil,
         connection: nil,
         display: nil,
-        migrationStatus: nil,
         presentation: .disabled,
         quotaPresentation: .unavailable(.disabled),
         managedRuntimeAvailability: .unavailable(
             reason: .executableNotFound
         ),
-        repositoryRevision: nil,
         notice: nil
     )
 }
@@ -153,19 +114,19 @@ nonisolated struct AntigravityManagedRuntimeSettingsPresentation:
         case .available(let displayPath):
             return Self(
                 diagnosticTitle:
-                    "감지됨 · \(displayPath) · 조회할 때 사용량 보고 실행"
+                    "설치됨 (\(displayPath))"
             )
         case .unavailable(let reason):
             switch reason {
             case .executableNotFound:
                 return Self(
                     diagnosticTitle:
-                        "미감지 · AGY CLI 설치 필요"
+                        "설치 안 됨"
                 )
             case .signatureRejected:
                 return Self(
                     diagnosticTitle:
-                        "감지됐지만 Google 서명 검증 실패"
+                        "서명 확인 실패"
                 )
             }
         }
@@ -182,9 +143,9 @@ nonisolated extension AntigravitySettingsViewState {
 
 /// Settings projection for the shared Antigravity runtime controller.
 ///
-/// Repository/settings/migration actors are deliberately not
-/// exposed here, so the settings window cannot interleave its own transaction
-/// with AppDelegate refreshes.
+/// Settings and refresh actors are deliberately not exposed here, so the
+/// settings window cannot interleave its own transaction with AppDelegate
+/// refreshes.
 @MainActor
 final class AntigravitySettingsViewModel:
     ObservableObject
@@ -194,8 +155,6 @@ final class AntigravitySettingsViewModel:
 
     private let runtimeController:
         any AntigravitySettingsRuntimeControlling
-    private let accountCommands:
-        AntigravityAccountCommandCoordinator
     private let displayCommands:
         AntigravityDisplaySettingsCommandAdapter
     private var observationTask:
@@ -205,10 +164,6 @@ final class AntigravitySettingsViewModel:
             any AntigravitySettingsRuntimeControlling
     ) {
         self.runtimeController = runtimeController
-        self.accountCommands =
-            AntigravityAccountCommandCoordinator(
-                runtime: runtimeController
-            )
         self.displayCommands =
             AntigravityDisplaySettingsCommandAdapter(
                 runtime: runtimeController
@@ -246,62 +201,6 @@ final class AntigravitySettingsViewModel:
     }
 
     @discardableResult
-    func selectTarget(_ selection: AntigravityUsageTarget) async -> Bool {
-        guard state.usageTarget != selection, begin(.changingTarget) else { return false }
-        return await performMutation(
-            activity: .changingTarget,
-            success: AntigravitySettingsNotice(
-                tone: .success, title: "조회 대상을 선택했습니다",
-                message: "선택한 제품에 로그인된 계정의 사용량을 표시합니다.", action: .dismiss)
-        ) {
-            try await accountCommands.selectTarget(selection)
-        }
-    }
-
-    @discardableResult
-    func deleteAccount(
-        _ accountID: AntigravityAccountID
-    ) async -> Bool {
-        guard begin(.changingTarget) else {
-            return false
-        }
-        return await performMutation(
-            activity: .changingTarget,
-            success: AntigravitySettingsNotice(
-                tone: .success,
-                title: "이전 연결 정보를 삭제했습니다",
-                message: "\(AppDistribution.current.appName)가 저장한 계정 자격 정보를 제거했습니다.",
-                action: .dismiss
-            )
-        ) {
-            try await self.accountCommands
-                .deleteAccount(accountID)
-        }
-    }
-
-    @discardableResult
-    func deleteAllAccounts() async -> Bool {
-        guard begin(.changingTarget) else {
-            return false
-        }
-        let snapshot = await accountCommands
-            .removeAllAccounts(interactively: false)
-        apply(snapshot)
-        state.notice =
-            AntigravitySettingsNoticePresenter.notice(
-                for: snapshot
-            )
-            ?? AntigravitySettingsNotice(
-                tone: .success,
-                title: "이전 연결 정보를 모두 삭제했습니다",
-                message: "\(AppDistribution.current.appName)가 저장한 Antigravity 계정 정보를 제거했습니다.",
-                action: .dismiss
-            )
-        state.activity = .idle
-        return snapshot.accounts.isEmpty
-    }
-
-    @discardableResult
     func updateDisplay(
         _ display: AntigravityDisplaySettings,
         replacing expectedDisplay:
@@ -331,63 +230,6 @@ final class AntigravitySettingsViewModel:
         }
     }
 
-    func refreshMigrationStatus() async {
-        guard begin(.checkingMigration) else { return }
-        let snapshot = await runtimeController.refresh(
-            trigger: .retry
-        )
-        apply(snapshot)
-        state.notice =
-            AntigravitySettingsNoticePresenter.notice(
-                for: snapshot
-            )
-        state.activity = .idle
-    }
-
-    @discardableResult
-    func performInteractiveMigration() async -> Bool {
-        guard begin(.migrating) else { return false }
-        let snapshot =
-            await runtimeController.continueMigration()
-        apply(snapshot)
-        state.notice =
-            AntigravitySettingsNoticePresenter.notice(
-                for: snapshot
-            )
-            ?? AntigravitySettingsNotice(
-                tone: .success,
-                title: "이전 작업을 완료했습니다",
-                message: "Antigravity 계정 정보를 새 저장소로 옮겼습니다.",
-                action: .dismiss
-            )
-        state.activity = .idle
-        return AntigravitySettingsNoticePresenter
-            .migrationReachedCutover(
-                snapshot.migrationStatus
-            )
-    }
-
-    @discardableResult
-    func removeLegacyDataInteractively() async -> Bool {
-        guard begin(.migrating) else { return false }
-        let snapshot = await runtimeController
-            .removeAllAccounts(interactively: true)
-        apply(snapshot)
-        state.notice =
-            AntigravitySettingsNoticePresenter.notice(
-                for: snapshot
-            )
-            ?? AntigravitySettingsNotice(
-                tone: .success,
-                title: "이전 데이터 정리를 완료했습니다",
-                message: "\(AppDistribution.current.appName)가 소유한 기존 Antigravity 데이터를 정리했습니다.",
-                action: .dismiss
-            )
-        state.activity = .idle
-        return snapshot.migrationStatus?.phase
-            == .complete
-    }
-
     func acknowledgeDisplayMigrationNotice() async {
         guard begin(.changingDisplay) else { return }
         let snapshot = await displayCommands
@@ -410,15 +252,6 @@ final class AntigravitySettingsViewModel:
         case .retryLoad:
             state.notice = nil
             await load()
-        case .retryMigrationCheck:
-            state.notice = nil
-            await refreshMigrationStatus()
-        case .continueMigration:
-            state.notice = nil
-            _ = await performInteractiveMigration()
-        case .removeLegacyData:
-            state.notice = nil
-            _ = await removeLegacyDataInteractively()
         case .acknowledgeDisplayMigrationNotice:
             await acknowledgeDisplayMigrationNotice()
 
@@ -483,23 +316,10 @@ final class AntigravitySettingsViewModel:
         _ snapshot: AntigravityRuntimeSnapshot
     ) -> Bool {
         guard snapshot.publicationRevision >= state.publicationRevision else { return false }
-        state.accounts = snapshot.accounts.map {
-            AntigravitySettingsAccountSummary(
-                id: $0.id,
-                label: $0.label,
-                email: $0.identity.email,
-                lifecycle: .active,
-                isActive: $0.isActive
-            )
-        }
-        state.activeAccountID =
-            snapshot.activeAccountID
         state.publicationRevision = snapshot.publicationRevision
         state.connection =
             snapshot.settings?.connection
         state.display = snapshot.settings?.display
-        state.migrationStatus =
-            snapshot.migrationStatus
         state.presentation =
             snapshot.presentationState
         state.lastAttemptAt = snapshot.lastAttemptAt
@@ -507,8 +327,6 @@ final class AntigravitySettingsViewModel:
             snapshot.quotaPresentation
         state.managedRuntimeAvailability =
             snapshot.managedRuntimeAvailability
-        state.repositoryRevision =
-            snapshot.repositoryRevision
         return true
     }
 

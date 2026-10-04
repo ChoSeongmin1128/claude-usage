@@ -3,16 +3,13 @@ import Foundation
 /// One production graph shared by AppDelegate, settings and every
 /// Antigravity presentation surface.
 ///
-/// Constructing a second repository or refresh coordinator would create a
-/// second revision/generation authority, so the factory exposes the already
-/// assembled instances instead of individual convenience constructors.
+/// Constructing a second refresh coordinator would create a second generation
+/// authority, so the factory exposes the already assembled instances instead
+/// of individual convenience constructors.
 nonisolated struct AntigravityProductRuntimeComposition:
     Sendable
 {
-    let repository: AntigravityAccountRepository
     let settingsStore: AntigravitySettingsStore
-    let migrationCoordinator:
-        AntigravityMigrationCoordinator
     let runtimeEnvironment: AntigravityRuntimeEnvironment
     let refreshCoordinator:
         AntigravityRefreshCoordinator
@@ -35,77 +32,19 @@ nonisolated enum
                     homeDirectoryURL:
                         homeDirectoryURL
                 )
-        let applicationSupportDirectory =
-            AntigravityStoragePaths
-                .applicationSupportDirectoryURL(
-                    homeDirectoryURL:
-                        homeDirectoryURL
-                )
         let runtimeEnvironment = AntigravityRuntimeEnvironment.production(
             homeDirectoryURL: homeDirectoryURL, stateDirectory: stateDirectory
         )
-
-        let repository =
-            AntigravityAccountRepository(
-                metadataStore:
-                    AntigravityAccountMetadataFileStore(
-                        fileURL:
-                            stateDirectory
-                                .appendingPathComponent(
-                                    "accounts.json"
-                                )
-                    ),
-                journalStore:
-                    AntigravityAccountOperationJournalFileStore(
-                        fileURL:
-                            stateDirectory
-                                .appendingPathComponent(
-                                    "account-operation.json"
-                                )
-                    ),
-                vault:
-                    SecurityFrameworkOAuthCredentialVault
-                        .shared
-            )
         let settingsStore =
             AntigravitySettingsStore()
-        let migrationCoordinator =
-            AntigravityMigrationCoordinator(
-                repository: repository,
-                journalStore:
-                    AntigravityMigrationJournalFileStore(
-                        fileURL:
-                            stateDirectory
-                                .appendingPathComponent(
-                                    "credential-migration-v2.json"
-                                )
-                    ),
-                completionMarkerStore:
-                    AntigravityMigrationCompletionMarkerFileStore(
-                        fileURL:
-                            applicationSupportDirectory
-                                .appendingPathComponent(
-                                    "Migrations",
-                                    isDirectory: true
-                                )
-                                .appendingPathComponent(
-                                    "antigravity-credentials-v2.json"
-                                )
-                    )
-            )
-
         let refreshCoordinator =
             AntigravityRefreshCoordinator(
-                repository: repository,
                 sources: [],
                 runtimeEnvironment: runtimeEnvironment
             )
         let runtimeController =
             AntigravityRuntimeController(
-                repository: repository,
                 settingsStore: settingsStore,
-                migrationCoordinator:
-                    migrationCoordinator,
                 refreshCoordinator:
                     refreshCoordinator,
                 runtimeLifecycle:
@@ -113,14 +52,17 @@ nonisolated enum
                 settingsBootstrap:
                     settingsBootstrap,
                 agyExecutableStatus: .notFound,
-                runtimeEnvironment: runtimeEnvironment
+                runtimeEnvironment: runtimeEnvironment,
+                legacyAccountCleanup: {
+                    _ =
+                        AntigravityLegacyAccountCleanup
+                        .production(homeDirectoryURL: homeDirectoryURL)
+                        .run()
+                }
             )
 
         return AntigravityProductRuntimeComposition(
-            repository: repository,
             settingsStore: settingsStore,
-            migrationCoordinator:
-                migrationCoordinator,
             runtimeEnvironment: runtimeEnvironment,
             refreshCoordinator:
                 refreshCoordinator,

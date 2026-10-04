@@ -552,7 +552,7 @@ final class PopoverResizeTests: XCTestCase {
                 transport: .cliUsageReport, endpointOwner: .managed, accountIdentity: identity,
                 capability: .groupedQuotaSummary, processIdentity: nil), fetchedAt: now)
         return AntigravityRuntimeSnapshot(
-            readiness: .ready, migrationStatus: nil, repositoryRevision: 1, accounts: [], activeAccountID: nil,
+            readiness: .ready,
             settings: .init(connection: .default, display: .default), presentationState: .ready(quota),
             quotaPresentation: .content(
                 AntigravityQuotaPresentationMapper.map(

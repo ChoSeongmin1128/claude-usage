@@ -4,7 +4,7 @@ struct SetupWizardWindowView: View {
     let currentStep: SetupWizardView.Step
     let progress: SetupCompletionPolicy.WizardProgress
     let isVerifyingFetch: Bool
-    let onOpenChrome: () -> Void
+    let onImportFromBrowser: () -> Void
     let onOpenWebLogin: () -> Void
     let onOpenAdvancedSettings: () -> Void
     let onOpenOrganizations: () -> Void
@@ -13,41 +13,25 @@ struct SetupWizardWindowView: View {
     let onComplete: () -> Void
     let onDismiss: () -> Void
 
-    private var checklistState: [(String, String, Bool)] {
-        [
-            (
-                "자격 준비",
-                progress.hasReadyCredential ? "로그인 정보를 확인했습니다" : "브라우저 가져오기 또는 웹 로그인부터 진행해야 합니다",
-                progress.hasReadyCredential
-            ),
-            (
-                "조회 검증",
-                progress.hasSuccessfulFetch ? "최근 성공 조회가 있습니다" : "인증 후 첫 조회를 완료해야 합니다",
+    private var visibleChecklistItem: (title: String, detail: String?, isDone: Bool)? {
+        switch progress.stage {
+        case .credential:
+            return ("로그인", nil, progress.hasReadyCredential)
+        case .verification:
+            return (
+                "사용량 확인",
+                progress.hasSuccessfulFetch ? "사용량을 확인했습니다" : "사용량을 한 번 조회하세요",
                 progress.hasSuccessfulFetch
-            ),
-            (
-                "Organization 확인",
+            )
+        case .organization:
+            return (
+                "조직 확인",
                 progress.organizationSummary,
                 progress.isOrganizationReady
             )
-        ]
-    }
-
-    private var visibleChecklistState: [(String, String, Bool)] {
-        switch progress.stage {
-        case .credential:
-            return checklistState.filter { $0.0 == "자격 준비" }
-        case .verification:
-            return checklistState.filter { $0.0 == "조회 검증" }
-        case .organization:
-            return checklistState.filter { $0.0 == "Organization 확인" }
         case .complete:
-            return []
+            return nil
         }
-    }
-
-    private var checklistTitle: String {
-        isFullyReady ? "준비 완료" : "남은 확인"
     }
 
     private var isFullyReady: Bool {
@@ -59,9 +43,9 @@ struct SetupWizardWindowView: View {
         case .credential:
             return currentStep.ctaTitle
         case .verification:
-            return isVerifyingFetch ? "조회 확인 중" : "지금 조회 검증"
+            return isVerifyingFetch ? "확인 중" : "사용량 확인"
         case .organization:
-            return progress.isAutomaticOrganizationMode ? "자동 선택으로 완료" : "Organization 확인"
+            return progress.isAutomaticOrganizationMode ? "자동 선택으로 완료" : "조직 확인"
         case .complete:
             return "완료"
         }
@@ -70,7 +54,7 @@ struct SetupWizardWindowView: View {
     private var secondaryActionTitle: String? {
         switch progress.stage {
         case .credential:
-            return currentStep == .chromeImport ? "웹 로그인" : nil
+            return currentStep == .browserImport ? SetupWizardView.Step.webLogin.title : nil
         case .verification:
             return nil
         case .organization:
@@ -83,86 +67,56 @@ struct SetupWizardWindowView: View {
     private var stageSummaryTitle: String {
         switch progress.stage {
         case .credential:
-            return "1단계: 자격 준비"
+            return "1단계: 로그인"
         case .verification:
-            return "2단계: 조회 검증"
+            return "2단계: 사용량 확인"
         case .organization:
-            return "3단계: Organization 확인"
+            return "3단계: 조직 확인"
         case .complete:
             return "설정 완료"
         }
     }
 
-    private var stageSummaryDetail: String {
-        switch progress.stage {
-        case .credential:
-            return "브라우저 가져오기를 먼저 시도해 주세요."
-        case .verification:
-            return "이제 상태만 확인하면 됩니다."
-        case .organization:
-            if progress.isAutomaticOrganizationMode {
-                return "\(progress.organizationSummary) 자동 선택이면 바로 마무리할 수 있습니다."
-            }
-            return "\(progress.organizationSummary) 직접 organization을 고를 때만 이 단계가 필요합니다."
-        case .complete:
-            return "초기 설정이 끝났습니다."
-        }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.section) {
-            VStack(alignment: .leading, spacing: AppDesign.Space.control) {
-                Text("빠른 시작")
-                    .font(AppDesign.Typography.title3.weight(.semibold))
-                Text("먼저 Claude 연결만 끝내면 됩니다.")
-                    .font(AppDesign.Typography.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
-                Text(stageSummaryTitle)
-                    .font(AppDesign.Typography.headline)
-                Text(stageSummaryDetail)
-                    .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(AppDesign.Space.content)
-            .background(AppDesign.Surface.strongGroup)
-            .cornerRadius(AppDesign.Radius.group)
+            Text(stageSummaryTitle)
+                .font(AppDesign.Typography.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(AppDesign.Space.content)
+                .background(AppDesign.Surface.strongGroup)
+                .cornerRadius(AppDesign.Radius.group)
 
             if progress.stage == .credential {
                 SetupWizardView(
                     currentStep: currentStep,
-                    hasReadyCredential: progress.hasReadyCredential,
                     isAdvancedExpanded: false,
-                    onOpenChrome: onOpenChrome,
+                    onImportFromBrowser: onImportFromBrowser,
                     onOpenWebLogin: onOpenWebLogin,
-                    onOpenAdvanced: onOpenAdvancedSettings,
-                    onDismiss: onDismiss
+                    onOpenAdvanced: onOpenAdvancedSettings
                 )
             }
 
-            if !visibleChecklistState.isEmpty {
+            if let item = visibleChecklistItem {
                 VStack(alignment: .leading, spacing: AppDesign.Space.row) {
-                    Text(checklistTitle)
+                    Text("남은 단계")
                         .font(AppDesign.Typography.caption)
                         .foregroundStyle(.secondary)
 
-                    ForEach(Array(visibleChecklistState.enumerated()), id: \.offset) { _, item in
-                        HStack(alignment: .top, spacing: AppDesign.Space.row) {
-                            Image(systemName: item.2 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                                .foregroundStyle(item.2 ? .green : .orange)
+                    HStack(alignment: .top, spacing: AppDesign.Space.row) {
+                        Image(systemName: item.isDone ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            .foregroundStyle(item.isDone ? .green : .orange)
+                            .font(AppDesign.Typography.caption)
+                            .padding(.top, 1)
+                        VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
+                            Text(item.title)
                                 .font(AppDesign.Typography.caption)
-                                .padding(.top, 1)
-                            VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
-                                Text(item.0)
-                                    .font(AppDesign.Typography.caption)
-                                Text(item.1)
+                            if let detail = item.detail {
+                                Text(detail)
                                     .font(AppDesign.Typography.caption2)
                                     .foregroundStyle(.secondary)
                             }
-                            Spacer(minLength: 0)
                         }
+                        Spacer(minLength: 0)
                     }
                 }
                 .padding(AppDesign.Space.label)
@@ -171,7 +125,7 @@ struct SetupWizardWindowView: View {
 
             HStack {
                 if progress.stage == .credential && !progress.hasReadyCredential {
-                    Button("수동 입력") {
+                    Button("직접 입력") {
                         onOpenAdvancedSettings()
                     }
                     .buttonStyle(.bordered)
@@ -196,8 +150,8 @@ struct SetupWizardWindowView: View {
                     case .credential:
                         if currentStep == .manualSessionKey {
                             onOpenAdvancedSettings()
-                        } else if currentStep == .chromeImport {
-                            onOpenChrome()
+                        } else if currentStep == .browserImport {
+                            onImportFromBrowser()
                         } else {
                             onOpenWebLogin()
                         }
@@ -224,7 +178,7 @@ struct SetupWizardWindowView: View {
     private func performSecondaryAction() {
         switch progress.stage {
         case .credential:
-            if currentStep == .chromeImport {
+            if currentStep == .browserImport {
                 onOpenWebLogin()
             }
         case .verification:

@@ -25,7 +25,7 @@ final class LoginWebViewCoordinator: NSObject, WKNavigationDelegate, WKUIDelegat
         var text: String {
             switch self {
             case .loginDetected:
-                return "로그인 감지됨, 세션 키 확인 중..."
+                return "로그인 확인 중..."
             case .probingSessionPage:
                 return "세션 확인 페이지로 이동 중..."
             case .reloadingPage:

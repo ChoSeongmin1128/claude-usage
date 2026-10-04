@@ -177,17 +177,11 @@ final class DesignSystemTests: XCTestCase {
         XCTAssertEqual(image.size, CGSize(width: 720, height: 600))
         attach(image, "Login method selection")
         let settingsCards = VStack(alignment: .leading, spacing: AppDesign.Space.section) {
-            ProviderOverviewCardView(
-                title: "연결된 서비스", subtitle: nil,
-                items: [
-                    .init(id: "claude", title: "Claude", isEnabled: true, isActive: true, summary: "사용량 확인됨"),
-                    .init(id: "codex", title: "Codex", isEnabled: true, isActive: false, summary: "로그인 필요"),
-                ])
             ClaudeOAuthMigrationCard(state: .available, onMigrate: {}, onDefer: {}, onReconnectClaudeCode: {})
             SettingsDisclosureControl(isExpanded: .constant(true), accessibilityLabel: "고급 진단") {
                 Text("고급 진단")
             } content: {
-                Text("이전 사용량 표시 중 · 5분 전 성공").font(AppDesign.Typography.caption)
+                Text("이전 값 · 5분 전").font(AppDesign.Typography.caption)
             }
         }.padding(AppDesign.Space.window).frame(width: 520)
             .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(.dark)
@@ -250,6 +244,173 @@ final class DesignSystemTests: XCTestCase {
         let empty = MenuBarIconRenderer.circularRingIcon(percentage: 0, color: .systemGreen)
         let full = MenuBarIconRenderer.circularRingIcon(percentage: 100, color: .systemGreen)
         XCTAssertNotEqual(empty.tiffRepresentation, full.tiffRepresentation)
+    }
+
+    func testSupplementaryUsageGalleryPreservesGeometryAndSelections() throws {
+        try withSettings { settings in
+            settings.separateCompactConfig = false
+            settings.menuBarDesignIntroductionDismissed = true
+            settings.setProviderEnabled(true, for: .codex)
+            let storedClaude = settings.popoverItems(for: .claude)
+            let storedCodex = settings.popoverItems(for: .codex)
+            let now = Date()
+            let formatter = ISO8601DateFormatter()
+            let sessionReset = formatter.string(from: now.addingTimeInterval(2 * 3600))
+            let weeklyReset = formatter.string(from: now.addingTimeInterval(3 * 86400))
+            let overage = OverageSpendLimitResponse(
+                monthlyCreditLimitCents: 5000, usedCreditsCents: 1200,
+                isEnabled: true, outOfCredits: false, currency: "USD")
+
+            for stale in [false, true] {
+                let grant = ClaudeResetGrants.Grant(
+                    id: "supplementary-gallery-reset",
+                    label: "Fixture server reset title",
+                    resetsLeft: 1, startsAt: nil,
+                    endsAt: now.addingTimeInterval(stale ? 12 * 3600 : 22 * 86400),
+                    clears: ["five_hour", "seven_day"], paused: false)
+                let claude = ClaudeUsageResponse(
+                    fiveHour: .init(utilization: 8, resetsAt: sessionReset),
+                    sevenDay: .init(utilization: 37, resetsAt: weeklyReset),
+                    sevenDaySonnet: .init(utilization: 30, resetsAt: weeklyReset),
+                    resetGrants: .init(eligible: true, atLimit: false, grants: [grant]))
+                var codex = try JSONDecoder().decode(
+                    CodexUsageResponse.self,
+                    from: Data(
+                        """
+                        {"plan_type":"pro","rate_limit":{"primary_window":{
+                          "used_percent":24,"limit_window_seconds":604800,"reset_after_seconds":259200}},
+                          "credits":{"has_credits":true,"unlimited":false,"balance":"62500"}}
+                        """.utf8))
+                codex.resetCredits = .init(credits: [], availableCountField: 0)
+                let model = PopoverViewModel(updateRuntimeState: UpdateRuntimeState(settings: settings))
+                model.update(snapshots: [
+                    .init(
+                        service: .claude, payload: .claude(claude),
+                        error: stale ? .networkError("fixture") : nil,
+                        lastUpdated: now, credentialState: .usable,
+                        isDetected: true, canAttemptRefresh: true, hasAuthError: false,
+                        lastAttemptState: stale ? .temporaryFailure : .idle,
+                        claudeOverage: overage, claudeOverageUpdatedAt: now, claudeOverageIsStale: stale),
+                    .init(
+                        service: .codex, payload: .codex(codex), lastUpdated: now,
+                        credentialState: .usable, isDetected: true,
+                        canAttemptRefresh: true, hasAuthError: false),
+                ])
+
+                for service in stale ? [PopoverService.claude] : [.claude, .codex] {
+                    model.selectService(service)
+                    for compact in [false, true] {
+                        settings.popoverCompact = compact
+                        let layout = model.layoutWithSections(for: service, settings: settings)
+                        XCTAssertEqual(layout.sections.count, service == .claude ? 5 : 2)
+                        if service == .codex {
+                            XCTAssertFalse(layout.sections.contains { $0.kind == .resetCredits })
+                        }
+                        if compact && service == .claude {
+                            XCTAssertEqual(
+                                layout.spec.bodyContentHeight,
+                                PopoverLayoutMetrics.compactContentBodyHeight(rowCount: 5))
+                        }
+                        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+                            let scheme: ColorScheme = appearance == .aqua ? .light : .dark
+                            let image = try renderHosted(
+                                PopoverView(viewModel: model, settings: settings)
+                                    .background(Color(nsColor: .windowBackgroundColor))
+                                    .preferredColorScheme(scheme),
+                                appearance: appearance)
+                            XCTAssertEqual(image.size.width, layout.spec.size.width, accuracy: 0.5)
+                            XCTAssertEqual(image.size.height, layout.spec.size.height, accuracy: 0.5)
+                            attach(
+                                image,
+                                "Supplementary-\(service.rawValue)-\(compact ? "compact" : "standard")-\(appearance.rawValue)-\(stale ? "stale-expiring" : "fresh")"
+                            )
+                        }
+                    }
+                }
+            }
+            XCTAssertEqual(settings.popoverItems(for: .claude), storedClaude)
+            XCTAssertEqual(settings.popoverItems(for: .codex), storedCodex)
+        }
+    }
+
+    func testResetCreditStateGalleryKeepsFixedRowHeights() throws {
+        let now = Date()
+        let states: [(String, Int, ResetCreditSummary.Scope, TimeInterval?, Bool, Bool)] = [
+            ("normal", 1, .all, 22 * 86400, false, false),
+            ("new", 1, .all, 22 * 86400, true, false),
+            ("expiring", 2, .fiveHourOnly, 12 * 3600, true, false),
+            ("zero", 0, .all, nil, false, false),
+            ("unknown-expiry", 1, .fiveHourOnly, nil, false, false),
+            ("at-limit", 1, .all, 22 * 86400, false, true),
+            ("long-expiry", 1, .all, 22 * 86400 + 23 * 3600, false, false),
+        ]
+        let sections = states.map { name, count, scope, remaining, isNew, atLimit in
+            PopoverDisplaySection(
+                id: name, kind: .resetCredits, importance: .primary,
+                payload: .resetCredits(
+                    .init(
+                        summary: .init(
+                            items: count > 0
+                                ? [
+                                    .init(
+                                        id: name, serverTitle: "Fixture server title for \(name)",
+                                        scope: scope, expiresAt: remaining.map { now.addingTimeInterval($0) })
+                                ] : [],
+                            availableCount: count, atLimit: atLimit),
+                        isNew: isNew)))
+        }
+        let quotaSection = PopoverDisplaySection(
+            id: "reference-quota", kind: .usage, importance: .primary,
+            payload: .usage(
+                .init(
+                    title: "5시간 한도", compactLabel: "5시간", percentage: 42,
+                    resetAt: ISO8601DateFormatter().string(from: now.addingTimeInterval(2 * 3600)),
+                    isWeekly: false, timeFormatStyle: .remaining, basis: .remaining)))
+        let credits = try JSONDecoder().decode(
+            CodexCredits.self,
+            from: Data(
+                """
+                {"has_credits":true,"unlimited":false,"balance":"62500"}
+                """.utf8))
+        let creditSection = PopoverDisplaySection(
+            id: "reference-credits", kind: .credits, importance: .primary,
+            payload: .credits(.init(credits: credits)))
+        let gallerySections = [quotaSection] + sections + [creditSection]
+        for density in [PopoverDensity.standard, .compact] {
+            let width: CGFloat = density.isCompact ? 276 : 336
+            let rowHeight =
+                density.isCompact
+                ? PopoverLayoutMetrics.compactCreditsRowHeight : PopoverLayoutMetrics.standardSecondaryUsageRowHeight
+            for section in sections {
+                let row = try renderHosted(
+                    PopoverDisplaySectionView(section: section, density: density).frame(width: width),
+                    appearance: .aqua)
+                XCTAssertEqual(row.size.height, rowHeight, accuracy: 0.5, section.id)
+            }
+            let creditRow = try renderHosted(
+                PopoverDisplaySectionView(section: creditSection, density: density).frame(width: width),
+                appearance: .aqua)
+            XCTAssertEqual(
+                creditRow.size.height,
+                density.isCompact
+                    ? PopoverLayoutMetrics.compactCreditsRowHeight : PopoverLayoutMetrics.standardCreditsRowHeight,
+                accuracy: 0.5)
+            for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+                let scheme: ColorScheme = appearance == .aqua ? .light : .dark
+                let content = VStack(spacing: AppDesign.Space.control) {
+                    ForEach(gallerySections) { section in
+                        PopoverDisplaySectionView(section: section, density: density)
+                    }
+                }
+                .frame(width: width)
+                .padding(AppDesign.Space.content)
+                .background(Color(nsColor: .windowBackgroundColor))
+                .preferredColorScheme(scheme)
+                let image = try renderHosted(content, appearance: appearance)
+                attach(
+                    image, "Reset-credit-states-\(density.isCompact ? "compact" : "standard")-\(appearance.rawValue)")
+            }
+        }
     }
 
     private var usage: ClaudeUsageResponse {
@@ -594,7 +755,53 @@ final class DesignSystemTests: XCTestCase {
     }
 
     /// ImageRenderer intentionally omits AppKit-backed controls/ScrollView. Host real views for visual QA.
-    private func renderHosted<V: View>(_ content: V, appearance: NSAppearance.Name) throws -> NSImage {
+
+    func testWhatsNewAndVersionHistoryGalleryRendersNativeViews() throws {
+        let notes = BundledReleaseNotes.load(
+            bundle: try BuiltAppTestResources.bundle(relativeTo: Self.self), upTo: "2.8.0")
+        XCTAssertEqual(notes.count, 8)
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            let scheme: ColorScheme = appearance == .aqua ? .light : .dark
+            let whatsNew = WhatsNewView(
+                pages: WhatsNewCatalog.latestPages(upTo: "2.8.0"),
+                onAction: { _ in }, onClose: {}, initialPageIndex: 1
+            )
+            .background(Color(nsColor: .windowBackgroundColor))
+            .preferredColorScheme(scheme)
+            let slide = try renderHosted(whatsNew, appearance: appearance)
+            XCTAssertEqual(slide.size.width, 340, accuracy: 0.5)
+            XCTAssertEqual(slide.size.height, 360, accuracy: 0.5)
+            attach(slide, "Whats-new-settings-page-\(appearance.rawValue)")
+            var historyImages: [Data] = []
+            for version in ["2.8.0", "2.7.0"] {
+                let history = ReleaseNotesView(notes: notes, selectedVersion: version, onClose: {})
+                    .background(Color(nsColor: .windowBackgroundColor))
+                    .preferredColorScheme(scheme)
+                let image = try renderHosted(history, appearance: appearance) { root in
+                    self.inspectVersionPicker(in: root, titles: notes.map { "v\($0.version)" }, selected: "v\(version)")
+                }
+                XCTAssertEqual(image.size.width, 720, accuracy: 0.5)
+                XCTAssertEqual(image.size.height, 540, accuracy: 0.5)
+                historyImages.append(try XCTUnwrap(image.tiffRepresentation))
+                attach(image, "Version-history-\(version)-\(appearance.rawValue)")
+            }
+            XCTAssertNotEqual(historyImages[0], historyImages[1], "Current and previous notes must render separately")
+            let empty = ReleaseNotesView(notes: [], onClose: {})
+                .background(Color(nsColor: .windowBackgroundColor))
+                .preferredColorScheme(scheme)
+            attach(try renderHosted(empty, appearance: appearance), "Version-history-empty-\(appearance.rawValue)")
+            let actions = UpdateHistoryActions(onShowWhatsNew: {})
+                .padding(AppDesign.Space.content)
+                .frame(width: 320, alignment: .leading)
+                .background(Color(nsColor: .windowBackgroundColor))
+                .preferredColorScheme(scheme)
+            attach(try renderHosted(actions, appearance: appearance), "Update-history-actions-\(appearance.rawValue)")
+        }
+    }
+
+    private func renderHosted<V: View>(
+        _ content: V, appearance: NSAppearance.Name, inspect: ((NSView) -> Void)? = nil
+    ) throws -> NSImage {
         let controller = NSHostingController(rootView: content)
         controller.sizingOptions = []
         let size = controller.sizeThatFits(in: CGSize(width: 2000, height: 2000))
@@ -607,6 +814,7 @@ final class DesignSystemTests: XCTestCase {
         controller.view.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         controller.view.layoutSubtreeIfNeeded()
+        inspect?(controller.view)
         let bitmap = try XCTUnwrap(controller.view.bitmapImageRepForCachingDisplay(in: controller.view.bounds))
         controller.view.cacheDisplay(in: controller.view.bounds, to: bitmap)
         let image = NSImage(size: size)
@@ -615,10 +823,48 @@ final class DesignSystemTests: XCTestCase {
         return image
     }
 
+    private func inspectVersionPicker(in root: NSView, titles: [String], selected: String) {
+        func popups(in view: NSView) -> [NSPopUpButton] {
+            let own = (view as? NSPopUpButton).map { [$0] } ?? []
+            return own + view.subviews.flatMap { popups(in: $0) }
+        }
+        let buttons = popups(in: root)
+        let native = buttons.first
+        let snapshot = XCTAttachment(
+            string: "expected=\(titles)\nselected=\(selected)\n"
+                + "nativePopups=\(buttons.map(\.itemTitles))\n"
+                + "nativeSelection=\(native?.titleOfSelectedItem ?? "not exposed")")
+        snapshot.name = "Native version picker before capture \(selected)"
+        snapshot.lifetime = .keepAlways
+        add(snapshot)
+        if let native {
+            XCTAssertEqual(Set(native.itemTitles.filter { titles.contains($0) }), Set(titles))
+            XCTAssertEqual(native.titleOfSelectedItem, selected)
+        }
+    }
+
     private func attach(_ image: NSImage, _ name: String) {
         let attachment = XCTAttachment(image: image)
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+        if let directory = ProcessInfo.processInfo.environment["CLAUDEUSAGE_UI_RENDER_DIRECTORY"] {
+            do {
+                let folder = URL(fileURLWithPath: directory, isDirectory: true)
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                let name = name.unicodeScalars.map {
+                    CharacterSet.alphanumerics.contains($0) || $0 == "-" ? String($0) : "-"
+                }.joined()
+                guard let bitmap = image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)),
+                    let png = bitmap.representation(using: .png, properties: [:])
+                else {
+                    XCTFail("Could not export UI fixture image")
+                    return
+                }
+                try png.write(to: folder.appendingPathComponent(name + ".png"), options: .atomic)
+            } catch {
+                XCTFail("Could not export UI fixture image: \(error)")
+            }
+        }
     }
 }

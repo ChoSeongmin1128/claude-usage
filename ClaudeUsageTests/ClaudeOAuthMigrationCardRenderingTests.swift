@@ -31,7 +31,7 @@ final class ClaudeOAuthMigrationCardRenderingTests: XCTestCase {
 
     func testFailureMigrationCardKeepsAllActionsWithinSettingsWidth() throws {
         let view = ClaudeOAuthMigrationCard(
-            state: .failed("기존 Claude Code 연결 정보를 읽지 못했습니다. Claude Code에 다시 로그인해 주세요."),
+            state: .failed("기존 Claude Code 로그인을 읽지 못했습니다. Claude Code에 다시 로그인하세요."),
             onMigrate: {},
             onDefer: {},
             onReconnectClaudeCode: {}

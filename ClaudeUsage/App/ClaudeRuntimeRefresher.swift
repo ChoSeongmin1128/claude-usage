@@ -12,10 +12,10 @@ enum ClaudeRuntimeRefresher {
 
     static func refresh(
         apiService: ClaudeAPIService,
-        lastOverageFetchAt: Date?
+        lastOverageAttemptAt: Date?
     ) async throws -> ClaudeRuntimeRefreshSuccess {
         let outcome = try await apiService.fetchUsageWithRetryOutcome()
-        let shouldFetchOverage = shouldRefreshOverage(lastFetchedAt: lastOverageFetchAt)
+        let shouldFetchOverage = shouldRefreshOverage(lastAttemptAt: lastOverageAttemptAt)
         let supplementalUsage: ClaudeSupplementalRefreshResult
         if outcome.provenance.source == .oauth {
             supplementalUsage = embeddedSupplementalUsage(outcome.usage, fetchedAt: Date())
@@ -52,8 +52,8 @@ enum ClaudeRuntimeRefresher {
         .success(usage.extraUsage ?? .notEnabled, fetchedAt: fetchedAt)
     }
 
-    private static func shouldRefreshOverage(lastFetchedAt: Date?) -> Bool {
-        guard let lastFetchedAt else { return true }
-        return Date().timeIntervalSince(lastFetchedAt) >= overageRefreshInterval
+    private static func shouldRefreshOverage(lastAttemptAt: Date?) -> Bool {
+        guard let lastAttemptAt else { return true }
+        return Date().timeIntervalSince(lastAttemptAt) >= overageRefreshInterval
     }
 }

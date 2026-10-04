@@ -17,13 +17,6 @@ final class
         )
 
         XCTAssertEqual(
-            candidates.appBundleRoots.map(\.path),
-            [
-                "/Applications/Antigravity.app",
-                "/Users/example/Applications/Antigravity.app",
-            ]
-        )
-        XCTAssertEqual(
             candidates.agyExecutableURLs.map(\.path),
             [
                 "/Users/example/.local/bin/agy",
@@ -70,32 +63,6 @@ final class
         let candidates = AntigravityProductionExecutableCandidates(
             homeDirectoryURL: home
         )
-        let systemApp = candidates.appBundleRoots[0]
-        let userApp = candidates.appBundleRoots[1]
-        let systemLanguageServer = systemApp
-            .appendingPathComponent(
-                AntigravityExecutableCatalog
-                    .appLanguageServerRelativePaths[0]
-            )
-        let userLanguageServer = userApp
-            .appendingPathComponent(
-                AntigravityExecutableCatalog
-                    .appLanguageServerRelativePaths[0]
-            )
-
-        for app in [systemApp, userApp] {
-            fileSystem.directories.insert(app.path)
-            fileSystem.bundleIdentifiers[app.path] =
-                AntigravityOfficialExecutableTrustPolicy
-                    .appSigningIdentifier
-            trust.identities[app.path] = .officialApp
-        }
-        for executable in [
-            systemLanguageServer,
-            userLanguageServer,
-        ] {
-            fileSystem.regularExecutables.insert(executable.path)
-        }
         for executable in candidates.agyExecutableURLs {
             fileSystem.regularExecutables.insert(executable.path)
             fileSystem.machOExecutables.insert(executable.path)
@@ -104,16 +71,6 @@ final class
         let fileIdentity = StubFileIdentityInspector(
             officialURLs: candidates.agyExecutableURLs
         )
-        fileIdentity.identities[systemLanguageServer.path] =
-            StubFileIdentityInspector.makeIdentity(
-                digest: String(repeating: "a", count: 64),
-                inode: 101
-            )
-        fileIdentity.identities[userLanguageServer.path] =
-            StubFileIdentityInspector.makeIdentity(
-                digest: String(repeating: "b", count: 64),
-                inode: 102
-            )
 
         let resolution = makeResolver(
             fileSystem: fileSystem,
@@ -121,23 +78,12 @@ final class
             fileIdentity: fileIdentity
         ).resolve()
 
-        XCTAssertEqual(
-            resolution.catalog.appBundles.map {
-                $0.canonicalRootURL.path
-            },
-            [systemApp.path, userApp.path]
-        )
+        XCTAssertTrue(resolution.catalog.appBundles.isEmpty, "Antigravity 앱 번들은 조회에 쓰지 않습니다")
         XCTAssertEqual(
             resolution.catalog.executables.filter {
                 $0.role == .agyCLI
             }.count,
             3
-        )
-        XCTAssertEqual(
-            resolution.catalog.executables.filter {
-                $0.role == .appLanguageServer
-            }.count,
-            2
         )
         XCTAssertEqual(
             resolution.reportExecutable?.canonicalURL.path,
@@ -197,41 +143,6 @@ final class
             resolution.agyExecutableStatus,
             .rejected
         )
-    }
-
-    func testAppRequiresExactBundleAndSigningIdentity() {
-        let fileSystem = StubResolverFileSystem()
-        let trust = StubTrustInspector()
-        let candidates = AntigravityProductionExecutableCandidates(
-            homeDirectoryURL: home
-        )
-        let wrongBundleApp = candidates.appBundleRoots[0]
-        let wrongSignatureApp = candidates.appBundleRoots[1]
-
-        for app in [wrongBundleApp, wrongSignatureApp] {
-            fileSystem.directories.insert(app.path)
-        }
-        fileSystem.bundleIdentifiers[wrongBundleApp.path] =
-            "com.example.lookalike"
-        trust.identities[wrongBundleApp.path] = .officialApp
-        fileSystem.bundleIdentifiers[wrongSignatureApp.path] =
-            AntigravityOfficialExecutableTrustPolicy
-                .appSigningIdentifier
-        trust.identities[wrongSignatureApp.path] =
-            AntigravityCodeSignatureIdentity(
-                signingIdentifier: "com.example.lookalike",
-                teamIdentifier:
-                    AntigravityOfficialExecutableTrustPolicy
-                        .teamIdentifier
-            )
-
-        let resolution = makeResolver(
-            fileSystem: fileSystem,
-            trust: trust
-        ).resolve()
-
-        XCTAssertTrue(resolution.catalog.appBundles.isEmpty)
-        XCTAssertTrue(resolution.catalog.executables.isEmpty)
     }
 
     func testSymlinkWrapperAndUnlistedPathsAreRejected() {
@@ -680,16 +591,6 @@ private final class StubFileIdentityInspector:
 }
 
 private extension AntigravityCodeSignatureIdentity {
-    static let officialApp =
-        AntigravityCodeSignatureIdentity(
-            signingIdentifier:
-                AntigravityOfficialExecutableTrustPolicy
-                    .appSigningIdentifier,
-            teamIdentifier:
-                AntigravityOfficialExecutableTrustPolicy
-                    .teamIdentifier
-        )
-
     static let officialAGY =
         AntigravityCodeSignatureIdentity(
             signingIdentifier:

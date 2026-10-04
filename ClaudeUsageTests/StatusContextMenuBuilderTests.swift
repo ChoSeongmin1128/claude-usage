@@ -35,7 +35,7 @@ final class StatusContextMenuBuilderTests:
         )
         let styleRoot = try XCTUnwrap(
             provider.submenu?.items.first {
-                $0.title == "아이콘 스타일"
+                $0.title == "게이지 모양"
             }
         )
         let styles = try XCTUnwrap(

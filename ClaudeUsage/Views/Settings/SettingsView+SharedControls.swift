@@ -4,9 +4,6 @@ extension SettingsView {
     @ViewBuilder
     func providerTimeFormatSection(for provider: AppProviderKind) -> some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.row) {
-            Text("시간 표시")
-                .font(AppDesign.Typography.subheadline.weight(.semibold))
-
             Grid(
                 alignment: .leading,
                 horizontalSpacing: AppDesign.Space.row,
@@ -15,7 +12,7 @@ extension SettingsView {
                 GridRow {
                     Text("시간 형식")
                     Picker(
-                        "시간 형식 — 메뉴바·팝오버 공통",
+                        "시간 형식",
                         selection: providerTimeFormatBinding(for: provider)
                     ) {
                         ForEach(TimeFormatStyle.allCases, id: \.self) {
@@ -24,12 +21,26 @@ extension SettingsView {
                     }
                     .labelsHidden()
                 }
+                GridRow {
+                    Text("단위 언어")
+                    Picker("단위 언어", selection: $settings.timeUnitLanguage) {
+                        ForEach([TimeUnitLanguage.korean, .english], id: \.self) {
+                            Text($0.displayName).tag($0)
+                        }
+                    }
+                    .labelsHidden()
+                }
             }
             .font(AppDesign.Typography.subheadline)
 
-            Text("메뉴바와 팝오버의 한도 초기화 시간에 함께 적용됩니다.")
+            Text("메뉴바와 팝오버의 한도 초기화 시간 표시에 씁니다.")
                 .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
+            if settings.timeFormat == .remainingClock {
+                Text("예: 14:22 / 3\(settings.timeUnitLanguage.dayUnit):14")
+                    .font(AppDesign.Typography.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .controlSize(.small)
     }
@@ -58,14 +69,16 @@ extension SettingsView {
                 if showsDisplayControls {
                     Picker("표시 방식", selection: menuBarPresetBinding(for: provider)) {
                         ForEach(ProviderMenuBarDisplayPreset.allCases) { preset in
-                            Text(menuBarPresetDisplayName(preset, for: provider)).tag(preset)
+                            Text(preset.displayName).tag(preset)
                         }
                     }
                     .pickerStyle(.segmented)
 
-                    Text(menuBarPresetDetail(currentMenuBarPreset(for: provider), for: provider))
-                        .font(AppDesign.Typography.caption)
-                        .foregroundStyle(.secondary)
+                    if let detail = currentMenuBarPreset(for: provider).detail {
+                        Text(detail)
+                            .font(AppDesign.Typography.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 if showsDisplayControls {
@@ -175,9 +188,9 @@ extension SettingsView {
     private func menuBarTextControls(for provider: AppProviderKind, config: ProviderMenuBarDisplayConfig) -> some View {
         Grid(alignment: .leading, horizontalSpacing: AppDesign.Space.row, verticalSpacing: AppDesign.Space.row) {
             GridRow {
-                Text("별도 퍼센트")
+                Text("게이지 옆 숫자")
                 Picker(
-                    "별도 퍼센트",
+                    "게이지 옆 숫자",
                     selection: Binding(
                         get: { settings.menuBarDisplayConfig(for: provider)?.percentageDisplay ?? .none },
                         set: { settings.setProviderPercentageDisplay($0, for: provider) })
@@ -224,14 +237,6 @@ extension SettingsView {
         return MenuBarSettingsPreview(snapshot: snapshot)
     }
 
-    private func menuBarPresetDisplayName(_ preset: ProviderMenuBarDisplayPreset, for provider: AppProviderKind) -> String {
-        return preset.displayName
-    }
-
-    private func menuBarPresetDetail(_ preset: ProviderMenuBarDisplayPreset, for provider: AppProviderKind) -> String {
-        preset.detail
-    }
-
     private func percentageDisplayName(_ mode: PercentageDisplay, for provider: AppProviderKind) -> String {
         switch mode {
         case .none:
@@ -241,7 +246,7 @@ extension SettingsView {
         case .weekly:
             return secondaryMenuBarMetricName(for: provider)
         case .dual:
-            return "동시 표시"
+            return "둘 다"
         }
     }
 
@@ -254,7 +259,7 @@ extension SettingsView {
         case .weekly:
             return secondaryMenuBarMetricName(for: provider)
         case .dual:
-            return "동시 표시"
+            return "둘 다"
         }
     }
 
@@ -267,13 +272,9 @@ extension SettingsView {
         }
     }
 
-    private func primaryMenuBarMetricName(for provider: AppProviderKind) -> String {
-        "5시간 한도"
-    }
+    private func primaryMenuBarMetricName(for provider: AppProviderKind) -> String { "5시간" }
 
-    private func secondaryMenuBarMetricName(for provider: AppProviderKind) -> String {
-        "주간"
-    }
+    private func secondaryMenuBarMetricName(for provider: AppProviderKind) -> String { "주간" }
 
     @ViewBuilder
     private func antigravityMenuBarDisplaySection() -> some View {
@@ -299,7 +300,7 @@ extension SettingsView {
                     GridRow {
                         Text("대표 한도")
                         Picker("게이지에 표시할 한도", selection: antigravityMenuBarLaneSelection(display)) {
-                            Text("가장 제한적인 한도 자동 선택").tag("")
+                            Text("자동 (가장 많이 쓴 한도)").tag("")
                             ForEach(antigravityObservedLanes, id: \.id) { lane in
                                 Text("\(lane.scopeTitle) · \(lane.cadenceTitle)").tag(lane.id.rawValue)
                             }
@@ -345,7 +346,7 @@ extension SettingsView {
                         .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
                 }
             } else {
-                Text("Antigravity 설정을 준비하고 있습니다.").foregroundStyle(.secondary)
+                Text("불러오는 중").foregroundStyle(.secondary)
             }
         }
         .font(AppDesign.Typography.subheadline)
@@ -354,7 +355,7 @@ extension SettingsView {
 
     @ViewBuilder
     private func antigravityTextToggles(_ display: AntigravityDisplaySettings) -> some View {
-        Toggle("별도 퍼센트", isOn: antigravityMenuBarBinding(display, keyPath: \.showsSelectedLanePercentage))
+        Toggle("게이지 옆 숫자", isOn: antigravityMenuBarBinding(display, keyPath: \.showsSelectedLanePercentage))
         Toggle("한도 초기화 시간", isOn: antigravityMenuBarBinding(display, keyPath: \.showsSelectedLaneResetTime))
     }
 
@@ -511,20 +512,6 @@ extension SettingsView {
         }
     }
 
-    func segmentedTabButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(AppDesign.Typography.caption)
-                .fontWeight(isSelected ? .semibold : .regular)
-                .padding(.horizontal, AppDesign.Space.label)
-                .padding(.vertical, AppDesign.Space.control)
-                .background(isSelected ? Color.accentColor.opacity(0.18) : AppDesign.Surface.group)
-                .foregroundStyle(isSelected ? Color.accentColor : .primary)
-                .cornerRadius(AppDesign.Radius.group)
-        }
-        .buttonStyle(.plain)
-    }
-
     func settingsToggleRow(_ title: String, subtitle: String? = nil, isOn: Binding<Bool>) -> some View {
         Toggle(isOn: isOn) {
             VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
@@ -581,9 +568,7 @@ private struct ProviderPopoverDisplaySection: View {
     var body: some View {
         ProviderDisplayEditorShell(
             title: "팝오버 표시 항목",
-            description:
-                "\(provider.displayName) 팝오버에서 일반/간소화 보기별 항목과 순서를 정합니다.",
-            selectedMode: modeSelection
+            selectedMode: $selectedMode
         ) {
             ProviderPopoverPreviewView(
                 settings: settings,
@@ -605,26 +590,13 @@ private struct ProviderPopoverDisplaySection: View {
             )
             .frame(maxWidth: 420, alignment: .leading)
 
-            Text("눈 아이콘으로 표시 여부를 바꾸고, 항목을 드래그해 순서를 조정합니다.")
+            Text("드래그해 순서를 바꿉니다.")
                 .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
         }
     }
 
-    private var modeSelection: Binding<PopoverDisplayEditorMode> {
-        Binding(
-            get: { selectedMode },
-            set: { newMode in
-                if newMode.isCompact && !settings.separateCompactConfig {
-                    settings.separateCompactConfig = true
-                }
-                selectedMode = newMode
-            }
-        )
-    }
-
-    /// 응답은 정상인데 표시할 데이터가 없는 항목 ID — 목록에 "지금 데이터 없음" 안내를 붙인다.
-    /// (예: 주간 전용 Codex 플랜에서는 "Codex 현재"가 해당)
+    /// 응답은 정상인데 표시할 데이터가 없는 항목 ID. 목록에 "데이터 없음"을 붙인다(예: 주간 전용 Codex 플랜의 5시간 한도).
     private var unavailableItemIDs: Set<String> {
         guard let catalog =
                 UsageItemCatalogRegistry.catalog(
@@ -778,14 +750,14 @@ private struct ProviderPopoverPreviewView: View {
         switch service {
         case .claude:
             return claudeUsage == nil
-                ? "사용량을 한 번 조회하면 팝오버 미리보기가 표시됩니다."
+                ? "사용량을 조회하면 미리보기가 나옵니다."
                 : "현재 설정으로 표시할 Claude 항목이 없습니다."
         case .codex:
             return codexUsage == nil
-                ? "사용량을 한 번 조회하면 팝오버 미리보기가 표시됩니다."
+                ? "사용량을 조회하면 미리보기가 나옵니다."
                 : "현재 설정으로 표시할 Codex 항목이 없습니다."
         case .antigravity:
-            return "Antigravity 사용량 한도는 팝오버에서 quota lane으로 표시됩니다."
+            return "Antigravity 한도는 아래 표시 항목에서 고릅니다."
         }
     }
 

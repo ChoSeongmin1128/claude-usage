@@ -373,22 +373,15 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
             encoding: .utf8
         )
         let vault = OAuthVaultStub(payload: Self.credentialJSON(token: "different-account-vault"))
-        let refresher = ClaudeOAuthTokenRefresher(httpRunner: { request in
-            let url = try XCTUnwrap(request.url)
-            return (
-                Data(#"{"error":"invalid_grant"}"#.utf8),
-                HTTPURLResponse(url: url, statusCode: 400, httpVersion: nil, headerFields: nil)!
-            )
-        })
         let reader = ClaudeCodeCredentialReader(
             homeDirectory: home,
-            tokenRefresher: refresher,
-            appCredentialVault: vault
+            appCredentialVault: vault,
+            cliRefresher: { _ in .notLoggedIn }
         )
 
         do {
             _ = try await reader.readAccessToken()
-            XCTFail("거부된 활성 CLI refresh token은 재로그인 오류로 노출되어야 합니다")
+            XCTFail("Claude Code가 로그아웃 상태면 재로그인 오류로 노출되어야 합니다")
         } catch let error as ClaudeOAuthCredentialReadError {
             guard case .reauthenticationRequired = error else {
                 return XCTFail("예상하지 못한 credential 오류: \(error)")
@@ -397,7 +390,7 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         XCTAssertEqual(vault.loadCount, 1)
     }
 
-    func testConcurrentCLIRotationWinsWithoutFalseReauthenticationError() async throws {
+    func testExpiredCredentialFileIsRefreshedByClaudeCodeNotByTheApp() async throws {
         let home = try makeTemporaryHome()
         let configDirectory = home.appendingPathComponent(".claude")
         try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
@@ -407,21 +400,20 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
             refreshToken: "old-refresh",
             expiresAt: #""2000-01-01T00:00:00Z""#
         ).write(to: credentialURL, atomically: true, encoding: .utf8)
-        let refresher = ClaudeOAuthTokenRefresher(httpRunner: { request in
-            try Self.credentialJSON(
-                token: "cli-refreshed-access",
-                refreshToken: "cli-new-refresh"
-            ).write(to: credentialURL, atomically: true, encoding: .utf8)
-            let url = try XCTUnwrap(request.url)
-            return (
-                Data(#"{"error":"invalid_grant"}"#.utf8),
-                HTTPURLResponse(url: url, statusCode: 400, httpVersion: nil, headerFields: nil)!
-            )
+        let refresher = ClaudeOAuthTokenRefresher(httpRunner: { _ in
+            XCTFail("Claude Code의 refresh token을 앱이 쓰면 Claude Code 로그인이 끊깁니다")
+            throw URLError(.cancelled)
         })
         let reader = ClaudeCodeCredentialReader(
             homeDirectory: home,
             tokenRefresher: refresher,
-            appCredentialVault: OAuthVaultStub()
+            appCredentialVault: OAuthVaultStub(),
+            cliRefresher: { directory in
+                XCTAssertNil(directory)
+                try? Self.credentialJSON(token: "cli-refreshed-access", refreshToken: "cli-new-refresh")
+                    .write(to: credentialURL, atomically: true, encoding: .utf8)
+                return .refreshed
+            }
         )
 
         let token = try await reader.readAccessToken()
@@ -429,60 +421,91 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
         XCTAssertEqual(token, "cli-refreshed-access")
     }
 
-    func testExpiredCredentialFileRefreshWritesBackRotatedLineageAndPreservesPayload() async throws {
+    func testExpiredCredentialFileStaysUnusedWhenClaudeCodeCannotRefresh() async throws {
         let home = try makeTemporaryHome()
         let configDirectory = home.appendingPathComponent(".claude")
         try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
-        let credentialURL = configDirectory.appendingPathComponent(".credentials.json")
-        let expiredMilliseconds = #"{"claudeAiOauth":{"accessToken":"expired-access","refreshToken":"refresh-token","expiresAt":1770000000000,"scopes":["user:profile"]},"mcpOAuth":{"server":{"token":"preserve-me"}}}"#
-        try expiredMilliseconds.write(to: credentialURL, atomically: true, encoding: .utf8)
-        let vault = OAuthVaultStub()
-        let reader = ClaudeCodeCredentialReader(
-            homeDirectory: home,
-            tokenRefresher: makeSuccessfulRefresher(),
-            appCredentialVault: vault
-        )
-
-        let token = try await reader.readAccessToken()
-        let updatedPayload = try String(contentsOf: credentialURL, encoding: .utf8)
-        let attributes = try FileManager.default.attributesOfItem(atPath: credentialURL.path)
-
-        XCTAssertEqual(token, "new-access")
-        XCTAssertEqual(vault.saveCount, 1)
-        XCTAssertTrue(updatedPayload.contains("new-access"))
-        XCTAssertTrue(updatedPayload.contains("new-refresh"))
-        XCTAssertTrue(updatedPayload.contains("user:profile"))
-        XCTAssertTrue(updatedPayload.contains("preserve-me"))
-        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
-    }
-
-    func testCredentialFileRefreshPreservesSymlinkAndWritesResolvedTarget() async throws {
-        let home = try makeTemporaryHome()
-        let configDirectory = home.appendingPathComponent(".claude")
-        let storageDirectory = home.appendingPathComponent("credential-storage")
-        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
-        let targetURL = storageDirectory.appendingPathComponent("credentials.json")
-        let symlinkURL = configDirectory.appendingPathComponent(".credentials.json")
         try Self.credentialJSON(
             token: "expired",
             refreshToken: "refresh-token",
             expiresAt: #""2000-01-01T00:00:00Z""#
-        ).write(to: targetURL, atomically: true, encoding: .utf8)
-        try FileManager.default.createSymbolicLink(at: symlinkURL, withDestinationURL: targetURL)
+        ).write(to: configDirectory.appendingPathComponent(".credentials.json"), atomically: true, encoding: .utf8)
         let reader = ClaudeCodeCredentialReader(
             homeDirectory: home,
             tokenRefresher: makeSuccessfulRefresher(),
-            appCredentialVault: OAuthVaultStub()
+            appCredentialVault: OAuthVaultStub(),
+            cliRefresher: { _ in .unavailable }
         )
 
         let token = try await reader.readAccessToken()
-        let targetPayload = try String(contentsOf: targetURL, encoding: .utf8)
-        let symlinkDestination = try FileManager.default.destinationOfSymbolicLink(atPath: symlinkURL.path)
 
-        XCTAssertEqual(token, "new-access")
-        XCTAssertTrue(targetPayload.contains("new-refresh"))
-        XCTAssertFalse(symlinkDestination.isEmpty)
+        XCTAssertNil(token)
+    }
+
+    func testFresherClaudeCodeKeychainWinsOverStaleCredentialFile() async throws {
+        let home = try makeTemporaryHome()
+        let configDirectory = home.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try Self.credentialJSON(
+            token: "stale-file",
+            refreshToken: "old-refresh",
+            expiresAt: #""2000-01-01T00:00:00Z""#
+        ).write(to: configDirectory.appendingPathComponent(".credentials.json"), atomically: true, encoding: .utf8)
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: home,
+            tokenRefresher: makeSuccessfulRefresher(),
+            appCredentialVault: OAuthVaultStub(),
+            cliKeychainPayloadReader: { _ in .payload(Self.credentialJSON(token: "keychain-current")) },
+            cliRefresher: { _ in
+                XCTFail("Keychain에 유효한 로그인이 있으면 갱신하지 않습니다")
+                return .unavailable
+            }
+        )
+
+        let token = try await reader.readAccessToken()
+
+        XCTAssertEqual(token, "keychain-current")
+    }
+
+    func testMissingExecutableForExpiredFileKeepsCredentialAndVault() async throws {
+        let home = try makeTemporaryHome()
+        let directory = home.appendingPathComponent(".claude")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let file = directory.appendingPathComponent(".credentials.json")
+        let payload = Self.credentialJSON(
+            token: "expired", refreshToken: "kept-refresh", expiresAt: #""2000-01-01T00:00:00Z""#)
+        try payload.write(to: file, atomically: true, encoding: .utf8)
+        let vault = OAuthVaultStub(payload: payload)
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: home, appCredentialVault: vault, cliRefresher: { _ in .executableNotFound })
+
+        do {
+            _ = try await reader.readAccessToken()
+            XCTFail("CLI 없음이 만료 토큰의 원인을 지우면 안 됩니다")
+        } catch let error as ClaudeOAuthCredentialReadError {
+            guard case .executableNotFound = error else { return XCTFail("잘못된 오류: \(error)") }
+        }
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), payload)
+        XCTAssertEqual(vault.payload, payload)
+        XCTAssertEqual(vault.saveCount, 0)
+    }
+
+    func testMissingExecutableForKeychainOnlyInventoryIsReportedWithoutDeletingVault() async throws {
+        let payload = Self.credentialJSON(
+            token: "expired", refreshToken: "kept-refresh", expiresAt: #""2000-01-01T00:00:00Z""#)
+        let vault = OAuthVaultStub(payload: payload)
+        let reader = ClaudeCodeCredentialReader(
+            homeDirectory: try makeTemporaryHome(), appCredentialVault: vault,
+            cliKeychainPayloadReader: { _ in .payload(payload) }, cliRefresher: { _ in .executableNotFound })
+
+        do {
+            _ = try await reader.refreshCredentialInventoryWithoutUI()
+            XCTFail("Keychain 경로도 CLI 없음 오류를 보존해야 합니다")
+        } catch let error as ClaudeOAuthCredentialReadError {
+            guard case .executableNotFound = error else { return XCTFail("잘못된 오류: \(error)") }
+        }
+        XCTAssertEqual(vault.payload, payload)
+        XCTAssertEqual(vault.saveCount, 0)
     }
 
     func testSecondExpiresAtRemainsSupported() async throws {
@@ -947,7 +970,7 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
             cliKeychainPayloadReader: { await cli.read($0) },
             cliRefresher: { _ in
                 XCTFail("만료되지 않은 로그인은 Claude Code에 갱신을 맡기지 않습니다")
-                return false
+                return .unavailable
             }
         )
 
@@ -972,7 +995,7 @@ final class ClaudeCodeCredentialReaderTests: XCTestCase {
             cliRefresher: { directory in
                 XCTAssertNil(directory, "기본 로그인은 CLAUDE_CONFIG_DIR 없이 갱신해야 Keychain 이름이 같습니다")
                 refreshes.record("refresh")
-                return true
+                return .refreshed
             }
         )
 

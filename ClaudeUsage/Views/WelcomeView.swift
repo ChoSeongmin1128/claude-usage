@@ -53,7 +53,7 @@ struct WelcomeView<Display: View>: View {
                 case .services, .connection:
                     Text("사용량을 볼 서비스").font(AppDesign.Typography.headline)
                     ForEach(rows) { row in serviceRow(row) }
-                    Text("연결한 서비스만 메뉴바에 나타납니다. 나머지는 설정의 계정에서 언제든 연결할 수 있습니다.")
+                    Text("연결한 서비스만 메뉴바에 나옵니다.")
                         .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
                 case .appearance:
                     MenuBarDesignPicker(settings: settings, basis: settings.usageDisplayMode.basis ?? .used)
@@ -65,7 +65,7 @@ struct WelcomeView<Display: View>: View {
                         display
                     }
                     Toggle("로그인 시 자동 시작", isOn: $settings.launchAtLogin)
-                    Text("메뉴바 아이콘을 누르면 사용량을 볼 수 있습니다. 설정은 언제든 다시 바꿀 수 있습니다.")
+                    Text("메뉴바 아이콘을 누르면 사용량이 나옵니다.")
                         .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
                 }
             }

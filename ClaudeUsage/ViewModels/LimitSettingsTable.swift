@@ -24,7 +24,7 @@ nonisolated enum LimitSettingsTable {
         displayName: (String) -> String?
     ) -> [LimitSettingsRow] {
         popoverItems.flatMap { item -> [LimitSettingsRow] in
-            let name = displayName(item.id).map(stripServicePrefix) ?? item.id
+            let name = displayName(item.id) ?? item.id
             func row(
                 _ title: String = name, slot: LimitMenuBarSlot? = nil, limit: UsageLimit? = nil, takes: Bool = false
             )
@@ -79,12 +79,6 @@ nonisolated enum LimitSettingsTable {
         }
     }
 
-    private static func stripServicePrefix(_ name: String) -> String {
-        for prefix in ["Codex ", "Claude "] where name.hasPrefix(prefix) {
-            return String(name.dropFirst(prefix.count))
-        }
-        return name
-    }
 }
 
 extension PercentageDisplay {

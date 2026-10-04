@@ -39,8 +39,6 @@ struct AppMotionSettingsView: View {
                         .toggleStyle(.checkbox).help(category.exampleDescription)
                     }
                 }
-                Text("선택한 항목만 부드럽게 전환합니다.")
-                    .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
             }
             if showsPreview, !reduceMotion {
                 Picker("비교할 동작", selection: $previewCategory) {
@@ -51,7 +49,7 @@ struct AppMotionSettingsView: View {
             if reduceMotion {
                 let version = ProcessInfo.processInfo.operatingSystemVersion
                 Text(
-                    "macOS의 \"동작 줄이기\"가 켜져 있어 즉시 표시합니다. 선택한 설정은 유지되며, 시스템 설정 > \(SystemReduceMotionSetting.location(for: version))에서 끄면 바로 반영됩니다."
+                    "macOS \"동작 줄이기\"가 켜져 있습니다. 시스템 설정 > \(SystemReduceMotionSetting.location(for: version))에서 끄면 적용됩니다."
                 )
                 .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -84,7 +82,7 @@ extension AppMotionCategory {
         switch self {
         case .popoverPresentation: return "메뉴바 사용량 창이 나타나고 사라질 때"
         case .popoverResize: return "간소화 보기와 일반 보기 사이에서 크기가 바뀔 때"
-        case .navigation: return "설정 화면이나 빠른 시작의 다음 단계로 이동할 때"
+        case .navigation: return "설정 화면이나 시작하기의 다음 단계로 이동할 때"
         case .disclosure: return "계정 상세나 고급 진단을 펼치고 접을 때"
         case .itemChanges: return "표시할 항목의 순서나 개수를 바꿀 때"
         case .usageValue: return "새 조회 결과에 따라 사용량 막대 길이가 바뀔 때"

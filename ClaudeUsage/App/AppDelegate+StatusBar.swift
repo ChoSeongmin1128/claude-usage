@@ -250,12 +250,8 @@ extension AppDelegate {
 
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        alert.messageText =
-            "\(AppDistribution.current.appName)의 메뉴 막대 표시를 확인해 주세요"
-        alert.informativeText =
-            "앱은 실행 중이지만 메뉴 막대 아이콘의 표시 상태를 확인해야 합니다. "
-            + "시스템 설정의 메뉴 막대 항목과 사용 중인 메뉴바 관리 앱의 숨김 설정을 확인해 주세요. "
-            + "계속 보이지 않으면 앱 설정에서 업데이트를 확인하거나 문제를 보고해 주세요."
+        alert.messageText = "메뉴바 아이콘이 보이지 않을 수 있습니다"
+        alert.informativeText = "시스템 설정의 메뉴 막대 항목과 메뉴바 관리 앱의 숨김 설정을 확인하세요."
         alert.alertStyle = .warning
         alert.addButton(
             withTitle: "메뉴 막대 설정 열기"
@@ -277,7 +273,7 @@ extension AppDelegate {
             }
         case .alertSecondButtonReturn:
             showSettingsWindow(
-                settingsPanelRawValue: "updates"
+                settingsPanelRawValue: SettingsProviderPanel.updates.rawValue
             )
         default:
             break
@@ -856,9 +852,11 @@ extension AppDelegate {
                 self?.showSettingsWindow()
                 return nil
             case "u":
-                guard self?.openSelectedProviderUsagePageAction() == true else {
-                    return event
-                }
+                // 설정 창이나 로그인 창의 Cmd+U는 그 창에 맡긴다.
+                guard let self, self.popover?.isShown == true,
+                    event.window === self.popover?.contentViewController?.view.window,
+                    self.openSelectedProviderUsagePageAction()
+                else { return event }
                 return nil
             default:
                 return event

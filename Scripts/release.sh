@@ -1048,6 +1048,11 @@ TMPDIR="$DRIVER_TMP_DIR" xcodebuild \
     -destination 'platform=macOS' \
     -derivedDataPath "$TEST_DERIVED_DATA" \
     -resultBundlePath "$TEST_RESULT_BUNDLE" \
+    -jobs 2 \
+    -parallel-testing-enabled NO \
+    -test-timeouts-enabled YES \
+    -default-test-execution-time-allowance 60 \
+    -maximum-test-execution-time-allowance 120 \
     test
 TEST_SUMMARY="$(
     xcrun xcresulttool get test-results summary \

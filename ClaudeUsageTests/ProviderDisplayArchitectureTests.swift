@@ -168,7 +168,7 @@ final class ProviderDisplayArchitectureTests:
                 )
         XCTAssertEqual(temporary?.action, .retry)
         XCTAssertTrue(
-            temporary?.message.contains("40분")
+            temporary?.message?.contains("40분")
                 == true
         )
     }
@@ -230,10 +230,6 @@ final class ProviderDisplayArchitectureTests:
             viewModel.antigravityRuntimeSnapshot =
                 AntigravityRuntimeSnapshot(
                     readiness: .ready,
-                    migrationStatus: nil,
-                    repositoryRevision: 1,
-                    accounts: [],
-                    activeAccountID: nil,
                     settings:
                         AntigravitySettingsSnapshot(
                             connection: .default,
@@ -268,10 +264,6 @@ final class ProviderDisplayArchitectureTests:
     ) -> AntigravityRuntimeSnapshot {
         AntigravityRuntimeSnapshot(
             readiness: readiness,
-            migrationStatus: nil,
-            repositoryRevision: nil,
-            accounts: [],
-            activeAccountID: nil,
             settings: AntigravitySettingsSnapshot(
                 connection: .default,
                 display: .default

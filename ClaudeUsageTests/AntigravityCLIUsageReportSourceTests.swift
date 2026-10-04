@@ -221,7 +221,8 @@ final class AntigravityCLIUsageReportSourceTests: XCTestCase {
     func testTooLittleTimeLeftSkipsTheReport() async throws {
         let runner = ScriptedReportRunner(outcomes: [.success(output("1.2.12"))])
 
-        await assertFetchError(makeSource(runner: runner), .deadlineExceeded, timeout: .seconds(3))
+        // 정상 보고(5-8초)보다 print-timeout이 짧아지는 예산이면 보고하지 않는다.
+        await assertFetchError(makeSource(runner: runner), .deadlineExceeded, timeout: .seconds(8))
 
         let arguments = await runner.requests.map(\.arguments)
         XCTAssertEqual(arguments, [["--version"]])

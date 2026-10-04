@@ -1,18 +1,18 @@
 import AppKit
-import Combine
 import SwiftUI
 
-/// 계정 패널 맨 위의 계정 목록. 계정이 1개면 지금 화면 그대로이고, 2개째가 연결되면 팝오버가 여러 계정 화면으로 바뀐다.
+/// 계정 패널 맨 위의 계정 목록. 여러 계정 설정은 서비스마다 따로 정한다.
 struct UsageAccountsSection: View {
     @ObservedObject var controller: UsageAccountsController
     let service: PopoverService
-    var onLoginClaude: () -> Void
-    var onOpenClaudeInAppLogin: (() -> Void)?
-    var onEnterClaudeSessionKey: (() -> Void)?
-    /// 앱이 저장한 Claude 웹 로그인을 지운다. 인자는 웹 계정 id.
-    var onDeleteWebLogin: ((String) -> Void)?
+    /// 앱 화면이 처리하는 계정 추가 방법(브라우저에서 가져오기, 앱에서 로그인, 세션 키 직접 입력)
+    var onAdd: (UsageAccountAddMethod) -> Void
+    /// 앱에 저장한 웹 로그인을 지운다. 인자는 웹 로그인 id.
+    var onDeleteWebLogin: (String) -> Void
     @State private var isAdding = false
     @State private var deletingWebLogin: UsageAccount?
+    @State private var deletingManagedLogin: UsageAccount?
+    @State private var managedLoginDeleteFailed = false
     @State private var renaming: UsageAccount?
     @State private var newName = ""
     @State private var switching: SwitchRequest?
@@ -21,11 +21,12 @@ struct UsageAccountsSection: View {
 
     struct SwitchRequest: Identifiable {
         let account: UsageAccount
-        let running: CodexAccountSwitcher.RunningCodex?
+        let plan: UsageAccountSwitchPlan
         var id: String { account.id }
     }
 
-    private var all: [UsageAccount] { controller.orderedAccounts(for: service) }
+    private var accounts: [UsageAccount] { controller.orderedAccounts(for: service) }
+    private var isMultiAccountEnabled: Bool { controller.isMultiAccountEnabled(service) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.row) {
@@ -35,17 +36,17 @@ struct UsageAccountsSection: View {
                 Button("계정 추가") { isAdding = true }.controlSize(.small)
             }
             Toggle(
+                "여러 계정 함께 보기",
                 isOn: Binding(
-                    get: { controller.preferences.isMultiAccountEnabled },
-                    set: { controller.setMultiAccountEnabled($0) })
-            ) {
-                VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
-                    Text("여러 계정")
-                    Text("Claude와 Codex 계정 여러 개의 한도를 팝오버에 함께 보여주고, 쓰지 않는 계정도 5분마다 확인합니다. 끄면 메뉴바 계정 하나만 보입니다.")
-                        .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
-                }
-            }
+                    get: { isMultiAccountEnabled },
+                    set: { controller.setMultiAccountEnabled($0, for: service) })
+            )
             .toggleStyle(.switch)
+            .help("켜 두면 다른 계정의 사용량도 5분마다 확인합니다.")
+            Text("계정별 사용량을 함께 봅니다. 끄면 선택한 계정만 표시합니다.")
+                .font(AppDesign.Typography.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             if let notice = controller.revertedSwitch[service] {
                 HStack {
                     Label(notice, systemImage: "exclamationmark.triangle.fill")
@@ -57,68 +58,77 @@ struct UsageAccountsSection: View {
             if isSwitching {
                 HStack(spacing: AppDesign.Space.row) {
                     ProgressView().controlSize(.small)
-                    Text("계정을 바꾸는 중").font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                    Text("전환 중").font(AppDesign.Typography.caption).foregroundStyle(.secondary)
                 }
             }
-            ForEach(all) { account in row(account) }
-            if all.isEmpty {
-                Text("연결된 계정이 없습니다.").font(AppDesign.Typography.caption).foregroundStyle(.secondary)
-            }
+            ForEach(accounts) { account in row(account) }
             if controller.isMultiAccount(service) {
-                Picker("팝오버 보기", selection: $controller.preferences.popoverMode) {
+                Picker(
+                    "팝오버 보기",
+                    selection: Binding(
+                        get: { controller.popoverMode(for: service) },
+                        set: { controller.setPopoverMode($0, for: service) })
+                ) {
                     ForEach(UsageAccountPreferences.PopoverMode.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                Text("메뉴바와 팝오버 큰 카드는 메뉴바에 표시한 계정 하나입니다. 숨긴 계정은 지우지 않으며 여기서 다시 보이게 할 수 있습니다.")
-                    .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
             }
         }
         .sheet(isPresented: $isAdding) {
-            AddUsageAccountSheet(
-                controller: controller, service: service, onLoginClaude: onLoginClaude,
-                onOpenClaudeInAppLogin: onOpenClaudeInAppLogin, onEnterClaudeSessionKey: onEnterClaudeSessionKey
-            ) {
-                isAdding = false
+            if let provider = controller.provider(for: service) {
+                AddUsageAccountSheet(controller: controller, provider: provider, onAdd: onAdd) { isAdding = false }
             }
         }
         .confirmationDialog(
-            switchTitle, isPresented: Binding(get: { switching != nil }, set: { if !$0 { switching = nil } }),
+            "\(service.displayName) 기본 로그인 전환",
+            isPresented: Binding(get: { switching != nil }, set: { if !$0 { switching = nil } }),
             presenting: switching
         ) { request in
-            Button(request.running?.isEmpty == false ? "종료하고 전환" : "전환") { perform(request) }
+            Button(request.plan.confirmTitle) { perform(request) }
             Button("취소", role: .cancel) { switching = nil }
         } message: { request in
-            Text(switchMessage(request))
+            Text(request.plan.message)
         }
         .alert(
-            "계정 전환", isPresented: Binding(get: { switchResult != nil }, set: { if !$0 { switchResult = nil } })
+            "기본 로그인 전환", isPresented: Binding(get: { switchResult != nil }, set: { if !$0 { switchResult = nil } })
         ) {
             Button("확인") { switchResult = nil }
         } message: {
             Text(switchResult ?? "")
         }
         .confirmationDialog(
-            "저장한 웹 로그인을 지울까요?",
+            "웹 로그인을 지울까요?",
             isPresented: Binding(get: { deletingWebLogin != nil }, set: { if !$0 { deletingWebLogin = nil } }),
             presenting: deletingWebLogin
         ) { account in
             Button("지우기", role: .destructive) {
-                if let webID = webLoginID(account) { onDeleteWebLogin?(webID) }
+                if let web = account.source(.web) { onDeleteWebLogin(web.reference) }
                 deletingWebLogin = nil
             }
             Button("취소", role: .cancel) { deletingWebLogin = nil }
-        } message: { account in
-            Text(
-                "\(controller.preferences.displayName(for: account, among: all))의 로그인을 이 앱에서 지웁니다. 브라우저와 Claude 앱의 로그인은 그대로입니다."
-            )
+        } message: { _ in
+            Text("이 앱에 저장한 로그인만 지웁니다. 브라우저와 Claude 앱의 로그인은 그대로입니다.")
         }
-        .alert(
-            "이름 바꾸기",
-            isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })
-        ) {
+        .confirmationDialog(
+            "로그인 폴더를 휴지통으로 옮길까요?",
+            isPresented: Binding(get: { deletingManagedLogin != nil }, set: { if !$0 { deletingManagedLogin = nil } }),
+            presenting: deletingManagedLogin
+        ) { account in
+            Button("휴지통으로 옮기기", role: .destructive) {
+                managedLoginDeleteFailed = !controller.deleteManagedLogin(account)
+                deletingManagedLogin = nil
+            }
+            Button("취소", role: .cancel) { deletingManagedLogin = nil }
+        } message: { _ in
+            Text("이 앱에서 추가한 로그인입니다. 다시 보려면 계정을 새로 추가해야 합니다.")
+        }
+        .alert("로그인 폴더를 옮기지 못했습니다", isPresented: $managedLoginDeleteFailed) {
+            Button("확인") { managedLoginDeleteFailed = false }
+        }
+        .alert("이름 바꾸기", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
             TextField("이름", text: $newName)
             Button("저장") {
-                if let renaming { controller.rename(renaming.id, to: newName) }
+                if let renaming { controller.rename(renaming, to: newName) }
                 renaming = nil
             }
             Button("취소", role: .cancel) { renaming = nil }
@@ -126,58 +136,23 @@ struct UsageAccountsSection: View {
     }
 
     private func row(_ account: UsageAccount) -> some View {
-        let hidden = controller.preferences.hidden.contains(account.id)
-        let archived = controller.preferences.archived.contains(account.id)
-        let state = controller.states[account.id]
+        let hidden = controller.isHidden(account)
+        let isRuntime = controller.isRuntime(account)
         return HStack(spacing: AppDesign.Space.row) {
-            Text(controller.preferences.displayName(for: account, among: all))
+            Text(controller.displayName(for: account))
                 .font(AppDesign.Typography.subheadline)
                 .lineLimit(1)
-            if controller.isRuntimeAccount(account) { InUseAccountLabel() }
-            ForEach(account.badges, id: \.self) { AccountBadgeView(badge: $0, service: service) }
+            if isRuntime { InUseAccountLabel() }
+            ForEach(controller.badges(for: account), id: \.self) { AccountBadgeView(badge: $0) }
             Spacer(minLength: AppDesign.Space.row)
-            Text(statusText(account: account, state: state, hidden: hidden, archived: archived))
+            Text(statusText(account, hidden: hidden, isRuntime: isRuntime))
                 .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
+                .help(
+                    controller.states[account.id]?.issue == .executableNotFound
+                        ? ClaudeCodeCredentialIssue.executableNotFoundExplanation : "")
             Menu {
-                if controller.canShowInMenuBar(account) {
-                    Button("메뉴바에 표시") { controller.showInMenuBar(account) }
-                    Divider()
-                }
-                if controller.canSwitch(to: account) {
-                    Button("이 계정으로 전환") {
-                        switching = SwitchRequest(
-                            account: account,
-                            running: service == .codex ? CodexAccountSwitcher.runningCodex() : nil)
-                    }
-                    .disabled(isSwitching)
-                    Divider()
-                }
-                if multi {
-                    Button("이름 바꾸기") {
-                        newName = controller.preferences.aliases[account.id] ?? ""
-                        renaming = account
-                    }
-                    if !controller.isRuntimeAccount(account) {
-                        Button(controller.preferences.pinnedTop == account.id ? "맨 위 고정 해제" : "맨 위에 고정") {
-                            controller.preferences.pinnedTop =
-                                controller.preferences.pinnedTop == account.id ? nil : account.id
-                        }
-                    }
-                    Button(hidden ? "다시 보이기" : "숨기기") { controller.setHidden(!hidden, account.id) }
-                        .disabled(!hidden && !controller.canHide(account))
-                    if !controller.isRuntimeAccount(account) {
-                        Button(archived ? "다시 조회" : "조회 멈추고 보관") { controller.setArchived(!archived, account) }
-                    }
-                }
-                if account.sources.contains(where: { isUserAdded($0) }) {
-                    Divider()
-                    Button("목록에서 빼기") { controller.removeDirectory(account) }
-                }
-                if onDeleteWebLogin != nil, webLoginID(account) != nil {
-                    Divider()
-                    Button("저장한 웹 로그인 지우기", role: .destructive) { deletingWebLogin = account }
-                }
+                menuItems(account, hidden: hidden, isRuntime: isRuntime)
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
@@ -185,57 +160,76 @@ struct UsageAccountsSection: View {
             .fixedSize()
             .accessibilityLabel("계정 관리")
         }
-        .opacity(hidden && multi ? 0.5 : 1)
+        .opacity(hidden && isMultiAccountEnabled ? 0.5 : 1)
         .padding(.vertical, AppDesign.Space.tight)
     }
 
-    private var multi: Bool { controller.preferences.isMultiAccountEnabled }
-
-    private var switchTitle: String { "\(service.providerKind.displayName) 기본 로그인 바꾸기" }
-
-    private func switchMessage(_ request: SwitchRequest) -> String {
-        let name = controller.preferences.displayName(for: request.account, among: all)
-        if service == .codex {
-            if let running = request.running, !running.isEmpty {
-                return
-                    "실행 중인 Codex가 있습니다(ChatGPT 앱 \(running.applications.count)개, 터미널 \(running.processes.count)개). 종료한 뒤 기본 로그인(~/.codex)을 \(name)(으)로 바꿉니다. 지금 기본 로그인은 그 계정의 폴더로 옮깁니다."
-            }
-            return "기본 로그인(~/.codex)을 \(name)(으)로 바꿉니다. 지금 기본 로그인은 그 계정의 폴더로 옮깁니다. 바꾼 뒤 확인하고, 다르면 되돌립니다."
+    @ViewBuilder
+    private func menuItems(_ account: UsageAccount, hidden: Bool, isRuntime: Bool) -> some View {
+        if controller.canShowInMenuBar(account) {
+            Button("메뉴바에 표시") { controller.showInMenuBar(account) }
+            Divider()
         }
-        return
-            "기본 Claude Code 로그인을 \(name)(으)로 바꿉니다. 지금 기본 로그인은 그 계정의 폴더로 옮깁니다. macOS가 Keychain 사용을 물을 수 있고, 실행 중인 Claude Code는 30초 안에 새 로그인을 씁니다."
+        if controller.canSwitch(to: account) {
+            Button("이 계정으로 전환") {
+                if let plan = controller.switchPlan(for: account) {
+                    switching = SwitchRequest(account: account, plan: plan)
+                }
+            }
+            .disabled(isSwitching)
+            Divider()
+        }
+        if isMultiAccountEnabled {
+            Button("이름 바꾸기") {
+                newName = controller.alias(for: account)
+                renaming = account
+            }
+            if !isRuntime {
+                Button(controller.isPinned(account) ? "고정 해제" : "맨 위에 고정") { controller.togglePinned(account) }
+            }
+            Button(hidden ? "보이기" : "숨기기") { controller.setHidden(!hidden, account) }
+                .disabled(!hidden && !controller.canHide(account))
+            if !isRuntime {
+                let archived = controller.isArchived(account)
+                Button(archived ? "보관 해제" : "보관") { controller.setArchived(!archived, account) }
+            }
+        }
+        if controller.isUserAdded(account) {
+            Divider()
+            Button("목록에서 빼기") { controller.removeDirectory(account) }
+        } else if !controller.managedFolders(of: account).isEmpty {
+            Divider()
+            Button("로그인 지우기", role: .destructive) { deletingManagedLogin = account }
+        }
+        if account.source(.web) != nil {
+            Divider()
+            Button("웹 로그인 지우기", role: .destructive) { deletingWebLogin = account }
+        }
     }
 
     private func perform(_ request: SwitchRequest) {
         switching = nil
         isSwitching = true
         Task {
-            let failure = await controller.switchDefault(to: request.account, terminating: request.running)
+            let failure = await controller.switchDefault(to: request.account, plan: request.plan)
             isSwitching = false
-            switchResult = failure ?? "기본 로그인을 바꿨습니다."
+            switchResult = failure ?? "전환했습니다."
         }
     }
 
-    private func webLoginID(_ account: UsageAccount) -> String? {
-        account.sources.first { $0.kind == .claudeWeb }?.reference
-    }
-
-    private func isUserAdded(_ source: UsageAccountSource) -> Bool {
-        controller.preferences.claudeDirectories.contains(source.reference)
-            || controller.preferences.codexDirectories.contains(source.reference)
-            || source.reference.hasPrefix(CodexHomeAccount.managedRoot.path)
-    }
-
-    private func statusText(account: UsageAccount, state: UsageAccountState?, hidden: Bool, archived: Bool) -> String {
-        if controller.isRuntimeAccount(account) && (!hidden || !multi) { return "" }
-        guard multi else { return "" }
+    private func statusText(_ account: UsageAccount, hidden: Bool, isRuntime: Bool) -> String {
+        guard isMultiAccountEnabled else { return "" }
         if hidden { return "숨김" }
-        switch state?.status(isArchived: archived) ?? .checking {
-        case .checking: return "확인 전"
-        case .current: return state?.fetchedAt.map { OtherAccountRow.age(since: $0) } ?? ""
-        case .stale: return "오래된 값"
+        if isRuntime { return "" }
+        let state = controller.states[account.id] ?? UsageAccountState()
+        switch state.status(isArchived: controller.isArchived(account)) {
+        case .checking: return "확인 중"
+        case .current: return state.fetchedAt.map { TimeFormatter.elapsed(since: $0) } ?? ""
+        case .stale: return UsageStatusLabel.previousValue
+        case .failed: return "확인 실패"
         case .loginExpired: return "로그인 만료"
         case .needsPermission: return "허용 필요"
+        case .executableNotFound: return "Claude Code 없음"
         case .archived: return "보관"
         }
     }
@@ -243,64 +237,55 @@ struct UsageAccountsSection: View {
 
 struct AddUsageAccountSheet: View {
     @ObservedObject var controller: UsageAccountsController
-    let service: PopoverService
-    var onLoginClaude: () -> Void
-    var onOpenClaudeInAppLogin: (() -> Void)?
-    var onEnterClaudeSessionKey: (() -> Void)?
+    let provider: any UsageAccountProvider
+    var onAdd: (UsageAccountAddMethod) -> Void
     var onDone: () -> Void
     @StateObject private var deviceLogin = CodexDeviceLogin()
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.content) {
-            Text("\(service.providerKind.displayName) 계정 추가").font(AppDesign.Typography.headline)
-            if service == .claude {
-                option("브라우저에서 가져오기", "Chrome, Safari, Claude 앱 등에 로그인돼 있으면 그 로그인을 가져옵니다") {
-                    Button("가져오기") {
-                        onDone()
-                        onLoginClaude()
-                    }
-                }
-                if let onOpenClaudeInAppLogin {
-                    option("앱에서 로그인", "이 앱 안에서 claude.ai에 로그인합니다") {
-                        Button("로그인") {
-                            onDone()
-                            onOpenClaudeInAppLogin()
-                        }
-                    }
-                }
-                if let onEnterClaudeSessionKey {
-                    option("직접 입력", "자동 가져오기가 안 될 때만 세션 키를 입력합니다") {
-                        Button("입력") {
-                            onDone()
-                            onEnterClaudeSessionKey()
-                        }
-                    }
-                }
-                option("Claude Code 폴더", "다른 Claude Code 로그인이 있는 CLAUDE_CONFIG_DIR 폴더") {
-                    Button("선택") { chooseFolder() }
-                }
-            } else {
-                option("새 Codex 계정 로그인", "앱이 만든 폴더에서 공식 codex 로그인을 엽니다. ~/.codex는 바꾸지 않습니다") {
-                    Button("로그인") { deviceLogin.start { controller.addDirectory($0, service: .codex) } }
-                        .disabled(deviceLogin.isRunning)
-                }
-                deviceLoginStatus
-                option("Codex 폴더", "다른 Codex 로그인이 있는 CODEX_HOME 폴더") {
-                    Button("선택") { chooseFolder() }
-                }
+            Text("\(provider.service.displayName) 계정 추가").font(AppDesign.Typography.headline)
+            ForEach(provider.addMethods, id: \.self) { method in
+                option(method)
+                if method == .deviceLogin { deviceLoginStatus }
             }
-            Text("여러 계정의 한도를 팝오버에서 함께 보려면 계정 목록의 여러 계정을 켜세요.")
-                .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()
-                Button("닫기") {
-                    deviceLogin.cancel()
-                    onDone()
-                }
+                Button("닫기") { onDone() }
             }
         }
         .padding(AppDesign.Space.window)
         .frame(width: 440)
+        // 다른 방법을 고르거나 Esc로 닫아도 진행 중인 기기 로그인을 남기지 않는다.
+        .onDisappear { deviceLogin.cancel() }
+    }
+
+    @ViewBuilder
+    private func option(_ method: UsageAccountAddMethod) -> some View {
+        switch method {
+        case .browserImport:
+            row("브라우저에서 가져오기", nil) { Button("가져오기") { handOff(method) } }
+        case .inAppLogin:
+            row("앱에서 로그인", nil) { Button("로그인") { handOff(method) } }
+        case .sessionKey:
+            row("세션 키 직접 입력", nil) { Button("입력") { handOff(method) } }
+        case .deviceLogin:
+            row("새 \(provider.cliName) 계정 로그인", "지금 쓰는 \(provider.cliName) 로그인은 그대로 둡니다") {
+                Button("로그인") {
+                    deviceLogin.start { [controller, provider] folder in
+                        controller.addDirectory(folder, service: provider.service)
+                    }
+                }
+                .disabled(deviceLogin.isRunning)
+            }
+        case .folder:
+            row("\(provider.cliName) 폴더", provider.configDirectoryVariable) { Button("선택") { chooseFolder() } }
+        }
+    }
+
+    private func handOff(_ method: UsageAccountAddMethod) {
+        onDone()
+        onAdd(method)
     }
 
     @ViewBuilder
@@ -310,26 +295,27 @@ struct AddUsageAccountSheet: View {
         case .starting: ProgressView().controlSize(.small)
         case .waiting(let url, let code):
             VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
-                Text("아래 코드를 브라우저에 입력해 로그인하세요. 코드는 15분 동안 쓸 수 있습니다.")
-                    .font(AppDesign.Typography.caption)
+                Text("로그인 페이지에 아래 코드를 입력하세요.").font(AppDesign.Typography.caption)
                 HStack {
                     Text(code).font(.system(.title3, design: .monospaced)).textSelection(.enabled)
                     Link("로그인 페이지 열기", destination: url)
                 }
             }
-        case .succeeded: Label("연결했습니다", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+        case .succeeded: Label("추가했습니다", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
         case .failed(let message): Text(message).font(AppDesign.Typography.caption).foregroundStyle(.red)
         }
     }
 
-    private func option<Trailing: View>(_ title: String, _ detail: String, @ViewBuilder trailing: () -> Trailing)
+    private func row<Trailing: View>(_ title: String, _ detail: String?, @ViewBuilder trailing: () -> Trailing)
         -> some View
     {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
                 Text(title).font(AppDesign.Typography.subheadline.weight(.semibold))
-                Text(detail).font(AppDesign.Typography.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let detail {
+                    Text(detail).font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer()
             trailing().controlSize(.small)
@@ -344,110 +330,7 @@ struct AddUsageAccountSheet: View {
         panel.directoryURL = FileManager.default.realHomeDirectory
         panel.prompt = "추가"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        controller.addDirectory(url, service: service)
+        controller.addDirectory(url, service: provider.service)
         onDone()
-    }
-}
-
-/// `CODEX_HOME=<앱 폴더> codex login --device-auth`를 실행하고 링크와 일회용 코드를 보여준다.
-/// auth.json을 폴더 사이에 복사하지 않는다.
-@MainActor
-final class CodexDeviceLogin: ObservableObject {
-    enum Phase: Equatable {
-        case idle, starting, succeeded
-        case waiting(URL, String)
-        case failed(String)
-    }
-
-    @Published private(set) var phase: Phase = .idle
-    private var process: Process?
-    private var folder: URL?
-
-    var isRunning: Bool { process?.isRunning == true }
-
-    func start(onSuccess: @escaping @MainActor @Sendable (URL) -> Void) {
-        guard !isRunning else { return }
-        guard let codex = try? CodexOwnerCLI().resolvedExecutable() else {
-            phase = .failed("Codex를 찾지 못했습니다. ChatGPT 앱이나 Codex CLI를 먼저 설치하세요.")
-            return
-        }
-        let folder = CodexHomeAccount.managedRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        } catch {
-            phase = .failed("계정 폴더를 만들지 못했습니다.")
-            return
-        }
-        self.folder = folder
-        let process = Process()
-        process.executableURL = codex
-        process.arguments = ["login", "--device-auth"]
-        process.environment = [
-            "HOME": FileManager.default.realHomeDirectory.path, "CODEX_HOME": folder.path,
-            "PATH": CodexOwnerCLI.searchPath, "LANG": "en_US.UTF-8",
-        ]
-        process.currentDirectoryURL = folder
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = output
-        process.standardInput = FileHandle.nullDevice
-        output.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            let text = String(decoding: handle.availableData, as: UTF8.self)
-            Task { @MainActor in self?.consume(text) }
-        }
-        process.terminationHandler = { [weak self] finished in
-            let status = finished.terminationStatus
-            Task { @MainActor in
-                guard let self else { return }
-                output.fileHandleForReading.readabilityHandler = nil
-                if status == 0, FileManager.default.fileExists(atPath: folder.appendingPathComponent("auth.json").path)
-                {
-                    self.phase = .succeeded
-                    onSuccess(folder)
-                } else if self.phase != .idle {
-                    self.phase = .failed("로그인을 마치지 못했습니다. 다시 시도하세요.")
-                    self.discardFolder()
-                }
-                self.process = nil
-            }
-        }
-        phase = .starting
-        do {
-            try process.run()
-            self.process = process
-        } catch {
-            phase = .failed("Codex 로그인을 시작하지 못했습니다.")
-            discardFolder()
-        }
-    }
-
-    func cancel() {
-        guard let process, process.isRunning else { return }
-        phase = .idle
-        process.terminate()
-        discardFolder()
-    }
-
-    private var buffer = ""
-
-    private func consume(_ text: String) {
-        buffer += text
-        guard let urlRange = buffer.range(of: #"https://auth\.openai\.com/\S+"#, options: .regularExpression),
-            let url = URL(string: String(buffer[urlRange]))
-        else { return }
-        let code = buffer.range(of: #"\b[A-Z0-9]{4,}-[A-Z0-9]{4,}\b"#, options: .regularExpression).map {
-            String(buffer[$0])
-        }
-        switch phase {
-        case .starting, .waiting(_, ""): phase = .waiting(url, code ?? "")
-        default: break
-        }
-    }
-
-    /// 로그인을 마치지 못한 빈 폴더만 휴지통으로 옮긴다.
-    private func discardFolder() {
-        guard let folder else { return }
-        try? FileManager.default.trashItem(at: folder, resultingItemURL: nil)
-        self.folder = nil
     }
 }

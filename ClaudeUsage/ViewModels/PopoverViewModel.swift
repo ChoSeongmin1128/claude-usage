@@ -5,17 +5,6 @@ import SwiftUI
 
 @MainActor
 final class PopoverViewModel: ObservableObject {
-    struct ProviderShellCard: Identifiable, Sendable, Equatable {
-        let kind: AppProviderKind
-        let title: String
-        let summary: String
-        let detail: String?
-        let badgeTitle: String?
-        let isSelectable: Bool
-
-        var id: String { kind.rawValue }
-    }
-
     struct RuntimeServiceState: Sendable {
         let service: PopoverService
         let summary: String
@@ -30,10 +19,16 @@ final class PopoverViewModel: ObservableObject {
         let sourceLabel: String?
         let accountID: String?
 
+        var failureHelpText: String? {
+            guard case .claudeCodeExecutableNotFound? = error else { return nil }
+            return ClaudeCodeCredentialIssue.executableNotFoundExplanation
+        }
+
         func providerSelectorAccessibilityValue(
             isSelected: Bool
         ) -> String {
             var parts: [String] = []
+            var hasProblemLabel = false
             if isSelected {
                 parts.append("선택됨")
             }
@@ -41,22 +36,21 @@ final class PopoverViewModel: ObservableObject {
                 parts.append("갱신 중")
             }
             if freshness == .stale {
-                parts.append("이전 데이터")
+                parts.append(UsageStatusLabel.previousValue)
+                hasProblemLabel = true
             }
             if isAuthRequired {
                 parts.append("로그인 필요")
+                hasProblemLabel = true
             } else if error != nil {
                 parts.append("갱신 실패")
+                hasProblemLabel = true
             }
-            if shouldShowWarningDot,
-               !parts.contains("이전 데이터"),
-               !parts.contains("로그인 필요"),
-               !parts.contains("갱신 실패")
-            {
-                parts.append("확인 필요")
+            if shouldShowWarningDot, !hasProblemLabel {
+                parts.append(summary)
             }
             return parts.isEmpty
-                ? "사용 가능"
+                ? "연결됨"
                 : parts.joined(separator: ", ")
         }
     }
@@ -79,9 +73,6 @@ final class PopoverViewModel: ObservableObject {
     @Published private(set) var runtimeSnapshots: [PopoverService: RuntimeProviderSnapshot] = [:]
     @Published var antigravityRuntimeSnapshot = AntigravityRuntimeSnapshot.idle {
         didSet {
-            if oldValue.activeAccountID != antigravityRuntimeSnapshot.activeAccountID {
-                manualRequestedAt[.antigravity] = nil
-            }
             scheduleAvailabilityRefresh(for: .antigravity)
         }
     }
@@ -190,12 +181,15 @@ final class PopoverViewModel: ObservableObject {
         self.refresh(service: self.selectedService)
     }
 
+    /// 헤더 새로고침과 상태 패널의 다시 시도 버튼이 같은 기준으로 켜지고 꺼진다.
+    func canRefresh(service: PopoverService) -> Bool {
+        let isLoading =
+            service == .antigravity ? antigravityRuntimeSnapshot.isLoading : snapshot(for: service)?.isLoading ?? false
+        return !isLoading && manualRefreshAvailableAt(for: service) == nil
+    }
+
     func refresh(service: PopoverService) {
-        guard manualRefreshAvailableAt(for: service) == nil else { return }
-        guard
-            !(service == .antigravity
-                ? antigravityRuntimeSnapshot.isLoading : snapshot(for: service)?.isLoading ?? false)
-        else { return }
+        guard canRefresh(service: service) else { return }
         manualRequestedAt[service] = now()
         onRefreshService?(service)
         scheduleAvailabilityRefresh(for: service)
@@ -213,7 +207,7 @@ final class PopoverViewModel: ObservableObject {
         self.onOpenSettingsPanel?(panel)
     }
 
-    /// 팝오버 미인증 카드의 "Claude 로그인 시작" 버튼이 호출. 콜백이 등록되지 않은 경우
+    /// 팝오버 미인증 카드의 "로그인 시작" 버튼이 호출. 콜백이 등록되지 않은 경우
     /// (예: provider 가 Claude 가 아닌 경우)에는 안전한 fallback 으로 설정 창을 연다.
     func startClaudeLogin() {
         if let onStartClaudeLogin {
@@ -243,13 +237,6 @@ final class PopoverViewModel: ObservableObject {
         NSWorkspace.shared.open(action.destination)
     }
 
-    func downloadLatestRelease() {
-        Task {
-            let url = await UpdateService.shared.latestDownloadURL()
-            NSWorkspace.shared.open(url)
-        }
-    }
-
     var shouldShowUpdateButton: Bool {
         updateRuntimeState.showsPopoverButton
     }
@@ -266,21 +253,6 @@ final class PopoverViewModel: ObservableObject {
         updateRuntimeState.performPrimaryAction()
     }
 
-    func providerShellCards(settings: AppSettings) -> [ProviderShellCard] {
-        SettingsProviderRegistry.providerShellDescriptors
-            .filter { settings.isProviderExposed($0.kind) }
-            .map { descriptor in
-                ProviderShellCard(
-                    kind: descriptor.kind,
-                    title: descriptor.title,
-                    summary: shellSummary(for: descriptor.kind, settings: settings, baseSummary: descriptor.summary),
-                    detail: shellDetail(for: descriptor.kind, settings: settings, baseDetail: descriptor.detail),
-                    badgeTitle: shellBadgeTitle(for: descriptor.kind, settings: settings, baseBadge: descriptor.role.badgeTitle),
-                    isSelectable: descriptor.supportsPopoverSelection
-                )
-            }
-    }
-
     var hasClaudeCredential: Bool {
         claudeSetupPresentation?.progress.hasReadyCredential
             ?? usageHealthSnapshot?.runtime.credentialAvailability.hasAnyCredential
@@ -288,12 +260,18 @@ final class PopoverViewModel: ObservableObject {
     }
 
     var claudeCodeCredentialIssue: ClaudeCodeCredentialIssue? {
-        guard let snapshot = usageHealthSnapshot, snapshot.activeAccount?.kind != .webSession else { return nil }
-        return snapshot.runtime.claudeCodeCredentialIssue
+        guard usageHealthSnapshot?.activeAccount?.kind != .webSession else { return nil }
+        if case .claudeCodeExecutableNotFound? = snapshot(for: .claude)?.error { return .executableNotFound }
+        return usageHealthSnapshot?.runtime.claudeCodeCredentialIssue
     }
 
     func authRequiredStatusLabel(for service: PopoverService) -> String {
-        service == .claude && claudeCodeCredentialIssue == .reconnectRequired ? "다시 연결 필요" : "로그인 필요"
+        guard service == .claude else { return "로그인 필요" }
+        switch claudeCodeCredentialIssue {
+        case .reconnectRequired: return "다시 연결 필요"
+        case .executableNotFound: return "Claude Code 없음"
+        case .reauthenticationRequired, nil: return "로그인 필요"
+        }
     }
 
     func runtimeServiceState(for service: PopoverService, settings: AppSettings) -> RuntimeServiceState {
@@ -304,7 +282,7 @@ final class PopoverViewModel: ObservableObject {
             let provenance = snapshot?.lastSuccessfulMetadata ?? snapshot?.lastAttemptMetadata
             let isAuthRequired = isEnabled && !(snapshot?.hasCredential ?? false) && !(snapshot?.hasContent ?? false) && !(snapshot?.isLoading ?? false)
             let summary = snapshot.map { runtimeSummary(for: $0, isEnabled: isEnabled, isAuthRequired: isAuthRequired) }
-                ?? (!isEnabled ? "비활성화됨" : (isAuthRequired ? "인증 필요" : "데이터를 아직 불러오지 못했습니다"))
+                ?? (!isEnabled ? "사용 꺼짐" : (isAuthRequired ? "로그인 필요" : "확인 전"))
             let meta = snapshot.flatMap(runtimeMeta(for:))
             return RuntimeServiceState(
                 service: .claude,
@@ -326,7 +304,7 @@ final class PopoverViewModel: ObservableObject {
             let provenance = snapshot?.lastSuccessfulMetadata ?? snapshot?.lastAttemptMetadata
             let isAuthRequired = isEnabled && !(snapshot?.hasCredential ?? false) && !(snapshot?.hasContent ?? false) && !(snapshot?.isLoading ?? false)
             let summary = snapshot.map { runtimeSummary(for: $0, isEnabled: isEnabled, isAuthRequired: isAuthRequired) }
-                ?? (!isEnabled ? "비활성화됨" : (isAuthRequired ? "인증 필요" : "데이터를 아직 불러오지 못했습니다"))
+                ?? (!isEnabled ? "사용 꺼짐" : (isAuthRequired ? "로그인 필요" : "확인 전"))
             let meta = snapshot.flatMap(runtimeMeta(for:))
             return RuntimeServiceState(
                 service: .codex,
@@ -374,91 +352,8 @@ final class PopoverViewModel: ObservableObject {
             shouldShowWarningDot: shouldShowWarning,
             freshness: Self.antigravityFreshness(snapshot),
             sourceLabel: Self.antigravityIdentityRail(snapshot)?.sourceLabel,
-            accountID: snapshot.activeAccountID?.rawValue
+            accountID: nil
         )
-    }
-
-    func overviewSummary(for kind: AppProviderKind, settings: AppSettings) -> String {
-        switch kind {
-        case .claude:
-            return runtimeServiceState(for: .claude, settings: settings).summary
-        case .codex:
-            return runtimeServiceState(for: .codex, settings: settings).summary
-        case .antigravity:
-            return runtimeServiceState(for: .antigravity, settings: settings).summary
-        }
-    }
-
-    func overviewMeta(for kind: AppProviderKind) -> String? {
-        switch kind {
-        case .claude:
-            return runtimeServiceState(for: .claude, settings: .shared).meta
-        case .codex:
-            return runtimeServiceState(for: .codex, settings: .shared).meta
-        case .antigravity:
-            return runtimeServiceState(for: .antigravity, settings: .shared).meta
-        }
-    }
-
-    func overviewCard(for kind: AppProviderKind, settings: AppSettings) -> ProviderShellCard {
-        let descriptor = SettingsProviderRegistry.providerShellDescriptor(for: kind)
-        return ProviderShellCard(
-            kind: descriptor.kind,
-            title: descriptor.title,
-            summary: overviewSummary(for: kind, settings: settings),
-            detail: overviewMeta(for: kind),
-            badgeTitle: descriptor.role.badgeTitle,
-            isSelectable: descriptor.supportsPopoverSelection
-        )
-    }
-
-    private func shellSummary(for kind: AppProviderKind, settings: AppSettings, baseSummary: String) -> String {
-        switch kind {
-        case .claude:
-            return settings.isProviderEnabled(.claude) ? baseSummary : "비활성화됨"
-        case .codex:
-            return settings.isProviderEnabled(.codex) ? baseSummary : "비활성화됨"
-        case .antigravity:
-            return settings.isProviderEnabled(kind) ? baseSummary : "비활성화됨"
-        }
-    }
-
-    private func shellDetail(for kind: AppProviderKind, settings: AppSettings, baseDetail: String?) -> String? {
-        switch kind {
-        case .claude:
-            if settings.isProviderEnabled(.claude) {
-                return baseDetail
-            }
-            return "현재는 설정만 유지하고 있습니다."
-        case .codex:
-            if settings.isProviderEnabled(.codex) {
-                return baseDetail
-            }
-            return "현재는 설정만 유지하고 있습니다."
-        case .antigravity:
-            guard settings.isProviderEnabled(kind) else {
-                return "비활성화된 상태입니다."
-            }
-            let state = runtimeServiceState(
-                for: .antigravity,
-                settings: settings
-            )
-            return state.meta ?? state.summary
-        }
-    }
-
-    private func shellBadgeTitle(for kind: AppProviderKind, settings: AppSettings, baseBadge: String?) -> String? {
-        switch kind {
-        case .claude:
-            return settings.isProviderEnabled(.claude) ? "활성" : "비활성"
-        case .codex:
-            return settings.isProviderEnabled(.codex) ? "활성" : "비활성"
-        case .antigravity:
-            guard settings.isProviderEnabled(kind) else { return "비활성" }
-            return Self.antigravityBadgeTitle(
-                antigravityRuntimeSnapshot
-            ) ?? baseBadge
-        }
     }
 
     func update(
@@ -487,10 +382,10 @@ final class PopoverViewModel: ObservableObject {
         isAuthRequired: Bool
     ) -> String {
         if !isEnabled {
-            return "비활성화됨"
+            return "사용 꺼짐"
         }
         if isAuthRequired {
-            return "인증 필요"
+            return "로그인 필요"
         }
         if let usage = snapshot.claudeUsage {
             return usage.usageSummaryText
@@ -510,7 +405,7 @@ final class PopoverViewModel: ObservableObject {
         if let error = snapshot.error {
             return error.errorDescription ?? "조회 실패"
         }
-        return "데이터를 아직 불러오지 못했습니다"
+        return "확인 전"
     }
 
     private func runtimeMeta(for snapshot: RuntimeProviderSnapshot) -> String? {
@@ -523,6 +418,9 @@ final class PopoverViewModel: ObservableObject {
         let relative = Self.relativeTimestamp(for: lastUpdated)
         if snapshot.isLoading {
             return "갱신 중 · \(relative) 성공"
+        }
+        if case .claudeCodeExecutableNotFound? = snapshot.error {
+            return "\(relative) 성공 · Claude Code 없음"
         }
         if snapshot.error != nil {
             if snapshot.hasBackoff {
@@ -547,29 +445,7 @@ final class PopoverViewModel: ObservableObject {
     }
 
     nonisolated static func relativeTimestamp(for date: Date, relativeTo referenceDate: Date = Date()) -> String {
-        let elapsed = max(0, referenceDate.timeIntervalSince(date))
-        if elapsed < 60 {
-            return "방금"
-        }
-        if elapsed < 60 * 60 {
-            return "\(Int(elapsed / 60))분 전"
-        }
-        if elapsed < 24 * 60 * 60 {
-            return "\(Int(elapsed / (60 * 60)))시간 전"
-        }
-        return "\(Int(elapsed / (24 * 60 * 60)))일 전"
-    }
-
-    func localProviderSummaryState(for service: PopoverService, settings: AppSettings) -> LocalProviderSummaryState? {
-        switch service {
-        case .antigravity:
-            return Self.resolveAntigravitySummaryState(
-                snapshot: antigravityRuntimeSnapshot,
-                isEnabled: settings.isProviderEnabled(.antigravity)
-            )
-        case .claude, .codex:
-            return nil
-        }
+        TimeFormatter.elapsed(since: date, now: referenceDate)
     }
 
     static func resolveAntigravitySummaryState(
@@ -577,15 +453,15 @@ final class PopoverViewModel: ObservableObject {
         isEnabled: Bool
     ) -> LocalProviderSummaryState {
         if !isEnabled {
-            return .init(phase: .disabled, summary: "비활성화됨")
+            return .init(phase: .disabled, summary: "사용 꺼짐")
         }
         switch snapshot.readiness {
         case .bootstrapping:
-            return .init(phase: .loading, summary: "초기 설정 확인 중")
+            return .init(phase: .loading, summary: "확인 중")
         case .blocked:
             return .init(
                 phase: .temporaryError,
-                summary: "초기 설정 확인 필요"
+                summary: "설정 오류"
             )
         case .shuttingDown:
             return .init(phase: .disabled, summary: "종료 중")
@@ -595,9 +471,9 @@ final class PopoverViewModel: ObservableObject {
 
         switch snapshot.presentationState {
         case .disabled:
-            return .init(phase: .probingRuntime, summary: "사용량 조회 준비")
+            return .init(phase: .probingRuntime, summary: "확인 전")
         case .setupRequired:
-            return .init(phase: .authRequired, summary: "연결 설정 필요")
+            return .init(phase: .authRequired, summary: "로그인 필요")
         case .refreshing:
             return .init(phase: .loading, summary: "사용량 확인 중")
         case .ready:
@@ -608,27 +484,27 @@ final class PopoverViewModel: ObservableObject {
         case .partial:
             return .init(
                 phase: .ready,
-                summary: "\(antigravityQuotaSummary(snapshot)) · 일부 확인 필요"
+                summary: "\(antigravityQuotaSummary(snapshot)) · 일부만 표시"
             )
         case .stale:
             return .init(
                 phase: .temporaryError,
-                summary: "이전 사용량 표시 중"
+                summary: UsageStatusLabel.previousValue
             )
         case .accountMismatch:
             return .init(
                 phase: .authRequired,
-                summary: "선택한 계정과 세션이 다름"
+                summary: "계정이 다름"
             )
         case .limited:
             return .init(
                 phase: .temporaryError,
-                summary: "수치형 사용량 미지원"
+                summary: "한도 수치 없음"
             )
         case .identityOnly:
             return .init(
                 phase: .temporaryError,
-                summary: "계정 확인됨 · 수치 미지원"
+                summary: "한도 수치 없음"
             )
         case .failed(let failure):
             return .init(
@@ -646,7 +522,7 @@ final class PopoverViewModel: ObservableObject {
         guard case .content(let presentation) =
                 snapshot.quotaPresentation
         else {
-            return "사용량 확인됨"
+            return "연결됨"
         }
         return "\(presentation.observedLaneCount)개 사용량 한도"
     }
@@ -717,9 +593,7 @@ final class PopoverViewModel: ObservableObject {
         _ failure: AntigravityFailure
     ) -> Bool {
         switch failure {
-        case .selectedAccountUnavailable,
-             .selectedAccountIdentityUnavailable,
-             .authenticationRequired,
+        case .authenticationRequired,
             .interactionRequired,
             .cliReportFailed:
             return true
@@ -727,10 +601,6 @@ final class PopoverViewModel: ObservableObject {
              .appShuttingDown,
              .invalidRefreshContext,
              .generationExhausted,
-             .repositoryUnavailable,
-             .repositoryRevisionChanged,
-             .credentialCommitFailed,
-             .credentialCommitAmbiguous,
              .noEligibleSource,
              .sourceUnavailable,
              .deadlineExceeded,
@@ -769,31 +639,6 @@ final class PopoverViewModel: ObservableObject {
              .identityOnly,
              .failed:
             return true
-        }
-    }
-
-    private static func antigravityBadgeTitle(
-        _ snapshot: AntigravityRuntimeSnapshot
-    ) -> String? {
-        if snapshot.isLoading {
-            return "조회 중"
-        }
-        if case .blocked = snapshot.readiness {
-            return "확인 필요"
-        }
-        switch snapshot.presentationState {
-        case .ready:
-            return "활성"
-        case .partial, .stale, .limited, .identityOnly:
-            return "일부 확인"
-        case .setupRequired:
-            return "연결 필요"
-        case .accountMismatch, .failed:
-            return "조치 필요"
-        case .refreshing:
-            return "조회 중"
-        case .disabled:
-            return "준비 중"
         }
     }
 }

@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import WebKit
 
 extension AppDelegate {
     // MARK: - Claude Flow
@@ -28,10 +27,6 @@ extension AppDelegate {
         lastUpdated != nil
     }
 
-    var hasChromeApp: Bool {
-        NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") != nil
-    }
-
     var currentSetupWizardStep: SetupWizardView.Step {
         claudeSetupPresentation.credentialStep
     }
@@ -46,7 +41,6 @@ extension AppDelegate {
             hasSuccessfulFetch: hasSuccessfulClaudeFetch,
             preferredOrganizationID: activeClaudePreferredOrganizationID,
             cachedMetadata: currentClaudeProfileMetadata,
-            hasChromeApp: hasChromeApp,
             credentialStepOverride: setupWizardCredentialStepOverride
         )
     }
@@ -67,7 +61,7 @@ extension AppDelegate {
     func applyClaudeSetupLandingTabsIfNeeded() {
         guard shouldShowStandaloneSetupWizard else { return }
 
-        AppSettings.shared.settingsLastTab = "claude"
+        AppSettings.shared.settingsLastTab = ServiceSelectionHelper.settingsRootTab(for: .claude)
     }
 
     func clearClaudePresentationState(markSetupIncomplete: Bool) {
@@ -106,16 +100,6 @@ extension AppDelegate {
                     self?.settingsWindowCoordinator.close()
                 }
                 self?.showLoginWindow(startChromeImportOnOpen: true)
-            },
-            onClearBrowserSession: { [weak self] in
-                guard let self else { return }
-                do {
-                    try KeychainManager.shared.delete()
-                } catch {
-                    Logger.warning("브라우저 로그인 값 삭제 실패: \(error.localizedDescription)")
-                }
-                self.clearWebSessionData()
-                Logger.info("브라우저 로그인 값 삭제 완료")
             },
             onRefreshClaudeUsage: { [weak self] in
                 guard let self else { return }
@@ -239,7 +223,7 @@ extension AppDelegate {
     func reconnectClaude() {
         Task { @MainActor [weak self] in
             let (claudeCode, finding) = await Task.detached(priority: .userInitiated) {
-                (ClaudeCodeLoginDetector.hasLogin(), ClaudeBrowserLoginDetector.findLogin())
+                (await ClaudeCodeLoginDetector.hasLogin(), ClaudeBrowserLoginDetector.findLogin())
             }.value
             guard let self else { return }
             let activeKind = ClaudeAccountStore.shared.state().activeAccount?.kind
@@ -337,7 +321,7 @@ extension AppDelegate {
                     return await self.loadClaudeCodeCLIPreview()
                 },
                 onOpenAdvancedSettings: { [weak self] in
-                    AppSettings.shared.settingsLastTab = "claude"
+                    AppSettings.shared.settingsLastTab = ServiceSelectionHelper.settingsRootTab(for: .claude)
                     AppSettings.shared.shouldRevealClaudeAdvancedAuth = true
                     self?.loginWindowCoordinator.close()
                     self?.showSettingsWindow()
@@ -349,11 +333,8 @@ extension AppDelegate {
             self.loginWindowCoordinator.present(rootView: loginView)
         }
 
-        if clearCookies {
-            clearWebSessionData(completion: presentLoginWindow)
-        } else {
-            presentLoginWindow()
-        }
+        // 로그인 창은 창마다 임시 세션을 써서 앱 쪽에서 지울 웹 데이터가 없다.
+        presentLoginWindow()
     }
 
     func showSetupWizardWindow() {
@@ -365,9 +346,9 @@ extension AppDelegate {
             currentStep: currentSetupWizardStep,
             progress: setupWizardProgress,
             isVerifyingFetch: isLoading,
-            onOpenChrome: { [weak self] in
-                self?.setupWizardCredentialStepOverride = .chromeImport
-                self?.openClaudeUsageInChrome()
+            onImportFromBrowser: { [weak self] in
+                self?.setupWizardCredentialStepOverride = .browserImport
+                self?.showLoginWindow(startChromeImportOnOpen: true)
             },
             onOpenWebLogin: { [weak self] in
                 self?.setupWizardCredentialStepOverride = .webLogin
@@ -376,13 +357,13 @@ extension AppDelegate {
             },
             onOpenAdvancedSettings: { [weak self] in
                 self?.setupWizardCredentialStepOverride = nil
-                AppSettings.shared.settingsLastTab = "claude"
+                AppSettings.shared.settingsLastTab = ServiceSelectionHelper.settingsRootTab(for: .claude)
                 AppSettings.shared.shouldRevealClaudeAdvancedAuth = true
                 self?.setupWizardWindowCoordinator.close()
                 self?.showSettingsWindow()
             },
             onOpenOrganizations: { [weak self] in
-                AppSettings.shared.settingsLastTab = "claude"
+                AppSettings.shared.settingsLastTab = ServiceSelectionHelper.settingsRootTab(for: .claude)
                 self?.setupWizardWindowCoordinator.close()
                 self?.showSettingsWindow()
             },
@@ -428,26 +409,6 @@ extension AppDelegate {
         setupWizardWindowCoordinator.present(rootView: rootView)
     }
 
-    func clearWebSessionData(completion: (() -> Void)? = nil) {
-        let dataTypes = WKWebsiteDataStore.allWebsiteDataTypes()
-        WKWebsiteDataStore.default().removeData(ofTypes: dataTypes, modifiedSince: .distantPast) {
-            URLCache.shared.removeAllCachedResponses()
-            Logger.info("웹 데이터 삭제 완료")
-            completion?()
-        }
-    }
-
-    func openClaudeUsageInChrome() {
-        let targetURL = URL(string: "https://claude.ai/settings/usage")!
-        if let chromeAppURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome") {
-            let configuration = NSWorkspace.OpenConfiguration()
-            NSWorkspace.shared.open([targetURL], withApplicationAt: chromeAppURL, configuration: configuration)
-            return
-        }
-
-        NSWorkspace.shared.open(targetURL)
-    }
-
     // MARK: - LoginWindow CLI Bridge
 
     /// 로그인 윈도우 Step 1 의 "Claude Code 로그인 사용" 카드 미리보기.
@@ -478,6 +439,7 @@ extension AppDelegate {
         try await apiService.importClaudeCodeCredentialForActivation()
 
         let store = ClaudeAccountStore.shared
+        let previousActiveAccountID = store.state().activeAccountID
         // 1. CLI external account 등록을 보장하고 active 로 설정.
         //    OAuth credential 자체는 fetchUsage 가 첫 호출에서 자체적으로 검사하므로 여기서는
         //    "최소 1개의 CLI 계정이 store 에 존재" 만 보장한다.
@@ -500,6 +462,10 @@ extension AppDelegate {
         let expectedAccountID = ClaudeAccountStore.claudeCodeExternalAccountID
         guard snapshot.lastSuccessfulMetadata?.accountID == expectedAccountID,
               let usage = currentUsage else {
+            // 확인하지 못했으면 쓰던 계정으로 되돌려 메뉴바가 확인되지 않은 계정을 따라가지 않게 한다.
+            if let previousActiveAccountID, previousActiveAccountID != expectedAccountID {
+                store.setActiveAccountID(previousActiveAccountID)
+            }
             throw snapshot.error ?? APIError.unknownError("Claude Code 사용량을 확인하지 못했습니다")
         }
         Logger.info("Claude Code CLI 활성화 성공 (\(usage.usageSummaryText))")

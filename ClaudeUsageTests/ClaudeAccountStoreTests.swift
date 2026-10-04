@@ -346,6 +346,23 @@ final class ClaudeAccountStoreTests: XCTestCase {
         XCTAssertEqual(store.activeAccount()?.displayName, "team")
     }
 
+    func testClaudeCodeInventoryDoesNotEraseKnownEmail() {
+        let store = makeStore()
+        _ = store.upsertClaudeCodeExternalAccount(
+            identity: ClaudeAccountIdentity(email: "cli@example.com", organizationID: "org-a"),
+            validationState: .verified
+        )
+
+        let refreshed = store.upsertClaudeCodeExternalAccount(
+            identity: ClaudeAccountIdentity(organizationID: "org-a", planLabel: "max"),
+            validationState: .verified
+        )
+
+        XCTAssertEqual(refreshed.identity.email, "cli@example.com")
+        XCTAssertEqual(refreshed.identity.planLabel, "max")
+        XCTAssertEqual(refreshed.displayName, "cli@example.com")
+    }
+
     func testOpaqueOrganizationIDIsNotAUserFacingPrimaryLabel() {
         let identity = ClaudeAccountIdentity(
             organizationID: "efa005dc-8c5f-4fd2-ab83-af6e4d063690"

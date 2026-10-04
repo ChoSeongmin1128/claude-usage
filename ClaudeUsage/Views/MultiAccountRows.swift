@@ -18,9 +18,14 @@ extension EnvironmentValues {
     }
 }
 
+/// 계정이 어디서 왔는지(기본 로그인, CLI, 웹). 설명은 서비스마다 다르다.
+struct AccountBadge: Hashable {
+    let title: String
+    let help: String
+}
+
 struct AccountBadgeView: View {
-    let badge: UsageAccountBadge
-    let service: PopoverService
+    let badge: AccountBadge
 
     var body: some View {
         HStack(spacing: 3) {
@@ -29,7 +34,7 @@ struct AccountBadgeView: View {
         }
         .font(AppDesign.Typography.caption2)
         .foregroundStyle(.secondary)
-        .help(badge.help(for: service) ?? "")
+        .help(badge.help)
     }
 }
 
@@ -94,18 +99,20 @@ struct OtherAccountRow: View {
                 statusOrGauges.layoutPriority(1)
             }
             .opacity(data.status == .archived || data.status == .loginExpired ? 0.55 : 1)
+            .help(data.status == .executableNotFound ? ClaudeCodeCredentialIssue.executableNotFoundExplanation : "")
         } else {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: AppDesign.Space.control) {
                     Text(data.name).font(AppDesign.Typography.subheadline.weight(.semibold)).lineLimit(1)
                     if data.isRuntime { InUseAccountLabel() }
-                    ForEach(data.badges, id: \.self) { AccountBadgeView(badge: $0, service: data.service) }
+                    ForEach(data.badges, id: \.self) { AccountBadgeView(badge: $0) }
                     Spacer(minLength: 0)
                     statusText
                 }
                 statusOrGauges
             }
             .opacity(data.status == .archived || data.status == .loginExpired ? 0.55 : 1)
+            .help(data.status == .executableNotFound ? ClaudeCodeCredentialIssue.executableNotFoundExplanation : "")
         }
     }
 
@@ -119,12 +126,17 @@ struct OtherAccountRow: View {
             Button("허용") { actions.allow(data.service, data.id) }
                 .buttonStyle(.link).font(AppDesign.Typography.caption)
                 .help("macOS 확인 창에서 \"항상 허용\"을 누르면 다시 묻지 않습니다")
-        case .checking where data.fiveHour == nil && data.weekly == nil:
+        case .executableNotFound where data.usage == nil:
+            Text("Claude Code 없음").font(AppDesign.Typography.caption).foregroundStyle(.orange)
+                .help(ClaudeCodeCredentialIssue.executableNotFoundExplanation)
+        case .checking where data.usage == nil:
             Text("확인 중").font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+        case .failed:
+            Text("확인 실패").font(AppDesign.Typography.caption).foregroundStyle(.orange)
         default:
             HStack(spacing: AppDesign.Space.row) {
-                miniGauge(label: "5시간", value: data.fiveHour, resetAt: data.fiveHourResetAt, isWeekly: false)
-                miniGauge(label: "주간", value: data.weekly, resetAt: data.weeklyResetAt, isWeekly: true)
+                miniGauge(label: "5시간", window: data.usage?.fiveHour, isWeekly: false)
+                miniGauge(label: "주간", window: data.usage?.weekly, isWeekly: true)
             }
         }
     }
@@ -133,26 +145,44 @@ struct OtherAccountRow: View {
     private var statusText: some View {
         switch data.status {
         case .stale:
-            Text(data.fetchedAt.map { "오래된 값 · \(Self.age(since: $0))" } ?? "오래된 값")
+            Text(Self.labeled(UsageStatusLabel.previousValue, since: data.fetchedAt))
                 .font(AppDesign.Typography.caption2).foregroundStyle(.orange)
         case .archived:
-            Text(data.fetchedAt.map { "보관 · \(Self.age(since: $0))" } ?? "보관")
+            Text(Self.labeled("보관", since: data.fetchedAt))
                 .font(AppDesign.Typography.caption2).foregroundStyle(.secondary)
         case .loginExpired:
             Text("로그인 만료").font(AppDesign.Typography.caption2).foregroundStyle(.red)
+        case .executableNotFound where data.usage != nil:
+            Text("Claude Code 없음").font(AppDesign.Typography.caption2).foregroundStyle(.orange)
+                .help(ClaudeCodeCredentialIssue.executableNotFoundExplanation)
         default:
             EmptyView()
         }
     }
 
-    /// 다른 계정 줄은 초기화 시각을 빼고, 다 쓴 창만 언제 풀리는지 보여준다.
+    private static func labeled(_ label: String, since date: Date?) -> String {
+        date.map { "\(label) · \(TimeFormatter.elapsed(since: $0))" } ?? label
+    }
+
+    /// 화면에 쓰는 소진 안내는 행의 표시 설정만 읽어 모델 변경과 함께 갱신된다.
+    func exhaustedQuotaText(
+        for window: UsageAccountUsage.Window, isWeekly: Bool, now: Date = Date()
+    ) -> String? {
+        guard window.usedPercent >= 100, let resetsAt = window.resetsAt else { return nil }
+        return TimeFormatter.formatRemaining(
+            until: resetsAt, now: now, style: data.timeFormatStyle, isWeekly: isWeekly,
+            unitLanguage: data.timeUnitLanguage)
+    }
+
+    /// 다른 계정 줄은 초기화 시각을 빼고, 다 쓴 한도만 언제 풀리는지 보여준다.
     @ViewBuilder
-    private func miniGauge(label: String, value: Double?, resetAt: String?, isWeekly: Bool) -> some View {
+    private func miniGauge(label: String, window: UsageAccountUsage.Window?, isWeekly: Bool) -> some View {
         HStack(spacing: 4) {
             if !density.isCompact {
                 Text(label).font(AppDesign.Typography.caption2).foregroundStyle(.secondary)
             }
-            if let value {
+            if let window {
+                let value = window.usedPercent
                 let shown = min(max(data.basis.percentage(fromUsed: value) ?? 0, 0), 100)
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
@@ -163,12 +193,8 @@ struct OtherAccountRow: View {
                 }
                 .frame(width: density.isCompact ? 34 : 64, height: 5)
                 Group {
-                    if value >= 100, let resetAt, let date = TimeFormatter.parseISO8601(resetAt) {
-                        Text(
-                            TimeFormatter.formatRemaining(
-                                until: date, style: AppSettings.shared.timeFormat, isWeekly: isWeekly)
-                        )
-                        .foregroundStyle(.red)
+                    if let resetText = exhaustedQuotaText(for: window, isWeekly: isWeekly) {
+                        Text(resetText).foregroundStyle(.red)
                     } else {
                         Text(data.basis.text(fromUsed: value)).foregroundStyle(.secondary)
                     }
@@ -182,14 +208,6 @@ struct OtherAccountRow: View {
         }
         .fixedSize()
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label) \(value.map { data.basis.spokenValue(fromUsed: $0) } ?? "데이터 없음")")
-    }
-
-    static func age(since date: Date, now: Date = Date()) -> String {
-        let minutes = max(0, Int(now.timeIntervalSince(date) / 60))
-        if minutes < 1 { return "방금" }
-        if minutes < 60 { return "\(minutes)분 전" }
-        if minutes < 1440 { return "\(minutes / 60)시간 전" }
-        return "\(minutes / 1440)일 전"
+        .accessibilityLabel("\(label) \(window.map { data.basis.spokenValue(fromUsed: $0.usedPercent) } ?? "데이터 없음")")
     }
 }

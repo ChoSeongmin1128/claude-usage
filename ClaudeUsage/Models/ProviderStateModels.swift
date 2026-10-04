@@ -40,11 +40,7 @@ struct ProviderExternalAction: Identifiable, Sendable, Equatable {
 struct ProviderDescriptor: Sendable, Equatable {
     let kind: AppProviderKind
     let displayName: String
-    let settingsPanelTitle: String
     let brandAssetName: String?
-    let settingsPanelSummary: String
-    let settingsPanelDetail: String
-    let settingsComingSoonMessage: String?
     let capabilities: ProviderCapabilities
     let externalActions: [ProviderExternalAction]
 }
@@ -65,11 +61,7 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
             return ProviderDescriptor(
                 kind: self,
                 displayName: "Claude",
-                settingsPanelTitle: "Claude",
                 brandAssetName: "ProviderClaudeIcon",
-                settingsPanelSummary: "기본 서비스",
-                settingsPanelDetail: "브라우저 로그인이나 Claude Code 로그인으로 연결할 수 있습니다.",
-                settingsComingSoonMessage: nil,
                 capabilities: ProviderCapabilities(
                     runtimeService: .claude,
                     refreshStrategy: .claude,
@@ -93,11 +85,7 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
             return ProviderDescriptor(
                 kind: self,
                 displayName: "Codex",
-                settingsPanelTitle: "Codex",
                 brandAssetName: "ProviderCodexIcon",
-                settingsPanelSummary: "Codex 사용량",
-                settingsPanelDetail: "터미널에서 codex login으로 로그인하면 메뉴바에서 바로 확인할 수 있습니다.",
-                settingsComingSoonMessage: nil,
                 capabilities: ProviderCapabilities(
                     runtimeService: .codex,
                     refreshStrategy: .codex,
@@ -121,11 +109,7 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
             return ProviderDescriptor(
                 kind: self,
                 displayName: "Antigravity",
-                settingsPanelTitle: "Antigravity",
                 brandAssetName: "ProviderAntigravityIcon",
-                settingsPanelSummary: "계정 및 model quota",
-                settingsPanelDetail: "Antigravity 계정과 model quota 상태를 확인합니다.",
-                settingsComingSoonMessage: nil,
                 capabilities: ProviderCapabilities(
                     runtimeService: .antigravity,
                     refreshStrategy: .antigravity,
@@ -155,24 +139,8 @@ enum AppProviderKind: String, Codable, CaseIterable, Sendable, Hashable {
         !isRuntimeProvider
     }
 
-    nonisolated var settingsPanelTitle: String {
-        descriptor.settingsPanelTitle
-    }
-
     nonisolated var brandAssetName: String? {
         descriptor.brandAssetName
-    }
-
-    nonisolated var settingsPanelSummary: String {
-        descriptor.settingsPanelSummary
-    }
-
-    nonisolated var settingsPanelDetail: String {
-        descriptor.settingsPanelDetail
-    }
-
-    nonisolated var settingsComingSoonMessage: String? {
-        descriptor.settingsComingSoonMessage
     }
 
     nonisolated var runtimeService: PopoverService? {
@@ -396,7 +364,7 @@ enum MenuBarColorMode: String, CaseIterable, Identifiable, Sendable, Equatable {
     nonisolated var id: String { rawValue }
 
     /// warningOnly 모드에서 색상이 켜지는 사용률 (주황 시작점과 동일)
-    nonisolated static let warningThreshold: Double = 75
+    nonisolated static let warningThreshold = ColorProvider.warningPercent
 
     nonisolated var displayName: String {
         switch self {
@@ -410,10 +378,10 @@ enum MenuBarColorMode: String, CaseIterable, Identifiable, Sendable, Equatable {
     nonisolated var detail: String {
         switch self {
         case .always: return "사용률에 따라 초록/노랑/주황/빨강으로 표시합니다."
-        case .warningOnly: return "평소에는 시스템 텍스트색, 75% 이상부터 색상으로 강조합니다."
-        case .statusNumber:
-            return "게이지는 모노크롬으로 유지하고 배터리 내부 숫자만 사용률 상태색으로 표시합니다. 숫자가 없는 게이지는 모노크롬입니다."
-        case .monochrome: return "항상 시스템 텍스트색으로 표시합니다. 메뉴바가 가장 차분해집니다."
+        case .warningOnly:
+            return "평소에는 색 없이, \(PercentageText.string(Self.warningThreshold)) 이상부터 색으로 표시합니다."
+        case .statusNumber: return "배터리 안 숫자만 색으로 표시합니다."
+        case .monochrome: return "색 없이 표시합니다."
         }
     }
 }
@@ -426,6 +394,7 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
     let showBatteryPercent: Bool
     let resetTimeDisplay: ResetTimeDisplay
     let timeFormat: TimeFormatStyle
+    let timeUnitLanguage: TimeUnitLanguage
     let basisOverride: UsageValueBasis?
     let circularDisplayMode: CircularDisplayMode
     let iconMetric: IconMetric
@@ -440,6 +409,7 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         showBatteryPercent: Bool,
         resetTimeDisplay: ResetTimeDisplay,
         timeFormat: TimeFormatStyle,
+        timeUnitLanguage: TimeUnitLanguage = .english,
         circularDisplayMode: CircularDisplayMode,
         iconMetric: IconMetric,
         colorMode: MenuBarColorMode = .always, design: MenuBarDesign = .modern,
@@ -452,6 +422,7 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         self.showBatteryPercent = showBatteryPercent
         self.resetTimeDisplay = resetTimeDisplay
         self.timeFormat = timeFormat
+        self.timeUnitLanguage = timeUnitLanguage
         self.circularDisplayMode = circularDisplayMode
         self.iconMetric = iconMetric
         self.colorMode = colorMode
@@ -481,16 +452,16 @@ enum ProviderMenuBarDisplayPreset: String, CaseIterable, Identifiable, Sendable,
         }
     }
 
-    var detail: String {
+    var detail: String? {
         switch self {
         case .basic:
             return "아이콘과 현재 사용률만 표시합니다."
         case .battery:
-            return "아이콘과 배터리 형태로 선택한 기준의 사용량을 표시합니다."
+            return "아이콘과 배터리 게이지로 표시합니다."
         case .dual:
-            return "현재 한도와 보조 한도를 함께 표시합니다."
+            return "5시간 한도와 주간 한도를 함께 표시합니다."
         case .custom:
-            return "표시 항목을 직접 조정합니다."
+            return nil
         }
     }
 

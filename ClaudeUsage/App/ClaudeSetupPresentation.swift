@@ -2,7 +2,7 @@ import Foundation
 
 struct ClaudeSetupPresentation: Equatable, Sendable {
     enum PrimaryActionKind: Sendable {
-        case openChrome
+        case importFromBrowser
         case openWebLogin
         case openAdvancedSettings
         case verifyFetch
@@ -15,5 +15,5 @@ struct ClaudeSetupPresentation: Equatable, Sendable {
     let credentialStep: SetupWizardView.Step
     let shouldShowWizard: Bool
     let primaryActionKind: PrimaryActionKind
-    let organizationSummary: String
+    let organizationSummary: String?
 }

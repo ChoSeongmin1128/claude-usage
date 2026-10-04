@@ -7,7 +7,7 @@ nonisolated enum AntigravitySettingsMigrationNotice: String, Codable, Equatable,
     var title: String {
         switch self {
         case .displaySelectionUpdated:
-            return "Antigravity 표시 설정이 새로 정리되었습니다"
+            return "Antigravity 표시 설정을 새로 정리했습니다"
         }
     }
 

@@ -6,6 +6,7 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
     func testActivateSessionKeySavesOnlyAfterSessionUsageValidationSucceeds() async throws {
         let keychain = FakeClaudeSessionKeyStore()
         let service = FakeClaudeSettingsService()
+        let validator = FakeClaudeSettingsService(sessionKey: "new-session")
         let refreshRequests = LockedRefreshRequestCounter()
 
         try await ClaudeSettingsApplyCoordinator.activateSessionKey(
@@ -16,6 +17,7 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
             source: .chromeProfile,
             sourceDetail: "Profile 2",
             keychain: keychain,
+            makeValidator: { _ in validator },
             refreshRequester: { refreshRequests.increment() }
         )
 
@@ -25,11 +27,13 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
         XCTAssertEqual(keychain.savedIdentities, [nil])
         XCTAssertEqual(keychain.savedSources, [.chromeProfile])
         XCTAssertEqual(keychain.savedSourceDetails, ["Profile 2"])
-        let validatedSessionKeys = await service.validatedSessionKeysSnapshot()
+        let validatedSessionKeys = await validator.validatedSessionKeysSnapshot()
         let currentSessionKey = await service.currentSessionKeySnapshot()
+        let sharedValidations = await service.validatedSessionKeysSnapshot()
         XCTAssertEqual(validatedSessionKeys, ["new-session"])
+        XCTAssertEqual(sharedValidations, [], "공용 서비스로 검증하지 않습니다")
         XCTAssertEqual(currentSessionKey, "new-session")
-        let preferredOrganizationID = await service.preferredOrganizationIDSnapshot()
+        let preferredOrganizationID = await validator.preferredOrganizationIDSnapshot()
         let healthSnapshotCount = await service.healthSnapshotCount()
         XCTAssertEqual(preferredOrganizationID, "org-company")
         XCTAssertEqual(refreshRequests.value, 1)
@@ -39,7 +43,8 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
     func testActivateSessionKeyKeepsAutomaticOrganizationOutOfUserPreference() async throws {
         let keychain = FakeClaudeSessionKeyStore()
         let service = FakeClaudeSettingsService()
-        await service.setResolvedOrganization(
+        let validator = FakeClaudeSettingsService(sessionKey: "new-session")
+        await validator.setResolvedOrganization(
             ClaudeAPIService.OrganizationSummary(id: "org-glorang", name: "Glorang")
         )
 
@@ -48,6 +53,7 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
             apiService: service,
             preferredOrganizationID: "",
             keychain: keychain,
+            makeValidator: { _ in validator },
             refreshRequester: {}
         )
 
@@ -60,8 +66,9 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
 
     func testActivateSessionKeyDoesNotSaveWhenSessionUsageValidationFails() async {
         let keychain = FakeClaudeSessionKeyStore(initialValue: "old-session")
-        let service = FakeClaudeSettingsService()
-        await service.setValidationError(APIError.invalidSessionKey)
+        let service = FakeClaudeSettingsService(sessionKey: "old-session")
+        let validator = FakeClaudeSettingsService(sessionKey: "bad-session")
+        await validator.setValidationError(APIError.invalidSessionKey)
 
         do {
             try await ClaudeSettingsApplyCoordinator.activateSessionKey(
@@ -69,6 +76,7 @@ final class ClaudeSettingsApplyCoordinatorTests: XCTestCase {
                 apiService: service,
                 preferredOrganizationID: "",
                 keychain: keychain,
+                makeValidator: { _ in validator },
                 refreshRequester: {}
             )
             XCTFail("Expected validation failure")
@@ -206,8 +214,9 @@ private actor FakeClaudeSettingsService: ClaudeSettingsApplyingService {
     private var resolvedOrganization: ClaudeAPIService.OrganizationSummary?
     private var recordedHealthSnapshotCount = 0
 
-    init(oauthAvailable: Bool = false) {
+    init(oauthAvailable: Bool = false, sessionKey: String? = nil) {
         self.oauthAvailable = oauthAvailable
+        self.currentSessionKey = sessionKey
     }
 
     func setValidationError(_ error: Error?) {

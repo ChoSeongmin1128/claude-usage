@@ -61,24 +61,46 @@ enum TimeFormatStyle: String, Codable, CaseIterable, Sendable {
     case h24 = "24h"
     case h12 = "12h"
     case remaining = "remaining"
-    /// 남은 시간을 h:mm로. 주간은 3d 02:12
+    /// 24시간 미만은 h:mm, 하루 이상은 3d:14처럼 일:시간으로.
     case remainingClock = "remaining_clock"
     /// 남은 시간을 h:mm로. 주간은 전체 시간 74:12
     case remainingTotalClock = "remaining_total_clock"
 
     var displayName: String {
         switch self {
-        case .h24: return "24시간 (18:34)"
-        case .h12: return "12시간 (6:34 PM)"
-        case .remaining: return "남은 시간 (2h 34m, 주간 3d 2h)"
-        case .remainingClock: return "남은 시간 (2:34, 주간 3d 02:12)"
-        case .remainingTotalClock: return "남은 시간 (2:34, 주간 74:12)"
+        case .h24: return "초기화 시각, 24시간"
+        case .h12: return "초기화 시각, 12시간"
+        case .remaining: return "남은 시간, 단위 표시"
+        case .remainingClock: return "남은 시간, 짧게"
+        case .remainingTotalClock: return "남은 시간, 전체 시:분"
         }
     }
 
     nonisolated var isRemaining: Bool {
         self == .remaining || self == .remainingClock || self == .remainingTotalClock
     }
+}
+
+nonisolated enum TimeUnitLanguage: String, Codable, CaseIterable, Sendable {
+    case english = "en"
+    case korean = "ko"
+
+    static let storageKey = AppIdentifiers.defaultsKey("timeUnitLanguage")
+
+    static func load(from defaults: UserDefaults) -> Self {
+        defaults.string(forKey: storageKey).flatMap(Self.init(rawValue:)) ?? .english
+    }
+
+    var displayName: String {
+        switch self {
+        case .english: return "영어 (d/h/m)"
+        case .korean: return "한국어 (일/시간/분)"
+        }
+    }
+
+    var dayUnit: String { self == .english ? "d" : "일" }
+    var hourUnit: String { self == .english ? "h" : "시간" }
+    var minuteUnit: String { self == .english ? "m" : "분" }
 }
 
 enum ResetTimeDisplay: String, Codable, CaseIterable, Sendable {
@@ -332,6 +354,9 @@ class AppSettings: ObservableObject {
     @Published var timeFormat: TimeFormatStyle {
         didSet { defaults.set(timeFormat.rawValue, forKey: "timeFormat") }
     }
+    @Published var timeUnitLanguage: TimeUnitLanguage {
+        didSet { defaults.set(timeUnitLanguage.rawValue, forKey: TimeUnitLanguage.storageKey) }
+    }
     @Published var autoRefresh: Bool {
         didSet { defaults.set(autoRefresh, forKey: "autoRefresh") }
     }
@@ -481,25 +506,6 @@ class AppSettings: ObservableObject {
     @Published var showCodexIcon: Bool {
         didSet { defaults.set(showCodexIcon, forKey: "showCodexIcon") }
     }
-    var additionalRuntimeProvidersEnabled: Bool {
-        get {
-            providerSelectionPreferencesStore
-                .additionalProvidersEnabled
-        }
-        set {
-            guard newValue
-                    != additionalRuntimeProvidersEnabled
-            else {
-                return
-            }
-            objectWillChange.send()
-            providerSelectionPreferencesStore
-                .setAdditionalProvidersEnabled(
-                    newValue
-                )
-            providerSelectionRevision &+= 1
-        }
-    }
     var providerStates: AppProviderStateCatalog {
         get {
             providerSelectionPreferencesStore
@@ -587,6 +593,7 @@ class AppSettings: ObservableObject {
         let showBatteryPercent: Bool
         let resetTimeDisplay: ResetTimeDisplay
         let timeFormat: TimeFormatStyle
+        let timeUnitLanguage: TimeUnitLanguage
         let circularDisplayMode: CircularDisplayMode
         let iconMetric: IconMetric
         let menuBarColorMode: MenuBarColorMode
@@ -613,7 +620,6 @@ class AppSettings: ObservableObject {
         let separateCompactConfig: Bool
         let compactPopoverItemsByProvider: [String: [PopoverItemConfig]]
         let showCodexIcon: Bool
-        let additionalRuntimeProvidersEnabled: Bool
         let codexPercentageDisplay: PercentageDisplay
         let codexResetTimeDisplay: ResetTimeDisplay
         let codexTimeFormat: TimeFormatStyle
@@ -639,6 +645,7 @@ class AppSettings: ObservableObject {
             showBatteryPercent: showBatteryPercent,
             resetTimeDisplay: resetTimeDisplay,
             timeFormat: timeFormat,
+            timeUnitLanguage: timeUnitLanguage,
             circularDisplayMode: circularDisplayMode,
             iconMetric: iconMetric,
             menuBarColorMode: menuBarColorMode,
@@ -665,7 +672,6 @@ class AppSettings: ObservableObject {
             separateCompactConfig: separateCompactConfig,
             compactPopoverItemsByProvider: compactPopoverItemsByProvider,
             showCodexIcon: showCodexIcon,
-            additionalRuntimeProvidersEnabled: additionalRuntimeProvidersEnabled,
             codexPercentageDisplay: codexPercentageDisplay,
             codexResetTimeDisplay: codexResetTimeDisplay,
             codexTimeFormat: codexTimeFormat,
@@ -700,6 +706,7 @@ class AppSettings: ObservableObject {
         showBatteryPercent = snapshot.showBatteryPercent
         resetTimeDisplay = snapshot.resetTimeDisplay
         timeFormat = snapshot.timeFormat
+        timeUnitLanguage = snapshot.timeUnitLanguage
         circularDisplayMode = snapshot.circularDisplayMode
         menuBarColorMode = snapshot.menuBarColorMode
         iconMetric = snapshot.iconMetric
@@ -729,7 +736,6 @@ class AppSettings: ObservableObject {
             fallback: snapshot.popoverItemsByProvider
         )
         showCodexIcon = snapshot.showCodexIcon
-        additionalRuntimeProvidersEnabled = snapshot.additionalRuntimeProvidersEnabled
         codexPercentageDisplay = snapshot.codexPercentageDisplay
         codexResetTimeDisplay = snapshot.codexResetTimeDisplay
         codexTimeFormat = snapshot.codexTimeFormat
@@ -754,23 +760,6 @@ class AppSettings: ObservableObject {
             setProviderAlertEnabled(isEnabled, for: kind)
         }
         settingsLastTab = snapshot.settingsLastTab
-    }
-
-    static func inferredAdditionalRuntimeProvidersEnabled(
-        from defaults: UserDefaults,
-        decodedProviderStates: AppProviderStateCatalog?,
-        legacyCodexEnabled: Bool,
-        activeService: String
-    ) -> Bool {
-        ProviderSelectionPreferencesStore
-            .inferredAdditionalProvidersEnabled(
-                from: defaults,
-                decodedProviderStates:
-                    decodedProviderStates,
-                legacyCodexEnabled:
-                    legacyCodexEnabled,
-                activeService: activeService
-            )
     }
 
     // MARK: - Computed
@@ -806,8 +795,9 @@ class AppSettings: ObservableObject {
         return normalized
     }
 
-    /// provider별 간소화 팝오버 항목 (정규화 후).
+    /// provider별 간소화 팝오버 항목 (정규화 후). 따로 정하기 전에는 일반 항목을 그대로 쓴다.
     func compactPopoverItems(for service: PopoverService) -> [PopoverItemConfig] {
+        guard separateCompactConfig else { return popoverItems(for: service) }
         guard let catalog =
                 UsageItemCatalogRegistry.catalog(
                     for: service
@@ -845,6 +835,7 @@ class AppSettings: ObservableObject {
     }
 
     /// provider의 간소화 항목 배열 업데이트 (정규화 적용).
+    /// 간소화 항목을 바꾸면 그때부터 일반 항목과 따로 쓴다.
     func setCompactPopoverItems(_ items: [PopoverItemConfig], for service: PopoverService) {
         guard let catalog =
                 UsageItemCatalogRegistry.catalog(
@@ -853,6 +844,7 @@ class AppSettings: ObservableObject {
         else {
             return
         }
+        if !separateCompactConfig { separateCompactConfig = true }
         var dict = compactPopoverItemsByProvider
         dict[service.rawValue] = catalog.normalized(items)
         compactPopoverItemsByProvider = dict
@@ -1039,6 +1031,7 @@ class AppSettings: ObservableObject {
             $showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
             $resetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
             $timeFormat.map { _ in () }.eraseToAnyPublisher(),
+            $timeUnitLanguage.map { _ in () }.eraseToAnyPublisher(),
             $circularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
             $iconMetric.map { _ in () }.eraseToAnyPublisher(),
             $showClaudeIcon.map { _ in () }.eraseToAnyPublisher(),
@@ -1153,6 +1146,7 @@ class AppSettings: ObservableObject {
                 showBatteryPercent: showBatteryPercent,
                 resetTimeDisplay: resetTimeDisplay,
                 timeFormat: timeFormat,
+                timeUnitLanguage: timeUnitLanguage,
                 circularDisplayMode: circularDisplayMode,
                 iconMetric: iconMetric,
                 colorMode: menuBarColorMode, design: menuBarDesign, basisOverride: usageDisplayMode.basis
@@ -1166,6 +1160,7 @@ class AppSettings: ObservableObject {
                 showBatteryPercent: codexShowBatteryPercent,
                 resetTimeDisplay: codexResetTimeDisplay,
                 timeFormat: codexTimeFormat,
+                timeUnitLanguage: timeUnitLanguage,
                 circularDisplayMode: codexCircularDisplayMode,
                 iconMetric: codexIconMetric,
                 colorMode: menuBarColorMode, design: menuBarDesign, basisOverride: usageDisplayMode.basis
@@ -1406,12 +1401,17 @@ class AppSettings: ObservableObject {
 
     // MARK: - Actions
 
+    /// 표시, 알림, 동작 설정을 처음 설치한 상태로 되돌린다. 계정 연결, 서비스 사용 여부, 조직 선택,
+    /// 로그인 시 자동 시작은 사용자의 환경이라 건드리지 않는다.
     func resetToDefaults() {
         menuBarStyle = .none
+        menuBarColorMode = .always
+        for kind in [AppProviderKind.claude, .codex] { setResetCreditMenuBarMode(.always, for: kind) }
         percentageDisplay = .fiveHour
         showBatteryPercent = true
         resetTimeDisplay = .none
         timeFormat = .h24
+        timeUnitLanguage = .english
         circularDisplayMode = .usage
         iconMetric = .fiveHour
         Self.legacyAntigravityModelKeys.forEach(defaults.removeObject(forKey:))
@@ -1433,13 +1433,10 @@ class AppSettings: ObservableObject {
         popoverPinned = false
         popoverCompact = false
         motion = AppMotionPreferences()
-        launchAtLogin = false
-        preferredOrganizationID = ""
         popoverItemsByProvider = Self.defaultPopoverItemsDict()
         separateCompactConfig = false
         compactPopoverItemsByProvider = Self.defaultPopoverItemsDict()
         showCodexIcon = true
-        additionalRuntimeProvidersEnabled = false
         codexPercentageDisplay = .fiveHour
         codexResetTimeDisplay = .none
         codexTimeFormat = .h24
@@ -1449,7 +1446,6 @@ class AppSettings: ObservableObject {
         codexShowBatteryPercent = true
         codexAlertEnabled = false
         clearRuntimeProviderDefaults(for: .antigravity)
-        providerStates = AppProviderStateCatalog.defaultCatalog
         settingsLastTab = "common"
     }
 
@@ -1564,18 +1560,24 @@ class AppSettings: ObservableObject {
         let tf = defaults.string(forKey: "timeFormat") ?? TimeFormatStyle.h24.rawValue
         let resolvedTimeFormat = TimeFormatStyle(rawValue: tf) ?? .h24
         self.timeFormat = resolvedTimeFormat
+        self.timeUnitLanguage = TimeUnitLanguage.load(from: defaults)
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? false
         let storedAlertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
         self.alertRemainingMode = storedAlertRemainingMode
         self.notificationTargets = NotificationTargetPreferences.load(from: defaults)
-        // 기존 사용자는 끔, 새 사용자는 항상으로 시작한다.
-        self.resetCreditMenuBarModes =
-            defaults.dictionary(forKey: Self.resetCreditMenuBarKey) as? [String: String]
-            ?? Dictionary(
+        // 기존 사용자는 끔, 새 사용자는 항상으로 시작한다. 처음 정한 값을 저장해 두지 않으면 다음 실행부터
+        // 기존 설치로 판정돼 끔으로 바뀐다.
+        if let stored = defaults.dictionary(forKey: Self.resetCreditMenuBarKey) as? [String: String] {
+            self.resetCreditMenuBarModes = stored
+        } else {
+            let initial = Dictionary(
                 uniqueKeysWithValues: [AppProviderKind.claude, .codex].map {
                     ($0.rawValue, (experience.isExistingInstall ? ResetCreditMenuBarMode.off : .always).rawValue)
                 })
+            self.resetCreditMenuBarModes = initial
+            defaults.set(initial, forKey: Self.resetCreditMenuBarKey)
+        }
         self.notificationPresets = Self.migrateNotificationPresets(from: defaults, commonRemainingMode: storedAlertRemainingMode)
         let cdm = defaults.string(forKey: "circularDisplayMode") ?? CircularDisplayMode.usage.rawValue
         self.circularDisplayMode = CircularDisplayMode(rawValue: cdm) ?? .usage

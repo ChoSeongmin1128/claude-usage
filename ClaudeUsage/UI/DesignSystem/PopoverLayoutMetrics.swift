@@ -24,6 +24,7 @@ enum PopoverLayoutMetrics {
     static let standardBodyInsets = EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
     static let compactSectionSpacing: CGFloat = 3
     static let standardSectionSpacing: CGFloat = 12
+    static let standardRowMeterWidth: CGFloat = 148
     static let compactRowLabelWidth: CGFloat = 112
     static let compactRowMeterWidth: CGFloat = 150
     static let compactPercentageLabelWidth: CGFloat = 64
@@ -39,7 +40,6 @@ enum PopoverLayoutMetrics {
         compactStatusHeadingHeight + AppDesign.Space.control + compactStatusMessageHeight
     static let compactInteractiveStatusPanelHeight =
         AppDesign.Control.compactHitSize + AppDesign.Space.control + compactStatusMessageHeight
-    static let compactFixedContentBodyHeight: CGFloat = compactUsageRowHeight * 3 + compactSectionSpacing * 2
     static let compactMaximumVisibleRows = 5
     static let compactMinimumPopoverHeight: CGFloat = 96
     static let compactContentBottomSpacing: CGFloat = 5
@@ -280,23 +280,6 @@ enum PopoverLayoutMetrics {
             + dividerHeight
             + standardFooterContainerHeight
             + standardShortcutFooterHeight
-    }
-
-    static func compactSectionHeight(for kind: PopoverDisplaySectionKind) -> CGFloat {
-        switch kind {
-        case .usage:
-            return compactUsageRowHeight
-        case .credits, .resetCredits:
-            return compactCreditsRowHeight
-        case .overage:
-            return compactOverageRowHeight
-        case .account:
-            return compactOverageRowHeight
-        case .status:
-            return compactStatusRowHeight
-        case .accountPicker, .accountRow, .accountSummary:
-            return compactUsageRowHeight
-        }
     }
 
     static func standardSectionHeight(

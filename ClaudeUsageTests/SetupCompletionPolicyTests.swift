@@ -3,18 +3,17 @@ import XCTest
 
 @MainActor
 final class SetupCompletionPolicyTests: XCTestCase {
-    func testResolvePresentationUsesChromeImportByDefaultWhenChromeExists() {
+    func testResolvePresentationRecommendsBrowserImportFirst() {
         let presentation = SetupCompletionPolicy.resolvePresentation(
             hasReadyCredential: false,
             hasSuccessfulFetch: false,
             preferredOrganizationID: "",
-            cachedMetadata: nil,
-            hasChromeApp: true
+            cachedMetadata: nil
         )
 
         XCTAssertEqual(presentation.progress.stage, .credential)
-        XCTAssertEqual(presentation.credentialStep, .chromeImport)
-        XCTAssertEqual(presentation.primaryActionKind, .openChrome)
+        XCTAssertEqual(presentation.credentialStep, .browserImport)
+        XCTAssertEqual(presentation.primaryActionKind, .importFromBrowser)
         XCTAssertTrue(presentation.shouldShowWizard)
     }
 
@@ -24,7 +23,6 @@ final class SetupCompletionPolicyTests: XCTestCase {
             hasSuccessfulFetch: false,
             preferredOrganizationID: "",
             cachedMetadata: nil,
-            hasChromeApp: true,
             credentialStepOverride: .manualSessionKey
         )
 
@@ -39,8 +37,7 @@ final class SetupCompletionPolicyTests: XCTestCase {
             hasReadyCredential: true,
             hasSuccessfulFetch: true,
             preferredOrganizationID: "org-selected",
-            cachedMetadata: metadata,
-            hasChromeApp: true
+            cachedMetadata: metadata
         )
 
         XCTAssertEqual(presentation.progress.stage, .organization)
@@ -53,13 +50,12 @@ final class SetupCompletionPolicyTests: XCTestCase {
             hasReadyCredential: true,
             hasSuccessfulFetch: true,
             preferredOrganizationID: "",
-            cachedMetadata: ClaudeProfileMetadata(organizationUUID: "org-auto"),
-            hasChromeApp: false
+            cachedMetadata: ClaudeProfileMetadata(organizationUUID: "org-auto")
         )
 
         XCTAssertEqual(presentation.progress.stage, .complete)
         XCTAssertEqual(presentation.primaryActionKind, .complete)
-        XCTAssertEqual(presentation.organizationSummary, "자동 선택으로 바로 사용할 수 있습니다")
+        XCTAssertNil(presentation.organizationSummary)
         XCTAssertFalse(presentation.shouldShowWizard)
     }
 }

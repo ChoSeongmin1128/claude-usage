@@ -32,12 +32,3 @@ The captured output contained no email, token, or account identifier fields,
 and `conversation_id` was empty. The unsanitised output is not retained.
 
 This version-specific shape is not an upstream compatibility guarantee.
-
-## Legacy OAuth account fixture
-
-`legacy-oauth-user-shape-redacted.json`은 실제 `oauth_accounts.json`의 필드 구조,
-snake/camel case 혼용, 복수 계정 및 active account 형태만 재현한 결정적 fixture입니다.
-
-- 모든 identity는 `example.invalid` 도메인을 사용합니다.
-- token과 client secret은 실행 불가능한 `[redacted-*]` 표식입니다.
-- 실제 사용자 credential, token fingerprint 또는 Keychain payload를 포함하지 않습니다.

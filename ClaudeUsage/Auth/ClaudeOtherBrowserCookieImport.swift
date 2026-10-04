@@ -189,7 +189,7 @@ enum ClaudeBrowserImportCollector {
         case 0:
             return .manualSessionKeyRequired(
                 message:
-                    "\(family.displayName)에서 Claude 로그인 정보를 찾지 못했습니다. \(family.displayName)에서 claude.ai에 로그인되어 있는지 확인하세요."
+                    "\(family.displayName)에서 Claude 로그인을 찾지 못했습니다. \(family.displayName)에서 claude.ai에 로그인했는지 확인하세요."
             )
         case 1: return .importedSession(sessions[0])
         default: return .importedSessionCandidates(sessions)

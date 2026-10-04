@@ -165,6 +165,7 @@ nonisolated struct AntigravityCompactQuotaMetricPresentation:
     var resetAt: String? = nil
     var isWeekly = false
     var timeFormatStyle: TimeFormatStyle = .h24
+    var timeUnitLanguage: TimeUnitLanguage = .english
     var basis: UsageValueBasis = .used
 }
 

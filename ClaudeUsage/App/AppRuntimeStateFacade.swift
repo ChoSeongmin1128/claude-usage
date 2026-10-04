@@ -6,6 +6,7 @@ final class AppRuntimeStateFacade {
 
     private(set) var claudeRequestRevision = UUID()
     private var supplementalUsage: ClaudeSupplementalUsage?
+    private var overageFailure: (accountID: String, at: Date)?
 
     var currentOverage: OverageSpendLimitResponse? {
         supplementalUsage?.accountID == activeClaudeAccountID ? supplementalUsage?.value : nil
@@ -15,9 +16,16 @@ final class AppRuntimeStateFacade {
         supplementalUsage?.accountID == activeClaudeAccountID ? supplementalUsage?.fetchedAt : nil
     }
 
+    /// 실패한 조회도 간격 제한에 넣는다. 성공한 시각만 보면 계속 실패하는 계정은 조회할 때마다 다시 요청한다.
+    var lastOverageAttemptAt: Date? {
+        let failedAt = overageFailure?.accountID == activeClaudeAccountID ? overageFailure?.at : nil
+        return [lastOverageFetchAt, failedAt].compactMap { $0 }.max()
+    }
+
     func invalidateClaudeRequestContext() {
         claudeRequestRevision = UUID()
         supplementalUsage = nil
+        overageFailure = nil
     }
 
     func applyClaudeSupplementalUsage(_ result: ClaudeSupplementalRefreshResult, accountID: String) {
@@ -29,6 +37,7 @@ final class AppRuntimeStateFacade {
             supplementalUsage = ClaudeSupplementalUsage(accountID: accountID, value: value, fetchedAt: fetchedAt)
         case .failed:
             supplementalUsage?.lastRefreshFailed = true
+            overageFailure = (accountID, Date())
         }
     }
 
@@ -118,8 +127,7 @@ final class AppRuntimeStateFacade {
                             canAttemptRefresh
                     ),
                 isDetected:
-                    snapshot.settings != nil
-                        || !snapshot.accounts.isEmpty,
+                    snapshot.settings != nil,
                 canAttemptRefresh:
                     canAttemptRefresh,
                 hasAuthError:
@@ -151,9 +159,6 @@ final class AppRuntimeStateFacade {
         _ snapshot: AntigravityRuntimeSnapshot,
         canAttemptRefresh: Bool
     ) -> ProviderCredentialState {
-        if snapshot.activeAccountID != nil {
-            return .usable
-        }
         if canAttemptRefresh {
             return .refreshable
         }
@@ -214,18 +219,12 @@ final class AppRuntimeStateFacade {
         _ failure: AntigravityFailure
     ) -> Bool {
         switch failure {
-        case .authenticationRequired,
-             .selectedAccountUnavailable,
-             .selectedAccountIdentityUnavailable:
+        case .authenticationRequired:
             return true
         case .cancelled, .accountChanged,
              .appShuttingDown,
              .invalidRefreshContext,
              .generationExhausted,
-             .repositoryUnavailable,
-             .repositoryRevisionChanged,
-             .credentialCommitFailed,
-             .credentialCommitAmbiguous,
              .noEligibleSource,
              .sourceUnavailable,
              .interactionRequired,

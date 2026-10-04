@@ -26,8 +26,8 @@ nonisolated enum WhatsNewCatalog {
             body: "일반, 계정, 한도, 모양, 업데이트로 나눴습니다. 한도 표에서 한도마다 메뉴바, 팝오버, 알림을 한 줄로 고릅니다.",
             action: .openSettings(.limits), actionTitle: "한도 설정 열기"),
         WhatsNewPage(
-            version: "2.8.0", symbol: "clock", title: "남은 시간 1:23 형식",
-            body: "시간 형식을 모든 서비스가 함께 씁니다. 남은 시간을 1:23처럼 짧게 보거나 주간 한도를 3d 02:12로 볼 수 있습니다.",
+            version: "2.8.0", symbol: "clock", title: "남은 시간, 짧게",
+            body: "하루 미만은 14:22, 하루 이상은 3d:14로 표시합니다. 단위는 한국어와 영어 중에서 고릅니다.",
             action: .openSettings(.common), actionTitle: "일반 설정 열기"),
         WhatsNewPage(
             version: "2.8.0", symbol: "arrow.triangle.2.circlepath", title: "상황에 맞춘 자동 확인",
@@ -39,14 +39,14 @@ nonisolated enum WhatsNewCatalog {
         WhatsNewPage(
             version: "2.8.0", symbol: "person.2", title: "여러 계정",
             body:
-                "계정 패널에서 여러 계정을 켜면 팝오버에 여러 계정의 한도가 함께 나옵니다. Chrome 말고 Brave, Edge, Safari, Claude 앱의 로그인도 가져오고, 다른 폴더에 로그인해 둔 Claude Code나 Codex를 기본 로그인으로 바꿀 수 있습니다.",
+                "서비스별로 여러 계정의 사용량을 함께 볼 수 있습니다. Chrome 말고 Brave, Edge, Safari, Claude 앱의 로그인도 가져오고, 다른 폴더에 로그인해 둔 Claude Code나 Codex를 기본 로그인으로 바꿀 수 있습니다.",
             action: .openSettings(.accounts), actionTitle: "계정 설정 열기"),
     ]
 
     static func notesText(_ note: UpdateNotesQueue.Note) -> (version: String, title: String, text: String) {
         switch note {
         case .timeFormatUnified:
-            return ("2.8.0", "남은 시간 1:23 형식", "서비스마다 달랐던 시간 형식은 Claude 설정 값으로 맞췄습니다.")
+            return ("2.8.0", "남은 시간, 짧게", "서비스마다 달랐던 시간 형식은 Claude 설정 값으로 맞췄습니다.")
         }
     }
 

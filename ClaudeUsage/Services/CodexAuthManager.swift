@@ -129,12 +129,7 @@ private nonisolated struct CodexAuthJSONStore: Sendable {
     }
 
     private static func jwtExpirationDate(from token: String) -> Date? {
-        let parts = token.split(separator: ".")
-        guard parts.count >= 2,
-              let payloadData = base64URLDecode(String(parts[1])),
-              let payload = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any] else {
-            return nil
-        }
+        guard let payload = JWTClaims.decode(token) else { return nil }
 
         if let exp = payload["exp"] as? Double {
             return Date(timeIntervalSince1970: exp)
@@ -143,17 +138,6 @@ private nonisolated struct CodexAuthJSONStore: Sendable {
             return Date(timeIntervalSince1970: TimeInterval(exp))
         }
         return nil
-    }
-
-    private static func base64URLDecode(_ value: String) -> Data? {
-        var base64 = value
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        let padding = (4 - base64.count % 4) % 4
-        if padding > 0 {
-            base64 += String(repeating: "=", count: padding)
-        }
-        return Data(base64Encoded: base64)
     }
 }
 
@@ -197,8 +181,13 @@ nonisolated final class CodexAuthManager: @unchecked Sendable {
     }
 
     static func defaultAuthJsonPath() -> String {
+        defaultHomeURL.appendingPathComponent("auth.json").path
+    }
+
+    /// 기본 CODEX_HOME(`~/.codex`). Codex CLI와 ChatGPT 앱이 함께 쓴다.
+    static var defaultHomeURL: URL {
         let home = getpwuid(getuid()).map { String(cString: $0.pointee.pw_dir) } ?? NSHomeDirectory()
-        return URL(fileURLWithPath: home).appendingPathComponent(".codex/auth.json").path
+        return URL(fileURLWithPath: home).appendingPathComponent(".codex", isDirectory: true)
     }
 
     func getToken() -> CodexAuthToken? { cachedSnapshot?.token }

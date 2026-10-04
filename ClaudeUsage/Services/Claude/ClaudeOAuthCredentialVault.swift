@@ -200,13 +200,13 @@ nonisolated final class SecurityFrameworkClaudeOAuthLegacyCredentialMigrator:
         let payload: String
         do {
             guard let loaded = try legacyPayloadLoader(context), !loaded.isEmpty else {
-                return .failed("이전할 Claude Code 연결 정보를 찾지 못했습니다. Claude Code에 다시 로그인해 주세요.")
+                return .failed("옮길 Claude Code 로그인을 찾지 못했습니다. Claude Code에 다시 로그인하세요.")
             }
             guard let encoded = ClaudeOAuthCredentialVaultPayload.encode(
                 credentialPayload: loaded,
                 ownership: .appManaged
             ) else {
-                return .failed("기존 Claude Code 연결 정보가 유효하지 않습니다. Claude Code에 다시 로그인해 주세요.")
+                return .failed("기존 Claude Code 로그인이 올바르지 않습니다. Claude Code에 다시 로그인하세요.")
             }
             payload = encoded
         } catch let error as ClaudeOAuthLegacyAccessError {
@@ -214,10 +214,10 @@ nonisolated final class SecurityFrameworkClaudeOAuthLegacyCredentialMigrator:
             case .cancelled:
                 return .cancelled
             case .status:
-                return .failed("기존 Claude Code 연결 정보를 읽지 못했습니다. Claude Code에 다시 로그인해 주세요.")
+                return .failed("기존 Claude Code 로그인을 읽지 못했습니다. Claude Code에 다시 로그인하세요.")
             }
         } catch {
-            return .failed("기존 Claude Code 연결 정보를 읽지 못했습니다. Claude Code에 다시 로그인해 주세요.")
+            return .failed("기존 Claude Code 로그인을 읽지 못했습니다. Claude Code에 다시 로그인하세요.")
         }
 
         do {

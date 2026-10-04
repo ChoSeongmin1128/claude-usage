@@ -13,48 +13,16 @@ nonisolated enum CatalogPopoverPresentationAdapter {
             return nil
         case .authRequired:
             if service == .claude {
-                switch claudeCodeCredentialIssue {
-                case .reconnectRequired:
-                    return summary(
-                        icon: "arrow.triangle.2.circlepath",
-                        tone: .warning,
-                        title: "Claude Code 다시 연결 필요",
-                        message:
-                            "Claude Code 로그인은 그대로입니다. 다시 연결해 주세요.",
-                        actionTitle: "다시 연결",
-                        action: .startClaudeLogin,
-                        actionIsProminent: true
-                    )
-                case .reauthenticationRequired:
-                    return summary(
-                        icon: "person.badge.key",
-                        tone: .warning,
-                        title: "Claude Code 다시 로그인 필요",
-                        message:
-                            "터미널에서 `claude auth login`을 실행한 뒤 다시 연결해 주세요.",
-                        actionTitle: "다시 연결",
-                        action: .startClaudeLogin,
-                        actionIsProminent: true
-                    )
-                case nil:
-                    return summary(
-                        icon: "person.badge.key",
-                        tone: .warning,
-                        title: "Claude 로그인 필요",
-                        message:
-                            "브라우저 또는 Claude Code 로그인을 연결해 주세요.",
-                        actionTitle: "로그인 시작",
-                        action: .startClaudeLogin,
-                        actionIsProminent: true
-                    )
-                }
+                return claudeAuthRequiredSummary(
+                    claudeCodeCredentialIssue: claudeCodeCredentialIssue
+                )
             }
             return summary(
                 icon: "lock.shield",
                 tone: .warning,
-                title: "연결 필요",
+                title: "로그인 필요",
                 message:
-                    "인증이 필요합니다. 설정에서 연결을 다시 확인해 주세요.",
+                    "설정에서 로그인을 확인하세요.",
                 actionTitle: "설정 열기",
                 action: .openSettings,
                 actionIsProminent: true
@@ -62,9 +30,8 @@ nonisolated enum CatalogPopoverPresentationAdapter {
         case .loading:
             return summary(
                 showsProgress: true,
-                title: "데이터 로딩 중",
-                message:
-                    "현재 연결 상태를 확인하고 있습니다."
+                title: "불러오는 중",
+                message: nil
             )
         case .error:
             guard let error else {
@@ -102,10 +69,53 @@ nonisolated enum CatalogPopoverPresentationAdapter {
             icon: "slider.horizontal.3",
             title: "표시할 항목 없음",
             message:
-                "표시 편집에서 최소 한 항목을 선택해 주세요.",
+                "표시 편집에서 한 항목 이상 고르세요.",
             actionTitle: "표시 편집",
             action: .openDisplayEditor
         )
+    }
+
+    // 팝오버 미인증 패널의 간소화/일반 보기가 같은 문구를 쓴다.
+    static func claudeAuthRequiredSummary(
+        claudeCodeCredentialIssue: ClaudeCodeCredentialIssue?
+    ) -> ProviderRuntimeSummary {
+        switch claudeCodeCredentialIssue {
+        case .reconnectRequired:
+            return summary(
+                icon: "arrow.triangle.2.circlepath",
+                tone: .warning,
+                title: "Claude Code 다시 연결 필요",
+                message:
+                    "Claude Code 로그인을 다시 가져와야 합니다.",
+                actionTitle: "다시 연결",
+                action: .startClaudeLogin,
+                actionIsProminent: true
+            )
+        case .reauthenticationRequired:
+            return summary(
+                icon: "person.badge.key",
+                tone: .warning,
+                title: "Claude Code 로그인 만료",
+                message:
+                    "터미널에서 `claude auth login`을 실행한 뒤 다시 연결하세요.",
+                actionTitle: "다시 연결",
+                action: .startClaudeLogin,
+                actionIsProminent: true
+            )
+        case .executableNotFound:
+            return claudeExecutableNotFoundSummary()
+        case nil:
+            return summary(
+                icon: "person.badge.key",
+                tone: .warning,
+                title: "Claude 로그인 필요",
+                message:
+                    "브라우저, Claude 앱, Claude Code 로그인을 가져옵니다.",
+                actionTitle: "로그인 시작",
+                action: .startClaudeLogin,
+                actionIsProminent: true
+            )
+        }
     }
 
     private static func errorSummary(
@@ -122,7 +132,7 @@ nonisolated enum CatalogPopoverPresentationAdapter {
                     title:
                         "Claude Code 로그인 만료",
                     message:
-                        "터미널에서 `claude auth login`을 다시 실행한 뒤 사용량 새로고침을 눌러 주세요."
+                        "터미널에서 `claude auth login`을 실행한 뒤 새로고침하세요."
                 )
             case .claude:
                 return summary(
@@ -131,9 +141,9 @@ nonisolated enum CatalogPopoverPresentationAdapter {
                     tone: .critical,
                     title: "Claude 로그인 만료",
                     message:
-                        "Claude.ai 로그인이 만료됐습니다. 메뉴바의 'Claude 로그인 시작'으로 다시 연결해 주세요.",
+                        "claude.ai 로그인이 만료됐습니다.",
                     actionTitle:
-                        "Claude 로그인 시작",
+                        "로그인 시작",
                     action:
                         .startClaudeLogin,
                     actionIsProminent: true
@@ -143,74 +153,72 @@ nonisolated enum CatalogPopoverPresentationAdapter {
                     title:
                         "Codex 로그인 만료",
                     message:
-                        "터미널에서 `codex login`을 다시 실행한 뒤 사용량 새로고침을 눌러 주세요."
+                        "터미널에서 `codex login`을 실행한 뒤 새로고침하세요."
                 )
             case .antigravity:
                 return settingsFailure(
                     title:
-                        "Antigravity 연결 필요",
+                        "Antigravity 다시 연결 필요",
                     message:
-                        "Antigravity 연결 토큰이 만료됐거나 Google 계정 연결을 갱신할 수 없습니다. 설정에서 연결 상태를 확인해 주세요."
+                        "설정에서 Antigravity를 다시 연결하세요."
                 )
             }
         case .claudeCodeCredentialUnavailable:
             return settingsFailure(
                 title:
-                    "Claude Code 자격 증명 없음",
+                    "Claude Code 로그인 없음",
                 message:
-                    "Claude Code 로그인 정보를 찾을 수 없습니다. 터미널에서 `claude auth login`을 실행한 뒤 다시 확인해 주세요."
+                    "터미널에서 `claude auth login`을 실행하세요."
             )
         case .claudeCodeReauthenticationRequired:
             return settingsFailure(
                 title:
-                    "Claude Code 인증 갱신 필요",
+                    "Claude Code 로그인 만료",
                 message:
-                    "로그인 파일은 있지만 refresh token이 더 이상 유효하지 않습니다. 터미널에서 `claude auth login`을 한 번 다시 실행해 주세요."
+                    "터미널에서 `claude auth login`을 실행하세요."
             )
         case .claudeCodeReconnectRequired:
             return settingsFailure(
                 title:
-                    "Claude Code 연결 확인 필요",
+                    "Claude Code 다시 연결 필요",
                 message:
-                    "Claude Code 로그인은 유지되고 있지만 현재 연결 정보를 사용할 수 없습니다. 설정에서 다시 연결해 주세요."
+                    "설정에서 Claude Code를 다시 연결하세요."
             )
-        case .codexReauthRequired(let reason):
+        case .claudeCodeExecutableNotFound:
+            return claudeExecutableNotFoundSummary()
+        case .codexReauthRequired:
             return settingsFailure(
                 title:
-                    "Codex 재로그인 필요",
+                    "Codex 로그인 만료",
                 message:
-                    "Codex 토큰이 영구 무효화됐습니다. 터미널에서 `codex login`을 다시 실행해 주세요. (\(reason))"
+                    "터미널에서 `codex login`을 실행하세요."
             )
-        case .codexTokenRefreshTemporary(
-            let reason
-        ):
+        case .codexTokenRefreshTemporary:
             return retryFailure(
-                title: "Codex 갱신 일시 실패",
+                title: "Codex 응답 없음",
                 message:
-                    reason.isEmpty
-                    ? "Codex 토큰 갱신 서버가 일시적으로 응답하지 않았습니다. 잠시 후 자동 재시도합니다."
-                    : "Codex 토큰 갱신 서버가 일시적으로 응답하지 않았습니다. 잠시 후 자동 재시도합니다. (\(reason))",
+                    "Codex 서버가 응답하지 않습니다. 잠시 뒤 다시 시도합니다.",
                 actionTitle: "지금 다시 시도"
             )
         case .cloudflareBlocked(let retryAfter):
             return retryFailure(
-                title: "일시 차단됨",
+                title: "요청 막힘",
                 message:
-                    "Cloudflare가 잠시 호출을 차단했습니다. \(formatRetryDuration(retryAfter)) 자동 재시도합니다.",
+                    "요청이 잠시 막혔습니다. \(formatRetryDuration(retryAfter)) 다시 시도합니다.",
                 actionTitle: "지금 다시 시도"
             )
         case .rateLimited(let retryAfter):
             return retryFailure(
-                title: "조회 한도 도달",
+                title: "요청 제한",
                 message:
-                    "\(service.displayName) 사용량 조회가 잠시 제한됐습니다. \(formatRetryDuration(retryAfter)) 자동 재시도합니다.",
+                    "\(service.displayName) 사용량 조회가 잠시 제한됐습니다. \(formatRetryDuration(retryAfter)) 다시 시도합니다.",
                 actionTitle: "지금 다시 시도"
             )
         case .networkError(let detail):
             return retryFailure(
                 title: "네트워크 오류",
                 message:
-                    "인터넷 연결을 확인해 주세요. (\(detail))"
+                    "인터넷 연결을 확인하세요. (\(detail))"
             )
         case .permissionDenied(let detail):
             return summary(
@@ -220,7 +228,7 @@ nonisolated enum CatalogPopoverPresentationAdapter {
                 title: "조회 권한 없음",
                 message:
                     detail.isEmpty
-                    ? "이 계정으로 해당 사용량 API를 호출할 권한이 없습니다."
+                    ? "이 계정은 사용량을 볼 권한이 없습니다."
                     : detail,
                 actionTitle: "설정 열기",
                 action: .openSettings
@@ -229,13 +237,13 @@ nonisolated enum CatalogPopoverPresentationAdapter {
             return retryFailure(
                 title: "응답 형식 변경",
                 message:
-                    "응답 형식이 달라 파싱하지 못했습니다. 앱 업데이트가 있는지 확인해 주세요."
+                    "응답을 읽지 못했습니다. 앱을 업데이트하세요."
             )
         case .serverError(let code):
             return retryFailure(
                 title: "서버 오류",
                 message:
-                    "원격 서버가 HTTP \(code)로 응답했습니다. 잠시 후 다시 시도해 주세요."
+                    "서버가 오류(HTTP \(code))를 보냈습니다. 잠시 뒤 다시 시도하세요."
             )
         case .unknownError(let detail):
             return retryFailure(
@@ -246,6 +254,13 @@ nonisolated enum CatalogPopoverPresentationAdapter {
                     : detail
             )
         }
+    }
+
+    private static func claudeExecutableNotFoundSummary() -> ProviderRuntimeSummary {
+        summary(
+            icon: "terminal", tone: .warning, title: "Claude Code를 찾지 못함",
+            message: ClaudeCodeCredentialIssue.executableNotFoundExplanation,
+            actionTitle: "설정 열기", action: .openSettings)
     }
 
     private static func settingsFailure(
@@ -304,7 +319,7 @@ nonisolated enum CatalogPopoverPresentationAdapter {
             .secondary,
         showsProgress: Bool = false,
         title: String,
-        message: String,
+        message: String?,
         actionTitle: String? = nil,
         action: ProviderRuntimeSummary.Action? =
             nil,

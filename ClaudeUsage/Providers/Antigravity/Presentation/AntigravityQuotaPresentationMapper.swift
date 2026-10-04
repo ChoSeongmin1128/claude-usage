@@ -6,6 +6,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         snapshot: AntigravityQuotaSnapshot,
         settings: AntigravityDisplaySettings,
         basisOverride: UsageValueBasis? = nil,
+        unitLanguage: TimeUnitLanguage = .english,
         context requestedContext:
             AntigravityQuotaPresentationContext? = nil,
         now: Date = Date(),
@@ -23,6 +24,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             from: snapshot.lanes,
             basis: basisOverride ?? .antigravity(settings.menuBar),
             timeFormat: settings.menuBar.timeFormat,
+            unitLanguage: unitLanguage,
             now: now,
             locale: locale,
             timeZone: timeZone
@@ -64,7 +66,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                 }
 
         let compact = compactPresentation(
-            selectedLanes: compactLanes, allGroups: allGroups, timeFormat: settings.menuBar.timeFormat
+            selectedLanes: compactLanes, allGroups: allGroups, timeFormat: settings.menuBar.timeFormat,
+            unitLanguage: unitLanguage
         )
         let menuBar = menuBarPresentation(
             selectedLanes:
@@ -74,6 +77,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             groups: groups,
             identityRail: identityRail,
             settings: settings,
+            unitLanguage: unitLanguage,
             now: now,
             locale: locale,
             timeZone: timeZone
@@ -95,6 +99,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         state: AntigravityPresentationState,
         settings: AntigravityDisplaySettings,
         basisOverride: UsageValueBasis? = nil,
+        unitLanguage: TimeUnitLanguage = .english,
         now: Date = Date(),
         locale: Locale = Locale(identifier: "ko_KR"),
         timeZone: TimeZone = .autoupdatingCurrent
@@ -146,6 +151,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                 snapshot: snapshot,
                 settings: settings,
                 basisOverride: basisOverride,
+                unitLanguage: unitLanguage,
                 context: context,
                 now: now,
                 locale: locale,
@@ -158,6 +164,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         from lanes: [AntigravityQuotaLane],
         basis: UsageValueBasis,
         timeFormat: AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat,
+        unitLanguage: TimeUnitLanguage,
         now: Date,
         locale: Locale,
         timeZone: TimeZone
@@ -171,6 +178,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                         from: $0,
                         basis: basis,
                         timeFormat: timeFormat,
+                        unitLanguage: unitLanguage,
                         now: now,
                         locale: locale,
                         timeZone: timeZone
@@ -189,6 +197,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         from lane: AntigravityQuotaLane,
         basis: UsageValueBasis,
         timeFormat: AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat,
+        unitLanguage: TimeUnitLanguage,
         now: Date,
         locale: Locale,
         timeZone: TimeZone
@@ -198,6 +207,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         let resetText = resetText(
             for: lane,
             timeFormat: timeFormat,
+            unitLanguage: unitLanguage,
             now: now,
             locale: locale,
             timeZone: timeZone
@@ -455,7 +465,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
     private static func compactPresentation(
         selectedLanes: [AntigravityQuotaLanePresentation],
         allGroups: [AntigravityQuotaGroupPresentation],
-        timeFormat: AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat
+        timeFormat: AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat,
+        unitLanguage: TimeUnitLanguage
     ) -> AntigravityCompactQuotaPresentation {
         // A model's sole weekly lane follows Claude's model-only compact label.
         // Use the full inventory so hiding another cadence cannot rename this row.
@@ -484,6 +495,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                     resetAt: lane.resetAt.map { ISO8601DateFormatter().string(from: $0) },
                     isWeekly: lane.cadence == .weekly,
                     timeFormatStyle: TimeFormatStyle(rawValue: timeFormat.rawValue) ?? .h24,
+                    timeUnitLanguage: unitLanguage,
                     basis: lane.basis
             )
         }
@@ -502,6 +514,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         identityRail: ProviderIdentityRailProjection,
         settings: AntigravityDisplaySettings,
         basisOverride: UsageValueBasis? = nil,
+        unitLanguage: TimeUnitLanguage,
         now: Date,
         locale: Locale,
         timeZone: TimeZone
@@ -546,6 +559,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                     menuBarResetText(
                         lane,
                         timeFormat: settings.menuBar.timeFormat,
+                        unitLanguage: unitLanguage,
                         now: now,
                         locale: locale,
                         timeZone: timeZone
@@ -563,6 +577,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
                 return menuBarResetText(
                     lane,
                     timeFormat: settings.menuBar.timeFormat,
+                    unitLanguage: unitLanguage,
                     now: now,
                     locale: locale,
                     timeZone: timeZone
@@ -641,14 +656,10 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             break
         case .refreshing:
             statusLabels.append("갱신 중")
-            statusDetails.append(
-                "마지막으로 확인한 한도를 유지하며 새 한도를 확인 중입니다."
-            )
+            statusDetails.append("새 한도를 확인하는 중")
         case .stale:
-            statusLabels.append("이전 데이터")
-            statusDetails.append(
-                "최근 갱신에 실패해 마지막으로 확인한 한도를 표시합니다."
-            )
+            statusLabels.append(UsageStatusLabel.previousValue)
+            statusDetails.append("조회에 실패해 마지막으로 읽은 한도를 보여줍니다.")
             tone = .attention
         }
 
@@ -742,6 +753,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
     private static func resetText(
         for lane: AntigravityQuotaLane,
         timeFormat: AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat,
+        unitLanguage: TimeUnitLanguage,
         now: Date,
         locale: Locale,
         timeZone: TimeZone
@@ -756,7 +768,8 @@ nonisolated enum AntigravityQuotaPresentationMapper {
             now: now,
             locale: locale,
             timeZone: timeZone,
-            label: nil
+            label: nil,
+            unitLanguage: unitLanguage
         )
     }
 
@@ -764,6 +777,7 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         _ lane: AntigravityQuotaLanePresentation,
         timeFormat:
             AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat,
+        unitLanguage: TimeUnitLanguage,
         now: Date,
         locale: Locale,
         timeZone: TimeZone
@@ -774,11 +788,12 @@ nonisolated enum AntigravityQuotaPresentationMapper {
         switch timeFormat {
         case .remaining, .remainingClock, .remainingTotalClock:
             // 남은 시간 표기는 Claude, Codex와 같은 형식을 쓴다.
-            guard resetAt.timeIntervalSince(now) > 0 else { return "갱신 시각 확인 필요" }
+            if resetAt.timeIntervalSince(now) <= 0, timeFormat != .remainingClock { return "곧 초기화" }
             return TimeFormatter.formatRemaining(
                 until: resetAt, now: now,
                 style: TimeFormatStyle(rawValue: timeFormat.rawValue) ?? .remaining,
-                isWeekly: lane.cadence != .fiveHour && resetAt.timeIntervalSince(now) > 86400)
+                isWeekly: lane.cadence != .fiveHour && resetAt.timeIntervalSince(now) > 86400,
+                unitLanguage: unitLanguage)
         case .h24:
             return formattedMenuBarResetDate(
                 resetAt,

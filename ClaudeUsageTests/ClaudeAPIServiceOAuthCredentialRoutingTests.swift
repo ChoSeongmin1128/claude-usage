@@ -156,24 +156,51 @@ final class ClaudeAPIServiceOAuthCredentialRoutingTests: XCTestCase {
         }
     }
 
-    func testExplicitInventoryRefreshReadsOAuthForBrowserAccount() async {
+    func testExplicitInventoryRefreshForWebAccountNeverReadsOrRefreshesInactiveCLI() async {
         let (store, defaults, suite) = makeStore()
         defer { defaults.removePersistentDomain(forName: suite) }
         let web = store.upsertWebSessionAccount(sessionKey: "sk-ant-browser", setActive: true)
+        _ = store.upsertClaudeCodeExternalAccount(validationState: .detected, setActiveIfMissing: false)
         let webID = web.id
-        let reader = OAuthReaderSpy(token: "oauth-token")
+        let reader = OAuthReaderSpy(token: nil, executableNotFound: true)
         let service = ClaudeAPIService(
-            accountStore: store,
-            oauthCredentialReader: reader,
-            sessionKeyLoader: { accountID in accountID == webID ? "sk-ant-browser" : nil }
-        )
+            accountStore: store, oauthCredentialReader: reader,
+            sessionKeyLoader: { $0 == webID ? "sk-ant-browser" : nil })
 
-        _ = await service.fetchUsageHealthSnapshot(refreshOAuthCredentialInventory: true)
+        let snapshot = await service.fetchUsageHealthSnapshot(refreshOAuthCredentialInventory: true)
 
         let readCount = await reader.readCount
         let refreshCount = await reader.refreshCount
-        XCTAssertEqual(readCount, 0)
-        XCTAssertEqual(refreshCount, 1)
+        XCTAssertEqual(readCount, 0, "실패 뒤 fallback read에도 도달하지 않아야 합니다")
+        XCTAssertEqual(refreshCount, 0)
+        XCTAssertTrue(snapshot.runtime.credentialAvailability.sessionCredentialAvailable)
+        XCTAssertTrue(snapshot.runtime.credentialAvailability.oauthCredentialAvailable)
+        XCTAssertNil(snapshot.runtime.claudeCodeCredentialIssue)
+        XCTAssertEqual(snapshot.activeAccountID, web.id)
+    }
+
+    func testMissingExecutableRemainsDistinctFromRejectedLoginInUsageAndHealth() async {
+        let (store, defaults, suite) = makeStore()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let cli = store.upsertClaudeCodeExternalAccount(validationState: .verified, setActiveIfMissing: true)
+        let reader = OAuthReaderSpy(token: nil, executableNotFound: true)
+        let service = ClaudeAPIService(
+            accountStore: store, oauthCredentialReader: reader, sessionKeyLoader: { _ in nil })
+
+        let snapshot = await service.fetchUsageHealthSnapshot(refreshOAuthCredentialInventory: true)
+        XCTAssertEqual(snapshot.runtime.claudeCodeCredentialIssue, .executableNotFound)
+        XCTAssertEqual(store.activeAccount()?.id, cli.id)
+        XCTAssertEqual(store.activeAccount()?.lastValidationState, .verified)
+        let readsBeforeUsage = await reader.readCount
+        do {
+            _ = try await service.fetchUsageWithRetry(maxAttempts: 3)
+            XCTFail("실행 파일 없음은 로그인 없음으로 바뀌면 안 됩니다")
+        } catch let error as APIError {
+            guard case .claudeCodeExecutableNotFound = error else { return XCTFail("잘못된 오류: \(error)") }
+            XCTAssertFalse(error.isDefinitiveAuthFailure)
+        } catch { XCTFail("APIError가 아닙니다: \(error)") }
+        let readsAfterUsage = await reader.readCount
+        XCTAssertEqual(readsAfterUsage - readsBeforeUsage, 1, "같은 요청에서 실행 파일 탐색을 반복하지 않습니다")
     }
 
     func testClaudeCodePreviewUsesStoredInventoryWithoutReadingOAuthCredential() async {
@@ -299,6 +326,7 @@ private actor OAuthReaderSpy: ClaudeOAuthCredentialReading {
     private let token: String?
     private let requiresReauthentication: Bool
     private let requiresReconnect: Bool
+    private let executableNotFound: Bool
     private let importResult: ClaudeOAuthCredentialImportResult?
     private(set) var readCount = 0
     private(set) var refreshCount = 0
@@ -308,16 +336,19 @@ private actor OAuthReaderSpy: ClaudeOAuthCredentialReading {
         token: String?,
         requiresReauthentication: Bool = false,
         requiresReconnect: Bool = false,
+        executableNotFound: Bool = false,
         importResult: ClaudeOAuthCredentialImportResult? = nil
     ) {
         self.token = token
         self.requiresReauthentication = requiresReauthentication
         self.requiresReconnect = requiresReconnect
+        self.executableNotFound = executableNotFound
         self.importResult = importResult
     }
 
     func readAccessToken() async throws -> String? {
         readCount += 1
+        if executableNotFound { throw ClaudeOAuthCredentialReadError.executableNotFound }
         if requiresReauthentication {
             throw ClaudeOAuthCredentialReadError.reauthenticationRequired
         }
@@ -329,6 +360,7 @@ private actor OAuthReaderSpy: ClaudeOAuthCredentialReading {
 
     func refreshCredentialInventoryWithoutUI() async throws -> ClaudeOAuthCredentialInventoryRefresh {
         refreshCount += 1
+        if executableNotFound { throw ClaudeOAuthCredentialReadError.executableNotFound }
         return ClaudeOAuthCredentialInventoryRefresh(
             accessToken: token,
             credentialChanged: false
@@ -336,6 +368,7 @@ private actor OAuthReaderSpy: ClaudeOAuthCredentialReading {
     }
 
     func forceRefreshAccessToken() async throws -> String? {
+        if executableNotFound { throw ClaudeOAuthCredentialReadError.executableNotFound }
         if requiresReauthentication {
             throw ClaudeOAuthCredentialReadError.reauthenticationRequired
         }

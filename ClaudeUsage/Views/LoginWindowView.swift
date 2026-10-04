@@ -56,6 +56,7 @@ struct LoginWindowView: View {
         case chromeCandidates([ClaudeBrowserImportedSession])
         case chromeUnavailable(message: String)
         case fullDiskAccess
+        case chromeActivating
         case embeddedWeb
         case cliActivating
         case success(ActivationSummary)
@@ -138,9 +139,6 @@ struct LoginWindowView: View {
             didStartOnAppearFlow = true
             applyOpenIntent()
         }
-        .task {
-            if !startCLIActivationOnOpen { await preloadCLIPreviewIfNeeded() }
-        }
         .onDisappear { taskScope.cancel() }
     }
 
@@ -172,9 +170,6 @@ struct LoginWindowView: View {
             if case .embeddedWeb = step, isEmbeddedActivating {
                 ProgressView()
                     .controlSize(.small)
-                Text("Claude 사용량 조회 확인 중...")
-                    .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, AppDesign.Space.section)
@@ -193,9 +188,9 @@ struct LoginWindowView: View {
     private var headerTitle: String {
         switch step {
         case .methodSelection: return "Claude 로그인"
-        case .chromeImporting, .chromeCandidates, .chromeUnavailable, .fullDiskAccess:
+        case .chromeImporting, .chromeCandidates, .chromeUnavailable, .fullDiskAccess, .chromeActivating:
             return "\(familyName)에서 가져오기"
-        case .embeddedWeb: return "Claude.ai에서 직접 로그인"
+        case .embeddedWeb: return "앱에서 로그인"
         case .cliActivating: return "Claude Code 로그인 사용"
         case .success: return "연결 완료"
         case .failure: return "로그인 실패"
@@ -203,24 +198,15 @@ struct LoginWindowView: View {
     }
 
     private var headerSubtitle: String? {
-        switch step {
-        case .methodSelection: return "로그인 방법을 선택해 주세요"
-        case .chromeImporting: return "\(familyName)에 저장된 Claude 로그인을 찾는 중..."
-        case .chromeCandidates(let list): return "이 앱에서 사용할 계정을 선택해 주세요 (\(list.count)개)"
-        case .chromeUnavailable: return "\(familyName)에서 가져올 수 없습니다"
-        case .fullDiskAccess: return "전체 디스크 접근 권한이 필요합니다"
-        case .embeddedWeb: return "로그인이 끝나면 자동으로 가져옵니다"
-        case .cliActivating: return "터미널 인증 정보를 사용 중..."
-        case .success: return "사용량 조회가 확인되었습니다"
-        case .failure: return nil
-        }
+        if case .embeddedWeb = step { return "로그인이 끝나면 자동으로 가져옵니다" }
+        return nil
     }
 
     // MARK: - Footer
 
     private var footerBar: some View {
         HStack(spacing: AppDesign.Space.label) {
-            Button("고급 설정") {
+            Button("직접 입력") {
                 onOpenAdvancedSettings()
             }
             .buttonStyle(.borderless)
@@ -241,7 +227,9 @@ struct LoginWindowView: View {
     private var contentArea: some View {
         switch step {
         case .methodSelection:
+            // Claude Code 연결로 바로 열렸다가 돌아와도 카드가 쓸 수 있게 이 화면을 볼 때 불러온다.
             methodSelectionView
+                .task { await preloadCLIPreviewIfNeeded() }
         case .chromeImporting:
             chromeImportingView
         case .chromeCandidates(let candidates):
@@ -250,10 +238,12 @@ struct LoginWindowView: View {
             chromeUnavailableView(message: message)
         case .fullDiskAccess:
             fullDiskAccessView
+        case .chromeActivating:
+            activatingView(message: "로그인을 확인하는 중...")
         case .embeddedWeb:
             embeddedWebView
         case .cliActivating:
-            cliActivatingView
+            activatingView(message: "Claude Code 로그인을 확인하는 중...")
         case .success(let summary):
             successView(summary)
         case .failure(let context):
@@ -270,7 +260,7 @@ struct LoginWindowView: View {
                     icon: "globe",
                     iconTint: .blue,
                     title: "브라우저에서 가져오기",
-                    subtitle: "기본 브라우저나 Claude 앱의 Claude 로그인을 가져옵니다 · macOS 확인은 최대 한 번만 요청합니다",
+                    subtitle: "기본 브라우저나 Claude 앱의 로그인을 가져옵니다. macOS가 암호를 한 번 물을 수 있습니다.",
                     badge: "권장",
                     action: { startChromeImport() }
                 )
@@ -280,7 +270,7 @@ struct LoginWindowView: View {
                     iconTint: .purple,
                     title: "Claude Code 로그인 사용",
                     subtitle: cliCardSubtitle,
-                    badge: cliPreview == nil ? nil : "감지됨",
+                    badge: cliPreview == nil ? nil : "로그인됨",
                     isEnabled: didLoadCLIPreview,
                     action: { startCLIActivation() }
                 )
@@ -288,8 +278,8 @@ struct LoginWindowView: View {
                 methodCard(
                     icon: "key.horizontal",
                     iconTint: .orange,
-                    title: "Claude.ai 에서 직접 로그인",
-                    subtitle: "앱 안에서 Claude.ai 를 열어 로그인합니다",
+                    title: "앱에서 로그인",
+                    subtitle: nil,
                     badge: nil,
                     action: { startEmbeddedWeb() }
                 )
@@ -298,7 +288,7 @@ struct LoginWindowView: View {
                     HStack(spacing: AppDesign.Space.compact) {
                         Image(systemName: "wrench.adjustable")
                             .imageScale(.small)
-                        Text("고급: sessionKey 직접 입력")
+                        Text("세션 키 직접 입력")
                             .font(AppDesign.Typography.caption)
                     }
                     .foregroundStyle(.secondary)
@@ -311,26 +301,25 @@ struct LoginWindowView: View {
     }
 
     private var cliCardSubtitle: String {
-        if let preview = cliPreview, let line = preview.subtitleLine {
-            return "\(line) · 다시 연결할 때 macOS 인증이 한 번 필요할 수 있습니다"
+        if let line = cliPreview?.subtitleLine {
+            return line
         }
         if cliPreview != nil {
-            return "터미널 인증 사용 · 다시 연결할 때 macOS 인증이 한 번 필요할 수 있습니다"
+            return "터미널 Claude Code 로그인"
         }
         if !didLoadCLIPreview {
-            return "Claude Code 인증 정보를 찾는 중..."
+            return "찾는 중..."
         }
-        return "클릭해 터미널 인증을 확인합니다 · 처음 연결할 때 macOS 인증이 한 번 필요할 수 있습니다"
+        return "터미널 Claude Code 로그인 · macOS가 암호를 한 번 물을 수 있습니다"
     }
 
     private func methodCard(
         icon: String,
         iconTint: Color,
         title: String,
-        subtitle: String,
+        subtitle: String?,
         badge: String?,
         isEnabled: Bool = true,
-        disabledReason: String? = nil,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -356,16 +345,12 @@ struct LoginWindowView: View {
                         }
                         Spacer()
                     }
-                    Text(subtitle)
-                        .font(AppDesign.Typography.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if !isEnabled, let disabledReason {
-                        Text(disabledReason)
-                            .font(AppDesign.Typography.caption2)
-                            .foregroundStyle(Color.orange)
-                            .padding(.top, AppDesign.Space.tight)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(AppDesign.Typography.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
@@ -396,7 +381,7 @@ struct LoginWindowView: View {
             Spacer()
             ProgressView()
                 .controlSize(.large)
-            Text("\(familyName) 로그인을 확인하고 있습니다...")
+            Text("찾는 중...")
                 .font(AppDesign.Typography.callout)
                 .foregroundStyle(.secondary)
             Spacer()
@@ -407,7 +392,7 @@ struct LoginWindowView: View {
     private func chromeCandidatesView(_ candidates: [ClaudeBrowserImportedSession]) -> some View {
         ScrollView {
             VStack(spacing: AppDesign.Space.row) {
-                Text("어떤 \(familyName) 프로필의 로그인을 사용할까요?")
+                Text("가져올 프로필을 고르세요")
                     .font(AppDesign.Typography.callout)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -478,9 +463,9 @@ struct LoginWindowView: View {
             Text("Safari에 저장된 로그인을 읽으려면 전체 디스크 접근 권한이 필요합니다")
                 .font(AppDesign.Typography.headline)
             Label("설정의 개인정보 보호 및 보안 > 전체 디스크 접근 권한을 엽니다", systemImage: "1.circle")
-            Label("\(AppDistribution.current.appName)을 켭니다. 목록에 없으면 + 로 추가합니다", systemImage: "2.circle")
+            Label("목록에서 \(AppDistribution.current.appName) 항목을 켭니다. 없으면 + 로 추가합니다", systemImage: "2.circle")
             Label("macOS가 다시 열라고 하면 앱을 종료한 뒤 다시 엽니다", systemImage: "3.circle")
-            Text("권한을 주고 싶지 않으면 앱 안 로그인 창을 씁니다.")
+            Text("권한을 주지 않으려면 앱에서 로그인하세요.")
                 .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
             HStack(spacing: AppDesign.Space.label) {
                 Button("설정 열기") {
@@ -491,7 +476,7 @@ struct LoginWindowView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 Button("다시 확인") { startChromeImport() }
-                Button("앱 안 로그인으로") { startEmbeddedWeb() }
+                Button("앱에서 로그인") { startEmbeddedWeb() }
             }
         }
         .font(AppDesign.Typography.callout)
@@ -519,7 +504,7 @@ struct LoginWindowView: View {
 
             if isEmbeddedActivating {
                 Color.black.opacity(0.25).ignoresSafeArea()
-                ProgressView("Claude 사용량 조회 확인 중...")
+                ProgressView("확인 중...")
                     .padding(AppDesign.Space.window)
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: AppDesign.Radius.card))
             }
@@ -544,14 +529,14 @@ struct LoginWindowView: View {
         }
     }
 
-    // MARK: - Step 2C: CLI 활성화
+    // MARK: - Step 2C: 연결 확인
 
-    private var cliActivatingView: some View {
+    private func activatingView(message: String) -> some View {
         VStack(spacing: AppDesign.Space.section) {
             Spacer()
             ProgressView()
                 .controlSize(.large)
-            Text("Claude Code 인증을 활성화하고 사용량을 확인하는 중...")
+            Text(message)
                 .font(AppDesign.Typography.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -599,8 +584,6 @@ struct LoginWindowView: View {
             Image(systemName: "xmark.octagon.fill")
                 .font(AppDesign.Typography.failureIcon)
                 .foregroundStyle(Color.red)
-            Text("로그인을 완료하지 못했습니다")
-                .font(AppDesign.Typography.headline)
             Text(context.message)
                 .font(AppDesign.Typography.callout)
                 .foregroundStyle(.secondary)
@@ -614,7 +597,7 @@ struct LoginWindowView: View {
                 Button("다른 방법으로 로그인") {
                     step = .methodSelection
                 }
-                Button("고급 설정") {
+                Button("직접 입력") {
                     onOpenAdvancedSettings()
                 }
             }
@@ -688,7 +671,7 @@ struct LoginWindowView: View {
             .compactMap { $0?.isEmpty == false ? $0 : nil }
             .joined(separator: " · ")
 
-        step = .cliActivating  // 공통 progress 표시 재사용 → 잠시 후 success/failure 로 교체
+        step = .chromeActivating
         runActivation(retryDestination: .chromeImport) {
             try await onSessionKeyFound(
                 candidate.sessionKey, candidate.displayName, .chromeProfile, candidate.sourceDetail)
@@ -710,7 +693,7 @@ struct LoginWindowView: View {
         isEmbeddedActivating = true
         runActivation(retryDestination: .embeddedWeb) {
             try await onSessionKeyFound(key, nil, .embeddedWebLogin, nil)
-            return ActivationSummary(title: "Claude.ai 로그인을 연결했습니다", methodLabel: "Claude.ai 직접 로그인")
+            return ActivationSummary(title: "claude.ai 로그인을 연결했습니다", methodLabel: "앱에서 로그인")
         }
     }
 

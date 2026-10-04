@@ -5,7 +5,7 @@
     ],
     "source": "assumed",
     "date": "2026-10-03",
-    "note": "모르는 plan_type과 주기 미제공 창도 응답대로 그림"
+    "note": "모르는 plan_type과 주기를 모르는 창도 응답대로 그림"
   },
   "response": {
     "account_id": "acct-fixture",
@@ -19,7 +19,7 @@
   },
   "expected": {
     "rows": [
-      "기본 한도 · 주기 미제공=7"
+      "기본 (주기 모름)=7"
     ],
     "menuBar": {
       "fiveHour": "7%",

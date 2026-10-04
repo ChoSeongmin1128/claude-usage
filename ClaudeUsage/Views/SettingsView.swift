@@ -17,84 +17,56 @@ nonisolated enum CodexAuthStatus: Equatable, Sendable {
 }
 
 struct CodexAuthPresentation: Equatable {
-    let statusTitle: String
     let statusBadgeTitle: String
-    let actionTitle: String
+    /// 사용자가 할 일. 연결됐거나 확인 중이면 없다.
     let actionDetail: String?
     let command: String?
 
     static func resolve(for status: CodexAuthStatus) -> CodexAuthPresentation {
+        let loginDetail = "터미널에서 `codex login`을 실행한 뒤 다시 확인을 누르세요."
         switch status {
         case .checking:
-            return CodexAuthPresentation(
-                statusTitle: "상태를 확인하는 중입니다",
-                statusBadgeTitle: "확인 중",
-                actionTitle: "확인 중",
-                actionDetail: nil,
-                command: nil
-            )
+            return CodexAuthPresentation(statusBadgeTitle: "확인 중", actionDetail: nil, command: nil)
         case .authenticated:
-            return CodexAuthPresentation(
-                statusTitle: "로그인되어 바로 사용할 수 있습니다",
-                statusBadgeTitle: "로그인됨",
-                actionTitle: "로그인 완료",
-                actionDetail: nil,
-                command: nil
-            )
+            return CodexAuthPresentation(statusBadgeTitle: "연결됨", actionDetail: nil, command: nil)
         case .notInstalled:
             return CodexAuthPresentation(
-                statusTitle: "Codex CLI를 먼저 설치해야 합니다",
                 statusBadgeTitle: "설치 필요",
-                actionTitle: "Codex CLI 설치 후 로그인",
-                actionDetail: "터미널에서 codex 명령이 인식되는지 확인한 뒤 `codex login`을 실행하세요.",
-                command: "codex login"
-            )
+                actionDetail: "ChatGPT 앱이나 Codex CLI를 설치한 뒤 `codex login`을 실행하세요.",
+                command: "codex login")
         case .notLoggedIn:
-            return CodexAuthPresentation(
-                statusTitle: "터미널에서 Codex 로그인이 필요합니다",
-                statusBadgeTitle: "로그인 필요",
-                actionTitle: "Codex 로그인",
-                actionDetail: "터미널을 열고 `codex login`을 실행한 뒤 다시 확인하세요.",
-                command: "codex login"
-            )
+            return CodexAuthPresentation(statusBadgeTitle: "로그인 필요", actionDetail: loginDetail, command: "codex login")
         case .expired:
-            return CodexAuthPresentation(
-                statusTitle: "Codex 로그인을 갱신하지 못했습니다",
-                statusBadgeTitle: "다시 로그인",
-                actionTitle: "Codex 다시 로그인",
-                actionDetail: "터미널에서 `codex login`을 다시 실행한 뒤 다시 확인하세요.",
-                command: "codex login"
-            )
+            return CodexAuthPresentation(statusBadgeTitle: "로그인 만료", actionDetail: loginDetail, command: "codex login")
         }
+    }
+}
+
+/// 설정 화면의 동작 결과 한 줄. 색은 문구가 아니라 isWarning으로 정한다.
+struct SettingsNotice: Equatable {
+    let text: String
+    var isWarning = false
+
+    init(_ text: String, isWarning: Bool = false) {
+        self.text = text
+        self.isWarning = isWarning
     }
 }
 
 enum SettingsDestructiveAction: Identifiable, Equatable {
     case resetDefaults
-    case clearBrowserSession
-    case deleteClaudeAccount(ClaudeAccount)
-    case disconnectAntigravityAccount
-    case disconnectAllAntigravityAccounts
     case resetAllData(AppDataResetPlan)
 
     var id: String {
         switch self {
         case .resetDefaults: return "reset-defaults"
-        case .clearBrowserSession: return "clear-browser-session"
-        case .deleteClaudeAccount(let account): return "delete-claude-\(account.id)"
-        case .disconnectAntigravityAccount: return "disconnect-antigravity"
-        case .disconnectAllAntigravityAccounts: return "disconnect-all-antigravity"
         case .resetAllData: return "reset-all-data"
         }
     }
 
     var title: String {
         switch self {
-        case .resetDefaults: return "모든 표시 설정을 기본값으로 복원할까요?"
-        case .clearBrowserSession: return "브라우저 로그인 값을 삭제할까요?"
-        case .deleteClaudeAccount(let account): return "\(account.displayName) 계정을 삭제할까요?"
-        case .disconnectAntigravityAccount: return "이전 연결 정보를 삭제할까요?"
-        case .disconnectAllAntigravityAccounts: return "이전 연결 정보를 모두 삭제할까요?"
+        case .resetDefaults: return "표시 설정을 기본값으로 되돌릴까요?"
         case .resetAllData: return "모든 데이터를 초기화할까요?"
         }
     }
@@ -102,31 +74,17 @@ enum SettingsDestructiveAction: Identifiable, Equatable {
     var detail: String {
         switch self {
         case .resetDefaults:
-            return "계정 로그인은 유지되고 메뉴바, 팝오버, 알림 설정만 초기화됩니다."
-        case .clearBrowserSession:
-            return "선택한 브라우저 계정의 저장된 로그인 값이 제거됩니다. Claude Code 로그인은 유지됩니다."
-        case .deleteClaudeAccount:
-            return "저장된 브라우저 로그인과 계정 표시 정보가 함께 제거됩니다."
-        case .disconnectAntigravityAccount:
-            return "이전 버전에 저장한 Google 연결 정보가 이 Mac에서 제거됩니다. Antigravity 앱과 AGY CLI 로그인은 유지됩니다."
-        case .disconnectAllAntigravityAccounts:
-            return "이전 버전에 저장한 Google 연결 정보가 이 Mac에서 제거됩니다. 현재 로컬 계정 선택과 Antigravity 앱·AGY CLI 로그인은 유지됩니다."
+            return "계정 연결, 서비스 사용 여부, 로그인 시 자동 시작은 그대로 두고 표시와 알림 설정을 되돌립니다."
         case .resetAllData(let plan):
             let detail =
-                "이 앱의 설정, 계정 연결과 로그인 정보, 로그와 캐시, 로그인 시 자동 시작 등록을 지우고 앱을 종료합니다. 다음 실행은 처음 설치한 상태로 시작합니다. Claude Code, Codex, Antigravity 앱과 AGY CLI의 로그인과 파일은 바뀌지 않습니다."
-            return plan.keepsClaudeCodeTokenCopy
-                ? detail + " Claude Code 로그인 토큰 사본은 Claude Code의 현재 토큰과 같은지 확인하지 못해 보존합니다."
-                : detail
+                "설정과 이 앱에 저장한 로그인을 모두 지우고 앱을 종료합니다. Claude Code, Codex, AGY CLI의 기본 로그인은 그대로입니다."
+            return plan.keepsClaudeCodeTokenCopy ? detail + " Claude Code 로그인 사본 하나는 남깁니다." : detail
         }
     }
 
     var actionTitle: String {
         switch self {
         case .resetDefaults: return "기본값 복원"
-        case .clearBrowserSession: return "로그인 값 삭제"
-        case .deleteClaudeAccount: return "계정 삭제"
-        case .disconnectAntigravityAccount: return "이전 정보 삭제"
-        case .disconnectAllAntigravityAccounts: return "이전 정보 모두 삭제"
         case .resetAllData: return "초기화 후 종료"
         }
     }
@@ -180,8 +138,8 @@ struct SettingsView: View {
     @State var organizations: [ClaudeAPIService.OrganizationSummary] = []
     @State var organizationPreviews: [String: ClaudeAPIService.OrganizationPreview] = [:]
     @State var isLoadingOrganizations = false
-    @State var claudeAccountMessage: String?
-    @State var organizationMessage: String?
+    @State var claudeAccountMessage: SettingsNotice?
+    @State var organizationMessage: SettingsNotice?
     @State var usageHealthSnapshot: ClaudeAPIService.UsageHealthSnapshot?
     @State var usageHealthLoadTask: Task<Void, Never>?
     @State var usageHealthLoadGeneration = 0
@@ -195,8 +153,6 @@ struct SettingsView: View {
         AppProviderKind = .claude
     @State var selectedAccountProvider: AppProviderKind = .claude
     @State var collapsedLimitProviders: Set<AppProviderKind> = []
-    @State var isClaudeAccountSwitcherExpanded = false
-    @State var isClaudeAccountManagementExpanded = false
     @State var isAdvancedAuthExpanded = false
     @State var isOrganizationAdvancedExpanded = false
     @State var codexAuthStatus: CodexAuthStatus = .checking
@@ -221,7 +177,6 @@ struct SettingsView: View {
     var onOpenLogin: (() -> Void)?
     var onReconnectClaudeCode: (() -> Void)?
     var onImportClaudeFromChrome: (() -> Void)?
-    var onClearBrowserSession: (() -> Void)?
     var onRefreshClaudeUsage: (() -> Void)?
     var onClaudeOAuthMigrationCompleted: (() -> Void)?
     var onCodexLogout: (() -> Void)?
@@ -238,7 +193,6 @@ struct SettingsView: View {
         onOpenLogin: (() -> Void)? = nil,
         onReconnectClaudeCode: (() -> Void)? = nil,
         onImportClaudeFromChrome: (() -> Void)? = nil,
-        onClearBrowserSession: (() -> Void)? = nil,
         onRefreshClaudeUsage: (() -> Void)? = nil,
         onClaudeOAuthMigrationCompleted: (() -> Void)? = nil,
         onCodexLogout: (() -> Void)? = nil,
@@ -280,7 +234,6 @@ struct SettingsView: View {
         self.onOpenLogin = onOpenLogin
         self.onReconnectClaudeCode = onReconnectClaudeCode
         self.onImportClaudeFromChrome = onImportClaudeFromChrome
-        self.onClearBrowserSession = onClearBrowserSession
         self.onRefreshClaudeUsage = onRefreshClaudeUsage
         self.onClaudeOAuthMigrationCompleted = onClaudeOAuthMigrationCompleted
         self.onCodexLogout = onCodexLogout
@@ -299,7 +252,7 @@ struct SettingsView: View {
         guard !sessionKey.isEmpty else { return nil }
         let normalized = normalizeSessionKey(sessionKey)
         if !normalized.hasPrefix("sk-ant-") {
-            return "브라우저 로그인 값은 보통 sk-ant-로 시작합니다"
+            return "세션 키는 보통 sk-ant-로 시작합니다"
         }
         return nil
     }

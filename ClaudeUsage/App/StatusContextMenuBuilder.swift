@@ -27,6 +27,13 @@ struct StatusContextMenuActions {
 }
 
 enum StatusContextMenuBuilder {
+    /// 자동 활성화를 끈다. 켜 두면 AppKit이 응답자 체인으로 다시 판단해 isEnabled 지정이 무시된다.
+    private static func makeMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        return menu
+    }
+
     static func build(
         settings: AppSettings,
         runtimeServices: [PopoverService],
@@ -37,7 +44,7 @@ enum StatusContextMenuBuilder {
                 ProviderStyleMenuConfiguration],
         actions: StatusContextMenuActions
     ) -> NSMenu {
-        let menu = NSMenu()
+        let menu = makeMenu()
 
         let refreshAll = makeItem(
             title: "전체 새로고침",
@@ -90,7 +97,7 @@ enum StatusContextMenuBuilder {
         let kind = service.providerKind
         let isMonitoring = settings.isProviderEnabled(kind)
 
-        let submenu = NSMenu()
+        let submenu = makeMenu()
         submenu.addItem(refreshItem(
             title: "새로고침",
             isEnabled: canRefresh,
@@ -98,7 +105,7 @@ enum StatusContextMenuBuilder {
             representedObject: service.rawValue))
         if let styleConfiguration {
             submenu.addItem(styleItem(
-                title: "아이콘 스타일",
+                    title: "게이지 모양",
                 service: service,
                 currentStyle:
                     styleConfiguration.currentStyle,
@@ -109,7 +116,7 @@ enum StatusContextMenuBuilder {
         submenu.addItem(.separator())
         // 컨트롤 문구는 실행 결과를 그대로 말한다: 켜기/끄기
         submenu.addItem(toggleItem(
-            title: isMonitoring ? "모니터링 끄기" : "모니터링 켜기",
+                title: isMonitoring ? "사용 끄기" : "사용 켜기",
             isEnabled: false,
             action: actions.toggleProvider,
             representedObject: service.rawValue))
@@ -159,7 +166,7 @@ enum StatusContextMenuBuilder {
         availableStyles: [MenuBarStyle],
         action: Selector
     ) -> NSMenuItem {
-        let submenu = NSMenu()
+        let submenu = makeMenu()
         for style in availableStyles {
             let item = makeItem(title: style.displayName, action: action)
             item.representedObject = ProviderStyleMenuSelection(service: service, style: style)

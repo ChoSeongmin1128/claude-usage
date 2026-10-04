@@ -3,53 +3,58 @@ import XCTest
 
 final class UsageAccountsTests: XCTestCase {
     private func candidate(
-        _ kind: UsageAccountSource.Kind, _ ref: String, account: String?, org: String?, email: String?
-    )
-        -> UsageAccountCandidate
-    {
+        _ role: UsageAccountSource.Role, _ ref: String, account: String?, org: String?, email: String?
+    ) -> UsageAccountCandidate {
         UsageAccountCandidate(
-            source: .init(kind: kind, reference: ref),
+            source: .init(role: role, reference: ref),
             identity: .init(accountID: account, organizationID: org, email: email))
     }
 
-    func testSameAccountAndOrganizationMergeIntoOneRowWithBothBadges() {
+    private func account(_ id: String, service: PopoverService = .claude, role: UsageAccountSource.Role = .web)
+        -> UsageAccount
+    {
+        UsageAccount(id: id, service: service, identity: .init(), sources: [.init(role: role, reference: id)])
+    }
+
+    func testSameAccountAndOrganizationMergeIntoOneRowKeyedByAccount() {
         let accounts = UsageAccount.merge(
             [
-                candidate(.claudeCodeDefault, "~/.claude", account: "a", org: "team", email: "work@example.com"),
-                candidate(.claudeWeb, "web-1", account: "a", org: "team", email: nil),
-                candidate(.claudeWeb, "web-2", account: "a", org: "personal", email: "work@example.com"),
-                candidate(.claudeWeb, "web-3", account: nil, org: nil, email: "work@example.com"),
+                candidate(.defaultLogin, "/home/.claude", account: "a", org: "team", email: "work@example.com"),
+                candidate(.web, "web-1", account: "a", org: "team", email: nil),
+                candidate(.web, "web-2", account: "a", org: "personal", email: "work@example.com"),
+                candidate(.web, "web-3", account: nil, org: nil, email: "work@example.com"),
             ], service: .claude)
 
         XCTAssertEqual(accounts.count, 3)
-        XCTAssertEqual(accounts[0].badges, [.inUse, .web])
-        XCTAssertEqual(accounts[0].id, "claudeCodeDefault:~/.claude")
-        XCTAssertEqual(accounts[1].badges, [.web])
+        XCTAssertEqual(accounts[0].roles, [.defaultLogin, .web])
+        XCTAssertEqual(accounts[0].id, "claude:a|team", "계정이 확인되면 기본 로그인을 전환해도 id가 계정을 따라갑니다")
+        XCTAssertEqual(accounts[2].id, "claude:web:web-3", "확인하지 못한 계정만 출처 기준입니다")
     }
 
-    func testOrderPutsPinnedFirstThenFirstSeen() {
-        let a = UsageAccount(
-            id: "a", service: .claude, identity: .init(), sources: [.init(kind: .claudeWeb, reference: "a")])
-        let b = UsageAccount(
-            id: "b", service: .claude, identity: .init(), sources: [.init(kind: .claudeWeb, reference: "b")])
-        let live = UsageAccount(
-            id: "live", service: .claude, identity: .init(), sources: [.init(kind: .claudeCodeDefault, reference: "x")])
+    func testPinnedAccountIsPerServiceAndComesFirst() {
+        let a = account("a"), b = account("b"), c = account("c", service: .codex)
         var preferences = UsageAccountPreferences()
-        preferences.remember([a, b, live])
-        XCTAssertEqual(preferences.ordered([a, b, live]).map(\.id), ["a", "b", "live"])
-        preferences.pinnedTop = "b"
-        XCTAssertEqual(preferences.ordered([a, b, live]).map(\.id), ["b", "a", "live"])
+        preferences.remember([a, b, c])
+        XCTAssertEqual(preferences.ordered([a, b], service: .claude).map(\.id), ["a", "b"])
+        preferences[.claude].pinnedTop = "b"
+        preferences[.codex].pinnedTop = "c"
+        XCTAssertEqual(preferences.ordered([a, b], service: .claude).map(\.id), ["b", "a"])
+        XCTAssertEqual(preferences[.claude].pinnedTop, "b", "다른 서비스 고정이 Claude 고정을 풀지 않습니다")
     }
 
-    func testPickSelectionDefaultsToFirstTwoAndRemembersChoice() {
-        let ids = ["live", "a", "b"]
-        let accounts = ids.map {
-            UsageAccount(
-                id: $0, service: .codex, identity: .init(), sources: [.init(kind: .codexDirectory, reference: $0)])
-        }
+    func testRememberIgnoresDuplicatesAndOrderingSurvivesDuplicateSavedIDs() throws {
+        let saved = #"{"order":["a","a","b"]}"#
+        var preferences = try JSONDecoder().decode(UsageAccountPreferences.self, from: Data(saved.utf8))
+        preferences.remember([account("b"), account("c")])
+        XCTAssertEqual(preferences.order, ["a", "a", "b", "c"])
+        XCTAssertEqual(preferences.ordered([account("c"), account("a")], service: .claude).map(\.id), ["a", "c"])
+    }
+
+    func testPickSelectionDefaultsToFirstTwoAndRemembersChoicePerService() {
+        let accounts = ["live", "a", "b"].map { account($0, service: .codex, role: .directory) }
         var preferences = UsageAccountPreferences()
         XCTAssertEqual(preferences.selection(for: .codex, visible: accounts), ["live", "a"])
-        preferences.selected["codex"] = ["b", "gone"]
+        preferences[.codex].selected = ["b", "gone"]
         XCTAssertEqual(preferences.selection(for: .codex, visible: accounts), ["b"])
     }
 
@@ -67,34 +72,76 @@ final class UsageAccountsTests: XCTestCase {
         var preferences = UsageAccountPreferences()
         let all = [team, personal, other]
 
-        XCTAssertEqual(preferences.displayName(for: team, among: all), "me@example.com · Acme")
+        XCTAssertEqual(preferences.displayName(for: team, among: all), "me@example.com (Acme)")
         XCTAssertEqual(preferences.displayName(for: other, among: all), "you@example.com")
         preferences.aliases["3"] = "회사"
         XCTAssertEqual(preferences.displayName(for: other, among: all), "회사")
     }
 
-    func testStaleOnlyAfterTwoFailuresButExpiredImmediately() {
-        var state = UsageAccountState(fetchedAt: Date())
+    func testStatusSeparatesFirstFailureFromStaleValues() {
+        var state = UsageAccountState()
+        XCTAssertEqual(state.status(isArchived: false), .checking)
         state.consecutiveFailures = 1
+        XCTAssertEqual(state.status(isArchived: false), .failed, "값을 한 번도 못 읽은 실패는 방금 확인한 것으로 보이면 안 됩니다")
+        state.usage = UsageAccountUsage(fiveHour: .init(usedPercent: 20, resetsAt: nil))
         XCTAssertEqual(state.status(isArchived: false), .current)
-        state.consecutiveFailures = 2
+        state.consecutiveFailures = UsageAccountState.staleAfterFailures
         XCTAssertEqual(state.status(isArchived: false), .stale)
-        state.loginExpired = true
+        state.issue = .loginExpired
         XCTAssertEqual(state.status(isArchived: false), .loginExpired)
         XCTAssertEqual(state.status(isArchived: true), .archived)
+    }
+
+    func testOlderSavedPreferencesAndBrokenFieldsFallBackPerField() throws {
+        let saved =
+            #"{"aliases":{"a":"업무"},"hidden":["b"],"order":["a","b"],"popoverMode":"pick","multiAccountEnabled":true,"services":{"claude":{"popoverMode":"single","isMultiAccountEnabled":"yes","directories":["/x"]}}}"#
+        let decoded = try JSONDecoder().decode(UsageAccountPreferences.self, from: Data(saved.utf8))
+
+        XCTAssertEqual(decoded.aliases["a"], "업무")
+        XCTAssertEqual(decoded.hidden, ["b"])
+        XCTAssertEqual(decoded[.claude].popoverMode, .pick, "모르는 보기 값은 골라 보기로 읽습니다")
+        XCTAssertFalse(decoded[.claude].isMultiAccountEnabled, "모양이 다른 값은 기본값입니다")
+        XCTAssertEqual(decoded[.claude].directories, ["/x"])
+        XCTAssertFalse(decoded[.codex].isMultiAccountEnabled, "기본은 단일 계정입니다")
+    }
+
+    func testIdentityMatchesByAccountOrEmail() {
+        let a = UsageAccountIdentity(accountID: "1", organizationID: "o", email: "A@example.com")
+        XCTAssertTrue(a.isSameAccount(as: .init(accountID: "1", organizationID: "o")))
+        XCTAssertFalse(a.isSameAccount(as: .init(accountID: "1", organizationID: "other", email: "a@example.com")))
+        XCTAssertTrue(UsageAccountIdentity(email: "A@example.com").isSameAccount(as: .init(email: "a@example.com")))
+    }
+
+    func testUsageNormalizesClaudeAndCodexWindows() throws {
+        let claude = try JSONDecoder().decode(
+            ClaudeUsageResponse.self,
+            from: Data(
+                #"{"five_hour":{"utilization":40,"resets_at":"2026-10-04T10:00:00Z"},"seven_day":{"utilization":90,"resets_at":null}}"#
+                    .utf8))
+        let usage = UsageAccountUsage(claude: claude)
+        XCTAssertEqual(usage.fiveHour?.usedPercent, 40)
+        XCTAssertEqual(usage.fiveHour?.resetsAt, ISO8601DateFormatter().date(from: "2026-10-04T10:00:00Z"))
+        XCTAssertEqual(usage.lowestRemainingPercent, 10)
+
+        let codex = try CodexHomeAccount.usageResponse(fromAppServer: [
+            "rateLimits": ["primary": ["usedPercent": 30, "windowDurationMins": 300, "resetsAt": 1_790_000_000]]
+        ])
+        XCTAssertEqual(UsageAccountUsage(codex: codex).fiveHour?.resetsAt, Date(timeIntervalSince1970: 1_790_000_000))
     }
 }
 
 @MainActor
 final class MultiAccountPresentationTests: XCTestCase {
     private func row(
-        _ id: String, runtime: Bool = false, five: Double? = 20, status: UsageAccountState.Status = .current
-    )
-        -> PopoverAccountRowData
-    {
+        _ id: String, runtime: Bool = false, five: Double = 20, status: UsageAccountState.Status = .current,
+        timeFormatStyle: TimeFormatStyle = .h24, timeUnitLanguage: TimeUnitLanguage = .english
+    ) -> PopoverAccountRowData {
         PopoverAccountRowData(
-            id: id, service: .claude, name: id, badges: runtime ? [.inUse] : [.web], status: status, fiveHour: five,
-            weekly: 30, fiveHourResetAt: nil, weeklyResetAt: nil, fetchedAt: Date(), isRuntime: runtime, basis: .used)
+            id: id, service: .claude, name: id, badges: [], status: status,
+            usage: UsageAccountUsage(
+                fiveHour: .init(usedPercent: five, resetsAt: nil), weekly: .init(usedPercent: 30, resetsAt: nil)),
+            fetchedAt: Date(timeIntervalSince1970: 1_800_000_000), isRuntime: runtime, basis: .used,
+            timeFormatStyle: timeFormatStyle, timeUnitLanguage: timeUnitLanguage)
     }
 
     private let catalog = [
@@ -103,67 +150,344 @@ final class MultiAccountPresentationTests: XCTestCase {
             payload: .status(PopoverStatusSectionData(title: "5시간 한도", error: nil)))
     ]
 
+    func testAccountRowTimePreferencesInvalidatePresentationEquality() {
+        let english = row("a", timeFormatStyle: .remainingClock)
+        let korean = row("a", timeFormatStyle: .remainingClock, timeUnitLanguage: .korean)
+        let duration = row("a", timeFormatStyle: .remaining)
+        XCTAssertEqual(english, row("a", timeFormatStyle: .remainingClock))
+        XCTAssertNotEqual(english, korean)
+        XCTAssertNotEqual(english, duration)
+        let presentation = MultiAccountPresentation(
+            service: .claude, mode: .summaryRows, rows: [english], selectedIDs: [])
+        XCTAssertNotEqual(
+            presentation,
+            MultiAccountPresentation(service: .claude, mode: .summaryRows, rows: [korean], selectedIDs: []))
+        XCTAssertNotEqual(
+            presentation,
+            MultiAccountPresentation(service: .claude, mode: .summaryRows, rows: [duration], selectedIDs: []))
+    }
+
+    func testExhaustedAccountRowUsesItsOwnTimePreferences() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let window = UsageAccountUsage.Window(
+            usedPercent: 100, resetsAt: now.addingTimeInterval(3 * 86400 + 14 * 3600 + 22 * 60))
+        let english = OtherAccountRow(data: row("a", timeFormatStyle: .remainingClock), density: .compact)
+        let korean = OtherAccountRow(
+            data: row("a", timeFormatStyle: .remainingClock, timeUnitLanguage: .korean), density: .standard)
+        let duration = OtherAccountRow(
+            data: row("a", timeFormatStyle: .remaining, timeUnitLanguage: .korean), density: .compact)
+        let totalClock = OtherAccountRow(
+            data: row("a", timeFormatStyle: .remainingTotalClock, timeUnitLanguage: .korean), density: .standard)
+        XCTAssertEqual(english.exhaustedQuotaText(for: window, isWeekly: true, now: now), "3d:14")
+        XCTAssertEqual(korean.exhaustedQuotaText(for: window, isWeekly: true, now: now), "3일:14")
+        XCTAssertEqual(duration.exhaustedQuotaText(for: window, isWeekly: true, now: now), "3일 14시간")
+        XCTAssertEqual(totalClock.exhaustedQuotaText(for: window, isWeekly: true, now: now), "86:22")
+        XCTAssertNil(
+            english.exhaustedQuotaText(for: .init(usedPercent: 99, resetsAt: window.resetsAt), isWeekly: true, now: now)
+        )
+        XCTAssertNil(english.exhaustedQuotaText(for: .init(usedPercent: 100, resetsAt: nil), isWeekly: true, now: now))
+    }
+
+    func testCachedMultiAccountRowsProjectTheCurrentDisplayPreferences() throws {
+        let suite = "MultiAccountPresentationTests.time.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        settings.timeFormat = .remainingClock
+        let viewModel = PopoverViewModel()
+        viewModel.multiAccount = [
+            .claude: MultiAccountPresentation(
+                service: .claude, mode: .summaryRows, rows: [row("a", five: 100)], selectedIDs: [])
+        ]
+        func displayedRow() throws -> PopoverAccountRowData {
+            let rows = viewModel.displaySections(for: .claude, density: .compact, settings: settings)
+                .compactMap { section -> PopoverAccountRowData? in
+                    guard case .accountRow(let row) = section.payload else { return nil }
+                    return row
+                }
+            return try XCTUnwrap(rows.first)
+        }
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let window = UsageAccountUsage.Window(
+            usedPercent: 100, resetsAt: now.addingTimeInterval(3 * 86400 + 14 * 3600 + 22 * 60))
+        let english = try displayedRow()
+        settings.timeUnitLanguage = .korean
+        let korean = try displayedRow()
+        settings.timeFormat = .remainingTotalClock
+        let total = try displayedRow()
+
+        XCTAssertEqual(english.timeFormatStyle, .remainingClock)
+        XCTAssertEqual(english.timeUnitLanguage, .english)
+        XCTAssertEqual(korean.timeFormatStyle, .remainingClock)
+        XCTAssertEqual(korean.timeUnitLanguage, .korean)
+        XCTAssertEqual(total.timeFormatStyle, .remainingTotalClock)
+        XCTAssertEqual(total.timeUnitLanguage, .korean)
+        XCTAssertNotEqual(english, korean)
+        XCTAssertNotEqual(korean, total)
+        XCTAssertEqual(viewModel.multiAccount[.claude]?.rows.first?.timeFormatStyle, .h24)
+        XCTAssertEqual(viewModel.multiAccount[.claude]?.rows.first?.timeUnitLanguage, .english)
+        XCTAssertEqual(
+            OtherAccountRow(data: english, density: .compact).exhaustedQuotaText(for: window, isWeekly: true, now: now),
+            "3d:14")
+        XCTAssertEqual(
+            OtherAccountRow(data: korean, density: .compact).exhaustedQuotaText(for: window, isWeekly: true, now: now),
+            "3일:14")
+        XCTAssertEqual(
+            OtherAccountRow(data: total, density: .compact).exhaustedQuotaText(for: window, isWeekly: true, now: now),
+            "86:22")
+    }
+
     func testPickShowsPickerCatalogOnlyWhenRuntimeSelectedAndSelectedOthers() {
         let rows = [row("live", runtime: true), row("a"), row("b")]
         let picked = MultiAccountPresentation(service: .claude, mode: .pick, rows: rows, selectedIDs: ["live", "b"])
-        XCTAssertEqual(picked.sections(catalog: catalog).map(\.id), ["account-picker", "currentSession", "account-b"])
+        XCTAssertEqual(
+            picked.sections(catalog: catalog, timeFormatStyle: .h24, timeUnitLanguage: .english).map(\.id),
+            ["account-picker", "currentSession", "account-b"])
         let withoutRuntime = MultiAccountPresentation(service: .claude, mode: .pick, rows: rows, selectedIDs: ["a"])
-        XCTAssertEqual(withoutRuntime.sections(catalog: catalog).map(\.id), ["account-picker", "account-a"])
-    }
-
-    func testMenuBarDefaultPrefersClaudeAppThenClaudeCodeThenOtherWebLogins() {
-        func account(_ id: String, _ kind: UsageAccountSource.Kind, _ reference: String) -> UsageAccount {
-            UsageAccount(
-                id: id, service: .claude, identity: .init(), sources: [.init(kind: kind, reference: reference)])
-        }
-        let chrome = account("chrome", .claudeWeb, "web-chrome")
-        let cli = account("cli", .claudeCodeDefault, "~/.claude")
-        let app = account("app", .claudeWeb, "web-app")
-
         XCTAssertEqual(
-            UsageAccountsController.preferredMenuBarAccount(among: [chrome, cli, app], claudeAppWebIDs: ["web-app"])?
-                .id,
-            "app")
-        XCTAssertEqual(
-            UsageAccountsController.preferredMenuBarAccount(among: [chrome, cli], claudeAppWebIDs: ["web-app"])?.id,
-            "cli")
-        XCTAssertEqual(
-            UsageAccountsController.preferredMenuBarAccount(among: [chrome], claudeAppWebIDs: [])?.id, "chrome")
+            withoutRuntime.sections(catalog: catalog, timeFormatStyle: .h24, timeUnitLanguage: .english).map(\.id),
+            ["account-picker", "account-a"])
     }
 
-    func testPreferencesSavedBeforeMenuBarChoiceStillDecode() throws {
-        let saved =
-            #"{"aliases":{"a":"업무"},"hidden":["b"],"archived":[],"order":["a","b"],"selected":{},"popoverMode":"pick","codexDirectories":[],"claudeDirectories":[],"knownIdentities":{},"expectedDefault":{}}"#
-        let decoded = try JSONDecoder().decode(UsageAccountPreferences.self, from: Data(saved.utf8))
-
-        XCTAssertEqual(decoded.aliases["a"], "업무")
-        XCTAssertEqual(decoded.hidden, ["b"])
-        XCTAssertNil(decoded.menuBarAccountChosen)
-        XCTAssertFalse(decoded.isMultiAccountEnabled, "기본은 단일 계정이어야 합니다")
-    }
-
-    func testRemovedPopoverModeFallsBackToPickWithoutLosingOtherPreferences() throws {
-        let saved =
-            #"{"aliases":{"a":"업무"},"hidden":[],"archived":[],"order":[],"selected":{},"popoverMode":"single","codexDirectories":[],"claudeDirectories":[],"knownIdentities":{},"expectedDefault":{},"multiAccountEnabled":true}"#
-        let decoded = try JSONDecoder().decode(UsageAccountPreferences.self, from: Data(saved.utf8))
-
-        XCTAssertEqual(decoded.popoverMode, .pick)
-        XCTAssertEqual(decoded.aliases["a"], "업무")
-        XCTAssertTrue(decoded.isMultiAccountEnabled)
-    }
-
-    func testFeaturedListAndSummaryRows() {
+    func testFeaturedListAndSummaryRowsUseTheLowRemainingThreshold() {
         let rows = [row("live", runtime: true), row("a", five: 95), row("b", status: .loginExpired)]
         let featured = MultiAccountPresentation(service: .claude, mode: .featuredList, rows: rows, selectedIDs: [])
-        XCTAssertEqual(featured.sections(catalog: catalog).map(\.id), ["currentSession", "account-a", "account-b"])
+        XCTAssertEqual(
+            featured.sections(catalog: catalog, timeFormatStyle: .h24, timeUnitLanguage: .english).map(\.id),
+            ["currentSession", "account-a", "account-b"])
         let summary = MultiAccountPresentation(service: .claude, mode: .summaryRows, rows: rows, selectedIDs: [])
         XCTAssertEqual(
-            summary.sections(catalog: catalog).map(\.id), ["account-summary", "account-live", "account-a", "account-b"])
-        XCTAssertEqual(summary.summary, .init(text: "1개 계정 한도 10% 이하 · 로그인 만료 1개", isWarning: true))
+            summary.sections(catalog: catalog, timeFormatStyle: .h24, timeUnitLanguage: .english).map(\.id),
+            ["account-summary", "account-live", "account-a", "account-b"])
+        let threshold = PercentageText.string(AdaptiveRefreshPolicy.lowRemainingPercent)
+        XCTAssertEqual(summary.summary, .init(text: "남은 한도 \(threshold) 이하 1개, 로그인 만료 1개", isWarning: true))
         let calm = MultiAccountPresentation(
             service: .claude, mode: .summaryRows, rows: [row("x"), row("y")], selectedIDs: [])
         XCTAssertEqual(calm.summary.text, "모든 계정 여유 있음")
     }
+}
+
+/// 서비스 종류와 관계없는 컨트롤러 규칙을 가짜 서비스로 확인한다.
+@MainActor
+final class UsageAccountsControllerTests: XCTestCase {
+    private func controller(_ providers: [FakeAccountProvider], enabled: Set<PopoverService> = [.claude, .codex])
+        -> UsageAccountsController
+    {
+        let suiteName = "UsageAccountsControllerTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suiteName) }
+        return UsageAccountsController(
+            providers: providers, defaults: defaults, isServiceEnabled: { enabled.contains($0) })
+    }
+
+    func testDisabledServiceIsNotDiscoveredOrFetched() async {
+        let codex = FakeAccountProvider(service: .codex, accounts: [("live", .defaultLogin), ("other", .directory)])
+        let sut = controller([codex], enabled: [])
+        sut.setMultiAccountEnabled(true, for: .codex)
+        await sut.discoverAndWait()
+        sut.refreshIfNeeded(force: true)
+        await Task.yield()
+
+        XCTAssertTrue(sut.orderedAccounts(for: .codex).isEmpty)
+        XCTAssertEqual(codex.fetches, [])
+    }
+
+    func testMultiAccountSettingIsPerServiceAndOnlyEnabledServiceFetches() async throws {
+        let claude = FakeAccountProvider(
+            service: .claude, accounts: [("c-live", .defaultLogin), ("c-other", .directory)])
+        let codex = FakeAccountProvider(
+            service: .codex, accounts: [("x-live", .defaultLogin), ("x-other", .directory)])
+        let sut = controller([claude, codex])
+        await sut.discoverAndWait()
+        sut.setMultiAccountEnabled(true, for: .codex)
+        try await waitUntil { codex.fetches.count == 1 }
+
+        XCTAssertTrue(sut.isMultiAccount(.codex))
+        XCTAssertFalse(sut.isMultiAccount(.claude))
+        XCTAssertEqual(codex.fetches, ["x-other"], "메뉴바 계정은 따로 조회하지 않습니다")
+        XCTAssertEqual(claude.fetches, [])
+    }
+
+    func testRefreshSkipsAccountsAlreadyQueuedAndRecentlyAttempted() async throws {
+        let codex = FakeAccountProvider(service: .codex, accounts: [("live", .defaultLogin), ("other", .directory)])
+        codex.fetchDelay = .milliseconds(100)
+        let sut = controller([codex])
+        await sut.discoverAndWait()
+        sut.setMultiAccountEnabled(true, for: .codex)
+        sut.refreshIfNeeded(force: true)
+        sut.refreshIfNeeded()
+        try await waitUntil { sut.states.values.contains { $0.fetchedAt != nil } }
+        sut.refreshIfNeeded()
+        try await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(codex.fetches.count, 1)
+    }
+
+    func testMissingExecutableKeepsOtherAccountNumbersAndReportsItsCause() async throws {
+        let claude = FakeAccountProvider(service: .claude, accounts: [("live", .defaultLogin), ("other", .directory)])
+        let sut = controller([claude])
+        await sut.discoverAndWait()
+        sut.setMultiAccountEnabled(true, for: .claude)
+        try await waitUntil { sut.states.values.contains { $0.fetchedAt != nil } }
+        let previousDate = try XCTUnwrap(sut.states.values.first?.fetchedAt)
+        claude.failure = UsageAccountFetchError.executableNotFound
+
+        sut.refreshIfNeeded(force: true)
+        try await waitUntil { sut.states.values.contains { $0.issue == .executableNotFound } }
+
+        let state = try XCTUnwrap(sut.states.values.first)
+        XCTAssertEqual(state.status(isArchived: false), .executableNotFound)
+        XCTAssertEqual(state.usage?.fiveHour?.usedPercent, 10)
+        XCTAssertEqual(state.fetchedAt, previousDate)
+    }
+
+    func testFirstFailureWithoutDataIsReportedAsFailed() async throws {
+        let codex = FakeAccountProvider(service: .codex, accounts: [("live", .defaultLogin), ("other", .directory)])
+        codex.failure = UsageAccountFetchError.unavailable
+        let sut = controller([codex])
+        await sut.discoverAndWait()
+        sut.setMultiAccountEnabled(true, for: .codex)
+        try await waitUntil { !sut.states.isEmpty }
+
+        let state = try XCTUnwrap(sut.states.values.first)
+        XCTAssertEqual(state.status(isArchived: false), .failed)
+        XCTAssertNil(state.fetchedAt)
+    }
+
+    func testHidingMenuBarAccountMovesMenuBarToReplacement() async throws {
+        let claude = FakeAccountProvider(
+            service: .claude, accounts: [("cli", .defaultLogin), ("app", .web)], menuBarTarget: "cli")
+        let sut = controller([claude])
+        await sut.discoverAndWait()
+        let cli = try XCTUnwrap(sut.orderedAccounts(for: .claude).first { $0.id.hasSuffix("cli") })
+
+        XCTAssertTrue(sut.canHide(cli))
+        sut.setHidden(true, cli)
+        try await waitUntil { claude.menuBarTarget == "app" }
+        XCTAssertTrue(sut.isHidden(cli))
+    }
+
+    func testMenuBarDefaultAppliesUntilUserChoosesAnotherAccountElsewhere() async throws {
+        let claude = FakeAccountProvider(
+            service: .claude, accounts: [("cli", .defaultLogin), ("app", .web)], menuBarTarget: "cli")
+        claude.preferredDefault = "app"
+        let sut = controller([claude])
+        await sut.discoverAndWait()
+        try await waitUntil { claude.menuBarTarget == "app" }
+        // 저장소가 바뀌면 다시 찾기가 불린다. 앱이 바꾼 것이라 사용자 선택으로 보지 않는다.
+        await sut.discoverAndWait()
+
+        // 다른 경로(예: Claude Code 다시 연결)로 메뉴바 계정을 바꾸면 그 선택을 지킨다.
+        claude.menuBarTarget = "cli"
+        await sut.discoverAndWait()
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(claude.menuBarTarget, "cli")
+    }
+
+    func testLearnedIdentityCarriesNameAndStateToAccountKeyedID() async throws {
+        let claude = FakeAccountProvider(service: .claude, accounts: [("cli", .defaultLogin), ("web", .web)])
+        let sut = controller([claude])
+        await sut.discoverAndWait()
+        let web = try XCTUnwrap(sut.orderedAccounts(for: .claude).first { $0.source(.web) != nil })
+        sut.rename(web, to: "업무")
+
+        claude.identities["web"] = UsageAccountIdentity(accountID: "u", organizationID: "o", email: "w@example.com")
+        await sut.discoverAndWait()
+
+        let renamed = try XCTUnwrap(sut.orderedAccounts(for: .claude).first { $0.source(.web) != nil })
+        XCTAssertEqual(renamed.id, "claude:u|o")
+        XCTAssertEqual(sut.displayName(for: renamed), "업무")
+    }
+
+    private func waitUntil(timeout: Duration = .seconds(2), _ condition: @MainActor () -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while !condition() {
+            guard ContinuousClock.now < deadline else { return XCTFail("시간 안에 조건을 만족하지 못했습니다") }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+}
+
+@MainActor
+private final class FakeAccountProvider: UsageAccountProvider, UsageAccountMenuBarPolicy {
+    let service: PopoverService
+    let cliName = "Fake"
+    let configDirectoryVariable = "FAKE_HOME"
+    let addMethods: [UsageAccountAddMethod] = [.folder]
+    let managedDirectoryRoot: URL? = nil
+    var menuBar: (any UsageAccountMenuBarPolicy)? { hasMenuBar ? self : nil }
+
+    private let hasMenuBar: Bool
+    private let accountRoles: [(String, UsageAccountSource.Role)]
+    var identities: [String: UsageAccountIdentity] = [:]
+    var menuBarTarget: String?
+    var preferredDefault: String?
+    var fetches: [String] = []
+    var fetchDelay: Duration?
+    var failure: Error?
+
+    init(service: PopoverService, accounts: [(String, UsageAccountSource.Role)], menuBarTarget: String? = nil) {
+        self.service = service
+        self.accountRoles = accounts
+        self.menuBarTarget = menuBarTarget
+        self.hasMenuBar = menuBarTarget != nil
+    }
+
+    func discoveryInput(directories: [String], knownIdentities: [String: UsageAccountIdentity])
+        -> UsageAccountDiscoveryInput
+    {
+        UsageAccountDiscoveryInput(
+            directories: directories,
+            webLogins: accountRoles.map { UsageAccountWebLogin(id: $0.0, identity: identities[$0.0] ?? .init()) })
+    }
+
+    nonisolated func candidates(_ input: UsageAccountDiscoveryInput) -> [UsageAccountCandidate] {
+        let roles: [String: UsageAccountSource.Role] = [
+            "cli": .defaultLogin, "live": .defaultLogin, "c-live": .defaultLogin, "x-live": .defaultLogin,
+        ]
+        return input.webLogins.map { login in
+            UsageAccountCandidate(
+                source: .init(
+                    role: roles[login.id] ?? (login.id == "app" || login.id == "web" ? .web : .directory),
+                    reference: login.id),
+                identity: login.identity)
+        }
+    }
+
+    func badgeHelp(for role: UsageAccountSource.Role) -> String { "" }
+
+    func isRuntime(_ account: UsageAccount) -> Bool {
+        if hasMenuBar { return account.sources.contains { $0.reference == menuBarTarget } }
+        return account.isDefaultLogin
+    }
+
+    func runtimeUsage(from snapshot: RuntimeProviderSnapshot) -> UsageAccountUsage? { nil }
+
+    func fetchUsage(for account: UsageAccount, interactive: Bool) async throws -> UsageAccountFetchResult {
+        fetches.append(account.sources[0].reference)
+        if let fetchDelay { try await Task.sleep(for: fetchDelay) }
+        if let failure { throw failure }
+        return UsageAccountFetchResult(usage: UsageAccountUsage(fiveHour: .init(usedPercent: 10, resetsAt: nil)))
+    }
+
+    func canSwitch(to account: UsageAccount) -> Bool { false }
+    func switchPlan(for account: UsageAccount, name: String) -> UsageAccountSwitchPlan {
+        UsageAccountSwitchPlan(message: "", confirmTitle: "", terminatesRunningApps: false)
+    }
+    func switchDefault(to account: UsageAccount, plan: UsageAccountSwitchPlan) async throws {}
+
+    var currentTarget: String? { menuBarTarget }
+    func target(for account: UsageAccount) -> String? { account.sources.first?.reference }
+    func show(_ target: String) { menuBarTarget = target }
+
+    func defaultChoice(among visible: [UsageAccount]) -> UsageAccountMenuBarDefault? {
+        guard let preferredDefault, let account = visible.first(where: { target(for: $0) == preferredDefault }) else {
+            return nil
+        }
+        return UsageAccountMenuBarDefault(preferred: .init(account: account, origin: "앱"), alternative: nil)
+    }
+
+    func replacement(among visible: [UsageAccount]) -> UsageAccount? { visible.first { !isRuntime($0) } }
 }
 
 final class UsageAccountSourceTests: XCTestCase {
@@ -182,7 +506,7 @@ final class UsageAccountSourceTests: XCTestCase {
         try JSONSerialization.data(withJSONObject: object).write(to: url)
     }
 
-    func testClaudeDirectoriesNeedOAuthAccountAndExposeIdentity() throws {
+    func testClaudeSiblingFoldersExposeIdentityFromTheirOwnProfile() throws {
         try write(
             ["oauthAccount": ["accountUuid": "acc", "organizationUuid": "org", "emailAddress": "lab@example.com"]],
             to: ".claude-lab/.claude.json")
@@ -190,32 +514,72 @@ final class UsageAccountSourceTests: XCTestCase {
         try FileManager.default.createDirectory(
             at: home.appendingPathComponent(".claudebar"), withIntermediateDirectories: true)
 
-        let found = ClaudeCodeDirectoryAccount.discoverDirectories(home: home)
-        XCTAssertEqual(found.map(\.lastPathComponent), [".claude-lab"])
-        let identity = try XCTUnwrap(ClaudeCodeDirectoryAccount.identity(configDirectory: found[0]))
+        let found = ClaudeUsageAccountProvider.siblingConfigDirectories(home: home)
+        XCTAssertEqual(found.map(\.lastPathComponent), [".claude-empty", ".claude-lab"])
+        XCTAssertNil(ClaudeCodeLoginSlot.folderSlot(found[0], home: home).identity())
+        let identity = try XCTUnwrap(ClaudeCodeLoginSlot.folderSlot(found[1], home: home).identity())
         XCTAssertEqual(identity.mergeKey, "acc|org")
         XCTAssertEqual(identity.email, "lab@example.com")
     }
 
-    func testClaudeCredentialFileParsesTokenAndExpiry() throws {
-        let data = try JSONSerialization.data(withJSONObject: [
-            "claudeAiOauth": ["accessToken": "token-value", "expiresAt": 1_790_000_000_000]
-        ])
-        XCTAssertEqual(
-            ClaudeCodeDirectoryAccount.parse(data),
-            .token("token-value", expiresAt: Date(timeIntervalSince1970: 1_790_000_000)))
-        XCTAssertNil(ClaudeCodeDirectoryAccount.parse(Data("{}".utf8)))
+    func testDefaultSlotReadsHomeProfileAndUnscopedKeychainName() throws {
+        try write(["oauthAccount": ["accountUuid": "a", "organizationUuid": "o"]], to: ".claude.json")
+        let slot = ClaudeCodeLoginSlot.defaultSlot(home: home)
+
+        XCTAssertEqual(slot.identity()?.mergeKey, "a|o")
+        XCTAssertEqual(slot.keychainService, ClaudeCodeCredentialReader.defaultKeychainService)
+        XCTAssertNil(slot.cliConfigDirectory, "기본 로그인에 CLAUDE_CONFIG_DIR을 주면 Keychain 이름이 달라집니다")
+        XCTAssertNotEqual(
+            ClaudeCodeLoginSlot.folderSlot(home.appendingPathComponent(".claude-x"), home: home).keychainService,
+            ClaudeCodeCredentialReader.defaultKeychainService)
+    }
+
+    func testCurrentCredentialPrefersFresherKeychainOverStaleFile() async throws {
+        let slot = ClaudeCodeLoginSlot.folderSlot(home.appendingPathComponent(".claude-x"), home: home)
+        try write(
+            ["claudeAiOauth": ["accessToken": "file-token", "expiresAt": 1_000_000_000_000]],
+            to: ".claude-x/.credentials.json")
+        let fresh = #"{"claudeAiOauth":{"accessToken":"keychain-token","expiresAt":4102444800000}}"#
+        var keychain = ClaudeCodeKeychain.none
+        keychain.read = { _ in .payload(fresh) }
+
+        guard case .credential(let credential) = await slot.currentCredential(interactive: false, keychain: keychain)
+        else { return XCTFail("로그인을 읽지 못했습니다") }
+        XCTAssertEqual(credential.accessToken, "keychain-token")
+    }
+
+    func testCurrentCredentialNeverPromptsWhenNotInteractive() async {
+        let slot = ClaudeCodeLoginSlot.folderSlot(home.appendingPathComponent(".claude-y"), home: home)
+        var keychain = ClaudeCodeKeychain.none
+        keychain.read = { _ in .failed }
+        keychain.readInteractively = { _, _ in
+            XCTFail("자동 조회에서 확인 창을 띄우면 안 됩니다")
+            return .cancelled
+        }
+
+        let read = await slot.currentCredential(interactive: false, keychain: keychain)
+        XCTAssertEqual(read, .needsPermission)
+    }
+
+    func testCredentialParsingConvertsMillisecondExpiry() {
+        let credential = ClaudeCodeCredentialReader.parseCredential(
+            from: #"{"claudeAiOauth":{"accessToken":"token-value","expiresAt":1790000000000}}"#,
+            source: .file(URL(fileURLWithPath: "/tmp/x")))
+        XCTAssertEqual(credential?.accessToken, "token-value")
+        XCTAssertEqual(credential?.expiresAt, Date(timeIntervalSince1970: 1_790_000_000))
+        XCTAssertNil(ClaudeCodeCredentialReader.parseCredential(from: "{}", source: .refreshed))
     }
 
     func testClaudeCLIEnvironmentCarriesUserSoClaudeCodeFindsItsKeychainLogin() {
         let folder = URL(fileURLWithPath: "/tmp/.claude-work")
-        let scoped = ClaudeCodeDirectoryAccount.cliEnvironment(configDirectory: folder)
-        let main = ClaudeCodeDirectoryAccount.cliEnvironment(configDirectory: nil)
+        let scoped = ClaudeCodeCLI.environment(configDirectory: folder, home: home)
+        let main = ClaudeCodeCLI.environment(configDirectory: nil, home: home)
 
         XCTAssertEqual(scoped["USER"], NSUserName())
         XCTAssertEqual(scoped["CLAUDE_CONFIG_DIR"], folder.path)
         XCTAssertEqual(main["USER"], NSUserName())
         XCTAssertNil(main["CLAUDE_CONFIG_DIR"])
+        XCTAssertTrue(main["PATH"]?.contains("/opt/homebrew/bin") == true, "npm으로 설치한 CLI가 node를 찾아야 합니다")
     }
 
     func testCodexHomesNeedAuthFileAndSkipLookalikeFolders() throws {

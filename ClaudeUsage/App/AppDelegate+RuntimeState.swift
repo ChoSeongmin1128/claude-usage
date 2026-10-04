@@ -1,6 +1,11 @@
 import Dispatch
 import Foundation
 
+extension Notification.Name {
+    /// 서비스의 조회 상태가 바뀌었을 때. object는 PopoverService.
+    static let runtimeProviderStateUpdated = Notification.Name("com.claudeusage.runtimeProviderStateUpdated")
+}
+
 extension AppDelegate {
     func withRuntimeState<T>(_ body: @MainActor (AppRuntimeStateFacade) -> T) -> T {
         // AppDelegate and this accessor are MainActor-isolated at the call site.
@@ -39,8 +44,8 @@ extension AppDelegate {
         set { withRuntimeState { $0.currentClaudeProfileMetadata = newValue } }
     }
 
-    var lastOverageFetchAt: Date? {
-        get { withRuntimeState { $0.lastOverageFetchAt } }
+    var lastOverageAttemptAt: Date? {
+        withRuntimeState { $0.lastOverageAttemptAt }
     }
 
     var systemStatus: ClaudeSystemStatus? {
@@ -107,7 +112,7 @@ extension AppDelegate {
         get { runtimeProviderState(for: .claude).error }
         set {
             updateRuntimeProviderState(for: .claude) { state in
-                state.error = newValue
+                state.recordAttempt(error: newValue)
             }
         }
     }
@@ -116,7 +121,7 @@ extension AppDelegate {
         get { runtimeProviderState(for: .codex).error }
         set {
             updateRuntimeProviderState(for: .codex) { state in
-                state.error = newValue
+                state.recordAttempt(error: newValue)
             }
         }
     }
@@ -133,31 +138,10 @@ extension AppDelegate {
         }
     }
 
-    var isCodexLoading: Bool {
-        get { runtimeProviderState(for: .codex).isLoading }
-        set {
-            updateRuntimeProviderState(for: .codex) { state in
-                state.isLoading = newValue
-                state.lastAttemptState = newValue
-                    ? .loading
-                    : RuntimeProviderAttemptState.resolve(isLoading: false, error: state.error)
-            }
-        }
-    }
-
     var loadingStartedAt: Date? {
         get { runtimeProviderState(for: .claude).loadingStartedAt }
         set {
             updateRuntimeProviderState(for: .claude) { state in
-                state.loadingStartedAt = newValue
-            }
-        }
-    }
-
-    var codexLoadingStartedAt: Date? {
-        get { runtimeProviderState(for: .codex).loadingStartedAt }
-        set {
-            updateRuntimeProviderState(for: .codex) { state in
                 state.loadingStartedAt = newValue
             }
         }
@@ -185,15 +169,6 @@ extension AppDelegate {
         get { runtimeProviderState(for: .claude).lastUpdated }
         set {
             updateRuntimeProviderState(for: .claude) { state in
-                state.lastUpdated = newValue
-            }
-        }
-    }
-
-    var codexLastUpdated: Date? {
-        get { runtimeProviderState(for: .codex).lastUpdated }
-        set {
-            updateRuntimeProviderState(for: .codex) { state in
                 state.lastUpdated = newValue
             }
         }

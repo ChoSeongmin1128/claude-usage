@@ -7,17 +7,12 @@ extension SettingsView {
             Label("앱 동작", systemImage: "gearshape")
                 .font(AppDesign.Typography.headline)
 
-            settingsToggleRow(
-                "사용량 자동 확인",
-                subtitle: "주기적으로 사용량을 다시 확인합니다",
-                isOn: $settings.autoRefresh
-            )
+            settingsToggleRow("사용량 자동 확인", isOn: $settings.autoRefresh)
 
             settingsToggleRow(
                 "로그인 시 자동 시작",
                 subtitle: settings.launchAtLoginRequiresApproval
-                    ? "시스템 설정 → 일반 → 로그인 항목에서 승인이 필요합니다"
-                    : "시스템 설정 → 일반 → 로그인 항목에서도 관리할 수 있습니다",
+                    ? "시스템 설정 > 일반 > 로그인 항목에서 허용하세요" : nil,
                 isOn: $settings.launchAtLogin
             )
         }
@@ -26,10 +21,6 @@ extension SettingsView {
     var appDataResetSection: some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.row) {
             Text("데이터 초기화").font(AppDesign.Typography.headline)
-            Text(
-                "이 앱이 이 Mac에 저장한 설정, 계정 연결과 로그인 정보, 로그와 캐시를 모두 지우고 앱을 종료합니다. Claude Code, Codex, Antigravity의 로그인과 파일은 바뀌지 않습니다."
-            )
-            .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
             Button("모든 데이터 초기화", role: .destructive) {
                 Task { pendingDestructiveAction = .resetAllData(await AppDataResetPlan.prepare()) }
             }
@@ -47,10 +38,6 @@ extension SettingsView {
                         settings.notificationsEnabled = enabled
                         if enabled { NotificationManager.shared.requestPermission() }
                     }))
-            if !settings.notificationsEnabled {
-                Text("전체 알림이 꺼져 있습니다. 서비스별 선택은 유지됩니다.")
-                    .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
-            }
         }
     }
 
@@ -59,9 +46,9 @@ extension SettingsView {
             HStack {
                 Text("알릴 시점").font(AppDesign.Typography.headline)
                 Spacer()
-                Button("표시 기준: \(settings.notificationValueBasis.label)") { selectedPanel = .display }
+                Button("표시 기준: \(settings.notificationValueBasis.title)") { selectedPanel = .display }
                     .buttonStyle(.link).controlSize(.small)
-                    .help("모양에서 메뉴바·팝오버·알림의 기준을 함께 변경합니다")
+                    .help("모양에서 메뉴바, 팝오버, 알림의 기준을 함께 바꿉니다")
             }
             NotificationThresholdEditor(settings: settings)
         }
@@ -80,8 +67,8 @@ extension SettingsView {
             .pickerStyle(.segmented)
             Text(
                 settings.usageDisplayMode == .legacy
-                    ? "이전 서비스별 표시와 알림 기준을 유지합니다. 사용한 양 또는 남은 양을 선택하면 모두 같은 기준으로 표시합니다."
-                    : "메뉴바·팝오버·알림에 함께 적용합니다. 알림 시점과 경고 색상은 바뀌지 않습니다."
+                    ? "서비스별로 정했던 기준을 그대로 씁니다."
+                    : "메뉴바, 팝오버, 알림에 함께 적용합니다. 알림 시점과 경고 색상은 바뀌지 않습니다."
             )
             .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
         }
@@ -91,10 +78,6 @@ extension SettingsView {
         VStack(alignment: .leading, spacing: AppDesign.Space.content) {
             Label("업데이트", systemImage: "arrow.down.circle")
                 .font(AppDesign.Typography.headline)
-
-            Label("30분마다 자동 확인", systemImage: "clock.arrow.circlepath")
-                .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
 
             HStack(alignment: .center, spacing: AppDesign.Space.content) {
                 Text("현재 버전 \(updateRuntimeState.currentVersionText)")
@@ -125,15 +108,13 @@ extension SettingsView {
                 }
             }
 
-            Text(updateRuntimeState.statusSummary)
-                .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
-
-            if onShowWhatsNew != nil {
-                Button("새 기능 다시 보기") { onShowWhatsNew?() }
-                    .buttonStyle(.link)
-                    .controlSize(.small)
+            if let summary = updateRuntimeState.statusSummary {
+                Text(summary)
+                    .font(AppDesign.Typography.caption)
+                    .foregroundStyle(.secondary)
             }
+
+            UpdateHistoryActions(onShowWhatsNew: onShowWhatsNew)
 
             if let update = updateRuntimeState.latestKnownUpdate,
                !update.releaseNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

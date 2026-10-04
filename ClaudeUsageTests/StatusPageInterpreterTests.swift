@@ -22,6 +22,26 @@ final class StatusPageInterpreterTests: XCTestCase {
         XCTAssertEqual(status.degradedComponents, ["Codex API"])
     }
 
+    func testSummaryWithoutIncidentsAndUpdatesWithoutComponentsStillParse() throws {
+        // OpenAI summary.json에는 incidents 키가 없고, update의 affected_components는 없거나 null일 수 있다.
+        let summary = Data(
+            #"""
+            {"page":{"updated_at":"2026-10-04T00:00:00Z"},"status":{"indicator":"none","description":"All Systems Operational"},
+             "components":[{"name":"Codex API","status":"operational"}]}
+            """#.utf8)
+        let withNullComponents = Data(
+            #"""
+            {"page":{},"status":{"indicator":"minor","description":"Minor"},"components":[],
+             "incidents":[{"name":"Login errors","status":"investigating","impact":"minor","updated_at":"2026-10-04T00:00:00Z",
+               "incident_updates":[{"status":"investigating","body":"Looking","display_at":null,"affected_components":null}]}]}
+            """#.utf8)
+
+        XCTAssertNotNil(
+            StatusPageInterpreter.parseStatus(
+                data: summary, relevantComponentNames: ["Codex API"], fallbackDescription: "Codex 상태"))
+        XCTAssertEqual(StatusPageResponse.decode(from: withNullComponents)?.incidents.count, 1)
+    }
+
     func testCodexStatusStaysNormalWhenOnlyUnrelatedOpenAIComponentFails() throws {
         let status = try XCTUnwrap(StatusPageInterpreter.parseStatus(
             data: openAIStatusPayload(

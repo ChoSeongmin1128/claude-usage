@@ -34,7 +34,6 @@ nonisolated struct OperationalDiagnostic: Equatable, Sendable {
         case .setupRequired(let reason):
             let code: String
             switch reason {
-            case .noSelectedOAuthAccount: code = "agy.noSelectedAccount"
             case .noAmbientLocalSession: code = "agy.noLocalSession"
             case .usageTargetSelection, .ambiguousLocalSessions: code = "agy.usageTargetSelectionRequired"
             }

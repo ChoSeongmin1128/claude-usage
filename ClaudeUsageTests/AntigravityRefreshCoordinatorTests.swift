@@ -5,7 +5,6 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
     func testUnavailableCLIReportNamesTheReportSource() async {
         let appScript = RefreshSourceScript(outcomes: [.failure(.unavailable)])
         let coordinator = AntigravityRefreshCoordinator(
-            repository: RefreshRepositoryDouble(accounts: [], activeAccountID: nil, credentials: [:]),
             sources: [
                 ScriptedRefreshSource(id: .localApp, script: appScript),
                 ScriptedRefreshSource(
@@ -14,7 +13,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             ]
         )
 
-        let result = await coordinator.refresh(selectedRequest(target: .cli, revision: 0))
+        let result = await coordinator.refresh(selectedRequest(target: .cli))
 
         XCTAssertEqual(result, .failed(.sourceUnavailable(.cliReport)))
         let appCalls = await appScript.callCount()
@@ -28,11 +27,6 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 response: .init(payload: .grouped(snapshot))
             )
         let coordinator = AntigravityRefreshCoordinator(
-            repository: RefreshRepositoryDouble(
-                accounts: [],
-                activeAccountID: nil,
-                credentials: [:]
-            ),
             sources: [
                 ConnectionSnapshotRefreshSource(
                     script: sourceScript
@@ -45,12 +39,10 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         let firstResultBox = RefreshPresentationResultBox()
         let firstRequest = AntigravityRefreshRequest(
             trigger: .manual,
-            repositoryRevision: 0,
             connection: makeConnectionSettings(target: .cli)
         )
         let secondRequest = AntigravityRefreshRequest(
             trigger: .manual,
-            repositoryRevision: 0,
             connection: makeConnectionSettings(target: .unselected)
         )
 
@@ -95,14 +87,13 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             .success(.init(payload: .grouped(report)))
         ])
         let coordinator = AntigravityRefreshCoordinator(
-            repository: RefreshRepositoryDouble(accounts: [], activeAccountID: nil, credentials: [:]),
             sources: [
                 ScriptedRefreshSource(id: .localApp, script: localScript),
                 ScriptedRefreshSource(id: .cliReport, script: reportScript),
             ]
         )
 
-        let result = await coordinator.refresh(selectedRequest(target: .cli, revision: 0))
+        let result = await coordinator.refresh(selectedRequest(target: .cli))
 
         XCTAssertEqual(result, .ready(report))
         let localCallCount = await localScript.callCount()
@@ -111,10 +102,9 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         XCTAssertEqual(reportCallCount, 1)
     }
 
-    func testCLIReportFailuresKeepTheLastReportUntilABoundaryChange() async {
+    func testRecoverableCLIReportFailuresKeepTheLastReport() async {
         let report = makeReportSnapshot()
         let coordinator = AntigravityRefreshCoordinator(
-            repository: RefreshRepositoryDouble(accounts: [], activeAccountID: nil, credentials: [:]),
             sources: [
                 ScriptedRefreshSource(
                     id: .cliReport,
@@ -126,24 +116,20 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             ]
         )
         let scheduled = AntigravityRefreshRequest(
-            trigger: .scheduled, repositoryRevision: 0, connection: makeConnectionSettings(target: .cli))
-        let boundary = AntigravityRefreshRequest(
-            trigger: .accountBoundaryChanged, repositoryRevision: 0,
-            connection: makeConnectionSettings(target: .cli))
+            trigger: .scheduled, connection: makeConnectionSettings(target: .cli))
 
         let ready = await coordinator.refresh(scheduled)
         let disabled = await coordinator.refresh(scheduled)
-        let cleared = await coordinator.refresh(boundary)
+        let transport = await coordinator.refresh(scheduled)
 
         XCTAssertEqual(ready, .ready(report))
         XCTAssertEqual(disabled, .stale(report, failure: .runtimeUnavailable(.reportDisabled)))
-        XCTAssertEqual(cleared, .failed(.transportUnavailable(.cliReport)))
+        XCTAssertEqual(transport, .stale(report, failure: .transportUnavailable(.cliReport)))
     }
 
     func testFailedCLIReportDropsTheLastReport() async {
         let report = makeReportSnapshot()
         let coordinator = AntigravityRefreshCoordinator(
-            repository: RefreshRepositoryDouble(accounts: [], activeAccountID: nil, credentials: [:]),
             sources: [
                 ScriptedRefreshSource(
                     id: .cliReport,
@@ -155,7 +141,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             ]
         )
         let scheduled = AntigravityRefreshRequest(
-            trigger: .scheduled, repositoryRevision: 0, connection: makeConnectionSettings(target: .cli))
+            trigger: .scheduled, connection: makeConnectionSettings(target: .cli))
 
         let ready = await coordinator.refresh(scheduled)
         let failedReport = await coordinator.refresh(scheduled)
@@ -172,7 +158,6 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             .verificationRejected, .unsupportedVersion, .reportDisabled,
         ] {
             let coordinator = AntigravityRefreshCoordinator(
-                repository: RefreshRepositoryDouble(accounts: [], activeAccountID: nil, credentials: [:]),
                 sources: [
                     ScriptedRefreshSource(
                         id: .cliReport,
@@ -180,7 +165,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 ]
             )
 
-            let result = await coordinator.refresh(selectedRequest(target: .cli, revision: 0))
+            let result = await coordinator.refresh(selectedRequest(target: .cli))
 
             XCTAssertEqual(result, .failed(.runtimeUnavailable(reason)))
         }
@@ -211,7 +196,6 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
 
         for invalid in [endpointBacked, appTransport, empty, withIdentity, withProvenanceIdentity] {
             let coordinator = AntigravityRefreshCoordinator(
-                repository: RefreshRepositoryDouble(accounts: [], activeAccountID: nil, credentials: [:]),
                 sources: [
                     ScriptedRefreshSource(
                         id: .cliReport,
@@ -219,7 +203,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 ]
             )
 
-            let result = await coordinator.refresh(selectedRequest(target: .cli, revision: 0))
+            let result = await coordinator.refresh(selectedRequest(target: .cli))
 
             XCTAssertEqual(result, .failed(.sourceContractViolation(.cliReport)))
         }
@@ -233,7 +217,6 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         ]
         for payload in payloads {
             let coordinator = AntigravityRefreshCoordinator(
-                repository: RefreshRepositoryDouble(accounts: [], activeAccountID: nil, credentials: [:]),
                 sources: [
                     ScriptedRefreshSource(
                         id: .cliReport,
@@ -241,24 +224,21 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 ]
             )
 
-            let result = await coordinator.refresh(selectedRequest(target: .cli, revision: 0))
+            let result = await coordinator.refresh(selectedRequest(target: .cli))
 
             XCTAssertEqual(result, .failed(.sourceContractViolation(.cliReport)))
         }
     }
 
     func testManualRefreshDoesNotJoinScheduledFlight() async throws {
-        let account = makeAccount(id: "account-a", subject: "subject-a", email: "a@example.com")
-        let repository = RefreshRepositoryDouble(accounts: [account], activeAccountID: account.id,
-            credentials: [account.id: makeCredentials("a")])
         let snapshot = makeSnapshot(identity: nil, source: .cliReport)
         let source = DiscoveryPolicySource(snapshot: snapshot)
-        let coordinator = AntigravityRefreshCoordinator(repository: repository, sources: [source])
+        let coordinator = AntigravityRefreshCoordinator(sources: [source])
         let scheduled = AntigravityRefreshRequest(
-            trigger: .scheduled, repositoryRevision: 0, connection: makeConnectionSettings(target: .cli))
+            trigger: .scheduled, connection: makeConnectionSettings(target: .cli))
         let first = Task { await coordinator.refresh(scheduled) }
         await source.waitUntilStarted()
-        let manual = selectedRequest(target: .cli, revision: 0)
+        let manual = selectedRequest(target: .cli)
         let result = await coordinator.refresh(manual)
         _ = await first.value
         let calls = await source.calls
@@ -267,23 +247,12 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
     }
 
     func testConcurrentEquivalentRequestsUseOneSourceFetch() async throws {
-        let account = makeAccount(
-            id: "account-a",
-            subject: "subject-a",
-            email: "a@example.com"
-        )
-        let repository = RefreshRepositoryDouble(
-            accounts: [account],
-            activeAccountID: account.id,
-            credentials: [account.id: makeCredentials("a")]
-        )
         let snapshot = makeSnapshot(
             identity: nil,
             source: .cliReport
         )
         let gate = BlockingRefreshSourceScript()
         let coordinator = AntigravityRefreshCoordinator(
-            repository: repository,
             sources: [
                 BlockingRefreshSource(
                     id: .cliReport,
@@ -291,7 +260,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 ),
             ]
         )
-        let request = selectedRequest(target: .cli, revision: 0)
+        let request = selectedRequest(target: .cli)
 
         async let first = coordinator.refresh(request)
         await gate.waitUntilStarted()
@@ -307,23 +276,12 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
     }
 
     func testCancelledWaiterDetachesWithoutCancellingSharedFlight() async throws {
-        let account = makeAccount(
-            id: "account-a",
-            subject: "subject-a",
-            email: "a@example.com"
-        )
-        let repository = RefreshRepositoryDouble(
-            accounts: [account],
-            activeAccountID: account.id,
-            credentials: [account.id: makeCredentials("a")]
-        )
         let snapshot = makeSnapshot(
             identity: nil,
             source: .cliReport
         )
         let gate = BlockingRefreshSourceScript()
         let coordinator = AntigravityRefreshCoordinator(
-            repository: repository,
             sources: [
                 BlockingRefreshSource(
                     id: .cliReport,
@@ -331,7 +289,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 ),
             ]
         )
-        let request = selectedRequest(target: .cli, revision: 0)
+        let request = selectedRequest(target: .cli)
 
         let cancelled = Task {
             await coordinator.refresh(request)
@@ -362,24 +320,12 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
     }
 
     func testCancellingOnlyWaiterCancelsSourceAndRejectsLateUsage() async throws {
-        let account = makeAccount(
-            id: "account-a",
-            subject: "subject-a",
-            email: "a@example.com"
-        )
-        let original = makeCredentials("old")
-        let repository = RefreshRepositoryDouble(
-            accounts: [account],
-            activeAccountID: account.id,
-            credentials: [account.id: original]
-        )
         let snapshot = makeSnapshot(
             identity: nil,
             source: .cliReport
         )
         let gate = BlockingRefreshSourceScript()
         let coordinator = AntigravityRefreshCoordinator(
-            repository: repository,
             sources: [
                 BlockingRefreshSource(
                     id: .cliReport,
@@ -387,7 +333,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 ),
             ]
         )
-        let request = selectedRequest(target: .cli, revision: 0)
+        let request = selectedRequest(target: .cli)
 
         let caller = Task {
             await coordinator.refresh(request)
@@ -401,11 +347,8 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
             .failed(.cancelled)
         )
         await gate.waitUntilCancellationObserved()
-        let initialReplaceCount =
-            await repository.replaceCountValue()
         let cancelledPresentation =
             await coordinator.presentationState()
-        XCTAssertEqual(initialReplaceCount, 0)
         XCTAssertEqual(
             cancelledPresentation,
             .failed(.cancelled)
@@ -419,19 +362,8 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
         await gate.waitUntilFinished()
         await Task.yield()
 
-        let finalReplaceCount =
-            await repository.replaceCountValue()
-        let storedCredentials =
-            await repository.credentialsValue(
-                for: account.id
-            )
         let finalPresentation =
             await coordinator.presentationState()
-        XCTAssertEqual(finalReplaceCount, 0)
-        XCTAssertEqual(
-            storedCredentials,
-            original
-        )
         XCTAssertEqual(
             finalPresentation,
             .failed(.cancelled)
@@ -439,24 +371,12 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
     }
 
     func testQuiesceCancelsNoncooperativeFlightAndRejectsFutureRefresh() async {
-        let account = makeAccount(
-            id: "account-a",
-            subject: "subject-a",
-            email: "a@example.com"
-        )
         let snapshot = makeSnapshot(
             identity: nil,
             source: .cliReport
         )
         let sourceGate = BlockingRefreshSourceScript()
         let coordinator = AntigravityRefreshCoordinator(
-            repository: RefreshRepositoryDouble(
-                accounts: [account],
-                activeAccountID: account.id,
-                credentials: [
-                    account.id: makeCredentials("a"),
-                ]
-            ),
             sources: [
                 BlockingRefreshSource(
                     id: .cliReport,
@@ -464,7 +384,7 @@ final class AntigravityRefreshCoordinatorTests: XCTestCase {
                 ),
             ]
         )
-        let request = selectedRequest(target: .cli, revision: 0)
+        let request = selectedRequest(target: .cli)
         let callerCompletion = expectation(
             description: "quiesced caller"
         )
@@ -510,103 +430,6 @@ private actor RefreshPresentationResultBox {
 
     func value() -> AntigravityPresentationState? {
         result
-    }
-}
-
-private actor RefreshRepositoryDouble:
-    AntigravityRefreshAccountRepository
-{
-    private var storedState: AntigravityAccountRepositoryState
-    private var credentials:
-        [AntigravityAccountID: AntigravityOAuthCredentials]
-    private var replaceCount = 0
-
-    init(
-        accounts: [AntigravityStoredAccount],
-        activeAccountID: AntigravityAccountID?,
-        credentials:
-            [AntigravityAccountID: AntigravityOAuthCredentials]
-    ) {
-        storedState = AntigravityAccountRepositoryState(
-            revision: 0,
-            activeAccountID: activeAccountID,
-            accounts: accounts
-        )
-        self.credentials = credentials
-    }
-
-    func state() async throws -> AntigravityAccountRepositoryState {
-        storedState
-    }
-
-    func credentialSnapshot(
-        for accountID: AntigravityAccountID
-    ) async throws -> AntigravityCredentialSnapshot? {
-        guard let account = storedState.accounts.first(
-            where: { $0.id == accountID }
-        ), let credentials = credentials[accountID] else {
-            return nil
-        }
-        return AntigravityCredentialSnapshot(
-            repositoryRevision: storedState.revision,
-            account: account,
-            credentials: credentials
-        )
-    }
-
-    func replaceCredential(
-        for accountID: AntigravityAccountID,
-        with credentials: AntigravityOAuthCredentials,
-        externalIdentity: AntigravityExternalAccountIdentity?,
-        expectedRevision: UInt64
-    ) async throws -> AntigravityAccountRepositoryState {
-        guard storedState.revision == expectedRevision else {
-            throw AntigravityAccountRepositoryError
-                .revisionConflict(
-                    expected: expectedRevision,
-                    actual: storedState.revision
-                )
-        }
-        guard storedState.accounts.contains(
-            where: { $0.id == accountID }
-        ) else {
-            throw AntigravityAccountRepositoryError
-                .accountNotFound
-        }
-        replaceCount += 1
-        self.credentials[accountID] = credentials
-        storedState.revision += 1
-        return storedState
-    }
-
-    func switchActive(
-        to accountID: AntigravityAccountID,
-        expectedRevision: UInt64
-    ) throws -> AntigravityAccountRepositoryState {
-        guard storedState.revision == expectedRevision else {
-            throw AntigravityAccountRepositoryError
-                .revisionConflict(
-                    expected: expectedRevision,
-                    actual: storedState.revision
-                )
-        }
-        storedState.activeAccountID = accountID
-        storedState.revision += 1
-        return storedState
-    }
-
-    func stateValue() -> AntigravityAccountRepositoryState {
-        storedState
-    }
-
-    func credentialsValue(
-        for accountID: AntigravityAccountID
-    ) -> AntigravityOAuthCredentials? {
-        credentials[accountID]
-    }
-
-    func replaceCountValue() -> Int {
-        replaceCount
     }
 }
 
@@ -823,12 +646,10 @@ private struct BlockingRefreshSource:
 }
 
 private func selectedRequest(
-    target: AntigravityUsageTarget = .app,
-    revision: UInt64
+    target: AntigravityUsageTarget = .app
 ) -> AntigravityRefreshRequest {
     return AntigravityRefreshRequest(
         trigger: .manual,
-        repositoryRevision: revision,
         connection: makeConnectionSettings(target: target)
     )
 }
@@ -839,43 +660,6 @@ private func makeConnectionSettings(
     AntigravityConnectionSettings(
         schemaVersion: AntigravityConnectionSettings.currentSchemaVersion,
         usageTarget: target
-    )
-}
-
-private func makeAccount(
-    id: String,
-    subject: String?,
-    email: String?
-) -> AntigravityStoredAccount {
-    AntigravityStoredAccount(
-        id: AntigravityAccountID(rawValue: id),
-        label: email ?? id,
-        externalIdentity: .init(
-            googleSubject: subject,
-            email: email
-        ),
-        migrationAliases: [],
-        lifecycle: .active,
-        credentialReference:
-            AntigravityCredentialReference(
-                rawValue:
-                    "\(AntigravityCredentialReference.namespacePrefix)\(id)"
-            ),
-        createdAtMilliseconds: 1,
-        updatedAtMilliseconds: 1
-    )
-}
-
-private func makeCredentials(
-    _ seed: String
-) -> AntigravityOAuthCredentials {
-    AntigravityOAuthCredentials(
-        accessToken: "access-\(seed)",
-        refreshToken: "refresh-\(seed)",
-        expiryDate: Date(timeIntervalSince1970: 2_000_000_000),
-        email: "a@example.com",
-        clientID: "client",
-        clientSecret: "secret"
     )
 }
 

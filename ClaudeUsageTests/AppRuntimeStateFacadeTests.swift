@@ -34,6 +34,17 @@ final class AppRuntimeStateFacadeTests: XCTestCase {
         }
     }
 
+    func testFailedOverageFetchCountsTowardTheInterval() {
+        let facade = AppRuntimeStateFacade()
+        facade.activeClaudeAccountID = "account"
+        XCTAssertNil(facade.lastOverageAttemptAt)
+
+        facade.applyClaudeSupplementalUsage(.failed, accountID: "account")
+
+        XCTAssertNotNil(facade.lastOverageAttemptAt)
+        XCTAssertNil(facade.lastOverageFetchAt, "실패한 시각을 갱신 시각으로 보이지 않습니다")
+    }
+
     private func makeSnapshot(activeAccountID: String?) -> ClaudeAPIService.UsageHealthSnapshot {
         let emptyPath = ClaudeAPIService.AuthPathHealthSnapshot(
             lastAttemptAt: nil,

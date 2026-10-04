@@ -8,15 +8,6 @@ struct ApplicationLaunchIntent: Equatable, Sendable {
 
     static func parse(arguments: [String]) -> Self {
         let settingsPrefix = "--show-settings="
-        let supportedPanels = Set([
-            "common",
-            "display",
-            "notifications",
-            "updates",
-            "claude",
-            "codex",
-            "antigravity",
-        ])
         let settingsPanelRawValue = arguments
             .first {
                 $0.hasPrefix(settingsPrefix)
@@ -30,7 +21,7 @@ struct ApplicationLaunchIntent: Equatable, Sendable {
                 .lowercased()
             }
             .flatMap {
-                supportedPanels.contains($0)
+                SettingsProviderPanel.resolve(storedValue: $0) != nil
                     ? $0
                     : nil
             }

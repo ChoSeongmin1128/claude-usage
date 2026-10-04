@@ -16,8 +16,8 @@ nonisolated enum UsageDisplayMode: String, Codable, CaseIterable, Sendable {
     var title: String {
         switch self {
         case .legacy: return "기존 선택 유지"
-        case .used: return "사용한 양"
-        case .remaining: return "남은 양"
+        case .used: return UsageValueBasis.used.title
+        case .remaining: return UsageValueBasis.remaining.title
         }
     }
 }
@@ -28,6 +28,7 @@ nonisolated enum UsageValueBasis: String, Sendable, Equatable {
     case remaining
 
     var label: String { self == .used ? "사용" : "남음" }
+    var title: String { self == .used ? "사용한 양" : "남은 양" }
 
     func percentage(fromUsed percentage: Double?) -> Double? {
         guard let percentage, percentage.isFinite else { return nil }
@@ -61,4 +62,10 @@ extension ProviderMenuBarDisplayConfig {
     var usageValueBasis: UsageValueBasis {
         basisOverride ?? (style != .none && circularDisplayMode == .remaining ? .remaining : .used)
     }
+}
+
+/// 여러 화면이 같은 말로 보여야 하는 상태 이름
+nonisolated enum UsageStatusLabel {
+    /// 조회에 실패해 마지막으로 읽은 값을 보여줄 때
+    static let previousValue = "이전 값"
 }

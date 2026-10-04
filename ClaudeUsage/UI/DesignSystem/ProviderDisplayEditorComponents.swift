@@ -3,6 +3,8 @@ import UniformTypeIdentifiers
 
 struct ProviderSettingsPicker: View {
     @Binding var selection: AppProviderKind
+    /// VoiceOver에 읽히는 이 선택기의 용도(예: "표시 설정", "계정")
+    var purpose = "표시 설정"
 
     var body: some View {
         HStack(spacing: AppDesign.Space.control) {
@@ -76,7 +78,7 @@ struct ProviderSettingsPicker: View {
                     )
                 )
                 .accessibilityLabel(
-                    "\(provider.displayName) 표시 설정"
+                    "\(provider.displayName) \(purpose)"
                 )
                 .accessibilityAddTraits(
                     selection == provider
@@ -90,7 +92,7 @@ struct ProviderSettingsPicker: View {
             children: .contain
         )
         .accessibilityLabel(
-            "표시 설정 서비스 선택"
+            "\(purpose) 서비스 선택"
         )
     }
 }
@@ -173,20 +175,17 @@ struct ProviderDisplayEditorShell<
     Controls: View
 >: View {
     let title: String
-    let description: String
     @Binding var selectedMode: PopoverDisplayEditorMode
     private let preview: Preview
     private let controls: Controls
 
     init(
         title: String,
-        description: String,
         selectedMode: Binding<PopoverDisplayEditorMode>,
         @ViewBuilder preview: () -> Preview,
         @ViewBuilder controls: () -> Controls
     ) {
         self.title = title
-        self.description = description
         _selectedMode = selectedMode
         self.preview = preview()
         self.controls = controls()
@@ -196,10 +195,6 @@ struct ProviderDisplayEditorShell<
         VStack(alignment: .leading, spacing: AppDesign.Space.content) {
             Text(title)
                 .font(AppDesign.Typography.subheadline.weight(.semibold))
-
-            Text(description)
-                .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
 
             DisplayModePicker(selection: $selectedMode)
 
@@ -259,12 +254,9 @@ struct DisplayItemRow: View {
                 )
 
             if !item.isAvailable {
-                Text("지금 데이터 없음")
+                Text("데이터 없음")
                     .font(AppDesign.Typography.caption)
                     .foregroundStyle(.tertiary)
-                    .help(
-                        "현재 응답에는 이 항목의 데이터가 없습니다. 선택은 유지됩니다."
-                    )
             }
 
             Spacer()
@@ -279,7 +271,7 @@ struct DisplayItemRow: View {
                 item.isVisible ? "표시 중" : "숨김",
                 item.isAvailable
                     ? nil
-                    : "지금 데이터 없음",
+                    : "데이터 없음",
             ]
             .compactMap { $0 }
             .joined(separator: ", ")
@@ -360,6 +352,7 @@ struct DisplayItemList: View {
                             model
                                 .supportsReordering,
                         itemID: item.id,
+                        itemIDs: Set(model.items.map(\.id)),
                         draggingItemID:
                             $draggingItemID,
                         onMoveToItem:
@@ -401,6 +394,7 @@ private struct DisplayItemDragModifier:
 {
     let enabled: Bool
     let itemID: String
+    let itemIDs: Set<String>
     @Binding var draggingItemID: String?
     let onMoveToItem: (String, String) -> Void
 
@@ -418,12 +412,18 @@ private struct DisplayItemDragModifier:
                     of: [UTType.text],
                     delegate: DisplayItemDropDelegate(
                         targetID: itemID,
+                        itemIDs: itemIDs,
                         draggingItemID:
                             $draggingItemID,
                         onMoveToItem:
                             onMoveToItem
                     )
                 )
+                // 드래그를 목록 밖에서 놓거나 취소하면 끝났다는 신호가 없다. 드래그가 끝나야 마우스 위치가
+                // 다시 전달되므로 그때 강조를 지운다.
+                .onContinuousHover { phase in
+                    if case .active = phase, draggingItemID != nil { draggingItemID = nil }
+                }
         } else {
             content
         }
@@ -434,19 +434,30 @@ private struct DisplayItemDropDelegate:
     DropDelegate
 {
     let targetID: String
+    let itemIDs: Set<String>
     @Binding var draggingItemID: String?
     let onMoveToItem: (String, String) -> Void
 
+    /// 끌어 온 항목 id는 남아 있는 상태가 아니라 놓은 자료에서 읽는다. 취소된 드래그의 id가 남아 있어도
+    /// 다른 앱의 글자를 놓았을 때 항목이 움직이지 않게 한다.
     func performDrop(info: DropInfo) -> Bool {
-        guard let sourceID = draggingItemID
-        else {
-            return false
-        }
-        if sourceID != targetID {
+        draggingItemID = nil
+        guard let provider = info.itemProviders(for: [UTType.text]).first else { return false }
+        Task { @MainActor in
+            guard let sourceID = await Self.droppedID(from: provider), itemIDs.contains(sourceID),
+                sourceID != targetID
+            else { return }
             onMoveToItem(sourceID, targetID)
         }
-        draggingItemID = nil
         return true
+    }
+
+    private static func droppedID(from provider: NSItemProvider) async -> String? {
+        await withCheckedContinuation { continuation in
+            _ = provider.loadObject(ofClass: NSString.self) { object, _ in
+                continuation.resume(returning: object as? String)
+            }
+        }
     }
 
     func dropUpdated(

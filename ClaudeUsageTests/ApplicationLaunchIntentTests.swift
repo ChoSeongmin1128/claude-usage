@@ -4,11 +4,8 @@ import XCTest
 @MainActor
 final class ApplicationLaunchIntentTests: XCTestCase {
     func testParsesSupportedSettingsDestination() {
-        for destination in [
-            "common",
-            "display",
+        for destination in SettingsProviderPanel.allCases.map(\.rawValue) + [
             "notifications",
-            "updates",
             "claude",
             "codex",
             "antigravity",

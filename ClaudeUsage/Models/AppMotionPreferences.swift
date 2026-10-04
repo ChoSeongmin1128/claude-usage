@@ -19,7 +19,7 @@ enum AppMotionCategory: String, CaseIterable, Sendable {
         switch self {
         case .popoverPresentation: return "팝오버 열기·닫기"
         case .popoverResize: return "팝오버 크기 전환"
-        case .navigation: return "설정 탭·빠른 시작 단계 전환"
+        case .navigation: return "설정 탭·시작하기 단계 전환"
         case .disclosure: return "상세 항목 접기·펼치기"
         case .itemChanges: return "표시 항목 이동·숨기기"
         case .usageValue: return "사용량 막대 갱신"

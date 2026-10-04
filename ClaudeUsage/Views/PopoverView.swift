@@ -193,7 +193,7 @@ struct PopoverView: View {
                 symbol: "arrow.clockwise",
                 label: viewModel.refreshHelp(for: selectedService, isLoading: currentServiceLoading),
                 isLoading: currentServiceLoading,
-                isEnabled: !currentServiceLoading && viewModel.manualRefreshAvailableAt(for: selectedService) == nil
+                isEnabled: viewModel.canRefresh(service: selectedService)
             ) { viewModel.refresh() }
             IconActionButton(
                 symbol: isCompact ? "rectangle.expand.vertical" : "rectangle.compress.vertical",
@@ -207,7 +207,8 @@ struct PopoverView: View {
                 }
             }
             IconActionButton(
-                symbol: isPinned ? "pin.fill" : "pin", label: isPinned ? "팝오버 고정 해제" : "팝오버 고정", isActive: isPinned
+                symbol: isPinned ? "pin.fill" : "pin", label: isPinned ? "팝오버 고정 해제" : "팝오버 고정", isActive: isPinned,
+                isToggle: true
             ) {
                 isPinned.toggle()
                 viewModel.onPinChanged?(selectedService, isPinned)
@@ -310,7 +311,8 @@ struct PopoverView: View {
                     .foregroundStyle(.tertiary)
             }
             if let status = context.status {
-                Text(context.lastSuccessLabel ?? status.label)
+                // 마지막 성공 시각은 도움말과 VoiceOver에 둔다. 시각만 보이면 갱신 중이거나 실패한 것을 알 수 없다.
+                Text(status.label)
                     .foregroundStyle(
                         status == .authenticationRequired || status == .refreshFailed ? .orange : .secondary
                     )
@@ -319,7 +321,7 @@ struct PopoverView: View {
             }
         }
         .font(AppDesign.Typography.compactIdentity)
-        .help(context.labels.joined(separator: " · "))
+        .help(context.helpText)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("선택한 서비스 상태")
         .accessibilityValue(context.labels.joined(separator: ", "))
@@ -344,7 +346,7 @@ struct PopoverView: View {
                 providerStatusRailSegments(state: state)
                 Spacer(minLength: 0)
             }
-            .help(label)
+            .help([label, state.failureHelpText].compactMap { $0 }.joined(separator: "\n"))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("\(selectedService.displayName) 상태")
             .accessibilityValue(label)
@@ -390,7 +392,7 @@ struct PopoverView: View {
         } else if state.isAuthRequired {
             status = viewModel.authRequiredStatusLabel(for: state.service)
         } else {
-            status = "아직 갱신되지 않음"
+            status = "갱신 전"
         }
         return (accountLabel, state.sourceLabel, status)
     }
@@ -488,10 +490,6 @@ struct PopoverView: View {
         nonmutating set {
             settings.popoverPinned = newValue
         }
-    }
-
-    private var currentLayoutSpec: PopoverLayoutSpec {
-        viewModel.layoutSpec(for: selectedService, settings: settings)
     }
 
     static func preferredPopoverWidth(compact: Bool) -> CGFloat {

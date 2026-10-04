@@ -195,7 +195,9 @@ nonisolated struct MenuBarResetCreditBadge: Equatable, Sendable {
     let count: Int
     let tone: Tone
 
-    var text: String { "↺\(count)" }
+    static let symbol = "↺"
+
+    var text: String { "\(Self.symbol)\(count)" }
     var key: String { "\(text).\(tone.rawValue)" }
 
     /// 곧 만료(48시간)가 신규보다 우선이다. 0개면 그리지 않는다.

@@ -19,8 +19,8 @@ nonisolated enum AntigravityAccountIdentityMatch:
     }
 }
 
-/// Compares only externally asserted identity. Opaque repository IDs, labels,
-/// migration aliases, and source order are never treated as account evidence.
+/// Compares only externally asserted identity. Labels and source order are
+/// never treated as account evidence.
 nonisolated enum AntigravityAccountIdentityMatcher {
     static func match(
         expected: ProviderAccountIdentity,
@@ -71,14 +71,5 @@ nonisolated enum AntigravityAccountIdentityMatcher {
             in: .whitespacesAndNewlines
         )
         return trimmed.isEmpty ? nil : trimmed
-    }
-}
-
-nonisolated extension AntigravityExternalAccountIdentity {
-    var providerAccountIdentity: ProviderAccountIdentity {
-        ProviderAccountIdentity(
-            stableAccountID: googleSubject,
-            email: email
-        )
     }
 }

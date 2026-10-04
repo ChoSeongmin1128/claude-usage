@@ -36,6 +36,26 @@ actor ClaudeAPIService {
             self.capabilities = capabilities
         }
 
+        /// `/api/organizations` 항목과 `/api/account`의 membership 조직이 같은 모양이다.
+        nonisolated init?(json organization: [String: Any]) {
+            func firstNonEmptyString(_ values: Any?...) -> String? {
+                values.compactMap { $0 as? String }
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .first(where: { !$0.isEmpty })
+            }
+            guard let uuid = organization["uuid"] as? String, !uuid.isEmpty else { return nil }
+            self.init(
+                id: uuid,
+                name: firstNonEmptyString(
+                    organization["name"], organization["display_name"], organization["company_name"]),
+                planLabel: firstNonEmptyString(
+                    organization["plan"], organization["plan_label"], organization["planLabel"],
+                    organization["subscription_type"], organization["subscriptionType"]),
+                billingType: firstNonEmptyString(organization["billing_type"], organization["billingType"]),
+                rateLimitTier: firstNonEmptyString(organization["rate_limit_tier"], organization["rateLimitTier"]),
+                capabilities: organization["capabilities"] as? [String])
+        }
+
         /// UI 표시용 라벨. UUID 를 노출하지 않는다 — 사용자에게 UUID 는 노이즈일 뿐
         /// 디버그용으로 봐야 한다면 `idSuffixLabel` 을 별도 호출하면 된다.
         var displayName: String {
@@ -236,7 +256,7 @@ actor ClaudeAPIService {
     private let accountStore: ClaudeAccountStore
     private let usesStoredActiveAccount: Bool
     private var activeAccount: ClaudeAccount?
-    private let baseURL = "https://claude.ai/api"
+    private let baseURL = ClaudeEndpoints.webAPIBase
     private var cachedOrganizationID: String?
     private var preferredOrganizationID: String?
     private var sessionPathCooldownUntil: Date?
@@ -248,7 +268,7 @@ actor ClaudeAPIService {
     private var lastOAuthSuccess: (usage: ClaudeUsageResponse, at: Date)?
     private var claudeCodeCredentialGeneration = 0
     private static let minimumOAuthCallInterval: TimeInterval = 300
-    private let requestTimeout: TimeInterval = 20
+    private let requestTimeout = ClaudeEndpoints.requestTimeout
     private let sourcePlanner = ClaudeSourcePlanner()
     private let messagesHeaderFallbackFetcher = ClaudeMessagesHeaderFallbackFetcher()
     private var profileMetadataStore: ClaudeProfileMetadataStore
@@ -466,7 +486,10 @@ actor ClaudeAPIService {
             ? accountStore.state()
             : ClaudeAccountState(accounts: [], activeAccountID: nil)
         let activeKind = usesStoredActiveAccount ? activeAccount?.kind : .webSession
-        let shouldReadOAuthCredential = usesStoredActiveAccount
+        // 웹 계정이 메뉴바에 있으면 inactive CLI의 저장된 유무만 본다.
+        // inventory reader도 만료 토큰을 갱신할 수 있어 명시 refresh 요청이어도 읽지 않는다.
+        let shouldReadOAuthCredential =
+            usesStoredActiveAccount && activeKind != .webSession
             && (refreshOAuthCredentialInventory || activeKind == .claudeCodeExternal || activeKind == nil)
         let oauthCredentialAvailable: Bool
         var credentialIssue: ClaudeCodeCredentialIssue?
@@ -486,6 +509,9 @@ actor ClaudeAPIService {
                 } catch APIError.claudeCodeReauthenticationRequired {
                     oauthCredentialAvailable = false
                     credentialIssue = .reauthenticationRequired
+                } catch APIError.claudeCodeExecutableNotFound {
+                    oauthCredentialAvailable = false
+                    credentialIssue = .executableNotFound
                 } catch {
                     oauthCredentialAvailable = false
                 }
@@ -637,15 +663,9 @@ actor ClaudeAPIService {
         accessToken: String,
         allowRefreshRetry: Bool
     ) async throws -> ClaudeOAuthProfileResponse {
-        guard let url = URL(string: "https://api.anthropic.com/api/oauth/profile") else {
-            throw APIError.unknownError("OAuth profile endpoint URL 생성 실패")
-        }
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: ClaudeEndpoints.oauthProfileURL)
         request.httpMethod = "GET"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("claude-code/2.1.5", forHTTPHeaderField: "User-Agent")
-        request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
+        ClaudeEndpoints.applyOAuthHeaders(to: &request, accessToken: accessToken)
 
         let (data, response) = try await data(for: request)
         guard let http = response as? HTTPURLResponse else {
@@ -694,7 +714,7 @@ actor ClaudeAPIService {
             billingType: profile.organization?.billingType
         )
         metadata.lastUpdatedAt = Date()
-        await oauthProfileMetadataStore.save(metadata)
+        await oauthProfileMetadataStore.merge(metadata)
         Logger.info("Claude Code OAuth profile 동기화 (email=\(profile.account?.email ?? "?"), org=\(profile.organization?.name ?? "?"))")
     }
 
@@ -892,6 +912,8 @@ actor ClaudeAPIService {
                         source: .webSession,
                         accountID: requestAccountID,
                         attemptedSources: attemptedSources)
+                } catch is CancellationError {
+                    throw CancellationError()
                 } catch let apiError as APIError {
                     sourceErrors[.webSession] = apiError
                     markAccountValidationFailed(accountID: requestAccountID)
@@ -1118,34 +1140,27 @@ actor ClaudeAPIService {
         return previews
     }
 
-    /// claude.ai 웹 sessionKey 요청 공통 헤더.
-    /// Cloudflare 가 default `CFNetwork` UA 를 봇으로 분류하는 케이스를 피하려
-    /// Safari UA + Referer/Origin 까지 같이 세팅한다 (Hamed/Claude-Usage-Tracker 와 동일 패턴).
-    private nonisolated func applyClaudeWebHeaders(to request: inout URLRequest, sessionKey: String) {
-        request.setValue("sessionKey=\(sessionKey)", forHTTPHeaderField: "Cookie")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15", forHTTPHeaderField: "User-Agent")
-        request.setValue("https://claude.ai", forHTTPHeaderField: "Referer")
-        request.setValue("https://claude.ai", forHTTPHeaderField: "Origin")
-    }
-
     private func fetchUsageWithSessionKey(_ sessionKey: String) async throws -> ClaudeUsageResponse {
-        let orgID = try await getOrganizationID()
+        let orgID = try await getOrganizationID(for: sessionKey)
         return try await fetchUsageWithSessionKey(sessionKey, organizationID: orgID)
     }
 
     private func fetchUsageWithSessionKey(_ sessionKey: String, organizationID orgID: String) async throws -> ClaudeUsageResponse {
+        let requestAccountID = activeAccount?.id
         recordPathAttempt(.session)
 
-        // cedar_ember=1이 없으면 초기화권 블록이 null로 온다.
-        let url = URL(string: "\(baseURL)/organizations/\(orgID)/usage?cedar_ember=1")!
+        let url = ClaudeEndpoints.webUsageURL(organizationID: orgID)
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        applyClaudeWebHeaders(to: &request, sessionKey: sessionKey)
+        ClaudeEndpoints.applyWebHeaders(to: &request, sessionKey: sessionKey)
 
         Logger.debug("API 요청: \(url.absoluteString)")
 
         let (data, response) = try await data(for: request)
+        // 응답을 기다리는 동안 계정이 바뀌면 결과를 새 계정의 경로 상태에 남기지 않는다.
+        guard isCurrentRequest(accountID: requestAccountID, sessionKey: sessionKey) else {
+            throw CancellationError()
+        }
 
         guard let httpResponse = response as? HTTPURLResponse else {
             Logger.error("유효하지 않은 응답")
@@ -1201,7 +1216,7 @@ actor ClaudeAPIService {
             throw cooldownError
         }
 
-        let orgID = try await getOrganizationID()
+        let orgID = try await getOrganizationID(for: sessionKey)
         return try await fetchOverageSpendLimitWithSessionKey(sessionKey, organizationID: orgID)
     }
 
@@ -1209,7 +1224,7 @@ actor ClaudeAPIService {
         let url = URL(string: "\(baseURL)/organizations/\(orgID)/overage_spend_limit")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        applyClaudeWebHeaders(to: &request, sessionKey: sessionKey)
+        ClaudeEndpoints.applyWebHeaders(to: &request, sessionKey: sessionKey)
 
         Logger.debug("Overage API 요청: \(url.absoluteString)")
 
@@ -1246,16 +1261,20 @@ actor ClaudeAPIService {
 
     // MARK: - Private Methods
 
-    /// Organization ID 가져오기 (첫 호출 시 자동 추출 및 캐싱)
-    private func getOrganizationID() async throws -> String {
-        if let cached = cachedOrganizationID {
+    /// 이 요청을 시작한 계정과 세션 키가 아직 그대로인지
+    private func isCurrentRequest(accountID: String?, sessionKey: String) -> Bool {
+        activeAccount?.id == accountID && self.sessionKey == sessionKey
+    }
+
+    /// Organization ID 가져오기 (첫 호출 시 자동 추출 및 캐싱). 캐시는 지금 세션 키의 것만 쓰고,
+    /// 조회하는 동안 계정이나 세션 키가 바뀌면 고른 조직을 캐시와 계정 identity에 남기지 않는다.
+    private func getOrganizationID(for sessionKey: String) async throws -> String {
+        guard !sessionKey.isEmpty else { throw APIError.invalidSessionKey }
+        if let cached = cachedOrganizationID, self.sessionKey == sessionKey {
             Logger.debug("캐시된 Organization ID 사용: \(cached)")
             return cached
         }
-
-        guard let sessionKey = sessionKey, !sessionKey.isEmpty else {
-            throw APIError.invalidSessionKey
-        }
+        let requestAccountID = activeAccount?.id
 
         Logger.info("Organization ID 가져오기 시작")
         let organizations = try await fetchOrganizationsWithSessionKey(sessionKey)
@@ -1267,6 +1286,7 @@ actor ClaudeAPIService {
         if let preferredOrganizationID,
            let preferred = organizations.first(where: { $0.id == preferredOrganizationID }) {
             Logger.info("선호 Organization ID 사용: \(preferred.id)")
+            guard isCurrentRequest(accountID: requestAccountID, sessionKey: sessionKey) else { return preferred.id }
             cachedOrganizationID = preferred.id
             lastResolvedSessionOrganization = preferred
             await rememberActiveOrganization(preferred)
@@ -1279,6 +1299,7 @@ actor ClaudeAPIService {
 
         let selected = await selectAutomaticOrganization(organizations, sessionKey: sessionKey) ?? organizations[0]
         Logger.info("Organization ID 선택: \(selected.id) (총 \(organizations.count)개)")
+        guard isCurrentRequest(accountID: requestAccountID, sessionKey: sessionKey) else { return selected.id }
         cachedOrganizationID = selected.id
         lastResolvedSessionOrganization = selected
         await rememberActiveOrganization(selected)
@@ -1297,10 +1318,8 @@ actor ClaudeAPIService {
             // 계정에 합치지 않고 coordinator가 새 계정을 저장할 때 전달한다.
             return
         }
-        var metadata = await profileMetadataStore.load() ?? ClaudeProfileMetadata()
-        metadata.organizationUUID = organization.id
-        metadata.lastUpdatedAt = Date()
-        await profileMetadataStore.save(metadata)
+        await profileMetadataStore.merge(
+            ClaudeProfileMetadata(organizationUUID: organization.id, lastUpdatedAt: Date()))
         accountStore.mergeIdentity(
             ClaudeAccountIdentity(
                 organizationName: organization.name,
@@ -1365,9 +1384,13 @@ actor ClaudeAPIService {
         let url = URL(string: "\(baseURL)/organizations")!
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        applyClaudeWebHeaders(to: &request, sessionKey: sessionKey)
+        ClaudeEndpoints.applyWebHeaders(to: &request, sessionKey: sessionKey)
 
+        let requestAccountID = activeAccount?.id
         let (data, response) = try await data(for: request)
+        guard isCurrentRequest(accountID: requestAccountID, sessionKey: sessionKey) else {
+            throw CancellationError()
+        }
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw APIError.unknownError("Invalid HTTP response")
@@ -1384,35 +1407,7 @@ actor ClaudeAPIService {
                 throw APIError.parseError
             }
 
-            func firstNonEmptyString(_ values: Any?...) -> String? {
-                values.compactMap { $0 as? String }
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .first(where: { !$0.isEmpty })
-            }
-
-            let organizations = json.compactMap { org -> OrganizationSummary? in
-                guard let uuid = org["uuid"] as? String, !uuid.isEmpty else { return nil }
-                let name = firstNonEmptyString(
-                    org["name"],
-                    org["display_name"],
-                    org["company_name"])
-                let planLabel = firstNonEmptyString(
-                    org["plan"],
-                    org["plan_label"],
-                    org["planLabel"],
-                    org["subscription_type"],
-                    org["subscriptionType"])
-                let billingType = firstNonEmptyString(org["billing_type"], org["billingType"])
-                let rateLimitTier = firstNonEmptyString(org["rate_limit_tier"], org["rateLimitTier"])
-                return OrganizationSummary(
-                    id: uuid,
-                    name: name,
-                    planLabel: planLabel,
-                    billingType: billingType,
-                    rateLimitTier: rateLimitTier,
-                    capabilities: org["capabilities"] as? [String]
-                )
-            }
+            let organizations = json.compactMap(OrganizationSummary.init(json:))
 
             if organizations.isEmpty {
                 Logger.error("Organization ID를 찾을 수 없음")
@@ -1505,7 +1500,7 @@ actor ClaudeAPIService {
                 // 제한/차단류는 같은 사이클 재시도로 더 악화될 수 있어 즉시 종료
                 if let apiError = error as? APIError {
                     switch apiError {
-                    case .rateLimited(_), .cloudflareBlocked(_), .permissionDenied:
+                    case .rateLimited(_), .cloudflareBlocked(_), .permissionDenied, .claudeCodeExecutableNotFound:
                         throw apiError
                     case .invalidSessionKey, .codexReauthRequired, .codexTokenRefreshTemporary, .claudeCodeCredentialUnavailable, .claudeCodeReauthenticationRequired, .claudeCodeReconnectRequired, .networkError, .parseError, .serverError, .unknownError:
                         break
@@ -1540,7 +1535,7 @@ actor ClaudeAPIService {
 
         let configuredPolicy = await currentMessagesFallbackPolicy()
         guard configuredPolicy.isEnabled else {
-            throw APIError.unknownError("보조 사용량 복구가 비활성화되어 있습니다")
+            throw APIError.unknownError("보조 사용량 복구가 꺼져 있습니다")
         }
 
         let manualPolicy = ClaudeMessagesHeaderFallbackPolicy(
@@ -1752,18 +1747,9 @@ actor ClaudeAPIService {
     private func performOAuthUsageRequest(accessToken: String) async throws -> ClaudeUsageResponse {
         recordPathAttempt(.oauth)
 
-        guard let url = URL(string: "https://api.anthropic.com/api/oauth/usage?cedar_ember=1") else {
-            let apiError = APIError.unknownError("OAuth usage endpoint URL 생성 실패")
-            recordPathFailure(.oauth, error: apiError)
-            throw apiError
-        }
-
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: ClaudeEndpoints.oauthUsageURL)
         request.httpMethod = "GET"
-        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("claude-code/2.1.5", forHTTPHeaderField: "User-Agent")
-        request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
+        ClaudeEndpoints.applyOAuthHeaders(to: &request, accessToken: accessToken)
 
         let (data, response) = try await data(for: request)
 
@@ -1798,6 +1784,8 @@ actor ClaudeAPIService {
             throw APIError.claudeCodeReauthenticationRequired
         } catch ClaudeOAuthCredentialReadError.reconnectRequired {
             throw APIError.claudeCodeReconnectRequired
+        } catch ClaudeOAuthCredentialReadError.executableNotFound {
+            throw APIError.claudeCodeExecutableNotFound
         }
     }
 
@@ -1808,6 +1796,8 @@ actor ClaudeAPIService {
             throw APIError.claudeCodeReauthenticationRequired
         } catch ClaudeOAuthCredentialReadError.reconnectRequired {
             throw APIError.claudeCodeReconnectRequired
+        } catch ClaudeOAuthCredentialReadError.executableNotFound {
+            throw APIError.claudeCodeExecutableNotFound
         }
     }
 

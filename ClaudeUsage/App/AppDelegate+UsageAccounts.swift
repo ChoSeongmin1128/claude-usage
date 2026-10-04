@@ -1,95 +1,126 @@
 import AppKit
+import Combine
 
 extension AppDelegate {
+    static func makeUsageAccountsController() -> UsageAccountsController {
+        // 이 버전에서 처음 실행하는 기존 설치는 이전에 고른 메뉴바 계정을 그대로 쓴다.
+        let isFirstRunWithAccounts = UserDefaults.standard.data(forKey: UsageAccountPreferences.key) == nil
+        return UsageAccountsController(
+            providers: [ClaudeUsageAccountProvider(), CodexUsageAccountProvider()],
+            adoptsCurrentMenuBarAccount: isFirstRunWithAccounts && AppSettings.shared.welcomeState != .pending,
+            isServiceEnabled: { AppSettings.shared.isProviderEnabled($0.providerKind) })
+    }
+
     func bootstrapUsageAccounts() {
-        usageAccountsController.onChange = { [weak self] in self?.updatePopoverViewModel() }
+        let controller = usageAccountsController
+        controller.onChange = { [weak self] in self?.updatePopoverViewModel() }
+        controller.onMenuBarChoiceNeeded = { [weak self] choice, completion in
+            self?.askMenuBarAccount(choice, completion: completion)
+        }
+        controller.onDefaultLoginSwitched = { [weak self] service in self?.defaultLoginDidSwitch(service) }
         popoverViewModel.accountActions = PopoverAccountActions(
-            toggle: { [weak self] service, id in self?.usageAccountsController.toggleSelection(id, service: service) },
+            toggle: { [weak controller] service, id in controller?.toggleSelection(id, service: service) },
             reconnect: { [weak self] service, _ in
                 self?.closePopover()
                 AppSettings.shared.settingsLastTab = ServiceSelectionHelper.settingsRootTab(for: service)
                 self?.showSettingsWindow()
             },
-            allow: { [weak self] service, id in
-                guard let self,
-                    let account = self.usageAccountsController.visibleAccounts(for: service).first(where: {
-                        $0.id == id
-                    })
-                else { return }
-                self.usageAccountsController.grantPermission(for: account)
+            allow: { [weak controller] service, id in
+                guard let account = controller?.visibleAccounts(for: service).first(where: { $0.id == id }) else {
+                    return
+                }
+                controller?.grantPermission(for: account)
             })
-        usageAccountsController.onMenuBarChoiceNeeded = { [weak self] claudeApp, claudeCode in
-            self?.askMenuBarAccount(claudeApp: claudeApp, claudeCode: claudeCode)
-        }
         usageAccountsObserver = NotificationCenter.default.addObserver(
             forName: .claudeAccountsDidChange, object: nil, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.rediscoverUsageAccounts() }
+        ) { [weak controller] _ in
+            MainActor.assumeIsolated { controller?.rediscover() }
         }
-        rediscoverUsageAccounts()
+        // 서비스를 켜고 끄면 그 서비스의 계정을 찾거나 목록에서 뺀다.
+        let enabledServices = {
+            MainActor.assumeIsolated {
+                Set(PopoverService.allCases.filter { AppSettings.shared.isProviderEnabled($0.providerKind) })
+            }
+        }
+        usageAccountsProviderObservation = AppSettings.shared.objectWillChange
+            .receive(on: RunLoop.main)
+            .map { _ in enabledServices() }
+            .prepend(enabledServices())
+            .removeDuplicates()
+            .dropFirst()
+            .sink { [weak controller] _ in
+                Task { @MainActor in
+                    await controller?.discoverAndWait()
+                    controller?.refreshIfNeeded()
+                }
+            }
+        usageAccountsTimer = Timer.scheduledTimer(
+            withTimeInterval: UsageAccountsController.refreshInterval, repeats: true
+        ) { [weak controller] _ in
+            MainActor.assumeIsolated { controller?.refreshIfNeeded() }
+        }
+        Task {
+            await controller.discoverAndWait()
+            controller.refreshIfNeeded()
+        }
     }
 
-    /// Claude 앱과 Claude Code에 다른 계정이 로그인돼 있을 때 한 번만 묻는다. 기본 버튼은 Claude 앱 계정이다.
-    private func askMenuBarAccount(claudeApp: UsageAccount, claudeCode: UsageAccount) {
+    /// 메뉴바 계정 후보가 둘일 때 한 번만 묻는다. 기본 버튼은 서비스가 먼저 고른 계정이다.
+    private func askMenuBarAccount(
+        _ choice: UsageAccountMenuBarDefault, completion: @escaping (UsageAccount) -> Void
+    ) {
+        guard let alternative = choice.alternative else { return }
         let controller = usageAccountsController
-        let all = controller.visibleAccounts(for: .claude)
-        let appName = controller.preferences.displayName(for: claudeApp, among: all)
-        let codeName = controller.preferences.displayName(for: claudeCode, among: all)
+        let preferred = choice.preferred
+        let preferredName = controller.displayName(for: preferred.account)
+        let alternativeName = controller.displayName(for: alternative.account)
         let alert = NSAlert()
-        alert.messageText = "메뉴바에 표시할 Claude 계정"
+        alert.messageText = "메뉴바에 표시할 \(preferred.account.service.displayName) 계정"
         alert.informativeText =
-            "Claude 앱은 \(appName), Claude Code는 \(codeName)로 로그인돼 있습니다. 고른 계정이 메뉴바와 팝오버에 나오며, 설정의 계정 목록에서 바꿀 수 있습니다."
-        alert.addButton(withTitle: "\(appName) (Claude 앱)")
-        alert.addButton(withTitle: "\(codeName) (Claude Code)")
+            "\(preferred.origin): \(preferredName)\n\(alternative.origin): \(alternativeName)"
+        alert.addButton(withTitle: "\(preferredName) (\(preferred.origin))")
+        alert.addButton(withTitle: "\(alternativeName) (\(alternative.origin))")
         NSApp.activate(ignoringOtherApps: true)
-        let choice = alert.runModal() == .alertSecondButtonReturn ? claudeCode : claudeApp
-        controller.resolveMenuBarChoice(choice)
+        completion(alert.runModal() == .alertSecondButtonReturn ? alternative.account : preferred.account)
     }
 
-    func rediscoverUsageAccounts() {
-        usageAccountsController.discover(claudeRuntimeAccountID: ClaudeAccountStore.shared.state().activeAccountID)
-        usageAccountsController.refreshIfNeeded()
+    private func defaultLoginDidSwitch(_ service: PopoverService) {
+        switch service {
+        case .claude:
+            handleClaudeCredentialContextChanged(refreshOAuthCredentialInventory: true)
+        case .codex:
+            CodexAuthManager.shared.clearCache()
+            refreshCodexUsage(force: true)
+        case .antigravity:
+            break
+        }
     }
 
     func multiAccountPresentations() -> [PopoverService: MultiAccountPresentation] {
-        var result: [PopoverService: MultiAccountPresentation] = [:]
         let controller = usageAccountsController
-        for service in [PopoverService.claude, .codex] where AppSettings.shared.isProviderEnabled(service.providerKind)
-        {
-            guard controller.isMultiAccount(service) else { continue }
+        var result: [PopoverService: MultiAccountPresentation] = [:]
+        for provider in controller.providers where controller.isMultiAccount(provider.service) {
+            let service = provider.service
             let visible = controller.visibleAccounts(for: service)
             let runtime = runtimeProviderSnapshot(for: service)
+            let runtimeUsage = provider.runtimeUsage(from: runtime)
             let basis = AppSettings.shared.usageValueBasis(for: service)
             let rows = visible.map { account -> PopoverAccountRowData in
-                let isRuntime = controller.isRuntimeAccount(account)
-                var state = controller.states[account.id] ?? UsageAccountState()
-                if isRuntime {
-                    state = UsageAccountState(
-                        claudeUsage: runtime.claudeUsage, codexUsage: runtime.codexUsage, fetchedAt: runtime.lastUpdated
-                    )
-                }
-                let codex = state.codexUsage
+                let isRuntime = controller.isRuntime(account)
+                let state = controller.states[account.id] ?? UsageAccountState()
                 return PopoverAccountRowData(
-                    id: account.id, service: service,
-                    name: controller.preferences.displayName(for: account, among: visible),
-                    badges: account.badges,
-                    status: isRuntime
-                        ? .current : state.status(isArchived: controller.preferences.archived.contains(account.id)),
-                    fiveHour: state.fiveHourPercentage, weekly: state.weeklyPercentage,
-                    fiveHourResetAt: state.claudeUsage?.fiveHour?.resetsAt
-                        ?? Self.isoString(codex?.sessionWindow?.resetAt),
-                    weeklyResetAt: state.claudeUsage?.sevenDay?.resetsAt
-                        ?? Self.isoString(codex?.weeklyWindow?.resetAt),
-                    fetchedAt: state.fetchedAt, isRuntime: isRuntime, basis: basis)
+                    id: account.id, service: service, name: controller.displayName(for: account),
+                    badges: controller.badges(for: account),
+                    status: isRuntime ? .current : state.status(isArchived: controller.isArchived(account)),
+                    usage: isRuntime ? runtimeUsage : state.usage,
+                    fetchedAt: isRuntime ? runtime.lastUpdated : state.fetchedAt, isRuntime: isRuntime, basis: basis,
+                    timeFormatStyle: AppSettings.shared.timeFormat,
+                    timeUnitLanguage: AppSettings.shared.timeUnitLanguage)
             }
             result[service] = MultiAccountPresentation(
-                service: service, mode: controller.preferences.popoverMode, rows: rows,
-                selectedIDs: controller.preferences.selection(for: service, visible: visible))
+                service: service, mode: controller.popoverMode(for: service), rows: rows,
+                selectedIDs: controller.selection(for: service))
         }
         return result
-    }
-
-    private static func isoString(_ seconds: Double?) -> String? {
-        seconds.map { ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: $0)) }
     }
 }

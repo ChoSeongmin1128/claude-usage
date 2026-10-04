@@ -14,12 +14,6 @@ struct AppMotionComparisonView: View {
                 example(mode: .smooth)
             }
             HStack {
-                Text(
-                    category == .popoverPresentation
-                        ? "동작 예시 · 실제 창 효과는 macOS에 따라 다릅니다."
-                        : "동작 예시 · 아래 버튼으로 변화를 비교합니다."
-                )
-                .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button("비교 재생", systemImage: "play.fill") { changed.toggle() }
                     .controlSize(.small)

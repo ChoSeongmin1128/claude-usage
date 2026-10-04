@@ -5,24 +5,23 @@ import SwiftUI
 final class WhatsNewWindowCoordinator: NSObject, NSWindowDelegate {
     private(set) var window: NSWindow?
     private var onClose: (() -> Void)?
+    private var onAction: ((WhatsNewPage.Action) -> Void)?
 
     func present(
         pages: [WhatsNewPage], toggle: @escaping (WhatsNewPage.Action) -> Binding<Bool>?,
         onAction: @escaping (WhatsNewPage.Action) -> Void, onClose: @escaping () -> Void
     ) {
         guard !pages.isEmpty else { return }
-        if let window, window.isVisible {
+        if let window {
             window.makeKeyAndOrderFront(nil)
             return
         }
         self.onClose = onClose
+        self.onAction = onAction
         let view = WhatsNewView(
             pages: pages,
             toggle: toggle,
-            onAction: { [weak self] action in
-                self?.close()
-                onAction(action)
-            },
+            onAction: { [weak self] action in self?.performAction(action) },
             onClose: { [weak self] in self?.close() })
         let window = NSWindow(contentViewController: NSHostingController(rootView: view))
         window.title = "새 기능"
@@ -35,6 +34,11 @@ final class WhatsNewWindowCoordinator: NSObject, NSWindowDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    // 설정으로 이동한 뒤 같은 안내로 돌아올 수 있어야 한다.
+    func performAction(_ action: WhatsNewPage.Action) {
+        onAction?(action)
+    }
+
     func close() {
         window?.close()
     }
@@ -44,6 +48,7 @@ final class WhatsNewWindowCoordinator: NSObject, NSWindowDelegate {
         self.window = nil
         let onClose = self.onClose
         self.onClose = nil
+        self.onAction = nil
         onClose?()
     }
 }

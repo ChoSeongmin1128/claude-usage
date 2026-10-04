@@ -12,7 +12,6 @@ final class ClaudeNotificationPolicyTests: XCTestCase {
 
         XCTAssertNil(policy.summaryLine)
         XCTAssertNil(policy.guidanceSuffix)
-        XCTAssertNil(policy.guidanceSuffix(threshold: 90, alertRemainingMode: false))
     }
 
     func testOrganizationPlanWithoutExtraUsageKeepsAdminGuidance() {
@@ -24,10 +23,21 @@ final class ClaudeNotificationPolicyTests: XCTestCase {
 
         let policy = ClaudeNotificationPolicy(metadata: metadata)
 
-        XCTAssertEqual(
-            policy.summaryLine,
-            "조직 플랜이지만 추가 사용량이 꺼져 있어 Claude 알림에 관리자 확인 안내를 함께 표시합니다"
+        XCTAssertNil(policy.summaryLine, "알림 동작이 같으면 설정에 안내를 띄우지 않습니다")
+        XCTAssertEqual(policy.guidanceSuffix, "추가 사용량이 꺼져 있습니다. 관리자에게 문의하세요.")
+    }
+
+    func testOrganizationPlanWithExtraUsageExplainsSuppressedLowAlerts() {
+        let metadata = ClaudeProfileMetadata(
+            subscriptionType: "team",
+            hasExtraUsageEnabled: true,
+            billingType: "organization"
         )
-        XCTAssertEqual(policy.guidanceSuffix, "관리자에게 추가 사용량 설정을 확인해 주세요")
+
+        let policy = ClaudeNotificationPolicy(metadata: metadata)
+
+        XCTAssertTrue(policy.shouldSuppressLowUrgencyThresholds)
+        XCTAssertEqual(policy.summaryLine, "추가 사용량이 켜진 조직 플랜이라 낮은 구간 알림은 보내지 않습니다")
+        XCTAssertNil(policy.guidanceSuffix)
     }
 }

@@ -1,31 +1,9 @@
 import Foundation
 
-enum ClaudeAccountSettingsAction: String, Equatable, Hashable {
-    case use
-    case deleteWebSession
-    case showClaudeCodeLoginGuidance
-
-    var title: String {
-        switch self {
-        case .use:
-            return "사용"
-        case .deleteWebSession:
-            return "삭제"
-        case .showClaudeCodeLoginGuidance:
-            return "다시 로그인 안내"
-        }
-    }
-}
-
 enum ClaudeAccountStatusTone: Equatable {
     case neutral
     case success
     case warning
-}
-
-struct ClaudeAccountSettingsDetailRow: Equatable, Hashable {
-    let title: String
-    let value: String
 }
 
 /// Usage health snapshots carry the account inventory that existed when the
@@ -44,16 +22,14 @@ enum ClaudeAccountSnapshotPresentationPolicy {
     }
 }
 
+/// 설정 계정 카드에 보이는 메뉴바 계정 한 줄
 struct ClaudeAccountSettingsPresentation: Equatable {
     let primaryTitle: String
     let secondaryLine: String?
     let sourceLabel: String?
     let statusText: String
     let statusTone: ClaudeAccountStatusTone
-    let switchAction: ClaudeAccountSettingsAction?
-    let managementActions: [ClaudeAccountSettingsAction]
     let systemImage: String
-    let detailRows: [ClaudeAccountSettingsDetailRow]
 
     static func resolve(
         account: ClaudeAccount,
@@ -61,39 +37,17 @@ struct ClaudeAccountSettingsPresentation: Equatable {
         organizations: [ClaudeAPIService.OrganizationSummary] = [],
         claudeCodeCredentialIssue: ClaudeCodeCredentialIssue? = nil
     ) -> ClaudeAccountSettingsPresentation {
-        let organization = organizationLabel(
-            for: account,
-            organizations: isActive ? organizations : []
-        )
-        let source = sourceDescription(for: account)
-        let details = detailRows(for: account, organization: organization, source: source)
         let status =
             account.kind == .claudeCodeExternal
             ? issueStatusPresentation(claudeCodeCredentialIssue) ?? statusPresentation(for: account.lastValidationState)
             : statusPresentation(for: account.lastValidationState)
-        let switchAction: ClaudeAccountSettingsAction? = isActive ? nil : .use
-        var managementActions: [ClaudeAccountSettingsAction] = []
-
-        switch account.kind {
-        case .webSession:
-            managementActions.append(.deleteWebSession)
-        case .claudeCodeExternal:
-            managementActions.append(.showClaudeCodeLoginGuidance)
-        }
-
         return ClaudeAccountSettingsPresentation(
             primaryTitle: primaryTitle(for: account),
-            secondaryLine: organization,
-            sourceLabel: account.kind == .claudeCodeExternal
-                ? "Claude Code"
-                : (account.source == .chromeProfile
-                    ? ClaudeBrowserFamily.family(fromSourceDetail: account.sourceDetail).displayName : source),
+            secondaryLine: organizationLabel(for: account, organizations: isActive ? organizations : []),
+            sourceLabel: sourceLabel(for: account),
             statusText: status.text,
             statusTone: status.tone,
-            switchAction: switchAction,
-            managementActions: managementActions,
-            systemImage: account.kind == .webSession ? "globe" : "terminal",
-            detailRows: details
+            systemImage: account.kind == .webSession ? "globe" : "terminal"
         )
     }
 
@@ -120,34 +74,22 @@ struct ClaudeAccountSettingsPresentation: Equatable {
             if let displayName {
                 return displayName
             }
-            return "현재 터미널 Claude Code 계정"
+            return "Claude Code 계정"
         }
     }
 
-    private static func sourceDescription(for account: ClaudeAccount) -> String? {
+    private static func sourceLabel(for account: ClaudeAccount) -> String {
         switch account.kind {
+        case .claudeCodeExternal:
+            return "Claude Code"
         case .webSession:
             switch account.source {
-            case .chromeProfile:
-                if let source = chromeProfileSourceDescription(for: account) {
-                    return source
-                }
-                let family = ClaudeBrowserFamily.family(fromSourceDetail: account.sourceDetail)
-                if let profileName = readableChromeProfileName(from: account.sourceDetail) {
-                    return "\(family.displayName) \(profileName)"
-                }
-                return "\(family.displayName) 프로필"
-            case .embeddedWebLogin:
-                return "앱에서 로그인"
-            case .manualInput:
-                return "수동 입력"
-            case .legacyMigration:
-                return "이전 버전에서 가져온 로그인"
-            case .claudeCodeCLI, .none:
-                return "브라우저 로그인"
+            case .chromeProfile: return ClaudeBrowserFamily.family(fromSourceDetail: account.sourceDetail).displayName
+            case .embeddedWebLogin: return "앱에서 로그인"
+            case .manualInput: return "직접 입력"
+            case .legacyMigration: return "이전 버전에서 가져온 로그인"
+            case .claudeCodeCLI, .none: return "웹 로그인"
             }
-        case .claudeCodeExternal:
-            return "터미널 Claude Code"
         }
     }
 
@@ -187,6 +129,8 @@ struct ClaudeAccountSettingsPresentation: Equatable {
             return ("다시 연결 필요", .warning)
         case .reauthenticationRequired:
             return ("Claude Code 로그인 필요", .warning)
+        case .executableNotFound:
+            return ("Claude Code 없음", .warning)
         case nil:
             return nil
         }
@@ -197,9 +141,9 @@ struct ClaudeAccountSettingsPresentation: Equatable {
     ) -> (text: String, tone: ClaudeAccountStatusTone) {
         switch state {
         case .verified:
-            return ("최근 조회 성공", .success)
+            return ("연결됨", .success)
         case .failed:
-            return ("확인 필요", .warning)
+            return ("다시 로그인 필요", .warning)
         case .unavailable, .detected:
             return ("확인 전", .neutral)
         }
@@ -216,55 +160,6 @@ struct ClaudeAccountSettingsPresentation: Equatable {
         case .claudeCodeExternal:
             return ["Claude Code 계정", ClaudeAccountKind.claudeCodeExternal.displayName].contains(value) ? nil : value
         }
-    }
-
-    private static func readableChromeProfileName(from sourceDetail: String?) -> String? {
-        guard let sourceDetail = nilIfEmpty(sourceDetail) else { return nil }
-        let profilePart = sourceDetail.components(separatedBy: "·").first?
-            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        guard var profilePart, !profilePart.isEmpty else { return nil }
-
-        if let range = profilePart.range(of: #" \([^)]+\)"#, options: String.CompareOptions.regularExpression) {
-            profilePart.removeSubrange(range)
-        }
-
-        return nilIfEmpty(profilePart.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines))
-    }
-
-    private static func chromeProfileSourceDescription(for account: ClaudeAccount) -> String? {
-        guard let sourceDetail = nilIfEmpty(account.sourceDetail) else {
-            return meaningfulDisplayName(for: account)
-        }
-        let profilePart = sourceDetail.components(separatedBy: "·").first?
-            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
-        return nilIfEmpty(profilePart) ?? meaningfulDisplayName(for: account)
-    }
-
-    private static func detailRows(
-        for account: ClaudeAccount,
-        organization: String?,
-        source: String?
-    ) -> [ClaudeAccountSettingsDetailRow] {
-        var rows: [ClaudeAccountSettingsDetailRow] = []
-
-        if let source {
-            let family = ClaudeBrowserFamily.family(fromSourceDetail: account.sourceDetail)
-            let title =
-                account.source != .chromeProfile
-                ? "로그인 방식" : family == .claudeApp ? "가져온 곳" : "\(family.displayName) 프로필"
-            rows.append(ClaudeAccountSettingsDetailRow(title: title, value: source))
-        }
-
-        if let organizationID = nilIfEmpty(
-            account.identity.organizationID ?? account.userSelectedPreferredOrganizationID
-        ) {
-            let shortID = shortOrganizationID(organizationID)
-            if shortID != organization {
-                rows.append(ClaudeAccountSettingsDetailRow(title: "조직 ID", value: shortID))
-            }
-        }
-
-        return rows
     }
 
     private static func emailFromSourceDetail(_ sourceDetail: String?) -> String? {

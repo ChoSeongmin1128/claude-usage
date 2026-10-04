@@ -168,6 +168,22 @@ final class UsageModelsDecodingTests: XCTestCase {
         XCTAssertEqual(spark.rateLimit?.primaryWindow?.windowDescription, "주간")
     }
 
+    func testCodexUsageSurvivesUnexpectedFieldTypes() throws {
+        let json = """
+            {
+              "plan_type": 3,
+              "rate_limit": {
+                "primary_window": { "used_percent": 5, "limit_window_seconds": 1800, "reset_at": "1785316988" }
+              }
+            }
+            """
+        let usage = try JSONDecoder().decode(CodexUsageResponse.self, from: Data(json.utf8))
+
+        XCTAssertNil(usage.planType)
+        XCTAssertEqual(usage.rateLimit?.primaryWindow?.resetAt, 1_785_316_988)
+        XCTAssertEqual(usage.rateLimit?.primaryWindow?.windowDescription, "30분")
+    }
+
     func testCodexWindowAdaptiveTitleFollowsWindowSeconds() throws {
         let json = """
         {

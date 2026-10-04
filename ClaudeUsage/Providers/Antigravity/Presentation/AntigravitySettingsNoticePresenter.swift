@@ -9,13 +9,10 @@ nonisolated enum AntigravitySettingsNoticePresenter {
         {
             return blockedNotice(blocker)
         }
-        return migrationNotice(
-            snapshot.migrationStatus
+        return displayMigrationNotice(
+            snapshot.settings?.display
+                .pendingNotice
         )
-            ?? displayMigrationNotice(
-                snapshot.settings?.display
-                    .pendingNotice
-            )
             ?? refreshOutcomeNotice(
                 snapshot.presentationState
             )
@@ -28,21 +25,14 @@ nonisolated enum AntigravitySettingsNoticePresenter {
     ) -> AntigravitySettingsNotice {
         let title: String
         switch activity {
-        case .changingTarget:
-            title =
-                "조회 대상을 저장하지 못했습니다"
         case .changingConnection:
             title =
                 "연결 설정을 저장하지 못했습니다"
         case .changingDisplay:
             title =
                 "표시 설정을 저장하지 못했습니다"
-        case .migrating:
-            title =
-                "이전 작업을 완료하지 못했습니다"
         case .idle,
-             .loading,
-            .checkingMigration:
+            .loading:
             title =
                 "Antigravity 설정을 변경하지 못했습니다"
         }
@@ -56,11 +46,9 @@ nonisolated enum AntigravitySettingsNoticePresenter {
         } else if controllerError
             == .operationSuperseded
         {
-            message =
-                "다른 창이나 더 최근 작업에서 설정이 변경되어 이 결과는 적용하지 않았습니다. 현재 상태를 확인해 주세요."
+            message = "다른 곳에서 설정이 바뀌어 이 변경은 적용하지 않았습니다."
         } else {
-            message =
-                "저장 상태를 다시 읽어 화면을 동기화했습니다. 상태를 확인한 뒤 다시 시도해 주세요."
+            message = "저장된 설정을 다시 읽었습니다. 다시 시도하세요."
         }
         return AntigravitySettingsNotice(
             tone: .failure,
@@ -70,163 +58,31 @@ nonisolated enum AntigravitySettingsNoticePresenter {
         )
     }
 
-    static func migrationReachedCutover(
-        _ status: AntigravityMigrationStatus?
-    ) -> Bool {
-        guard let status,
-              !status.authorizationCancelledThisSession
-        else {
-            return false
-        }
-        switch status.phase {
-        case .canonicalVerified,
-             .cleanupPending,
-             .complete:
-            return true
-        case .notStarted,
-             .preflight,
-             .blockedBeforeCutover,
-             .awaitingImportAuthorization,
-             .writingCanonical:
-            return false
-        }
-    }
-
+    /// 설정 패널의 상태 배지 아래에 할 일을 보여준다. 정상이거나 확인 중이면 없다.
     static func refreshOutcomeNotice(
         _ presentation:
             AntigravityPresentationState
     ) -> AntigravitySettingsNotice? {
+        let login = "터미널에서 agy를 실행해 로그인한 뒤 새로고침하세요."
         switch presentation {
-        case .ready:
+        case .ready, .refreshing, .disabled:
             return nil
         case .partial:
-            return warning(
-                title: "일부 한도를 읽지 못했습니다",
-                message:
-                    "확인된 사용량은 유지하고 읽지 못한 항목은 비워 두었습니다."
-            )
-        case .limited:
-            return warning(
-                title:
-                    "수치형 사용량을 제공하지 않는 연결입니다",
-                message:
-                    "계정과 연결은 확인했지만 이 경로에서는 quota 수치를 제공하지 않습니다."
-            )
-        case .identityOnly:
-            return warning(
-                title:
-                    "확인 가능한 사용량 한도가 없습니다",
-                message:
-                    "계정 정보는 확인했지만 표시할 수 있는 사용량 한도를 받지 못했습니다."
-            )
+            return warning(title: "일부 한도만 읽었습니다", message: "읽지 못한 한도는 비워 두었습니다.")
+        case .limited, .identityOnly:
+            return warning(title: "사용량 수치가 없습니다", message: "AGY CLI가 이 계정의 사용량 수치를 주지 않았습니다.")
         case .stale(_, let reason):
-            return warning(
-                title:
-                    "새 사용량을 확인하지 못했습니다",
-                message:
-                    "마지막 확인 데이터는 유지했습니다. " + AntigravityPopoverPresentationAdapter.failureSummary(reason).message
-            )
-        case .refreshing:
-            return nil
-        case .setupRequired(.usageTargetSelection):
-            return warning(
-                title: "조회 대상을 선택해 주세요",
-                message: "AGY CLI에 로그인한 뒤 새로고침해 주세요.")
+            let summary = AntigravityPopoverPresentationAdapter.failureSummary(reason)
+            return warning(title: "이전 값을 보여줍니다", message: summary.message ?? summary.title)
         case .setupRequired(.ambiguousLocalSessions):
-            return warning(
-                title: "실행 중인 연결의 계정이 서로 다릅니다",
-                message: "선택한 제품의 이전 실행을 종료하고 현재 로그인된 실행만 남긴 뒤 새로고침해 주세요.")
+            return warning(title: "실행 중인 AGY의 계정이 서로 다릅니다", message: "AGY를 하나만 남긴 뒤 새로고침하세요.")
         case .setupRequired:
-            return warning(
-                title:
-                    "사용량 조회 방법을 선택해 주세요",
-                message:
-                    "선택한 조회 대상에서 로그인한 뒤 새로고침해 주세요."
-            )
+            return warning(title: "AGY CLI 로그인이 필요합니다", message: login)
         case .accountMismatch:
-            return failure(
-                title:
-                    "선택한 계정과 실행 중인 계정이 다릅니다",
-                message:
-                    "다른 계정의 수치는 표시하지 않았습니다. 앱·CLI에서 선택한 계정으로 로그인하거나 조회 계정을 다시 선택해 주세요."
-            )
+            return failure(title: "조회 중 계정이 바뀌었습니다", message: "다른 계정의 수치는 숨겼습니다. 새로고침하세요.")
         case .failed(let reason):
             let summary = AntigravityPopoverPresentationAdapter.failureSummary(reason)
-            return failure(title: summary.title, message: summary.message)
-        case .disabled:
-            return nil
-        }
-    }
-
-    private static func migrationNotice(
-        _ status: AntigravityMigrationStatus?
-    ) -> AntigravitySettingsNotice? {
-        guard let status else {
-            return nil
-        }
-        if status.authorizationCancelledThisSession {
-            return warning(
-                title: "이전 인증을 취소했습니다",
-                message:
-                    "이번 앱 실행에서는 Keychain 인증을 다시 요청하지 않습니다."
-            )
-        }
-        switch status.phase {
-        case .complete:
-            return nil
-        case .notStarted:
-            return AntigravitySettingsNotice(
-                tone: .warning,
-                title:
-                    "계정 이전 상태를 확인하지 못했습니다",
-                message:
-                    "저장된 계정을 변경하기 전에 이전 상태를 다시 확인해 주세요.",
-                action: .retryMigrationCheck
-            )
-        case .preflight,
-             .writingCanonical,
-             .canonicalVerified:
-            return AntigravitySettingsNotice(
-                tone: .progress,
-                title:
-                    "Antigravity 계정 이전 중",
-                message:
-                    "기존 계정 데이터를 검증하고 있습니다.",
-                action: nil
-            )
-        case .awaitingImportAuthorization:
-            return AntigravitySettingsNotice(
-                tone: .warning,
-                title:
-                    "기존 계정 이전이 필요합니다",
-                message:
-                    "계정을 새 저장소로 옮길 때 Keychain 인증을 한 번 요청할 수 있습니다.",
-                action: .continueMigration
-            )
-        case .cleanupPending:
-            let action:
-                AntigravitySettingsNotice.Action =
-                    status.requiredAction
-                        == .removeLegacyCredential
-                        ? .removeLegacyData
-                        : .continueMigration
-            return AntigravitySettingsNotice(
-                tone: .warning,
-                title:
-                    "이전 데이터 정리가 남아 있습니다",
-                message:
-                    "새 계정 저장은 유지됩니다. 기존 \(AppDistribution.current.appName) 데이터 정리를 다시 진행해 주세요.",
-                action: action
-            )
-        case .blockedBeforeCutover:
-            return AntigravitySettingsNotice(
-                tone: .failure,
-                title:
-                    "계정 이전을 시작할 수 없습니다",
-                message:
-                    "기존 데이터는 삭제하지 않았습니다. 상태를 다시 확인해 주세요.",
-                action: .retryMigrationCheck
-            )
+            return failure(title: summary.title, message: summary.message ?? summary.title)
         }
     }
 
@@ -253,18 +109,15 @@ nonisolated enum AntigravitySettingsNoticePresenter {
         switch blocker {
         case .settingsMigration:
             detail =
-                "기존 표시 설정을 안전하게 이전하지 못해 새 설정 쓰기를 중단했습니다."
-        case .canonicalAccountState:
-            detail =
-                "계정 저장 상태를 검증하지 못했습니다. 기존 데이터는 삭제하지 않았습니다."
+                "기존 표시 설정을 옮기지 못해 새 설정을 저장하지 않았습니다."
         case .typedSettings:
             detail =
-                "현재 Antigravity 설정을 읽을 수 없어 자동 초기화하지 않았습니다."
+                "Antigravity 설정을 읽지 못했습니다. 설정은 바꾸지 않았습니다."
         }
         return AntigravitySettingsNotice(
             tone: .failure,
             title:
-                "Antigravity 준비를 완료하지 못했습니다",
+                "Antigravity를 준비하지 못했습니다",
             message: detail,
             action: .retryLoad
         )

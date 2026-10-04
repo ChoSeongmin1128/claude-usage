@@ -236,17 +236,19 @@ struct RuntimeProviderState {
         set { lastSuccessfulAtStorage = newValue }
     }
 
+    /// 값만 바꾼다. 시도 상태까지 맞추려면 `recordAttempt(error:)`를 쓴다.
+    /// (설정 순서에 따라 성공 뒤에도 상태가 조회 중으로 남던 숨은 부수효과를 없앴다.)
     var lastAttemptError: APIError? {
         get { lastAttemptErrorStorage }
-        set {
-            lastAttemptErrorStorage = newValue
-            lastAttemptState = RuntimeProviderAttemptState.resolve(
-                isLoading: isLoading,
-                error: newValue
-            )
-            if newValue?.isDefinitiveAuthFailure == true {
-                hasAuthError = true
-            }
+        set { lastAttemptErrorStorage = newValue }
+    }
+
+    /// 오류와 그에 맞는 시도 상태, 인증 실패 표시를 함께 바꾼다.
+    mutating func recordAttempt(error: APIError?) {
+        lastAttemptErrorStorage = error
+        lastAttemptState = RuntimeProviderAttemptState.resolve(isLoading: isLoading, error: error)
+        if error?.isDefinitiveAuthFailure == true {
+            hasAuthError = true
         }
     }
 
@@ -267,16 +269,7 @@ struct RuntimeProviderState {
 
     var error: APIError? {
         get { lastAttemptErrorStorage }
-        set {
-            lastAttemptErrorStorage = newValue
-            lastAttemptState = RuntimeProviderAttemptState.resolve(
-                isLoading: isLoading,
-                error: newValue
-            )
-            if newValue?.isDefinitiveAuthFailure == true {
-                hasAuthError = true
-            }
-        }
+        set { lastAttemptErrorStorage = newValue }
     }
 
     var lastUpdated: Date? {

@@ -8,26 +8,13 @@ nonisolated enum AntigravityRefreshTrigger:
     case scheduled
     case manual
     case retry
-    case accountBoundaryChanged
-    case migrationCompleted
-
-    var clearsPreviousSnapshot: Bool {
-        switch self {
-        case .accountBoundaryChanged,
-             .migrationCompleted:
-            true
-        case .scheduled, .manual, .retry:
-            false
-        }
-    }
 }
 
 /// Immutable input captured at the beginning of one refresh transaction.
 ///
 /// The complete validated connection snapshot travels with the request so
 /// source selection and single-flight identity cannot observe settings from
-/// different revisions. Account target remains an
-/// explicit product boundary. The authenticated identity is observed on each
+/// different revisions. The authenticated identity is observed on each
 /// refresh instead of being persisted as a user-selectable login.
 nonisolated struct AntigravityRefreshRequest:
     Sendable,
@@ -36,12 +23,10 @@ nonisolated struct AntigravityRefreshRequest:
     let trigger: AntigravityRefreshTrigger
     /// 2.8.0부터 AGY CLI만 조회한다. 저장된 값(이전 버전의 독립 앱, 미선택)은 되돌릴 때를 위해 그대로 두고 여기서만 CLI로 본다.
     var target: AntigravityUsageTarget { .cli }
-    let repositoryRevision: UInt64
     let connection: AntigravityConnectionSettings
     var forcesDiscovery: Bool { trigger != .scheduled }
     init(
         trigger: AntigravityRefreshTrigger,
-        repositoryRevision: UInt64,
         connection: AntigravityConnectionSettings
     ) {
         precondition(
@@ -49,7 +34,6 @@ nonisolated struct AntigravityRefreshRequest:
             "Refresh requires validated connection settings"
         )
         self.trigger = trigger
-        self.repositoryRevision = repositoryRevision
         self.connection = connection
     }
 }
@@ -79,7 +63,6 @@ nonisolated enum AntigravitySetupReason:
     Sendable,
     Equatable
 {
-    case noSelectedOAuthAccount
     case noAmbientLocalSession
     case usageTargetSelection
     case ambiguousLocalSessions
@@ -113,12 +96,6 @@ nonisolated enum AntigravityFailure:
     case appShuttingDown
     case invalidRefreshContext
     case generationExhausted
-    case repositoryUnavailable
-    case repositoryRevisionChanged
-    case credentialCommitFailed
-    case credentialCommitAmbiguous
-    case selectedAccountUnavailable(AntigravityAccountID)
-    case selectedAccountIdentityUnavailable(AntigravityAccountID)
     case noEligibleSource
     case sourceUnavailable(AntigravityUsageSourceID)
     case authenticationRequired(AntigravityUsageSourceID)
@@ -148,16 +125,10 @@ extension AntigravityFailure {
         case .transportUnavailable(let source): "\(source.rawValue).transportUnavailable"
         case .sourceUnavailable(let source): "\(source.rawValue).sourceUnavailable"
         case .sourceContractViolation(let source): "\(source.rawValue).sourceContractViolation"
-        case .selectedAccountUnavailable: "selectedAccountUnavailable"
-        case .selectedAccountIdentityUnavailable: "selectedAccountIdentityUnavailable"
         case .cancelled: "cancelled"
         case .appShuttingDown: "appShuttingDown"
         case .invalidRefreshContext: "invalidRefreshContext"
         case .generationExhausted: "generationExhausted"
-        case .repositoryUnavailable: "repositoryUnavailable"
-        case .repositoryRevisionChanged: "repositoryRevisionChanged"
-        case .credentialCommitFailed: "credentialCommitFailed"
-        case .credentialCommitAmbiguous: "credentialCommitAmbiguous"
         case .noEligibleSource: "noEligibleSource"
         case .numericQuotaUnavailable: "numericQuotaUnavailable"
         case .accountChanged: "accountChanged"
@@ -190,13 +161,9 @@ nonisolated enum AntigravityPresentationState:
     case failed(AntigravityFailure)
 }
 
-/// Settings and account mutations invalidate the old boundary before changing
-/// persistence, then issue exactly one refresh with the newly captured request.
-/// The protocol keeps those callers independent of the concrete actor.
+/// The protocol keeps the runtime controller independent of the concrete actor.
 nonisolated protocol AntigravityRefreshCoordinating: Sendable {
     func quiesceForShutdown() async
-
-    func invalidateBoundary() async
 
     func refresh(
         _ request: AntigravityRefreshRequest

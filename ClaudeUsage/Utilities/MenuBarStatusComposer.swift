@@ -34,15 +34,22 @@ struct MenuBarRenderedContent {
 
 private struct MenuBarElement {
     let image: NSImage?
-    let text: String?
-    let attributes: [NSAttributedString.Key: Any]?
+    let text: NSAttributedString?
+    /// 세로 가운데를 맞출 때 기준으로 삼는 글꼴. 숫자 높이(cap height)의 가운데를 메뉴바 가운데에 둔다.
+    let alignmentFont: NSFont?
 
     static func image(_ image: NSImage) -> MenuBarElement {
-        MenuBarElement(image: image, text: nil, attributes: nil)
+        MenuBarElement(image: image, text: nil, alignmentFont: nil)
     }
 
     static func text(_ text: String, attributes: [NSAttributedString.Key: Any]) -> MenuBarElement {
-        MenuBarElement(image: nil, text: text, attributes: attributes)
+        MenuBarElement(
+            image: nil, text: NSAttributedString(string: text, attributes: attributes),
+            alignmentFont: attributes[.font] as? NSFont)
+    }
+
+    static func text(_ text: NSAttributedString, alignedTo font: NSFont) -> MenuBarElement {
+        MenuBarElement(image: nil, text: text, alignmentFont: font)
     }
 }
 
@@ -178,7 +185,8 @@ enum MenuBarStatusComposer {
         let text = "⋯"
         let size = (text as NSString).size(withAttributes: attributes)
         let image = NSImage(size: NSSize(width: max(14, size.width), height: menuBarHeight), flipped: false) { _ in
-            (text as NSString).draw(at: NSPoint(x: 0, y: (menuBarHeight - size.height) / 2), withAttributes: attributes)
+            drawCentered(
+                NSAttributedString(string: text, attributes: attributes), alignedTo: attributes[.font] as? NSFont, x: 0)
             return true
         }
         image.isTemplate = false
@@ -621,7 +629,7 @@ enum MenuBarStatusComposer {
                 case .new: .systemBlue
                 case .expiring: .systemRed
                 }
-            elements.append(.text(badge.text, attributes: [.font: resetFont, .foregroundColor: color]))
+            elements.append(.text(resetCreditBadgeText(badge, font: resetFont, color: color), alignedTo: resetFont))
         }
         if snapshot.icon == nil, let status = snapshot.systemStatus, status.hasIssue {
             elements.append(statusDot(color: statusBadgeColor(for: status.effectiveIndicator)))
@@ -647,11 +655,11 @@ enum MenuBarStatusComposer {
         isStale: Bool
     ) -> String {
         guard isStale,
-              !tooltip.contains("이전 데이터")
+            !tooltip.contains(UsageStatusLabel.previousValue)
         else {
             return tooltip
         }
-        return "\(tooltip)\n상태: 이전 데이터"
+        return "\(tooltip)\n상태: \(UsageStatusLabel.previousValue)"
     }
 
     nonisolated private static func staleAnnotatedAccessibilityValue(
@@ -659,13 +667,13 @@ enum MenuBarStatusComposer {
         isStale: Bool
     ) -> String {
         guard isStale,
-              !value.contains("이전 데이터")
+            !value.contains(UsageStatusLabel.previousValue)
         else {
             return value
         }
         return value.isEmpty
-            ? "이전 데이터"
-            : "\(value), 이전 데이터"
+            ? UsageStatusLabel.previousValue
+            : "\(value), \(UsageStatusLabel.previousValue)"
     }
 
     nonisolated private static func joinedAccessibilityText(
@@ -719,6 +727,9 @@ enum MenuBarStatusComposer {
     /// 경고류는 항상 "⚠ " 접두 + 별도 줄 — tooltip 줄넘김 규칙(1줄 = 수치 요약, 이후 줄 = 경고)의 일부.
     private static func staleNote(error: APIError?, hasAuthError: Bool) -> String {
         guard let error, !hasAuthError else { return "" }
+        if case .claudeCodeExecutableNotFound = error {
+            return "\n\(ClaudeCodeCredentialIssue.executableNotFoundExplanation)\n마지막 성공 데이터 표시 중"
+        }
         let label: String
         if error.isTemporaryFailure {
             label = "일시 오류"
@@ -757,6 +768,7 @@ enum MenuBarStatusComposer {
                 : "battery.no-percent",
             config.resetTimeDisplay.rawValue,
             config.timeFormat.rawValue,
+            config.timeUnitLanguage.rawValue,
             config.circularDisplayMode.rawValue,
             config.basisOverride?.rawValue ?? "legacy",
             config.iconMetric.rawValue,
@@ -807,7 +819,13 @@ enum MenuBarStatusComposer {
         hasCredential: Bool,
         secondaryColor: NSColor
     ) -> MenuBarProviderStatus {
-        if !hasCredential {
+        let executableMissing: Bool
+        if case .claudeCodeExecutableNotFound? = error {
+            executableMissing = true
+        } else {
+            executableMissing = false
+        }
+        if !hasCredential, !executableMissing {
             return MenuBarProviderStatus(text: "로그인", color: .systemOrange, tooltip: "로그인 필요")
         }
         if let error, usage == nil {
@@ -919,20 +937,28 @@ enum MenuBarStatusComposer {
         case .fiveHour:
             if let sessionReset = usage.fiveHour?.resetsAt {
                 return TimeFormatter.formatResetTime(
-                    from: sessionReset, style: config.timeFormat, includeDateIfNotToday: false)
+                    from: sessionReset, style: config.timeFormat, includeDateIfNotToday: false,
+                    unitLanguage: config.timeUnitLanguage)
             }
             guard let weeklyReset = usage.sevenDay?.resetsAt else { return nil }
             return TimeFormatter.formatResetTimeWeekly(
-                from: weeklyReset, style: config.timeFormat, includeDateIfNotToday: false)
+                from: weeklyReset, style: config.timeFormat, includeDateIfNotToday: false,
+                unitLanguage: config.timeUnitLanguage)
         case .weekly:
             guard let resetAt = usage.sevenDay?.resetsAt else { return nil }
-            return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
+            return TimeFormatter.formatResetTimeWeekly(
+                from: resetAt, style: config.timeFormat, includeDateIfNotToday: false,
+                unitLanguage: config.timeUnitLanguage)
         case .dual:
             let first = usage.fiveHour?.resetsAt.flatMap {
-                TimeFormatter.formatResetTime(from: $0, style: config.timeFormat, includeDateIfNotToday: false)
+                TimeFormatter.formatResetTime(
+                    from: $0, style: config.timeFormat, includeDateIfNotToday: false,
+                    unitLanguage: config.timeUnitLanguage)
             }
             let second = usage.sevenDay?.resetsAt.flatMap {
-                TimeFormatter.formatResetTimeWeekly(from: $0, style: config.timeFormat, includeDateIfNotToday: false)
+                TimeFormatter.formatResetTimeWeekly(
+                    from: $0, style: config.timeFormat, includeDateIfNotToday: false,
+                    unitLanguage: config.timeUnitLanguage)
             }
             if let first, let second { return "\(first) · \(second)" }
             return first ?? second
@@ -948,19 +974,29 @@ enum MenuBarStatusComposer {
             // 세션 창이 있으면 세션 포맷, 없으면(주간 전용 개편) 주간 창을 주간 포맷으로 대체.
             // 포맷은 표시 슬롯이 아니라 실제 창 성격을 따라간다 — 주간 창에 분 단위까지 붙는 것 방지.
             if let sessionReset = usage.sessionWindow?.resetAtISO {
-                return TimeFormatter.formatResetTime(from: sessionReset, style: config.timeFormat, includeDateIfNotToday: false)
+                return TimeFormatter.formatResetTime(
+                    from: sessionReset, style: config.timeFormat, includeDateIfNotToday: false,
+                    unitLanguage: config.timeUnitLanguage)
             }
             guard let weeklyReset = usage.weeklyWindow?.resetAtISO else { return nil }
-            return TimeFormatter.formatResetTimeWeekly(from: weeklyReset, style: config.timeFormat, includeDateIfNotToday: false)
+            return TimeFormatter.formatResetTimeWeekly(
+                from: weeklyReset, style: config.timeFormat, includeDateIfNotToday: false,
+                unitLanguage: config.timeUnitLanguage)
         case .weekly:
             guard let resetAt = usage.weeklyWindow?.resetAtISO else { return nil }
-            return TimeFormatter.formatResetTimeWeekly(from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
+            return TimeFormatter.formatResetTimeWeekly(
+                from: resetAt, style: config.timeFormat, includeDateIfNotToday: false,
+                unitLanguage: config.timeUnitLanguage)
         case .dual:
             let first = usage.sessionWindow?.resetAtISO.flatMap {
-                TimeFormatter.formatResetTime(from: $0, style: config.timeFormat, includeDateIfNotToday: false)
+                TimeFormatter.formatResetTime(
+                    from: $0, style: config.timeFormat, includeDateIfNotToday: false,
+                    unitLanguage: config.timeUnitLanguage)
             }
             let second = usage.weeklyWindow?.resetAtISO.flatMap {
-                TimeFormatter.formatResetTimeWeekly(from: $0, style: config.timeFormat, includeDateIfNotToday: false)
+                TimeFormatter.formatResetTimeWeekly(
+                    from: $0, style: config.timeFormat, includeDateIfNotToday: false,
+                    unitLanguage: config.timeUnitLanguage)
             }
             if let first, let second { return "\(first) · \(second)" }
             return first ?? second
@@ -1144,8 +1180,8 @@ enum MenuBarStatusComposer {
             if index > 0 { totalWidth += elementSpacing }
             if let image = element.image {
                 totalWidth += image.size.width
-            } else if let text = element.text, let attributes = element.attributes {
-                totalWidth += (text as NSString).size(withAttributes: attributes).width
+            } else if let text = element.text {
+                totalWidth += text.size().width
             }
         }
 
@@ -1157,16 +1193,38 @@ enum MenuBarStatusComposer {
                     let y = (menuBarHeight - elementImage.size.height) / 2
                     elementImage.draw(in: NSRect(x: x, y: y, width: elementImage.size.width, height: elementImage.size.height))
                     x += elementImage.size.width
-                } else if let text = element.text, let attributes = element.attributes {
-                    let size = (text as NSString).size(withAttributes: attributes)
-                    let y = (menuBarHeight - size.height) / 2
-                    (text as NSString).draw(at: NSPoint(x: x, y: y), withAttributes: attributes)
-                    x += size.width
+                } else if let text = element.text {
+                    x += drawCentered(text, alignedTo: element.alignmentFont, x: x)
                 }
             }
             return true
         }
         image.isTemplate = false
         return image
+    }
+
+    /// 숫자 높이(cap height)의 가운데를 메뉴바 가운데에 맞춰 그리고 너비를 돌려준다. 줄 높이로 가운데를 잡으면
+    /// 아래쪽 여백(descender) 때문에 글자가 로고보다 0.7pt쯤 내려가고, 글자 크기마다 기준선이 달라진다.
+    @discardableResult
+    private static func drawCentered(_ text: NSAttributedString, alignedTo font: NSFont?, x: CGFloat) -> CGFloat {
+        let font = font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let size = text.size()
+        let baseline = (menuBarHeight - font.capHeight) / 2
+        // usesLineFragmentOrigin 없이 그리면 사각형의 원점이 기준선이다.
+        text.draw(with: NSRect(x: x, y: baseline, width: size.width, height: size.height), options: [])
+        return size.width
+    }
+
+    private static func resetCreditBadgeText(
+        _ badge: MenuBarResetCreditBadge, font: NSFont, color: NSColor
+    ) -> NSAttributedString {
+        let fit = ResetCreditSymbol.fit(to: font)
+        let text = NSMutableAttributedString(
+            string: MenuBarResetCreditBadge.symbol,
+            attributes: [
+                .font: font.withSize(fit.pointSize), .foregroundColor: color, .baselineOffset: fit.baselineOffset,
+            ])
+        text.append(NSAttributedString(string: "\(badge.count)", attributes: [.font: font, .foregroundColor: color]))
+        return text
     }
 }

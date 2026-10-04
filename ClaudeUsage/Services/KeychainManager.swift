@@ -123,11 +123,14 @@ nonisolated final class KeychainManager: @unchecked Sendable {
         guard !sessionKey.isEmpty else {
             throw KeychainError.invalidData
         }
-        if self.cachedSessionKeyValue(for: accountID) == sessionKey {
-            Logger.debug("세션 키 저장 스킵: 동일한 값이 이미 캐시에 있음")
+        let scopedAccount = ClaudeKeychainStore.accountName(for: accountID)
+        // 계정을 지우면 저장소의 항목만 사라지고 이 캐시는 남는다. 캐시가 아니라 저장소 값과 비교해야
+        // 같은 키를 다시 추가할 때 저장을 건너뛰지 않는다.
+        if (try? self.keychainStore.loadString(account: scopedAccount)) == sessionKey {
+            self.setCachedSessionKey(sessionKey, for: accountID)
+            Logger.debug("세션 키 저장 스킵: 같은 값이 이미 저장돼 있음")
             return false
         }
-        let scopedAccount = ClaudeKeychainStore.accountName(for: accountID)
         do {
             try self.keychainStore.saveString(sessionKey, account: scopedAccount)
         } catch {

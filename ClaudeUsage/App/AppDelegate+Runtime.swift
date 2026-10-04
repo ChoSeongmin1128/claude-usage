@@ -61,10 +61,6 @@ extension AppDelegate {
         startTimer()
     }
 
-    func stopRefreshTimer() {
-        _ = refreshScheduler.stop()
-    }
-
     func syncRefreshTimerState() {
         let change = refreshScheduler.sync(
             autoRefresh: refreshConfiguration.autoRefresh,
@@ -135,7 +131,8 @@ extension AppDelegate {
                 Task { [weak self] in
                     guard let self else { return }
                     let runtime = await antigravityRuntimeTask.value
-                    await runtime.runtimeController.setTimeFormat(AppSettings.shared.timeFormat)
+                    await runtime.runtimeController.setTimeFormat(
+                        AppSettings.shared.timeFormat, unitLanguage: AppSettings.shared.timeUnitLanguage)
                 }
             }
         )
@@ -253,6 +250,19 @@ extension AppDelegate {
     }
 
     func handleProviderEnabledChange(_ enabled: Bool, for service: PopoverService) {
+        guard enabled, service == .codex else {
+            applyProviderEnabledChange(enabled, for: service)
+            return
+        }
+        // 앱이 켜진 뒤 codex login을 했을 수 있어 auth.json을 다시 읽고 판단한다.
+        Task { @MainActor [weak self] in
+            _ = try? await CodexAuthManager.shared.loadSnapshot()
+            guard let self, AppSettings.shared.isProviderEnabled(service.providerKind) else { return }
+            self.applyProviderEnabledChange(true, for: service)
+        }
+    }
+
+    private func applyProviderEnabledChange(_ enabled: Bool, for service: PopoverService) {
         if enabled {
             resetTransientProviderAuthStateIfNeeded(for: service)
         }
@@ -406,7 +416,7 @@ extension AppDelegate {
                 Logger.debug("사용량 갱신 시작")
                 let result = try await ClaudeRuntimeRefresher.refresh(
                     apiService: apiService,
-                    lastOverageFetchAt: self.lastOverageFetchAt
+                    lastOverageAttemptAt: self.lastOverageAttemptAt
                 )
                 let cachedProfileMetadata = await self.apiService.fetchCachedProfileMetadata()
                 let responseAccountID = await self.apiService.currentActiveAccountID()
@@ -578,6 +588,13 @@ extension AppDelegate {
                 settings: AppSettings.shared
             )
         else {
+            return
+        }
+        // 자동 조회는 2분 하한을 지킨다. 실패 상태에서는 팝오버를 열 때마다 조회가 요청되고, AGY 보고는
+        // 로그아웃 상태에서 제한 시간까지 기다리므로 여기서 막는다.
+        if !force, let lastAttemptAt = currentAntigravityRuntimeSnapshot.lastAttemptAt,
+            Date().timeIntervalSince(lastAttemptAt) < AdaptiveRefreshPolicy.minimumInterval
+        {
             return
         }
         Task { [weak self] in

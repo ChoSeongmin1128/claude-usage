@@ -39,15 +39,14 @@ struct PopoverAccountRowData: Identifiable, Equatable {
     let id: String
     let service: PopoverService
     let name: String
-    let badges: [UsageAccountBadge]
+    let badges: [AccountBadge]
     let status: UsageAccountState.Status
-    let fiveHour: Double?
-    let weekly: Double?
-    let fiveHourResetAt: String?
-    let weeklyResetAt: String?
+    let usage: UsageAccountUsage?
     let fetchedAt: Date?
     let isRuntime: Bool
     let basis: UsageValueBasis
+    let timeFormatStyle: TimeFormatStyle
+    let timeUnitLanguage: TimeUnitLanguage
 }
 
 struct PopoverAccountPickerData: Equatable {
@@ -66,7 +65,7 @@ struct PopoverAccountSummaryData: Equatable {
     let isWarning: Bool
 }
 
-/// 계정이 2개 이상일 때 팝오버에 넘기는 계정 목록. 1개면 만들지 않는다.
+/// 여러 계정을 켜고 계정이 2개 이상일 때 팝오버에 넘기는 계정 목록
 struct MultiAccountPresentation: Equatable {
     let service: PopoverService
     let mode: UsageAccountPreferences.PopoverMode
@@ -75,24 +74,27 @@ struct MultiAccountPresentation: Equatable {
 
     /// 숨긴 한도도 요약에는 넣는다. 문제가 없으면 한 줄로 끝낸다.
     var summary: PopoverAccountSummaryData {
-        let low = rows.filter { row in
-            [row.fiveHour, row.weekly].compactMap { $0 }.contains {
-                100 - $0 <= AdaptiveRefreshPolicy.lowRemainingPercent
-            }
-        }
+        let threshold = AdaptiveRefreshPolicy.lowRemainingPercent
+        let low = rows.filter { ($0.usage?.lowestRemainingPercent).map { $0 <= threshold } == true }
         let expired = rows.filter { $0.status == .loginExpired }
         var parts: [String] = []
-        if !low.isEmpty { parts.append("\(low.count)개 계정 한도 10% 이하") }
+        if !low.isEmpty { parts.append("남은 한도 \(PercentageText.string(threshold)) 이하 \(low.count)개") }
         if !expired.isEmpty { parts.append("로그인 만료 \(expired.count)개") }
         return parts.isEmpty
             ? PopoverAccountSummaryData(text: "모든 계정 여유 있음", isWarning: false)
-            : PopoverAccountSummaryData(text: parts.joined(separator: " · "), isWarning: true)
+            : PopoverAccountSummaryData(text: parts.joined(separator: ", "), isWarning: true)
     }
 
-    func sections(catalog: [PopoverDisplaySection]) -> [PopoverDisplaySection] {
+    func sections(
+        catalog: [PopoverDisplaySection], timeFormatStyle: TimeFormatStyle, timeUnitLanguage: TimeUnitLanguage
+    ) -> [PopoverDisplaySection] {
         func row(_ data: PopoverAccountRowData) -> PopoverDisplaySection {
-            PopoverDisplaySection(
-                id: "account-\(data.id)", kind: .accountRow, importance: .primary, payload: .accountRow(data))
+            let displayData = PopoverAccountRowData(
+                id: data.id, service: data.service, name: data.name, badges: data.badges, status: data.status,
+                usage: data.usage, fetchedAt: data.fetchedAt, isRuntime: data.isRuntime, basis: data.basis,
+                timeFormatStyle: timeFormatStyle, timeUnitLanguage: timeUnitLanguage)
+            return PopoverDisplaySection(
+                id: "account-\(data.id)", kind: .accountRow, importance: .primary, payload: .accountRow(displayData))
         }
         let others = rows.filter { !$0.isRuntime }
         switch mode {
@@ -123,6 +125,7 @@ struct PopoverUsageSectionData {
     let resetAt: String?
     let isWeekly: Bool
     let timeFormatStyle: TimeFormatStyle
+    var timeUnitLanguage: TimeUnitLanguage = .english
     var basis: UsageValueBasis = .used
 }
 

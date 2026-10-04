@@ -13,11 +13,7 @@ nonisolated enum AntigravityStoragePaths {
             AppDistribution.current
                 .applicationSupportDirectoryName
     ) -> URL {
-        homeDirectoryURL.standardizedFileURL
-            .appendingPathComponent(
-                "Library/Application Support/\(directoryName)",
-                isDirectory: true
-            )
+        AppStoragePaths.applicationSupportDirectory(home: homeDirectoryURL, directoryName: directoryName)
     }
 
     static func canonicalStateDirectoryURL(

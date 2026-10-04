@@ -3,6 +3,18 @@ import XCTest
 @testable import ClaudeUsage
 
 final class ClaudeBrowserImportTests: XCTestCase {
+    func testClaudeAISessionCookieWinsOverConsoleCookie() {
+        let console = ClaudeChromiumCookieRecord(
+            domain: ".anthropic.com", name: "sessionKey", path: "/", value: "sk-ant-sid01-console-session-value",
+            expiresAt: Date().addingTimeInterval(9_000), isSecure: true)
+        let claude = ClaudeChromiumCookieRecord(
+            domain: ".claude.ai", name: "sessionKey", path: "/", value: "sk-ant-sid01-claude-session-value",
+            expiresAt: Date().addingTimeInterval(3_000), isSecure: true)
+
+        XCTAssertEqual(
+            ClaudeChromeCookieImportService.findSessionKey(in: [console, claude]), "sk-ant-sid01-claude-session-value")
+    }
+
     private var directory: URL!
 
     override func setUpWithError() throws {
@@ -153,8 +165,9 @@ final class ClaudeCodeLoginDetectorTests: XCTestCase {
         XCTAssertTrue(ClaudeCodeLoginDetector.credentialFileExists(environment: environment))
     }
 
-    func testMissingKeychainServiceIsNotALogin() {
-        XCTAssertFalse(
-            ClaudeCodeLoginDetector.keychainItemExists(service: "claudeusage.test.missing.\(UUID().uuidString)"))
+    func testMissingKeychainServiceIsNotALogin() async {
+        let exists = await ClaudeCodeLoginDetector.keychainItemExists(
+            service: "claudeusage.test.missing.\(UUID().uuidString)")
+        XCTAssertFalse(exists)
     }
 }

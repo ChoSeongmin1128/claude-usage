@@ -329,7 +329,7 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         )
         XCTAssertEqual(
             stalePresentation.identityRail.statusLabels,
-            ["이전 데이터"]
+            [UsageStatusLabel.previousValue]
         )
         XCTAssertEqual(
             stalePresentation.identityRail.tone,
@@ -337,7 +337,7 @@ final class AntigravityQuotaPresentationMapperTests: XCTestCase {
         )
         XCTAssertTrue(
             stalePresentation.identityRail.tooltip.contains(
-                "최근 갱신에 실패해"
+                "조회에 실패해"
             )
         )
 

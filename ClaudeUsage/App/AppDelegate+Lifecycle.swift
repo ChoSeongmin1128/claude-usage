@@ -317,7 +317,8 @@ extension AppDelegate {
                 let basis = AppSettings.shared.usageDisplayMode.basis
                 let revision = AppSettings.shared.usageDisplayModeRevision
                 await runtime.runtimeController.setUsageDisplayBasis(basis, revision: revision)
-                await runtime.runtimeController.setTimeFormat(AppSettings.shared.timeFormat)
+                await runtime.runtimeController.setTimeFormat(
+                    AppSettings.shared.timeFormat, unitLanguage: AppSettings.shared.timeUnitLanguage)
                 _ = await runtime
                     .runtimeController
                     .bootstrap(
@@ -360,25 +361,17 @@ extension AppDelegate {
                 self.currentClaudeProfileMetadata = cachedProfileMetadata
                 self.currentClaudeNotificationPolicy = cachedProfileMetadata.map(ClaudeNotificationPolicy.init(metadata:))
                 self.applyUsageHealthSnapshot(snapshot)
-                self.finishBootstrap(using: snapshot)
+                self.finishBootstrap()
             }
         }
     }
 
-    func finishBootstrap(using snapshot: ClaudeAPIService.UsageHealthSnapshot) {
+    /// 켜진 서비스가 있으면 조회를 시작한다. 서비스가 켜져 있으면 조회 대상이기도 하므로 다른 경우는 메뉴바만 그린다.
+    func finishBootstrap() {
         let hasEnabledRuntimeService = AppSettings.shared.providerSelectionState.runtimeEnabledKinds.isEmpty == false
         if hasRefreshableService || hasEnabledRuntimeService {
             startMonitoring()
-        } else if ServiceSelectionHelper.isEnabled(.claude, settings: AppSettings.shared) {
-            updateMenuBar()
-            if !snapshot.runtime.credentialAvailability.hasAnyCredential {
-                if AppSettings.shared.welcomeState != .pending { showInitialClaudeSetupFlow() }
-            }
         } else {
-            if ServiceSelectionHelper.isEnabled(.codex, settings: AppSettings.shared) && !CodexAuthManager.shared.isAuthenticated {
-                hasCodexAuthError = true
-                codexError = .invalidSessionKey
-            }
             updateMenuBar()
         }
     }
@@ -419,7 +412,6 @@ extension AppDelegate {
             // scheduledTimer was registered on MainActor's main run loop.
             MainActor.assumeIsolated {
                 self?.refreshSystemStatus()
-                self?.usageAccountsController.refreshIfNeeded()
             }
         }
     }

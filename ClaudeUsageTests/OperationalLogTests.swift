@@ -13,9 +13,11 @@ final class OperationalLogTests: XCTestCase {
     func testAccountMaterialNeverEntersFailureDiagnostics() {
         let secret = "private@example.test bearer-secret csrf-secret"
         let diagnostic = OperationalDiagnostic.antigravity(
-            .failed(.selectedAccountUnavailable(.init(rawValue: secret)))
+            .accountMismatch(
+                expected: ProviderAccountIdentity(stableAccountID: secret, email: secret),
+                received: ProviderAccountIdentity(email: secret))
         )
-        XCTAssertEqual(diagnostic?.code, "agy.selectedAccountUnavailable")
+        XCTAssertEqual(diagnostic?.code, "agy.accountMismatch")
         XCTAssertEqual(diagnostic?.source, "coordinator")
         XCTAssertFalse(String(describing: diagnostic).contains(secret))
     }

@@ -73,8 +73,10 @@ nonisolated enum AntigravityCLIReportWorkspace {
 actor AntigravityCLIUsageReportSource: AntigravityUsageSource {
     static let reportArguments = ["-p", "/usage", "--output-format", "json"]
     static let versionTimeout: Duration = .seconds(10)
-    // Reports measured 5-8 seconds.
-    static let minimumReportBudget: Duration = .seconds(5)
+    // Reports measured 5-8 seconds. Below this budget --print-timeout would be
+    // shorter than a normal report, and a report cut short by our own timeout
+    // would read as a signed-out AGY, so the refresh is left as a timeout.
+    static let minimumReportBudget: Duration = .seconds(10)
     private static let printTimeoutMargin: Duration = .seconds(2)
 
     nonisolated let id = AntigravityUsageSourceID.cliReport

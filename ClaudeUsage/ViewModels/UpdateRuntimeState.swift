@@ -68,62 +68,19 @@ final class UpdateRuntimeState: ObservableObject {
         }
     }
 
-    var statusTitle: String {
+    /// 지금 상태 한 줄. 할 일이나 알릴 것이 없으면 없다.
+    var statusSummary: String? {
         switch phase {
-        case .checking:
-            return "업데이트 확인 중"
-        case .interactiveCheckStarted:
-            return "설치 확인 창을 열었습니다"
-        case .updateAvailable(let version):
-            return "v\(version) 업데이트 가능"
-        case .downloading(let version):
-            return "v\(version) 자동 다운로드 중"
-        case .downloaded(let version):
-            return "v\(version) 설치 준비됨"
-        case .readyToInstall(let version):
-            return "v\(version) 설치 준비 완료"
-        case .installing(let version):
-            return "v\(version) 설치 적용 중"
-        case .upToDate:
-            return "최신 버전 사용 중"
-        case .error:
-            return "업데이트 확인 실패"
-        case .idle:
-            if engineStatus?.usesSparkleReadyPath == true {
-                return "업데이트 알림 사용 중"
-            }
-            return "업데이트 확인 필요"
-        }
-    }
-
-    var statusSummary: String {
-        switch phase {
-        case .checking:
-            return "현재 버전과 업데이트 채널을 비교하고 있습니다."
-        case .interactiveCheckStarted:
-            return "열린 확인 창에서 설치를 이어서 진행할 수 있습니다."
-        case .updateAvailable:
-            if engineStatus?.usesSparkleReadyPath == true {
-                return "새 버전을 백그라운드에서 내려받고 검증할 준비를 하고 있습니다."
-            }
-            return "새 버전을 내려받아 기존 앱을 교체 설치할 수 있습니다."
-        case .downloading:
-            return "새 버전을 백그라운드에서 내려받고 있습니다."
-        case .downloaded:
-            return "다운로드와 검증이 끝났습니다. 설치 적용 준비를 마무리하고 있습니다."
-        case .readyToInstall:
-            return "다운로드와 검증이 끝났습니다. 원할 때 바로 설치를 적용할 수 있습니다."
-        case .installing:
-            return "설치를 진행 중입니다. 앱이 다시 열리면 새 버전이 적용됩니다."
-        case .upToDate:
-            return lastCheckMessage ?? "현재 설치본이 최신 버전입니다."
-        case .error(let message):
-            return message
-        case .idle:
-            if engineStatus?.usesSparkleReadyPath == true {
-                return "30분마다 새 버전을 확인합니다. 새 버전이 있으면 자동으로 준비합니다."
-            }
-            return "새 버전이 있으면 다운로드 페이지로 안내합니다."
+        case .checking: return "확인 중"
+        case .interactiveCheckStarted: return "확인 창에서 설치를 계속하세요."
+        case .updateAvailable: return "새 버전이 있습니다."
+        case .downloading: return "내려받는 중"
+        case .downloaded: return "설치 준비 중"
+        case .readyToInstall: return "설치 준비됨"
+        case .installing: return "설치 중입니다. 앱이 다시 열립니다."
+        case .upToDate: return lastCheckMessage ?? "최신 버전입니다."
+        case .error(let message): return message
+        case .idle: return nil
         }
     }
 
@@ -265,13 +222,6 @@ final class UpdateRuntimeState: ObservableObject {
             break
         default:
             checkNow()
-        }
-    }
-
-    func openLatestReleasePage() {
-        Task {
-            let url = await UpdateService.shared.latestDownloadURL()
-            NSWorkspace.shared.open(url)
         }
     }
 

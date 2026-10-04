@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import ClaudeUsage
 
 final class AntigravitySubprocessSpawnTests: XCTestCase {
@@ -9,7 +10,7 @@ final class AntigravitySubprocessSpawnTests: XCTestCase {
 
     func testSpawnSucceedsWithQoSClass() throws {
         let spawned = try XCTUnwrap(
-            AntigravitySubprocessSpawn.spawn(
+            OwnedSubprocessSpawn.spawn(
                 executablePath: "/bin/sh",
                 arguments: ["-c", "exit 7"],
                 environment: [:],
@@ -28,7 +29,7 @@ final class AntigravitySubprocessSpawnTests: XCTestCase {
         var attributes: posix_spawnattr_t?
         posix_spawnattr_init(&attributes)
         defer { posix_spawnattr_destroy(&attributes) }
-        XCTAssertTrue(AntigravitySubprocessSpawn.configure(&attributes, .init(qosClass: qosClass)))
+        XCTAssertTrue(OwnedSubprocessSpawn.configure(&attributes, .init(qosClass: qosClass)))
         var result = QOS_CLASS_UNSPECIFIED
         posix_spawnattr_get_qos_class_np(&attributes, &result)
         return result

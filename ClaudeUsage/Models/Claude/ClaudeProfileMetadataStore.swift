@@ -61,8 +61,14 @@ actor ClaudeProfileMetadataStore {
 
     func update(from credentialsText: String) -> ClaudeProfileMetadata? {
         guard let metadata = Self.parseProfileMetadata(from: credentialsText) else { return nil }
-        save(metadata)
-        return metadata
+        return merge(metadata)
+    }
+
+    @discardableResult
+    func merge(_ metadata: ClaudeProfileMetadata) -> ClaudeProfileMetadata {
+        let merged = load()?.merging(metadata) ?? metadata
+        save(merged)
+        return merged
     }
 
     func save(_ metadata: ClaudeProfileMetadata) {

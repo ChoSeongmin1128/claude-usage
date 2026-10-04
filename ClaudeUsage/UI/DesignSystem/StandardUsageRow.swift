@@ -37,7 +37,7 @@ struct StandardUsageRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             trailingValue
-                .frame(width: 148, alignment: .trailing)
+                .frame(width: PopoverLayoutMetrics.standardRowMeterWidth, alignment: .trailing)
         }
         .frame(
             minHeight:

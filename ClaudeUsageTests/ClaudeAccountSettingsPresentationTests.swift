@@ -3,7 +3,7 @@ import XCTest
 
 @MainActor
 final class ClaudeAccountSettingsPresentationTests: XCTestCase {
-    func testCompactHeaderPreservesSourceAndExpandedDetailsAvoidRepeatingOrganization() {
+    func testClaudeCodeHeaderShowsSourceAndOrganization() {
         let account = ClaudeAccount(
             id: "cli", kind: .claudeCodeExternal, displayName: "CLI",
             identity: .init(email: "same@example.com", organizationName: "Workspace", organizationID: "org-work"),
@@ -11,14 +11,6 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         let presentation = ClaudeAccountSettingsPresentation.resolve(account: account, isActive: true)
         XCTAssertEqual(presentation.sourceLabel, "Claude Code")
         XCTAssertEqual(presentation.secondaryLine, "Workspace")
-        XCTAssertEqual(
-            presentation.detailRows,
-            [
-                .init(title: "로그인 방식", value: "터미널 Claude Code"),
-                .init(title: "조직 ID", value: "org-work"),
-            ])
-        XCTAssertNil(presentation.switchAction)
-        XCTAssertEqual(presentation.managementActions, [.showClaudeCodeLoginGuidance])
     }
 
     func testClaudeCodeCredentialIssueReplacesStaleVerifiedStatus() {
@@ -33,7 +25,7 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         let relogin = ClaudeAccountSettingsPresentation.resolve(
             account: account, isActive: true, claudeCodeCredentialIssue: .reauthenticationRequired)
 
-        XCTAssertEqual(verified.statusText, "최근 조회 성공")
+        XCTAssertEqual(verified.statusText, "연결됨")
         XCTAssertEqual(reconnect.statusText, "다시 연결 필요")
         XCTAssertEqual(reconnect.statusTone, .warning)
         XCTAssertEqual(relogin.statusText, "Claude Code 로그인 필요")
@@ -98,18 +90,9 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
 
         XCTAssertEqual(presentation.primaryTitle, "work@example.com")
         XCTAssertEqual(presentation.secondaryLine, "Work Org")
-        XCTAssertEqual(presentation.statusText, "최근 조회 성공")
+        XCTAssertEqual(presentation.statusText, "연결됨")
         XCTAssertEqual(presentation.statusTone, .success)
-        XCTAssertEqual(presentation.switchAction, .use)
-        XCTAssertEqual(presentation.managementActions, [.deleteWebSession])
         XCTAssertEqual(presentation.systemImage, "globe")
-        XCTAssertEqual(
-            presentation.detailRows,
-            [
-                ClaudeAccountSettingsDetailRow(title: "로그인 방식", value: "앱에서 로그인"),
-                ClaudeAccountSettingsDetailRow(title: "조직 ID", value: "org-work"),
-            ]
-        )
     }
 
     func testChromeProfilePresentationPrefersReadableProfileEmailAndOrganizationName() {
@@ -133,16 +116,7 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
 
         XCTAssertEqual(presentation.primaryTitle, "Chrome Nathan · nathan@glorang.com")
         XCTAssertEqual(presentation.secondaryLine, "Glorang")
-        XCTAssertEqual(presentation.statusText, "최근 조회 성공")
-        XCTAssertNil(presentation.switchAction)
-        XCTAssertEqual(presentation.managementActions, [.deleteWebSession])
-        XCTAssertEqual(
-            presentation.detailRows,
-            [
-                ClaudeAccountSettingsDetailRow(title: "Chrome 프로필", value: "Nathan (Profile 2)"),
-                ClaudeAccountSettingsDetailRow(title: "조직 ID", value: "org-company"),
-            ]
-        )
+        XCTAssertEqual(presentation.statusText, "연결됨")
     }
 
     func testInactiveAccountDoesNotUseActiveAccountOrganizationLookup() {
@@ -173,7 +147,6 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
 
         XCTAssertEqual(presentation.secondaryLine, "joseongmin0127@gmail.com's Organization")
         XCTAssertEqual(presentation.sourceLabel, "Chrome")
-        XCTAssertFalse(presentation.detailRows.contains { $0.value == "Glorang" })
     }
 
     func testClaudeCodePresentationIsReadOnlyCliCandidate() {
@@ -191,13 +164,7 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
         XCTAssertNil(presentation.secondaryLine)
         XCTAssertEqual(presentation.statusText, "확인 전")
         XCTAssertEqual(presentation.statusTone, .neutral)
-        XCTAssertEqual(presentation.switchAction, .use)
-        XCTAssertEqual(presentation.managementActions, [.showClaudeCodeLoginGuidance])
         XCTAssertEqual(presentation.systemImage, "terminal")
-        XCTAssertEqual(
-            presentation.detailRows,
-            [ClaudeAccountSettingsDetailRow(title: "로그인 방식", value: "터미널 Claude Code")]
-        )
     }
 
     func testOrganizationIDIsShortenedWhenNameIsUnavailable() {
@@ -213,12 +180,6 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
 
         XCTAssertEqual(presentation.primaryTitle, "저장된 Claude 계정")
         XCTAssertEqual(presentation.secondaryLine, "efa005dc...")
-        XCTAssertEqual(
-            presentation.detailRows,
-            [
-                ClaudeAccountSettingsDetailRow(title: "로그인 방식", value: "앱에서 로그인"),
-            ]
-        )
     }
 
     func testDefaultAccountPresentationDoesNotExposeDiagnosticLabels() {
@@ -247,9 +208,5 @@ final class ClaudeAccountSettingsPresentationTests: XCTestCase {
             XCTAssertFalse(text.contains("감지됨"))
             XCTAssertFalse(text.contains("Profile 2"))
         }
-
-        XCTAssertTrue(presentation.detailRows.contains(
-            ClaudeAccountSettingsDetailRow(title: "Chrome 프로필", value: "Nathan (Profile 2)")
-        ))
     }
 }

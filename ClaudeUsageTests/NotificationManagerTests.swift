@@ -60,7 +60,7 @@ final class NotificationManagerTests: XCTestCase {
         checkClaude(percentage: 90, resetAt: nil)
 
         XCTAssertEqual(deliverer.delivered.map(\.title), ["Claude 사용량 알림"])
-        XCTAssertEqual(deliverer.delivered.map(\.body), ["5시간 사용 한도를 90% 이상 사용했습니다."])
+        XCTAssertEqual(deliverer.delivered.map(\.body), ["5시간 한도를 90% 썼습니다."])
     }
 
     func testThresholdMessageDescribesBoundaryInsteadOfClaimingExactCurrentValue() {
@@ -74,7 +74,7 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(deliverer.delivered[0].title, "Claude 사용량 알림")
         XCTAssertEqual(
             deliverer.delivered[0].body,
-            "5시간 사용 한도를 85% 이상 사용했습니다."
+            "5시간 한도를 85% 썼습니다."
         )
         XCTAssertFalse(deliverer.delivered[0].body.contains("88%"))
 
@@ -85,7 +85,7 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(deliverer.delivered.count, 2)
         XCTAssertEqual(
             deliverer.delivered[1].body,
-            "5시간 사용 한도가 15% 이하로 남았습니다."
+            "5시간 한도가 15% 남았습니다."
         )
         XCTAssertFalse(deliverer.delivered[1].body.contains("12%"))
     }
@@ -115,7 +115,7 @@ final class NotificationManagerTests: XCTestCase {
         checkClaude(percentage: 90, resetAt: nil, claudePolicy: policy)
 
         XCTAssertEqual(deliverer.delivered.map(\.title), ["Claude 사용량 알림"])
-        XCTAssertEqual(deliverer.delivered.map(\.body), ["5시간 사용 한도를 90% 이상 사용했습니다."])
+        XCTAssertEqual(deliverer.delivered.map(\.body), ["5시간 한도를 90% 썼습니다."])
     }
 
     func testCodexThresholdBehaviorIsPreserved() {
@@ -134,7 +134,7 @@ final class NotificationManagerTests: XCTestCase {
         )
         XCTAssertEqual(
             deliverer.delivered.map(\.body),
-            ["5시간 사용 한도를 95% 이상 사용했습니다."]
+            ["5시간 한도를 95% 썼습니다."]
         )
     }
 
@@ -202,8 +202,8 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(
             deliverer.delivered.first?.body,
             [
-                "Gemini · 5시간 사용 한도를 90% 이상 사용했습니다.",
-                "Claude·GPT · 주간 사용 한도를 95% 이상 사용했습니다.",
+                "Gemini · 5시간 한도를 90% 썼습니다.",
+                "Claude·GPT · 주간 한도를 95% 썼습니다.",
             ].joined(separator: "\n")
         )
     }
@@ -260,7 +260,7 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(deliverer.delivered.count, 1)
         XCTAssertEqual(
             deliverer.delivered.first?.body,
-            "Gemini · 주간 사용 한도를 90% 이상 사용했습니다."
+            "Gemini · 주간 한도를 90% 썼습니다."
         )
         XCTAssertFalse(
             deliverer.delivered.first?.body.contains(
@@ -364,7 +364,6 @@ final class NotificationManagerTests: XCTestCase {
                         usedPercentage: 89
                     )
                 ],
-                usesAmbientAccountBoundary: true,
                 observedIdentity: localAccountA
             )
         )
@@ -379,7 +378,6 @@ final class NotificationManagerTests: XCTestCase {
                         usedPercentage: 96
                     )
                 ],
-                usesAmbientAccountBoundary: true,
                 observedIdentity: localAccountB
             )
         )
@@ -397,7 +395,6 @@ final class NotificationManagerTests: XCTestCase {
                         usedPercentage: 80
                     )
                 ],
-                usesAmbientAccountBoundary: true,
                 observedIdentity: localAccountB
             )
         )
@@ -412,7 +409,6 @@ final class NotificationManagerTests: XCTestCase {
                         usedPercentage: 96
                     )
                 ],
-                usesAmbientAccountBoundary: true,
                 observedIdentity: localAccountB
             )
         )
@@ -525,8 +521,8 @@ final class NotificationManagerTests: XCTestCase {
         XCTAssertEqual(
             deliverer.delivered.first?.body,
             [
-                "Gemini · 5시간 사용 한도가 10% 이하로 남았습니다.",
-                "Claude·GPT · 주간 사용 한도가 5% 이하로 남았습니다.",
+                "Gemini · 5시간 한도가 10% 남았습니다.",
+                "Claude·GPT · 주간 한도가 5% 남았습니다.",
             ].joined(separator: "\n")
         )
     }
@@ -661,7 +657,7 @@ final class NotificationManagerTests: XCTestCase {
         manager.checkClaude(usage(84), accountID: "a", policy: nil)
         manager.checkClaude(usage(96), accountID: "a", policy: nil)
         XCTAssertEqual(deliverer.delivered.count, 1)
-        XCTAssertEqual(deliverer.delivered.first?.body, "주간 사용 한도를 95% 이상 사용했습니다.")
+        XCTAssertEqual(deliverer.delivered.first?.body, "주간 한도를 95% 썼습니다.")
     }
 
     func testAntigravityNewDynamicLaneStillRequiresExplicitSelection() throws {
@@ -709,19 +705,15 @@ final class NotificationManagerTests: XCTestCase {
         accountID rawAccountID: String,
         lanes: [AntigravityQuotaLane],
         notificationsEnabled: Bool = true,
-        usesAmbientAccountBoundary: Bool = false,
         observedIdentity: ProviderAccountIdentity? = nil,
         hiddenLaneIDs: Set<AntigravityQuotaLaneID> = []
     ) -> AntigravityRuntimeSnapshot {
-        let accountID = AntigravityAccountID(
-            rawValue: rawAccountID
-        )
-        let repositoryIdentity = ProviderAccountIdentity(
+        let accountIdentity = ProviderAccountIdentity(
             stableAccountID: rawAccountID,
             email: "\(rawAccountID)@example.com"
         )
         let quotaIdentity =
-            observedIdentity ?? repositoryIdentity
+            observedIdentity ?? accountIdentity
         let fetchedAt = Date(timeIntervalSince1970: 1_800_000_000)
         let quotaSnapshot = AntigravityQuotaSnapshot(
             identity: quotaIdentity,
@@ -748,20 +740,6 @@ final class NotificationManagerTests: XCTestCase {
         )
         return AntigravityRuntimeSnapshot(
             readiness: .ready,
-            migrationStatus: nil,
-            repositoryRevision: 1,
-            accounts: [
-                AntigravityRuntimeAccountSummary(
-                    id: accountID,
-                    label: rawAccountID,
-                    identity: repositoryIdentity,
-                    isActive: true
-                )
-            ],
-            activeAccountID:
-                usesAmbientAccountBoundary
-                ? nil
-                : accountID,
             settings: AntigravitySettingsSnapshot(
                 connection: .default,
                 display: displaySettings

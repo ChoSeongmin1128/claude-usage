@@ -5,6 +5,7 @@ struct CompactPopoverHeaderContext: Equatable {
         case refreshing
         case authenticationRequired
         case reconnectRequired
+        case executableNotFound
         case refreshFailed
 
         var label: String {
@@ -15,6 +16,8 @@ struct CompactPopoverHeaderContext: Equatable {
                 return "로그인 필요"
             case .reconnectRequired:
                 return "다시 연결 필요"
+            case .executableNotFound:
+                return "Claude Code 없음"
             case .refreshFailed:
                 return "갱신 실패"
             }
@@ -24,6 +27,11 @@ struct CompactPopoverHeaderContext: Equatable {
     let accountLabel: String?
     let status: Status?
     var lastSuccessLabel: String? = nil
+    var failureHelpText: String? = nil
+
+    var helpText: String {
+        [labels.joined(separator: " · "), failureHelpText].compactMap { $0 }.joined(separator: "\n")
+    }
 
     var labels: [String] {
         [accountLabel, status?.label, lastSuccessLabel].compactMap { value in
@@ -51,17 +59,24 @@ enum CompactPopoverHeaderPresentationPolicy {
 
         let status: CompactPopoverHeaderContext.Status?
         if isAuthenticationRequired {
-            status = claudeCodeCredentialIssue == .reconnectRequired ? .reconnectRequired : .authenticationRequired
+            switch claudeCodeCredentialIssue {
+            case .reconnectRequired: status = .reconnectRequired
+            case .executableNotFound: status = .executableNotFound
+            case .reauthenticationRequired, nil: status = .authenticationRequired
+            }
         } else if isLoading {
             status = .refreshing
         } else if hasRefreshError {
-            status = .refreshFailed
+            status = claudeCodeCredentialIssue == .executableNotFound ? .executableNotFound : .refreshFailed
         } else {
             status = nil
         }
 
         guard accountLabel != nil || status != nil else { return nil }
-        return CompactPopoverHeaderContext(accountLabel: accountLabel, status: status)
+        return CompactPopoverHeaderContext(
+            accountLabel: accountLabel, status: status,
+            failureHelpText: status == .executableNotFound
+                ? ClaudeCodeCredentialIssue.executableNotFoundExplanation : nil)
     }
 
     private static func actualIdentityLabel(for account: ClaudeAccount?) -> String? {

@@ -39,8 +39,8 @@ struct ClaudeMessagesHeaderFallbackFetcher {
     private let baseURL = URL(string: "https://api.anthropic.com")!
     private let modelName: String
     private let anthropicVersion = "2023-06-01"
-    private let userAgent = "claude-code/2.1.5"
-    private let oauthBetaHeader = "oauth-2025-04-20"
+    private let userAgent = ClaudeEndpoints.oauthUserAgent
+    private let oauthBetaHeader = ClaudeEndpoints.oauthBeta
 
     nonisolated init(modelName: String = "claude-haiku-4-5-20251001") {
         self.modelName = modelName

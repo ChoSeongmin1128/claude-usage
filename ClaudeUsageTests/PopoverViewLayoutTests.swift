@@ -183,7 +183,7 @@ final class PopoverViewLayoutTests: XCTestCase {
         let warningState =
             PopoverViewModel.RuntimeServiceState(
                 service: .antigravity,
-                summary: "일부 확인 필요",
+                summary: "2개 사용량 한도 · 일부만 표시",
                 meta: nil,
                 lastUpdated: nil,
                 isLoading: false,
@@ -201,14 +201,14 @@ final class PopoverViewLayoutTests: XCTestCase {
                 .providerSelectorAccessibilityValue(
                     isSelected: false
                 ),
-            "확인 필요"
+            "2개 사용량 한도 · 일부만 표시"
         )
         XCTAssertEqual(
             warningState
                 .providerSelectorAccessibilityValue(
                     isSelected: true
                 ),
-            "선택됨, 확인 필요"
+            "선택됨, 2개 사용량 한도 · 일부만 표시"
         )
     }
 

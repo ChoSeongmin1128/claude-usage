@@ -47,7 +47,9 @@ enum RefreshExecutionPolicy {
                 return 20
             case .serverError(let statusCode):
                 return statusCode >= 500 ? 20 : 10
-            case .invalidSessionKey, .codexReauthRequired, .claudeCodeCredentialUnavailable, .claudeCodeReauthenticationRequired, .claudeCodeReconnectRequired, .permissionDenied, .parseError, .unknownError:
+            case .invalidSessionKey, .codexReauthRequired, .claudeCodeCredentialUnavailable,
+                .claudeCodeReauthenticationRequired, .claudeCodeReconnectRequired, .claudeCodeExecutableNotFound,
+                .permissionDenied, .parseError, .unknownError:
                 return 0
             }
         }()

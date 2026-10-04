@@ -9,8 +9,11 @@ import SwiftUI
 import AppKit
 
 enum ColorProvider {
-    /// 사용률에 따른 Apple 시스템 색상
-    /// 0-50%: 초록, 50-75%: 노랑, 75-90%: 주황, 90%+: 빨강, 100%+: 회색
+    /// 사용률 색 구간: 이 값 이상부터 노랑, 주황, 빨강. 100% 이상은 회색.
+    nonisolated static let cautionPercent: Double = 50
+    nonisolated static let warningPercent: Double = 75
+    nonisolated static let criticalPercent: Double = 90
+
     nonisolated static func statusColor(for percentage: Double) -> Color {
         Color(nsStatusColor(for: percentage))
     }
@@ -19,9 +22,9 @@ enum ColorProvider {
     nonisolated static func nsStatusColor(for percentage: Double) -> NSColor {
         guard percentage.isFinite else { return .secondaryLabelColor }
         if percentage >= 100 { return .systemGray }
-        if percentage >= 90 { return .systemRed }
-        if percentage >= 75 { return .systemOrange }
-        if percentage >= 50 { return .systemYellow }
+        if percentage >= criticalPercent { return .systemRed }
+        if percentage >= warningPercent { return .systemOrange }
+        if percentage >= cautionPercent { return .systemYellow }
         return .systemGreen
     }
 

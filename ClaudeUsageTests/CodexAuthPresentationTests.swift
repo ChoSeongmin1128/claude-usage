@@ -7,7 +7,8 @@ final class CodexAuthPresentationTests: XCTestCase {
         let presentation = CodexAuthPresentation.resolve(for: .notLoggedIn)
 
         XCTAssertEqual(presentation.command, "codex login")
-        XCTAssertTrue(presentation.statusTitle.contains("터미널"))
+        XCTAssertEqual(presentation.statusBadgeTitle, "로그인 필요")
+        XCTAssertTrue(presentation.actionDetail?.contains("터미널") == true)
         XCTAssertTrue(presentation.actionDetail?.contains("codex login") == true)
         XCTAssertTrue(presentation.actionDetail?.contains("다시 확인") == true)
     }
@@ -16,9 +17,8 @@ final class CodexAuthPresentationTests: XCTestCase {
         let presentation = CodexAuthPresentation.resolve(for: .expired)
 
         XCTAssertEqual(presentation.command, "codex login")
-        XCTAssertTrue(presentation.statusBadgeTitle.contains("다시 로그인"))
-        XCTAssertTrue(presentation.statusTitle.contains("갱신하지 못했습니다"))
-        XCTAssertTrue(presentation.actionDetail?.contains("다시 실행") == true)
+        XCTAssertEqual(presentation.statusBadgeTitle, "로그인 만료")
+        XCTAssertTrue(presentation.actionDetail?.contains("codex login") == true)
     }
 
     func testAuthenticatedDoesNotShowTerminalCommand() {

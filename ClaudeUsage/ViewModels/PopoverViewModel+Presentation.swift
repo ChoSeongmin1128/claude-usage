@@ -127,7 +127,7 @@ extension PopoverViewModel {
                     service == .claude ? claudeCodeCredentialIssue : nil
             )
         if state.error != nil, let lastUpdated = state.lastUpdated {
-            context?.lastSuccessLabel = "\(Self.relativeTimestamp(for: lastUpdated)) 값"
+            context?.lastSuccessLabel = Self.relativeTimestamp(for: lastUpdated)
         }
         return context
     }
@@ -261,7 +261,8 @@ extension PopoverViewModel {
             sections.append(contentsOf: catalog.expandedSections(for: item.id, context: context))
         }
         if let multi = multiAccount[service] {
-            sections = multi.sections(catalog: sections)
+            sections = multi.sections(
+                catalog: sections, timeFormatStyle: settings.timeFormat, timeUnitLanguage: settings.timeUnitLanguage)
         }
 
         if density == .compact {

@@ -6,17 +6,15 @@ import XCTest
 final class AntigravitySettingsViewModelTests:
     XCTestCase
 {
-    func testLateLocalSnapshotCannotOverwriteNewSelectionWithSameOAuthRepositoryRevision() async {
+    func testLateSnapshotCannotOverwriteANewerPublication() async {
         var connection = AntigravityConnectionSettings.default
         connection.usageTarget = .cli
-        var initial = Self.snapshot(activeAccountID: Self.firstAccountID, connection: connection)
-        initial.publicationRevision = 10
+        var initial = Self.snapshot(connection: connection, revision: 10)
         let controller = AntigravitySettingsRuntimeControllerDouble(snapshot: initial)
         let viewModel = AntigravitySettingsViewModel(runtimeController: controller)
         await viewModel.load()
         connection.usageTarget = .app
-        var newer = Self.snapshot(activeAccountID: Self.firstAccountID, connection: connection)
-        newer.publicationRevision = 12
+        let newer = Self.snapshot(connection: connection, revision: 12)
         await controller.publish(newer)
         await waitUntil { viewModel.state.publicationRevision == 12 }
         initial.publicationRevision = 11
@@ -31,7 +29,6 @@ final class AntigravitySettingsViewModelTests:
         async
     {
         let initial = Self.snapshot(
-            activeAccountID: Self.firstAccountID,
             connection: .default
         )
         let controller =
@@ -45,10 +42,6 @@ final class AntigravitySettingsViewModelTests:
         XCTAssertEqual(
             viewModel.state.usageTarget,
             .cli
-        )
-        XCTAssertEqual(
-            viewModel.state.accounts.map(\.email),
-            ["first@example.com", "second@example.com"]
         )
         XCTAssertEqual(
             viewModel.state.connection,
@@ -66,13 +59,12 @@ final class AntigravitySettingsViewModelTests:
             AntigravityConnectionSettings.default
         localConnection.usageTarget = .app
         let streamed = Self.snapshot(
-            activeAccountID: Self.secondAccountID,
             connection: localConnection,
             revision: 9
         )
         await controller.publish(streamed)
         await waitUntil {
-            viewModel.state.repositoryRevision == 9
+            viewModel.state.publicationRevision == 9
         }
 
         XCTAssertEqual(
@@ -86,41 +78,30 @@ final class AntigravitySettingsViewModelTests:
         viewModel.stopObserving()
     }
 
-    func testSelectDelegatesOnceAndProjectsReturnedSnapshot()
+    func testDisplayUpdateDelegatesOnceAndProjectsReturnedSnapshot()
         async
     {
-        let initial = Self.snapshot(
-            activeAccountID: Self.firstAccountID
-        )
-        let selected = Self.snapshot(
-            activeAccountID: Self.secondAccountID,
-            revision: 8
-        )
+        var display = AntigravityDisplaySettings.default
+        display.menuBar.showsSelectedLaneResetTime = true
+        let updated = Self.snapshot(display: display, revision: 8)
         let controller =
             AntigravitySettingsRuntimeControllerDouble(
-                snapshot: initial,
-                selectResult: selected
+                snapshot: Self.snapshot(),
+                displayResult: updated
             )
         let viewModel = AntigravitySettingsViewModel(runtimeController: controller)
         await viewModel.load()
 
-        let changed = await viewModel.selectTarget(.app)
-        let selectedAccountIDs =
-            await controller.selectedTargets()
+        let changed = await viewModel.updateDisplay(
+            display,
+            replacing: .default
+        )
+        let requests = await controller.displayRequests()
 
         XCTAssertTrue(changed)
-        XCTAssertEqual(
-            selectedAccountIDs,
-            [.app]
-        )
-        XCTAssertEqual(
-            viewModel.state.usageTarget,
-            .app
-        )
-        XCTAssertEqual(
-            viewModel.state.repositoryRevision,
-            8
-        )
+        XCTAssertEqual(requests, [display])
+        XCTAssertEqual(viewModel.state.display, display)
+        XCTAssertEqual(viewModel.state.publicationRevision, 8)
         XCTAssertEqual(
             viewModel.state.notice?.tone,
             .success
@@ -128,21 +109,23 @@ final class AntigravitySettingsViewModelTests:
         viewModel.stopObserving()
     }
 
-    func testSupersededSelectionDoesNotReportSuccess()
+    func testSupersededDisplayUpdateDoesNotReportSuccess()
         async
     {
         let controller =
             AntigravitySettingsRuntimeControllerDouble(
-                snapshot: Self.snapshot(
-                    activeAccountID:
-                        Self.firstAccountID
-                ),
-                selectError: .operationSuperseded
+                snapshot: Self.snapshot(),
+                displayError: .operationSuperseded
             )
         let viewModel = AntigravitySettingsViewModel(runtimeController: controller)
         await viewModel.load()
+        var display = AntigravityDisplaySettings.default
+        display.menuBar.showsSelectedLaneResetTime = true
 
-        let changed = await viewModel.selectTarget(.app)
+        let changed = await viewModel.updateDisplay(
+            display,
+            replacing: .default
+        )
 
         XCTAssertFalse(changed)
         XCTAssertEqual(
@@ -151,13 +134,10 @@ final class AntigravitySettingsViewModelTests:
         )
         XCTAssertTrue(
             viewModel.state.notice?.message
-                .contains("더 최근 작업")
+                .contains("다른 곳에서 설정이 바뀌어")
                 == true
         )
-        XCTAssertNotEqual(
-            viewModel.state.notice?.title,
-            "Google 계정을 전환했습니다"
-        )
+        XCTAssertEqual(viewModel.state.display, .default)
         viewModel.stopObserving()
     }
 
@@ -173,7 +153,7 @@ final class AntigravitySettingsViewModelTests:
 
         XCTAssertEqual(
             presentation.diagnosticTitle,
-            "미감지 · AGY CLI 설치 필요"
+            "설치 안 됨"
         )
     }
 
@@ -189,7 +169,7 @@ final class AntigravitySettingsViewModelTests:
 
         XCTAssertEqual(
             presentation.diagnosticTitle,
-            "감지됨 · ~/.local/bin/agy · 조회할 때 사용량 보고 실행"
+            "설치됨 (~/.local/bin/agy)"
         )
     }
 
@@ -213,11 +193,11 @@ final class AntigravitySettingsViewModelTests:
 
         XCTAssertEqual(
             missing.diagnosticTitle,
-            "미감지 · AGY CLI 설치 필요"
+            "설치 안 됨"
         )
         XCTAssertEqual(
             rejected.diagnosticTitle,
-            "감지됐지만 Google 서명 검증 실패"
+            "서명 확인 실패"
         )
     }
 
@@ -239,61 +219,17 @@ final class AntigravitySettingsViewModelTests:
         )
     }
 
-    private static let firstIdentity = ProviderAccountIdentity(
-        stableAccountID: "subject-first", email: "first@example.com")
-    private static let secondIdentity = ProviderAccountIdentity(
-        stableAccountID: "subject-second", email: "second@example.com")
-
-    private static let firstAccountID =
-        AntigravityAccountID(
-            rawValue:
-                "00000000-0000-0000-0000-000000000001"
-        )
-    private static let secondAccountID =
-        AntigravityAccountID(
-            rawValue:
-                "00000000-0000-0000-0000-000000000002"
-        )
-
     private static func snapshot(
-        activeAccountID: AntigravityAccountID,
         connection:
-            AntigravityConnectionSettings? = nil,
+            AntigravityConnectionSettings = .default,
+        display: AntigravityDisplaySettings = .default,
         revision: UInt64 = 7
     ) -> AntigravityRuntimeSnapshot {
-        var resolvedConnection = connection ?? .default
-        if connection == nil { resolvedConnection.usageTarget = activeAccountID == firstAccountID ? .cli : .app }
-        let accounts = [
-            AntigravityRuntimeAccountSummary(
-                id: firstAccountID,
-                label: "First",
-                identity: ProviderAccountIdentity(
-                    stableAccountID: "subject-first",
-                    email: "first@example.com"
-                ),
-                isActive:
-                    activeAccountID == firstAccountID
-            ),
-            AntigravityRuntimeAccountSummary(
-                id: secondAccountID,
-                label: "Second",
-                identity: ProviderAccountIdentity(
-                    stableAccountID: "subject-second",
-                    email: "second@example.com"
-                ),
-                isActive:
-                    activeAccountID == secondAccountID
-            ),
-        ]
-        return AntigravityRuntimeSnapshot(
+        AntigravityRuntimeSnapshot(
             readiness: .ready,
-            migrationStatus: migrationStatus(),
-            repositoryRevision: revision,
-            accounts: accounts,
-            activeAccountID: nil,
             settings: AntigravitySettingsSnapshot(
-                connection: resolvedConnection,
-                display: .default
+                connection: connection,
+                display: display
             ),
             presentationState: .disabled,
             quotaPresentation:
@@ -306,19 +242,6 @@ final class AntigravitySettingsViewModelTests:
             publicationRevision: revision
         )
     }
-
-    private static func migrationStatus()
-        -> AntigravityMigrationStatus
-    {
-        AntigravityMigrationStatus(
-            phase: .complete,
-            sourceOutcomes: [:],
-            plannedAccountCount: 0,
-            blocker: nil,
-            requiredAction: nil,
-            authorizationCancelledThisSession: false
-        )
-    }
 }
 
 private actor
@@ -326,17 +249,12 @@ private actor
     AntigravitySettingsRuntimeControlling
 {
     private var current: AntigravityRuntimeSnapshot
-    private let selectResult:
+    private let displayResult:
         AntigravityRuntimeSnapshot?
-    private let selectError:
+    private let displayError:
         AntigravityRuntimeControllerError?
     private var bootstrapCalls: [Bool] = []
-    private var targetSelections: [AntigravityUsageTarget] = []
-
-    func selectedTargets() -> [AntigravityUsageTarget] { targetSelections }
-
-    private var selections:
-        [AntigravityAccountID?] = []
+    private var displayUpdates: [AntigravityDisplaySettings] = []
     private var continuations:
         [
             UUID:
@@ -347,14 +265,14 @@ private actor
 
     init(
         snapshot: AntigravityRuntimeSnapshot,
-        selectResult:
+        displayResult:
             AntigravityRuntimeSnapshot? = nil,
-        selectError:
+        displayError:
             AntigravityRuntimeControllerError? = nil
     ) {
         current = snapshot
-        self.selectResult = selectResult
-        self.selectError = selectError
+        self.displayResult = displayResult
+        self.displayError = displayError
     }
 
     func snapshot() async
@@ -394,41 +312,19 @@ private actor
         current
     }
 
-    func selectTarget(_ selection: AntigravityUsageTarget) async throws -> AntigravityRuntimeSnapshot {
-        targetSelections.append(selection)
-        if let selectError {
-            throw selectError
-        }
-        if let selectResult {
-            publish(selectResult)
-        }
-        return current
-    }
-
-    func deleteAccount(
-        _ accountID: AntigravityAccountID
-    ) async throws -> AntigravityRuntimeSnapshot {
-        current
-    }
-
     func updateDisplay(
         _ display: AntigravityDisplaySettings,
         replacing expectedDisplay:
             AntigravityDisplaySettings
     ) async throws -> AntigravityRuntimeSnapshot {
-        current
-    }
-
-    func continueMigration() async
-        -> AntigravityRuntimeSnapshot
-    {
-        current
-    }
-
-    func removeAllAccounts(
-        interactively: Bool
-    ) async -> AntigravityRuntimeSnapshot {
-        current
+        displayUpdates.append(display)
+        if let displayError {
+            throw displayError
+        }
+        if let displayResult {
+            publish(displayResult)
+        }
+        return current
     }
 
     func consumePendingSettingsNotice() async
@@ -450,10 +346,8 @@ private actor
         bootstrapCalls
     }
 
-    func selectedAccountIDs()
-        -> [AntigravityAccountID?]
-    {
-        selections
+    func displayRequests() -> [AntigravityDisplaySettings] {
+        displayUpdates
     }
 
     private func removeContinuation(_ id: UUID) {

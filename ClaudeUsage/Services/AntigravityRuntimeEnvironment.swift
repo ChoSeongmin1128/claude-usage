@@ -9,14 +9,8 @@ nonisolated struct AntigravityInstallationFingerprint: Sendable, Equatable {
         let candidates = AntigravityProductionExecutableCandidates(
             homeDirectoryURL: home, environment: environment
         )
-        let paths = candidates.agyExecutableURLs + candidates.appBundleRoots.flatMap { root in
-            [root, root.appendingPathComponent("Contents/Info.plist"),
-             root.appendingPathComponent("Contents/_CodeSignature/CodeResources")]
-                + AntigravityExecutableCatalog.appLanguageServerRelativePaths.map {
-                    root.appendingPathComponent($0)
-                }
-        }
-        return Self(entries: paths.map { url in
+        return Self(
+            entries: candidates.agyExecutableURLs.map { url in
             var value = stat()
             let path = url.standardizedFileURL.path
             guard lstat(path, &value) == 0 else { return "\(path):missing:\(errno)" }

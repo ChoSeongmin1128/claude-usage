@@ -1,38 +1,18 @@
 import Foundation
 
 extension SettingsView {
-    func handleClearBrowserSessionAction() {
-        organizationPersistTask?.cancel()
-        organizationPersistTask = nil
-        cancelOrganizationLoad(clearState: true)
-        selectedOrganizationID = ""
-        onClearBrowserSession?()
-        storedSessionKey = nil
-        lastVerifiedSessionKey = nil
-        sessionKey = ""
-        testResult = nil
-        claudeAccountMessage = hasOAuthCredential
-            ? "브라우저 로그인 값은 삭제했습니다. Claude Code 로그인은 그대로 유지했습니다."
-            : "브라우저 로그인 값을 삭제했습니다. 이 계정을 다시 사용하려면 Claude.ai 로그인을 연결해 주세요."
-    }
-
-    func showClaudeCodeLoginGuidance() {
-        claudeAccountMessage = "터미널에서 `claude auth login`을 실행한 뒤 이 화면에서 다시 확인해 주세요."
-    }
-
     func syncStoredSessionKeyState() {
         organizationPersistTask?.cancel()
         organizationPersistTask = nil
         cancelOrganizationLoad()
         ClaudeAccountStore.shared.ensureLegacyMigrationIfNeeded()
-        if let account = ClaudeAccountStore.shared.activeWebAccount(),
-           let key = KeychainManager.shared.load(for: account.id) {
-            storedSessionKey = key
-            sessionKey = key
+        if let account = ClaudeAccountStore.shared.activeWebAccount() {
+            storedSessionKey = KeychainManager.shared.load(for: account.id)
         } else {
             storedSessionKey = nil
-            sessionKey = ""
         }
+        // 저장된 세션 키를 입력칸에 채우지 않는다. 화면 공유나 캡처로 계정 로그인이 드러날 수 있다.
+        sessionKey = ""
         lastVerifiedSessionKey = nil
     }
 
@@ -40,12 +20,6 @@ extension SettingsView {
         let state = ClaudeAccountStore.shared.state()
         claudeAccounts = state.accounts
         activeClaudeAccountID = state.activeAccountID
-        if state.accounts.isEmpty {
-            isClaudeAccountSwitcherExpanded = false
-            isClaudeAccountManagementExpanded = false
-        } else if state.accounts.count <= 1 {
-            isClaudeAccountSwitcherExpanded = false
-        }
     }
 
     func cancelOrganizationLoad(clearState: Bool = false) {
@@ -88,7 +62,7 @@ extension SettingsView {
                 let _ = try await service.validateCurrentSessionUsage()
                 await MainActor.run {
                     lastVerifiedSessionKey = normalizedKey
-                    testResult = .success("연결 확인됨. 저장을 눌러 반영하세요.")
+                    testResult = .success("확인됨")
                     isTesting = false
                     loadUsageHealthSnapshot()
                 }
@@ -109,7 +83,7 @@ extension SettingsView {
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
             if persistPreferredOrganizationSelection() {
-                organizationMessage = "조직을 변경했습니다. 사용량을 다시 조회합니다."
+                organizationMessage = SettingsNotice("조직을 바꿨습니다.")
                 refreshClaudeUsageFromSettings()
             } else {
                 loadUsageHealthSnapshot()
@@ -131,13 +105,13 @@ extension SettingsView {
 
         guard !normalizedKey.isEmpty,
               normalizedKey == lastVerifiedSessionKey else {
-            testResult = .failure("저장 전에 연결 테스트를 먼저 완료해 주세요.")
+            testResult = .failure("먼저 연결 테스트를 하세요.")
             return
         }
 
         let existingKey = normalizeSessionKey(storedSessionKey ?? "")
         guard existingKey != normalizedKey else {
-            testResult = .success("이미 저장된 브라우저 로그인 값입니다.")
+            testResult = .success("이미 저장된 세션 키입니다.")
             return
         }
 
@@ -151,7 +125,7 @@ extension SettingsView {
             )
             syncClaudeAccountsState()
             storedSessionKey = normalizedKey
-            testResult = .success("브라우저 로그인 값을 저장했습니다.")
+            testResult = .success("저장했습니다.")
         } catch {
             testResult = .failure(error.localizedDescription)
             Logger.error("세션 키 저장 실패: \(error)")
@@ -190,13 +164,7 @@ extension SettingsView {
         syncClaudeAccountsState()
         syncStoredSessionKeyState()
         selectedOrganizationID = appliedPreferredOrganizationID
-        claudeAccountMessage = "브라우저 계정을 삭제했습니다. 외부 Claude Code 로그인은 변경하지 않았습니다."
-        if claudeAccounts.count <= 1 {
-            isClaudeAccountSwitcherExpanded = false
-        }
-        if claudeAccounts.isEmpty {
-            isClaudeAccountManagementExpanded = false
-        }
+        claudeAccountMessage = SettingsNotice("웹 로그인을 지웠습니다.")
     }
 
     func activeClaudeAccount() -> ClaudeAccount? {
@@ -246,7 +214,7 @@ extension SettingsView {
     func loadOrganizations(forceRefresh: Bool = false) {
         guard let loadAccountID = activeClaudeWebAccount()?.id else {
             cancelOrganizationLoad(clearState: true)
-            organizationMessage = "조직 선택은 브라우저 계정에서만 사용할 수 있습니다."
+            organizationMessage = SettingsNotice("조직 선택은 웹 로그인에서만 됩니다.", isWarning: true)
             loadUsageHealthSnapshot()
             return
         }
@@ -263,7 +231,7 @@ extension SettingsView {
 
         guard !normalizedKey.isEmpty else {
             cancelOrganizationLoad(clearState: true)
-            organizationMessage = "조직 선택은 브라우저 계정에서만 사용할 수 있습니다."
+            organizationMessage = SettingsNotice("조직 선택은 웹 로그인에서만 됩니다.", isWarning: true)
             loadUsageHealthSnapshot()
             return
         }
@@ -297,7 +265,6 @@ extension SettingsView {
                         organizations = cachedOrganizations
                         organizationPreviews = [:]
                         isLoadingOrganizations = false
-                        organizationMessage = "저장된 조직 \(cachedOrganizations.count)개를 표시합니다. 바뀌었으면 강제 새로고침을 눌러 주세요."
                         loadUsageHealthSnapshot()
                     }
                     let previews = await service.fetchOrganizationPreviews(for: cachedOrganizations)
@@ -319,7 +286,7 @@ extension SettingsView {
                 await MainActor.run {
                     guard isCurrentOrganizationLoad(token: loadToken, accountID: loadAccountID) else { return }
                     if !resolvedOrganizations.isEmpty {
-                        organizationMessage = "조직 목록을 불러오지 못해 저장된 목록을 대신 표시합니다."
+                        organizationMessage = SettingsNotice("조직 목록을 불러오지 못해 저장된 목록을 보여줍니다.", isWarning: true)
                     }
                 }
             }
@@ -336,7 +303,8 @@ extension SettingsView {
                 guard await shouldApply() else { return }
                 await MainActor.run {
                     guard isCurrentOrganizationLoad(token: loadToken, accountID: loadAccountID) else { return }
-                    organizationMessage = "조직 목록을 불러오지 못했습니다. 브라우저 로그인 값을 다시 확인해 주세요."
+                    organizationMessage = SettingsNotice(
+                        "조직 목록을 불러오지 못했습니다. claude.ai에 다시 로그인한 뒤 가져오세요.", isWarning: true)
                     finishOrganizationLoad(token: loadToken, accountID: loadAccountID)
                     loadUsageHealthSnapshot()
                 }
@@ -344,7 +312,6 @@ extension SettingsView {
             }
 
             let previews = await service.fetchOrganizationPreviews(for: resolvedOrganizations)
-            let overageEnabledCount = previews.filter { $0.overageEnabled == true }.count
 
             guard await shouldApply() else { return }
             await MainActor.run {
@@ -352,16 +319,11 @@ extension SettingsView {
                 organizationPreviews = Dictionary(uniqueKeysWithValues: previews.map { ($0.id, $0) })
                 let exists = selectedOrganizationID.isEmpty || resolvedOrganizations.contains { $0.id == selectedOrganizationID }
                 if !exists {
-                    organizationMessage = "현재 선택한 조직이 목록에 없어 자동 선택으로 동작합니다."
+                    organizationMessage = SettingsNotice("선택한 조직이 목록에 없어 자동 선택을 씁니다.", isWarning: true)
                     finishOrganizationLoad(token: loadToken, accountID: loadAccountID)
                     return
                 }
 
-                if overageEnabledCount > 0 {
-                    organizationMessage = "조직 \(resolvedOrganizations.count)개를 불러왔습니다. 추가 사용량 활성 조직 \(overageEnabledCount)개가 있습니다."
-                } else {
-                    organizationMessage = "조직 \(resolvedOrganizations.count)개를 불러왔습니다."
-                }
                 finishOrganizationLoad(token: loadToken, accountID: loadAccountID)
                 loadUsageHealthSnapshot()
             }
@@ -467,8 +429,6 @@ extension SettingsView {
 
     func resetClaudeAuthDisclosureState() {
         guard !settings.shouldRevealClaudeAdvancedAuth else { return }
-        isClaudeAccountSwitcherExpanded = false
-        isClaudeAccountManagementExpanded = false
         isAdvancedAuthExpanded = false
         isOrganizationAdvancedExpanded = false
     }
@@ -478,8 +438,6 @@ extension SettingsView {
         selectedOrganizationID = activeClaudePreferredOrganizationID()
         claudeAccountMessage = nil
         organizationMessage = nil
-        isClaudeAccountSwitcherExpanded = false
-        isClaudeAccountManagementExpanded = false
         isOrganizationAdvancedExpanded = false
         checkCodexAuth()
     }

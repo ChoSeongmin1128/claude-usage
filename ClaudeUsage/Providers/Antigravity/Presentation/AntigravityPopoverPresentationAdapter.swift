@@ -9,13 +9,13 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
             return summary(
                 showsProgress: true,
                 title: "Antigravity 준비 중",
-                message: "계정과 조회 설정을 확인하고 있습니다."
+                message: nil
             )
         case .blocked(let blocker):
             return summary(
                 icon: "exclamationmark.shield",
                 tone: .critical,
-                title: "초기 설정 확인 필요",
+                title: "설정 오류",
                 message: blockerMessage(blocker),
                 actionTitle: "설정 열기",
                 action: .openSettings,
@@ -25,7 +25,7 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
             return summary(
                 showsProgress: true,
                 title: "Antigravity 종료 중",
-                message: "진행 중인 조회를 안전하게 정리하고 있습니다."
+                message: nil
             )
         case .idle, .ready:
             break
@@ -54,15 +54,15 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
             return summary(
                 showsProgress: true,
                 title: "사용량 확인 중",
-                message: "선택한 제품의 로그인 계정과 사용량을 확인하고 있습니다."
+                message: nil
             )
         case .accountMismatch:
             return summary(
                 icon:
                     "person.crop.circle.badge.exclamationmark",
                 tone: .critical,
-                title: "계정이 일치하지 않음",
-                message: "조회 중 계정이 달라져 이전 수치를 숨겼습니다. 선택한 제품의 로그인 상태를 확인해 주세요.",
+                title: "계정이 다름",
+                message: "조회 중 계정이 바뀌었습니다. 선택한 제품의 로그인을 확인하세요.",
                 actionTitle: "설정 열기",
                 action: .openSettings,
                 actionIsProminent: true
@@ -71,8 +71,8 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
             return summary(
                 icon: "chart.bar.doc.horizontal",
                 tone: .warning,
-                title: "수치형 사용량 미지원",
-                message: "현재 연결은 계정과 기능만 확인하며 표시 가능한 quota 수치를 제공하지 않습니다.",
+                title: "한도 수치 없음",
+                message: "이 조회 경로는 한도 수치를 제공하지 않습니다.",
                 actionTitle: "계정 확인",
                 action: .openSettings
             )
@@ -85,9 +85,9 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
             return summary(
                 icon: "person.crop.circle",
                 tone: .warning,
-                title: "계정만 확인됨",
+                title: "한도 수치 없음",
                 message:
-                    "\(account)은(는) 확인했지만 표시 가능한 quota 수치를 받지 못했습니다.",
+                    "\(account) 계정의 한도 수치를 받지 못했습니다.",
                 actionTitle: "계정 확인",
                 action: .openSettings
             )
@@ -97,8 +97,8 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
             return summary(
                 icon: "exclamationmark.triangle",
                 tone: .warning,
-                title: "표시 데이터 확인 필요",
-                message: "검증된 사용량 presentation을 만들지 못했습니다. 다시 조회해 주세요.",
+                title: "표시 오류",
+                message: "사용량을 표시하지 못했습니다. 다시 시도하세요.",
                 actionTitle: "다시 시도",
                 action: .retry
             )
@@ -110,11 +110,9 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
     ) -> String {
         switch blocker {
         case .settingsMigration:
-            "기존 Antigravity 설정 이전을 완료하지 못했습니다. 설정에서 이전 상태를 확인해 주세요."
-        case .canonicalAccountState:
-            "계정 저장 상태를 검증하지 못했습니다. 설정에서 계정을 다시 확인해 주세요."
+            "기존 Antigravity 설정을 옮기지 못했습니다. 설정을 확인하세요."
         case .typedSettings:
-            "자동 조회 설정을 준비하지 못했습니다. 설정을 다시 열어 상태를 확인해 주세요."
+            "자동 조회 설정을 불러오지 못했습니다. 설정을 다시 여세요."
         }
     }
 
@@ -122,8 +120,7 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
         _ reason: AntigravitySetupReason
     ) -> String {
         switch reason {
-        case .noSelectedOAuthAccount,
-            .noAmbientLocalSession, .usageTargetSelection, .ambiguousLocalSessions:
+        case .noAmbientLocalSession, .usageTargetSelection, .ambiguousLocalSessions:
             "person.badge.key"
         }
     }
@@ -132,13 +129,12 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
         _ reason: AntigravitySetupReason
     ) -> String {
         switch reason {
-        case .noSelectedOAuthAccount,
-             .noAmbientLocalSession:
-            "조회 계정 또는 로그인 필요"
+        case .noAmbientLocalSession:
+            "로그인 필요"
         case .usageTargetSelection:
             "조회 대상 선택 필요"
         case .ambiguousLocalSessions:
-            "실행 중인 연결 확인 필요"
+            "실행 중인 계정이 서로 다름"
         }
     }
 
@@ -146,14 +142,12 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
         _ reason: AntigravitySetupReason
     ) -> String {
         switch reason {
-        case .noSelectedOAuthAccount:
-            "설정에서 조회 대상을 선택하고 해당 제품에서 로그인해 주세요."
         case .noAmbientLocalSession:
-            "Antigravity 앱 또는 AGY CLI에 로그인한 뒤 로컬 세션 조회를 다시 시도해 주세요."
+            "Antigravity 앱이나 AGY CLI에 로그인한 뒤 새로고침하세요."
         case .usageTargetSelection:
-            "AGY CLI에 로그인한 뒤 새로고침해 주세요."
+            "AGY CLI에 로그인한 뒤 새로고침하세요."
         case .ambiguousLocalSessions:
-            "선택한 제품의 실행마다 계정이 다르거나 확인되지 않았습니다. 이전 실행을 종료하고 새로고침해 주세요."
+            "이전 실행을 종료하고 새로고침하세요."
         }
     }
 
@@ -162,101 +156,87 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
     ) -> ProviderRuntimeSummary {
         switch failure {
         case .accountChanged:
-            settingsFailure(title: "로그인 계정 변경 중", message: "조회 도중 계정이 바뀌어 이전 수치를 숨겼습니다. 새로고침해 현재 계정을 확인해 주세요.")
+            settingsFailure(title: "계정이 바뀜", message: "조회 중 계정이 바뀌었습니다. 새로고침하세요.")
         case .localAuthentication(_, let problem):
             switch problem {
             case .required:
-                retryFailure(title: "AGY 연결 인증 필요", message: "AGY 연결 인증이 필요합니다. 새로고침으로 연결을 다시 확인해 주세요.")
+                retryFailure(title: "AGY 다시 연결 필요", message: "AGY 연결이 끊겼습니다. 다시 시도하세요.")
             case .rejected:
-                retryFailure(title: "AGY 연결 인증 변경", message: "AGY 연결 인증 정보가 일치하지 않습니다. 새로고침으로 연결을 다시 확인해 주세요.")
+                retryFailure(title: "AGY 다시 연결 필요", message: "AGY 연결 정보가 바뀌었습니다. 다시 시도하세요.")
             case .unavailable:
-                settingsFailure(title: "AGY 연결 인증 확인 불가", message: "실행 중인 AGY의 인증 정보를 안전하게 확인하지 못했습니다. 공식 CLI 연결 상태를 확인해 주세요.")
+                settingsFailure(title: "AGY 연결 실패", message: "실행 중인 AGY에 연결하지 못했습니다. AGY CLI 상태를 확인하세요.")
             }
         case .runtimeUnavailable(let reason):
             switch reason {
             case .executableMissing:
-                settingsFailure(title: "AGY CLI 설치 필요", message: "공식 AGY CLI를 설치한 뒤 다시 조회해 주세요. 앱 재시작 없이 설치 상태를 확인합니다.")
+                settingsFailure(title: "AGY CLI 설치 필요", message: "공식 AGY CLI를 설치한 뒤 다시 시도하세요.")
             case .executableChanged:
-                retryFailure(title: "AGY 실행 파일 변경 감지", message: "업데이트 중이거나 실행 파일이 변경됐습니다. 업데이트가 끝난 뒤 다시 시도해 주세요.")
+                retryFailure(title: "AGY CLI 변경됨", message: "업데이트가 끝난 뒤 다시 시도하세요.")
             case .verificationRejected:
-                settingsFailure(title: "AGY 실행 파일 검증 실패", message: "공식 서명 또는 파일 권한을 검증하지 못해 실행을 차단했습니다. 공식 AGY CLI 설치 상태를 확인해 주세요.")
+                settingsFailure(title: "AGY CLI 실행 차단", message: "공식 서명이나 파일 권한을 확인하지 못했습니다. 공식 AGY CLI 설치 상태를 확인하세요.")
             case .unsupportedVersion:
                 settingsFailure(
                     title: "AGY CLI 업데이트 필요",
                     message:
-                        "설치된 AGY CLI는 사용량 보고를 지원하지 않습니다. AGY CLI를 \(AntigravityCLIVersion.minimumUsageReport) 이상으로 업데이트해 주세요."
+                        "설치된 AGY CLI는 사용량 보고를 지원하지 않습니다. AGY CLI를 \(AntigravityCLIVersion.minimumUsageReport) 이상으로 업데이트하세요."
                 )
             case .reportDisabled:
                 settingsFailure(
                     title: "AGY 사용량 보고 중지",
                     message:
-                        "AGY가 사용량 보고 대신 모델 응답을 실행해 quota가 더 쓰이지 않도록 자동 조회를 중지했습니다. AGY CLI가 업데이트되거나 \(AppDistribution.current.appName)를 다시 실행하면 다시 조회합니다."
+                        "AGY가 사용량 대신 모델 응답을 실행해 한도가 더 쓰이지 않도록 자동 조회를 멈췄습니다. AGY CLI를 업데이트하거나 앱을 다시 실행하면 다시 조회합니다."
                 )
             }
         case .authenticationRequired(let source), .interactionRequired(let source):
             if source == .googleOAuth {
                 settingsFailure(
-                    title: "이전 조회 경로는 지원하지 않습니다", message: "설정에서 Antigravity 앱 또는 AGY CLI의 조회 대상과 해당 제품의 로그인을 확인해 주세요.")
+                    title: "이전 조회 경로는 지원하지 않습니다", message: "설정에서 조회 대상(Antigravity 앱이나 AGY CLI)과 그 제품의 로그인을 확인하세요.")
             } else {
-                settingsFailure(title: "로컬 Antigravity 로그인 필요", message: "조회에 사용한 Antigravity 앱 또는 AGY CLI에서 로그인을 완료한 뒤 다시 시도해 주세요.")
+                settingsFailure(title: "Antigravity 로그인 필요", message: "Antigravity 앱이나 AGY CLI에 로그인한 뒤 다시 시도하세요.")
             }
-        case .selectedAccountUnavailable,
-             .selectedAccountIdentityUnavailable:
-            settingsFailure(
-                title: "선택한 계정 확인 필요",
-                message: "선택한 계정이 없거나 계정 경계를 검증할 수 없습니다. 설정에서 사용할 계정을 다시 선택해 주세요."
-            )
-        case .credentialCommitFailed,
-             .credentialCommitAmbiguous:
-            settingsFailure(
-                title: "계정 정보 저장 확인 필요",
-                message: "갱신한 계정 정보를 안전하게 저장했는지 확인할 수 없습니다. 기존 숫자는 표시하지 않습니다."
-            )
         case .noEligibleSource, .sourceUnavailable:
             settingsFailure(
                 title: "사용 가능한 조회 경로 없음",
-                message: "선택한 조회 대상의 실행 및 로그인 상태를 확인해 주세요."
+                message: "선택한 조회 대상이 실행 중인지, 로그인했는지 확인하세요."
             )
-        case .repositoryUnavailable,
-             .repositoryRevisionChanged,
-             .invalidRefreshContext,
+        case .invalidRefreshContext,
              .generationExhausted,
              .sourceContractViolation:
             settingsFailure(
-                title: "로컬 상태 확인 필요",
-                message: "계정 또는 자동 조회 상태가 갱신 중 변경되어 결과를 폐기했습니다. 설정을 확인한 뒤 다시 시도해 주세요."
+                title: "조회 중 설정 변경",
+                message: "조회 중 설정이 바뀌었습니다. 다시 시도하세요."
             )
         case .deadlineExceeded:
-            retryFailure(title: "조회 시간 초과", message: "조회 경로가 제한 시간 안에 응답하지 않았습니다. 잠시 후 다시 시도해 주세요.")
+            retryFailure(title: "조회 시간 초과", message: "제한 시간 안에 응답이 없었습니다. 잠시 뒤 다시 시도하세요.")
         case .transportUnavailable:
             retryFailure(
-                title: "연결 일시 실패",
-                message: "조회 경로가 제시간에 응답하지 않았습니다. 잠시 후 다시 시도해 주세요."
+                title: "연결 실패",
+                message: "Antigravity에 연결하지 못했습니다. 잠시 뒤 다시 시도하세요."
             )
         case .schemaChanged:
             retryFailure(
                 title: "응답 형식 변경",
-                message: "Antigravity 응답 형식이 달라 새 수치를 안전하게 해석하지 못했습니다. 앱 업데이트 여부를 확인해 주세요."
+                message: "응답을 읽지 못했습니다. 앱을 업데이트하세요."
             )
         case .numericQuotaUnavailable:
             settingsFailure(
-                title: "수치형 사용량 미지원",
-                message: "현재 조회 경로는 표시 가능한 quota 수치를 제공하지 않습니다."
+                title: "한도 수치 없음",
+                message: "이 조회 경로는 한도 수치를 제공하지 않습니다."
             )
         case .cancelled:
             retryFailure(
                 title: "조회 취소됨",
-                message: "새 계정 또는 조회 설정으로 전환되어 이전 요청을 취소했습니다."
+                message: "계정이나 설정이 바뀌어 이전 조회를 취소했습니다."
             )
         case .appShuttingDown:
             retryFailure(
                 title: "앱 종료 중",
-                message: "진행 중인 조회를 안전하게 정리하고 있습니다."
+                message: "진행 중인 조회를 정리하는 중입니다."
             )
         case .cliReportFailed:
             retryFailure(
-                title: "AGY 사용량 보고 실패",
-                message: "AGY CLI가 사용량을 반환하지 않았습니다. 터미널의 AGY CLI에서 로그인 상태를 확인한 뒤 다시 시도해 주세요."
+                title: "AGY 사용량 없음",
+                message: "터미널에서 AGY CLI 로그인을 확인한 뒤 다시 시도하세요."
             )
         }
     }
@@ -296,7 +276,7 @@ nonisolated enum AntigravityPopoverPresentationAdapter {
             .secondary,
         showsProgress: Bool = false,
         title: String,
-        message: String,
+        message: String?,
         actionTitle: String? = nil,
         action: ProviderRuntimeSummary.Action? =
             nil,

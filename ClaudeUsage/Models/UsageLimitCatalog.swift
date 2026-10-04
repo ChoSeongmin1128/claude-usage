@@ -106,7 +106,7 @@ nonisolated enum UsageLimitCatalog {
         [("primary", limit?.primaryWindow), ("secondary", limit?.secondaryWindow)].compactMap { slot, window in
             guard let window else { return nil }
             let duration = window.limitWindowSeconds.flatMap { $0 > 0 ? $0 : nil }
-            let period = duration.map(periodTitle) ?? (slot == "primary" ? "기본 한도 · 주기 미제공" : "보조 한도 · 주기 미제공")
+            let period = duration.map(periodTitle) ?? (slot == "primary" ? "기본 (주기 모름)" : "보조 (주기 모름)")
             return make(
                 provider: .codex, scope: scope, period: duration,
                 unknownPeriodKey: slot,

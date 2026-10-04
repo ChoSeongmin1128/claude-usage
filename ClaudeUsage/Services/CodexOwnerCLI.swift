@@ -36,8 +36,7 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing {
                 guard quota["accountId"] as? String == expectedAccountID else {
                     throw CodexOwnerError.accountMismatch
                 }
-                let buckets = quota["rateLimitsByLimitId"] as? [String: [String: Any]]
-                let limits = buckets?["codex"] ?? quota["rateLimits"] as? [String: Any]
+                let limits = Self.codexRateLimits(in: quota)
                 guard
                     ["primary", "secondary"].contains(where: { key in
                         guard let window = limits?[key] as? [String: Any],
@@ -53,6 +52,12 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing {
         } onCancel: {
             cancelled.withLock { $0 = true }
         }
+    }
+
+    /// `account/rateLimits/read` 응답에서 Codex 한도. 한도별 묶음이 있으면 codex 묶음을, 없으면 전체 값을 쓴다.
+    nonisolated static func codexRateLimits(in quota: [String: Any]) -> [String: Any]? {
+        let buckets = quota["rateLimitsByLimitId"] as? [String: [String: Any]]
+        return buckets?["codex"] ?? quota["rateLimits"] as? [String: Any]
     }
 
     /// 초기화권은 공식 app-server의 `account/rateLimits/read` 응답에서 읽는다. 읽기만 하고 사용하지 않는다.
@@ -114,11 +119,10 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing {
 
     static func isAvailable() -> Bool { (try? Self().resolvedExecutable()) != nil }
 
-    static var searchPath: String {
-        let inherited = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":")
-            .map(String.init).filter { $0.hasPrefix("/") }
-        return (["/opt/homebrew/bin", "/usr/local/bin"] + inherited + ["/usr/bin", "/bin"]).joined(separator: ":")
-    }
+    static var searchPath: String { ExternalCommand.searchPath() }
+
+    /// Codex가 들어 있는 ChatGPT 앱
+    static let chatGPTBundleIdentifier = "com.openai.codex"
 
     private static func number(_ value: Any?) -> Double? {
         guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite
@@ -127,13 +131,12 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing {
     }
 
     func resolvedExecutable() throws -> URL {
-        let home = URL(fileURLWithPath: CodexAuthManager.defaultAuthJsonPath()).deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let pathCandidates = Self.searchPath.split(separator: ":").map {
-            URL(fileURLWithPath: String($0)).appendingPathComponent("codex")
+        let home = CodexAuthManager.defaultHomeURL.deletingLastPathComponent()
+        let pathCandidates = ExternalCommand.searchDirectories(home: home).map {
+            URL(fileURLWithPath: $0).appendingPathComponent("codex")
         }
-        // ChatGPT 앱(com.openai.codex)은 Codex CLI를 앱 안에 담는다. bin/codex는 실행 스크립트라 실제 파일을 쓴다.
-        let chatGPTApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex")
+        // ChatGPT 앱은 Codex CLI를 앱 안에 담는다. bin/codex는 실행 스크립트라 실제 파일을 쓴다.
+        let chatGPTApp = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.chatGPTBundleIdentifier)
             .map { $0.appendingPathComponent("Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex") }
         let candidates =
             executableURL.map { [$0] } ?? [
@@ -144,16 +147,10 @@ nonisolated struct CodexOwnerCLI: CodexOwnerRefreshing {
                 home.appendingPathComponent(".npm-global/bin/codex"),
                 home.appendingPathComponent(".local/bin/codex"),
             ] + pathCandidates
-        for candidate in candidates {
-            let resolved = candidate.resolvingSymlinksInPath()
-            var info = stat()
-            guard stat(resolved.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG,
-                info.st_mode & 0o022 == 0, info.st_uid == getuid() || info.st_uid == 0,
-                access(resolved.path, X_OK) == 0
-            else { continue }
-            return resolved
+        guard let resolved = ExternalCommand.firstTrustedExecutable(in: candidates) else {
+            throw CodexOwnerError.unavailable
         }
-        throw CodexOwnerError.unavailable
+        return resolved
     }
 }
 

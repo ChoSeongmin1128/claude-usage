@@ -93,14 +93,9 @@ final class PopoverDisplayPreferencesStore {
             forKey: "separateCompactConfig"
         )
 
-        if value,
-           !wasSeparate,
-           compactItemsByProvider
-            == fullItemsByProvider
-        {
-            setCompactItemsByProvider(
-                fullItemsByProvider
-            )
+        // 따로 쓰기 전까지 간소화 보기는 일반 항목을 보여줬다. 그 구성에서 출발해야 화면이 갑자기 바뀌지 않는다.
+        if value, !wasSeparate {
+            setCompactItemsByProvider(fullItemsByProvider)
         }
     }
 

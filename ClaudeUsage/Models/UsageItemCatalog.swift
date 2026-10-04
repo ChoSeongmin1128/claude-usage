@@ -171,6 +171,7 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                         resetAt: fiveHour.resetsAt,
                         isWeekly: false,
                         timeFormatStyle: context.settings.timeFormat,
+                        timeUnitLanguage: context.settings.timeUnitLanguage,
                         basis: context.settings.usageValueBasis(for: .claude)
                     )
                 )
@@ -190,6 +191,7 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                         resetAt: sevenDay.resetsAt,
                         isWeekly: true,
                         timeFormatStyle: context.settings.timeFormat,
+                        timeUnitLanguage: context.settings.timeUnitLanguage,
                         basis: context.settings.usageValueBasis(for: .claude)
                     )
                 )
@@ -235,6 +237,7 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                             title: limit.shortTitle, compactLabel: limit.shortTitle, percentage: percentage,
                             resetAt: limit.resetAt.map { ISO8601DateFormatter().string(from: $0) },
                             isWeekly: true, timeFormatStyle: context.settings.timeFormat,
+                            timeUnitLanguage: context.settings.timeUnitLanguage,
                             basis: context.settings.usageValueBasis(for: .claude))))
             }
 
@@ -269,12 +272,12 @@ struct CodexItemCatalog: UsageItemCatalog {
 
     func displayName(for itemID: String) -> String? {
         switch itemID {
-        case "codexPrimary": return "Codex 현재"
-        case "codexSecondary": return "Codex 주간"
-        case "codexSpendLimit": return "Codex 월 크레딧 한도"
-        case "codexModelLimits": return "Codex 모델별 한도"
-        case "codexResetCredits": return "Codex 초기화권"
-        case "codexCredits": return "Codex 크레딧"
+        case "codexPrimary": return "5시간 한도"
+        case "codexSecondary": return "주간 한도"
+        case "codexSpendLimit": return "월 크레딧 한도"
+        case "codexModelLimits": return "모델별 한도"
+        case "codexResetCredits": return "초기화권"
+        case "codexCredits": return "크레딧"
         default: return nil
         }
     }
@@ -294,6 +297,7 @@ struct CodexItemCatalog: UsageItemCatalog {
                             resetAt: limit.resetAt.map { ISO8601DateFormatter().string(from: $0) },
                             isWeekly: (limit.periodSeconds ?? 0) >= 86_400,
                             timeFormatStyle: context.settings.codexTimeFormat,
+                            timeUnitLanguage: context.settings.timeUnitLanguage,
                             basis: context.settings.usageValueBasis(for: .codex))))
             }
 
@@ -323,6 +327,7 @@ struct CodexItemCatalog: UsageItemCatalog {
                             resetAt: window.resetAtISO,
                             isWeekly: false,
                             timeFormatStyle: context.settings.codexTimeFormat,
+                            timeUnitLanguage: context.settings.timeUnitLanguage,
                             basis: context.settings.usageValueBasis(for: .codex)
                         )
                     )
@@ -353,6 +358,7 @@ struct CodexItemCatalog: UsageItemCatalog {
                             resetAt: window.resetAtISO,
                             isWeekly: true,
                             timeFormatStyle: context.settings.codexTimeFormat,
+                            timeUnitLanguage: context.settings.timeUnitLanguage,
                             basis: context.settings.usageValueBasis(for: .codex)
                         )
                     )
@@ -386,6 +392,7 @@ struct CodexItemCatalog: UsageItemCatalog {
                         resetAt: limit.resetAtISO,
                         isWeekly: true,
                         timeFormatStyle: context.settings.codexTimeFormat,
+                        timeUnitLanguage: context.settings.timeUnitLanguage,
                         basis: context.settings.usageValueBasis(for: .codex)
                     )
                 )
@@ -417,7 +424,7 @@ struct CodexItemCatalog: UsageItemCatalog {
                     id: "codexCredits-status",
                     kind: .status,
                     importance: .primary,
-                    payload: .status(PopoverStatusSectionData(title: "Codex 크레딧", error: context.codexError))
+                    payload: .status(PopoverStatusSectionData(title: "크레딧", error: context.codexError))
                 )
             }
 
@@ -425,26 +432,4 @@ struct CodexItemCatalog: UsageItemCatalog {
             return nil
         }
     }
-}
-
-private func windowedAccountSection(
-    id: String,
-    email: String?,
-    plan: String?,
-    icon: String
-) -> PopoverDisplaySection? {
-    guard email != nil || plan != nil else { return nil }
-    return PopoverDisplaySection(
-        id: id,
-        kind: .account,
-        importance: .secondary,
-        payload: .account(
-            PopoverAccountSectionData(
-                title: "계정 정보",
-                email: email,
-                plan: plan,
-                systemIcon: icon
-            )
-        )
-    )
 }

@@ -8,7 +8,7 @@ extension SettingsView {
 
     var codexAuthSection: some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.content) {
-            ProviderSettingsSectionHeader(provider: .codex, title: "Codex 사용")
+            ProviderSettingsSectionHeader(provider: .codex, title: "Codex")
 
             settingsToggleRow(
                 "Codex 사용",
@@ -29,7 +29,6 @@ extension SettingsView {
                         Button("다시 확인") { checkCodexAuth() }
                             .controlSize(.small).disabled(codexAuthStatus == .checking)
                     }
-                    Text(codexStatusTitle).font(AppDesign.Typography.subheadline)
                     codexActionCard
                 }
                 .padding(AppDesign.Space.content)
@@ -40,10 +39,6 @@ extension SettingsView {
 
     private var codexPresentation: CodexAuthPresentation {
         CodexAuthPresentation.resolve(for: codexAuthStatus)
-    }
-
-    private var codexStatusTitle: String {
-        codexPresentation.statusTitle
     }
 
     private var codexStatusTone: Color {
@@ -63,20 +58,11 @@ extension SettingsView {
         codexPresentation.statusBadgeTitle
     }
 
-    private var codexActionTitle: String {
-        codexPresentation.actionTitle
-    }
-
-    private var codexActionDetail: String? {
-        codexPresentation.actionDetail
-    }
-
+    @ViewBuilder
     private var codexActionCard: some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.control) {
-            Text(codexActionTitle)
-                .font(AppDesign.Typography.subheadline.weight(.semibold))
-            if let codexActionDetail {
-                Text(codexActionDetail)
+            if let detail = codexPresentation.actionDetail {
+                Text(detail)
                     .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
             }

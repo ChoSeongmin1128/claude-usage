@@ -25,7 +25,6 @@ final class AntigravityLiveLocalSelectionTests: XCTestCase {
                 _ = try verifiedReport(snapshot)
                 let stored = try await settings.load()
                 XCTAssertEqual(stored.connection.usageTarget, .cli)
-                XCTAssertNil(snapshot.activeAccountID)
                 let repeated = try verifiedReport(await controller.refresh(trigger: .scheduled))
                 try markPhase(phase, quota: repeated, gate: gate)
             }
@@ -45,13 +44,13 @@ final class AntigravityLiveLocalSelectionTests: XCTestCase {
         let environment = AntigravityRuntimeEnvironment.production(
             homeDirectoryURL: FileManager.default.realHomeDirectory, stateDirectory: root)
         let settings = AntigravitySettingsStore(persistence: try LiveLocalSelectionPersistence())
-        let repository = LiveLocalOnlyRepository()
         let refresh = AntigravityRefreshCoordinator(
-            repository: repository, sources: [], runtimeEnvironment: environment)
+            sources: [], runtimeEnvironment: environment)
+        // 기본 legacyAccountCleanup은 아무것도 하지 않아 사용자의 Keychain을 건드리지 않는다.
         let controller = AntigravityRuntimeController(
-            repository: repository, settingsStore: settings, migrationCoordinator: LiveNoCredentialMigration(),
-            refreshCoordinator: refresh, runtimeLifecycle: environment, settingsBootstrap: .ready(.alreadyCurrent),
-            agyExecutableStatus: .notFound, runtimeEnvironment: environment)
+            settingsStore: settings, refreshCoordinator: refresh, runtimeLifecycle: environment,
+            settingsBootstrap: .ready(.alreadyCurrent), agyExecutableStatus: .notFound,
+            runtimeEnvironment: environment)
         return (controller, settings)
     }
 
@@ -67,8 +66,6 @@ final class AntigravityLiveLocalSelectionTests: XCTestCase {
             let snapshot = await controller.bootstrap(performInitialRefresh: true)
             _ = try verifiedReport(snapshot)
             let target = AntigravityUsageTarget.cli
-            XCTAssertNil(snapshot.activeAccountID)
-            XCTAssertTrue(snapshot.accounts.isEmpty)
             let stored = try await settings.load()
             XCTAssertEqual(stored.connection.usageTarget, target)
             let repeated = await controller.refresh(trigger: .scheduled)
@@ -113,46 +110,7 @@ final class AntigravityLiveLocalSelectionTests: XCTestCase {
 }
 
 private enum LiveLocalSelectionError: Error {
-    case noAuthenticatedQuota, unexpectedOAuthAccess, cleanupUnconfirmed, loginSwitch
-}
-
-/// Any OAuth operation fails the live test instead of reaching the user's credential store.
-private struct LiveLocalOnlyRepository: AntigravityRuntimeAccountPersisting, AntigravityRefreshAccountRepository {
-    func state() async throws -> AntigravityAccountRepositoryState { .init() }
-    func credentialSnapshot(for accountID: AntigravityAccountID) async throws -> AntigravityCredentialSnapshot? {
-        throw LiveLocalSelectionError.unexpectedOAuthAccess
-    }
-    func createAccount(
-        credentials: AntigravityOAuthCredentials, label: String,
-        externalIdentity: AntigravityExternalAccountIdentity, migrationAliases: [String],
-        makeActive: Bool, expectedRevision: UInt64
-    ) async throws -> AntigravityAccountRepositoryState {
-        throw LiveLocalSelectionError.unexpectedOAuthAccess
-    }
-    func replaceCredential(
-        for accountID: AntigravityAccountID, with credentials: AntigravityOAuthCredentials,
-        externalIdentity: AntigravityExternalAccountIdentity?,
-        expectedRevision: UInt64
-    ) async throws -> AntigravityAccountRepositoryState {
-        throw LiveLocalSelectionError.unexpectedOAuthAccess
-    }
-    func deleteAccount(
-        id accountID: AntigravityAccountID,
-        expectedRevision: UInt64
-    ) async throws -> AntigravityAccountRepositoryState {
-        throw LiveLocalSelectionError.unexpectedOAuthAccess
-    }
-}
-
-private struct LiveNoCredentialMigration: AntigravityRuntimeMigrationCoordinating {
-    func checkForMigration() async -> AntigravityMigrationStatus {
-        .init(
-            phase: .complete, sourceOutcomes: [:], plannedAccountCount: 0,
-            blocker: nil, requiredAction: nil, authorizationCancelledThisSession: false)
-    }
-    func performInteractiveMigration() async -> AntigravityMigrationStatus { await checkForMigration() }
-    func removeAllAccounts() async -> AntigravityMigrationStatus { await checkForMigration() }
-    func removeAllAccountsInteractively() async -> AntigravityMigrationStatus { await checkForMigration() }
+    case noAuthenticatedQuota, cleanupUnconfirmed, loginSwitch
 }
 
 private struct LiveLocalSelectionPersistence: AntigravitySettingsDataPersisting {

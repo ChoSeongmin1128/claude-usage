@@ -44,6 +44,17 @@ nonisolated struct ClaudeAccountIdentity: Codable, Equatable, Sendable {
         self.fingerprint = Self.normalized(fingerprint)
     }
 
+    /// 새 값이 있는 항목만 바꾼다. 로그인이 바뀐 경우는 `replaceIdentity`로 비운 뒤 채운다.
+    nonisolated func merging(_ newer: ClaudeAccountIdentity) -> ClaudeAccountIdentity {
+        ClaudeAccountIdentity(
+            email: newer.email ?? email,
+            organizationName: newer.organizationName ?? organizationName,
+            organizationID: newer.organizationID ?? organizationID,
+            planLabel: newer.planLabel ?? planLabel,
+            fingerprint: newer.fingerprint ?? fingerprint
+        )
+    }
+
     nonisolated var primaryLabel: String? {
         // Stable IDs belong in diagnostics/detail rows, never in the primary
         // user-facing account label. OAuth inventory can temporarily know only
@@ -174,6 +185,7 @@ nonisolated struct ClaudeWebSessionUpsertResult: Sendable {
 final class ClaudeAccountStore: @unchecked Sendable {
     nonisolated static let shared = ClaudeAccountStore(
         legacySandboxCredentialStore: AppRuntimeEnvironment.isRunningUnitTests
+            || !AppDistribution.current.ownsProductionLegacyLocations
             ? nil
             : ClaudeLegacySandboxCredentialStore.shared
     )
@@ -441,18 +453,19 @@ final class ClaudeAccountStore: @unchecked Sendable {
         var accounts = state.accounts
         let now = Date()
         let accountID = Self.claudeCodeExternalAccountID
-        let readableDisplayName = identity.primaryLabel
         let account: ClaudeAccount
         var didChange = false
 
         if let index = accounts.firstIndex(where: { $0.id == accountID }) {
-            let resolvedDisplayName = readableDisplayName ?? accounts[index].displayName
+            // 일부만 아는 값(조직만 아는 경우 등)이 이미 아는 이메일을 지우지 않게 합친다.
+            let merged = accounts[index].identity.merging(identity)
+            let resolvedDisplayName = merged.primaryLabel ?? accounts[index].displayName
             if accounts[index].displayName != resolvedDisplayName {
                 accounts[index].displayName = resolvedDisplayName
                 didChange = true
             }
-            if !Self.identity(accounts[index].identity, equals: identity) {
-                accounts[index].identity = identity
+            if !Self.identity(accounts[index].identity, equals: merged) {
+                accounts[index].identity = merged
                 didChange = true
             }
             if accounts[index].source != .claudeCodeCLI {
@@ -468,7 +481,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
             account = ClaudeAccount(
                 id: accountID,
                 kind: .claudeCodeExternal,
-                displayName: readableDisplayName ?? "Claude Code 계정",
+                displayName: identity.primaryLabel ?? "Claude Code 계정",
                 identity: identity,
                 source: .claudeCodeCLI,
                 lastUsedAt: now,
@@ -538,13 +551,7 @@ final class ClaudeAccountStore: @unchecked Sendable {
 
     nonisolated func mergeIdentity(_ identity: ClaudeAccountIdentity, for accountID: String) {
         updateAccount(id: accountID) { account in
-            account.identity = ClaudeAccountIdentity(
-                email: identity.email ?? account.identity.email,
-                organizationName: identity.organizationName ?? account.identity.organizationName,
-                organizationID: identity.organizationID ?? account.identity.organizationID,
-                planLabel: identity.planLabel ?? account.identity.planLabel,
-                fingerprint: identity.fingerprint ?? account.identity.fingerprint
-            )
+            account.identity = account.identity.merging(identity)
         }
     }
 
@@ -906,9 +913,12 @@ final class ClaudeAccountStore: @unchecked Sendable {
             lock.unlock()
             return
         }
+        var ignoringUseTime = state.accounts[index]
+        ignoringUseTime.lastUsedAt = previousAccount.lastUsedAt
         saveRaw(accounts: state.accounts, activeAccountID: state.activeAccountID)
         lock.unlock()
-        postAccountNotifications()
+        // 마지막 사용 시각만 바뀌었으면 알리지 않는다. 알리면 조회가 성공할 때마다 계정을 다시 찾는다.
+        if ignoringUseTime != previousAccount { postAccountNotifications() }
     }
 
     private nonisolated func legacyPreferredOrganizationID() -> String {

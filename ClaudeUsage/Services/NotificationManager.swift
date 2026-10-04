@@ -63,7 +63,7 @@ final class NotificationManager: ObservableObject {
         }
         guard let display = snapshot.settings?.display else { return }
         let identity = quota.identity ?? quota.provenance.accountIdentity
-        let parts = [snapshot.activeAccountID?.rawValue, identity?.stableAccountID, identity?.email?.lowercased()]
+        let parts = [identity?.stableAccountID, identity?.email?.lowercased()]
             .map { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }.compactMap { $0 }.filter { !$0.isEmpty }
         let owner = parts.isEmpty ? nil : String(data: (try? JSONEncoder().encode(parts)) ?? Data(), encoding: .utf8)
         check(
@@ -124,12 +124,9 @@ final class NotificationManager: ObservableObject {
             let amount = basis == .remaining ? 100 - threshold : threshold
             let sentence =
                 basis == .remaining
-                ? "\(limit.title) 사용 한도가 \(amount)% 이하로 남았습니다."
-                : "\(limit.title) 사용 한도를 \(amount)% 이상 사용했습니다."
-            if provider == .claude, limit.legacyKey != nil,
-                let guidance = freshPolicy?.guidanceSuffix(
-                    threshold: threshold, alertRemainingMode: basis == .remaining)
-            {
+                ? "\(limit.title) 한도가 \(amount)% 남았습니다."
+                : "\(limit.title) 한도를 \(amount)% 썼습니다."
+            if provider == .claude, limit.legacyKey != nil, let guidance = freshPolicy?.guidanceSuffix {
                 return sentence + " " + guidance
             }
             return sentence

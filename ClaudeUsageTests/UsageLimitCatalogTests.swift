@@ -110,7 +110,7 @@ final class UsageLimitCatalogTests: XCTestCase {
                 {"rate_limit":{"primary_window":{"used_percent":20}},"additional_rate_limits":[{"limit_name":"Display only","rate_limit":{"primary_window":{"used_percent":22,"limit_window_seconds":604800}}}]}
                 """))
         XCTAssertNil(limits[0].periodSeconds)
-        XCTAssertTrue(limits[0].title.contains("주기 미제공"))
+        XCTAssertTrue(limits[0].title.contains("주기 모름"))
         XCTAssertFalse(limits[1].canNotify)
     }
 

@@ -13,7 +13,7 @@ enum SetupCompletionPolicy {
         let hasSuccessfulFetch: Bool
         let isOrganizationReady: Bool
         let isAutomaticOrganizationMode: Bool
-        let organizationSummary: String
+        let organizationSummary: String?
 
         var stage: WizardStage {
             if !hasReadyCredential {
@@ -29,9 +29,9 @@ enum SetupCompletionPolicy {
         }
     }
 
+    /// 브라우저 가져오기는 기본 브라우저를 먼저 보고 여러 브라우저를 찾으므로 특정 브라우저 설치와 관계없이 먼저 권한다.
     static func resolveCredentialStep(
         hasReadyCredential: Bool,
-        hasChromeApp: Bool,
         shouldPreferManual: Bool = false
     ) -> SetupWizardView.Step {
         if hasReadyCredential {
@@ -40,15 +40,11 @@ enum SetupCompletionPolicy {
         if shouldPreferManual {
             return .manualSessionKey
         }
-        if !hasChromeApp {
-            return .webLogin
-        }
-        return .chromeImport
+        return .browserImport
     }
 
     static func resolveWizardStep(
         progress: WizardProgress,
-        hasChromeApp: Bool,
         credentialStepOverride: SetupWizardView.Step?
     ) -> SetupWizardView.Step {
         if progress.stage == .credential, let credentialStepOverride {
@@ -57,10 +53,7 @@ enum SetupCompletionPolicy {
 
         switch progress.stage {
         case .credential:
-            return resolveCredentialStep(
-                hasReadyCredential: progress.hasReadyCredential,
-                hasChromeApp: hasChromeApp
-            )
+            return resolveCredentialStep(hasReadyCredential: progress.hasReadyCredential)
         case .verification, .organization, .complete:
             return .webLogin
         }
@@ -71,7 +64,6 @@ enum SetupCompletionPolicy {
         hasSuccessfulFetch: Bool,
         preferredOrganizationID: String,
         cachedMetadata: ClaudeProfileMetadata?,
-        hasChromeApp: Bool,
         credentialStepOverride: SetupWizardView.Step? = nil
     ) -> ClaudeSetupPresentation {
         let progress = resolveWizardProgress(
@@ -82,7 +74,6 @@ enum SetupCompletionPolicy {
         )
         let credentialStep = resolveWizardStep(
             progress: progress,
-            hasChromeApp: hasChromeApp,
             credentialStepOverride: credentialStepOverride
         )
 
@@ -91,8 +82,8 @@ enum SetupCompletionPolicy {
         switch progress.stage {
         case .credential:
             switch credentialStep {
-            case .chromeImport:
-                primaryActionKind = .openChrome
+            case .browserImport:
+                primaryActionKind = .importFromBrowser
             case .webLogin:
                 primaryActionKind = .openWebLogin
             case .manualSessionKey:
@@ -122,16 +113,6 @@ enum SetupCompletionPolicy {
         let preferredID = preferredOrganizationID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !preferredID.isEmpty else { return true }
         return cachedMetadata?.organizationUUID == preferredID
-    }
-
-    static func shouldMarkCompleteAfterSuccessfulClaudeRefresh(
-        preferredOrganizationID: String,
-        cachedMetadata: ClaudeProfileMetadata?
-    ) -> Bool {
-        isOrganizationReady(
-            preferredOrganizationID: preferredOrganizationID,
-            cachedMetadata: cachedMetadata
-        )
     }
 
     static func hasReadyCredential(
@@ -165,27 +146,6 @@ enum SetupCompletionPolicy {
         }
     }
 
-    static func organizationStatusSummary(
-        preferredOrganizationID: String,
-        cachedMetadata: ClaudeProfileMetadata?
-    ) -> String {
-        let preferredID = preferredOrganizationID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !preferredID.isEmpty else {
-            return "자동 선택 사용 중"
-        }
-
-        guard let cachedOrganizationID = cachedMetadata?.organizationUUID?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !cachedOrganizationID.isEmpty else {
-            return "직접 선택 사용 중 · 아직 확인 전"
-        }
-
-        if cachedOrganizationID == preferredID {
-            return "직접 선택 사용 중 · 확인됨"
-        }
-
-        return "직접 선택 사용 중 · 다시 확인 필요"
-    }
-
     static func resolveWizardProgress(
         hasReadyCredential: Bool,
         hasSuccessfulFetch: Bool,
@@ -199,15 +159,13 @@ enum SetupCompletionPolicy {
 
         let preferredID = preferredOrganizationID.trimmingCharacters(in: .whitespacesAndNewlines)
         let isAutomaticOrganizationMode = preferredID.isEmpty
-        let organizationSummary: String
-        if !hasSuccessfulFetch {
-            organizationSummary = "먼저 사용량 확인이 끝나면 조직 상태를 확인합니다"
-        } else if isAutomaticOrganizationMode {
-            organizationSummary = "자동 선택으로 바로 사용할 수 있습니다"
+        let organizationSummary: String?
+        if !hasSuccessfulFetch || isAutomaticOrganizationMode {
+            organizationSummary = nil
         } else if organizationReady {
-            organizationSummary = "선택한 조직이 확인되었습니다"
+            organizationSummary = "선택한 조직을 확인했습니다"
         } else {
-            organizationSummary = "선택한 조직을 다시 확인해 주세요"
+            organizationSummary = "선택한 조직을 다시 확인하세요"
         }
 
         return WizardProgress(
@@ -230,18 +188,4 @@ enum SetupCompletionPolicy {
         )
     }
 
-    static func shouldShowSetupFlow(
-        hasReadyCredential: Bool,
-        hasSuccessfulFetch: Bool,
-        preferredOrganizationID: String,
-        cachedMetadata: ClaudeProfileMetadata?
-    ) -> Bool {
-        let progress = resolveWizardProgress(
-            hasReadyCredential: hasReadyCredential,
-            hasSuccessfulFetch: hasSuccessfulFetch,
-            preferredOrganizationID: preferredOrganizationID,
-            cachedMetadata: cachedMetadata
-        )
-        return progress.stage != .complete
-    }
 }

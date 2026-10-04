@@ -371,8 +371,6 @@ nonisolated struct
 /// Current official Google signing boundary for Antigravity.app and AGY CLI.
 nonisolated enum AntigravityOfficialExecutableTrustPolicy {
     static let teamIdentifier = "EQHXZ8M8AV"
-    static let appSigningIdentifier =
-        AntigravityAppBundleIdentity.requiredBundleIdentifier
     static let languageServerSigningIdentifier =
         "language_server"
     static let agySigningIdentifier = "cli"
@@ -390,13 +388,6 @@ nonisolated enum AntigravityOfficialExecutableTrustPolicy {
         identifier "\(agySigningIdentifier)" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "\(teamIdentifier)"
         """
 
-    static func acceptsApp(
-        _ identity: AntigravityCodeSignatureIdentity
-    ) -> Bool {
-        identity.signingIdentifier == appSigningIdentifier
-            && identity.teamIdentifier == teamIdentifier
-    }
-
     static func acceptsAGY(
         _ identity: AntigravityCodeSignatureIdentity
     ) -> Bool {
@@ -409,7 +400,6 @@ nonisolated struct AntigravityProductionExecutableCandidates:
     Sendable,
     Equatable
 {
-    let appBundleRoots: [URL]
     let agyExecutableURLs: [URL]
 
     init(
@@ -417,21 +407,6 @@ nonisolated struct AntigravityProductionExecutableCandidates:
         environment: [String: String] = [:]
     ) {
         let home = homeDirectoryURL.standardizedFileURL
-        appBundleRoots = [
-            URL(
-                fileURLWithPath: "/Applications/Antigravity.app",
-                isDirectory: true
-            ),
-            home
-                .appendingPathComponent(
-                    "Applications",
-                    isDirectory: true
-                )
-                .appendingPathComponent(
-                    "Antigravity.app",
-                    isDirectory: true
-                ),
-        ]
         var executableCandidates: [URL] = []
         if let override =
                 environment["ANTIGRAVITY_CLI_PATH"]?
@@ -557,10 +532,9 @@ nonisolated struct AntigravityProductionExecutableCatalogResolver:
         self.fileIdentityInspector = fileIdentityInspector
     }
 
+    /// 2.8.0부터 AGY CLI만 조회하므로 Antigravity 앱 번들은 검증하지 않는다. 검증과 해시 계산이
+    /// 조회 제한 시간 안에서 돌아 보고에 쓸 시간을 줄였다.
     func resolve() -> AntigravityProductionExecutableResolution {
-        let verifiedAppRoots = candidates.appBundleRoots.filter {
-            isVerifiedAppBundle(at: $0)
-        }
         let discoverableAGYEntries = candidates.agyExecutableURLs
             .compactMap {
                 verifiedAGYExecutable(at: $0)
@@ -575,7 +549,7 @@ nonisolated struct AntigravityProductionExecutableCatalogResolver:
             }
         )
         let catalog = AntigravityExecutableCatalog(
-            appBundleRoots: verifiedAppRoots,
+            appBundleRoots: [],
             agyExecutableURLs: discoverableAGYURLs,
             agyFileIdentitiesByCanonicalPath:
                 identitiesByCanonicalPath,
@@ -613,31 +587,6 @@ nonisolated struct AntigravityProductionExecutableCatalogResolver:
     private struct VerifiedAGYExecutable {
         let url: URL
         let identity: AntigravityExecutableFileIdentity
-    }
-
-    private func isVerifiedAppBundle(at candidate: URL) -> Bool {
-        let exactURL = candidate.standardizedFileURL
-        // This static check is an installation filter, not the final process
-        // trust authority: Security.framework documents static validation as
-        // unsafe under concurrent filesystem modification. Process discovery
-        // therefore also requires the running language_server to satisfy
-        // Google's exact dynamic designated requirement.
-        guard !fileSystem.isSymbolicLink(at: exactURL),
-              fileSystem.canonicalURL(for: exactURL).path
-                == exactURL.path,
-              fileSystem.isDirectory(at: exactURL),
-              fileSystem.bundleIdentifier(at: exactURL)
-                == AntigravityAppBundleIdentity
-                    .requiredBundleIdentifier,
-              let identity = trustInspector.validatedIdentity(
-                  at: exactURL
-              ),
-              AntigravityOfficialExecutableTrustPolicy
-                .acceptsApp(identity)
-        else {
-            return false
-        }
-        return true
     }
 
     /// Borrowed discovery and automatic managed launch use the same official

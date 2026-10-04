@@ -4,7 +4,7 @@ struct SetupWizardView: View {
     @State private var isAlternativeMethodsExpanded = false
 
     enum Step: Int, CaseIterable, Identifiable {
-        case chromeImport
+        case browserImport
         case webLogin
         case manualSessionKey
 
@@ -12,66 +12,27 @@ struct SetupWizardView: View {
 
         var title: String {
             switch self {
-            case .chromeImport:
-                return "Chrome 가져오기"
+            case .browserImport:
+                return "브라우저에서 가져오기"
             case .webLogin:
-                return "웹 로그인"
+                return "앱에서 로그인"
             case .manualSessionKey:
-                return "수동 입력"
+                return "직접 입력"
             }
         }
 
-        var detail: String {
-            switch self {
-            case .chromeImport:
-                return "권장 경로입니다. Chrome 로그인 상태에서 바로 가져옵니다."
-            case .webLogin:
-                return "Chrome 경로가 안 될 때 브라우저 로그인 뒤 다시 시도합니다."
-            case .manualSessionKey:
-                return "앞 경로가 안 될 때만 직접 입력합니다."
-            }
-        }
-
-        var ctaTitle: String {
-            switch self {
-            case .chromeImport, .webLogin:
-                return self == .chromeImport ? "Chrome 열기" : "웹 로그인 열기"
-            case .manualSessionKey:
-                return "고급 열기"
-            }
-        }
+        var ctaTitle: String { title }
     }
 
+    /// 로그인 단계에서만 그린다.
     let currentStep: Step
-    let hasReadyCredential: Bool
     let isAdvancedExpanded: Bool
-    let onOpenChrome: () -> Void
+    let onImportFromBrowser: () -> Void
     let onOpenWebLogin: () -> Void
     let onOpenAdvanced: () -> Void
-    let onDismiss: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.label) {
-            HStack {
-                Text("빠른 시작")
-                    .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if hasReadyCredential {
-                    Text("준비됨")
-                        .font(AppDesign.Typography.caption2.weight(.medium))
-                        .padding(.horizontal, AppDesign.Space.control)
-                        .padding(.vertical, AppDesign.Space.tight)
-                        .background(Color.green.opacity(0.15))
-                        .foregroundStyle(.green)
-                        .cornerRadius(5)
-                } else {
-                    Text("단계형 안내")
-                        .font(AppDesign.Typography.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-
             HStack(spacing: AppDesign.Space.row) {
                 ForEach(Step.allCases) { step in
                     Capsule()
@@ -82,7 +43,7 @@ struct SetupWizardView: View {
 
             primaryStepCard
 
-            if !hasReadyCredential && !alternativeSteps.isEmpty {
+            if !alternativeSteps.isEmpty {
                 DisclosureGroup(isExpanded: $isAlternativeMethodsExpanded) {
                     VStack(alignment: .leading, spacing: AppDesign.Space.row) {
                         ForEach(alternativeSteps) { step in
@@ -91,16 +52,10 @@ struct SetupWizardView: View {
                     }
                     .padding(.top, AppDesign.Space.control)
                 } label: {
-                    Text("현재 경로가 안 될 때 다른 방법 보기")
+                    Text("다른 방법")
                         .font(AppDesign.Typography.caption)
                         .foregroundStyle(.secondary)
                 }
-            }
-
-            if hasReadyCredential {
-                Text("이제 상태만 확인하면 됩니다.")
-                    .font(AppDesign.Typography.caption2)
-                    .foregroundStyle(.secondary)
             }
         }
         .padding(AppDesign.Space.label)
@@ -109,13 +64,7 @@ struct SetupWizardView: View {
     }
 
     private var primaryStepTitle: String {
-        hasReadyCredential ? "자격 준비 완료" : currentStep.title
-    }
-
-    private var primaryStepDetail: String {
-        hasReadyCredential
-            ? "자격이 준비되었습니다. 이제 조회만 확인하면 됩니다."
-            : currentStep.detail
+        currentStep.title
     }
 
     private var alternativeSteps: [Step] {
@@ -129,23 +78,18 @@ struct SetupWizardView: View {
                 .foregroundStyle(state.color)
                 .font(AppDesign.Typography.caption)
                 .padding(.top, 1)
-            VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
-                HStack(spacing: AppDesign.Space.control) {
-                    Text(primaryStepTitle)
-                        .font(AppDesign.Typography.caption.weight(.semibold))
-                    if !hasReadyCredential && currentStep == .chromeImport {
-                        Text("권장")
-                            .font(AppDesign.Typography.caption2.weight(.medium))
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Color.accentColor.opacity(0.14))
-                            .foregroundStyle(Color.accentColor)
-                            .cornerRadius(4)
-                    }
+            HStack(spacing: AppDesign.Space.control) {
+                Text(primaryStepTitle)
+                    .font(AppDesign.Typography.caption.weight(.semibold))
+                if currentStep == .browserImport {
+                    Text("권장")
+                        .font(AppDesign.Typography.caption2.weight(.medium))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.accentColor.opacity(0.14))
+                        .foregroundStyle(Color.accentColor)
+                        .cornerRadius(4)
                 }
-                Text(primaryStepDetail)
-                    .font(AppDesign.Typography.caption2)
-                    .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
@@ -154,37 +98,24 @@ struct SetupWizardView: View {
     }
 
     private func alternativeStepRow(_ step: Step) -> some View {
-        HStack(alignment: .top, spacing: AppDesign.Space.row) {
-            VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
-                Text(step.title)
-                    .font(AppDesign.Typography.caption)
-                Text(step.detail)
-                    .font(AppDesign.Typography.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-            Button(step.buttonTitle) {
-                perform(step)
-            }
-            .buttonStyle(.borderless)
-            .font(AppDesign.Typography.caption)
+        Button(step.title) {
+            perform(step)
         }
+        .buttonStyle(.borderless)
+        .font(AppDesign.Typography.caption)
     }
 
     private func color(for step: Step) -> Color {
         let state = state(for: step)
-        if step == currentStep && !hasReadyCredential {
+        if step == currentStep {
             return .accentColor
         }
         return state.color.opacity(0.9)
     }
 
     private func state(for step: Step) -> (iconName: String, color: Color) {
-        if hasReadyCredential {
-            return ("checkmark.circle.fill", .green)
-        }
         switch step {
-        case .chromeImport:
+        case .browserImport:
             return step == currentStep ? ("arrow.right.circle.fill", .accentColor) : ("circle", .secondary)
         case .webLogin:
             return step == currentStep ? ("arrow.right.circle.fill", .accentColor) : ("circle", .secondary)
@@ -198,8 +129,8 @@ struct SetupWizardView: View {
 
     private func perform(_ step: Step) {
         switch step {
-        case .chromeImport:
-            onOpenChrome()
+        case .browserImport:
+            onImportFromBrowser()
         case .webLogin:
             onOpenWebLogin()
         case .manualSessionKey:
@@ -207,17 +138,4 @@ struct SetupWizardView: View {
         }
     }
 
-}
-
-private extension SetupWizardView.Step {
-    var buttonTitle: String {
-        switch self {
-        case .chromeImport:
-            return "Chrome 열기"
-        case .webLogin:
-            return "웹 로그인"
-        case .manualSessionKey:
-            return "고급 설정"
-        }
-    }
 }

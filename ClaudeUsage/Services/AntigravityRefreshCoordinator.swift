@@ -1,32 +1,15 @@
 import Foundation
 
-nonisolated protocol AntigravityRefreshAccountRepository:
-    Sendable
-{
-    func state() async throws
-        -> AntigravityAccountRepositoryState
-
-}
-
-extension AntigravityAccountRepository:
-    AntigravityRefreshAccountRepository
-{}
-
 private nonisolated struct AntigravityRefreshFlightKey:
     Sendable,
     Equatable
 {
-    let repositoryRevision: UInt64
     let connection: AntigravityConnectionSettings
-    let clearsPreviousSnapshot: Bool
     let forcesDiscovery: Bool
 
     init(_ request: AntigravityRefreshRequest) {
         forcesDiscovery = request.forcesDiscovery
-        repositoryRevision = request.repositoryRevision
         connection = request.connection
-        clearsPreviousSnapshot =
-            request.trigger.clearsPreviousSnapshot
     }
 }
 
@@ -48,18 +31,14 @@ private nonisolated struct AntigravityRefreshExecutionResult:
     Sendable
 {
     let output: AntigravityRefreshOutput
-    let repositoryWasValidated: Bool
     var observedIdentity: ProviderAccountIdentity? = nil
 
     static func failure(
         _ failure: AntigravityFailure,
-        repositoryWasValidated: Bool = false,
         observedIdentity: ProviderAccountIdentity? = nil
     ) -> Self {
         Self(
             output: .failure(failure),
-            repositoryWasValidated:
-                repositoryWasValidated,
             observedIdentity: observedIdentity
         )
     }
@@ -73,7 +52,6 @@ actor AntigravityRefreshCoordinator:
         let startedAt: ContinuousClock.Instant
         let generation: UInt64
         let key: AntigravityRefreshFlightKey
-        let request: AntigravityRefreshRequest
         var driver: Task<Void, Never>?
         var waiters:
             [UUID:
@@ -83,8 +61,6 @@ actor AntigravityRefreshCoordinator:
     }
 
     private let runtimeEnvironment: AntigravityRuntimeEnvironment?
-    private let repository:
-        any AntigravityRefreshAccountRepository
     private let sources:
         [AntigravityUsageSourceID: any AntigravityUsageSource]
     private let deadlineFactory:
@@ -96,8 +72,6 @@ actor AntigravityRefreshCoordinator:
     private var lastGoodSnapshot: AntigravityQuotaSnapshot?
     private var inFlight: InFlight?
     init(
-        repository:
-            any AntigravityRefreshAccountRepository,
         sources: [any AntigravityUsageSource],
         runtimeEnvironment: AntigravityRuntimeEnvironment? = nil,
         deadlineFactory:
@@ -119,7 +93,6 @@ actor AntigravityRefreshCoordinator:
             )
             registry[source.id] = source
         }
-        self.repository = repository
         self.runtimeEnvironment = runtimeEnvironment
         self.sources = registry
         self.deadlineFactory = deadlineFactory
@@ -141,19 +114,6 @@ actor AntigravityRefreshCoordinator:
             _ = advanceGeneration()
             state = .failed(.appShuttingDown)
         }
-    }
-
-    func invalidateBoundary() async {
-        guard !isShutDown else {
-            return
-        }
-        detachCurrentFlight()
-        lastGoodSnapshot = nil
-        guard advanceGeneration() else {
-            state = .failed(.generationExhausted)
-            return
-        }
-        state = .refreshing(previous: nil)
     }
 
     func refresh(
@@ -184,14 +144,10 @@ actor AntigravityRefreshCoordinator:
             state = .failed(.generationExhausted)
             return state
         }
-        if request.trigger.clearsPreviousSnapshot {
-            lastGoodSnapshot = nil
-        }
         state = .refreshing(previous: lastGoodSnapshot)
 
         let operationID = UUID()
         let operationGeneration = generation
-        let repository = self.repository
         let sources = self.sources
         let runtimeEnvironment = self.runtimeEnvironment
         let deadline = deadlineFactory()
@@ -200,7 +156,6 @@ actor AntigravityRefreshCoordinator:
             startedAt: ContinuousClock.now,
             generation: operationGeneration,
             key: key,
-            request: request,
             driver: nil,
             waiters: [waiterID: waiter]
         )
@@ -211,7 +166,6 @@ actor AntigravityRefreshCoordinator:
                 runtimeEnvironment: runtimeEnvironment,
                 generation: operationGeneration,
                 request: request,
-                repository: repository,
                 sources: sources,
                 deadline: deadline
             )
@@ -270,7 +224,7 @@ actor AntigravityRefreshCoordinator:
         else {
             return
         }
-        let finalState = await apply(
+        let finalState = apply(
             result,
             operation: operation
         )
@@ -293,12 +247,11 @@ actor AntigravityRefreshCoordinator:
     private func apply(
         _ result: AntigravityRefreshExecutionResult,
         operation: InFlight
-    ) async -> AntigravityPresentationState {
+    ) -> AntigravityPresentationState {
         guard isCurrent(operation) else {
             return state
         }
 
-        var output = result.output
         if let observed = result.observedIdentity, let previous = lastGoodSnapshot,
             !AntigravityAccountIdentityMatcher.match(
                 expected: previous.identity ?? previous.provenance.accountIdentity ?? ProviderAccountIdentity(),
@@ -308,28 +261,8 @@ actor AntigravityRefreshCoordinator:
             lastGoodSnapshot = nil
         }
 
-        if result.repositoryWasValidated {
-            do {
-                let verified = try await repository.state()
-                guard verified.revision == operation.request.repositoryRevision else {
-                    output = .failure(
-                        .repositoryRevisionChanged
-                    )
-                    return presentation(
-                        for: output,
-                        operation: operation
-                    )
-                }
-            } catch {
-                output = .failure(.repositoryUnavailable)
-            }
-        }
-
-        guard isCurrent(operation) else {
-            return state
-        }
         return presentation(
-            for: output,
+            for: result.output,
             operation: operation
         )
     }
@@ -435,15 +368,14 @@ actor AntigravityRefreshCoordinator:
         runtimeEnvironment: AntigravityRuntimeEnvironment?,
         generation: UInt64,
         request: AntigravityRefreshRequest,
-        repository: any AntigravityRefreshAccountRepository,
         sources: [AntigravityUsageSourceID: any AntigravityUsageSource],
         deadline: AntigravityRPCDeadline
     ) async -> AntigravityRefreshExecutionResult {
         guard request.target != .unselected else {
-            return .init(output: .setupRequired(.usageTargetSelection), repositoryWasValidated: false)
+            return .init(output: .setupRequired(.usageTargetSelection))
         }
         guard let runtimeEnvironment else {
-            return await execute(generation: generation, request: request, repository: repository, sources: sources, deadline: deadline)
+            return await execute(generation: generation, request: request, sources: sources, deadline: deadline)
         }
         do {
             return try await runtimeEnvironment.withSources(
@@ -452,7 +384,7 @@ actor AntigravityRefreshCoordinator:
                 var registry = sources
                 for source in localSources { registry[source.id] = source }
                 return await execute(
-                    generation: generation, request: request, repository: repository, sources: registry,
+                    generation: generation, request: request, sources: registry,
                     deadline: deadline.beginningDiscoveryNow())
             }
         } catch is CancellationError {
@@ -465,18 +397,14 @@ actor AntigravityRefreshCoordinator:
     private nonisolated static func execute(
         generation: UInt64,
         request: AntigravityRefreshRequest,
-        repository: any AntigravityRefreshAccountRepository,
         sources: [AntigravityUsageSourceID: any AntigravityUsageSource],
         deadline: AntigravityRPCDeadline
     ) async -> AntigravityRefreshExecutionResult {
         guard request.target != .unselected else {
-            return .init(output: .setupRequired(.usageTargetSelection), repositoryWasValidated: false)
+            return .init(output: .setupRequired(.usageTargetSelection))
         }
         do {
             try Task.checkCancellation()
-            guard try await repository.state().revision == request.repositoryRevision else {
-                return .failure(.repositoryRevisionChanged)
-            }
             var lastFailure: AntigravityFailure = .noEligibleSource
             var actionableFailure: AntigravityFailure?
             var observedIdentity: ProviderAccountIdentity?
@@ -487,7 +415,7 @@ actor AntigravityRefreshCoordinator:
                     continue
                 }
                 guard source.id == sourceID else {
-                    return .failure(.sourceContractViolation(sourceID), repositoryWasValidated: true)
+                    return .failure(.sourceContractViolation(sourceID))
                 }
                 let sourceRequest = AntigravityUsageSourceRequest(
                     generation: generation, deadline: deadline,
@@ -528,14 +456,14 @@ actor AntigravityRefreshCoordinator:
                         snapshot.provenance.capability == .groupedQuotaSummary,
                         provenanceMatchesSource(snapshot.provenance, sourceID: sourceID)
                     else {
-                        return .failure(.sourceContractViolation(sourceID), repositoryWasValidated: true)
+                        return .failure(.sourceContractViolation(sourceID))
                     }
-                    return .init(output: .snapshot(snapshot), repositoryWasValidated: true)
+                    return .init(output: .snapshot(snapshot))
                 }
                 var evidence = AntigravityLocalAccountInventory()
                 for response in inspection.responses {
                     guard let identity = validObservedIdentity(in: response, from: sourceID) else {
-                        return .failure(.sourceContractViolation(sourceID), repositoryWasValidated: true)
+                        return .failure(.sourceContractViolation(sourceID))
                     }
                     evidence.observe(identity, source: sourceID)
                 }
@@ -547,7 +475,7 @@ actor AntigravityRefreshCoordinator:
                 // Never resolve multiple live logins by process order, and never
                 // combine a quota payload from one account with another identity.
                 guard let account = evidence.uniqueVerifiedAccount else {
-                    return .init(output: .setupRequired(.ambiguousLocalSessions), repositoryWasValidated: true)
+                    return .init(output: .setupRequired(.ambiguousLocalSessions))
                 }
                 if let observedIdentity,
                     !AntigravityAccountIdentityMatcher.match(expected: observedIdentity, received: account.identity)
@@ -557,26 +485,24 @@ actor AntigravityRefreshCoordinator:
                 }
                 for response in inspection.responses {
                     if case .grouped(let snapshot) = response.payload {
-                        return .init(output: .snapshot(snapshot), repositoryWasValidated: true)
+                        return .init(output: .snapshot(snapshot))
                     }
                 }
                 for response in inspection.responses {
                     if case .limited(let capability) = response.payload {
-                        return .init(output: .limited(capability), repositoryWasValidated: true)
+                        return .init(output: .limited(capability))
                     }
                 }
                 if case .identityOnly(let observation) = inspection.responses[0].payload {
-                    return .init(output: .identityOnly(observation), repositoryWasValidated: true)
+                    return .init(output: .identityOnly(observation))
                 }
             }
             if let actionableFailure {
-                return .failure(actionableFailure, repositoryWasValidated: true, observedIdentity: observedIdentity)
+                return .failure(actionableFailure, observedIdentity: observedIdentity)
             }
-            return .failure(lastFailure, repositoryWasValidated: true)
-        } catch is CancellationError {
-            return .failure(.cancelled)
+            return .failure(lastFailure)
         } catch {
-            return .failure(.repositoryUnavailable)
+            return .failure(.cancelled)
         }
     }
 
@@ -722,12 +648,6 @@ actor AntigravityRefreshCoordinator:
             .interactionRequired,
              .invalidRefreshContext,
              .generationExhausted,
-             .repositoryUnavailable,
-             .repositoryRevisionChanged,
-             .credentialCommitFailed,
-             .credentialCommitAmbiguous,
-             .selectedAccountUnavailable,
-            .selectedAccountIdentityUnavailable,
             .cliReportFailed:
             true
         case .cancelled,

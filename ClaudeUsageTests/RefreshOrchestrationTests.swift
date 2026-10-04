@@ -80,6 +80,17 @@ final class RefreshOrchestrationTests: XCTestCase {
         XCTAssertFalse(state.isLoading)
     }
 
+    func testSuccessAfterStartedRefreshEndsIdleSoReopeningDoesNotRefetch() {
+        var state = RuntimeProviderState()
+        _ = RuntimeProviderRefreshCoordinator.prepareForRefresh(state: &state, force: true)
+        XCTAssertTrue(state.isLoading)
+
+        RuntimeProviderRefreshCoordinator.applySuccess(state: &state, payload: sampleClaudePayload)
+
+        XCTAssertFalse(state.isLoading)
+        XCTAssertEqual(state.lastAttemptState, .idle, "성공 뒤 조회 중으로 남으면 팝오버를 열 때마다 다시 조회합니다")
+    }
+
     func testApplyFailureKeepsPayloadForTemporaryFailure() {
         var state = RuntimeProviderState(
             payload: sampleClaudePayload,
@@ -304,7 +315,7 @@ final class PopoverViewModelTests: XCTestCase {
         )
 
         XCTAssertEqual(state.phase, .probingRuntime)
-        XCTAssertEqual(state.summary, "사용량 조회 준비")
+        XCTAssertEqual(state.summary, "확인 전")
     }
 
     func testResolveAntigravitySummaryStateTreatsBlockedReadinessAsBootstrapAttention() {
@@ -325,7 +336,7 @@ final class PopoverViewModelTests: XCTestCase {
         )
 
         XCTAssertEqual(state.phase, .temporaryError)
-        XCTAssertEqual(state.summary, "초기 설정 확인 필요")
+        XCTAssertEqual(state.summary, "설정 오류")
     }
 
     func testResolveAntigravitySummaryStateDoesNotMergeCLIAvailabilityIntoIdentityOnlySource() {
@@ -359,7 +370,7 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertEqual(state.phase, .temporaryError)
         XCTAssertEqual(
             state.summary,
-            "계정 확인됨 · 수치 미지원"
+            "한도 수치 없음"
         )
         XCTAssertFalse(state.summary.contains("CLI"))
     }
@@ -378,19 +389,19 @@ final class PopoverViewModelTests: XCTestCase {
         XCTAssertFalse(state.summary.contains("CLI"))
     }
 
-    func testResolveAntigravitySummaryStateUsesTypedSetupRequirementForMissingSelection() {
+    func testResolveAntigravitySummaryStateUsesTypedSetupRequirementForMissingLogin() {
         let state = PopoverViewModel.resolveAntigravitySummaryState(
             snapshot: antigravityRuntimeSnapshot(
                 presentationState:
                     .setupRequired(
-                        .noSelectedOAuthAccount
+                        .noAmbientLocalSession
                     )
             ),
             isEnabled: true
         )
 
         XCTAssertEqual(state.phase, .authRequired)
-        XCTAssertEqual(state.summary, "연결 설정 필요")
+        XCTAssertEqual(state.summary, "로그인 필요")
     }
 
     func testResolveAntigravitySummaryStateUsesTypedRefreshingState() {
@@ -426,34 +437,6 @@ final class PopoverViewModelTests: XCTestCase {
         )
     }
 
-    func testResolveAntigravitySummaryStateDoesNotPromoteAccountMetadataToReady() {
-        let accountID = AntigravityAccountID(
-            rawValue:
-                "00000000-0000-0000-0000-000000000001"
-        )
-        let identity = ProviderAccountIdentity(
-            stableAccountID: "subject-a",
-            email: "nathan@example.com"
-        )
-        let state = PopoverViewModel.resolveAntigravitySummaryState(
-            snapshot: antigravityRuntimeSnapshot(
-                accounts: [
-                    AntigravityRuntimeAccountSummary(
-                        id: accountID,
-                        label: "Nathan",
-                        identity: identity,
-                        isActive: true
-                    ),
-                ],
-                activeAccountID: accountID
-            ),
-            isEnabled: true
-        )
-
-        XCTAssertEqual(state.phase, .probingRuntime)
-        XCTAssertEqual(state.summary, "사용량 조회 준비")
-    }
-
     private func antigravityRuntimeSnapshot(
         readiness:
             AntigravityRuntimeReadiness = .ready,
@@ -464,11 +447,7 @@ final class PopoverViewModelTests: XCTestCase {
                 .available(
                     displayPath:
                         "~/.local/bin/agy"
-                ),
-        accounts:
-            [AntigravityRuntimeAccountSummary] = [],
-        activeAccountID:
-            AntigravityAccountID? = nil
+            )
     ) -> AntigravityRuntimeSnapshot {
         let settings = AntigravitySettingsSnapshot(
             connection: .default,
@@ -476,10 +455,6 @@ final class PopoverViewModelTests: XCTestCase {
         )
         return AntigravityRuntimeSnapshot(
             readiness: readiness,
-            migrationStatus: nil,
-            repositoryRevision: 7,
-            accounts: accounts,
-            activeAccountID: activeAccountID,
             settings: settings,
             presentationState: presentationState,
             quotaPresentation:
@@ -750,14 +725,9 @@ final class PopoverViewModelTests: XCTestCase {
                 ),
                 for: .codex
             )
-            settings.setCompactPopoverItems(
-                makePopoverItems(
-                    ("codexPrimary", true),
-                    ("codexSecondary", false),
-                    ("codexCredits", false)
-                ),
-                for: .codex
-            )
+            XCTAssertEqual(
+                settings.compactPopoverItems(for: .codex), settings.popoverItems(for: .codex),
+                "따로 정하기 전 간소화 보기는 일반 항목을 그대로 씁니다")
 
             let viewModel = PopoverViewModel()
             viewModel.update(

@@ -150,14 +150,14 @@ final class AntigravitySettingsMigrationCoordinator {
         case unselected
         case requiresSelection
         case local(ProviderAccountIdentity)
-        case oauth(AntigravityAccountID)
+        case oauth(String)
 
         var isValid: Bool {
             switch self {
             case .awaitingMigration, .unselected, .requiresSelection: true
             case .local(let identity):
                 AntigravityAccountIdentityMatcher.match(expected: identity, received: identity).isMatch
-            case .oauth(let id): !id.rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            case .oauth(let id): !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }
         }
     }

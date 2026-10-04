@@ -65,7 +65,7 @@ extension SettingsView {
         NavigationSplitView {
             List(selection: sidebarSelection) {
                 if settings.welcomeState != .completed {
-                    Label("빠른 시작", systemImage: "sparkles").tag(SettingsProviderPanel.welcome)
+                    Label("시작하기", systemImage: "sparkles").tag(SettingsProviderPanel.welcome)
                 }
                 ForEach(SettingsProviderRegistry.sidebarPanels) { panel in
                     Label(panel.title, systemImage: panel.icon ?? "circle").tag(panel.panel)
@@ -161,6 +161,7 @@ extension SettingsView {
         }
         .onDisappear {
             codexAuthCheckTask?.cancel()
+                stopBrowserLoginWatch()
             antigravitySettings.stopObserving()
             cancelOrganizationLoad()
             flushPendingOrganizationPersistence()
@@ -280,14 +281,6 @@ extension SettingsView {
         switch action {
         case .resetDefaults:
             resetToDefaults()
-        case .clearBrowserSession:
-            handleClearBrowserSessionAction()
-        case .deleteClaudeAccount(let account):
-            deleteClaudeWebAccount(account)
-        case .disconnectAntigravityAccount:
-            disconnectSelectedAntigravityAccount()
-        case .disconnectAllAntigravityAccounts:
-            disconnectAllAntigravityAccounts()
         case .resetAllData(let plan):
             AppDataResetRequest.pending = plan
             NSApplication.shared.terminate(nil)
@@ -306,18 +299,13 @@ extension SettingsView {
             Divider()
             appDataResetSection
         case .accounts:
-            ProviderSettingsPicker(selection: $selectedAccountProvider)
+            ProviderSettingsPicker(selection: $selectedAccountProvider, purpose: "계정")
             Divider()
-            if let usageAccounts, let service = selectedAccountProvider.runtimeService, service != .antigravity {
+            if let usageAccounts, let service = selectedAccountProvider.runtimeService,
+                usageAccounts.supportsMultipleAccounts(service), settings.isProviderEnabled(selectedAccountProvider)
+            {
                 UsageAccountsSection(
-                    controller: usageAccounts, service: service,
-                    onLoginClaude: { onImportClaudeFromBrowser?(nil) },
-                    onOpenClaudeInAppLogin: { onOpenLogin?() },
-                    onEnterClaudeSessionKey: {
-                        withAnimation(settings.motion.animation(for: .disclosure, reduceMotion: reduceMotion)) {
-                            isAdvancedAuthExpanded = true
-                        }
-                    },
+                    controller: usageAccounts, service: service, onAdd: startAddingAccount,
                     onDeleteWebLogin: { webID in
                         if let account = ClaudeAccountStore.shared.accounts().first(where: { $0.id == webID }) {
                             deleteClaudeWebAccount(account)
@@ -340,6 +328,18 @@ extension SettingsView {
             AppMotionSettingsView(settings: settings)
         case .updates:
             updateSection
+        }
+    }
+
+    private func startAddingAccount(_ method: UsageAccountAddMethod) {
+        switch method {
+        case .browserImport: onImportClaudeFromBrowser?(nil)
+        case .inAppLogin: onOpenLogin?()
+        case .sessionKey:
+            withAnimation(settings.motion.animation(for: .disclosure, reduceMotion: reduceMotion)) {
+                isAdvancedAuthExpanded = true
+            }
+        case .deviceLogin, .folder: break
         }
     }
 
@@ -370,18 +370,8 @@ extension SettingsView {
             alignment: .leading,
             spacing: 16
         ) {
-            VStack(
-                alignment: .leading,
-                spacing: 5
-            ) {
-                Text("서비스별 표시")
-                    .font(AppDesign.Typography.headline)
-                Text(
-                    "서비스를 선택해 메뉴바와 팝오버 구성을 조정합니다."
-                )
-                .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
-            }
+            Text("서비스별 표시")
+                .font(AppDesign.Typography.headline)
 
             ProviderSettingsPicker(
                 selection:

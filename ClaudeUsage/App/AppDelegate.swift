@@ -6,6 +6,7 @@
 //
 
 import AppKit
+import Combine
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var ownsSingleInstanceLease = false
@@ -18,8 +19,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var resetFollowUpTimers: [PopoverService: Timer] = [:]
     var popoverCloseObserver: NSObjectProtocol?
     var resetCreditViewedServices: Set<PopoverService> = []
-    let usageAccountsController = UsageAccountsController()
+    let usageAccountsController = AppDelegate.makeUsageAccountsController()
     var usageAccountsObserver: NSObjectProtocol?
+    var usageAccountsProviderObservation: AnyCancellable?
+    var usageAccountsTimer: Timer?
     let updateCoordinator = AppUpdateCoordinator()
     lazy var apiService = ClaudeAPIService()
     let codexAPIService = CodexAPIService(authManager: CodexAuthManager.shared)

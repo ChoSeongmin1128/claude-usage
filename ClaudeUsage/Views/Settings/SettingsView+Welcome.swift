@@ -17,7 +17,7 @@ struct OnboardingDetection: Equatable {
         return await Task.detached(priority: .userInitiated) {
             OnboardingDetection(
                 isLoaded: true,
-                claudeCode: ClaudeCodeLoginDetector.hasLogin(),
+                claudeCode: await ClaudeCodeLoginDetector.hasLogin(),
                 browser: ClaudeBrowserLoginDetector.findLogin(),
                 defaultBrowser: ClaudeBrowserLoginDetector.defaultBrowserFamily(),
                 codex: CodexAuthStatusResolver.resolve(
@@ -59,7 +59,9 @@ extension SettingsView {
     }
 
     /// 확인 창 없이 쓸 수 있는 로그인(Claude Code 파일, Codex, AGY CLI)은 바로 켜고 사용량을 확인한다.
+    /// 시작하기를 미루거나 마친 뒤에는 켜지 않는다. 사용자가 끈 서비스를 다시 켜지 않기 위해서다.
     private func autoConnectDetectedServices() {
+        guard settings.welcomeState == .pending else { return }
         let detection = onboardingDetection
         var services: [PopoverService] = []
         if detection.claudeCode, ClaudeCodeLoginDetector.credentialFileExists() { services.append(.claude) }
@@ -101,14 +103,14 @@ extension SettingsView {
 
     private func claudeOnboardingRow() -> OnboardingServiceRow {
         let detection = onboardingDetection
-        let inApp = OnboardingServiceRow.Action(title: "앱 안 로그인") { onOpenEmbeddedLogin?() }
+        let inApp = OnboardingServiceRow.Action(title: "앱에서 로그인") { onOpenEmbeddedLogin?() }
         if browserLoginWatch != nil {
             return OnboardingServiceRow(
                 provider: .claude, status: "브라우저 로그인 기다리는 중", tone: .checking, secondary: inApp)
         }
         if settings.isProviderEnabled(.claude), hasReadyClaudeCredential {
             return OnboardingServiceRow(
-                provider: .claude, status: "확인 필요", tone: .ready,
+                provider: .claude, status: "확인 전", tone: .ready,
                 primary: .init(title: "사용량 확인") { connect(.claude) })
         }
         if detection.claudeCode {
@@ -156,11 +158,11 @@ extension SettingsView {
         case .notInstalled:
             return OnboardingServiceRow(
                 provider: .codex, status: "찾지 못함", tone: .missing,
-                primary: .init(title: "추가") { installGuide = .codex })
+                primary: .init(title: "설치 방법") { installGuide = .codex })
         case .notLoggedIn, .expired:
             return OnboardingServiceRow(
                 provider: .codex, status: "로그인 필요", tone: .missing,
-                primary: .init(title: "방법") { installGuide = .codex })
+                primary: .init(title: "로그인 방법") { installGuide = .codex })
         case .checking:
             return OnboardingServiceRow(provider: .codex, status: "찾는 중", tone: .checking)
         }
@@ -170,12 +172,12 @@ extension SettingsView {
         switch onboardingDetection.agy {
         case .verified:
             return OnboardingServiceRow(
-                provider: .antigravity, status: "AGY CLI 있음", tone: .ready,
+                provider: .antigravity, status: "AGY CLI 설치됨", tone: .ready,
                 primary: .init(title: "연결") { connect(.antigravity) })
         case .notFound, .rejected:
             return OnboardingServiceRow(
                 provider: .antigravity, status: "찾지 못함", tone: .missing,
-                primary: .init(title: "추가") { installGuide = .antigravity })
+                primary: .init(title: "설치 방법") { installGuide = .antigravity })
         }
     }
 
@@ -231,7 +233,7 @@ struct OnboardingInstallGuide: View {
                 step("ChatGPT 앱 설치", "chatgpt.com/download 에서 받습니다. ChatGPT Classic 앱에는 Codex가 없습니다.") {
                     Link("다운로드 페이지", destination: URL(string: "https://chatgpt.com/download")!)
                 }
-                step("ChatGPT 앱에서 Codex 로그인", "설치한 뒤 한 번 로그인합니다.") { EmptyView() }
+                step("ChatGPT 앱에서 Codex 로그인", nil) { EmptyView() }
                 Divider()
                 Text("터미널을 쓴다면").font(AppDesign.Typography.subheadline.weight(.semibold))
                 command(Self.codexInstall)
@@ -240,7 +242,7 @@ struct OnboardingInstallGuide: View {
                     .secondary)
             case .antigravity:
                 Text("AGY CLI가 필요합니다").font(AppDesign.Typography.headline)
-                step("터미널에서 설치", "아래 명령을 복사해 붙여 넣습니다.") { EmptyView() }
+                step("터미널에서 설치", nil) { EmptyView() }
                 command(Self.agyInstall)
                 step("agy 실행 후 로그인", "기본 브라우저가 열립니다.") {
                     Button("터미널 열기") {
@@ -265,14 +267,16 @@ struct OnboardingInstallGuide: View {
         .frame(width: 440)
     }
 
-    private func step<Trailing: View>(_ title: String, _ detail: String, @ViewBuilder trailing: () -> Trailing)
+    private func step<Trailing: View>(_ title: String, _ detail: String?, @ViewBuilder trailing: () -> Trailing)
         -> some View
     {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
                 Text(title).font(AppDesign.Typography.subheadline.weight(.semibold))
-                Text(detail).font(AppDesign.Typography.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let detail {
+                    Text(detail).font(AppDesign.Typography.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer()
             trailing()

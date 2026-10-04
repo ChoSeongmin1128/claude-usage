@@ -39,9 +39,9 @@ nonisolated struct CodexUsageResponse: Codable, Sendable {
 
     nonisolated init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        accountID = try container.decodeIfPresent(String.self, forKey: .accountID)
-        planType = try container.decodeIfPresent(String.self, forKey: .planType)
         // 창이 없거나 크레딧만 있는 요금제(Enterprise/Edu 유연 요금제)가 있다. 필드 하나가 전체를 깨지 않게 한다.
+        accountID = (try? container.decodeIfPresent(String.self, forKey: .accountID)) ?? nil
+        planType = (try? container.decodeIfPresent(String.self, forKey: .planType)) ?? nil
         rateLimit = (try? container.decodeIfPresent(CodexRateLimit.self, forKey: .rateLimit)) ?? nil
         credits = (try? container.decodeIfPresent(CodexCredits.self, forKey: .credits)) ?? nil
         additionalRateLimits = Self.decodeAdditionalRateLimits(from: container)
@@ -211,14 +211,16 @@ nonisolated struct CodexUsageWindow: Codable, Sendable {
             )
         }
 
-        // resetAt: Int 또는 Double
-        if let intVal = try? container.decode(Int.self, forKey: .resetAt) {
-            resetAt = Double(intVal)
+        // resetAt: Int, Double 또는 숫자 문자열. 읽지 못하면 초기화 시각만 비운다.
+        if let number = try? container.decode(Double.self, forKey: .resetAt) {
+            resetAt = number
+        } else if let text = try? container.decode(String.self, forKey: .resetAt), let number = Double(text) {
+            resetAt = number
         } else {
-            resetAt = try container.decodeIfPresent(Double.self, forKey: .resetAt)
+            resetAt = nil
         }
 
-        limitWindowSeconds = try container.decodeIfPresent(Int.self, forKey: .limitWindowSeconds)
+        limitWindowSeconds = (try? container.decodeIfPresent(Int.self, forKey: .limitWindowSeconds)) ?? nil
     }
 
     /// Unix timestamp → ISO 8601 문자열 (기존 TimeFormatter 재사용용)
@@ -235,16 +237,10 @@ nonisolated struct CodexUsageWindow: Codable, Sendable {
         usedPercent
     }
 
-    /// 윈도우 설명
+    /// 창 길이 이름. 한도 목록 제목과 같은 규칙을 쓴다.
     nonisolated var windowDescription: String {
-        guard let seconds = limitWindowSeconds else { return "" }
-        let hours = seconds / 3600
-        if hours >= 24 {
-            let days = hours / 24
-            if days == 7 { return "주간" }
-            return "\(days)일"
-        }
-        return "\(hours)시간"
+        guard let seconds = limitWindowSeconds, seconds > 0 else { return "" }
+        return UsageLimitCatalog.periodTitle(seconds)
     }
 
     /// limit_window_seconds가 기대값과 다르면 실제 창 길이를 라벨로 노출합니다.

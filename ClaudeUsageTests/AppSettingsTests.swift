@@ -1,8 +1,92 @@
+import Combine
 import XCTest
 @testable import ClaudeUsage
 
 @MainActor
 final class AppSettingsTests: XCTestCase {
+    func testTimeUnitLanguageDefaultsToEnglishForMissingAndUnknownValues() throws {
+        let suite = "AppSettingsTests.timeUnits.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        XCTAssertEqual(TimeUnitLanguage.load(from: defaults), .english)
+        XCTAssertEqual(AppSettings(defaults: defaults).timeUnitLanguage, .english)
+        defaults.set("unknown-future-language", forKey: TimeUnitLanguage.storageKey)
+        XCTAssertEqual(TimeUnitLanguage.load(from: defaults), .english)
+        XCTAssertEqual(AppSettings(defaults: defaults).timeUnitLanguage, .english)
+        XCTAssertEqual(TimeUnitLanguage.english.dayUnit, "d")
+        XCTAssertEqual(TimeUnitLanguage.english.hourUnit, "h")
+        XCTAssertEqual(TimeUnitLanguage.english.minuteUnit, "m")
+        XCTAssertEqual(TimeUnitLanguage.korean.dayUnit, "일")
+        XCTAssertEqual(TimeUnitLanguage.korean.hourUnit, "시간")
+        XCTAssertEqual(TimeUnitLanguage.korean.minuteUnit, "분")
+    }
+
+    func testTimeUnitLanguageRoundTripsIndependentlyOfLegacyRemainingClockFormat() throws {
+        let suite = "AppSettingsTests.timeUnits.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set("remaining_clock", forKey: "timeFormat")
+        let settings = AppSettings(defaults: defaults)
+        XCTAssertEqual(settings.timeFormat, .remainingClock)
+
+        settings.timeUnitLanguage = .korean
+        XCTAssertEqual(defaults.string(forKey: TimeUnitLanguage.storageKey), "ko")
+        XCTAssertEqual(defaults.string(forKey: "timeFormat"), "remaining_clock")
+        let relaunched = AppSettings(defaults: defaults)
+        XCTAssertEqual(relaunched.timeUnitLanguage, .korean)
+        XCTAssertEqual(relaunched.timeFormat, .remainingClock)
+        relaunched.timeFormat = .remainingTotalClock
+        XCTAssertEqual(AppSettings(defaults: defaults).timeUnitLanguage, .korean)
+        XCTAssertEqual(defaults.string(forKey: "timeFormat"), "remaining_total_clock")
+        relaunched.timeUnitLanguage = .english
+        XCTAssertEqual(defaults.string(forKey: TimeUnitLanguage.storageKey), "en")
+        XCTAssertEqual(AppSettings(defaults: defaults).timeUnitLanguage, .english)
+        XCTAssertEqual(relaunched.timeFormat, .remainingTotalClock)
+    }
+
+    func testTimeUnitLanguageSnapshotAndResetKeepProviderConfigsAligned() throws {
+        let suite = "AppSettingsTests.timeUnits.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        settings.timeFormat = .remainingClock
+        settings.timeUnitLanguage = .korean
+        let snapshot = settings.createSnapshot()
+        XCTAssertEqual(snapshot.timeUnitLanguage, .korean)
+        XCTAssertEqual(settings.timeUnitLanguage, .korean)
+        XCTAssertEqual(settings.timeFormat, .remainingClock)
+        for kind in [AppProviderKind.claude, .codex] {
+            let config = try XCTUnwrap(settings.menuBarDisplayConfig(for: kind))
+            XCTAssertEqual(config.timeUnitLanguage, .korean)
+            XCTAssertEqual(config.timeFormat, .remainingClock)
+        }
+        settings.resetToDefaults()
+        XCTAssertEqual(settings.timeUnitLanguage, .english)
+        XCTAssertEqual(AppSettings(defaults: defaults).timeUnitLanguage, .english)
+        XCTAssertEqual(defaults.string(forKey: TimeUnitLanguage.storageKey), "en")
+    }
+
+    func testTimeUnitLanguageChangePublishesAndChangesMenuBarConfig() throws {
+        let suite = "AppSettingsTests.timeUnits.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        let original = try XCTUnwrap(settings.menuBarDisplayConfig(for: .claude))
+        var changes = 0
+        let subscription = settings.menuBarDisplayChangePublisher.sink { changes += 1 }
+        defer { subscription.cancel() }
+        let initialChanges = changes
+
+        settings.timeUnitLanguage = .korean
+
+        XCTAssertEqual(changes, initialChanges + 1)
+        let updated = try XCTUnwrap(settings.menuBarDisplayConfig(for: .claude))
+        XCTAssertNotEqual(updated, original)
+        XCTAssertEqual(updated.timeUnitLanguage, .korean)
+        XCTAssertEqual(updated.timeFormat, original.timeFormat)
+    }
+
     func testMotionDefaultsPreserveLegacySettingsAndPersistSelection() throws {
         let suite = "AppSettingsTests.motion.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -15,10 +99,13 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(settings.popoverPinned)
         settings.motion.mode = .smooth
         XCTAssertEqual(AppSettings(defaults: defaults).motion.mode, .smooth)
+        settings.timeUnitLanguage = .korean
         let snapshot = settings.createSnapshot()
         settings.motion.mode = .instant
+        settings.timeUnitLanguage = .english
         settings.restore(from: snapshot)
         XCTAssertEqual(settings.motion.mode, .smooth)
+        XCTAssertEqual(settings.timeUnitLanguage, .korean)
         defaults.removeObject(forKey: "motionPreferences")
         defaults.set("unknown-future-value", forKey: "popoverTransitionStyle")
         XCTAssertEqual(AppSettings(defaults: defaults).motion.mode, .instant)
@@ -263,91 +350,14 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(catalog.states.keys.sorted { $0.rawValue < $1.rawValue }, [.antigravity, .claude, .codex])
     }
 
-    func testAdditionalRuntimeProvidersMigrationDefaultsToClaudeOnly() {
-        let suiteName = "ClaudeUsageTests.additionalProvidersDefault.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            return XCTFail("테스트 UserDefaults suite를 만들지 못했습니다")
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        let inferred = AppSettings.inferredAdditionalRuntimeProvidersEnabled(
-            from: defaults,
-            decodedProviderStates: nil,
-            legacyCodexEnabled: false,
-            activeService: "claude"
-        )
-
-        XCTAssertFalse(inferred)
-    }
-
-    func testAdditionalRuntimeProvidersMigrationDetectsExistingProviderUse() {
-        let suiteName = "ClaudeUsageTests.additionalProvidersExisting.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            return XCTFail("테스트 UserDefaults suite를 만들지 못했습니다")
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        var catalog = AppProviderStateCatalog.defaultCatalog
-        catalog.setEnabled(true, for: .antigravity)
-
-        XCTAssertTrue(AppSettings.inferredAdditionalRuntimeProvidersEnabled(
-            from: defaults,
-            decodedProviderStates: catalog,
-            legacyCodexEnabled: false,
-            activeService: "claude"
-        ))
-
-        XCTAssertTrue(AppSettings.inferredAdditionalRuntimeProvidersEnabled(
-            from: defaults,
-            decodedProviderStates: nil,
-            legacyCodexEnabled: true,
-            activeService: "claude"
-        ))
-
-        XCTAssertTrue(AppSettings.inferredAdditionalRuntimeProvidersEnabled(
-            from: defaults,
-            decodedProviderStates: nil,
-            legacyCodexEnabled: false,
-            activeService: "antigravity"
-        ))
-    }
-
-    func testAdditionalRuntimeProvidersExplicitSettingWinsMigrationInference() {
-        let suiteName = "ClaudeUsageTests.additionalProvidersExplicit.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            return XCTFail("테스트 UserDefaults suite를 만들지 못했습니다")
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.set(false, forKey: "additionalRuntimeProvidersEnabled")
-        var catalog = AppProviderStateCatalog.defaultCatalog
-        catalog.setEnabled(true, for: .codex)
-
-        let inferred = AppSettings.inferredAdditionalRuntimeProvidersEnabled(
-            from: defaults,
-            decodedProviderStates: catalog,
-            legacyCodexEnabled: true,
-            activeService: "codex"
-        )
-
-        XCTAssertFalse(inferred)
-    }
-
-    func testLegacyAdditionalProviderGateNoLongerHidesEnabledProviders() {
+    func testEnabledProvidersAreAllExposed() {
         let settings = AppSettings.shared
         let snapshot = settings.createSnapshot()
         defer { settings.restore(from: snapshot) }
 
         settings.setProviderEnabled(true, for: .claude)
-        settings.additionalRuntimeProvidersEnabled = true
         settings.setProviderEnabled(true, for: .codex)
         settings.setProviderEnabled(true, for: .antigravity)
-
-        XCTAssertEqual(settings.runtimeEnabledProviderKinds, [.claude, .codex, .antigravity])
-        XCTAssertEqual(settings.providerSelectionState.exposedRuntimeKinds, [.claude, .codex, .antigravity])
-        XCTAssertEqual(ServiceSelectionHelper.exposedServices(settings: settings), [.claude, .codex, .antigravity])
-
-        settings.additionalRuntimeProvidersEnabled = false
 
         XCTAssertEqual(settings.runtimeEnabledProviderKinds, [.claude, .codex, .antigravity])
         XCTAssertEqual(settings.providerSelectionState.exposedRuntimeKinds, [.claude, .codex, .antigravity])
@@ -356,11 +366,6 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(settings.isProviderEnabled(.antigravity))
         XCTAssertTrue(settings.providerState(for: .codex).isEnabled)
         XCTAssertTrue(settings.providerState(for: .antigravity).isEnabled)
-
-        settings.additionalRuntimeProvidersEnabled = true
-
-        XCTAssertTrue(settings.isProviderEnabled(.codex))
-        XCTAssertTrue(settings.isProviderEnabled(.antigravity))
     }
 
     func testSettingsSidebarAlwaysShowsNavigationAndProviders() {
@@ -427,6 +432,34 @@ final class AppSettingsTests: XCTestCase {
         for key in legacyKeys {
             XCTAssertNil(UserDefaults.standard.object(forKey: key), key)
         }
+    }
+
+    func testResetToDefaultsKeepsServicesAndRestoresDisplayChoices() throws {
+        let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+        let suite = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { suite.removePersistentDomain(forName: suiteName) }
+        let settings = AppSettings(defaults: suite)
+        settings.setProviderEnabled(true, for: .codex)
+        settings.menuBarColorMode = .monochrome
+        settings.setResetCreditMenuBarMode(.off, for: .claude)
+
+        settings.resetToDefaults()
+
+        XCTAssertTrue(settings.isProviderEnabled(.codex), "서비스 사용 여부는 기본값 복원 대상이 아닙니다")
+        XCTAssertEqual(settings.menuBarColorMode, .always)
+        XCTAssertEqual(settings.resetCreditMenuBarMode(for: .claude), .always)
+    }
+
+    func testFirstLaunchResetCreditDefaultSurvivesRelaunch() throws {
+        let suiteName = "AppSettingsTests.\(UUID().uuidString)"
+        let suite = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { suite.removePersistentDomain(forName: suiteName) }
+
+        let first = AppSettings(defaults: suite)
+        let initial = first.resetCreditMenuBarMode(for: .claude)
+        let relaunched = AppSettings(defaults: suite)
+
+        XCTAssertEqual(relaunched.resetCreditMenuBarMode(for: .claude), initial)
     }
 
     // MARK: - Provider legacy mirror

@@ -139,10 +139,9 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
 
         // The CLI target reads only the report, through the same coordinator
         // path that production refreshes use.
-        let coordinator = AntigravityRefreshCoordinator(
-            repository: LiveAGYRefreshRepository(), sources: [source])
+        let coordinator = AntigravityRefreshCoordinator(sources: [source])
         let automatic = await coordinator.refresh(
-            AntigravityRefreshRequest(trigger: .manual, repositoryRevision: 0, connection: .default))
+            AntigravityRefreshRequest(trigger: .manual, connection: .default))
         switch automatic {
         case .ready(let value), .partial(let value, _):
             XCTAssertEqual(value.provenance.transport, .cliUsageReport)
@@ -217,9 +216,4 @@ final class AntigravityLiveAGYIntegrationTests: XCTestCase {
 private enum LiveAGYIntegrationTestError: Error {
     case accountSwitch
     case report(String)
-}
-
-/// The report path never reads or writes account credentials.
-private struct LiveAGYRefreshRepository: AntigravityRefreshAccountRepository {
-    func state() async throws -> AntigravityAccountRepositoryState { .init() }
 }

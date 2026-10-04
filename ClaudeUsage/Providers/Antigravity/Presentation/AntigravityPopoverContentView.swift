@@ -36,7 +36,8 @@ struct AntigravityPopoverContentView: View {
                     summary.actionIsProminent
                         ? .prominent
                         : .bordered,
-                action: action(for: summary.action)
+                action: action(for: summary.action),
+                isActionEnabled: summary.action != .retry || viewModel.canRefresh(service: .antigravity)
             )
         }
     }
@@ -48,13 +49,8 @@ struct AntigravityPopoverContentView: View {
     ) -> some View {
         if presentation.groups.isEmpty {
             VStack(alignment: .leading, spacing: AppDesign.Space.control) {
-                Text("표시할 사용량 한도 없음")
+                Text("표시할 한도 없음")
                     .font(AppDesign.Typography.subheadline.weight(.semibold))
-                Text(
-                    "현재 응답에는 표시하도록 선택한 수치형 quota가 없습니다."
-                )
-                .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
             }
             .frame(
                 maxWidth: .infinity,

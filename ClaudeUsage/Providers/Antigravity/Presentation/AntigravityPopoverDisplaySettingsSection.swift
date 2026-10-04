@@ -9,8 +9,6 @@ struct AntigravityPopoverDisplaySettingsSection: View {
     var body: some View {
         ProviderDisplayEditorShell(
             title: "팝오버 표시 항목",
-            description:
-                "Antigravity 팝오버에서 일반/간소화 보기별 한도와 순서를 정합니다.",
             selectedMode: $selectedMode
         ) {
             preview
@@ -28,9 +26,7 @@ struct AntigravityPopoverDisplaySettingsSection: View {
                         alignment: .leading
                     )
 
-                Text(
-                    "눈 아이콘으로 표시 여부를 바꾸고, 항목을 드래그해 순서를 조정합니다. 데이터가 없는 한도도 선택은 유지됩니다."
-                )
+                Text("드래그해 순서를 바꿉니다.")
                 .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
             }
@@ -87,7 +83,7 @@ struct AntigravityPopoverDisplaySettingsSection: View {
                 display: display
             )
         ) {
-            Text("제약 높은 순")
+            Text("많이 쓴 순")
                 .tag(
                     AntigravityDisplaySettings
                         .LaneOrderingPolicy
@@ -263,19 +259,17 @@ struct AntigravityPopoverDisplaySettingsSection: View {
     ) -> String {
         switch state {
         case .refreshing:
-            "사용량을 확인하고 있습니다."
+            "확인 중"
         case .setupRequired:
-            "Antigravity 앱 또는 AGY CLI에서 로그인한 뒤 로컬 계정을 선택해 주세요."
+            "AGY CLI에 로그인하세요."
         case .accountMismatch:
-            "계정이 일치하지 않아 사용량을 표시하지 않았습니다."
-        case .limited:
-            "현재 연결에서는 수치형 quota를 제공하지 않습니다."
-        case .identityOnly:
-            "계정은 확인했지만 표시할 quota가 없습니다."
+            "계정이 일치하지 않아 사용량을 숨겼습니다."
+        case .limited, .identityOnly:
+            "AGY CLI가 사용량 수치를 주지 않았습니다."
         case .failed:
             "사용량을 불러오지 못했습니다."
         case .disabled:
-            "Antigravity가 비활성화되어 있습니다."
+            "Antigravity 사용이 꺼져 있습니다."
         case .ready,
              .partial,
              .stale:
