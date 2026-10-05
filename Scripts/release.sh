@@ -1061,7 +1061,7 @@ TEST_SUMMARY="$(
 )"
 echo "$TEST_SUMMARY"
 
-LIVE_AGY_TEST_BUNDLE="$TEST_DERIVED_DATA/Build/Products/Debug/ClaudeUsageTests.xctest"
+LIVE_AGY_TEST_BUNDLE="$TEST_DERIVED_DATA/Build/Products/Debug/ClaudeUsageSettingsTestHost.app/Contents/PlugIns/ClaudeUsageTests.xctest"
 [[ -d "$LIVE_AGY_TEST_BUNDLE" ]] \
     || die "실제 AGY smoke test bundle을 찾지 못했습니다: $LIVE_AGY_TEST_BUNDLE"
 echo

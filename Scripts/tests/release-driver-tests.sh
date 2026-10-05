@@ -903,7 +903,7 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$derived_data" && -n "$result_bundle" ]]
 mkdir -p \
-    "$derived_data/Build/Products/Debug/ClaudeUsageTests.xctest" \
+    "$derived_data/Build/Products/Debug/ClaudeUsageSettingsTestHost.app/Contents/PlugIns/ClaudeUsageTests.xctest" \
     "$result_bundle"
 SCRIPT
 
@@ -1088,6 +1088,17 @@ assert_contains "$SCENARIO_TRACE" "xcrun <xctest> <-XCTest> <AntigravityLiveAGYI
 assert_contains "$SCENARIO_TRACE" "xcrun <xctest> <-XCTest> <AntigravityLiveLocalSelectionTests/testOfficialCLITargetPersistsWithoutOAuthAndLeavesNoLedger>" "fresh live local account selection"
 assert_contains "$SCENARIO_TRACE" "xcrun-env <CLAUDEUSAGE_RUN_LIVE_AGY_TESTS=1>" "fresh live AGY opt-in"
 assert_contains "$SCENARIO_TRACE" "xcrun-env <CLAUDEUSAGE_RUN_LIVE_CODEX_TESTS=1>" "fresh live Codex opt-in"
+LIVE_GATE_COUNT=0
+while IFS= read -r LIVE_GATE_TRACE; do
+    case "$LIVE_GATE_TRACE" in
+        'xcrun <xctest>'*)
+            assert_contains "$LIVE_GATE_TRACE" "/Debug/ClaudeUsageSettingsTestHost.app/Contents/PlugIns/ClaudeUsageTests.xctest>" \
+                "fresh live gate uses the hosted test bundle"
+            LIVE_GATE_COUNT=$((LIVE_GATE_COUNT + 1))
+            ;;
+    esac
+done <<< "$SCENARIO_TRACE"
+assert_equal "4" "$LIVE_GATE_COUNT" "fresh requires all four hosted live gates"
 assert_contains "$SCENARIO_TRACE" "xcrun <xctest> <-XCTest> <CodexLiveNativeIntegrationTests/testCurrentNativeAccountReturnsAuthenticatedQuota>" "fresh native Codex identity gate"
 assert_contains "$SCENARIO_OUTPUT" "staging 전환:     2.4.0 식별자 최초 배포" "fresh identity bootstrap output"
 assert_not_contains "$SCENARIO_TRACE" "verify <--tag> <v2.3.3-staging>" "fresh legacy staging verification skipped"
