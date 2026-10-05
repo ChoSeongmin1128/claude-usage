@@ -354,3 +354,88 @@ private actor
         continuations.removeValue(forKey: id)
     }
 }
+
+extension AntigravitySettingsViewModelTests {
+    func testImmediateBootstrapReturnKeepsRuntimeLoadingUntilReadyStreamPublication() async throws {
+        let typedBase = Self.snapshot(revision: 7)
+        let typedSettings = try XCTUnwrap(typedBase.settings)
+        let now = Date(timeIntervalSince1970: 1_900_000_000)
+        let utc = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        let lanes = [
+            AntigravityQuotaLane(
+                id: .geminiWeekly, upstreamGroupID: "gemini", upstreamBucketID: "weekly",
+                scope: .gemini, cadence: .weekly, remainingFraction: 0.8,
+                resetAt: now.addingTimeInterval(86400), resetDescription: nil, availability: .available),
+            AntigravityQuotaLane(
+                id: .thirdPartyWeekly, upstreamGroupID: "third-party", upstreamBucketID: "weekly",
+                scope: .thirdPartyModels, cadence: .weekly, remainingFraction: 0.4,
+                resetAt: now.addingTimeInterval(86400), resetDescription: nil, availability: .available),
+        ]
+        let finalQuota = AntigravityQuotaSnapshot(
+            identity: nil, plan: nil, lanes: lanes, decodeIssues: [],
+            provenance: .init(
+                transport: .cliUsageReport, endpointOwner: .managed, accountIdentity: nil,
+                capability: .groupedQuotaSummary, processIdentity: nil),
+            fetchedAt: now)
+
+        func publication(
+            readiness: AntigravityRuntimeReadiness,
+            presentation: AntigravityPresentationState,
+            revision: UInt64
+        ) -> AntigravityRuntimeSnapshot {
+            AntigravityRuntimeSnapshot(
+                readiness: readiness, settings: typedSettings, presentationState: presentation,
+                quotaPresentation: AntigravityQuotaPresentationMapper.map(
+                    state: presentation, settings: typedSettings.display, now: now, timeZone: utc),
+                managedRuntimeAvailability: typedBase.managedRuntimeAvailability,
+                lastAttemptAt: now, lastSuccessfulAt: readiness == .ready ? now : nil,
+                publicationRevision: revision)
+        }
+
+        // This double returns immediately, matching a second bootstrap caller while the actor is still busy.
+        let bootstrapping = publication(readiness: .bootstrapping, presentation: .disabled, revision: 7)
+        let controller = AntigravitySettingsRuntimeControllerDouble(snapshot: bootstrapping)
+        let viewModel = AntigravitySettingsViewModel(runtimeController: controller)
+        defer { viewModel.stopObserving() }
+        XCTAssertFalse(viewModel.state.isRuntimeLoading)
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.state.activity, .idle)
+        XCTAssertEqual(viewModel.state.connection, typedSettings.connection)
+        XCTAssertEqual(viewModel.state.display, typedSettings.display)
+        XCTAssertTrue(
+            viewModel.state.isRuntimeLoading,
+            "Typed display exists and load() returned, but the shared runtime has not finished.")
+        XCTAssertEqual(viewModel.state.publicationRevision, 7)
+        XCTAssertEqual(viewModel.state.quotaPresentation, .unavailable(.disabled))
+
+        // Readiness can already be .ready while its refresh is still pending. Use the canonical isLoading
+        // projection rather than deriving this state from readiness or local activity alone.
+        let refreshing = publication(
+            readiness: .ready, presentation: .refreshing(previous: nil), revision: 8)
+        await controller.publish(refreshing)
+        await waitUntil { viewModel.state.publicationRevision == 8 }
+        XCTAssertEqual(viewModel.state.activity, .idle)
+        XCTAssertTrue(viewModel.state.isRuntimeLoading)
+        XCTAssertEqual(viewModel.state.quotaPresentation, .unavailable(.refreshing(previous: nil)))
+
+        let ready = publication(readiness: .ready, presentation: .ready(finalQuota), revision: 9)
+        await controller.publish(ready)
+        await waitUntil { viewModel.state.publicationRevision == 9 }
+
+        XCTAssertEqual(viewModel.state.activity, .idle)
+        XCTAssertFalse(viewModel.state.isRuntimeLoading)
+        XCTAssertEqual(viewModel.state.presentation, .ready(finalQuota))
+        XCTAssertEqual(viewModel.state.connection, typedSettings.connection)
+        XCTAssertEqual(viewModel.state.display, typedSettings.display)
+        guard case .content(let visibleQuota) = viewModel.state.quotaPresentation else {
+            return XCTFail("The final stream publication must replace unavailable quota UI with content.")
+        }
+        XCTAssertEqual(
+            Set(visibleQuota.groups.flatMap(\.lanes).map(\.id)),
+            Set([AntigravityQuotaLaneID.geminiWeekly, .thirdPartyWeekly]))
+        let bootstrapArguments = await controller.bootstrapArguments()
+        XCTAssertEqual(bootstrapArguments, [true], "Readiness must update through observation without a second load.")
+    }
+}

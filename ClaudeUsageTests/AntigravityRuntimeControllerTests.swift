@@ -34,22 +34,22 @@ final class AntigravityRuntimeControllerTests:
         XCTAssertEqual(ignored.publicationRevision, stopped.publicationRevision)
     }
 
-    func testTimeUnitLanguageReprojectsWithoutQueryOrSettingsWrite() async {
+    func testTimeFormatReprojectsWithoutQueryOrSettingsWrite() async {
         let fixture = makeFixture()
         _ = await fixture.controller.bootstrap(performInitialRefresh: true)
         await fixture.lifecycle.waitUntilCleanupFinished()
         await fixture.accountCleanup.waitUntilFinished()
-        let english = await fixture.controller.setTimeFormat(.remainingClock, unitLanguage: .english)
+        let clock = await fixture.controller.setTimeFormat(.h24)
         let requests = await fixture.refresh.requests()
         let writes = await fixture.settings.displaySaveCount()
 
-        let korean = await fixture.controller.setTimeFormat(.remainingClock, unitLanguage: .korean)
-        let repeated = await fixture.controller.setTimeFormat(.remainingClock, unitLanguage: .korean)
+        let remaining = await fixture.controller.setTimeFormat(.remaining)
+        let repeated = await fixture.controller.setTimeFormat(.remaining)
 
-        XCTAssertEqual(korean.publicationRevision, english.publicationRevision + 1)
-        XCTAssertEqual(repeated.publicationRevision, korean.publicationRevision)
-        XCTAssertEqual(korean.presentationState, english.presentationState)
-        XCTAssertEqual(korean.settings, english.settings)
+        XCTAssertEqual(remaining.publicationRevision, clock.publicationRevision + 1)
+        XCTAssertEqual(repeated.publicationRevision, remaining.publicationRevision)
+        XCTAssertEqual(remaining.presentationState, clock.presentationState)
+        XCTAssertEqual(remaining.settings, clock.settings)
         let finalRequests = await fixture.refresh.requests()
         let finalWrites = await fixture.settings.displaySaveCount()
         XCTAssertEqual(finalRequests.count, requests.count)

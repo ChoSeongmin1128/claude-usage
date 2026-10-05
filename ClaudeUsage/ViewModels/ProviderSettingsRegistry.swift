@@ -1,74 +1,76 @@
 import Foundation
 
-enum SettingsProviderPanel: String, CaseIterable, Identifiable, Sendable {
+nonisolated enum SettingsProviderPanel: String, CaseIterable, Sendable {
     case welcome
     case common
-    case accounts
-    case limits
     case display
     case updates
+    case claude
+    case codex
+    case antigravity
 
-    var id: String { rawValue }
+    var providerKind: AppProviderKind? {
+        switch self {
+        case .claude: .claude
+        case .codex: .codex
+        case .antigravity: .antigravity
+        case .welcome, .common, .display, .updates: nil
+        }
+    }
 
-    /// 저장된 탭 값을 패널로 바꾼다. 이전 버전의 서비스별 탭은 계정 패널의 그 서비스로 연다.
-    nonisolated static func resolve(storedValue: String) -> (panel: SettingsProviderPanel, provider: AppProviderKind?)?
-    {
-        if let panel = SettingsProviderPanel(rawValue: storedValue) { return (panel, nil) }
-        if storedValue == "notifications" { return (.limits, nil) }
-        if let provider = AppProviderKind(rawValue: storedValue) { return (.accounts, provider) }
-        return nil
+    static func service(_ provider: AppProviderKind) -> Self {
+        switch provider {
+        case .claude: .claude
+        case .codex: .codex
+        case .antigravity: .antigravity
+        }
+    }
+
+    /// 이전 패널 이름은 입력 경계에서만 현재 목적지로 해석한다.
+    static func resolve(
+        storedValue: String, fallbackProvider: AppProviderKind = .claude
+    ) -> (panel: SettingsProviderPanel, provider: AppProviderKind?)? {
+        if let panel = Self(rawValue: storedValue) { return (panel, panel.providerKind) }
+        switch storedValue {
+        case "accounts", "limits": return (.service(fallbackProvider), fallbackProvider)
+        case "notifications": return (.common, nil)
+        default: return nil
+        }
     }
 }
 
-struct SettingsProviderPanelDescriptor: Identifiable, Sendable, Equatable {
-    enum Availability: Sendable, Equatable {
-        case active
-        case comingSoon(message: String)
+nonisolated enum SettingsSection: String, Hashable, Sendable {
+    case connection
+    case menuBar
+    case limits
+    case popover
+}
 
-        var badgeTitle: String? {
-            switch self {
-            case .active:
-                return nil
-            case .comingSoon:
-                return "준비 중"
-            }
-        }
+nonisolated struct SettingsDestination: Equatable, Sendable {
+    let panel: SettingsProviderPanel
+    var section: SettingsSection? = nil
+}
 
-        var detailMessage: String? {
-            switch self {
-            case .active:
-                return nil
-            case .comingSoon(let message):
-                return message
-            }
-        }
-    }
-
+nonisolated struct SettingsProviderPanelDescriptor: Identifiable, Sendable, Equatable {
     let panel: SettingsProviderPanel
     let title: String
-    let icon: String?
-    let providerKind: AppProviderKind?
-    let availability: Availability
+    let icon: String
 
-    var id: String { panel.rawValue }
+    var id: SettingsProviderPanel { panel }
+    var providerKind: AppProviderKind? { panel.providerKind }
 }
 
 enum SettingsProviderRegistry {
-    nonisolated static let providerDescriptors: [ProviderDescriptor] = AppProviderKind.allCases.map(\.descriptor)
+    nonisolated static let appPanels: [SettingsProviderPanelDescriptor] = [
+        .init(panel: .common, title: "일반", icon: "gearshape"),
+        .init(panel: .display, title: "표시", icon: "menubar.rectangle"),
+        .init(panel: .updates, title: "업데이트", icon: "arrow.down.circle"),
+    ]
 
-    nonisolated static var sidebarPanels: [SettingsProviderPanelDescriptor] {
-        sidebarPanels(exposurePolicy: .allSupported)
-    }
+    nonisolated static let servicePanels: [SettingsProviderPanelDescriptor] = [
+        .init(panel: .claude, title: "Claude", icon: "person.crop.circle"),
+        .init(panel: .codex, title: "Codex", icon: "person.crop.circle"),
+        .init(panel: .antigravity, title: "Antigravity", icon: "person.crop.circle"),
+    ]
 
-    nonisolated static func sidebarPanels(exposurePolicy: ProviderExposurePolicy) -> [SettingsProviderPanelDescriptor] {
-        [
-            .init(panel: .common, title: "일반", icon: "gearshape", providerKind: nil, availability: .active),
-            .init(panel: .accounts, title: "계정", icon: "person.crop.circle", providerKind: nil, availability: .active),
-            .init(
-                panel: .limits, title: "한도", icon: "gauge.with.dots.needle.33percent", providerKind: nil,
-                availability: .active),
-            .init(panel: .display, title: "모양", icon: "paintbrush", providerKind: nil, availability: .active),
-            .init(panel: .updates, title: "업데이트", icon: "arrow.down.circle", providerKind: nil, availability: .active),
-        ]
-    }
 }

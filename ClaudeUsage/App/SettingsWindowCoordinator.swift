@@ -3,9 +3,9 @@ import SwiftUI
 
 extension Notification.Name {
     nonisolated static let
-        settingsDisplayProviderRequested =
+    settingsDestinationRequested =
             Notification.Name(
-                "com.claudeusage.settingsDisplayProviderRequested"
+            "com.claudeusage.settingsDestinationRequested"
             )
 }
 

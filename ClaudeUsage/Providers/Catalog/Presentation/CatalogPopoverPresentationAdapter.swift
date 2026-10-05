@@ -69,9 +69,9 @@ nonisolated enum CatalogPopoverPresentationAdapter {
             icon: "slider.horizontal.3",
             title: "표시할 항목 없음",
             message:
-                "표시 편집에서 한 항목 이상 고르세요.",
-            actionTitle: "표시 편집",
-            action: .openDisplayEditor
+                "팝업 표시 설정에서 한 항목 이상 고르세요.",
+            actionTitle: "팝업 표시 설정",
+            action: .openDisplaySettings
         )
     }
 

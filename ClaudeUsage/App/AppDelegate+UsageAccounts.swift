@@ -113,9 +113,7 @@ extension AppDelegate {
                     badges: controller.badges(for: account),
                     status: isRuntime ? .current : state.status(isArchived: controller.isArchived(account)),
                     usage: isRuntime ? runtimeUsage : state.usage,
-                    fetchedAt: isRuntime ? runtime.lastUpdated : state.fetchedAt, isRuntime: isRuntime, basis: basis,
-                    timeFormatStyle: AppSettings.shared.timeFormat,
-                    timeUnitLanguage: AppSettings.shared.timeUnitLanguage)
+                    fetchedAt: isRuntime ? runtime.lastUpdated : state.fetchedAt, isRuntime: isRuntime, basis: basis)
             }
             result[service] = MultiAccountPresentation(
                 service: service, mode: controller.popoverMode(for: service), rows: rows,

@@ -93,7 +93,7 @@ struct AntigravityPopoverContentView: View {
                 )
             }
         case .startClaudeLogin,
-             .openDisplayEditor:
+            .openDisplaySettings:
             nil
         case nil:
             nil

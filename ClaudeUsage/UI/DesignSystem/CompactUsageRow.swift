@@ -6,7 +6,6 @@ struct CompactUsageRow: View {
     var resetAt: String? = nil
     var isWeekly: Bool = false
     var timeFormatStyle: TimeFormatStyle = .h24
-    var timeUnitLanguage: TimeUnitLanguage = .english
     var showsResetDetail = true
     var color: Color? = nil
     var percentageText: String? = nil
@@ -81,7 +80,7 @@ struct CompactUsageRow: View {
         if let resetAt {
             values.append(
                 TimeFormatter.formatRelativeTimeWithClock(
-                    from: resetAt, style: timeFormatStyle, unitLanguage: timeUnitLanguage))
+                    from: resetAt, style: timeFormatStyle))
         }
         return values.joined(separator: ", ")
     }
@@ -118,6 +117,6 @@ struct CompactUsageRow: View {
             return nil
         }
         return TimeFormatter.formatCompactUsageReset(
-            from: resetAt, isWeekly: isWeekly, style: timeFormatStyle, unitLanguage: timeUnitLanguage)
+            from: resetAt, isWeekly: isWeekly, style: timeFormatStyle)
     }
 }

@@ -6,7 +6,7 @@ struct ProviderPopoverContentHost: View {
     let service: PopoverService
     let layoutSpec: PopoverLayoutSpec
     let sections: [PopoverDisplaySection]
-    let onOpenDisplayEditor: () -> Void
+    let onOpenDisplaySettings: () -> Void
 
     var body: some View {
         if service == .antigravity {
@@ -167,8 +167,8 @@ struct ProviderPopoverContentHost: View {
             {
                 viewModel.startClaudeLogin()
             }
-        case .openDisplayEditor:
-            onOpenDisplayEditor
+        case .openDisplaySettings:
+            onOpenDisplaySettings
         case nil:
             nil
         }

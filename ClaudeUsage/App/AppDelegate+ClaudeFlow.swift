@@ -77,12 +77,12 @@ extension AppDelegate {
     func makeSettingsView(
         antigravityRuntimeController:
             AntigravityRuntimeController,
-        initialPanel: SettingsProviderPanel? = nil
+        initialPanel: SettingsProviderPanel? = nil,
+        initialSection: SettingsSection? = nil
     ) -> SettingsView {
         SettingsView(
             claudeAPIService: apiService,
-            antigravityRuntimeController:
-                antigravityRuntimeController,
+            antigravitySettings: AntigravitySettingsViewModel(runtimeController: antigravityRuntimeController),
             onOpenLogin: { [weak self] in
                 if AppSettings.shared.settingsLastTab != SettingsProviderPanel.welcome.rawValue {
                     self?.settingsWindowCoordinator.close()
@@ -129,6 +129,7 @@ extension AppDelegate {
                 self?.runtimeProviderState(for: .codex).error
             },
             initialPanel: initialPanel,
+            initialSection: initialSection,
             welcomeStatuses: { [weak self] in
                 guard let self else { return [:] }
                 return Dictionary(
@@ -152,71 +153,64 @@ extension AppDelegate {
         )
     }
 
-    func showSettingsWindow(
-        settingsPanelRawValue: String? = nil
-    ) {
-        setupWizardWindowCoordinator.close()
-        if setupWizardCredentialStepOverride == .manualSessionKey {
-            setupWizardCredentialStepOverride = nil
-        }
+    func showSettingsWindow(destination: SettingsDestination) {
+        showSettingsWindow(settingsPanelRawValue: destination.panel.rawValue, section: destination.section)
+    }
 
-        if settingsPanelRawValue == nil && AppSettings.shared.welcomeState == .pending {
-            AppSettings.shared.settingsLastTab = SettingsProviderPanel.welcome.rawValue
+    func showSettingsWindow(settingsPanelRawValue: String? = nil, section: SettingsSection? = nil) {
+        setupWizardWindowCoordinator.close()
+        if setupWizardCredentialStepOverride == .manualSessionKey { setupWizardCredentialStepOverride = nil }
+        let settings = AppSettings.shared
+        if settingsPanelRawValue == nil && settings.welcomeState == .pending {
+            settings.settingsLastTab = SettingsProviderPanel.welcome.rawValue
         } else if settingsPanelRawValue == nil {
             applyClaudeSetupLandingTabsIfNeeded()
-        } else if let settingsPanelRawValue {
-            AppSettings.shared.settingsLastTab =
-                settingsPanelRawValue
+        } else if let settingsPanelRawValue,
+            let resolved = SettingsProviderPanel.resolve(
+                storedValue: settingsPanelRawValue, fallbackProvider: settings.activeProviderKind ?? .claude)
+        {
+            settings.settingsLastTab = resolved.panel.rawValue
         }
+        pendingSettingsSection = section
         if settingsWindowCoordinator.focusIfVisible() {
+            deliverPendingSettingsDestination()
             return
         }
-        guard settingsWindowPresentationTask == nil
-        else {
-            return
-        }
-
-        settingsWindowPresentationTask =
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                let runtime =
-                    await antigravityRuntimeTask
-                        .value
-                guard !Task.isCancelled else {
-                    settingsWindowPresentationTask =
-                        nil
-                    return
-                }
-                defer {
-                    settingsWindowPresentationTask =
-                        nil
-                }
-                if settingsWindowCoordinator
-                    .focusIfVisible()
-                {
-                    return
-                }
-
-                let initialPanel =
-                    SettingsProviderPanel(
-                        rawValue:
-                            AppSettings.shared
-                                .settingsLastTab
-                    )
-                let settingsView =
-                    makeSettingsView(
-                        antigravityRuntimeController:
-                            runtime
-                                .runtimeController,
-                        initialPanel:
-                            initialPanel
-                    )
-                settingsWindowCoordinator
-                    .present(
-                        rootView:
-                            settingsView
-                    )
+        guard settingsWindowPresentationTask == nil else { return }
+        settingsWindowPresentationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let runtime = await antigravityRuntimeTask.value
+            guard !Task.isCancelled else {
+                settingsWindowPresentationTask = nil
+                pendingSettingsSection = nil
+                return
             }
+            defer { settingsWindowPresentationTask = nil }
+            if settingsWindowCoordinator.focusIfVisible() {
+                deliverPendingSettingsDestination()
+                return
+            }
+            let initialPanel = SettingsProviderPanel.resolve(
+                storedValue: settings.settingsLastTab,
+                fallbackProvider: settings.activeProviderKind ?? .claude)?.panel
+            let settingsView = makeSettingsView(
+                antigravityRuntimeController: runtime.runtimeController,
+                initialPanel: initialPanel, initialSection: pendingSettingsSection)
+            pendingSettingsSection = nil
+            settingsWindowCoordinator.present(rootView: settingsView)
+        }
+    }
+
+    private func deliverPendingSettingsDestination() {
+        guard
+            let resolved = SettingsProviderPanel.resolve(
+                storedValue: AppSettings.shared.settingsLastTab,
+                fallbackProvider: AppSettings.shared.activeProviderKind ?? .claude)
+        else { return }
+        NotificationCenter.default.post(
+            name: .settingsDestinationRequested,
+            object: SettingsDestination(panel: resolved.panel, section: pendingSettingsSection))
+        pendingSettingsSection = nil
     }
 
     /// 처음 설정과 같은 순서: Claude Code 로그인, 브라우저 로그인 가져오기, 없으면 로그인 방법 선택.

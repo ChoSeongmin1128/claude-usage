@@ -17,7 +17,7 @@ nonisolated enum RetiredAppDefaults {
                 AppIdentifiers.defaultsKey("authPathHealth.v1"), AppIdentifiers.defaultsKey("cachedOrganizations.v1"),
                 "initialRuntimeProviderDetectionCompleted", "suppressMoveToApplicationsAlert",
                 "browserCookieAccessDeniedUntil", "geminiRefreshInterval", "statusItemUnplacedNoticeDate",
-                "codexTimeFormat",
+                "codexTimeFormat", AppIdentifiers.defaultsKey("timeUnitLanguage"),
                 // 2.4.0부터 모든 서비스를 보여 주어 읽지 않는 노출 설정
                 "additionalRuntimeProvidersEnabled",
                 // 적응형 새로고침(2.8.0)이 대신하는 고정 주기 설정

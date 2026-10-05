@@ -79,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task<Void, Never>?
     var settingsWindowPresentationTask:
         Task<Void, Never>?
+    var pendingSettingsSection: SettingsSection?
     var hasRepliedToTermination = false
 
     var popover: NSPopover? { popoverCoordinator.popover }

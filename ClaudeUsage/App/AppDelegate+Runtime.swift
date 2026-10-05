@@ -132,8 +132,11 @@ extension AppDelegate {
                     guard let self else { return }
                     let runtime = await antigravityRuntimeTask.value
                     await runtime.runtimeController.setTimeFormat(
-                        AppSettings.shared.timeFormat, unitLanguage: AppSettings.shared.timeUnitLanguage)
+                        AppSettings.shared.timeFormat)
                 }
+            },
+            onPopoverBehaviorChanged: { [weak self] in
+                self?.applyPopoverBehavior()
             }
         )
     }

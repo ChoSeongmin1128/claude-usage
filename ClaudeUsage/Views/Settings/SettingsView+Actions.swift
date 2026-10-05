@@ -5,9 +5,9 @@ extension SettingsView {
         organizationPersistTask?.cancel()
         organizationPersistTask = nil
         cancelOrganizationLoad()
-        ClaudeAccountStore.shared.ensureLegacyMigrationIfNeeded()
-        if let account = ClaudeAccountStore.shared.activeWebAccount() {
-            storedSessionKey = KeychainManager.shared.load(for: account.id)
+        claudeAccountStore.ensureLegacyMigrationIfNeeded()
+        if let account = claudeAccountStore.activeWebAccount() {
+            storedSessionKey = sessionKeyLoader(account.id)
         } else {
             storedSessionKey = nil
         }
@@ -17,7 +17,7 @@ extension SettingsView {
     }
 
     func syncClaudeAccountsState() {
-        let state = ClaudeAccountStore.shared.state()
+        let state = claudeAccountStore.state()
         claudeAccounts = state.accounts
         activeClaudeAccountID = state.activeAccountID
     }
@@ -141,9 +141,9 @@ extension SettingsView {
         guard let activeClaudeAccountID else { return false }
         let previousOrganizationID = activeClaudeAccount()?
             .userSelectedPreferredOrganizationID ?? ""
-        ClaudeAccountStore.shared.updatePreferredOrganizationID(normalizedOrganizationID, for: activeClaudeAccountID)
+        claudeAccountStore.updatePreferredOrganizationID(normalizedOrganizationID, for: activeClaudeAccountID)
         if let organization = organizations.first(where: { $0.id == normalizedOrganizationID }) {
-            ClaudeAccountStore.shared.mergeIdentity(
+            claudeAccountStore.mergeIdentity(
                 ClaudeAccountIdentity(
                     organizationName: organization.name,
                     organizationID: organization.id
@@ -160,7 +160,7 @@ extension SettingsView {
         cancelOrganizationLoad(clearState: true)
         cancelUsageHealthLoad(clearSnapshot: true)
         profileMetadata = nil
-        ClaudeAccountStore.shared.deleteAccount(id: account.id)
+        claudeAccountStore.deleteAccount(id: account.id)
         syncClaudeAccountsState()
         syncStoredSessionKeyState()
         selectedOrganizationID = appliedPreferredOrganizationID
@@ -179,7 +179,7 @@ extension SettingsView {
 
     func activeClaudeWebSessionKey() -> String? {
         guard let account = activeClaudeWebAccount() else { return nil }
-        return KeychainManager.shared.load(for: account.id)
+        return sessionKeyLoader(account.id)
     }
 
     func activeClaudePreferredOrganizationID() -> String {
@@ -342,7 +342,7 @@ extension SettingsView {
     func loadUsageHealthSnapshot(refreshOAuthCredentialInventory: Bool = false) {
         cancelUsageHealthLoad()
         let generation = usageHealthLoadGeneration
-        let requestedAccountID = ClaudeAccountStore.shared.state().activeAccountID
+        let requestedAccountID = claudeAccountStore.state().activeAccountID
         let service = claudeAPIService
         usageHealthLoadTask = Task {
             await service.reloadActiveAccount()
@@ -358,7 +358,7 @@ extension SettingsView {
             guard !Task.isCancelled,
                   requestedAccountID == responseAccountID else { return }
             await MainActor.run {
-                let currentState = ClaudeAccountStore.shared.state()
+                let currentState = claudeAccountStore.state()
                 guard generation == usageHealthLoadGeneration,
                       requestedAccountID == currentState.activeAccountID,
                       let resolvedAccountState = ClaudeAccountSnapshotPresentationPolicy.resolve(

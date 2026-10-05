@@ -4,10 +4,6 @@ import SwiftUI
 extension SettingsView {
     // MARK: - 인증 섹션
 
-    var claudeOverviewSection: some View {
-        authSection
-    }
-
     var authSection: some View {
         ClaudeSetupSectionShell(presentation: appliedClaudeSetupPresentation) {
             settingsToggleRow(

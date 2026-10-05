@@ -26,6 +26,22 @@ final class RetiredAppDefaultsTests: XCTestCase {
         for key in current { XCTAssertNotNil(defaults.object(forKey: key), key) }
     }
 
+    func testRemovedTimeLanguageOnlyCleansTheSuppliedDefaultsDomain() throws {
+        let otherSuite = "ClaudeUsageTests.otherDefaults.\(UUID())"
+        let otherDefaults = try XCTUnwrap(UserDefaults(suiteName: otherSuite))
+        defer { otherDefaults.removePersistentDomain(forName: otherSuite) }
+        let key = AppIdentifiers.defaultsKey("timeUnitLanguage")
+        defaults.set("ko", forKey: key)
+        otherDefaults.set("ko", forKey: key)
+        defaults.set("remaining", forKey: "timeFormat")
+
+        RetiredAppDefaults.remove(from: defaults)
+
+        XCTAssertNil(defaults.object(forKey: key))
+        XCTAssertEqual(otherDefaults.string(forKey: key), "ko")
+        XCTAssertEqual(defaults.string(forKey: "timeFormat"), "remaining")
+    }
+
     func testImportedKeysStayUntilTheirReplacementExists() {
         for group in RetiredAppDefaults.groups {
             guard let replacement = group.replacement else { continue }

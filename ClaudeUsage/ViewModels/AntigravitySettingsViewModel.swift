@@ -81,6 +81,7 @@ nonisolated struct AntigravitySettingsViewState:
     var notice: AntigravitySettingsNotice?
     var lastAttemptAt: Date? = nil
     var publicationRevision: UInt64 = 0
+    var isRuntimeLoading = false
 
     var usageTarget: AntigravityUsageTarget {
         connection?.usageTarget ?? .unselected
@@ -317,6 +318,7 @@ final class AntigravitySettingsViewModel:
     ) -> Bool {
         guard snapshot.publicationRevision >= state.publicationRevision else { return false }
         state.publicationRevision = snapshot.publicationRevision
+        state.isRuntimeLoading = snapshot.isLoading
         state.connection =
             snapshot.settings?.connection
         state.display = snapshot.settings?.display

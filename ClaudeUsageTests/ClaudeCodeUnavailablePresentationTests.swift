@@ -93,18 +93,18 @@ final class ClaudeCodeUnavailablePresentationTests: XCTestCase {
 
     func testPrimarySettingsActionDoesNotStartLogin() {
         let model = PopoverViewModel()
-        var settingsOpened: [PopoverService] = []
+        var settingsOpened: [SettingsDestination] = []
         var loginsStarted = 0
-        model.onOpenSettingsForService = { settingsOpened.append($0) }
+        model.onOpenSettingsDestination = { settingsOpened.append($0) }
         model.onStartClaudeLogin = { loginsStarted += 1 }
         let settings = AppSettings.shared
         let host = ProviderPopoverContentHost(
             viewModel: model, settings: settings, service: .claude,
-            layoutSpec: model.layoutSpec(for: .claude, settings: settings), sections: [], onOpenDisplayEditor: {})
+            layoutSpec: model.layoutSpec(for: .claude, settings: settings), sections: [], onOpenDisplaySettings: {})
         let copy = CatalogPopoverPresentationAdapter.claudeAuthRequiredSummary(
             claudeCodeCredentialIssue: .executableNotFound)
         host.action(for: copy.action)?()
-        XCTAssertEqual(settingsOpened, [.claude])
+        XCTAssertEqual(settingsOpened, [SettingsDestination(panel: .claude, section: .connection)])
         XCTAssertEqual(loginsStarted, 0)
     }
 

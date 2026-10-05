@@ -50,6 +50,83 @@ final class MenuBarStatusComposerTests: XCTestCase {
             secondaryColor: .secondaryLabelColor, icon: nil, renderImages: false)
     }
 
+    func testClaudeFiveHourResetDoesNotSubstituteWeeklyWhenResetIsMissing() {
+        let usage = ClaudeUsageResponse(
+            fiveHour: .init(utilization: 100, resetsAt: nil),
+            sevenDay: .init(utilization: 82, resetsAt: "2030-01-04T18:39:00Z"))
+        let fiveHour = claudeResetSnapshot(usage: usage, resetDisplay: .fiveHour)
+        let weekly = claudeResetSnapshot(usage: usage, resetDisplay: .weekly)
+
+        XCTAssertEqual(fiveHour.text, "100%")
+        XCTAssertNil(fiveHour.resetText)
+        XCTAssertNil(fiveHour.renderKey.resetText)
+        XCTAssertNotNil(weekly.resetText)
+        XCTAssertNotEqual(fiveHour.renderKey, weekly.renderKey)
+        XCTAssertTrue(fiveHour.tooltip.contains("5시간 100%"))
+        XCTAssertTrue(fiveHour.tooltip.contains("주간 82%"))
+    }
+
+    func testClaudeFiveHourResetStaysAbsentWithWeeklyOnlyUsageWithoutChangingNumberFallback() {
+        let usage = ClaudeUsageResponse(
+            fiveHour: nil, sevenDay: .init(utilization: 82, resetsAt: "2030-01-04T18:39:00Z"))
+        let fiveHour = claudeResetSnapshot(usage: usage, resetDisplay: .fiveHour)
+        let weekly = claudeResetSnapshot(usage: usage, resetDisplay: .weekly)
+        let both = claudeResetSnapshot(usage: usage, resetDisplay: .dual)
+
+        XCTAssertEqual(fiveHour.text, "82%", "숫자의 기존 주간 대체 표시는 유지한다")
+        XCTAssertNil(fiveHour.resetText)
+        XCTAssertFalse(fiveHour.tooltip.contains("5시간"))
+        XCTAssertTrue(fiveHour.tooltip.contains("주간 82%"))
+        XCTAssertNotNil(weekly.resetText)
+        XCTAssertEqual(both.resetText, weekly.resetText)
+        let empty = claudeResetSnapshot(
+            usage: ClaudeUsageResponse(fiveHour: nil, sevenDay: nil), resetDisplay: .fiveHour)
+        XCTAssertEqual(empty.text, "—")
+        XCTAssertNil(empty.resetText)
+        XCTAssertEqual(empty.tooltip, "데이터 없음")
+    }
+
+    func testClaudeResetSelectionIsIndependentOfGaugeAndPercentageMetrics() throws {
+        let fiveReset = "2030-01-02T14:22:00Z"
+        let usage = ClaudeUsageResponse(
+            fiveHour: .init(utilization: 100, resetsAt: fiveReset),
+            sevenDay: .init(utilization: 82, resetsAt: "2030-01-04T18:39:00Z"))
+        let fiveHour = claudeResetSnapshot(
+            usage: usage, resetDisplay: .fiveHour, percentageDisplay: .weekly, iconMetric: .weekly)
+        let weekly = claudeResetSnapshot(
+            usage: usage, resetDisplay: .weekly, percentageDisplay: .fiveHour, iconMetric: .fiveHour)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ko_KR")
+        formatter.timeZone = .current
+        formatter.dateFormat = "HH:mm"
+        let expected = formatter.string(from: try XCTUnwrap(ISO8601DateFormatter().date(from: fiveReset)))
+
+        XCTAssertEqual(fiveHour.text, "82%")
+        XCTAssertEqual(fiveHour.resetText, expected)
+        XCTAssertEqual(fiveHour.renderKey.resetText, expected)
+        XCTAssertEqual(weekly.text, "100%")
+        XCTAssertNotEqual(fiveHour.resetText, weekly.resetText)
+        XCTAssertNotEqual(fiveHour.renderKey, weekly.renderKey)
+        let invalid = claudeResetSnapshot(
+            usage: ClaudeUsageResponse(
+                fiveHour: .init(utilization: 100, resetsAt: "invalid-fixture-reset"), sevenDay: usage.sevenDay),
+            resetDisplay: .fiveHour)
+        XCTAssertNil(invalid.resetText)
+    }
+
+    private func claudeResetSnapshot(
+        usage: ClaudeUsageResponse, resetDisplay: ResetTimeDisplay,
+        percentageDisplay: PercentageDisplay = .fiveHour, iconMetric: IconMetric = .fiveHour
+    ) -> MenuBarProviderSnapshot {
+        MenuBarStatusComposer.claudeSnapshot(
+            config: ProviderMenuBarDisplayConfig(
+                kind: .claude, showIcon: false, style: .none, percentageDisplay: percentageDisplay,
+                showBatteryPercent: false, resetTimeDisplay: resetDisplay, timeFormat: .h24,
+                circularDisplayMode: .usage, iconMetric: iconMetric, basisOverride: .used),
+            usage: usage, error: nil, hasAuthError: false, hasCredential: true,
+            secondaryColor: .secondaryLabelColor, icon: nil, renderImages: false)
+    }
+
     func testStatusBadgeOutlineStaysInsideMenuBarIconCanvas() {
         let size = NSSize(width: 18, height: 18)
 
@@ -540,21 +617,7 @@ final class MenuBarStatusComposerTests: XCTestCase {
     }
 
     private func codexAssetImage() -> NSImage? {
-        let productDirectories = [
-            ProcessInfo.processInfo.environment["BUILT_PRODUCTS_DIR"].map(URL.init(fileURLWithPath:)),
-            Bundle(for: MenuBarStatusComposerTests.self).bundleURL.deletingLastPathComponent(),
-        ].compactMap { $0 }
-
-        for productsDirectory in productDirectories {
-            let appBundleURL = productsDirectory
-                .appendingPathComponent("ClaudeUsage.app", isDirectory: true)
-            if let appBundle = Bundle(url: appBundleURL),
-               let image = appBundle.image(forResource: NSImage.Name("ProviderCodexIcon")) {
-                return image
-            }
-        }
-
-        return nil
+        ProviderBrandIconResolver.baseImage(for: .codex)
     }
 
     private func averageOpaqueLuminance(of image: NSImage) throws -> CGFloat {

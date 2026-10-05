@@ -114,6 +114,98 @@ final class PopoverInteractionTests: XCTestCase {
         XCTAssertTrue(viewModel.refreshHelp(for: .claude, isLoading: false).hasSuffix("초 후 다시 시도"))
     }
 
+    func testServiceSettingsActionsUseCanonicalDestinationCallback() throws {
+        let suite = "PopoverSettingsRouting.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        let coordinator = AppPopoverCoordinator(settings: settings, reduceMotion: { true })
+        var destinations: [SettingsDestination] = []
+        coordinator.configure(
+            initialService: .claude,
+            onRefreshService: { _ in },
+            onOpenSettingsDestination: { destinations.append($0) },
+            onServiceSelected: { _ in },
+            onLayoutChanged: { _, _ in },
+            onPinChanged: { _, _ in }
+        )
+        let model = coordinator.viewModel
+
+        for service in [PopoverService.claude, .codex, .antigravity] {
+            model.selectService(service)
+            let host = ProviderPopoverContentHost(
+                viewModel: model, settings: settings, service: service,
+                layoutSpec: model.layoutSpec(for: service, settings: settings), sections: [],
+                onOpenDisplaySettings: {}
+            )
+            destinations.removeAll()
+            model.openSettings()
+            host.action(for: .openSettings)?()
+            XCTAssertEqual(
+                destinations,
+                [
+                    SettingsDestination(panel: .service(service.providerKind), section: .connection),
+                    SettingsDestination(panel: .service(service.providerKind), section: .connection),
+                ])
+            XCTAssertEqual(model.selectedService, service)
+        }
+    }
+
+    func testEmptySelectionAndDesignIntroductionRouteToTheirOwnSettingsSections() throws {
+        let suite = "PopoverSettingsDisplayRouting.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        let model = PopoverViewModel(updateRuntimeState: UpdateRuntimeState(settings: settings))
+        var destinations: [SettingsDestination] = []
+        model.onOpenSettingsDestination = { destinations.append($0) }
+        for service in [PopoverService.claude, .codex, .antigravity] {
+            model.selectService(service)
+            destinations.removeAll()
+            model.openSettings(for: service, section: .popover)
+            model.openSettings(panel: .display)
+            XCTAssertEqual(
+                destinations,
+                [
+                    SettingsDestination(panel: .service(service.providerKind), section: .popover),
+                    SettingsDestination(panel: .display),
+                ])
+            XCTAssertEqual(model.selectedService, service)
+        }
+
+        let summary = CatalogPopoverPresentationAdapter.emptySelectionSummary()
+        for service in [PopoverService.claude, .codex] {
+            model.selectService(service)
+            let host = ProviderPopoverContentHost(
+                viewModel: model, settings: settings, service: service,
+                layoutSpec: model.layoutSpec(for: service, settings: settings), sections: [],
+                onOpenDisplaySettings: { model.openSettings(for: service, section: .popover) }
+            )
+            destinations.removeAll()
+            host.action(for: summary.action)?()
+            XCTAssertEqual(
+                destinations, [SettingsDestination(panel: .service(service.providerKind), section: .popover)])
+            XCTAssertEqual(model.selectedService, service)
+        }
+    }
+
+    func testLoginFallbackRoutesClaudeConnectionWithoutChangingVisibleService() {
+        let model = PopoverViewModel()
+        model.selectService(.codex)
+        var destinations: [SettingsDestination] = []
+        model.onOpenSettingsDestination = { destinations.append($0) }
+
+        model.startClaudeLogin()
+
+        XCTAssertEqual(destinations, [SettingsDestination(panel: .claude, section: .connection)])
+        XCTAssertEqual(model.selectedService, .codex)
+        var loginsStarted = 0
+        model.onStartClaudeLogin = { loginsStarted += 1 }
+        model.startClaudeLogin()
+        XCTAssertEqual(loginsStarted, 1)
+        XCTAssertEqual(destinations.count, 1)
+    }
+
     private func quotaState(accountID: String) -> RuntimeProviderState {
         var state = RuntimeProviderState()
         RuntimeProviderRefreshCoordinator.applySuccess(

@@ -45,8 +45,6 @@ struct PopoverAccountRowData: Identifiable, Equatable {
     let fetchedAt: Date?
     let isRuntime: Bool
     let basis: UsageValueBasis
-    let timeFormatStyle: TimeFormatStyle
-    let timeUnitLanguage: TimeUnitLanguage
 }
 
 struct PopoverAccountPickerData: Equatable {
@@ -85,16 +83,10 @@ struct MultiAccountPresentation: Equatable {
             : PopoverAccountSummaryData(text: parts.joined(separator: ", "), isWarning: true)
     }
 
-    func sections(
-        catalog: [PopoverDisplaySection], timeFormatStyle: TimeFormatStyle, timeUnitLanguage: TimeUnitLanguage
-    ) -> [PopoverDisplaySection] {
+    func sections(catalog: [PopoverDisplaySection]) -> [PopoverDisplaySection] {
         func row(_ data: PopoverAccountRowData) -> PopoverDisplaySection {
-            let displayData = PopoverAccountRowData(
-                id: data.id, service: data.service, name: data.name, badges: data.badges, status: data.status,
-                usage: data.usage, fetchedAt: data.fetchedAt, isRuntime: data.isRuntime, basis: data.basis,
-                timeFormatStyle: timeFormatStyle, timeUnitLanguage: timeUnitLanguage)
-            return PopoverDisplaySection(
-                id: "account-\(data.id)", kind: .accountRow, importance: .primary, payload: .accountRow(displayData))
+            PopoverDisplaySection(
+                id: "account-\(data.id)", kind: .accountRow, importance: .primary, payload: .accountRow(data))
         }
         let others = rows.filter { !$0.isRuntime }
         switch mode {
@@ -125,7 +117,6 @@ struct PopoverUsageSectionData {
     let resetAt: String?
     let isWeekly: Bool
     let timeFormatStyle: TimeFormatStyle
-    var timeUnitLanguage: TimeUnitLanguage = .english
     var basis: UsageValueBasis = .used
 }
 

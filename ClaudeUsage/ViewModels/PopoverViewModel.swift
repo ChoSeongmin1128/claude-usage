@@ -81,8 +81,7 @@ final class PopoverViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     var onRefreshService: ((PopoverService) -> Void)?
-    var onOpenSettingsForService: ((PopoverService) -> Void)?
-    var onOpenSettingsPanel: ((SettingsProviderPanel) -> Void)?
+    var onOpenSettingsDestination: ((SettingsDestination) -> Void)?
     var onServiceSelected: ((PopoverService) -> Void)?
     var onPinChanged: ((PopoverService, Bool) -> Void)?
     var onLayoutChanged: ((PopoverService, PopoverLayoutRefreshReason) -> Void)?
@@ -196,15 +195,23 @@ final class PopoverViewModel: ObservableObject {
     }
 
     func openSettings() {
-        self.onOpenSettingsForService?(self.selectedService)
+        openSettings(for: selectedService)
     }
 
     func openSettings(for service: PopoverService) {
-        self.onOpenSettingsForService?(service)
+        openSettings(for: service, section: .connection)
+    }
+
+    func openSettings(for service: PopoverService, section: SettingsSection) {
+        openSettings(destination: SettingsDestination(panel: .service(service.providerKind), section: section))
     }
 
     func openSettings(panel: SettingsProviderPanel) {
-        self.onOpenSettingsPanel?(panel)
+        openSettings(destination: SettingsDestination(panel: panel))
+    }
+
+    func openSettings(destination: SettingsDestination) {
+        self.onOpenSettingsDestination?(destination)
     }
 
     /// 팝오버 미인증 카드의 "로그인 시작" 버튼이 호출. 콜백이 등록되지 않은 경우

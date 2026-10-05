@@ -2,7 +2,7 @@ import SwiftUI
 
 extension SettingsView {
     @ViewBuilder
-    func providerTimeFormatSection(for provider: AppProviderKind) -> some View {
+    var timeFormatSection: some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.row) {
             Grid(
                 alignment: .leading,
@@ -11,46 +11,17 @@ extension SettingsView {
             ) {
                 GridRow {
                     Text("시간 형식")
-                    Picker(
-                        "시간 형식",
-                        selection: providerTimeFormatBinding(for: provider)
-                    ) {
-                        ForEach(TimeFormatStyle.allCases, id: \.self) {
-                            Text($0.displayName).tag($0)
-                        }
-                    }
-                    .labelsHidden()
-                }
-                GridRow {
-                    Text("단위 언어")
-                    Picker("단위 언어", selection: $settings.timeUnitLanguage) {
-                        ForEach([TimeUnitLanguage.korean, .english], id: \.self) {
-                            Text($0.displayName).tag($0)
-                        }
-                    }
-                    .labelsHidden()
+                    TimeFormatPicker(
+                        selection: $settings.timeFormat)
                 }
             }
             .font(AppDesign.Typography.subheadline)
 
-            Text("메뉴바와 팝오버의 한도 초기화 시간 표시에 씁니다.")
+            Text("메뉴바와 팝오버에 함께 적용합니다.")
                 .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
-            if settings.timeFormat == .remainingClock {
-                Text("예: 14:22 / 3\(settings.timeUnitLanguage.dayUnit):14")
-                    .font(AppDesign.Typography.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
         .controlSize(.small)
-    }
-
-    private func providerTimeFormatBinding(for provider: AppProviderKind) -> Binding<TimeFormatStyle> {
-        Binding(
-            // 시간 형식은 모든 서비스가 하나를 쓴다.
-            get: { settings.timeFormat },
-            set: { settings.timeFormat = $0 }
-        )
     }
 
     @ViewBuilder
@@ -58,33 +29,25 @@ extension SettingsView {
         if provider == .antigravity {
             antigravityMenuBarDisplaySection()
         } else if let displayConfig = settings.menuBarDisplayConfig(for: provider) {
-            let showsDisplayControls = provider == .claude
-                || provider == .codex
-                || settings.isProviderVisibleInMenuBar(provider)
-
             VStack(alignment: .leading, spacing: AppDesign.Space.content) {
                 Text("메뉴바 표시")
                     .font(AppDesign.Typography.subheadline.weight(.semibold))
 
-                if showsDisplayControls {
-                    Picker("표시 방식", selection: menuBarPresetBinding(for: provider)) {
-                        ForEach(ProviderMenuBarDisplayPreset.allCases) { preset in
-                            Text(preset.displayName).tag(preset)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
-                    if let detail = currentMenuBarPreset(for: provider).detail {
-                        Text(detail)
-                            .font(AppDesign.Typography.caption)
-                            .foregroundStyle(.secondary)
+                Picker("표시 방식", selection: menuBarPresetBinding(for: provider)) {
+                    ForEach(ProviderMenuBarDisplayPreset.allCases) { preset in
+                        Text(preset.displayName).tag(preset)
                     }
                 }
+                .pickerStyle(.segmented)
 
-                if showsDisplayControls {
-                    if currentMenuBarPreset(for: provider) == .custom {
-                        menuBarCustomControls(for: provider, displayConfig: displayConfig)
-                    }
+                if let detail = currentMenuBarPreset(for: provider).detail {
+                    Text(detail)
+                        .font(AppDesign.Typography.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                if currentMenuBarPreset(for: provider) == .custom {
+                    menuBarCustomControls(for: provider, displayConfig: displayConfig)
                 }
             }
         }
@@ -128,12 +91,12 @@ extension SettingsView {
                 HStack(alignment: .top, spacing: AppDesign.Space.section) {
                     menuBarGaugeControls(for: provider, config: displayConfig).fixedSize(
                         horizontal: true, vertical: false)
-                    menuBarTextControls(for: provider, config: displayConfig).fixedSize(
+                    menuBarTextControls(for: provider).fixedSize(
                         horizontal: true, vertical: false)
                 }
                 VStack(alignment: .leading, spacing: AppDesign.Space.content) {
                     menuBarGaugeControls(for: provider, config: displayConfig)
-                    menuBarTextControls(for: provider, config: displayConfig)
+                    menuBarTextControls(for: provider)
                 }
             }
         }
@@ -164,7 +127,7 @@ extension SettingsView {
                             set: { settings.setProviderIconMetric($0, for: provider) })
                     ) {
                         ForEach(IconMetric.allCases, id: \.self) {
-                            Text(iconMetricDisplayName($0, for: provider)).tag($0)
+                            Text(iconMetricDisplayName($0)).tag($0)
                         }
                     }.labelsHidden()
                 }
@@ -185,21 +148,8 @@ extension SettingsView {
         .font(AppDesign.Typography.subheadline)
     }
 
-    private func menuBarTextControls(for provider: AppProviderKind, config: ProviderMenuBarDisplayConfig) -> some View {
+    private func menuBarTextControls(for provider: AppProviderKind) -> some View {
         Grid(alignment: .leading, horizontalSpacing: AppDesign.Space.row, verticalSpacing: AppDesign.Space.row) {
-            GridRow {
-                Text("게이지 옆 숫자")
-                Picker(
-                    "게이지 옆 숫자",
-                    selection: Binding(
-                        get: { settings.menuBarDisplayConfig(for: provider)?.percentageDisplay ?? .none },
-                        set: { settings.setProviderPercentageDisplay($0, for: provider) })
-                ) {
-                    ForEach(PercentageDisplay.allCases, id: \.self) {
-                        Text(percentageDisplayName($0, for: provider)).tag($0)
-                    }
-                }.labelsHidden()
-            }
             GridRow {
                 Text("한도 초기화 시간")
                 Picker(
@@ -209,7 +159,7 @@ extension SettingsView {
                         set: { settings.setProviderResetTimeDisplay($0, for: provider) })
                 ) {
                     ForEach(ResetTimeDisplay.allCases, id: \.self) {
-                        Text(resetTimeDisplayName($0, for: provider)).tag($0)
+                        Text(resetTimeDisplayName($0)).tag($0)
                     }
                 }.labelsHidden()
             }
@@ -237,44 +187,27 @@ extension SettingsView {
         return MenuBarSettingsPreview(snapshot: snapshot)
     }
 
-    private func percentageDisplayName(_ mode: PercentageDisplay, for provider: AppProviderKind) -> String {
+    private func resetTimeDisplayName(_ mode: ResetTimeDisplay) -> String {
         switch mode {
         case .none:
             return "없음"
         case .fiveHour:
-            return primaryMenuBarMetricName(for: provider)
+            return "5시간"
         case .weekly:
-            return secondaryMenuBarMetricName(for: provider)
+            return "주간"
         case .dual:
             return "둘 다"
         }
     }
 
-    private func resetTimeDisplayName(_ mode: ResetTimeDisplay, for provider: AppProviderKind) -> String {
-        switch mode {
-        case .none:
-            return "없음"
-        case .fiveHour:
-            return primaryMenuBarMetricName(for: provider)
-        case .weekly:
-            return secondaryMenuBarMetricName(for: provider)
-        case .dual:
-            return "둘 다"
-        }
-    }
-
-    private func iconMetricDisplayName(_ metric: IconMetric, for provider: AppProviderKind) -> String {
+    private func iconMetricDisplayName(_ metric: IconMetric) -> String {
         switch metric {
         case .fiveHour:
-            return primaryMenuBarMetricName(for: provider)
+            return "5시간"
         case .weekly:
-            return secondaryMenuBarMetricName(for: provider)
+            return "주간"
         }
     }
-
-    private func primaryMenuBarMetricName(for provider: AppProviderKind) -> String { "5시간" }
-
-    private func secondaryMenuBarMetricName(for provider: AppProviderKind) -> String { "주간" }
 
     @ViewBuilder
     private func antigravityMenuBarDisplaySection() -> some View {
@@ -332,18 +265,6 @@ extension SettingsView {
                             }
                         }.toggleStyle(.checkbox)
                     }
-                }
-                if !antigravityObservedLanes.isEmpty {
-                    Text("함께 표시할 한도").font(AppDesign.Typography.subheadline.weight(.medium))
-                    ForEach(antigravityObservedLanes, id: \.id) { lane in
-                        Toggle(
-                            "\(lane.scopeTitle) · \(lane.cadenceTitle)",
-                            isOn: antigravityAdditionalMenuBarLaneBinding(display, laneID: lane.id)
-                        )
-                        .toggleStyle(.checkbox)
-                    }
-                    Text("대표 한도는 게이지에, 추가 한도는 텍스트에 표시합니다.")
-                        .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
                 }
             } else {
                 Text("불러오는 중").foregroundStyle(.secondary)
@@ -464,32 +385,6 @@ extension SettingsView {
         )
     }
 
-    private func antigravityAdditionalMenuBarLaneBinding(
-        _ display: AntigravityDisplaySettings,
-        laneID: AntigravityQuotaLaneID
-    ) -> Binding<Bool> {
-        Binding(
-            get: {
-                display.menuBar.effectiveAdditionalLaneIDs
-                    .contains(laneID)
-            },
-            set: { isSelected in
-                updateAntigravityDisplay {
-                    var ids =
-                        $0.menuBar.effectiveAdditionalLaneIDs
-                    if isSelected {
-                        if !ids.contains(laneID) {
-                            ids.append(laneID)
-                        }
-                    } else {
-                        ids.removeAll { $0 == laneID }
-                    }
-                    $0.menuBar.additionalLaneIDs = ids
-                }
-            }
-        )
-    }
-
     @ViewBuilder
     func providerPopoverDisplaySection(for provider: AppProviderKind) -> some View {
         let _ = runtimeEnvironmentRefreshTick
@@ -500,7 +395,6 @@ extension SettingsView {
         } else if let service = provider.runtimeService {
             ProviderPopoverDisplaySection(
                 settings: settings,
-                provider: provider,
                 service: service,
                 claudeUsage: provider == .claude ? claudeLastUsage?() : nil,
                 claudeOverage: provider == .claude ? claudeLastOverage?() : nil,
@@ -555,7 +449,6 @@ extension SettingsView {
 
 private struct ProviderPopoverDisplaySection: View {
     @ObservedObject var settings: AppSettings
-    let provider: AppProviderKind
     let service: PopoverService
     let claudeUsage: ClaudeUsageResponse?
     let claudeOverage: OverageSpendLimitResponse?
@@ -771,5 +664,18 @@ private struct ProviderPopoverPreviewView: View {
             return [service]
         }
         return enabled
+    }
+}
+
+struct TimeFormatPicker: View {
+    @Binding var selection: TimeFormatStyle
+
+    var body: some View {
+        Picker("시간 형식", selection: $selection) {
+            ForEach(TimeFormatStyle.allCases, id: \.self) { style in
+                Text("\(style.displayName) (\(style.exampleText()))").tag(style)
+            }
+        }
+        .labelsHidden()
     }
 }

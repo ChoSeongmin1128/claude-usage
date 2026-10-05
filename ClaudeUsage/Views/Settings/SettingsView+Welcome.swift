@@ -33,10 +33,10 @@ extension SettingsView {
         let _ = runtimeEnvironmentRefreshTick
         let statuses = welcomeStatuses?() ?? [:]
         return WelcomeView(
-            settings: settings, selectedProvider: $welcomeProvider,
+            settings: settings, selectedProvider: $selectedProvider,
             statuses: statuses,
             rows: onboardingRows(statuses: statuses),
-            display: providerMenuBarDisplaySection(for: welcomeProvider),
+            display: providerMenuBarDisplaySection(for: selectedProvider),
             onDefer: {
                 stopBrowserLoginWatch(); selectedPanel = .common
             },
@@ -54,7 +54,7 @@ extension SettingsView {
     }
 
     func refreshOnboardingDetection() async {
-        onboardingDetection = await OnboardingDetection.detect()
+        onboardingDetection = await onboardingDetector()
         autoConnectDetectedServices()
     }
 

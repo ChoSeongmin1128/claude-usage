@@ -81,7 +81,6 @@ actor AntigravityRuntimeController {
     private var lastSuccessfulAt: Date?
     private var usageDisplayBasis: UsageValueBasis?
     private var commonTimeFormat: TimeFormatStyle?
-    private var commonTimeUnitLanguage: TimeUnitLanguage = .english
     private var usageDisplayRevision: UInt64 = 0
 
     init(
@@ -127,14 +126,9 @@ actor AntigravityRuntimeController {
 
     /// 공통 시간 형식으로 다시 그린다. 조회는 하지 않는다.
     @discardableResult
-    func setTimeFormat(
-        _ format: TimeFormatStyle?, unitLanguage: TimeUnitLanguage = .english
-    ) -> AntigravityRuntimeSnapshot {
-        guard !isShuttingDown,
-            commonTimeFormat != format || commonTimeUnitLanguage != unitLanguage
-        else { return currentSnapshot }
+    func setTimeFormat(_ format: TimeFormatStyle?) -> AntigravityRuntimeSnapshot {
+        guard !isShuttingDown, commonTimeFormat != format else { return currentSnapshot }
         commonTimeFormat = format
-        commonTimeUnitLanguage = unitLanguage
         return publish()
     }
 
@@ -573,7 +567,6 @@ actor AntigravityRuntimeController {
                 settings: Self.applyingCommonTimeFormat(
                     commonTimeFormat, to: resolvedSettings?.display ?? .default),
                 basisOverride: usageDisplayBasis,
-                unitLanguage: commonTimeUnitLanguage,
                 now: now()
             ),
             managedRuntimeAvailability:
@@ -637,11 +630,9 @@ extension AntigravityRuntimeController {
     nonisolated static func applyingCommonTimeFormat(
         _ format: TimeFormatStyle?, to display: AntigravityDisplaySettings
     ) -> AntigravityDisplaySettings {
-        guard let format,
-            let value = AntigravityDisplaySettings.MenuBarPresentationIntent.TimeFormat(rawValue: format.rawValue)
-        else { return display }
+        guard let format else { return display }
         var display = display
-        display.menuBar.timeFormat = value
+        display.menuBar.timeFormat = format
         return display
     }
 }

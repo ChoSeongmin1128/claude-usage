@@ -4,71 +4,46 @@ import XCTest
 
 @MainActor
 final class AppSettingsTests: XCTestCase {
-    func testTimeUnitLanguageDefaultsToEnglishForMissingAndUnknownValues() throws {
-        let suite = "AppSettingsTests.timeUnits.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
+    func testLegacyCountdownFormatsLoadAndPersistAsRemaining() throws {
+        for rawValue in ["remaining_clock", "remaining_total_clock"] {
+            let suite = "AppSettingsTests.legacyTimeFormat.\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            defaults.set(rawValue, forKey: "timeFormat")
+            defaults.set(rawValue, forKey: "codexTimeFormat")
+            defaults.set("ko", forKey: AppIdentifiers.defaultsKey("timeUnitLanguage"))
 
-        XCTAssertEqual(TimeUnitLanguage.load(from: defaults), .english)
-        XCTAssertEqual(AppSettings(defaults: defaults).timeUnitLanguage, .english)
-        defaults.set("unknown-future-language", forKey: TimeUnitLanguage.storageKey)
-        XCTAssertEqual(TimeUnitLanguage.load(from: defaults), .english)
-        XCTAssertEqual(AppSettings(defaults: defaults).timeUnitLanguage, .english)
-        XCTAssertEqual(TimeUnitLanguage.english.dayUnit, "d")
-        XCTAssertEqual(TimeUnitLanguage.english.hourUnit, "h")
-        XCTAssertEqual(TimeUnitLanguage.english.minuteUnit, "m")
-        XCTAssertEqual(TimeUnitLanguage.korean.dayUnit, "일")
-        XCTAssertEqual(TimeUnitLanguage.korean.hourUnit, "시간")
-        XCTAssertEqual(TimeUnitLanguage.korean.minuteUnit, "분")
-    }
+            let settings = AppSettings(defaults: defaults)
 
-    func testTimeUnitLanguageRoundTripsIndependentlyOfLegacyRemainingClockFormat() throws {
-        let suite = "AppSettingsTests.timeUnits.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        defaults.set("remaining_clock", forKey: "timeFormat")
-        let settings = AppSettings(defaults: defaults)
-        XCTAssertEqual(settings.timeFormat, .remainingClock)
-
-        settings.timeUnitLanguage = .korean
-        XCTAssertEqual(defaults.string(forKey: TimeUnitLanguage.storageKey), "ko")
-        XCTAssertEqual(defaults.string(forKey: "timeFormat"), "remaining_clock")
-        let relaunched = AppSettings(defaults: defaults)
-        XCTAssertEqual(relaunched.timeUnitLanguage, .korean)
-        XCTAssertEqual(relaunched.timeFormat, .remainingClock)
-        relaunched.timeFormat = .remainingTotalClock
-        XCTAssertEqual(AppSettings(defaults: defaults).timeUnitLanguage, .korean)
-        XCTAssertEqual(defaults.string(forKey: "timeFormat"), "remaining_total_clock")
-        relaunched.timeUnitLanguage = .english
-        XCTAssertEqual(defaults.string(forKey: TimeUnitLanguage.storageKey), "en")
-        XCTAssertEqual(AppSettings(defaults: defaults).timeUnitLanguage, .english)
-        XCTAssertEqual(relaunched.timeFormat, .remainingTotalClock)
-    }
-
-    func testTimeUnitLanguageSnapshotAndResetKeepProviderConfigsAligned() throws {
-        let suite = "AppSettingsTests.timeUnits.\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let settings = AppSettings(defaults: defaults)
-        settings.timeFormat = .remainingClock
-        settings.timeUnitLanguage = .korean
-        let snapshot = settings.createSnapshot()
-        XCTAssertEqual(snapshot.timeUnitLanguage, .korean)
-        XCTAssertEqual(settings.timeUnitLanguage, .korean)
-        XCTAssertEqual(settings.timeFormat, .remainingClock)
-        for kind in [AppProviderKind.claude, .codex] {
-            let config = try XCTUnwrap(settings.menuBarDisplayConfig(for: kind))
-            XCTAssertEqual(config.timeUnitLanguage, .korean)
-            XCTAssertEqual(config.timeFormat, .remainingClock)
+            XCTAssertEqual(settings.timeFormat, .remaining)
+            XCTAssertEqual(defaults.string(forKey: "timeFormat"), "remaining")
+            XCTAssertEqual(AppSettings(defaults: defaults).timeFormat, .remaining)
+            XCTAssertTrue(UpdateNotesQueue.pending(defaults: defaults).isEmpty)
+            XCTAssertNil(defaults.object(forKey: AppIdentifiers.defaultsKey("timeUnitLanguage")))
+            for kind in [AppProviderKind.claude, .codex] {
+                XCTAssertEqual(try XCTUnwrap(settings.menuBarDisplayConfig(for: kind)).timeFormat, .remaining)
+            }
         }
-        settings.resetToDefaults()
-        XCTAssertEqual(settings.timeUnitLanguage, .english)
-        XCTAssertEqual(AppSettings(defaults: defaults).timeUnitLanguage, .english)
-        XCTAssertEqual(defaults.string(forKey: TimeUnitLanguage.storageKey), "en")
     }
 
-    func testTimeUnitLanguageChangePublishesAndChangesMenuBarConfig() throws {
-        let suite = "AppSettingsTests.timeUnits.\(UUID().uuidString)"
+    func testCommonTimeFormatSetterKeepsProviderConfigurationsAligned() throws {
+        let suite = "AppSettingsTests.commonTimeFormat.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        settings.codexTimeFormat = .remaining
+        XCTAssertEqual(settings.createSnapshot().timeFormat, .remaining)
+        for kind in [AppProviderKind.claude, .codex] {
+            XCTAssertEqual(try XCTUnwrap(settings.menuBarDisplayConfig(for: kind)).timeFormat, .remaining)
+        }
+        XCTAssertEqual(defaults.string(forKey: "timeFormat"), "remaining")
+        XCTAssertEqual(AppSettings(defaults: defaults).timeFormat, .remaining)
+        settings.resetToDefaults()
+        XCTAssertEqual(AppSettings(defaults: defaults).timeFormat, .h24)
+    }
+
+    func testTimeFormatChangePublishesAndChangesMenuBarConfig() throws {
+        let suite = "AppSettingsTests.commonTimeFormat.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let settings = AppSettings(defaults: defaults)
@@ -78,13 +53,12 @@ final class AppSettingsTests: XCTestCase {
         defer { subscription.cancel() }
         let initialChanges = changes
 
-        settings.timeUnitLanguage = .korean
+        settings.timeFormat = .remaining
 
         XCTAssertEqual(changes, initialChanges + 1)
         let updated = try XCTUnwrap(settings.menuBarDisplayConfig(for: .claude))
         XCTAssertNotEqual(updated, original)
-        XCTAssertEqual(updated.timeUnitLanguage, .korean)
-        XCTAssertEqual(updated.timeFormat, original.timeFormat)
+        XCTAssertEqual(updated.timeFormat, .remaining)
     }
 
     func testMotionDefaultsPreserveLegacySettingsAndPersistSelection() throws {
@@ -99,13 +73,10 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(settings.popoverPinned)
         settings.motion.mode = .smooth
         XCTAssertEqual(AppSettings(defaults: defaults).motion.mode, .smooth)
-        settings.timeUnitLanguage = .korean
         let snapshot = settings.createSnapshot()
         settings.motion.mode = .instant
-        settings.timeUnitLanguage = .english
         settings.restore(from: snapshot)
         XCTAssertEqual(settings.motion.mode, .smooth)
-        XCTAssertEqual(settings.timeUnitLanguage, .korean)
         defaults.removeObject(forKey: "motionPreferences")
         defaults.set("unknown-future-value", forKey: "popoverTransitionStyle")
         XCTAssertEqual(AppSettings(defaults: defaults).motion.mode, .instant)
@@ -149,8 +120,8 @@ final class AppSettingsTests: XCTestCase {
                 PopoverItemConfig(id: "weeklyLimit", visible: false),
                 PopoverItemConfig(id: "currentSession", visible: true),
                 PopoverItemConfig(id: "modelUsage", visible: true),
-                PopoverItemConfig(id: "claudeResetCredits", visible: true),
                 PopoverItemConfig(id: "overageUsage", visible: true),
+                PopoverItemConfig(id: "claudeResetCredits", visible: true),
             ]
         )
     }
@@ -368,16 +339,11 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertTrue(settings.providerState(for: .antigravity).isEnabled)
     }
 
-    func testSettingsSidebarAlwaysShowsNavigationAndProviders() {
-        let expected: [SettingsProviderPanel] = [.common, .accounts, .limits, .display, .updates]
-        XCTAssertEqual(
-            SettingsProviderRegistry.sidebarPanels(exposurePolicy: .primaryOnly).map(\.panel),
-            expected
-        )
-        XCTAssertEqual(
-            SettingsProviderRegistry.sidebarPanels(exposurePolicy: .allSupported).map(\.panel),
-            expected
-        )
+    func testSettingsSidebarSeparatesAppSettingsFromServices() {
+        XCTAssertEqual(SettingsProviderRegistry.appPanels.map(\.panel), [.common, .display, .updates])
+        XCTAssertEqual(SettingsProviderRegistry.servicePanels.map(\.panel), [.claude, .codex, .antigravity])
+        XCTAssertEqual(SettingsProviderRegistry.servicePanels.compactMap(\.providerKind), AppProviderKind.allCases)
+        XCTAssertTrue(SettingsProviderRegistry.appPanels.allSatisfy { $0.providerKind == nil })
     }
 
     func testSetMenuBarStyleBatteryVariantForcesRemainingCircularMode() {

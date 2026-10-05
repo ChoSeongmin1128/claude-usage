@@ -133,15 +133,13 @@ final class UsageAccountsTests: XCTestCase {
 @MainActor
 final class MultiAccountPresentationTests: XCTestCase {
     private func row(
-        _ id: String, runtime: Bool = false, five: Double = 20, status: UsageAccountState.Status = .current,
-        timeFormatStyle: TimeFormatStyle = .h24, timeUnitLanguage: TimeUnitLanguage = .english
+        _ id: String, runtime: Bool = false, five: Double = 20, status: UsageAccountState.Status = .current
     ) -> PopoverAccountRowData {
         PopoverAccountRowData(
             id: id, service: .claude, name: id, badges: [], status: status,
             usage: UsageAccountUsage(
                 fiveHour: .init(usedPercent: five, resetsAt: nil), weekly: .init(usedPercent: 30, resetsAt: nil)),
-            fetchedAt: Date(timeIntervalSince1970: 1_800_000_000), isRuntime: runtime, basis: .used,
-            timeFormatStyle: timeFormatStyle, timeUnitLanguage: timeUnitLanguage)
+            fetchedAt: Date(timeIntervalSince1970: 1_800_000_000), isRuntime: runtime, basis: .used)
     }
 
     private let catalog = [
@@ -150,102 +148,27 @@ final class MultiAccountPresentationTests: XCTestCase {
             payload: .status(PopoverStatusSectionData(title: "5시간 한도", error: nil)))
     ]
 
-    func testAccountRowTimePreferencesInvalidatePresentationEquality() {
-        let english = row("a", timeFormatStyle: .remainingClock)
-        let korean = row("a", timeFormatStyle: .remainingClock, timeUnitLanguage: .korean)
-        let duration = row("a", timeFormatStyle: .remaining)
-        XCTAssertEqual(english, row("a", timeFormatStyle: .remainingClock))
-        XCTAssertNotEqual(english, korean)
-        XCTAssertNotEqual(english, duration)
-        let presentation = MultiAccountPresentation(
-            service: .claude, mode: .summaryRows, rows: [english], selectedIDs: [])
-        XCTAssertNotEqual(
-            presentation,
-            MultiAccountPresentation(service: .claude, mode: .summaryRows, rows: [korean], selectedIDs: []))
-        XCTAssertNotEqual(
-            presentation,
-            MultiAccountPresentation(service: .claude, mode: .summaryRows, rows: [duration], selectedIDs: []))
-    }
-
-    func testExhaustedAccountRowUsesItsOwnTimePreferences() {
+    func testExhaustedAccountRowShowsDurationOnlyForAUsedLimitWithResetTime() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let window = UsageAccountUsage.Window(
             usedPercent: 100, resetsAt: now.addingTimeInterval(3 * 86400 + 14 * 3600 + 22 * 60))
-        let english = OtherAccountRow(data: row("a", timeFormatStyle: .remainingClock), density: .compact)
-        let korean = OtherAccountRow(
-            data: row("a", timeFormatStyle: .remainingClock, timeUnitLanguage: .korean), density: .standard)
-        let duration = OtherAccountRow(
-            data: row("a", timeFormatStyle: .remaining, timeUnitLanguage: .korean), density: .compact)
-        let totalClock = OtherAccountRow(
-            data: row("a", timeFormatStyle: .remainingTotalClock, timeUnitLanguage: .korean), density: .standard)
-        XCTAssertEqual(english.exhaustedQuotaText(for: window, isWeekly: true, now: now), "3d:14")
-        XCTAssertEqual(korean.exhaustedQuotaText(for: window, isWeekly: true, now: now), "3일:14")
-        XCTAssertEqual(duration.exhaustedQuotaText(for: window, isWeekly: true, now: now), "3일 14시간")
-        XCTAssertEqual(totalClock.exhaustedQuotaText(for: window, isWeekly: true, now: now), "86:22")
+        let account = OtherAccountRow(data: row("a"), density: .compact)
+        XCTAssertEqual(account.exhaustedQuotaText(for: window, isWeekly: true, now: now), "3d 14h")
         XCTAssertNil(
-            english.exhaustedQuotaText(for: .init(usedPercent: 99, resetsAt: window.resetsAt), isWeekly: true, now: now)
+            account.exhaustedQuotaText(for: .init(usedPercent: 99, resetsAt: window.resetsAt), isWeekly: true, now: now)
         )
-        XCTAssertNil(english.exhaustedQuotaText(for: .init(usedPercent: 100, resetsAt: nil), isWeekly: true, now: now))
-    }
-
-    func testCachedMultiAccountRowsProjectTheCurrentDisplayPreferences() throws {
-        let suite = "MultiAccountPresentationTests.time.\(UUID())"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        let settings = AppSettings(defaults: defaults)
-        settings.timeFormat = .remainingClock
-        let viewModel = PopoverViewModel()
-        viewModel.multiAccount = [
-            .claude: MultiAccountPresentation(
-                service: .claude, mode: .summaryRows, rows: [row("a", five: 100)], selectedIDs: [])
-        ]
-        func displayedRow() throws -> PopoverAccountRowData {
-            let rows = viewModel.displaySections(for: .claude, density: .compact, settings: settings)
-                .compactMap { section -> PopoverAccountRowData? in
-                    guard case .accountRow(let row) = section.payload else { return nil }
-                    return row
-                }
-            return try XCTUnwrap(rows.first)
-        }
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let window = UsageAccountUsage.Window(
-            usedPercent: 100, resetsAt: now.addingTimeInterval(3 * 86400 + 14 * 3600 + 22 * 60))
-        let english = try displayedRow()
-        settings.timeUnitLanguage = .korean
-        let korean = try displayedRow()
-        settings.timeFormat = .remainingTotalClock
-        let total = try displayedRow()
-
-        XCTAssertEqual(english.timeFormatStyle, .remainingClock)
-        XCTAssertEqual(english.timeUnitLanguage, .english)
-        XCTAssertEqual(korean.timeFormatStyle, .remainingClock)
-        XCTAssertEqual(korean.timeUnitLanguage, .korean)
-        XCTAssertEqual(total.timeFormatStyle, .remainingTotalClock)
-        XCTAssertEqual(total.timeUnitLanguage, .korean)
-        XCTAssertNotEqual(english, korean)
-        XCTAssertNotEqual(korean, total)
-        XCTAssertEqual(viewModel.multiAccount[.claude]?.rows.first?.timeFormatStyle, .h24)
-        XCTAssertEqual(viewModel.multiAccount[.claude]?.rows.first?.timeUnitLanguage, .english)
-        XCTAssertEqual(
-            OtherAccountRow(data: english, density: .compact).exhaustedQuotaText(for: window, isWeekly: true, now: now),
-            "3d:14")
-        XCTAssertEqual(
-            OtherAccountRow(data: korean, density: .compact).exhaustedQuotaText(for: window, isWeekly: true, now: now),
-            "3일:14")
-        XCTAssertEqual(
-            OtherAccountRow(data: total, density: .compact).exhaustedQuotaText(for: window, isWeekly: true, now: now),
-            "86:22")
+        XCTAssertNil(account.exhaustedQuotaText(for: .init(usedPercent: 100, resetsAt: nil), isWeekly: true, now: now))
     }
 
     func testPickShowsPickerCatalogOnlyWhenRuntimeSelectedAndSelectedOthers() {
         let rows = [row("live", runtime: true), row("a"), row("b")]
         let picked = MultiAccountPresentation(service: .claude, mode: .pick, rows: rows, selectedIDs: ["live", "b"])
         XCTAssertEqual(
-            picked.sections(catalog: catalog, timeFormatStyle: .h24, timeUnitLanguage: .english).map(\.id),
+            picked.sections(catalog: catalog).map(\.id),
             ["account-picker", "currentSession", "account-b"])
         let withoutRuntime = MultiAccountPresentation(service: .claude, mode: .pick, rows: rows, selectedIDs: ["a"])
         XCTAssertEqual(
-            withoutRuntime.sections(catalog: catalog, timeFormatStyle: .h24, timeUnitLanguage: .english).map(\.id),
+            withoutRuntime.sections(catalog: catalog).map(\.id),
             ["account-picker", "account-a"])
     }
 
@@ -253,11 +176,11 @@ final class MultiAccountPresentationTests: XCTestCase {
         let rows = [row("live", runtime: true), row("a", five: 95), row("b", status: .loginExpired)]
         let featured = MultiAccountPresentation(service: .claude, mode: .featuredList, rows: rows, selectedIDs: [])
         XCTAssertEqual(
-            featured.sections(catalog: catalog, timeFormatStyle: .h24, timeUnitLanguage: .english).map(\.id),
+            featured.sections(catalog: catalog).map(\.id),
             ["currentSession", "account-a", "account-b"])
         let summary = MultiAccountPresentation(service: .claude, mode: .summaryRows, rows: rows, selectedIDs: [])
         XCTAssertEqual(
-            summary.sections(catalog: catalog, timeFormatStyle: .h24, timeUnitLanguage: .english).map(\.id),
+            summary.sections(catalog: catalog).map(\.id),
             ["account-summary", "account-live", "account-a", "account-b"])
         let threshold = PercentageText.string(AdaptiveRefreshPolicy.lowRemainingPercent)
         XCTAssertEqual(summary.summary, .init(text: "남은 한도 \(threshold) 이하 1개, 로그인 만료 1개", isWarning: true))

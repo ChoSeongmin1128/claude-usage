@@ -68,7 +68,7 @@ nonisolated struct ProviderRuntimeSummary:
         case openSettings
         case retry
         case startClaudeLogin
-        case openDisplayEditor
+        case openDisplaySettings
     }
 
     let icon: String?

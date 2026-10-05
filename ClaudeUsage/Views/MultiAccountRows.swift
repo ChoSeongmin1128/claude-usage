@@ -164,14 +164,12 @@ struct OtherAccountRow: View {
         date.map { "\(label) · \(TimeFormatter.elapsed(since: $0))" } ?? label
     }
 
-    /// 화면에 쓰는 소진 안내는 행의 표시 설정만 읽어 모델 변경과 함께 갱신된다.
     func exhaustedQuotaText(
         for window: UsageAccountUsage.Window, isWeekly: Bool, now: Date = Date()
     ) -> String? {
         guard window.usedPercent >= 100, let resetsAt = window.resetsAt else { return nil }
         return TimeFormatter.formatRemaining(
-            until: resetsAt, now: now, style: data.timeFormatStyle, isWeekly: isWeekly,
-            unitLanguage: data.timeUnitLanguage)
+            until: resetsAt, now: now, isWeekly: isWeekly)
     }
 
     /// 다른 계정 줄은 초기화 시각을 빼고, 다 쓴 한도만 언제 풀리는지 보여준다.

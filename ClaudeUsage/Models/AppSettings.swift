@@ -57,50 +57,29 @@ enum MenuBarStyle: String, Codable, CaseIterable, Sendable {
     }
 }
 
-enum TimeFormatStyle: String, Codable, CaseIterable, Sendable {
+nonisolated enum TimeFormatStyle: String, Codable, CaseIterable, Sendable {
     case h24 = "24h"
     case h12 = "12h"
     case remaining = "remaining"
-    /// 24시간 미만은 h:mm, 하루 이상은 3d:14처럼 일:시간으로.
-    case remainingClock = "remaining_clock"
-    /// 남은 시간을 h:mm로. 주간은 전체 시간 74:12
-    case remainingTotalClock = "remaining_total_clock"
+
+    init?(rawValue: String) {
+        switch rawValue {
+        case "24h": self = .h24
+        case "12h": self = .h12
+        case "remaining", "remaining_clock", "remaining_total_clock": self = .remaining
+        default: return nil
+        }
+    }
 
     var displayName: String {
         switch self {
         case .h24: return "초기화 시각, 24시간"
         case .h12: return "초기화 시각, 12시간"
         case .remaining: return "남은 시간, 단위 표시"
-        case .remainingClock: return "남은 시간, 짧게"
-        case .remainingTotalClock: return "남은 시간, 전체 시:분"
         }
     }
 
-    nonisolated var isRemaining: Bool {
-        self == .remaining || self == .remainingClock || self == .remainingTotalClock
-    }
-}
-
-nonisolated enum TimeUnitLanguage: String, Codable, CaseIterable, Sendable {
-    case english = "en"
-    case korean = "ko"
-
-    static let storageKey = AppIdentifiers.defaultsKey("timeUnitLanguage")
-
-    static func load(from defaults: UserDefaults) -> Self {
-        defaults.string(forKey: storageKey).flatMap(Self.init(rawValue:)) ?? .english
-    }
-
-    var displayName: String {
-        switch self {
-        case .english: return "영어 (d/h/m)"
-        case .korean: return "한국어 (일/시간/분)"
-        }
-    }
-
-    var dayUnit: String { self == .english ? "d" : "일" }
-    var hourUnit: String { self == .english ? "h" : "시간" }
-    var minuteUnit: String { self == .english ? "m" : "분" }
+    var isRemaining: Bool { self == .remaining }
 }
 
 enum ResetTimeDisplay: String, Codable, CaseIterable, Sendable {
@@ -279,33 +258,6 @@ class AppSettings: ObservableObject {
         min(max(value, 0), 100)
     }
 
-    nonisolated private static func normalizedOptionalID(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    nonisolated private static func loadStringSet(from defaults: UserDefaults, key: String) -> Set<String> {
-        if let data = defaults.data(forKey: key),
-           let values = try? JSONDecoder().decode([String].self, from: data) {
-            return Set(values.compactMap(Self.normalizedOptionalID))
-        }
-        if let values = defaults.array(forKey: key) as? [String] {
-            return Set(values.compactMap(Self.normalizedOptionalID))
-        }
-        return []
-    }
-
-    nonisolated private static func persistStringSet(_ values: Set<String>, to defaults: UserDefaults, key: String) {
-        let normalized = values.compactMap(Self.normalizedOptionalID).sorted()
-        if normalized.isEmpty {
-            defaults.removeObject(forKey: key)
-            return
-        }
-        if let data = try? JSONEncoder().encode(normalized) {
-            defaults.set(data, forKey: key)
-        }
-    }
-
     private let defaults: UserDefaults
     private let popoverDisplayPreferencesStore:
         PopoverDisplayPreferencesStore
@@ -353,9 +305,6 @@ class AppSettings: ObservableObject {
     }
     @Published var timeFormat: TimeFormatStyle {
         didSet { defaults.set(timeFormat.rawValue, forKey: "timeFormat") }
-    }
-    @Published var timeUnitLanguage: TimeUnitLanguage {
-        didSet { defaults.set(timeUnitLanguage.rawValue, forKey: TimeUnitLanguage.storageKey) }
     }
     @Published var autoRefresh: Bool {
         didSet { defaults.set(autoRefresh, forKey: "autoRefresh") }
@@ -593,7 +542,6 @@ class AppSettings: ObservableObject {
         let showBatteryPercent: Bool
         let resetTimeDisplay: ResetTimeDisplay
         let timeFormat: TimeFormatStyle
-        let timeUnitLanguage: TimeUnitLanguage
         let circularDisplayMode: CircularDisplayMode
         let iconMetric: IconMetric
         let menuBarColorMode: MenuBarColorMode
@@ -645,7 +593,6 @@ class AppSettings: ObservableObject {
             showBatteryPercent: showBatteryPercent,
             resetTimeDisplay: resetTimeDisplay,
             timeFormat: timeFormat,
-            timeUnitLanguage: timeUnitLanguage,
             circularDisplayMode: circularDisplayMode,
             iconMetric: iconMetric,
             menuBarColorMode: menuBarColorMode,
@@ -706,7 +653,6 @@ class AppSettings: ObservableObject {
         showBatteryPercent = snapshot.showBatteryPercent
         resetTimeDisplay = snapshot.resetTimeDisplay
         timeFormat = snapshot.timeFormat
-        timeUnitLanguage = snapshot.timeUnitLanguage
         circularDisplayMode = snapshot.circularDisplayMode
         menuBarColorMode = snapshot.menuBarColorMode
         iconMetric = snapshot.iconMetric
@@ -1031,7 +977,6 @@ class AppSettings: ObservableObject {
             $showBatteryPercent.map { _ in () }.eraseToAnyPublisher(),
             $resetTimeDisplay.map { _ in () }.eraseToAnyPublisher(),
             $timeFormat.map { _ in () }.eraseToAnyPublisher(),
-            $timeUnitLanguage.map { _ in () }.eraseToAnyPublisher(),
             $circularDisplayMode.map { _ in () }.eraseToAnyPublisher(),
             $iconMetric.map { _ in () }.eraseToAnyPublisher(),
             $showClaudeIcon.map { _ in () }.eraseToAnyPublisher(),
@@ -1146,7 +1091,6 @@ class AppSettings: ObservableObject {
                 showBatteryPercent: showBatteryPercent,
                 resetTimeDisplay: resetTimeDisplay,
                 timeFormat: timeFormat,
-                timeUnitLanguage: timeUnitLanguage,
                 circularDisplayMode: circularDisplayMode,
                 iconMetric: iconMetric,
                 colorMode: menuBarColorMode, design: menuBarDesign, basisOverride: usageDisplayMode.basis
@@ -1160,7 +1104,6 @@ class AppSettings: ObservableObject {
                 showBatteryPercent: codexShowBatteryPercent,
                 resetTimeDisplay: codexResetTimeDisplay,
                 timeFormat: codexTimeFormat,
-                timeUnitLanguage: timeUnitLanguage,
                 circularDisplayMode: codexCircularDisplayMode,
                 iconMetric: codexIconMetric,
                 colorMode: menuBarColorMode, design: menuBarDesign, basisOverride: usageDisplayMode.basis
@@ -1315,14 +1258,6 @@ class AppSettings: ObservableObject {
         "\(kind.rawValue).\(suffix)"
     }
 
-    private func persistOptionalString(_ value: String?, key: String) {
-        if let value = Self.normalizedOptionalID(value) {
-            defaults.set(value, forKey: key)
-        } else {
-            defaults.removeObject(forKey: key)
-        }
-    }
-
     private func bumpRuntimeProviderDisplayRevision() {
         runtimeProviderDisplayRevision &+= 1
     }
@@ -1365,40 +1300,6 @@ class AppSettings: ObservableObject {
         applyMenuBarDisplayPreset(.basic, for: kind)
     }
 
-    private func providerBoolDefault(_ fallback: Bool, for kind: AppProviderKind, suffix: String) -> Bool {
-        defaults.object(forKey: providerDefaultsKey(kind, suffix: suffix)) as? Bool ?? fallback
-    }
-
-    private func providerMenuBarStyle(for kind: AppProviderKind) -> MenuBarStyle {
-        let raw = defaults.string(forKey: providerDefaultsKey(kind, suffix: "menuBarStyle")) ?? MenuBarStyle.none.rawValue
-        return MenuBarStyle(rawValue: raw) ?? .none
-    }
-
-    private func providerPercentageDisplay(for kind: AppProviderKind) -> PercentageDisplay {
-        let raw = defaults.string(forKey: providerDefaultsKey(kind, suffix: "percentageDisplay")) ?? PercentageDisplay.fiveHour.rawValue
-        return PercentageDisplay(rawValue: raw) ?? .fiveHour
-    }
-
-    private func providerResetTimeDisplay(for kind: AppProviderKind) -> ResetTimeDisplay {
-        let raw = defaults.string(forKey: providerDefaultsKey(kind, suffix: "resetTimeDisplay")) ?? ResetTimeDisplay.none.rawValue
-        return ResetTimeDisplay(rawValue: raw) ?? .none
-    }
-
-    private func providerTimeFormat(for kind: AppProviderKind) -> TimeFormatStyle {
-        let raw = defaults.string(forKey: providerDefaultsKey(kind, suffix: "timeFormat")) ?? TimeFormatStyle.h24.rawValue
-        return TimeFormatStyle(rawValue: raw) ?? .h24
-    }
-
-    private func providerCircularDisplayMode(for kind: AppProviderKind) -> CircularDisplayMode {
-        let raw = defaults.string(forKey: providerDefaultsKey(kind, suffix: "circularDisplayMode")) ?? CircularDisplayMode.usage.rawValue
-        return CircularDisplayMode(rawValue: raw) ?? .usage
-    }
-
-    private func providerIconMetric(for kind: AppProviderKind) -> IconMetric {
-        let raw = defaults.string(forKey: providerDefaultsKey(kind, suffix: "iconMetric")) ?? IconMetric.fiveHour.rawValue
-        return IconMetric(rawValue: raw) ?? .fiveHour
-    }
-
     // MARK: - Actions
 
     /// 표시, 알림, 동작 설정을 처음 설치한 상태로 되돌린다. 계정 연결, 서비스 사용 여부, 조직 선택,
@@ -1411,7 +1312,6 @@ class AppSettings: ObservableObject {
         showBatteryPercent = true
         resetTimeDisplay = .none
         timeFormat = .h24
-        timeUnitLanguage = .english
         circularDisplayMode = .usage
         iconMetric = .fiveHour
         Self.legacyAntigravityModelKeys.forEach(defaults.removeObject(forKey:))
@@ -1560,7 +1460,6 @@ class AppSettings: ObservableObject {
         let tf = defaults.string(forKey: "timeFormat") ?? TimeFormatStyle.h24.rawValue
         let resolvedTimeFormat = TimeFormatStyle(rawValue: tf) ?? .h24
         self.timeFormat = resolvedTimeFormat
-        self.timeUnitLanguage = TimeUnitLanguage.load(from: defaults)
         self.autoRefresh = defaults.object(forKey: "autoRefresh") as? Bool ?? true
         self.notificationsEnabled = defaults.object(forKey: "notificationsEnabled") as? Bool ?? false
         let storedAlertRemainingMode = defaults.object(forKey: "alertRemainingMode") as? Bool ?? false
@@ -1635,6 +1534,7 @@ class AppSettings: ObservableObject {
         let legacySettingsLastTab = defaults.string(forKey: "settingsLastTab") ?? "common"
         self.settingsLastTab = legacySettingsLastTab
         TimeFormatUnification.migrate(defaults: defaults)
+        defaults.set(timeFormat.rawValue, forKey: "timeFormat")
         RetiredAppDefaults.remove(from: defaults)
     }
 

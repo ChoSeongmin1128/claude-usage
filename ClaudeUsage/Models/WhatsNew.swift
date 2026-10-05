@@ -19,16 +19,17 @@ nonisolated struct WhatsNewPage: Identifiable, Equatable, Sendable {
 /// 새 기능이 있는 버전만 페이지를 둔다. 버그 수정만 있는 버전은 여기에 넣지 않는다.
 nonisolated enum WhatsNewCatalog {
     static let maximumPages = 5
+    private static let timeFormatTitle = "시간 표시"
 
     static let pages: [WhatsNewPage] = [
         WhatsNewPage(
-            version: "2.8.0", symbol: "sidebar.left", title: "설정을 다섯 갈래로 정리",
-            body: "일반, 계정, 한도, 모양, 업데이트로 나눴습니다. 한도 표에서 한도마다 메뉴바, 팝오버, 알림을 한 줄로 고릅니다.",
-            action: .openSettings(.limits), actionTitle: "한도 설정 열기"),
+            version: "2.8.0", symbol: "sidebar.left", title: "서비스별 설정",
+            body: "서비스를 고르면 계정, 한도, 메뉴바와 팝오버를 한 페이지에서 설정합니다.",
+            action: .openSettings(.claude), actionTitle: "Claude 설정 열기"),
         WhatsNewPage(
-            version: "2.8.0", symbol: "clock", title: "남은 시간, 짧게",
-            body: "하루 미만은 14:22, 하루 이상은 3d:14로 표시합니다. 단위는 한국어와 영어 중에서 고릅니다.",
-            action: .openSettings(.common), actionTitle: "일반 설정 열기"),
+            version: "2.8.0", symbol: "clock", title: timeFormatTitle,
+            body: "초기화 시각은 24시간제나 12시간제로, 남은 시간은 2h 34m처럼 표시합니다. 선택 메뉴에서 예시를 볼 수 있습니다.",
+            action: .openSettings(.display), actionTitle: "표시 설정 열기"),
         WhatsNewPage(
             version: "2.8.0", symbol: "arrow.triangle.2.circlepath", title: "상황에 맞춘 자동 확인",
             body: "팝오버를 막 열었거나 Claude Code, Codex를 쓰는 중이거나 한도가 10% 이하로 남으면 2분마다, 오래 쓰지 않으면 최대 30분 간격으로 확인합니다."),
@@ -40,13 +41,13 @@ nonisolated enum WhatsNewCatalog {
             version: "2.8.0", symbol: "person.2", title: "여러 계정",
             body:
                 "서비스별로 여러 계정의 사용량을 함께 볼 수 있습니다. Chrome 말고 Brave, Edge, Safari, Claude 앱의 로그인도 가져오고, 다른 폴더에 로그인해 둔 Claude Code나 Codex를 기본 로그인으로 바꿀 수 있습니다.",
-            action: .openSettings(.accounts), actionTitle: "계정 설정 열기"),
+            action: .openSettings(.claude), actionTitle: "계정 설정 열기"),
     ]
 
     static func notesText(_ note: UpdateNotesQueue.Note) -> (version: String, title: String, text: String) {
         switch note {
         case .timeFormatUnified:
-            return ("2.8.0", "남은 시간, 짧게", "서비스마다 달랐던 시간 형식은 Claude 설정 값으로 맞췄습니다.")
+            return ("2.8.0", timeFormatTitle, "서비스마다 달랐던 시간 형식은 Claude 설정 값으로 맞췄습니다.")
         }
     }
 

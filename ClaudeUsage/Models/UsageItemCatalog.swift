@@ -140,8 +140,8 @@ struct ClaudeItemCatalog: UsageItemCatalog {
         PopoverItemConfig(id: "currentSession", visible: true),
         PopoverItemConfig(id: "weeklyLimit", visible: true),
         PopoverItemConfig(id: "modelUsage", visible: true),
-        PopoverItemConfig(id: "claudeResetCredits", visible: true),
         PopoverItemConfig(id: "overageUsage", visible: true),
+        PopoverItemConfig(id: "claudeResetCredits", visible: true),
     ]
 
     func displayName(for itemID: String) -> String? {
@@ -171,7 +171,6 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                         resetAt: fiveHour.resetsAt,
                         isWeekly: false,
                         timeFormatStyle: context.settings.timeFormat,
-                        timeUnitLanguage: context.settings.timeUnitLanguage,
                         basis: context.settings.usageValueBasis(for: .claude)
                     )
                 )
@@ -191,7 +190,6 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                         resetAt: sevenDay.resetsAt,
                         isWeekly: true,
                         timeFormatStyle: context.settings.timeFormat,
-                        timeUnitLanguage: context.settings.timeUnitLanguage,
                         basis: context.settings.usageValueBasis(for: .claude)
                     )
                 )
@@ -237,7 +235,6 @@ struct ClaudeItemCatalog: UsageItemCatalog {
                             title: limit.shortTitle, compactLabel: limit.shortTitle, percentage: percentage,
                             resetAt: limit.resetAt.map { ISO8601DateFormatter().string(from: $0) },
                             isWeekly: true, timeFormatStyle: context.settings.timeFormat,
-                            timeUnitLanguage: context.settings.timeUnitLanguage,
                             basis: context.settings.usageValueBasis(for: .claude))))
             }
 
@@ -264,10 +261,10 @@ struct CodexItemCatalog: UsageItemCatalog {
     let defaultItems: [PopoverItemConfig] = [
         PopoverItemConfig(id: "codexPrimary", visible: true),
         PopoverItemConfig(id: "codexSecondary", visible: true),
-        PopoverItemConfig(id: "codexSpendLimit", visible: true),
         PopoverItemConfig(id: "codexModelLimits", visible: true),
-        PopoverItemConfig(id: "codexResetCredits", visible: true),
+        PopoverItemConfig(id: "codexSpendLimit", visible: true),
         PopoverItemConfig(id: "codexCredits", visible: true),
+        PopoverItemConfig(id: "codexResetCredits", visible: true),
     ]
 
     func displayName(for itemID: String) -> String? {
@@ -297,7 +294,6 @@ struct CodexItemCatalog: UsageItemCatalog {
                             resetAt: limit.resetAt.map { ISO8601DateFormatter().string(from: $0) },
                             isWeekly: (limit.periodSeconds ?? 0) >= 86_400,
                             timeFormatStyle: context.settings.codexTimeFormat,
-                            timeUnitLanguage: context.settings.timeUnitLanguage,
                             basis: context.settings.usageValueBasis(for: .codex))))
             }
 
@@ -327,7 +323,6 @@ struct CodexItemCatalog: UsageItemCatalog {
                             resetAt: window.resetAtISO,
                             isWeekly: false,
                             timeFormatStyle: context.settings.codexTimeFormat,
-                            timeUnitLanguage: context.settings.timeUnitLanguage,
                             basis: context.settings.usageValueBasis(for: .codex)
                         )
                     )
@@ -358,7 +353,6 @@ struct CodexItemCatalog: UsageItemCatalog {
                             resetAt: window.resetAtISO,
                             isWeekly: true,
                             timeFormatStyle: context.settings.codexTimeFormat,
-                            timeUnitLanguage: context.settings.timeUnitLanguage,
                             basis: context.settings.usageValueBasis(for: .codex)
                         )
                     )
@@ -392,7 +386,6 @@ struct CodexItemCatalog: UsageItemCatalog {
                         resetAt: limit.resetAtISO,
                         isWeekly: true,
                         timeFormatStyle: context.settings.codexTimeFormat,
-                        timeUnitLanguage: context.settings.timeUnitLanguage,
                         basis: context.settings.usageValueBasis(for: .codex)
                     )
                 )

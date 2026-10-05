@@ -27,6 +27,47 @@ final class AppRuntimeObservationCoordinatorTests: XCTestCase {
         coordinator.cancelAll()
     }
 
+    func testPinPreferenceChangesApplyBehaviorWithoutRefreshingAndStopAfterCancel() async throws {
+        let suite = "PopoverPinObservation.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        let coordinator = AppRuntimeObservationCoordinator()
+        defer { coordinator.cancelAll() }
+        var states: [Bool] = []
+        var refreshChanges = 0
+        var credentialChanges = 0
+        let pinned = expectation(description: "pinned")
+        let unpinned = expectation(description: "unpinned")
+        let afterCancel = expectation(description: "no behavior callback after cancel")
+        afterCancel.isInverted = true
+        coordinator.bind(
+            settings: settings,
+            onRefreshConfigurationChanged: { _ in refreshChanges += 1 },
+            onUpdateConfigurationChanged: {}, onMenuBarDisplayChanged: {},
+            onProviderSelectionChanged: { _ in },
+            onClaudeCredentialContextChanged: { credentialChanges += 1 },
+            onPopoverBehaviorChanged: {
+                states.append(settings.popoverPinned)
+                switch states.count {
+                case 1: pinned.fulfill()
+                case 2: unpinned.fulfill()
+                default: afterCancel.fulfill()
+                }
+            })
+        settings.popoverPinned = true
+        await fulfillment(of: [pinned], timeout: 1)
+        settings.popoverPinned = false
+        await fulfillment(of: [unpinned], timeout: 1)
+        XCTAssertEqual(states, [true, false])
+        XCTAssertEqual(refreshChanges, 0)
+        XCTAssertEqual(credentialChanges, 0)
+        coordinator.cancelAll()
+        settings.popoverPinned = true
+        await fulfillment(of: [afterCancel], timeout: 0.05)
+        XCTAssertEqual(states, [true, false])
+    }
+
     func testAccountAndSessionNotificationsCoalesceIntoOneCredentialTransaction() async {
         let coordinator = AppRuntimeObservationCoordinator()
         var transactionCount = 0

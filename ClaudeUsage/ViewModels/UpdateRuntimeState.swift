@@ -33,9 +33,11 @@ final class UpdateRuntimeState: ObservableObject {
     @Published private(set) var lastCheckMessage: String?
 
     private let settings: AppSettings
+    private let updateService: UpdateService
     private var didBootstrap = false
 
-    init(settings: AppSettings? = nil) {
+    init(settings: AppSettings? = nil, updateService: UpdateService = .shared) {
+        self.updateService = updateService
         self.settings = settings ?? .shared
         self.latestKnownUpdate = self.settings.availableUpdate
         if let update = self.settings.availableUpdate {
@@ -193,7 +195,7 @@ final class UpdateRuntimeState: ObservableObject {
 
     func refreshEngineStatus() {
         Task {
-            let engineStatus = await UpdateService.shared.currentEngineStatus()
+            let engineStatus = await self.updateService.currentEngineStatus()
             await MainActor.run {
                 self.engineStatus = engineStatus
             }
@@ -202,7 +204,7 @@ final class UpdateRuntimeState: ObservableObject {
 
     func checkNow() {
         Task {
-            await UpdateService.shared.performUserInitiatedCheck()
+            await self.updateService.performUserInitiatedCheck()
         }
     }
 
@@ -210,7 +212,7 @@ final class UpdateRuntimeState: ObservableObject {
         switch phase {
         case .readyToInstall:
             Task {
-                await UpdateService.shared.installPreparedUpdate()
+                await self.updateService.installPreparedUpdate()
             }
         case .installing:
             NSApplication.shared.terminate(nil)

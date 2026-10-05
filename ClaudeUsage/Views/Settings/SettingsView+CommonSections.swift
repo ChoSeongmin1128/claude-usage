@@ -20,7 +20,9 @@ extension SettingsView {
 
     var appDataResetSection: some View {
         VStack(alignment: .leading, spacing: AppDesign.Space.row) {
-            Text("데이터 초기화").font(AppDesign.Typography.headline)
+            Text("설정과 데이터 정리").font(AppDesign.Typography.headline)
+            Button("앱 설정 기본값 복원") { pendingDestructiveAction = .resetDefaults }
+                .buttonStyle(.bordered)
             Button("모든 데이터 초기화", role: .destructive) {
                 Task { pendingDestructiveAction = .resetAllData(await AppDataResetPlan.prepare()) }
             }
@@ -46,9 +48,11 @@ extension SettingsView {
             HStack {
                 Text("알릴 시점").font(AppDesign.Typography.headline)
                 Spacer()
-                Button("표시 기준: \(settings.notificationValueBasis.title)") { selectedPanel = .display }
+                Button("표시 기준: \(settings.notificationValueBasis.title)") {
+                    navigate(to: SettingsDestination(panel: .display))
+                }
                     .buttonStyle(.link).controlSize(.small)
-                    .help("모양에서 메뉴바, 팝오버, 알림의 기준을 함께 바꿉니다")
+                .help("표시 설정에서 메뉴바, 팝오버, 알림의 기준을 함께 바꿉니다")
             }
             NotificationThresholdEditor(settings: settings)
         }
@@ -148,7 +152,7 @@ extension SettingsView {
 
             Text(settings.menuBarColorMode.detail)
                 .font(AppDesign.Typography.caption)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
 
             settingsToggleRow(
                 "보조 텍스트 강조",
@@ -158,22 +162,34 @@ extension SettingsView {
         }
     }
 
+    var commonPopoverSection: some View {
+        VStack(alignment: .leading, spacing: AppDesign.Space.content) {
+            Text("팝오버").font(AppDesign.Typography.headline)
+            Picker("표시 방식", selection: $settings.popoverCompact) {
+                Text("일반").tag(false)
+                Text("간소화").tag(true)
+            }
+            .pickerStyle(.segmented)
+            settingsToggleRow("팝오버 고정", subtitle: "다른 곳을 눌러도 팝오버를 열어 둡니다", isOn: $settings.popoverPinned)
+        }
+    }
+
     private var selectedDesignPreviewBasis: UsageValueBasis {
         if let basis = settings.usageDisplayMode.basis { return basis }
-        if selectedDisplayProvider == .antigravity, let display = antigravitySettings.state.display {
+        if selectedProvider == .antigravity, let display = antigravitySettings.state.display {
             return .antigravity(display.menuBar)
         }
-        return settings.usageValueBasis(for: selectedDisplayProvider.runtimeService ?? .claude)
+        return settings.usageValueBasis(for: selectedProvider.runtimeService ?? .claude)
     }
 
     private var selectedDesignPreviewStyle: MenuBarStyle {
-        if selectedDisplayProvider == .antigravity {
+        if selectedProvider == .antigravity {
             switch antigravitySettings.state.display?.menuBar.style {
             case .batteryBar: return .batteryBar
             case .circular: return .circular
             default: return .none
             }
         }
-        return settings.menuBarDisplayConfig(for: selectedDisplayProvider)?.style ?? .none
+        return settings.menuBarDisplayConfig(for: selectedProvider)?.style ?? .none
     }
 }

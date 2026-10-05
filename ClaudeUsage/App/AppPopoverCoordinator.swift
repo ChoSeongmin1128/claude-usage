@@ -1,29 +1,5 @@
 import AppKit
-import SwiftUI
-
-private struct PopoverDisplayEditorHostView: View {
-    @ObservedObject var settings: AppSettings
-    let service: PopoverService
-    @State private var mode: PopoverDisplayEditorMode
-
-    init(
-        settings: AppSettings,
-        service: PopoverService,
-        initialMode: PopoverDisplayEditorMode
-    ) {
-        self.settings = settings
-        self.service = service
-        _mode = State(initialValue: initialMode)
-    }
-
-    var body: some View {
-        PopoverDisplayEditorView(
-            settings: settings,
-            service: service,
-            selectedMode: $mode
-        )
-    }
-}
+import QuartzCore
 
 @MainActor
 final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
@@ -32,16 +8,12 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
     private(set) var popover = NSPopover()
     private let reduceMotion: () -> Bool
     private var resizeRevision = 0
+    private var sizeRequestRevision = 0
+    private var pendingSizeUpdate: Task<Void, Never>?
     private var isResizing = false
     private var acceptsSizeUpdates = false
     private weak var observedWindow: NSWindow?
     private var windowObservationTokens: [NSObjectProtocol] = []
-
-    private var displayEditorPopover: NSPopover?
-    private var pendingServiceSelection: PopoverService?
-    private var pendingCompactValue: Bool?
-    private var deferredSize: CGSize?
-    private var isCompletingDisplayEditorClose = false
 
     init(
         settings: AppSettings = .shared,
@@ -55,16 +27,14 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
     func configure(
         initialService: PopoverService,
         onRefreshService: @escaping (PopoverService) -> Void,
-        onOpenSettingsForService: @escaping (PopoverService) -> Void,
-        onOpenSettingsPanel: @escaping (SettingsProviderPanel) -> Void,
+        onOpenSettingsDestination: @escaping (SettingsDestination) -> Void,
         onServiceSelected: @escaping (PopoverService) -> Void,
         onLayoutChanged: @escaping (PopoverService, PopoverLayoutRefreshReason) -> Void,
         onPinChanged: @escaping (PopoverService, Bool) -> Void,
         onStartClaudeLogin: (() -> Void)? = nil
     ) {
         viewModel.onRefreshService = onRefreshService
-        viewModel.onOpenSettingsForService = onOpenSettingsForService
-        viewModel.onOpenSettingsPanel = onOpenSettingsPanel
+        viewModel.onOpenSettingsDestination = onOpenSettingsDestination
         viewModel.onServiceSelected = onServiceSelected
         viewModel.onLayoutChanged = onLayoutChanged
         viewModel.onPinChanged = onPinChanged
@@ -75,17 +45,16 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
     }
 
     func close() {
-        pendingServiceSelection = nil
-        pendingCompactValue = nil
-        deferredSize = nil
-        closeDisplayEditor(animated: false)
-        let wasResizing = isResizing
+        let wasResizing = isResizing || pendingSizeUpdate != nil
         invalidate()
         popover.animates = !wasResizing && animates(.popoverPresentation)
         popover.close()
     }
 
     func invalidate() {
+        pendingSizeUpdate?.cancel()
+        pendingSizeUpdate = nil
+        sizeRequestRevision += 1
         resizeRevision += 1
         isResizing = false
         acceptsSizeUpdates = false
@@ -97,10 +66,6 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
     }
 
     func rebuildPopover() {
-        pendingServiceSelection = nil
-        pendingCompactValue = nil
-        deferredSize = nil
-        closeDisplayEditor(animated: false)
         invalidate()
 
         viewModel.isDesignIntroductionPresented =
@@ -111,21 +76,15 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
             viewModel: viewModel,
             settings: settings,
             fillsViewport: true,
-            onTargetSizeChange: { [weak self] size in
-                self?.refreshSizeIfShown(size: size)
+            onLayoutSizeChange: { [weak self, weak newPopover] in
+                guard let self, let newPopover, self.popover === newPopover else { return }
+                self.refreshSizeIfShown()
             },
             onServiceSelectionRequest: { [weak self] service in
                 self?.requestServiceSelection(service)
             },
             onCompactToggleRequest: { [weak self] in
                 self?.requestCompactToggle()
-            },
-            onDisplayEditorRequest: { [weak self] anchor, service, mode in
-                self?.presentDisplayEditor(
-                    anchor: anchor,
-                    service: service,
-                    mode: mode
-                )
             }
         )
         let hostingController = NSViewController()
@@ -138,116 +97,51 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
         acceptsSizeUpdates = true
     }
 
-    func refreshSizeIfShown(size: CGSize) {
+    func refreshSizeIfShown() {
         guard acceptsSizeUpdates, popover.isShown else { return }
-        if displayEditorIsActive || isCompletingDisplayEditorClose {
-            deferredSize = size
-            return
+        sizeRequestRevision += 1
+        scheduleSizeUpdateIfNeeded()
+    }
+
+    private func scheduleSizeUpdateIfNeeded() {
+        guard pendingSizeUpdate == nil, acceptsSizeUpdates, popover.isShown else { return }
+        let requestedPopover = popover
+        pendingSizeUpdate = Task { @MainActor [weak self, weak requestedPopover] in
+            guard let self, let requestedPopover, !Task.isCancelled,
+                self.popover === requestedPopover
+            else { return }
+            guard self.acceptsSizeUpdates, requestedPopover.isShown else {
+                self.pendingSizeUpdate = nil
+                return
+            }
+            let requestRevision = self.sizeRequestRevision
+            let size = self.viewModel.layoutSpec(for: self.viewModel.selectedService, settings: self.settings).size
+            self.applyPopoverSizeIfNeeded(size: size, to: requestedPopover)
+            guard !Task.isCancelled, self.popover === requestedPopover else { return }
+            self.pendingSizeUpdate = nil
+            if self.sizeRequestRevision != requestRevision {
+                self.scheduleSizeUpdateIfNeeded()
+            }
         }
-        applyPopoverSizeIfNeeded(size: size)
     }
 
     func requestServiceSelection(_ service: PopoverService) {
         guard service != viewModel.selectedService else { return }
-        if displayEditorIsActive || isCompletingDisplayEditorClose {
-            pendingServiceSelection = service
-            closeDisplayEditor(animated: false)
-            return
-        }
         commitServiceSelection(service)
     }
 
     func requestCompactToggle() {
-        let requestedValue = !(pendingCompactValue ?? settings.popoverCompact)
-        if displayEditorIsActive || isCompletingDisplayEditorClose {
-            pendingCompactValue = requestedValue
-            closeDisplayEditor(animated: false)
-            return
-        }
-        commitCompactValue(requestedValue)
-    }
-
-    func presentDisplayEditor(
-        anchor: NSView,
-        service: PopoverService,
-        mode: PopoverDisplayEditorMode
-    ) {
-        guard acceptsSizeUpdates, popover.isShown, service != .antigravity else { return }
-
-        if displayEditorIsActive {
-            if service == viewModel.selectedService {
-                closeDisplayEditor()
-                return
-            }
-            pendingServiceSelection = service
-            closeDisplayEditor(animated: false)
-            return
-        }
-
-        let editor = NSPopover()
-        editor.behavior = .transient
-        editor.animates = animates(.popoverPresentation)
-        editor.delegate = self
-        editor.contentViewController = NSHostingController(
-            rootView: PopoverDisplayEditorHostView(
-                settings: settings,
-                service: service,
-                initialMode: mode
-            )
-        )
-        displayEditorPopover = editor
-        editor.show(
-            relativeTo: anchor.bounds,
-            of: anchor,
-            preferredEdge: .maxY
-        )
-    }
-
-    func closeDisplayEditor(animated: Bool = true) {
-        guard let editor = displayEditorPopover else { return }
-        editor.animates = animated && animates(.popoverPresentation)
-        if editor.isShown {
-            editor.close()
-        } else {
-            displayEditorPopover = nil
-            finishDisplayEditorCloseIfNeeded()
-        }
-    }
-
-    var displayEditorIsActive: Bool {
-        guard let displayEditorPopover else { return false }
-        return displayEditorPopover.isShown || isCompletingDisplayEditorClose
+        commitCompactValue(!settings.popoverCompact)
     }
 
     func popoverWillClose(_ notification: Notification) {
-        guard let closingPopover = notification.object as? NSPopover else { return }
-        if closingPopover === popover {
-            // close() has already chosen the safe closing policy and invalidated this session.
-            // Only a native outside-click close needs to choose it here.
-            if acceptsSizeUpdates {
-                popover.animates = !isResizing && animates(.popoverPresentation)
-            }
-            pendingServiceSelection = nil
-            pendingCompactValue = nil
-            deferredSize = nil
-            closeDisplayEditor(animated: false)
-            invalidate()
-            return
+        guard let closingPopover = notification.object as? NSPopover,
+            closingPopover === popover
+        else { return }
+        if acceptsSizeUpdates {
+            popover.animates = !(isResizing || pendingSizeUpdate != nil) && animates(.popoverPresentation)
         }
-
-        if closingPopover === displayEditorPopover {
-            isCompletingDisplayEditorClose = true
-        }
-    }
-
-    func popoverDidClose(_ notification: Notification) {
-        guard let closedPopover = notification.object as? NSPopover,
-            closedPopover === displayEditorPopover
-        else {
-            return
-        }
-        displayEditorPopover = nil
-        finishDisplayEditorCloseIfNeeded()
+        invalidate()
     }
 
     func beginWindowDiagnosticsIfNeeded() {
@@ -274,32 +168,6 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
         logWindowFrame("window-observing-started")
     }
 
-    private func finishDisplayEditorCloseIfNeeded() {
-        defer {
-            isCompletingDisplayEditorClose = false
-        }
-        guard acceptsSizeUpdates, popover.isShown else {
-            pendingServiceSelection = nil
-            pendingCompactValue = nil
-            deferredSize = nil
-            return
-        }
-
-        if let service = pendingServiceSelection {
-            pendingServiceSelection = nil
-            commitServiceSelection(service)
-        }
-        if let compact = pendingCompactValue {
-            pendingCompactValue = nil
-            commitCompactValue(compact)
-        }
-
-        if let size = deferredSize {
-            deferredSize = nil
-            applyPopoverSizeIfNeeded(size: size)
-        }
-    }
-
     private func commitServiceSelection(_ service: PopoverService) {
         guard service != viewModel.selectedService else { return }
         viewModel.selectService(service)
@@ -319,7 +187,7 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
         settings.motion.allows(category, reduceMotion: reduceMotion())
     }
 
-    private func applyPopoverSizeIfNeeded(size: CGSize) {
+    private func applyPopoverSizeIfNeeded(size: CGSize, to popover: NSPopover) {
         let screenMaxWidth = max(
             300,
             (popover.contentViewController?.view.window?.screen?.visibleFrame.width ?? NSScreen.main?.visibleFrame.width
@@ -337,6 +205,7 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
         )
         guard changed else { return }
         let shouldAnimate = animates(.popoverResize)
+        let instantFrame = shouldAnimate ? nil : nativeFrame(forContentSize: targetSize, popover: popover)
         popover.animates = shouldAnimate
         if !isResizing {
             (popover.contentViewController?.view as? PopoverViewportView)?.prepareForResize()
@@ -349,18 +218,43 @@ final class AppPopoverCoordinator: NSObject, NSPopoverDelegate {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = shouldAnimate ? AppDesign.Motion.popoverResizeDuration : 0
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            context.allowsImplicitAnimation = shouldAnimate
+            context.allowsImplicitAnimation = shouldAnimate || instantFrame != nil
             popover.contentViewController?.preferredContentSize = targetSize
             popover.contentSize = targetSize
+            if let instantFrame {
+                popover.contentViewController?.view.window?.animator().setFrame(instantFrame, display: true)
+            }
         } completionHandler: { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self, self.resizeRevision == revision, self.popover.isShown else { return }
+                guard let self, self.popover === popover, self.resizeRevision == revision, popover.isShown else {
+                    return
+                }
                 self.finishResize(revision: revision)
             }
         }
         if !shouldAnimate {
             finishResize(revision: revision)
         }
+    }
+
+    private func nativeFrame(forContentSize size: CGSize, popover: NSPopover) -> CGRect? {
+        guard let viewport = popover.contentViewController?.view as? PopoverViewportView,
+            let window = viewport.window,
+            let visibleSize = viewport.nativeVisibleContentSize
+        else { return nil }
+        let currentFrame = window.frame
+        let chromeWidth = currentFrame.width - visibleSize.width
+        let chromeHeight = currentFrame.height - visibleSize.height
+        guard chromeWidth >= 0, chromeHeight >= 0 else { return nil }
+        let frameSize = CGSize(width: size.width + chromeWidth, height: size.height + chromeHeight)
+        var frame = CGRect(
+            x: currentFrame.midX - frameSize.width / 2, y: currentFrame.maxY - frameSize.height,
+            width: frameSize.width, height: frameSize.height)
+        if let screen = window.screen {
+            let visible = screen.visibleFrame
+            frame.origin.x = max(visible.minX, min(frame.minX, visible.maxX - frame.width))
+        }
+        return frame
     }
 
     private func finishResize(revision: Int) {

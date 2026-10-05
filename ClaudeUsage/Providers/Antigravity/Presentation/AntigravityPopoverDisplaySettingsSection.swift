@@ -269,7 +269,8 @@ struct AntigravityPopoverDisplaySettingsSection: View {
         case .failed:
             "사용량을 불러오지 못했습니다."
         case .disabled:
-            "Antigravity 사용이 꺼져 있습니다."
+            viewModel.state.connection == nil || viewModel.state.isRuntimeLoading
+                ? "설정을 불러오는 중" : "Antigravity 사용이 꺼져 있습니다."
         case .ready,
              .partial,
              .stale:

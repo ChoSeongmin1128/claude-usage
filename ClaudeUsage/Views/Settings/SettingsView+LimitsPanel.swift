@@ -1,81 +1,39 @@
 import SwiftUI
 
 extension SettingsView {
-    var limitsPanel: some View {
-        VStack(alignment: .leading, spacing: AppDesign.Space.section) {
-            commonAlertSection
-            notificationThresholdSection
-            Divider()
-            limitsTable
-        }
-    }
-
-    private var limitsTable: some View {
-        VStack(alignment: .leading, spacing: AppDesign.Space.row) {
+    func providerLimitsSection(for provider: AppProviderKind) -> some View {
+        VStack(alignment: .leading, spacing: AppDesign.Space.content) {
+            Text("한도와 알림").font(AppDesign.Typography.headline)
+            settingsToggleRow("\(provider.displayName) 알림 받기", isOn: serviceAlertBinding(provider))
+                .disabled(
+                    !settings.notificationsEnabled
+                        || (provider == .antigravity && antigravitySettings.state.display == nil))
+            if !settings.notificationsEnabled {
+                Button("알림 설정 열기") { navigate(to: SettingsDestination(panel: .common)) }
+                    .buttonStyle(.link).controlSize(.small)
+            }
             Grid(alignment: .leading, horizontalSpacing: AppDesign.Space.content, verticalSpacing: AppDesign.Space.row)
             {
                 GridRow {
                     Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-                    ForEach(["메뉴바", "팝오버", "알림"], id: \.self) { title in
+                    ForEach(["메뉴바 숫자", "알림"], id: \.self) { title in
                         Text(title)
                             .font(AppDesign.Typography.caption.weight(.semibold))
                             .foregroundStyle(.secondary)
                             .gridColumnAlignment(.center)
                     }
                 }
-                ForEach(AppProviderKind.allCases.filter(settings.isProviderEnabled), id: \.rawValue) { provider in
-                    Divider().gridCellUnsizedAxes(.horizontal)
-                    limitsServiceHeader(provider)
-                    if !collapsedLimitProviders.contains(provider) {
-                        ForEach(limitRows(for: provider)) { row in
-                            limitsRow(row, provider: provider)
-                        }
-                    }
-                }
+                ForEach(limitRows(for: provider)) { row in limitsRow(row, provider: provider) }
             }
             .font(AppDesign.Typography.subheadline)
             .controlSize(.small)
-
-            Text("메뉴바 칸은 게이지 옆 숫자입니다. 게이지는 모양 탭에서 정합니다.")
-                .font(AppDesign.Typography.caption).foregroundStyle(.secondary)
-        }
-    }
-
-    private func limitsServiceHeader(_ provider: AppProviderKind) -> some View {
-        GridRow {
-            Button {
-                if collapsedLimitProviders.contains(provider) {
-                    collapsedLimitProviders.remove(provider)
-                } else {
-                    collapsedLimitProviders.insert(provider)
-                }
-            } label: {
-                HStack(spacing: AppDesign.Space.row) {
-                    Image(systemName: collapsedLimitProviders.contains(provider) ? "chevron.right" : "chevron.down")
-                        .font(AppDesign.Typography.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 10)
-                    ProviderBrandIconView(provider: provider, kind: .settings, size: 16)
-                    Text(provider.displayName).font(AppDesign.Typography.subheadline.weight(.semibold))
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(
-                "\(provider.displayName) 한도 \(collapsedLimitProviders.contains(provider) ? "펼치기" : "접기")")
-            Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-            Color.clear.gridCellUnsizedAxes([.horizontal, .vertical])
-            limitsCell(serviceAlertBinding(provider), help: "\(provider.displayName) 알림 받기")
-                .disabled(
-                    !settings.notificationsEnabled
-                        || (provider == .antigravity && antigravitySettings.state.display == nil))
         }
     }
 
     private func limitsRow(_ row: LimitSettingsRow, provider: AppProviderKind) -> some View {
         GridRow {
             Text(row.title)
-                .padding(.leading, row.isChild ? 34 : 18)
+                .padding(.leading, row.isChild ? 18 : 0)
                 .foregroundStyle(row.isChild ? .secondary : .primary)
                 .lineLimit(1)
             if row.controlsResetCreditMenuBar {
@@ -94,7 +52,6 @@ extension SettingsView {
             } else {
                 limitsCell(menuBarBinding(row, provider: provider), help: "메뉴바에 숫자로 표시", row: row.title)
             }
-            limitsCell(popoverBinding(row, provider: provider), help: "팝오버에 표시", row: row.title)
             notificationCell(row, provider: provider)
         }
     }
@@ -193,30 +150,4 @@ extension SettingsView {
             })
     }
 
-    private func popoverBinding(_ row: LimitSettingsRow, provider: AppProviderKind) -> Binding<Bool>? {
-        if let laneID = row.laneID {
-            guard let display = antigravitySettings.state.display else { return nil }
-            let lane = AntigravityQuotaLaneID(rawValue: laneID)
-            return Binding(
-                get: { !display.standard.hiddenLaneIDs.contains(lane) },
-                set: { isOn in
-                    updateAntigravityDisplay {
-                        if isOn {
-                            $0.standard.hiddenLaneIDs.remove(lane)
-                        } else {
-                            $0.standard.hiddenLaneIDs.insert(lane)
-                        }
-                    }
-                })
-        }
-        guard let itemID = row.popoverItemID, !row.isChild, let service = provider.runtimeService else { return nil }
-        return Binding(
-            get: { settings.popoverItems(for: service).first { $0.id == itemID }?.visible ?? false },
-            set: { isOn in
-                let items = settings.popoverItems(for: service).map {
-                    $0.id == itemID ? PopoverItemConfig(id: $0.id, visible: isOn) : $0
-                }
-                settings.setPopoverItems(items, for: service)
-            })
-    }
 }

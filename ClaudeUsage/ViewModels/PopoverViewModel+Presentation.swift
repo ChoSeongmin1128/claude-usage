@@ -261,8 +261,7 @@ extension PopoverViewModel {
             sections.append(contentsOf: catalog.expandedSections(for: item.id, context: context))
         }
         if let multi = multiAccount[service] {
-            sections = multi.sections(
-                catalog: sections, timeFormatStyle: settings.timeFormat, timeUnitLanguage: settings.timeUnitLanguage)
+            sections = multi.sections(catalog: sections)
         }
 
         if density == .compact {

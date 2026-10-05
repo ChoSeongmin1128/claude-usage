@@ -9,55 +9,21 @@ extension AppDelegate {
             onRefreshService: { [weak self] service in
                 self?.refresh(service: service, force: true)
             },
-            onOpenSettingsForService: { [weak self] service in
+            onOpenSettingsDestination: { [weak self] destination in
                 self?.closePopover()
-                self?.openSettingsForAuth(service: service)
-            },
-            onOpenSettingsPanel: { [weak self] panel in
-                if panel == .display,
-                   let provider =
-                    self?.popoverViewModel
-                        .selectedService
-                        .providerKind
-                {
-                    NotificationCenter.default.post(
-                        name:
-                            .settingsDisplayProviderRequested,
-                        object: provider
-                    )
-                }
-                self?.closePopover()
-                self?.showSettingsWindow(
-                    settingsPanelRawValue:
-                        panel.rawValue
-                )
+                self?.showSettingsWindow(destination: destination)
             },
             onServiceSelected: { [weak self] service in
                 guard let self else { return }
                 ServiceSelectionHelper.setActivePopoverService(service, settings: AppSettings.shared)
-                self.applyPopoverBehavior()
-                if self.popover?.isShown == true {
-                    if self.isPopoverPinned {
-                        self.stopGlobalClickMonitor()
-                    } else {
-                        self.startGlobalClickMonitor()
-                    }
-                }
                 self.refreshVisiblePopoverSizeForCurrentState()
                 self.refreshServiceIfNeededOnTabSwitch(service)
             },
             onLayoutChanged: { [weak self] service, reason in
                 self?.refreshPopoverSizeIfShown(service: service, reason: reason)
             },
-            onPinChanged: { [weak self] _, isPinned in
-                guard let self else { return }
+            onPinChanged: { _, isPinned in
                 AppSettings.shared.popoverPinned = isPinned
-                self.applyPopoverBehavior()
-                if isPinned {
-                    self.stopGlobalClickMonitor()
-                } else if self.popover?.isShown == true {
-                    self.startGlobalClickMonitor()
-                }
             },
             onStartClaudeLogin: { [weak self] in
                 self?.closePopover()
@@ -107,9 +73,7 @@ extension AppDelegate {
             DispatchQueue.main.async { [weak self] in
                 self?.isPresentingPopover = false
             }
-            if !isPopoverPinned {
-                startGlobalClickMonitor()
-            }
+            applyPopoverBehavior()
         }
     }
 
@@ -147,7 +111,13 @@ extension AppDelegate {
     }
 
     func applyPopoverBehavior() {
-        popover?.behavior = isPopoverPinned ? .applicationDefined : .transient
+        let isPinned = isPopoverPinned
+        popover?.behavior = isPinned ? .applicationDefined : .transient
+        if isPinned || popover?.isShown != true {
+            stopGlobalClickMonitor()
+        } else {
+            startGlobalClickMonitor()
+        }
     }
 
     func refreshServiceIfNeededOnTabSwitch(_ service: PopoverService) {
@@ -160,20 +130,11 @@ extension AppDelegate {
         performRuntimeAction(action)
     }
 
-    func openSettingsForAuth(service: PopoverService) {
-        AppSettings.shared.settingsLastTab = ServiceSelectionHelper.settingsRootTab(for: service)
-        showSettingsWindow()
-    }
-
     func refreshPopoverSizeIfShown(service: PopoverService, reason: PopoverLayoutRefreshReason) {
-        switch reason {
-        case .serviceSelection, .compactToggle:
-            break
-        }
         let requestedSize = popoverLayoutSpec(for: service).size
-        logPopoverPresentationState("refresh-size reason=\(reason.rawValue) service=\(service.rawValue)", requestedSize: requestedSize)
-        popoverCoordinator.refreshSizeIfShown(size: requestedSize)
-        logPopoverPresentationState("after-refresh reason=\(reason.rawValue) service=\(service.rawValue)")
+        logPopoverPresentationState(
+            "request-size reason=\(reason.rawValue) service=\(service.rawValue)", requestedSize: requestedSize)
+        popoverCoordinator.refreshSizeIfShown()
     }
 
     func popoverLayoutSpec(for service: PopoverService) -> PopoverLayoutSpec {
@@ -181,9 +142,7 @@ extension AppDelegate {
     }
 
     func refreshVisiblePopoverSizeForCurrentState() {
-        guard popover?.isShown == true else { return }
-        let requestedSize = popoverLayoutSpec(for: popoverViewModel.selectedService).size
-        popoverCoordinator.refreshSizeIfShown(size: requestedSize)
+        popoverCoordinator.refreshSizeIfShown()
     }
 
     func logPopoverPresentationState(

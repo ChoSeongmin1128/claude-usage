@@ -36,8 +36,8 @@ nonisolated enum TimeFormatUnification {
         let codex = defaults.string(forKey: "codexTimeFormat")
         let antigravity = antigravityTimeFormat(defaults: defaults)
         guard codex != nil || antigravity != nil else { return }
-        let claude = defaults.string(forKey: "timeFormat") ?? TimeFormatStyle.h24.rawValue
-        if [codex, antigravity].compactMap({ $0 }).contains(where: { $0 != claude }) {
+        let claude = TimeFormatStyle(rawValue: defaults.string(forKey: "timeFormat") ?? "24h") ?? .h24
+        if [codex, antigravity].compactMap({ $0 }).contains(where: { TimeFormatStyle(rawValue: $0) != claude }) {
             UpdateNotesQueue.enqueue(.timeFormatUnified, defaults: defaults)
         }
     }

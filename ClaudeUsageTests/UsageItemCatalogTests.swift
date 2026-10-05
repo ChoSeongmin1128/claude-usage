@@ -21,8 +21,8 @@ final class UsageItemCatalogTests: XCTestCase {
                 PopoverItemConfig(id: "weeklyLimit", visible: false),
                 PopoverItemConfig(id: "currentSession", visible: true),
                 PopoverItemConfig(id: "modelUsage", visible: true),
-                PopoverItemConfig(id: "claudeResetCredits", visible: true),
                 PopoverItemConfig(id: "overageUsage", visible: true),
+                PopoverItemConfig(id: "claudeResetCredits", visible: true),
             ]
         )
     }
@@ -40,7 +40,7 @@ final class UsageItemCatalogTests: XCTestCase {
         XCTAssertFalse(normalized.contains { $0.id == "activeAccount" })
         XCTAssertEqual(
             normalized.map(\.id),
-            ["currentSession", "weeklyLimit", "modelUsage", "claudeResetCredits", "overageUsage"]
+            ["currentSession", "weeklyLimit", "modelUsage", "overageUsage", "claudeResetCredits"]
         )
     }
 
@@ -158,8 +158,8 @@ final class UsageItemCatalogTests: XCTestCase {
         XCTAssertEqual(
             normalized.map(\.id),
             [
-                "codexPrimary", "codexSecondary", "codexSpendLimit", "codexModelLimits", "codexResetCredits",
-                "codexCredits",
+                "codexPrimary", "codexSecondary", "codexModelLimits", "codexSpendLimit", "codexCredits",
+                "codexResetCredits",
             ]
         )
         XCTAssertEqual(normalized.first { $0.id == "codexSecondary" }?.visible, false)

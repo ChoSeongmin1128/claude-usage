@@ -13,7 +13,6 @@ struct UsageSectionView: View {
     let resetAt: String?
     var isWeekly: Bool = false
     var timeFormatStyle: TimeFormatStyle = .h24
-    var timeUnitLanguage: TimeUnitLanguage = .english
     var basis: UsageValueBasis = .used
 
     var body: some View {
@@ -31,15 +30,13 @@ struct UsageSectionView: View {
             return TimeFormatter.formatRelativeTimeWithClockWeekly(
                 from: resetAt,
                 style: timeFormatStyle,
-                label: nil,
-                unitLanguage: timeUnitLanguage
+                label: nil
             )
         }
         return TimeFormatter.formatRelativeTimeWithClock(
             from: resetAt,
             style: timeFormatStyle,
-            label: nil,
-            unitLanguage: timeUnitLanguage
+            label: nil
         )
     }
 }

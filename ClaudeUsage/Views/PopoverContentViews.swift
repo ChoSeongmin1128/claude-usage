@@ -112,7 +112,6 @@ struct PopoverDisplaySectionView: View {
                     resetAt: usage.resetAt,
                     isWeekly: usage.isWeekly,
                     timeFormatStyle: usage.timeFormatStyle,
-                    timeUnitLanguage: usage.timeUnitLanguage,
                     basis: usage.basis
                 )
             } else {
@@ -122,7 +121,6 @@ struct PopoverDisplaySectionView: View {
                     resetAt: usage.resetAt,
                     isWeekly: usage.isWeekly,
                     timeFormatStyle: usage.timeFormatStyle,
-                    timeUnitLanguage: usage.timeUnitLanguage,
                     basis: usage.basis
                 )
             }
@@ -225,27 +223,6 @@ struct ProviderStatusSectionView: View {
             return error.compactStatusColor
         }
         return status.statusText == nil ? .secondary : .orange
-    }
-}
-
-struct PopoverDisplayEditorView: View {
-    @ObservedObject var settings: AppSettings
-    let service: PopoverService
-    @Binding var selectedMode: PopoverDisplayEditorMode
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: AppDesign.Space.label) {
-            DisplayModePicker(selection: $selectedMode)
-
-            PopoverDisplayItemsListView(
-                settings: settings,
-                service: service,
-                isCompact: selectedMode.isCompact
-            )
-        }
-        .padding(AppDesign.Space.content)
-        .frame(width: 280)
-        .background(AppDesign.Surface.group)
     }
 }
 

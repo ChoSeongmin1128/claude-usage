@@ -608,6 +608,7 @@ echo
 echo "1. Xcode archive 생성"
 XCODEBUILD_ARCHIVE_ARGS=(
     -project "$PROJECT_PATH" \
+    -jobs 2 \
     -scheme "$SCHEME" \
     -configuration "$CONFIGURATION" \
     -xcconfig "$EFFECTIVE_XC_CONFIG_PATH" \

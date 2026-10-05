@@ -31,7 +31,7 @@ final class WhatsNewTests: XCTestCase {
     func testConditionalNoteJoinsItsPage() {
         let pages = WhatsNewCatalog.pagesToShow(after: "2.7.1", upTo: "2.8.0", notes: [.timeFormatUnified])
 
-        XCTAssertTrue(pages.first { $0.title == "남은 시간, 짧게" }?.body.hasSuffix("Claude 설정 값으로 맞췄습니다.") ?? false)
+        XCTAssertTrue(pages.first { $0.symbol == "clock" }?.body.hasSuffix("Claude 설정 값으로 맞췄습니다.") ?? false)
     }
 
     func testFreshInstallSkipsCurrentPagesButUpgradeShowsThem() throws {
@@ -147,10 +147,14 @@ final class WhatsNewTests: XCTestCase {
 
 nonisolated enum BuiltAppTestResources {
     static func bundle(relativeTo testClass: AnyClass) throws -> Bundle {
-        let directories = [
-            ProcessInfo.processInfo.environment["BUILT_PRODUCTS_DIR"].map(URL.init(fileURLWithPath:)),
-            Bundle(for: testClass).bundleURL.deletingLastPathComponent(),
+        var directories = [
+            ProcessInfo.processInfo.environment["BUILT_PRODUCTS_DIR"].map(URL.init(fileURLWithPath:))
         ].compactMap { $0 }
+        var ancestor = Bundle(for: testClass).bundleURL
+        for _ in 0..<4 {
+            ancestor.deleteLastPathComponent()
+            directories.append(ancestor)
+        }
         for directory in directories {
             let products =
                 (try? FileManager.default.contentsOfDirectory(

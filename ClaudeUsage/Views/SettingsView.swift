@@ -66,7 +66,7 @@ enum SettingsDestructiveAction: Identifiable, Equatable {
 
     var title: String {
         switch self {
-        case .resetDefaults: return "표시 설정을 기본값으로 되돌릴까요?"
+        case .resetDefaults: return "앱 설정을 기본값으로 되돌릴까요?"
         case .resetAllData: return "모든 데이터를 초기화할까요?"
         }
     }
@@ -74,7 +74,7 @@ enum SettingsDestructiveAction: Identifiable, Equatable {
     var detail: String {
         switch self {
         case .resetDefaults:
-            return "계정 연결, 서비스 사용 여부, 로그인 시 자동 시작은 그대로 두고 표시와 알림 설정을 되돌립니다."
+            return "표시, 알림과 앱 동작 설정을 되돌립니다. 계정 연결, 서비스 사용 여부, 로그인 시 자동 시작과 Antigravity의 개별 표시 설정은 유지합니다."
         case .resetAllData(let plan):
             let detail =
                 "설정과 이 앱에 저장한 로그인을 모두 지우고 앱을 종료합니다. Claude Code, Codex, AGY CLI의 기본 로그인은 그대로입니다."
@@ -84,13 +84,24 @@ enum SettingsDestructiveAction: Identifiable, Equatable {
 
     var actionTitle: String {
         switch self {
-        case .resetDefaults: return "기본값 복원"
+        case .resetDefaults: return "앱 설정 기본값 복원"
         case .resetAllData: return "초기화 후 종료"
         }
     }
 }
 
 nonisolated enum CodexAuthStatusResolver {
+    @MainActor
+    static func readStoredStatus(isProviderEnabled: Bool) async -> CodexAuthStatus {
+        guard isProviderEnabled else { return .notLoggedIn }
+        _ = try? await CodexAuthManager.shared.loadSnapshot()
+        return resolve(
+            isProviderEnabled: isProviderEnabled,
+            authJsonExists: CodexAuthManager.shared.authJsonExists,
+            token: CodexAuthManager.shared.getToken(),
+            isCodexInstalled: { CodexOwnerCLI.isAvailable() })
+    }
+
     /// **[C] Refresh 자동 호출 제거**:
     /// 이전에는 만료(또는 만료 추정) 시 status 조회 자체가 `refreshAccessToken` 콜백을 호출했다.
     /// 이로 인해 사용자가 설정 UI 에 들어가는 것만으로도 OAuth refresh_token 을 한 번 소비했고,
@@ -123,9 +134,14 @@ struct SettingsView: View {
     let claudeAPIService: ClaudeAPIService
     let claudeOAuthMigrationCoordinator: ClaudeOAuthCredentialMigrationCoordinator
     let initialPanel: SettingsProviderPanel?
-    @ObservedObject var settings = AppSettings.shared
+    let initialSection: SettingsSection?
+    let onboardingDetector: () async -> OnboardingDetection
+    let claudeAccountStore: ClaudeAccountStore
+    let sessionKeyLoader: @Sendable (String) -> String?
+    let codexAuthStatusReader: @MainActor (Bool) async -> CodexAuthStatus
+    @ObservedObject var settings: AppSettings
     @ObservedObject var notificationManager = NotificationManager.shared
-    @ObservedObject var updateRuntimeState = UpdateRuntimeState.shared
+    @ObservedObject var updateRuntimeState: UpdateRuntimeState
     @State var sessionKey: String = ""
     @State var storedSessionKey: String?
     @State var lastVerifiedSessionKey: String?
@@ -149,10 +165,12 @@ struct SettingsView: View {
     @State var claudeAccounts: [ClaudeAccount] = []
     @State var activeClaudeAccountID: String?
     @State var selectedPanel: SettingsProviderPanel = .common
-    @State var selectedDisplayProvider:
-        AppProviderKind = .claude
-    @State var selectedAccountProvider: AppProviderKind = .claude
-    @State var collapsedLimitProviders: Set<AppProviderKind> = []
+    @State var selectedProvider: AppProviderKind = .claude
+    @State var requestedSection: SettingsSection?
+    @State var sectionScrollPosition: SettingsSection?
+    @State var preparedSettingsDataRequest: SettingsDataPreparationRequest?
+    @State var navigationRevision = 0
+    @State var isPopoverSettingsExpanded = false
     @State var isAdvancedAuthExpanded = false
     @State var isOrganizationAdvancedExpanded = false
     @State var codexAuthStatus: CodexAuthStatus = .checking
@@ -163,7 +181,6 @@ struct SettingsView: View {
     @StateObject var antigravitySettings:
         AntigravitySettingsViewModel
 
-    @State var welcomeProvider: AppProviderKind = .claude
     @State var onboardingDetection = OnboardingDetection()
     @State var browserLoginWatch: Task<Void, Never>?
     @State var installGuide: AppProviderKind?
@@ -187,8 +204,13 @@ struct SettingsView: View {
 
     init(
         claudeAPIService: ClaudeAPIService,
-        antigravityRuntimeController:
-            AntigravityRuntimeController,
+        antigravitySettings: AntigravitySettingsViewModel,
+        settings: AppSettings = .shared,
+        updateRuntimeState: UpdateRuntimeState = .shared,
+        claudeAccountStore: ClaudeAccountStore = .shared,
+        sessionKeyLoader: @escaping @Sendable (String) -> String? = { KeychainManager.shared.load(for: $0) },
+        codexAuthStatusReader: @escaping @MainActor (Bool) async -> CodexAuthStatus = CodexAuthStatusResolver
+            .readStoredStatus,
         claudeOAuthMigrationCoordinator: ClaudeOAuthCredentialMigrationCoordinator = .shared,
         onOpenLogin: (() -> Void)? = nil,
         onReconnectClaudeCode: (() -> Void)? = nil,
@@ -201,7 +223,9 @@ struct SettingsView: View {
         codexLastUsage: (() -> CodexUsageResponse?)? = nil,
         codexLastError: (() -> APIError?)? = nil,
         initialPanel: SettingsProviderPanel? = nil,
+        initialSection: SettingsSection? = nil,
         welcomeStatuses: (() -> [AppProviderKind: WelcomeServiceStatus])? = nil,
+        onboardingDetector: @escaping () async -> OnboardingDetection = OnboardingDetection.detect,
         onVerifyService: ((PopoverService) -> Void)? = nil,
         onShowWhatsNew: (() -> Void)? = nil,
         onImportClaudeFromBrowser: ((ClaudeBrowserFamily?) -> Void)? = nil,
@@ -210,26 +234,28 @@ struct SettingsView: View {
     ) {
         self.claudeAPIService = claudeAPIService
         self.initialPanel = initialPanel
+        self.initialSection = initialSection
+        self.settings = settings
+        self.updateRuntimeState = updateRuntimeState
+        self.claudeAccountStore = claudeAccountStore
+        self.sessionKeyLoader = sessionKeyLoader
+        self.codexAuthStatusReader = codexAuthStatusReader
         self.welcomeStatuses = welcomeStatuses
+        self.onboardingDetector = onboardingDetector
         self.onVerifyService = onVerifyService
         self.onShowWhatsNew = onShowWhatsNew
         self.onImportClaudeFromBrowser = onImportClaudeFromBrowser
         self.onOpenEmbeddedLogin = onOpenEmbeddedLogin
         self.usageAccounts = usageAccounts
-        _welcomeProvider = State(
-            initialValue: AppProviderKind.allCases.first { AppSettings.shared.isProviderEnabled($0) } ?? .claude)
-        let storedPanel = SettingsProviderPanel.resolve(storedValue: AppSettings.shared.settingsLastTab)
-        _selectedPanel = State(initialValue: initialPanel ?? storedPanel?.panel ?? .common)
-        if let provider = storedPanel?.provider {
-            _selectedAccountProvider = State(initialValue: provider)
-        }
-        _antigravitySettings = StateObject(
-            wrappedValue:
-                AntigravitySettingsViewModel(
-                    runtimeController:
-                        antigravityRuntimeController
-                )
-        )
+        let fallbackProvider = settings.activeProviderKind ?? .claude
+        let storedPanel = SettingsProviderPanel.resolve(
+            storedValue: settings.settingsLastTab, fallbackProvider: fallbackProvider)
+        let panel = initialPanel ?? storedPanel?.panel ?? .common
+        _selectedPanel = State(initialValue: panel)
+        _selectedProvider = State(initialValue: panel.providerKind ?? fallbackProvider)
+        _requestedSection = State(initialValue: initialSection)
+        _isPopoverSettingsExpanded = State(initialValue: initialSection == .popover)
+        _antigravitySettings = StateObject(wrappedValue: antigravitySettings)
         self.claudeOAuthMigrationCoordinator = claudeOAuthMigrationCoordinator
         self.onOpenLogin = onOpenLogin
         self.onReconnectClaudeCode = onReconnectClaudeCode

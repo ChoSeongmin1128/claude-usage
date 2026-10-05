@@ -768,7 +768,6 @@ enum MenuBarStatusComposer {
                 : "battery.no-percent",
             config.resetTimeDisplay.rawValue,
             config.timeFormat.rawValue,
-            config.timeUnitLanguage.rawValue,
             config.circularDisplayMode.rawValue,
             config.basisOverride?.rawValue ?? "legacy",
             config.iconMetric.rawValue,
@@ -935,30 +934,22 @@ enum MenuBarStatusComposer {
         case .none:
             return nil
         case .fiveHour:
-            if let sessionReset = usage.fiveHour?.resetsAt {
-                return TimeFormatter.formatResetTime(
-                    from: sessionReset, style: config.timeFormat, includeDateIfNotToday: false,
-                    unitLanguage: config.timeUnitLanguage)
-            }
-            guard let weeklyReset = usage.sevenDay?.resetsAt else { return nil }
-            return TimeFormatter.formatResetTimeWeekly(
-                from: weeklyReset, style: config.timeFormat, includeDateIfNotToday: false,
-                unitLanguage: config.timeUnitLanguage)
+            // 숫자/게이지의 주간 대체와 시간 선택은 별개다. 고른 창의 시각이 없으면 시간을 숨긴다.
+            guard let resetAt = usage.fiveHour?.resetsAt else { return nil }
+            return TimeFormatter.formatResetTime(
+                from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
         case .weekly:
             guard let resetAt = usage.sevenDay?.resetsAt else { return nil }
             return TimeFormatter.formatResetTimeWeekly(
-                from: resetAt, style: config.timeFormat, includeDateIfNotToday: false,
-                unitLanguage: config.timeUnitLanguage)
+                from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
         case .dual:
             let first = usage.fiveHour?.resetsAt.flatMap {
                 TimeFormatter.formatResetTime(
-                    from: $0, style: config.timeFormat, includeDateIfNotToday: false,
-                    unitLanguage: config.timeUnitLanguage)
+                    from: $0, style: config.timeFormat, includeDateIfNotToday: false)
             }
             let second = usage.sevenDay?.resetsAt.flatMap {
                 TimeFormatter.formatResetTimeWeekly(
-                    from: $0, style: config.timeFormat, includeDateIfNotToday: false,
-                    unitLanguage: config.timeUnitLanguage)
+                    from: $0, style: config.timeFormat, includeDateIfNotToday: false)
             }
             if let first, let second { return "\(first) · \(second)" }
             return first ?? second
@@ -975,28 +966,23 @@ enum MenuBarStatusComposer {
             // 포맷은 표시 슬롯이 아니라 실제 창 성격을 따라간다 — 주간 창에 분 단위까지 붙는 것 방지.
             if let sessionReset = usage.sessionWindow?.resetAtISO {
                 return TimeFormatter.formatResetTime(
-                    from: sessionReset, style: config.timeFormat, includeDateIfNotToday: false,
-                    unitLanguage: config.timeUnitLanguage)
+                    from: sessionReset, style: config.timeFormat, includeDateIfNotToday: false)
             }
             guard let weeklyReset = usage.weeklyWindow?.resetAtISO else { return nil }
             return TimeFormatter.formatResetTimeWeekly(
-                from: weeklyReset, style: config.timeFormat, includeDateIfNotToday: false,
-                unitLanguage: config.timeUnitLanguage)
+                from: weeklyReset, style: config.timeFormat, includeDateIfNotToday: false)
         case .weekly:
             guard let resetAt = usage.weeklyWindow?.resetAtISO else { return nil }
             return TimeFormatter.formatResetTimeWeekly(
-                from: resetAt, style: config.timeFormat, includeDateIfNotToday: false,
-                unitLanguage: config.timeUnitLanguage)
+                from: resetAt, style: config.timeFormat, includeDateIfNotToday: false)
         case .dual:
             let first = usage.sessionWindow?.resetAtISO.flatMap {
                 TimeFormatter.formatResetTime(
-                    from: $0, style: config.timeFormat, includeDateIfNotToday: false,
-                    unitLanguage: config.timeUnitLanguage)
+                    from: $0, style: config.timeFormat, includeDateIfNotToday: false)
             }
             let second = usage.weeklyWindow?.resetAtISO.flatMap {
                 TimeFormatter.formatResetTimeWeekly(
-                    from: $0, style: config.timeFormat, includeDateIfNotToday: false,
-                    unitLanguage: config.timeUnitLanguage)
+                    from: $0, style: config.timeFormat, includeDateIfNotToday: false)
             }
             if let first, let second { return "\(first) · \(second)" }
             return first ?? second

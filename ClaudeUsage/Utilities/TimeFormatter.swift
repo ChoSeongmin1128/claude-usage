@@ -86,46 +86,41 @@ enum TimeFormatter {
     /// General surfaces retain the full date; compact rows use the same rules
     /// with a short date so the reset time can stay on a single line.
     nonisolated static func formatResetTime(
-        from resetAt: String, style: TimeFormatStyle = .h24, includeDateIfNotToday: Bool = true,
-        unitLanguage: TimeUnitLanguage = .english
+        from resetAt: String, style: TimeFormatStyle = .h24, includeDateIfNotToday: Bool = true
     ) -> String? {
         guard let date = parseISO8601(resetAt) else { return nil }
         return formatResetDate(
-            date, isWeekly: false, style: style, includeDateIfNotToday: includeDateIfNotToday,
-            unitLanguage: unitLanguage)
+            date, isWeekly: false, style: style, includeDateIfNotToday: includeDateIfNotToday)
     }
 
     nonisolated static func formatResetTimeWeekly(
-        from resetAt: String, style: TimeFormatStyle = .h24, includeDateIfNotToday: Bool = true,
-        unitLanguage: TimeUnitLanguage = .english
+        from resetAt: String, style: TimeFormatStyle = .h24, includeDateIfNotToday: Bool = true
     ) -> String? {
         guard let date = parseISO8601(resetAt) else { return nil }
         return formatResetDate(
-            date, isWeekly: true, style: style, includeDateIfNotToday: includeDateIfNotToday, unitLanguage: unitLanguage
+            date, isWeekly: true, style: style, includeDateIfNotToday: includeDateIfNotToday
         )
     }
 
     nonisolated static func formatCompactUsageReset(
         from resetAt: String, isWeekly: Bool, style: TimeFormatStyle,
-        now: Date = Date(), timeZone: TimeZone = .current,
-        unitLanguage: TimeUnitLanguage = .english
+        now: Date = Date(), timeZone: TimeZone = .current
     ) -> String? {
         guard let date = parseISO8601(resetAt) else { return nil }
         return formatResetDate(
             date, isWeekly: isWeekly, style: style, includeDateIfNotToday: false,
-            compact: true, now: now, timeZone: timeZone, unitLanguage: unitLanguage)
+            compact: true, now: now, timeZone: timeZone)
     }
 
-    nonisolated private static func formatResetDate(
+    nonisolated fileprivate static func formatResetDate(
         _ date: Date, isWeekly: Bool, style: TimeFormatStyle, includeDateIfNotToday: Bool,
-        compact: Bool = false, now: Date = Date(), timeZone: TimeZone = .current,
-        unitLanguage: TimeUnitLanguage = .english
+        compact: Bool = false, now: Date = Date(), timeZone: TimeZone = .current
     ) -> String {
         let interval = date.timeIntervalSince(now)
         let isWeeklyDate = isWeekly && interval > 86400
         if style.isRemaining {
             return formatRemaining(
-                until: date, now: now, style: style, isWeekly: isWeeklyDate, unitLanguage: unitLanguage)
+                until: date, now: now, isWeekly: isWeeklyDate)
         }
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ko_KR")
@@ -142,40 +137,21 @@ enum TimeFormatter {
         return formatter.string(from: date)
     }
 
-    /// 짧게는 하루부터 분을 생략하고, 전체 시간 형식은 같은 시:분 표기를 유지한다.
     nonisolated static func formatRemaining(
-        until date: Date, now: Date = Date(), style: TimeFormatStyle, isWeekly: Bool,
-        unitLanguage: TimeUnitLanguage = .english
+        until date: Date, now: Date = Date(), isWeekly: Bool
     ) -> String {
-        let interval = max(0, date.timeIntervalSince(now))
-        let totalMinutes = Int((interval + 30).rounded(.down)) / 60
-        let totalHours = totalMinutes / 60
-        let days = totalHours / 24
-        let hours = totalHours % 24
-        let minutes = totalMinutes % 60
-        switch style {
-        case .remainingClock:
-            let wholeMinutes = Int(interval / 60)
-            let wholeHours = wholeMinutes / 60
-            if interval >= 86400 {
-                return "\(wholeHours / 24)\(unitLanguage.dayUnit):" + String(format: "%02d", wholeHours % 24)
-            }
-            return String(format: "%d:%02d", wholeHours, wholeMinutes % 60)
-        case .remainingTotalClock:
-            return String(format: "%d:%02d", totalHours, minutes)
-        default:
-            if isWeekly {
-                return hours > 0
-                    ? "\(days)\(unitLanguage.dayUnit) \(hours)\(unitLanguage.hourUnit)"
-                    : "\(days)\(unitLanguage.dayUnit)"
-            }
-            return formatRemainingCompact(until: date, now: now, unitLanguage: unitLanguage)
+        if isWeekly {
+            let totalHours = Int(max(0, date.timeIntervalSince(now)) + 30) / 3600
+            let days = totalHours / 24
+            let hours = totalHours % 24
+            return hours > 0 ? "\(days)d \(hours)h" : "\(days)d"
         }
+        return formatRemainingCompact(until: date, now: now)
     }
 
     /// 남은 시간을 "0h 00m" 또는 "0d 0h 00m" 형태로 포맷
     nonisolated static func formatRemainingCompact(
-        until date: Date, now: Date = Date(), unitLanguage: TimeUnitLanguage = .english
+        until date: Date, now: Date = Date()
     ) -> String {
         let interval = max(0, date.timeIntervalSince(now))
         let totalMinutes = Int((interval + 30).rounded(.down)) / 60
@@ -183,11 +159,11 @@ enum TimeFormatter {
         let days = totalHours / 24
         let hours = totalHours % 24
         let minutes = totalMinutes % 60
-        let minuteText = String(format: "%02d", minutes) + unitLanguage.minuteUnit
+        let minuteText = String(format: "%02d", minutes) + "m"
         if days > 0 {
-            return "\(days)\(unitLanguage.dayUnit) \(hours)\(unitLanguage.hourUnit) \(minuteText)"
+            return "\(days)d \(hours)h \(minuteText)"
         }
-        return "\(hours)\(unitLanguage.hourUnit) \(minuteText)"
+        return "\(hours)h \(minuteText)"
     }
 
     /// 남은 시간 + 갱신 예상 시각을 결합한 포맷 (현재 세션용: 항상 시각만)
@@ -195,8 +171,7 @@ enum TimeFormatter {
     nonisolated static func formatRelativeTimeWithClock(
         from resetAt: String,
         style: TimeFormatStyle = .h24,
-        label: String? = "갱신 예상",
-        unitLanguage: TimeUnitLanguage = .english
+        label: String? = "갱신 예상"
     ) -> String {
         guard let resetDate = parseISO8601(resetAt) else {
             return labeled(
@@ -208,8 +183,7 @@ enum TimeFormatter {
             resetAt: resetDate,
             isWeekly: false,
             style: style,
-            label: label,
-            unitLanguage: unitLanguage
+            label: label
         )
     }
 
@@ -218,8 +192,7 @@ enum TimeFormatter {
     nonisolated static func formatRelativeTimeWithClockWeekly(
         from resetAt: String,
         style: TimeFormatStyle = .h24,
-        label: String? = "갱신 예상",
-        unitLanguage: TimeUnitLanguage = .english
+        label: String? = "갱신 예상"
     ) -> String {
         guard let resetDate = parseISO8601(resetAt) else {
             return labeled(
@@ -232,8 +205,7 @@ enum TimeFormatter {
             resetAt: resetDate,
             isWeekly: true,
             style: style,
-            label: label,
-            unitLanguage: unitLanguage
+            label: label
         )
     }
 
@@ -248,14 +220,13 @@ enum TimeFormatter {
         now: Date = Date(),
         locale: Locale = Locale(identifier: "ko_KR"),
         timeZone: TimeZone = .current,
-        label: String? = "갱신 예상",
-        unitLanguage: TimeUnitLanguage = .english
+        label: String? = "갱신 예상"
     ) -> String {
         if style.isRemaining {
             return labeled(
                 formatRemaining(
-                    until: resetAt, now: now, style: style,
-                    isWeekly: isWeekly && resetAt.timeIntervalSince(now) > 86400, unitLanguage: unitLanguage),
+                    until: resetAt, now: now,
+                    isWeekly: isWeekly && resetAt.timeIntervalSince(now) > 86400),
                 label: label)
         }
         let relative = formatRelativeTime(
@@ -283,13 +254,11 @@ enum TimeFormatter {
         let formatter = DateFormatter()
         formatter.locale = locale
         formatter.timeZone = timeZone
-        let clockStyle: TimeFormatStyle =
-            style.isRemaining ? .h24 : style
         if isWeekly, interval > 86400 {
             formatter.dateFormat = "M월 d일 EEEE"
         } else {
             formatter.dateFormat =
-                clockStyle == .h12 ? "a h:mm" : "HH:mm"
+                style == .h12 ? "a h:mm" : "HH:mm"
         }
 
         return labeled(
@@ -348,5 +317,23 @@ enum TimeFormatter {
         }
 
         return "곧 갱신"
+    }
+}
+
+nonisolated extension TimeFormatStyle {
+    func exampleText() -> String {
+        let now = Date(timeIntervalSince1970: 0)
+        let samples: [(interval: TimeInterval, weekly: Bool)]
+        switch self {
+        case .h24, .h12:
+            samples = [(18 * 3600 + 34 * 60, false)]
+        case .remaining:
+            samples = [(2 * 3600 + 34 * 60, false), (3 * 86400 + 2 * 3600, true)]
+        }
+        return samples.map { sample in
+            TimeFormatter.formatResetDate(
+                now.addingTimeInterval(sample.interval), isWeekly: sample.weekly, style: self,
+                includeDateIfNotToday: false, compact: true, now: now, timeZone: .gmt)
+        }.joined(separator: " / ")
     }
 }

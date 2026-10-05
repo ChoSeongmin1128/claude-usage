@@ -14,6 +14,94 @@ final class PopoverResizeTests: XCTestCase {
         try assertNativeResize(service: .antigravity)
     }
 
+    func testViewportUsesTheNativeParentAfterAnEarlyResizeCompletion() throws {
+        try withDetachedViewport { viewport, parent in
+            viewport.frame = CGRect(x: 4, y: 4, width: 310, height: 152)
+            viewport.needsLayout = true
+            viewport.layoutSubtreeIfNeeded()
+            viewport.prepareForResize()
+            viewport.setFrameSize(CGSize(width: 370, height: 210))
+            viewport.finishResize()
+
+            for size in [
+                CGSize(width: 318, height: 160), .init(width: 346, height: 190), .init(width: 378, height: 218),
+            ] {
+                parent.setFrameSize(size)
+                viewport.needsLayout = true
+                viewport.layoutSubtreeIfNeeded()
+                let hosted = viewport.convert(viewport.hostingView.frame, to: parent)
+                XCTAssertTrue(parent.bounds.contains(hosted))
+                XCTAssertEqual(parent.bounds.maxY - hosted.maxY, 4, accuracy: 0.01)
+                XCTAssertEqual(hosted.minX - parent.bounds.minX, 4, accuracy: 0.01)
+            }
+            XCTAssertEqual(viewport.hostingView.bounds.size, CGSize(width: 370, height: 210))
+        }
+    }
+
+    func testViewportKeepsKnownMarginsDuringAnEarlyShrinkingCompletion() throws {
+        try withDetachedViewport { viewport, parent in
+            parent.setFrameSize(CGSize(width: 378, height: 218))
+            viewport.frame = CGRect(x: 4, y: 4, width: 370, height: 210)
+            viewport.needsLayout = true
+            viewport.layoutSubtreeIfNeeded()
+            viewport.prepareForResize()
+            viewport.setFrameSize(CGSize(width: 310, height: 152))
+            viewport.finishResize()
+
+            for size in [
+                CGSize(width: 378, height: 218), .init(width: 346, height: 190), .init(width: 318, height: 160),
+            ] {
+                parent.setFrameSize(size)
+                viewport.needsLayout = true
+                viewport.layoutSubtreeIfNeeded()
+                let hosted = viewport.convert(viewport.hostingView.frame, to: parent)
+                XCTAssertTrue(parent.bounds.contains(hosted))
+                XCTAssertEqual(parent.bounds.maxY - hosted.maxY, 4, accuracy: 0.01)
+                XCTAssertEqual(hosted.minX - parent.bounds.minX, 4, accuracy: 0.01)
+            }
+            XCTAssertEqual(viewport.hostingView.bounds.size, CGSize(width: 310, height: 152))
+        }
+    }
+
+    func testViewportClipsToTheNativeParentBeforeMarginsAreAvailable() throws {
+        try withDetachedViewport { viewport, parent in
+            viewport.frame = CGRect(x: 4, y: 4, width: 370, height: 210)
+            viewport.finishResize()
+            viewport.layoutSubtreeIfNeeded()
+            var hosted = viewport.convert(viewport.hostingView.frame, to: parent)
+            XCTAssertTrue(parent.bounds.contains(hosted))
+            XCTAssertEqual(hosted.maxX, parent.bounds.maxX, accuracy: 0.01)
+            XCTAssertEqual(hosted.maxY, parent.bounds.maxY, accuracy: 0.01)
+
+            viewport.frame.origin = CGPoint(x: 400, y: 400)
+            viewport.needsLayout = true
+            viewport.layoutSubtreeIfNeeded()
+            XCTAssertEqual(viewport.visibleContentRect, .zero)
+            XCTAssertEqual(viewport.hostingView.frame, .zero)
+
+            viewport.frame.origin = CGPoint(x: 4, y: 4)
+            parent.setFrameSize(CGSize(width: 378, height: 218))
+            viewport.needsLayout = true
+            viewport.layoutSubtreeIfNeeded()
+            hosted = viewport.convert(viewport.hostingView.frame, to: parent)
+            XCTAssertTrue(parent.bounds.contains(hosted))
+            XCTAssertEqual(parent.bounds.maxY - hosted.maxY, 4, accuracy: 0.01)
+            XCTAssertEqual(viewport.hostingView.bounds.size, CGSize(width: 370, height: 210))
+        }
+    }
+
+    private func withDetachedViewport(_ body: (PopoverViewportView, NSView) throws -> Void) throws {
+        let suite = "PopoverResizeTests.detached.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let coordinator = AppPopoverCoordinator(settings: AppSettings(defaults: defaults))
+        coordinator.rebuildPopover()
+        let viewport = try XCTUnwrap(coordinator.popover.contentViewController?.view as? PopoverViewportView)
+        let parent = NSView(frame: CGRect(x: 0, y: 0, width: 318, height: 160))
+        parent.addSubview(viewport)
+        try body(viewport, parent)
+    }
+
     private func withNativePopover(
         service: PopoverService, reduceMotion: Bool = false, settleInitialPresentation: Bool = true,
         transitionStyle: AppMotionMode = .smooth, customCategories: Set<AppMotionCategory> = [],
@@ -45,18 +133,15 @@ final class PopoverResizeTests: XCTestCase {
             coordinator.configure(
                 initialService: service,
                 onRefreshService: { _ in },
-                onOpenSettingsForService: { _ in },
-                onOpenSettingsPanel: { _ in },
+                onOpenSettingsDestination: { _ in },
                 onServiceSelected: { [weak coordinator] selected in
                     guard let coordinator else { return }
                     ServiceSelectionHelper.setActivePopoverService(selected, settings: settings)
-                    coordinator.refreshSizeIfShown(
-                        size: coordinator.viewModel.layoutSpec(for: selected, settings: settings).size)
+                    coordinator.refreshSizeIfShown()
                 },
                 onLayoutChanged: { [weak coordinator] selected, _ in
                     guard let coordinator else { return }
-                    coordinator.refreshSizeIfShown(
-                        size: coordinator.viewModel.layoutSpec(for: selected, settings: settings).size)
+                    coordinator.refreshSizeIfShown()
                 },
                 onPinChanged: { _, _ in }
             )
@@ -76,16 +161,23 @@ final class PopoverResizeTests: XCTestCase {
                 x: screen.visibleFrame.minX + 200, y: screen.visibleFrame.maxY - 160, width: 400, height: 100),
             styleMask: .borderless, backing: .buffered, defer: false)
         anchorWindow.isReleasedWhenClosed = false
-        anchorWindow.alphaValue = 0
+        anchorWindow.animationBehavior = .none
         let anchor = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 100))
         anchorWindow.contentView = anchor
         anchorWindow.orderBack(nil)
+        anchorWindow.displayIfNeeded()
         defer {
             coordinator.close()
             anchorWindow.close()
         }
         popover.show(relativeTo: NSRect(x: 180, y: 50, width: 20, height: 20), of: anchor, preferredEdge: .minY)
-        host.view.window?.alphaValue = 0
+        let popoverWindow = try XCTUnwrap(host.view.window)
+        popoverWindow.displayIfNeeded()
+        host.view.layoutSubtreeIfNeeded()
+        XCTAssertFalse(anchorWindow.isKeyWindow)
+        XCTAssertFalse(anchorWindow.isMainWindow)
+        XCTAssertFalse(popoverWindow.isKeyWindow)
+        XCTAssertFalse(NSApplication.shared.isActive)
         XCTAssertTrue(popover.isShown)
 
         if settleInitialPresentation { RunLoop.current.run(until: Date().addingTimeInterval(0.35)) }
@@ -100,7 +192,7 @@ final class PopoverResizeTests: XCTestCase {
                 let initialFrame = window.frame
                 settings.popoverCompact = compact
                 let target = coordinator.viewModel.layoutSpec(for: service, settings: settings).size
-                coordinator.refreshSizeIfShown(size: target)
+                coordinator.refreshSizeIfShown()
                 let frames = try observeTransition(host: host, duration: 0.45)
                 XCTAssertGreaterThan(Set(frames.map { Int($0.width.rounded()) }).count, 3)
                 for frame in frames {
@@ -117,14 +209,12 @@ final class PopoverResizeTests: XCTestCase {
     func testSmoothResizeKeepsHostedTopInsetStable() throws {
         try withNativePopover(service: .claude) { settings, coordinator, host, _ in
             settings.popoverCompact = false
-            coordinator.refreshSizeIfShown(
-                size: coordinator.viewModel.layoutSpec(for: .claude, settings: settings).size
-            )
+            coordinator.refreshSizeIfShown()
             _ = try observeTransition(host: host, duration: 0.45)
 
             settings.popoverCompact = true
             let target = coordinator.viewModel.layoutSpec(for: .claude, settings: settings).size
-            coordinator.refreshSizeIfShown(size: target)
+            coordinator.refreshSizeIfShown()
 
             let viewport = try XCTUnwrap(host.view as? PopoverViewportView)
             let parent = try XCTUnwrap(viewport.superview)
@@ -148,38 +238,37 @@ final class PopoverResizeTests: XCTestCase {
         }
     }
 
-    func testNestedDisplayEditorDefersMainResizeUntilNativeClose() throws {
+    func testDisplayItemChangesResizeTheExistingPopover() throws {
         for (compact, motion, pinned) in [(true, AppMotionMode.smooth, true), (false, .instant, false)] {
             try withNativePopover(
                 service: .claude, transitionStyle: motion, compact: compact, pinned: pinned,
                 connectSelectionCallbacks: true
             ) { settings, coordinator, host, _ in
-                let lifecycle = NativeEditorLifecycle(mainPopover: coordinator.popover)
-                defer { lifecycle.stop() }
-                try openNestedEditor(coordinator: coordinator, host: host, compact: compact, lifecycle: lifecycle)
-
-                let original = coordinator.popover.contentSize
-                let items = settings.popoverItems(for: .claude).map {
+                let originalPopover = coordinator.popover
+                let original = coordinator.viewModel.layoutSpec(for: .claude, settings: settings)
+                let baseline = try geometryBaseline(coordinator: coordinator, host: host)
+                let items =
+                    (compact
+                    ? settings.compactPopoverItems(for: .claude)
+                    : settings.popoverItems(for: .claude)).map {
                     PopoverItemConfig(id: $0.id, visible: $0.id == "weeklyLimit" ? false : $0.visible)
                 }
-                settings.setPopoverItems(items, for: .claude)
-                let target = coordinator.viewModel.layoutSpec(for: .claude, settings: settings).size
-                XCTAssertLessThan(target.height, original.height)
-                coordinator.refreshSizeIfShown(size: target)
-                XCTAssertEqual(coordinator.popover.contentSize, original)
-                XCTAssertTrue(coordinator.displayEditorIsActive)
-
-                let baseline = try geometryBaseline(coordinator: coordinator, host: host)
-                coordinator.closeDisplayEditor(animated: false)
-                try waitForNestedResize(
-                    coordinator: coordinator, host: host, target: target, lifecycle: lifecycle, baseline: baseline)
-                XCTAssertFalse(coordinator.displayEditorIsActive)
-                assertFinalSize(host: host, popover: coordinator.popover, target: target)
+                if compact {
+                    settings.setCompactPopoverItems(items, for: .claude)
+                } else {
+                    settings.setPopoverItems(items, for: .claude)
+                }
+                let target = coordinator.viewModel.layoutSpec(for: .claude, settings: settings)
+                XCTAssertLessThan(target.bodyContentHeight, original.bodyContentHeight)
+                coordinator.refreshSizeIfShown()
+                try waitForResize(coordinator: coordinator, host: host, target: target.size, baseline: baseline)
+                XCTAssertTrue(coordinator.popover === originalPopover)
+                assertFinalSize(host: host, popover: coordinator.popover, target: target.size)
             }
         }
     }
 
-    func testNestedDisplayEditorServiceSwitchUsesCallbacksAndFinalNativeGeometry() throws {
+    func testServiceSelectionUsesCallbacksAndFinalNativeGeometry() throws {
         for (compact, motion, pinned) in [(true, AppMotionMode.smooth, true), (false, .instant, false)] {
             try withNativePopover(
                 service: .claude, transitionStyle: motion, compact: compact, pinned: pinned,
@@ -198,16 +287,11 @@ final class PopoverResizeTests: XCTestCase {
                 coordinator.viewModel.update(snapshots: snapshots)
 
                 for destination in [PopoverService.codex, .claude] {
-                    let lifecycle = NativeEditorLifecycle(mainPopover: coordinator.popover)
-                    defer { lifecycle.stop() }
-                    try openNestedEditor(coordinator: coordinator, host: host, compact: compact, lifecycle: lifecycle)
-                    let editor = try XCTUnwrap(lifecycle.editor)
                     let originalSelection = coordinator.viewModel.onServiceSelected
                     let originalLayout = coordinator.viewModel.onLayoutChanged
                     var selectedServices: [PopoverService] = []
                     var layoutServices: [PopoverService] = []
                     coordinator.viewModel.onServiceSelected = { selected in
-                        XCTAssertFalse(editor.isShown, "Selection must wait for the nested editor to close")
                         selectedServices.append(selected)
                         originalSelection?(selected)
                     }
@@ -218,12 +302,11 @@ final class PopoverResizeTests: XCTestCase {
 
                     let baseline = try geometryBaseline(coordinator: coordinator, host: host)
                     coordinator.requestServiceSelection(destination)
+                    XCTAssertEqual(coordinator.viewModel.selectedService, destination)
                     let target = coordinator.viewModel.layoutSpec(for: destination, settings: settings).size
-                    try waitForNestedResize(
-                        coordinator: coordinator, host: host, target: target, lifecycle: lifecycle, baseline: baseline)
+                    try waitForResize(coordinator: coordinator, host: host, target: target, baseline: baseline)
                     XCTAssertEqual(selectedServices, [destination])
                     XCTAssertEqual(layoutServices, [destination])
-                    XCTAssertEqual(coordinator.viewModel.selectedService, destination)
                     XCTAssertEqual(ServiceSelectionHelper.resolvedPopoverService(settings: settings), destination)
                     assertFinalSize(host: host, popover: coordinator.popover, target: target)
                     coordinator.viewModel.onServiceSelected = originalSelection
@@ -233,22 +316,88 @@ final class PopoverResizeTests: XCTestCase {
         }
     }
 
-    func testNestedDisplayEditorServiceSwitchUsesLastRequestAfterClose() throws {
+    func testRapidServiceRequestsUseTheFinalSelectionImmediately() throws {
         try withNativePopover(service: .claude, connectSelectionCallbacks: true) { settings, coordinator, host, _ in
-            let lifecycle = NativeEditorLifecycle(mainPopover: coordinator.popover)
-            defer { lifecycle.stop() }
-            try openNestedEditor(coordinator: coordinator, host: host, compact: true, lifecycle: lifecycle)
             let baseline = try geometryBaseline(coordinator: coordinator, host: host)
-
             coordinator.requestServiceSelection(.antigravity)
             coordinator.requestServiceSelection(.codex)
-            let target = coordinator.viewModel.layoutSpec(for: .codex, settings: settings).size
-            try waitForNestedResize(
-                coordinator: coordinator, host: host, target: target, lifecycle: lifecycle, baseline: baseline)
-            XCTAssertFalse(coordinator.displayEditorIsActive)
             XCTAssertEqual(coordinator.viewModel.selectedService, .codex)
+            let target = coordinator.viewModel.layoutSpec(for: .codex, settings: settings).size
+            try waitForResize(coordinator: coordinator, host: host, target: target, baseline: baseline)
             XCTAssertEqual(ServiceSelectionHelper.resolvedPopoverService(settings: settings), .codex)
             assertFinalSize(host: host, popover: coordinator.popover, target: target)
+        }
+    }
+
+    func testQueuedSizeChangesApplyOnlyTheLatestCanonicalLayoutOutsideTheRequest() throws {
+        try withNativePopover(service: .claude, transitionStyle: .instant) { settings, coordinator, host, _ in
+            let originalSize = coordinator.popover.contentSize
+            let baseline = try geometryBaseline(coordinator: coordinator, host: host)
+            settings.popoverCompact = false
+            coordinator.refreshSizeIfShown()
+            XCTAssertEqual(coordinator.popover.contentSize, originalSize)
+
+            let supersededTarget = coordinator.viewModel.layoutSpec(for: .claude, settings: settings).size
+            coordinator.viewModel.selectService(.antigravity)
+            coordinator.refreshSizeIfShown()
+            XCTAssertEqual(coordinator.popover.contentSize, originalSize)
+            let target = coordinator.viewModel.layoutSpec(for: .antigravity, settings: settings).size
+            XCTAssertNotEqual(target, originalSize)
+            XCTAssertNotEqual(target, supersededTarget)
+            try waitForResize(coordinator: coordinator, host: host, target: target, baseline: baseline)
+            assertFinalSize(host: host, popover: coordinator.popover, target: target)
+        }
+    }
+
+    func testQueuedSizeUpdateCannotMutateARebuiltPopoverAfterClose() throws {
+        try withNativePopover(service: .claude) { settings, coordinator, _, _ in
+            settings.popoverCompact = false
+            coordinator.refreshSizeIfShown()
+            coordinator.close()
+            coordinator.rebuildPopover()
+            let replacement = coordinator.popover
+            let size = replacement.contentSize
+            coordinator.refreshSizeIfShown()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+            XCTAssertTrue(coordinator.popover === replacement)
+            XCTAssertFalse(replacement.isShown)
+            XCTAssertEqual(replacement.contentSize, size)
+        }
+    }
+
+    func testNativeResizeNotificationDrainsTheLatestInstantLayout() throws {
+        try withNativePopover(service: .antigravity) { settings, coordinator, host, _ in
+            let window = try XCTUnwrap(host.view.window)
+            let baseline = try geometryBaseline(coordinator: coordinator, host: host)
+            let initialFrame = window.frame
+            let observation = NativeResizeObservation()
+            observation.token = NotificationCenter.default.addObserver(
+                forName: NSWindow.didResizeNotification, object: window, queue: nil
+            ) { _ in
+                MainActor.assumeIsolated {
+                    guard let token = observation.token else { return }
+                    NotificationCenter.default.removeObserver(token)
+                    observation.token = nil
+                    observation.receivedCount += 1
+                    observation.receivedFrame = window.frame
+                    settings.motion.mode = .instant
+                    settings.popoverCompact = true
+                    coordinator.refreshSizeIfShown()
+                }
+            }
+            defer {
+                if let token = observation.token { NotificationCenter.default.removeObserver(token) }
+                observation.token = nil
+            }
+            settings.popoverCompact = false
+            coordinator.refreshSizeIfShown()
+            XCTAssertTrue(waitUntil { observation.receivedCount == 1 })
+            XCTAssertNotEqual(try XCTUnwrap(observation.receivedFrame).size, initialFrame.size)
+            let target = coordinator.viewModel.layoutSpec(for: .antigravity, settings: settings).size
+            try waitForResize(coordinator: coordinator, host: host, target: target, baseline: baseline)
+            assertFinalSize(host: host, popover: coordinator.popover, target: target)
+            XCTAssertEqual(observation.receivedCount, 1)
+            XCTAssertFalse(coordinator.popover.animates)
         }
     }
 
@@ -256,9 +405,9 @@ final class PopoverResizeTests: XCTestCase {
         try withNativePopover(service: .claude) { settings, coordinator, host, _ in
             settings.popoverCompact = false
             let target = coordinator.viewModel.layoutSpec(for: .claude, settings: settings).size
-            coordinator.refreshSizeIfShown(size: target)
+            coordinator.refreshSizeIfShown()
             let frames = try observeTransition(host: host, duration: 0.5) {
-                coordinator.refreshSizeIfShown(size: target)
+                coordinator.refreshSizeIfShown()
             }
             XCTAssertGreaterThan(Set(frames.map { Int($0.width.rounded()) }).count, 3)
             assertFinalSize(host: host, popover: coordinator.popover, target: target)
@@ -269,20 +418,18 @@ final class PopoverResizeTests: XCTestCase {
         try withNativePopover(service: .antigravity) { settings, coordinator, host, _ in
             for (compact, wait) in [(false, 0.09), (true, 0.07), (false, 0.08)] {
                 settings.popoverCompact = compact
-                coordinator.refreshSizeIfShown(
-                    size: coordinator.viewModel.layoutSpec(for: .antigravity, settings: settings).size)
+                coordinator.refreshSizeIfShown()
                 _ = try observeTransition(host: host, duration: wait)
             }
             coordinator.viewModel.selectService(.claude)
             let target = coordinator.viewModel.layoutSpec(for: .claude, settings: settings).size
-            coordinator.refreshSizeIfShown(size: target)
+            coordinator.refreshSizeIfShown()
             _ = try observeTransition(host: host, duration: 0.5)
             assertFinalSize(host: host, popover: coordinator.popover, target: target)
             settings.popoverCompact = true
-            coordinator.refreshSizeIfShown(
-                size: coordinator.viewModel.layoutSpec(for: .claude, settings: settings).size)
+            coordinator.refreshSizeIfShown()
             coordinator.close()
-            coordinator.refreshSizeIfShown(size: CGSize(width: 999, height: 999))
+            coordinator.refreshSizeIfShown()
             RunLoop.current.run(until: Date().addingTimeInterval(0.4))
             XCTAssertFalse(coordinator.popover.isShown)
             XCTAssertLessThan(coordinator.popover.contentSize.width, 500)
@@ -291,10 +438,11 @@ final class PopoverResizeTests: XCTestCase {
 
     func testReducedMotionReachesTheFinalSizeWithoutAnAnimatedViewport() throws {
         try withNativePopover(service: .claude, reduceMotion: true) { settings, coordinator, host, _ in
+            let baseline = try geometryBaseline(coordinator: coordinator, host: host)
             settings.popoverCompact = false
             let target = coordinator.viewModel.layoutSpec(for: .claude, settings: settings).size
-            coordinator.refreshSizeIfShown(size: target)
-            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+            coordinator.refreshSizeIfShown()
+            try waitForResize(coordinator: coordinator, host: host, target: target, baseline: baseline)
             assertFinalSize(host: host, popover: coordinator.popover, target: target)
             XCTAssertFalse(coordinator.popover.animates)
             let frames = try observeTransition(host: host, duration: 0.3)
@@ -304,11 +452,12 @@ final class PopoverResizeTests: XCTestCase {
 
     func testInstantPreferenceAndChangingPreferenceReuseTheSameHost() throws {
         try withNativePopover(service: .antigravity, transitionStyle: .instant) { settings, coordinator, host, _ in
+            let baseline = try geometryBaseline(coordinator: coordinator, host: host)
             let originalPopover = coordinator.popover
             settings.popoverCompact = false
             var target = coordinator.viewModel.layoutSpec(for: .antigravity, settings: settings).size
-            coordinator.refreshSizeIfShown(size: target)
-            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+            coordinator.refreshSizeIfShown()
+            try waitForResize(coordinator: coordinator, host: host, target: target, baseline: baseline)
             assertFinalSize(host: host, popover: coordinator.popover, target: target)
             XCTAssertFalse(coordinator.popover.animates)
             let instantFrames = try observeTransition(host: host, duration: 0.3)
@@ -317,7 +466,7 @@ final class PopoverResizeTests: XCTestCase {
             settings.motion.mode = .smooth
             settings.popoverCompact = true
             target = coordinator.viewModel.layoutSpec(for: .antigravity, settings: settings).size
-            coordinator.refreshSizeIfShown(size: target)
+            coordinator.refreshSizeIfShown()
             let smoothFrames = try observeTransition(host: host, duration: 0.45)
             XCTAssertGreaterThan(Set(smoothFrames.map { Int($0.width.rounded()) }).count, 3)
             assertFinalSize(host: host, popover: coordinator.popover, target: target)
@@ -326,17 +475,43 @@ final class PopoverResizeTests: XCTestCase {
         }
     }
 
+    func testInstantResizeAtTheScreenEdgeKeepsTheLatestTargetVisible() throws {
+        try withNativePopover(service: .antigravity, transitionStyle: .instant) { settings, coordinator, host, anchor in
+            let window = try XCTUnwrap(host.view.window)
+            let screen = try XCTUnwrap(window.screen)
+            let anchorWindow = try XCTUnwrap(anchor.window)
+            var positioningRect = coordinator.popover.positioningRect
+            positioningRect.origin.x = anchor.bounds.maxX - positioningRect.width
+            coordinator.popover.positioningRect = positioningRect
+            anchorWindow.setFrameOrigin(
+                CGPoint(x: screen.visibleFrame.maxX - anchor.bounds.width, y: anchorWindow.frame.minY))
+            _ = try observeTransition(host: host, duration: 0.3)
+            let top = window.frame.maxY
+
+            for compact in [false, true, false] {
+                settings.popoverCompact = compact
+                let target = coordinator.viewModel.layoutSpec(for: .antigravity, settings: settings).size
+                coordinator.refreshSizeIfShown()
+                _ = try observeTransition(host: host, duration: 0.3)
+                assertFinalSize(host: host, popover: coordinator.popover, target: target)
+                XCTAssertGreaterThanOrEqual(window.frame.minX, screen.visibleFrame.minX)
+                XCTAssertLessThanOrEqual(window.frame.maxX, screen.visibleFrame.maxX + 1)
+                XCTAssertEqual(window.frame.maxY, top, accuracy: 2)
+            }
+        }
+    }
+
     func testSwitchingToInstantDuringResizeSettlesTheLatestTarget() throws {
         try withNativePopover(service: .antigravity) { settings, coordinator, host, _ in
+            let baseline = try geometryBaseline(coordinator: coordinator, host: host)
             settings.popoverCompact = false
-            coordinator.refreshSizeIfShown(
-                size: coordinator.viewModel.layoutSpec(for: .antigravity, settings: settings).size)
+            coordinator.refreshSizeIfShown()
             _ = try observeTransition(host: host, duration: 0.08)
             settings.motion.mode = .instant
             settings.popoverCompact = true
             let target = coordinator.viewModel.layoutSpec(for: .antigravity, settings: settings).size
-            coordinator.refreshSizeIfShown(size: target)
-            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+            coordinator.refreshSizeIfShown()
+            try waitForResize(coordinator: coordinator, host: host, target: target, baseline: baseline)
             assertFinalSize(host: host, popover: coordinator.popover, target: target)
             _ = try observeTransition(host: host, duration: 0.4)
             assertFinalSize(host: host, popover: coordinator.popover, target: target)
@@ -370,7 +545,7 @@ final class PopoverResizeTests: XCTestCase {
                 XCTAssertEqual(coordinator.popover.animates, category == .popoverPresentation)
                 settings.popoverCompact = false
                 let target = coordinator.viewModel.layoutSpec(for: .claude, settings: settings).size
-                coordinator.refreshSizeIfShown(size: target)
+                coordinator.refreshSizeIfShown()
                 let frames = try observeTransition(host: host, duration: 0.5)
                 if category == .popoverResize {
                     XCTAssertGreaterThan(Set(frames.map { Int($0.width.rounded()) }).count, 3)
@@ -395,10 +570,9 @@ final class PopoverResizeTests: XCTestCase {
     func testNativeCloseRejectsLateResizeRequests() throws {
         try withNativePopover(service: .claude) { settings, coordinator, host, _ in
             settings.popoverCompact = false
-            coordinator.refreshSizeIfShown(
-                size: coordinator.viewModel.layoutSpec(for: .claude, settings: settings).size)
+            coordinator.refreshSizeIfShown()
             coordinator.popover.performClose(nil)
-            coordinator.refreshSizeIfShown(size: CGSize(width: 999, height: 999))
+            coordinator.refreshSizeIfShown()
             RunLoop.current.run(until: Date().addingTimeInterval(0.4))
             XCTAssertFalse(coordinator.popover.isShown)
             XCTAssertLessThan(host.preferredContentSize.width, 500)
@@ -409,36 +583,10 @@ final class PopoverResizeTests: XCTestCase {
         try withNativePopover(service: .claude, settleInitialPresentation: false) { settings, coordinator, host, _ in
             settings.popoverCompact = false
             let target = coordinator.viewModel.layoutSpec(for: .claude, settings: settings).size
-            coordinator.refreshSizeIfShown(size: target)
+            coordinator.refreshSizeIfShown()
             _ = try observeTransition(host: host, duration: 0.5)
             assertFinalSize(host: host, popover: coordinator.popover, target: target)
         }
-    }
-
-    private func openNestedEditor(
-        coordinator: AppPopoverCoordinator, host: NSViewController, compact: Bool,
-        lifecycle: NativeEditorLifecycle
-    ) throws {
-        let viewport = try XCTUnwrap(host.view as? PopoverViewportView)
-        XCTAssertTrue(
-            waitUntil {
-                host.view.layoutSubtreeIfNeeded()
-                return self.displayEditorAnchor(in: viewport.hostingView) != nil
-            })
-        let anchor = try XCTUnwrap(displayEditorAnchor(in: viewport.hostingView))
-        XCTAssertTrue(anchor.isDescendant(of: viewport.hostingView))
-        XCTAssertTrue(anchor.window === host.view.window)
-        XCTAssertFalse(anchor.bounds.isEmpty)
-        coordinator.presentDisplayEditor(
-            anchor: anchor, service: coordinator.viewModel.selectedService, mode: compact ? .compact : .standard)
-        XCTAssertTrue(waitUntil { lifecycle.didShow && coordinator.displayEditorIsActive })
-        XCTAssertTrue(coordinator.popover.isShown, "Opening the nested editor must preserve its parent popover")
-        XCTAssertNotNil(lifecycle.editor)
-    }
-
-    private func displayEditorAnchor(in view: NSView) -> NSView? {
-        if view.identifier?.rawValue == "popover-display-editor-anchor" { return view }
-        return view.subviews.lazy.compactMap { self.displayEditorAnchor(in: $0) }.first
     }
 
     private struct GeometryBaseline {
@@ -459,9 +607,9 @@ final class PopoverResizeTests: XCTestCase {
             windowChromeHeight: window.frame.height - coordinator.popover.contentSize.height)
     }
 
-    private func waitForNestedResize(
+    private func waitForResize(
         coordinator: AppPopoverCoordinator, host: NSViewController, target: CGSize,
-        lifecycle: NativeEditorLifecycle, baseline: GeometryBaseline
+        baseline: GeometryBaseline
     ) throws {
         let window = try XCTUnwrap(host.view.window)
         let viewport = try XCTUnwrap(host.view as? PopoverViewportView)
@@ -474,15 +622,13 @@ final class PopoverResizeTests: XCTestCase {
             largestTopMovement = max(largestTopMovement, abs(window.frame.maxY - baseline.windowTop))
             largestInsetMovement = max(
                 largestInsetMovement, abs(parent.bounds.maxY - hosted.maxY - baseline.hostedTopInset))
-            return lifecycle.didClose && !coordinator.displayEditorIsActive
-                && abs(coordinator.popover.contentSize.width - target.width) <= 0.5
+            return abs(coordinator.popover.contentSize.width - target.width) <= 0.5
                 && abs(coordinator.popover.contentSize.height - target.height) <= 0.5
                 && abs(window.frame.height - target.height - baseline.windowChromeHeight) <= 1
                 && abs(viewport.hostingView.bounds.width - target.width) <= 0.5
                 && abs(viewport.hostingView.bounds.height - target.height) <= 0.5
         }
-        XCTAssertTrue(settled, "Native editor closure and final parent geometry must both complete")
-        XCTAssertTrue(lifecycle.didClose, "Observe the real NSPopover close notification")
+        XCTAssertTrue(settled, "The final native popover geometry must complete")
         XCTAssertLessThanOrEqual(largestTopMovement, 2, "The parent must retain its original top anchor")
         XCTAssertLessThanOrEqual(largestInsetMovement, 0.25, "Hosted content must not wobble within the parent")
     }
@@ -527,8 +673,10 @@ final class PopoverResizeTests: XCTestCase {
         XCTAssertEqual(host.view.bounds.width, target.width, accuracy: 0.5)
         XCTAssertEqual(host.view.bounds.height, target.height, accuracy: 0.5)
         if let viewport = host.view as? PopoverViewportView {
-            XCTAssertEqual(viewport.hostingView.bounds.width, target.width, accuracy: 1)
-            XCTAssertEqual(viewport.hostingView.bounds.height, target.height, accuracy: 1)
+            let geometry =
+                "window=\(String(describing: viewport.window?.frame)) parent=\(String(describing: viewport.superview?.bounds)) viewport=\(viewport.frame) hosted=\(viewport.hostingView.frame) target=\(target)"
+            XCTAssertEqual(viewport.hostingView.bounds.width, target.width, accuracy: 1, geometry)
+            XCTAssertEqual(viewport.hostingView.bounds.height, target.height, accuracy: 1, geometry)
         } else {
             XCTFail("Missing live viewport")
         }
@@ -564,39 +712,8 @@ final class PopoverResizeTests: XCTestCase {
 }
 
 @MainActor
-private final class NativeEditorLifecycle: NSObject {
-    private let mainPopover: NSPopover
-    private(set) var editor: NSPopover?
-    private(set) var didShow = false
-    private(set) var didClose = false
-
-    init(mainPopover: NSPopover) {
-        self.mainPopover = mainPopover
-        super.init()
-        let center = NotificationCenter.default
-        center.addObserver(self, selector: #selector(willShow(_:)), name: NSPopover.willShowNotification, object: nil)
-        center.addObserver(self, selector: #selector(didShow(_:)), name: NSPopover.didShowNotification, object: nil)
-        center.addObserver(self, selector: #selector(didClose(_:)), name: NSPopover.didCloseNotification, object: nil)
-    }
-
-    func stop() {
-        NotificationCenter.default.removeObserver(self)
-    }
-
-    @objc private func willShow(_ notification: Notification) {
-        guard let popover = notification.object as? NSPopover, popover !== mainPopover else { return }
-        editor = popover
-        popover.contentViewController?.view.window?.alphaValue = 0
-    }
-
-    @objc private func didShow(_ notification: Notification) {
-        guard let popover = notification.object as? NSPopover, popover === editor else { return }
-        popover.contentViewController?.view.window?.alphaValue = 0
-        didShow = true
-    }
-
-    @objc private func didClose(_ notification: Notification) {
-        guard let popover = notification.object as? NSPopover, popover === editor else { return }
-        didClose = true
-    }
+private final class NativeResizeObservation {
+    var token: NSObjectProtocol?
+    var receivedCount = 0
+    var receivedFrame: CGRect?
 }

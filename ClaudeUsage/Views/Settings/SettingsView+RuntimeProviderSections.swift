@@ -2,14 +2,8 @@ import AppKit
 import SwiftUI
 
 extension SettingsView {
-    func runtimeProviderPanel(for provider: AppProviderKind) -> some View {
-        antigravityStatusSection()
-    }
-
     @ViewBuilder
-    private func antigravityStatusSection()
-        -> some View
-    {
+    var antigravityConnectionSection: some View {
         let state = antigravitySettings.state
         let managedRuntime =
             state.managedRuntimePresentation

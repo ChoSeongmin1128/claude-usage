@@ -318,7 +318,7 @@ extension AppDelegate {
                 let revision = AppSettings.shared.usageDisplayModeRevision
                 await runtime.runtimeController.setUsageDisplayBasis(basis, revision: revision)
                 await runtime.runtimeController.setTimeFormat(
-                    AppSettings.shared.timeFormat, unitLanguage: AppSettings.shared.timeUnitLanguage)
+                    AppSettings.shared.timeFormat)
                 _ = await runtime
                     .runtimeController
                     .bootstrap(

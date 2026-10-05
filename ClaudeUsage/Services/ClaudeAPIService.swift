@@ -10,6 +10,36 @@ import CryptoKit
 
 /// Claude.ai API 서비스 (Thread-Safe Actor)
 actor ClaudeAPIService {
+    /// UserDefaults operations are thread-safe; cache state transitions remain actor-isolated.
+    nonisolated struct CacheStorage: @unchecked Sendable {
+        private let defaults: UserDefaults
+        private let profileMetadataDirectory: URL
+
+        init(
+            defaults: UserDefaults = .standard,
+            profileMetadataDirectory: URL = ClaudeAccountLocalData.defaultDirectory()
+        ) {
+            self.defaults = defaults
+            self.profileMetadataDirectory = profileMetadataDirectory
+        }
+
+        fileprivate func profileMetadataStore(for accountID: String?) -> ClaudeProfileMetadataStore {
+            ClaudeProfileMetadataStore(accountID: accountID, rootDirectory: profileMetadataDirectory)
+        }
+
+        fileprivate func data(forKey key: String) -> Data? {
+            defaults.data(forKey: key)
+        }
+
+        fileprivate func set(_ data: Data, forKey key: String) {
+            defaults.set(data, forKey: key)
+        }
+
+        fileprivate func removeObject(forKey key: String) {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     // MARK: - Properties
 
     nonisolated struct OrganizationSummary: Sendable, Equatable, Identifiable, Codable {
@@ -254,6 +284,7 @@ actor ClaudeAPIService {
 
     private var sessionKey: String?
     private let accountStore: ClaudeAccountStore
+    private let cacheStorage: CacheStorage
     private let usesStoredActiveAccount: Bool
     private var activeAccount: ClaudeAccount?
     private let baseURL = ClaudeEndpoints.webAPIBase
@@ -294,20 +325,22 @@ actor ClaudeAPIService {
     // MARK: - Init
 
     /// Keychain에서 자동으로 세션 키를 로드하는 기본 생성자
-    init() {
+    init(cacheStorage: CacheStorage = .init()) {
+        self.cacheStorage = cacheStorage
         self.accountStore = ClaudeAccountStore.shared
         self.usesStoredActiveAccount = true
         self.accountStore.ensureLegacyMigrationIfNeeded()
         let activeAccount = self.accountStore.activeAccount()
-        let profileMetadataStore = ClaudeProfileMetadataStore(accountID: activeAccount?.id)
-        let oauthProfileMetadataStore = ClaudeProfileMetadataStore(accountID: ClaudeAccountStore.claudeCodeExternalAccountID)
+        let profileMetadataStore = cacheStorage.profileMetadataStore(for: activeAccount?.id)
+        let oauthProfileMetadataStore = cacheStorage.profileMetadataStore(
+            for: ClaudeAccountStore.claudeCodeExternalAccountID)
         self.profileMetadataStore = profileMetadataStore
         self.oauthProfileMetadataStore = oauthProfileMetadataStore
         self.oauthCredentialReader = ClaudeCodeCredentialReader(profileMetadataStore: oauthProfileMetadataStore)
         let sessionKeyLoader: @Sendable (String) -> String? = { KeychainManager.shared.load(for: $0) }
         self.sessionKeyLoader = sessionKeyLoader
         self.activeAccount = activeAccount
-        self.authPathHealthStore = Self.loadAuthPathHealthStore(for: activeAccount?.id)
+        self.authPathHealthStore = Self.loadAuthPathHealthStore(for: activeAccount?.id, cacheStorage: cacheStorage)
         // Actor initializers run synchronously on the caller's executor.
         // App startup constructs this service from the main actor, so a
         // Keychain-backed session load here can stall the UI. Every public
@@ -329,39 +362,42 @@ actor ClaudeAPIService {
     }
 
     /// 특정 세션 키로 초기화 (연결 테스트용)
-    init(sessionKey: String) {
+    init(sessionKey: String, cacheStorage: CacheStorage = .init()) {
+        self.cacheStorage = cacheStorage
         self.accountStore = ClaudeAccountStore.shared
         self.usesStoredActiveAccount = false
-        let profileMetadataStore = ClaudeProfileMetadataStore()
-        let oauthProfileMetadataStore = ClaudeProfileMetadataStore(accountID: ClaudeAccountStore.claudeCodeExternalAccountID)
+        let profileMetadataStore = cacheStorage.profileMetadataStore(for: nil)
+        let oauthProfileMetadataStore = cacheStorage.profileMetadataStore(
+            for: ClaudeAccountStore.claudeCodeExternalAccountID)
         self.profileMetadataStore = profileMetadataStore
         self.oauthProfileMetadataStore = oauthProfileMetadataStore
         self.oauthCredentialReader = ClaudeCodeCredentialReader(profileMetadataStore: nil)
         self.sessionKeyLoader = { _ in nil }
         self.sessionKey = sessionKey
         self.activeAccount = nil
-        self.authPathHealthStore = Self.loadAuthPathHealthStore(for: nil)
+        self.authPathHealthStore = Self.loadAuthPathHealthStore(for: nil, cacheStorage: cacheStorage)
     }
 
     /// Tests and orchestration checks can inject an OAuth reader without touching the real Keychain.
     init(
         accountStore: ClaudeAccountStore,
         oauthCredentialReader: any ClaudeOAuthCredentialReading,
-        sessionKeyLoader: @escaping @Sendable (String) -> String?
+        sessionKeyLoader: @escaping @Sendable (String) -> String?,
+        cacheStorage: CacheStorage = .init()
     ) {
+        self.cacheStorage = cacheStorage
         self.accountStore = accountStore
         self.usesStoredActiveAccount = true
         self.accountStore.ensureLegacyMigrationIfNeeded()
         let activeAccount = self.accountStore.activeAccount()
-        let profileMetadataStore = ClaudeProfileMetadataStore(accountID: activeAccount?.id)
+        let profileMetadataStore = cacheStorage.profileMetadataStore(for: activeAccount?.id)
         self.profileMetadataStore = profileMetadataStore
-        self.oauthProfileMetadataStore = ClaudeProfileMetadataStore(
-            accountID: ClaudeAccountStore.claudeCodeExternalAccountID
-        )
+        self.oauthProfileMetadataStore = cacheStorage.profileMetadataStore(
+            for: ClaudeAccountStore.claudeCodeExternalAccountID)
         self.oauthCredentialReader = oauthCredentialReader
         self.sessionKeyLoader = sessionKeyLoader
         self.activeAccount = activeAccount
-        self.authPathHealthStore = Self.loadAuthPathHealthStore(for: activeAccount?.id)
+        self.authPathHealthStore = Self.loadAuthPathHealthStore(for: activeAccount?.id, cacheStorage: cacheStorage)
         self.sessionKey = nil
         self.preferredOrganizationID = activeAccount?.kind == .webSession
             ? Self.normalizeOrganizationID(activeAccount?.userSelectedPreferredOrganizationID)
@@ -400,8 +436,8 @@ actor ClaudeAPIService {
         }
 
         activeAccount = nextAccount
-        profileMetadataStore = ClaudeProfileMetadataStore(accountID: nextAccount?.id)
-        authPathHealthStore = Self.loadAuthPathHealthStore(for: nextAccount?.id)
+        profileMetadataStore = cacheStorage.profileMetadataStore(for: nextAccount?.id)
+        authPathHealthStore = Self.loadAuthPathHealthStore(for: nextAccount?.id, cacheStorage: cacheStorage)
         cachedOrganizationID = nil
         lastResolvedSessionOrganization = nil
         lastKnownUsagePercent = nil
@@ -586,7 +622,7 @@ actor ClaudeAPIService {
         lastKnownUsagePercent = nil
         lastSuccessfulUsageSource = nil
         lastFetchMetadata = nil
-        UserDefaults.standard.removeObject(
+        cacheStorage.removeObject(
             forKey: Self.authPathHealthDefaultsKey(for: claudeCodeAccountID)
         )
         if activeAccount?.id == claudeCodeAccountID {
@@ -1431,11 +1467,11 @@ actor ClaudeAPIService {
             sessionFingerprint: currentSessionFingerprint()
         )
         guard let data = try? JSONEncoder().encode(cache) else { return }
-        UserDefaults.standard.set(data, forKey: organizationCacheDefaultsKey())
+        cacheStorage.set(data, forKey: organizationCacheDefaultsKey())
     }
 
     private func loadCachedOrganizations() -> [OrganizationSummary]? {
-        guard let data = UserDefaults.standard.data(forKey: organizationCacheDefaultsKey()),
+        guard let data = cacheStorage.data(forKey: organizationCacheDefaultsKey()),
               let cache = try? JSONDecoder().decode(OrganizationCache.self, from: data) else {
             return nil
         }
@@ -1458,7 +1494,7 @@ actor ClaudeAPIService {
     }
 
     private func clearCachedOrganizations() {
-        UserDefaults.standard.removeObject(forKey: organizationCacheDefaultsKey())
+        cacheStorage.removeObject(forKey: organizationCacheDefaultsKey())
     }
 
     private func organizationCacheDefaultsKey() -> String {
@@ -2030,15 +2066,17 @@ actor ClaudeAPIService {
 
     private func persistAuthPathHealthStore() {
         guard let data = try? JSONEncoder().encode(authPathHealthStore) else { return }
-        UserDefaults.standard.set(data, forKey: authPathHealthDefaultsKey())
+        cacheStorage.set(data, forKey: authPathHealthDefaultsKey())
     }
 
     private func authPathHealthDefaultsKey() -> String {
         Self.authPathHealthDefaultsKey(for: activeAccount?.id)
     }
 
-    private static func loadAuthPathHealthStore(for accountID: String?) -> AuthPathHealthStore {
-        guard let data = UserDefaults.standard.data(forKey: Self.authPathHealthDefaultsKey(for: accountID)),
+    private static func loadAuthPathHealthStore(
+        for accountID: String?, cacheStorage: CacheStorage
+    ) -> AuthPathHealthStore {
+        guard let data = cacheStorage.data(forKey: Self.authPathHealthDefaultsKey(for: accountID)),
               let decoded = try? JSONDecoder().decode(AuthPathHealthStore.self, from: data) else {
             return AuthPathHealthStore()
         }

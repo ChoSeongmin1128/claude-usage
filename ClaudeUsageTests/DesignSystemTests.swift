@@ -1,4 +1,6 @@
 import AppKit
+import CoreFoundation
+import ScreenCaptureKit
 import SwiftUI
 import XCTest
 
@@ -799,6 +801,254 @@ final class DesignSystemTests: XCTestCase {
         }
     }
 
+    func testSettingsGalleryUsesAnEmptyMetadataCache() async throws {
+        let suite = "DesignSystemTests.empty-cache.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults, hasExistingAccountStorage: false)
+        let dependencies = await makeSettingsGalleryDependencies(defaults: defaults, settings: settings)
+        let metadata = await dependencies.claude.fetchCachedProfileMetadata()
+        XCTAssertNil(metadata)
+    }
+
+    func testEntitySettingsGalleryUsesTheProductionLayoutWithFakeDependencies() async throws {
+        let suite = "DesignSystemTests.settings.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults, hasExistingAccountStorage: false)
+        settings.welcomeState = .completed
+        settings.motion.mode = .instant
+        settings.notificationsEnabled = true
+        for provider in AppProviderKind.allCases { settings.setProviderEnabled(true, for: provider) }
+        let dependencies = await makeSettingsGalleryDependencies(defaults: defaults, settings: settings)
+        let panels: [SettingsProviderPanel] = [.common, .display, .claude, .codex, .antigravity, .updates]
+        for panel in panels {
+            for size in [AppDesign.Window.settingsMinimum, AppDesign.Window.settingsIdeal] {
+                for scheme in [ColorScheme.light, .dark] {
+                    let view = SettingsView(
+                        claudeAPIService: dependencies.claude, antigravitySettings: dependencies.antigravity,
+                        settings: settings, updateRuntimeState: dependencies.updates,
+                        claudeAccountStore: dependencies.accountStore, sessionKeyLoader: { _ in nil },
+                        codexAuthStatusReader: dependencies.codex.status,
+                        claudeOAuthMigrationCoordinator: dependencies.migration,
+                        claudeLastUsage: { self.usage }, initialPanel: panel)
+                    let content = view.frame(width: size.width, height: size.height)
+                        .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(scheme)
+                    let codexCalls = dependencies.codex.calls
+                    let claudeReads = dependencies.reader.readCountSync
+                    let image = try await renderSettingsNativeVerified(
+                        content, size: size, appearance: scheme == .dark ? .darkAqua : .aqua,
+                        onFailure: {
+                            self.attach($0, "Settings-native-failure-\(panel.rawValue)-\(Int(size.width))-\(scheme)")
+                        },
+                        ready: {
+                            dependencies.updates.engineStatus != nil
+                                && (panel != .codex || dependencies.codex.calls > codexCalls)
+                                && (panel != .claude || dependencies.reader.readCountSync > claudeReads)
+                                && dependencies.antigravity.state.activity == .idle
+                        })
+                    XCTAssertEqual(settings.settingsLastTab, panel.rawValue)
+                    attach(image, "Settings-entity-\(panel.rawValue)-\(Int(size.width))-\(scheme)")
+                }
+            }
+        }
+        XCTAssertGreaterThan(dependencies.codex.calls, 0)
+        XCTAssertEqual(dependencies.updateEngine.checks, 0)
+        XCTAssertEqual(settings.welcomeState, .completed)
+        XCTAssertEqual(settings.settingsLastTab, "updates")
+    }
+
+    func testServiceSectionDestinationsRenderInsideTheSameSettingsLayout() async throws {
+        let suite = "DesignSystemTests.settings-editor.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults, hasExistingAccountStorage: false)
+        settings.welcomeState = .completed
+        settings.motion.mode = .instant
+        for provider in AppProviderKind.allCases { settings.setProviderEnabled(true, for: provider) }
+        let dependencies = await makeSettingsGalleryDependencies(defaults: defaults, settings: settings)
+        for provider in AppProviderKind.allCases {
+            for section in [SettingsSection.limits, .popover] {
+                let size = section == .limits ? AppDesign.Window.settingsMinimum : AppDesign.Window.settingsIdeal
+                for scheme in [ColorScheme.light, .dark] {
+                    let view = SettingsView(
+                        claudeAPIService: dependencies.claude, antigravitySettings: dependencies.antigravity,
+                        settings: settings, updateRuntimeState: dependencies.updates,
+                        claudeAccountStore: dependencies.accountStore, sessionKeyLoader: { _ in nil },
+                        codexAuthStatusReader: dependencies.codex.status,
+                        claudeOAuthMigrationCoordinator: dependencies.migration,
+                        claudeLastUsage: { self.usage }, initialPanel: .service(provider), initialSection: section)
+                    let content = view.frame(width: size.width, height: size.height)
+                        .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(scheme)
+                    let codexCalls = dependencies.codex.calls
+                    let claudeReads = dependencies.reader.readCountSync
+                    let image = try await renderSettingsNativeVerified(
+                        content, size: size, appearance: scheme == .dark ? .darkAqua : .aqua,
+                        ready: {
+                            dependencies.updates.engineStatus != nil
+                                && (provider != .codex || dependencies.codex.calls > codexCalls)
+                                && (provider != .claude || dependencies.reader.readCountSync > claudeReads)
+                                && dependencies.antigravity.state.activity == .idle
+                        })
+                    XCTAssertEqual(settings.settingsLastTab, SettingsProviderPanel.service(provider).rawValue)
+                    attach(image, "Settings-section-\(section.rawValue)-\(provider.rawValue)-\(scheme)")
+                }
+            }
+        }
+        XCTAssertGreaterThan(dependencies.codex.calls, 0)
+        XCTAssertEqual(dependencies.updateEngine.checks, 0)
+    }
+
+    func testWelcomeAppearanceLoadsAGYWithoutVisitingItsServicePane() async throws {
+        for scheme in [ColorScheme.light, .dark] {
+            let suite = "DesignSystemTests.welcome-unloaded.\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let settings = AppSettings(defaults: defaults, hasExistingAccountStorage: false)
+            settings.welcomeState = .pending
+            settings.welcomeStep = .services
+            settings.motion.mode = .instant
+            settings.setProviderEnabled(true, for: .antigravity)
+            settings.setActiveProvider(.antigravity)
+            let dependencies = await makeSettingsGalleryDependencies(
+                defaults: defaults, settings: settings, preloadAntigravity: false)
+            defer { dependencies.antigravity.stopObserving() }
+            let detector = SettingsGalleryOnboardingDetector()
+            let view = SettingsView(
+                claudeAPIService: dependencies.claude, antigravitySettings: dependencies.antigravity,
+                settings: settings, updateRuntimeState: dependencies.updates,
+                claudeAccountStore: dependencies.accountStore, sessionKeyLoader: { _ in nil },
+                codexAuthStatusReader: dependencies.codex.status,
+                claudeOAuthMigrationCoordinator: dependencies.migration,
+                initialPanel: .welcome, welcomeStatuses: { [.antigravity: .verified] },
+                onboardingDetector: detector.detect)
+            XCTAssertNil(dependencies.antigravity.state.display)
+            XCTAssertNil(view.settingsDataPreparationRequest)
+            let initialBootstraps = await dependencies.runtime.bootstrapArguments()
+            XCTAssertTrue(initialBootstraps.isEmpty)
+            let size = AppDesign.Window.settingsIdeal
+            let content = view.frame(width: size.width, height: size.height)
+                .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(scheme)
+            let image = try await renderSettingsNativeVerified(
+                content, size: size, appearance: scheme == .dark ? .darkAqua : .aqua,
+                change: { settings.welcomeStep = .appearance },
+                ready: { dependencies.antigravity.state.display != nil && detector.calls > 0 })
+            XCTAssertEqual(dependencies.antigravity.state.display, AntigravityDisplaySettings.default)
+            XCTAssertEqual(dependencies.antigravity.state.activity, .idle)
+            let bootstraps = await dependencies.runtime.bootstrapArguments()
+            XCTAssertEqual(bootstraps, [true])
+            let reads = await dependencies.reader.readCount()
+            XCTAssertEqual(reads, 0)
+            XCTAssertEqual(detector.calls, 1)
+            attach(image, "Settings-Welcome-AGY-unloaded-to-ready-\(scheme)")
+        }
+    }
+
+    func testDisplayLoadsActiveAGYWithoutVisitingItsServicePane() async throws {
+        for scheme in [ColorScheme.light, .dark] {
+            let suite = "DesignSystemTests.display-unloaded.\(UUID().uuidString)"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+            defer { defaults.removePersistentDomain(forName: suite) }
+            let settings = AppSettings(defaults: defaults, hasExistingAccountStorage: false)
+            settings.welcomeState = .completed
+            settings.motion.mode = .instant
+            settings.setProviderEnabled(true, for: .antigravity)
+            settings.setActiveProvider(.antigravity)
+            let dependencies = await makeSettingsGalleryDependencies(
+                defaults: defaults, settings: settings, preloadAntigravity: false)
+            defer { dependencies.antigravity.stopObserving() }
+            let view = SettingsView(
+                claudeAPIService: dependencies.claude, antigravitySettings: dependencies.antigravity,
+                settings: settings, updateRuntimeState: dependencies.updates,
+                claudeAccountStore: dependencies.accountStore, sessionKeyLoader: { _ in nil },
+                codexAuthStatusReader: dependencies.codex.status,
+                claudeOAuthMigrationCoordinator: dependencies.migration,
+                initialPanel: .display, onboardingDetector: { OnboardingDetection(isLoaded: true) })
+            XCTAssertNil(dependencies.antigravity.state.display)
+            XCTAssertEqual(view.settingsDataPreparationRequest?.provider, .antigravity)
+            let size = AppDesign.Window.settingsIdeal
+            let content = view.frame(width: size.width, height: size.height)
+                .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(scheme)
+            let image = try await renderSettingsNativeVerified(
+                content, size: size, appearance: scheme == .dark ? .darkAqua : .aqua,
+                ready: { dependencies.antigravity.state.display != nil })
+            XCTAssertEqual(dependencies.antigravity.state.display, AntigravityDisplaySettings.default)
+            XCTAssertEqual(dependencies.antigravity.state.activity, .idle)
+            let bootstraps = await dependencies.runtime.bootstrapArguments()
+            XCTAssertEqual(bootstraps, [true])
+            let reads = await dependencies.reader.readCount()
+            XCTAssertEqual(reads, 0)
+            attach(image, "Settings-Display-active-AGY-unloaded-to-ready-\(scheme)")
+        }
+    }
+
+    func testAGYPopoverDestinationCapturesBeforeAndAfterUnloadedRuntimePublishes() async throws {
+        for size in [AppDesign.Window.settingsMinimum, AppDesign.Window.settingsIdeal] {
+            for scheme in [ColorScheme.light, .dark] {
+                let suite = "DesignSystemTests.agy-popover-load.\(UUID().uuidString)"
+                let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+                defer { defaults.removePersistentDomain(forName: suite) }
+                let settings = AppSettings(defaults: defaults, hasExistingAccountStorage: false)
+                settings.welcomeState = .completed
+                settings.motion.mode = .instant
+                settings.setProviderEnabled(true, for: .antigravity)
+                settings.setActiveProvider(.antigravity)
+                let gate = SettingsGalleryLoadGate()
+                let dependencies = await makeSettingsGalleryDependencies(
+                    defaults: defaults, settings: settings,
+                    preloadAntigravity: false, antigravityLoadGate: gate)
+                defer { dependencies.antigravity.stopObserving() }
+                XCTAssertNil(dependencies.antigravity.state.display)
+                let view = SettingsView(
+                    claudeAPIService: dependencies.claude, antigravitySettings: dependencies.antigravity,
+                    settings: settings, updateRuntimeState: dependencies.updates,
+                    claudeAccountStore: dependencies.accountStore, sessionKeyLoader: { _ in nil },
+                    codexAuthStatusReader: dependencies.codex.status,
+                    claudeOAuthMigrationCoordinator: dependencies.migration,
+                    initialPanel: .antigravity, initialSection: .popover,
+                    onboardingDetector: { OnboardingDetection(isLoaded: true) })
+                let content = view.frame(width: size.width, height: size.height)
+                    .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(scheme)
+                var released = false
+                do {
+                    let image = try await renderSettingsNativeVerified(
+                        content, size: size, appearance: scheme == .dark ? .darkAqua : .aqua,
+                        initialCapture: .init(
+                            ready: {
+                                guard dependencies.antigravity.state.display == nil,
+                                    dependencies.antigravity.state.activity == .loading
+                                else { return false }
+                                return await gate.hasBothLoadEntries()
+                            },
+                            didCapture: { initial in
+                                self.attach(initial, "Settings-AGY-popover-before-load-\(Int(size.width))-\(scheme)")
+                                released = await gate.releaseAfterPixelObservation()
+                                XCTAssertTrue(released)
+                            }),
+                        onFailure: {
+                            self.attach($0, "Settings-AGY-popover-load-failure-\(Int(size.width))-\(scheme)")
+                        },
+                        ready: {
+                            released && dependencies.antigravity.state.display != nil
+                                && dependencies.antigravity.state.activity == .idle
+                        })
+                    XCTAssertEqual(dependencies.antigravity.state.display, AntigravityDisplaySettings.default)
+                    XCTAssertEqual(settings.settingsLastTab, SettingsProviderPanel.antigravity.rawValue)
+                    let bootstraps = await dependencies.runtime.bootstrapArguments()
+                    XCTAssertEqual(bootstraps, [true])
+                    XCTAssertEqual(dependencies.reader.readCountSync, 0)
+                    XCTAssertEqual(dependencies.codex.calls, 0)
+                    XCTAssertEqual(dependencies.updateEngine.checks, 0)
+                    attach(image, "Settings-AGY-popover-after-load-\(Int(size.width))-\(scheme)")
+                    await gate.cancel()
+                } catch {
+                    await gate.cancel()
+                    throw error
+                }
+            }
+        }
+    }
+
     private func renderHosted<V: View>(
         _ content: V, appearance: NSAppearance.Name, inspect: ((NSView) -> Void)? = nil
     ) throws -> NSImage {
@@ -867,4 +1117,470 @@ final class DesignSystemTests: XCTestCase {
             }
         }
     }
+}
+
+
+@MainActor
+private func makeSettingsGalleryDependencies(
+    defaults: UserDefaults, settings: AppSettings, preloadAntigravity: Bool = true,
+    antigravityLoadGate: SettingsGalleryLoadGate? = nil
+) async -> (
+    claude: ClaudeAPIService,
+    reader: SettingsGalleryOAuthReader,
+    migration: ClaudeOAuthCredentialMigrationCoordinator,
+    antigravity: AntigravitySettingsViewModel,
+    runtime: SettingsGalleryAGYRuntime,
+    accountStore: ClaudeAccountStore,
+    codex: SettingsGalleryCodexReader,
+    updates: UpdateRuntimeState,
+    updateEngine: SettingsGalleryUpdateEngine,
+    metadataDirectory: SettingsGalleryMetadataDirectory
+) {
+    defaults.set(
+        ClaudeAccountStore.currentMigrationVersion,
+        forKey: ClaudeAccountStore.migrationVersionDefaultsKey
+    )
+    let vault = SettingsGalleryEmptyVault()
+    let accountStore = ClaudeAccountStore(
+        defaults: defaults,
+        keychainVault: vault,
+        legacySandboxCredentialStore: nil,
+        postsNotifications: false
+    )
+    let reader = SettingsGalleryOAuthReader()
+    let metadataDirectory = SettingsGalleryMetadataDirectory()
+    let cache = ClaudeAPIService.CacheStorage(defaults: defaults, profileMetadataDirectory: metadataDirectory.url)
+    let claude = ClaudeAPIService(
+        accountStore: accountStore,
+        oauthCredentialReader: reader,
+        sessionKeyLoader: { _ in nil },
+        cacheStorage: cache
+    )
+    let migration = ClaudeOAuthCredentialMigrationCoordinator(
+        destination: vault,
+        migrator: SettingsGalleryNoMigration()
+    )
+    precondition(antigravityLoadGate == nil || !preloadAntigravity)
+    let runtime = SettingsGalleryAGYRuntime(snapshot: settingsGalleryAGYSnapshot(), loadGate: antigravityLoadGate)
+    let antigravity = AntigravitySettingsViewModel(runtimeController: runtime)
+    if preloadAntigravity {
+        await antigravity.load()
+        antigravity.stopObserving()
+    }
+    let updateEngine = SettingsGalleryUpdateEngine()
+    let updates = UpdateRuntimeState(
+        settings: settings,
+        updateService: UpdateService(engine: updateEngine))
+    return (
+        claude, reader, migration, antigravity, runtime, accountStore,
+        SettingsGalleryCodexReader(), updates, updateEngine, metadataDirectory
+    )
+}
+
+private actor SettingsGalleryOAuthReader: ClaudeOAuthCredentialReading {
+    nonisolated private let counter = SettingsGalleryReadCounter()
+    nonisolated var readCountSync: Int { counter.value }
+    func readCount() -> Int { counter.value }
+    func readAccessToken() async throws -> String? { counter.increment(); return nil }
+    func refreshCredentialInventoryWithoutUI() async throws -> ClaudeOAuthCredentialInventoryRefresh {
+        .init(accessToken: nil, credentialChanged: false)
+    }
+    func forceRefreshAccessToken() async throws -> String? { nil }
+    func invalidateCache() async {}
+    func importActiveCLICredential() async -> ClaudeOAuthCredentialImportResult { .notFound }
+}
+
+private nonisolated struct SettingsGalleryEmptyVault: ClaudeSessionKeyVault, ClaudeOAuthCredentialVault {
+    func saveString(_ value: String, account: String) throws {}
+    func loadString(account: String) throws -> String? { nil }
+    func delete(account: String) throws {}
+    func loadPayload() throws -> String? { nil }
+    func savePayload(_ payload: String) throws {}
+    func deletePayload() throws {}
+}
+
+private nonisolated struct SettingsGalleryNoMigration: ClaudeOAuthLegacyCredentialMigrating {
+    func availability(destination: any ClaudeOAuthCredentialVault) -> ClaudeOAuthCredentialMigrationAvailability {
+        .notNeeded
+    }
+    func migrate(destination: any ClaudeOAuthCredentialVault) -> ClaudeOAuthCredentialMigrationResult {
+        .cancelled
+    }
+}
+
+private actor SettingsGalleryLoadGate {
+    enum Entry: Hashable, Sendable { case bootstrap, snapshots }
+    enum State { case held, released, cancelled }
+    private var state = State.held
+    private var entered: Set<Entry> = []
+    private var waiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
+
+    func hasBothLoadEntries() -> Bool {
+        entered.contains(.bootstrap) && entered.contains(.snapshots)
+    }
+
+    func wait(for entry: Entry) async -> Bool {
+        entered.insert(entry)
+        let token = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                switch state {
+                case .released: continuation.resume(returning: true)
+                case .cancelled: continuation.resume(returning: false)
+                case .held:
+                    if Task.isCancelled { continuation.resume(returning: false) } else { waiters[token] = continuation }
+                }
+            }
+        } onCancel: {
+            Task { await self.cancelWaiter(token) }
+        }
+    }
+
+    @discardableResult
+    func releaseAfterPixelObservation() -> Bool {
+        guard state == .held, hasBothLoadEntries() else { return false }
+        state = .released
+        completeWaiters(allowed: true)
+        return true
+    }
+
+    func cancel() {
+        guard state == .held else { return }
+        state = .cancelled
+        completeWaiters(allowed: false)
+    }
+
+    private func cancelWaiter(_ token: UUID) {
+        waiters.removeValue(forKey: token)?.resume(returning: false)
+    }
+
+    private func completeWaiters(allowed: Bool) {
+        let pending = Array(waiters.values)
+        waiters.removeAll()
+        for continuation in pending { continuation.resume(returning: allowed) }
+    }
+}
+
+private actor SettingsGalleryAGYRuntime: AntigravitySettingsRuntimeControlling {
+    private let value: AntigravityRuntimeSnapshot
+    private let loadGate: SettingsGalleryLoadGate?
+    private var bootstrapRequests: [Bool] = []
+
+    init(snapshot: AntigravityRuntimeSnapshot, loadGate: SettingsGalleryLoadGate? = nil) {
+        value = snapshot
+        self.loadGate = loadGate
+    }
+
+    func snapshot() async -> AntigravityRuntimeSnapshot { value }
+    func snapshots() async -> AsyncStream<AntigravityRuntimeSnapshot> {
+        if let loadGate, !(await loadGate.wait(for: .snapshots)) {
+            return AsyncStream { $0.finish() }
+        }
+        return AsyncStream { continuation in
+            continuation.yield(value)
+            continuation.finish()
+        }
+    }
+    func bootstrapArguments() -> [Bool] { bootstrapRequests }
+    func bootstrap(performInitialRefresh: Bool) async -> AntigravityRuntimeSnapshot {
+        bootstrapRequests.append(performInitialRefresh)
+        if let loadGate, !(await loadGate.wait(for: .bootstrap)) { return .idle }
+        return value
+    }
+    func refresh(trigger: AntigravityRefreshTrigger) async -> AntigravityRuntimeSnapshot { value }
+    func updateDisplay(
+        _ display: AntigravityDisplaySettings, replacing expectedDisplay: AntigravityDisplaySettings
+    ) async throws -> AntigravityRuntimeSnapshot { value }
+    func consumePendingSettingsNotice() async -> AntigravityRuntimeSnapshot { value }
+}
+
+private nonisolated func settingsGalleryAGYSnapshot() -> AntigravityRuntimeSnapshot {
+    let now = Date(timeIntervalSince1970: 1_900_000_000)
+    let identity = ProviderAccountIdentity(stableAccountID: "settings-gallery", email: "fixture@example.com")
+    let specifications: [(AntigravityQuotaLaneID, AntigravityQuotaScope, Double)] = [
+        (.geminiWeekly, .gemini, 0.82),
+        (.thirdPartyWeekly, .thirdPartyModels, 0.54),
+    ]
+    let lanes = specifications.map { id, scope, remaining in
+        AntigravityQuotaLane(
+            id: id,
+            upstreamGroupID: id.rawValue,
+            upstreamBucketID: id.rawValue,
+            scope: scope,
+            cadence: .weekly,
+            remainingFraction: remaining,
+            resetAt: now.addingTimeInterval(4 * 86400),
+            resetDescription: nil,
+            availability: .available
+        )
+    }
+    let quota = AntigravityQuotaSnapshot(
+        identity: identity,
+        plan: nil,
+        lanes: lanes,
+        decodeIssues: [],
+        provenance: .init(
+            transport: .cliUsageReport,
+            endpointOwner: .managed,
+            accountIdentity: identity,
+            capability: .groupedQuotaSummary,
+            processIdentity: nil
+        ),
+        fetchedAt: now
+    )
+    return AntigravityRuntimeSnapshot(
+        readiness: .ready,
+        settings: .init(connection: .default, display: .default),
+        presentationState: .ready(quota),
+        quotaPresentation: .content(
+            AntigravityQuotaPresentationMapper.map(
+                snapshot: quota,
+                settings: .default,
+                now: now,
+                timeZone: TimeZone(secondsFromGMT: 0)!
+            )
+        ),
+        managedRuntimeAvailability: .available(displayPath: "fixture/agy"),
+        lastAttemptAt: now,
+        lastSuccessfulAt: now,
+        publicationRevision: 1
+    )
+}
+
+@MainActor
+private final class SettingsGalleryOnboardingDetector {
+    private(set) var calls = 0
+
+    func detect() async -> OnboardingDetection {
+        calls += 1
+        return OnboardingDetection(isLoaded: true)
+    }
+}
+
+@MainActor
+private final class SettingsGalleryCodexReader {
+    private(set) var calls = 0
+
+    func status(isProviderEnabled: Bool) async -> CodexAuthStatus {
+        calls += 1
+        return isProviderEnabled ? .authenticated : .notLoggedIn
+    }
+}
+
+@MainActor
+private final class SettingsGalleryUpdateEngine: AppUpdateEngine {
+    private(set) var checks = 0
+
+    func modeSummary() async -> String { "가상 업데이트" }
+    func checkForUpdates() async -> UpdateCheckResult { checks += 1; return .upToDate(message: nil) }
+    func latestDownloadURL() async -> URL { URL(string: "https://example.com/fixture.zip")! }
+    func usesExternalScheduler() async -> Bool { true }
+    func supportsInteractiveCheck() async -> Bool { false }
+    func performInteractiveCheck() async -> String? { checks += 1; return nil }
+    func presentPreparedUpdate() async -> Bool { false }
+    func synchronizeScheduler(interval: UpdateCheckInterval, runImmediate: Bool) async {}
+    func installPreparedUpdate() async -> Bool { false }
+    func configurationStatus() async -> UpdateEngineStatus {
+        .init(modeSummary: "가상 업데이트", sparkleIntegrated: false, feedConfigured: false, publicKeyConfigured: false)
+    }
+}
+
+private nonisolated final class SettingsGalleryReadCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+
+    func increment() {
+        lock.lock()
+        defer { lock.unlock() }
+        count += 1
+    }
+}
+
+@MainActor
+private final class SettingsGalleryNonKeyWindow: NSWindow {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
+@MainActor
+private struct SettingsInitialCapture {
+    let ready: () async -> Bool
+    let didCapture: (NSImage) async -> Void
+}
+
+@MainActor
+private func renderSettingsNativeVerified<V: View>(
+    _ content: V,
+    size: CGSize,
+    appearance: NSAppearance.Name,
+    change: () -> Void = {},
+    initialCapture: SettingsInitialCapture? = nil,
+    onFailure: (NSImage) -> Void = { _ in },
+    ready: () -> Bool = { true },
+    file: StaticString = #filePath,
+    line: UInt = #line
+) async throws -> NSImage {
+    guard #available(macOS 14.4, *) else {
+        throw XCTSkip("Own-process WindowServer gallery requires macOS 14.4+. Production supports macOS 14.0.")
+    }
+    let application = NSApplication.shared
+    let originalAppearance = application.appearance
+    application.appearance = NSAppearance(named: appearance)
+    defer { application.appearance = originalAppearance }
+    let controller = NSHostingController(rootView: content)
+    controller.sizingOptions = []
+    let screen = try XCTUnwrap(NSScreen.main, file: file, line: line)
+    let origin = NSPoint(
+        x: screen.visibleFrame.midX - size.width / 2,
+        y: screen.visibleFrame.midY - size.height / 2)
+    let window = SettingsGalleryNonKeyWindow(
+        contentRect: NSRect(origin: origin, size: size),
+        styleMask: .borderless, backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.animationBehavior = .none
+    window.ignoresMouseEvents = true
+    window.isExcludedFromWindowsMenu = true
+    window.appearance = NSAppearance(named: appearance)
+    window.contentViewController = controller
+    window.setContentSize(size)
+    controller.view.frame = NSRect(origin: .zero, size: size)
+    window.setFrameOrigin(origin)
+    window.orderFront(nil)
+    defer { window.orderOut(nil); window.close() }
+    controller.view.layoutSubtreeIfNeeded()
+    window.displayIfNeeded()
+
+    XCTAssertFalse(window.isKeyWindow, file: file, line: line)
+    XCTAssertFalse(application.isActive, file: file, line: line)
+    await yieldSettingsNativeMainQueue()
+    if let initialCapture {
+        let initialReady = await waitForSettingsReady(initialCapture.ready)
+        controller.view.layoutSubtreeIfNeeded()
+        await yieldSettingsNativeMainQueue()
+        let initial = try await captureOwnSettingsWindow(window, hostView: controller.view)
+        if !initialReady { onFailure(initial) }
+        _ = try XCTUnwrap(
+            initialReady ? true : nil, "Initial settings phase did not become ready", file: file, line: line)
+        await initialCapture.didCapture(initial)
+    }
+    change()
+    let dataReady = await waitForSettingsReady { ready() }
+    controller.view.layoutSubtreeIfNeeded()
+    await yieldSettingsNativeMainQueue()
+    let image = try await captureOwnSettingsWindow(window, hostView: controller.view)
+    XCTAssertFalse(application.isActive, file: file, line: line)
+    XCTAssertFalse(window.isKeyWindow, file: file, line: line)
+    XCTAssertEqual(window.contentLayoutRect.width, size.width, accuracy: 0.5, file: file, line: line)
+    XCTAssertEqual(window.contentLayoutRect.height, size.height, accuracy: 0.5, file: file, line: line)
+    XCTAssertEqual(controller.view.bounds.width, size.width, accuracy: 0.5, file: file, line: line)
+    XCTAssertEqual(controller.view.bounds.height, size.height, accuracy: 0.5, file: file, line: line)
+    if !dataReady { onFailure(image) }
+    _ = try XCTUnwrap(dataReady ? true : nil, "Settings dependencies did not become ready", file: file, line: line)
+    return image
+}
+
+@MainActor
+private func waitForSettingsReady(_ ready: () async -> Bool) async -> Bool {
+    let clock = ContinuousClock()
+    let deadline = clock.now + .seconds(1)
+    while clock.now < deadline {
+        if await ready() { return true }
+        await yieldSettingsNativeMainQueue()
+    }
+    return await ready()
+}
+
+@MainActor
+private func yieldSettingsNativeMainQueue() async {
+    await withCheckedContinuation { continuation in
+        let observer = CFRunLoopObserverCreateWithHandler(
+            kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, false, CFIndex.max
+        ) { _, _ in continuation.resume() }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, CFRunLoopMode.commonModes)
+        CFRunLoopWakeUp(CFRunLoopGetMain())
+    }
+}
+
+private nonisolated final class SettingsGalleryMetadataDirectory {
+    let url = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "SettingsGalleryMetadata-\(UUID().uuidString)", isDirectory: true)
+
+    deinit {
+        if FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+}
+
+private enum OwnWindowCaptureError: Error {
+    case hostNotInSpecifiedWindow
+    case ownWindowNotAvailable
+    case invalidCanvas(contentRect: CGRect, pixelScale: CGFloat)
+    case emptyCapturedImage(pixelSize: CGSize)
+    case geometryChangedDuringCapture
+}
+
+// Capture only this test process's window, preserving the WindowServer's native canvas.
+@available(macOS 14.4, *)
+@MainActor
+private func captureOwnSettingsWindow(_ window: NSWindow, hostView: NSView) async throws -> NSImage {
+    guard hostView.window === window, window.windowNumber > 0, !hostView.bounds.isEmpty else {
+        throw OwnWindowCaptureError.hostNotInSpecifiedWindow
+    }
+    let windowID = CGWindowID(window.windowNumber)
+    let windowFrame = window.frame
+    let hostBounds = hostView.bounds
+    let clock = ContinuousClock()
+    let deadline = clock.now + .seconds(1)
+    var filter: SCContentFilter?
+    var captureSize = CGSize.zero
+    var nativeScale: CGFloat = 0
+    var lastCanvas = CGRect.zero
+    repeat {
+        let content = try await SCShareableContent.currentProcess
+        guard
+            let own = content.windows.first(where: {
+                $0.windowID == windowID && $0.owningApplication?.processID == getpid()
+            })
+        else { throw OwnWindowCaptureError.ownWindowNotAvailable }
+        let candidate = SCContentFilter(desktopIndependentWindow: own)
+        lastCanvas = candidate.contentRect
+        nativeScale = CGFloat(candidate.pointPixelScale)
+        captureSize = lastCanvas.size
+        if nativeScale.isFinite, nativeScale > 0,
+            captureSize.width.isFinite, captureSize.width > 0,
+            captureSize.height.isFinite, captureSize.height > 0
+        {
+            filter = candidate
+            break
+        }
+        window.displayIfNeeded()
+        await yieldSettingsNativeMainQueue()
+    } while clock.now < deadline
+    guard let filter else {
+        throw OwnWindowCaptureError.invalidCanvas(contentRect: lastCanvas, pixelScale: nativeScale)
+    }
+    let configuration = SCStreamConfiguration()
+    configuration.width = Int(ceil(captureSize.width * nativeScale))
+    configuration.height = Int(ceil(captureSize.height * nativeScale))
+    configuration.showsCursor = false
+    configuration.capturesAudio = false
+    configuration.includeChildWindows = false
+    configuration.ignoreShadowsSingleWindow = true
+    configuration.capturesShadowsOnly = false
+    let captured = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+    guard window.windowNumber == Int(windowID), window.frame == windowFrame,
+        hostView.window === window, hostView.bounds == hostBounds
+    else { throw OwnWindowCaptureError.geometryChangedDuringCapture }
+    guard captured.width > 0, captured.height > 0 else {
+        throw OwnWindowCaptureError.emptyCapturedImage(
+            pixelSize: CGSize(width: captured.width, height: captured.height))
+    }
+    return NSImage(cgImage: captured, size: captureSize)
 }

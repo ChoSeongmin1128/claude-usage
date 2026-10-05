@@ -7,7 +7,6 @@ import SwiftUI
 final class PopoverViewportView: NSView {
     let hostingView: NSHostingView<PopoverView>
     private var margins: NSEdgeInsets?
-    private var isResizeInProgress = false
     private weak var observedWindow: NSWindow?
 
     init(rootView: PopoverView) {
@@ -22,14 +21,17 @@ final class PopoverViewportView: NSView {
 
     func prepareForResize() {
         captureMargins()
-        isResizeInProgress = true
     }
 
     func finishResize() {
-        isResizeInProgress = false
         captureMargins()
         needsLayout = true
-        layoutSubtreeIfNeeded()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        margins = nil
+        needsLayout = true
     }
 
     override func viewDidMoveToWindow() {
@@ -51,26 +53,32 @@ final class PopoverViewportView: NSView {
         if margins == nil { captureMargins() }
         let viewport = visibleContentRect
         if hostingView.frame != viewport { hostingView.frame = viewport }
-        hostingView.layoutSubtreeIfNeeded()
     }
 
     var visibleContentRect: CGRect {
-        guard isResizeInProgress,
-            let superview,
-            let margins
-        else {
-            return bounds
-        }
+        guard let superview else { return bounds }
         let parentBounds = superview.bounds
+        guard !parentBounds.isEmpty else { return .zero }
+        guard let margins else {
+            let visible = bounds.intersection(convert(parentBounds, from: superview))
+            return visible.isNull || visible.isEmpty ? .zero : visible
+        }
         let content = CGRect(
             x: parentBounds.minX + margins.left, y: parentBounds.minY + margins.bottom,
             width: max(0, parentBounds.width - margins.left - margins.right),
             height: max(0, parentBounds.height - margins.top - margins.bottom))
+        guard !content.isEmpty else { return .zero }
         return convert(content, from: superview)
     }
 
+    var nativeVisibleContentSize: CGSize? {
+        guard margins != nil else { return nil }
+        let visible = visibleContentRect
+        return visible.isEmpty ? nil : visible.size
+    }
+
     private func captureMargins() {
-        guard let superview, !frame.isEmpty else { return }
+        guard margins == nil, let superview, !frame.isEmpty else { return }
         let parent = superview.bounds
         let insets = NSEdgeInsets(
             top: parent.maxY - frame.maxY, left: frame.minX - parent.minX,
@@ -81,6 +89,5 @@ final class PopoverViewportView: NSView {
 
     @objc private func windowDidResize(_ notification: Notification) {
         needsLayout = true
-        layoutSubtreeIfNeeded()
     }
 }

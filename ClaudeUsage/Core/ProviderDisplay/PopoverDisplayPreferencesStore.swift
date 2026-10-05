@@ -11,7 +11,7 @@ final class PopoverDisplayPreferencesStore {
         "compactPopoverItemsV2"
     private static let migrationVersionKey =
         "popoverItemsMigrationVersion"
-    private static let currentMigrationVersion = 4
+    private static let currentMigrationVersion = 5
 
     private static let legacyClaudeFullKey =
         "popoverItems"
@@ -193,6 +193,7 @@ final class PopoverDisplayPreferencesStore {
         full: [String: [PopoverItemConfig]],
         compact: [String: [PopoverItemConfig]]
     ) {
+        let migrateDefaultOrder = defaults.integer(forKey: migrationVersionKey) < currentMigrationVersion
         let currentFull = decodeDictionary(
             defaults.data(forKey: fullItemsKey)
         )
@@ -257,19 +258,45 @@ final class PopoverDisplayPreferencesStore {
             }
 
             let key = service.rawValue
-            full[key] = catalog.normalized(
-                currentFull?[key]
-                    ?? legacyFull
-                    ?? catalog.defaultItems
-            )
-            compact[key] = catalog.normalized(
-                currentCompact?[key]
-                    ?? legacyCompact
-                    ?? full[key]!
-            )
+            full[key] = reconciledItems(
+                currentFull?[key] ?? legacyFull ?? catalog.defaultItems,
+                catalog: catalog, migrateDefaultOrder: migrateDefaultOrder)
+            compact[key] = reconciledItems(
+                currentCompact?[key] ?? legacyCompact ?? full[key]!,
+                catalog: catalog, migrateDefaultOrder: migrateDefaultOrder)
         }
 
         return (full, compact)
+    }
+
+    /// 기존 기본 순서로 저장된 목록만 한 번 옮긴다. 이후 사용자 재정렬은 normalized만 적용한다.
+    private static func reconciledItems(
+        _ items: [PopoverItemConfig], catalog: any UsageItemCatalog, migrateDefaultOrder: Bool
+    ) -> [PopoverItemConfig] {
+        let normalized = catalog.normalized(items)
+        guard migrateDefaultOrder else { return normalized }
+        let knownDefaultOrders: [[String]]
+        switch catalog.providerID {
+        case PopoverService.claude.rawValue:
+            knownDefaultOrders = [
+                ["currentSession", "weeklyLimit", "modelUsage", "claudeResetCredits", "overageUsage"]
+            ]
+        case PopoverService.codex.rawValue:
+            knownDefaultOrders = [
+                ["codexPrimary", "codexSecondary", "codexModelLimits", "codexResetCredits", "codexCredits"],
+                [
+                    "codexPrimary", "codexSecondary", "codexSpendLimit", "codexModelLimits", "codexResetCredits",
+                    "codexCredits",
+                ],
+            ]
+        default:
+            return normalized
+        }
+        let storedIDs = Set(items.map(\.id))
+        let storedOrder = normalized.filter { storedIDs.contains($0.id) }.map(\.id)
+        guard knownDefaultOrders.contains(storedOrder) else { return normalized }
+        let byID = Dictionary(uniqueKeysWithValues: normalized.map { ($0.id, $0) })
+        return catalog.defaultItems.compactMap { byID[$0.id] }
     }
 
     static func persistFull(

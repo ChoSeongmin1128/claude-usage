@@ -394,7 +394,6 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
     let showBatteryPercent: Bool
     let resetTimeDisplay: ResetTimeDisplay
     let timeFormat: TimeFormatStyle
-    let timeUnitLanguage: TimeUnitLanguage
     let basisOverride: UsageValueBasis?
     let circularDisplayMode: CircularDisplayMode
     let iconMetric: IconMetric
@@ -409,7 +408,6 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         showBatteryPercent: Bool,
         resetTimeDisplay: ResetTimeDisplay,
         timeFormat: TimeFormatStyle,
-        timeUnitLanguage: TimeUnitLanguage = .english,
         circularDisplayMode: CircularDisplayMode,
         iconMetric: IconMetric,
         colorMode: MenuBarColorMode = .always, design: MenuBarDesign = .modern,
@@ -422,7 +420,6 @@ struct ProviderMenuBarDisplayConfig: Equatable, Sendable {
         self.showBatteryPercent = showBatteryPercent
         self.resetTimeDisplay = resetTimeDisplay
         self.timeFormat = timeFormat
-        self.timeUnitLanguage = timeUnitLanguage
         self.circularDisplayMode = circularDisplayMode
         self.iconMetric = iconMetric
         self.colorMode = colorMode

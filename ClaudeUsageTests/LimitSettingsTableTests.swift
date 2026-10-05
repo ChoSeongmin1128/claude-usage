@@ -12,14 +12,15 @@ final class LimitSettingsTableTests: XCTestCase {
             service: .claude, popoverItems: ClaudeItemCatalog().defaultItems,
             limits: UsageLimitCatalog.claude(usage), displayName: ClaudeItemCatalog().displayName(for:))
 
-        XCTAssertEqual(rows.map(\.title), ["5시간 한도", "주간 한도", "모델별 주간 한도", "Fable · 주간", "초기화권", "추가 사용량"])
+        XCTAssertEqual(rows.map(\.title), ["5시간 한도", "주간 한도", "모델별 주간 한도", "Fable · 주간", "추가 사용량", "초기화권"])
         XCTAssertEqual(rows.map(\.menuBarSlot), [.fiveHour, .weekly, nil, nil, nil, nil])
-        XCTAssertEqual(rows.map(\.controlsResetCreditMenuBar), [false, false, false, false, true, false])
+        XCTAssertEqual(rows.map(\.controlsResetCreditMenuBar), [false, false, false, false, false, true])
         XCTAssertEqual(rows[0].notificationLimit?.scope, "five_hour")
         XCTAssertTrue(rows[3].isChild)
-        XCTAssertNil(rows[3].popoverItemID)
-        XCTAssertNil(rows[5].notificationLimit)
-        XCTAssertFalse(rows[5].takesNotification)
+        for row in rows.suffix(2) {
+            XCTAssertNil(row.notificationLimit)
+            XCTAssertFalse(row.takesNotification)
+        }
     }
 
     func testCodexRowsUseWindowSlotsAndKeepRowsBeforeFirstFetch() throws {
@@ -51,10 +52,14 @@ final class LimitSettingsTableTests: XCTestCase {
 
     func testStoredTabsFromEarlierVersionsOpenTheNewPanels() {
         XCTAssertEqual(SettingsProviderPanel.resolve(storedValue: "display")?.panel, .display)
-        XCTAssertEqual(SettingsProviderPanel.resolve(storedValue: "notifications")?.panel, .limits)
+        XCTAssertEqual(SettingsProviderPanel.resolve(storedValue: "notifications")?.panel, .common)
         let codex = SettingsProviderPanel.resolve(storedValue: "codex")
-        XCTAssertEqual(codex?.panel, .accounts)
+        XCTAssertEqual(codex?.panel, .codex)
         XCTAssertEqual(codex?.provider, .codex)
+        XCTAssertEqual(SettingsProviderPanel.resolve(storedValue: "accounts", fallbackProvider: .codex)?.panel, .codex)
+        XCTAssertEqual(
+            SettingsProviderPanel.resolve(storedValue: "limits", fallbackProvider: .antigravity)?.panel, .antigravity)
+        XCTAssertEqual(SettingsProviderPanel.resolve(storedValue: "welcome")?.panel, .welcome)
         XCTAssertNil(SettingsProviderPanel.resolve(storedValue: "unknown"))
     }
 }
