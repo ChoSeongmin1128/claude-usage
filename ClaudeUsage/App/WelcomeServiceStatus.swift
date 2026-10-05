@@ -4,13 +4,29 @@ enum WelcomeServiceStatus: Equatable {
     case notVerified, checking, verified
 
     static func resolve(snapshot: RuntimeProviderSnapshot, antigravity: AntigravityRuntimeSnapshot) -> Self {
-        if snapshot.isLoading { return .checking }
+        if snapshot.isLoading || (snapshot.service == .antigravity && antigravity.isLoading) {
+            return .checking
+        }
         guard snapshot.error == nil, !snapshot.hasAuthError else { return .notVerified }
         if snapshot.service == .antigravity {
-            guard case .ready(let quota) = antigravity.presentationState,
-                let identity = quota.identity,
-                identity.stableAccountID?.isEmpty == false || identity.email?.isEmpty == false,
-                quota.lanes.contains(where: { $0.remainingFraction?.isFinite == true })
+            guard antigravity.readiness == .ready,
+                antigravity.settings != nil,
+                antigravity.lastSuccessfulAt != nil
+            else { return .notVerified }
+            let quota: AntigravityQuotaSnapshot
+            switch antigravity.presentationState {
+            case .ready(let current), .partial(let current, _):
+                quota = current
+            default:
+                return .notVerified
+            }
+            // The validated CLI report has no account identity. A connection
+            // is proven by current usable quota, as on the other providers.
+            guard
+                quota.lanes.contains(where: { lane in
+                    guard lane.availability == .available, let remaining = lane.remainingFraction else { return false }
+                    return remaining.isFinite && (0...1).contains(remaining)
+                })
             else { return .notVerified }
             return .verified
         }

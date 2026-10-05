@@ -111,6 +111,105 @@ final class AppExperiencePreferencesTests: XCTestCase {
         XCTAssertEqual(status(value: 50, loading: true), .checking)
     }
 
+    func testAGYConnectionRequiresCurrentAvailableNumericQuota() {
+        for remaining in [0.0, 0.5, 1.0] {
+            XCTAssertEqual(agyWelcomeStatus(agyRuntime(.ready(agyQuota(remaining: remaining)))), .verified)
+        }
+        let invalidRemaining: [Double?] = [nil, .nan, .infinity, -0.1, 1.1]
+        for remaining in invalidRemaining {
+            XCTAssertEqual(agyWelcomeStatus(agyRuntime(.ready(agyQuota(remaining: remaining)))), .notVerified)
+        }
+        XCTAssertEqual(agyWelcomeStatus(agyRuntime(.ready(agyQuota(includeLane: false)))), .notVerified)
+        for availability in [AntigravityQuotaAvailability.disabled, .unknown] {
+            XCTAssertEqual(
+                agyWelcomeStatus(agyRuntime(.ready(agyQuota(availability: availability)))), .notVerified)
+        }
+    }
+
+    func testAGYConnectionAcceptsFreshPartialQuotaButRejectsStaleAndFailedQuota() {
+        let issue = AntigravityQuotaDecodeIssue(
+            kind: .missingRemainingFraction, upstreamGroupID: "fixture", groupLabel: nil,
+            upstreamBucketID: "missing-bucket")
+        let partial = agyQuota(issues: [issue])
+        XCTAssertEqual(agyWelcomeStatus(agyRuntime(.partial(partial, issues: [issue]))), .verified)
+        let quota = agyQuota()
+        XCTAssertEqual(
+            agyWelcomeStatus(agyRuntime(.stale(quota, failure: .transportUnavailable(.cliReport)))), .notVerified)
+        XCTAssertEqual(
+            agyWelcomeStatus(agyRuntime(.failed(.authenticationRequired(.cliReport)))), .notVerified)
+        XCTAssertEqual(agyWelcomeStatus(agyRuntime(.failed(.cliReportFailed))), .notVerified)
+        XCTAssertEqual(agyWelcomeStatus(agyRuntime(.disabled)), .notVerified)
+        XCTAssertEqual(agyWelcomeStatus(agyRuntime(.setupRequired(.noAmbientLocalSession))), .notVerified)
+    }
+
+    func testAGYConnectionUsesAtomicLoadingAndRequiresAReadySuccessfulPublication() {
+        let quota = agyQuota()
+        XCTAssertEqual(agyWelcomeStatus(agyRuntime(.refreshing(previous: quota))), .checking)
+        let bootstrapping = agyRuntime(.ready(quota), readiness: .bootstrapping)
+        let oldProjection = RuntimeProviderSnapshot(
+            service: .antigravity, credentialState: .refreshable,
+            isDetected: true, canAttemptRefresh: true, hasAuthError: false)
+        XCTAssertEqual(
+            WelcomeServiceStatus.resolve(snapshot: oldProjection, antigravity: bootstrapping), .checking)
+        for readiness in [AntigravityRuntimeReadiness.idle, .blocked(.typedSettings), .shuttingDown] {
+            XCTAssertEqual(agyWelcomeStatus(agyRuntime(.ready(quota), readiness: readiness)), .notVerified)
+        }
+        XCTAssertEqual(
+            agyWelcomeStatus(agyRuntime(.ready(quota), lastSuccessfulAt: nil)), .notVerified)
+        XCTAssertEqual(agyWelcomeStatus(agyRuntime(.ready(quota), settings: nil)), .notVerified)
+    }
+
+    func testAGYConnectionPreservesReportedErrorAndAuthFailureGuards() {
+        let runtime = agyRuntime(.ready(agyQuota()))
+        for hasAuthError in [false, true] {
+            let snapshot = RuntimeProviderSnapshot(
+                service: .antigravity, error: hasAuthError ? nil : .networkError("fixture"),
+                lastUpdated: runtime.lastSuccessfulAt, credentialState: .refreshable,
+                isDetected: true, canAttemptRefresh: true, hasAuthError: hasAuthError)
+            XCTAssertEqual(WelcomeServiceStatus.resolve(snapshot: snapshot, antigravity: runtime), .notVerified)
+        }
+    }
+
+    private func agyQuota(
+        remaining: Double? = 0.5,
+        availability: AntigravityQuotaAvailability = .available,
+        includeLane: Bool = true,
+        issues: [AntigravityQuotaDecodeIssue] = []
+    ) -> AntigravityQuotaSnapshot {
+        let lane = AntigravityQuotaLane(
+            id: .geminiWeekly, upstreamGroupID: "fixture", upstreamBucketID: "weekly", scope: .gemini,
+            cadence: .weekly, remainingFraction: remaining, resetAt: nil, resetDescription: nil,
+            availability: availability)
+        return AntigravityQuotaSnapshot(
+            identity: nil, plan: nil, lanes: includeLane ? [lane] : [], decodeIssues: issues,
+            provenance: .init(
+                transport: .cliUsageReport, endpointOwner: .managed, accountIdentity: nil,
+                capability: .groupedQuotaSummary, processIdentity: nil),
+            fetchedAt: Date(timeIntervalSince1970: 1_900_000_000))
+    }
+
+    private func agyRuntime(
+        _ presentation: AntigravityPresentationState,
+        readiness: AntigravityRuntimeReadiness = .ready,
+        lastSuccessfulAt: Date? = Date(timeIntervalSince1970: 1_900_000_000),
+        settings: AntigravitySettingsSnapshot? = .init(connection: .default, display: .default)
+    ) -> AntigravityRuntimeSnapshot {
+        let now = Date(timeIntervalSince1970: 1_900_000_000)
+        return AntigravityRuntimeSnapshot(
+            readiness: readiness, settings: settings, presentationState: presentation,
+            quotaPresentation: AntigravityQuotaPresentationMapper.map(
+                state: presentation, settings: .default, now: now),
+            managedRuntimeAvailability: .available(displayPath: "fixture/agy"),
+            lastAttemptAt: now, lastSuccessfulAt: lastSuccessfulAt)
+    }
+
+    private func agyWelcomeStatus(_ runtime: AntigravityRuntimeSnapshot) -> WelcomeServiceStatus {
+        let facade = AppRuntimeStateFacade()
+        facade.antigravityRuntimeSnapshot = runtime
+        return WelcomeServiceStatus.resolve(
+            snapshot: facade.snapshot(for: .antigravity, codexAuthenticated: false), antigravity: runtime)
+    }
+
     func testDesignChoiceInvalidatesRenderKeyWithoutChangingUsageMeaning() throws {
         try withDefaults { defaults in
             let settings = AppSettings(defaults: defaults)

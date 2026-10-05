@@ -44,6 +44,33 @@ final class AntigravityCLIUsageReportSourceTests: XCTestCase {
         )
     }
 
+    func testIdentityFreeCLIReportCanCompleteWelcomeVerification() async throws {
+        let runner = ScriptedReportRunner(outcomes: [
+            .success(output("1.2.12\n")),
+            .success(output(try fixture("agy-1.2.12-print-usage-five-hour-and-weekly.json"))),
+        ])
+        let fetchedAt = Date(timeIntervalSince1970: 1_900_000_000)
+        let response = try await makeSource(runner: runner, now: { fetchedAt }).fetch(request())
+        guard case .grouped(let quota) = response.payload else { return XCTFail("Expected current CLI quota") }
+        XCTAssertNil(quota.identity)
+        XCTAssertNil(quota.provenance.accountIdentity)
+        let runtime = AntigravityRuntimeSnapshot(
+            readiness: .ready, settings: .init(connection: .default, display: .default),
+            presentationState: .ready(quota),
+            quotaPresentation: .content(
+                AntigravityQuotaPresentationMapper.map(snapshot: quota, settings: .default, now: fetchedAt)),
+            managedRuntimeAvailability: .available(displayPath: "fixture/agy"),
+            lastAttemptAt: fetchedAt, lastSuccessfulAt: fetchedAt)
+        await MainActor.run {
+            let facade = AppRuntimeStateFacade()
+            facade.antigravityRuntimeSnapshot = runtime
+            XCTAssertEqual(
+                WelcomeServiceStatus.resolve(
+                    snapshot: facade.snapshot(for: .antigravity, codexAuthenticated: false), antigravity: runtime),
+                .verified)
+        }
+    }
+
     func testPrintTimeoutLeavesMarginInsideTheRefreshBudget() async throws {
         let runner = ScriptedReportRunner(outcomes: [
             .success(output("1.2.12")),

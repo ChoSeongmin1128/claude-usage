@@ -858,6 +858,89 @@ final class DesignSystemTests: XCTestCase {
         XCTAssertEqual(settings.settingsLastTab, "updates")
     }
 
+    func testNativeSidebarRowsSelectEachPanelAndPreserveGroupDisclosure() async throws {
+        guard #available(macOS 14.4, *) else {
+            throw XCTSkip("Own-process WindowServer gallery requires macOS 14.4+. Production supports macOS 14.0.")
+        }
+        let suite = "DesignSystemTests.sidebar.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults, hasExistingAccountStorage: false)
+        settings.welcomeState = .completed
+        settings.motion.mode = .instant
+        for provider in AppProviderKind.allCases { settings.setProviderEnabled(true, for: provider) }
+        let dependencies = await makeSettingsGalleryDependencies(defaults: defaults, settings: settings)
+        defer { dependencies.antigravity.stopObserving() }
+        let view = SettingsView(
+            claudeAPIService: dependencies.claude, antigravitySettings: dependencies.antigravity,
+            settings: settings, updateRuntimeState: dependencies.updates,
+            claudeAccountStore: dependencies.accountStore, sessionKeyLoader: { _ in nil },
+            codexAuthStatusReader: dependencies.codex.status,
+            claudeOAuthMigrationCoordinator: dependencies.migration,
+            claudeLastUsage: { self.usage }, initialPanel: .updates)
+        let size = AppDesign.Window.settingsIdeal
+        let panels = SettingsProviderRegistry.appPanels + SettingsProviderRegistry.servicePanels
+        _ = try await renderSettingsNativeVerified(
+            view.frame(width: size.width, height: size.height), size: size, appearance: .aqua,
+            interaction: { window, host in
+                let outline = try XCTUnwrap(settingsSidebarOutline(in: host))
+                XCTAssertEqual(outline.numberOfChildren(ofItem: nil), 2)
+                let groups = try (0..<2).map { try XCTUnwrap(outline.child($0, ofItem: nil)) }
+                for group in groups {
+                    XCTAssertEqual(outline.numberOfChildren(ofItem: group), 3)
+                    outline.expandItem(group)
+                }
+                await yieldSettingsNativeMainQueue()
+                XCTAssertEqual(outline.numberOfRows, 8)
+                let leaves = try groups.flatMap { group in
+                    try (0..<3).map { try XCTUnwrap(outline.child($0, ofItem: group)) }
+                }
+                XCTAssertEqual(Set(leaves.map { outline.row(forItem: $0) }).count, 6)
+                for (index, item) in leaves.enumerated() {
+                    let row = outline.row(forItem: item)
+                    XCTAssertGreaterThanOrEqual(row, 0)
+                    XCTAssertEqual(outline.numberOfChildren(ofItem: item), 0)
+                    XCTAssertEqual(outline.level(forRow: row), 1)
+                    XCTAssertNotNil(outline.rowView(atRow: row, makeIfNecessary: false))
+                    outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                    let panel = panels[index].panel
+                    let changed = await waitForSettingsReady { settings.settingsLastTab == panel.rawValue }
+                    XCTAssertTrue(changed)
+                    host.layoutSubtreeIfNeeded()
+                    await yieldSettingsNativeMainQueue()
+                    XCTAssertEqual(outline.selectedRow, row)
+                    self.attach(
+                        try await captureOwnSettingsWindow(window, hostView: host),
+                        "Settings-sidebar-action-\(panel.rawValue)")
+                    XCTAssertFalse(window.isKeyWindow)
+                    XCTAssertFalse(NSApplication.shared.isActive)
+                }
+                let appGroup = try XCTUnwrap(outline.child(0, ofItem: nil))
+                let appChild = try XCTUnwrap(outline.child(0, ofItem: appGroup))
+                XCTAssertGreaterThanOrEqual(outline.row(forItem: appChild), 0)
+                outline.collapseItem(appGroup)
+                await yieldSettingsNativeMainQueue()
+                XCTAssertEqual(outline.row(forItem: appChild), -1)
+                XCTAssertEqual(outline.numberOfRows, 5)
+                self.attach(
+                    try await captureOwnSettingsWindow(window, hostView: host), "Settings-sidebar-apps-collapsed")
+                outline.expandItem(try XCTUnwrap(outline.child(0, ofItem: nil)))
+                await yieldSettingsNativeMainQueue()
+                let expandedGroup = try XCTUnwrap(outline.child(0, ofItem: nil))
+                let expandedChild = try XCTUnwrap(outline.child(0, ofItem: expandedGroup))
+                XCTAssertGreaterThanOrEqual(outline.row(forItem: expandedChild), 0)
+                XCTAssertEqual(outline.numberOfRows, 8)
+                XCTAssertEqual(settings.settingsLastTab, "antigravity")
+            },
+            ready: { dependencies.updates.engineStatus != nil })
+        let agy = settingsGalleryAGYSnapshot()
+        guard case .ready(let quota) = agy.presentationState else { return XCTFail("Missing ready CLI fixture") }
+        XCTAssertNil(quota.identity)
+        XCTAssertNil(quota.provenance.accountIdentity)
+        XCTAssertEqual(settingsGalleryAGYWelcomeStatuses()[.antigravity], .verified)
+        XCTAssertEqual(dependencies.updateEngine.checks, 0)
+    }
+
     func testServiceSectionDestinationsRenderInsideTheSameSettingsLayout() async throws {
         let suite = "DesignSystemTests.settings-editor.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
@@ -920,7 +1003,7 @@ final class DesignSystemTests: XCTestCase {
                 claudeAccountStore: dependencies.accountStore, sessionKeyLoader: { _ in nil },
                 codexAuthStatusReader: dependencies.codex.status,
                 claudeOAuthMigrationCoordinator: dependencies.migration,
-                initialPanel: .welcome, welcomeStatuses: { [.antigravity: .verified] },
+                initialPanel: .welcome, welcomeStatuses: { settingsGalleryAGYWelcomeStatuses() },
                 onboardingDetector: detector.detect)
             XCTAssertNil(dependencies.antigravity.state.display)
             XCTAssertNil(view.settingsDataPreparationRequest)
@@ -1296,7 +1379,6 @@ private actor SettingsGalleryAGYRuntime: AntigravitySettingsRuntimeControlling {
 
 private nonisolated func settingsGalleryAGYSnapshot() -> AntigravityRuntimeSnapshot {
     let now = Date(timeIntervalSince1970: 1_900_000_000)
-    let identity = ProviderAccountIdentity(stableAccountID: "settings-gallery", email: "fixture@example.com")
     let specifications: [(AntigravityQuotaLaneID, AntigravityQuotaScope, Double)] = [
         (.geminiWeekly, .gemini, 0.82),
         (.thirdPartyWeekly, .thirdPartyModels, 0.54),
@@ -1315,14 +1397,14 @@ private nonisolated func settingsGalleryAGYSnapshot() -> AntigravityRuntimeSnaps
         )
     }
     let quota = AntigravityQuotaSnapshot(
-        identity: identity,
+        identity: nil,
         plan: nil,
         lanes: lanes,
         decodeIssues: [],
         provenance: .init(
             transport: .cliUsageReport,
             endpointOwner: .managed,
-            accountIdentity: identity,
+            accountIdentity: nil,
             capability: .groupedQuotaSummary,
             processIdentity: nil
         ),
@@ -1345,6 +1427,26 @@ private nonisolated func settingsGalleryAGYSnapshot() -> AntigravityRuntimeSnaps
         lastSuccessfulAt: now,
         publicationRevision: 1
     )
+}
+
+@MainActor
+private func settingsGalleryAGYWelcomeStatuses() -> [AppProviderKind: WelcomeServiceStatus] {
+    let antigravity = settingsGalleryAGYSnapshot()
+    let facade = AppRuntimeStateFacade()
+    facade.antigravityRuntimeSnapshot = antigravity
+    return [
+        .antigravity: WelcomeServiceStatus.resolve(
+            snapshot: facade.snapshot(for: .antigravity, codexAuthenticated: false), antigravity: antigravity)
+    ]
+}
+
+@MainActor
+private func settingsSidebarOutline(in view: NSView) -> NSOutlineView? {
+    if let outline = view as? NSOutlineView { return outline }
+    for child in view.subviews {
+        if let outline = settingsSidebarOutline(in: child) { return outline }
+    }
+    return nil
 }
 
 @MainActor
@@ -1420,6 +1522,7 @@ private func renderSettingsNativeVerified<V: View>(
     size: CGSize,
     appearance: NSAppearance.Name,
     change: () -> Void = {},
+    interaction: ((NSWindow, NSView) async throws -> Void)? = nil,
     initialCapture: SettingsInitialCapture? = nil,
     onFailure: (NSImage) -> Void = { _ in },
     ready: () -> Bool = { true },
@@ -1473,6 +1576,7 @@ private func renderSettingsNativeVerified<V: View>(
     let dataReady = await waitForSettingsReady { ready() }
     controller.view.layoutSubtreeIfNeeded()
     await yieldSettingsNativeMainQueue()
+    if let interaction { try await interaction(window, controller.view) }
     let image = try await captureOwnSettingsWindow(window, hostView: controller.view)
     XCTAssertFalse(application.isActive, file: file, line: line)
     XCTAssertFalse(window.isKeyWindow, file: file, line: line)

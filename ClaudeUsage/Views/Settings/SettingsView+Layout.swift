@@ -126,8 +126,8 @@ extension SettingsView {
                 sectionScrollPosition = section
                 requestedSection = nil
             }
+            .disclosureGroupStyle(AppDisclosureGroupStyle())
         }
-        .disclosureGroupStyle(AppDisclosureGroupStyle())
         .frame(
             minWidth: AppDesign.Window.settingsMinimum.width,
             idealWidth: AppDesign.Window.settingsIdeal.width,
@@ -290,10 +290,9 @@ extension SettingsView {
             .onChange(of: selectedOrganizationID) { _, _ in
                 schedulePreferredOrganizationPersistence()
             }
-            .onChange(of: selectedPanel) { _, panel in
-                settings.settingsLastTab = panel.rawValue
-                if let provider = panel.providerKind {
-                    selectedProvider = provider
+            .onChange(of: selectedPanel, initial: true) { _, panel in
+                if settings.settingsLastTab != panel.rawValue {
+                    settings.settingsLastTab = panel.rawValue
                 }
             }
             .onChange(of: settings.settingsLastTab) { _, rawValue in
@@ -418,9 +417,6 @@ extension SettingsView {
         requestedSection = destination.section
         isPopoverSettingsExpanded = destination.section == .popover
         navigationRevision &+= 1
-        if settings.settingsLastTab != destination.panel.rawValue {
-            settings.settingsLastTab = destination.panel.rawValue
-        }
     }
 
     private func prepareSettingsData(for provider: AppProviderKind) async {
