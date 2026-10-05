@@ -4,12 +4,12 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>Version 2.8.0-stg.9</title>
-            <pubDate>Mon, 05 Oct 2026 10:42:16 +0900</pubDate>
-            <sparkle:version>20634</sparkle:version>
-            <sparkle:shortVersionString>2.8.0-stg.9</sparkle:shortVersionString>
+            <title>Version 2.8.0-stg.10</title>
+            <pubDate>Mon, 05 Oct 2026 15:03:54 +0900</pubDate>
+            <sparkle:version>20635</sparkle:version>
+            <sparkle:shortVersionString>2.8.0-stg.10</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.8.0-stg.9/ClaudeUsage.dmg" length="6469507" type="application/octet-stream" sparkle:edSignature="qd/dBUA6WFd++8KiTtC2y/kGw6oSV/xz92Xgz64MmHEFD7xHWniwLb8txW7Ib/8QQvSwe4ZT/n8xBJQi8V2jBQ=="></enclosure>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.8.0-stg.10/ClaudeUsage.dmg" length="6469183" type="application/octet-stream" sparkle:edSignature="pglS2iLGz/RSLTz1MLoe7EBPLVf8iLUQhvlg3zMhze1XMegYbw96Me2Y6VnceWdfNcEIBiJM7k6uHYo0IjALAA=="></enclosure>
             <description sparkle:format="plain-text"># 2.8.0
 
 ## 여러 계정
@@ -52,6 +52,7 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 ## 처음 설정
 
 - 시작하기 화면이 Claude, Codex, Antigravity마다 찾은 상태와 바로 할 일 하나를 보여줍니다.
+- AGY 사용량을 정상 조회했는데도 시작하기 화면에 "연결"이 나오던 문제를 고쳤습니다.
 - Claude는 Claude Code 로그인, 브라우저나 Claude 앱의 로그인 가져오기, 브라우저에서 새로 로그인, 앱에서 로그인 순으로 권합니다. 브라우저에서 새로 로그인하면 앱이 로그인을 알아채고 가져오기를 시작합니다.
 - Codex와 AGY CLI에 로그인돼 있으면 바로 연결합니다. 설치되지 않았으면 ChatGPT 앱 다운로드나 터미널 설치 명령을 안내합니다. ChatGPT 앱에 들어 있는 Codex도 찾습니다.
 - 팝오버의 Claude 다시 연결도 같은 순서를 따릅니다.
@@ -70,6 +71,7 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 
 ## 설정 구조
 
+- 사이드바의 일반, 표시, 업데이트와 서비스별 설정을 눌러도 화면이 바뀌지 않던 문제를 고쳤습니다.
 - 일반에는 자동 확인, 자동 시작과 공통 알림을, 표시에는 공통 표시 기준과 시간·색상·모션을, 업데이트에는 버전별 변경 내역을 모았습니다.
 - Claude, Codex, Antigravity를 고르면 그 서비스의 계정, 한도, 메뉴바와 팝오버를 한 페이지에서 설정합니다. 서비스 선택을 각 탭에서 반복하지 않아도 됩니다.
 - 팝오버의 표시 항목 편집은 해당 서비스 설정으로 바로 이동합니다.
@@ -136,10 +138,10 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 - 새 기능 안내에서 설정을 열어도 안내 창과 보던 페이지는 그대로 남습니다.
 - 새 기능이 있는 버전으로 업데이트하면 짧은 안내를 한 번 보여줍니다. 업데이트 패널의 "새 기능 다시 보기"로 다시 볼 수 있습니다. 새로 설치하면 보이지 않습니다.
 </description>
-            <claudeusage:zipSHA256>2c95ae56a7a235f2f6147090eb0399f6cc03bd30ea7d3f1e672a2be0c94f718c</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>9dad5994b6c9caaa51dacbea7e5438e213469955b4eac2919a2b29e7baf74636</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: y9wWpQwZ/90aOf8SNkrvUFB9oL2WC3B4tpZkgw3yEjTFLHKnLjvLBVbQzjBe74gUmXkH7Sx/KIM1nxSbMj4hDw==
-length: 17368
+edSignature: i+Ylitm9zakVTTLq5hPUHO785Vb64xjKjshlsALp70xGo9CFynxlnfkdLbpr0aNgpA02YgMsPg9zAGQpEl+DDw==
+length: 17625
 -->
