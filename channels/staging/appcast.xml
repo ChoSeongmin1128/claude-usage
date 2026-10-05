@@ -4,17 +4,17 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>Version 2.8.0-stg.8</title>
-            <pubDate>Mon, 05 Oct 2026 04:04:17 +0900</pubDate>
-            <sparkle:version>20633</sparkle:version>
-            <sparkle:shortVersionString>2.8.0-stg.8</sparkle:shortVersionString>
+            <title>Version 2.8.0-stg.9</title>
+            <pubDate>Mon, 05 Oct 2026 10:42:16 +0900</pubDate>
+            <sparkle:version>20634</sparkle:version>
+            <sparkle:shortVersionString>2.8.0-stg.9</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.8.0-stg.8/ClaudeUsage.dmg" length="6497787" type="application/octet-stream" sparkle:edSignature="7Id/XHNja6X7laExgHFDjbrjwBfNnguX2bVPI9EeUX8Ha8t3iwH0MljojCVi2rK4T2/hnHzewi6vGKHpf/kIBw=="></enclosure>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.8.0-stg.9/ClaudeUsage.dmg" length="6469507" type="application/octet-stream" sparkle:edSignature="qd/dBUA6WFd++8KiTtC2y/kGw6oSV/xz92Xgz64MmHEFD7xHWniwLb8txW7Ib/8QQvSwe4ZT/n8xBJQi8V2jBQ=="></enclosure>
             <description sparkle:format="plain-text"># 2.8.0
 
 ## 여러 계정
 
-- 설정 → 계정에서 서비스별로 "여러 계정 함께 보기"를 켜면 계정별 사용량을 함께 봅니다. 기본은 꺼져 있으며, 선택한 계정만 표시하고 조회합니다.
+- 각 서비스 설정에서 "여러 계정 함께 보기"를 켜면 계정별 사용량을 함께 봅니다. 기본은 꺼져 있으며, 선택한 계정만 표시하고 조회합니다.
 - 같은 계정이 기본 로그인, 다른 CLI 폴더, 앱의 웹 로그인으로 여러 번 보이면 계정과 조직이 같을 때 한 줄로 합치고 출처 배지(기본 로그인, CLI, 웹)를 함께 붙입니다. 메뉴바와 팝오버에 나오는 계정에는 사용 중을 붙이고 맨 위에 둡니다. 배지에 마우스를 올리면 뜻이 나옵니다.
 - 팝오버 보기는 서비스마다 골라 보기(기본), 대표 카드와 목록, 요약과 목록 중에 고릅니다. 골라 보기는 처음에 메뉴바 계정과 다음 계정 하나를 보여주고, 고른 조합을 기억합니다.
 - 메뉴바와 팝오버 큰 카드는 고른 계정 하나를 보여줍니다. 계정 ⋯ → 메뉴바에 표시로 고르며, Claude Code가 아닌 웹이나 Claude 앱 로그인도 고를 수 있습니다. 고르기 전에는 Claude 앱 로그인을 먼저 보여주고, Claude Code에 다른 계정이 있으면 처음 한 번 묻습니다. 업데이트한 사용자는 이전에 고른 메뉴바 계정을 그대로 씁니다.
@@ -34,7 +34,7 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 
 ## 계정 전환
 
-- 설정 → 계정에서 다른 폴더에 로그인해 둔 계정을 기본 로그인으로 바꿀 수 있습니다(계정 ⋯ → 이 계정으로 전환).
+- 각 서비스 설정에서 다른 폴더에 로그인해 둔 계정을 기본 로그인으로 바꿀 수 있습니다(계정 ⋯ → 이 계정으로 전환).
 - 전환은 기본 로그인과 그 폴더의 로그인을 맞바꿉니다. 로그인 정보를 복사하지 않으므로 같은 로그인이 두 곳에 남지 않습니다.
 - Claude Code는 Claude Code와 같은 잠금(옛 버전이 쓰는 잠금 포함)을 잡은 뒤 로그인을 다시 읽고 바꿉니다. Keychain에 있는 로그인은 Claude Code와 같은 도구로 읽고 써서 암호를 묻지 않습니다. 바꾼 뒤 `claude auth status`로 확인하고 다르면 한 번 더 맞바꿔 되돌리며, 되돌리지 못하면 따로 알려줍니다. 이메일을 모르는 계정이나 Claude Code가 없으면 전환 메뉴를 보여주지 않습니다. `~/.claude.json`의 파일 권한은 그대로 둡니다.
 - Codex는 실행 중인 Codex(ChatGPT 앱이나 터미널)가 있으면 "종료하고 전환"과 "취소"만 고를 수 있습니다. ChatGPT 앱 안에서 도는 codex는 터미널 실행으로 세지 않습니다. 확인 창을 띄운 사이 Codex가 실행되면 전환하지 않고 다시 시도하라고 알려줍니다. 바꾼 뒤 공식 app-server로 계정을 확인하고 다르면 되돌립니다.
@@ -45,7 +45,7 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 
 - Claude와 Codex가 주는 한도 초기화권을 팝오버에 표시합니다. 개수, 지우는 범위(전체 한도 또는 5시간 한도만), 만료까지 남은 시간을 보여주고, 서버가 붙인 이름은 마우스를 올리면 보입니다.
 - 새로 받은 초기화권에는 "신규"를 붙이고, 48시간 안에 만료되면 "곧 만료"로 알려줍니다. 한도에 도달했을 때는 쓰면 한도가 다시 채워진다는 안내를 덧붙입니다.
-- 메뉴바 수치 옆에 ↺1처럼 개수를 표시할 수 있습니다. 새로 받으면 파란색, 곧 만료되면 빨간색입니다. 설정 → 한도의 초기화권 줄에서 항상, 신규나 곧 만료일 때만, 끔 중에 고릅니다. 업데이트한 사용자는 끔으로 시작하며 새 기능 안내에서 바로 켤 수 있습니다.
+- 메뉴바 수치 옆에 ↺1처럼 개수를 표시할 수 있습니다. 새로 받으면 파란색, 곧 만료되면 빨간색입니다. 각 서비스 설정의 초기화권 줄에서 항상, 신규나 곧 만료일 때만, 끔 중에 고릅니다. 업데이트한 사용자는 끔으로 시작하며 새 기능 안내에서 바로 켤 수 있습니다.
 - 앱은 초기화권을 읽기만 하고 사용하지 않습니다.
 - Codex 초기화권은 비공식 웹 경로 대신 설치된 Codex의 공식 app-server에서 읽고, 5분마다 한 번만 확인합니다.
 
@@ -70,17 +70,18 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 
 ## 설정 구조
 
-- 설정을 일반, 계정, 한도, 모양, 업데이트 다섯 패널로 나누고 macOS 기본 사이드바로 바꿨습니다.
-- 한도 패널의 표에서 한도마다 메뉴바(게이지 옆 숫자), 팝오버, 알림을 한 줄에서 고릅니다. 게이지 모양과 대표 한도는 모양 패널에서 정합니다.
-- 서비스별 계정 설정은 계정 패널에서 서비스를 골라 엽니다. 이전 버전에서 마지막으로 연 서비스 탭은 계정 패널의 그 서비스로 이어집니다.
-- 계정 패널의 계정 목록 하나에서 계정을 추가하고(브라우저에서 가져오기, 앱에서 로그인, 세션 키 직접 입력, Claude Code 폴더), 메뉴바 계정을 고르고, 저장한 웹 로그인을 지웁니다. 아래쪽의 별도 계정 관리 목록은 없앴습니다. 서비스 사용을 끄면 그 서비스의 계정 목록도 숨깁니다.
+- 일반에는 자동 확인, 자동 시작과 공통 알림을, 표시에는 공통 표시 기준과 시간·색상·모션을, 업데이트에는 버전별 변경 내역을 모았습니다.
+- Claude, Codex, Antigravity를 고르면 그 서비스의 계정, 한도, 메뉴바와 팝오버를 한 페이지에서 설정합니다. 서비스 선택을 각 탭에서 반복하지 않아도 됩니다.
+- 팝오버의 표시 항목 편집은 해당 서비스 설정으로 바로 이동합니다.
 - 시작하기는 마칠 때까지 사이드바에 남습니다.
 - 설정과 팝오버의 문구를 짧게 정리하고, 같은 것은 같은 말로 부릅니다(세션 키, 웹 로그인, 앱에서 로그인, 직접 입력, 지우기, 전환, 연결됨, 확인 중, 이전 값).
 
 ## 시간 표시
 
-- 시간 형식을 모든 서비스가 함께 씁니다. 일반 패널에서 고릅니다. 서비스마다 다르게 고른 경우 Claude 설정 값으로 맞추고 업데이트 안내에 알려줍니다.
-- 남은 시간은 짧게(14:22, 3d:14) 또는 전체 시간(86:22)으로 봅니다. 단위는 영어(d/h/m)와 한국어(일/시간/분) 중에서 고르며, 기본은 영어입니다.
+- 시간 형식은 모든 서비스가 함께 씁니다. 표시에서 고릅니다. 서비스마다 다르게 고른 경우 Claude 설정 값으로 맞추고 업데이트 안내에 알려줍니다.
+- 초기화 시각 24시간(18:34), 초기화 시각 12시간(오후 6:34), 남은 시간 단위 표시(2h 34m / 3d 2h) 세 가지를 제공합니다. 선택 메뉴에 표시 예시를 함께 보여줍니다.
+- 짧은 숫자 형식, 전체 시간 형식과 별도 단위 언어 설정을 정리했습니다. 기존 두 숫자 형식 선택은 단위 표시로 이어받습니다.
+- Claude에서 5시간 초기화 시각이 없으면 주간 초기화 시각을 대신 보여주던 문제를 고쳤습니다. 선택한 한도의 시각이 없으면 시간을 숨깁니다.
 - "현재 세션"을 "5시간 한도"로 부릅니다.
 
 ## 자동 확인
@@ -122,6 +123,7 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 
 ## 모양과 데이터 정리
 
+- 기본 순서는 5시간, 주간, 모델별 한도, 크레딧, 초기화권입니다. 기존 기본 순서만 한 번 맞추며 사용자가 바꾼 순서와 표시 여부는 유지합니다.
 - 초기화권과 크레딧을 다른 사용량 행과 같은 열과 글자 위계로 맞췄습니다. 간소화 화면은 초기화권의 만료 시간을 제목 옆에, 범위를 가운데에, 개수를 오른쪽에 보여줍니다. 표시 순서와 숨김 선택은 그대로입니다.
 
 - 메뉴바의 숫자와 초기화권 표시(↺)를 로고와 같은 높이에 맞췄습니다.
@@ -134,10 +136,10 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 - 새 기능 안내에서 설정을 열어도 안내 창과 보던 페이지는 그대로 남습니다.
 - 새 기능이 있는 버전으로 업데이트하면 짧은 안내를 한 번 보여줍니다. 업데이트 패널의 "새 기능 다시 보기"로 다시 볼 수 있습니다. 새로 설치하면 보이지 않습니다.
 </description>
-            <claudeusage:zipSHA256>c668a5a5b01e84806bc1b9e48df6c2db568760c242faf83effc45b035ae50e4b</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>2c95ae56a7a235f2f6147090eb0399f6cc03bd30ea7d3f1e672a2be0c94f718c</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: 2UUek2lL3+HCZeG6B1TyjLQvZWKASx+RFjskIlLOe7bXIjUVCsycuYIFliNvbR58hnlowUyrfr9/4whtPhtZBA==
-length: 17206
+edSignature: y9wWpQwZ/90aOf8SNkrvUFB9oL2WC3B4tpZkgw3yEjTFLHKnLjvLBVbQzjBe74gUmXkH7Sx/KIM1nxSbMj4hDw==
+length: 17368
 -->
