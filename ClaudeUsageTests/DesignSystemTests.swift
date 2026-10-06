@@ -497,13 +497,21 @@ final class DesignSystemTests: XCTestCase {
                         title: "주간 한도", compactLabel: "주간", percentage: 100 - remaining,
                         resetAt: resetString, isWeekly: true, timeFormatStyle: .remaining, basis: .remaining)))
         }
-        let credits = try JSONDecoder().decode(
-            CodexCredits.self,
-            from: Data(#"{"has_credits":true,"unlimited":false,"balance":"99999.99"}"#.utf8))
-        sections.append(
-            .init(
-                id: "long-credits", kind: .credits, importance: .primary,
-                payload: .credits(.init(credits: credits))))
+        let creditFixtures: [(id: String, response: String)] = [
+            ("credits-zero", #"{"has_credits":true,"unlimited":false,"balance":"0"}"#),
+            ("credits-62500-73", #"{"has_credits":true,"unlimited":false,"balance":"62500.73"}"#),
+            ("credits-99999-99", #"{"has_credits":true,"unlimited":false,"balance":"99999.99"}"#),
+            ("credits-unlimited", #"{"has_credits":true,"unlimited":true,"balance":null}"#),
+            ("credits-unreported", #"{"has_credits":false,"unlimited":false,"balance":null}"#),
+        ]
+        let decoder = JSONDecoder()
+        for fixture in creditFixtures {
+            let credits = try decoder.decode(CodexCredits.self, from: Data(fixture.response.utf8))
+            sections.append(
+                .init(
+                    id: fixture.id, kind: .credits, importance: .primary,
+                    payload: .credits(.init(credits: credits))))
+        }
         for count in [1, 100] {
             sections.append(
                 .init(

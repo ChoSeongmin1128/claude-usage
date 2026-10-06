@@ -433,7 +433,7 @@
 				CODE_SIGN_IDENTITY = "Developer ID Application: SEONGMIN CHO (5YG4V2PLZV)";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20638;
+				CURRENT_PROJECT_VERSION = 20639;
 				DEVELOPMENT_TEAM = 5YG4V2PLZV;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
@@ -472,7 +472,7 @@
 				CODE_SIGN_IDENTITY = "Developer ID Application: SEONGMIN CHO (5YG4V2PLZV)";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 20638;
+				CURRENT_PROJECT_VERSION = 20639;
 				DEVELOPMENT_TEAM = 5YG4V2PLZV;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -505,7 +505,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20638;
+				CURRENT_PROJECT_VERSION = 20639;
 				GENERATE_INFOPLIST_FILE = YES;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ClaudeUsageSettingsTestHost.app/Contents/MacOS/ClaudeUsageSettingsTestHost";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -534,7 +534,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20638;
+				CURRENT_PROJECT_VERSION = 20639;
 				GENERATE_INFOPLIST_FILE = YES;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/ClaudeUsageSettingsTestHost.app/Contents/MacOS/ClaudeUsageSettingsTestHost";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -563,7 +563,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20638;
+				CURRENT_PROJECT_VERSION = 20639;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
@@ -583,7 +583,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 20638;
+				CURRENT_PROJECT_VERSION = 20639;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;

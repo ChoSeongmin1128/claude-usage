@@ -377,6 +377,11 @@ private extension CodexCredits {
         return formattedBalance.hasSuffix(unit)
             ? String(formattedBalance.dropLast(unit.count)) : formattedBalance
     }
+
+    var popoverBalanceCaption: String? {
+        guard !unlimited, let balance, balance.isFinite else { return nil }
+        return UsageValueBasis.remaining.label
+    }
 }
 
 struct CodexCreditsView: View {
@@ -393,19 +398,15 @@ struct CodexCreditsView: View {
         } middle: {
             EmptyView()
         } value: {
-            PopoverMetricValue(text: credits.popoverBalanceText, compact: false)
+            PopoverMetricValue(text: credits.popoverBalanceText, caption: credits.popoverBalanceCaption, compact: false)
                 .accessibilityLabel(credits.formattedBalance)
         } detail: {
-            HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.row) {
-                Text(credits.unlimited ? "무제한 플랜" : "사용 가능")
-                    .foregroundStyle(.secondary)
-                if let rateCardURL {
-                    Link("요금표", destination: rateCardURL)
-                        .help("작업별 크레딧 사용량(OpenAI 도움말)")
-                }
+            if let rateCardURL {
+                Link("요금표", destination: rateCardURL)
+                    .font(AppDesign.Typography.caption)
+                    .lineLimit(1)
+                    .help("작업별 크레딧 사용량(OpenAI 도움말)")
             }
-            .font(AppDesign.Typography.caption)
-            .lineLimit(1)
         }
         .help(credits.formattedBalance)
     }
@@ -425,7 +426,7 @@ struct CompactCodexCreditsRow: View {
         } middle: {
             EmptyView()
         } value: {
-            PopoverMetricValue(text: credits.popoverBalanceText, compact: true)
+            PopoverMetricValue(text: credits.popoverBalanceText, caption: credits.popoverBalanceCaption, compact: true)
         } detail: {
             EmptyView()
         }
