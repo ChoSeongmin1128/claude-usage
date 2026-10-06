@@ -415,6 +415,176 @@ final class DesignSystemTests: XCTestCase {
         }
     }
 
+    func testMetricRowKeepsTrackAndValueGeometryAcrossDigitAndDetailChanges() throws {
+        for density in [PopoverDensity.standard, .compact] {
+            let width: CGFloat = density.isCompact ? 276 : 336
+            var reference: (track: CGRect, value: CGRect, baseline: CGFloat)?
+            for amount in [0.0, 9, 10, 100] {
+                let measured = PopoverRowGeometryRecorder()
+                let row = PopoverMetricRow(density: density) {
+                    Text("주간 한도")
+                        .font(density.isCompact ? AppDesign.Typography.caption : AppDesign.Typography.subheadline)
+                } middle: {
+                    ProgressBarView(percentage: amount, color: .green)
+                        .background(popoverRowFrameProbe("track"))
+                } value: {
+                    PopoverValueBaselineProbe(recorder: measured) {
+                        UsagePercentageLabel(
+                            percentage: amount, basis: .used, compact: density.isCompact, color: .green)
+                    }
+                    .background(popoverRowFrameProbe("value"))
+                } detail: {
+                    if amount != 0 {
+                        Text("2h 34m")
+                            .font(density.isCompact ? AppDesign.Typography.metadata : AppDesign.Typography.caption)
+                    }
+                }
+                .frame(width: width)
+                .coordinateSpace(name: "popover-row-geometry")
+                .onPreferenceChange(PopoverRowFramesPreferenceKey.self) { measured.recordFrames($0) }
+                let image = try renderHosted(row, appearance: .darkAqua)
+                XCTAssertEqual(image.size.height, density.isCompact ? 18 : 36, accuracy: 0.5)
+                let observed = measured.snapshot()
+                let track = try XCTUnwrap(observed.frames["track"])
+                let value = try XCTUnwrap(observed.frames["value"])
+                let baseline = value.minY + (try XCTUnwrap(observed.baseline))
+                XCTAssertGreaterThan(track.width, 0)
+                XCTAssertGreaterThan(value.width, 0)
+                if let reference {
+                    XCTAssertEqual(track.minX, reference.track.minX, accuracy: 0.5)
+                    XCTAssertEqual(track.maxX, reference.track.maxX, accuracy: 0.5)
+                    XCTAssertEqual(value.maxX, reference.value.maxX, accuracy: 0.5)
+                    XCTAssertEqual(baseline, reference.baseline, accuracy: 0.5)
+                } else {
+                    reference = (track, value, baseline)
+                }
+            }
+            let measured = PopoverRowGeometryRecorder()
+            let longValue = PopoverMetricRow(density: density, valueSpansMiddle: true) {
+                Text("크레딧 잔액")
+            } middle: {
+                EmptyView()
+            } value: {
+                PopoverValueBaselineProbe(recorder: measured) {
+                    PopoverMetricValue(text: "99999.99", compact: density.isCompact)
+                }
+                .background(popoverRowFrameProbe("value"))
+            } detail: {
+                EmptyView()
+            }
+            .frame(width: width)
+            .coordinateSpace(name: "popover-row-geometry")
+            .onPreferenceChange(PopoverRowFramesPreferenceKey.self) { measured.recordFrames($0) }
+            _ = try renderHosted(longValue, appearance: .darkAqua)
+            let observed = measured.snapshot()
+            let value = try XCTUnwrap(observed.frames["value"])
+            let baseline = value.minY + (try XCTUnwrap(observed.baseline))
+            let expected = try XCTUnwrap(reference)
+            XCTAssertEqual(value.maxX, expected.value.maxX, accuracy: 0.5)
+            XCTAssertEqual(baseline, expected.baseline, accuracy: 0.5)
+        }
+    }
+
+    func testActualPopoverRowBoundaryVisualGalleryPreservesHeights() async throws {
+        let now = Date()
+        let reset = now.addingTimeInterval(2 * 3600 + 34 * 60)
+        let resetString = ISO8601DateFormatter().string(from: reset)
+        var sections = [0.0, 9, 10, 100].map { remaining in
+            PopoverDisplaySection(
+                id: "remaining-\(Int(remaining))", kind: .usage, importance: .primary,
+                payload: .usage(
+                    .init(
+                        title: "주간 한도", compactLabel: "주간", percentage: 100 - remaining,
+                        resetAt: resetString, isWeekly: true, timeFormatStyle: .remaining, basis: .remaining)))
+        }
+        let credits = try JSONDecoder().decode(
+            CodexCredits.self,
+            from: Data(#"{"has_credits":true,"unlimited":false,"balance":"99999.99"}"#.utf8))
+        sections.append(
+            .init(
+                id: "long-credits", kind: .credits, importance: .primary,
+                payload: .credits(.init(credits: credits))))
+        for count in [1, 100] {
+            sections.append(
+                .init(
+                    id: "reset-\(count)", kind: .resetCredits, importance: .primary,
+                    payload: .resetCredits(
+                        .init(
+                            summary: .init(
+                                items: [
+                                    .init(
+                                        id: "fixture-reset", serverTitle: nil, scope: .all,
+                                        expiresAt: now.addingTimeInterval(17 * 86400 + 3 * 3600))
+                                ],
+                                availableCount: count, atLimit: false), isNew: false))))
+        }
+        for limit in [Double?(2000), nil] {
+            sections.append(
+                .init(
+                    id: limit == nil ? "unlimited-overage" : "finite-overage", kind: .overage, importance: .primary,
+                    payload: .overage(
+                        .init(
+                            overage: .init(
+                                monthlyCreditLimitCents: limit, usedCreditsCents: limit == nil ? 999999999 : 1120,
+                                isEnabled: true, outOfCredits: false, currency: "USD")))))
+        }
+        let laneSpecifications: [(AntigravityQuotaLaneID, AntigravityQuotaScope, AntigravityQuotaCadence, Double)] = [
+            (.geminiFiveHour, .gemini, .fiveHour, 0),
+            (.geminiWeekly, .gemini, .weekly, 9),
+            (.thirdPartyFiveHour, .thirdPartyModels, .fiveHour, 10),
+            (.thirdPartyWeekly, .thirdPartyModels, .weekly, 100),
+        ]
+        let quota = AntigravityQuotaSnapshot(
+            identity: nil, plan: nil,
+            lanes: laneSpecifications.map { id, scope, cadence, remaining in
+                .init(
+                    id: id, upstreamGroupID: nil, upstreamBucketID: id.rawValue, scope: scope, cadence: cadence,
+                    remainingFraction: remaining / 100, resetAt: reset, resetDescription: nil, availability: .available)
+            }, decodeIssues: [],
+            provenance: .init(
+                transport: .cliUsageReport, endpointOwner: .managed, accountIdentity: nil,
+                capability: .groupedQuotaSummary, processIdentity: nil), fetchedAt: now)
+        let agy = AntigravityQuotaPresentationMapper.map(
+            snapshot: quota, settings: .default, basisOverride: .remaining, now: now)
+        for density in [PopoverDensity.standard, .compact] {
+            let contentWidth: CGFloat = density.isCompact ? 276 : 336
+            for section in sections {
+                let row = try renderHosted(
+                    PopoverDisplaySectionView(section: section, density: density).frame(width: contentWidth),
+                    appearance: .darkAqua)
+                let expectedHeight: CGFloat =
+                    density.isCompact ? 18 : section.kind == .usage ? 36 : section.kind == .credits ? 42 : 38
+                XCTAssertEqual(row.size.height, expectedHeight, accuracy: 0.5, section.id)
+            }
+            let gallery = VStack(alignment: .leading, spacing: AppDesign.Space.row) {
+                ForEach(sections) { section in
+                    PopoverDisplaySectionView(section: section, density: density)
+                }
+                Divider()
+                if density.isCompact {
+                    AntigravityCompactQuotaView(presentation: agy.compact)
+                } else {
+                    AntigravityQuotaGroupsView(groups: agy.groups)
+                }
+            }
+            .frame(width: contentWidth)
+            .padding(
+                density.isCompact ? PopoverLayoutMetrics.compactBodyInsets : PopoverLayoutMetrics.standardBodyInsets
+            )
+            .background(Color(nsColor: .windowBackgroundColor))
+            .preferredColorScheme(.dark)
+            let controller = NSHostingController(rootView: gallery)
+            controller.sizingOptions = []
+            let size = controller.sizeThatFits(in: CGSize(width: density.isCompact ? 296 : 368, height: 2000))
+            // Native host/capture success and row heights are automated. The actual
+            // provider assemblies, numeric/caption baselines and track edges are
+            // visually reviewed from these two unmodified original images.
+            attach(
+                try await renderSettingsNativeVerified(gallery, size: size, appearance: .darkAqua),
+                "Popover-row-boundaries-\(density.isCompact ? "compact" : "standard")")
+        }
+    }
+
     private var usage: ClaudeUsageResponse {
         .init(
             fiveHour: .init(utilization: 8, resetsAt: "2026-10-01T12:00:00Z"),
@@ -799,6 +969,53 @@ final class DesignSystemTests: XCTestCase {
                 .preferredColorScheme(scheme)
             attach(try renderHosted(actions, appearance: appearance), "Update-history-actions-\(appearance.rawValue)")
         }
+    }
+
+    func testCodexProSettingsAndPopoverEditorUseTheAccountResponse() async throws {
+        let suite = "DesignSystemTests.codex-pro.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults, hasExistingAccountStorage: false)
+        settings.welcomeState = .completed
+        settings.motion.mode = .instant
+        settings.notificationsEnabled = true
+        settings.setProviderEnabled(true, for: .codex)
+        let usage = try JSONDecoder().decode(
+            CodexUsageResponse.self,
+            from: Data(
+                """
+                {"account_id":"settings-pro-fixture","plan_type":"pro",
+                 "rate_limit":{"primary_window":{"used_percent":12,"limit_window_seconds":604800},
+                               "secondary_window":null},
+                 "spend_control":{},"credits":{"has_credits":true,"unlimited":false,"balance":"125.50"}}
+                """.utf8))
+        let storedFull = settings.popoverItems(for: .codex)
+        let storedCompact = settings.compactPopoverItems(for: .codex)
+        let dependencies = await makeSettingsGalleryDependencies(defaults: defaults, settings: settings)
+        defer { dependencies.antigravity.stopObserving() }
+        for section in [SettingsSection.limits, .popover] {
+            let size = section == .limits ? AppDesign.Window.settingsMinimum : AppDesign.Window.settingsIdeal
+            let calls = dependencies.codex.calls
+            let view = SettingsView(
+                claudeAPIService: dependencies.claude, antigravitySettings: dependencies.antigravity,
+                settings: settings, updateRuntimeState: dependencies.updates,
+                claudeAccountStore: dependencies.accountStore, sessionKeyLoader: { _ in nil },
+                codexAuthStatusReader: dependencies.codex.status,
+                claudeOAuthMigrationCoordinator: dependencies.migration,
+                codexLastUsage: { usage }, codexLastError: { nil },
+                initialPanel: .codex, initialSection: section)
+            let image = try await renderSettingsNativeVerified(
+                view.frame(width: size.width, height: size.height)
+                    .background(Color(nsColor: .windowBackgroundColor)).preferredColorScheme(.light),
+                size: size, appearance: .aqua,
+                ready: { dependencies.updates.engineStatus != nil && dependencies.codex.calls > calls })
+            attach(image, "Settings-codex-pro-\(section.rawValue)")
+            XCTAssertEqual(settings.settingsLastTab, "codex")
+        }
+        XCTAssertEqual(settings.popoverItems(for: .codex), storedFull)
+        XCTAssertEqual(settings.compactPopoverItems(for: .codex), storedCompact)
+        XCTAssertEqual(dependencies.updateEngine.checks, 0)
+        XCTAssertEqual(dependencies.reader.readCountSync, 0)
     }
 
     func testSettingsGalleryUsesAnEmptyMetadataCache() async throws {
@@ -1687,4 +1904,68 @@ private func captureOwnSettingsWindow(_ window: NSWindow, hostView: NSView) asyn
             pixelSize: CGSize(width: captured.width, height: captured.height))
     }
     return NSImage(cgImage: captured, size: captureSize)
+}
+
+private nonisolated struct PopoverRowFramesPreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] { [:] }
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, newest in newest })
+    }
+}
+
+@MainActor
+private func popoverRowFrameProbe(_ role: String) -> some View {
+    GeometryReader { geometry in
+        Color.clear.preference(
+            key: PopoverRowFramesPreferenceKey.self,
+            value: [role: geometry.frame(in: .named("popover-row-geometry"))])
+    }
+}
+
+private nonisolated final class PopoverRowGeometryRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var frames: [String: CGRect] = [:]
+    private var baseline: CGFloat?
+
+    func recordFrames(_ value: [String: CGRect]) {
+        lock.lock()
+        defer { lock.unlock() }
+        frames = value
+    }
+
+    func recordBaseline(_ value: CGFloat) {
+        lock.lock()
+        defer { lock.unlock() }
+        baseline = value
+    }
+
+    func snapshot() -> (frames: [String: CGRect], baseline: CGFloat?) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (frames, baseline)
+    }
+}
+
+// Observe the real child value's public baseline without adding geometry,
+// changing its proposal, or giving production views a diagnostic callback.
+private struct PopoverValueBaselineProbe: Layout {
+    let recorder: PopoverRowGeometryRecorder
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        let dimensions = child.dimensions(in: proposal)
+        recorder.recordBaseline(dimensions[VerticalAlignment.firstTextBaseline])
+        return CGSize(width: dimensions.width, height: dimensions.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: proposal)
+    }
+
+    func explicitAlignment(
+        of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()
+    ) -> CGFloat? {
+        subviews.first?.dimensions(in: proposal)[guide]
+    }
 }

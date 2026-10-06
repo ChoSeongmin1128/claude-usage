@@ -305,36 +305,40 @@ extension CodexUsageResponse {
     /// 세션 성격(24시간 미만) 창.
     /// 2026-07 개편으로 주간 창이 primary 자리에 올 수 있어, 위치가 아니라
     /// limit_window_seconds 로 분류한다. 창 길이 미상이면 레거시 가정(primary=세션)을 따른다.
-    nonisolated var sessionWindow: CodexUsageWindow? {
+    nonisolated var sessionWindow: CodexUsageWindow? { sessionWindowWithSourceSlot?.window }
+
+    nonisolated var sessionWindowWithSourceSlot: (window: CodexUsageWindow, slot: String)? {
         if let primary = rateLimit?.primaryWindow {
             if let seconds = primary.limitWindowSeconds {
-                if seconds < Self.sessionWindowMaxSeconds { return primary }
+                if seconds < Self.sessionWindowMaxSeconds { return (primary, "primary") }
             } else {
-                return primary
+                return (primary, "primary")
             }
         }
         if let secondary = rateLimit?.secondaryWindow,
            let seconds = secondary.limitWindowSeconds,
            seconds < Self.sessionWindowMaxSeconds {
-            return secondary
+            return (secondary, "secondary")
         }
         return nil
     }
 
     /// 주간 성격(24시간 이상) 창.
     /// secondary 우선, 없으면 primary 가 주간 창인지 확인한다. 창 길이 미상 secondary 는 레거시 가정(주간).
-    nonisolated var weeklyWindow: CodexUsageWindow? {
+    nonisolated var weeklyWindow: CodexUsageWindow? { weeklyWindowWithSourceSlot?.window }
+
+    nonisolated var weeklyWindowWithSourceSlot: (window: CodexUsageWindow, slot: String)? {
         if let secondary = rateLimit?.secondaryWindow {
             if let seconds = secondary.limitWindowSeconds {
-                if seconds >= Self.sessionWindowMaxSeconds { return secondary }
+                if seconds >= Self.sessionWindowMaxSeconds { return (secondary, "secondary") }
             } else {
-                return secondary
+                return (secondary, "secondary")
             }
         }
         if let primary = rateLimit?.primaryWindow,
            let seconds = primary.limitWindowSeconds,
            seconds >= Self.sessionWindowMaxSeconds {
-            return primary
+            return (primary, "primary")
         }
         return nil
     }
@@ -377,7 +381,7 @@ extension CodexUsageResponse {
         case "workspace_member_credits_depleted": return "워크스페이스 크레딧 소진 · 소유자에게 추가 요청"
         case "workspace_owner_usage_limit_reached": return "워크스페이스 사용 한도 도달"
         case "workspace_member_usage_limit_reached": return "사용 한도 도달 · 소유자에게 한도 상향 요청"
-        default: return spendControl?.reached == true ? "월 크레딧 한도 도달" : nil
+        default: return supportsMonthlyLimit && spendControl?.reached == true ? "월 사용 한도 도달" : nil
         }
     }
 
@@ -572,10 +576,18 @@ nonisolated struct CodexResetCredit: Codable, Sendable, Equatable {
 }
 
 extension CodexUsageResponse {
+    nonisolated var isPersonalPlan: Bool {
+        let personalPlans: Set<String> = ["guest", "free", "go", "plus", "pro", "prolite", "promax"]
+        return planType.map { personalPlans.contains($0.lowercased()) } ?? false
+    }
+
+    nonisolated var supportsMonthlyLimit: Bool {
+        !isPersonalPlan && spendControl?.individualLimit?.usedPercent != nil
+    }
+
     /// 크레딧 요금표는 자주 바뀌어 앱에 담지 않고 공식 도움말로 연결한다. 워크스페이스 요금제에만 해당한다.
     nonisolated var workspaceRateCardURL: URL? {
-        let personalPlans: Set<String> = ["guest", "free", "go", "plus", "pro", "prolite", "promax"]
-        guard let plan = planType?.lowercased(), !personalPlans.contains(plan) else { return nil }
+        guard planType != nil, !isPersonalPlan else { return nil }
         return URL(
             string:
                 "https://help.openai.com/en/articles/11481834-chatgpt-rate-card-business-enterpriseedu-credit-based-pricing"

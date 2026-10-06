@@ -20,7 +20,7 @@ nonisolated struct LimitSettingsRow: Identifiable, Equatable, Sendable {
 nonisolated enum LimitSettingsTable {
     static func rows(
         service: PopoverService, popoverItems: [PopoverItemConfig], limits: [UsageLimit],
-        displayName: (String) -> String?
+        displayName: (String) -> String?, codexUsage: CodexUsageResponse? = nil
     ) -> [LimitSettingsRow] {
         popoverItems.flatMap { item -> [LimitSettingsRow] in
             let name = displayName(item.id) ?? item.id
@@ -49,6 +49,17 @@ nonisolated enum LimitSettingsTable {
                 return [row()] + children(\.isModelScoped)
             case (.codex, "codexPrimary"), (.codex, "codexSecondary"):
                 let isPrimary = item.id == "codexPrimary"
+                if let codexUsage {
+                    let selection =
+                        isPrimary
+                        ? codexUsage.sessionWindowWithSourceSlot : codexUsage.weeklyWindowWithSourceSlot
+                    guard let selection else { return [] }
+                    let limit = limits.first { $0.scope == "general" && $0.windowSlot == selection.slot }
+                    let title = selection.window.adaptiveTitle(
+                        expectedSeconds: isPrimary ? 18_000 : 604_800,
+                        fallback: isPrimary ? "5시간 한도" : "주간 한도")
+                    return [row(title, slot: isPrimary ? .fiveHour : .weekly, limit: limit, takes: true)]
+                }
                 let limit = limits.first {
                     $0.scope == "general" && $0.windowSlot == (isPrimary ? "primary" : "secondary")
                 }
@@ -81,6 +92,16 @@ nonisolated enum LimitSettingsTable {
 }
 
 extension PercentageDisplay {
+    nonisolated func effectiveCodexSelection(usage: CodexUsageResponse?) -> PercentageDisplay {
+        guard let usage else { return self }
+        switch (usage.hasSessionWindow, usage.weeklyWindow != nil) {
+        case (true, true): return self
+        case (true, false): return contains(.fiveHour) ? .fiveHour : .none
+        case (false, true): return self == .none ? .none : .weekly
+        case (false, false): return .none
+        }
+    }
+
     nonisolated func contains(_ slot: LimitMenuBarSlot) -> Bool {
         switch (self, slot) {
         case (.dual, _), (.fiveHour, .fiveHour), (.weekly, .weekly): return true

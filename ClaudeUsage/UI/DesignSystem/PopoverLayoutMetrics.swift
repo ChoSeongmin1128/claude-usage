@@ -1,4 +1,5 @@
 // Shared popover geometry and scroll policy.
+import AppKit
 import SwiftUI
 
 enum PopoverLayoutMetrics {
@@ -27,7 +28,22 @@ enum PopoverLayoutMetrics {
     static let standardRowMeterWidth: CGFloat = 148
     static let compactRowLabelWidth: CGFloat = 112
     static let compactRowMeterWidth: CGFloat = 150
-    static let compactPercentageLabelWidth: CGFloat = 64
+    static let metricValueWidth: CGFloat = 64
+    static var metricCaptionWidth: CGFloat {
+        let font = NSFont.preferredFont(forTextStyle: .caption2)
+        return ceil(
+            [UsageValueBasis.used.label, UsageValueBasis.remaining.label].map {
+                ($0 as NSString).size(withAttributes: [.font: font]).width
+            }.max() ?? 0)
+    }
+
+    static func metricValueFont(compact: Bool) -> NSFont {
+        if compact {
+            return NSFont.monospacedSystemFont(
+                ofSize: NSFont.preferredFont(forTextStyle: .caption1).pointSize, weight: .medium)
+        }
+        return NSFont.preferredFont(forTextStyle: .headline)
+    }
     static let compactRowSpacing: CGFloat = 6
     static let compactUsageRowHeight: CGFloat = 18
     static let compactCreditsRowHeight: CGFloat = 18

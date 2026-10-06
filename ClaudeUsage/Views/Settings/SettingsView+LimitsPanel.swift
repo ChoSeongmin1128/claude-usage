@@ -101,9 +101,15 @@ extension SettingsView {
         guard let service = provider.runtimeService,
             let catalog = UsageItemCatalogRegistry.catalog(for: service)
         else { return [] }
+        let codexUsage = service == .codex ? codexLastUsage?() : nil
+        let storedItems = settings.popoverItems(for: service)
+        let items =
+            service == .codex
+            ? CodexItemCatalog().settingsItems(from: storedItems, usage: codexUsage) : storedItems
         return LimitSettingsTable.rows(
-            service: service, popoverItems: settings.popoverItems(for: service),
-            limits: notificationManager.inventories[service] ?? [], displayName: catalog.displayName(for:))
+            service: service, popoverItems: items,
+            limits: notificationManager.inventories[service] ?? [], displayName: catalog.displayName(for:),
+            codexUsage: codexUsage)
     }
 
     private func isNotificationSelected(_ limit: UsageLimit) -> Bool {
@@ -143,10 +149,16 @@ extension SettingsView {
         }
         guard let slot = row.menuBarSlot, settings.menuBarDisplayConfig(for: provider) != nil else { return nil }
         return Binding(
-            get: { settings.menuBarDisplayConfig(for: provider)?.percentageDisplay.contains(slot) ?? false },
+            get: {
+                let current = settings.menuBarDisplayConfig(for: provider)?.percentageDisplay ?? .none
+                let usage = provider == .codex ? codexLastUsage?() : nil
+                return current.effectiveCodexSelection(usage: usage).contains(slot)
+            },
             set: { isOn in
                 let current = settings.menuBarDisplayConfig(for: provider)?.percentageDisplay ?? .none
-                settings.setProviderPercentageDisplay(current.setting(slot, to: isOn), for: provider)
+                let usage = provider == .codex ? codexLastUsage?() : nil
+                let selected = current.effectiveCodexSelection(usage: usage)
+                settings.setProviderPercentageDisplay(selected.setting(slot, to: isOn), for: provider)
             })
     }
 

@@ -18,67 +18,41 @@ struct StandardUsageRow: View {
     var basis: UsageValueBasis = .used
 
     var body: some View {
-        HStack(alignment: .center, spacing: AppDesign.Space.label) {
-            VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
-                Text(title)
-                    .font(AppDesign.Typography.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                    .truncationMode(.tail)
-
-                if let detailText {
-                    Text(detailText)
-                        .font(AppDesign.Typography.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
+        PopoverMetricRow(density: .standard, valueSpansMiddle: percentage == nil) {
+            Text(title)
+                .font(AppDesign.Typography.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .truncationMode(.tail)
+        } middle: {
+            if let percentage {
+                ProgressBarView(percentage: percentage, height: 8, color: color, basis: basis)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            trailingValue
-                .frame(width: PopoverLayoutMetrics.standardRowMeterWidth, alignment: .trailing)
+        } value: {
+            if let percentage {
+                UsagePercentageLabel(
+                    percentage: percentage, basis: basis, compact: false,
+                    percentageText: percentageText, color: color)
+            } else {
+                Text(unavailableText ?? "사용량 알 수 없음")
+                    .font(AppDesign.Typography.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        } detail: {
+            if let detailText {
+                Text(detailText)
+                    .font(AppDesign.Typography.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
         }
-        .frame(
-            minHeight:
-                PopoverLayoutMetrics
-                    .standardUsageRowHeight,
-            maxHeight:
-                PopoverLayoutMetrics
-                    .standardUsageRowHeight
-        )
         .help(tooltip ?? defaultTooltip)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel ?? title)
         .accessibilityValue(accessibilityValue ?? defaultAccessibilityValue)
-    }
-
-    @ViewBuilder
-    private var trailingValue: some View {
-        if let percentage {
-            HStack(spacing: AppDesign.Space.row) {
-                ProgressBarView(
-                    percentage: percentage,
-                    height: 8,
-                    color: color,
-                    basis: basis
-                )
-                .frame(maxWidth: .infinity)
-
-                UsagePercentageLabel(
-                    percentage: percentage, basis: basis, compact: false,
-                    percentageText: percentageText, color: color
-                )
-                .fixedSize(horizontal: true, vertical: false)
-            }
-        } else {
-            Text(unavailableText ?? "사용량 알 수 없음")
-                .font(AppDesign.Typography.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-        }
     }
 
     private var defaultTooltip: String {

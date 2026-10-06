@@ -125,7 +125,8 @@ final class AntigravityCLIReportProcessRunnerTests: XCTestCase {
         let executable = try script(
             """
             /bin/sleep 30 &
-            echo $! > "$CHILD_FILE"
+            echo $! > "$CHILD_FILE.pending"
+            /bin/mv "$CHILD_FILE.pending" "$CHILD_FILE"
             /bin/sleep 30
             """)
         let runner = runner()
@@ -136,7 +137,8 @@ final class AntigravityCLIReportProcessRunnerTests: XCTestCase {
         )
         let task = Task { try await runner.run(request) }
 
-        XCTAssertTrue(waitUntilExists(childFile))
+        defer { task.cancel() }
+        let childID = try processID(in: childFile)
         task.cancel()
         do {
             _ = try await task.value
@@ -145,7 +147,7 @@ final class AntigravityCLIReportProcessRunnerTests: XCTestCase {
             XCTAssertTrue(error is CancellationError, "\(error)")
         }
 
-        XCTAssertTrue(waitUntilGone(try processID(in: childFile)))
+        XCTAssertTrue(waitUntilGone(childID))
     }
 
     func testOutputLimitStopsTheProcess() async throws {

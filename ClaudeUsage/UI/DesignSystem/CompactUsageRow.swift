@@ -15,64 +15,23 @@ struct CompactUsageRow: View {
     var basis: UsageValueBasis = .used
 
     var body: some View {
-        HStack(
-            alignment: .center,
-            spacing:
-                PopoverLayoutMetrics
-                    .compactRowSpacing
-        ) {
+        PopoverMetricRow(density: .compact) {
             compactLabelLine
-                .frame(
-                    width:
-                        PopoverLayoutMetrics
-                            .compactRowLabelWidth,
-                    alignment: .leading
-                )
-
-            HStack(spacing: AppDesign.Space.compact) {
-                ProgressBarView(
-                    percentage: percentage,
-                    height:
-                        PopoverLayoutMetrics
-                            .compactProgressBarHeight,
-                    color: color,
-                    basis: basis
-                )
-                .frame(maxWidth: .infinity)
-
-                UsagePercentageLabel(
-                    percentage: percentage, basis: basis, compact: true,
-                    percentageText: percentageText, color: color
-                )
-                .frame(width: PopoverLayoutMetrics.compactPercentageLabelWidth, alignment: .trailing)
-            }
-            .frame(
-                width:
-                    PopoverLayoutMetrics
-                        .compactRowMeterWidth,
-                alignment: .trailing
-            )
+        } middle: {
+            ProgressBarView(
+                percentage: percentage, height: PopoverLayoutMetrics.compactProgressBarHeight,
+                color: color, basis: basis)
+        } value: {
+            UsagePercentageLabel(
+                percentage: percentage, basis: basis, compact: true,
+                percentageText: percentageText, color: color)
+        } detail: {
+            EmptyView()
         }
-        .frame(
-            maxWidth: .infinity,
-            minHeight:
-                PopoverLayoutMetrics.compactUsageRowHeight,
-            maxHeight:
-                PopoverLayoutMetrics.compactUsageRowHeight,
-            alignment: .center
-        )
-        .help(
-            tooltip
-                ?? [label, defaultAccessibilityValue].joined(separator: ", ")
-        )
+        .help(tooltip ?? [label, defaultAccessibilityValue].joined(separator: ", "))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(
-            accessibilityLabel ?? label
-        )
-        .accessibilityValue(
-            accessibilityValue
-                ?? defaultAccessibilityValue
-        )
+        .accessibilityLabel(accessibilityLabel ?? label)
+        .accessibilityValue(accessibilityValue ?? defaultAccessibilityValue)
     }
 
     private var defaultAccessibilityValue: String {
@@ -88,7 +47,7 @@ struct CompactUsageRow: View {
     @ViewBuilder
     private var compactLabelLine: some View {
         if showsResetDetail, let compactResetText {
-            HStack(spacing: AppDesign.Space.tight) {
+            HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.tight) {
                 Text(label)
                     .font(AppDesign.Typography.caption.weight(.semibold))
                     .foregroundStyle(.primary)

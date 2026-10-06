@@ -233,6 +233,7 @@ struct PopoverDisplayItemsListView: View {
     let isCompact: Bool
     /// 프로바이더 응답은 정상인데 현재 표시할 데이터가 없는 항목 (설정 목록에 안내 표시)
     var unavailableItemIDs: Set<String> = []
+    var codexUsage: CodexUsageResponse? = nil
     private var items: [PopoverItemConfig] {
         isCompact
             ? settings.compactPopoverItems(for: service)
@@ -247,7 +248,8 @@ struct PopoverDisplayItemsListView: View {
                     isCompact ? .compact : .standard,
                 settings: settings,
                 unavailableItemIDs:
-                    unavailableItemIDs
+                    unavailableItemIDs,
+                codexUsage: codexUsage
             )
         {
             DisplayItemList(
@@ -271,47 +273,28 @@ struct PopoverDisplayItemsListView: View {
         }
     }
 
-    private func moveItem(id: String, offset: Int) {
-        var updated = items
-        guard let fromIndex = updated.firstIndex(where: { $0.id == id }) else { return }
-        let targetIndex = fromIndex + offset
-        guard updated.indices.contains(targetIndex) else { return }
-        withAnimation(settings.motion.animation(for: .itemChanges, reduceMotion: reduceMotion)) {
-            updated.swapAt(fromIndex, targetIndex)
-            applyItems(updated, isCompact: isCompact)
-        }
+    private var projectedIDs: [String] {
+        let projected =
+            service == .codex
+            ? CodexItemCatalog().settingsItems(from: items, usage: codexUsage) : items
+        return projected.map(\.id)
     }
 
-    private func moveItem(
-        sourceID: String,
-        targetID: String
-    ) {
-        var updated = items
-        guard let sourceIndex = updated.firstIndex(
-            where: { $0.id == sourceID }
-        ),
-        let targetIndex = updated.firstIndex(
-            where: { $0.id == targetID }
-        ),
-        sourceIndex != targetIndex
-        else {
-            return
-        }
-        withAnimation(
-            settings.motion.animation(for: .itemChanges, reduceMotion: reduceMotion)
-        ) {
-            let item = updated.remove(
-                at: sourceIndex
-            )
-            let destination = min(
-                targetIndex,
-                updated.count
-            )
-            updated.insert(item, at: destination)
-            applyItems(
-                updated,
-                isCompact: isCompact
-            )
+    private func moveItem(id: String, offset: Int) {
+        let updated = CatalogDisplayAdapter.moveItems(items, sourceID: id, offset: offset, projectedIDs: projectedIDs)
+        applyReorderedItems(updated)
+    }
+
+    private func moveItem(sourceID: String, targetID: String) {
+        let updated = CatalogDisplayAdapter.moveItems(
+            items, sourceID: sourceID, targetID: targetID, projectedIDs: projectedIDs)
+        applyReorderedItems(updated)
+    }
+
+    private func applyReorderedItems(_ updated: [PopoverItemConfig]) {
+        guard updated != items else { return }
+        withAnimation(settings.motion.animation(for: .itemChanges, reduceMotion: reduceMotion)) {
+            applyItems(updated, isCompact: isCompact)
         }
     }
 
@@ -388,15 +371,6 @@ private extension APIError {
     }
 }
 
-private struct PopoverFixedRowHeight: ViewModifier {
-    let height: CGFloat
-
-    func body(content: Content) -> some View {
-        content
-            .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .center)
-    }
-}
-
 private extension CodexCredits {
     var popoverBalanceText: String {
         let unit = " 크레딧"
@@ -410,30 +384,29 @@ struct CodexCreditsView: View {
     var rateCardURL: URL?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
-            HStack {
-                Text("크레딧")
-                    .font(AppDesign.Typography.subheadline.weight(.semibold))
-                Spacer(minLength: AppDesign.Space.row)
-                Text(credits.popoverBalanceText)
-                    .font(AppDesign.Typography.headline.weight(.semibold))
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .accessibilityLabel(credits.formattedBalance)
-            }
-            HStack {
+        PopoverMetricRow(
+            density: .standard, rowHeight: PopoverLayoutMetrics.standardCreditsRowHeight, valueSpansMiddle: true
+        ) {
+            Text("크레딧 잔액")
+                .font(AppDesign.Typography.subheadline.weight(.semibold))
+                .lineLimit(1)
+        } middle: {
+            EmptyView()
+        } value: {
+            PopoverMetricValue(text: credits.popoverBalanceText, compact: false)
+                .accessibilityLabel(credits.formattedBalance)
+        } detail: {
+            HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.row) {
                 Text(credits.unlimited ? "무제한 플랜" : "사용 가능")
-                    .font(AppDesign.Typography.caption)
                     .foregroundStyle(.secondary)
-                Spacer(minLength: AppDesign.Space.row)
                 if let rateCardURL {
                     Link("요금표", destination: rateCardURL)
-                        .font(AppDesign.Typography.caption)
                         .help("작업별 크레딧 사용량(OpenAI 도움말)")
                 }
             }
+            .font(AppDesign.Typography.caption)
+            .lineLimit(1)
         }
-        .modifier(PopoverFixedRowHeight(height: PopoverLayoutMetrics.standardCreditsRowHeight))
         .help(credits.formattedBalance)
     }
 }
@@ -442,23 +415,23 @@ struct CompactCodexCreditsRow: View {
     let credits: CodexCredits
 
     var body: some View {
-        HStack(spacing: PopoverLayoutMetrics.compactRowSpacing) {
-            Text("크레딧")
+        PopoverMetricRow(
+            density: .compact, rowHeight: PopoverLayoutMetrics.compactCreditsRowHeight, valueSpansMiddle: true
+        ) {
+            Text("크레딧 잔액")
                 .font(AppDesign.Typography.caption.weight(.semibold))
                 .foregroundStyle(.primary)
-                .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
-
-            Text(credits.popoverBalanceText)
-                .font(AppDesign.Typography.compactValue)
-                .foregroundStyle(.primary)
-                .monospacedDigit()
                 .lineLimit(1)
-                .frame(width: PopoverLayoutMetrics.compactRowMeterWidth, alignment: .trailing)
+        } middle: {
+            EmptyView()
+        } value: {
+            PopoverMetricValue(text: credits.popoverBalanceText, compact: true)
+        } detail: {
+            EmptyView()
         }
-        .modifier(PopoverFixedRowHeight(height: PopoverLayoutMetrics.compactCreditsRowHeight))
         .help(credits.formattedBalance)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("크레딧")
+        .accessibilityLabel("크레딧 잔액")
         .accessibilityValue(credits.formattedBalance)
     }
 }
@@ -469,29 +442,22 @@ struct ResetCreditsView: View {
     var body: some View {
         let summary = data.summary
         let expiring = summary.isExpiringSoon()
-        HStack(spacing: AppDesign.Space.label) {
-            VStack(alignment: .leading, spacing: AppDesign.Space.tight) {
-                Text("초기화권")
-                    .font(AppDesign.Typography.subheadline.weight(.semibold))
+        PopoverMetricRow(density: .standard, rowHeight: PopoverLayoutMetrics.standardSecondaryUsageRowHeight) {
+            Text("초기화권")
+                .font(AppDesign.Typography.subheadline.weight(.semibold))
+                .lineLimit(1)
+        } middle: {
+            ResetCreditScopeText(data: data)
+        } value: {
+            ResetCreditCountText(summary: summary, expiring: expiring, compact: false, isNew: data.isNew)
+        } detail: {
+            if summary.availableCount > 0 {
+                Text(summary.expiryText() ?? "만료 미확인")
+                    .font(AppDesign.Typography.caption)
+                    .foregroundStyle(expiring ? Color.red : .secondary)
                     .lineLimit(1)
-                if summary.availableCount > 0 {
-                    Text(summary.expiryText() ?? "만료 미확인")
-                        .font(AppDesign.Typography.caption)
-                        .foregroundStyle(expiring ? Color.red : .secondary)
-                        .lineLimit(1)
-                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            HStack(spacing: AppDesign.Space.row) {
-                ResetCreditScopeText(data: data)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                ResetCreditCountText(summary: summary, expiring: expiring, compact: false, isNew: data.isNew)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-            .frame(width: PopoverLayoutMetrics.standardRowMeterWidth, alignment: .trailing)
         }
-        .modifier(PopoverFixedRowHeight(height: PopoverLayoutMetrics.standardSecondaryUsageRowHeight))
         .help(ResetCreditDisplayDescription.tooltip(data))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("초기화권")
@@ -505,8 +471,8 @@ struct CompactResetCreditsRow: View {
     var body: some View {
         let summary = data.summary
         let expiring = summary.isExpiringSoon()
-        HStack(spacing: PopoverLayoutMetrics.compactRowSpacing) {
-            HStack(spacing: AppDesign.Space.tight) {
+        PopoverMetricRow(density: .compact, rowHeight: PopoverLayoutMetrics.compactCreditsRowHeight) {
+            HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.tight) {
                 Text("초기화권")
                     .font(AppDesign.Typography.caption.weight(.semibold))
                     .foregroundStyle(.primary)
@@ -514,26 +480,20 @@ struct CompactResetCreditsRow: View {
                     .minimumScaleFactor(0.85)
                     .truncationMode(.tail)
                 if summary.availableCount > 0 {
-                    let expiry =
-                        summary.expiryText()?.replacingOccurrences(of: " 뒤 만료", with: "")
-                        ?? "만료 미확인"
+                    let expiry = summary.expiryText()?.replacingOccurrences(of: " 뒤 만료", with: "") ?? "만료 미확인"
                     Text("· " + expiry)
                         .font(AppDesign.Typography.metadata)
                         .foregroundStyle(expiring ? Color.red : .secondary)
                         .fixedSize(horizontal: true, vertical: false)
                 }
             }
-            .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
-
-            HStack(spacing: AppDesign.Space.compact) {
-                ResetCreditScopeText(data: data)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                ResetCreditCountText(summary: summary, expiring: expiring, compact: true, isNew: data.isNew)
-                    .frame(width: PopoverLayoutMetrics.compactPercentageLabelWidth, alignment: .trailing)
-            }
-            .frame(width: PopoverLayoutMetrics.compactRowMeterWidth, alignment: .trailing)
+        } middle: {
+            ResetCreditScopeText(data: data)
+        } value: {
+            ResetCreditCountText(summary: summary, expiring: expiring, compact: true, isNew: data.isNew)
+        } detail: {
+            EmptyView()
         }
-        .modifier(PopoverFixedRowHeight(height: PopoverLayoutMetrics.compactCreditsRowHeight))
         .help(ResetCreditDisplayDescription.tooltip(data))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("초기화권")
@@ -585,17 +545,10 @@ private struct ResetCreditCountText: View {
     let isNew: Bool
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.micro) {
-            Text("\(summary.availableCount)개")
-                .font(compact ? AppDesign.Typography.compactValue : AppDesign.Typography.headline)
-                .foregroundStyle(expiring ? Color.red : isNew && summary.availableCount > 0 ? .blue : .primary)
-            Text("남음")
-                .font(AppDesign.Typography.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .monospacedDigit()
-        .lineLimit(1)
-        .minimumScaleFactor(0.85)
+        PopoverMetricValue(
+            text: "\(summary.availableCount)개", caption: "남음", compact: compact,
+            color: expiring ? .red : isNew && summary.availableCount > 0 ? .blue : .primary
+        )
         .accessibilityLabel("초기화권 \(summary.availableCount)개 남음")
     }
 }
@@ -606,26 +559,26 @@ struct OverageUsageView: View {
     var isStale = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppDesign.Space.compact) {
-            HStack(spacing: AppDesign.Space.row) {
-                Text(isStale ? "추가 사용량 · 이전 값" : "추가 사용량")
-                    .font(AppDesign.Typography.subheadline.weight(.semibold))
-                Spacer(minLength: 0)
-                Text(overage.headlineText)
-                    .font(AppDesign.Typography.headline)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.purple)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
+        PopoverMetricRow(
+            density: .standard, rowHeight: PopoverLayoutMetrics.standardSecondaryUsageRowHeight,
+            valueSpansMiddle: overage.usagePercentage == nil
+        ) {
+            Text(isStale ? "추가 사용량 · 이전 값" : "추가 사용량")
+                .font(AppDesign.Typography.subheadline.weight(.semibold))
+                .lineLimit(1)
+        } middle: {
+            if let percentage = overage.usagePercentage {
+                ProgressBarView(percentage: percentage, height: 8, color: .purple)
             }
-
+        } value: {
+            PopoverMetricValue(text: overage.headlineText, compact: false, color: .purple)
+        } detail: {
             Text(overage.formattedUsageLimitSummary)
                 .font(AppDesign.Typography.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
-        .padding(.vertical, AppDesign.Space.tight)
         .help(OverageDisplayDescription.text(overage: overage, updatedAt: updatedAt, isStale: isStale))
     }
 }
@@ -636,39 +589,26 @@ struct CompactOverageRow: View {
     var isStale = false
 
     var body: some View {
-        HStack(alignment: .center, spacing: PopoverLayoutMetrics.compactRowSpacing) {
+        PopoverMetricRow(
+            density: .compact, rowHeight: PopoverLayoutMetrics.compactOverageRowHeight,
+            valueSpansMiddle: overage.usagePercentage == nil
+        ) {
             Text(isStale ? "추가 사용량 · 이전 값" : "추가 사용량")
                 .font(AppDesign.Typography.caption.weight(.semibold))
                 .foregroundStyle(.primary)
                 .lineLimit(1)
-                .minimumScaleFactor(0.72)
+                .minimumScaleFactor(0.85)
                 .truncationMode(.tail)
-                .frame(width: PopoverLayoutMetrics.compactRowLabelWidth, alignment: .leading)
-
-            HStack(spacing: AppDesign.Space.compact) {
+        } middle: {
+            if let percentage = overage.usagePercentage {
                 ProgressBarView(
-                    percentage: overage.usagePercentage ?? 0,
-                    height: PopoverLayoutMetrics.compactProgressBarHeight,
-                    color: .purple
-                )
-                .frame(maxWidth: .infinity)
-
-                Text(overage.headlineText)
-                    .font(AppDesign.Typography.compactValue)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.purple)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .frame(width: PopoverLayoutMetrics.compactPercentageLabelWidth, alignment: .trailing)
+                    percentage: percentage, height: PopoverLayoutMetrics.compactProgressBarHeight, color: .purple)
             }
-            .frame(width: PopoverLayoutMetrics.compactRowMeterWidth, alignment: .trailing)
+        } value: {
+            PopoverMetricValue(text: overage.headlineText, compact: true, color: .purple)
+        } detail: {
+            EmptyView()
         }
-        .frame(
-            maxWidth: .infinity,
-            minHeight: PopoverLayoutMetrics.compactUsageRowHeight,
-            maxHeight: PopoverLayoutMetrics.compactUsageRowHeight,
-            alignment: .center
-        )
         .help(OverageDisplayDescription.text(overage: overage, updatedAt: updatedAt, isStale: isStale))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("추가 사용량")

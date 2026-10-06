@@ -9,18 +9,11 @@ struct UsagePercentageLabel: View {
     var color: Color?
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: AppDesign.Space.micro) {
-            Text(percentageText ?? basis.text(fromUsed: percentage))
-                .font(compact ? AppDesign.Typography.compactValue : AppDesign.Typography.headline)
-                .foregroundStyle(color ?? ColorProvider.statusColor(for: percentage))
-            if basis.percentage(fromUsed: percentage) != nil {
-                Text(basis.label)
-                    .font(AppDesign.Typography.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .lineLimit(1)
-        .minimumScaleFactor(0.85)
+        PopoverMetricValue(
+            text: percentageText ?? basis.text(fromUsed: percentage),
+            caption: basis.percentage(fromUsed: percentage) == nil ? nil : basis.label,
+            compact: compact, color: color ?? ColorProvider.statusColor(for: percentage)
+        )
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(basis.spokenValue(fromUsed: percentage))
     }

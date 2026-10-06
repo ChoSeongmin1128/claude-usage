@@ -271,11 +271,29 @@ struct CodexItemCatalog: UsageItemCatalog {
         switch itemID {
         case "codexPrimary": return "5시간 한도"
         case "codexSecondary": return "주간 한도"
-        case "codexSpendLimit": return "월 크레딧 한도"
+        case "codexSpendLimit": return "월 사용 한도"
         case "codexModelLimits": return "모델별 한도"
         case "codexResetCredits": return "초기화권"
-        case "codexCredits": return "크레딧"
+        case "codexCredits": return "크레딧 잔액"
         default: return nil
+        }
+    }
+
+    /// Project the current account's supported settings without rewriting saved preferences.
+    func settingsItems(from items: [PopoverItemConfig], usage: CodexUsageResponse?) -> [PopoverItemConfig] {
+        guard let usage else { return items.filter { $0.id != "codexSpendLimit" } }
+        return items.filter { item in
+            switch item.id {
+            case "codexPrimary": return usage.sessionWindow != nil
+            case "codexSecondary": return usage.weeklyWindow != nil
+            case "codexModelLimits":
+                return UsageLimitCatalog.codex(usage).contains { $0.isModelScoped && $0.usedPercentage != nil }
+            case "codexSpendLimit":
+                return usage.supportsMonthlyLimit
+            case "codexCredits": return usage.credits != nil
+            case "codexResetCredits": return usage.resetCredits != nil
+            default: return false
+            }
         }
     }
 
@@ -370,17 +388,18 @@ struct CodexItemCatalog: UsageItemCatalog {
             }
 
         case "codexSpendLimit":
-            guard let usage = context.codexUsage, let limit = usage.spendControl?.individualLimit,
+            guard let usage = context.codexUsage, usage.supportsMonthlyLimit,
+                let limit = usage.spendControl?.individualLimit,
                 let percentage = limit.usedPercent
             else { return nil }
-            let reached = usage.spendControl?.reached == true || usage.workspaceLimitNotice != nil
+            let reached = usage.spendControl?.reached == true
             return PopoverDisplaySection(
                 id: "codexSpendLimit",
                 kind: .usage,
                 importance: .primary,
                 payload: .usage(
                     PopoverUsageSectionData(
-                        title: reached ? "월 크레딧 한도 · 도달" : "월 크레딧 한도",
+                        title: reached ? "월 사용 한도 · 도달" : "월 사용 한도",
                         compactLabel: "월 한도",
                         percentage: percentage,
                         resetAt: limit.resetAtISO,
@@ -417,7 +436,7 @@ struct CodexItemCatalog: UsageItemCatalog {
                     id: "codexCredits-status",
                     kind: .status,
                     importance: .primary,
-                    payload: .status(PopoverStatusSectionData(title: "크레딧", error: context.codexError))
+                    payload: .status(PopoverStatusSectionData(title: "크레딧 잔액", error: context.codexError))
                 )
             }
 

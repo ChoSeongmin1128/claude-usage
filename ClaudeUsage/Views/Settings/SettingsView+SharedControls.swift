@@ -479,7 +479,8 @@ private struct ProviderPopoverDisplaySection: View {
                 settings: settings,
                 service: service,
                 isCompact: selectedMode.isCompact,
-                unavailableItemIDs: unavailableItemIDs
+                unavailableItemIDs: unavailableItemIDs,
+                codexUsage: codexUsage
             )
             .frame(maxWidth: 420, alignment: .leading)
 
