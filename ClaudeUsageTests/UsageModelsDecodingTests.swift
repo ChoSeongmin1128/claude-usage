@@ -208,6 +208,34 @@ final class UsageModelsDecodingTests: XCTestCase {
 
     // MARK: - Codex rate limit reset credits
 
+    func testCodexUsageDecodesResetSummaryCountWithoutDetails() throws {
+        for count in [0, 2] {
+            let json = """
+                { "rate_limit": { "primary_window": { "used_percent": 27 } },
+                  "rate_limit_reset_credits": { "available_count": \(count), "credits": null } }
+                """
+            let usage = try JSONDecoder().decode(CodexUsageResponse.self, from: Data(json.utf8))
+            XCTAssertEqual(usage.resetCredits?.availableCount(), count)
+            XCTAssertEqual(usage.primaryPercentage, 27)
+            XCTAssertEqual(ResetCreditSummary.codex(usage)?.availableCount, count == 0 ? nil : count)
+        }
+    }
+
+    func testCodexInvalidResetSummaryRemainsUnknownWithoutDiscardingUsage() throws {
+        for summary in [
+            "null", "{}", #"{"available_count":null}"#, #"{"available_count":"2"}"#,
+            #"{"available_count":-1}"#, #"{"available_count":true}"#, "[]",
+        ] {
+            let json = """
+                { "rate_limit": { "primary_window": { "used_percent": 27 } },
+                  "rate_limit_reset_credits": \(summary) }
+                """
+            let usage = try JSONDecoder().decode(CodexUsageResponse.self, from: Data(json.utf8))
+            XCTAssertNil(usage.resetCredits, summary)
+            XCTAssertEqual(usage.primaryPercentage, 27, summary)
+        }
+    }
+
     func testCodexResetCreditsDecodingAndAvailability() throws {
         let now = Date(timeIntervalSince1970: 1_753_000_000)
         let json = """

@@ -156,6 +156,149 @@ final class CodexTokenRefreshRecoveryTests: XCTestCase {
         XCTAssertEqual(recorder.count { $0.url.scheme == "owner" }, 1, "reset credits are reused for five minutes")
     }
 
+    func testUsageResetCountSurvivesMissingOwnerSummary() async throws {
+        let (_, manager) = try fixture()
+        let owner = TestCodexOwner(resetCreditAction: { _, _, _ in nil }) { _, _, _ in }
+        let service = service(manager, owner: owner) { request in
+            httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+        }
+        let result = try await service.fetchUsage()
+        XCTAssertEqual(result.usage.resetCredits?.availableCount(), 2)
+        XCTAssertEqual(ResetCreditSummary.codex(result.usage)?.availableCount, 2)
+    }
+
+    func testUsageResetCountSurvivesUnavailableOwner() async throws {
+        let (_, manager) = try fixture()
+        let owner = TestCodexOwner(resetCreditAction: { _, _, _ in throw CodexOwnerError.unavailable }) { _, _, _ in }
+        let service = service(manager, owner: owner) { request in
+            httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+        }
+        let result = try await service.fetchUsage()
+        XCTAssertEqual(result.usage.resetCredits?.availableCount(), 2)
+        XCTAssertEqual(result.usage.primaryPercentage, 27)
+    }
+
+    func testCurrentUsageReplacesCachedResetCountAndDiscardsOldDetails() async throws {
+        let (_, manager) = try fixture()
+        let requests = OSAllocatedUnfairLock(initialState: 0)
+        let recorder = CodexRequestRecorder()
+        let old = CodexResetCredit(
+            id: "old-credit", status: "available",
+            expiresAtISO: ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: 86_400)))
+        let owner = TestCodexOwner(
+            resetCreditReads: recorder,
+            resetCreditAction: { _, _, _ in CodexResetCreditsResponse(credits: [old], availableCountField: 1) }
+        ) { _, _, _ in }
+        let service = service(manager, owner: owner) { request in
+            let index = requests.withLock {
+                $0 += 1; return $0
+            }
+            return httpResponse(
+                for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: index == 2 ? 2 : nil))
+        }
+        let first = try await service.fetchUsage()
+        XCTAssertEqual(first.usage.resetCredits?.availableCount(), 1)
+        XCTAssertEqual(first.usage.resetCredits?.credits, [old])
+        let second = try await service.fetchUsage()
+        XCTAssertEqual(second.usage.resetCredits?.availableCount(), 2)
+        XCTAssertEqual(second.usage.resetCredits?.credits, [])
+        XCTAssertNil(ResetCreditSummary.codex(second.usage)?.nextExpiry)
+        let third = try await service.fetchUsage()
+        XCTAssertEqual(third.usage.resetCredits?.availableCount(), 2)
+        XCTAssertEqual(third.usage.resetCredits?.credits, [])
+        XCTAssertEqual(requests.withLock { $0 }, 3)
+        XCTAssertEqual(recorder.count { $0.url.scheme == "owner" }, 1)
+    }
+
+    func testZeroUsageResetCountClearsCachedCredits() async throws {
+        let (_, manager) = try fixture()
+        let requests = OSAllocatedUnfairLock(initialState: 0)
+        let recorder = CodexRequestRecorder()
+        let owner = TestCodexOwner(
+            resetCreditReads: recorder,
+            resetCreditAction: { _, _, _ in CodexResetCreditsResponse(credits: [], availableCountField: 2) }
+        ) { _, _, _ in }
+        let service = service(manager, owner: owner) { request in
+            let index = requests.withLock {
+                $0 += 1; return $0
+            }
+            return httpResponse(
+                for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: index == 2 ? 0 : nil))
+        }
+        let first = try await service.fetchUsage()
+        XCTAssertEqual(first.usage.resetCredits?.availableCount(), 2)
+        let second = try await service.fetchUsage()
+        XCTAssertEqual(second.usage.resetCredits?.availableCount(), 0)
+        XCTAssertNil(ResetCreditSummary.codex(second.usage))
+        let third = try await service.fetchUsage()
+        XCTAssertEqual(third.usage.resetCredits?.availableCount(), 0)
+        XCTAssertEqual(requests.withLock { $0 }, 3)
+        XCTAssertEqual(recorder.count { $0.url.scheme == "owner" }, 1)
+    }
+
+    func testMatchingUsageResetCountPreservesCachedExpiryDetails() async throws {
+        let (_, manager) = try fixture()
+        let recorder = CodexRequestRecorder()
+        let credit = CodexResetCredit(
+            id: "credit-a", status: "available",
+            expiresAtISO: ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: 86_400)))
+        let owner = TestCodexOwner(
+            resetCreditReads: recorder,
+            resetCreditAction: { _, _, _ in CodexResetCreditsResponse(credits: [credit], availableCountField: 2) }
+        ) { _, _, _ in }
+        let service = service(manager, owner: owner) { request in
+            recorder.record(request)
+            return httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+        }
+        _ = try await service.fetchUsage()
+        let second = try await service.fetchUsage()
+        XCTAssertEqual(second.usage.resetCredits?.availableCount(), 2)
+        XCTAssertEqual(second.usage.resetCredits?.credits, [credit])
+        XCTAssertNotNil(ResetCreditSummary.codex(second.usage)?.nextExpiry)
+        XCTAssertEqual(recorder.count { $0.url.path.hasSuffix("wham/usage") }, 2)
+        XCTAssertEqual(recorder.count { $0.url.scheme == "owner" }, 1)
+    }
+
+    func testFreshOwnerResetCountTakesPrecedenceOverUsageSummary() async throws {
+        for count in [0, 1] {
+            let (_, manager) = try fixture()
+            let owner = TestCodexOwner(
+                resetCreditAction: { _, _, _ in CodexResetCreditsResponse(credits: [], availableCountField: count) }
+            ) { _, _, _ in }
+            let service = service(manager, owner: owner) { request in
+                httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+            }
+            let result = try await service.fetchUsage()
+            XCTAssertEqual(result.usage.resetCredits?.availableCount(), count)
+        }
+    }
+
+    func testOwnerResetCreditCancellationIsNotReplacedWithUsageCount() async throws {
+        let (_, manager) = try fixture()
+        let owner = TestCodexOwner(resetCreditAction: { _, _, _ in throw CancellationError() }) { _, _, _ in }
+        let service = service(manager, owner: owner) { request in
+            httpResponse(for: request, statusCode: 200, body: usageJSON(primary: 27, resetCount: 2))
+        }
+        do { _ = try await service.fetchUsage(); XCTFail("cancellation must stop enrichment") } catch {
+            XCTAssertTrue(error is CancellationError)
+        }
+    }
+
+    func testResetCountFromAnotherHTTPAccountIsRejectedBeforeEnrichment() async throws {
+        let (_, manager) = try fixture()
+        let recorder = CodexRequestRecorder()
+        let owner = TestCodexOwner(resetCreditReads: recorder) { _, _, _ in }
+        let service = service(manager, owner: owner) { request in
+            httpResponse(
+                for: request, statusCode: 200,
+                body: usageJSON(primary: 27, resetCount: 2, accountID: "account-b"))
+        }
+        do { _ = try await service.fetchUsage(); XCTFail("another account's reset count must be rejected") } catch {
+            XCTAssertEqual(error as? CodexCredentialError, .changed)
+        }
+        XCTAssertEqual(recorder.count { $0.url.scheme == "owner" }, 0)
+    }
+
     func testTimeoutAndCancellationDoNotBecomeLoginFailure() async throws {
         let (_, manager) = try fixture()
         let started = expectation(description: "request started")
@@ -302,12 +445,19 @@ final class CodexTokenRefreshRecoveryTests: XCTestCase {
 private struct TestCodexOwner: CodexOwnerRefreshing {
     let action: @Sendable (URL, String, CodexRequestBudget) async throws -> Void
     var resetCreditReads: CodexRequestRecorder?
+    let resetCreditAction: @Sendable (URL, String, CodexRequestBudget) async throws -> CodexResetCreditsResponse?
     init(
         resetCreditReads: CodexRequestRecorder? = nil,
+        resetCreditAction:
+            @escaping @Sendable (URL, String, CodexRequestBudget) async throws -> CodexResetCreditsResponse? = {
+                _, _, _ in
+                CodexResetCreditsResponse(credits: [], availableCountField: 1)
+            },
         _ action: @escaping @Sendable (URL, String, CodexRequestBudget) async throws -> Void
     ) {
         self.action = action
         self.resetCreditReads = resetCreditReads
+        self.resetCreditAction = resetCreditAction
     }
     func refresh(sourceURL: URL, expectedAccountID: String, budget: CodexRequestBudget) async throws {
         try await action(sourceURL, expectedAccountID, budget)
@@ -316,7 +466,7 @@ private struct TestCodexOwner: CodexOwnerRefreshing {
         -> CodexResetCreditsResponse?
     {
         resetCreditReads?.record(URLRequest(url: URL(string: "owner://account/rateLimits/read")!))
-        return CodexResetCreditsResponse(credits: [], availableCountField: 1)
+        return try await resetCreditAction(sourceURL, expectedAccountID, budget)
     }
 }
 
@@ -411,15 +561,17 @@ private func httpResponse(
     return (response, Data(body.utf8))
 }
 
-private func usageJSON(primary: Double) -> String {
-    """
+private func usageJSON(primary: Double, resetCount: Int? = nil, accountID: String? = nil) -> String {
+    let reset = resetCount.map { ", \"rate_limit_reset_credits\": {\"available_count\": \($0)}" } ?? ""
+    let account = accountID.map { ", \"account_id\": \"\($0)\"" } ?? ""
+    return """
     {
       "rate_limit": {
         "primary_window": {
           "used_percent": \(primary),
           "reset_at": 1700000000
         }
-      }
+      }\(reset)\(account)
     }
     """
 }

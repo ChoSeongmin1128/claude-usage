@@ -20,7 +20,7 @@ nonisolated struct CodexUsageResponse: Codable, Sendable {
     let spendControl: CodexSpendControl?
     /// 한도에 걸린 이유(workspace_member_credits_depleted 등). 공식 backend 모델 기준
     let rateLimitReachedType: String?
-    /// 공식 app-server `account/rateLimits/read`의 초기화권 (조회 후 주입)
+    /// 사용량 응답의 수량을 읽고 공식 app-server의 상세 정보로 보강한다.
     var resetCredits: CodexResetCreditsResponse?
 
     enum CodingKeys: String, CodingKey {
@@ -31,6 +31,7 @@ nonisolated struct CodexUsageResponse: Codable, Sendable {
         case additionalRateLimits = "additional_rate_limits"
         case spendControl = "spend_control"
         case rateLimitReachedType = "rate_limit_reached_type"
+        case resetCredits = "rate_limit_reset_credits"
     }
 
     private struct ReachedType: Decodable {
@@ -49,7 +50,13 @@ nonisolated struct CodexUsageResponse: Codable, Sendable {
         rateLimitReachedType =
             ((try? container.decodeIfPresent(ReachedType.self, forKey: .rateLimitReachedType)) ?? nil)?
             .type
-        resetCredits = nil
+        if let summary = try? container.decode(CodexResetCreditsResponse.self, forKey: .resetCredits),
+            let count = summary.availableCountField, count >= 0
+        {
+            resetCredits = summary
+        } else {
+            resetCredits = nil
+        }
         let hasMalformedLimits =
             rateLimit?.hasMalformedWindow == true
             || (rateLimit == nil && container.contains(.rateLimit)

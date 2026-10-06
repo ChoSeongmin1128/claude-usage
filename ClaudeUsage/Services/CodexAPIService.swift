@@ -22,7 +22,7 @@ actor CodexAPIService {
     private var flights: [UUID: Flight] = [:]
     private var retiring: [UUID: Task<Void, Never>] = [:]
     private var ownerRecovery: (id: UUID, task: Task<Void, Error>)?
-    private var cachedResetCredits: (accountID: String, value: CodexResetCreditsResponse?, fetchedAt: Date)?
+    private var cachedResetCredits: (accountID: String, value: CodexResetCreditsResponse?, lastAttemptAt: Date)?
     private static let resetCreditsRefreshInterval: TimeInterval = 300
     private var stopping = false
     private let baseURL: URL
@@ -130,7 +130,8 @@ actor CodexAPIService {
                     var usage = try await usageRequest(credential, budget: budget)
                     try await authManager.validate(credential)
                     try budget.check()
-                    usage.resetCredits = try await resetCredits(credential, budget: budget)
+                    usage.resetCredits = try await resetCredits(
+                        credential, usageSummary: usage.resetCredits, budget: budget)
                     return CodexUsageSnapshot(usage: usage, credential: credential)
                 } catch APIError.invalidSessionKey {
                     guard !recovered else {
@@ -286,20 +287,29 @@ actor CodexAPIService {
 
     /// Optional enrichment from the CLI that owns the auth file. It runs after the usage
     /// response is validated, at most every five minutes, and never during an owner refresh.
-    private func resetCredits(_ credential: CodexCredentialSnapshot, budget: CodexRequestBudget) async throws
-        -> CodexResetCreditsResponse?
-    {
-        guard let accountID = credential.token.accountID, !accountID.isEmpty else { return nil }
-        if let cached = cachedResetCredits, cached.accountID == accountID,
-            Date().timeIntervalSince(cached.fetchedAt) < Self.resetCreditsRefreshInterval
-        {
-            return cached.value
+    private func resetCredits(
+        _ credential: CodexCredentialSnapshot, usageSummary: CodexResetCreditsResponse?, budget: CodexRequestBudget
+    ) async throws -> CodexResetCreditsResponse? {
+        guard let accountID = credential.token.accountID, !accountID.isEmpty else { return usageSummary }
+        let cached = cachedResetCredits.flatMap { $0.accountID == accountID ? $0 : nil }
+        let previous = cached?.value
+        let fallback: CodexResetCreditsResponse?
+        if let usageSummary, usageSummary.availableCountField != previous?.availableCountField {
+            fallback = usageSummary
+        } else {
+            fallback = previous ?? usageSummary
         }
-        let previous = cachedResetCredits?.accountID == accountID ? cachedResetCredits?.value : nil
-        guard ownerRecovery == nil else { return previous }
+        if let cached {
+            cachedResetCredits = (accountID, fallback, cached.lastAttemptAt)
+            if Date().timeIntervalSince(cached.lastAttemptAt) < Self.resetCreditsRefreshInterval {
+                return fallback
+            }
+        }
+        guard ownerRecovery == nil else { return fallback }
         do {
-            let value = try await owner.readResetCredits(
+            let details = try await owner.readResetCredits(
                 sourceURL: credential.sourceURL, expectedAccountID: accountID, budget: budget)
+            let value = details ?? fallback
             cachedResetCredits = (accountID, value, Date())
             return value
         } catch is CancellationError {
@@ -307,8 +317,8 @@ actor CodexAPIService {
         } catch {
             // Neither raw responses nor server error strings are logged. The attempt time is kept so a
             // failing CLI is not run on every refresh.
-            cachedResetCredits = (accountID, previous, Date())
-            return previous
+            cachedResetCredits = (accountID, fallback, Date())
+            return fallback
         }
     }
 }
