@@ -4,12 +4,12 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>ClaudeUsage-stg</title>
         <item>
-            <title>Version 2.8.0-stg.10</title>
-            <pubDate>Mon, 05 Oct 2026 15:03:54 +0900</pubDate>
-            <sparkle:version>20635</sparkle:version>
-            <sparkle:shortVersionString>2.8.0-stg.10</sparkle:shortVersionString>
+            <title>Version 2.8.0-stg.13</title>
+            <pubDate>Tue, 06 Oct 2026 10:55:23 +0900</pubDate>
+            <sparkle:version>20638</sparkle:version>
+            <sparkle:shortVersionString>2.8.0-stg.13</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.8.0-stg.10/ClaudeUsage.dmg" length="6469183" type="application/octet-stream" sparkle:edSignature="pglS2iLGz/RSLTz1MLoe7EBPLVf8iLUQhvlg3zMhze1XMegYbw96Me2Y6VnceWdfNcEIBiJM7k6uHYo0IjALAA=="></enclosure>
+            <enclosure url="https://github.com/ChoSeongmin1128/claude-usage/releases/download/v2.8.0-stg.13/ClaudeUsage.dmg" length="6470609" type="application/octet-stream" sparkle:edSignature="pDgvxEp5aNBIbWSSc9XWRkz2LagDKuSCmPNnD8k3aAJpnKL/hLxAP6e/Le340AGM8boBk3WQtPae6RNiVlLZAQ=="></enclosure>
             <description sparkle:format="plain-text"># 2.8.0
 
 ## 여러 계정
@@ -105,7 +105,8 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 ## Codex 크레딧과 월 한도
 
 - Codex 크레딧을 달러로 표시하던 문제를 고쳤습니다. 이제 개수로 표시합니다(예: 62,500 크레딧).
-- Business/Enterprise 좌석의 월 크레딧 한도를 팝오버에 표시합니다. 워크스페이스 크레딧이 떨어졌거나 한도에 걸리면 그 이유를 메뉴바 툴팁에 함께 보여줍니다.
+- Codex 설정에서 현재 계정에 없는 항목을 숨깁니다. 개인 플랜에 월 한도 설정이 나오던 문제를 고쳤으며, 항목이 숨겨져도 저장한 순서와 표시 여부는 유지합니다. 한도와 잔액은 "월 사용 한도", "크레딧 잔액"으로 구분합니다.
+- Business/Enterprise 좌석의 월 사용 한도를 팝오버에 표시합니다. 워크스페이스 크레딧이 떨어졌거나 한도에 걸리면 그 이유를 메뉴바 툴팁에 함께 보여줍니다.
 - Business, Enterprise, Edu 요금제의 Codex 크레딧 행에 OpenAI 공식 요금표 링크를 붙였습니다.
 
 ## Claude 추가 사용량
@@ -125,6 +126,7 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 
 ## 모양과 데이터 정리
 
+- 팝오버의 사용량·추가 사용량·크레딧·초기화권을 같은 열에 맞췄습니다. 일반 화면의 제목과 주값은 같은 줄에, 시간·금액 설명은 아래에 표시합니다. 간소화 화면과 Antigravity도 같은 열 기준을 사용하며 퍼센트 자릿수에 따라 사용량 막대의 폭이 바뀌지 않습니다.
 - 기본 순서는 5시간, 주간, 모델별 한도, 크레딧, 초기화권입니다. 기존 기본 순서만 한 번 맞추며 사용자가 바꾼 순서와 표시 여부는 유지합니다.
 - 초기화권과 크레딧을 다른 사용량 행과 같은 열과 글자 위계로 맞췄습니다. 간소화 화면은 초기화권의 만료 시간을 제목 옆에, 범위를 가운데에, 개수를 오른쪽에 보여줍니다. 표시 순서와 숨김 선택은 그대로입니다.
 
@@ -138,10 +140,10 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 - 새 기능 안내에서 설정을 열어도 안내 창과 보던 페이지는 그대로 남습니다.
 - 새 기능이 있는 버전으로 업데이트하면 짧은 안내를 한 번 보여줍니다. 업데이트 패널의 "새 기능 다시 보기"로 다시 볼 수 있습니다. 새로 설치하면 보이지 않습니다.
 </description>
-            <claudeusage:zipSHA256>9dad5994b6c9caaa51dacbea7e5438e213469955b4eac2919a2b29e7baf74636</claudeusage:zipSHA256>
+            <claudeusage:zipSHA256>5cf83493da56e59c9e67a96cc91db05644706f9b40c7ad2664b9170fc22539fa</claudeusage:zipSHA256>
         </item>
     </channel>
 </rss><!-- sparkle-signatures:
-edSignature: i+Ylitm9zakVTTLq5hPUHO785Vb64xjKjshlsALp70xGo9CFynxlnfkdLbpr0aNgpA02YgMsPg9zAGQpEl+DDw==
-length: 17625
+edSignature: a/PAAjwQegKGVl8VKaSu3Evk313VsQvvCM3SuSv63eChBIfC3c2Roiu/gNAU7rAfPHjrt6EeTwHEpzwkkGUcBA==
+length: 18279
 -->
